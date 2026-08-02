@@ -6,6 +6,7 @@ import {
   embedQueryFor,
   findSavedView,
   parseViewSpec,
+  seedPropsFromQuery,
 } from "./embeds.ts";
 import type { NoteMeta, SavedView, SchemaConfig } from "./types.ts";
 
@@ -75,18 +76,25 @@ test("saved view resolves by id and by name, case-insensitive", () => {
 
 test("type + query filters rows and shapes cells along the columns", () => {
   const r = embedQueryFor({ type: "release", query: "status:mastering" }, RELEASES, SCHEMA, []);
-  assert.deepEqual(r, {
-    dbType: "release",
-    columns: ["status", "cat#", "artist"],
-    total: 1,
-    rows: [
+  assert.ok(!("error" in r));
+  assert.equal(r.dbType, "release");
+  assert.deepEqual(r.columns, ["status", "cat#", "artist"]);
+  assert.equal(r.total, 1);
+  assert.deepEqual(
+    r.rows.map(({ path, title, cells }) => ({ path, title, cells })),
+    [
       {
         path: "Vessel Songs.md",
         title: "Vessel Songs",
         cells: ["mastering", "SMP-029", "1k petals"],
       },
-    ],
-  });
+    ]
+  );
+  // the widget edits cells, so it needs each row's raw props and the type's
+  // schema alongside the display strings (SUB-796)
+  assert.equal(r.rows[0].props.status, "mastering");
+  assert.deepEqual(r.typeSchema, SCHEMA.release);
+  assert.equal(r.query, "status:mastering");
 });
 
 test("no query lists every note of the type; missing props read as empty cells", () => {
@@ -293,4 +301,65 @@ test("a schema-only database renders with zero rows (not an error)", () => {
   assert.equal(r.total, 0);
   assert.deepEqual(r.columns, ["status"]);
   assert.deepEqual(r.rows, []);
+});
+
+/* ---------- seedPropsFromQuery (SUB-796) ---------- */
+
+test("plain key:value equality terms seed a new row", () => {
+  assert.deepEqual(seedPropsFromQuery("status:mastering"), [["status", "mastering"]]);
+  assert.deepEqual(seedPropsFromQuery("status:mastering artist:umbra"), [
+    ["status", "mastering"],
+    ["artist", "umbra"],
+  ]);
+});
+
+test("an empty or whitespace query seeds nothing", () => {
+  assert.deepEqual(seedPropsFromQuery(""), []);
+  assert.deepEqual(seedPropsFromQuery("   "), []);
+});
+
+test("negations never seed — no single value satisfies them", () => {
+  assert.deepEqual(seedPropsFromQuery("-status:live"), []);
+  assert.deepEqual(seedPropsFromQuery("-status:live artist:umbra"), [["artist", "umbra"]]);
+});
+
+test("comparisons never seed — a range has no one value", () => {
+  assert.deepEqual(seedPropsFromQuery("due < 7d"), []);
+  assert.deepEqual(seedPropsFromQuery("due<2026-01-01 status:live"), [["status", "live"]]);
+});
+
+test("OR-lists never seed — picking one member would be a guess", () => {
+  assert.deepEqual(seedPropsFromQuery("status:live,mastering"), []);
+  assert.deepEqual(seedPropsFromQuery("status:live,mastering artist:umbra"), [
+    ["artist", "umbra"],
+  ]);
+});
+
+test("bare words and quoted phrases match text, not a prop — they never seed", () => {
+  assert.deepEqual(seedPropsFromQuery("bloom"), []);
+  assert.deepEqual(seedPropsFromQuery('"night drive" status:live'), [["status", "live"]]);
+});
+
+test("system props stay the caller's — type/title/created never seed", () => {
+  assert.deepEqual(seedPropsFromQuery("type:release status:live"), [["status", "live"]]);
+  assert.deepEqual(seedPropsFromQuery("title:foo created:2026-01-01"), []);
+});
+
+test("a repeated key keeps the first term, like a filter-born entry", () => {
+  // the database pane's own rule (filterInherits, SUB-234) — the fence seed
+  // delegates to it rather than holding a second opinion
+  assert.deepEqual(seedPropsFromQuery("status:live status:mastering"), [["status", "live"]]);
+});
+
+test("the schema's spelling wins for both key and option value", () => {
+  const schema = { Status: { options: [{ value: "Mastering" }, { value: "Live" }] } };
+  assert.deepEqual(seedPropsFromQuery("status:mastering", schema), [["Status", "Mastering"]]);
+  // a value the schema doesn't declare keeps what was typed (lowercased by the parse)
+  assert.deepEqual(seedPropsFromQuery("status:archived", schema), [["Status", "archived"]]);
+});
+
+test("a key the schema doesn't declare still seeds, as typed", () => {
+  assert.deepEqual(seedPropsFromQuery("artist:umbra", { status: { options: [] } }), [
+    ["artist", "umbra"],
+  ]);
 });

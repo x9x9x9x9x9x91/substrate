@@ -737,8 +737,8 @@ breaks the others, and fixing the text fixes the chart.
 
 ### 5.6 View embeds — ` ```view ` fences
 
-A ` ```view ` fence renders a read-only inline database table inside the note
-editor (SUB-86) — the hub-page primitive: prose plus a live cut of a database,
+A ` ```view ` fence renders a live, editable inline database table inside the
+note editor (SUB-86, editable since SUB-796) — the hub-page primitive: prose plus a live cut of a database,
 no navigation away. Config is hand-editable `key: value` text, one per line;
 `#` comments allowed:
 
@@ -773,13 +773,31 @@ saved id renders a quiet inline error card ("Unknown database “x”") — neve
 a crash, and fixing the text fixes the card. The table shows the title column
 plus the database's first four columns (`dbColumns`), at most 50 rows with a
 "… N more" line when clipped. The header (database name + total count) opens
-the full database; a row opens its note. Read-only in v1: no inline editing,
-no board, no aggregation footer. Clicking the embed's padding drops the cursor
-into the fence and reveals the source for editing.
+the full database; the title cell of a row opens its note.
 
-The body stays plain markdown — any other tool sees the raw fence. The
-rendered table is a snapshot: it rebuilds when the note's text changes or the
-editor remounts, not when the vault changes underneath (v1 limitation).
+Editable (SUB-796). Every non-title cell edits in place with the database
+pane's own semantics: a checkbox toggles on click, select/multi/date/relation
+open their pickers, and text/number/url get an inline input that commits on
+blur or Enter and cancels on Escape. Writes go through the same undoable prop
+path the pane uses, so one undo reverts an inline edit either way. A "+ New"
+row below the table creates a note of the fence's database — schema defaults,
+template applied, plus the fence query's plain `key: value` equality filters
+seeded so the new row belongs to the table it was added from (negations,
+comparisons and OR-lists seed nothing). Rollup columns stay read-only, and no
+board or aggregation footer is rendered. Clicking the embed's padding still
+drops the cursor into the fence and reveals the source for editing.
+
+The body stays plain markdown — any other tool sees the raw fence. The table
+tracks the vault: it repaints when the note's text changes and when the vault
+changes underneath, and a repaint keeps an open cell editor and its
+in-progress value alive. Two stated limits: repaint-survival rides
+CodeMirror's widget-reuse pass, which is bounded (a handful of block widgets
+churning in one update, or an in-progress IME composition, can force a full
+rebuild — the open editor closes cleanly and the half-typed value is dropped,
+never miswritten); and ⌘Z while the caret is still in the note's text is the
+editor's TEXT undo — prop-undo is surface-scoped (`docs/undo.md`), so undoing
+an inline cell edit needs focus outside the typing surface, same as a
+frontmatter edit.
 
 ### 5.6a Workbook pages — `pages:` (SUB-464)
 

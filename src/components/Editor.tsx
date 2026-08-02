@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { ChangeSpec } from "@codemirror/state";
 import { EditorState, Range, StateEffect, StateField, Transaction } from "@codemirror/state";
 import {
   Decoration,
@@ -54,6 +55,7 @@ import { shortcutCmKey } from "../lib/shortcuts";
 import { type PosTracker, trackPos, trackedPositions } from "../lib/trackpos";
 import { wikiLinkInsert, wikiLinkOptions, wikiLinkQuery } from "../lib/wikilinks";
 import {
+  fenceExit,
   fenceLang,
   inCodeContext,
   slashOptions,
@@ -74,7 +76,8 @@ import {
   isImageEmbed,
 } from "../lib/editor-widgets";
 import type { EmbedResult, EmbedSpec } from "../lib/embeds";
-import type { NoteMeta } from "../lib/types";
+import type { NoteMeta, PropValue } from "../lib/types";
+import type { RelationCandidate } from "../lib/relation";
 import { TASK_PREFIX_RE } from "../lib/markdown";
 import { extractLink, extractTitle } from "../lib/extractnote";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
@@ -1187,6 +1190,9 @@ function slashCompletions() {
           // there rather than making you type a letter to summon it. Pure view
           // effect, no document change, so undo still groups as one accept.
           if (command.name === "asset") startCompletion(view);
+          // /view lands after `type: ` — same idea: the db-name popup opens on
+          // the spot instead of making you remember which databases exist
+          if (command.name === "view") startCompletion(view);
         },
       })),
       // letters keep narrowing; a space or newline closes the menu. The range
@@ -1213,7 +1219,28 @@ function viewTypeCompletions(dbTypesRef: React.MutableRefObject<string[] | undef
     if (options.length === 0) return null;
     return {
       from: context.pos - query.length,
-      options: options.map((type) => ({ label: type })),
+      options: options.map((type) => ({
+        label: type,
+        // picking a db settles the fence, so step the cursor out past its
+        // closing line (SUB-796) — the table renders right there instead of
+        // leaving you parked in raw fence source you'd have to escape by hand.
+        // Dismissing the popup instead keeps the old behaviour: cursor stays
+        // in the fence, source visible.
+        apply: (view, _completion, from, to) => {
+          // a fence body is a handful of lines; a bounded window is enough
+          const after = view.state.sliceDoc(to, Math.min(view.state.doc.length, to + 2000));
+          const exit = fenceExit(after);
+          const changes: ChangeSpec[] = [{ from, to, insert: type }];
+          if (exit?.insert) changes.push({ from: to + exit.insertAt, insert: exit.insert });
+          // `selection` is read in the new document, so shift by the edit
+          const delta = type.length - (to - from);
+          view.dispatch({
+            changes,
+            selection: exit ? { anchor: to + delta + exit.anchor } : undefined,
+            userEvent: "input.complete",
+          });
+        },
+      })),
       // db types can contain spaces — anything but a newline keeps narrowing
       validFor: /^[^\n]*$/,
     };
@@ -1240,6 +1267,24 @@ interface EditorProps {
   onOpenNote?: (path: string) => void;
   /** ```view embeds (SUB-86): header click opens the database */
   onOpenView?: (dbType: string, savedId?: string) => void;
+  /** ```view embeds (SUB-796): commit one cell, through the app's undoable
+      prop write — an inline edit lands in the same ⌘Z stack as the same edit
+      made in the database pane */
+  onEmbedSetProp?: (path: string, key: string, value: PropValue) => void;
+  /** ```view embeds (SUB-796): the "+ New" row — a typed, templated create
+      seeded from the fence's query */
+  onEmbedCreate?: (dbType: string, seedProps: [string, string][], query: string) => void;
+  /** values already in use for one column of a type — the picker's bootstrap */
+  embedUsedValues?: (dbType: string, key: string) => string[];
+  /** entries of a relation column's target database */
+  embedRelationCandidates?: (dbType: string) => RelationCandidate[];
+  /** create an entry of a relation's target type and link it from `path` */
+  onEmbedCreateRelation?: (
+    path: string,
+    key: string,
+    targetType: string,
+    title: string
+  ) => void;
   /** vault epoch — view embeds re-snapshot their data when it bumps (SUB-122) */
   vaultEpoch?: number;
   focusRef?: React.MutableRefObject<(() => void) | null>;
@@ -1275,6 +1320,11 @@ export default function Editor({
   embedQuery,
   onOpenNote,
   onOpenView,
+  onEmbedSetProp,
+  onEmbedCreate,
+  embedUsedValues,
+  embedRelationCandidates,
+  onEmbedCreateRelation,
   vaultEpoch,
   focusRef,
   docRef,
@@ -1311,6 +1361,11 @@ export default function Editor({
   const embedQueryRef = useRef(embedQuery);
   const onOpenNoteRef = useRef(onOpenNote);
   const onOpenViewRef = useRef(onOpenView);
+  const onEmbedSetPropRef = useRef(onEmbedSetProp);
+  const onEmbedCreateRef = useRef(onEmbedCreate);
+  const embedUsedValuesRef = useRef(embedUsedValues);
+  const embedRelationCandidatesRef = useRef(embedRelationCandidates);
+  const onEmbedCreateRelationRef = useRef(onEmbedCreateRelation);
   const vaultEpochRef = useRef(vaultEpoch);
   // the [[ completion source is provided once at mount — titles live behind
   // a ref so vault changes reach it without recreating the editor (SUB-269)
@@ -1326,6 +1381,11 @@ export default function Editor({
   embedQueryRef.current = embedQuery;
   onOpenNoteRef.current = onOpenNote;
   onOpenViewRef.current = onOpenView;
+  onEmbedSetPropRef.current = onEmbedSetProp;
+  onEmbedCreateRef.current = onEmbedCreate;
+  embedUsedValuesRef.current = embedUsedValues;
+  embedRelationCandidatesRef.current = embedRelationCandidates;
+  onEmbedCreateRelationRef.current = onEmbedCreateRelation;
   vaultEpochRef.current = vaultEpoch;
   noteTitlesRef.current = noteTitles;
   dbTypesRef.current = dbTypes;
@@ -1585,6 +1645,13 @@ export default function Editor({
           query: (spec) => embedQueryRef.current?.(spec) ?? { error: "Views unavailable" },
           openNote: (path) => onOpenNoteRef.current?.(path),
           openView: (dbType, savedId) => onOpenViewRef.current?.(dbType, savedId),
+          setProp: (path, key, value) => onEmbedSetPropRef.current?.(path, key, value),
+          createEntry: (dbType, seedProps, query) =>
+            onEmbedCreateRef.current?.(dbType, seedProps, query),
+          usedValues: (dbType, key) => embedUsedValuesRef.current?.(dbType, key) ?? [],
+          relationCandidates: (dbType) => embedRelationCandidatesRef.current?.(dbType) ?? [],
+          createRelation: (path, key, targetType, title) =>
+            onEmbedCreateRelationRef.current?.(path, key, targetType, title),
         }),
         trackedPositions,
         vaultEpochField.init(() => vaultEpochRef.current ?? 0),

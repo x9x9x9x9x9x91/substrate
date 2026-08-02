@@ -1376,8 +1376,8 @@ test("view embed: inline db table, row click-through, unknown-type card (SUB-86)
   await expect(rows.nth(1)).toContainText("Vessel Songs");
   await expect(rows.first()).toContainText("SMP-031");
 
-  // row click-through opens the entry note
-  await rows.filter({ hasText: "Vessel Songs" }).click();
+  // the title cell opens the entry note — the rest of the row edits (SUB-796)
+  await rows.filter({ hasText: "Vessel Songs" }).locator(".embed-view-title").click();
   await expect(page.locator(".note-title")).toHaveValue("Vessel Songs");
 
   // a fence over an unknown database renders the quiet error card

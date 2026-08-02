@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { NoteMeta, FmState, NumberFormat, PropKind, PropSchema, RelatedEntry, RollupConfig, SchemaConfig, SelectOption } from "../lib/types";
+import type { NoteMeta, FmState, NumberFormat, PropKind, PropSchema, PropValue, RelatedEntry, RollupConfig, SchemaConfig, SelectOption } from "../lib/types";
 import { foldedPropKey, foldedPropStr, propStr } from "../lib/types";
 import type { EmbedResult, EmbedSpec } from "../lib/embeds";
 import {
@@ -128,6 +128,17 @@ interface NotePaneProps {
   embedQuery?: (spec: EmbedSpec) => EmbedResult;
   /** ```view embeds: header click opens the database */
   onOpenView?: (dbType: string, savedId?: string) => void;
+  /** ```view embeds (SUB-796): commit one cell through the app's undoable write */
+  onEmbedSetProp?: (path: string, key: string, value: PropValue) => void;
+  /** ```view embeds (SUB-796): the fence's "+ New" row */
+  onEmbedCreate?: (dbType: string, seedProps: [string, string][], query: string) => void;
+  /** ```view embeds (SUB-796): a relation cell's create-and-link */
+  onEmbedCreateRelation?: (
+    path: string,
+    key: string,
+    targetType: string,
+    title: string
+  ) => void;
   onRenamed: (oldPath: string, meta: NoteMeta) => void;
   /** SUB-783: repair lane for an UNDONE/REDONE rename — App announces the
       move to mounted panes (no-remount relabel) and follows the note only
@@ -190,6 +201,9 @@ function NotePane({
   onOpenNote,
   embedQuery,
   onOpenView,
+  onEmbedSetProp,
+  onEmbedCreate,
+  onEmbedCreateRelation,
   onRenamed,
   onRenameUndone,
   onMutated,
@@ -1825,6 +1839,11 @@ function NotePane({
               embedQuery={embedQuery}
               onOpenNote={onOpenNote}
               onOpenView={onOpenView}
+              onEmbedSetProp={onEmbedSetProp}
+              onEmbedCreate={onEmbedCreate}
+              embedUsedValues={usedValues}
+              embedRelationCandidates={relationCandidates}
+              onEmbedCreateRelation={onEmbedCreateRelation}
               vaultEpoch={vaultEpoch}
               focusRef={editorFocusRef}
               docRef={docReplaceRef}

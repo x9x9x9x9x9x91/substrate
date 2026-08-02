@@ -5,6 +5,7 @@ import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import {
+  fenceExit,
   fenceLang,
   inCodeContext,
   slashCommands,
@@ -145,4 +146,55 @@ test("viewTypeOptions: live db names, fuzzy, dupes and blanks dropped", () => {
   assert.deepEqual(viewTypeOptions("", types), ["gear", "release", "track"]);
   assert.deepEqual(viewTypeOptions("rel", types), ["release"]);
   assert.deepEqual(viewTypeOptions("zzz", types), []);
+});
+
+/* ---------- fenceExit (SUB-796) ---------- */
+
+// `after` is the doc from the cursor onward; the cursor sits on the `type:`
+// line's value, so the first line of `after` is that line's remainder.
+
+test("fenceExit: an existing blank line below the fence is the landing spot", () => {
+  const after = "\n```\n\nnext paragraph";
+  const exit = fenceExit(after);
+  assert.deepEqual(exit, { anchor: 5, insertAt: 5, insert: "" });
+  // anchor lands at the start of the blank line, outside the fence
+  assert.equal(after.slice(0, exit!.anchor), "\n```\n");
+});
+
+test("fenceExit: text right below the fence gets a blank line opened for it", () => {
+  const after = "\n```\nnext paragraph";
+  const exit = fenceExit(after);
+  assert.ok(exit);
+  const doc = after.slice(0, exit.insertAt) + exit.insert + after.slice(exit.insertAt);
+  assert.equal(doc, "\n```\n\nnext paragraph");
+  assert.equal(doc.slice(0, exit.anchor), "\n```\n");
+});
+
+test("fenceExit: a fence closing the document opens a line to land on", () => {
+  const after = "\n```";
+  const exit = fenceExit(after);
+  assert.ok(exit);
+  const doc = after.slice(0, exit.insertAt) + exit.insert + after.slice(exit.insertAt);
+  assert.equal(doc, "\n```\n");
+  assert.equal(exit.anchor, doc.length);
+});
+
+test("fenceExit: extra fence body lines are skipped to reach the closer", () => {
+  const after = "\nquery: status:live\nview: table\n```\n\ntail";
+  const exit = fenceExit(after);
+  assert.ok(exit);
+  assert.equal(after.slice(0, exit.anchor), "\nquery: status:live\nview: table\n```\n");
+});
+
+test("fenceExit: no closer in the window leaves the cursor alone", () => {
+  assert.equal(fenceExit("\ntype: release"), null);
+  assert.equal(fenceExit(""), null);
+});
+
+test("/view inserts a well-formed fence with the cursor on the type: value", () => {
+  const view = slashCommands().find((c) => c.name === "view")!;
+  assert.equal(view.insert, "```view\ntype: \n```");
+  assert.equal(view.insert.slice(0, view.cursor), "```view\ntype: ");
+  // and the rest of the fence is exactly what fenceExit walks out of
+  assert.ok(fenceExit(view.insert.slice(view.cursor)));
 });

@@ -69,12 +69,29 @@ test("/view inserts the fence, whose type: completes from live db names", async 
   await page.keyboard.type("/view");
   await accept(page, "/view");
 
-  // the fence landed and the cursor sits on the type: line, so the db-name
-  // completion fires on the first letter typed — no exact recall needed
+  // the db picker is already open on the type: line — accepting /view opens it
+  // rather than making you type a letter to summon it (SUB-796)
   await expect(page.locator(".cm-content")).toContainText("type:");
+  await expect(page.locator(menu)).toBeVisible();
+
   await page.keyboard.type("rel");
   await accept(page, "release");
-  await expect(page.locator(".cm-content")).toContainText("type: release");
+
+  // picking a database settles the fence, so the cursor steps out past its
+  // closing line and the table renders on the spot — no raw fence source left
+  // on screen to escape by hand (SUB-796)
+  const embed = page.locator(".embed-view");
+  await expect(embed).toBeVisible();
+  await expect(embed.locator(".embed-view-name")).toHaveText("Release");
+  await expect(page.locator(".cm-content")).not.toContainText("type: release");
+
+  // and the document itself holds a well-formed fence — the cursor landed
+  // outside it, so what gets typed next is body text, not fence source
+  await page.keyboard.type("after");
+  await expect(page.locator(".cm-line", { hasText: "after" })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => window.__mockBodyOf!("Inbox/Capture anything.md")))
+    .toContain("```view\ntype: release\n```\nafter");
 });
 
 test("/task inserts the vault's checkbox shape", async ({ page }) => {

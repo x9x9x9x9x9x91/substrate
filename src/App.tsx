@@ -4,12 +4,14 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTyping, isTypingNow } from "./lib/dom";
 import { MENU_SURFACES } from "./lib/menusurfaces";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { DbIcon, DbLayout, NewTypeProp, NoteMeta, NumberFormat, PropKind, RollupConfig, SavedView, SavedViewSort, SelectOption, SidebarOrder, View, ViewPref } from "./lib/types";
+import type { DbIcon, DbLayout, NewTypeProp, NoteMeta, NumberFormat, PropKind, PropValue, RollupConfig, SavedView, SavedViewSort, SelectOption, SidebarOrder, View, ViewPref } from "./lib/types";
 import { foldedPropKey, foldedPropStr, FUNCTIONAL_TYPES, propStr, typeHome, viewKey } from "./lib/types";
 import { byFoldedKey, foldedObjectKey, isTypePropName, typeSchemaFor } from "./lib/schemalookup";
 import { folderDefaultIcon, iconForType, iconsByType } from "./lib/dbicons";
 import { looksLikeUrl } from "./lib/url";
+import { displayColLabel } from "./lib/display";
 import {
+  filterByQuery,
   findViewByName,
   isPristineScratch,
   isScratchNote,
@@ -22,7 +24,12 @@ import {
 import { focusSoon } from "./lib/focussoon";
 import { dailyDateOf, dailyPath, journalOrder, JOURNAL_DIR } from "./lib/journal";
 import { todayIso } from "./lib/dates";
-import { propList, relationCandidates as relationCandidatesFor } from "./lib/relation";
+import {
+  propList,
+  propListValue,
+  relationCandidates as relationCandidatesFor,
+  toggleValue,
+} from "./lib/relation";
 import {
   assignKey,
   keyForTarget,
@@ -31,6 +38,7 @@ import {
   unassignKey,
 } from "./lib/keyassign";
 import { pinKeyLabels } from "./lib/shortcuts";
+import { setPropUndoable } from "./lib/undoprops";
 import * as undoStack from "./lib/undo";
 import { UndoContext } from "./lib/undoContext";
 import {
@@ -107,6 +115,7 @@ import {
   buildEntryProps,
   canonicalTemplateType,
   homeFolderFor,
+  mergeEntryProp,
   templatePath,
   templateTypeOf,
   TEMPLATES_DIR,
@@ -1412,6 +1421,85 @@ export default function App() {
         .catch(reportCreateFailure(`create “${title}”`, title));
     },
     [notes, schema, templateTypes, view, refresh, showMobileDetail, undoApi, reportCreateFailure]
+  );
+
+  // SUB-796 — a cell edited inside an inline ```view fence. Deliberately the
+  // same call the database pane's cells make (setPropUndoable), so one ⌘Z
+  // reverts it whichever surface the edit came from; docs/undo.md §6.2.
+  const embedSetProp = useCallback(
+    (path: string, key: string, value: PropValue) => {
+      // keyLabel matches the pane's (DatabasePane commitCell): the undo toast
+      // must read the same whichever surface the edit came from
+      setPropUndoable({ path, key, value, record: undoApi.record, keyLabel: displayColLabel(key) })
+        .then(() => refresh())
+        .catch((err) => {
+          showToast(`couldn’t save — ${err instanceof Error ? err.message : String(err)}`);
+          refresh();
+        });
+    },
+    [undoApi, refresh, showToast]
+  );
+
+  // SUB-796 — the fence's "+ New". A born-complete typed create like ⌘N's
+  // (schema defaults + template), plus the fence's own equality filters seeded
+  // on top so the new row actually belongs to the table it was added from.
+  // It does NOT navigate: the user is writing a note, and the row appearing in
+  // place is the whole point of an inline database.
+  const embedCreateEntry = useCallback(
+    (dbType: string, seedProps: [string, string][], query: string) => {
+      const title = "Untitled";
+      const typeNotes = notes.filter(
+        (n) => foldedPropStr(n.props, "type")?.toLowerCase() === dbType.toLowerCase()
+      );
+      const date = todayIso();
+      const typeSchema = typeSchemaFor(schema, dbType);
+      const templateType = canonicalTemplateType(dbType, templateTypes, Object.keys(schema));
+      vaultTemplateRead(templateType)
+        .then((tpl) => {
+          let props = buildEntryProps({ typeSchema, typeNotes, template: tpl, title, date });
+          for (const [k, v] of seedProps) props = mergeEntryProp(props, k, v);
+          return vaultCreate(
+            title,
+            homeFolderFor(typeNotes, typeHome(typeSchema)),
+            dbType,
+            props,
+            buildEntryBody(tpl, title, date)
+          );
+        })
+        .then((meta) => {
+          recordCreate({ meta, record: undoApi.record });
+          setNotes((ns) => [...ns.filter((n) => n.path !== meta.path), meta]);
+          refresh();
+          // born hidden (a text term, a filter shape the seeds can't satisfy)?
+          // Say so — otherwise the create looks dropped (SUB-234, the pane's rule)
+          if (query.trim() && filterByQuery([meta], query, undefined, typeSchema).length === 0)
+            showToast(`Created “${title}” — hidden by filter`);
+        })
+        .catch(reportCreateFailure(`create “${title}”`, title));
+    },
+    [notes, schema, templateTypes, refresh, undoApi, reportCreateFailure, showToast]
+  );
+
+  // SUB-796 — a relation cell's "create and link", inline. Same two steps the
+  // database pane takes: create the target entry, then add its title to this
+  // note's relation list.
+  const embedCreateRelation = useCallback(
+    (path: string, key: string, targetType: string, title: string) => {
+      createEntry(targetType, title)
+        .then((m) => {
+          const props = notes.find((n) => n.path === path)?.props ?? {};
+          const cur = propList(props, foldedPropKey(props, key));
+          return setPropUndoable({
+            path,
+            key,
+            value: propListValue(toggleValue(cur, m.title)),
+            record: undoApi.record,
+          });
+        })
+        .then(() => refresh())
+        .catch(reportCreateFailure(`create “${title}”`, title));
+    },
+    [createEntry, notes, undoApi, refresh, reportCreateFailure]
   );
 
   // "New sheet…" (SUB-393): sheets are surfaces, not database entries, so the
@@ -3507,6 +3595,9 @@ export default function App() {
                 onOpenNote={openNote}
                 embedQuery={embedQuery}
                 onOpenView={openEmbedView}
+                onEmbedSetProp={embedSetProp}
+                onEmbedCreate={embedCreateEntry}
+                onEmbedCreateRelation={embedCreateRelation}
                 onRenamed={onRenamed}
                 onRenameUndone={onRenameApplied}
                 onMutated={refresh}
@@ -3565,6 +3656,9 @@ export default function App() {
             onOpenNote={openNote}
             embedQuery={embedQuery}
             onOpenView={openEmbedView}
+            onEmbedSetProp={embedSetProp}
+            onEmbedCreate={embedCreateEntry}
+            onEmbedCreateRelation={embedCreateRelation}
             onRenamed={onRenamed}
             onRenameUndone={onRenameApplied}
             onMutated={refresh}

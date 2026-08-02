@@ -23,10 +23,17 @@
 
 import { dbColumns, effectiveColumns } from "./dbcolumns.ts";
 import { displayValue } from "./display.ts";
-import { byFoldedKey, isBuiltinDateName, typeSchemaFor } from "./schemalookup.ts";
+import { filterInherits, parseQuery } from "./query.ts";
+import {
+  byFoldedKey,
+  foldedObjectKey,
+  isBuiltinDateName,
+  isSystemPropName,
+  typeSchemaFor,
+} from "./schemalookup.ts";
 import { filterByQuery } from "./views.ts";
 import { foldedPropStr } from "./types.ts";
-import type { NoteMeta, SavedView, SchemaConfig } from "./types.ts";
+import type { NoteMeta, PropSchema, SavedView, SchemaConfig } from "./types.ts";
 
 /** The spec a ```view fence declares — every key optional, unknown keys dropped. */
 export interface EmbedSpec {
@@ -42,6 +49,12 @@ export interface EmbedRow {
   title: string;
   /** display strings, aligned 1:1 with `columns` */
   cells: string[];
+  /** the note's raw props (SUB-796). Editing a cell needs the value behind the
+      display string — a checkbox's boolean, a multi's list, a date's ISO — plus
+      the note's own spelling of the key. Carrying the props verbatim lets the
+      widget derive all of that with the same helpers the database table uses
+      instead of re-deriving a parallel set of per-cell fields here. */
+  props: Record<string, unknown>;
 }
 
 /** A resolved embed: the table model the widget renders, or a quiet error.
@@ -56,6 +69,14 @@ export type EmbedResult =
       total: number;
       savedId?: string;
       savedName?: string;
+      /** the type's resolved schema (SUB-796) — the widget's cell editors read
+          kinds, options, formats and relation targets from it, exactly as the
+          database table does. `{}` for an undeclared type. */
+      typeSchema: Record<string, PropSchema>;
+      /** the effective query after a `saved:` pin resolves (SUB-796) — "+ New"
+          seeds a row from it, and a pinned embed must seed from the pin's own
+          filter, not from the fence's (absent) `query:` line */
+      query: string;
     }
   | { error: string };
 
@@ -92,6 +113,50 @@ export function parseViewSpec(inner: string): EmbedSpec {
     }
   }
   return spec;
+}
+
+/** Props a new row created from a fence should start with (SUB-796), read off
+    the fence's own `query:`. A fence that shows `status:mastering` is a
+    statement about what belongs in it, so "+ New" seeds the row to match —
+    otherwise the row is created and immediately filtered back out of the
+    table you created it from.
+
+    Which terms pin is `filterInherits`' call, not a second opinion: this is
+    the same question the database pane answers when an entry is born under an
+    active filter (SUB-234), and two copies of that rule would drift. So
+    negations, comparisons, OR-lists, phrases and bare words seed nothing.
+
+    Two things a fence needs on top of the pane's rule:
+    - `type:`/`title:`/`created:` never seed — the create path owns those, and
+      a fence's `type:` lives on its own line anyway;
+    - values arrive lowercased from the parse, so a schema option that differs
+      only in case is restored to the schema's spelling — a `status:mastering`
+      fence seeds the declared "Mastering" rather than inventing a second
+      casing of it. Same for the key. */
+export function seedPropsFromQuery(
+  query: string,
+  typeSchema: Record<string, PropSchema> = {}
+): [string, string][] {
+  const parsed = parseQuery(query);
+  // a committed fence query ends without trailing space, so the parse reads
+  // its LAST term as a still-typing stub — merged back in the way
+  // filterByQuery does, or the single-filter fence (the common one) would
+  // seed nothing at all
+  const t = parsed.trailing;
+  const filters =
+    t && t.partial && t.values.length === 0 && t.op === ":" && !t.neg
+      ? [...parsed.filters, { key: t.key, values: [t.partial] }]
+      : parsed.filters;
+  const out: [string, string][] = [];
+  for (const [key, value] of filterInherits(filters)) {
+    if (isSystemPropName(key)) continue;
+    const declared = foldedObjectKey(typeSchema, key) ?? key;
+    const option = typeSchema[declared]?.options?.find(
+      (o) => o.value.toLowerCase() === value
+    )?.value;
+    out.push([declared, option ?? value]);
+  }
+  return out;
 }
 
 /** Resolve a saved-view reference: exact id first, then name — both
@@ -167,9 +232,12 @@ export function embedQueryFor(
     ...(savedId !== undefined ? { savedId, savedName } : {}),
     columns,
     total: matched.length,
+    typeSchema,
+    query,
     rows: matched.slice(0, caps.rows).map((n) => ({
       path: n.path,
       title: n.title,
+      props: n.props,
       cells: columns.map((c, i) => {
         const v = foldedPropStr(n.props, c) ?? "";
         return v ? displayValue(v, kinds[i], byFoldedKey(typeSchema, c)?.format) : "";

@@ -563,6 +563,8 @@ export default function SheetGrid({
       <div className="sheet">
         {toolbar}
         <div className="sheet-src">
+          {/* no SUB-796 embed-edit callbacks: a sheet's source mode is for
+              fixing the csv, so a view fence here stays read-only on purpose */}
           <Editor
             docKey={(docPath ?? meta.path) + ":source"}
             foldKey={`${meta.path}:source`}

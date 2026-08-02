@@ -405,7 +405,7 @@ const mockNotes: MockNote[] = [
     props: { created: "2026-07-17" },
     updated_ms: now - 12 * 60_000,
     excerpt: "Label hub — the release pipeline, inline.",
-    body: "Label hub for the Umbra pipeline. The table below is a `view` fence — a live, read-only cut of the release database.\n\n```view\ntype: release\nquery: status:mastering\nview: table\n```\n\nRows open their note; the header opens the full database.\n",
+    body: "Label hub for the Umbra pipeline. The table below is a `view` fence — a live, editable cut of the release database.\n\n```view\ntype: release\nquery: status:mastering\nview: table\n```\n\nRows open their note from the title cell, other cells edit in place, and the header opens the full database.\n",
   },
   {
     path: "Weight Log.md",

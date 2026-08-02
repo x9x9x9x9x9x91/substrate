@@ -5,10 +5,21 @@ import { assetBlobUrl, audioSource, loadPeaks, PEAKS_AUTO_MAX_BYTES, type AudioS
 import { isImageName } from "./artwork.ts";
 import { formatFileSize } from "./display.ts";
 import { fileOpen, vaultAssetInfo, vaultRoot } from "./ipc.ts";
-import { parseViewSpec, type EmbedResult, type EmbedSpec } from "./embeds.ts";
+import { parseViewSpec, seedPropsFromQuery, type EmbedResult, type EmbedSpec } from "./embeds.ts";
 import { missingEmbedKind, missingEmbedLabel } from "./embedstate.ts";
 import { isTauri } from "./tauri.ts";
 import { TASK_RE } from "./markdown.ts";
+import { normalizeNumberInput } from "./aggregate.ts";
+import { cellModel, cellOpensEditor, type CellModel } from "./cellmodel.ts";
+import { foldedPropKey, foldedPropStr, type PropValue } from "./types.ts";
+import { chipCommitValue, propListValue, type RelationCandidate } from "./relation.ts";
+// the cell pickers are React; this is the one seam a widget mounts them
+// through (SUB-796) — see CellEditorHost for why it lives under components/
+import {
+  anchorFrom,
+  createCellEditorHost,
+  type CellEditorHost,
+} from "../components/CellEditorHost.tsx";
 
 /** Follow-link requests bubble out of widget DOM as a custom event so the
  * Editor component can route them without threading callbacks into widgets. */
@@ -228,19 +239,71 @@ export interface EmbedHandlers {
   openNote?: (path: string) => void;
   /** `savedId` set when the embed came from a `saved:` pin — open that view */
   openView?: (dbType: string, savedId?: string) => void;
+  /** SUB-796 write path: one property of one row. Routed through the app's
+      undoable prop write, so an inline edit lands in the same ⌘Z stack as the
+      identical edit made in the database pane. */
+  setProp?: (path: string, key: string, value: PropValue) => void;
+  /** SUB-796: create a row of this fence's type, seeded from its query, and
+      open it — the app's template-aware typed create, not a second one.
+      `query` is the fence's effective filter, so the create can warn when the
+      seeds can't satisfy it and the new row is born hidden (SUB-234's rule) */
+  createEntry?: (dbType: string, seedProps: [string, string][], query: string) => void;
+  /** values in use across a type for one column — the picker's bootstrap */
+  usedValues?: (dbType: string, key: string) => string[];
+  /** entries of a relation column's target database */
+  relationCandidates?: (dbType: string) => RelationCandidate[];
+  /** create an entry of a relation's target type and link it from `path` */
+  createRelation?: (path: string, key: string, targetType: string, title: string) => void;
 }
 
 export const embedHandlers = Facet.define<EmbedHandlers, EmbedHandlers>({
   combine: (values) => values[0] ?? {},
 });
 
-/** A ```view fence rendered as a read-only inline database table (SUB-86).
- * The data snapshot comes from the embedHandlers facet at toDOM time; the
- * vault epoch is part of the widget identity, so any vault change makes eq
- * false and CodeMirror rebuilds the DOM with fresh data (SUB-122) — the
- * editor state itself (cursor, scroll) is untouched. Row click opens the
- * entry, header click opens the database; clicking anywhere else drops the
- * cursor into the fence, which flips it back to editable source. */
+/** Per-widget state the DOM carries, so an `updateDOM` repaint can find it
+ * again. Hung off the widget's own root node under a symbol: the widget
+ * object itself is replaced on every rebuild, the DOM node is what survives. */
+const VIEW_STATE = Symbol("view-widget-state");
+
+interface ViewWidgetState {
+  /** the React island the cell pickers render into; created lazily */
+  host: CellEditorHost | null;
+  /** the cell currently being edited, if any — identity survives repaints */
+  editing: { path: string; column: string } | null;
+  /** set on a mousedown that only dismissed an open picker, so the click that
+      follows it doesn't also open a new one (SUB-792's rule) */
+  dismissing: boolean;
+  /** the last rendered result, so click routing reads current data */
+  result: EmbedResult;
+  /** repaint the table from a fresh snapshot; returns false when the shape
+      changed enough that a full rebuild is the honest answer */
+  repaint: (view: EditorView, inner: string) => boolean;
+  /** the container the React root owns */
+  hostEl: HTMLElement;
+}
+
+function viewState(dom: HTMLElement): ViewWidgetState | undefined {
+  return (dom as unknown as Record<symbol, ViewWidgetState | undefined>)[VIEW_STATE];
+}
+
+/** A ```view fence rendered as an editable inline database table (SUB-86,
+ * editable since SUB-796). The data snapshot comes from the embedHandlers
+ * facet at render time; the vault epoch is part of the widget identity, so any
+ * vault change makes eq false (SUB-122).
+ *
+ * A false `eq` used to mean a fresh DOM node. It no longer has to: CodeMirror
+ * runs a second reuse pass over same-constructor widgets and calls
+ * `updateDOM`, keeping the existing node when it returns true. So an epoch
+ * bump repaints the cells in place and an open cell editor — a React root
+ * mounted inside this node, with the user's half-typed value in it — simply
+ * lives through the rebuild. That is this widget's rebuild-survival shape: no
+ * module-level registry of active edits, and no suppressing the epoch signal.
+ *
+ * Interaction, matching the database table's semantics (DbTableLayout):
+ * title cell opens the row's note, header opens the database, a checkbox cell
+ * toggles in place, a rollup is derived and inert, and every other cell opens
+ * the kind's picker. Clicking the widget anywhere else still drops the cursor
+ * into the fence and reveals the source. */
 export class ViewWidget extends WidgetType {
   constructor(
     readonly inner: string,
@@ -254,108 +317,374 @@ export class ViewWidget extends WidgetType {
   }
 
   toDOM(view: EditorView) {
-    const handlers = view.state.facet(embedHandlers);
-    const result = handlers.query?.(parseViewSpec(this.inner)) ?? {
-      error: "Views unavailable",
-    };
     const wrap = document.createElement("div");
     wrap.className = "embed-view";
+    // the React island lives outside the table so a repaint of the rows can
+    // never unmount it; the menus portal to the document anyway
+    const hostEl = document.createElement("div");
+    hostEl.className = "embed-view-host";
 
-    if ("error" in result) {
-      const card = document.createElement("div");
-      card.className = "embed-view-err";
-      card.textContent = result.error;
-      wrap.appendChild(card);
-    } else {
-      const head = document.createElement("div");
-      head.className = "embed-view-head";
-      // a saved-sourced embed carries the pin's identity (SUB-211): its name
-      // in the header, its view on click — two cuts of one database stay
-      // distinguishable on the same page
-      head.title = `Open ${result.savedName ?? result.dbType}`;
-      const name = document.createElement("span");
-      name.className = "embed-view-name";
-      name.textContent =
-        result.savedName ??
-        result.dbType.charAt(0).toUpperCase() + result.dbType.slice(1);
-      const count = document.createElement("span");
-      count.className = "embed-view-count";
-      count.textContent = String(result.total);
-      // visible open-database affordance (SUB-145) — the header shouldn't
-      // need prose to explain that it's clickable
-      const open = document.createElement("span");
-      open.className = "embed-view-open";
-      open.textContent = "›";
-      open.setAttribute("aria-hidden", "true");
-      head.append(name, count, open);
-      wrap.appendChild(head);
+    const state: ViewWidgetState = {
+      host: null,
+      editing: null,
+      dismissing: false,
+      result: { error: "Views unavailable" },
+      hostEl,
+      repaint: () => false,
+    };
+    (wrap as unknown as Record<symbol, ViewWidgetState>)[VIEW_STATE] = state;
+    state.repaint = (v, inner) => paintViewWidget(wrap, v, inner);
+    // the island is attached FIRST: every paint inserts before it, so it has
+    // to be a child of `wrap` before the first paint runs
+    wrap.appendChild(hostEl);
+    state.repaint(view, this.inner);
 
-      const table = document.createElement("table");
-      table.className = "embed-view-table";
-      const thead = document.createElement("thead");
-      const hr = document.createElement("tr");
-      for (const label of ["title", ...result.columns]) {
-        const th = document.createElement("th");
-        th.textContent = label;
-        hr.appendChild(th);
-      }
-      thead.appendChild(hr);
-      table.appendChild(thead);
-      const tbody = document.createElement("tbody");
-      for (const row of result.rows) {
-        const tr = document.createElement("tr");
-        tr.dataset.path = row.path;
-        const titleTd = document.createElement("td");
-        titleTd.className = "embed-view-title";
-        titleTd.textContent = row.title;
-        tr.appendChild(titleTd);
-        for (const cell of row.cells) {
-          const td = document.createElement("td");
-          td.textContent = cell;
-          tr.appendChild(td);
-        }
-        tbody.appendChild(tr);
-      }
-      table.appendChild(tbody);
-      wrap.appendChild(table);
-
-      if (result.rows.length === 0) {
-        const empty = document.createElement("div");
-        empty.className = "embed-view-more";
-        empty.textContent = "No matching rows";
-        wrap.appendChild(empty);
-      } else if (result.total > result.rows.length) {
-        const more = document.createElement("div");
-        more.className = "embed-view-more";
-        more.textContent = `… ${result.total - result.rows.length} more`;
-        wrap.appendChild(more);
-      }
-    }
-
-    wrap.addEventListener("mousedown", (e) => {
-      // primary button only (SUB-657) — right/middle click must not navigate
-      // or collapse the embed to source
-      if (e.button !== 0) return;
-      // every path through here owns the event — the caret stays put unless
-      // we explicitly drop it into the fence
-      e.preventDefault();
-      const target = e.target as HTMLElement;
-      const row = target.closest?.("tr[data-path]") as HTMLElement | null;
-      if (row?.dataset.path) {
-        handlers.openNote?.(row.dataset.path);
-        return;
-      }
-      if (!("error" in result) && target.closest?.(".embed-view-head")) {
-        handlers.openView?.(result.dbType, result.savedId);
-        return;
-      }
-      // off the interactive parts: land the cursor inside the fence → source
-      const line = view.state.doc.lineAt(view.posAtDOM(wrap));
-      view.dispatch({ selection: { anchor: line.to } });
-      view.focus();
-    });
+    wrap.addEventListener("mousedown", (e) => viewMouseDown(wrap, view, e));
+    // the picker opens on click, not mousedown, and for one reason: every menu
+    // closes itself on a window mousedown outside its box. Opening from
+    // mousedown would hand the new menu straight to the old one's dismissal —
+    // clicking cell B while A is open would flash and close. Click lands after
+    // that dismissal, which is also how the database table does it.
+    wrap.addEventListener("click", (e) => viewClick(wrap, view, e));
     return wrap;
   }
+
+  /** CodeMirror's same-constructor reuse pass (see the class comment): repaint
+   * this node instead of replacing it, which is what carries an open cell
+   * editor across a vault change. */
+  updateDOM(dom: HTMLElement, view: EditorView, from: ViewWidget) {
+    const state = viewState(dom);
+    if (!state) return false;
+    // a different fence body is a different table; only same-fence repaints
+    // (the epoch bumps) are safe to fold into this node
+    if (from.inner !== this.inner) return false;
+    return state.repaint(view, this.inner);
+  }
+
+  destroy(dom: HTMLElement) {
+    viewState(dom)?.host?.destroy();
+  }
+
+  /** Events inside the widget belong to the widget — including the keystrokes
+   * an open cell editor takes. The base class already returns true; stated
+   * here because it is now load-bearing rather than incidental. */
+  ignoreEvent() {
+    return true;
+  }
+}
+
+/** Render (or re-render) the table into an existing widget node. Returns false
+ * when the node can't be reused — the caller then lets CodeMirror rebuild. */
+function paintViewWidget(wrap: HTMLElement, view: EditorView, inner: string): boolean {
+  const state = viewState(wrap);
+  if (!state) return false;
+  const handlers = view.state.facet(embedHandlers);
+  const result = handlers.query?.(parseViewSpec(inner)) ?? { error: "Views unavailable" };
+  state.result = result;
+
+  // clear everything but the React island — it holds the open editor
+  for (const child of [...wrap.children]) {
+    if (child !== state.hostEl) child.remove();
+  }
+
+  if ("error" in result) {
+    const card = document.createElement("div");
+    card.className = "embed-view-err";
+    card.textContent = result.error;
+    wrap.insertBefore(card, state.hostEl);
+    // an error card has no cells; anything open belongs to a table that is
+    // no longer there
+    closeCellEditor(state);
+    return true;
+  }
+
+  const head = document.createElement("div");
+  head.className = "embed-view-head";
+  // a saved-sourced embed carries the pin's identity (SUB-211): its name
+  // in the header, its view on click — two cuts of one database stay
+  // distinguishable on the same page
+  head.title = `Open ${result.savedName ?? result.dbType}`;
+  const name = document.createElement("span");
+  name.className = "embed-view-name";
+  name.textContent =
+    result.savedName ?? result.dbType.charAt(0).toUpperCase() + result.dbType.slice(1);
+  const count = document.createElement("span");
+  count.className = "embed-view-count";
+  count.textContent = String(result.total);
+  // visible open-database affordance (SUB-145) — the header shouldn't
+  // need prose to explain that it's clickable
+  const open = document.createElement("span");
+  open.className = "embed-view-open";
+  open.textContent = "›";
+  open.setAttribute("aria-hidden", "true");
+  head.append(name, count, open);
+  wrap.insertBefore(head, state.hostEl);
+
+  const table = document.createElement("table");
+  table.className = "embed-view-table";
+  const thead = document.createElement("thead");
+  const hr = document.createElement("tr");
+  for (const label of ["title", ...result.columns]) {
+    const th = document.createElement("th");
+    th.textContent = label;
+    hr.appendChild(th);
+  }
+  thead.appendChild(hr);
+  table.appendChild(thead);
+  const tbody = document.createElement("tbody");
+  for (const row of result.rows) {
+    const tr = document.createElement("tr");
+    tr.dataset.path = row.path;
+    const titleTd = document.createElement("td");
+    titleTd.className = "embed-view-title";
+    titleTd.textContent = row.title;
+    tr.appendChild(titleTd);
+    result.columns.forEach((column, i) => {
+      const td = document.createElement("td");
+      td.className = "embed-view-cell";
+      td.dataset.column = column;
+      const model = cellModel(row.props, column, result.typeSchema);
+      if (model.kind === "checkbox") {
+        // the whole cell is the affordance, same as the database table
+        // (SUB-173) — a box, not the string "true"
+        const box = document.createElement("span");
+        box.className = `prop-check${model.checked ? " on" : ""}`;
+        box.setAttribute("aria-label", model.checked ? "Checked" : "Unchecked");
+        td.appendChild(box);
+      } else {
+        td.textContent = row.cells[i];
+      }
+      if (!cellOpensEditor(model.kind)) td.classList.add("embed-view-cell-inert");
+      if (
+        state.editing &&
+        state.editing.path === row.path &&
+        state.editing.column === column
+      ) {
+        td.classList.add("editing");
+      }
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  }
+  table.appendChild(tbody);
+  wrap.insertBefore(table, state.hostEl);
+
+  if (result.rows.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "embed-view-more";
+    empty.textContent = "No matching rows";
+    wrap.insertBefore(empty, state.hostEl);
+  } else if (result.total > result.rows.length) {
+    const more = document.createElement("div");
+    more.className = "embed-view-more";
+    more.textContent = `… ${result.total - result.rows.length} more`;
+    wrap.insertBefore(more, state.hostEl);
+  }
+
+  // "+ New" sits below the cap line on purpose (SUB-796): the cap hides rows,
+  // it never means the table is closed to new ones
+  if (handlers.createEntry) {
+    const add = document.createElement("button");
+    add.className = "embed-view-new";
+    add.type = "button";
+    add.textContent = `+ New ${result.dbType}`;
+    wrap.insertBefore(add, state.hostEl);
+  }
+
+  // the row whose cell is open may have moved (a status edit re-sorts the
+  // query); re-open the editor against the fresh snapshot, and drop it when
+  // the row left the table entirely. A full re-open — not an anchor+cell
+  // patch — so the used list, relation candidates and the commit closures all
+  // read post-change data; the menu keeps its in-progress state because the
+  // rendered element type never changes.
+  if (state.editing) {
+    const td = cellElement(wrap, state.editing.path, state.editing.column);
+    const row = result.rows.find((r) => r.path === state.editing?.path);
+    if (!td || !row) closeCellEditor(state);
+    else openCellEditor(wrap, view, state.editing.path, state.editing.column, td);
+  }
+  return true;
+}
+
+function cellElement(wrap: HTMLElement, path: string, column: string): HTMLElement | null {
+  const row = wrap.querySelector(`tr[data-path="${CSS.escape(path)}"]`);
+  return (row?.querySelector(`td[data-column="${CSS.escape(column)}"]`) as HTMLElement) ?? null;
+}
+
+function closeCellEditor(state: ViewWidgetState) {
+  state.editing = null;
+  state.host?.close();
+}
+
+/** What a click on this element means. One derivation, read by both handlers —
+ * mousedown does the navigating half, click the editor-opening half, and they
+ * must agree about which is which. */
+function viewHit(
+  target: HTMLElement,
+  result: EmbedResult
+):
+  | { kind: "new" }
+  | { kind: "open"; path: string }
+  | { kind: "head" }
+  | { kind: "cell"; path: string; column: string; td: HTMLElement; model: CellModel }
+  | { kind: "source" } {
+  if (target.closest?.(".embed-view-new")) return { kind: "new" };
+  const row = target.closest?.("tr[data-path]") as HTMLElement | null;
+  const path = row?.dataset.path;
+  if (path) {
+    const td = target.closest?.(".embed-view-cell") as HTMLElement | null;
+    const column = td?.dataset.column;
+    // the title cell keeps navigating — the row's name is its link (SUB-86)
+    if (!td || !column || "error" in result) return { kind: "open", path };
+    const props = result.rows.find((r) => r.path === path)?.props ?? {};
+    return { kind: "cell", path, column, td, model: cellModel(props, column, result.typeSchema) };
+  }
+  if (!("error" in result) && target.closest?.(".embed-view-head")) return { kind: "head" };
+  return { kind: "source" };
+}
+
+function viewMouseDown(wrap: HTMLElement, view: EditorView, e: MouseEvent) {
+  // primary button only (SUB-657) — right/middle click must not navigate
+  // or collapse the embed to source
+  if (e.button !== 0) return;
+  const state = viewState(wrap);
+  if (!state) return;
+  const handlers = view.state.facet(embedHandlers);
+  const result = state.result;
+  const hit = viewHit(e.target as HTMLElement, result);
+  // every path through here owns the event — the caret stays put unless
+  // we explicitly drop it into the fence
+  e.preventDefault();
+
+  // SUB-792's rule, applied here: a click that dismisses an open picker does
+  // only that. The menu's own window listener runs right after this one and
+  // closes it; nothing else on this click composes with the dismissal.
+  state.dismissing = state.host?.isOpen() ?? false;
+
+  if (hit.kind === "cell" && hit.model.kind === "checkbox") {
+    // checked stores the YAML scalar true, unchecked REMOVES the prop —
+    // never writes false (SUB-173), same rule as the database pane. The
+    // toggle also lands under a dismissing click: in the pane the open menu
+    // closes on window mousedown and the checkbox still takes the click, so
+    // needing a second click here would break parity with the same gesture.
+    handlers.setProp?.(hit.path, hit.model.actualKey, hit.model.checked ? null : true);
+    return;
+  }
+  if (state.dismissing) return;
+
+  if (hit.kind === "new") {
+    if (!("error" in result))
+      handlers.createEntry?.(result.dbType, seedPropsFromQuery(result.query, result.typeSchema), result.query);
+    return;
+  }
+  if (hit.kind === "open") {
+    handlers.openNote?.(hit.path);
+    return;
+  }
+  if (hit.kind === "head" && !("error" in result)) {
+    handlers.openView?.(result.dbType, result.savedId);
+    return;
+  }
+  if (hit.kind === "cell") {
+    // non-checkbox kinds open their picker from the click handler, one beat later
+    return;
+  }
+  // off the interactive parts: land the cursor inside the fence → source
+  const line = view.state.doc.lineAt(view.posAtDOM(wrap));
+  view.dispatch({ selection: { anchor: line.to } });
+  view.focus();
+}
+
+function viewClick(wrap: HTMLElement, view: EditorView, e: MouseEvent) {
+  if (e.button !== 0) return;
+  const state = viewState(wrap);
+  if (!state) return;
+  // the mousedown half already ruled: this click only closed a menu. Reset
+  // BEFORE the error guard — a fence can repaint into an error card between
+  // the mousedown and the click, and a flag that survives that would eat the
+  // next legitimate click in this widget.
+  if (state.dismissing) {
+    state.dismissing = false;
+    return;
+  }
+  if ("error" in state.result) return;
+  const hit = viewHit(e.target as HTMLElement, state.result);
+  if (hit.kind !== "cell") return;
+  if (!cellOpensEditor(hit.model.kind)) return;
+  // clicking the cell that's already open closes it, rather than reopening a
+  // menu the outside-mousedown just dismissed
+  if (state.editing?.path === hit.path && state.editing.column === hit.column) return;
+  openCellEditor(wrap, view, hit.path, hit.column, hit.td);
+}
+
+function openCellEditor(
+  wrap: HTMLElement,
+  view: EditorView,
+  path: string,
+  column: string,
+  td: HTMLElement
+) {
+  const state = viewState(wrap);
+  if (!state || "error" in state.result) return;
+  const handlers = view.state.facet(embedHandlers);
+  const result = state.result;
+  const props = result.rows.find((r) => r.path === path)?.props ?? {};
+  const model = cellModel(props, column, result.typeSchema);
+  state.host ??= createCellEditorHost(state.hostEl);
+  state.editing = { path, column };
+  td.classList.add("editing");
+  const close = () => {
+    closeCellEditor(state);
+    for (const el of wrap.querySelectorAll(".embed-view-cell.editing"))
+      el.classList.remove("editing");
+  };
+  state.host.open({
+    anchor: anchorFrom(td),
+    column,
+    cell: model,
+    used: handlers.usedValues?.(result.dbType, column) ?? [],
+    candidates: model.schema?.type ? (handlers.relationCandidates?.(model.schema.type) ?? []) : [],
+    onCommit: (value) => {
+      // list-shaped props reached through the plain text editor keep their
+      // list shape (SUB-557) — the same rule the database table commits by
+      const cur = state.editing;
+      close();
+      if (!cur) return;
+      const live = liveProps(state, path);
+      const key = foldedPropKey(live, column);
+      const prior = foldedPropStr(live, column) ?? "";
+      if ((value ?? "") === prior) return;
+      handlers.setProp?.(
+        path,
+        key,
+        value === null ? null : chipCommitValue(live[key], commitCellText(value, model))
+      );
+    },
+    onCommitList: (values) => {
+      // multi/relation commit live and the menu stays open — no close here
+      const live = liveProps(state, path);
+      handlers.setProp?.(path, foldedPropKey(live, column), propListValue(values));
+    },
+    onCreateRelation: model.schema?.type
+      ? (title) => handlers.createRelation?.(path, model.actualKey, model.schema!.type!, title)
+      : undefined,
+    onClose: close,
+  });
+}
+
+/** The note's props as of the latest snapshot — a live-committing picker
+ * (multi/relation) writes several times against a table that repaints between
+ * writes, so each commit must read the current values, not the ones captured
+ * when the editor opened. */
+function liveProps(state: ViewWidgetState, path: string): Record<string, unknown> {
+  if ("error" in state.result) return {};
+  return state.result.rows.find((r) => r.path === path)?.props ?? {};
+}
+
+/** SUB-636: a number column stores what the app can read back, not the
+ * keystrokes — the same normalization the database pane commits through. */
+function commitCellText(value: string, model: CellModel): string {
+  return model.kind === "number" ? normalizeNumberInput(value) : value;
 }
 
 // embed routing by extension (SUB-202): audio renders the player, image the

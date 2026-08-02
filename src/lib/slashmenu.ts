@@ -127,6 +127,50 @@ export function viewTypeQuery(textBefore: string, lang: string | null): string |
   return m ? m[1] : null;
 }
 
+/** Where the cursor goes once a ```view fence's `type:`/`saved:` line is
+    settled (SUB-796): outside the fence, so the table renders immediately
+    instead of leaving you parked in raw fence source you now have to escape.
+
+    `after` is the document text from the cursor to (at least) past the
+    fence's closing line — the caller slices a bounded window, since a fence
+    body is a handful of lines. All offsets are relative to `after`'s start.
+
+    A landing spot is guaranteed: when the closer is the last line, or the
+    line below it already holds text, a blank line is inserted to land on —
+    otherwise "after the fence" would mean the middle of the next paragraph.
+    Null when no closing fence is in the window: nothing to step out of, so
+    the caller leaves the cursor alone. */
+export interface FenceExit {
+  /** cursor position after the change applies */
+  anchor: number;
+  /** where `insert` goes (ignored when `insert` is empty) */
+  insertAt: number;
+  /** "\n" when a blank line has to be made, else "" */
+  insert: string;
+}
+
+export function fenceExit(after: string): FenceExit | null {
+  let at = 0;
+  // the first line of `after` is the remainder of the cursor's own line —
+  // never the closer, which is why the scan starts at the line below it
+  let nl = after.indexOf("\n", at);
+  while (nl !== -1) {
+    at = nl + 1;
+    nl = after.indexOf("\n", at);
+    const end = nl === -1 ? after.length : nl;
+    if (!after.slice(at, end).trim().startsWith("```")) continue;
+    // closer found — land on the line below it if that line is blank,
+    // otherwise open one
+    if (nl === -1) return { anchor: end + 1, insertAt: end, insert: "\n" };
+    const next = after.indexOf("\n", nl + 1);
+    const blank = after.slice(nl + 1, next === -1 ? after.length : next).trim() === "";
+    return blank
+      ? { anchor: nl + 1, insertAt: nl + 1, insert: "" }
+      : { anchor: end + 1, insertAt: end, insert: "\n" };
+  }
+  return null;
+}
+
 /** Database types ranked for the `type:` popup: fuzzy, alphabetical tiebreak,
     blanks and duplicates dropped. */
 export function viewTypeOptions(query: string, dbTypes: string[]): string[] {

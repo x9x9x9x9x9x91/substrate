@@ -2102,11 +2102,59 @@ button.empty-hint-fix:hover {
   color: var(--text-1);
 }
 
+/* SUB-796: the row is no longer one target. The title cell navigates (hence
+   the pointer); every other cell edits, so it reads as a field, and a derived
+   rollup reads as neither. */
 .embed-view-table tbody tr {
-  cursor: pointer;
+  cursor: default;
 }
 
 .embed-view-table tbody tr:hover td {
+  background: var(--hover);
+}
+
+.embed-view-table td.embed-view-title {
+  cursor: pointer;
+}
+
+.embed-view-table td.embed-view-cell {
+  cursor: text;
+}
+
+.embed-view-table td.embed-view-cell-inert {
+  cursor: default;
+}
+
+.embed-view-table tbody tr td.embed-view-cell:hover {
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+
+.embed-view-table tbody tr td.embed-view-cell-inert:hover {
+  box-shadow: none;
+}
+
+.embed-view-table td.embed-view-cell.editing {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+/* the "+ New" affordance sits below the cap line: hiding rows never means the
+   table is closed to new ones (SUB-796) */
+.embed-view-new {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  border: 0;
+  border-top: 1px solid var(--border-soft);
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.embed-view-new:hover {
+  color: var(--text-1);
   background: var(--hover);
 }
 
