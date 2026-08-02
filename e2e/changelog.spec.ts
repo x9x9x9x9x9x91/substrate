@@ -52,7 +52,8 @@ test("a release leads with its headline and groups the rest by kind (SUB-817)", 
   await expect(first.locator(".chlog-headline")).not.toHaveCount(0);
   await expect(first.locator(".chlog-headline-text").first()).not.toBeEmpty();
 
-  // group labels carry the kind dot and the New/Improved/Fixed word
+  // group labels carry the New/Improved/Fixed word alone — no dot; a dotted
+  // label read as a bullet peer of the dotted headlines (SUB-866)
   const labels = first.locator(".chlog-group-label");
   await expect(labels).not.toHaveCount(0);
   const texts = await labels.allTextContents();
@@ -64,8 +65,10 @@ test("a release leads with its headline and groups the rest by kind (SUB-817)", 
   for (let i = 1; i < texts.length; i++) {
     expect(rank(texts[i])).toBeGreaterThan(rank(texts[i - 1]));
   }
-  // items inside groups no longer repeat the dot — it lives on the label
+  // the kind dot lives on headline rows only
+  await expect(first.locator(".chlog-group-label .dash-dot")).toHaveCount(0);
   await expect(first.locator(".chlog-item .dash-dot")).toHaveCount(0);
+  await expect(first.locator(".chlog-headline .dash-dot").first()).toBeVisible();
 });
 
 test("the pane is read-only — no inputs, no editor", async ({ page }) => {

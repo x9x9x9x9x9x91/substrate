@@ -46,8 +46,9 @@
 
 ### Highlights
 
-- Tasks board v2: a Now/Later split so today's list stays short, checkoff straight from
-  the board, and snooze to push a task out of sight until it matters.
+- The Tasks board knows what's next: a Now/Later split so today's list stays short,
+  check-off straight from the board, and snooze to push a task out of sight until it
+  matters.
 
 ### New
 
@@ -98,7 +99,8 @@
   lines with identity bars and done-states, and week blocks are as tall as their actual
   duration.
 - Food tracking: your weight curve overlays the 14-day strip, kcal expressions compute
-  portions inline (ph basis + math), and typing negative kcal logs exercise directly.
+  portions inline (a per-100g basis plus math), and typing negative kcal logs exercise
+  directly.
 
 ### Fixed
 
@@ -145,9 +147,9 @@
 
 ### Fixed
 
-- Fixed: background git maintenance could repack a vault's history store; sidebar pins
-  under a dashboard folder rendered twice; extracted-note titles could carry characters
-  the engine refuses.
+- Background git maintenance could repack a vault's history store; sidebar pins under a
+  dashboard folder rendered twice; extracted-note titles could carry characters the
+  engine refuses.
 
 ## 0.15.0 — 2026-07-25 — Dashboards become instruments
 
@@ -166,7 +168,7 @@
   lower-left.
 - Table cells can be edited in place, columns resized by dragging their header, and text
   wrapped per column.
-- A terminal HUD on ⌘⇧T, a settings sheet on ⌘,, and palette quick actions.
+- A terminal HUD (⌘⇧T), a settings sheet (⌘,), and palette quick actions.
 - "Remove from sidebar" un-homes a database from its folder row, and root folders can be
   reordered.
 

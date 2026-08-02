@@ -142,7 +142,7 @@ export const CHANGELOG: ChangelogRelease[] = [
     title: "A board that knows what's next",
     items: [
       {
-        text: "Tasks board v2: a Now/Later split so today's list stays short, checkoff straight from the board, and snooze to push a task out of sight until it matters.",
+        text: "The Tasks board knows what's next: a Now/Later split so today's list stays short, check-off straight from the board, and snooze to push a task out of sight until it matters.",
         kind: "new",
         headline: true,
       },
@@ -200,7 +200,7 @@ export const CHANGELOG: ChangelogRelease[] = [
         kind: "improved",
       },
       {
-        text: "Food tracking: your weight curve overlays the 14-day strip, kcal expressions compute portions inline (ph basis + math), and typing negative kcal logs exercise directly.",
+        text: "Food tracking: your weight curve overlays the 14-day strip, kcal expressions compute portions inline (a per-100g basis plus math), and typing negative kcal logs exercise directly.",
         kind: "improved",
       },
       {
@@ -256,7 +256,7 @@ export const CHANGELOG: ChangelogRelease[] = [
         kind: "new",
       },
       {
-        text: "Fixed: background git maintenance could repack a vault's history store; sidebar pins under a dashboard folder rendered twice; extracted-note titles could carry characters the engine refuses.",
+        text: "Background git maintenance could repack a vault's history store; sidebar pins under a dashboard folder rendered twice; extracted-note titles could carry characters the engine refuses.",
         kind: "fixed",
       },
     ],
@@ -288,7 +288,7 @@ export const CHANGELOG: ChangelogRelease[] = [
         kind: "new",
       },
       {
-        text: "A terminal HUD on ⌘⇧T, a settings sheet on ⌘,, and palette quick actions.",
+        text: "A terminal HUD (⌘⇧T), a settings sheet (⌘,), and palette quick actions.",
         kind: "new",
       },
       {

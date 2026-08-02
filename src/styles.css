@@ -3543,8 +3543,8 @@ body.agenda-window .palette:focus-visible {
    Fixed micro-labels, where the kind dot lives once instead of on every row. */
 
 .chlog-release .dash-section-label {
-  /* the label already carries the counter and the trailing hairline; the
-     date must sit after that rule, so the tail flexes between them */
+  /* the label already carries the trailing hairline; the date must sit
+     after that rule, so the tail flexes between them */
   margin-top: 26px;
 }
 
@@ -3582,18 +3582,28 @@ body.agenda-window .palette:focus-visible {
 }
 
 .chlog-group {
-  margin-top: 10px;
+  margin-top: 14px;
 }
 
+/* the group label is a section voice, not a row (SUB-866): uppercase
+   micro-label closed by a trailing hairline, same anatomy as
+   .dash-section-label one step down. No dot — a dotted label read as a
+   bullet peer of the dotted headlines. */
 .chlog-group-label {
   display: flex;
-  align-items: baseline;
+  align-items: center; /* the ::after rule wants the label's optical middle */
   gap: 10px;
   font: var(--dash-label);
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--text-3);
   margin-bottom: 2px;
+}
+
+.chlog-group-label::after {
+  content: "";
+  flex: 1;
+  border-bottom: 1px solid var(--hair-soft);
 }
 
 .chlog-items {
@@ -3605,7 +3615,7 @@ body.agenda-window .palette:focus-visible {
 .chlog-item {
   display: flex;
   align-items: baseline;
-  padding: 7px 0 7px 18px; /* 8px dot + 10px gap — text column matches the label's */
+  padding: 7px 0 7px 18px; /* items nest one column in under their label */
   border-bottom: 1px solid var(--hair-soft);
 }
 
