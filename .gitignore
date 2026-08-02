@@ -26,6 +26,7 @@ dist-ssr
 .worktrees/
 .claude/*
 !.claude/skills/
+!.claude/settings.json
 
 # Playwright
 /test-results/
