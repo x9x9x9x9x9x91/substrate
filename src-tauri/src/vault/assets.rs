@@ -152,13 +152,16 @@ impl Engine {
     /// `![[...]]` asset it embeds, copied into `dest_dir/.assets/` so the
     /// embeds still resolve. Link-in-place embeds (absolute or `~/` paths)
     /// stay links and are never copied. Returns how many assets came along.
+    /// Every file lands temp+rename (SUB-791), so a crash mid-export leaves an
+    /// invisible `.tmp-<pid>-<seq>` behind instead of a truncated note or asset
+    /// under its final name — the same contract vault-internal writes get.
     pub fn export_note_bundle(&self, rel: &str, dest_dir: &str) -> Result<usize, String> {
         let src = self.abs(rel)?;
         let raw = read_lossy(&src)?;
         let dest = Path::new(dest_dir);
         fs::create_dir_all(dest).map_err(|e| e.to_string())?;
         let filename = src.file_name().ok_or("invalid note path")?;
-        fs::write(dest.join(filename), &raw).map_err(|e| e.to_string())?;
+        write_atomic(&dest.join(filename), &raw)?;
         let re = Regex::new(r"!\[\[([^\[\]]+)\]\]").unwrap();
         let mut copied = 0;
         for cap in re.captures_iter(&raw) {
@@ -170,7 +173,7 @@ impl Engine {
             if asset.is_file() {
                 let adir = dest.join(".assets");
                 fs::create_dir_all(&adir).map_err(|e| e.to_string())?;
-                fs::copy(&asset, adir.join(name)).map_err(|e| e.to_string())?;
+                copy_atomic(&asset, &adir.join(name))?;
                 copied += 1;
             }
         }
@@ -470,6 +473,34 @@ mod tests {
         assert!(!dest.join(".assets/gone.png").exists());
         assert!(e.export_note_bundle("../outside.md", dest.to_str().unwrap()).is_err());
         let _ = fs::remove_dir_all(&dest);
+    }
+
+    #[test]
+    fn export_note_bundle_leaves_no_temp_residue() {
+        let (mut e, dir) = temp_vault("export-tmp");
+        fs::create_dir_all(dir.join(".assets")).unwrap();
+        fs::write(dir.join(".assets/shot.png"), [137u8, 80]).unwrap();
+        e.create("Residue", "", None).unwrap();
+        e.write_body("Residue.md", "one ![[shot.png]]\n", None).unwrap();
+        let dest = std::env::temp_dir().join("substrate-export-residue-test");
+        let _ = fs::remove_dir_all(&dest);
+        e.export_note_bundle("Residue.md", dest.to_str().unwrap()).unwrap();
+        // the temp+rename lane cleans up after itself: a successful export
+        // shows the user only the files they asked for
+        let residue = |d: &Path| -> Vec<String> {
+            fs::read_dir(d)
+                .unwrap()
+                .flatten()
+                .map(|f| f.file_name().to_string_lossy().to_string())
+                .filter(|n| n.contains(".tmp-"))
+                .collect()
+        };
+        assert!(residue(&dest).is_empty(), "no temp files beside the exported note");
+        assert!(residue(&dest.join(".assets")).is_empty(), "no temp files beside the asset");
+        assert!(dest.join("Residue.md").is_file());
+        assert!(dest.join(".assets/shot.png").is_file());
+        let _ = fs::remove_dir_all(&dest);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

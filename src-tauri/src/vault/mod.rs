@@ -796,7 +796,8 @@ impl Engine {
         } else if fresh {
             seed::seed(&root);
         } else {
-            // Vaults predating SUB-474 have no AGENTS.md, so the agent the
+            // Vaults predating SUB-474 have no AGENTS.md (and pre-SUB-802
+            // none its CLAUDE.md pointer), so the agent the
             // ⌘⇧T terminal runs knows nothing about the vault it is sitting
             // in; vaults predating SUB-398 have no Settings.md, so the ⌘,
             // form renders only its missing state and the terminal has no
@@ -1457,6 +1458,11 @@ impl Engine {
         if !(url.starts_with("http://") || url.starts_with("https://")) {
             return Err("only http(s) links can be captured".into());
         }
+        // credentials must never reach the vault: not the filename, not the
+        // `url:` prop (SUB-789). url_capture already strips before calling —
+        // this repeats it defensively for every other caller.
+        let stripped = crate::net::strip_userinfo(url);
+        let url = stripped.as_str();
         let display = url
             .trim_start_matches("https://")
             .trim_start_matches("http://")
@@ -3683,9 +3689,9 @@ mod tests {
         let mut e = Engine::new(dir.clone());
         let scan = t.elapsed();
         let dir = e.root.clone();
-        // 5000 authored + the AGENTS.md (SUB-474) and Settings.md (SUB-473)
-        // boot backfills
-        assert_eq!(e.list().len(), 5002);
+        // 5000 authored + the AGENTS.md (SUB-474), CLAUDE.md (SUB-802) and
+        // Settings.md (SUB-473) boot backfills
+        assert_eq!(e.list().len(), 5003);
 
         let t = std::time::Instant::now();
         let hits = e.search("granular spectral", None);
@@ -4116,6 +4122,36 @@ mod tests {
         // non-http schemes are refused
         assert!(e.create_reference("ftp://example.com").is_err());
         assert!(e.create_reference("not a url").is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn create_reference_strips_userinfo_credentials() {
+        // SUB-789: `:` sanitizes to a space but `@` and the username survive,
+        // so an unstripped capture writes the PASSWORD into the filename —
+        // synced, and visible in every note list.
+        let (mut e, dir) = temp_vault("refcreds");
+        let meta = e.create_reference("https://alice:hunter2@example.com/page").unwrap();
+        assert!(!meta.path.contains("alice"), "username in path: {}", meta.path);
+        assert!(!meta.path.contains("hunter2"), "password in path: {}", meta.path);
+        assert_eq!(
+            meta.props.get("url").and_then(|v| v.as_str()),
+            Some("https://example.com/page"),
+            "url prop stores the cleaned link"
+        );
+        assert_eq!(meta.title, "example.com/page", "display carries no userinfo");
+        let body = fs::read_to_string(e.root.join(&meta.path)).unwrap();
+        assert!(!body.contains("hunter2"), "password on disk: {body}");
+        assert!(!body.contains("alice"), "username on disk: {body}");
+
+        // a username with no password still identifies an account
+        let user_only = e.create_reference("https://alice@example.com/x").unwrap();
+        assert!(!user_only.path.contains("alice"), "{}", user_only.path);
+        assert_eq!(
+            user_only.props.get("url").and_then(|v| v.as_str()),
+            Some("https://example.com/x")
+        );
+        assert_eq!(user_only.title, "example.com/x");
         let _ = fs::remove_dir_all(&dir);
     }
 

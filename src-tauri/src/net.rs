@@ -191,6 +191,29 @@ pub fn redact_url(raw: &str) -> String {
     url.into()
 }
 
+/// The capture-boundary twin of `redact_url`: drops a `user:pass@` userinfo so
+/// credentials never reach the vault — not the filename, not the `url:` prop,
+/// not the outbound title fetch (SUB-789).
+///
+/// Unlike `redact_url` this is not log semantics: a string that doesn't parse,
+/// or that carries no userinfo, is returned VERBATIM. Re-serializing every URL
+/// would normalize it (`example.com` → `example.com/`, host lowercased) and
+/// silently change the title of every ordinary capture, so only the
+/// credentialed path is rewritten.
+pub(crate) fn strip_userinfo(raw: &str) -> String {
+    let Ok(mut url) = Url::parse(raw) else { return raw.to_string() };
+    if url.cannot_be_a_base() || url.host().is_none() {
+        return raw.to_string();
+    }
+    if url.username().is_empty() && url.password().is_none() {
+        return raw.to_string();
+    }
+    // both setters only fail on a cannot-be-a-base url, excluded above
+    let _ = url.set_username("");
+    let _ = url.set_password(None);
+    url.into()
+}
+
 /// Strip userinfo from any URL embedded in a message. ureq formats its errors
 /// as `<url>: <kind>` (`ureq::Error`'s Display), so redacting only the URL a
 /// caller holds still leaks the credentials back through `{e}`.
@@ -357,6 +380,28 @@ mod tests {
         assert_eq!(redact_url("htp://alice:hunter2@example.com"), "htp://example.com");
         assert_eq!(redact_url("alice:hunter2@example.com"), "<unparseable url>");
         assert_eq!(redact_url("not a url at all"), "<unparseable url>");
+    }
+
+    #[test]
+    fn strip_userinfo_clears_credentials_only_on_the_credentialed_path() {
+        assert_eq!(
+            strip_userinfo("https://alice:hunter2@example.com/page?q=1#frag"),
+            "https://example.com/page?q=1#frag"
+        );
+        assert_eq!(strip_userinfo("https://alice@example.com/x"), "https://example.com/x");
+    }
+
+    #[test]
+    fn strip_userinfo_returns_credential_free_input_verbatim() {
+        // SUB-789: no re-serialization on the ordinary path — `Url::parse`
+        // would append a trailing `/` and lowercase the host, silently
+        // changing the captured note's title
+        assert_eq!(strip_userinfo("https://Example.COM"), "https://Example.COM");
+        assert_eq!(strip_userinfo("https://example.com/p"), "https://example.com/p");
+        assert_eq!(strip_userinfo("not a url at all"), "not a url at all");
+        // parses as scheme `alice` + opaque path: no userinfo to clear, and
+        // create_reference's http(s) guard refuses it anyway
+        assert_eq!(strip_userinfo("alice:hunter2@example.com"), "alice:hunter2@example.com");
     }
 
     #[test]

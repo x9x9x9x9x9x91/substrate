@@ -56,6 +56,7 @@ Vault/
 ├── Welcome.md                 # seeded on first run
 ├── Settings.md                # app settings, seeded + backfilled (§12)
 ├── AGENTS.md                  # agent orientation, seeded + backfilled (§12)
+├── CLAUDE.md                  # pointer at AGENTS.md for agents that only auto-load this name (§12)
 ├── Inbox/                     # default capture folder (auto-created)
 ├── Journal/                   # daily notes (§12)
 ├── Calendar/                  # standalone events created from the calendar (§12)
@@ -1792,9 +1793,11 @@ Plain notes the app treats specially — all optional, all just files:
   note is never touched, and no write happens if `.vault/format.json` says a
   newer app owns the vault (§5b). Desktop-only, and skipped on a vault that has
   a sync remote — both for the same reasons as the `AGENTS.md` backfill below.
-- `AGENTS.md` (vault root) + `.claude/skills/setup/SKILL.md` — the orientation
-  the agent CLI in the ⌘⇧T terminal HUD reads about the vault it is running
-  inside (SUB-474): `AGENTS.md` is this format in one page, and `/setup` is a
+- `AGENTS.md` (vault root) + `CLAUDE.md` + `.claude/skills/setup/SKILL.md` —
+  the orientation the agent CLI in the ⌘⇧T terminal HUD reads about the vault
+  it is running inside (SUB-474): `AGENTS.md` is this format in one page,
+  `CLAUDE.md` is a one-paragraph pointer at it for agents that auto-load only
+  that filename (SUB-802), and `/setup` is a
   skill that interviews the user and writes further skills fitted to their
   actual schema. Deliberately no other prebuilt skills — one that doesn't know
   the user's real types and folders proposes against an imagined schema.

@@ -76,12 +76,18 @@ pub(super) fn seed(root: &Path) {
 /// Both live in the vault so they sync with it and stay the user's to edit.
 pub(crate) const AGENTS_REL_PATH: &str = "AGENTS.md";
 
+/// A one-line pointer at `AGENTS.md` under the filename Claude Code actually
+/// auto-loads (SUB-802). A pointer rather than a copy on purpose: two full
+/// copies would silently diverge the first time a user edits one.
+pub(crate) const CLAUDE_REL_PATH: &str = "CLAUDE.md";
+
 pub(crate) const SETUP_SKILL_REL_PATH: &str = ".claude/skills/setup/SKILL.md";
 
 /// The agent-facing files seeded into every vault (SUB-474), for the agent the
 /// ⌘⇧T terminal runs inside it: `AGENTS.md` — what a vault is and how not to
-/// break one — and the `/setup` skill, which interviews the user and writes
-/// skills fitted to their real schema. No prebuilt skills beyond that one on
+/// break one — `CLAUDE.md`, a pointer at it for agents that only auto-load
+/// that name (SUB-802), and the `/setup` skill, which interviews the user and
+/// writes skills fitted to their real schema. No prebuilt skills beyond that one on
 /// purpose: a triage skill that doesn't know the user's actual types and
 /// folders is worse than none.
 ///
@@ -92,6 +98,7 @@ pub(crate) const SETUP_SKILL_REL_PATH: &str = ".claude/skills/setup/SKILL.md";
 pub(crate) fn seed_agent_files(root: &Path) {
     for (rel, content) in [
         (AGENTS_REL_PATH, include_str!("../seed/AGENTS.md")),
+        (CLAUDE_REL_PATH, include_str!("../seed/CLAUDE.md")),
         (SETUP_SKILL_REL_PATH, include_str!("../seed/setup-skill.md")),
     ] {
         let abs = root.join(rel);
@@ -154,6 +161,8 @@ mod tests {
         let e = Engine::new(old.clone());
         let raw = fs::read_to_string(e.root.join(AGENTS_REL_PATH)).unwrap();
         assert!(raw.contains("Substrate"), "AGENTS.md body missing: {raw}");
+        let pointer = fs::read_to_string(e.root.join(CLAUDE_REL_PATH)).unwrap();
+        assert!(pointer.contains("AGENTS.md"), "CLAUDE.md must point at AGENTS.md: {pointer}");
         let skill = fs::read_to_string(e.root.join(SETUP_SKILL_REL_PATH)).unwrap();
         assert!(skill.starts_with("---\nname: setup\n"), "skill frontmatter missing: {skill}");
         let settings = fs::read_to_string(e.root.join(Settings::REL_PATH)).unwrap();
@@ -165,13 +174,13 @@ mod tests {
         assert_eq!(Settings::load(&e.root).capture_hotkey, Settings::DEFAULT_HOTKEY);
         // no sample content dragged along with it
         assert!(!e.root.join("Welcome.md").exists(), "backfill re-seeded the whole vault");
-        // AGENTS.md and Settings.md sit at the root so they ARE indexed as
-        // notes; the skill lives under `.claude/`, which `hidden_rel` keeps
-        // out of the index
+        // AGENTS.md, CLAUDE.md and Settings.md sit at the root so they ARE
+        // indexed as notes; the skill lives under `.claude/`, which
+        // `hidden_rel` keeps out of the index
         assert_eq!(
             e.list().len(),
-            3,
-            "expected the note plus AGENTS.md and Settings.md, and no skill"
+            4,
+            "expected the note plus AGENTS.md, CLAUDE.md and Settings.md, and no skill"
         );
 
         // edited copies of any of the three are byte-identical after boot, and
@@ -186,6 +195,10 @@ mod tests {
         assert!(
             e2.root.join(SETUP_SKILL_REL_PATH).exists(),
             "skill not backfilled beside a custom AGENTS.md"
+        );
+        assert!(
+            e2.root.join(CLAUDE_REL_PATH).exists(),
+            "CLAUDE.md not backfilled beside a custom AGENTS.md"
         );
         assert!(
             e2.root.join(Settings::REL_PATH).exists(),
@@ -215,6 +228,7 @@ mod tests {
             !e3.root.join(AGENTS_REL_PATH).exists(),
             "backfill wrote into a vault a newer app owns"
         );
+        assert!(!e3.root.join(CLAUDE_REL_PATH).exists());
         assert!(!e3.root.join(SETUP_SKILL_REL_PATH).exists());
         assert!(!e3.root.join(Settings::REL_PATH).exists());
 
@@ -222,6 +236,7 @@ mod tests {
         let brand_new = base.join("fresh");
         let e4 = Engine::new(brand_new.clone());
         assert!(e4.root.join(AGENTS_REL_PATH).exists(), "fresh seed missing AGENTS.md");
+        assert!(e4.root.join(CLAUDE_REL_PATH).exists(), "fresh seed missing CLAUDE.md");
         assert!(e4.root.join(SETUP_SKILL_REL_PATH).exists(), "fresh seed missing the setup skill");
         assert!(e4.root.join(Settings::REL_PATH).exists(), "fresh seed missing Settings.md");
 

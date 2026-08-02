@@ -110,6 +110,10 @@ pub(crate) fn url_capture(
     url: String,
 ) -> Result<NoteMeta, String> {
     dirty.mark();
+    // strip `user:pass@` once, up front: the note must not carry credentials
+    // (SUB-789) and the enrichment fetch must not send them in cleartext, so
+    // both halves work from the same cleaned URL
+    let url = crate::net::strip_userinfo(&url);
     let meta = state.0.lock().unwrap().create_reference(&url)?;
     spawn_url_enrichment(app, url, meta.clone());
     Ok(meta)

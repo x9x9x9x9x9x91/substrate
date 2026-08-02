@@ -58,10 +58,10 @@ function loadVault(): VaultNote[] {
   const walk = (dir: string, prefix: string) => {
     for (const e of readdirSync(join(VAULT, dir), { withFileTypes: true })) {
       if (e.name.startsWith(".")) continue;
-      // AGENTS.md is the seeded agent orientation file (SUB-474), a real note
-      // to the engine but a plain-prose one — no frontmatter, no type, nothing
-      // for the demo parsers below to check.
-      if (e.name === "AGENTS.md") continue;
+      // AGENTS.md is the seeded agent orientation file (SUB-474) and CLAUDE.md
+      // its seeded pointer (SUB-802) — real notes to the engine but plain-prose
+      // ones: no frontmatter, no type, nothing for the demo parsers to check.
+      if (e.name === "AGENTS.md" || e.name === "CLAUDE.md") continue;
       const rel = prefix + e.name;
       if (e.isDirectory()) walk(join(dir, e.name), rel + "/");
       else if (e.name.endsWith(".md")) notes.push(parseNote(rel, readFileSync(join(VAULT, dir, e.name), "utf8")));
@@ -96,6 +96,7 @@ test("the seeded agent files ship in the example vault, byte-identical (SUB-474)
   const seed = fileURLToPath(new URL("../src-tauri/src/seed", import.meta.url));
   for (const [src, dst] of [
     ["AGENTS.md", "AGENTS.md"],
+    ["CLAUDE.md", "CLAUDE.md"],
     ["setup-skill.md", ".claude/skills/setup/SKILL.md"],
   ]) {
     assert.equal(

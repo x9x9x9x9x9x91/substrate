@@ -80,9 +80,11 @@ test("a rename with the sheet source view open keeps the inner editor mounted (S
   await expect(page.locator(".sheet-src .cm-content")).toContainText(marker);
 
   // the typed text reached DISK under the renamed path — asserted against
-  // the mock store, not a reopened view: reopening the source view shows a
-  // stale body even without any rename (pre-existing, SUB-795), so a
-  // view-side assert here would pin that unrelated bug to this spec
+  // the mock store, not a reopened view: the center-click above lands the
+  // caret on the ```formulas fence delimiter line, whose raw text live
+  // preview conceals when the cursor is elsewhere (SUB-795 resolution —
+  // e2e/sheetsource.spec.ts pins the conceal/reveal behavior), so a
+  // view-side text assert after reopening would fail on concealment
   await expect
     .poll(() =>
       page.evaluate(

@@ -158,15 +158,15 @@ fn linky_body() -> impl Strategy<Value = String> {
 /// `Engine::new` skips seeding — the vault starts with nothing but `Inbox/`,
 /// which keeps every property's assertions about file counts readable.
 ///
-/// The existing-vault branch does backfill `AGENTS.md` (SUB-474) and
-/// `Settings.md` (SUB-473); drop both and rescan so "nothing but `Inbox/`"
-/// stays literally true here.
+/// The existing-vault branch does backfill `AGENTS.md` (SUB-474), its
+/// `CLAUDE.md` pointer (SUB-802) and `Settings.md` (SUB-473); drop all three
+/// and rescan so "nothing but `Inbox/`" stays literally true here.
 fn fresh_vault() -> (Engine, tempfile::TempDir) {
     let dir = tempfile::tempdir().expect("tempdir");
     let mut engine = Engine::new(dir.path().to_path_buf());
     // fold, not `any`: `any` short-circuits and would leave the second file
     #[allow(clippy::unnecessary_fold)]
-    let dropped = [crate::vault::AGENTS_REL_PATH, "Settings.md"]
+    let dropped = [crate::vault::AGENTS_REL_PATH, "CLAUDE.md", "Settings.md"]
         .iter()
         .fold(false, |acc, p| std::fs::remove_file(engine.root.join(p)).is_ok() || acc);
     if dropped {
