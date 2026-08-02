@@ -8,11 +8,15 @@
 <meta property="og:title" content="SUBSTRATE — Notion-grade databases. Plain markdown files." />
 <meta property="og:description" content="A local-first Mac app for notes, databases, and dashboards, built on a folder of markdown you own. Open source, agent-native, no cloud." />
 <meta property="og:type" content="website" />
-<meta property="og:image" content="og.png" />
+<meta property="og:url" content="https://substrate.zone/" />
+<meta property="og:site_name" content="Substrate" />
+<meta property="og:image" content="https://substrate.zone/og.png" />
+<meta property="og:image:alt" content="SUBSTRATE — Notion-grade databases. Plain markdown files." />
+<link rel="canonical" href="https://substrate.zone/" />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:image" content="og.png" />
+<meta name="twitter:image" content="https://substrate.zone/og.png" />
 <meta name="theme-color" content="#000000" />
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='black'/%3E%3Crect x='7' y='20' width='18' height='4' fill='%23565b62'/%3E%3Crect x='10' y='13' width='12' height='4' fill='%239aa0a8'/%3E%3Crect x='13' y='6' width='6' height='4' fill='white'/%3E%3C/svg%3E" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Crect width='1024' height='1024' rx='224' fill='black'/%3E%3Cg stroke='white' stroke-width='84' fill='none'%3E%3Cline x1='512' y1='218' x2='512' y2='636'/%3E%3Cline x1='312' y1='300' x2='712' y2='536'/%3E%3Cline x1='712' y1='300' x2='312' y2='536'/%3E%3Cline x1='256' y1='636' x2='768' y2='636'/%3E%3Cline x1='512' y1='636' x2='512' y2='790'/%3E%3C/g%3E%3C/svg%3E" />
 <link rel="preload" href="inter-var-latin.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="preload" href="jetbrains-mono-var-latin.woff2" as="font" type="font/woff2" crossorigin />
 <link rel="preload" href="space-grotesk-var-latin.woff2" as="font" type="font/woff2" crossorigin />
@@ -73,6 +77,19 @@
 
   /* ============ layers ============ */
   #field { position: fixed; inset: 0; z-index: 0; display: block; }
+  /* bloom: the same frame at quarter res, blurred and screened on top —
+     bright particles grow a soft halo, black stays black */
+  #glow {
+    position: fixed; inset: 0;
+    z-index: 1;
+    display: block;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    filter: blur(14px) brightness(1.5);
+    mix-blend-mode: screen;
+    opacity: 0.75;
+    transform: translateZ(0);
+  }
   .vig {
     position: fixed; inset: 0;
     pointer-events: none;
@@ -102,8 +119,13 @@
     -webkit-backdrop-filter: blur(10px);
     border-bottom-color: var(--hair);
   }
-  .brand { color: var(--ink); font-weight: 700; letter-spacing: 0.22em; font-size: 12px; }
+  .brand { color: var(--ink); font-weight: 700; letter-spacing: 0.22em; font-size: 12px; display: inline-flex; align-items: center; gap: 9px; }
+  .brand .mark { width: 15px; height: 15px; color: var(--ink); flex: none; }
   .brand i { color: var(--steel); font-style: normal; }
+  @media (prefers-reduced-motion: no-preference) {
+    .brand i { animation: brandblink 3.2s step-end infinite; }
+    @keyframes brandblink { 0%, 88%, 100% { opacity: 1; } 92%, 96% { opacity: 0.15; } }
+  }
   nav .nl { display: flex; gap: 20px; }
   nav .nl a { transition: color 0.15s; }
   nav .nl a::before { content: "/"; color: var(--steel-deep); margin-right: 2px; }
@@ -120,6 +142,8 @@
   .dl:hover { background: #fff; box-shadow: 0 0 28px rgba(255,255,255,0.35); }
 
   /* ============ hero — split: text left, entity right ============ */
+  /* one column, whole page: hero, beats and content share the same
+     left edge (the centered 860px wrap's) — no mid-page column jump */
   .hero {
     position: relative;
     z-index: 10;
@@ -129,7 +153,7 @@
     align-items: flex-start;
     justify-content: center;
     text-align: left;
-    padding: 0 24px 0 max(24px, 7vw);
+    padding: 0 24px 0 max(26px, calc(50% - 404px));
     pointer-events: none;
   }
   .hero > * { pointer-events: auto; }
@@ -140,7 +164,11 @@
     color: var(--ink-4);
     text-transform: uppercase;
   }
-  .sig i { color: var(--steel); font-style: normal; }
+  .sig i { color: var(--steel); font-style: normal; display: inline-block; }
+  @media (prefers-reduced-motion: no-preference) {
+    .sig i { animation: spin 14s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  }
   h1 {
     margin-top: 28px;
     font-family: var(--disp);
@@ -152,6 +180,7 @@
     text-shadow: 0 2px 30px rgba(0,0,0,0.85);
   }
   h1 .b { background: #fff; color: #000; padding: 0 0.16em; }
+  h1 .b .w { display: inline-block; text-align: left; }
   h1 .b .cursor {
     display: inline-block;
     width: 0.5em; height: 0.78em;
@@ -191,37 +220,40 @@
     transition: color 0.15s, border-color 0.15s, box-shadow 0.2s;
   }
   .btn-g:hover { color: var(--steel); border-color: rgba(255,255,255,0.5); box-shadow: 0 0 24px rgba(255,255,255,0.1); }
+  .hero-status {
+    margin-top: 22px;
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    color: var(--ink-3);
+  }
   .scroll-cue {
     position: absolute;
-    bottom: 26px; left: max(24px, 7vw);
+    bottom: 26px; left: max(26px, calc(50% - 404px));
     font-family: var(--mono);
     font-size: 10px;
     letter-spacing: 0.4em;
     color: var(--ink-4);
+    line-height: 2;
   }
+  .scroll-cue a { color: var(--ink-4); letter-spacing: 0.14em; }
+  .scroll-cue a:hover { color: var(--steel); }
   @media (prefers-reduced-motion: no-preference) {
     .scroll-cue { animation: cue 2.6s ease-in-out infinite; }
     @keyframes cue { 0%,100% { opacity: 0.3; transform: translateY(0); } 50% { opacity: 0.85; transform: translateY(7px); } }
   }
 
-  /* ============ the act ============ */
-  #act { position: relative; z-index: 10; height: 500vh; }
-  #act .stage {
-    position: sticky;
-    top: 0;
-    height: 100vh;
-    display: grid;
-    place-items: center;
-    pointer-events: none;
+  /* ============ the act — normal flow; text keeps one left column,
+     the particle figure forms in the free right rail beside it (no
+     scroll-jack: the field just morphs as each section passes) ============ */
+  #actflow { position: relative; z-index: 10; }
+  .af {
+    min-height: 86vh;
+    display: flex;
+    align-items: center;
+    padding: 40px 24px 40px max(26px, calc(50% - 404px));
   }
-  .cap {
-    grid-area: 1 / 1;
-    text-align: center;
-    max-width: 780px;
-    padding: 0 24px;
-    opacity: 0;
-    will-change: opacity, transform;
-  }
+  .cap { max-width: 470px; text-align: left; }
   .cap .n {
     font-family: var(--mono);
     font-size: 10.5px;
@@ -231,7 +263,7 @@
   .cap h2 {
     margin-top: 22px;
     font-family: var(--disp);
-    font-size: clamp(30px, 4.6vw, 54px);
+    font-size: clamp(28px, 4vw, 46px);
     font-weight: 600;
     letter-spacing: -0.025em;
     line-height: 1.08;
@@ -240,20 +272,17 @@
   }
   .cap h2 .b { background: #fff; color: #000; padding: 0 0.14em; }
   .cap p {
-    margin: 20px auto 0;
+    margin: 20px 0 0;
     max-width: 520px;
     font-size: 14.5px;
     color: var(--ink-2);
     text-shadow: 0 1px 12px rgba(0,0,0,0.8);
   }
   .cap p code { font-family: var(--mono); font-size: 0.86em; color: var(--steel); }
-  /* side captions: text one side, particle figure the other */
-  .cap.side { justify-self: start; text-align: left; max-width: 460px; margin-left: 7vw; }
-  .cap.side p { margin-left: 0; }
-  .cap.side.right { justify-self: end; margin-left: 0; margin-right: 7vw; }
-  .cap.side.right p { margin-right: 0; }
   @media (max-width: 900px) {
-    .cap.side, .cap.side.right { margin-left: 0; margin-right: 0; justify-self: center; text-align: center; }
+    /* small screens: the figures are off (hero + closer keep theirs) —
+       the beats read as a plain, quick section stack */
+    .af { min-height: 0; padding: 88px 24px 0; }
   }
 
   /* ============ content ============ */
@@ -263,6 +292,30 @@
     background: #000;
     border-top: 1px solid var(--hair);
   }
+  /* the taproot: grows down the margin as you read deeper into the ground */
+  #root {
+    position: absolute;
+    top: 0; bottom: 0;
+    left: max(26px, calc(50% - 550px));
+    width: 1px;
+    pointer-events: none;
+  }
+  #root .line {
+    position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(255,255,255,0.28), rgba(255,255,255,0.07));
+    transform: scaleY(0);
+    transform-origin: top;
+    will-change: transform;
+  }
+  #root .tip {
+    position: absolute; left: -1.5px; top: 0;
+    width: 4px; height: 4px;
+    background: #fff;
+    box-shadow: 0 0 12px rgba(255,255,255,0.8);
+    opacity: 0;
+    will-change: transform, opacity;
+  }
+  @media (max-width: 1020px) { #root { display: none; } }
   .wrap { max-width: 860px; margin: 0 auto; padding: 0 26px; }
 
   section { padding: 104px 0 0; }
@@ -309,6 +362,66 @@
   .shot::after { bottom: -1px; right: -1px; border-bottom-width: 1px; border-right-width: 1px; }
   /* shots break out of the text measure */
   .shot-break { width: min(1120px, calc(100vw - 48px)); margin-left: 50%; transform: translateX(-50%); }
+
+  /* the viewer: one frame, three pre-cropped 16:9 cuts of the real app
+     (whole window / editor pane / dashboard pane) — cropped in the
+     assets themselves, so the browser never scales past natural size. */
+  .viewer { position: relative; }
+  .shot-break.viewer { width: min(880px, calc(100vw - 48px)); }
+  /* slideshow controls: labelled dashes, story-style; the show advances
+     on its own, the dashes let you jump */
+  .vtabs {
+    display: flex; gap: 18px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+    margin-bottom: 14px;
+  }
+  .vtabs button {
+    all: unset;
+    cursor: pointer;
+    padding: 6px 0 7px;
+    color: var(--ink-3);
+    position: relative;
+    transition: color 0.25s;
+  }
+  .vtabs button::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 1px;
+    background: var(--hair-2);
+    transition: background 0.4s;
+  }
+  .vtabs button:hover { color: var(--steel); }
+  .vtabs button[aria-selected="true"] { color: var(--ink); }
+  .vtabs button[aria-selected="true"]::after { background: var(--ink); }
+  .vtabs button:focus-visible { outline: 1px solid rgba(255,255,255,0.6); outline-offset: 2px; }
+  .vframe {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border: 1px solid var(--hair-2);
+    background: #060708;
+    box-shadow: 0 40px 90px rgba(0, 0, 0, 0.7);
+  }
+  .vframe::before, .vframe::after {
+    content: "";
+    position: absolute;
+    width: 12px; height: 12px;
+    border: 0 solid rgba(255,255,255,0.5);
+    z-index: 3;
+  }
+  .vframe::before { top: -1px; left: -1px; border-top-width: 1px; border-left-width: 1px; }
+  .vframe::after { bottom: -1px; right: -1px; border-bottom-width: 1px; border-right-width: 1px; }
+  .vframe img {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    opacity: 0;
+    transition: opacity 0.55s var(--ease);
+    will-change: opacity;
+  }
+  .vframe img.on { opacity: 1; }
+  .vcap { min-height: 2.4em; }
   .shot-cap {
     margin-top: 14px;
     font-family: var(--mono);
@@ -356,6 +469,20 @@
     position: relative;
   }
   .lrow:hover { background: rgba(255,255,255,0.035); box-shadow: inset 1px 0 0 rgba(255,255,255,0.5); }
+  /* nutrient pulse: a bright packet runs the row's baseline on hover */
+  .lrow::after {
+    content: "";
+    position: absolute; left: 0; bottom: -1px;
+    height: 1px; width: 100%;
+    background: linear-gradient(90deg, rgba(255,255,255,0.9), rgba(255,255,255,0.25) 18%, transparent 45%);
+    transform: scaleX(0);
+    transform-origin: left;
+    opacity: 0;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .lrow::after { transition: transform 0.7s var(--ease), opacity 0.3s; }
+    .lrow:hover::after { transform: scaleX(1); opacity: 0.7; }
+  }
   .lrow .k { font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em; color: var(--ink); padding-top: 2px; }
   .lrow .v { font-size: 13.5px; color: var(--ink-2); }
   .lrow .v kbd {
@@ -389,14 +516,14 @@
   .honest { margin-top: 20px; font-size: 12.5px; color: var(--ink-3); font-family: var(--mono); }
   .honest::before { content: "# "; color: var(--steel); }
 
-  .pricelines { margin-top: 40px; border-top: 1px solid var(--hair); max-width: 680px; }
+  .pricelines { margin-top: 40px; border-top: 1px solid var(--hair); }
   .pl { display: flex; justify-content: space-between; gap: 24px; align-items: baseline; padding: 16px 6px; border-bottom: 1px solid var(--hair); }
   .pl .what { font-size: 14px; color: var(--ink); font-weight: 570; }
   .pl .cost { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); text-align: right; }
   .pl .cost em { color: var(--steel); font-style: normal; }
   .nag { margin-top: 18px; font-size: 12.5px; color: var(--ink-3); max-width: 560px; }
 
-  .faq { margin-top: 38px; max-width: 680px; }
+  .faq { margin-top: 38px; }
   details { border-top: 1px solid var(--hair); }
   details:last-child { border-bottom: 1px solid var(--hair); }
   summary {
@@ -456,13 +583,11 @@
     html.js .term[data-r].in { opacity: 1; transform: none; }
     /* the wipe lives on .shot but is observed on the wrapper —
        a fully-clipped element never intersects, so it could never reveal itself */
-    html.js .shot-break[data-r] .shot { clip-path: inset(0 0 100% 0); transition: clip-path 0.9s var(--ease); }
-    html.js .shot-break[data-r].in .shot { clip-path: inset(0 0 0 0); }
+    html.js .shot-break[data-r] .shot, html.js .shot-break[data-r] .vframe { clip-path: inset(0 0 100% 0); transition: clip-path 0.9s var(--ease); }
+    html.js .shot-break[data-r].in .shot, html.js .shot-break[data-r].in .vframe { clip-path: inset(0 0 0 0); }
   }
   @media (prefers-reduced-motion: reduce) {
-    #act { height: auto; }
-    #act .stage { position: static; height: auto; display: block; padding: 40px 0; }
-    .cap { opacity: 1 !important; position: static; margin: 60px auto; }
+    .af { min-height: 0; padding: 88px 24px 0; }
   }
   @media (max-width: 780px) {
     nav .nl { display: none; }
@@ -474,10 +599,19 @@
     .cta-row { flex-direction: column; align-items: flex-start; }
     .closer .cta-row { align-items: center; }
     .scroll-cue { left: 24px; }
-    /* mobile: a legible crop of the app's left half beats the whole
-       window shrunk to noise */
+    /* mobile: legible crops beat the whole window shrunk to noise */
     .shot { aspect-ratio: 4 / 3; }
-    .shot img { width: 175%; height: auto; object-position: left top; }
+    .shot img { width: 280%; height: auto; }
+    .shot.crop-cards img { margin-left: -100%; }   /* the dashboard cards */
+    .shot.crop-dash img { width: 150%; }           /* dashboard pane — already a tight crop */
+    .vframe { aspect-ratio: 4 / 3; }
+    .vframe img { height: auto; }
+    /* mobile: zoom to the readable heart of each slide */
+    .vframe img[data-crop="vault"]    { width: 240%; transform: translate(-39%, 0); }
+    .vframe img[data-crop="calendar"] { width: 200%; transform: translate(-45%, 0); }
+    .vframe img[data-crop="food"]     { width: 150%; }
+    .vframe img[data-crop="yield"]    { width: 150%; }
+    .vtabs button { padding: 7px 10px; letter-spacing: 0.05em; }
     footer .tail { margin-left: 0; }
   }
 </style>
@@ -485,10 +619,11 @@
 <body>
 
 <canvas id="field" aria-hidden="true"></canvas>
+<canvas id="glow" aria-hidden="true"></canvas>
 <div class="vig" aria-hidden="true"></div>
 
 <nav id="nav">
-  <a class="brand" href="#">SUBSTRATE<i>_</i></a>
+  <a class="brand" href="/"><svg class="mark" viewBox="0 0 1024 1024" aria-hidden="true"><g stroke="currentColor" stroke-width="92" fill="none"><line x1="512" y1="188" x2="512" y2="636"/><line x1="298" y1="276" x2="726" y2="528"/><line x1="726" y1="276" x2="298" y2="528"/><line x1="236" y1="636" x2="788" y2="636"/><line x1="512" y1="636" x2="512" y2="812"/></g></svg>SUBSTRATE<i>_</i></a>
   <div class="nl">
     <a href="#app">app</a>
     <a href="#agents">agents</a>
@@ -496,65 +631,130 @@
     <a href="#price">price</a>
   </div>
   <div class="right">
-    <a class="src" href="#">source ↗</a>
-    <a class="dl" href="#">DOWNLOAD</a>
+    <a class="src" href="https://github.com/x9x9x9x9x9x91/substrate">source ↗</a>
+    <a class="dl" href="https://github.com/x9x9x9x9x9x91/substrate/releases/download/v0.18.0/Substrate_0.18.0_aarch64.dmg">DOWNLOAD</a>
   </div>
 </nav>
 
 <!-- scene 0: the wisp -->
 <header class="hero">
-  <p class="sig"><i>●</i> local-first · open source · macOS</p>
-  <h1 id="h1" aria-label="the second brain your AI can operate.">the second brain<br>your AI can <span class="b">operate.<span class="cursor" aria-hidden="true"></span></span></h1>
-  <p class="sub">Notes, databases, and dashboards — as <b>plain markdown on your disk</b>. No account. No cloud. Nothing between you, or your agent, and your own files.</p>
+  <p class="sig"><i>✳</i> local-first · open source · macOS</p>
+  <h1 id="h1" aria-label="the second brain your AI can operate.">the second brain<br>your AI can <span class="b"><span class="w" id="cyc">operate.</span><span class="cursor" aria-hidden="true"></span></span></h1>
+  <p class="sub">Notion-grade databases and dashboards — as <b>plain markdown on your disk</b>. No account. No cloud. Nothing between you, or your agent, and your own files.</p>
   <div class="cta-row">
-    <a class="btn-w" href="#">DOWNLOAD FOR macOS</a>
-    <a class="btn-g" href="#">view source</a>
+    <a class="btn-w" href="https://github.com/x9x9x9x9x9x91/substrate/releases/download/v0.18.0/Substrate_0.18.0_aarch64.dmg">DOWNLOAD FOR macOS</a>
+    <a class="btn-g" href="https://github.com/x9x9x9x9x9x91/substrate">view source</a>
   </div>
-  <span class="scroll-cue">01 / structure ↓</span>
+  <span class="scroll-cue">01 / structure ↓<br><a href="#app">or skip to the app →</a></span>
 </header>
 
-<!-- scenes 1-3: the entity acts out the product -->
-<div id="act">
-  <div class="stage">
-    <div class="cap side" id="cap0">
+<!-- scenes 1-4: normal flow — text left, the entity forms in the right rail -->
+<div id="actflow">
+  <div class="af" data-scene="1">
+    <div class="cap">
       <p class="n">01 / structure</p>
       <h2>give a note a <span class="b">type:</span><br>it becomes a database row.</h2>
-      <p>A “database” is every note sharing a <code>type:</code> in its frontmatter. Table, board, list, calendar — same files. Nothing ever moves or converts.</p>
+      <p>A “database” is every note with the same <code>type:</code> label at the top of the file. Table, board, list, gallery — same files. Nothing ever moves or converts.</p>
     </div>
-    <div class="cap side right" id="cap1">
-      <p class="n">02 / connection</p>
-      <h2>link anything.<br>the graph is already there.</h2>
-      <p>[[Wikilinks]] connect notes; backlinks render everywhere. ⌘-click a link to a note that doesn’t exist yet — now it does.</p>
+  </div>
+  <div class="af" data-scene="2">
+    <div class="cap">
+      <p class="n">02 / operation</p>
+      <h2>an agent isn’t a feature here.<br>it’s a user.</h2>
+      <p>Claude, a cron job, you in a terminal — every user works the same plain files, through the same door. Those pulses? Writes, landing. The app just watches the disk.</p>
     </div>
-    <div class="cap" id="cap2" style="align-self:start;margin-top:10vh">
-      <p class="n">03 / ground</p>
+  </div>
+  <div class="af" data-scene="3">
+    <div class="cap">
+      <p class="n">03 / computation</p>
+      <h2>then the files start<br>computing.</h2>
+      <p>Sheets are plain-text tables with formulas. Dashboards bind stat cards, charts, and live views to the results. No other markdown tool builds that in — and every number traces back to a file.</p>
+    </div>
+  </div>
+  <div class="af" data-scene="4">
+    <div class="cap">
+      <p class="n">04 / ground</p>
       <h2>underneath it all:<br>plain files on your disk.</h2>
-      <p>Delete Substrate tomorrow and you lose nothing — the vault is a folder of readable markdown. No export, no lock-in, no trust required.</p>
+      <p>Delete Substrate tomorrow and you lose nothing — the vault is a folder of readable markdown. No migration, no lock-in, no trust required.</p>
     </div>
   </div>
 </div>
 
 <!-- solid content -->
 <div id="content">
+  <div id="root" aria-hidden="true"><span class="line"></span><span class="tip"></span></div>
   <div class="wrap">
 
     <section id="app">
-      <p class="sn">04 / the app</p>
+      <p class="sn">05 / the app</p>
       <h3 class="big">This is Substrate.</h3>
-      <p class="lede">A vault in the app: notes on the left, live-rendered markdown in the middle, properties on the note. The sidebar’s “databases” and “dashboards” are just folders of files like this one.</p>
-      <div class="shot-break" data-r style="margin-top:40px">
-        <div class="shot"><img src="readme-notes.png" width="2560" height="1464" alt="Substrate — notes list, live-rendered markdown editor with properties, wikilinks and an inline table" loading="lazy" /></div>
+      <p class="lede">A real vault: notes on the left, live-rendered markdown in the middle, properties on the note. The sidebar’s “databases” and “dashboards” are just files like this one, grouped by their <code>type:</code> label.</p>
+      <div class="shot-break viewer" data-r style="margin-top:40px" id="viewer">
+        <div class="vtabs" role="tablist" aria-label="views of the app">
+          <button role="tab" aria-selected="true" data-v="vault">the vault</button>
+          <button role="tab" aria-selected="false" data-v="calendar">calendar</button>
+          <button role="tab" aria-selected="false" data-v="food">a tracker</button>
+        </div>
+        <div class="vframe">
+          <img class="on" data-crop="vault" src="shot-vault.png" width="2560" height="1440" alt="The whole app — sidebar with databases, notes list, live-rendered editor" />
+          <img data-crop="calendar" src="shot-calendar.png" width="2560" height="1440" alt="The calendar — event and task chips on a month grid, overdue rail underneath, every chip a file" loading="lazy" />
+          <img data-crop="food" src="shot-food.png" width="2124" height="1195" alt="The calories dashboard — net kcal, weekly bars, a log form, all bound to two markdown files" loading="lazy" />
+        </div>
+        <p class="shot-cap vcap" data-vcap="vault"><b>~/Vault</b> · a working vault · databases in the sidebar, notes in the middle, live-rendered markdown right</p>
+        <p class="shot-cap vcap" data-vcap="calendar" hidden><b>Calendar</b> · any note with a date shows up — events, deadlines, journal days; the overdue rail is a saved query</p>
+        <p class="shot-cap vcap" data-vcap="food" hidden><b>Calories.md</b> · a daily tracker — goal band, week-vs-goal, a log form; the log rows live in a markdown table one file over</p>
       </div>
-      <p class="shot-cap"><b>~/Vault</b> · a live vault in the app · the Welcome note is a markdown file with frontmatter, checkboxes, and an inline database view</p>
+    </section>
+
+    <section id="surfaces">
+      <p class="sn">06 / surfaces</p>
+      <h3 class="big">Dashboards over text files.</h3>
+      <p class="lede">Stat cards, charts, live views, a log form — a real dashboard, and every number on it is derived from markdown files on disk. This one tracks yield:</p>
+      <div class="shot-break" data-r style="margin-top:40px">
+        <div class="shot crop-dash"><img src="shot-yield.png" width="2124" height="1195" alt="The Yield APR dashboard — realized APR, projections, per-interval chart, a log form" loading="lazy" /></div>
+      </div>
+      <p class="shot-cap"><b>Yield APR.md</b> · realized APR, projected yield, per-interval chart — every number derived from snapshot rows in the file</p>
+      <p class="lede" style="margin-top:56px">Where do the numbers come from? Sheets — formula tables in plain text. This is a whole one:</p>
+      <div class="duo" style="margin-top:40px">
+        <div class="term" data-r>
+          <div class="bar"><span><i>✳</i> zsh — ~/Vault</span><span>⏎ 0</span></div>
+          <pre><span class="p">$</span> cat Finance/Holdings.md
+<span class="dim">---</span>
+type: <span class="str">sheet</span>
+<span class="dim">---</span>
+<span class="dim">```csv</span>
+asset,bucket,units,price_usd
+WORLD-ETF,etf,30,98.5
+BTC,crypto,0.08,64200
+<span class="dim">```</span>
+<span class="dim">```formulas</span>
+value_usd = units * price_usd
+total  = SUM(value_usd)
+crypto = SUMIF(bucket, "crypto", value_usd)
+value_eur = value_usd * FX("USD","EUR")
+<span class="dim">```</span></pre>
+        </div>
+        <div class="txt">
+          <h4>A spreadsheet that is also just a note.</h4>
+          <p>That file is a working portfolio tracker: the rows are holdings, the lines below compute value, totals, and how much is in crypto — <code>SUM</code>, <code>SUMIF</code>, live currency rates, references across sheets. In the app you see a grid and charts; on disk it stays a note you could email to someone.</p>
+          <p>This layer simply doesn&#8217;t exist elsewhere: Notion&#8217;s formulas compute one row at a time — anything across rows or tables means rigging relations and rollups, and charts can&#8217;t read the result. Here a full spreadsheet engine runs over files grep can read.</p>
+          <p class="m">SPEC — docs/sheets-spec.md · ENGINE TESTED IN CI</p>
+        </div>
+      </div>
+      <p class="lede" style="margin-top:56px">And this is the same kind of file, open in the app — the csv rows become a grid, the formulas become the totals rail underneath:</p>
+      <div class="shot-break" data-r style="margin-top:40px">
+        <div class="shot crop-cards"><img src="shot-sheet.png" width="2560" height="1440" alt="The Holdings sheet open in Substrate — csv rows rendered as a computed grid, formula totals along the bottom" loading="lazy" /></div>
+      </div>
+      <p class="shot-cap"><b>Holdings.md</b> · the sheet rendered · totals, per-bucket sums and USD→EUR conversion computed from the file, live</p>
     </section>
 
     <section id="files">
-      <p class="sn">05 / files</p>
+      <p class="sn">07 / files</p>
       <h3 class="big">The files are the app.</h3>
-      <p class="lede">No proprietary database underneath — the markdown on your disk is the only source of truth. Substrate is just the fastest window onto it. Edit a file in any other app and the change is live before you switch back.</p>
+      <p class="lede">No proprietary database underneath — the markdown on your disk is the only source of truth. Substrate is just a fast window onto it. Edit a file in any other app and the change is live before you switch back.</p>
       <div class="duo">
         <div class="term" data-r>
-          <div class="bar"><span><i>●</i> zsh — ~/Vault</span><span>⏎ 0</span></div>
+          <div class="bar"><span><i>✳</i> zsh — ~/Vault</span><span>⏎ 0</span></div>
           <pre><span class="p">$</span> cat Contacts/Noa.md
 <span class="dim">---</span>
 type: <span class="str">contact</span>
@@ -569,25 +769,25 @@ stems for the motion piece due Friday.
 <span class="p">$</span> echo "- [ ] send stems to Noa" &gt;&gt; Today.md</pre>
         </div>
         <div class="txt">
-          <h4>Frontmatter is the schema. Grep is a query engine.</h4>
-          <p>Typed properties live as YAML on top of each note; saved views, templates, and inline editing in the app, <code>rg</code> and <code>sed</code> outside it. That <code>echo</code> above? The checkbox is in the app before you ⌘-tab back — external edits are the designed path, not a recovery mode.</p>
-          <p class="m">FORMAT SPEC PUBLISHED — docs/vault-format.md</p>
+          <h4>Every note is a page anything can open.</h4>
+          <p>That terminal is showing a contact card — and it&#8217;s just a text file you could read on any computer made in the last forty years. The labels on top (<code>type</code>, <code>role</code>, <code>status</code>) are what make it a database row. Change the file from anywhere — another app, a script, that <code>echo</code> line — and it&#8217;s in Substrate before you switch back.</p>
+          <p class="m">FOR THE NERDS: FRONTMATTER IS THE SCHEMA, GREP IS A QUERY ENGINE — docs/vault-format.md</p>
         </div>
       </div>
     </section>
 
     <section id="agents">
-      <p class="sn">06 / agents</p>
+      <p class="sn">08 / agents</p>
       <h3 class="big xl">Agents don’t get an API here.<br>They get the <span class="b">files.</span></h3>
-      <p class="lede">No UI-only state, boring parseable formats, external edits picked up live — an agent filing your inbox at 3am is a designed-for use, not a hack. And once agents can read everything on your machine, a vault that never leaves it uninvited stops being a nerd feature and becomes the point.</p>
+      <p class="lede">No UI-only data, boring parseable formats, external edits picked up live — an agent filing your inbox at 3am is a designed use, not a hack. And once agents can read everything on your machine, a vault that never leaves it uninvited stops being a nerd feature and becomes the point.</p>
       <div class="duo">
         <div class="txt">
           <h4>Not “AI-powered.” Legible.</h4>
           <p>There’s no model inside Substrate and no tokens to buy. The claim is stronger and cheaper: the vault is plain text with documented conventions, so <em style="color:var(--ink);font-style:normal">any</em> agent — Claude, a cron script, you in a terminal — can read and write it directly.</p>
-          <p class="m">EVERYTHING THE UI DOES IS ACHIEVABLE BY EDITING FILES.</p>
+          <p class="m">EVERYTHING THE UI DOES TO YOUR DATA IS ACHIEVABLE BY EDITING FILES.</p>
         </div>
         <div class="term" data-r>
-          <div class="bar"><span><i>●</i> agent — claude</span><span>~/Vault</span></div>
+          <div class="bar"><span><i>✳</i> agent — claude</span><span>~/Vault</span></div>
           <pre><span class="p">agent ›</span> file today's captures
 <span class="dim">read   Inbox/ — 4 untyped notes</span>
 <span class="dim">write  type: contact → Contacts/Noa.md</span>
@@ -599,49 +799,42 @@ stems for the motion piece due Friday.
     </section>
 
     <section id="features">
-      <p class="sn">07 / features</p>
+      <p class="sn">09 / features</p>
       <h3 class="big">Narrow, but finished.</h3>
       <p class="lede">A smaller surface done properly beats a wide surface at 80%.</p>
       <div class="ledger">
         <div class="lrow"><span class="k">capture</span><span class="v">One keystroke from any app — <kbd>⌥Space</kbd> drops a thought into the Inbox. Filing is a decision for later, or never.</span></div>
         <div class="lrow"><span class="k">palette</span><span class="v"><kbd>⌘K</kbd> opens anything, creates anything, runs anything. <kbd>⌘1–9</kbd> jump views, <kbd>j k</kbd> walk lists.</span></div>
-        <div class="lrow"><span class="k">search</span><span class="v">Full-text over the whole vault, indexed in Rust, results as you type. No loading states worth naming.</span></div>
+        <div class="lrow"><span class="k">search</span><span class="v">Full-text over the whole vault, indexed in Rust, results as you type — instant at a 2,100-note vault.</span></div>
         <div class="lrow"><span class="k">editor</span><span class="v">Live-rendered markdown — raw syntax only at the cursor. No block editor; blocks are the cost swamp that makes Notion slow.</span></div>
         <div class="lrow"><span class="k">databases</span><span class="v">Typed properties, four views, saved views, templates, inline editing — over the same plain files.</span></div>
+        <div class="lrow"><span class="k">sheets</span><span class="v">Working spreadsheets — <code>SUM</code>, <code>SUMIF</code>, cross-sheet references, live FX. Notion&#8217;s formulas stop at one row; these don&#8217;t.</span></div>
+        <div class="lrow"><span class="k">links</span><span class="v">[[Wikilinks]] and backlinks across the whole vault — ⌘-click a note that doesn’t exist yet, and now it does.</span></div>
         <div class="lrow"><span class="k">dashboards</span><span class="v">Stat cards, charts, and live views bound to sheet formulas — all plain text.</span></div>
         <div class="lrow"><span class="k">local reality</span><span class="v">Indexes real folders on disk — money, projects, masters. Cloud tools can’t see your machine.</span></div>
-        <div class="lrow"><span class="k">history</span><span class="v">Every change versioned in local git. Deletes go to trash, restore is one click, only explicit purges are permanent.</span></div>
-        <div class="lrow"><span class="k">sync</span><span class="v">Vault-to-vault git sync today — your own Mac is the remote, no third party in the path. End-to-end encryption is the committed design: any future relay moves ciphertext it cannot read.</span></div>
+        <div class="lrow"><span class="k">history</span><span class="v">Every note edit versioned in local git. Deletes go to trash, restore is one click, only explicit purges are permanent.</span></div>
+        <div class="lrow"><span class="k">sync</span><span class="v">Vault-to-vault git sync today — notes and settings, your own Mac as the remote, no third party in the path. End-to-end encryption is the committed design: any future relay moves ciphertext it cannot read. iOS build in active development.</span></div>
       </div>
     </section>
 
-    <section id="surfaces">
-      <p class="sn">08 / surfaces</p>
-      <h3 class="big">Dashboards over text files.</h3>
-      <p class="lede">Sheets are formula tables in plain text; dashboards bind stat cards, status cards, and live database views to the results. Below: a label pipeline reading from the same markdown you just saw.</p>
-      <div class="shot-break" data-r style="margin-top:40px">
-        <div class="shot"><img src="readme-dashboard.png" width="2560" height="1464" alt="A Substrate dashboard — status cards and a live database view over plain files" loading="lazy" /></div>
-      </div>
-      <p class="shot-cap"><b>Umbra Home.md</b> · a dashboard note · every number and row traceable to a text file on disk</p>
-    </section>
 
     <section id="principles">
-      <p class="sn">09 / principles</p>
+      <p class="sn">10 / principles</p>
       <h3 class="big">Built on a few stubborn ideas.</h3>
       <div class="creed">
-        <div class="c"><span class="n">01</span><div><h4>Files are the only truth.</h4><p>No export button, because there is nothing to export from.</p></div></div>
-        <div class="c"><span class="n">02</span><div><h4>Nothing phones home.</h4><p>No account, no telemetry, no cloud — your vault never leaves your machines uninvited.</p></div></div>
+        <div class="c"><span class="n">01</span><div><h4>Files are the only truth.</h4><p>Export a PDF to send someone, sure. But you&#8217;ll never need to export <em style="font-style:normal;color:var(--ink)">your data</em> — it was never inside.</p></div></div>
+        <div class="c"><span class="n">02</span><div><h4>Nothing phones home.</h4><p>No account, no telemetry, no cloud — your vault never leaves your machines uninvited. The only outbound calls are features you can see: currency rates for sheets, titles for pasted links.</p></div></div>
         <div class="c"><span class="n">03</span><div><h4>Speed is a feature, not a benchmark.</h4><p>The app should feel like a room, not a machine.</p></div></div>
         <div class="c"><span class="n">04</span><div><h4>Agent-native, by design rule.</h4><p>Boring formats, documented conventions — the agent uses the same door you do.</p></div></div>
         <div class="c"><span class="n">05</span><div><h4>Built for one person first.</h4><p>Not a product committee — a daily driver. Every feature exists because someone needed it that week.</p></div></div>
       </div>
-      <p class="src-line">$ don’t trust the copy — <a href="#">read the source</a></p>
+      <p class="src-line">$ don’t trust the copy — <a href="https://github.com/x9x9x9x9x9x91/substrate">read the source</a></p>
     </section>
 
     <section id="switching">
-      <p class="sn">10 / switching</p>
+      <p class="sn">11 / switching</p>
       <h3 class="big xl">Leaving Notion?</h3>
-      <p class="lede">Same databases, same views, same everything-in-one-place — minus the loading spinners, the vendor account, and the API between your agent and your own notes.</p>
+      <p class="lede">The databases, the views, the everything-in-one-place — minus the loading spinners, the vendor account, and the API between your agent and your own notes.</p>
       <div class="steps3">
         <div><p class="sN">1</p><h4>Export from Notion</h4><p>Settings → Export all workspace content (markdown &amp; CSV).</p></div>
         <div><p class="sN">2</p><h4>Drop it in your vault</h4><p>Pages are markdown already — notes the moment they land. Database rows arrive as CSV; typing them as frontmatter is the real migration.</p></div>
@@ -651,27 +844,31 @@ stems for the motion piece due Friday.
     </section>
 
     <section id="price">
-      <p class="sn">11 / price</p>
+      <p class="sn">12 / price</p>
       <h3 class="big">Free and open source. That part’s simple.</h3>
       <div class="pricelines">
         <div class="pl"><span class="what">Build from source</span><span class="cost"><em>free forever</em> — every feature, no gates</span></div>
-        <div class="pl"><span class="what">App Store build</span><span class="cost">a few euros — signed, one-click, auto-updates; funds development</span></div>
+        <div class="pl"><span class="what">App Store build, later</span><span class="cost">a few euros — signed, one-click; funds development</span></div>
         <div class="pl"><span class="what">Hosted sync, later</span><span class="cost">optional — the self-host path stays documented</span></div>
       </div>
-      <p class="nag">Same app, same features, your call. A donation nag may appear, rarely — one euro makes it disappear forever, and the nag itself tells you how to build the version without it.</p>
+      <p class="nag">Same app, same features, your call. A donation nag may appear someday, rarely — one euro makes it disappear forever, and with the source right there you can always build the version without it.</p>
     </section>
 
     <section id="faq" style="padding-bottom: 104px">
-      <p class="sn">12 / faq</p>
+      <p class="sn">13 / faq</p>
       <h3 class="big">Fair questions.</h3>
       <div class="faq">
         <details>
           <summary>Where is my data, exactly?</summary>
-          <p>In <span class="fm">~/Vault</span> (or any folder you choose): markdown files with YAML frontmatter, plus a small <span class="fm">.vault/</span> folder of plain JSON for schemas and views. You can read all of it in a text editor right now.</p>
+          <p>In <span class="fm">~/Vault</span> (or any folder you choose): ordinary text files you can open in anything, plus a small <span class="fm">.vault/</span> folder holding your database settings and saved views — also plain text. You can read all of it right now, no Substrate required.</p>
         </details>
         <details>
           <summary>Isn&#8217;t this just Obsidian?</summary>
-          <p>Closest neighbor, different bet. Obsidian is closed source, and its databases are views — Bases reads your frontmatter into tables and cards, but sheets, dashboards, and richer schemas still live in per-plugin formats. Substrate is open source, and typed databases, sheets, and dashboards are the native core: one documented file convention your agent can rely on end to end.</p>
+          <p>Closest neighbor, different bet. Obsidian answered &#8220;who owns the files?&#8221; — Substrate starts there and asks what the files can <em style="font-style:normal;color:var(--ink)">do</em>. Four differences that compound:</p>
+          <p><span class="fm">core, not plugins.</span> In Obsidian, structure is assembled — Bases for tables, plugins for sheets and dashboards, each with its own format and update cycle. Here typed databases, sheets, and dashboards are one native core: one documented convention, no stack to keep standing.</p>
+          <p><span class="fm">computation.</span> Sheets are formula tables in plain text; dashboards bind stat cards, charts, and live views to the results — a spreadsheet-and-dashboard layer Bases doesn&#8217;t reach. Your finances, your release pipeline: computed, not just collected.</p>
+          <p><span class="fm">agent-first, not agent-tolerant.</span> Both are &#8220;just files,&#8221; but here the conventions are designed to be operated: documented spec, boring YAML, external edits as the designed path — the index is live before you ⌘-tab back.</p>
+          <p><span class="fm">open source.</span> Obsidian is free but closed. Every claim on this page is checkable in the repo.</p>
         </details>
         <details>
           <summary>What happens if the project dies?</summary>
@@ -679,15 +876,15 @@ stems for the motion piece due Friday.
         </details>
         <details>
           <summary>Does it phone home?</summary>
-          <p>No. No telemetry, no analytics, no account, no update pings you didn’t ask for. The source is open so you don’t have to take our word for it.</p>
+          <p>No telemetry, no analytics, no account, no update pings you didn’t ask for. Two boring exceptions, both user-visible features: sheets fetch currency rates, and pasting a URL fetches its title. The source is open so you don’t have to take our word for it.</p>
         </details>
         <details>
           <summary>Is the App Store build different?</summary>
-          <p>No — same app, same features. You&#8217;re paying for the signed one-click install and auto-updates, and to support development. The listing will say exactly this.</p>
+          <p>No — same app, same features. It&#8217;ll pay for the signed one-click install and support development. The listing will say exactly this.</p>
         </details>
         <details>
           <summary>iPhone? Windows? Linux?</summary>
-          <p>macOS first. An iOS build with end-to-end encrypted sync is in active development. Windows/Linux aren’t planned — the roadmap follows its owner’s needs, honestly stated.</p>
+          <p>macOS first. An iOS build is in active development — it syncs directly to your own Mac, no third party in the path; end-to-end encrypted relay sync is the committed design. Windows/Linux aren’t planned — the roadmap follows its owner’s needs, honestly stated.</p>
         </details>
       </div>
     </section>
@@ -696,23 +893,22 @@ stems for the motion piece due Friday.
 
 <!-- the entity returns -->
 <div class="closer" id="closer">
-  <p class="sig"><i>●</i> get substrate</p>
+  <p class="sig"><i>✳</i> get substrate</p>
   <h2 style="margin-top:26px">your notes. your disk.<br><span class="b">your agent&#8217;s hands.</span></h2>
   <p>One folder of markdown. Databases on top. If you ever leave, you take everything.</p>
   <div class="cta-row">
-    <a class="btn-w" href="#">DOWNLOAD FOR macOS</a>
-    <a class="btn-g" href="#">view source</a>
+    <a class="btn-w" href="https://github.com/x9x9x9x9x9x91/substrate/releases/download/v0.18.0/Substrate_0.18.0_aarch64.dmg">DOWNLOAD FOR macOS</a>
+    <a class="btn-g" href="https://github.com/x9x9x9x9x9x91/substrate">view source</a>
   </div>
 </div>
 
 <footer>
   <span style="color:var(--ink);letter-spacing:0.2em">SUBSTRATE<span style="color:var(--steel)">_</span></span>
   <div class="fl">
-    <a href="#">source</a>
-    <a href="#">docs</a>
-    <a href="#">vault-format</a>
-    <a href="#">issues</a>
-    <a href="FONT-LICENSES.md">fonts</a>
+    <a href="https://github.com/x9x9x9x9x9x91/substrate">source</a>
+    <a href="https://github.com/x9x9x9x9x9x91/substrate/tree/main/docs">docs</a>
+    <a href="https://github.com/x9x9x9x9x9x91/substrate/blob/main/docs/vault-format.md">vault-format</a>
+    <a href="https://github.com/x9x9x9x9x9x91/substrate/issues">issues</a>
   </div>
   <span class="tail">built in the open</span>
 </footer>
@@ -725,9 +921,12 @@ stems for the motion piece due Friday.
               /^(localhost|127\.)/.test(location.hostname);
   var canvas = document.getElementById("field");
   var ctx = canvas.getContext("2d", { alpha: false });
+  var glow = document.getElementById("glow");
+  var gtx = glow.getContext("2d", { alpha: false });
 
   var W = 0, H = 0, DPR = 1, N = 0, S = 0, CX = 0, CY = 0;
-  var px, py, tx, ty, tb, h1v, h2v, h3v, bins;
+  var px, py, tx, ty, tb, h1v, h2v, h3v, bins, order;
+  var binOfs = new Int32Array(7);
   var t = 0;
   var mouseX = -9999, mouseY = -9999;
 
@@ -741,24 +940,36 @@ stems for the motion piece due Friday.
   var NK = 22, EK = 44;
   var nodeX = new Float32Array(NK), nodeY = new Float32Array(NK);
   function computeNodes() {
+    /* right rail — every beat's text sits in the left column now */
     for (var k = 0; k < NK; k++) {
-      var rr = Math.sqrt((k + 0.5) / NK) * S * 0.4;
+      var rr = Math.sqrt((k + 0.5) / NK) * S * 0.36;
       var th = k * 2.399963 + fr(k * 55.5) * 0.5;
-      nodeX[k] = CX - W * 0.16 + Math.cos(th) * rr * 1.15;
-      nodeY[k] = CY - H * 0.03 + Math.sin(th) * rr * 0.85;
+      nodeX[k] = CX + W * 0.24 + Math.cos(th) * rr * 1.1;
+      nodeY[k] = CY - H * 0.02 + Math.sin(th) * rr * 0.85;
     }
   }
 
-  /* cached layout for onScroll */
-  var actEl = document.getElementById("act");
+  /* cached layout for onScroll — the field morphs per section: each
+     anchor is a beat's document-space center, scenes ease between them
+     as the reader passes (no pinned stage, no hijacked scroll) */
   var closerEl = document.getElementById("closer");
   var heroEl = document.querySelector(".hero");
-  var actTop = 0, actH = 1, contentStart = 0, closerTop = 0;
+  var contentEl = document.getElementById("content");
+  var afEls = Array.prototype.slice.call(document.querySelectorAll("#actflow .af"));
+  var anchors = [];
+  var contentStart = 0, closerTop = 0;
+  function docCenter(el) {
+    /* document-space center — offsetTop would be relative to the nearest
+       positioned ancestor (#actflow), which is exactly the bug to avoid */
+    var r = el.getBoundingClientRect();
+    return r.top + window.scrollY + r.height * 0.5;
+  }
   function measure() {
-    actTop = actEl.offsetTop;
-    actH = Math.max(1, actEl.offsetHeight - window.innerHeight);
-    contentStart = actTop + actEl.offsetHeight;
-    closerTop = closerEl.offsetTop;
+    anchors.length = 0;
+    anchors.push(docCenter(heroEl));
+    for (var a = 0; a < afEls.length; a++) anchors.push(docCenter(afEls[a]));
+    contentStart = contentEl.getBoundingClientRect().top + window.scrollY;
+    closerTop = closerEl.getBoundingClientRect().top + window.scrollY;
   }
 
   var coarse = matchMedia("(pointer: coarse)").matches;
@@ -769,20 +980,25 @@ stems for the motion piece due Friday.
     canvas.width = Math.floor(W * DPR); canvas.height = Math.floor(H * DPR);
     canvas.style.width = W + "px"; canvas.style.height = H + "px";
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    glow.width = Math.max(1, W >> 2); glow.height = Math.max(1, H >> 2);
+    gtx.fillStyle = "#000"; gtx.fillRect(0, 0, glow.width, glow.height);
     S = Math.min(W, H);
     CX = W * 0.5; CY = H * 0.52;
     computeNodes();
     measure();
-    /* quantize to 1000s so iOS URL-bar resizes never re-allocate */
-    var div = coarse ? 160 : 115;
-    var floor = coarse ? 2200 : 5000;
-    var want = Math.min(12000, Math.max(floor, Math.round(W * H / (div * 1000)) * 1000));
+    /* quantize to 1000s so iOS URL-bar resizes never re-allocate.
+       fineness comes from density: many near-transparent points, not
+       few bright ones (bloom.html principle) */
+    var div = coarse ? 160 : 64;
+    var floor = coarse ? 2200 : 7000;
+    var want = Math.min(22000, Math.max(floor, Math.round(W * H / (div * 1000)) * 1000));
     if (want !== N) {
       var old = N;
       var npx = new Float32Array(want), npy = new Float32Array(want);
       tx = new Float32Array(want); ty = new Float32Array(want); tb = new Float32Array(want);
       h1v = new Float32Array(want); h2v = new Float32Array(want); h3v = new Float32Array(want);
       bins = new Uint8Array(want);
+      order = new Int32Array(want);
       for (var i = 0; i < want; i++) {
         h1v[i] = fr(i * 127.1); h2v[i] = fr(i * 311.7); h3v[i] = fr(i * 74.7);
         if (i < old) { npx[i] = px[i]; npy[i] = py[i]; }
@@ -836,8 +1052,8 @@ stems for the motion piece due Friday.
     var sel = ((tt * 0.55) % R + R) % R;
     var selBoost = Math.max(0, 1 - Math.abs(r - sel) / 1.5) * 0.9;
     var head = r === 0 ? 0.62 : 0;
-    var firstCol = c === 0 ? 0.12 : 0;
-    tb[i] = 0.22 + head + selBoost + firstCol + h3v[i] * 0.12;
+    var firstCol = c === 0 ? 0.14 : 0;
+    tb[i] = 0.3 + head + selBoost + firstCol + h3v[i] * 0.12;
   }
 
   /* ---------- scene 2: the graph ---------- */
@@ -865,35 +1081,225 @@ stems for the motion piece due Friday.
     }
   }
 
-  /* ---------- scene 3: the strata — 5 bands rising toward the caption ---------- */
-  var strataW = [0.22, 0.34, 0.46, 0.60, 0.74];
-  var strataB = [1.0, 0.62, 0.44, 0.30, 0.20];
-  function sceneStrata(i, tt) {
-    var band = i % 5;
-    var bw = strataW[band] * Math.min(W * 0.94, 1300);
-    var bh = Math.max(14, S * 0.03);
-    var gap = bh * 1.2;
-    var by = CY + H * 0.1 + (band - 2) * (bh + gap);
-    tx[i] = CX + (h1v[i] - 0.5) * bw;
-    ty[i] = by + (h2v[i] - 0.5) * bh;
-    var flick = 0.08 * Math.sin(tt * 3 + h3v[i] * 40);
-    tb[i] = strataB[band] * (0.7 + h3v[i] * 0.3) + flick;
+  /* ---------- scene 3: the sheet — stat cards fed by a grounded bar chart ---------- */
+  function sceneSheet(i, tt) {
+    var tw = Math.min(680, W * 0.44);
+    var left = CX + W * 0.42 - tw, top = CY - H * 0.24;
+    var ch = Math.min(96, H * 0.11);
+    var base = CY + H * 0.27;
+    var m = i % 9;
+    if (m === 0) {
+      /* stat-card numeral strips: thin, dense, bright
+         (i is ≡0 mod 9 here, so derive the card from i/9, not i%3) */
+      var ci = ((i / 9) | 0) % 3;
+      var cw = tw * 0.30, gap = tw * 0.05;
+      tx[i] = left + ci * (cw + gap) + h1v[i] * cw * 0.8;
+      ty[i] = top + h2v[i] * ch * 0.26;
+      tb[i] = 0.6 + h3v[i] * 0.3;
+    } else if (m === 1) {
+      /* card bodies: faint fill so the rectangle edge reads */
+      var ci2 = ((i / 9) | 0) % 3;
+      var cw2 = tw * 0.30, gap2 = tw * 0.05;
+      tx[i] = left + ci2 * (cw2 + gap2) + h1v[i] * cw2;
+      ty[i] = top + ch * (0.38 + h2v[i] * 0.62);
+      tb[i] = 0.1 + h3v[i] * 0.08;
+    } else if (m === 2) {
+      /* baseline: a dense band grounding the bars — strata idiom,
+         foreshadows the final act */
+      tx[i] = left + h1v[i] * tw;
+      ty[i] = base + (h2v[i] - 0.25) * 6;
+      tb[i] = 0.28 + h3v[i] * 0.18;
+    } else if (m === 3) {
+      /* results drifting up from bar tops into the cards */
+      var B0 = 9;
+      var bi0 = ((i / 9) | 0) % B0;
+      var bw0 = tw / B0;
+      var hgt0 = (0.28 + 0.62 * fr(bi0 * 47.7)) * (H * 0.32);
+      var u = (tt * (0.04 + h2v[i] * 0.035) + h1v[i]) % 1;
+      var y0 = base - hgt0, y1 = top + ch;
+      tx[i] = left + bi0 * bw0 + bw0 * 0.3 + (h3v[i] - 0.5) * 10 + Math.sin(u * 6 + i) * 5;
+      ty[i] = y0 + (y1 - y0) * u;
+      tb[i] = 0.26 * Math.sin(u * Math.PI);
+    } else {
+      /* bar chart breathing — every bar a formula result */
+      var B = 9;
+      var bi = ((i / 9) | 0) % B;
+      var bw2 = tw / B;
+      var hgt = (0.28 + 0.62 * fr(bi * 47.7)) * (H * 0.32);
+      hgt *= 0.92 + 0.08 * Math.sin(tt * 1.1 + bi * 1.7);
+      tx[i] = left + bi * bw2 + h1v[i] * (bw2 * 0.62);
+      ty[i] = base - h2v[i] * hgt;
+      tb[i] = 0.24 + h2v[i] * 0.24 + (h2v[i] > 0.93 ? 0.45 : 0) + h3v[i] * 0.1;
+    }
   }
 
-  var scenes = [sceneWisp, sceneTable, sceneGraph, sceneStrata];
+  /* ---------- scene 4: the strata — 5 bands, and a shoot germinating from them ---------- */
+  var strataW = [0.22, 0.34, 0.46, 0.60, 0.74];
+  var strataB = [1.0, 0.62, 0.44, 0.30, 0.20];
+  function ramp(x, a, b) { return Math.min(1, Math.max(0, (x - a) / (b - a))); }
+  function sceneStrata(i, tt) {
+    var bh = Math.max(14, S * 0.03);
+    var gap = bh * 1.2;
+    /* the strata live in the right rail beside the beat's text column */
+    var RX = CX + W * 0.24;
+    var railW = Math.min(W * 0.5, 720);
+    if (i % 9 < 7 || W < 900) {   /* no room for the sprout on small screens */
+      var band = i % 5;
+      var bw = strataW[band] * railW;
+      var by = CY + H * 0.1 + (band - 2) * (bh + gap);
+      tx[i] = RX + (h1v[i] - 0.5) * bw;
+      ty[i] = by + (h2v[i] - 0.5) * bh;
+      var flick = 0.08 * Math.sin(tt * 3 + h3v[i] * 40);
+      tb[i] = strataB[band] * (0.7 + h3v[i] * 0.3) + flick;
+      return;
+    }
+    /* germination: a ghost shoot rises from the top stratum, unfurls a
+       six-arm head, resorbs, repeats — things grow from the ground */
+    var p = (tt * 0.045) % 1;
+    var G = smooth(ramp(p, 0.06, 0.42));
+    var O = smooth(ramp(p, 0.4, 0.62));
+    var F = 1 - ramp(p, 0.82, 0.97);
+    /* the shoot germinates from the left tip of the deepest stratum
+       and climbs past the layers — growth out of the ground itself */
+    var gx = RX - strataW[4] * railW * 0.46;
+    var groundY = CY + H * 0.1 + 2 * (bh + gap);
+    var rise = Math.min(H * 0.3, (bh + gap) * 4.6);
+    var sway = Math.sin(tt * 0.9) * 8 * G;
+    var topY = groundY - rise * G;
+    if (i % 18 === 7) {
+      /* stem — before it grows, the points pile up as a seed kernel */
+      var s = h1v[i];
+      tx[i] = gx + sway * s * s + Math.sin(i * 2.1) * 2 + (h2v[i] - 0.5) * 10 * (1 - G);
+      ty[i] = groundY - rise * G * s + (h3v[i] - 0.5) * 6 * (1 - G);
+      tb[i] = (0.22 + 0.3 * s) * F;
+    } else {
+      /* head: six arms folded upward, fanning open into the mark —
+         filament strands, petal envelope, soft falloff */
+      var arm = ((i / 9) | 0) % 6;
+      var s2 = h1v[i];
+      var target = (arm / 6) * 6.28318 - 1.5708;
+      var an = -1.5708 + (target + 1.5708) * O + 0.05 * Math.sin(tt * 1.3 + arm);
+      var L = Math.max(44, S * 0.1) * (0.15 + 0.85 * O) * G;
+      var env = Math.sin(s2 * Math.PI);
+      var strand = ((i / 54) | 0) % 3;
+      var w = 10 * Math.pow(env, 1.5) * O;
+      var off = (strand - 1) * w * 0.6 + (h2v[i] - 0.5) * w * 0.6;
+      tx[i] = gx + sway + Math.cos(an) * s2 * L - Math.sin(an) * off;
+      ty[i] = topY + Math.sin(an) * s2 * L + Math.cos(an) * off;
+      tb[i] = (0.09 + 0.34 * env * O) * (strand === 1 ? 1.2 : 0.8) * F * G;
+    }
+  }
 
-  /* monochrome buckets, white cores */
-  var shades = [
-    "rgba(82,88,100,0.30)",
-    "rgba(112,120,134,0.42)",
-    "rgba(148,156,170,0.56)",
-    "rgba(190,198,210,0.72)",
-    "rgba(228,232,240,0.88)",
-    "rgba(255,255,255,0.97)"
-  ];
+  /* ---------- the closer: rooted — the mark as a living thing ---------- */
+  function sceneRooted(i, tt) {
+    if (W < 900) { sceneWisp(i, tt); return; }   /* small screens keep the wisp */
+    var sc = Math.min(S / 500, 1.35);
+    var fx = CX + W * 0.36;
+    var GY = CY + H * 0.26;
+    var sway = 0.1 * Math.sin(tt * 0.8) + 0.04 * Math.sin(tt * 2.3);
+    var hx = fx + 46 * Math.sin(tt * 0.8) * sc;
+    var hy = GY - 152 * sc + 6 * Math.sin(tt * 1.6);
+    var kind = i % 6;
+    var j = (i / 6) | 0;
+    if (kind === 0) {
+      /* ground line: a fine band of sediment */
+      var x = fx + (h1v[i] - 0.5) * Math.min(W * 0.42, 660 * sc);
+      var settle = Math.sin(j * 3.7) * 2 + Math.sin(x / 14 + tt) * 1.2;
+      tx[i] = x; ty[i] = GY + settle;
+      tb[i] = Math.max(0.06, 0.3 - Math.abs(settle) * 0.06);
+    } else if (kind === 1) {
+      /* stem, bending with the sway — a fine double filament */
+      var s = h1v[i];
+      tx[i] = fx + s * s * (hx - fx) + 1.6 * Math.sin(j * 1.9) * (1 - s * 0.5) + (j % 2 ? 1.4 : -1.4) * (1 - s * 0.6);
+      ty[i] = GY - s * (GY - hy);
+      tb[i] = 0.26 + 0.3 * s;
+    } else if (kind === 2 || kind === 3) {
+      /* six petal arms as veined filaments — five strands per arm,
+         petal-shaped envelope, brightness falls off along each strand
+         (bloom.html: density and falloff, never solid fill) */
+      var arm = j % 6;
+      var s2 = h1v[i];
+      var open = 0.75 + 0.25 * Math.sin(tt * 0.9 - s2 * 2);
+      var L = 92 * open * sc;
+      var strand = ((j / 6) | 0) % 5;
+      var env = Math.sin(s2 * Math.PI);
+      var w = 13 * Math.pow(env, 1.5) * open * sc;
+      var off = (strand / 2 - 1) * w + (h2v[i] - 0.5) * w * 0.5
+              + Math.sin(s2 * 9 + arm * 3 + tt * 0.6) * 1.5 * sc;
+      var an = (arm / 6) * 6.28318 - 1.5708 + sway + 0.06 * Math.sin(tt * 1.4 + arm);
+      tx[i] = hx + Math.cos(an) * s2 * L - Math.sin(an) * off;
+      ty[i] = hy + Math.sin(an) * s2 * L + Math.cos(an) * off;
+      /* lifted vs the other scenes: the global gamma sinks mids to dust,
+         and the flower is the one pose that must still read as a figure */
+      tb[i] = (0.1 + 0.48 * env) * (strand === 2 ? 1.35 : 0.72) * (0.7 + 0.3 * open);
+    } else if (kind === 4) {
+      /* phyllotaxis core, breathing — bright kernel, soft rim */
+      var k = j % 400;
+      var an2 = k * 2.39996 + tt * 0.05;
+      var r = 1.5 * Math.sqrt(k) * sc * (1 + 0.06 * Math.sin(tt * 2));
+      tx[i] = hx + r * Math.cos(an2);
+      ty[i] = hy + r * Math.sin(an2);
+      tb[i] = Math.max(0.1, 0.8 - r * 0.03);
+    } else {
+      /* roots below the ground, nutrient pulses travelling down */
+      var n = j % 7;
+      var spread = (n / 6 - 0.5) * 2;
+      var s3 = h1v[i];
+      var wander = Math.sin(s3 * 5 + n * 2.7 + tt * 0.4) * 30 * s3
+                 + Math.sin(s3 * 13 + n * 7) * 8 * s3;
+      tx[i] = fx + (spread * 90 * Math.pow(s3, 0.8) + wander) * sc;
+      ty[i] = GY + (s3 * 110 * (1.3 - 0.4 * Math.abs(spread)) + 4 * Math.sin(s3 * 30 + n)) * sc;
+      var pk = Math.exp(-40 * Math.pow(((tt * 0.13 + n * 0.31) % 1) - s3, 2));
+      tb[i] = 0.06 + 0.13 * (1 - s3) + 0.5 * pk * (1 - s3 * s3);
+      /* roots dissolve into the dark before the footer rule cuts them */
+      tb[i] *= Math.max(0, Math.min(1, (H - 70 - ty[i]) / 130));
+    }
+  }
 
-  var caps = [document.getElementById("cap0"), document.getElementById("cap1"), document.getElementById("cap2")];
+  /* pollen: a few motes rise through every scene — the field is alive */
+  function spore(i, tt) {
+    var speed = 0.012 + h2v[i] * 0.02;
+    var ph = h1v[i] * 7.3;
+    var life = (tt * speed + ph) % 1;
+    tx[i] = h1v[i] * W + Math.sin(life * 5 + ph * 9) * 46;
+    ty[i] = H * 1.04 - life * (H * 1.14);
+    tb[i] = (0.08 + h3v[i] * 0.22) * Math.sin(life * Math.PI);
+    /* a wrapped mote teleports instead of streaking across the frame */
+    if (Math.abs(ty[i] - py[i]) > H * 0.5) { px[i] = tx[i]; py[i] = ty[i]; }
+  }
+
+  var scenes = [sceneWisp, sceneTable, sceneGraph, sceneSheet, sceneStrata];
+  var LAST = scenes.length - 1;             /* 4 */
+
+  /* monochrome buckets — a wide range: the low end is near-invisible
+     dust (density carries it), the top end is sharp and rare
+     (bloom.html: fine texture + hard accents, nothing in between).
+     Alphas are rebuilt per cadence: at a slower cadence deposits land
+     less often against the same per-second trail decay, so holding the
+     alphas would dim the settled field ~22% (SUB-798 review). Per
+     bucket, x* = a/(1−(1−A)(1−a)) is the settled brightness at the
+     reference A=0.4; inverting a = x*·A/(1−x*(1−A)) at the live A
+     keeps that brightness identical at every cadence. */
+  var SH_RGB = [[70,76,88],[100,108,122],[136,144,158],[182,190,202],[230,234,242],[255,255,255]];
+  var SH_X = [0.271967, 0.384615, 0.517241, 0.680473, 0.898618, 1];
+  var shades = new Array(6), trailFill = "", shadeA = 0;
+  function setCadence(A) {
+    if (Math.abs(A - shadeA) < 0.002) return;
+    shadeA = A;
+    trailFill = "rgba(0,0,0," + A.toFixed(4) + ")";
+    for (var b = 0; b < 6; b++) {
+      var a = b === 5 ? 1 : SH_X[b] * A / (1 - SH_X[b] * (1 - A));
+      shades[b] = "rgba(" + SH_RGB[b][0] + "," + SH_RGB[b][1] + "," + SH_RGB[b][2] + "," + a.toFixed(4) + ")";
+    }
+  }
+  setCadence(0.4);
+
+  var actflowEl = document.getElementById("actflow");
   var navEl = document.getElementById("nav");
+  var rootEl = document.getElementById("root");
+  var rootLine = rootEl ? rootEl.querySelector(".line") : null;
+  var rootTip = rootEl ? rootEl.querySelector(".tip") : null;
+  if (!motionOK && rootLine) { rootLine.style.transform = "scaleY(1)"; rootLine = rootTip = null; }
 
   var P = 0, fade = 1, wispBack = 0;
 
@@ -904,60 +1310,89 @@ stems for the motion piece due Friday.
   pin = pin === undefined ? null : parseFloat(pin);
 
   function onScroll() {
+    lastInput = performance.now();
     var sy = window.scrollY;
     var vh = window.innerHeight;
     navEl.classList.toggle("solid", sy > 40);
     if (pin !== null) {
       P = pin; fade = 1;
       heroEl.style.visibility = "hidden";
-      for (var kk = 0; kk < 3; kk++) {
-        var cc = 1.3 + kk;
-        var oo = Math.max(0, 1 - Math.abs(P - cc) * 1.9);
-        caps[kk].style.opacity = smooth(oo);
-        caps[kk].style.position = "fixed";
-        caps[kk].style.inset = "0";
-        caps[kk].style.display = "grid";
-        caps[kk].style.placeItems = "center";
-      }
+      if (actflowEl) actflowEl.style.visibility = "hidden";
       return;
     }
     if (!motionOK) { P = 0; fade = 1; return; }
 
-    var pr = Math.max(0, Math.min(1, (sy - actTop) / actH));
-    P = pr * 3.45;
-
-    for (var k = 0; k < 3; k++) {
-      var cen = 1.3 + k;
-      var o = Math.max(0, 1 - Math.abs(P - cen) * 2.2);
-      caps[k].style.opacity = smooth(o);
+    var yc = sy + vh * 0.5;
+    if (W < 900) {
+      /* small screens: no mid-page figures — the wisp owns the hero,
+         the field sleeps through the beats, the closer wakes it */
+      P = 0;
+    } else {
+      /* ease scene-to-scene between beat centers (anchors) — the field
+         morphs as each beat passes, the page itself scrolls normally */
+      if (yc <= anchors[0]) P = 0;
+      else if (yc >= anchors[anchors.length - 1]) P = LAST;
+      else {
+        for (var k = 0; k < anchors.length - 1; k++) {
+          if (yc < anchors[k + 1]) {
+            P = k + smooth((yc - anchors[k]) / (anchors[k + 1] - anchors[k]));
+            break;
+          }
+        }
+      }
     }
 
     var f1 = 1 - Math.max(0, Math.min(1, (sy - (contentStart - vh)) / (vh * 0.5)));
+    if (W < 900) f1 = 1 - Math.max(0, Math.min(1, (sy - vh * 0.35) / (vh * 0.5)));
     var f2 = Math.max(0, Math.min(1, 1 - ((closerTop - sy) - vh * 0.5) / (vh * 0.5)));
     wispBack = f2;
     fade = Math.max(f1, f2);
     canvas.style.opacity = (0.1 + 0.9 * fade).toFixed(3);
+    glow.style.opacity = (0.6 * (0.1 + 0.9 * fade)).toFixed(3);
+
+    /* taproot: grows down the content margin as you read into the ground */
+    if (rootLine) {
+      var rp = Math.max(0, Math.min(1, (sy + vh * 0.82 - contentStart) / Math.max(1, closerTop - contentStart)));
+      rootLine.style.transform = "scaleY(" + rp.toFixed(4) + ")";
+      rootTip.style.opacity = rp > 0.005 && rp < 0.995 ? 0.9 : 0;
+      rootTip.style.transform = "translateY(" + (rp * (closerTop - contentStart)).toFixed(1) + "px)";
+    }
   }
 
+  /* the governor: while the visitor scrolls or steers the cursor the
+     field runs at full rate; once they settle into reading it eases to
+     an ambient rate. dt below folds the skipped steps back in, so
+     nothing moves slower — the field just spends fewer frames on it */
+  var lastInput = performance.now();
+  function noteInput() { lastInput = performance.now(); }
   if (matchMedia("(hover: hover)").matches) {
-    addEventListener("mousemove", function (e) { mouseX = e.clientX; mouseY = e.clientY; }, { passive: true });
+    addEventListener("mousemove", function (e) { mouseX = e.clientX; mouseY = e.clientY; noteInput(); }, { passive: true });
     document.documentElement.addEventListener("mouseleave", function () { mouseX = -9999; });
   }
+  var focused = document.hasFocus();
+  addEventListener("focus", function () { focused = true; noteInput(); });
+  addEventListener("blur", function () { focused = false; });
 
   var running = true;
   document.addEventListener("visibilitychange", function () {
+    var wasRunning = running;
     running = !document.hidden;
-    if (running && motionOK) requestAnimationFrame(frame);
+    if (running && !wasRunning && motionOK) requestAnimationFrame(frame);
   });
 
-  function step(wb) {
-    /* one physics step: targets → springs → cursor repulsion → bin */
+  function step(wb, k) {
+    /* one physics step: targets → springs → cursor repulsion → bin.
+       k = how many 60Hz units this step stands for (fractional — real
+       elapsed time); the spring folds the skipped time back in so
+       motion covers the same ground per second at every cadence */
+    var spr = k === 1 ? 0.09 : 1 - Math.pow(0.91, k);
+    var jsc = spr / 0.09;   /* haze width rides jm/spr — hold the ratio */
     var Peff = P;
-    var sA = Math.min(3, Math.floor(Peff));
+    var sA = Math.min(LAST, Math.floor(Peff));
     /* plateau: each scene holds for 60% of its unit, morphs in the last 40% */
     var frac = Math.min(1, Peff - sA);
     var f = frac <= 0.6 ? 0 : smooth((frac - 0.6) / 0.4);
-    var sB = Math.min(3, sA + 1);
+    var sB = Math.min(LAST, sA + 1);
     var blend = f > 0.0001 && sB !== sA;
     var fnA = scenes[sA], fnB = scenes[sB];
     var wbS = wb > 0.001 ? smooth(wb) : 0;
@@ -972,55 +1407,118 @@ stems for the motion piece due Friday.
         tb[i] = ab + (tb[i] - ab) * f;
       }
       if (wbS) {
-        /* the closer melts straight to the wisp — no rewinding the timeline;
-           slid right so the centered closer headline clears the column */
+        /* the closer melts straight into the rooted mark — the entity
+           that haunted the page finally settles and grows */
         var sx = tx[i], sy2 = ty[i], sb = tb[i];
-        wispX = W * 0.08;
-        sceneWisp(i, t);
-        wispX = 0;
+        sceneRooted(i, t);
         tx[i] = sx + (tx[i] - sx) * wbS;
         ty[i] = sy2 + (ty[i] - sy2) * wbS;
         tb[i] = sb + (tb[i] - sb) * wbS;
       }
-      px[i] += (tx[i] - px[i]) * 0.09 + Math.sin(t * 1.4 + i * 0.7) * 0.16;
-      py[i] += (ty[i] - py[i]) * 0.09 + Math.cos(t * 1.1 + i * 1.3) * 0.16;
+      if (i % 29 === 0 && W >= 640) spore(i, t);
+      /* per-particle discipline: some particles hold the line almost
+         exactly (the fine skeleton), most haze around it (the flesh) —
+         bloom.html's dense-yet-fine comes from this variance, not from
+         one uniform jitter */
+      var jm = (0.04 + h3v[i] * h3v[i] * 0.42) * jsc;
+      px[i] += (tx[i] - px[i]) * spr + Math.sin(t * 1.4 + i * 0.7) * jm;
+      py[i] += (ty[i] - py[i]) * spr + Math.cos(t * 1.1 + i * 1.3) * jm;
       var gx = px[i] - mouseX, gy = py[i] - mouseY;
       var d2 = gx * gx + gy * gy;
       if (d2 < 11000 && d2 > 0.01) {
         var dd = Math.sqrt(d2);
-        var push = (1 - dd / 105) * 5;
+        /* jsc, not k: push/spr sets the hole radius — hold the ratio */
+        var push = (1 - dd / 105) * 5 * jsc;
         px[i] += (gx / dd) * push;
         py[i] += (gy / dd) * push;
       }
-      var bk = tb[i] * 5.99;
-      bins[i] = bk < 0 ? 0 : (bk > 5 ? 5 : bk | 0);
+      /* gamma on the brightness→bucket curve: mids sink toward dust,
+         only true peaks reach the sharp white buckets — contrast.
+         Disciplined particles (low jitter) get a small lift so the
+         crisp skeleton is also the bright one; the haze stays dim. */
+      var tbv = tb[i] < 0 ? 0 : tb[i];
+      var bk = tbv * tbv * 0.82 * 5.99 + tbv * (0.85 + (1 - h3v[i]) * 0.5);
+      bins[i] = bk > 5 ? 5 : bk | 0;
     }
   }
 
   function draw() {
-    for (var b = 0; b < 6; b++) {
+    /* dust buckets draw at fractional coords — the anti-aliasing melts
+       them into fine grain; only the two brightest buckets stay
+       pixel-snapped, a crisp skeleton inside the soft flesh.
+       Counting-sort by bucket first: one pass to group, one to draw,
+       instead of six full sweeps over N */
+    var b, j;
+    for (b = 0; b < 7; b++) binOfs[b] = 0;
+    for (j = 0; j < N; j++) binOfs[bins[j] + 1]++;
+    for (b = 0; b < 6; b++) binOfs[b + 1] += binOfs[b];
+    for (j = 0; j < N; j++) order[binOfs[bins[j]]++] = j;
+    var from = 0;
+    for (b = 0; b < 6; b++) {
       ctx.fillStyle = shades[b];
-      var sz = b >= 4 ? 2 : 1.4;
-      for (var j = 0; j < N; j++) {
-        if (bins[j] === b) ctx.fillRect(px[j] | 0, py[j] | 0, sz, sz);
+      var to = binOfs[b];        /* after placement, binOfs[b] = end of bucket b */
+      if (b < 4) {
+        for (j = from; j < to; j++) {
+          var p = order[j];
+          ctx.fillRect(px[p], py[p], 1, 1);
+        }
+      } else {
+        var sz = b >= 5 ? 1.25 : 1;
+        for (j = from; j < to; j++) {
+          var p2 = order[j];
+          ctx.fillRect(px[p2] | 0, py[p2] | 0, sz, sz);
+        }
       }
+      from = to;
     }
   }
 
   var frames = 0, lastT = 0;
+  var perf = { frames: 0, ms: 0, k: 1 };
+  if (DEBUG) window.__fieldPerf = perf;
   function frame(now) {
     if (!running) return;
     requestAnimationFrame(frame);
-    /* cap the sketch at ~60Hz so 120Hz displays don't run it double-speed */
-    if (now - lastT < 12) return;
+    /* the governor picks a cadence: full rate while the visitor is
+       driving (input in the last 3s), ~half while they read, ~third
+       when the window isn't focused (hidden tab stops entirely).
+       Compensation below is continuous in real elapsed time, so the
+       cadence the gate lands on — including the odd ones a 75/90/144Hz
+       display quantizes to — always plays back at true speed with the
+       same settled brightness. */
+    var g = now - lastInput < 3000 ? 1 : focused ? 2 : 3;
+    var minGap = g === 1 ? 12 : g === 2 ? 28 : 45;
+    if (now - lastT < minGap) return;
+    /* kf: elapsed in 60Hz units, quantized so caches hold frame-to-frame */
+    var kf = lastT ? Math.round(Math.min(4, Math.max(0.5, (now - lastT) / (1000 / 60))) * 20) / 20 : 1;
     lastT = now;
     if (fade <= 0.02 && frames > 20) return;          /* asleep behind content */
-    t += Math.PI / 120;
+    t += (Math.PI / 120) * kf;
     frames++;
-    ctx.fillStyle = "rgba(0,0,0,0.32)";               /* trail fade */
+    var t0 = DEBUG ? performance.now() : 0;
+    setCadence(1 - Math.pow(0.6, kf));
+    ctx.fillStyle = trailFill;                        /* trail fade — shorter
+       trails than before: smear reads meaty, crisp grain reads fine */
     ctx.fillRect(0, 0, W, H);
-    step(wispBack);
+    step(wispBack, kf);
     draw();
+    if (DEBUG) { perf.frames++; perf.ms += performance.now() - t0; perf.k = kf; }
+    /* mirror to the quarter-res glow layer (CSS blurs + screens it),
+       then carve a drifting light pocket into it — the glare wanders
+       through the field instead of sitting evenly on it */
+    if ((frames & 1) === 0) {
+      gtx.globalCompositeOperation = "source-over";
+      gtx.drawImage(canvas, 0, 0, glow.width, glow.height);
+      var gw = glow.width, gh = glow.height;
+      var lx = gw * (0.5 + 0.42 * Math.sin(t * 0.23));
+      var ly = gh * (0.5 + 0.36 * Math.sin(t * 0.31 + 2.1));
+      var lr = gh * (0.75 + 0.15 * Math.sin(t * 0.17));
+      var dim = gtx.createRadialGradient(lx, ly, lr * 0.25, lx, ly, lr);
+      dim.addColorStop(0, "rgba(0,0,0,0)");
+      dim.addColorStop(1, "rgba(0,0,0,0.72)");
+      gtx.fillStyle = dim;
+      gtx.fillRect(0, 0, gw, gh);
+    }
   }
 
   resize();
@@ -1030,7 +1528,7 @@ stems for the motion piece due Friday.
     /* reduced motion: settle invisibly, paint one still pose */
     for (var w = 0; w < 90; w++) {
       t += Math.PI / 120;
-      step(0);
+      step(0, 1);
       for (var i2 = 0; i2 < N; i2++) {
         px[i2] += (tx[i2] - px[i2]) * 0.2;
         py[i2] += (ty[i2] - py[i2]) * 0.2;
@@ -1038,6 +1536,7 @@ stems for the motion piece due Friday.
     }
     ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
     draw();
+    gtx.drawImage(canvas, 0, 0, glow.width, glow.height);
   }
 
   if (motionOK) {
@@ -1114,17 +1613,97 @@ stems for the motion piece due Friday.
     } else {
       startScramble();
     }
+
+    /* the inverted verb cycles — the agent doesn't just operate the
+       brain, it reshapes it. Same particle-decode as the entrance. */
+    var VERBS = ["operate.", "rewire.", "mold.", "extend.", "rebuild.", "grow."];
+    var cyc = document.getElementById("cyc");
+    var vi = 0, morphing = false;
+    function morphTo(word) {
+      morphing = true;
+      var from = cyc.textContent;
+      var len = Math.max(from.length, word.length);
+      var t0 = performance.now();
+      var DISS = 240, HOLD = 90, FORM = 60 + word.length * 34;
+      function tick(now) {
+        var el = now - t0;
+        var out = "";
+        if (el < DISS) {
+          /* dissolve right-to-left into dots */
+          var gone = Math.ceil((el / DISS) * len);
+          for (var c = 0; c < from.length; c++) {
+            out += c >= from.length - gone ? glyphs[(Math.random() * glyphs.length) | 0] : from[c];
+          }
+        } else if (el < DISS + HOLD) {
+          for (var c2 = 0; c2 < word.length; c2++) out += glyphs[(Math.random() * glyphs.length) | 0];
+        } else {
+          /* condense left-to-right into the new word */
+          var e2 = el - DISS - HOLD;
+          var have = Math.min(word.length, Math.ceil((e2 / FORM) * word.length));
+          for (var c3 = 0; c3 < word.length; c3++) {
+            out += c3 < have ? word[c3] : glyphs[(Math.random() * glyphs.length) | 0];
+          }
+          if (have >= word.length) { cyc.textContent = word; morphing = false; return; }
+        }
+        cyc.textContent = out;
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    }
+    setInterval(function () {
+      if (morphing || document.hidden) return;
+      /* only cycle while the hero is on screen */
+      if (window.scrollY > innerHeight * 0.8) return;
+      vi = (vi + 1) % VERBS.length;
+      morphTo(VERBS[vi]);
+    }, 3400);
   }
 
-  /* debug hooks (local only): #y=<px> scrolls to a pixel; #p=N.N jumps into the act */
+  /* the viewer: a slow slideshow of real app surfaces. It advances by
+     itself while on screen; the labelled dashes jump, and any manual
+     jump parks the autoplay for a while (the reader took the wheel). */
+  var viewer = document.getElementById("viewer");
+  if (viewer) {
+    var vimgs = viewer.querySelectorAll(".vframe img");
+    var vcaps = viewer.querySelectorAll(".vcap");
+    var vtabs = viewer.querySelectorAll(".vtabs button");
+    var vOrder = Array.prototype.map.call(vtabs, function (b) { return b.dataset.v; });
+    var vIdx = 0, vSeen = false, vHold = 0;
+    function vShow(v) {
+      vIdx = vOrder.indexOf(v);
+      vtabs.forEach(function (b) { b.setAttribute("aria-selected", b.dataset.v === v ? "true" : "false"); });
+      vimgs.forEach(function (im) { im.classList.toggle("on", im.dataset.crop === v); });
+      vcaps.forEach(function (c) { c.hidden = c.dataset.vcap !== v; });
+    }
+    vtabs.forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        vHold = Date.now() + 14000;
+        vShow(btn.dataset.v);
+      });
+    });
+    if ("IntersectionObserver" in window) {
+      new IntersectionObserver(function (es) {
+        vSeen = es[0].isIntersecting;
+      }, { threshold: 0.35 }).observe(viewer);
+    } else { vSeen = true; }
+    if (motionOK) {
+      setInterval(function () {
+        if (!vSeen || document.hidden || Date.now() < vHold) return;
+        if (viewer.matches(":hover")) return;      /* reading — don't yank it */
+        vShow(vOrder[(vIdx + 1) % vOrder.length]);
+      }, 7000);
+    }
+  }
+
+  /* debug hooks (local only): #y=<px> scrolls to a pixel; #p=N scrolls a beat into view */
   function applyHash() {
     if (!DEBUG) return;
     var y = location.hash.match(/y=(\d+)/);
     if (y) { scrollTo(0, parseInt(y[1], 10)); onScroll(); return; }
     var m = location.hash.match(/p=([\d.]+)/);
     if (m && motionOK) {
-      var vh = innerHeight;
-      scrollTo(0, actTop + (parseFloat(m[1]) / 3.45) * (actEl.offsetHeight - vh));
+      var pi = Math.max(0, Math.min(anchors.length - 1, Math.round(parseFloat(m[1]))));
+      scrollTo(0, anchors[pi] - innerHeight * 0.5);
       onScroll();
     }
   }
@@ -1138,9 +1717,9 @@ stems for the motion piece due Friday.
   "@type": "FAQPage",
   "mainEntity": [
     { "@type": "Question", "name": "Where is my data, exactly?", "acceptedAnswer": { "@type": "Answer", "text": "In ~/Vault (or any folder you choose): markdown files with YAML frontmatter, plus a small .vault/ folder of plain JSON for schemas and views." } },
-    { "@type": "Question", "name": "Isn't this just Obsidian?", "acceptedAnswer": { "@type": "Answer", "text": "Obsidian is closed source, and its databases are views — Bases reads frontmatter into tables, but sheets and dashboards live in per-plugin formats. Substrate is open source, with typed databases, sheets, and dashboards as the native core — one documented file convention agents can rely on end to end." } },
+    { "@type": "Question", "name": "Isn't this just Obsidian?", "acceptedAnswer": { "@type": "Answer", "text": "Closest neighbor, different bet. Four differences: typed databases, sheets, and dashboards are the native core rather than a plugin stack; sheets and dashboards add a spreadsheet-and-dashboard layer Bases doesn't reach; the file conventions are designed to be operated by agents (documented spec, external edits as the designed path); and Substrate is open source while Obsidian is closed." } },
     { "@type": "Question", "name": "What happens if the project dies?", "acceptedAnswer": { "@type": "Answer", "text": "Nothing. Your vault is markdown — every editor on earth opens it." } },
-    { "@type": "Question", "name": "Does it phone home?", "acceptedAnswer": { "@type": "Answer", "text": "No. No telemetry, no analytics, no account. The source is open so you don't have to take our word for it." } }
+    { "@type": "Question", "name": "Does it phone home?", "acceptedAnswer": { "@type": "Answer", "text": "No telemetry, no analytics, no account. Two user-visible exceptions: sheets fetch currency rates, and pasting a URL fetches its title. The source is open so you don't have to take our word for it." } }
   ]
 }
 </script>

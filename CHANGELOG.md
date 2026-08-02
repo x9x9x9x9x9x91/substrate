@@ -3,6 +3,27 @@
 <!-- Generated from src/lib/changelog.ts by scripts/gen-changelog.ts.
      Edit that file, then run `node scripts/gen-changelog.ts`. -->
 
+## 0.19.0 — 2026-08-02
+
+- Tasks board v2: a Now/Later split so today's list stays short, checkoff straight from
+  the board, and snooze to push a task out of sight until it matters.
+- The proxy dashboard reads at a glance now — each account row carries one quota bar for
+  its binding window, with 5-hour and 7-day usage as compact rings beside it.
+- Calendar peek opens beside the entry instead of covering it, and the click that
+  dismisses a peek no longer starts composing a new entry underneath.
+- First-run seed vault got a real flagship: a Label Overview dashboard (catalogue,
+  releases, roster) replaces the abstract Yield APR sample.
+- Vault writes hardened end to end: exports, asset imports and template deletes are
+  atomic (no half-written files on a crash), deleted templates route through the trash,
+  and restoring an old version warns when it would bury a newer external edit.
+- Security pass: credential stores are denied from asset scope, URLs are logged without
+  embedded credentials, terminal palette quick actions respect the PTY trust check, and
+  importers fail closed on a bad vault target.
+- Notifications stay monotonic across the spring DST gap, and doctor's folder-mapping
+  check understands ~ paths.
+- The project is public now: AGPL-3.0 licensed, with contribution and security-reporting
+  guidelines — and release builds carry no trace of the machine that built them.
+
 ## 0.18.0 — 2026-08-02
 
 - Sheet formulas grew a real vocabulary: LOOKUP across sheets (and per row),
