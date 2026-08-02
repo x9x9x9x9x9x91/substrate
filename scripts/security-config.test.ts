@@ -21,6 +21,7 @@ interface SecurityBlock {
 
 const conf = JSON.parse(readFileSync(join(ROOT, "src-tauri/tauri.conf.json"), "utf8")) as {
   app: { security: SecurityBlock };
+  plugins?: { updater?: { pubkey?: string; endpoints?: string[] } };
 };
 const sec = conf.app.security;
 
@@ -122,6 +123,27 @@ test("deny entries name directories in full — no prefix-globbed dir names", ()
         `${entry}: directory segment '${segment}' is prefix-globbed — name it in full`
       );
     }
+  }
+});
+
+test("updater config keeps its pubkey pin and https GitHub endpoint (SUB-806)", () => {
+  // The pubkey is the whole trust model: the app refuses any update the
+  // matching private key (~/.tauri/substrate-updater.key, never committed)
+  // didn't sign. An edit that drops or swaps it either bricks the update
+  // channel or re-points trust — both must fail here, not in the field.
+  const updater = conf.plugins?.updater;
+  assert.ok(updater?.pubkey, "plugins.updater.pubkey is missing — updates would be unverifiable");
+  assert.ok(
+    updater.pubkey!.length > 100,
+    "plugins.updater.pubkey is too short to be a minisign key"
+  );
+  const endpoints = updater.endpoints ?? [];
+  assert.ok(endpoints.length > 0, "plugins.updater.endpoints is empty — the app can never hear about updates");
+  for (const ep of endpoints) {
+    assert.ok(
+      ep.startsWith("https://github.com/x9x9x9x9x9x91/substrate/"),
+      `updater endpoint points somewhere unexpected: ${ep}`
+    );
   }
 });
 

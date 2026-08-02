@@ -54,6 +54,10 @@ git2 = { version = "0.20", default-features = false, features = ["https", "vendo
 [target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png", "protocol-asset", "macos-private-api"] }
 tauri-plugin-global-shortcut = "2"
+# in-app updater (SUB-806) — desktop-only: iOS updates ship through TestFlight/
+# App Store, and the updater plugin doesn't build for mobile targets anyway
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 # terminal HUD (SUB-398) — a real PTY so full-screen TUIs (agent CLIs) render;
 # desktop-only like the tray: no shell to embed on iOS/Android
 portable-pty = "0.9"

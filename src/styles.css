@@ -2366,6 +2366,23 @@ button.empty-hint-fix:hover {
   border-color: var(--border-strong);
 }
 
+/* SUB-806: dismiss ✕ on sticky toasts (updater) — quieter than the action
+   button; it's the escape hatch, not the offer */
+.toast-dismiss {
+  flex-shrink: 0;
+  padding: 3px 7px;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 120ms ease-out;
+}
+
+.toast-dismiss:hover {
+  color: var(--text-1);
+}
+
 /* SUB-272: the table multi-select action bar — the toast's floating-pill
    language, but it stays put while a selection lives (no auto-dismiss) */
 .bulkbar {

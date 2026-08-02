@@ -338,6 +338,12 @@ pub fn run() {
             })
             .build(),
     );
+    // in-app updater (SUB-806): check/download/install driven from the
+    // frontend (src/hooks/useUpdater.ts); process gives it app.relaunch()
+    #[cfg(desktop)]
+    let builder = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
     let app = builder
         .setup(|app| {
             // Mobile has no $HOME vault — the vault lives in the app's own

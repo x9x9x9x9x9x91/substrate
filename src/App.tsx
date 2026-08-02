@@ -180,6 +180,7 @@ import { useViewHistory } from "./hooks/useViewHistory";
 import { useVaultEvents } from "./hooks/useVaultEvents";
 import { useShortcutRouter } from "./hooks/useShortcutRouter";
 import { useToast } from "./hooks/useToast";
+import { useUpdater } from "./hooks/useUpdater";
 import { useSearch } from "./hooks/useSearch";
 import { useVaultIndex } from "./hooks/useVaultIndex";
 import { queueViewsWrite, useVaultConfigs } from "./hooks/useVaultConfigs";
@@ -302,6 +303,7 @@ export default function App() {
   const [calNewSeq, setCalNewSeq] = useState(0);
   const { toast, setToast, showToast } = useToast();
   const { zoom, applyZoom } = useZoom(showToast);
+  useUpdater(showToast);
   // SUB-43 database management: which admin dialog is open (null = none);
   // create's fromSidebar marks the Folders "+" entry point — the new db is
   // homed into the tree on creation (SUB-403); homeFolder is the folder
@@ -3922,6 +3924,16 @@ export default function App() {
               }}
             >
               {toast.action.label}
+            </button>
+          )}
+          {toast.sticky && (
+            <button
+              type="button"
+              className="toast-dismiss"
+              aria-label="Dismiss"
+              onClick={() => setToast(null)}
+            >
+              ✕
             </button>
           )}
         </div>

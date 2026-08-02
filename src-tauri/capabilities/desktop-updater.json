@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-updater",
+  "description": "In-app updater (SUB-806) — desktop only; iOS ships through TestFlight. Separate file so the shared default capability never names permissions of a plugin the mobile build doesn't compile.",
+  "platforms": ["macOS", "windows", "linux"],
+  "windows": ["main"],
+  "permissions": [
+    "updater:default",
+    "process:allow-restart"
+  ]
+}
