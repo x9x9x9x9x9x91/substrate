@@ -90,13 +90,13 @@ allow: $HOME/**, /Volumes/**, /tmp/**, /private/tmp/**
 Two documented features defeat a tight allow list:
 
 1. **The vault root is chosen at runtime.** `~/Vault` is only a default
-   (`src-tauri/src/lib.rs:1569`); `VAULT_DIR` overrides it
-   (`:1576`). A static allow list cannot name a directory the user picks after
+   (`src-tauri/src/commands/app.rs:21`); `VAULT_DIR` overrides it
+   (`lib.rs:380-384`). A static allow list cannot name a directory the user picks after
    the binary is built.
 2. **Link-in-place embeds take absolute paths.** `![[/Volumes/audio/master.wav]]`
    and `![[~/Music/mixdown.flac]]` are documented, supported syntax
    (`docs/vault-format.md:182-195`) that resolves through `Engine::asset_info`
-   (`src-tauri/src/vault.rs:2341`). Producers keep sample libraries on external
+   (`src-tauri/src/vault/assets.rs:125`). Producers keep sample libraries on external
    volumes; narrowing to media folders would silently break real notes.
 
 `/tmp/**` and `/private/tmp/**` stay so scratch vaults in tests and e2e work

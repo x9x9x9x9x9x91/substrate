@@ -46,7 +46,7 @@ Justification, against the alternatives the brief names:
 
 - **vs ULID (26 chars, time-sortable).** Sort-stability buys nothing here:
   nothing in the codebase sorts by id. `SavedView` already carries an
-  `id: String` (`src-tauri/src/vault.rs:925`) and no code path orders by it;
+  `id: String` (`src-tauri/src/vault/views.rs:168`) and no code path orders by it;
   notes sort by title, date, or prop. So ULID's one advantage is unused, and
   its costs are real — 26 characters is twice the frontmatter noise, and the
   embedded wall-clock timestamp becomes a lie the moment a note is created
@@ -81,8 +81,8 @@ The key is free in both namespaces that could claim it:
   `title`, `created`, `calendar`, `url`, `artwork`, `dashboard`, `icon`,
   `cards`, `claimed_usd`, `log`/`db`/`floor`/`ceiling`. Not `id`.
 - Schema prop-name reservations are only `icon` and `home`
-  (`vault.rs:3422-3427` in `rename_prop`, same pair in `create_type` at
-  `vault.rs:3248-3253`).
+  (`vault/schema.rs:847-852` in `rename_prop`, same pair in `create_type` at
+  `vault/schema.rs:549-553`).
 - Empirically: in the reference vault this spec was measured against, **no
   note carries `id:` or `uid:`** (illustrative scale below: ~2000 notes).
 
@@ -101,7 +101,7 @@ exact string match, so any non-empty scalar works. Only *generation* is
 constrained. This avoids a whole class of "the app rewrote my frontmatter"
 surprise, and the doctor still catches duplicates regardless of shape.
 
-Frontmatter serialization is alphabetical (`vault.rs:3141`,
+Frontmatter serialization is alphabetical (`vault/mod.rs:2083`,
 `serde_yaml::to_string` over a sorted map; documented at
 `vault-format.md:93-95`), so `id:` lands mid-block, between `format:` and
 `notion_id:` on a typical release note. It does not displace anything.
@@ -110,9 +110,9 @@ Frontmatter serialization is alphabetical (`vault.rs:3141`,
 
 An id is written **only** by these triggers:
 
-1. **Note creation through the app.** `create_full` (`vault.rs:1471`) already
+1. **Note creation through the app.** `create_full` (`vault/mod.rs:1376`) already
    writes `created:` and optionally `type:` into a fresh map
-   (`vault.rs:1508-1513`); `id:` joins them. Zero extra cost — the file is
+   (`vault/mod.rs:1427-1431`); `id:` joins them. Zero extra cost — the file is
    being written anyway.
 2. **The note becomes a relation target.** Writing a relation value that
    points at note X stamps X in the same operation, then stores X's id in the
@@ -135,7 +135,7 @@ Why lazy rather than a one-shot stamp of every note (say ~2000, the scale of
 the vault this was measured against):
 
 - Prop edits re-serialize the *entire* frontmatter block
-  (`vault.rs:3135-3144`; `vault-format.md:93-100`), normalizing quoting and key
+  (`vault/mod.rs:1341-1347`; `vault-format.md:93-100`), normalizing quoting and key
   order. A one-shot stamp is therefore a whole-vault rewrite whose diff is
   mostly incidental re-quoting — unreviewable, and irreversible in practice
   even with a history snapshot.
@@ -147,14 +147,14 @@ the vault this was measured against):
 
 **Consequence worth naming:** a note with no frontmatter at all gets a `---`
 block created when it first becomes a relation target. Untyped notes *can* be
-relation targets (`vault.rs:2228-2232` — an untyped target can't be aimed at,
+relation targets (`vault/search.rs:372-375` — an untyped target can't be aimed at,
 so any relation matches it). The alternative — refuse to stamp
 frontmatter-less notes — creates a permanent second class of note that can
 never be identified. Accept the block; it only appears when the note has
 actually joined a structure, and the doctor never proposes it.
 
 **Notes whose frontmatter is unparseable or has duplicate keys cannot be
-stamped.** `edit_props` refuses on those blocks (`vault.rs:3136`, via
+stamped.** `edit_props` refuses on those blocks (`vault/mod.rs:2078`, via
 `parse_props_for_write`; SUB-215, `vault-format.md:97-99`). Such a note stays
 identity-less and resolves by title forever, and the doctor reports it. This
 is correct: a broken block is never silently normalized away.
@@ -237,8 +237,9 @@ Why this shape and not the alternatives:
   the credo outright: the file stops telling you what it says.
 - **Two props (`contact:` + `contact_id:`)** — doubles the prop count, breaks
   the one-prop-one-thing model, and every bulk operation (`rename_prop`
-  `vault.rs:3413`, `clear_prop`) would need to know about the shadow key and
-  keep it in step. Two things that must agree will eventually disagree.
+  `vault/schema.rs:833`, `clear_prop` `vault/schema.rs:1073`) would need to know
+  about the shadow key and keep it in step. Two things that must agree will
+  eventually disagree.
 - **YAML mapping (`contact: {title: …, id: …}`)** — a non-string value. The
   prop editor can't write it (`vault-format.md:101-103`), lists of them are
   refused on the write path, and every reader in the frontend
@@ -262,8 +263,8 @@ only in a text editor, and only until the value is next written.
    id → that note. Title is ignored.
 2. Otherwise (no id, unknown id, or ambiguous id) → today's name match:
    case-insensitive against title-or-stem, scoped to props aimed at the
-   target's type (`vault.rs:2171-2174` in `relation_rewrites`,
-   `vault.rs:2228-2232` in `related()`).
+   target's type (`vault/mod.rs:1743-1744` in `relation_rewrites`,
+   `vault/search.rs:372-375` in `related()`).
 3. If step 2 matches **more than one** note within the aimed-at type → resolves
    to nothing, and the doctor reports it.
 
@@ -271,7 +272,7 @@ Step 3 is where "the winner is unspecified" dies for relations. Today
 `resolve_link` takes the first arbitrary `HashMap` iteration match:
 
 ```rust
-// vault.rs:2141-2147
+// vault/mod.rs:1712-1718
 pub fn resolve_link(&self, name: &str) -> Option<NoteMeta> {
     let needle = name.trim().to_lowercase();
     self.notes.values()
@@ -317,11 +318,12 @@ currently nothing to migrate at all.
 
 ### 2.4 What this does to rename
 
-`rename` (`vault.rs:1588-1717`) today does one logical operation as many
-writes: wikilink rewrites across every referring note (`1615-1658`),
-`fs::rename` (`1660-1662`), relation-value rewrites collected pre-move and
-applied after (`1669`, `1691-1699`), the note's own frontmatter re-serialized
-(`1671-1689`), then reindex (`1701-1707`). Sources that can't be read or
+`rename`/`rename_tracked` (`vault/mod.rs:1515`, `:1531-1715`) today does one
+logical operation as many writes: wikilink rewrites across every referring note
+(collected at `1557-1585`, flushed at `1629-1635`), `fs::rename`
+(`1618-1620`), relation-value rewrites collected pre-move and applied after
+(`1643`, `1672-1684`), the note's own frontmatter re-serialized
+(`1650-1670`), then reindex (`1686-1695`). Sources that can't be read or
 written are collected into `failed` and reported *after* the rename has
 already landed (`1709-1717`; SUB-225, SUB-285).
 
@@ -366,24 +368,24 @@ applied to the other axis.
 
 ### 3.2 What name-keying costs today
 
-`rename_type` (`vault.rs:3285-3352`) rewrites, in order: `type:` on every
+`rename_type` (`vault/schema.rs:606-721`) rewrites, in order: `type:` on every
 member note via `edit_props` — a full frontmatter re-serialize per note
-(`3304-3310`); the schema key (`3312-3315`); relation `target` fields across
-all types (`3316-3322`); the views.json per-db pref key (`3325-3328`); the
-`$sidebar` databases order (`3329-3331`, via `remap_sidebar_entry`
-`vault.rs:3204-3233`); the template file (`3334-3336`); folders.json mappings
-(`3338-3350`).
+(`645-655`); the schema key (`662-666`); relation `target` fields across
+all types (`667-675`); the views.json per-db pref key (`681-685`); the
+`$sidebar` databases order (`686-691`, via `remap_sidebar_entry`
+`vault/views.rs:975`); the template file (`697-702`); folders.json mappings
+(`706-719`).
 
 It misses three, verified:
 
-1. **Saved views' `db` field.** `SavedView` (`vault.rs:924-950`) has
-   `db: String` at `:927`, stored under `SavedView::KEY = "$views"`
-   (`:952-954`). `rename_type` never touches `$views`. Rename a database and
+1. **Saved views' `db` field.** `SavedView` (`vault/views.rs:167-193`) has
+   `db: String` at `:170`, stored under `SavedView::KEY = "$views"`
+   (`:195-197`). `rename_type` never touches `$views`. Rename a database and
    every saved view on it silently points at a database that no longer exists.
 2. **`$sidebar.collapsed` `dbpins:<type>` entries.** `remap_sidebar_entry`
-   (`vault.rs:3213-3225`) maps `order.databases` only; `collapsed` is a
-   separate `Vec` holding entries like `"dbpins:release"` (see the fixture at
-   `vault.rs:7007`). Collapse state orphans on rename.
+   (`vault/views.rs:986-1015`) maps `order.databases` and `order.keys` only;
+   `collapsed` is a separate `Vec` holding entries like `"dbpins:release"` (see
+   the fixture at `vault/views.rs:1552`). Collapse state orphans on rename.
 3. **` ```view ` fences in note bodies** (`vault-format.md:483-513`), whose
    `type:` / `saved:` keys name databases in prose. Rename and the embed goes
    blank.
@@ -398,29 +400,29 @@ existing reservation convention in this format (`vault-format.md:866-869`:
 "Keys starting with `$` are reserved — real database names never start with
 `$`"), and it cannot collide with a user prop, which matters because
 `TypeSchema` flattens user props into the same map
-(`vault.rs:711-713`, `#[serde(flatten)] props`). It is declared as a real
+(`vault/schema.rs:176-177`, `#[serde(flatten)] props`). It is declared as a real
 field with `#[serde(rename = "$id")]`, not left to the flatten.
 
 Then:
 
 - `$views[].db`, the views.json per-database pref key, `dbpins:<…>` entries,
-  a folder mapping's `type` (`FolderMapping::db_type`, `vault.rs:734-735`),
+  a folder mapping's `type` (`FolderMapping::db_type`, `vault/foldersync.rs:21-22`),
   and a relation's `target` (`PropSchema.target`, `#[serde(rename = "type")]`
-  at `vault.rs:607-608`) all store the **db id**, with read-time fallback to a
+  at `vault/schema.rs:61-62`) all store the **db id**, with read-time fallback to a
   name for files written before this ships.
 - `rename_type` shrinks to two operations: rewrite `type:` on member notes,
   and set the schema entry's display name. Every machinery reference is
   untouched *by construction* — the three misses become impossible rather
   than fixed.
-- The relation type-scoping comparisons (`vault.rs:2171-2174`,
-  `2228-2232`) resolve the note's `type:` string to a db id through the schema
-  before comparing.
+- The relation type-scoping comparisons (`vault/mod.rs:1743-1744`,
+  `vault/search.rs:372-375`) resolve the note's `type:` string to a db id
+  through the schema before comparing.
 
 Two things stay name-based, deliberately:
 
 - **`.vault/templates/<type>.md`.** A template file named
   `k3f9x2mq7ab1.md` is unfindable in Finder. Keep the name, keep the rename
-  (`vault.rs:3334-3336`).
+  (`vault/schema.rs:697-702`).
 - **` ```view ` fences.** These are human-authored config in prose
   (`vault-format.md:483-513`); an id there is unreadable. They resolve by
   name at render time. **Decided 2026-07-25: a database rename
@@ -469,11 +471,11 @@ block every future pull until someone opens a terminal on the Mac.
 
 - **Phone (offline):** renames `Contacts/Gero.md` → `Contacts/Gero Weiss.md`.
   Today that is 1 file move + this note's own frontmatter + relation-value
-  rewrites in the 12 release notes pointing at it (`vault.rs:1691-1699`).
+  rewrites in the 12 release notes pointing at it (`vault/mod.rs:1672-1684`).
   **13 changed files.**
 - **Mac (same window):** adds `status: mastered` to one of those 12 releases.
   A prop edit re-serializes the whole frontmatter block
-  (`vault.rs:3135-3144`), so the entire `---` region is one changed hunk.
+  (`vault/mod.rs:1341-1347`), so the entire `---` region is one changed hunk.
 - **Merge:** both sides rewrote the same frontmatter region of the same file →
   **conflict** → the whole pull is blocked (`gitsync.rs:506-509`), for a
   rename that has nothing whatsoever to do with `status:`.
@@ -567,9 +569,9 @@ leaves alone.
   `[[target|alias]]` form (`vault-format.md:155-158`). **There is no
   `[[id]]` form and never will be.**
 - **Wikilink resolution.** Case-insensitive title-or-stem, one test not two
-  phases (`vault.rs:2141-2147`, `vault-format.md:160-163`). Unchanged.
+  phases (`vault/mod.rs:1712-1718`, `vault-format.md:160-163`). Unchanged.
 - **Wikilink rewriting on rename.** Still happens, still a hard error on
-  failure (`vault.rs:1615-1658`).
+  failure (`vault/mod.rs:1629-1635`, reported at `:1705-1710`).
 - **Note bodies never contain ids.** No write path puts an id in body text.
   The word never appears in prose.
 - **Backlinks stay name-based** (`vault_backlinks`; `vault-format.md:170-171`).
@@ -668,9 +670,9 @@ No user-visible behaviour change. Foundation only.
 
 ### Slice 2 — stamp on create, `ensure_id`
 
-- `create_full` (`vault.rs:1508-1519`) writes `id:` alongside `created:`;
+- `create_full` (`vault/mod.rs:1427-1431`) writes `id:` alongside `created:`;
   `"id"` joins `"created" | "type" | "title"` in the caller-prop filter at
-  `vault.rs:1516-1518` (callers can't set it; an explicit `import_id`
+  `vault/mod.rs:1432-1438` (callers can't set it; an explicit `import_id`
   parameter is a later hook if a Notion import ever wants
   `notion_id` → `id`).
 - `pub fn ensure_id(&mut self, rel: &str) -> Result<String, String>` — returns
@@ -678,9 +680,9 @@ No user-visible behaviour change. Foundation only.
 
 **Tests:** create writes a well-formed id; two creates differ; `ensure_id` is
 idempotent and writes nothing on the second call (assert the existing
-`#[cfg(test)] note_writes` counter at `vault.rs:3145-3147` is unchanged);
+`#[cfg(test)] note_writes` counter at `vault/mod.rs:2087-2090` is unchanged);
 `ensure_id` on an unparseable frontmatter block returns `Err` and leaves the
-file byte-identical (SUB-215 discipline, `vault.rs:3136`); `ensure_id` on a
+file byte-identical (SUB-215 discipline, `vault/mod.rs:2078`); `ensure_id` on a
 note with no frontmatter creates the block with only `id:` in it.
 
 ### Slice 3 — relation values carry ids
@@ -691,8 +693,8 @@ note with no frontmatter creates the block with only `id:` in it.
   already knows which note it means and only lacks a stable handle for it.
 - Writing a relation value calls `ensure_id` on the target first — the §1.3
   trigger.
-- Rust: `relation_rewrites` (`vault.rs:2156-2206`) and `related()`
-  (`vault.rs:2210-2258`) match id first, name second.
+- Rust: `relation_rewrites` (`vault/mod.rs:1727-1779`) and `related()`
+  (`vault/search.rs:353-399`) match id first, name second.
 - Resolution implements §2.2 including rule 3 (ambiguous name within the
   aimed-at type → nothing).
 
@@ -706,9 +708,9 @@ resolves both.
 
 ### Slice 4 — rename demoted to cosmetic
 
-- In `rename` (`vault.rs:1691-1717`), relation-rewrite failures become
+- In `rename_tracked` (`vault/mod.rs:1672-1710`), relation-rewrite failures become
   warnings when every failed value carried an id, and stay errors otherwise.
-  Wikilink failures (`vault.rs:1626`) stay errors unconditionally.
+  Wikilink failures (`vault/mod.rs:1632`) stay errors unconditionally.
 
 **Tests:** rename with an unwritable id-backed relation source succeeds with a
 warning; the same with bare-title values still errors; an unwritable wikilink
@@ -738,12 +740,12 @@ blocks; relation values naming the discarded id fall back to title.
 
 ### Slice 7 — database ids (independent of 2–6)
 
-- `TypeSchema` (`vault.rs:703-714`) gains `#[serde(rename = "$id")] id`,
+- `TypeSchema` (`vault/schema.rs:168-178`) gains `#[serde(rename = "$id")] id`,
   declared as a field so the `#[serde(flatten)] props` map can't swallow it.
-- `$views[].db` (`vault.rs:927`), views.json per-db pref keys, `dbpins:<…>`
-  entries, `FolderMapping::db_type` (`vault.rs:734-735`), and `PropSchema.target`
-  (`vault.rs:607-608`) store ids, with read-time name fallback.
-- `rename_type` (`vault.rs:3285-3352`) shrinks to member-note `type:` rewrite
+- `$views[].db` (`vault/views.rs:170`), views.json per-db pref keys, `dbpins:<…>`
+  entries, `FolderMapping::db_type` (`vault/foldersync.rs:21-22`), and
+  `PropSchema.target` (`vault/schema.rs:61-62`) store ids, with read-time name fallback.
+- `rename_type` (`vault/schema.rs:606-721`) shrinks to member-note `type:` rewrite
   + display-name change.
 - ` ```view ` fences stay name-based; a database rename rewrites the fence's
   `type:`/`saved:` key line in note bodies (decided 2026-07-25 — frictionless,

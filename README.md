@@ -98,7 +98,9 @@ Docs: [dashboards](docs/dashboards.md) · [sheets](docs/sheets-spec.md) ·
 ## Status
 
 Personal project, built for one person's daily use and shared as-is:
-macOS-first (an iOS build exists but is not distributed), no releases, no
-support promises. Issues and ideas are welcome; expect the roadmap to follow
-its owner's needs.
+macOS-first (an iOS build exists but is not distributed), no support promises.
+Releases are tagged and published as a notarized macOS DMG on the repo's
+releases page — see [docs/release-macos.md](docs/release-macos.md) for how one
+is cut. Issues and ideas are welcome; expect the roadmap to follow its owner's
+needs.
 

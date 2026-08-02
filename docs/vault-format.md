@@ -6,7 +6,9 @@ required. Every rule below is verified against the engine; when this doc and the
 code disagree, the code wins and the doc gets fixed (see AGENTS.md: format changes
 update this file in the same merge).
 
-Sources of truth: `src-tauri/src/vault.rs` (engine), `src-tauri/src/lib.rs` (IPC),
+Sources of truth: `src-tauri/src/vault/` (engine — `Engine` façade in `mod.rs`,
+plus the `schema`, `views`, `search`, `trash`, `assets`, `foldersync`, `watch`,
+`doctor`, `seed` modules), `src-tauri/src/lib.rs` + `src-tauri/src/commands/` (IPC),
 `src-tauri/src/history.rs` (vault git), `src/lib/*.ts` (frontend formats),
 `docs/sheets-spec.md` (the sheet formula language).
 
@@ -70,7 +72,7 @@ Vault/
 ```
 
 **The hidden rule**: any path component starting with `.` is invisible — never
-indexed, searched, or watched (`vault.rs` `hidden_rel`, `walk_md_files`). That
+indexed, searched, or watched (`vault/mod.rs` `hidden_rel`, `walk_md_files`). That
 covers `.assets/`, `.trash/`, `.vault/`, `.git/`, and any `.foo/` you add
 yourself. Only `.md` files are notes; binary files (containing NUL) are skipped,
 invalid UTF-8 is read lossily. One explicit-path exception: `.vault/templates/`
@@ -98,17 +100,17 @@ artwork direction.
 
 - Must start at byte 0: `---\n` (or `---\r\n`), closed by a line that is `---`
   (trailing whitespace tolerated). Everything after the closing line is the body.
-  No closing line → the whole file is body, no props (`vault.rs` `split_frontmatter`).
-  A leading UTF-8 BOM is stripped on read (`vault.rs` `read_lossy`), so files from
+  No closing line → the whole file is body, no props (`vault/mod.rs` `split_frontmatter`).
+  A leading UTF-8 BOM is stripped on read (`vault/mod.rs` `read_lossy`), so files from
   BOM-writing editors still parse; the BOM is not written back.
 - Content is YAML and must parse to a **flat mapping** — anything else (scalar,
-  list, invalid YAML) reads as zero props (`vault.rs` `parse_props`). Reads are
+  list, invalid YAML) reads as zero props (`vault/mod.rs` `parse_props`). Reads are
   always this lenient; WRITES are not (SUB-215): a present block that fails to
   parse — or has duplicate top-level keys, which YAML would silently dedupe
   last-wins — makes every prop edit refuse with a `…is not valid YAML /
   has duplicate keys / is not a property map — fix it in the editor…` error
   instead of re-serializing the empty parse and wiping the other keys
-  (`vault.rs` `parse_props_for_write`). Rename is the one exception: it still
+  (`vault/mod.rs` `parse_props_for_write`). Rename is the one exception: it still
   proceeds (file move, wikilink rewrites) but leaves the broken block
   byte-verbatim.
 - Scalars keep their YAML types: `created: 2026-07-17` stays a string (serde_yaml
@@ -150,14 +152,14 @@ artwork direction.
 - The app keeps filename ≈ title. Rename moves the file to the sanitized title in
   the same folder and stores the exact title as a `title:` prop only when
   sanitizing changed it; when the slug is lossless, `title:` is removed
-  (`vault.rs` `rename`). Renaming also rewrites every `[[wikilink]]` in the vault
+  (`vault/mod.rs` `rename`). Renaming also rewrites every `[[wikilink]]` in the vault
   that pointed at the old title **or stem**, and every schema'd relation value
   naming it (§6).
-- Sanitize (`vault.rs` `sanitize_filename`): `/ \ : * ? " < > |` → space,
+- Sanitize (`vault/mod.rs` `sanitize_filename`): `/ \ : * ? " < > |` → space,
   whitespace runs collapse, empty → `Untitled`. So `Vessel: Songs/Live` becomes
   `Vessel Songs Live.md` with `title: 'Vessel: Songs/Live'`.
 - Two title shapes are rejected outright at rename/create — before any file
-  write, move, or link rewrite (`vault.rs` `validate_note_title`, SUB-223): a
+  write, move, or link rewrite (`vault/mod.rs` `validate_note_title`, SUB-223): a
   sanitized stem starting with `.` (the note would fall under the hidden rule
   and vanish from the index) and any `[`/`]` in the title (rewritten
   `[[wikilinks]]` would corrupt). URL captures whose fetched title is rejected
@@ -202,7 +204,7 @@ Everything else is yours. Unknown props are preserved and shown as chips.
 `[[Target]]` in the body. The grammar is exactly `\[\[([^\[\]]+)\]\]` — no nested
 brackets, **no `[[target|alias]]` form** (the pipe becomes part of the name).
 
-- Resolution (`vault.rs` `resolve_link`): the trimmed target, matched
+- Resolution (`vault/mod.rs` `resolve_link`): the trimmed target, matched
   **case-insensitively** against each note's `title` **or** stem. Title-vs-stem is
   one test, not two phases; if two different notes could claim a target (one by
   title, one by stem) the winner is unspecified — keep titles and stems unique.
@@ -227,7 +229,7 @@ brackets, **no `[[target|alias]]` form** (the pipe becomes part of the name).
 ### Embeds
 
 `![[target]]`, grammar `!\[\[([^\[\]]+)\]\]`. Three target forms
-(`vault.rs` `asset_info`):
+(`vault/assets.rs` `asset_info`):
 
 ```markdown
 ![[bounce.wav]]                 ← bare name → <vault>/.assets/bounce.wav
@@ -989,7 +991,7 @@ Type-entry fields:
   icon alive when every prop demotes out.
 - `home` — reserved key holding the database's home folder (SUB-85): a
   vault-relative slash path, validated like any folder path on write
-  (`vault.rs` `set_schema_home`); blank or absent means no home. When set, the
+  (`vault/schema.rs` `set_schema_home`); blank or absent means no home. When set, the
   database nests into the sidebar Folders tree at that folder — the folder's
   row keeps its on-disk name and gains a DB chip (SUB-611), clicking it opens
   the database view, new entries land there explicitly — and the database
@@ -1010,7 +1012,7 @@ DbIcon fields (all optional, blank strings normalized away on write):
 - `tint` — a muted palette name from the same `--opt-*` vocabulary as option
   colors; tints the glyph (emoji render in full color — a tint with no mark at
   all drops on write). Unknown names store as-is and render untinted.
-- Writes replace the whole icon at once (`vault.rs` `set_schema_icon`); no
+- Writes replace the whole icon at once (`vault/schema.rs` `set_schema_icon`); no
   mark at all removes the `icon` key.
 
 PropSchema fields:
@@ -1089,9 +1091,10 @@ PropSchema fields:
   (same-database sweep); a `relation` arriving on any other kind drops.
 - `prop` — rollup-kind only (SUB-678): the prop on the RELATED database to
   read. Required on write (any non-empty name — the related database's
-  schema is not consulted). Renaming that target prop does NOT retarget the
-  reference: cross-database rename retargeting is a deliberate non-goal
-  (tracked separately).
+  schema is not consulted). Renaming that target prop DOES retarget the
+  reference (SUB-740): every rollup that reads it through a relation pointing
+  at the renamed prop's database has its `prop` rewritten, case-folded — see
+  the rollup sweeps below.
 - `agg` — rollup-kind only (SUB-678): the aggregation over the linked rows'
   values — `sum` | `avg` | `min` | `max` | `count`, the table footer's
   Calculate vocabulary (SUB-74, `src/lib/aggregate.ts`). Refused on write
@@ -1109,7 +1112,7 @@ PropSchema fields:
   `vault_schema_set` **removes** the entry (demote — the remove-property UI
   path); an emptied type drops out of the file unless it still has an `icon`
   or a `home`.
-- App-side normalization on write (`vault.rs` `set_schema_prop`): values trimmed,
+- App-side normalization on write (`vault/schema.rs` `set_schema_prop`): values trimmed,
   deduped case-insensitively, blank colors dropped; unknown kinds and number
   formats rejected.
 
@@ -1132,7 +1135,7 @@ contact:             # several targets (flow style parses too)
   string or a string list via `vault_set_prop`; an emptied list removes the
   prop; non-string lists are refused. Targets match case-insensitively, value trimmed — and only by name:
   two target notes sharing a title are indistinguishable as values.
-- **Renaming a target rewrites the values** (`vault.rs` `relation_rewrites`),
+- **Renaming a target rewrites the values** (`vault/mod.rs` `relation_rewrites`),
   in the same pass as the `[[wikilinks]]` (§2): every prop declared
   `kind: "relation"` in the SOURCE note's type schema that named the old title
   or stem stores the new title, scalars and list entries alike. Same-named
@@ -1302,7 +1305,7 @@ Per-database layout choice, same file discipline as schema.json:
 {
   "release": { "view": "board", "group_by": "status", "sorts": [{ "key": "released", "dir": -1 }], "hidden": ["notion_id"] },
   "gear": { "view": "table", "table_group_by": "category", "aggregations": { "price": "sum", "manual": "count" } },
-  "$sidebar": { "dashboards": ["Dashboards/Portfolio.md"], "databases": ["gear", "release"], "collapsed": ["folders", "dbpins:release"], "folders": ["Projects", "Inbox"], "pins": ["Inbox/Studio setup.md"], "keys": { "ctrl+1": "today", "mod+2": "dash:Dashboards/Portfolio.md", "mod+3": "db:gear" } },
+  "$sidebar": { "dashboards": ["Dashboards/Portfolio.md"], "databases": ["gear", "release"], "collapsed": ["folders", "dbpins:release"], "folders": ["Projects", "Inbox"], "dashgroups": ["Dashboards/Money"], "pins": ["Inbox/Studio setup.md"], "keys": { "ctrl+1": "today", "mod+2": "dash:Dashboards/Portfolio.md", "mod+3": "db:gear" } },
   "$folders": { "Life": { "icon": { "emoji": "🌱" } }, "Life/Admin": { "icon": { "glyph": "folder", "tint": "teal" } } },
   "$views": [
     {
@@ -1399,6 +1402,16 @@ rewritten (SUB-433). Current reserved keys:
   the Folders tree instead of in the Dashboards section (never both), so moving
   a dashboard between folders can change which surface owns it — the entry
   follows the path either way (SUB-466).
+  `dashgroups` (SUB-698) is the Dashboards section's second lane: a
+  drag-ordered array of vault-relative FOLDER paths, one per subfolder GROUP
+  HEADER shown in that section (SUB-466). It is separate from `dashboards`
+  because a group header orders against its sibling headers, never against
+  the dashboard note rows — an array of strings like `folders`, with the same
+  append-unlisted / drop-stale handling. Renaming or moving a group folder
+  retargets its entry and its whole subtree, and carries the `dashboards`
+  rows inside the folder along with it; trashing the folder drops them.
+  Omitted (and read as empty) when nothing is ordered — a views.json written
+  before this field existed loads unchanged.
   `folders` (SUB-401, generalized by SUB-585) is the same shape for the
   Folders tree: ONE flat list of vault-relative folder paths at any depth —
   each sibling group (the roots, or one folder's children) reads its own
@@ -1509,7 +1522,7 @@ first scan — or edited by hand (JSON array of mappings):
 retargeted or dropped in place, so a rescan never resurrects a renamed or
 deleted type.
 
-Sync (`vault.rs` `sync_folders`, palette → "Rescan folder databases"; the
+Sync (`vault/foldersync.rs` `sync_folders`, palette → "Rescan folder databases"; the
 "Map a folder…" dialog runs the same scan the moment a mapping is added) is
 strictly **read-only on the mapped folder** — files are stat'd, never
 written, moved, renamed, or deleted:
@@ -1527,7 +1540,7 @@ written, moved, renamed, or deleted:
 - The `file` prop's schema entry (`kind: "file"`, §6) is seeded when the type
   has none, so open/reveal UI kicks in.
 
-Live watcher (`vault.rs` `watch_folders`): recursive FSEvents over every
+Live watcher (`vault/watch.rs` `watch_folders`): recursive FSEvents over every
 `"watch": true` mapping's folder, 300ms debounce, running the same
 `sync_folders` on change and emitting `vault:changed`. `folders.json` itself
 is watched, so mapping edits (new folders, `watch` flips) apply without a
@@ -1820,7 +1833,7 @@ Plain notes the app treats specially — all optional, all just files:
   actual schema. Deliberately no other prebuilt skills — one that doesn't know
   the user's real types and folders proposes against an imagined schema.
   Both are written when **absent**, on every launch, not only on first run
-  (`vault.rs` `seed_agent_files`), so deleting one brings the shipped version
+  (`vault/seed.rs` `seed_agent_files`), so deleting one brings the shipped version
   back; an existing file is never overwritten, whatever is in it. They carry no
   format version of their own, so the boot-time write is guarded at vault level
   by `vaultfmt::vault_written_by_newer_app` (§5b) — a vault a newer Substrate
@@ -1857,7 +1870,7 @@ Plain notes the app treats specially — all optional, all just files:
   `npm run import:ableton -- <pool>`). The source tree is strictly **read-only**
   — the script and the app only ever `stat` `.als` files, never parse, write,
   move, or delete them. Rows follow the same stub shape and dedupe rule as the
-  engine's `.vault/folders.json` folder sync (`vault.rs` `sync_folders`, §8), so an
+  engine's `.vault/folders.json` folder sync (`vault/foldersync.rs` `sync_folders`, §8), so an
   engine-side folder mapping over the same pool would not duplicate them. The
   script owns `file` (the `.als` as a `~/…` link), `modified`/`size` stamps,
   `last_touched` (ISO day, `kind: date`; from an als_introspect sidecar when
@@ -1885,7 +1898,7 @@ Plain notes the app treats specially — all optional, all just files:
    stays unwatched and is re-read from disk on every access.
 3. **Write atomic-ish**: temp file in the same directory + rename. The watcher
    debounce absorbs bursts, but a torn write can be indexed mid-state. The app
-   itself follows the same discipline (`vault.rs` `write_atomic`): notes,
+   itself follows the same discipline (`vault/mod.rs` `write_atomic`): notes,
    assets, and `.vault/*.json` land as a dotted same-dir temp file
    (`.<name>.tmp-<pid>`, invisible to indexer and watcher) then rename into
    place — a crash mid-write leaves the previous content, never a truncated file.
@@ -1918,44 +1931,76 @@ What an external writer may assume about *when* its writes are seen, and what
 the app is doing to the vault at the same time.
 
 **One vault engine, one lock.** Every IPC operation in §14 serializes on a
-single `AppState(Mutex<Engine>)` (`src-tauri/src/lib.rs:32`). There is no
+single `AppState(Mutex<Engine>)` (`src-tauri/src/lib.rs:50`). There is no
 per-note locking and no reader/writer split: two IPC calls never interleave
 inside the engine, and neither does an IPC call and a watcher batch. Locks are
-held for exactly one engine call and never across an `await` (the three async
-commands — the file picker and the two proxy-pane status calls — touch no
-vault state), so the engine cannot deadlock. It *can* stall: a few operations do real
-filesystem work under the lock — full-text search (`lib.rs:334`), folder-DB
-rescan (`lib.rs:599`), export/import (`lib.rs:375`, `:396`) and any
-`rescan()` (`vault.rs:1032`, full walk + FTS rebuild) — and everything else
-waits behind them.
+held for exactly one engine call and **never across an `await`** — that is what
+makes deadlock impossible, and it holds even though a good handful of commands
+are `async` (currently 14: the file picker, the two proxy-pane status calls, an
+FX rate fetch, the coding scan, token usage, folder-DB rescan, vault sync
+push/pull, and the five history commands). The ones that do touch vault state
+never hold the guard across the suspension point: they take an `AppHandle`
+instead of `State<_>` and run their whole body inside `blocking(move || …)`
+(`lib.rs:160`, a `spawn_blocking` wrapper), locking the engine on the blocking
+thread — a `MutexGuard` is not `Send`, so the compiler enforces this. It *can*
+stall: a few operations do real filesystem work under the lock — full-text
+search (`src-tauri/src/commands/search.rs:10`), folder-DB rescan
+(`commands/schema.rs:20`), note-bundle export (`commands/assets.rs:25`;
+plain-text export at `:20` writes without the lock) and any
+`rescan()` (`src-tauri/src/vault/mod.rs:864`, full walk + FTS rebuild) — and
+everything else waits behind them.
 
 **What runs on background threads.** All are plain detached `std::thread`s;
 there is no async runtime in the state layer.
 
-- **Vault watcher** (`lib.rs:1763-1811`) — `notify` v8, recursive, 300ms
-  debounce (`vault.rs:3931`). Takes the engine lock to apply changes
-  (`lib.rs:1778`), then emits `vault:changed` / `vault:config-changed`.
-- **Folder-DB watcher** (`lib.rs:1820-1840`) — holds the engine lock across a
+- **Vault watcher** (`lib.rs:641`) — `notify` v8, recursive, 300ms debounce
+  (`src-tauri/src/vault/watch.rs:151`). Takes the engine lock to apply changes
+  (`lib.rs:659`), then emits `vault:changed` / `vault:config-changed`.
+- **Folder-DB watcher** (`lib.rs:701`) — holds the engine lock across a
   whole `sync_folders()` pass.
-- **Auto-snapshot ticker** (`lib.rs:1615-1622`) — 15s tick; commits once the
-  vault has been quiet 120s or dirty 600s (`lib.rs:58-60`). Takes the history
-  lock, **never** the engine lock.
-- **Due-date notifications** (`notify.rs:211`) — 60s scan; grabs list/schema
-  under the engine lock, then releases it before delivering.
-- **URL enrichment** (`lib.rs:213-249`) — fetches the page *outside* the lock,
-  then takes it to write the note.
+- **Auto-snapshot ticker** (`lib.rs:458`) — 15s tick (`SNAP_TICK`,
+  `lib.rs:87`); commits once the vault has been quiet 120s or dirty 600s
+  (`lib.rs:85-86`). Takes the history lock, **never** the engine lock.
+- **Due-date notifications** (`notify.rs:644`) — 60s scan (`SCAN_INTERVAL`,
+  `notify.rs:53`); grabs list/schema under the engine lock, then releases it
+  before delivering.
+- **URL enrichment** (`src-tauri/src/commands/notes.rs:122`) — fetches the page
+  *outside* the lock, then takes it to write the note.
 - **Vault sync is not one of these.** `vault_sync_push` / `vault_sync_pull`
-  (`lib.rs:1414`, `:1426`) run synchronously on the calling command thread, but
-  they lock the engine only long enough to clone the vault root
-  (`sync_root`, `lib.rs:1366`) — a slow network sync never blocks editing.
+  (`src-tauri/src/commands/vaultsync.rs:74`, `:93`) are `async`, but their work
+  runs inside `blocking(…)`; they lock the engine only long enough to clone the
+  vault root (`sync_root`, `vaultsync.rs:21`) and, on push, to inspect the
+  working tree behind `sync_push_gated` — never across the network git — so a
+  slow sync never blocks editing.
 
 **What an external writer may assume.** Disk is authoritative. Your write is
-picked up ~300ms after it lands (`apply_changes`, `vault.rs:1054`; over 500
+picked up ~300ms after it lands (`apply_changes`, `vault/mod.rs:891`; over 500
 paths in one burst it escalates to a full rescan). If the watcher can't be
-constructed the app falls back to a 45s poll (`vault.rs:3834`) and says so via
+constructed the app falls back to a 45s poll (`vault/watch.rs:52`) and says so via
 `vault:watch-degraded` — worst-case staleness is 45s, not forever. Note
-*bodies* are never cached (`Engine::read`, `vault.rs:1229`, hits disk every
+*bodies* are never cached (`Engine::read`, `vault/mod.rs:1067`, hits disk every
 call); only the metadata/link/FTS indexes lag, and only for that window.
+
+**Non-UTF-8 notes are readable but not writable (SUB-556).** The engine reads
+on two different lanes. The *display/index* lane is lossy (`read_lossy`,
+`src-tauri/src/vault/mod.rs:401`): invalid bytes become U+FFFD so a mangled file
+still lists, previews, and indexes instead of breaking the view — and a file
+containing a NUL byte is reported as "not a text file" rather than decoded at
+all. The *write* lane is strict (`read_strict`, `mod.rs:419`): every path that
+reads a note in order to write it back — `write_body`, prop sets, renames,
+frontmatter edits — decodes with `String::from_utf8` and **refuses the whole
+operation** if that fails, with
+
+> this note is not valid UTF-8 — saving would replace the unreadable bytes, so
+> the edit was refused; fix the file's encoding outside Substrate first
+
+The refusal is the contract, not a bug: a lossy decode followed by a write
+would make the U+FFFD substitutions permanent and silently destroy the original
+bytes. So an external writer may leave non-UTF-8 files in the vault — they stay
+visible and stay byte-identical — but the app will never rewrite one. Fix the
+encoding outside Substrate first. (Regression tests:
+`write_body_refuses_an_unreadable_note_instead_of_stripping_it`, `mod.rs:2322`;
+`invalid_utf8_note_is_never_rewritten_through_a_lossy_decode`, `mod.rs:3308`.)
 
 **What you may not assume.** There is no lock you can take, no advisory file,
 and no transaction spanning two files — the app may be mid-write on a

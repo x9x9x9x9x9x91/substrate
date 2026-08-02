@@ -416,12 +416,24 @@ function NotePane({
       }
       pending.current = null;
       saving.current += 1;
+      // SUB-771: a keystroke's closure can re-key pending back to a path this
+      // pane's own rename already moved — the load effect's fix-up runs after
+      // the cleanup flush that grabs the buffer (rig captures: the write goes
+      // to the dead path, fails "gone", and its catch used to revert newer
+      // text). Write where the note lives NOW.
+      const livePath = liveAlias(p.path);
+      // guard vs p.path deliberately (not livePath): during a pane-own rename
+      // baseRef is already re-keyed to the destination while p.path is the
+      // stale closure's key, and the old code shipped that write with NO
+      // expected-body — guarding it against the pre-rename baseRef body would
+      // newly raise the conflict banner when the rename's link sweep rewrote
+      // this note's own body under a dirty buffer (SUB-97 lane; review finding)
       const expected =
         force || baseRef.current?.path !== p.path ? null : baseRef.current?.body;
       // SUB-132: a failed write must never be silent — surfaced inline and the
       // body stays armed so a click on the error pill (or the next debounced
       // edit) retries the same write. Cleared on the next success.
-      return vaultWriteBody(p.path, p.body, expected)
+      return vaultWriteBody(livePath, p.body, expected)
         .then(() => {
           // a write that lands after a note switch must not clobber the new
           // note's base — its disk-known body comes from the load effect.
@@ -460,8 +472,13 @@ function NotePane({
 
           // the buffer goes back to pending — dropping unsaved text silently
           // is worse than holding it (re-keyed to the live name if a rename
-          // landed mid-write, so the retry writes where the note now is)
-          pending.current = { path: wrotePath, body: p.body };
+          // landed mid-write, so the retry writes where the note now is).
+          // SUB-771: unless a NEWER buffer exists — keystrokes typed while
+          // this write was in flight built a doc that already contains this
+          // one's text, and restoring the stale snapshot over it is exactly
+          // the silent loss (rig captures: disk froze at the rename-moment
+          // body, everything typed after was clobbered here).
+          if (!pending.current) pending.current = { path: wrotePath, body: p.body };
           if (isConflictErr(err)) {
             // SUB-93: the file changed under a dirty buffer — user decides
             conflictRef.current = true;
@@ -608,6 +625,13 @@ function NotePane({
     baseRef.current = null;
     let gone = false;
     const path = meta.path;
+    // SUB-771 review (HIGH): a pane-own rename's alias dies the moment this
+    // pane opens the vacated path again — a NEW note can live there now
+    // (⌘N reuses freed names), and a surviving alias would silently redirect
+    // its saves into the rename's destination: two-note loss. The alias only
+    // exists to route stale closures / in-flight failures of the RENAMED
+    // note, and those flushed above.
+    renameAliases.current.delete(path);
     // SUB-210: a ghost daily has nothing to read — seed an empty buffer so
     // the editor renders; the first keystroke's flush creates the file
     if (ghost && ghostPaths.current.has(path)) {

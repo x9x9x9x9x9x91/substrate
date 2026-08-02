@@ -182,7 +182,9 @@ export function useVaultEvents(opts: {
     listen("vault:watch-degraded", () => {
       if (watchDegradedRef.current) return;
       watchDegradedRef.current = true;
-      showToast("File watching unavailable — external changes won't appear until restart.");
+      showToast(
+        "File watching unavailable — external changes are picked up by a periodic rescan, within about a minute.",
+      );
     }).then((un) => {
       if (cancelled) un();
       else unlisten = un;

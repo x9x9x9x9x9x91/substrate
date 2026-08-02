@@ -12,8 +12,9 @@ implement it from this file alone.
 Every claim about current behaviour below is cited to code. Where the code and
 this doc disagree, the code wins and this doc gets fixed in the same merge.
 
-Sources of truth: `src-tauri/src/lib.rs` (IPC), `src-tauri/src/vault.rs`
-(engine), `src-tauri/src/history.rs` (vault git), `src/App.tsx` (toast + key
+Sources of truth: `src-tauri/src/lib.rs` + `src-tauri/src/commands/` (IPC),
+`src-tauri/src/vault/` (engine — `Engine` façade in `mod.rs`, plus the `schema`,
+`views`, `search`, `trash`, `assets`, `foldersync`, `watch` modules), `src-tauri/src/history.rs` (vault git), `src/App.tsx` (toast + key
 dispatch), `src/components/NotePane.tsx` (save/adopt), `src/components/Editor.tsx`
 (CodeMirror), `src/lib/shortcuts.ts` (key registry).
 
@@ -21,9 +22,11 @@ dispatch), `src/components/NotePane.tsx` (save/adopt), `src/components/Editor.ts
 
 ## 1. Inventory — every mutating action, verified
 
-94 commands are registered in `generate_handler!` (`src-tauri/src/lib.rs:1849-1950`;
-97 entries counting the four `term::*`). 40 of them are pure reads. The 54 that
-mutate persistent state are classified below.
+The full command surface is registered in `generate_handler!`
+(`src-tauri/src/lib.rs:730-865`; 130 entries as of 2026-08, including the
+`smoke::*` and `term::*` lanes). Most are pure reads; every command that
+mutates persistent state is classified below — the classification, not the
+count, is the contract.
 
 **Legend for "Invertible"**: ✅ = a small captured payload fully inverts it;
 🟡 = invertible but lossy or racy; ❌ = not invertible with a bounded payload.
@@ -32,12 +35,12 @@ mutate persistent state are classified below.
 
 | Command | lib.rs | Engine | What changes on disk | Invertible — what to capture | Covered today |
 |---|---|---|---|---|---|
-| `vault_write_body` | `:136` | `write_body` `vault.rs:1306` | Whole body replaced; frontmatter preserved byte-verbatim | ✅ prior body. **The only guarded writer** — `expected: Option<&str>` body compare at `vault.rs:1324-1328` | CodeMirror history (`Editor.tsx:1093`), food stack (`FoodDashboard.tsx:225`) |
-| `vault_fm_write` | `:125` | `fm_write` `vault.rs:1262` | Whole **frontmatter block** replaced; body preserved | ✅ prior raw FM string + a no-FM-at-all sentinel | ❌ none |
-| `vault_set_prop` | `:152` | `set_prop_value` `vault.rs:1409` | One FM key set/removed; whole prop map re-serialized (BTreeMap order, YAML reflowed) | ✅ `Option<Value>` prior — `None` *is* the absence sentinel and is directly the inverse argument | Calendar drag + board drag only (§1.8) |
-| `url_capture` | `:200` | `create_reference` `vault.rs:1537` | Creates `Inbox/<slug>.md`, then **asynchronously** may rename + write body (`spawn_url_enrichment`, `lib.rs:212`) | 🟡 sync part inverts by trashing; the async tail lands after the undo record is taken | ❌ none |
-| `history_restore` | `:1310` | `write_raw` `vault.rs:1340` | Whole file (FM included) overwritten from git, then snapshotted | ✅ the pre-restore commit id — the inverse is another restore. **No guard**: `write_raw` has no `expected` | n/a (additive by design) |
-| `folder_dbs_rescan` | `:594` | `sync_folders` `vault.rs:3647` | Creates stub notes, rewrites `modified`/`size`/`missing` across N notes, may seed schema | ❌ count-only return, multi-note | ❌ none |
+| `vault_write_body` | `:136` | `write_body` `vault/mod.rs:1152` | Whole body replaced; frontmatter preserved byte-verbatim | ✅ prior body. **The only guarded writer** — `expected: Option<&str>` body compare at `vault/mod.rs:1191-1195` | CodeMirror history (`Editor.tsx:1093`), food stack (`FoodDashboard.tsx:225`) |
+| `vault_fm_write` | `:125` | `fm_write` `vault/mod.rs:1111` | Whole **frontmatter block** replaced; body preserved | ✅ prior raw FM string + a no-FM-at-all sentinel | ❌ none |
+| `vault_set_prop` | `:152` | `set_prop_value` `vault/mod.rs:1273` | One FM key set/removed; whole prop map re-serialized (BTreeMap order, YAML reflowed) | ✅ `Option<Value>` prior — `None` *is* the absence sentinel and is directly the inverse argument | Calendar drag + board drag only (§1.8) |
+| `url_capture` | `:200` | `create_reference` `vault/mod.rs:1456` | Creates `Inbox/<slug>.md`, then **asynchronously** may rename + write body (`spawn_url_enrichment`, `commands/notes.rs:122`) | 🟡 sync part inverts by trashing; the async tail lands after the undo record is taken | ❌ none |
+| `history_restore` | `:1310` | `write_raw` `vault/mod.rs:1207` | Whole file (FM included) overwritten from git, then snapshotted | ✅ the pre-restore commit id — the inverse is another restore. **No guard**: `write_raw` has no `expected` | n/a (additive by design) |
+| `folder_dbs_rescan` | `:594` | `sync_folders` `vault/foldersync.rs:155` | Creates stub notes, rewrites `modified`/`size`/`missing` across N notes, may seed schema | ❌ count-only return, multi-note | ❌ none |
 
 ### 1.2 Property edits
 
@@ -65,25 +68,25 @@ action in the app.
 
 | Command | lib.rs | Engine | What changes | Invertible | Covered |
 |---|---|---|---|---|---|
-| `vault_create` | `:164` | `create_full` `vault.rs:1471` | New `.md`, auto-numbered on collision | ✅ returned path → trash it | ❌ (scratch-abandon hard-deletes silently, `App.tsx:1309-1331`) |
-| `vault_move` | `:532` | `move_note` `vault.rs:2774` | `fs::rename` into another folder; filename and links untouched | ✅ prior folder. **The cleanest invertible structural op** | ❌ |
-| `vault_rename` | `:255` | `rename` `vault.rs:1588` | Renames file **and rewrites `[[wikilinks]]` in every source note + relation props across notes** | 🟡 reverse sweep catches unrelated notes that already said `[[old]]`; can return `Err` *after* the rename landed (SUB-225, `vault.rs:1588`; SUB-285, `:1692`) | ❌ |
-| `vault_create_folder` | `:511` | `create_folder` `vault.rs:2761` | `create_dir_all` | ✅ but capture which levels were new | ❌ |
-| `vault_rename_folder` | `:521` | `rename_folder` `vault.rs:2809` | Dir rename + retargets `$folders` icons, schema `home`s, `$sidebar` | ✅ capture the *returned* rel (sanitizer may rewrite the requested name) | ❌ |
-| `vault_delete` (trash) | `:268` | `trash` `vault.rs:1729` | Note → `.trash/<ms>/<rel>` | 🟡 — **the trash id is never returned** (`lib.rs:268` returns `Result<(),String>`); see §1.9 gap 1 | ✅ toast (`App.tsx:1517`) |
-| `vault_delete_folder` | `:301` | `trash_folder` `vault.rs:1753` | Subtree → trash + `.folder` marker; **clears** icon, schema home, sidebar entry | 🟡 restore does not bring the three config bits back | ❌ (TrashPane only) |
-| `vault_trash_restore` / `_folder` | `:279` / `:313` | `vault.rs:1907` / `:1955` | Moves back, **numbering on collision** (`Note 2.md`) | 🟡 round-trip loses the original delete stamp | n/a |
-| `vault_save_asset` / `vault_import_asset` | `:353` / `:392` | `vault.rs:2289` / `:2308` | New file in `.assets/` | 🟡 the inverse (`assets_delete`) is **permanently destructive** | ❌ |
+| `vault_create` | `:164` | `create_full` `vault/mod.rs:1376` | New `.md`, auto-numbered on collision | ✅ returned path → trash it | ❌ (scratch-abandon hard-deletes silently, `App.tsx:1309-1331`) |
+| `vault_move` | `:532` | `move_note` `vault/mod.rs:1839` | `fs::rename` into another folder; filename and links untouched | ✅ prior folder. **The cleanest invertible structural op** | ❌ |
+| `vault_rename` | `:255` | `rename` `vault/mod.rs:1515` | Renames file **and rewrites `[[wikilinks]]` in every source note + relation props across notes** | 🟡 reverse sweep catches unrelated notes that already said `[[old]]`; can return `Err` *after* the rename landed (SUB-225, `vault/mod.rs:1568`; SUB-285, `:1676`) | ❌ |
+| `vault_create_folder` | `:511` | `create_folder` `vault/mod.rs:1826` | `create_dir_all` | ✅ but capture which levels were new | ❌ |
+| `vault_rename_folder` | `:521` | `rename_folder` `vault/mod.rs:1875` | Dir rename + retargets `$folders` icons, schema `home`s, `$sidebar` | ✅ capture the *returned* rel (sanitizer may rewrite the requested name) | ❌ |
+| `vault_delete` (trash) | `commands/trash.rs:11` | `trash` `vault/trash.rs:184` | Note → `.trash/<ms>/<rel>` | ✅ the command **returns the trash id** (`Result<String,String>`), so the inverse is `vault_trash_restore(id)` | ✅ toast (`App.tsx:1517`) |
+| `vault_delete_folder` | `commands/trash.rs:85` | `trash_folder` `vault/trash.rs:253` | Subtree → trash + `.folder` marker; **clears** icon, schema home, sidebar entry | 🟡 restore does not bring the three config bits back | ❌ (TrashPane only) |
+| `vault_trash_restore` / `_folder` | `:279` / `:313` | `vault/trash.rs:683` / `:822` | Moves back, **numbering on collision** (`Note 2.md`) | 🟡 round-trip loses the original delete stamp | n/a |
+| `vault_save_asset` / `vault_import_asset` | `commands/assets.rs:8` / `:47` | `vault/assets.rs:71` / `:92` | New file in `.assets/` | ✅ the inverse (`assets_delete`) moves the file to `.trash/<ms>/.assets/` rather than unlinking it | ❌ |
 
 ### 1.4 Schema
 
 All four bulk commands carry a doc-comment telling the caller to take a
-`history_snapshot` first (`lib.rs:674`, `:686`, `:701`, `:716`) — the codebase
+`history_snapshot` first (`commands/schema.rs:145`, `:159`, `:172`, `:186`) — the codebase
 already concedes these are not row-invertible.
 
 | Command | lib.rs | What changes | Invertible |
 |---|---|---|---|
-| `vault_schema_set` | `:608` | One prop's schema in `.vault/schema.json` | ✅ prior `PropSchema` + type-entry-existed flag. **Caveat**: `notify` is `unwrap_or(keep)` (`vault.rs:2960-2963`) — the inverse must pass `Some(old_notify)` explicitly |
+| `vault_schema_set` | `:608` | One prop's schema in `.vault/schema.json` | ✅ prior `PropSchema` + type-entry-existed flag. **Caveat**: `notify` is `unwrap_or(keep)` (`vault/schema.rs:352`) — the inverse must pass `Some(old_notify)` explicitly |
 | `vault_schema_set_icon` | `:630` | Type icon | ✅ prior `DbIcon`; build from the *stored* value (emoji beats glyph, orphan tint drops) |
 | `vault_schema_home_set` | `:650` | Type home folder | ✅ prior `Option<String>`; the uniqueness check can make the inverse *fail* |
 | `vault_create_type` | `:664` | New type entry | ✅ remove the entry |
@@ -118,7 +121,7 @@ Every one is a whole-object replace and therefore trivially invertible.
 |---|---|---|
 | `vault_trash_delete` / `_folder` | `:289` / `:323` | `remove_file` / `remove_dir_all` |
 | `vault_trash_empty` | `:294` | `remove_dir_all` on all of `.trash/` |
-| `vault_assets_delete` | `:440` | Assets **skip the trash and history never tracks them** (`vault.rs:2457`). Genuinely unrecoverable |
+| `vault_assets_delete` | `commands/assets.rs:99` | Not permanent any more: assets move to `.trash/<ms>/.assets/<name>` (`vault/assets.rs:259-289`) and come back via `vault_assets_restore` (`commands/assets.rs:112`). Still outside the undo stack — recovery is the Trash pane, not ⌘Z |
 | `history_purge_note` / `_notes` | `:1326` / `:1336` | Rewrites git history |
 | `history_trim` | `:1346` | Drops all snapshots before a cutoff |
 
@@ -175,15 +178,16 @@ neither the cheat sheet nor the hint panel.
 
 ### 1.9 API gaps that block undo today
 
-1. **Trash ids are not returned.** `vault_delete` and `vault_delete_folder`
-   return `Result<(), String>` (`lib.rs:268`, `:301`). The id is
-   `<now_ms +N on collision>/<rel>`, computed inside `trash()` (`vault.rs:1734-1739`)
-   and never surfaced. `restoreTrashed` works around this by scanning
-   `vaultTrashList()` for a path match (`App.tsx:1490`) — which picks the
-   **first** match when a path has been trashed twice. This is the single
-   biggest API gap.
+1. **Trash ids are returned — this gap is closed.** `vault_delete` and
+   `vault_delete_folder` return `Result<String, String>`
+   (`commands/trash.rs:11`, `:85`), and the string is the trash id
+   `<now_ms +N on collision>/<rel>` computed inside `trash_at()`
+   (`vault/trash.rs:197-202`). `vaultDelete` / `vaultDeleteFolder` surface it
+   to the frontend (`src/lib/ipc.ts:134`, `:141`), so an undo entry can capture
+   the exact id instead of scanning `vaultTrashList()` for a path match and
+   picking the first of two deletions of the same path.
 2. **`vault_set_prop` has no conflict guard.** `vaultSetProp` takes no
-   `expected` (`src/lib/ipc.ts:48`; engine `vault.rs:1409`), unlike
+   `expected` (`src/lib/ipc.ts:48`; engine `vault/mod.rs:1273`), unlike
    `vaultWriteBody` (`ipc.ts:46`). Every property undo is a blind
    last-write-wins overwrite.
 3. **Bulk commands return counts, not rows.** `vault_clear_prop`,
@@ -197,8 +201,8 @@ neither the cheat sheet nor the hint panel.
    sidecar (SUB-480/SUB-499), and a note delete parks its pin and keys in an
    `<id>.note.json` one (SUB-666). Both restore with yield-to-newer semantics —
    see `docs/vault-format.md` §10.
-5. **Restore never overwrites**, so it numbers on collision (`vault.rs:1907`,
-   `:1955`) — "undo delete" is not guaranteed to restore the original path.
+5. **Restore never overwrites**, so it numbers on collision (`vault/trash.rs:683`,
+   `:822`) — "undo delete" is not guaranteed to restore the original path.
 6. **Extract-selection is split across two stacks** (SUB-591). The create
    records on the app stack (`NotePane.tsx` `extractToNote` → `recordCreate`);
    the `[[link]]` replacing the selected text rides CodeMirror history. Since
@@ -258,7 +262,7 @@ state needed to reverse itself. Per class:
 
 | Class | Inverse | Captured at commit time |
 |---|---|---|
-| property edit | `vaultSetProp(path, key, prior)` | `prior: PropValue \| null` — `null` *is* the absence sentinel and the engine already treats it as remove (`vault.rs:1414-1425`). `prior` is the **raw parsed YAML**, so the writer has to accept everything the reader can hand back: string, number, bool, string list, absent. Numbers reach the write path this way only — the UI still authors strings (docs/vault-format.md §2). A structured prior (map, mixed list) is still refused, and its edit is correspondingly not undoable |
+| property edit | `vaultSetProp(path, key, prior)` | `prior: PropValue \| null` — `null` *is* the absence sentinel and the engine already treats it as remove (`vault/mod.rs:1326-1339`). `prior` is the **raw parsed YAML**, so the writer has to accept everything the reader can hand back: string, number, bool, string list, absent. Numbers reach the write path this way only — the UI still authors strings (docs/vault-format.md §2). A structured prior (map, mixed list) is still refused, and its edit is correspondingly not undoable |
 | bulk property edit | N × the above, sequenced | `Array<{path, prior}>` — one entry per note, one `UndoEntry` for the batch |
 | content edit (body) | `vaultWriteBody(path, priorBody, expected = currentBody)` | prior body + the body the action wrote |
 | frontmatter block | `vaultFmWrite(path, priorRaw)` | prior raw FM string, or a no-block sentinel |
@@ -284,7 +288,7 @@ The prior value must be read from the same source the write is about to
 overwrite. Today `CalendarPane.tsx:277` and `DatabasePane.tsx:1395` both read
 `prior` from the in-memory `notes` list, which can be up to one refresh stale.
 The correct capture is the value returned by the write itself: `vault_set_prop`
-already returns the post-write `NoteMeta` (`lib.rs:152`), so a **prior-returning
+already returns the post-write `NoteMeta` (`commands/notes.rs:34-40`), so a **prior-returning
 variant** (§6.2) makes capture exact and free of a second round-trip.
 
 Actions that fail do not push an entry. Actions that partially succeed (bulk)
@@ -321,13 +325,13 @@ The vault *is* a quiet git repo (`history.rs:1-13`) — not a shadow repo. Its
 cadence is batched idle snapshots:
 
 ```rust
-const SNAP_QUIET: Duration = Duration::from_secs(120);      // lib.rs:58
-const SNAP_MAX_DIRTY: Duration = Duration::from_secs(600);  // lib.rs:59
-const SNAP_TICK: Duration = Duration::from_secs(15);        // lib.rs:60
+const SNAP_QUIET: Duration = Duration::from_secs(120);      // lib.rs:85
+const SNAP_MAX_DIRTY: Duration = Duration::from_secs(600);  // lib.rs:86
+const SNAP_TICK: Duration = Duration::from_secs(15);        // lib.rs:87
 ```
 
 `take_if_due()` fires when the vault has been quiet 120 s **or** dirty for 600 s
-(`lib.rs:76`). So recovery resolution is **~2 minutes at best, ~10 minutes worst
+(`lib.rs:99`). So recovery resolution is **~2 minutes at best, ~10 minutes worst
 case**, at whole-file granularity, in a commit that is vault-wide. A note edited
 and re-edited inside one quiet window has only its final state committed.
 
@@ -385,12 +389,12 @@ silently when uncoordinated.
 
 ### 3.1 What the seam looks like today — verified
 
-**Watcher** (`vault.rs:3842-3943`): `notify::recommended_watcher`, recursive on
+**Watcher** (`vault/watch.rs:61-230`): `notify::recommended_watcher`, recursive on
 the vault root, with a **300 ms quiet-period debounce** that coalesces bursts
-(`vault.rs:3931`). A 45 s full-rescan poll loop is the degraded fallback when the
-watcher can't arm (SUB-157, `vault.rs:3898-3919`).
+(`vault/watch.rs:151`). A 45 s full-rescan poll loop is the degraded fallback when
+the watcher can't arm (SUB-157, `vault/watch.rs:52`, `:122`).
 
-**The payload is empty.** `handle.emit("vault:changed", ())` — `lib.rs:1801`. No
+**The payload is empty.** `handle.emit("vault:changed", ())` — `lib.rs:682`. No
 paths, no mtimes, no hashes. Every downstream consumer treats it as a wholesale
 "re-read everything" signal. This is the single biggest structural fact about the
 seam.
@@ -412,9 +416,9 @@ effect returns early and divergence is discovered at write time instead.
 
 **Save** (`NotePane.tsx:488-499`): trailing 500 ms debounce, whole-body write,
 with a **compare-and-swap** — `expected = baseRef.current?.body` (`:328-329`),
-compared server-side at `vault.rs:1324-1328`. It is a **full body-string
+compared server-side at `vault/mod.rs:1191-1195`. It is a **full body-string
 comparison, not an mtime and not a hash**, and it deliberately excludes
-frontmatter (`vault.rs:1329-1332`), so an external FM-only edit never conflicts.
+frontmatter (`vault/mod.rs:1196-1199`), so an external FM-only edit never conflicts.
 A conflict surfaces as a banner with reload-vs-overwrite (`NotePane.tsx:559-583`).
 Failures never drop text — `pending.current = p` is restored in the catch (`:348`).
 
@@ -435,7 +439,7 @@ It does **not** reset the history or rebuild the `EditorState`. The e2e lives at
 `e2e/undoclobber.spec.ts`.
 
 **Sync pull emits nothing.** `gitsync.rs` contains no `emit` at all. `vault_sync_pull`
-(`lib.rs:1425-1436`) snapshots, then `gitsync::sync_pull` fetches and may
+(`commands/vaultsync.rs:93-99`) snapshots, then `gitsync::sync_pull_gated` fetches and may
 `checkout_tree(...).force()` (`gitsync.rs:536`) over real files under the watched
 root — so open editors learn about a pull **only through the OS watcher**, on the
 300 ms debounce. `ensure_clean` (`gitsync.rs:582-593`) refuses a pull with a dirty
@@ -463,8 +467,8 @@ entry's `paths` field is the key.
 Implementation, in dependency order:
 
 **(a) `vault:changed` must carry paths.** The watcher already has them — a
-`HashSet<PathBuf>` accumulated across the debounce window (`vault.rs:3930-3936`),
-split by `config_path` at `lib.rs:1785-1793` and then **thrown away** at the emit.
+`HashSet<PathBuf>` accumulated across the debounce window (`vault/watch.rs:147-157`),
+split by `config_path` at `lib.rs:668` and then **thrown away** at the emit.
 Changing `handle.emit("vault:changed", ())` to carry the note paths is a small,
 independently valuable change: it also lets `NotePane` stop re-reading the open
 note on every unrelated bump. This is the enabling change for everything below,
@@ -557,16 +561,16 @@ Per the credo, each needs a named alternative recovery path.
 | Action | Why not undoable | Recovery path |
 |---|---|---|
 | `vault_trash_delete` / `_folder` / `vault_trash_empty` | permanent by definition — the trash *is* the recovery layer | git history (`history_list`) — the note is still in past commits under its original path, since `history_purge_*` is a separate explicit action |
-| `vault_assets_delete` | assets skip the trash and **history never tracks them** (`vault.rs:2457`) | **none — genuinely unrecoverable.** This is a credo violation and should be filed separately: assets deserve trash parity |
+| `vault_assets_delete` | git history never tracks assets, and the delete is not on the undo stack | **trash parity landed**: the asset is moved to `.trash/<ms>/.assets/<name>` (`vault/assets.rs:259-289`) and `vault_assets_restore` puts it back, numbering rather than overwriting. Permanent only after `vault_assets_trash_delete` |
 | `history_purge_note` / `_notes` / `history_trim` | rewrites/prunes git history itself | none by design; these are the "explicit actions are permanent" case. Must stay behind a confirm |
 | `vault_sync_push` | publishes to a remote | remote-side; out of scope |
-| `vault_sync_pull` | git-level merge | the pre-pull snapshot (`lib.rs:1432`) |
+| `vault_sync_pull` | git-level merge | the pre-pull snapshot (`commands/vaultsync.rs:99`) |
 | `vault_sync_set_remote` | stores a token that **cannot be read back** | re-enter the credential |
 | `vault_rename_type`, `vault_delete_type`, `vault_rename_prop`, `vault_clear_prop` | count-only returns (partial runs report the count with the error, SUB-501); a reverse sweep catches notes that legitimately already matched | `presweepSnapshot` (`App.tsx:1040-1044`) → HistoryPanel restore. **Needs the UI in §6.5** |
 | `folder_dbs_rescan` | multi-note, count-only | re-run it; the source folders are untouched |
 | `term::*`, `file_open`, and any machine-bridge dashboard command | external processes and machine state | n/a |
-| `export_text`, `export_note_bundle` | write **outside** the vault; prior destination contents are never read (`lib.rs:365-367`) | n/a — but worth noting `export_text` silently truncates an existing file at the picked path |
-| `url_capture` | mutates **asynchronously after returning** (`lib.rs:212`) | trash the created note manually |
+| `export_text`, `export_note_bundle` | write **outside** the vault; prior destination contents are never read (`commands/assets.rs:20-23`) | n/a — but worth noting `export_text` silently truncates an existing file at the picked path |
+| `url_capture` | mutates **asynchronously after returning** (`commands/notes.rs:106`, enrichment spawned at `:122`) | trash the created note manually |
 
 **The rule for a new command**: if it can't be inverted with a bounded payload,
 it must either take a `history_snapshot` first or be a soft-delete into the
@@ -581,11 +585,11 @@ Two durable layers behind the session stack:
 - **Trash** — soft-deleted notes and folders, browsable and restorable
   indefinitely (`TrashPane.tsx:96-119`). Restore numbers on collision.
 - **History** — `history_list(path)` runs `git log --follow` per note
-  (`history.rs:206`+), `history_diff` shows a unified diff (`:302-326`),
+  (`history.rs:257-267`), `history_diff` shows a unified diff (`:350-354`),
   `history_restore` writes an old version over the file and **snapshots on top —
-  never a rewrite** (`lib.rs:1307-1308`).
+  never a rewrite** (`commands/history.rs:121`, `:129`).
 
-Note `history_restore` uses `write_raw` (`vault.rs:1340`), which has **no
+Note `history_restore` uses `write_raw` (`vault/mod.rs:1207`), which has **no
 expected-body guard** — it is unconditional last-write-wins. That is defensible
 for an explicit, user-chosen restore from a visible diff; it would not be
 defensible for an automatic undo, which is why §3.3(d) exists.
@@ -694,7 +698,7 @@ Clicking the toast and pressing ⌘Z must be the same operation, so the toast's
 8. A list value (`string[]`) round-trips without stringification.
 9. A bulk write over 3 paths where 1 fails records an entry with 2 paths.
 
-*Rust — `src-tauri/src/vault.rs` tests:*
+*Rust — `src-tauri/src/vault/` tests:*
 10. `set_prop_value` with a matching `expected` succeeds.
 11. `set_prop_value` with a stale `expected` returns `conflict:` and leaves the
     file byte-identical.
@@ -717,7 +721,7 @@ Clicking the toast and pressing ⌘Z must be the same operation, so the toast's
 Additive and back-compatible — every existing caller keeps working.
 
 ```rust
-// lib.rs:152 — gains `expected`, returns the prior value alongside the meta
+// commands/notes.rs:34 — gains `expected`, returns the prior value alongside the meta
 #[tauri::command]
 fn vault_set_prop(
     state: State<AppState>, dirty: State<SnapDirty>,
@@ -731,20 +735,20 @@ pub struct SetPropResult { pub meta: NoteMeta, pub prior: Option<serde_json::Val
 
 The double `Option` is load-bearing: outer `None` = "don't check", inner `None` =
 "I expect this key to be absent". Engine change in `set_prop_value`
-(`vault.rs:1409`) — compare against the parsed prop map before mutating, return
+(`vault/mod.rs:1273`) — compare against the parsed prop map before mutating, return
 `Err("conflict: property changed on disk")` on mismatch, mirroring the body
-guard's wording (`vault.rs:1325`).
+guard's wording (`vault/mod.rs:1193`).
 
 Later slices need:
 
 ```rust
-// lib.rs:268 — return the trash id so undo doesn't scan by path (gap §1.9-1)
+// commands/trash.rs:11 — return the trash id so undo doesn't scan by path (gap §1.9-1)
 fn vault_delete(...) -> Result<String, String>;          // slice 2
 fn vault_delete_folder(...) -> Result<TrashedFolder, String>;  // slice 2
 //   TrashedFolder { id, icon: Option<DbIcon>, homes: Vec<(String,String)>, sidebar: Option<..> }
 //   — the three config bits trash_folder currently discards (gap §1.9-4)
 
-// lib.rs:1801 — the watcher emits paths instead of ()                slice 3
+// lib.rs:682 — the watcher emits paths instead of ()                 slice 3
 app.emit("vault:changed", ChangedPaths { notes: Vec<String> })
 // gitsync — an explicit signal instead of learning via the OS watcher  slice 3
 app.emit("vault:pulled", ChangedPaths { .. })
@@ -831,6 +835,6 @@ someone else's edit fails the credo more badly than having no undo at all,
 because it destroys work the user never chose to touch.
 
 **Undo via git revert of the last snapshot.** Rejected: the snapshot cadence is
-120–600 s (`lib.rs:58-59`) and vault-wide. Reverting the last commit would undo
+120–600 s (`lib.rs:85-86`) and vault-wide. Reverting the last commit would undo
 every change in a 2–10 minute window across every file — far more than the user's
 last action, and completely unpredictable to them.

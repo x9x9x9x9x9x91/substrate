@@ -89,7 +89,6 @@ mod desktop {
             || key == "AI_AGENT"
             || key.starts_with("CLAUDE_CODE_")
             || key.starts_with("ANTHROPIC_")
-            || key.starts_with("AGTERM_")
     }
 
     pub(crate) fn strip_session_markers(cmd: &mut CommandBuilder) {
@@ -331,7 +330,6 @@ mod tests {
         assert!(is_session_marker("CLAUDE_CODE_CHILD_SESSION"));
         assert!(is_session_marker("ANTHROPIC_BASE_URL"));
         assert!(is_session_marker("ANTHROPIC_AUTH_TOKEN"));
-        assert!(is_session_marker("AGTERM_PANE_ID"));
         assert!(is_session_marker("AI_AGENT"));
         // portable-pty folds key case on Windows; the classifier must too
         assert!(is_session_marker("Claudecode"));

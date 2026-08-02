@@ -70,6 +70,11 @@ declare global {
         re-render — the production resolution class behind the SUB-305
         restore race, which the random timeout is too slow to reach */
     __mockSetAsync?: (on: boolean | "microtask") => void;
+    /** SUB-771 instrumentation: record write-lane commands (write_body /
+        rename / create / read) with args + outcome from now on */
+    __mockTraceCommands?: () => void;
+    /** SUB-771 instrumentation: read the recorded command trace */
+    __mockReadCommandTrace?: () => unknown[];
     /** hold every call to `cmd` open until `__mockReleaseCommand` — the
         deterministic form of an IPC still in flight while the user navigates
         away (SUB-550). The random "timeout" mode is too narrow a window to
@@ -111,6 +116,11 @@ declare global {
         since a note switch unmounts the pane and flushes on the way out
         (SUB-551) */
     __mockBodyOf?: (path: string) => string;
+    /** every note path + body in the mock store, for failure-time dumps: when
+        a spec fails it often does NOT know which path the note is under (a
+        rename may or may not have landed), so the path-keyed readers above
+        can't be used — they throw on a miss (SUB-771) */
+    __mockNotesDump?: () => { path: string; body: string }[];
     /** did the app ask to relaunch? a browser mock can't actually restart */
     __mockRelaunched?: () => boolean;
     /** the agent command onboarding wrote (SUB-804) — null = never called,
@@ -558,7 +568,7 @@ const mockNotes: MockNote[] = [
     props: { type: "sheet", created: "2026-07-26" },
     updated_ms: now - 40 * 60_000,
     excerpt: "Curated news rows — the app writes only fb.",
-    body: `Curated news rows — the app writes only the fb column.\n\n\`\`\`csv\ndate,topic,title,source,url,blurb,why,fb\n${day(0)},plugins,"Zynaptiq ships Morph 3, realtime now",CDM,https://cdm.link/example/morph3,"Spectral morph between two sources, low enough latency to play live.","Your spectral chain is all offline — this one you could perform with.",up\n${day(0)},hardware,M8 firmware 4.2 adds per-track sends,Dirtywave,https://dirtywave.com/example/m8-42,"Two global send busses, addressable per track.","The M8 sketches lose their space in Ableton; sends travel with the song.",\n${day(0)},scene,Umbra announces a four-date label night,Resident Advisor,,"Four nights across autumn, lineup in waves.","chroma weather plays the second date — first live set since the mixes went out.",\n${day(-1)},ai,Open-weights stem separator beats Demucs on drums,Hacker News,https://news.ycombinator.com/example/stems,"Runs locally, ~2x realtime on Apple silicon.","Archive salvage: the variants with no stems could get usable ones.",down\n${day(-1)},wild,A granular synth built inside a spreadsheet,lines,https://llllllll.co/example/sheet-granular,"12000 formula cells scheduling grains at 30fps.","Filed purely because it is a good trick — no deadline attached.",\n\`\`\`\n`,
+    body: `Curated news rows — the app writes only the fb column.\n\n\`\`\`csv\ndate,topic,title,source,url,blurb,why,fb\n${day(0)},plugins,"Zynaptiq ships Morph 3, realtime now",CDM,https://cdm.link/example/morph3,"Spectral morph between two sources, low enough latency to play live.","Ada Voss's spectral chain is all offline — this one she could perform with.",up\n${day(0)},hardware,M8 firmware 4.2 adds per-track sends,Dirtywave,https://dirtywave.com/example/m8-42,"Two global send busses, addressable per track.","The Slow Bloom sketches lose their space in the DAW; sends travel with the song.",\n${day(0)},scene,Umbra announces a four-date label night,Resident Advisor,,"Four nights across autumn, lineup in waves.","chroma weather plays the second date — first live set since the mixes went out.",\n${day(-1)},ai,Open-weights stem separator beats Demucs on drums,Hacker News,https://news.ycombinator.com/example/stems,"Runs locally, ~2x realtime on Apple silicon.","Archive salvage: the variants with no stems could get usable ones.",down\n${day(-1)},wild,A granular synth built inside a spreadsheet,lines,https://llllllll.co/example/sheet-granular,"12000 formula cells scheduling grains at 30fps.","Filed purely because it is a good trick — no deadline attached.",\n\`\`\`\n`,
   },
   {
     // music-work dashboard seed (SUB-595): `dashboard: music-work` — config
@@ -2344,6 +2354,19 @@ let mockEchoOnWrites = false;
 // resolves before React's scheduled re-render, like production thread-pool
 // IPC can — the ordering the restore race loses on)
 let mockAsyncDispatch: false | "timeout" | "microtask" = false;
+// SUB-771 instrumentation: opt-in write-lane command trace (null = off)
+type MockTraceEntry = {
+  ms: number;
+  cmd: string;
+  path?: string;
+  bodyTail?: string;
+  expectedNull?: boolean;
+  doneMs?: number;
+  ok?: boolean;
+  err?: string;
+};
+let mockCmdTrace: MockTraceEntry[] | null = null;
+let mockCmdTraceT0 = 0;
 // SUB-550: commands parked open until their release fn runs — the in-flight
 // IPC a spec needs to still be pending while it navigates elsewhere
 const mockHeldCommands = new Map<string, Promise<void>>();
@@ -2521,6 +2544,21 @@ function mockRank(a: MockSearchRank, b: MockSearchRank): number {
 type MockSearchRank = { titleHit: boolean; offset: number; path: string };
 
 function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
+  // SUB-771 instrumentation: an opt-in ring of write-lane commands with their
+  // args and outcomes, read by the failure dump. No effect unless a spec
+  // installed the trace hook.
+  if (mockCmdTrace && /^vault_(write_body|rename|create|read)$/.test(cmd)) {
+    const entry: MockTraceEntry = {
+      ms: Date.now() - mockCmdTraceT0,
+      cmd,
+      path: typeof args?.path === "string" ? args.path : undefined,
+      bodyTail:
+        typeof args?.body === "string" ? (args.body as string).slice(-40) : undefined,
+      expectedNull: args && "expectedBody" in args ? args.expectedBody === null : undefined,
+    };
+    mockCmdTrace.push(entry);
+    return mockInvokeTraced(cmd, args, entry);
+  }
   // SUB-550: an explicitly held command waits for its release before running
   const held = mockHeldCommands.get(cmd);
   if (held) return held.then(() => mockInvoke(cmd, args));
@@ -2528,6 +2566,31 @@ function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknow
   // the pre-flag mock (the whole suite's baseline is the blast-radius proof)
   if (!mockAsyncDispatch && !mockEchoOnWrites) return mockDispatch(cmd, args);
   return mockInvokeFidelity(cmd, args);
+}
+
+// SUB-771 instrumentation: run the traced command through the normal pipeline
+// (hold gate + fidelity flags untouched) and record how it ended.
+async function mockInvokeTraced(
+  cmd: string,
+  args: Record<string, unknown> | undefined,
+  entry: MockTraceEntry
+): Promise<unknown> {
+  const held = mockHeldCommands.get(cmd);
+  if (held) await held;
+  try {
+    const r =
+      !mockAsyncDispatch && !mockEchoOnWrites
+        ? await mockDispatch(cmd, args)
+        : await mockInvokeFidelity(cmd, args);
+    entry.doneMs = Date.now() - mockCmdTraceT0;
+    entry.ok = true;
+    return r;
+  } catch (err) {
+    entry.doneMs = Date.now() - mockCmdTraceT0;
+    entry.ok = false;
+    entry.err = err instanceof Error ? err.message : String(err);
+    throw err;
+  }
 }
 
 async function mockInvokeFidelity(
@@ -4484,6 +4547,7 @@ if (!isTauri) {
     if (!n) throw new Error(`__mockBodyOf: no mock note at ${path}`);
     return n.body;
   };
+  window.__mockNotesDump = () => mockNotes.map((n) => ({ path: n.path, body: n.body }));
   window.__mockTouchAsset = (name) => {
     mockAssetMtimes.set(name, (mockAssetMtimes.get(name) ?? 1) + 1);
   };
@@ -4500,6 +4564,12 @@ if (!isTauri) {
   window.__mockSetAsync = (on) => {
     mockAsyncDispatch = on === true ? "timeout" : on;
   };
+  // SUB-771 instrumentation: start/read the write-lane command trace
+  window.__mockTraceCommands = () => {
+    mockCmdTrace = [];
+    mockCmdTraceT0 = Date.now();
+  };
+  window.__mockReadCommandTrace = () => mockCmdTrace ?? [];
   // SUB-550: park a command mid-flight so a spec can navigate away while it is
   // still pending, then let it land into the world it left behind
   window.__mockHoldCommand = (cmd) => {
