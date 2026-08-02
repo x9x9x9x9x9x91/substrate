@@ -104,3 +104,19 @@ releases page — see [docs/release-macos.md](docs/release-macos.md) for how one
 is cut. Issues and ideas are welcome; expect the roadmap to follow its owner's
 needs.
 
+## License
+
+Substrate is free software under the GNU Affero General Public License v3.0
+([LICENSE](LICENSE), `AGPL-3.0-only`). Use it, read it, change it, and
+redistribute it under that license's terms. Building the app yourself from
+source (see [Try it](#try-it)) is a first-class, supported way to run it —
+not a workaround.
+
+The license covers the code, not the name: **"Substrate"** as a project name
+and mark stays with its author. Forks and modified builds are welcome under
+the AGPL, but distribute them under a different name so nobody mistakes them
+for this project's own builds.
+
+Contributions ship under the same license — see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
