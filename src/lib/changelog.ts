@@ -84,6 +84,43 @@ export function groupRelease(release: ChangelogRelease): GroupedRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "0.20.0",
+    date: "2026-08-02",
+    title: "It updates itself now",
+    items: [
+      {
+        text: "Substrate keeps itself current: when a new version ships, a toast offers it, one click installs in the background, and a restart finishes the job. This is the last version you download by hand.",
+        kind: "new",
+        headline: true,
+      },
+      {
+        text: "Database views inside notes are editable now — click a cell to change it, tick checkboxes in place, and add rows with + New, all without leaving the note.",
+        kind: "new",
+        headline: true,
+      },
+      {
+        text: "Type /view to drop a database view into a note: a picker lists your databases, and choosing one builds the view and steps the cursor past it.",
+        kind: "new",
+      },
+      {
+        text: "Setting up a new vault can wire in your AI agent: the welcome flow asks which agent CLI you use and puts it one shortcut away in the built-in terminal.",
+        kind: "new",
+      },
+      {
+        text: "Agent instruction files (AGENTS.md, CLAUDE.md) stay out of your notes list — the app conceals them unless a settings toggle says otherwise, and the Welcome note now gives a fuller tour.",
+        kind: "improved",
+      },
+      {
+        text: "The command palette understands synonyms — create, make and add all find the New commands.",
+        kind: "improved",
+      },
+      {
+        text: "This changelog reads better: each release leads with its flagship, and the rest is grouped into New, Improved and Fixed.",
+        kind: "improved",
+      },
+    ],
+  },
+  {
     version: "0.19.0",
     date: "2026-08-02",
     title: "A board that knows what's next",

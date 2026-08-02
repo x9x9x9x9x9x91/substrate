@@ -3,6 +3,33 @@
 <!-- Generated from src/lib/changelog.ts by scripts/gen-changelog.ts.
      Edit that file, then run `node scripts/gen-changelog.ts`. -->
 
+## 0.20.0 — 2026-08-02 — It updates itself now
+
+### Highlights
+
+- Substrate keeps itself current: when a new version ships, a toast offers it, one click
+  installs in the background, and a restart finishes the job. This is the last version
+  you download by hand.
+- Database views inside notes are editable now — click a cell to change it, tick
+  checkboxes in place, and add rows with + New, all without leaving the note.
+
+### New
+
+- Type /view to drop a database view into a note: a picker lists your databases, and
+  choosing one builds the view and steps the cursor past it.
+- Setting up a new vault can wire in your AI agent: the welcome flow asks which agent
+  CLI you use and puts it one shortcut away in the built-in terminal.
+
+### Improved
+
+- Agent instruction files (AGENTS.md, CLAUDE.md) stay out of your notes list — the app
+  conceals them unless a settings toggle says otherwise, and the Welcome note now gives
+  a fuller tour.
+- The command palette understands synonyms — create, make and add all find the New
+  commands.
+- This changelog reads better: each release leads with its flagship, and the rest is
+  grouped into New, Improved and Fixed.
+
 ## 0.19.0 — 2026-08-02 — A board that knows what's next
 
 ### Highlights
