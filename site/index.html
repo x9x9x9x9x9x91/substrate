@@ -628,7 +628,7 @@
     <a href="#app">app</a>
     <a href="#agents">agents</a>
     <a href="#features">features</a>
-    <a href="cookbook/">cookbook</a>
+    <a href="#cookbook">cookbook</a>
     <a href="#price">price</a>
   </div>
   <div class="right">
@@ -747,11 +747,25 @@ value_eur = value_usd * FX("USD","EUR")
         <div class="shot crop-cards"><img src="shot-sheet.png" width="2560" height="1440" alt="The Holdings sheet open in Substrate — csv rows rendered as a computed grid, formula totals along the bottom" loading="lazy" /></div>
       </div>
       <p class="shot-cap"><b>Holdings.md</b> · the sheet rendered · totals, per-bucket sums and USD→EUR conversion computed from the file, live</p>
-      <p class="lede" style="margin-top:56px">Want one? The <a href="cookbook/" style="color:var(--ink);border-bottom:1px solid var(--hair-2)">cookbook</a> is a gallery of these — portfolio, food log, APR tracker, a label-accounting workbook — each a folder of plain files you copy into your vault. Or hand your agent the recipe and say &#8220;make this mine.&#8221;</p>
+    </section>
+
+    <section id="cookbook">
+      <p class="sn">07 / cookbook</p>
+      <h3 class="big">Don&#8217;t start from a blank vault.</h3>
+      <p class="lede">The repo ships a <a href="https://github.com/x9x9x9x9x9x91/substrate/tree/main/cookbook" style="color:var(--ink);border-bottom:1px solid var(--hair-2)">cookbook</a> of dashboard recipes — each one a folder of plain markdown: the dashboard note plus the sheets and sample rows it binds to. Copy the files into your vault and the board renders with numbers on first open. That&#8217;s the whole install.</p>
+      <div class="shot-break" data-r style="margin-top:40px">
+        <div class="shot crop-dash"><img src="shot-cookbook.png" width="2484" height="1684" alt="The food-log recipe rendered in Substrate — net kcal, goal band, week bars, a log form" loading="lazy" /></div>
+      </div>
+      <p class="shot-cap"><b>cookbook/food-log/</b> · three markdown files, copied in — the tracker above is what opens</p>
+      <div class="steps3" style="margin-top:48px">
+        <div><p class="sN">8 recipes</p><h4>Real boards, not demos</h4><p>Portfolio cards, APR tracker, food log, curated news feed, home hub, release charts, a label-accounting workbook, a work index — grown in daily use, then genericized.</p></div>
+        <div><p class="sN">tested</p><h4>Pinned to the demo vault</h4><p>Every recipe file is byte-identical to <code>examples/vault/</code> and parsed by the same engine code in CI — a recipe that drifts fails the suite.</p></div>
+        <div><p class="sN">agent food</p><h4>An index your agent can read</h4><p><code>cookbook/index.json</code> declares each recipe&#8217;s files, what it expects, and how to adapt it. &#8220;Set this up against my real data&#8221; is a one-line prompt.</p></div>
+      </div>
     </section>
 
     <section id="files">
-      <p class="sn">07 / files</p>
+      <p class="sn">08 / files</p>
       <h3 class="big">The files are the app.</h3>
       <p class="lede">No proprietary database underneath — the markdown on your disk is the only source of truth. Substrate is just a fast window onto it. Edit a file in any other app and the change is live before you switch back.</p>
       <div class="duo">
@@ -779,7 +793,7 @@ stems for the motion piece due Friday.
     </section>
 
     <section id="agents">
-      <p class="sn">08 / agents</p>
+      <p class="sn">09 / agents</p>
       <h3 class="big xl">Agents don’t get an API here.<br>They get the <span class="b">files.</span></h3>
       <p class="lede">No UI-only data, boring parseable formats, external edits picked up live — an agent filing your inbox at 3am is a designed use, not a hack. And once agents can read everything on your machine, a vault that never leaves it uninvited stops being a nerd feature and becomes the point.</p>
       <div class="duo">
@@ -801,7 +815,7 @@ stems for the motion piece due Friday.
     </section>
 
     <section id="features">
-      <p class="sn">09 / features</p>
+      <p class="sn">10 / features</p>
       <h3 class="big">Narrow, but finished.</h3>
       <p class="lede">A smaller surface done properly beats a wide surface at 80%.</p>
       <div class="ledger">
@@ -821,7 +835,7 @@ stems for the motion piece due Friday.
 
 
     <section id="principles">
-      <p class="sn">10 / principles</p>
+      <p class="sn">11 / principles</p>
       <h3 class="big">Built on a few stubborn ideas.</h3>
       <div class="creed">
         <div class="c"><span class="n">01</span><div><h4>Files are the only truth.</h4><p>Export a PDF to send someone, sure. But you&#8217;ll never need to export <em style="font-style:normal;color:var(--ink)">your data</em> — it was never inside.</p></div></div>
@@ -834,7 +848,7 @@ stems for the motion piece due Friday.
     </section>
 
     <section id="switching">
-      <p class="sn">11 / switching</p>
+      <p class="sn">12 / switching</p>
       <h3 class="big xl">Leaving Notion?</h3>
       <p class="lede">The databases, the views, the everything-in-one-place — minus the loading spinners, the vendor account, and the API between your agent and your own notes.</p>
       <div class="steps3">
@@ -846,7 +860,7 @@ stems for the motion piece due Friday.
     </section>
 
     <section id="price">
-      <p class="sn">12 / price</p>
+      <p class="sn">13 / price</p>
       <h3 class="big">Free and open source. That part’s simple.</h3>
       <div class="pricelines">
         <div class="pl"><span class="what">Build from source</span><span class="cost"><em>free forever</em> — every feature, no gates</span></div>
@@ -857,7 +871,7 @@ stems for the motion piece due Friday.
     </section>
 
     <section id="faq" style="padding-bottom: 104px">
-      <p class="sn">13 / faq</p>
+      <p class="sn">14 / faq</p>
       <h3 class="big">Fair questions.</h3>
       <div class="faq">
         <details>

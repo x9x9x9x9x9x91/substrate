@@ -64,7 +64,9 @@ VAULT_DIR=~/SubstrateDemo npm run tauri dev
 ```
 
 That opens the app on a demo vault with working examples of notes, databases,
-sheets, and every dashboard kind. (Copy the example vault first as shown — the
+sheets, and every dashboard kind. More ready-made boards live in
+[`cookbook/`](cookbook) — copyable dashboard recipes, each a folder of plain
+markdown that renders with numbers the moment it lands in a vault. (Copy the example vault first as shown — the
 app initializes version history inside the vault it opens, which you don't
 want inside this repo.) Without `VAULT_DIR` the app uses `~/Vault`, creating
 it if needed.

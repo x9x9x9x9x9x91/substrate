@@ -4,15 +4,16 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The public dashboard cookbook (site/cookbook/, SUB-809) ships copies of
-// examples/vault files as downloadable recipes. Copies drift, so this suite
-// pins every recipe file byte-identical to its vault source — the vault is
-// already parsed through the real engine code by example-vault.test.ts, and
-// this transitively extends that guarantee to what the site hands out. It
-// also cross-checks index.json (the machine-readable index the gallery and
-// agents both read) against what is actually on disk.
+// The public dashboard cookbook (cookbook/, SUB-809; repo-root home SUB-865)
+// ships copies of examples/vault files as copyable recipes. Copies drift, so
+// this suite pins every recipe file byte-identical to its vault source — the
+// vault is already parsed through the real engine code by
+// example-vault.test.ts, and this transitively extends that guarantee to
+// what the repo hands out. It also cross-checks index.json (the
+// machine-readable index agents read) against what is actually on disk, and
+// keeps the landing page's cookbook section honest.
 
-const COOKBOOK = fileURLToPath(new URL("../site/cookbook", import.meta.url));
+const COOKBOOK = fileURLToPath(new URL("../cookbook", import.meta.url));
 const VAULT = fileURLToPath(new URL("../examples/vault", import.meta.url));
 
 interface Recipe {
@@ -34,7 +35,7 @@ const index = JSON.parse(readFileSync(join(COOKBOOK, "index.json"), "utf8")) as 
 test("every recipe file is byte-identical to its examples/vault source", () => {
   for (const r of index.recipes) {
     for (const f of r.files) {
-      const shipped = join(COOKBOOK, "recipes", r.id, f);
+      const shipped = join(COOKBOOK, r.id, f);
       const source = join(VAULT, f);
       assert.ok(existsSync(shipped), `${r.id}: listed file missing on disk: ${f}`);
       assert.ok(existsSync(source), `${r.id}: ${f} has no examples/vault source — recipes only ship vault-validated files`);
@@ -47,16 +48,25 @@ test("every recipe file is byte-identical to its examples/vault source", () => {
   }
 });
 
-test("no stray files under recipes/ that index.json doesn't declare", () => {
-  const listed = new Set(
-    index.recipes.flatMap((r) => r.files.map((f) => join("recipes", r.id, f)))
-  );
+test("cookbook/ holds exactly the declared recipes plus index, shots, readme", () => {
+  const ids = new Set(index.recipes.map((r) => r.id));
+  for (const e of readdirSync(COOKBOOK, { withFileTypes: true })) {
+    if (e.isDirectory()) {
+      if (e.name === "shots") continue;
+      assert.ok(ids.has(e.name), `stray recipe folder not in index.json: ${e.name}`);
+    } else {
+      assert.ok(["index.json", "README.md"].includes(e.name), `stray file in cookbook/: ${e.name}`);
+    }
+  }
   const walk = (dir: string): string[] =>
     readdirSync(join(COOKBOOK, dir), { withFileTypes: true }).flatMap((e) =>
       e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]
     );
-  for (const f of walk("recipes")) {
-    assert.ok(listed.has(f), `undeclared file shipped in the cookbook: ${f}`);
+  for (const r of index.recipes) {
+    const listed = new Set(r.files.map((f) => join(r.id, f)));
+    for (const f of walk(r.id)) {
+      assert.ok(listed.has(f), `undeclared file shipped in the cookbook: ${f}`);
+    }
   }
 });
 
@@ -76,7 +86,7 @@ test("expects blocks are honest — the recipe bundles what it declares", () => 
   for (const r of index.recipes) {
     const notes = r.files.map((f) => ({
       path: f,
-      raw: readFileSync(join(COOKBOOK, "recipes", r.id, f), "utf8"),
+      raw: readFileSync(join(COOKBOOK, r.id, f), "utf8"),
     }));
     const fm = (raw: string) => /^---\r?\n([\s\S]*?)\r?\n---/.exec(raw)?.[1] ?? "";
     // a declared sheet must ship as a bundled note of that title (title: prop
@@ -98,11 +108,21 @@ test("expects blocks are honest — the recipe bundles what it declares", () => 
   }
 });
 
-test("the gallery page and index agree on where things live", () => {
-  const html = readFileSync(join(COOKBOOK, "index.html"), "utf8");
-  assert.ok(html.includes('fetch("index.json")'), "gallery must render from index.json");
-  // the landing page links the cookbook in, both nav and the surfaces section
-  const site = readFileSync(join(COOKBOOK, "..", "index.html"), "utf8");
-  const links = site.match(/href="cookbook\//g) ?? [];
-  assert.ok(links.length >= 2, "site/index.html should link cookbook/ from nav and the surfaces section");
+test("the landing page's cookbook section exists and points at the repo folder", () => {
+  const site = readFileSync(fileURLToPath(new URL("../site/index.html", import.meta.url)), "utf8");
+  assert.ok(site.includes('id="cookbook"'), "site/index.html lost its cookbook section");
+  assert.match(
+    site,
+    /github\.com\/[^"]+\/substrate\/tree\/main\/cookbook/,
+    "cookbook section should link the repo's cookbook/ folder"
+  );
+  // the section's shot is a committed copy in site/ (the FTP deploy uploads
+  // site/ alone) — pin it to the cookbook shot it claims to be
+  assert.equal(
+    readFileSync(fileURLToPath(new URL("../site/shot-cookbook.png", import.meta.url))).compare(
+      readFileSync(join(COOKBOOK, "shots", "food-log.png"))
+    ),
+    0,
+    "site/shot-cookbook.png drifted from cookbook/shots/food-log.png — re-copy"
+  );
 });

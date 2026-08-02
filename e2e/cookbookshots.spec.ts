@@ -6,19 +6,19 @@ import { join } from "node:path";
 //   SHOTS=1 npx playwright test e2e/cookbookshots.spec.ts
 //
 // Each shot must show the RECIPE rendering, not a lookalike fixture: the
-// recipe's real bytes (site/cookbook/recipes/, themselves pinned to
+// recipe's real bytes (cookbook/, themselves pinned to
 // examples/vault by scripts/cookbook.test.ts) are installed into the mock
 // store under the recipe's own paths — the seedflagship.spec technique — and
 // the dashboard pane is captured at 2x, matching the landing page's shots.
-// Output lands in site/cookbook/shots/, where index.json points.
+// Output lands in cookbook/shots/, where index.json points.
 
 test.skip(!process.env.SHOTS, "evidence run only");
 test.use({ viewport: { width: 1500, height: 860 }, deviceScaleFactor: 2 });
 
-const COOKBOOK = join(import.meta.dirname, "../site/cookbook");
+const COOKBOOK = join(import.meta.dirname, "../cookbook");
 const OUT = join(COOKBOOK, "shots");
 const recipeFile = (id: string, rel: string) =>
-  readFileSync(join(COOKBOOK, "recipes", id, rel), "utf8");
+  readFileSync(join(COOKBOOK, id, rel), "utf8");
 
 /** Frontmatter and body, split the way the engine splits. */
 function split(raw: string): { fm: string; body: string } {
@@ -118,9 +118,6 @@ interface Shot {
   installs: Install[];
   ready: (page: Page) => Promise<void>; // proof the pane rendered numbers
   post?: (page: Page) => Promise<void>;
-  /** shorter viewport for sparse boards, so the gallery's top-anchored 16:9
-      crop is content, not empty pane — and the workbook tab strip survives */
-  height?: number;
   /** capture target — defaults to the pane (.note); the workbook shot needs
       .wb-wrap so its bottom tab strip is in frame */
   selector?: string;
@@ -251,7 +248,6 @@ mkdirSync(OUT, { recursive: true });
 
 for (const s of SHOTS) {
   test(`cookbook shot: ${s.id}`, async ({ page }) => {
-    if (s.height) await page.setViewportSize({ width: 1500, height: s.height });
     await page.goto("/");
     for (const inst of s.installs) {
       const raw = recipeFile(s.id, inst.file);
