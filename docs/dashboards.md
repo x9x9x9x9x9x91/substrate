@@ -297,6 +297,33 @@ free and header matching is case-insensitive, so the scanner can grow columns
 without breaking the pane; a row with no job name or no 4-digit year is
 skipped, and missing counts read as 0.
 
+### `tasks` — the open-tasks board
+
+Reads every `type: task` note in the vault (SUB-786). Open tasks group by their
+`area:` prop; a hand-picked **Now** focus list (`now: true` on the task) floats
+above the groups, cross-area. A `status:` of `done` or `cancelled` drops a task
+out, a future `snoozed_until: YYYY-MM-DD` hides one from the board (it still
+shows in the snoozed count), and the rest rank by rot: whole-day age (from
+`created:`) × priority weight (`priority:` high 3,
+medium 2, low/unknown 1). A task older than the stale threshold — or one with
+no `created:` date at all — is flagged as needing attention; pinned Now rows
+never are, since they're already chosen.
+
+Config is the dashboard note's own frontmatter, all optional:
+
+| prop | meaning |
+| --- | --- |
+| `areas` | area allowlist — comma-separated or a YAML list. Omit for every area; tasks without an `area:` group under Unassigned. |
+| `stale_days` | whole days before age alone flags a task (default 30). |
+
+````markdown
+---
+type: dashboard
+dashboard: tasks
+stale_days: 21
+---
+````
+
 ### `yield-apr` — the yield/APR tracker
 
 Owns its data: an append-only csv fence of snapshots in its own body. The pane

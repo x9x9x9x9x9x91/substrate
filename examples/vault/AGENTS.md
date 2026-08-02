@@ -55,8 +55,8 @@ Dates are `YYYY-MM-DD`, optionally ` HH:MM`. Relations store the target note's
 
 A **dashboard** is a note with `type: dashboard`. A `dashboard:` prop names the
 renderer, and only these values are dispatched: `metrics`, `yield-apr`, `hub`,
-`food`, `feed`, `music-work`, plus whichever machine-specific kinds this build
-carries.
+`food`, `feed`, `music-work`, `tasks`, plus whichever machine-specific kinds
+this build carries.
 **Anything else — including no
 `dashboard:` prop at all — falls through to a body scan**: one or more
 ` ```chart ` fences make it a charts dashboard, none falls back to the yield
@@ -92,14 +92,28 @@ malformed one shows a quiet inline error card instead of breaking the note.
 For the rest of the format — sheets and the formula language, the yield
 dashboard's csv snapshots, the metrics dashboard's `cards:` bindings, chart
 fences, and workbook `pages:` — see §5 of `docs/vault-format.md` in the
-Substrate repo, which is the authority.
+Substrate repo (linked below), which is the authority.
+
+## Where the full docs and examples live
+
+This vault is self-contained, but the app's repo carries the deeper reference
+material. If you can fetch URLs, these are the breadcrumbs:
+
+- Repo: <https://github.com/x9x9x9x9x9x91/substrate>
+- Vault format spec (the authority): `docs/vault-format.md`
+- Dashboards guide — every kind, with frontmatter examples: `docs/dashboards.md`
+- Cookbook — working per-kind dashboard recipes with screenshots: `cookbook/`
+
+The app also bundles a **demo vault** (the "Try the demo vault" door on the
+vault picker) with working examples of most portable dashboard kinds — worth
+opening once to see what finished surfaces look like before building one here.
 
 ## The app itself
 
 Substrate is a Tauri v2 app: Rust backend in `src-tauri/`, React/TypeScript
 frontend in `src/`. The commands the frontend calls — and the ones an in-app
 agent should prefer over raw file writes — are listed in §14 of
-`docs/vault-format.md`.
+`docs/vault-format.md` (repo link above).
 
 The app also keeps state **outside** the vault, in the OS app dirs for
 `com.example.substrate` (macOS: `~/Library/Application Support/` and
