@@ -134,6 +134,7 @@ import {
 } from "./lib/sweep";
 import { pickCsvFile } from "./lib/csvpick";
 import type { CsvEntry } from "./lib/csvimport";
+import SendLinkDialog from "./components/SendLinkDialog";
 import Sidebar, { type FolderEdit, type MenuTarget, type Section } from "./components/Sidebar";
 import ListPane from "./components/ListPane";
 import NotePane from "./components/NotePane";
@@ -332,6 +333,8 @@ export default function App() {
   >(null);
   // SUB-274 CSV import: the picked, parsed file waiting on the import dialog
   const [csvImport, setCsvImport] = useState<{ fileName: string; rows: string[][] } | null>(null);
+  // SUB-833: the note being sent as an encrypted expiring link
+  const [sendLink, setSendLink] = useState<NoteMeta | null>(null);
   // SUB-672 "Map a folder…": the dialog's open state; dbType is the prefill
   // when opened from a database's own row menu (All-databases manager)
   const [mapFolder, setMapFolder] = useState<{ dbType?: string } | null>(null);
@@ -2292,6 +2295,7 @@ export default function App() {
         reveal: () => revealRel(n.path),
         exportMarkdown: () => afterOpenFlush(() => exportNoteMarkdown(n).catch(console.error)),
         exportPdf: () => afterOpenFlush(() => exportNotePdf(n).catch(console.error)),
+        sendAsLink: () => afterOpenFlush(() => setSendLink(n)),
         togglePin: () => setPinned(n.path, !pinnedPaths.includes(n.path)),
         pinned: pinnedPaths.includes(n.path),
         trash: () => trashNote(n.path),
@@ -3632,6 +3636,7 @@ export default function App() {
                 onTrash={trashNote}
                 onMoveToFolder={startMoveToFolder}
                 onDuplicate={duplicateNote}
+                onSendAsLink={setSendLink}
                 onTogglePin={setPinned}
                 pinned={pinnedPaths.includes(dbNoteMeta.path)}
                 flushRef={flushOpenRef}
@@ -3693,6 +3698,7 @@ export default function App() {
             onTrash={trashNote}
             onMoveToFolder={startMoveToFolder}
             onDuplicate={duplicateNote}
+            onSendAsLink={setSendLink}
             onTogglePin={setPinned}
             pinned={pinnedPaths.includes(selectedMeta.path)}
             flushRef={flushOpenRef}
@@ -3740,6 +3746,7 @@ export default function App() {
           onRenameNote={(path, title) => renameNote(path, title).catch(console.error)}
           onRenameFolder={(path, name) => renameFolder(path, name).catch(console.error)}
           onDuplicate={duplicateNote}
+          onSendAsLink={setSendLink}
           onTrashNote={trashNote}
           onTogglePin={setPinned}
           pinnedPaths={pinnedPaths}
@@ -3833,6 +3840,7 @@ export default function App() {
           onClose={() => setCsvImport(null)}
         />
       )}
+      {sendLink && <SendLinkDialog meta={sendLink} onClose={() => setSendLink(null)} />}
       {mapFolder && (
         <MapFolderDialog
           dbTypes={dbTypes}

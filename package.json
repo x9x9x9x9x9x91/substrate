@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "node --test src/lib/*.test.ts scripts/*.test.ts scripts/lib/*.test.ts scripts/ux-audit/*.test.ts scripts/vault-sync-server/*.test.ts",
+    "test": "node --test src/lib/*.test.ts scripts/*.test.ts scripts/lib/*.test.ts scripts/ux-audit/*.test.ts scripts/vault-sync-server/*.test.ts scripts/handoff-relay/*.test.ts",
     "lint": "eslint .",
     "e2e": "playwright test",
     "build": "tsc && vite build",

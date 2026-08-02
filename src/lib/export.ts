@@ -5,6 +5,7 @@ import { isTauri } from "./tauri";
 import { exportNoteBundle, exportText, printWindow, vaultRead, vaultReadAsset } from "./ipc";
 import { buildCsv } from "./csv";
 import { renderPrintBody, escapeHtml, type AssetSrc } from "./print";
+import { buildHandoffDocument } from "./handoff";
 import { isImageName } from "./artwork";
 
 const EMBED_RE = /!\[\[([^[\]]+)\]\]/g;
@@ -102,14 +103,12 @@ async function runPrintDialog(surface: HTMLElement) {
   else window.print();
 }
 
-/** Note → PDF: build the full note as a static print surface (CodeMirror
-    only renders the visible viewport, so printing the editor would truncate
-    long notes), then hand off to the webview's print dialog — "Save as PDF"
-    lives there. */
-export async function exportNotePdf(meta: NoteMeta) {
+/** Read a note and inline its image embeds as data URLs — the shared front
+    half of the PDF surface and the handoff document (SUB-833). Only image
+    embeds get inlined — audio/other files render as placeholders, so their
+    (possibly master-sized) bytes are never read. */
+async function readNoteInlined(meta: NoteMeta) {
   const c = await vaultRead(meta.path);
-  // only image embeds get inlined — audio/other files print as placeholders,
-  // so their (possibly master-sized) bytes are never read
   const names = [...new Set([...c.body.matchAll(EMBED_RE)].map((m) => m[1].trim()))].filter((n) =>
     isImageName(n)
   );
@@ -122,12 +121,33 @@ export async function exportNotePdf(meta: NoteMeta) {
     )
   );
   const assetSrc: AssetSrc = (n) => assets.get(n);
-  const line = propsLine(c.props);
+  return { body: c.body, props: c.props, assetSrc };
+}
+
+/** Note → one standalone HTML document, everything inlined — the plaintext
+    "Send as link" seals (SUB-833). */
+export async function buildNoteHandoffHtml(meta: NoteMeta): Promise<string> {
+  const { body, props, assetSrc } = await readNoteInlined(meta);
+  return buildHandoffDocument({
+    title: meta.title,
+    propsLine: propsLine(props),
+    body,
+    assetSrc,
+  });
+}
+
+/** Note → PDF: build the full note as a static print surface (CodeMirror
+    only renders the visible viewport, so printing the editor would truncate
+    long notes), then hand off to the webview's print dialog — "Save as PDF"
+    lives there. */
+export async function exportNotePdf(meta: NoteMeta) {
+  const { body, props, assetSrc } = await readNoteInlined(meta);
+  const line = propsLine(props);
   const surface = printSurface();
   surface.innerHTML =
     `<h1 class="print-title">${escapeHtml(meta.title)}</h1>` +
     (line ? `<div class="print-props">${line}</div>` : "") +
-    renderPrintBody(c.body, assetSrc);
+    renderPrintBody(body, assetSrc);
   await runPrintDialog(surface);
 }
 

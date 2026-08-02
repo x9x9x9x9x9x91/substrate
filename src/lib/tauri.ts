@@ -2920,6 +2920,26 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     // historical rate the fixtures carry, so e2e baselines stay stable
     case "fx_usd_eur":
       return { usdEur: MOCK_FX.usdEur, asOf: MOCK_FX.asOf };
+    // never uploads: a deterministic id keeps the send-dialog e2e stable,
+    // and the same shape guards the real command enforces are mirrored so
+    // the mock refuses what the engine would refuse
+    case "share_upload": {
+      const relay = ((args?.relayUrl as string) ?? "").trim();
+      if (!/^https?:\/\//i.test(relay)) throw new Error("bad url");
+      const expiry = (args?.expiry as string) ?? "";
+      if (!["burn", "1d", "7d", "30d"].includes(expiry)) throw new Error(`unknown expiry (${expiry})`);
+      const b64 = (args?.payloadB64 as string) ?? "";
+      // decode the real first bytes — a base64-prefix check covers only 3 of
+      // the 4 magic bytes and would accept payloads the engine rejects
+      let magic = "";
+      try {
+        magic = atob(b64.slice(0, 8)).slice(0, 4);
+      } catch {
+        throw new Error("bad payload encoding");
+      }
+      if (magic !== "SBH1") throw new Error("not a sealed handoff payload");
+      return "mock-handoff-id-0001";
+    }
     case "url_capture": {
       const url = ((args?.url as string) ?? "").trim();
       if (!/^https?:\/\//i.test(url)) throw new Error("only http(s) links can be captured");

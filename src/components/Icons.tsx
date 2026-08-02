@@ -370,6 +370,8 @@ export function NoteActionGlyph({ name }: { name: NoteActionIcon }) {
       return <FolderIcon />;
     case "export":
       return <ExportIcon />;
+    case "share":
+      return <LinkIcon />;
     case "calendar":
       return <CalendarIcon />;
     case "pin":

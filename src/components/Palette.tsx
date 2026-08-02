@@ -110,6 +110,8 @@ interface PaletteProps {
   onRenameFolder: (path: string, name: string) => void;
   /** SUB-271: duplicate the note in place — App creates, opens and toasts */
   onDuplicate: (note: NoteMeta) => void;
+  /** SUB-833: open the Send-as-link dialog for the note */
+  onSendAsLink: (note: NoteMeta) => void;
   /** SUB-257: trash the note via App's single path (flush + toast w/ Undo) */
   onTrashNote: (path: string) => void;
   /** SUB-410: pin/unpin a note in the sidebar's Pinned section */
@@ -168,6 +170,7 @@ export default function Palette({
   onRenameNote,
   onRenameFolder,
   onDuplicate,
+  onSendAsLink,
   onTrashNote,
   onTogglePin,
   pinnedPaths,
@@ -355,6 +358,7 @@ export default function Palette({
         reveal: () => revealNote(note),
         exportMarkdown: () => exportNoteMarkdown(note).catch(console.error),
         exportPdf: () => exportNotePdf(note).catch(console.error),
+        sendAsLink: () => onSendAsLink(note),
         togglePin: () => onTogglePin(note.path, !pinnedPaths.includes(note.path)),
         pinned: pinnedPaths.includes(note.path),
         trash: () => onTrashNote(note.path),
@@ -992,6 +996,7 @@ export default function Palette({
     enterStage,
     setProp,
     onTrashNote,
+    onSendAsLink,
     onTogglePin,
     pinnedPaths,
     copyPath,

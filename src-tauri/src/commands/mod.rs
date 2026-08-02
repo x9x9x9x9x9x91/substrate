@@ -14,6 +14,7 @@ pub(crate) mod history;
 pub(crate) mod notes;
 pub(crate) mod schema;
 pub(crate) mod search;
+pub(crate) mod share;
 pub(crate) mod trash;
 pub(crate) mod vaultsync;
 pub(crate) mod views;

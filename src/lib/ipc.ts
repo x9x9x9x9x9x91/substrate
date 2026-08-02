@@ -104,6 +104,12 @@ export const urlCapture = (url: string) => invoke<NoteMeta>("url_capture", { url
     CSP allows no remote origin — a browser fetch here only ever worked in the
     browser lane. Rejects rather than reporting a rate it isn't sure of. */
 export const fxUsdEur = () => invoke<{ usdEur: number; asOf: string }>("fx_usd_eur");
+/** Upload a sealed handoff payload to the relay (SUB-833); returns the
+    handoff id. Engine-side for the same CSP reason as fxUsdEur, plus the
+    SSRF guard on the user-configured relay URL. The key never rides along —
+    it exists only in the link the frontend builds. */
+export const shareUpload = (relayUrl: string, payloadB64: string, expiry: string, token?: string) =>
+  invoke<string>("share_upload", { relayUrl, payloadB64, expiry, token: token || null });
 /** Renames, and reports every note it rewrote (`touched`) — the link sweep
     reaches third-party notes, and undo has to invalidate on all of them
     (SUB-515). */

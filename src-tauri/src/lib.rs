@@ -125,6 +125,7 @@ use commands::history::*;
 use commands::notes::*;
 use commands::schema::*;
 use commands::search::*;
+use commands::share::*;
 use commands::trash::*;
 use commands::vaultsync::*;
 use commands::views::*;
@@ -803,6 +804,7 @@ pub fn run() {
             file_pick,
             file_read_text,
             fx_usd_eur,
+            share_upload,
             history_list,
             history_diff,
             history_restore,

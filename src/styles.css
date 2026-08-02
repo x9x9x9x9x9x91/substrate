@@ -9138,6 +9138,22 @@ button.cal-ag-day {
   border-color: var(--accent);
 }
 
+/* SUB-833 Send-as-link: the expiry choice as a segmented row of the dialog's
+   own buttons — the active choice borrows the primary accent */
+.sendlink-expiry {
+  display: flex;
+  gap: 6px;
+}
+
+.sendlink-expiry .selmenu-btn {
+  flex: 1;
+}
+
+.sendlink-expiry .sendlink-expiry-on {
+  border-color: var(--accent);
+  color: var(--text-1);
+}
+
 .dbform-select {
   border: 1px solid var(--border);
   border-radius: 6px;

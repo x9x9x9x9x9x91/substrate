@@ -153,6 +153,8 @@ interface NotePaneProps {
   /** SUB-271: duplicate this note in place — App creates the copy, opens it
       and toasts "Duplicated" */
   onDuplicate?: (note: NoteMeta) => void;
+  /** SUB-833: open the Send-as-link dialog for this note */
+  onSendAsLink?: (note: NoteMeta) => void;
   /** SUB-410: put this note in (or take it out of) the sidebar's Pinned
       section; `pinned` flips the ⋯ menu's label */
   onTogglePin?: (path: string, pinned: boolean) => void;
@@ -210,6 +212,7 @@ function NotePane({
   onTrash,
   onMoveToFolder,
   onDuplicate,
+  onSendAsLink,
   onTogglePin,
   pinned = false,
   flushRef,
@@ -1232,6 +1235,13 @@ function NotePane({
       flush();
       exportNotePdf(meta).catch(console.error);
     },
+    sendAsLink: onSendAsLink
+      ? () => {
+          // flush first — the handoff renders from the file, pending text
+          // must be in it
+          flush().then(() => onSendAsLink(meta));
+        }
+      : undefined,
     toggleCalendar: calToggleable ? () => toggleCalendar(calHidden) : undefined,
     calendarHidden: calHidden,
     togglePin: onTogglePin ? () => onTogglePin(meta.path, !pinned) : undefined,

@@ -28,6 +28,9 @@ interface Field {
   kind: "text" | "bool" | "multiline";
   /** bool fields only: an unset key reads as ON (e.g. `drop-hint`) */
   defaultOn?: boolean;
+  /** text fields only: render as a password input (shoulder-surfing guard —
+      the value still lives in Settings.md as plain frontmatter) */
+  masked?: boolean;
 }
 
 /** current state of a bool field, honoring its default when unset */
@@ -103,6 +106,20 @@ const FIELDS: Field[] = [
     hint: "one `Label: command` per line — each becomes a ⌘K palette action that types its command into the terminal",
     placeholder: "Sweep inbox: /inbox-sweep",
     kind: "multiline",
+  },
+  {
+    key: "share-relay-url",
+    label: "Share relay URL",
+    hint: "where “Send as link” parks the encrypted copy — the relay only ever sees ciphertext; self-host one with scripts/handoff-relay",
+    placeholder: "https://drop.example.org",
+    kind: "text",
+  },
+  {
+    key: "share-relay-token",
+    label: "Share relay token",
+    hint: "only if your relay requires a token for uploads (HANDOFF_TOKEN); recipients never need it — stored as plain text in Settings.md",
+    kind: "text",
+    masked: true,
   },
 ];
 
@@ -203,6 +220,13 @@ export default function SettingsPane({ onClose, onEditRaw, onToast }: SettingsPa
           setValues((v) => (v ? { ...v, [key]: saved[key] ?? "" } : v));
           return;
         }
+      }
+      // same guard for the relay: a non-URL would silently disable Send as
+      // link (its parser treats junk as unconfigured)
+      if (key === "share-relay-url" && next !== "" && !/^https?:\/\/.+/i.test(next)) {
+        onToast("share relay must be an http(s) URL");
+        setValues((v) => (v ? { ...v, [key]: saved[key] ?? "" } : v));
+        return;
       }
       setPropUndoable({
         path: SETTINGS_PATH,
@@ -308,6 +332,7 @@ export default function SettingsPane({ onClose, onEditRaw, onToast }: SettingsPa
                   <input
                     id={`set-${f.key}`}
                     className="settings-input"
+                    type={f.masked ? "password" : "text"}
                     value={values[f.key]}
                     placeholder={f.placeholder}
                     spellCheck={false}

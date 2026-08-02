@@ -1814,12 +1814,16 @@ Plain notes the app treats specially — all optional, all just files:
   command palette, each typed into the HUD's shell; a fresh vault is seeded
   with one entry for the `/setup` skill below), and
   `drop-hint` (default `true`; `false` hides the drag-over copy-vs-⇧-link
-  hint), and `db-grid` (SUB-607, default `true`; `false` turns off the
+  hint), `db-grid` (SUB-607, default `true`; `false` turns off the
   vertical grid lines in database tables globally — a database's own
-  views.json `grid` override, §7, wins either way), and `show-agent-files`
+  views.json `grid` override, §7, wins either way), `show-agent-files`
   (SUB-831, default `false`; only an explicit `true` lists the root
-  `AGENTS.md`/`CLAUDE.md` in the app's note surfaces — see the entry below).
-  Hot-reloaded
+  `AGENTS.md`/`CLAUDE.md` in the app's note surfaces — see the entry below),
+  and the SUB-833 "Send as link" pair: `share-relay-url` (http(s) URL of the
+  handoff relay the encrypted copy uploads to; empty = the action explains
+  setup instead of sending; see `scripts/handoff-relay/README.md`) and
+  `share-relay-token` (optional bearer token, only for relays that gate
+  uploads). Hot-reloaded
   within a second of saving; the ⌘, sheet is a typed form over the same keys.
   Unlike the other notes here it is not merely seeded on first run: the desktop
   app writes it on launch whenever it is absent (SUB-473), so vaults predating
