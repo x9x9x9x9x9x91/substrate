@@ -119,6 +119,10 @@ and mark stays with its author. Forks and modified builds are welcome under
 the AGPL, but distribute them under a different name so nobody mistakes them
 for this project's own builds.
 
+The app bundles the Inter typeface under the SIL Open Font License 1.1; its
+notice and license text are in
+[THIRD-PARTY-FONTS.md](THIRD-PARTY-FONTS.md).
+
 Contributions ship under the same license — see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 

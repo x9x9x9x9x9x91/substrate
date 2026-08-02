@@ -80,7 +80,8 @@
     "active": true,
     "targets": "all",
     "resources": {
-      "../examples/vault/": "demo-vault"
+      "../examples/vault/": "demo-vault",
+      "../THIRD-PARTY-FONTS.md": "THIRD-PARTY-FONTS.md"
     },
     "macOS": {
       "signingIdentity": null,
