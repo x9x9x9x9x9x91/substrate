@@ -42,6 +42,7 @@
             "$HOME/.kube/**",
             "$HOME/.claude/**",
             "$HOME/.codex/**",
+            "$HOME/.tauri/**",
             "$HOME/.npmrc",
             "$HOME/.netrc",
             "$HOME/.zsh_history",

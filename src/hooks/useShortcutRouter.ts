@@ -11,6 +11,7 @@ import { viewKey, type NoteMeta, type View } from "../lib/types";
 import * as undoStack from "../lib/undo";
 import type { UndoEntry, UndoState } from "../lib/undo";
 import type { DashUndoStore } from "../components/useDashUndo";
+import type { ToastAction } from "./useToast";
 
 type SearchReturn = {
   query: string;
@@ -63,7 +64,7 @@ export function useShortcutRouter(opts: {
   editorFocusRef: React.RefObject<(() => void) | null>;
   undoStateRef: React.RefObject<UndoState>;
   runUndoEntry: (entry: UndoEntry | null, dir: -1 | 1) => void | Promise<void>;
-  showToast: (msg: string, action?: { label: string; run: () => void }) => void;
+  showToast: (msg: string, action?: ToastAction) => void;
   /** SUB-686: current app zoom level and its ladder-stepping setter */
   zoom: number;
   applyZoom: (next: number) => void;

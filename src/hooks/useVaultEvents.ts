@@ -8,6 +8,7 @@ import { splitEcho } from "../lib/ownwrites";
 import { resetAudioSources } from "../lib/assets";
 import { refreshAudioPlayers } from "../lib/editor-widgets";
 import type { UndoAction } from "./useUndoStack";
+import type { ToastAction } from "./useToast";
 
 /**
  * every backend-originated event the shell listens to: the file watcher
@@ -24,7 +25,7 @@ import type { UndoAction } from "./useUndoStack";
 export function useVaultEvents(opts: {
   refresh: (ownWrite?: boolean, paths?: string[] | null) => void;
   refreshConfigs: () => void;
-  showToast: (msg: string, action?: { label: string; run: () => void }) => void;
+  showToast: (msg: string, action?: ToastAction) => void;
   undoDispatch: (a: UndoAction) => void;
   setChangedPaths: (paths: string[] | null) => void;
   setVaultEpoch: (fn: (n: number) => number) => void;

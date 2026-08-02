@@ -2,6 +2,7 @@ import { useCallback, useMemo, useReducer, useRef } from "react";
 import * as undoStack from "../lib/undo";
 import type { UndoEntry, UndoState } from "../lib/undo";
 import type { UndoApi } from "../lib/undoContext";
+import type { ToastAction } from "./useToast";
 
 /* SUB-477 — the session undo stack lives here, in one reducer, because ⌘Z is
    global: whichever surface made the edit, the keystroke arrives at the
@@ -49,7 +50,7 @@ function undoReducer(s: UndoState, a: UndoAction): UndoState {
    rather than retry. */
 export function useUndoStack(
   refresh: (ownWrite?: boolean, paths?: string[] | null) => void,
-  showToast: (msg: string, action?: { label: string; run: () => void }) => void
+  showToast: (msg: string, action?: ToastAction) => void
 ) {
   const [undoState, undoDispatch] = useReducer(undoReducer, undoStack.emptyUndo);
   const undoStateRef = useRef(undoState);

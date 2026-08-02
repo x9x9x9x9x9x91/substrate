@@ -80,6 +80,9 @@ const DENY_MUST_INCLUDE = [
   "$HOME/.kube/**",
   "$HOME/.claude/**",
   "$HOME/.codex/**",
+  // SUB-844: the updater signing key — its compromise signs code for every
+  // install, so it's a credential store like .ssh
+  "$HOME/.tauri/**",
   "$HOME/.npmrc",
   "$HOME/.netrc",
   "$HOME/.zsh_history",
@@ -129,22 +132,24 @@ test("deny entries name directories in full — no prefix-globbed dir names", ()
 test("updater config keeps its pubkey pin and https GitHub endpoint (SUB-806)", () => {
   // The pubkey is the whole trust model: the app refuses any update the
   // matching private key (~/.tauri/substrate-updater.key, never committed)
-  // didn't sign. An edit that drops or swaps it either bricks the update
-  // channel or re-points trust — both must fail here, not in the field.
+  // didn't sign. Pinned as the LITERAL string — a length/shape check would
+  // wave any attacker-generated minisign key through (four-review finding,
+  // 2026-08-02); this test is the only mechanical defence against a
+  // re-pointed trust anchor. Rotating the key legitimately means updating
+  // this constant in the same commit, deliberately.
+  const PINNED_PUBKEY =
+    "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU5N0YzNjlCOTJBREE2MkEKUldRcXBxMlNtelovNmNNazdwU3Rsb1pNRHc2T0tYTlFxalNPTDlVTldTMStwRjBrQ0VVMW5QQysK";
   const updater = conf.plugins?.updater;
-  assert.ok(updater?.pubkey, "plugins.updater.pubkey is missing — updates would be unverifiable");
-  assert.ok(
-    updater.pubkey!.length > 100,
-    "plugins.updater.pubkey is too short to be a minisign key"
+  assert.equal(
+    updater?.pubkey,
+    PINNED_PUBKEY,
+    "plugins.updater.pubkey is missing or differs from the pinned key — a swap re-points update trust"
   );
-  const endpoints = updater.endpoints ?? [];
-  assert.ok(endpoints.length > 0, "plugins.updater.endpoints is empty — the app can never hear about updates");
-  for (const ep of endpoints) {
-    assert.ok(
-      ep.startsWith("https://github.com/x9x9x9x9x9x91/substrate/"),
-      `updater endpoint points somewhere unexpected: ${ep}`
-    );
-  }
+  assert.deepEqual(
+    updater?.endpoints,
+    ["https://github.com/x9x9x9x9x9x91/substrate/releases/latest/download/latest.json"],
+    "updater endpoints changed — the update channel moved or grew an extra source"
+  );
 });
 
 test("asset protocol still denies ahead of a $HOME-wide allow", () => {

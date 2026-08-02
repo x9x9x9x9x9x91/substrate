@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { check } from "@tauri-apps/plugin-updater";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { isTauri } from "../lib/tauri";
 import type { ToastAction, ToastOpts } from "./useToast";
@@ -13,16 +13,25 @@ const RECHECK_MS = 12 * 60 * 60 * 1000;
  * SUB-806: in-app updater. Quiet by design — a check that finds nothing, or
  * fails (offline, GitHub down, iOS where the plugin isn't registered), says
  * nothing. Something new → sticky toast with an Install action; install runs
- * in the background and lands in a sticky "Restart now" toast. Dismissing
- * either is honest: the staged update applies on the next quit anyway, and
- * the 12h re-check self-heals a missed toast.
+ * in the background and lands in a sticky "Restart now" toast.
+ *
+ * The toast slot is shared with every routine 4s message, so a sticky offer
+ * CAN be displaced at any moment (four-review finding, 2026-08-02). The
+ * cycle therefore re-offers every 12h unconditionally: a dismissed or
+ * displaced toast is silence until the next cycle, never a lost update. A
+ * staged install (downloaded, awaiting restart) re-surfaces its "Restart
+ * now" toast the same way without re-downloading.
  */
 export function useUpdater(
   showToast: (msg: string, action?: ToastAction, opts?: ToastOpts) => void
 ) {
-  // survives re-renders, resets per app run: don't re-toast a version the
-  // user already saw this session (the cadence would nag twice a day)
-  const offered = useRef<string | null>(null);
+  // the offered-but-not-installed Update resource. Held (not closed, not
+  // re-checked) so Install installs exactly the bytes the toast named — a
+  // release landing between offer and click becomes a NEW offer next cycle
+  // instead of silently installing under the old label.
+  const pending = useRef<Update | null>(null);
+  /** version downloaded+installed this session, awaiting restart */
+  const staged = useRef<string | null>(null);
   const busy = useRef(false);
 
   useEffect(() => {
@@ -30,26 +39,27 @@ export function useUpdater(
     let disposed = false;
     let timer: number | undefined;
 
-    const install = (version: string) => {
+    const offerRestart = (version: string) =>
+      showToast(
+        `Substrate ${version} ready`,
+        { label: "Restart now", run: () => void relaunch() },
+        { sticky: true }
+      );
+
+    const install = (update: Update) => {
       if (busy.current) return;
       busy.current = true;
-      // re-check instead of holding the Update resource across the toast's
-      // lifetime — rid handles don't owe us liveness minutes later
-      check()
-        .then(async (update) => {
-          if (!update) return;
-          await update.downloadAndInstall();
-          if (disposed) return;
-          showToast(
-            `Substrate ${version} ready`,
-            { label: "Restart now", run: () => void relaunch() },
-            { sticky: true }
-          );
+      update
+        .downloadAndInstall()
+        // no close() after success: install frees both rids rust-side
+        .then(() => {
+          staged.current = update.version;
+          pending.current = null;
+          if (!disposed) offerRestart(update.version);
         })
         .catch(() => {
-          if (disposed) return;
-          offered.current = null; // let the next cycle re-offer
-          showToast("Update failed — will retry later");
+          // keep `pending` — the next cycle re-offers the same update
+          if (!disposed) showToast("Update failed — will retry later");
         })
         .finally(() => {
           busy.current = false;
@@ -58,16 +68,31 @@ export function useUpdater(
 
     const cycle = async () => {
       try {
+        if (busy.current) return;
+        if (staged.current) {
+          // already installed; just keep the restart offer reachable
+          offerRestart(staged.current);
+          return;
+        }
         const update = await check();
-        if (disposed || !update) return;
-        const { version } = update;
-        // free the resource now; install() does its own fresh check()
-        void update.close();
-        if (offered.current === version || busy.current) return;
-        offered.current = version;
+        if (!update) return;
+        if (disposed) {
+          update.close().catch(() => {});
+          return;
+        }
+        let held: Update;
+        if (pending.current && pending.current.version === update.version) {
+          // same offer still held — drop the duplicate resource
+          held = pending.current;
+          update.close().catch(() => {});
+        } else {
+          pending.current?.close().catch(() => {});
+          pending.current = update;
+          held = update;
+        }
         showToast(
-          `Substrate ${version} is available`,
-          { label: "Install", run: () => install(version) },
+          `Substrate ${held.version} is available`,
+          { label: "Install", run: () => install(held) },
           { sticky: true }
         );
       } catch {
@@ -83,6 +108,8 @@ export function useUpdater(
     return () => {
       disposed = true;
       window.clearTimeout(timer);
+      pending.current?.close().catch(() => {});
+      pending.current = null;
     };
   }, [showToast]);
 }

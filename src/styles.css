@@ -2367,19 +2367,19 @@ button.empty-hint-fix:hover {
 }
 
 /* SUB-806: dismiss ✕ on sticky toasts (updater) — quieter than the action
-   button; it's the escape hatch, not the offer */
-.toast-dismiss {
-  flex-shrink: 0;
+   button; it's the escape hatch, not the offer. `.toast button` outranks a
+   bare class, so this selector must carry the same specificity + order */
+.toast button.toast-dismiss {
   padding: 3px 7px;
   border: none;
-  background: transparent;
   color: var(--text-3);
   font-size: 12px;
-  cursor: pointer;
   transition: color 120ms ease-out;
 }
 
-.toast-dismiss:hover {
+.toast button.toast-dismiss:hover {
+  background: transparent;
+  border-color: transparent;
   color: var(--text-1);
 }
 
