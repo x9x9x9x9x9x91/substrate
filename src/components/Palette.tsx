@@ -11,7 +11,7 @@ import { scanSummary } from "../lib/folders";
 import { fuzzyScore } from "../lib/fuzzy";
 import { noteHint } from "../lib/display";
 import { displayTitle } from "../lib/journal";
-import { hoistAboveContent, onlyFallbacks, rankCommands } from "../lib/palette";
+import { hoistAboveContent, onlyFallbacks, rankCommands, synFuzzyScore } from "../lib/palette";
 import { looksLikeUrl, urlDisplayTitle } from "../lib/url";
 import { templateTypeOptions } from "../lib/templates";
 import { iconForType } from "../lib/dbicons";
@@ -369,7 +369,7 @@ export default function Palette({
           run: a.run,
         };
       });
-      return q.trim() ? acts.filter((a) => fuzzyScore(q, a.label) > 0) : acts;
+      return q.trim() ? acts.filter((a) => synFuzzyScore(q, a.label) > 0) : acts;
     }
 
     if (stage.kind === "moveto") {
@@ -459,7 +459,7 @@ export default function Palette({
           run: () => onRevealRel(folder),
         },
       ];
-      return q.trim() ? acts.filter((a) => fuzzyScore(q, a.label) > 0) : acts;
+      return q.trim() ? acts.filter((a) => synFuzzyScore(q, a.label) > 0) : acts;
     }
 
     if (stage.kind === "newfolder") {
@@ -599,7 +599,7 @@ export default function Palette({
           run: () => onEditTemplate(stage.dbType),
         },
       ];
-      return q.trim() ? rows.filter((r) => fuzzyScore(q, r.label) > 0) : rows;
+      return q.trim() ? rows.filter((r) => synFuzzyScore(q, r.label) > 0) : rows;
     }
 
     // root stage

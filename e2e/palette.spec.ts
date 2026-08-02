@@ -40,6 +40,39 @@ test("query 'release' surfaces Go to Release without scrolling (SUB-171)", async
   );
 });
 
+// SUB-805: command labels say "New" but people type "create"/"make"/"add" —
+// the synonym rewrite must surface the real command as the top selectable
+// row, not leave the query stranded on the New-note fallback.
+
+test("query 'create database' surfaces New database… (SUB-805)", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await page.keyboard.press("Meta+k");
+  await page.locator(".palette-input").fill("create database");
+
+  // parity with typing "new database": the command ranks top of Commands
+  await expect(
+    page.locator(".palette-item-label", { hasText: "New database…" })
+  ).toBeVisible();
+  const labels = page.locator(
+    ".palette-results [aria-labelledby*='Commands'] .palette-item-label"
+  );
+  await expect(labels.first()).toHaveText("New database…");
+});
+
+test("query 'create a note' still offers New note (SUB-805)", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await page.keyboard.press("Meta+k");
+  await page.locator(".palette-input").fill("create a note");
+
+  // the query-echo fallback keeps the typed title; the article-dropping
+  // rewrite only affects ranking, never what gets created
+  await expect(
+    page.locator(".palette-item-label", { hasText: "New note “create a note”" })
+  ).toBeVisible();
+});
+
 
 // SUB-397: macOS autocorrect draws a candidate bubble under the input and
 // captures ↑↓ while visible — query inputs must opt out entirely

@@ -4,8 +4,10 @@ import {
   HOIST_MIN,
   hoistAboveContent,
   onlyFallbacks,
+  queryVariants,
   rankCommands,
   rankScore,
+  synFuzzyScore,
 } from "./palette.ts";
 
 type Row = { id: string; label: string; section: string; dest?: string };
@@ -75,6 +77,44 @@ test("rankCommands: a mid-name substring matches without hoisting", () => {
     ["cmd:db:release", "cmd:new"],
   );
   assert.deepEqual(hoisted, []);
+});
+
+/**
+ * SUB-805: labels say "New" / "Trash" / "Settings" but people type "create" /
+ * "delete" / "preferences" — the rewrite maps verbs token-wise and drops
+ * articles, and scoring takes the best of original and rewritten query.
+ */
+test("queryVariants: synonym verbs and articles rewrite, literals pass through", () => {
+  assert.deepEqual(queryVariants("create database"), ["create database", "new database"]);
+  assert.deepEqual(queryVariants("create a note"), ["create a note", "new note"]);
+  assert.deepEqual(queryVariants("new database"), ["new database"]);
+  assert.deepEqual(queryVariants("release"), ["release"]);
+});
+
+test("synFuzzyScore: 'create database' prefix-matches 'New database…'", () => {
+  assert.ok(synFuzzyScore("create database", "New database…") >= HOIST_MIN);
+  // the rewrite never beats a literal typed match on its own label
+  assert.ok(synFuzzyScore("new database", "New database…") >= HOIST_MIN);
+});
+
+test("rankCommands: synonym queries surface the real command, not just fallbacks", () => {
+  const cmds = [
+    row("cmd:new", "Commands", "New note “create note”"),
+    row("cmd:newdb", "Commands", "New database…"),
+    row("cmd:newsheet", "Commands", "New sheet “create note”"),
+    row("cmd:trashview", "Commands", "Open Trash", "Trash"),
+    row("cmd:settings", "Commands", "Settings…"),
+  ];
+  assert.equal(rankCommands("create database", cmds).ranked[0].id, "cmd:newdb");
+  assert.equal(rankCommands("create note", cmds).ranked[0].id, "cmd:new");
+  assert.equal(rankCommands("delete", cmds).ranked[0].id, "cmd:trashview");
+  assert.equal(rankCommands("preferences", cmds).ranked[0].id, "cmd:settings");
+});
+
+test("rankCommands: synonym rewrite never drops a literal match", () => {
+  // "create" appears verbatim in the New-note fallback label — still ranks
+  const cmds = [row("cmd:new", "Commands", "New note “create”")];
+  assert.equal(rankCommands("create", cmds).ranked.length, 1);
 });
 
 test("hoistAboveContent: hoisted rows land directly under the Notes section", () => {

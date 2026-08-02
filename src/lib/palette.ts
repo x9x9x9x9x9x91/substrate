@@ -15,6 +15,44 @@ import { fuzzyScore } from "./fuzzy.ts";
 /** exact/prefix band: prefix matches score 1000 - len (>= 700 for sane names) */
 export const HOIST_MIN = 700;
 
+/**
+ * Verb aliases the palette understands (SUB-805): command labels say "New" /
+ * "Trash" / "Settings", people type "create" / "delete" / "preferences".
+ * Applied token-wise to build one rewritten query variant; scoring takes the
+ * best of original and rewrite, so a literal match never loses to its alias.
+ */
+const SYNONYMS = new Map<string, string>([
+  ["create", "new"],
+  ["make", "new"],
+  ["add", "new"],
+  ["delete", "trash"],
+  ["remove", "trash"],
+  ["preferences", "settings"],
+  ["prefs", "settings"],
+  ["options", "settings"],
+  ["goto", "go to"],
+]);
+
+/** articles dropped from the rewrite — "create a note" reads as "new note" */
+const FILLER = new Set(["a", "an", "the"]);
+
+/** the query plus its synonym rewrite, when the rewrite differs */
+export function queryVariants(q: string): string[] {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const rewritten = words
+    .filter((w) => !FILLER.has(w))
+    .map((w) => SYNONYMS.get(w) ?? w)
+    .join(" ");
+  return rewritten && rewritten !== words.join(" ") ? [q, rewritten] : [q];
+}
+
+/** fuzzyScore over the query and its synonym rewrite — best variant wins */
+export function synFuzzyScore(q: string, target: string): number {
+  let best = -1;
+  for (const v of queryVariants(q)) best = Math.max(best, fuzzyScore(v, target));
+  return best;
+}
+
 export interface Rankable {
   id: string;
   label: string;
@@ -24,8 +62,8 @@ export interface Rankable {
 
 /** best fuzzy score for a row: full label, or its destination name if it has one */
 export function rankScore(q: string, item: Rankable): number {
-  const label = fuzzyScore(q, item.label);
-  return item.dest ? Math.max(label, fuzzyScore(q, item.dest)) : label;
+  const label = synFuzzyScore(q, item.label);
+  return item.dest ? Math.max(label, synFuzzyScore(q, item.dest)) : label;
 }
 
 /**
