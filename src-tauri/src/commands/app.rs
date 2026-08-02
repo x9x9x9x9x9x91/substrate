@@ -350,6 +350,33 @@ pub(crate) fn copy_dir(src: &std::path::Path, dest: &std::path::Path) -> Result<
     Ok(())
 }
 
+/// Onboarding's optional agent step (SUB-804): write `terminal-command` into
+/// the just-chosen vault's `Settings.md`, before the relaunch that opens it.
+///
+/// Deliberately narrow: it only writes into the vault the config currently
+/// names — the one `vault_choose`/`vault_demo` just persisted — so the
+/// command can't be aimed at an arbitrary folder. Runs pre-relaunch, which is
+/// why it can't go through the Engine (still rooted in the scratch
+/// placeholder until restart).
+///
+/// No trust is granted here: the SUB-427 per-machine gate still asks before
+/// the first ⌘⇧T actually runs the command. This writes the same string the
+/// user could type into Settings, nothing more.
+#[tauri::command]
+pub(crate) fn onboarding_set_agent(
+    onboarding: State<OnboardingState>,
+    command: String,
+) -> Result<(), String> {
+    let cmd = command.trim();
+    let Some(vault) = appcfg::read_config(&onboarding.config_dir).vault else {
+        return Err("no vault chosen yet".into());
+    };
+    if !appcfg::looks_like_vault(&vault) {
+        return Err(format!("{} is not a vault", vault.display()));
+    }
+    crate::vault::set_terminal_command(&vault, cmd)
+}
+
 /// Expand a leading `~` — the path field accepts what a user would type.
 pub(crate) fn shellexpand_home(p: &str) -> String {
     let p = p.trim();

@@ -52,6 +52,11 @@ export const vaultChoose = (path: string, consent = false) =>
   invoke<string>("vault_choose", { path, consent });
 /** Disposable copy of the bundled example vault, selected as the choice. */
 export const vaultDemo = () => invoke<string>("vault_demo");
+/** SUB-804: write `terminal-command` into the just-chosen vault's Settings.md
+    (pre-relaunch, so the ⌘⇧T terminal is wired from the first real session).
+    Empty string clears the key — an un-picked chip. */
+export const onboardingSetAgent = (command: string) =>
+  invoke<null>("onboarding_set_agent", { command });
 export const appRelaunch = () => invoke<null>("app_relaunch");
 export const vaultList = () => invoke<NoteMeta[]>("vault_list");
 export const vaultRead = (path: string) => invoke<NoteContent>("vault_read", { path });

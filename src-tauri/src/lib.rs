@@ -714,6 +714,7 @@ pub fn run() {
             vault_inspect,
             vault_choose,
             vault_demo,
+            onboarding_set_agent,
             app_relaunch,
             vault_list,
             vault_read,

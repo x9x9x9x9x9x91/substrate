@@ -6,7 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { appRelaunch, vaultChoose, vaultDemo, vaultInspect } from "../lib/ipc";
+import { appRelaunch, onboardingSetAgent, vaultChoose, vaultDemo, vaultInspect } from "../lib/ipc";
 import { actionFor, newVaultPath, type ChoiceAction } from "../lib/onboarding";
 import { isTauri } from "../lib/tauri";
 
@@ -48,6 +48,9 @@ export default function Onboarding({
   /** an "open existing" candidate awaiting its verb */
   const [candidate, setCandidate] = useState<{ path: string; action: ChoiceAction } | null>(null);
   const [chosen, setChosen] = useState<string | null>(null);
+  /** the agent command written to the new vault's Settings.md ("" = none yet) */
+  const [agent, setAgent] = useState("");
+  const [agentError, setAgentError] = useState<string | null>(null);
 
   useEffect(() => {
     setParent(parentOf(suggested));
@@ -134,6 +137,22 @@ export default function Onboarding({
     }
   }, []);
 
+  /** SUB-804: write the pick immediately — the Restart button must stay a
+      plain relaunch, not a save step, so a pick that lands is already on
+      disk. Re-clicking the active chip clears it (written as ""). A failed
+      write must not block the restart: the vault is chosen and works, the
+      agent line is a convenience the error hands off to Settings. */
+  const chooseAgent = useCallback(async (cmd: string) => {
+    const clean = cmd.trim();
+    setAgentError(null);
+    try {
+      await onboardingSetAgent(clean);
+      setAgent(clean);
+    } catch (e) {
+      setAgentError(String(e instanceof Error ? e.message : e));
+    }
+  }, []);
+
   const demo = useCallback(async () => {
     setBusy(true);
     setError(null);
@@ -156,6 +175,44 @@ export default function Onboarding({
           <p className="onboarding-lede">
             Substrate will open <code className="onboarding-path">{chosen}</code> after a restart.
           </p>
+          {!switching && (
+            <section className="onboarding-option" data-testid="onboarding-agent">
+              <h2 className="onboarding-option-title">Do you use an AI agent?</h2>
+              <div className="onboarding-row">
+                <span className="onboarding-hint">
+                  Substrate has a built-in terminal (⌘⇧T) that can start your agent CLI right in
+                  the vault — your notes become something it can read and build on. Pick one to
+                  wire it up, or skip; it's a single line in Settings later.
+                </span>
+              </div>
+              <div className="onboarding-row">
+                {(["claude", "codex"] as const).map((cmd) => (
+                  <button
+                    key={cmd}
+                    className={agent === cmd ? "onboarding-primary" : "onboarding-ghost"}
+                    disabled={busy}
+                    onClick={() => void chooseAgent(agent === cmd ? "" : cmd)}
+                  >
+                    {cmd}
+                  </button>
+                ))}
+                <input
+                  className="onboarding-input"
+                  aria-label="Other agent command"
+                  placeholder="other command…"
+                  spellCheck={false}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void chooseAgent((e.target as HTMLInputElement).value);
+                  }}
+                />
+              </div>
+              {agentError && (
+                <p className="onboarding-warning" role="alert">
+                  {agentError} — the vault still opens; set it in Settings instead.
+                </p>
+              )}
+            </section>
+          )}
           <div className="onboarding-actions">
             <button className="onboarding-primary" onClick={() => void appRelaunch()}>
               Restart now

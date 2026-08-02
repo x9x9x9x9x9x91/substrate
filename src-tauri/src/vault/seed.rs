@@ -133,6 +133,29 @@ pub(crate) fn seed_settings(root: &Path) {
     .ok();
 }
 
+/// Write `terminal-command` into the vault's `Settings.md` — the onboarding
+/// agent step (SUB-804). An empty command removes the key (the user un-picked
+/// a chip), matching how the settings form treats empty = plain shell. Seeds
+/// the settings note first when absent (an adopted vault may predate
+/// SUB-398), then edits the one key the way the app's own prop edits do: the
+/// whole block re-serialized, keys alphabetized. A block that fails the
+/// strict parse refuses rather than being re-serialized into a wipe
+/// (SUB-215) — an adopted vault can arrive with a hand-written Settings.md.
+pub fn set_terminal_command(root: &Path, command: &str) -> Result<(), String> {
+    seed_settings(root); // no-op when the note exists
+    let abs = root.join(Settings::REL_PATH);
+    let raw = read_strict(&abs)?;
+    let (fm, body) = split_frontmatter(&raw);
+    let mut props = parse_props_for_write(fm, &raw, Settings::REL_PATH)?;
+    if command.is_empty() {
+        props.remove("terminal-command");
+    } else {
+        props.insert("terminal-command".into(), serde_json::Value::String(command.into()));
+    }
+    let yaml = serde_yaml::to_string(&props).map_err(|e| e.to_string())?;
+    write_atomic(&abs, format!("---\n{yaml}---\n{body}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::testutil::*;
@@ -241,6 +264,43 @@ mod tests {
         assert!(e4.root.join(Settings::REL_PATH).exists(), "fresh seed missing Settings.md");
 
         let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn set_terminal_command_writes_and_clears_without_losing_settings() {
+        // SUB-804: the onboarding agent step edits ONE key of Settings.md.
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path();
+
+        // absent note: seeded first, then edited
+        set_terminal_command(root, "claude").unwrap();
+        let raw = fs::read_to_string(root.join(Settings::REL_PATH)).unwrap();
+        assert!(raw.contains("terminal-command: claude"), "{raw}");
+        assert!(raw.contains("capture-hotkey: alt+space"), "seed defaults lost: {raw}");
+        assert!(raw.contains("Substrate settings"), "settings body lost: {raw}");
+
+        // a user-edited note keeps its other props and body
+        fs::write(
+            root.join(Settings::REL_PATH),
+            "---\ncapture-hotkey: cmd+shift+j\n---\nmine\n",
+        )
+        .unwrap();
+        set_terminal_command(root, "codex").unwrap();
+        let raw = fs::read_to_string(root.join(Settings::REL_PATH)).unwrap();
+        assert!(raw.contains("terminal-command: codex"), "{raw}");
+        assert!(raw.contains("capture-hotkey: cmd+shift+j"), "user hotkey lost: {raw}");
+        assert!(raw.contains("mine"), "user body lost: {raw}");
+
+        // empty = un-pick: the key is removed, not written as ""
+        set_terminal_command(root, "").unwrap();
+        let raw = fs::read_to_string(root.join(Settings::REL_PATH)).unwrap();
+        assert!(!raw.contains("terminal-command"), "{raw}");
+
+        // broken frontmatter refuses instead of re-serializing into a wipe
+        fs::write(root.join(Settings::REL_PATH), "---\ncapture-hotkey: a\n").unwrap();
+        let before = fs::read_to_string(root.join(Settings::REL_PATH)).unwrap();
+        assert!(set_terminal_command(root, "claude").is_err());
+        assert_eq!(fs::read_to_string(root.join(Settings::REL_PATH)).unwrap(), before);
     }
 
     #[test]

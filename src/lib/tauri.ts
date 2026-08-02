@@ -113,6 +113,9 @@ declare global {
     __mockBodyOf?: (path: string) => string;
     /** did the app ask to relaunch? a browser mock can't actually restart */
     __mockRelaunched?: () => boolean;
+    /** the agent command onboarding wrote (SUB-804) — null = never called,
+        "" = called as skip */
+    __mockAgentCommand?: () => string | null;
     /** park a conflicted merge in the mock "repository" WITHOUT a pull having
         happened in this session — the state a restart leaves behind, where
         the engine still has the merge but no last result to report (SUB-572) */
@@ -143,6 +146,7 @@ let mockVaultRoot = "/Users/demo/Vault (mock)";
 let mockFirstRun =
   typeof window !== "undefined" && (window as Window).__mockFirstRun === true;
 let mockRelaunched = false;
+let mockAgentCommand: string | null = null;
 
 /** local YYYY-MM-DD, `offset` days from today — keeps demo calendar entries
     near whatever day the app is opened */
@@ -2617,6 +2621,13 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       mockVaultRoot = "/Users/demo/Documents/Substrate Demo";
       mockFirstRun = false;
       return mockVaultRoot;
+    case "onboarding_set_agent": {
+      // mirrors the backend: writes only into the vault just chosen; empty =
+      // skip. Specs read the recorded command back via __mockAgentCommand.
+      if (!mockVaultRoot || mockFirstRun) throw new Error("no vault chosen yet");
+      mockAgentCommand = String(args?.command ?? "").trim();
+      return null;
+    }
     case "app_relaunch":
       // a browser mock cannot restart a process; specs assert the call landed
       mockRelaunched = true;
@@ -4551,6 +4562,7 @@ if (!isTauri) {
     mockFirstRun = on;
   };
   window.__mockRelaunched = () => mockRelaunched;
+  window.__mockAgentCommand = () => mockAgentCommand;
   // SUB-572: stage a merge that was parked before the app restarted. The
   // engine keeps it in git refs, so status still reports it; only the
   // session's last-result record is gone, which is exactly what this leaves.

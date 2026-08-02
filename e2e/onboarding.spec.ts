@@ -55,6 +55,47 @@ test("creating a vault stores the choice and asks for a restart", async ({ page 
     .toBe(true);
 });
 
+test("the ready screen offers the agent step; a chip wires the terminal (SUB-804)", async ({ page }) => {
+  await bootFirstRun(page);
+  await page.getByLabel("Parent folder").fill("/tmp/onb");
+  await page.getByLabel("Vault folder name").fill("Fresh");
+  await page.getByRole("button", { name: "Create" }).click();
+
+  const agent = page.getByTestId("onboarding-agent");
+  await expect(agent).toContainText("⌘⇧T");
+  // nothing chosen yet → nothing written
+  expect(await page.evaluate(() => window.__mockAgentCommand!())).toBe(null);
+
+  await agent.getByRole("button", { name: "claude", exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => window.__mockAgentCommand!()))
+    .toBe("claude");
+  // re-clicking the active chip un-picks it — the key is cleared, not left
+  await agent.getByRole("button", { name: "claude", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__mockAgentCommand!())).toBe("");
+
+  // the free-typed command lands too (pi, aider, …)
+  await agent.getByLabel("Other agent command").fill("pi");
+  await agent.getByLabel("Other agent command").press("Enter");
+  await expect.poll(() => page.evaluate(() => window.__mockAgentCommand!())).toBe("pi");
+});
+
+test("switching vaults never shows the agent step", async ({ page }) => {
+  // switch mode reuses the ready screen; the agent question is a first-run
+  // thing — a switcher has settings already
+  await page.goto("/");
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await expect(page.locator(".note-title")).toHaveValue("Welcome");
+  await page.keyboard.press("Meta+Comma");
+  await page.getByTestId("switch-vault").click();
+  const sheet = page.getByTestId("vault-switch");
+  await sheet.getByLabel("Existing folder").fill("/home/me/Vault");
+  await sheet.getByLabel("Existing folder").press("Enter");
+  await page.getByTestId("onboarding-candidate").getByRole("button").click();
+  await expect(page.getByTestId("onboarding-done")).toBeVisible();
+  await expect(page.getByTestId("onboarding-agent")).toHaveCount(0);
+});
+
 test("opening an existing vault offers open, not initialize", async ({ page }) => {
   await bootFirstRun(page);
   await page.getByLabel("Existing folder").fill("/home/me/Vault");

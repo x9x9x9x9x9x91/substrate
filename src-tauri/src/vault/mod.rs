@@ -2170,7 +2170,7 @@ use foldersync::{glob_match, read_folder_mappings, write_folder_mappings};
 
 mod seed;
 pub use seed::seed_new_vault;
-pub(crate) use seed::AGENTS_REL_PATH;
+pub(crate) use seed::{set_terminal_command, AGENTS_REL_PATH};
 use seed::{seed_agent_files, seed_settings};
 
 mod watch;
