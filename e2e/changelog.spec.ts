@@ -41,6 +41,33 @@ test("the pane shows the current version and the release history", async ({ page
   await expect(sections.first().locator(".chlog-text").first()).not.toBeEmpty();
 });
 
+test("a release leads with its headline and groups the rest by kind (SUB-817)", async ({
+  page,
+}) => {
+  await page.getByRole("button", { name: "What's new" }).click();
+
+  // the newest release (0.19.0+) always flags a headline; it renders before
+  // the kind groups and carries the larger voice
+  const first = page.locator(".chlog-release").first();
+  await expect(first.locator(".chlog-headline")).not.toHaveCount(0);
+  await expect(first.locator(".chlog-headline-text").first()).not.toBeEmpty();
+
+  // group labels carry the kind dot and the New/Improved/Fixed word
+  const labels = first.locator(".chlog-group-label");
+  await expect(labels).not.toHaveCount(0);
+  const texts = await labels.allTextContents();
+  for (const text of texts) {
+    expect(["New", "Improved", "Fixed"]).toContain(text.trim());
+  }
+  // group order is fixed: New before Improved before Fixed
+  const rank = (t: string) => ["New", "Improved", "Fixed"].indexOf(t.trim());
+  for (let i = 1; i < texts.length; i++) {
+    expect(rank(texts[i])).toBeGreaterThan(rank(texts[i - 1]));
+  }
+  // items inside groups no longer repeat the dot — it lives on the label
+  await expect(first.locator(".chlog-item .dash-dot")).toHaveCount(0);
+});
+
 test("the pane is read-only — no inputs, no editor", async ({ page }) => {
   await page.getByRole("button", { name: "What's new" }).click();
   const pane = page.locator(".main");

@@ -3535,12 +3535,12 @@ body.agenda-window .palette:focus-visible {
 }
 
 
-/* ————— changelog (SUB-452) —————
+/* ————— changelog (SUB-452, structured SUB-817) —————
    A release history in the instrument language: the version is the section
    label's own text, the release name rides the label voice beside it, the
-   date sits at the right end of the same rule. Items are data rows led by a
-   round kind dot. No new sizes — label voice for the rule, sentence voice
-   for the item text (these are sentences, not cells). */
+   date sits at the right end of the same rule. Headline items lead the
+   release a step up from sentence voice; the rest sit under New / Improved /
+   Fixed micro-labels, where the kind dot lives once instead of on every row. */
 
 .chlog-release .dash-section-label {
   /* the label already carries the counter and the trailing hairline; the
@@ -3562,6 +3562,40 @@ body.agenda-window .palette:focus-visible {
   white-space: nowrap;
 }
 
+.chlog-headlines {
+  list-style: none;
+  margin: 0 0 4px;
+  padding: 0;
+}
+
+.chlog-headline {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 0;
+}
+
+.chlog-headline-text {
+  /* one step above sentence voice — the flagship reads before anything else */
+  font: 500 14.5px/1.5 var(--font);
+  color: var(--text-1);
+}
+
+.chlog-group {
+  margin-top: 10px;
+}
+
+.chlog-group-label {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font: var(--dash-label);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 2px;
+}
+
 .chlog-items {
   list-style: none;
   margin: 0;
@@ -3571,8 +3605,7 @@ body.agenda-window .palette:focus-visible {
 .chlog-item {
   display: flex;
   align-items: baseline;
-  gap: 10px;
-  padding: 7px 0;
+  padding: 7px 0 7px 18px; /* 8px dot + 10px gap — text column matches the label's */
   border-bottom: 1px solid var(--hair-soft);
 }
 

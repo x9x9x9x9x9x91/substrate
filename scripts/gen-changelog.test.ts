@@ -46,14 +46,39 @@ test("wrapBullet overhangs rather than breaking an unsplittable word", () => {
   assert.equal(wrapBullet(long), `- ${long}`);
 });
 
-test("renderRelease writes the `## version — date` heading and bullets", () => {
+test("renderRelease writes the titled heading and groups bullets by kind (SUB-817)", () => {
   const release: ChangelogRelease = {
     version: "1.2.3",
     date: "2026-01-02",
-    title: "unused in Markdown",
-    items: [{ text: "did a thing", kind: "new" }, { text: "fixed a thing" }],
+    title: "A release name",
+    items: [
+      { text: "the flagship", kind: "new", headline: true },
+      { text: "a fix", kind: "fixed" },
+      { text: "did a thing", kind: "new" },
+      { text: "kindless defaults to improved" },
+    ],
   };
-  assert.equal(renderRelease(release), "## 1.2.3 — 2026-01-02\n\n- did a thing\n- fixed a thing\n");
+  assert.equal(
+    renderRelease(release),
+    "## 1.2.3 — 2026-01-02 — A release name\n\n" +
+      "### Highlights\n\n- the flagship\n\n" +
+      "### New\n\n- did a thing\n\n" +
+      "### Improved\n\n- kindless defaults to improved\n\n" +
+      "### Fixed\n\n- a fix\n"
+  );
+});
+
+test("renderRelease skips Highlights and empty groups", () => {
+  const release: ChangelogRelease = {
+    version: "0.0.1",
+    date: "2026-01-02",
+    title: "Tiny patch",
+    items: [{ text: "a fix", kind: "fixed" }],
+  };
+  assert.equal(
+    renderRelease(release),
+    "## 0.0.1 — 2026-01-02 — Tiny patch\n\n### Fixed\n\n- a fix\n"
+  );
 });
 
 test("renderChangelog is idempotent and newest-first", () => {

@@ -25,7 +25,12 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { CHANGELOG, type ChangelogRelease } from "../src/lib/changelog.ts";
+import {
+  CHANGELOG,
+  KIND_LABEL,
+  groupRelease,
+  type ChangelogRelease,
+} from "../src/lib/changelog.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -57,10 +62,22 @@ export function wrapBullet(text: string, width = WRAP): string {
   return lines.join("\n");
 }
 
-/** One release as `## <version> — <date>` plus its bullet lines. */
+/**
+ * One release as `## <version> — <date> — <title>` plus its structured body
+ * (SUB-817): headline items under `### Highlights`, then the remaining items
+ * under `### New` / `### Improved` / `### Fixed` — the same grouping the
+ * in-app pane renders, so the two surfaces stay one document.
+ */
 export function renderRelease(release: ChangelogRelease): string {
-  const bullets = release.items.map((item) => wrapBullet(item.text)).join("\n");
-  return `## ${release.version} — ${release.date}\n\n${bullets}\n`;
+  const { headlines, groups } = groupRelease(release);
+  const parts: string[] = [`## ${release.version} — ${release.date} — ${release.title}`];
+  if (headlines.length > 0) {
+    parts.push("### Highlights", headlines.map((item) => wrapBullet(item.text)).join("\n"));
+  }
+  for (const group of groups) {
+    parts.push(`### ${KIND_LABEL[group.kind]}`, group.items.map((item) => wrapBullet(item.text)).join("\n"));
+  }
+  return `${parts.join("\n\n")}\n`;
 }
 
 /**

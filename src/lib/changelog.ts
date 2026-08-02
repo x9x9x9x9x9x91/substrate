@@ -9,6 +9,13 @@
  * module changed. Newest first; the first entry always matches the version in
  * package.json (asserted in changelog.test.ts).
  *
+ * STRUCTURE (SUB-817). Each item carries a kind — new / improved / fixed — and
+ * the surfaces group by it, so a reader can skim features without wading
+ * through fixes. A release's flagship (usually the item its title alludes to)
+ * is flagged `headline: true` and leads the release at full prominence; at most
+ * two headlines per release (asserted in changelog.test.ts), and small patch
+ * releases need none.
+ *
  * HOW RELEASES UPDATE THIS (SUB-588). This array is the single source of truth
  * for the release history — the repo-root CHANGELOG.md is GENERATED from it and
  * any hand-edit there is lost on the next run. When you bump the version:
@@ -24,13 +31,51 @@
  * a beta tester reading a changelog that stops three months short.
  */
 
+export type ChangelogKind = "new" | "improved" | "fixed";
+
+export interface ChangelogItem {
+  text: string;
+  kind?: ChangelogKind;
+  /** the release's flagship — rendered first and larger, outside the groups */
+  headline?: boolean;
+}
+
 export interface ChangelogRelease {
   version: string;
   /** ISO date of the version bump commit */
   date: string;
   /** one-line release name */
   title: string;
-  items: { text: string; kind?: "new" | "improved" | "fixed" }[];
+  items: ChangelogItem[];
+}
+
+/** Group order and labels shared by the pane and the Markdown render. */
+export const KIND_ORDER: ChangelogKind[] = ["new", "improved", "fixed"];
+export const KIND_LABEL: Record<ChangelogKind, string> = {
+  new: "New",
+  improved: "Improved",
+  fixed: "Fixed",
+};
+
+export interface GroupedRelease {
+  headlines: ChangelogItem[];
+  groups: { kind: ChangelogKind; items: ChangelogItem[] }[];
+}
+
+/**
+ * The one grouping both surfaces render from: headlines first (array order),
+ * then the remaining items bucketed new → improved → fixed. Within a bucket
+ * the array order is kept — it is the author's ranking. An item without a
+ * kind sorts as "improved", matching the pane's historical default dot.
+ */
+export function groupRelease(release: ChangelogRelease): GroupedRelease {
+  const headlines = release.items.filter((item) => item.headline);
+  const rest = release.items.filter((item) => !item.headline);
+  const groups = KIND_ORDER.map((kind) => ({
+    kind,
+    items: rest.filter((item) => (item.kind ?? "improved") === kind),
+  })).filter((group) => group.items.length > 0);
+  return { headlines, groups };
 }
 
 export const CHANGELOG: ChangelogRelease[] = [
@@ -42,6 +87,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         text: "Tasks board v2: a Now/Later split so today's list stays short, checkoff straight from the board, and snooze to push a task out of sight until it matters.",
         kind: "new",
+        headline: true,
       },
       {
         text: "The proxy dashboard reads at a glance now — each account row carries one quota bar for its binding window, with 5-hour and 7-day usage as compact rings beside it.",
@@ -81,10 +127,12 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         text: "Sheet formulas grew a real vocabulary: LOOKUP across sheets (and per row), SUMIF/COUNTIF with multiple criteria, wildcards and comparisons, SUMPRODUCT for weighted averages, LAST(), date arithmetic with TODAY(), and identifiers in any language.",
         kind: "new",
+        headline: true,
       },
       {
         text: "Databases can roll up values from related databases — a rollup column derives counts, sums and lists from linked rows, straight from Notion imports too.",
         kind: "new",
+        headline: true,
       },
       {
         text: "Three new dashboards: Jobs shows every scheduled background task with its run history and pause control, Attention surfaces tasks that need a look, and Waiting collects everything blocked on someone else.",
@@ -128,6 +176,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         text: "Dragging finally works in the app itself — reorder the sidebar, drop notes into folders, move dashboards, drag board cards. It always worked in tests and never on the Mac; the desktop shell was swallowing every drag before the app could see it.",
         kind: "fixed",
+        headline: true,
       },
       {
         text: "One straight icon column down the whole sidebar — dashboards, databases and folders line up instead of each section picking its own indent.",
@@ -147,6 +196,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         text: "A date can now be a range — pick a start and an end in the same picker, see it as a span across the calendar, and sort and filter by when it actually runs. Imports from Notion keep their end dates too.",
         kind: "new",
+        headline: true,
       },
       {
         text: "Select text in a note for a floating menu: extract the selection into its own linked note, turn it into a heading or list, or copy it as Markdown.",
@@ -178,6 +228,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         text: "Dashboards share one design language — a single header, mono micro-labels, hairline structure, and round state dots instead of boxed cards.",
         kind: "improved",
+        headline: true,
       },
       {
         text: "Notes with broken frontmatter now say so in the app and offer a repair, instead of quietly refusing property edits.",
@@ -272,6 +323,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         text: "Quick-add remembers what you eat — autocomplete with a quantity grammar, so \"200g oats\" logs itself.",
         kind: "new",
+        headline: true,
       },
       {
         text: "The calorie surface shows distance to your goal and a week-vs-goal figure, and exercise can be logged the same way.",
@@ -298,10 +350,12 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         text: "Vault sync: push and pull your vault against your own server over authenticated HTTPS, with the token held in the OS keychain.",
         kind: "new",
+        headline: true,
       },
       {
         text: "Substrate runs on a phone — single-pane navigation, readable calendar days, and layouts that stack instead of squeezing.",
         kind: "new",
+        headline: true,
       },
       {
         text: "A calorie surface: log meals against a daily band, with undo, a day strip, and a seven-day average.",
@@ -409,6 +463,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         text: "A music download surface: queue albums, watch the transfer tail, cancel mid-run.",
         kind: "new",
+        headline: true,
       },
       {
         text: "Click a calendar entry to peek at it — edit title, date, time, and status in place.",
@@ -444,6 +499,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         text: "Today is a day-agenda decision surface — what is scheduled, due, overdue, and picked, in one place.",
         kind: "new",
+        headline: true,
       },
       {
         text: "The sync dashboard became a control surface: start, inspect, and hold your backup jobs from the app.",
@@ -482,6 +538,7 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         text: "Select many table rows at once and set a property, or trash them, in one action.",
         kind: "new",
+        headline: true,
       },
       {
         text: "Dates carry an optional time of day, preserved across calendar, menus, and every display surface.",

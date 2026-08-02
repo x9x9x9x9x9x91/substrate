@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { CHANGELOG } from "./changelog.ts";
+import { CHANGELOG, groupRelease } from "./changelog.ts";
 
 function cmpVersion(a: string, b: string): number {
   const pa = a.split(".").map(Number);
@@ -64,4 +64,35 @@ test("no release buries the reader — at most 10 items", () => {
   for (const release of CHANGELOG) {
     assert.ok(release.items.length <= 10, `${release.version} lists ${release.items.length} items`);
   }
+});
+
+test("headlines stay headlines — at most 2 per release (SUB-817)", () => {
+  for (const release of CHANGELOG) {
+    const headlines = release.items.filter((item) => item.headline).length;
+    assert.ok(headlines <= 2, `${release.version} flags ${headlines} headline items`);
+  }
+});
+
+test("groupRelease splits headlines out and buckets the rest in kind order", () => {
+  const { headlines, groups } = groupRelease({
+    version: "9.9.9",
+    date: "2026-01-01",
+    title: "t",
+    items: [
+      { text: "fix b", kind: "fixed" },
+      { text: "flag", kind: "new", headline: true },
+      { text: "feat", kind: "new" },
+      { text: "kindless" },
+      { text: "fix a", kind: "fixed" },
+    ],
+  });
+  assert.deepEqual(headlines.map((i) => i.text), ["flag"]);
+  assert.deepEqual(
+    groups.map((g) => [g.kind, g.items.map((i) => i.text)]),
+    [
+      ["new", ["feat"]],
+      ["improved", ["kindless"]],
+      ["fixed", ["fix b", "fix a"]],
+    ]
+  );
 });
