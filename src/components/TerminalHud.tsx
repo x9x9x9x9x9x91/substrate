@@ -26,7 +26,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { invoke, listen } from "../lib/tauri";
-import type { TerminalSettings } from "../lib/settings";
+import { terminalFontFamily, type TerminalSettings } from "../lib/settings";
 import { TERM_TRUST_KEY, decideInject, isCommandTrusted, withTrusted } from "../lib/termtrust";
 
 /** A withheld command: `command` is what the user is asked about and what the
@@ -62,6 +62,14 @@ function hudTheme() {
   };
 }
 
+/** the app's own monospace stack — the tail every terminal font falls back to */
+function monoChain() {
+  return (
+    getComputedStyle(document.documentElement).getPropertyValue("--mono").trim() ||
+    "ui-monospace, Menlo, monospace"
+  );
+}
+
 export default function TerminalHud({ open, settings, inject, onToast }: TerminalHudProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -70,8 +78,9 @@ export default function TerminalHud({ open, settings, inject, onToast }: Termina
   /** exited sessions respawn on next open; -1 = nothing to respawn */
   const deadRef = useRef(false);
   const injectedSeq = useRef(0);
-  // spawn settings are read at spawn time only — a settings change while the
-  // shell runs applies on the next respawn, never yanks a live session
+  // spawn settings (command, cwd) are read at spawn time only — a change while
+  // the shell runs applies on the next respawn, never yanks a live session.
+  // Render settings (font) are not the shell's business and apply live, below.
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   /** the command awaiting this machine's yes; null = nothing to confirm */
@@ -80,7 +89,7 @@ export default function TerminalHud({ open, settings, inject, onToast }: Termina
   // one Terminal instance for the component's lifetime
   useEffect(() => {
     const term = new Terminal({
-      fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--mono").trim() || "ui-monospace, Menlo, monospace",
+      fontFamily: terminalFontFamily(settingsRef.current.font, monoChain()),
       fontSize: 12.5,
       lineHeight: 1.25,
       cursorBlink: true,
@@ -136,6 +145,18 @@ export default function TerminalHud({ open, settings, inject, onToast }: Termina
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // `terminal-font` applies to the live instance (SUB-862): the Terminal is
+  // built once, but Settings.md is re-read on every HUD open, so a font
+  // changed between opens has to land on the existing renderer. Cell metrics
+  // move with the family, so re-fit — otherwise cols/rows lie until the next
+  // window resize.
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.fontFamily = terminalFontFamily(settings.font, monoChain());
+    if (term.element) fitRef.current?.fit();
+  }, [settings.font]);
 
   // open: mount into the host (first time), fit, spawn/attach, focus
   useEffect(() => {

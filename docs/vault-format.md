@@ -1810,6 +1810,12 @@ Plain notes the app treats specially — all optional, all just files:
   HUD's `terminal-command` (agent CLI typed into the fresh shell; empty = plain
   shell), `terminal-cwd` (start folder, `~` expands; empty = the vault folder) and
   `terminal-height` (window fraction `0.2`–`0.9`, default `0.45`),
+  `terminal-font` (SUB-862, font family for the HUD terminal — one name or a
+  comma-separated chain; names are normalized (quotes optional, spaced names
+  quoted for you) and restricted to letters/digits/space/`_``.``-`, anything
+  else is dropped; the app's mono stack is always appended, so a typo'd or
+  rejected value degrades to mono; empty = that mono stack alone; a nerd font
+  goes here to get powerline glyphs),
   `terminal-actions` (a list of `Label: command` quick actions offered in the
   command palette, each typed into the HUD's shell; a fresh vault is seeded
   with one entry for the `/setup` skill below), and

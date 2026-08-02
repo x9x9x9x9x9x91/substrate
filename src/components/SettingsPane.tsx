@@ -94,6 +94,13 @@ const FIELDS: Field[] = [
     kind: "text",
   },
   {
+    key: "terminal-font",
+    label: "Terminal font",
+    hint: "font family for the ⌘⇧T terminal — set your nerd font here so powerline and prompt glyphs render; empty = the app's mono",
+    placeholder: "JetBrainsMono Nerd Font",
+    kind: "text",
+  },
+  {
     key: "terminal-height",
     label: "Terminal height",
     hint: "fraction of the window the terminal covers (0.2–0.9)",

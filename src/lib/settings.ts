@@ -13,6 +13,8 @@ export interface TerminalSettings {
   cwd: string;
   /** HUD height as a fraction of the window, clamped to 0.2–0.9 */
   height: number;
+  /** font family for the HUD terminal; empty = the app's `--mono` chain */
+  font: string;
 }
 
 export const DEFAULT_TERMINAL_HEIGHT = 0.45;
@@ -21,7 +23,37 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
   command: "",
   cwd: "",
   height: DEFAULT_TERMINAL_HEIGHT,
+  font: "",
 };
+
+/** `terminal-font` → the xterm `fontFamily` string (SUB-862).
+
+    The value is NORMALIZED, never passed through: split on commas, each name
+    unwrapped from its quotes, checked against a strict whitelist
+    (letters/digits/space/`_``.``-`), re-quoted when spaced, rejects dropped.
+    xterm's DOM renderer interpolates this string raw into a `<style>` element
+    and Settings.md is vault content (it syncs and imports), so anything
+    looser is a CSS injection surface — the same threat model that gates
+    `terminal-command` behind the trust card. Normalizing also means the
+    output is always a VALID declaration: a typo'd value (trailing comma,
+    stray quote, a number in the wrong row) degrades to the app's mono chain
+    instead of invalidating the whole rule and landing the terminal in the
+    browser's proportional default. */
+export function terminalFontFamily(userFont: string, fallbackChain: string): string {
+  const families: string[] = [];
+  for (const part of userFont.split(",")) {
+    let f = part.trim();
+    const quoted = f.match(/^(['"])(.*)\1$/);
+    if (quoted) f = quoted[2].trim();
+    // whitelist, and not a bare number (a height typed into the font row)
+    if (!f || !/^[A-Za-z0-9 _.-]+$/.test(f) || /^[\d. ]+$/.test(f)) continue;
+    // bare only when it's a clean CSS identifier — keeps generic keywords
+    // (monospace) working; anything else (spaces, dots, leading digit) is
+    // quoted so one odd name can't invalidate the whole declaration
+    families.push(/^[A-Za-z][A-Za-z0-9_-]*$/.test(f) ? f : `"${f}"`);
+  }
+  return families.length ? `${families.join(", ")}, ${fallbackChain}` : fallbackChain;
+}
 
 /** One palette quick action typed into the terminal HUD (SUB-441). */
 export interface TerminalAction {
@@ -154,5 +186,6 @@ export function parseTerminalSettings(props: Record<string, unknown>): TerminalS
     command: str("terminal-command"),
     cwd: str("terminal-cwd"),
     height: Number.isFinite(h) && h >= 0.2 && h <= 0.9 ? h : DEFAULT_TERMINAL_HEIGHT,
+    font: str("terminal-font"),
   };
 }

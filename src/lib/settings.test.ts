@@ -10,8 +10,11 @@ import {
   parseTerminalActions,
   parseTerminalSettings,
   terminalActionsToText,
+  terminalFontFamily,
   textToTerminalActions,
 } from "./settings.ts";
+
+const MONO = "ui-monospace, Menlo, monospace";
 
 test("parseTerminalSettings: reads the three terminal keys", () => {
   const s = parseTerminalSettings({
@@ -47,6 +50,57 @@ test("parseTerminalSettings: YAML-numeric height still parses", () => {
 test("parseTerminalSettings: non-string command is ignored, not stringified", () => {
   const s = parseTerminalSettings({ "terminal-command": ["rm", "-rf"] });
   assert.equal(s.command, "");
+});
+
+test("parseTerminalSettings: terminal-font is read and trimmed, absent = empty", () => {
+  assert.equal(parseTerminalSettings({}).font, "");
+  assert.equal(
+    parseTerminalSettings({ "terminal-font": "  JetBrainsMono Nerd Font  " }).font,
+    "JetBrainsMono Nerd Font",
+  );
+  // non-strings are ignored the same way `terminal-command` ignores them
+  assert.equal(parseTerminalSettings({ "terminal-font": ["Menlo"] }).font, "");
+});
+
+test("terminalFontFamily: empty stays byte-identical to the app's mono chain", () => {
+  assert.equal(terminalFontFamily("", MONO), MONO);
+  assert.equal(terminalFontFamily("   ", MONO), MONO);
+});
+
+test("terminalFontFamily: a single token is used bare, with mono appended", () => {
+  assert.equal(terminalFontFamily("Menlo", MONO), `Menlo, ${MONO}`);
+});
+
+test("terminalFontFamily: a spaced family name gets quoted", () => {
+  assert.equal(
+    terminalFontFamily("JetBrainsMono Nerd Font", MONO),
+    `"JetBrainsMono Nerd Font", ${MONO}`,
+  );
+});
+
+test("terminalFontFamily: a user-written chain is normalized name by name", () => {
+  assert.equal(
+    terminalFontFamily("'Fira Code', Menlo", MONO),
+    `"Fira Code", Menlo, ${MONO}`,
+  );
+  assert.equal(terminalFontFamily('"Hack Nerd Font"', MONO), `"Hack Nerd Font", ${MONO}`);
+});
+
+test("terminalFontFamily: typos degrade to mono instead of an invalid declaration", () => {
+  // trailing comma, a number in the wrong row, an unbalanced quote — each of
+  // these as raw CSS would invalidate the whole rule (proportional fallback)
+  assert.equal(terminalFontFamily("Menlo,", MONO), `Menlo, ${MONO}`);
+  assert.equal(terminalFontFamily("0.45", MONO), MONO);
+  assert.equal(terminalFontFamily('"Hack', MONO), MONO);
+  assert.equal(terminalFontFamily("O'Brien Mono", MONO), MONO);
+});
+
+test("terminalFontFamily: CSS metacharacters never pass through (vault content is untrusted)", () => {
+  // Settings.md syncs/imports; xterm interpolates fontFamily raw into a
+  // <style> tag — a brace-carrying value must die at the whitelist, not ship
+  assert.equal(terminalFontFamily("A}.dbform-foot{display:none}.x{a:b", MONO), MONO);
+  assert.equal(terminalFontFamily("x;background:url(//evil)", MONO), MONO);
+  assert.equal(terminalFontFamily("Menlo, A}bad{", MONO), `Menlo, ${MONO}`);
 });
 
 test("parseTerminalActions: `Label: command` entries, in order (SUB-441)", () => {
