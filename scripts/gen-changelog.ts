@@ -66,10 +66,16 @@ export function wrapBullet(text: string, width = WRAP): string {
  * One release as `## <version> — <date> — <title>` plus its structured body
  * (SUB-817): headline items under `### Highlights`, then the remaining items
  * under `### New` / `### Improved` / `### Fixed` — the same grouping the
- * in-app pane renders, so the two surfaces stay one document.
+ * in-app pane renders, so the two surfaces stay one document. `private` items
+ * describe machine-local surfaces (SUB-830) and stay out of the rendered
+ * file — CHANGELOG.md and release notes describe what a download actually
+ * contains.
  */
 export function renderRelease(release: ChangelogRelease): string {
-  const { headlines, groups } = groupRelease(release);
+  const { headlines, groups } = groupRelease({
+    ...release,
+    items: release.items.filter((item) => !item.private),
+  });
   const parts: string[] = [`## ${release.version} — ${release.date} — ${release.title}`];
   if (headlines.length > 0) {
     parts.push("### Highlights", headlines.map((item) => wrapBullet(item.text)).join("\n"));

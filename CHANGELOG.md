@@ -17,8 +17,6 @@
 
 ### Improved
 
-- The proxy dashboard reads at a glance now — each account row carries one quota bar for
-  its binding window, with 5-hour and 7-day usage as compact rings beside it.
 - First-run seed vault got a real flagship: a Label Overview dashboard (catalogue,
   releases, roster) replaces the abstract Yield APR sample.
 
@@ -48,9 +46,7 @@
 
 ### New
 
-- Three new dashboards: Jobs shows every scheduled background task with its run history
-  and pause control, Attention surfaces tasks that need a look, and Waiting collects
-  everything blocked on someone else.
+- A new Attention dashboard surfaces the tasks that need a look.
 - Map a folder: point the app at any folder of notes and it becomes a database, from the
   sidebar or the palette.
 - Dashboards can print — agenda, food, and the other portable kinds produce a clean
@@ -107,15 +103,6 @@
 
 - Select text in a note for a floating menu: extract the selection into its own linked
   note, turn it into a heading or list, or copy it as Markdown.
-- The news feed has a refresh button that sends the curator out for a fresh sweep
-  instead of waiting for the next scheduled one.
-
-### Improved
-
-- The sync dashboard reads as sentences — each backup leg states its finding in plain
-  words, with hairline rows and ticks that stay put at any window width.
-- The token-usage pane now counts subagent transcripts too, so delegated work no longer
-  hides from the totals.
 
 ### Fixed
 
@@ -161,10 +148,6 @@
 
 - The sidebar de-nests saved views, wears curated folder and dashboard icons, and drops
   the Sketchpad entry — Notes now lists only untyped, unfiled notes.
-
-### Fixed
-
-- The coding dashboard aligns lane age, behind-count, and commit age to shared rails.
 
 ## 0.13.0 — 2026-07-23 — New sheet, collapsible sidebar
 
@@ -218,7 +201,6 @@
 
 - A calorie surface: log meals against a daily band, with undo, a day strip, and a
   seven-day average.
-- A coding dashboard listing your repositories sorted by what needs attention.
 - Databases remember per-database column visibility and sort order.
 - The yield board gains a two-click Claim with full undo history.
 
@@ -307,14 +289,8 @@
 - Today is a day-agenda decision surface — what is scheduled, due, overdue, and picked,
   in one place.
 
-### New
-
-- The sync dashboard became a control surface: start, inspect, and hold your backup jobs
-  from the app.
-
 ### Fixed
 
-- Sync refuses to start a run while a sweep is already in flight.
 - Restoring an old version of a note now lands in the open editor instead of being
   overwritten.
 

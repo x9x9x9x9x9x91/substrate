@@ -60,9 +60,12 @@ test("every release has a title and non-empty items", () => {
   }
 });
 
-test("no release buries the reader — at most 10 items", () => {
+test("no release buries the reader — at most 10 public items", () => {
+  // `private` items (SUB-830) don't render for a stock install and are rare,
+  // so the burying cap guards the list everyone sees.
   for (const release of CHANGELOG) {
-    assert.ok(release.items.length <= 10, `${release.version} lists ${release.items.length} items`);
+    const visible = release.items.filter((item) => !item.private).length;
+    assert.ok(visible <= 10, `${release.version} lists ${visible} public items`);
   }
 });
 

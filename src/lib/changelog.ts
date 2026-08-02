@@ -38,6 +38,10 @@ export interface ChangelogItem {
   kind?: ChangelogKind;
   /** the release's flagship — rendered first and larger, outside the groups */
   headline?: boolean;
+  /** A machine-local surface not present in every install (SUB-830). Excluded
+      from the generated CHANGELOG.md and release notes; the in-app pane shows
+      it only on machines that actually have the surface. */
+  private?: true;
 }
 
 export interface ChangelogRelease {
@@ -90,10 +94,6 @@ export const CHANGELOG: ChangelogRelease[] = [
         headline: true,
       },
       {
-        text: "The proxy dashboard reads at a glance now — each account row carries one quota bar for its binding window, with 5-hour and 7-day usage as compact rings beside it.",
-        kind: "improved",
-      },
-      {
         text: "Calendar peek opens beside the entry instead of covering it, and the click that dismisses a peek no longer starts composing a new entry underneath.",
         kind: "fixed",
       },
@@ -135,7 +135,7 @@ export const CHANGELOG: ChangelogRelease[] = [
         headline: true,
       },
       {
-        text: "Three new dashboards: Jobs shows every scheduled background task with its run history and pause control, Attention surfaces tasks that need a look, and Waiting collects everything blocked on someone else.",
+        text: "A new Attention dashboard surfaces the tasks that need a look.",
         kind: "new",
       },
       {
@@ -203,18 +203,6 @@ export const CHANGELOG: ChangelogRelease[] = [
         kind: "new",
       },
       {
-        text: "The news feed has a refresh button that sends the curator out for a fresh sweep instead of waiting for the next scheduled one.",
-        kind: "new",
-      },
-      {
-        text: "The sync dashboard reads as sentences — each backup leg states its finding in plain words, with hairline rows and ticks that stay put at any window width.",
-        kind: "improved",
-      },
-      {
-        text: "The token-usage pane now counts subagent transcripts too, so delegated work no longer hides from the totals.",
-        kind: "improved",
-      },
-      {
         text: "Fixed: background git maintenance could repack a vault's history store; sidebar pins under a dashboard folder rendered twice; extracted-note titles could carry characters the engine refuses.",
         kind: "fixed",
       },
@@ -276,10 +264,6 @@ export const CHANGELOG: ChangelogRelease[] = [
       {
         text: "The sidebar de-nests saved views, wears curated folder and dashboard icons, and drops the Sketchpad entry — Notes now lists only untyped, unfiled notes.",
         kind: "improved",
-      },
-      {
-        text: "The coding dashboard aligns lane age, behind-count, and commit age to shared rails.",
-        kind: "fixed",
       },
     ],
   },
@@ -359,10 +343,6 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         text: "A calorie surface: log meals against a daily band, with undo, a day strip, and a seven-day average.",
-        kind: "new",
-      },
-      {
-        text: "A coding dashboard listing your repositories sorted by what needs attention.",
         kind: "new",
       },
       {
@@ -500,14 +480,6 @@ export const CHANGELOG: ChangelogRelease[] = [
         text: "Today is a day-agenda decision surface — what is scheduled, due, overdue, and picked, in one place.",
         kind: "new",
         headline: true,
-      },
-      {
-        text: "The sync dashboard became a control surface: start, inspect, and hold your backup jobs from the app.",
-        kind: "new",
-      },
-      {
-        text: "Sync refuses to start a run while a sweep is already in flight.",
-        kind: "fixed",
       },
       {
         text: "Restoring an old version of a note now lands in the open editor instead of being overwritten.",

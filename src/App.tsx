@@ -3392,7 +3392,8 @@ export default function App() {
         </div>
       ) : view.kind === "changelog" ? (
         <div className="main">
-          <ChangelogPane />
+          <ChangelogPane
+          />
         </div>
       ) : view.kind === "assets" ? (
         <div className="main">

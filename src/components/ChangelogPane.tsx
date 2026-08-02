@@ -27,7 +27,14 @@ function releaseDate(iso: string): string {
   return `${d}.${m}.${y}`;
 }
 
-export default function ChangelogPane() {
+interface ChangelogPaneProps {
+  /** Machine-local surfaces carry `private` changelog items (SUB-830); they
+      render only where such a surface exists, so a stock install's history
+      describes the app it actually has. Never passed = never shown. */
+  showPrivate?: boolean;
+}
+
+export default function ChangelogPane({ showPrivate = false }: ChangelogPaneProps) {
   const current = CHANGELOG[0];
 
   return (
@@ -39,7 +46,10 @@ export default function ChangelogPane() {
         />
 
         {CHANGELOG.map((release) => {
-          const { headlines, groups } = groupRelease(release);
+          const { headlines, groups } = groupRelease({
+            ...release,
+            items: release.items.filter((item) => showPrivate || !item.private),
+          });
           return (
             <section key={release.version} className="chlog-release">
               <div className="dash-section-label">
