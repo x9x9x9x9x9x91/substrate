@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "updated": "2026-08-02",
+  "about": "Substrate dashboard cookbook — copyable surface recipes. Each recipe is a folder of plain markdown files: the dashboard note plus every sheet, database note, or contact it binds to, so a copied recipe renders with numbers on the first open. Install = copy the recipe's files into your vault (keep the Dashboards/ nesting or don't — folders never decide database membership). An agent can read any recipe and adapt the sample rows, formulas, and card binds to your real data.",
+  "recipes": [
+    {
+      "id": "portfolio",
+      "title": "Portfolio",
+      "kind": "metrics",
+      "blurb": "Stat cards over a sheet. The sheet holds rows and formulas; the dashboard binds cards to the named summaries — total, per-bucket sums — and every number traces back to the file.",
+      "adapt": "Replace the csv rows in Holdings.md with your positions; add summaries in the formulas fence and bind more cards to them.",
+      "expects": { "sheets": ["Holdings"], "databases": [] },
+      "files": ["Dashboards/Portfolio.md", "Holdings.md"],
+      "shot": "shots/portfolio.png"
+    },
+    {
+      "id": "yield-apr",
+      "title": "Yield APR",
+      "kind": "yield-apr",
+      "blurb": "Realized APR, projected day/week/month/year yield, and a per-interval chart — computed from append-only snapshot rows the dashboard itself holds. The form appends; history never rewrites.",
+      "adapt": "Delete the sample rows and log your own snapshots — each row is a timestamp, accrued yield, and principal.",
+      "expects": { "sheets": [], "databases": [] },
+      "files": ["Dashboards/Yield.md"],
+      "shot": "shots/yield-apr.png"
+    },
+    {
+      "id": "food-log",
+      "title": "Food log",
+      "kind": "food",
+      "blurb": "A daily net-kcal tracker with a goal band. Rows live in a log sheet the pane appends to; negative kcal is exercise. A second sheet holds stable kcal bases the autocomplete prices from.",
+      "adapt": "Set floor/ceiling to your band, clear the sample log rows, and grow Food DB.md with the foods you actually eat.",
+      "expects": { "sheets": ["Food Log", "Food DB"], "databases": [] },
+      "files": ["Dashboards/Food.md", "Food Log.md", "Food DB.md"],
+      "shot": "shots/food-log.png"
+    },
+    {
+      "id": "news-feed",
+      "title": "News feed",
+      "kind": "feed",
+      "blurb": "A curated newsfeed an external agent writes — one sheet of ranked items with a blurb and a personal why per row. The app writes exactly one column back: your up/down verdicts, which the curator reads before the next sweep.",
+      "adapt": "Point an agent at News Items.md with your topics and taste; the fb column is its feedback loop.",
+      "expects": { "sheets": ["News Items"], "databases": [] },
+      "files": ["Dashboards/News.md", "News Items.md"],
+      "shot": "shots/news-feed.png"
+    },
+    {
+      "id": "home-hub",
+      "title": "Home hub",
+      "kind": "hub",
+      "blurb": "A designed home page from ordinary markdown: headings become section labels and runs of callouts become side-by-side cards for now / deadlines / later, with wikilinks jumping straight to the notes they name.",
+      "adapt": "Rewrite the callouts as your actual now/next, and retarget the recipe's view fences and sample releases at your own types.",
+      "expects": { "sheets": [], "databases": ["release", "contact"] },
+      "files": [
+        "Dashboards/Home.md",
+        "Releases/Night Circuit.md",
+        "Releases/Fern Static.md",
+        "Releases/Slow Bloom EP.md",
+        "Contacts/Ada Voss.md",
+        "Contacts/Juno Marek.md"
+      ],
+      "shot": "shots/home-hub.png",
+      "fit": "contain"
+    },
+    {
+      "id": "release-charts",
+      "title": "Release charts",
+      "kind": "charts",
+      "blurb": "Bar charts over a database and a sheet — one chart fence each. x buckets a property (with day/week/month date bucketing), y counts, sums, or averages; a malformed fence renders its error in place and never breaks the others.",
+      "adapt": "Change source: to any of your types or {{sheets}}; add fences for more charts.",
+      "expects": { "sheets": ["Holdings"], "databases": ["release"] },
+      "files": [
+        "Dashboards/Release Charts.md",
+        "Holdings.md",
+        "Releases/Night Circuit.md",
+        "Releases/Fern Static.md",
+        "Releases/Slow Bloom EP.md"
+      ],
+      "shot": "shots/release-charts.png"
+    },
+    {
+      "id": "label-accounting",
+      "title": "Label accounting",
+      "kind": "metrics",
+      "blurb": "A workbook: overview cards over a statements sheet, with the statement lines, the artist-split ledger, and the release database each one tab away on the strip at the bottom.",
+      "adapt": "Replace the statement and split rows with your own; the owed/net summaries recompute, and the pages list in the dashboard's frontmatter is yours to extend.",
+      "expects": { "sheets": ["Label Statements", "Label Splits"], "databases": ["release"] },
+      "files": [
+        "Dashboards/Label Accounting.md",
+        "Label Statements.md",
+        "Label Splits.md",
+        "Releases/Night Circuit.md",
+        "Releases/Fern Static.md",
+        "Releases/Slow Bloom EP.md"
+      ],
+      "shot": "shots/label-accounting.png"
+    },
+    {
+      "id": "music-work",
+      "title": "Work index",
+      "kind": "music-work",
+      "blurb": "Years of production work, pivoted. A scanner script or agent writes one sheet row per job; the board reads it and answers what the folder tree can't — by year, by client, by category. The app never writes back.",
+      "adapt": "Write your own scanner for whatever tree you keep work in — one csv row per job is the whole contract.",
+      "expects": { "sheets": ["Work Index"], "databases": [] },
+      "files": ["Dashboards/Music Work.md", "Work Index.md"],
+      "shot": "shots/music-work.png"
+    }
+  ]
+}

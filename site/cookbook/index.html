@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cookbook — Substrate dashboard recipes</title>
+<meta name="description" content="A gallery of copyable dashboard recipes for Substrate. Each recipe is a folder of plain markdown files — copy them into your vault and the surface renders with numbers on first open." />
+<meta property="og:title" content="The Substrate cookbook — dashboard recipes as plain files" />
+<meta property="og:description" content="Portfolio cards, APR tracking, a food log, a curated feed, a label-accounting workbook — each one a copyable folder of markdown. No marketplace, no install step." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://substrate.zone/cookbook/" />
+<meta property="og:site_name" content="Substrate" />
+<meta property="og:image" content="https://substrate.zone/og.png" />
+<link rel="canonical" href="https://substrate.zone/cookbook/" />
+<meta name="theme-color" content="#000000" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1024'%3E%3Crect width='1024' height='1024' rx='224' fill='black'/%3E%3Cg stroke='white' stroke-width='84' fill='none'%3E%3Cline x1='512' y1='218' x2='512' y2='636'/%3E%3Cline x1='312' y1='300' x2='712' y2='536'/%3E%3Cline x1='712' y1='300' x2='312' y2='536'/%3E%3Cline x1='256' y1='636' x2='768' y2='636'/%3E%3Cline x1='512' y1='636' x2='512' y2='790'/%3E%3C/g%3E%3C/svg%3E" />
+<link rel="preload" href="../inter-var-latin.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="preload" href="../jetbrains-mono-var-latin.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="preload" href="../space-grotesk-var-latin.woff2" as="font" type="font/woff2" crossorigin />
+<style>
+  @font-face {
+    font-family: "Inter";
+    src: url("../inter-var-latin.woff2") format("woff2");
+    font-weight: 100 900;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "JetBrains Mono";
+    src: url("../jetbrains-mono-var-latin.woff2") format("woff2");
+    font-weight: 100 800;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "Space Grotesk";
+    src: url("../space-grotesk-var-latin.woff2") format("woff2");
+    font-weight: 300 700;
+    font-display: swap;
+  }
+
+  :root {
+    --steel: #cfd3d9;
+    --ink: #f0f2f5;
+    --ink-2: rgba(228, 234, 242, 0.6);
+    --ink-3: rgba(228, 234, 242, 0.55);
+    --ink-4: rgba(228, 234, 242, 0.36);
+    --hair: rgba(210, 220, 235, 0.11);
+    --hair-2: rgba(210, 220, 235, 0.2);
+    --font: "Inter", -apple-system, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+    --disp: "Space Grotesk", "Inter", sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { background: #000; }
+  body {
+    background: #000;
+    color: var(--ink-2);
+    font-family: var(--font);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: #fff; color: #000; }
+  a { color: inherit; text-decoration: none; }
+  a:focus-visible, summary:focus-visible { outline: 1px solid rgba(255,255,255,0.6); outline-offset: 3px; }
+
+  nav {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 28px; max-width: 1180px; margin: 0 auto;
+  }
+  .brand {
+    display: inline-flex; align-items: center; gap: 9px;
+    font-family: var(--disp); font-weight: 600; letter-spacing: 0.16em;
+    font-size: 14px; color: var(--ink);
+  }
+  .brand .mark { width: 20px; height: 20px; }
+  .brand i { font-style: normal; color: var(--ink-4); }
+  nav .nl { display: flex; gap: 22px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; color: var(--ink-3); }
+  nav .nl a:hover { color: var(--ink); }
+
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 28px 120px; }
+
+  header.intro { padding: 72px 0 28px; max-width: 720px; }
+  .sn { font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em; color: var(--ink-4); margin-bottom: 18px; }
+  h1 { font-family: var(--disp); font-weight: 600; font-size: clamp(30px, 5vw, 44px); line-height: 1.12; color: var(--ink); letter-spacing: -0.01em; }
+  h1 .b { color: var(--steel); }
+  .lede { margin-top: 18px; font-size: 16px; color: var(--ink-2); }
+  .lede b { color: var(--ink); font-weight: 500; }
+  .lede code, .how code, .r-adapt code { font-family: var(--mono); font-size: 0.86em; color: var(--ink); background: rgba(210,220,235,0.07); border: 1px solid var(--hair); border-radius: 4px; padding: 1px 5px; }
+
+  .how {
+    margin-top: 30px; padding: 18px 20px; border: 1px solid var(--hair); border-radius: 10px;
+    font-size: 14px; color: var(--ink-3); max-width: 720px;
+  }
+  .how b { color: var(--ink); font-weight: 500; }
+  .how p + p { margin-top: 10px; }
+
+  .grid {
+    margin-top: 56px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 22px;
+  }
+  .card {
+    border: 1px solid var(--hair); border-radius: 12px; overflow: hidden;
+    background: rgba(255,255,255,0.015);
+    display: flex; flex-direction: column;
+    transition: border-color 0.25s ease;
+  }
+  .card:hover { border-color: var(--hair-2); }
+  .card .shot {
+    aspect-ratio: 16 / 9; overflow: hidden; border-bottom: 1px solid var(--hair); background: #050607;
+  }
+  .card .shot img { width: 100%; height: 100%; object-fit: cover; object-position: top; display: block; }
+  /* wide banner-shaped shots letterbox on the card's own dark ground instead
+     of being zoom-cropped by the 16:9 cover */
+  .card .shot img.fit-contain { object-fit: contain; object-position: center; }
+  .card .body { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+  .r-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .r-title { font-family: var(--disp); font-weight: 600; font-size: 19px; color: var(--ink); }
+  .r-kind { font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; color: var(--ink-4); white-space: nowrap; }
+  .r-blurb { font-size: 14px; color: var(--ink-2); }
+  .r-expects { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0.03em; color: var(--ink-4); }
+  .r-expects b { color: var(--ink-3); font-weight: 500; }
+
+  details { margin-top: auto; border-top: 1px solid var(--hair); padding-top: 12px; }
+  summary {
+    cursor: pointer; list-style: none;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.1em; color: var(--ink-3);
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before { content: "+ "; color: var(--ink-4); }
+  details[open] summary::before { content: "− "; }
+  summary:hover { color: var(--ink); }
+  .files { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+  .files a {
+    font-family: var(--mono); font-size: 12.5px; color: var(--ink-2);
+    display: flex; justify-content: space-between; gap: 10px;
+  }
+  .files a:hover { color: var(--ink); }
+  .files a::after { content: "raw ↗"; color: var(--ink-4); font-size: 11px; }
+  .r-adapt { margin-top: 12px; font-size: 13px; color: var(--ink-3); }
+  .r-adapt b { color: var(--ink-2); font-weight: 500; }
+
+  footer {
+    border-top: 1px solid var(--hair); margin-top: 90px; padding: 26px 0 0;
+    display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.05em; color: var(--ink-4);
+  }
+  footer a:hover { color: var(--ink); }
+
+  @media (max-width: 700px) {
+    nav { padding: 16px 20px; }
+    nav .nl { display: none; }
+    .wrap { padding: 0 20px 90px; }
+    header.intro { padding: 48px 0 20px; }
+    .grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <a class="brand" href="/"><svg class="mark" viewBox="0 0 1024 1024" aria-hidden="true"><g stroke="currentColor" stroke-width="92" fill="none"><line x1="512" y1="188" x2="512" y2="636"/><line x1="298" y1="276" x2="726" y2="528"/><line x1="726" y1="276" x2="298" y2="528"/><line x1="236" y1="636" x2="788" y2="636"/><line x1="512" y1="636" x2="512" y2="812"/></g></svg>SUBSTRATE<i>_</i></a>
+  <div class="nl">
+    <a href="/#app">app</a>
+    <a href="/#agents">agents</a>
+    <a href="https://github.com/x9x9x9x9x9x91/substrate">source ↗</a>
+  </div>
+</nav>
+
+<div class="wrap">
+
+  <header class="intro">
+    <p class="sn">THE COOKBOOK</p>
+    <h1>dashboard recipes,<br>as <span class="b">plain files.</span></h1>
+    <p class="lede">Every surface below is a folder of markdown — the dashboard note plus the sheets and sample rows it binds to. <b>Install is copy-paste:</b> put the files in your vault and the board renders with numbers on first open. Then make it yours.</p>
+    <div class="how">
+      <p><b>By hand</b> — open a recipe, download its files, drop them into your vault. Keep the <code>Dashboards/</code> nesting or don't; folders never decide what belongs to a database.</p>
+      <p><b>By agent</b> — recipes are agent food. Point your agent at <a href="index.json"><code>index.json</code></a>: each entry declares the files, what the recipe expects to exist, and how to adapt the sample data to yours. "Set this up against my real accounts" is a one-line prompt.</p>
+    </div>
+  </header>
+
+  <div class="grid" id="grid">
+    <!-- cards are rendered from index.json so the gallery and the machine-readable
+         index can never disagree; <noscript> keeps a plain link to the index -->
+  </div>
+  <noscript><p style="margin-top:56px">This gallery renders from <a href="index.json" style="color:var(--ink)">index.json</a> — the recipe files live under <code>recipes/</code>.</p></noscript>
+
+  <footer>
+    <span>SUBSTRATE_ · the cookbook</span>
+    <span><a href="/">substrate.zone</a> · <a href="https://github.com/x9x9x9x9x9x91/substrate">github ↗</a></span>
+  </footer>
+
+</div>
+
+<script>
+  fetch("index.json")
+    .then((r) => r.json())
+    .then(({ recipes }) => {
+      const grid = document.getElementById("grid");
+      for (const r of recipes) {
+        const card = document.createElement("article");
+        card.className = "card";
+
+        const expects = [
+          r.expects.sheets.length ? `sheets: <b>${r.expects.sheets.join(", ")}</b>` : "",
+          r.expects.databases.length ? `databases: <b>${r.expects.databases.join(", ")}</b>` : "",
+        ].filter(Boolean).join(" · ") || "self-contained";
+
+        const files = r.files
+          .map((f) => `<a href="recipes/${encodeURIComponent(r.id)}/${f.split("/").map(encodeURIComponent).join("/")}" download>${esc(f)}</a>`)
+          .join("");
+
+        card.innerHTML =
+          `<div class="shot"><img src="${esc(r.shot)}"${r.fit === "contain" ? ' class="fit-contain"' : ""} loading="lazy" alt="The ${esc(r.title)} dashboard rendered in Substrate" /></div>` +
+          `<div class="body">` +
+            `<div class="r-head"><span class="r-title">${esc(r.title)}</span><span class="r-kind">${esc(r.kind)}</span></div>` +
+            `<p class="r-blurb">${esc(r.blurb)}</p>` +
+            `<p class="r-expects">${expects}</p>` +
+            `<details><summary>${r.files.length} file${r.files.length > 1 ? "s" : ""}</summary>` +
+              `<div class="files">${files}</div>` +
+              `<p class="r-adapt"><b>Make it yours:</b> ${esc(r.adapt)}</p>` +
+            `</details>` +
+          `</div>`;
+        grid.appendChild(card);
+      }
+    })
+    .catch(() => {
+      document.getElementById("grid").innerHTML =
+        '<p>Couldn’t load <a href="index.json" style="color:var(--ink)">index.json</a> — the recipe files live under <code>recipes/</code>.</p>';
+    });
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+</script>
+
+</body>
+</html>
