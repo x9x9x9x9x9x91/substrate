@@ -485,6 +485,7 @@
   }
   .lrow .k { font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em; color: var(--ink); padding-top: 2px; }
   .lrow .v { font-size: 13.5px; color: var(--ink-2); }
+  .lrow .v code { font-family: var(--mono); font-size: 12px; color: var(--ink); }
   .lrow .v kbd {
     font-family: var(--mono); font-size: 10.5px; color: var(--steel);
     border: 1px solid var(--hair-2);
@@ -834,8 +835,26 @@ stems for the motion piece due Friday.
     </section>
 
 
+    <section id="only">
+      <p class="sn">11 / only here</p>
+      <h3 class="big">Things you can&#8217;t take elsewhere.</h3>
+      <p class="lede">The claims that don&#8217;t have a Notion/Obsidian equivalent — every one shipped and checkable in the repo. The full register, including what&#8217;s deliberately <em style="font-style:normal;color:var(--ink)">not</em> advertised yet, lives in <a href="https://github.com/x9x9x9x9x9x91/substrate/blob/main/docs/differentiators.md" style="color:var(--ink);border-bottom:1px solid var(--hair-2)">docs/differentiators.md</a>.</p>
+      <div class="ledger">
+        <div class="lrow"><span class="k">the contract</span><span class="v">A 2,200-line on-disk spec written for external writers — plus <code>vault doctor</code>, a read-only integrity report. Your agent gets documentation, not reverse-engineering.</span></div>
+        <div class="lrow"><span class="k">audio rows</span><span class="v">Waveforms and play buttons inside database views — native, zero-config. A folder of demos is a playable database.</span></div>
+        <div class="lrow"><span class="k">notifications</span><span class="v">A date+time property fires a real notification — snooze, recurrence, DST-safe. Notes apps don&#8217;t do this; task apps don&#8217;t own your notes.</span></div>
+        <div class="lrow"><span class="k">repeat:</span><span class="v"><code>repeat: every 3 weeks</code> in plain frontmatter — no RRULE anywhere. One file, many occurrences; delete offers this-one / following / all.</span></div>
+        <div class="lrow"><span class="k">workbooks</span><span class="v">Any dashboard grows spreadsheet-style bottom tabs — sheet grid, dashboard, database cut — all in one file.</span></div>
+        <div class="lrow"><span class="k">purge</span><span class="v">Deletes are recoverable — but an explicit purge rewrites history and is <em style="font-style:normal;color:var(--ink)">physically gone</em>. Accidents removable, not hidden.</span></div>
+        <div class="lrow"><span class="k">conflicts</span><span class="v">A conflicted sync pull refuses — markers never land in a note. Per file: keep mine, take theirs, keep both; a half-resolved merge survives quitting.</span></div>
+        <div class="lrow"><span class="k">send as link</span><span class="v">Seal a note AES-256-GCM in the app, key only in the URL fragment, relay you host yourself — burn-after-open or timed expiry.</span></div>
+        <div class="lrow"><span class="k">terminal</span><span class="v"><kbd>⌘⇧T</kbd> drops a real shell into the notes app — with PTY trust checks, because that sentence should scare you a little.</span></div>
+        <div class="lrow"><span class="k">exit ramps</span><span class="v">In: Notion export lands as typed rows, date ranges intact. Out: PDF, portable markdown bundle, CSV exactly as the view shows. Both directions paved.</span></div>
+      </div>
+    </section>
+
     <section id="principles">
-      <p class="sn">11 / principles</p>
+      <p class="sn">12 / principles</p>
       <h3 class="big">Built on a few stubborn ideas.</h3>
       <div class="creed">
         <div class="c"><span class="n">01</span><div><h4>Files are the only truth.</h4><p>Export a PDF to send someone, sure. But you&#8217;ll never need to export <em style="font-style:normal;color:var(--ink)">your data</em> — it was never inside.</p></div></div>
@@ -848,7 +867,7 @@ stems for the motion piece due Friday.
     </section>
 
     <section id="switching">
-      <p class="sn">12 / switching</p>
+      <p class="sn">13 / switching</p>
       <h3 class="big xl">Leaving Notion?</h3>
       <p class="lede">The databases, the views, the everything-in-one-place — minus the loading spinners, the vendor account, and the API between your agent and your own notes.</p>
       <div class="steps3">
@@ -860,7 +879,7 @@ stems for the motion piece due Friday.
     </section>
 
     <section id="price">
-      <p class="sn">13 / price</p>
+      <p class="sn">14 / price</p>
       <h3 class="big">Free and open source. That part’s simple.</h3>
       <div class="pricelines">
         <div class="pl"><span class="what">Build from source</span><span class="cost"><em>free forever</em> — every feature, no gates</span></div>
@@ -871,7 +890,7 @@ stems for the motion piece due Friday.
     </section>
 
     <section id="faq" style="padding-bottom: 104px">
-      <p class="sn">14 / faq</p>
+      <p class="sn">15 / faq</p>
       <h3 class="big">Fair questions.</h3>
       <div class="faq">
         <details>
