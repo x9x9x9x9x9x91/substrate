@@ -195,7 +195,9 @@ pub fn redact_url(raw: &str) -> String {
 /// as `<url>: <kind>` (`ureq::Error`'s Display), so redacting only the URL a
 /// caller holds still leaks the credentials back through `{e}`.
 pub fn redact_message(msg: &str) -> String {
-    let creds = Regex::new(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/?#\s@]*@").unwrap();
+    static CREDS: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
+    let creds = CREDS
+        .get_or_init(|| Regex::new(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/?#\s@]*@").unwrap());
     creds.replace_all(msg, "$1").into_owned()
 }
 

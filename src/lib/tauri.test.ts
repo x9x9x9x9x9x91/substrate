@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type {
   NoteMeta,
+  TrashEntry,
   RelatedEntry,
   RenameResult,
   SavedView,
@@ -737,4 +738,44 @@ test("mock property clear uses the caller's former number kind with no note valu
     "numeric-looking comparison stays text without the old number kind"
   );
   assert.equal(views.find((view) => view.id === cases[2].id)?.query, undefined);
+});
+
+test("mock delete_type trashes the template and restore round-trips (SUB-781)", async () => {
+  await invoke("vault_create_type", { name: "Template Trash 781", props: [] });
+  await invoke("vault_write_body", {
+    path: ".vault/templates/Template Trash 781.md",
+    body: "skeleton body 781\n",
+  });
+  await invoke("vault_delete_type", { dbType: "Template Trash 781", trashNotes: false });
+
+  // the template left the store — but into the trash, not oblivion
+  let listed = await invoke<string[]>("vault_template_list");
+  assert.ok(!listed.some((t) => t.toLowerCase() === "template trash 781"));
+  const trash = await invoke<TrashEntry[]>("vault_trash_list");
+  const entry = trash.find((t) => t.kind === "template" && t.title === "Template Trash 781");
+  assert.ok(entry, "deleted type's template lists in the trash as its own kind");
+
+  // recreate the type with a fresh template — the restore must not clobber it
+  await invoke("vault_create_type", { name: "Template Trash 781", props: [] });
+  await invoke("vault_write_body", {
+    path: ".vault/templates/Template Trash 781.md",
+    body: "fresh successor\n",
+  });
+  const landed = await invoke<string>("vault_trash_restore_template", { id: entry!.id });
+  assert.equal(landed, "Template Trash 781 2", "restore lands numbered next to the successor");
+  listed = await invoke<string[]>("vault_template_list");
+  assert.ok(listed.includes("Template Trash 781 2"));
+  const restored = await invoke<{ body: string } | null>("vault_template_read", {
+    noteType: "Template Trash 781 2",
+  });
+  assert.match(restored?.body ?? "", /skeleton body 781/, "restored content round-tripped");
+
+  // and the permanent path: trash again, delete forever, gone from both stores
+  await invoke("vault_delete_type", { dbType: "Template Trash 781 2", trashNotes: false });
+  const again = await invoke<TrashEntry[]>("vault_trash_list");
+  const doomed = again.find((t) => t.kind === "template" && t.title === "Template Trash 781 2");
+  assert.ok(doomed, "re-trashed under the numbered stem");
+  await invoke("vault_trash_delete_template", { id: doomed!.id });
+  const finalTrash = await invoke<TrashEntry[]>("vault_trash_list");
+  assert.ok(!finalTrash.some((t) => t.kind === "template" && t.title === "Template Trash 781 2"));
 });

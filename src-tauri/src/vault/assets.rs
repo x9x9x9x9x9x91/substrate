@@ -362,7 +362,7 @@ mod tests {
 
     /// SUB-781: the import copy is atomic. A failure mid-copy must leave the
     /// claimed name absent (an embed pointing at it would otherwise resolve to
-    /// a truncated file) and no `.tmp-<pid>` litter behind.
+    /// a truncated file) and no `.tmp-<pid>-<seq>` litter behind.
     #[test]
     fn import_asset_copy_is_atomic_and_cleans_up_on_failure() {
         let (e, dir) = temp_vault("impatomic");

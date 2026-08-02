@@ -480,7 +480,7 @@ pub(crate) fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) -> Result<(), S
 /// arrive as master-sized audio; buffering them in memory just to hand the
 /// bytes to `write_atomic` would defeat the point of the by-path import lane,
 /// so the copy streams into the same dotted temp name and is fsynced before
-/// the rename. A crash mid-copy leaves an invisible `.tmp-<pid>` behind
+/// the rename. A crash mid-copy leaves an invisible `.tmp-<pid>-<seq>` behind
 /// instead of a truncated file under the claimed asset name.
 pub(crate) fn copy_atomic(src: &Path, path: &Path) -> Result<(), String> {
     let dir = path.parent().ok_or("invalid path")?;

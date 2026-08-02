@@ -285,7 +285,7 @@ mod tests {
 
     /// The seed writes route through `write_atomic` now (SUB-523). This is the
     /// residue half of that: a fresh vault comes up seeded and indexed with no
-    /// dotted `.X.tmp-<pid>` left behind, which is what a create-then-failed-
+    /// dotted `.X.tmp-<pid>-<seq>` left behind, which is what a create-then-failed-
     /// rename looks like. It does not prove atomicity — `fs::write` leaves no
     /// residue either; `write_atomic_round_trips_without_temp_residue` owns
     /// the primitive.

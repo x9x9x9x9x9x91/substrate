@@ -54,11 +54,15 @@ pub(crate) fn vault_trash_delete(state: State<AppState>, id: String) -> Result<(
 
 /// Restore a trashed template back to `.vault/templates/` (SUB-781); returns
 /// the stem it landed under (numbered when the type already has a new one).
+/// Marks the vault dirty: templates sit outside the watcher, so without it
+/// the restored file waits for an unrelated mutation before any snapshot.
 #[tauri::command]
 pub(crate) fn vault_trash_restore_template(
     state: State<AppState>,
+    dirty: State<SnapDirty>,
     id: String,
 ) -> Result<String, String> {
+    dirty.mark();
     state.0.lock().unwrap().trash_restore_template(&id)
 }
 

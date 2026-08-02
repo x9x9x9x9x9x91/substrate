@@ -5,7 +5,7 @@
  * strand a half-written note that a dedupe pass then skips forever.
  */
 
-import { rename, writeFile } from "node:fs/promises";
+import { rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 /** The vault an importer writes into. There is no default: an unset target
@@ -30,6 +30,13 @@ let tmpSeq = 0;
     keeps the temp out of the scripts' own `.md` scans while it exists. */
 export async function writeAtomic(path: string, content: string): Promise<void> {
   const tmp = join(dirname(path), `.${process.pid}-${tmpSeq++}.tmp`);
-  await writeFile(tmp, content);
-  await rename(tmp, path);
+  try {
+    await writeFile(tmp, content);
+    await rename(tmp, path);
+  } catch (e) {
+    // ENOSPC/EACCES mid-write: the target is untouched either way, but the
+    // temp must not linger as invisible litter in the vault
+    await rm(tmp, { force: true }).catch(() => {});
+    throw e;
+  }
 }

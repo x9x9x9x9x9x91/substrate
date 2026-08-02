@@ -1552,6 +1552,7 @@ Delete = move into the trash, never unlink:
                                           ← a trashed note's parked sidebar
                                             config (SUB-666)
 .trash/1752768000200/.assets/bounce.wav   ← a trashed asset (§9), name only
+.trash/1752768000300/.templates/release.md ← a deleted database's template (§8)
 ```
 
 - The `<deleted_ms>` folder is the deletion timestamp (unix millis); collisions
@@ -1625,8 +1626,18 @@ Delete = move into the trash, never unlink:
   reoccupied. Since assets carry no history, restoring or permanently deleting
   one has no history side effect, and empty-trash purges them with everything
   else.
-- Only `.md` files, marked folders, and `.assets/` mirror files are listed in
-  the trash UI.
+- **Templates trash into a `.templates/` mirror** the same way (SUB-781):
+  deleting a database moves its `.vault/templates/<stem>.md` into
+  `.trash/<deleted_ms>/.templates/<stem>.md` instead of unlinking it. The
+  dot-prefix keeps it out of the note walk, so it lists as its own trash kind
+  (`template`), never as a note. Restore renames it back into
+  `.vault/templates/`; if the type was recreated with a fresh template
+  meanwhile, the restored file takes a numbered stem (`release 2`) — never
+  overwrites — and serves the type of that landed stem. Templates are
+  history-tracked under `.vault/` (§11) but have no per-note purge, so the
+  trash row offers restore and delete-forever only.
+- Only `.md` files, marked folders, `.assets/` and `.templates/` mirror files
+  are listed in the trash UI.
 
 ## 11. `.git/` — version history
 
@@ -1945,6 +1956,7 @@ prefer (`src-tauri/src/lib.rs`, grouped):
   `vault_trash_restore` `vault_trash_delete` `vault_trash_empty`
   `vault_delete_folder` (folder + subtree to trash)
   `vault_trash_restore_folder` `vault_trash_delete_folder`
+  `vault_trash_restore_template` `vault_trash_delete_template` (§10 templates)
 - Assets: `vault_save_asset` `vault_read_asset` `vault_import_asset`
   `vault_asset_info` `vault_assets_orphaned` `vault_assets_delete` (to trash)
   `vault_assets_restore` `vault_assets_trash_delete`

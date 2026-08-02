@@ -2126,6 +2126,8 @@ const mockTrash: (TrashEntry & {
   folderDirs?: string[];
   /** asset entries (SUB-479): the base64 payload, so restore round-trips bytes */
   asset?: string;
+  /** template entries (SUB-781): the template's content, so restore round-trips */
+  template?: { props: Record<string, unknown>; body: string };
 })[] = [];
 
 // Phone-first vault sync — the git-backed feature, not a dashboard kind.
@@ -3061,12 +3063,18 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       return null;
     }
     case "vault_trash_restore_template": {
-      // a deleted database's template (SUB-781) — it leaves the trash and
-      // reports the stem it landed under, nothing else in the mock tracks it
+      // a deleted database's template (SUB-781) — back into the template
+      // store under a numbered stem when the type was recreated with a fresh
+      // one, the engine's never-overwrite rule. Returns the stem it landed
+      // under, exactly like trash_restore_template.
       const idx = mockTrash.findIndex((t) => t.id === args?.id && t.kind === "template");
       if (idx === -1) throw new Error("trash entry not found");
       const [t] = mockTrash.splice(idx, 1);
-      return t.title;
+      let landed = t.title;
+      let n = 2;
+      while (mockFoldedKey(mockTemplates, landed)) landed = `${t.title} ${n++}`;
+      mockTemplates[landed] = t.template ?? { props: mockRecord(), body: "" };
+      return landed;
     }
     case "vault_trash_delete_template": {
       const idx = mockTrash.findIndex((t) => t.id === args?.id && t.kind === "template");
@@ -3818,7 +3826,24 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       };
       // …and dies with the delete (SUB-467)
       mockMoveSidebarKeysDb(dbType, null);
-      if (templateKey) delete mockTemplates[templateKey];
+      // the template goes through the trash like the engine's (SUB-781),
+      // carrying its content so restore round-trips
+      if (templateKey) {
+        const tpl = mockTemplates[templateKey];
+        delete mockTemplates[templateKey];
+        let deleted_ms = Date.now();
+        while (mockTrash.some((t) => t.id === `${deleted_ms}/.templates/${templateKey}.md`))
+          deleted_ms += 1;
+        mockTrash.unshift({
+          id: `${deleted_ms}/.templates/${templateKey}.md`,
+          path: `.vault/templates/${templateKey}.md`,
+          title: templateKey,
+          deleted_ms,
+          kind: "template",
+          notes: [],
+          template: tpl,
+        });
+      }
       // folder-sync mappings targeting the deleted type go with it (SUB-71) —
       // otherwise the next rescan feeds a ghost type
       mockFolderMappings = mockFolderMappings.filter(

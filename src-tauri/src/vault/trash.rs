@@ -745,8 +745,9 @@ impl Engine {
     /// (SUB-781). Deleting a type used to `remove_file` its template outright —
     /// the one user-content delete in the vault that bypassed the trash, and
     /// the template is hand-written content (frontmatter defaults + body
-    /// skeleton) worth as much as a note. Returns the trash id, so the caller
-    /// can surface an Undo the way every other delete does.
+    /// skeleton) worth as much as a note. Returns the trash id; today's only
+    /// caller (delete_type) discards it — recovery goes through the Trash
+    /// pane, not an Undo toast.
     ///
     /// Takes the template's stem, not a path: templates live at one fixed
     /// place (`.vault/templates/<stem>.md`) and the index never holds them,

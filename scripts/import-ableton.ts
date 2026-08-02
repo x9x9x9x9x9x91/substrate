@@ -411,8 +411,11 @@ async function seedJsonFile(
   let raw: string | undefined;
   try {
     raw = await readFile(path, "utf8");
-  } catch {
-    // absent: seeded fresh below
+  } catch (e) {
+    // only a genuinely absent file may be seeded fresh — an EXISTING file we
+    // cannot read (EACCES, EIO…) would be rewritten from scratch below,
+    // destroying recoverable metadata behind a fail-closed façade
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
   }
   if (raw !== undefined) {
     try {

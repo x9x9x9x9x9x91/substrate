@@ -98,9 +98,11 @@ pub(crate) struct RestoreOutcome {
 /// whose on-disk mtime is NEWER than that changed under the user between the
 /// panel opening and the click, and the restore is about to bury it (SUB-781).
 /// It is deliberately advisory, not a guard: refusing would be a new way for a
-/// restore the user explicitly asked for to fail, and the buried edit IS
-/// recoverable — the auto-snapshot loop and the restore's own snapshot keep it.
-/// A `baseline_ms` of 0 (caller has none) never trips it.
+/// restore the user explicitly asked for to fail. The toast promises the
+/// buried edit is in history, so the detection has to MAKE that true: an edit
+/// younger than the auto-snapshot quiet window (the panel-open-to-click race
+/// this exists for) is committed nowhere until the pre-write snapshot below
+/// captures it. A `baseline_ms` of 0 (caller has none) never trips it.
 pub(crate) fn restore_note(
     engine: &mut Engine,
     hist: &History,
@@ -113,6 +115,9 @@ pub(crate) fn restore_note(
     // read before the write — afterwards the mtime is our own
     let overwrote_external = baseline_ms > 0
         && engine.disk_mtime_ms(path).is_some_and(|disk| disk > baseline_ms);
+    if overwrote_external {
+        hist.snapshot(&format!("external edit to {} before restore", path)).ok();
+    }
     let meta = engine.write_raw(path, &content)?;
     // The file is replaced by this point, so the snapshot after it is
     // bookkeeping and must not fail the restore (SUB-548). Reporting Err here
@@ -311,8 +316,9 @@ mod tests {
 
     /// SUB-781: an edit that landed on disk after the panel read the note is
     /// silently buried by a restore. The restore still runs — that is what was
-    /// asked for, and the edit survives in history — but it now reports that it
-    /// happened so the caller can say so.
+    /// asked for — but it reports the bury, and the pre-write snapshot makes
+    /// the toast's "in version history" promise true even when the edit is
+    /// younger than the auto-snapshot quiet window (panel finding, 2026-08-02).
     #[cfg(not(mobile))]
     #[test]
     fn a_restore_reports_when_it_wrote_over_a_newer_external_edit() {
@@ -345,6 +351,14 @@ mod tests {
             !std::fs::read_to_string(root.join(&meta.path)).unwrap().contains("typed elsewhere"),
             "and the restore still went through — the report is advisory, not a guard"
         );
+        // the buried edit is REACHABLE in history — the pre-write snapshot
+        // committed it, not just the restored content over it. Without that
+        // snapshot the toast's recovery promise is false for any edit younger
+        // than the auto-snapshot quiet window.
+        let buried_in_history = hist.list(&meta.path).unwrap().iter().any(|e| {
+            hist.show(&e.id, &e.file).is_ok_and(|body| body.contains("typed elsewhere"))
+        });
+        assert!(buried_in_history, "the buried edit must be recoverable from history");
 
         // a caller with no baseline (0) never trips it, even over the same edit
         std::thread::sleep(std::time::Duration::from_millis(1100));

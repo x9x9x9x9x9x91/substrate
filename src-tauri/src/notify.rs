@@ -448,9 +448,11 @@ fn ts_in<Tz: TimeZone>(t: NaiveDateTime, tz: &Tz) -> i64 {
 /// Bisects the transition on the UTC line rather than walking wall times: the
 /// offset is a single step over the bracket, so this is exact to the second,
 /// and every gap time in the same transition collapses onto the one instant
-/// (which is what keeps `ts_in` non-decreasing). The ±3h bracket holds
-/// because no zone has ever shifted more than 2h at once, so `t ∓ 3h` sits
-/// clear of the gap on either side and the window spans this transition only.
+/// (which is what keeps `ts_in` non-decreasing). The ±3h bracket holds for
+/// DST-style transitions (≤2h steps), so `t ∓ 3h` sits clear of the gap on
+/// either side and the window spans this transition only. Calendar-day skips
+/// (Pacific/Apia 2011: 24h) blow the bracket and fall back to `and_utc` —
+/// out of scope, since `ts()` only ever runs in the machine's local zone.
 fn gap_end<Tz: TimeZone>(t: NaiveDateTime, tz: &Tz) -> i64 {
     let span = Duration::hours(3);
     let (Some(before), Some(after)) = (
