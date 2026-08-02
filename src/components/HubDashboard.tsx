@@ -7,18 +7,24 @@
 
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { NoteMeta, SchemaConfig } from "../lib/types";
+import type { NoteMeta, SavedView, SchemaConfig } from "../lib/types";
 import { vaultRead } from "../lib/ipc";
 import { isTauri } from "../lib/tauri";
 import { imageSource } from "../lib/assets";
 import { isImageName } from "../lib/artwork";
 import { parseHub, type HubCallout } from "../lib/hub";
+import { embedQueryFor, parseViewSpec } from "../lib/embeds";
 import { DashHead, DashPrintButton } from "./DashHead";
+import EmbedViewTable from "./EmbedViewTable";
 import { optionColor, OptionPill } from "./SelectMenu";
 
 interface HubDashboardProps {
   meta: NoteMeta;
+  /** the vault snapshot a ```view fence queries (SUB-860) */
+  notes: NoteMeta[];
   schema: SchemaConfig;
+  /** pinned views, for a fence's `saved:` line */
+  savedViews?: SavedView[];
   vaultEpoch: number;
   onOpenSource: (path: string) => void;
   onFollowLink?: (name: string) => void;
@@ -27,6 +33,13 @@ interface HubDashboardProps {
 interface Ctx {
   onFollowLink?: (name: string) => void;
   schema?: SchemaConfig;
+  /** the ```view fence's query inputs — absent means fences stay code boxes */
+  view?: {
+    notes: NoteMeta[];
+    schema: SchemaConfig;
+    savedViews: SavedView[];
+    onOpenSource: (path: string) => void;
+  };
 }
 
 /** Schema pill color for a hub-table cell: a status cell here and the same
@@ -178,6 +191,32 @@ function tableRow(line: string): string[] {
 
 const isTableDivider = (l: string) => /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(l) && l.includes("-");
 
+/** A ```view fence in a hub body (SUB-860): the same live database table the
+    editor's inline widget and a workbook view page show, read-only, sitting in
+    the section slot it was written into. A fence that resolves to an error
+    (unknown database, empty spec) says so in place — the chart-block idiom
+    (ChartsDashboard's `.chart-err`): a broken block never takes its siblings
+    down, and never silently disappears either. Caps stay the widget's
+    defaults, which is the right density for a home page's section. */
+function HubViewFence({
+  inner,
+  view,
+}: {
+  inner: string;
+  view: NonNullable<Ctx["view"]>;
+}) {
+  const result = useMemo(
+    () => embedQueryFor(parseViewSpec(inner), view.notes, view.schema, view.savedViews),
+    [inner, view]
+  );
+  if ("error" in result) return <div className="hub-view-err">{result.error}</div>;
+  return (
+    <div className="hub-view">
+      <EmbedViewTable result={result} onOpenSource={view.onOpenSource} />
+    </div>
+  );
+}
+
 function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
   const lines = md.split("\n");
   const out: ReactNode[] = [];
@@ -201,16 +240,21 @@ function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
   };
   while (i < lines.length) {
     const line = lines[i];
-    if (FENCE_OPEN_RE.test(line)) {
+    const fence = FENCE_OPEN_RE.exec(line);
+    if (fence) {
       flushPara();
       const code: string[] = [];
       i++;
       while (i < lines.length && !FENCE_CLOSE_RE.test(lines[i])) code.push(lines[i++]);
       i++; // closing fence (or EOF)
       out.push(
-        <pre className="hub-pre" key={k++}>
-          <code>{code.join("\n")}</code>
-        </pre>
+        fence[1].toLowerCase() === "view" && ctx.view !== undefined ? (
+          <HubViewFence key={k++} inner={code.join("\n")} view={ctx.view} />
+        ) : (
+          <pre className="hub-pre" key={k++}>
+            <code>{code.join("\n")}</code>
+          </pre>
+        )
       );
       continue;
     }
@@ -358,7 +402,9 @@ function HubCard({ callout, ctx }: { callout: HubCallout; ctx: Ctx }) {
 
 export default function HubDashboard({
   meta,
+  notes,
   schema,
+  savedViews,
   vaultEpoch,
   onOpenSource,
   onFollowLink,
@@ -375,7 +421,14 @@ export default function HubDashboard({
   }, [meta.path, vaultEpoch]);
 
   const blocks = useMemo(() => (body !== null ? parseHub(body) : []), [body]);
-  const ctx = useMemo(() => ({ onFollowLink, schema }), [onFollowLink, schema]);
+  const ctx = useMemo(
+    () => ({
+      onFollowLink,
+      schema,
+      view: { notes, schema, savedViews: savedViews ?? [], onOpenSource },
+    }),
+    [onFollowLink, schema, notes, savedViews, onOpenSource]
+  );
 
   if (body === null) return <div className="note" />;
 

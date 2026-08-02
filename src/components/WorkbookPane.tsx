@@ -17,6 +17,7 @@ import { vaultRead, vaultResolve, vaultWriteBody } from "../lib/ipc";
 import { parsePages, type PageEntry } from "../lib/pages";
 import { embedQueryFor, type EmbedResult } from "../lib/embeds";
 import { DashHead } from "./DashHead";
+import EmbedViewTable from "./EmbedViewTable";
 import SheetGrid from "./SheetGrid";
 
 export interface WorkbookProps {
@@ -164,35 +165,11 @@ function ViewPage({
             )
           }
         />
-        <table className="embed-view-table wb-view-table">
-          <thead>
-            <tr>
-              <th>Title</th>
-              {result.columns.map((c) => (
-                <th key={c}>{c}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {result.rows.map((r) => (
-              <tr key={r.path}>
-                <td className="embed-view-title">
-                  <button type="button" className="dash-link" onClick={() => onOpenSource(r.path)}>
-                    {r.title}
-                  </button>
-                </td>
-                {r.cells.map((c, i) => (
-                  <td key={i}>{c}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {result.total > result.rows.length && (
-          <div className="dash-foot">
-            {result.rows.length} of {result.total} rows — open the database for the rest
-          </div>
-        )}
+        <EmbedViewTable
+          result={result}
+          onOpenSource={onOpenSource}
+          className="wb-view-table"
+        />
       </div>
     </div>
   );

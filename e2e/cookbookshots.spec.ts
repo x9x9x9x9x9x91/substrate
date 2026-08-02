@@ -121,9 +121,6 @@ interface Shot {
   /** capture target — defaults to the pane (.note); the workbook shot needs
       .wb-wrap so its bottom tab strip is in frame */
   selector?: string;
-  /** crop the capture to end just under this element — for cutting a known
-      rough edge out of frame (home-hub's raw view fences until SUB-860) */
-  clipBottomTo?: string;
 }
 
 const SHOTS: Shot[] = [
@@ -192,15 +189,16 @@ const SHOTS: Shot[] = [
   {
     id: "home-hub",
     nav: "Home",
-    // crop below the card row: the view fences render as code boxes until
-    // SUB-860 lands — the gallery shouldn't lead with a known rough edge
-    clipBottomTo: ".dash-cards.hub-cards",
     installs: [
       { file: "Dashboards/Home.md", target: "Dashboards/Home.md", cloneFrom: "Dashboards/Umbra Home.md" },
     ],
     ready: async (page) => {
       await expect(page.locator(".hub-body")).toBeVisible();
       await expect(page.getByText("Reference pass", { exact: false })).toBeVisible();
+      // SUB-860: both view fences are live tables now — the shot shows the
+      // recipe's real point, so nothing is cropped out of frame
+      await expect(page.locator(".hub-view .embed-view-table")).toHaveCount(2);
+      await expect(page.locator(".hub-view-err")).toHaveCount(0);
     },
   },
   {
@@ -269,16 +267,6 @@ for (const s of SHOTS) {
     // pane only — the mock sidebar's fixture roster is not the recipe's, and
     // the landing page's dashboard shots are pane crops too
     const target = page.locator(s.selector ?? ".note").first();
-    if (s.clipBottomTo) {
-      const pane = await target.boundingBox();
-      const edge = await page.locator(s.clipBottomTo).first().boundingBox();
-      if (!pane || !edge) throw new Error(`${s.id}: clip target not visible`);
-      await page.screenshot({
-        path: join(OUT, `${s.id}.png`),
-        clip: { x: pane.x, y: pane.y, width: pane.width, height: edge.y + edge.height + 24 - pane.y },
-      });
-    } else {
-      await target.screenshot({ path: join(OUT, `${s.id}.png`) });
-    }
+    await target.screenshot({ path: join(OUT, `${s.id}.png`) });
   });
 }

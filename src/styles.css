@@ -4109,6 +4109,20 @@ body.agenda-window .palette:focus-visible {
   margin-bottom: 0;
 }
 
+/* a ```view fence's live table (SUB-860). The framed card the editor's inline
+   widget wears would read as a second box inside the page; on the hub the
+   section label above it is already the frame, so the table sits open in the
+   flow like the markdown tables around it. */
+.hub-view {
+  margin: 0 0 16px;
+}
+
+.hub-view-err {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  color: var(--danger);
+}
+
 .hub-pre {
   margin: 0 0 12px;
   padding: 10px 12px;
@@ -7980,6 +7994,10 @@ span.asset-thumb svg {
 
   #print-surface .hub-pre {
     background: #f6f7f8;
+  }
+
+  #print-surface .hub-view-err {
+    color: #a33636;
   }
 
   #print-surface .print-title {

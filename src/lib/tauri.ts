@@ -482,7 +482,11 @@ const mockNotes: MockNote[] = [
     // markdown; the hub renderer lays `##` sections out with consecutive
     // callouts as side-by-side cards, the rest in linear flow. Old
     // updated_ms keeps it out of the Today recency grid; the title sorts
-    // between Portfolio and Yield APR in the sidebar
+    // between Portfolio and Yield APR in the sidebar.
+    // The two trailing ```view fences are SUB-860's fixture: `## People`
+    // resolves against the four `type: contact` notes and renders a live
+    // table, `## Broken` names a database that does not exist and must show
+    // its error in place without taking the sections around it down.
     path: "Dashboards/Umbra Home.md",
     stem: "Umbra Home",
     title: "Umbra Home",
@@ -490,7 +494,7 @@ const mockNotes: MockNote[] = [
     props: { type: "dashboard", dashboard: "hub", created: "2026-07-17" },
     updated_ms: now - 9 * 86_400_000,
     excerpt: "Label home — the pipeline at a glance.",
-    body: "Label home — the pipeline at a glance.\n\n## Releases\n\n> [!note] In review\n> [[Slow Bloom EP]] is with the label for sequencing notes.\n> [!warn] Waiting on masters\n> [[Vessel Songs]] masters v2 are due back this week.\n> [!idea] Next up\n> [[Static Bouquet]] blue-series follow-up — pitch the live session.\n\nEverything below the cards renders in linear flow.\n\n| release | status |\n| --- | --- |\n| [[Slow Bloom EP]] | in review |\n| [[Vessel Songs]] | mastering |\n",
+    body: "Label home — the pipeline at a glance.\n\n## Releases\n\n> [!note] In review\n> [[Slow Bloom EP]] is with the label for sequencing notes.\n> [!warn] Waiting on masters\n> [[Vessel Songs]] masters v2 are due back this week.\n> [!idea] Next up\n> [[Static Bouquet]] blue-series follow-up — pitch the live session.\n\nEverything below the cards renders in linear flow.\n\n| release | status |\n| --- | --- |\n| [[Slow Bloom EP]] | in review |\n| [[Vessel Songs]] | mastering |\n\n## People\n\n```view\ntype: contact\nview: table\n```\n\n## Broken\n\n```view\ntype: nosuchtype\n```\n",
   },
   {
     // tasks dashboard seed (SUB-732): a read-only cut of task notes. Areas is
