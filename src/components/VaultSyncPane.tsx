@@ -1,0 +1,323 @@
+import { useCallback, useEffect, useState, type FormEvent } from "react";
+import type { SyncReport, VaultSyncStatus } from "../lib/types";
+import SyncConflicts from "./SyncConflicts";
+import {
+  vaultSyncPull,
+  vaultSyncPush,
+  vaultSyncSetRemote,
+  vaultSyncStatus,
+} from "../lib/ipc";
+import { resetSyncConfigured } from "../lib/embedstate";
+
+type SyncAction = "push" | "pull";
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function Result({ report }: { report: SyncReport }) {
+  const hasConflicts = report.conflicted.length > 0;
+
+  return (
+    <div className="vault-sync-result">
+      <div className="vault-sync-summary">
+        Pushed {report.pushed} <span aria-hidden="true">·</span> Pulled {report.pulled}
+      </div>
+      {report.head && (
+        <div className="vault-sync-head">
+          Head <code>{report.head.slice(0, 8)}</code>
+        </div>
+      )}
+      {hasConflicts && (
+        <div className="vault-sync-conflicts">
+          <h3>Conflicts — resolve below</h3>
+          <ul>
+            {report.conflicted.map((path) => (
+              <li key={path}>
+                <code>{path}</code>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function VaultSyncPane() {
+  const [status, setStatus] = useState<VaultSyncStatus | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<SyncAction | "save" | null>(null);
+  const [remoteUrl, setRemoteUrl] = useState("");
+  const [token, setToken] = useState("");
+  const [certPem, setCertPem] = useState("");
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [remoteSaved, setRemoteSaved] = useState(false);
+  // Remounts the conflict surface so it re-reads git after every sync command.
+  const [conflictNonce, setConflictNonce] = useState(0);
+
+  const refreshStatus = useCallback(async () => {
+    try {
+      setStatus(await vaultSyncStatus());
+      setStatusError(null);
+    } catch (error) {
+      setStatusError(errorText(error));
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshStatus();
+  }, [refreshStatus]);
+
+  const run = async (action: SyncAction) => {
+    if (busy || !status?.configured) return;
+    setBusy(action);
+    setActionError(null);
+    try {
+      const report = await (action === "push" ? vaultSyncPush() : vaultSyncPull());
+      // Paint the command result immediately; the authoritative status read
+      // below then keeps this surface aligned with the backend's last record.
+      setStatus({
+        configured: true,
+        last_result: report,
+        last_error: null,
+        conflicted: report.conflicted,
+      });
+    } catch (error) {
+      setActionError(errorText(error));
+    } finally {
+      await refreshStatus();
+      setConflictNonce((n) => n + 1);
+      setBusy(null);
+    }
+  };
+
+  const saveRemote = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (busy || !remoteUrl.trim()) return;
+    setBusy("save");
+    setSetupError(null);
+    setRemoteSaved(false);
+    try {
+      await vaultSyncSetRemote(remoteUrl.trim(), token, certPem.trim() || undefined);
+      // The token is write-only. A successful save is the only point where
+      // the local draft is discarded; failures leave it available to retry.
+      setToken("");
+      setRemoteSaved(true);
+      // embeds classify missing assets against sync state (SUB-444) — the
+      // cached "no remote" answer is stale the moment a remote lands
+      resetSyncConfigured();
+    } catch (error) {
+      setSetupError(errorText(error));
+    } finally {
+      await refreshStatus();
+      setBusy(null);
+    }
+  };
+
+  const configured = status?.configured === true;
+  const report = status?.last_result ?? null;
+  const visibleStatusError = actionError ?? statusError ?? status?.last_error ?? null;
+  // From the repository, not from this session's last result (SUB-572): after
+  // a restart nothing has synced yet, and the pane used to read "Ready" with a
+  // conflicted merge still parked in git.
+  const hasConflicts = (status?.conflicted.length ?? 0) > 0;
+  const checking = status === null && statusError === null;
+  const statusLabel = checking
+    ? "Checking"
+    : visibleStatusError
+      ? "Error"
+      : !configured
+        ? "Setup needed"
+        : hasConflicts
+          ? "Needs attention"
+          : busy === "push"
+            ? "Pushing"
+            : busy === "pull"
+              ? "Pulling"
+              : "Ready";
+
+  return (
+    <div className="vault-sync">
+      <div className="list-head" data-tauri-drag-region>
+        <span className="list-title">Vault sync</span>
+      </div>
+      <div className="vault-sync-body">
+        <div className="vault-sync-inner">
+          <p className="vault-sync-intro">
+            Push this vault to its private remote, or pull the latest changes onto this device.
+          </p>
+
+          <section className="vault-sync-card" aria-labelledby="vault-sync-status-title">
+            <div className="vault-sync-card-head">
+              <h2 id="vault-sync-status-title">Status</h2>
+              <span
+                className={`vault-sync-state${
+                  visibleStatusError || hasConflicts
+                    ? " danger"
+                    : configured && !checking
+                      ? " ok"
+                      : ""
+                }`}
+              >
+                <span className="vault-sync-state-dot" />
+                {statusLabel}
+              </span>
+            </div>
+
+            <div className="vault-sync-status">
+              {checking ? (
+                <span className="vault-sync-muted">Checking sync configuration…</span>
+              ) : visibleStatusError ? (
+                <div className="vault-sync-error" role="alert">
+                  {visibleStatusError}
+                </div>
+              ) : !configured ? (
+                <div>
+                  <div className="vault-sync-status-title">No remote configured</div>
+                  <p className="vault-sync-muted">
+                    Add the remote URL and its access token below before syncing this vault.
+                  </p>
+                </div>
+              ) : report ? (
+                <Result report={report} />
+              ) : (
+                <div>
+                  <div className="vault-sync-status-title">Ready to sync</div>
+                  <p className="vault-sync-muted">No push or pull has run in this session yet.</p>
+                </div>
+              )}
+            </div>
+
+            {configured && (
+              <div className="vault-sync-actions">
+                <button
+                  type="button"
+                  className="vault-sync-button"
+                  disabled={busy !== null}
+                  onClick={() => void run("pull")}
+                >
+                  {busy === "pull" ? <span className="sync-spinner" /> : "Pull"}
+                </button>
+                <button
+                  type="button"
+                  className="vault-sync-button"
+                  disabled={busy !== null}
+                  onClick={() => void run("push")}
+                >
+                  {busy === "push" ? <span className="sync-spinner" /> : "Push"}
+                </button>
+              </div>
+            )}
+          </section>
+
+          {configured && (
+            <SyncConflicts
+              key={conflictNonce}
+              onResolved={(merged) => {
+                setStatus({
+                  configured: true,
+                  last_result: merged,
+                  last_error: null,
+                  conflicted: merged.conflicted,
+                });
+                setActionError(null);
+                void refreshStatus();
+              }}
+            />
+          )}
+
+          <section className="vault-sync-card" aria-labelledby="vault-sync-remote-title">
+            <div className="vault-sync-card-head vault-sync-remote-head">
+              <div>
+                <h2 id="vault-sync-remote-title">
+                  {configured ? "Change remote" : "Connect a remote"}
+                </h2>
+                <p>
+                  The token is write-only: it is saved securely and never shown here again.
+                </p>
+              </div>
+            </div>
+            <form className="vault-sync-form" onSubmit={saveRemote}>
+              <label>
+                <span>Remote URL</span>
+                <input
+                  type="text"
+                  inputMode="url"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  value={remoteUrl}
+                  onChange={(event) => {
+                    setRemoteUrl(event.target.value);
+                    setRemoteSaved(false);
+                  }}
+                  placeholder="https://sync.example.com/vault.git"
+                  disabled={busy !== null}
+                  aria-describedby="vault-sync-url-hint"
+                />
+                <span id="vault-sync-url-hint" className="vault-sync-field-hint">
+                  HTTPS remotes need a token. file:// is available for local testing.
+                </span>
+              </label>
+              <label>
+                <span>Access token</span>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={token}
+                  onChange={(event) => {
+                    setToken(event.target.value);
+                    setRemoteSaved(false);
+                  }}
+                  placeholder="Paste a new token"
+                  disabled={busy !== null}
+                />
+              </label>
+              <label>
+                <span>Server certificate (optional)</span>
+                <textarea
+                  className="vault-sync-cert"
+                  value={certPem}
+                  onChange={(event) => {
+                    setCertPem(event.target.value);
+                    setRemoteSaved(false);
+                  }}
+                  placeholder="-----BEGIN CERTIFICATE-----"
+                  rows={3}
+                  spellCheck={false}
+                  disabled={busy !== null}
+                  aria-describedby="vault-sync-cert-hint"
+                />
+                <span id="vault-sync-cert-hint" className="vault-sync-field-hint">
+                  Paste the server&apos;s PEM certificate for self-signed endpoints; leave
+                  empty for publicly trusted ones.
+                </span>
+              </label>
+              <div className="vault-sync-form-foot">
+                <button
+                  type="submit"
+                  className="vault-sync-save"
+                  disabled={busy !== null || !remoteUrl.trim()}
+                >
+                  {busy === "save" ? <span className="sync-spinner" /> : "Save remote"}
+                </button>
+                {setupError && (
+                  <span className="vault-sync-form-error" role="alert">
+                    {setupError}
+                  </span>
+                )}
+                {remoteSaved && !setupError && (
+                  <span className="vault-sync-saved" role="status">
+                    Remote saved
+                  </span>
+                )}
+              </div>
+            </form>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}

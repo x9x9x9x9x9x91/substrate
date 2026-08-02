@@ -1,0 +1,566 @@
+/* The in-app release history (SUB-452).
+ *
+ * This is a code module on purpose: the changelog is a property of the build,
+ * not a note in the vault. Nothing here is written to, indexed by, or
+ * reachable from search, lists, or databases — the pane renders this array and
+ * calls no vault IPC at all.
+ *
+ * Entries are written in user language: what a person sees or gains, not which
+ * module changed. Newest first; the first entry always matches the version in
+ * package.json (asserted in changelog.test.ts).
+ *
+ * HOW RELEASES UPDATE THIS (SUB-588). This array is the single source of truth
+ * for the release history — the repo-root CHANGELOG.md is GENERATED from it and
+ * any hand-edit there is lost on the next run. When you bump the version:
+ *
+ *   1. add the new release entry at the top of this array;
+ *   2. bump package.json, src-tauri/tauri.conf.json and src-tauri/Cargo.toml
+ *      to the same version;
+ *   3. run `node scripts/gen-changelog.ts` and commit the rewritten
+ *      CHANGELOG.md alongside the bump.
+ *
+ * `npm test` fails when CHANGELOG.md is stale or those four versions disagree
+ * (scripts/gen-changelog.test.ts), so a forgotten step is caught in CI, not by
+ * a beta tester reading a changelog that stops three months short.
+ */
+
+export interface ChangelogRelease {
+  version: string;
+  /** ISO date of the version bump commit */
+  date: string;
+  /** one-line release name */
+  title: string;
+  items: { text: string; kind?: "new" | "improved" | "fixed" }[];
+}
+
+export const CHANGELOG: ChangelogRelease[] = [
+  {
+    version: "0.18.0",
+    date: "2026-08-02",
+    title: "Sheets learn to compute",
+    items: [
+      {
+        text: "Sheet formulas grew a real vocabulary: LOOKUP across sheets (and per row), SUMIF/COUNTIF with multiple criteria, wildcards and comparisons, SUMPRODUCT for weighted averages, LAST(), date arithmetic with TODAY(), and identifiers in any language.",
+        kind: "new",
+      },
+      {
+        text: "Databases can roll up values from related databases — a rollup column derives counts, sums and lists from linked rows, straight from Notion imports too.",
+        kind: "new",
+      },
+      {
+        text: "Three new dashboards: Jobs shows every scheduled background task with its run history and pause control, Attention surfaces tasks that need a look, and Waiting collects everything blocked on someone else.",
+        kind: "new",
+      },
+      {
+        text: "Map a folder: point the app at any folder of notes and it becomes a database, from the sidebar or the palette.",
+        kind: "new",
+      },
+      {
+        text: "The sidebar got a clarity pass — cleaner grouping, dashboard groups with their own menus and remembered order, and app-wide zoom. Calendar months render Notion-style lines with identity bars and done-states, and week blocks are as tall as their actual duration.",
+        kind: "improved",
+      },
+      {
+        text: "Food tracking: your weight curve overlays the 14-day strip, kcal expressions compute portions inline (ph basis + math), and typing negative kcal logs exercise directly.",
+        kind: "improved",
+      },
+      {
+        text: "Dashboards can print — agenda, food, and the other portable kinds produce a clean paper layout.",
+        kind: "new",
+      },
+      {
+        text: "Renaming a note no longer risks losing keystrokes typed mid-rename — the editor relabels in place instead of reloading, and carries in-flight text across a title change. Multi-file paste imports every file, and a dropped asset lands at the drop point, not the live cursor.",
+        kind: "fixed",
+      },
+      {
+        text: "Notifications got honest: recurring deadlines fire on each occurrence day, snoozes survive past midnight, nothing late-fires for a future day, and completed or calendar-hidden notes stay quiet.",
+        kind: "fixed",
+      },
+      {
+        text: "Number cells read German-style decimal commas, and audio files in database rows gained a play button.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
+    version: "0.17.0",
+    date: "2026-07-30",
+    title: "Drag and drop, for real this time",
+    items: [
+      {
+        text: "Dragging finally works in the app itself — reorder the sidebar, drop notes into folders, move dashboards, drag board cards. It always worked in tests and never on the Mac; the desktop shell was swallowing every drag before the app could see it.",
+        kind: "fixed",
+      },
+      {
+        text: "One straight icon column down the whole sidebar — dashboards, databases and folders line up instead of each section picking its own indent.",
+        kind: "fixed",
+      },
+      {
+        text: "Dashboards can live in your folders: drop one on any folder in the tree and it shows up right there, still opening as a dashboard.",
+        kind: "new",
+      },
+    ],
+  },
+  {
+    version: "0.16.0",
+    date: "2026-07-30",
+    title: "Dates get a second half",
+    items: [
+      {
+        text: "A date can now be a range — pick a start and an end in the same picker, see it as a span across the calendar, and sort and filter by when it actually runs. Imports from Notion keep their end dates too.",
+        kind: "new",
+      },
+      {
+        text: "Select text in a note for a floating menu: extract the selection into its own linked note, turn it into a heading or list, or copy it as Markdown.",
+        kind: "new",
+      },
+      {
+        text: "The news feed has a refresh button that sends the curator out for a fresh sweep instead of waiting for the next scheduled one.",
+        kind: "new",
+      },
+      {
+        text: "The sync dashboard reads as sentences — each backup leg states its finding in plain words, with hairline rows and ticks that stay put at any window width.",
+        kind: "improved",
+      },
+      {
+        text: "The token-usage pane now counts subagent transcripts too, so delegated work no longer hides from the totals.",
+        kind: "improved",
+      },
+      {
+        text: "Fixed: background git maintenance could repack a vault's history store; sidebar pins under a dashboard folder rendered twice; extracted-note titles could carry characters the engine refuses.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
+    version: "0.15.0",
+    date: "2026-07-25",
+    title: "Dashboards become instruments",
+    items: [
+      {
+        text: "Dashboards share one design language — a single header, mono micro-labels, hairline structure, and round state dots instead of boxed cards.",
+        kind: "improved",
+      },
+      {
+        text: "Notes with broken frontmatter now say so in the app and offer a repair, instead of quietly refusing property edits.",
+        kind: "new",
+      },
+      {
+        text: "Drag a file into a note while holding Shift to link it in place rather than copying it into the vault; a hint pill teaches the gesture.",
+        kind: "new",
+      },
+      {
+        text: "A contextual info view explains whatever the pointer is over, docked in the lower-left.",
+        kind: "new",
+      },
+      {
+        text: "Table cells can be edited in place, columns resized by dragging their header, and text wrapped per column.",
+        kind: "new",
+      },
+      {
+        text: "A terminal HUD on ⌘⇧T, a settings sheet on ⌘,, and palette quick actions.",
+        kind: "new",
+      },
+      {
+        text: "\"Remove from sidebar\" un-homes a database from its folder row, and root folders can be reordered.",
+        kind: "new",
+      },
+      {
+        text: "The menu bar gets a proper monochrome tray icon, and vault writes survive power loss.",
+        kind: "fixed",
+      },
+      {
+        text: "Text typed straight into a new note is no longer cut mid-word into its title, and keystrokes aimed at the note list are no longer swallowed by the editor — the brief auto-focus delay after a note opens now yields the moment you type or click.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
+    version: "0.14.0",
+    date: "2026-07-23",
+    title: "Sheets and sidebar tidy-up",
+    items: [
+      {
+        text: "Sheet rows and columns can be deleted and reordered from the context menu.",
+        kind: "new",
+      },
+      {
+        text: "The sidebar de-nests saved views, wears curated folder and dashboard icons, and drops the Sketchpad entry — Notes now lists only untyped, unfiled notes.",
+        kind: "improved",
+      },
+      {
+        text: "The coding dashboard aligns lane age, behind-count, and commit age to shared rails.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
+    version: "0.13.0",
+    date: "2026-07-23",
+    title: "New sheet, collapsible sidebar",
+    items: [
+      { text: "A \"New sheet\" command in the palette.", kind: "new" },
+      { text: "The sidebar collapses to a slim rail and back.", kind: "new" },
+      {
+        text: "A shareable public mirror of the app, with a dashboards guide and an example vault.",
+        kind: "new",
+      },
+    ],
+  },
+  {
+    version: "0.12.1",
+    date: "2026-07-23",
+    title: "Context menus everywhere",
+    items: [
+      {
+        text: "Right-click note rows on Today, Search, and Trash; calendar agenda rows gain a menu with Mark done.",
+        kind: "new",
+      },
+      {
+        text: "Currency conversion is cached globally and never written into your notes as a property.",
+        kind: "fixed",
+      },
+      {
+        text: "Sidebar counts tuck after the label when a shortcut shares the row.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
+    version: "0.12.0",
+    date: "2026-07-23",
+    title: "Smarter calorie logging",
+    items: [
+      {
+        text: "Quick-add remembers what you eat — autocomplete with a quantity grammar, so \"200g oats\" logs itself.",
+        kind: "new",
+      },
+      {
+        text: "The calorie surface shows distance to your goal and a week-vs-goal figure, and exercise can be logged the same way.",
+        kind: "new",
+      },
+    ],
+  },
+  {
+    version: "0.11.1",
+    date: "2026-07-23",
+    title: "Wider dashboards",
+    items: [
+      {
+        text: "Dashboards use the full content width — grids stopped truncating on normal windows.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
+    version: "0.11.0",
+    date: "2026-07-23",
+    title: "Vault sync, phones, and food",
+    items: [
+      {
+        text: "Vault sync: push and pull your vault against your own server over authenticated HTTPS, with the token held in the OS keychain.",
+        kind: "new",
+      },
+      {
+        text: "Substrate runs on a phone — single-pane navigation, readable calendar days, and layouts that stack instead of squeezing.",
+        kind: "new",
+      },
+      {
+        text: "A calorie surface: log meals against a daily band, with undo, a day strip, and a seven-day average.",
+        kind: "new",
+      },
+      {
+        text: "A coding dashboard listing your repositories sorted by what needs attention.",
+        kind: "new",
+      },
+      {
+        text: "Every control is reachable by keyboard — sidebar, rows, calendar, pickers, search results, and backlinks.",
+        kind: "improved",
+      },
+      {
+        text: "Databases remember per-database column visibility and sort order.",
+        kind: "new",
+      },
+      {
+        text: "The yield board gains a two-click Claim with full undo history.",
+        kind: "new",
+      },
+    ],
+  },
+  {
+    version: "0.10.6",
+    date: "2026-07-21",
+    title: "Density and honesty pass",
+    items: [
+      {
+        text: "Gallery covers stay square at any density, and the placeholder recedes so the title leads the card.",
+        kind: "fixed",
+      },
+      {
+        text: "Journal ghost days say they are writable instead of looking empty and dead.",
+        kind: "improved",
+      },
+      {
+        text: "Line charts space points by real time — irregular snapshots stopped lying about their shape.",
+        kind: "fixed",
+      },
+      {
+        text: "⌘/ opens the shortcuts overlay in the editor without toggling comments.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
+    version: "0.10.5",
+    date: "2026-07-20",
+    title: "Stability and polish under the hood",
+    items: [{ text: "Alignment fixes across the status pane.", kind: "fixed" }],
+  },
+  {
+    version: "0.10.4",
+    date: "2026-07-20",
+    title: "Stability and polish under the hood",
+    items: [{ text: "Quota lines show when each window resets.", kind: "improved" }],
+  },
+  {
+    version: "0.10.3",
+    date: "2026-07-20",
+    title: "Stability and polish under the hood",
+    items: [{ text: "Usage bars fill by real usage, not an estimate.", kind: "fixed" }],
+  },
+  {
+    version: "0.10.2",
+    date: "2026-07-20",
+    title: "Stability and polish under the hood",
+    items: [
+      { text: "Real-vault polish round — aligned summary columns, compact chart numbers.", kind: "fixed" },
+    ],
+  },
+  {
+    version: "0.10.1",
+    date: "2026-07-20",
+    title: "Visual polish across every surface",
+    items: [
+      {
+        text: "Charts get flat fills, status-coloured bars, and a disciplined axis.",
+        kind: "improved",
+      },
+      {
+        text: "Tables gain text hierarchy — quiet uppercase headers, dates a step dimmer.",
+        kind: "improved",
+      },
+      {
+        text: "A hairline seam separates database blocks from loose notes in lists.",
+        kind: "improved",
+      },
+      {
+        text: "The window opens maximized instead of at a fixed size, and a failed weekly verify reads as the alert it is.",
+        kind: "fixed",
+      },
+      {
+        text: "The calendar peek no longer dismisses itself the moment it opens.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
+    version: "0.10.0",
+    date: "2026-07-20",
+    title: "Downloads, peeks, and view tabs",
+    items: [
+      {
+        text: "A music download surface: queue albums, watch the transfer tail, cancel mid-run.",
+        kind: "new",
+      },
+      {
+        text: "Click a calendar entry to peek at it — edit title, date, time, and status in place.",
+        kind: "new",
+      },
+      {
+        text: "Databases get a view tab bar and one consolidated toolbar.",
+        kind: "new",
+      },
+      {
+        text: "Note property rows follow the schema's order, with aligned labels.",
+        kind: "improved",
+      },
+      {
+        text: "Large databases paint lazily — 1400-row tables no longer stall the pane.",
+        kind: "improved",
+      },
+      {
+        text: "Select properties sort by their schema option order, not alphabetically.",
+        kind: "fixed",
+      },
+      {
+        text: "A wider reading measure and more air in cells.",
+        kind: "improved",
+      },
+    ],
+  },
+  {
+    version: "0.9.0",
+    date: "2026-07-20",
+    title: "Today, rebuilt",
+    items: [
+      {
+        text: "Today is a day-agenda decision surface — what is scheduled, due, overdue, and picked, in one place.",
+        kind: "new",
+      },
+      {
+        text: "The sync dashboard became a control surface: start, inspect, and hold your backup jobs from the app.",
+        kind: "new",
+      },
+      {
+        text: "Sync refuses to start a run while a sweep is already in flight.",
+        kind: "fixed",
+      },
+      {
+        text: "Restoring an old version of a note now lands in the open editor instead of being overwritten.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
+    version: "0.8.1",
+    date: "2026-07-19",
+    title: "Sidebar homes and blank panes",
+    items: [
+      {
+        text: "Saved views nest under the database they belong to.",
+        kind: "improved",
+      },
+      {
+        text: "Database panes stopped going blank on reserved schema keys.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
+    version: "0.8.0",
+    date: "2026-07-19",
+    title: "Bulk edits, time of day, and the week view",
+    items: [
+      {
+        text: "Select many table rows at once and set a property, or trash them, in one action.",
+        kind: "new",
+      },
+      {
+        text: "Dates carry an optional time of day, preserved across calendar, menus, and every display surface.",
+        kind: "new",
+      },
+      {
+        text: "The week view renders day columns as cards.",
+        kind: "new",
+      },
+      {
+        text: "Wikilink autocomplete on [[, and find-in-note on ⌘F.",
+        kind: "new",
+      },
+      {
+        text: "Import a CSV as a database from inside the app; attach any file type as a chip.",
+        kind: "new",
+      },
+      {
+        text: "A filter that dead-ends at zero rows now says why, and search hits open in their home context with Esc returning to results.",
+        kind: "improved",
+      },
+      {
+        text: "Trashing, moving, and renaming notes flush pending edits first, and a toast offers Undo.",
+        kind: "fixed",
+      },
+      {
+        text: "Numbers, money, percentages, and file sizes all render in German formatting.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
+    version: "0.7.0",
+    date: "2026-07-18",
+    title: "Live vault, faster open",
+    items: [
+      {
+        text: "Embedded views rebuild themselves when the vault changes on disk.",
+        kind: "fixed",
+      },
+      {
+        text: "Today and Calendar re-render when the day rolls over at midnight.",
+        kind: "fixed",
+      },
+      {
+        text: "Switch saved views from inside the pane, and a freshly saved view reveals its pin.",
+        kind: "new",
+      },
+      {
+        text: "Audio notes open faster — waveform decoding is deferred off the first render.",
+        kind: "improved",
+      },
+      {
+        text: "Renaming a note no longer rewrites links inside embedded assets.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
+    version: "0.6.1",
+    date: "2026-07-18",
+    title: "Charts stand up, menus calm down",
+    items: [
+      {
+        text: "Bar charts stand on a baseline and stop skipping empty time buckets.",
+        kind: "fixed",
+      },
+      {
+        text: "Menus group destructive actions behind a hairline.",
+        kind: "improved",
+      },
+      {
+        text: "Markdown tables and view embeds speak the same card language, with a quiet open affordance.",
+        kind: "improved",
+      },
+      {
+        text: "The sidebar yields width in narrow windows.",
+        kind: "fixed",
+      },
+    ],
+  },
+  /* 0.3.0 through 0.6.0 shipped before this array existed and were never
+     written up in user language; CHANGELOG.md never covered them either, so
+     there is nothing to recover. The two founding releases below are carried
+     over verbatim from the hand-written CHANGELOG.md (SUB-588). */
+  {
+    version: "0.2.0",
+    date: "2026-07-17",
+    title: "Views, schemas, and sheets",
+    items: [
+      {
+        text: "Added saved views, richer schemas and select fields, and spreadsheet-style sheets.",
+        kind: "new",
+      },
+      {
+        text: "Upgraded the editor and command palette, including faster capture workflows.",
+        kind: "improved",
+      },
+      { text: "Added note history and trash recovery.", kind: "new" },
+      {
+        text: "Fixed drag interactions and expanded the app's keyboard-driven controls.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
+    version: "0.1.0",
+    date: "2026-07-17",
+    title: "The local-first vault",
+    items: [
+      {
+        text: "Established the local-first Markdown vault, SQLite search, backlinks, and file watcher.",
+        kind: "new",
+      },
+      {
+        text: "Shipped the founding three-pane interface with editing and command palette basics.",
+        kind: "new",
+      },
+    ],
+  },
+];

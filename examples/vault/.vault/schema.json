@@ -1,0 +1,25 @@
+{
+  "release": {
+    "icon": { "glyph": "music", "tint": "violet" },
+    "home": "Releases",
+    "status": {
+      "options": [
+        { "value": "live", "color": "green" },
+        { "value": "mastering", "color": "yellow" },
+        { "value": "sketch", "color": "gray" }
+      ]
+    },
+    "released": { "options": [], "kind": "date" },
+    "format": {
+      "options": [{ "value": "Vinyl", "color": "violet" }, { "value": "Digital" }],
+      "kind": "multi"
+    },
+    "contact": { "options": [], "kind": "relation", "type": "contact" },
+    "link": { "options": [], "kind": "url" }
+  },
+  "contact": {
+    "icon": { "glyph": "user", "tint": "teal" },
+    "email": { "options": [], "kind": "email" },
+    "role": { "options": [{ "value": "mastering" }, { "value": "artwork" }] }
+  }
+}

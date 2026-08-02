@@ -1,0 +1,189 @@
+import { expect, test, type Page } from "@playwright/test";
+
+// SUB-295: with the mock's opt-in async dispatch on, IPC completion is never
+// synchronous, so ordering-sensitive flows can actually race in e2e. The
+// SUB-286 class: commitTitle's pending debounced save must fully land before
+// the rename fires — under async dispatch a flush that doesn't await the
+// write lets the rename slip in first and the body dies on the old path.
+// Title AND body must both land regardless of command order.
+
+function row(page: Page, title: string) {
+  return page.locator(".list .row", { has: page.getByText(title, { exact: true }) });
+}
+
+// cold open lands on the Notes scratch list (Today is hidden, SUB-299)
+async function boot(page: Page) {
+  await page.goto("/");
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await expect(page.locator(".note-title")).toHaveValue("Welcome");
+}
+
+// SUB-305: a history restore fires two re-read lanes at once — the
+// reloadNonce remount and the vaultEpoch bump. When the load lane's read
+// resolves first — production thread-pool IPC can, and the mock's
+// "microtask" mode reproduces that resolution class deterministically (the
+// random "timeout" mode is too slow: React's scheduled re-render wins and
+// masks the race) — the epoch lane skips its adopt as a false own-echo and
+// the freshly remounted editor keeps the PRE-restore body while the pane
+// believes it shows the restored one. The next keystroke saves the stale
+// buffer with an expected body that matches disk — the restore is silently
+// overwritten, no conflict banner.
+test("history restore under async dispatch: the editor adopts the restored body (SUB-305)", async ({
+  page,
+}) => {
+  await boot(page);
+  await page.evaluate(() => window.__mockSetAsync?.("microtask"));
+
+  // edit Welcome so the restore has something to undo; the marker gets no
+  // newline, keeping the seeded snapshots' prefix cut stable
+  const marker = `E2E-RESTORE-RACE ${Date.now()}`;
+  await page.locator(".cm-content").click();
+  await page.keyboard.type(marker);
+  await expect(page.locator(".cm-content")).toContainText(marker);
+
+  // leaving the note flushes the debounced write (NotePane cleanup)
+  await row(page, "Capture anything").click();
+  await row(page, "Welcome").click();
+  await expect(page.locator(".cm-content")).toContainText(marker);
+
+  await page.locator(".note-tool[aria-label=History]").click();
+  await expect(page.locator(".hist-item")).toHaveCount(3);
+
+  // restore the oldest snapshot: a first-third prefix of the body
+  await page.locator(".hist-item").last().click();
+  await page.locator(".hist-restore").click();
+  await expect(page.locator(".hist-item")).toHaveCount(4);
+  await page.locator(".hist-close").click();
+
+  // the mounted editor must show the restored body: the middle of the old
+  // body is gone, its start remains. Without the fix the pre-restore body
+  // sits here for the full poll window.
+  await expect(page.locator(".cm-content")).not.toContainText("Checklists and tables");
+  await expect(page.locator(".cm-content")).toContainText("The basics");
+
+  // a follow-up edit must build on the restored body — not silently
+  // overwrite the restore with the stale buffer
+  const after = `E2E-AFTER-RESTORE ${Date.now()}`;
+  await page.locator(".cm-content").click();
+  await page.keyboard.type(after);
+  await row(page, "Capture anything").click();
+  await row(page, "Welcome").click();
+  await expect(page.locator(".cm-content")).toContainText(after);
+  await expect(page.locator(".cm-content")).toContainText("The basics");
+  await expect(page.locator(".cm-content")).not.toContainText("Checklists and tables");
+});
+
+test("title-commit flush-then-rename lands body and title under async dispatch (SUB-295)", async ({
+  page,
+}) => {
+  await boot(page);
+  await page.evaluate(() => window.__mockSetAsync?.(true));
+
+  // type into the open note, then commit a rename through the title input
+  // inside the 500ms debounce window — the flush must out-race the rename
+  const marker = `E2E-ASYNC ${Date.now()}`;
+  await page.locator(".cm-content").click();
+  await page.keyboard.insertText(marker);
+  const title = page.locator(".note-title");
+  await title.fill("Renamed Async E2E");
+  await page.keyboard.press("Enter");
+  // the rename is settled only when the refreshed list shows the new row —
+  // the title input shows the draft immediately, and clicking away while the
+  // rename is still in flight lets onRenamed snap the selection back
+  await expect(row(page, "Renamed Async E2E")).toBeVisible();
+  await expect(title).toHaveValue("Renamed Async E2E");
+
+  // disk re-read via a note switch — title and body both survived, in
+  // whatever order the mock's delayed commands completed
+  await row(page, "Capture anything").click();
+  await expect(page.locator(".note-title")).toHaveValue("Capture anything");
+  await row(page, "Renamed Async E2E").click();
+  await expect(page.locator(".note-title")).toHaveValue("Renamed Async E2E");
+  await expect(page.locator(".cm-content")).toContainText(marker);
+});
+
+test("body typed during a title blur-rename survives — the editor never remounts (SUB-766/SUB-772)", async ({
+  page,
+}) => {
+  await boot(page);
+  await page.evaluate(() => window.__mockSetAsync?.(true));
+
+  // the capture flow: retitle, click straight into the body, keep typing.
+  // The click blurs the title into commitTitle's flush-then-rename. SUB-766
+  // ferried state across the resulting remount; SUB-772's rig trace showed
+  // keystrokes dying inside the remount gap under load, so the fix keeps
+  // the editor mounted and relabels the pane's state in place. Tag the live
+  // editor DOM node before the rename to pin exactly that: the same
+  // instance must survive, or this regressed to the remount shape.
+  const marker = `E2E-BLUR-RENAME ${Date.now()}`;
+  await page.locator(".cm-editor").evaluate((el) => {
+    (el as HTMLElement).dataset.premount = "1";
+  });
+  const title = page.locator(".note-title");
+  await title.fill("Renamed Blur E2E");
+  await page.locator(".cm-content").click();
+  // NO settle beat — this types squarely inside the in-flight window
+  await page.keyboard.type(marker);
+
+  // the rename is settled only when the refreshed list shows the new row
+  await expect(row(page, "Renamed Blur E2E")).toBeVisible();
+  await expect(title).toHaveValue("Renamed Blur E2E");
+  // the marker never left the visible editor, and the editor is the SAME
+  // DOM node that existed before the rename — no remount happened
+  await expect(page.locator(".cm-content")).toContainText(marker);
+  await expect(page.locator('.cm-editor[data-premount="1"]')).toBeVisible();
+
+  // disk re-read via a note switch — title and body both survived
+  await row(page, "Capture anything").click();
+  await expect(page.locator(".note-title")).toHaveValue("Capture anything");
+  await row(page, "Renamed Blur E2E").click();
+  await expect(page.locator(".note-title")).toHaveValue("Renamed Blur E2E");
+  await expect(page.locator(".cm-content")).toContainText(marker);
+});
+
+// SUB-772 review finding: a rename committed while the conflict banner is up
+// must not wedge the pane. The banner belongs to the OLD path's dispute; the
+// rename relabels in place, so the stale banner would suppress the re-read
+// and make flush refuse the re-keyed buffer forever. The fix clears the
+// conflict lane and lets the guarded retry re-raise it honestly if disk
+// still diverges.
+test("rename committed under an open conflict banner clears it and keeps saving (SUB-772)", async ({
+  page,
+}) => {
+  await boot(page);
+  await page.evaluate(() => window.__mockSetAsync?.(true));
+
+  // disk diverges, then the user types: the debounced guarded write is
+  // refused and the conflict banner comes up (SUB-158 mechanics)
+  await page.evaluate(() => window.__mockEditNote("Welcome.md", "DISK-WINS-772\n"));
+  await page.locator(".cm-content").click();
+  await page.keyboard.type("TYPED-772 ");
+  const banner = page.locator(".note-banner");
+  await expect(banner.locator("button", { hasText: "Reload" })).toBeVisible();
+
+  // rename through the title while the banner is up
+  const title = page.locator(".note-title");
+  await title.fill("Renamed Conflicted E2E");
+  await page.keyboard.press("Enter");
+  await expect(row(page, "Renamed Conflicted E2E")).toBeVisible();
+
+  // the wedge this pins: pre-fix, the stale banner survived pointing at the
+  // dead path, the skip branch's re-read was suppressed, and flush refused
+  // the buffer forever — Reload/Overwrite operated on a file that never had
+  // the dispute, and typing never saved again. Post-fix the conflict lane
+  // resets and the held text retries guarded; disk is still divergent, so
+  // the banner comes BACK for the same dispute under the note's live name
+  // (the honest re-raise — waiting for it, rather than asserting the brief
+  // banner-down window, keeps this deterministic under load). Overwrite
+  // then must act on the RENAMED file: the user's text wins and survives a
+  // switch away and back.
+  await expect(banner.locator("button", { hasText: "Overwrite" })).toBeVisible();
+  await banner.locator("button", { hasText: "Overwrite" }).click();
+  await expect(banner).toHaveCount(0);
+  await row(page, "Capture anything").click();
+  await expect(page.locator(".note-title")).toHaveValue("Capture anything");
+  await row(page, "Renamed Conflicted E2E").click();
+  await expect(page.locator(".note-title")).toHaveValue("Renamed Conflicted E2E");
+  await expect(page.locator(".cm-content")).toContainText("TYPED-772");
+  await expect(banner).toHaveCount(0);
+});

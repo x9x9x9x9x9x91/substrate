@@ -1,0 +1,1149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SUBSTRATE — the second brain your AI can operate</title>
+<meta name="description" content="Substrate is a local-first Mac app for notes, databases, and dashboards — built on a folder of markdown files you own. Open source, agent-native, no cloud." />
+<meta property="og:title" content="SUBSTRATE — Notion-grade databases. Plain markdown files." />
+<meta property="og:description" content="A local-first Mac app for notes, databases, and dashboards, built on a folder of markdown you own. Open source, agent-native, no cloud." />
+<meta property="og:type" content="website" />
+<meta property="og:image" content="og.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:image" content="og.png" />
+<meta name="theme-color" content="#000000" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='black'/%3E%3Crect x='7' y='20' width='18' height='4' fill='%23565b62'/%3E%3Crect x='10' y='13' width='12' height='4' fill='%239aa0a8'/%3E%3Crect x='13' y='6' width='6' height='4' fill='white'/%3E%3C/svg%3E" />
+<link rel="preload" href="inter-var-latin.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="preload" href="jetbrains-mono-var-latin.woff2" as="font" type="font/woff2" crossorigin />
+<link rel="preload" href="space-grotesk-var-latin.woff2" as="font" type="font/woff2" crossorigin />
+<script>document.documentElement.classList.add("js");</script>
+<style>
+  @font-face {
+    font-family: "Inter";
+    src: url("inter-var-latin.woff2") format("woff2");
+    font-weight: 100 900;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "JetBrains Mono";
+    src: url("jetbrains-mono-var-latin.woff2") format("woff2");
+    font-weight: 100 800;
+    font-display: swap;
+  }
+  @font-face {
+    font-family: "Space Grotesk";
+    src: url("space-grotesk-var-latin.woff2") format("woff2");
+    font-weight: 300 700;
+    font-display: swap;
+  }
+
+  :root {
+    --steel: #cfd3d9;
+    --steel-deep: #4f5459;
+    --ink: #f0f2f5;
+    --ink-2: rgba(228, 234, 242, 0.6);
+    --ink-3: rgba(228, 234, 242, 0.55);   /* readable secondary */
+    --ink-4: rgba(228, 234, 242, 0.36);   /* decor only */
+    --hair: rgba(210, 220, 235, 0.11);
+    --hair-2: rgba(210, 220, 235, 0.2);
+    --font: "Inter", -apple-system, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+    --disp: "Space Grotesk", "Inter", sans-serif;
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { background: #000; }
+  body {
+    background: #000;
+    color: var(--ink-2);
+    font-family: var(--font);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  ::selection { background: #fff; color: #000; }
+  a { color: inherit; text-decoration: none; }
+  a:focus-visible, summary:focus-visible {
+    outline: 1px solid rgba(255, 255, 255, 0.6);
+    outline-offset: 3px;
+  }
+
+  /* ============ layers ============ */
+  #field { position: fixed; inset: 0; z-index: 0; display: block; }
+  .vig {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    z-index: 59;
+    background: radial-gradient(ellipse 105% 90% at 50% 45%, transparent 55%, rgba(0,0,0,0.55) 100%);
+  }
+
+  /* ============ nav ============ */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 70;
+    display: flex;
+    align-items: baseline;
+    gap: 28px;
+    padding: 18px 26px 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--ink-4);
+    transition: background 0.35s, border-color 0.35s;
+    border-bottom: 1px solid transparent;
+  }
+  nav.solid {
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom-color: var(--hair);
+  }
+  .brand { color: var(--ink); font-weight: 700; letter-spacing: 0.22em; font-size: 12px; }
+  .brand i { color: var(--steel); font-style: normal; }
+  nav .nl { display: flex; gap: 20px; }
+  nav .nl a { transition: color 0.15s; }
+  nav .nl a::before { content: "/"; color: var(--steel-deep); margin-right: 2px; }
+  nav .nl a:hover { color: var(--steel); }
+  nav .right { margin-left: auto; display: flex; gap: 18px; align-items: baseline; }
+  nav .right .src:hover { color: var(--steel); }
+  .dl {
+    color: #000; background: var(--ink);
+    padding: 6px 13px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    transition: background 0.15s, box-shadow 0.2s, color 0.15s;
+  }
+  .dl:hover { background: #fff; box-shadow: 0 0 28px rgba(255,255,255,0.35); }
+
+  /* ============ hero — split: text left, entity right ============ */
+  .hero {
+    position: relative;
+    z-index: 10;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    text-align: left;
+    padding: 0 24px 0 max(24px, 7vw);
+    pointer-events: none;
+  }
+  .hero > * { pointer-events: auto; }
+  .sig {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.34em;
+    color: var(--ink-4);
+    text-transform: uppercase;
+  }
+  .sig i { color: var(--steel); font-style: normal; }
+  h1 {
+    margin-top: 28px;
+    font-family: var(--disp);
+    font-size: clamp(38px, 6.6vw, 78px);
+    font-weight: 600;
+    line-height: 1.04;
+    letter-spacing: -0.03em;
+    color: var(--ink);
+    text-shadow: 0 2px 30px rgba(0,0,0,0.85);
+  }
+  h1 .b { background: #fff; color: #000; padding: 0 0.16em; }
+  h1 .b .cursor {
+    display: inline-block;
+    width: 0.5em; height: 0.78em;
+    background: #000;
+    vertical-align: -0.06em;
+    margin-left: 0.08em;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    h1 .b .cursor { animation: blink 1.1s step-end infinite; }
+    @keyframes blink { 50% { opacity: 0.18; } }  /* never fully off — an empty white tail reads as a broken box */
+  }
+  .hero .sub {
+    margin-top: 26px;
+    max-width: 540px;
+    font-size: 15.5px;
+    color: var(--ink-2);
+    text-shadow: 0 1px 14px rgba(0,0,0,0.8);
+  }
+  .hero .sub b { color: var(--ink); font-weight: 560; }
+  .cta-row { display: flex; gap: 12px; margin-top: 40px; }
+  .btn-w {
+    font-family: var(--mono);
+    font-size: 12.5px; font-weight: 700; color: #000;
+    background: var(--ink);
+    padding: 14px 24px;
+    letter-spacing: 0.05em;
+    transition: background 0.15s, box-shadow 0.25s, transform 0.15s var(--ease);
+  }
+  .btn-w:hover { background: #fff; box-shadow: 0 0 44px rgba(255,255,255,0.4); transform: translateY(-1px); }
+  .btn-g {
+    font-family: var(--mono);
+    font-size: 12.5px; font-weight: 500; color: var(--ink-2);
+    padding: 14px 22px;
+    border: 1px solid var(--hair-2);
+    background: rgba(0, 0, 0, 0.5);
+    letter-spacing: 0.05em;
+    transition: color 0.15s, border-color 0.15s, box-shadow 0.2s;
+  }
+  .btn-g:hover { color: var(--steel); border-color: rgba(255,255,255,0.5); box-shadow: 0 0 24px rgba(255,255,255,0.1); }
+  .scroll-cue {
+    position: absolute;
+    bottom: 26px; left: max(24px, 7vw);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.4em;
+    color: var(--ink-4);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .scroll-cue { animation: cue 2.6s ease-in-out infinite; }
+    @keyframes cue { 0%,100% { opacity: 0.3; transform: translateY(0); } 50% { opacity: 0.85; transform: translateY(7px); } }
+  }
+
+  /* ============ the act ============ */
+  #act { position: relative; z-index: 10; height: 500vh; }
+  #act .stage {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+  }
+  .cap {
+    grid-area: 1 / 1;
+    text-align: center;
+    max-width: 780px;
+    padding: 0 24px;
+    opacity: 0;
+    will-change: opacity, transform;
+  }
+  .cap .n {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: 0.4em;
+    color: var(--steel);
+  }
+  .cap h2 {
+    margin-top: 22px;
+    font-family: var(--disp);
+    font-size: clamp(30px, 4.6vw, 54px);
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.08;
+    color: var(--ink);
+    text-shadow: 0 2px 26px rgba(0,0,0,0.85);
+  }
+  .cap h2 .b { background: #fff; color: #000; padding: 0 0.14em; }
+  .cap p {
+    margin: 20px auto 0;
+    max-width: 520px;
+    font-size: 14.5px;
+    color: var(--ink-2);
+    text-shadow: 0 1px 12px rgba(0,0,0,0.8);
+  }
+  .cap p code { font-family: var(--mono); font-size: 0.86em; color: var(--steel); }
+  /* side captions: text one side, particle figure the other */
+  .cap.side { justify-self: start; text-align: left; max-width: 460px; margin-left: 7vw; }
+  .cap.side p { margin-left: 0; }
+  .cap.side.right { justify-self: end; margin-left: 0; margin-right: 7vw; }
+  .cap.side.right p { margin-right: 0; }
+  @media (max-width: 900px) {
+    .cap.side, .cap.side.right { margin-left: 0; margin-right: 0; justify-self: center; text-align: center; }
+  }
+
+  /* ============ content ============ */
+  #content {
+    position: relative;
+    z-index: 20;
+    background: #000;
+    border-top: 1px solid var(--hair);
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 26px; }
+
+  section { padding: 104px 0 0; }
+  .sn {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    color: var(--steel);
+    text-transform: lowercase;
+  }
+  h3.big {
+    margin-top: 16px;
+    font-family: var(--disp);
+    font-size: clamp(26px, 3.4vw, 38px);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.12;
+    color: var(--ink);
+  }
+  h3.big.xl { font-size: clamp(34px, 5vw, 58px); letter-spacing: -0.03em; line-height: 1.06; max-width: 14em; }
+  h3.big .b { background: #fff; color: #000; padding: 0 0.14em; }
+  .lede { margin-top: 14px; max-width: 640px; font-size: 15px; color: var(--ink-2); }
+  .lede code { font-family: var(--mono); font-size: 0.85em; color: var(--steel); }
+
+  .duo { display: grid; grid-template-columns: 1fr 1fr; gap: 44px; align-items: center; margin-top: 46px; }
+
+  /* real product shots */
+  .shot {
+    position: relative;
+    border: 1px solid var(--hair-2);
+    background: #060708;
+    box-shadow: 0 40px 90px rgba(0, 0, 0, 0.7);
+    overflow: hidden;
+  }
+  .shot img { display: block; width: 100%; height: auto; }
+  .shot::before, .shot::after {
+    content: "";
+    position: absolute;
+    width: 12px; height: 12px;
+    border: 0 solid rgba(255,255,255,0.5);
+    z-index: 2;
+  }
+  .shot::before { top: -1px; left: -1px; border-top-width: 1px; border-left-width: 1px; }
+  .shot::after { bottom: -1px; right: -1px; border-bottom-width: 1px; border-right-width: 1px; }
+  /* shots break out of the text measure */
+  .shot-break { width: min(1120px, calc(100vw - 48px)); margin-left: 50%; transform: translateX(-50%); }
+  .shot-cap {
+    margin-top: 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--ink-3);
+  }
+  .shot-cap b { color: var(--ink-2); font-weight: 500; }
+
+  .term {
+    background: rgba(4, 8, 14, 0.9);
+    border: 1px solid var(--hair);
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.85;
+    overflow: hidden;
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6);
+  }
+  .term .bar {
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--hair);
+    font-size: 10px; letter-spacing: 0.14em; color: var(--ink-4);
+  }
+  .term .bar i { color: var(--steel-deep); font-style: normal; margin-right: 4px; }
+  .term pre { padding: 16px 20px; overflow-x: auto; color: var(--ink-2); }
+  .term .p { color: var(--steel); }
+  .term .dim { color: var(--ink-4); }
+  .term .ok { color: #fff; }
+  .term .str { color: #e8ebf0; }
+  .duo .txt h4 { font-size: 18px; font-weight: 630; letter-spacing: -0.015em; color: var(--ink); line-height: 1.35; }
+  .duo .txt p { margin-top: 12px; font-size: 14px; color: var(--ink-2); }
+  .duo .txt p code { font-family: var(--mono); font-size: 0.85em; color: var(--steel); }
+  .duo .txt .m { margin-top: 16px; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em; color: var(--ink-3); }
+
+  /* ledger */
+  .ledger { margin-top: 46px; border-top: 1px solid var(--hair); }
+  .lrow {
+    display: grid;
+    grid-template-columns: 190px 1fr;
+    gap: 28px;
+    padding: 19px 6px;
+    border-bottom: 1px solid var(--hair);
+    transition: background 0.2s, box-shadow 0.2s;
+    position: relative;
+  }
+  .lrow:hover { background: rgba(255,255,255,0.035); box-shadow: inset 1px 0 0 rgba(255,255,255,0.5); }
+  .lrow .k { font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em; color: var(--ink); padding-top: 2px; }
+  .lrow .v { font-size: 13.5px; color: var(--ink-2); }
+  .lrow .v kbd {
+    font-family: var(--mono); font-size: 10.5px; color: var(--steel);
+    border: 1px solid var(--hair-2);
+    padding: 1.5px 6px; margin: 0 2px;
+    background: rgba(255,255,255,0.05);
+  }
+
+  /* creed */
+  .creed { margin-top: 42px; display: flex; flex-direction: column; }
+  .creed .c {
+    display: grid;
+    grid-template-columns: 44px 1fr;
+    gap: 20px;
+    padding: 21px 0;
+    border-top: 1px solid var(--hair);
+  }
+  .creed .c:last-child { border-bottom: 1px solid var(--hair); }
+  .creed .n { font-family: var(--mono); font-size: 11px; color: var(--steel); padding-top: 4px; }
+  .creed h4 { font-size: 15px; font-weight: 620; color: var(--ink); letter-spacing: -0.01em; }
+  .creed p { margin-top: 5px; font-size: 13.5px; color: var(--ink-2); }
+  .src-line { margin-top: 26px; font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+  .src-line a { color: var(--steel); border-bottom: 1px solid rgba(255,255,255,0.4); }
+
+  .steps3 { margin-top: 40px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--hair); border: 1px solid var(--hair); }
+  .steps3 > div { background: #000; padding: 22px; }
+  .steps3 .sN { font-family: var(--mono); font-size: 11px; color: var(--steel); }
+  .steps3 h4 { margin-top: 10px; font-size: 14px; font-weight: 620; color: var(--ink); }
+  .steps3 p { margin-top: 6px; font-size: 12.5px; color: var(--ink-2); }
+  .honest { margin-top: 20px; font-size: 12.5px; color: var(--ink-3); font-family: var(--mono); }
+  .honest::before { content: "# "; color: var(--steel); }
+
+  .pricelines { margin-top: 40px; border-top: 1px solid var(--hair); max-width: 680px; }
+  .pl { display: flex; justify-content: space-between; gap: 24px; align-items: baseline; padding: 16px 6px; border-bottom: 1px solid var(--hair); }
+  .pl .what { font-size: 14px; color: var(--ink); font-weight: 570; }
+  .pl .cost { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); text-align: right; }
+  .pl .cost em { color: var(--steel); font-style: normal; }
+  .nag { margin-top: 18px; font-size: 12.5px; color: var(--ink-3); max-width: 560px; }
+
+  .faq { margin-top: 38px; max-width: 680px; }
+  details { border-top: 1px solid var(--hair); }
+  details:last-child { border-bottom: 1px solid var(--hair); }
+  summary {
+    cursor: pointer; list-style: none;
+    display: flex; justify-content: space-between; align-items: center; gap: 18px;
+    padding: 16px 6px;
+    font-size: 14px; font-weight: 570; color: var(--ink);
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: "+"; font-family: var(--mono); color: var(--steel); transition: transform 0.2s var(--ease); }
+  details[open] summary::after { transform: rotate(45deg); }
+  details p { padding: 0 6px 18px; font-size: 13px; color: var(--ink-2); max-width: 600px; }
+  details .fm { font-family: var(--mono); font-size: 0.9em; color: var(--steel); }
+
+  /* closer */
+  .closer {
+    position: relative;
+    z-index: 10;
+    min-height: 92vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 60px 24px;
+  }
+  .closer h2 {
+    font-family: var(--disp);
+    font-size: clamp(32px, 5.2vw, 64px);
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    line-height: 1.05;
+    color: var(--ink);
+    text-shadow: 0 2px 26px rgba(0,0,0,0.85);
+    max-width: 760px;
+  }
+  .closer h2 .b { background: #fff; color: #000; padding: 0 0.14em; }
+  .closer p { margin-top: 18px; max-width: 460px; font-size: 14.5px; color: var(--ink-2); text-shadow: 0 1px 12px rgba(0,0,0,0.8); }
+  .closer .cta-row { justify-content: center; }
+
+  footer {
+    position: relative; z-index: 20;
+    background: #000;
+    border-top: 1px solid var(--hair);
+    padding: 30px 26px;
+    display: flex; align-items: baseline; gap: 26px; flex-wrap: wrap;
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; color: var(--ink-3);
+  }
+  footer .fl { display: flex; gap: 20px; }
+  footer .fl a::before { content: "/"; color: var(--steel-deep); margin-right: 2px; }
+  footer .fl a:hover { color: var(--steel); }
+  footer .tail { margin-left: auto; }
+
+  /* reveals: only the four heavy artifacts move; text never hides */
+  @media (prefers-reduced-motion: no-preference) {
+    html.js .term[data-r] { opacity: 0; transform: translateY(14px); transition: opacity 0.7s var(--ease), transform 0.7s var(--ease); }
+    html.js .term[data-r].in { opacity: 1; transform: none; }
+    /* the wipe lives on .shot but is observed on the wrapper —
+       a fully-clipped element never intersects, so it could never reveal itself */
+    html.js .shot-break[data-r] .shot { clip-path: inset(0 0 100% 0); transition: clip-path 0.9s var(--ease); }
+    html.js .shot-break[data-r].in .shot { clip-path: inset(0 0 0 0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #act { height: auto; }
+    #act .stage { position: static; height: auto; display: block; padding: 40px 0; }
+    .cap { opacity: 1 !important; position: static; margin: 60px auto; }
+  }
+  @media (max-width: 780px) {
+    nav .nl { display: none; }
+    .hero { padding-left: 24px; }
+    .sig { letter-spacing: 0.2em; font-size: 10px; }
+    .duo { grid-template-columns: 1fr; gap: 28px; }
+    .steps3 { grid-template-columns: 1fr; }
+    .lrow { grid-template-columns: 1fr; gap: 5px; }
+    .cta-row { flex-direction: column; align-items: flex-start; }
+    .closer .cta-row { align-items: center; }
+    .scroll-cue { left: 24px; }
+    /* mobile: a legible crop of the app's left half beats the whole
+       window shrunk to noise */
+    .shot { aspect-ratio: 4 / 3; }
+    .shot img { width: 175%; height: auto; object-position: left top; }
+    footer .tail { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="field" aria-hidden="true"></canvas>
+<div class="vig" aria-hidden="true"></div>
+
+<nav id="nav">
+  <a class="brand" href="#">SUBSTRATE<i>_</i></a>
+  <div class="nl">
+    <a href="#app">app</a>
+    <a href="#agents">agents</a>
+    <a href="#features">features</a>
+    <a href="#price">price</a>
+  </div>
+  <div class="right">
+    <a class="src" href="#">source ↗</a>
+    <a class="dl" href="#">DOWNLOAD</a>
+  </div>
+</nav>
+
+<!-- scene 0: the wisp -->
+<header class="hero">
+  <p class="sig"><i>●</i> local-first · open source · macOS</p>
+  <h1 id="h1" aria-label="the second brain your AI can operate.">the second brain<br>your AI can <span class="b">operate.<span class="cursor" aria-hidden="true"></span></span></h1>
+  <p class="sub">Notes, databases, and dashboards — as <b>plain markdown on your disk</b>. No account. No cloud. Nothing between you, or your agent, and your own files.</p>
+  <div class="cta-row">
+    <a class="btn-w" href="#">DOWNLOAD FOR macOS</a>
+    <a class="btn-g" href="#">view source</a>
+  </div>
+  <span class="scroll-cue">01 / structure ↓</span>
+</header>
+
+<!-- scenes 1-3: the entity acts out the product -->
+<div id="act">
+  <div class="stage">
+    <div class="cap side" id="cap0">
+      <p class="n">01 / structure</p>
+      <h2>give a note a <span class="b">type:</span><br>it becomes a database row.</h2>
+      <p>A “database” is every note sharing a <code>type:</code> in its frontmatter. Table, board, list, calendar — same files. Nothing ever moves or converts.</p>
+    </div>
+    <div class="cap side right" id="cap1">
+      <p class="n">02 / connection</p>
+      <h2>link anything.<br>the graph is already there.</h2>
+      <p>[[Wikilinks]] connect notes; backlinks render everywhere. ⌘-click a link to a note that doesn’t exist yet — now it does.</p>
+    </div>
+    <div class="cap" id="cap2" style="align-self:start;margin-top:10vh">
+      <p class="n">03 / ground</p>
+      <h2>underneath it all:<br>plain files on your disk.</h2>
+      <p>Delete Substrate tomorrow and you lose nothing — the vault is a folder of readable markdown. No export, no lock-in, no trust required.</p>
+    </div>
+  </div>
+</div>
+
+<!-- solid content -->
+<div id="content">
+  <div class="wrap">
+
+    <section id="app">
+      <p class="sn">04 / the app</p>
+      <h3 class="big">This is Substrate.</h3>
+      <p class="lede">A vault in the app: notes on the left, live-rendered markdown in the middle, properties on the note. The sidebar’s “databases” and “dashboards” are just folders of files like this one.</p>
+      <div class="shot-break" data-r style="margin-top:40px">
+        <div class="shot"><img src="readme-notes.png" width="2560" height="1464" alt="Substrate — notes list, live-rendered markdown editor with properties, wikilinks and an inline table" loading="lazy" /></div>
+      </div>
+      <p class="shot-cap"><b>~/Vault</b> · a live vault in the app · the Welcome note is a markdown file with frontmatter, checkboxes, and an inline database view</p>
+    </section>
+
+    <section id="files">
+      <p class="sn">05 / files</p>
+      <h3 class="big">The files are the app.</h3>
+      <p class="lede">No proprietary database underneath — the markdown on your disk is the only source of truth. Substrate is just the fastest window onto it. Edit a file in any other app and the change is live before you switch back.</p>
+      <div class="duo">
+        <div class="term" data-r>
+          <div class="bar"><span><i>●</i> zsh — ~/Vault</span><span>⏎ 0</span></div>
+          <pre><span class="p">$</span> cat Contacts/Noa.md
+<span class="dim">---</span>
+type: <span class="str">contact</span>
+role: <span class="str">artwork</span>
+status: <span class="str">active</span>
+<span class="dim">---</span>
+Brief sent for [[Slow Bloom EP]] —
+stems for the motion piece due Friday.
+
+<span class="dim"># a text file. also a database row.</span>
+
+<span class="p">$</span> echo "- [ ] send stems to Noa" &gt;&gt; Today.md</pre>
+        </div>
+        <div class="txt">
+          <h4>Frontmatter is the schema. Grep is a query engine.</h4>
+          <p>Typed properties live as YAML on top of each note; saved views, templates, and inline editing in the app, <code>rg</code> and <code>sed</code> outside it. That <code>echo</code> above? The checkbox is in the app before you ⌘-tab back — external edits are the designed path, not a recovery mode.</p>
+          <p class="m">FORMAT SPEC PUBLISHED — docs/vault-format.md</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="agents">
+      <p class="sn">06 / agents</p>
+      <h3 class="big xl">Agents don’t get an API here.<br>They get the <span class="b">files.</span></h3>
+      <p class="lede">No UI-only state, boring parseable formats, external edits picked up live — an agent filing your inbox at 3am is a designed-for use, not a hack. And once agents can read everything on your machine, a vault that never leaves it uninvited stops being a nerd feature and becomes the point.</p>
+      <div class="duo">
+        <div class="txt">
+          <h4>Not “AI-powered.” Legible.</h4>
+          <p>There’s no model inside Substrate and no tokens to buy. The claim is stronger and cheaper: the vault is plain text with documented conventions, so <em style="color:var(--ink);font-style:normal">any</em> agent — Claude, a cron script, you in a terminal — can read and write it directly.</p>
+          <p class="m">EVERYTHING THE UI DOES IS ACHIEVABLE BY EDITING FILES.</p>
+        </div>
+        <div class="term" data-r>
+          <div class="bar"><span><i>●</i> agent — claude</span><span>~/Vault</span></div>
+          <pre><span class="p">agent ›</span> file today's captures
+<span class="dim">read   Inbox/ — 4 untyped notes</span>
+<span class="dim">write  type: contact → Contacts/Noa.md</span>
+<span class="dim">write  type: release → Releases/Vessel Songs.md</span>
+<span class="dim">write  type: task ×2 → Tasks/</span>
+<span class="ok">vault › watcher: 4 files changed, index live</span></pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="features">
+      <p class="sn">07 / features</p>
+      <h3 class="big">Narrow, but finished.</h3>
+      <p class="lede">A smaller surface done properly beats a wide surface at 80%.</p>
+      <div class="ledger">
+        <div class="lrow"><span class="k">capture</span><span class="v">One keystroke from any app — <kbd>⌥Space</kbd> drops a thought into the Inbox. Filing is a decision for later, or never.</span></div>
+        <div class="lrow"><span class="k">palette</span><span class="v"><kbd>⌘K</kbd> opens anything, creates anything, runs anything. <kbd>⌘1–9</kbd> jump views, <kbd>j k</kbd> walk lists.</span></div>
+        <div class="lrow"><span class="k">search</span><span class="v">Full-text over the whole vault, indexed in Rust, results as you type. No loading states worth naming.</span></div>
+        <div class="lrow"><span class="k">editor</span><span class="v">Live-rendered markdown — raw syntax only at the cursor. No block editor; blocks are the cost swamp that makes Notion slow.</span></div>
+        <div class="lrow"><span class="k">databases</span><span class="v">Typed properties, four views, saved views, templates, inline editing — over the same plain files.</span></div>
+        <div class="lrow"><span class="k">dashboards</span><span class="v">Stat cards, charts, and live views bound to sheet formulas — all plain text.</span></div>
+        <div class="lrow"><span class="k">local reality</span><span class="v">Indexes real folders on disk — money, projects, masters. Cloud tools can’t see your machine.</span></div>
+        <div class="lrow"><span class="k">history</span><span class="v">Every change versioned in local git. Deletes go to trash, restore is one click, only explicit purges are permanent.</span></div>
+        <div class="lrow"><span class="k">sync</span><span class="v">Vault-to-vault git sync today — your own Mac is the remote, no third party in the path. End-to-end encryption is the committed design: any future relay moves ciphertext it cannot read.</span></div>
+      </div>
+    </section>
+
+    <section id="surfaces">
+      <p class="sn">08 / surfaces</p>
+      <h3 class="big">Dashboards over text files.</h3>
+      <p class="lede">Sheets are formula tables in plain text; dashboards bind stat cards, status cards, and live database views to the results. Below: a label pipeline reading from the same markdown you just saw.</p>
+      <div class="shot-break" data-r style="margin-top:40px">
+        <div class="shot"><img src="readme-dashboard.png" width="2560" height="1464" alt="A Substrate dashboard — status cards and a live database view over plain files" loading="lazy" /></div>
+      </div>
+      <p class="shot-cap"><b>Umbra Home.md</b> · a dashboard note · every number and row traceable to a text file on disk</p>
+    </section>
+
+    <section id="principles">
+      <p class="sn">09 / principles</p>
+      <h3 class="big">Built on a few stubborn ideas.</h3>
+      <div class="creed">
+        <div class="c"><span class="n">01</span><div><h4>Files are the only truth.</h4><p>No export button, because there is nothing to export from.</p></div></div>
+        <div class="c"><span class="n">02</span><div><h4>Nothing phones home.</h4><p>No account, no telemetry, no cloud — your vault never leaves your machines uninvited.</p></div></div>
+        <div class="c"><span class="n">03</span><div><h4>Speed is a feature, not a benchmark.</h4><p>The app should feel like a room, not a machine.</p></div></div>
+        <div class="c"><span class="n">04</span><div><h4>Agent-native, by design rule.</h4><p>Boring formats, documented conventions — the agent uses the same door you do.</p></div></div>
+        <div class="c"><span class="n">05</span><div><h4>Built for one person first.</h4><p>Not a product committee — a daily driver. Every feature exists because someone needed it that week.</p></div></div>
+      </div>
+      <p class="src-line">$ don’t trust the copy — <a href="#">read the source</a></p>
+    </section>
+
+    <section id="switching">
+      <p class="sn">10 / switching</p>
+      <h3 class="big xl">Leaving Notion?</h3>
+      <p class="lede">Same databases, same views, same everything-in-one-place — minus the loading spinners, the vendor account, and the API between your agent and your own notes.</p>
+      <div class="steps3">
+        <div><p class="sN">1</p><h4>Export from Notion</h4><p>Settings → Export all workspace content (markdown &amp; CSV).</p></div>
+        <div><p class="sN">2</p><h4>Drop it in your vault</h4><p>Pages are markdown already — notes the moment they land. Database rows arrive as CSV; typing them as frontmatter is the real migration.</p></div>
+        <div><p class="sN">3</p><h4>Migrate one database at a time</h4><p>Lane by lane — each database lands whole before the next begins. No big-bang cutover.</p></div>
+      </div>
+      <p class="honest">honesty clause: Notion is still better at real-time multiplayer collab. Substrate is single-user by design — that’s why it’s fast.</p>
+    </section>
+
+    <section id="price">
+      <p class="sn">11 / price</p>
+      <h3 class="big">Free and open source. That part’s simple.</h3>
+      <div class="pricelines">
+        <div class="pl"><span class="what">Build from source</span><span class="cost"><em>free forever</em> — every feature, no gates</span></div>
+        <div class="pl"><span class="what">App Store build</span><span class="cost">a few euros — signed, one-click, auto-updates; funds development</span></div>
+        <div class="pl"><span class="what">Hosted sync, later</span><span class="cost">optional — the self-host path stays documented</span></div>
+      </div>
+      <p class="nag">Same app, same features, your call. A donation nag may appear, rarely — one euro makes it disappear forever, and the nag itself tells you how to build the version without it.</p>
+    </section>
+
+    <section id="faq" style="padding-bottom: 104px">
+      <p class="sn">12 / faq</p>
+      <h3 class="big">Fair questions.</h3>
+      <div class="faq">
+        <details>
+          <summary>Where is my data, exactly?</summary>
+          <p>In <span class="fm">~/Vault</span> (or any folder you choose): markdown files with YAML frontmatter, plus a small <span class="fm">.vault/</span> folder of plain JSON for schemas and views. You can read all of it in a text editor right now.</p>
+        </details>
+        <details>
+          <summary>Isn&#8217;t this just Obsidian?</summary>
+          <p>Closest neighbor, different bet. Obsidian is closed source, and its databases are views — Bases reads your frontmatter into tables and cards, but sheets, dashboards, and richer schemas still live in per-plugin formats. Substrate is open source, and typed databases, sheets, and dashboards are the native core: one documented file convention your agent can rely on end to end.</p>
+        </details>
+        <details>
+          <summary>What happens if the project dies?</summary>
+          <p>Nothing. Your vault is markdown — every editor on earth opens it. That is the whole point of building on files instead of a database.</p>
+        </details>
+        <details>
+          <summary>Does it phone home?</summary>
+          <p>No. No telemetry, no analytics, no account, no update pings you didn’t ask for. The source is open so you don’t have to take our word for it.</p>
+        </details>
+        <details>
+          <summary>Is the App Store build different?</summary>
+          <p>No — same app, same features. You&#8217;re paying for the signed one-click install and auto-updates, and to support development. The listing will say exactly this.</p>
+        </details>
+        <details>
+          <summary>iPhone? Windows? Linux?</summary>
+          <p>macOS first. An iOS build with end-to-end encrypted sync is in active development. Windows/Linux aren’t planned — the roadmap follows its owner’s needs, honestly stated.</p>
+        </details>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- the entity returns -->
+<div class="closer" id="closer">
+  <p class="sig"><i>●</i> get substrate</p>
+  <h2 style="margin-top:26px">your notes. your disk.<br><span class="b">your agent&#8217;s hands.</span></h2>
+  <p>One folder of markdown. Databases on top. If you ever leave, you take everything.</p>
+  <div class="cta-row">
+    <a class="btn-w" href="#">DOWNLOAD FOR macOS</a>
+    <a class="btn-g" href="#">view source</a>
+  </div>
+</div>
+
+<footer>
+  <span style="color:var(--ink);letter-spacing:0.2em">SUBSTRATE<span style="color:var(--steel)">_</span></span>
+  <div class="fl">
+    <a href="#">source</a>
+    <a href="#">docs</a>
+    <a href="#">vault-format</a>
+    <a href="#">issues</a>
+    <a href="FONT-LICENSES.md">fonts</a>
+  </div>
+  <span class="tail">built in the open</span>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+  var motionOK = matchMedia("(prefers-reduced-motion: no-preference)").matches;
+  var DEBUG = location.protocol === "file:" || location.hostname === "" ||
+              /^(localhost|127\.)/.test(location.hostname);
+  var canvas = document.getElementById("field");
+  var ctx = canvas.getContext("2d", { alpha: false });
+
+  var W = 0, H = 0, DPR = 1, N = 0, S = 0, CX = 0, CY = 0;
+  var px, py, tx, ty, tb, h1v, h2v, h3v, bins;
+  var t = 0;
+  var mouseX = -9999, mouseY = -9999;
+
+  function fr(n) { n = Math.sin(n) * 43758.5453; return n - Math.floor(n); }
+
+  /* extra x offset for the wisp — the closer slides it right so the
+     centered headline clears the particle column */
+  var wispX = 0;
+
+  /* graph nodes are geometry-only — precomputed at resize */
+  var NK = 22, EK = 44;
+  var nodeX = new Float32Array(NK), nodeY = new Float32Array(NK);
+  function computeNodes() {
+    for (var k = 0; k < NK; k++) {
+      var rr = Math.sqrt((k + 0.5) / NK) * S * 0.4;
+      var th = k * 2.399963 + fr(k * 55.5) * 0.5;
+      nodeX[k] = CX - W * 0.16 + Math.cos(th) * rr * 1.15;
+      nodeY[k] = CY - H * 0.03 + Math.sin(th) * rr * 0.85;
+    }
+  }
+
+  /* cached layout for onScroll */
+  var actEl = document.getElementById("act");
+  var closerEl = document.getElementById("closer");
+  var heroEl = document.querySelector(".hero");
+  var actTop = 0, actH = 1, contentStart = 0, closerTop = 0;
+  function measure() {
+    actTop = actEl.offsetTop;
+    actH = Math.max(1, actEl.offsetHeight - window.innerHeight);
+    contentStart = actTop + actEl.offsetHeight;
+    closerTop = closerEl.offsetTop;
+  }
+
+  var coarse = matchMedia("(pointer: coarse)").matches;
+
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, coarse ? 1.25 : 1.6);
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = Math.floor(W * DPR); canvas.height = Math.floor(H * DPR);
+    canvas.style.width = W + "px"; canvas.style.height = H + "px";
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    S = Math.min(W, H);
+    CX = W * 0.5; CY = H * 0.52;
+    computeNodes();
+    measure();
+    /* quantize to 1000s so iOS URL-bar resizes never re-allocate */
+    var div = coarse ? 160 : 115;
+    var floor = coarse ? 2200 : 5000;
+    var want = Math.min(12000, Math.max(floor, Math.round(W * H / (div * 1000)) * 1000));
+    if (want !== N) {
+      var old = N;
+      var npx = new Float32Array(want), npy = new Float32Array(want);
+      tx = new Float32Array(want); ty = new Float32Array(want); tb = new Float32Array(want);
+      h1v = new Float32Array(want); h2v = new Float32Array(want); h3v = new Float32Array(want);
+      bins = new Uint8Array(want);
+      for (var i = 0; i < want; i++) {
+        h1v[i] = fr(i * 127.1); h2v[i] = fr(i * 311.7); h3v[i] = fr(i * 74.7);
+        if (i < old) { npx[i] = px[i]; npy[i] = py[i]; }
+        else { npx[i] = fr(i * 13.37) * W; npy[i] = fr(i * 7.77) * H; }
+      }
+      px = npx; py = npy;
+      if (!old) { ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H); }
+      N = want;
+    }
+  }
+
+  /* ---------- scene 0: the wisp (tweetsketches/wisp.html, rescaled) ---------- */
+  function sceneWisp(i, tt) {
+    var rows = (N / 100) | 0;
+    var x = i % 100;
+    var y = ((i / 100) | 0) * (200 / rows);
+    var k = 5 * Math.cos(x / 14) * Math.cos(y / 30);
+    var e = y / 8 - 13;
+    var d = Math.sqrt(k * k + e * e);
+    var q = 3 * Math.sin(k * 2) + 0.3 / (Math.abs(k) + 0.01)
+          + Math.sin(y / 25) * k * (9 + 4 * Math.sin(e * 9 - d * 3 + tt * 2));
+    var c = d / 2 - tt / 8;
+    var ox = q + 30 * Math.cos(c) + 250;
+    var oy = y * 2.2 + q * Math.sin(c + tt / 3) - d * 6 + 90;
+    if (W < 640) {
+      /* mobile: the entity parks below the CTA instead of behind the copy */
+      var scm = (S / 500) * 0.8;
+      tx[i] = CX + W * 0.16 + (ox - 265) * scm * 0.9;
+      ty[i] = H * 0.9 + (oy - 250) * scm * 0.7;
+    } else {
+      var sc = (S / 500) * 1.25;
+      tx[i] = CX + W * 0.26 + wispX + (ox - 265) * sc;
+      ty[i] = CY + (oy - 250) * sc;
+    }
+    tb[i] = Math.max(0, 1 - d / 10) + 0.1;
+  }
+
+  /* ---------- scene 1: the table (a database possessed) ---------- */
+  function sceneTable(i, tt) {
+    var R = 14, C = 4;
+    var tw = Math.min(620, W * 0.5);
+    var th = Math.min(520, H * 0.66);
+    var left = CX + W * 0.415 - tw, top = CY - th / 2 - H * 0.02;
+    var r = i % R;
+    var c = ((i * 7 + ((i / R) | 0)) | 0) % C;
+    var colX = [0, 0.30, 0.56, 0.80];
+    var colW = [0.26, 0.22, 0.20, 0.20];
+    var len = colW[c] * tw * (0.4 + 0.55 * fr(r * 17.3 + c * 91.7));
+    tx[i] = left + colX[c] * tw + h1v[i] * len;
+    ty[i] = top + r * (th / R) + (h2v[i] - 0.5) * 3;
+    var sel = ((tt * 0.55) % R + R) % R;
+    var selBoost = Math.max(0, 1 - Math.abs(r - sel) / 1.5) * 0.9;
+    var head = r === 0 ? 0.62 : 0;
+    var firstCol = c === 0 ? 0.12 : 0;
+    tb[i] = 0.22 + head + selBoost + firstCol + h3v[i] * 0.12;
+  }
+
+  /* ---------- scene 2: the graph ---------- */
+  function sceneGraph(i, tt) {
+    if (i % 4 === 0) {
+      var e = ((i / 4) | 0) % EK;
+      var ka = e % NK;
+      var kb = (ka * 7 + 3 + (e >= NK ? 5 : 0)) % NK;
+      var ax = nodeX[ka], ay = nodeY[ka];
+      var u = (tt * (0.09 + h1v[i] * 0.09) + h2v[i]) % 1;
+      var wob = Math.sin(u * Math.PI) * (8 + h3v[i] * 16);
+      var dx = nodeX[kb] - ax, dy = nodeY[kb] - ay;
+      var dl = Math.sqrt(dx * dx + dy * dy) || 1;
+      tx[i] = ax + dx * u - (dy / dl) * wob;
+      ty[i] = ay + dy * u + (dx / dl) * wob;
+      tb[i] = 0.5 + 0.45 * Math.sin(u * Math.PI);
+    } else {
+      var k = i % NK;
+      var size = 7 + fr(k * 31.1) * 20;
+      var ang = h1v[i] * 6.28318;
+      var rad = (h2v[i] + h3v[i]) * 0.5; rad = rad * rad * size * 1.7;
+      tx[i] = nodeX[k] + Math.cos(ang) * rad;
+      ty[i] = nodeY[k] + Math.sin(ang) * rad * 0.9;
+      tb[i] = Math.max(0.12, 0.9 - (rad / size) * 0.4);
+    }
+  }
+
+  /* ---------- scene 3: the strata — 5 bands rising toward the caption ---------- */
+  var strataW = [0.22, 0.34, 0.46, 0.60, 0.74];
+  var strataB = [1.0, 0.62, 0.44, 0.30, 0.20];
+  function sceneStrata(i, tt) {
+    var band = i % 5;
+    var bw = strataW[band] * Math.min(W * 0.94, 1300);
+    var bh = Math.max(14, S * 0.03);
+    var gap = bh * 1.2;
+    var by = CY + H * 0.1 + (band - 2) * (bh + gap);
+    tx[i] = CX + (h1v[i] - 0.5) * bw;
+    ty[i] = by + (h2v[i] - 0.5) * bh;
+    var flick = 0.08 * Math.sin(tt * 3 + h3v[i] * 40);
+    tb[i] = strataB[band] * (0.7 + h3v[i] * 0.3) + flick;
+  }
+
+  var scenes = [sceneWisp, sceneTable, sceneGraph, sceneStrata];
+
+  /* monochrome buckets, white cores */
+  var shades = [
+    "rgba(82,88,100,0.30)",
+    "rgba(112,120,134,0.42)",
+    "rgba(148,156,170,0.56)",
+    "rgba(190,198,210,0.72)",
+    "rgba(228,232,240,0.88)",
+    "rgba(255,255,255,0.97)"
+  ];
+
+  var caps = [document.getElementById("cap0"), document.getElementById("cap1"), document.getElementById("cap2")];
+  var navEl = document.getElementById("nav");
+
+  var P = 0, fade = 1, wispBack = 0;
+
+  function smooth(x) { return x * x * (3 - 2 * x); }
+
+  /* debug: #s=N pins the act at scene position N without scrolling (local only) */
+  var pin = DEBUG ? (location.hash.match(/s=([\d.]+)/) || [])[1] : undefined;
+  pin = pin === undefined ? null : parseFloat(pin);
+
+  function onScroll() {
+    var sy = window.scrollY;
+    var vh = window.innerHeight;
+    navEl.classList.toggle("solid", sy > 40);
+    if (pin !== null) {
+      P = pin; fade = 1;
+      heroEl.style.visibility = "hidden";
+      for (var kk = 0; kk < 3; kk++) {
+        var cc = 1.3 + kk;
+        var oo = Math.max(0, 1 - Math.abs(P - cc) * 1.9);
+        caps[kk].style.opacity = smooth(oo);
+        caps[kk].style.position = "fixed";
+        caps[kk].style.inset = "0";
+        caps[kk].style.display = "grid";
+        caps[kk].style.placeItems = "center";
+      }
+      return;
+    }
+    if (!motionOK) { P = 0; fade = 1; return; }
+
+    var pr = Math.max(0, Math.min(1, (sy - actTop) / actH));
+    P = pr * 3.45;
+
+    for (var k = 0; k < 3; k++) {
+      var cen = 1.3 + k;
+      var o = Math.max(0, 1 - Math.abs(P - cen) * 2.2);
+      caps[k].style.opacity = smooth(o);
+    }
+
+    var f1 = 1 - Math.max(0, Math.min(1, (sy - (contentStart - vh)) / (vh * 0.5)));
+    var f2 = Math.max(0, Math.min(1, 1 - ((closerTop - sy) - vh * 0.5) / (vh * 0.5)));
+    wispBack = f2;
+    fade = Math.max(f1, f2);
+    canvas.style.opacity = (0.1 + 0.9 * fade).toFixed(3);
+  }
+
+  if (matchMedia("(hover: hover)").matches) {
+    addEventListener("mousemove", function (e) { mouseX = e.clientX; mouseY = e.clientY; }, { passive: true });
+    document.documentElement.addEventListener("mouseleave", function () { mouseX = -9999; });
+  }
+
+  var running = true;
+  document.addEventListener("visibilitychange", function () {
+    running = !document.hidden;
+    if (running && motionOK) requestAnimationFrame(frame);
+  });
+
+  function step(wb) {
+    /* one physics step: targets → springs → cursor repulsion → bin */
+    var Peff = P;
+    var sA = Math.min(3, Math.floor(Peff));
+    /* plateau: each scene holds for 60% of its unit, morphs in the last 40% */
+    var frac = Math.min(1, Peff - sA);
+    var f = frac <= 0.6 ? 0 : smooth((frac - 0.6) / 0.4);
+    var sB = Math.min(3, sA + 1);
+    var blend = f > 0.0001 && sB !== sA;
+    var fnA = scenes[sA], fnB = scenes[sB];
+    var wbS = wb > 0.001 ? smooth(wb) : 0;
+
+    for (var i = 0; i < N; i++) {
+      fnA(i, t);
+      if (blend) {
+        var ax = tx[i], ay = ty[i], ab = tb[i];
+        fnB(i, t);
+        tx[i] = ax + (tx[i] - ax) * f;
+        ty[i] = ay + (ty[i] - ay) * f;
+        tb[i] = ab + (tb[i] - ab) * f;
+      }
+      if (wbS) {
+        /* the closer melts straight to the wisp — no rewinding the timeline;
+           slid right so the centered closer headline clears the column */
+        var sx = tx[i], sy2 = ty[i], sb = tb[i];
+        wispX = W * 0.08;
+        sceneWisp(i, t);
+        wispX = 0;
+        tx[i] = sx + (tx[i] - sx) * wbS;
+        ty[i] = sy2 + (ty[i] - sy2) * wbS;
+        tb[i] = sb + (tb[i] - sb) * wbS;
+      }
+      px[i] += (tx[i] - px[i]) * 0.09 + Math.sin(t * 1.4 + i * 0.7) * 0.16;
+      py[i] += (ty[i] - py[i]) * 0.09 + Math.cos(t * 1.1 + i * 1.3) * 0.16;
+      var gx = px[i] - mouseX, gy = py[i] - mouseY;
+      var d2 = gx * gx + gy * gy;
+      if (d2 < 11000 && d2 > 0.01) {
+        var dd = Math.sqrt(d2);
+        var push = (1 - dd / 105) * 5;
+        px[i] += (gx / dd) * push;
+        py[i] += (gy / dd) * push;
+      }
+      var bk = tb[i] * 5.99;
+      bins[i] = bk < 0 ? 0 : (bk > 5 ? 5 : bk | 0);
+    }
+  }
+
+  function draw() {
+    for (var b = 0; b < 6; b++) {
+      ctx.fillStyle = shades[b];
+      var sz = b >= 4 ? 2 : 1.4;
+      for (var j = 0; j < N; j++) {
+        if (bins[j] === b) ctx.fillRect(px[j] | 0, py[j] | 0, sz, sz);
+      }
+    }
+  }
+
+  var frames = 0, lastT = 0;
+  function frame(now) {
+    if (!running) return;
+    requestAnimationFrame(frame);
+    /* cap the sketch at ~60Hz so 120Hz displays don't run it double-speed */
+    if (now - lastT < 12) return;
+    lastT = now;
+    if (fade <= 0.02 && frames > 20) return;          /* asleep behind content */
+    t += Math.PI / 120;
+    frames++;
+    ctx.fillStyle = "rgba(0,0,0,0.32)";               /* trail fade */
+    ctx.fillRect(0, 0, W, H);
+    step(wispBack);
+    draw();
+  }
+
+  resize();
+  onScroll();
+
+  function paintStill() {
+    /* reduced motion: settle invisibly, paint one still pose */
+    for (var w = 0; w < 90; w++) {
+      t += Math.PI / 120;
+      step(0);
+      for (var i2 = 0; i2 < N; i2++) {
+        px[i2] += (tx[i2] - px[i2]) * 0.2;
+        py[i2] += (ty[i2] - py[i2]) * 0.2;
+      }
+    }
+    ctx.fillStyle = "#000"; ctx.fillRect(0, 0, W, H);
+    draw();
+  }
+
+  if (motionOK) {
+    requestAnimationFrame(frame);
+  } else {
+    paintStill();
+  }
+
+  addEventListener("resize", function () { resize(); onScroll(); if (!motionOK) paintStill(); }, { passive: true });
+  addEventListener("scroll", onScroll, { passive: true });
+  addEventListener("load", function () { measure(); onScroll(); });
+  /* lazy screenshots shift layout when they land — re-measure so the
+     closer melt and reveals key off real positions */
+  document.querySelectorAll(".shot img").forEach(function (im) {
+    if (!im.complete) im.addEventListener("load", function () { measure(); onScroll(); });
+  });
+
+  /* content reveals — skipped when deep-linking straight into content */
+  var deepLink = /^#(app|surfaces|files|agents|features|principles|switching|price|faq)/.test(location.hash) || /static/.test(location.search);
+  if (!deepLink && motionOK && "IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+    }, { threshold: 0.12, rootMargin: "0px 0px -30px 0px" });
+    document.querySelectorAll("[data-r]").forEach(function (el) { io.observe(el); });
+  } else {
+    document.querySelectorAll("[data-r]").forEach(function (el) { el.classList.add("in"); });
+  }
+
+  /* headline decode: letters condense out of the particle vocabulary */
+  if (motionOK) {
+    var h1 = document.getElementById("h1");
+    var glyphs = "·∙:.  ";
+    var nodes = [];
+    (function collect(el) {
+      Array.prototype.forEach.call(el.childNodes, function (n) {
+        if (n.nodeType === 3) nodes.push(n);
+        else if (n.nodeName !== "BR" && !n.classList.contains("cursor")) collect(n);
+      });
+    })(h1);
+    var finals = nodes.map(function (n) { return n.textContent; });
+    var started = false;
+    function startScramble() {
+      if (started) return;
+      started = true;
+      var start = performance.now();
+      var STEP = 24;
+      function scramble(now) {
+        var el = now - start;
+        var done = true, seen = 0;
+        nodes.forEach(function (n, ni) {
+          var s = finals[ni], out = "";
+          for (var c = 0; c < s.length; c++) {
+            if (s[c] === " ") { out += s[c]; seen++; continue; }
+            var at = 260 + seen * STEP;
+            if (el > at) out += s[c];
+            else { out += glyphs[(Math.random() * glyphs.length) | 0]; done = false; }
+            seen++;
+          }
+          n.textContent = out;
+        });
+        if (!done) requestAnimationFrame(scramble);
+        else nodes.forEach(function (n, ni) { n.textContent = finals[ni]; });
+      }
+      requestAnimationFrame(scramble);
+      /* failsafe: whatever happens, the headline resolves */
+      setTimeout(function () {
+        nodes.forEach(function (n, ni) { n.textContent = finals[ni]; });
+      }, 2600);
+    }
+    /* wait for the display face so glyphs don't flash in a fallback font */
+    if (document.fonts && document.fonts.load) {
+      document.fonts.load('600 1em "Space Grotesk"').then(startScramble, startScramble);
+      setTimeout(startScramble, 400);
+    } else {
+      startScramble();
+    }
+  }
+
+  /* debug hooks (local only): #y=<px> scrolls to a pixel; #p=N.N jumps into the act */
+  function applyHash() {
+    if (!DEBUG) return;
+    var y = location.hash.match(/y=(\d+)/);
+    if (y) { scrollTo(0, parseInt(y[1], 10)); onScroll(); return; }
+    var m = location.hash.match(/p=([\d.]+)/);
+    if (m && motionOK) {
+      var vh = innerHeight;
+      scrollTo(0, actTop + (parseFloat(m[1]) / 3.45) * (actEl.offsetHeight - vh));
+      onScroll();
+    }
+  }
+  addEventListener("load", applyHash);
+})();
+</script>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    { "@type": "Question", "name": "Where is my data, exactly?", "acceptedAnswer": { "@type": "Answer", "text": "In ~/Vault (or any folder you choose): markdown files with YAML frontmatter, plus a small .vault/ folder of plain JSON for schemas and views." } },
+    { "@type": "Question", "name": "Isn't this just Obsidian?", "acceptedAnswer": { "@type": "Answer", "text": "Obsidian is closed source, and its databases are views — Bases reads frontmatter into tables, but sheets and dashboards live in per-plugin formats. Substrate is open source, with typed databases, sheets, and dashboards as the native core — one documented file convention agents can rely on end to end." } },
+    { "@type": "Question", "name": "What happens if the project dies?", "acceptedAnswer": { "@type": "Answer", "text": "Nothing. Your vault is markdown — every editor on earth opens it." } },
+    { "@type": "Question", "name": "Does it phone home?", "acceptedAnswer": { "@type": "Answer", "text": "No. No telemetry, no analytics, no account. The source is open so you don't have to take our word for it." } }
+  ]
+}
+</script>
+
+</body>
+</html>

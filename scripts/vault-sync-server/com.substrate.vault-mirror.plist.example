@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.substrate.vault-mirror</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/Users/USERNAME/path/to/substrate/scripts/vault-sync-server/mirror.ts</string>
+    <string>--source</string>
+    <string>/Users/USERNAME/Vault</string>
+    <string>--mirror</string>
+    <string>/Users/USERNAME/Library/Application Support/Substrate/vault-sync/vault.git</string>
+    <string>--quiet-if-fresh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/USERNAME/path/to/substrate</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StartInterval</key>
+  <integer>900</integer>
+  <key>Umask</key>
+  <integer>63</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/USERNAME/Library/Application Support/Substrate/vault-sync/mirror.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/USERNAME/Library/Application Support/Substrate/vault-sync/mirror-error.log</string>
+</dict>
+</plist>

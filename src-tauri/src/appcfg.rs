@@ -1,0 +1,447 @@
+//! Per-machine app config: which vault this install opens (SUB-436).
+//!
+//! The file lives in the OS app-config dir (`~/Library/Application
+//! Support/<bundle id>/config.json` on macOS) — deliberately NOT
+//! inside any vault, because it records *which* vault to open and a vault
+//! that moves or syncs must never carry a stale pointer to itself.
+//!
+//! Resolution order (`resolve_vault`):
+//!   1. `VAULT_DIR` env — every dev/test/script flow keeps working untouched,
+//!      including pointing at a scratch dir that does not exist yet.
+//!   2. the stored choice, when it still exists and looks like a vault.
+//!   3. the platform default (`~/Vault`) when it exists and looks like a
+//!      vault — adopted silently and written to the config, so an install
+//!      that predates onboarding boots exactly as it always did.
+//!   4. otherwise: first run, and the UI asks.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+
+/// `config.json` inside the app-config dir.
+pub const CONFIG_FILE: &str = "config.json";
+
+/// Marker directory every Substrate vault carries once it has any config.
+const VAULT_MARKER: &str = ".vault";
+
+/// The per-machine config file. Unknown keys are preserved-by-ignoring: this
+/// struct stays small on purpose, one concern per field.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct AppConfig {
+    /// Absolute path of the vault this install opens. `None` = never chosen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault: Option<PathBuf>,
+}
+
+/// Where a resolved root came from — the caller uses this to decide whether
+/// the choice still needs persisting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    /// `VAULT_DIR` was set; never persisted (it is a per-run override).
+    Env,
+    /// Read back from `config.json`.
+    Stored,
+    /// The platform default, adopted because it already holds a vault.
+    AdoptedDefault,
+}
+
+/// Outcome of resolution: a root to open, or "ask the user".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Resolution {
+    Root(PathBuf, Source),
+    FirstRun,
+}
+
+/// Read `config.json`; a missing or unparsable file is an empty config —
+/// never a boot failure.
+pub fn read_config(cfg_dir: &Path) -> AppConfig {
+    fs::read_to_string(cfg_dir.join(CONFIG_FILE))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+/// Persist the chosen vault path, creating the config dir if needed.
+pub fn write_vault_choice(cfg_dir: &Path, vault: &Path) -> Result<(), String> {
+    fs::create_dir_all(cfg_dir).map_err(|e| e.to_string())?;
+    let cfg = AppConfig { vault: Some(vault.to_path_buf()) };
+    let json = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
+    fs::write(cfg_dir.join(CONFIG_FILE), format!("{json}\n")).map_err(|e| e.to_string())
+}
+
+/// How sure do we need to be that a folder is a vault?
+///
+/// The two callers want different answers, and conflating them is what let a
+/// folder with one stray `README.md` open silently as a vault (SUB-436
+/// review #4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Confidence {
+    /// Adopting `~/Vault` at boot, unasked. A pre-marker vault often holds a
+    /// single top-level note, and refusing to adopt it would put an
+    /// onboarding screen in front of an existing user — so one `.md` counts.
+    Adopting,
+    /// A folder the user just picked. The same loose rule here means picking
+    /// `~/Documents` or a code checkout (one `README.md`) silently opens it
+    /// as a vault and writes `.vault/` into it, with no consent step. So a
+    /// pick needs the `.vault/` marker or at least two top-level `.md` files.
+    Picked,
+}
+
+/// Number of top-level `.md` files, counting at most `cap` (so a huge folder
+/// is not walked further than the decision needs).
+fn top_level_md_count(p: &Path, cap: usize) -> usize {
+    fs::read_dir(p)
+        .map(|rd| {
+            rd.flatten()
+                .filter(|e| e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case("md")))
+                .take(cap)
+                .count()
+        })
+        .unwrap_or(0)
+}
+
+/// Does this folder already hold a vault, at the given confidence? The
+/// `.vault/` marker is conclusive either way; the markdown fallback is what
+/// the two levels disagree about.
+pub fn looks_like_vault_at(p: &Path, confidence: Confidence) -> bool {
+    if p.join(VAULT_MARKER).is_dir() {
+        return true;
+    }
+    let need = match confidence {
+        Confidence::Adopting => 1,
+        Confidence::Picked => 2,
+    };
+    top_level_md_count(p, need) >= need
+}
+
+/// The loose test, kept for the boot-time adoption path. See
+/// [`looks_like_vault_at`] for why picking uses the stricter one.
+pub fn looks_like_vault(p: &Path) -> bool {
+    looks_like_vault_at(p, Confidence::Adopting)
+}
+
+/// True when the folder does not exist, or exists with no visible entries.
+/// Dotfiles alone (`.DS_Store`) still count as empty — a Finder artifact is
+/// not user content.
+pub fn is_effectively_empty(p: &Path) -> bool {
+    match fs::read_dir(p) {
+        Err(_) => true,
+        Ok(rd) => !rd.flatten().any(|e| !e.file_name().to_string_lossy().starts_with('.')),
+    }
+}
+
+/// Resolve which vault to open. Pure over its inputs so the order is testable
+/// without a Tauri app handle; `env` is `VAULT_DIR`'s value when set.
+pub fn resolve_vault(cfg_dir: &Path, env: Option<&str>, default_root: &Path) -> Resolution {
+    if let Some(v) = env.map(str::trim).filter(|s| !s.is_empty()) {
+        // an env root is honoured verbatim, existing or not — scratch-dir
+        // dev flows depend on the engine creating and seeding it
+        return Resolution::Root(PathBuf::from(v), Source::Env);
+    }
+    if let Some(stored) = read_config(cfg_dir).vault {
+        // a stored path that vanished (vault moved or deleted) falls through
+        // to first run rather than silently reseeding an empty folder
+        if stored.is_dir() && looks_like_vault(&stored) {
+            return Resolution::Root(stored, Source::Stored);
+        }
+    }
+    if default_root.is_dir() && looks_like_vault(default_root) {
+        return Resolution::Root(default_root.to_path_buf(), Source::AdoptedDefault);
+    }
+    Resolution::FirstRun
+}
+
+/// What `vault_inspect` reports about a candidate folder, so the UI can name
+/// the exact action ("Open vault" / "Initialize here" / refuse).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VaultCandidate {
+    pub path: String,
+    pub exists: bool,
+    pub is_vault: bool,
+    /// Non-empty and not a vault: initializing here needs explicit consent.
+    pub empty: bool,
+}
+
+pub fn inspect(p: &Path) -> VaultCandidate {
+    VaultCandidate {
+        path: p.to_string_lossy().into_owned(),
+        exists: p.is_dir(),
+        // a picked folder is judged strictly: one stray README.md must reach
+        // the consent screen, not open silently as a vault
+        is_vault: p.is_dir() && looks_like_vault_at(p, Confidence::Picked),
+        empty: is_effectively_empty(p),
+    }
+}
+
+/// Validate-and-initialize in one step. Returns whether the caller should let
+/// the engine seed starter notes (true only for a folder we just created or
+/// that was empty).
+///
+/// Never writes into a folder that holds unrelated content unless `consent`
+/// says the user explicitly chose "initialize here".
+pub fn open_or_init(p: &Path, consent: bool) -> Result<bool, String> {
+    if p.exists() && !p.is_dir() {
+        return Err(format!("{} is a file, not a folder", p.display()));
+    }
+    let existed = p.is_dir();
+    // strict: this is a pick, so a lone README.md is content to be consented
+    // to, not a vault to adopt (SUB-436 review #4)
+    if existed && looks_like_vault_at(p, Confidence::Picked) {
+        // already a vault: adopt as-is, no seeding, marker backfilled
+        fs::create_dir_all(p.join(VAULT_MARKER)).map_err(|e| e.to_string())?;
+        return Ok(false);
+    }
+    let empty = is_effectively_empty(p);
+    if existed && !empty && !consent {
+        return Err(format!(
+            "{} already holds other files — confirm initializing a vault here",
+            p.display()
+        ));
+    }
+    fs::create_dir_all(p.join(VAULT_MARKER)).map_err(|e| e.to_string())?;
+    // seed only into a folder that had nothing in it; adopting a folder of
+    // existing files must not sprinkle sample notes among them
+    Ok(!existed || empty)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    fn vault_at(dir: &Path) -> PathBuf {
+        let v = dir.join("V");
+        fs::create_dir_all(v.join(".vault")).unwrap();
+        v
+    }
+
+    #[test]
+    fn env_wins_over_everything_and_need_not_exist() {
+        let t = TempDir::new().unwrap();
+        let cfg = t.path().join("cfg");
+        let stored = vault_at(t.path());
+        write_vault_choice(&cfg, &stored).unwrap();
+        let default = vault_at(&{
+            let d = t.path().join("home");
+            fs::create_dir_all(&d).unwrap();
+            d
+        });
+        let missing = t.path().join("scratch-not-created");
+        assert_eq!(
+            resolve_vault(&cfg, Some(missing.to_str().unwrap()), &default),
+            Resolution::Root(missing, Source::Env)
+        );
+    }
+
+    #[test]
+    fn empty_env_is_ignored() {
+        let t = TempDir::new().unwrap();
+        let cfg = t.path().join("cfg");
+        let default = vault_at(t.path());
+        assert_eq!(
+            resolve_vault(&cfg, Some("  "), &default),
+            Resolution::Root(default, Source::AdoptedDefault)
+        );
+    }
+
+    #[test]
+    fn stored_choice_beats_default() {
+        let t = TempDir::new().unwrap();
+        let cfg = t.path().join("cfg");
+        let stored = t.path().join("chosen");
+        fs::create_dir_all(stored.join(".vault")).unwrap();
+        let default = vault_at(t.path());
+        write_vault_choice(&cfg, &stored).unwrap();
+        assert_eq!(resolve_vault(&cfg, None, &default), Resolution::Root(stored, Source::Stored));
+    }
+
+    #[test]
+    fn stored_choice_that_vanished_falls_through_to_first_run() {
+        let t = TempDir::new().unwrap();
+        let cfg = t.path().join("cfg");
+        write_vault_choice(&cfg, &t.path().join("gone")).unwrap();
+        assert_eq!(resolve_vault(&cfg, None, &t.path().join("no-default")), Resolution::FirstRun);
+    }
+
+    /// The common boot: no stored choice, `~/Vault` present — adopt silently.
+    #[test]
+    fn existing_default_vault_is_adopted_without_asking() {
+        let t = TempDir::new().unwrap();
+        let cfg = t.path().join("cfg");
+        let default = vault_at(t.path());
+        assert_eq!(
+            resolve_vault(&cfg, None, &default),
+            Resolution::Root(default, Source::AdoptedDefault)
+        );
+    }
+
+    /// A pre-marker vault (markdown at top level, no `.vault/`) is still a
+    /// vault — an existing user never sees onboarding.
+    #[test]
+    fn default_with_markdown_but_no_marker_is_adopted() {
+        let t = TempDir::new().unwrap();
+        let default = t.path().join("Vault");
+        fs::create_dir_all(&default).unwrap();
+        fs::write(default.join("Welcome.md"), "hi").unwrap();
+        assert_eq!(
+            resolve_vault(&t.path().join("cfg"), None, &default),
+            Resolution::Root(default, Source::AdoptedDefault)
+        );
+    }
+
+    #[test]
+    fn nothing_anywhere_is_first_run() {
+        let t = TempDir::new().unwrap();
+        assert_eq!(
+            resolve_vault(&t.path().join("cfg"), None, &t.path().join("Vault")),
+            Resolution::FirstRun
+        );
+    }
+
+    #[test]
+    fn empty_default_folder_is_not_a_vault() {
+        let t = TempDir::new().unwrap();
+        let default = t.path().join("Vault");
+        fs::create_dir_all(&default).unwrap();
+        assert_eq!(resolve_vault(&t.path().join("cfg"), None, &default), Resolution::FirstRun);
+    }
+
+    #[test]
+    fn config_roundtrips_and_a_broken_file_is_not_fatal() {
+        let t = TempDir::new().unwrap();
+        let cfg = t.path().join("cfg");
+        write_vault_choice(&cfg, Path::new("/tmp/x")).unwrap();
+        assert_eq!(read_config(&cfg).vault, Some(PathBuf::from("/tmp/x")));
+        fs::write(cfg.join(CONFIG_FILE), "{not json").unwrap();
+        assert_eq!(read_config(&cfg).vault, None);
+    }
+
+    #[test]
+    fn init_creates_a_new_vault_and_asks_for_seeding() {
+        let t = TempDir::new().unwrap();
+        let fresh = t.path().join("New Vault");
+        assert_eq!(open_or_init(&fresh, false), Ok(true));
+        assert!(fresh.join(".vault").is_dir());
+        assert!(looks_like_vault(&fresh));
+    }
+
+    #[test]
+    fn init_adopts_an_existing_vault_without_seeding() {
+        let t = TempDir::new().unwrap();
+        let v = vault_at(t.path());
+        fs::write(v.join("Note.md"), "x").unwrap();
+        assert_eq!(open_or_init(&v, false), Ok(false));
+    }
+
+    #[test]
+    fn init_refuses_a_non_vault_folder_with_content_until_consent() {
+        let t = TempDir::new().unwrap();
+        let d = t.path().join("Downloads");
+        fs::create_dir_all(&d).unwrap();
+        fs::write(d.join("invoice.pdf"), "x").unwrap();
+        assert!(open_or_init(&d, false).is_err());
+        assert!(!d.join(".vault").exists(), "refusal must not write anything");
+        // consent adopts in place — and never seeds sample notes among the
+        // user's own files
+        assert_eq!(open_or_init(&d, true), Ok(false));
+        assert!(d.join(".vault").is_dir());
+    }
+
+    #[test]
+    fn init_treats_a_dotfile_only_folder_as_empty() {
+        let t = TempDir::new().unwrap();
+        let d = t.path().join("Empty");
+        fs::create_dir_all(&d).unwrap();
+        fs::write(d.join(".DS_Store"), "x").unwrap();
+        assert_eq!(open_or_init(&d, false), Ok(true));
+    }
+
+    #[test]
+    fn init_rejects_a_file_path() {
+        let t = TempDir::new().unwrap();
+        let f = t.path().join("note.md");
+        fs::write(&f, "x").unwrap();
+        assert!(open_or_init(&f, true).is_err());
+    }
+
+    /// SUB-436 review #4: one stray `.md` used to be enough for any folder to
+    /// count as a vault, so picking `~/Documents` or a code checkout with a
+    /// single `README.md` opened it silently and wrote `.vault/` into it.
+    #[test]
+    fn a_picked_folder_with_one_stray_md_is_not_a_vault() {
+        let t = TempDir::new().unwrap();
+        let repo = t.path().join("some-checkout");
+        fs::create_dir_all(&repo).unwrap();
+        fs::write(repo.join("README.md"), "# project").unwrap();
+        fs::write(repo.join("main.rs"), "fn main() {}").unwrap();
+
+        assert!(!looks_like_vault_at(&repo, Confidence::Picked));
+        let i = inspect(&repo);
+        assert!(i.exists && !i.is_vault && !i.empty, "the UI must ask for consent: {i:?}");
+
+        // and the write path refuses without that consent, writing nothing
+        assert!(open_or_init(&repo, false).is_err());
+        assert!(!repo.join(VAULT_MARKER).exists(), "refusal must not write anything");
+    }
+
+    /// The other side of the split: a legacy `~/Vault` holding a single note
+    /// and no marker is still adopted silently at boot.
+    #[test]
+    fn adoption_still_accepts_a_legacy_vault_with_one_md() {
+        let t = TempDir::new().unwrap();
+        let default = t.path().join("Vault");
+        fs::create_dir_all(&default).unwrap();
+        fs::write(default.join("Welcome.md"), "hi").unwrap();
+
+        assert!(looks_like_vault_at(&default, Confidence::Adopting));
+        assert!(!looks_like_vault_at(&default, Confidence::Picked));
+        assert_eq!(
+            resolve_vault(&t.path().join("cfg"), None, &default),
+            Resolution::Root(default, Source::AdoptedDefault)
+        );
+    }
+
+    /// Two top-level notes is the threshold a pick has to clear, for a real
+    /// pre-marker vault chosen by hand.
+    #[test]
+    fn a_picked_pre_marker_vault_with_two_notes_is_adopted_as_is() {
+        let t = TempDir::new().unwrap();
+        let v = t.path().join("Old Vault");
+        fs::create_dir_all(&v).unwrap();
+        fs::write(v.join("Welcome.md"), "a").unwrap();
+        fs::write(v.join("Ideas.md"), "b").unwrap();
+
+        assert!(looks_like_vault_at(&v, Confidence::Picked));
+        assert!(inspect(&v).is_vault);
+        // adopted, not seeded, and the marker is backfilled
+        assert_eq!(open_or_init(&v, false), Ok(false));
+        assert!(v.join(VAULT_MARKER).is_dir());
+    }
+
+    /// The marker is conclusive at both levels, whatever else is in there.
+    #[test]
+    fn the_marker_alone_satisfies_a_pick() {
+        let t = TempDir::new().unwrap();
+        let v = vault_at(t.path());
+        assert!(looks_like_vault_at(&v, Confidence::Picked));
+        assert!(looks_like_vault_at(&v, Confidence::Adopting));
+    }
+
+    #[test]
+    fn inspect_reports_the_three_states() {
+        let t = TempDir::new().unwrap();
+        let v = vault_at(t.path());
+        let i = inspect(&v);
+        assert!(i.exists && i.is_vault);
+
+        let d = t.path().join("Docs");
+        fs::create_dir_all(&d).unwrap();
+        fs::write(d.join("a.txt"), "x").unwrap();
+        let i = inspect(&d);
+        assert!(i.exists && !i.is_vault && !i.empty);
+
+        let i = inspect(&t.path().join("nope"));
+        assert!(!i.exists && !i.is_vault && i.empty);
+    }
+}

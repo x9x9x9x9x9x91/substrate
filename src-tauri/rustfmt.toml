@@ -1,0 +1,6 @@
+# rustfmt defaults would explode a lot of this codebase's deliberate one-liners:
+# short `let ... else { continue };` guards and inline struct literals. Both
+# settings preserve how the code is already written (429 -> 332 reformat hunks)
+# rather than restyling working code to satisfy a width heuristic.
+use_small_heuristics = "Max"
+single_line_let_else_max_width = 100

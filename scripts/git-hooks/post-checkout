@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+
+set -u
+
+git_dir_raw="$(git rev-parse --git-dir 2>/dev/null)" || exit 0
+common_dir_raw="$(git rev-parse --git-common-dir 2>/dev/null)" || exit 0
+git_dir="$(cd "$git_dir_raw" 2>/dev/null && pwd -P)" || exit 0
+common_dir="$(cd "$common_dir_raw" 2>/dev/null && pwd -P)" || exit 0
+
+[[ "$git_dir" == "$common_dir" ]] || exit 0
+if git symbolic-ref --quiet HEAD >/dev/null 2>&1; then
+  # a branch checked out in the read-mostly primary is the setup for the
+  # next session's "why is this detached/stale" confusion — flag it now,
+  # at checkout, not at the eventual blocked commit
+  branch="$(git symbolic-ref --short HEAD 2>/dev/null)"
+  printf 'WARNING: branch %s checked out in the Substrate primary checkout (read-mostly by design — see CLAUDE.md).\nWork in a worktree instead: git worktree add .worktrees/<topic> %s\nThen restore the primary: git checkout --detach origin/main\n' "${branch:-?}" "${branch:-<branch>}" >&2
+  exit 0
+fi
+git rev-parse --verify --quiet 'origin/main^{commit}' >/dev/null || exit 0
+behind="$(git rev-list --count HEAD..origin/main 2>/dev/null)" || exit 0
+
+if (( behind > 0 )); then
+  printf 'WARNING: primary checkout detached HEAD is %s commit(s) behind origin/main; fast-forward with: git merge --ff-only origin/main\n' "$behind" >&2
+fi
+
+exit 0

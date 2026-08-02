@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.substrate.vault-sync</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/node</string>
+    <string>/Users/USERNAME/path/to/substrate/scripts/vault-sync-server/serve.ts</string>
+    <string>--repo</string>
+    <string>/Users/USERNAME/Library/Application Support/Substrate/vault-sync/vault.git</string>
+    <string>--token-file</string>
+    <string>/Users/USERNAME/Library/Application Support/Substrate/vault-sync/token</string>
+    <string>--cert</string>
+    <string>/Users/USERNAME/Library/Application Support/Substrate/vault-sync/server-cert.pem</string>
+    <string>--key</string>
+    <string>/Users/USERNAME/Library/Application Support/Substrate/vault-sync/server-key.pem</string>
+    <string>--bind</string>
+    <string>REPLACE_WITH_LAN_IP</string>
+    <string>--port</string>
+    <string>7420</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/USERNAME/path/to/substrate</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>Umask</key>
+  <integer>63</integer>
+  <key>StandardOutPath</key>
+  <string>/Users/USERNAME/Library/Application Support/Substrate/vault-sync/server.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/USERNAME/Library/Application Support/Substrate/vault-sync/server-error.log</string>
+</dict>
+</plist>

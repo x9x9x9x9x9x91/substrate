@@ -1,0 +1,91 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Substrate",
+  "version": "0.18.0",
+  "identifier": "com.example.substrate",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Substrate",
+        "width": 1240,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 620,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "theme": "Dark",
+        "backgroundColor": "#08090A",
+        "maximized": true
+      }
+    ],
+    "macOSPrivateApi": true,
+    "security": {
+      "dangerousDisableAssetCspModification": ["style-src"],
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: http://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost data: blob:; connect-src 'self' asset: http://asset.localhost ipc: http://ipc.localhost data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'none'",
+      "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' asset: http://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost data: blob:; connect-src 'self' asset: http://asset.localhost ipc: http://ipc.localhost data: blob: ws://localhost:1420 http://localhost:1420; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-src 'none'; frame-ancestors 'none'; form-action 'none'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": {
+          "allow": ["$HOME/**", "/Volumes/**", "/tmp/**", "/private/tmp/**"],
+          "deny": [
+            "$HOME/.ssh/**",
+            "$HOME/.gnupg/**",
+            "$HOME/.aws/**",
+            "$HOME/.config/**",
+            "$HOME/.docker/**",
+            "$HOME/.kube/**",
+            "$HOME/.claude/**",
+            "$HOME/.codex/**",
+            "$HOME/.npmrc",
+            "$HOME/.netrc",
+            "$HOME/.zsh_history",
+            "$HOME/.bash_history",
+            "$HOME/.gitconfig",
+            "$HOME/.git-credentials",
+            "$HOME/.cargo/credentials.toml",
+            "$HOME/Library/Keychains/**",
+            "$HOME/Library/Cookies/**",
+            "$HOME/Library/Messages/**",
+            "$HOME/Library/Mail/**",
+            "$HOME/Library/Safari/**",
+            "$HOME/Library/Application Support/**",
+            "$HOME/Library/Containers/**",
+            "$HOME/Library/Group Containers/**",
+            "$HOME/Library/Mobile Documents/**",
+            "$HOME/**/.env",
+            "$HOME/**/.env.*",
+            "$HOME/**/.git/**"
+          ],
+          "requireLiteralLeadingDot": false
+        }
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": {
+      "../examples/vault/": "demo-vault"
+    },
+    "macOS": {
+      "signingIdentity": null,
+      "hardenedRuntime": true
+    },
+    "iOS": {
+      "developmentTeam": null
+    },
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
+}

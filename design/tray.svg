@@ -1,0 +1,17 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Tray/menu-bar mark: the rooted asterisk from icon.svg, no tile, no
+       gradients — solid black on transparency so macOS can tint it as a
+       template image (icon_as_template). Full-bleed and heavily stroked: the
+       earlier version reused the app tile's inner geometry, which spent ~half
+       the 18pt box on padding and measured the smallest, thinnest glyph in the
+       menu bar next to Ivory/Fantastical/Spark/Dropbox. -->
+  <g stroke="#000000" stroke-linecap="round" fill="none">
+    <g stroke-width="132">
+      <line x1="512" y1="120" x2="512" y2="672"/>
+      <line x1="262" y1="235" x2="762" y2="557"/>
+      <line x1="762" y1="235" x2="262" y2="557"/>
+    </g>
+    <line x1="130" y1="700" x2="894" y2="700" stroke-width="112"/>
+    <line x1="512" y1="700" x2="512" y2="912" stroke-width="132"/>
+  </g>
+</svg>

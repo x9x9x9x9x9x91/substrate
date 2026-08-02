@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "agenda",
+  "description": "Capability for the tray agenda popover",
+  "windows": ["agenda"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-hide",
+    "core:event:allow-listen"
+  ]
+}

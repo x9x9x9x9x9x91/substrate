@@ -1,0 +1,75 @@
+[package]
+name = "substrate"
+version = "0.18.0"
+description = "Substrate — local-first notes, databases, dashboards"
+license = "AGPL-3.0-only"
+edition = "2021"
+
+[lib]
+name = "substrate_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# Clippy gate (CI runs `cargo clippy --all-targets -- -D warnings`). Only the
+# lints we've deliberately ruled on live here; everything else keeps its
+# default level so new warnings surface instead of being pre-silenced.
+[lints.clippy]
+# Tauri IPC commands take their arguments flat — that IS the wire shape, and
+# the engine methods behind them mirror it 1:1. The four sites over the
+# default 7 (vault_views_set/vault_schema_set and their Engine halves) are
+# option bags, not tangled logic; bundling them into structs would add a
+# serde type per command purely to satisfy a count.
+too_many_arguments = { level = "allow", priority = 1 }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# `macos-private-api` pairs with `macOSPrivateApi: true` in tauri.conf.json
+# (the build script fails if the two disagree). It enables the transparent
+# window path the tray agenda popover needs — SUB-746: an opaque window
+# painted a black square behind the card's 12px radius.
+tauri = { version = "2", features = ["protocol-asset", "macos-private-api"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-notification = "2"
+
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+rusqlite = { version = "0.37", features = ["bundled"] }
+notify = "8"
+walkdir = "2"
+chrono = "0.4"
+regex = "1"
+base64 = "0.22"
+ureq = "2"
+# already in the tree as ureq's own dependency — named here because net.rs
+# parses and re-joins redirect targets itself (SUB-427 SSRF guard)
+url = "2"
+git2 = { version = "0.20", default-features = false, features = ["https", "vendored-libgit2", "vendored-openssl"] }
+
+# tray + global shortcuts are desktop-only concepts; on iOS/Android the
+# feature/plugin don't exist, so they ride the desktop target cfg
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png", "protocol-asset", "macos-private-api"] }
+tauri-plugin-global-shortcut = "2"
+# terminal HUD (SUB-398) — a real PTY so full-screen TUIs (agent CLIs) render;
+# desktop-only like the tray: no shell to embed on iOS/Android
+portable-pty = "0.9"
+
+# Interactive macOS notifications (click + snooze actions) for SUB-21 — the
+# desktop API of tauri-plugin-notification is fire-and-forget, so due-date
+# alerts use the same NSUserNotification backend directly.
+[target.'cfg(target_os = "macos")'.dependencies]
+mac-notification-sys = "0.6"
+# SUB-614: hand internal drags back to WebKit (src/dragfix.rs) — same objc2
+# the wry/tauri stack already builds with
+objc2 = "0.6"
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+security-framework = "3"
+
+[dev-dependencies]
+proptest = "1.11.0"
+tempfile = "3"

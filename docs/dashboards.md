@@ -1,0 +1,340 @@
+# Dashboards — a guide
+
+A dashboard is just a note: `type: dashboard` plus a `dashboard:` prop naming the
+renderer. The note's frontmatter and fenced blocks are the config and the data —
+everything is plain text, so a dashboard is created by writing a file (or making a
+note in-app and adding the props). This guide shows each kind with a complete
+copy-paste example; the exact on-disk contract lives in
+[vault-format.md §5](vault-format.md).
+
+A ready-made vault with working instances of everything below is in
+[`examples/vault/`](../examples/vault/Welcome.md) — copy it somewhere and point the
+app at it:
+
+```sh
+cp -r examples/vault ~/SubstrateDemo
+VAULT_DIR=~/SubstrateDemo npm run tauri dev
+```
+
+(Copy first — the app initializes version history and support folders inside the
+vault it opens, which you don't want inside this repo.)
+
+## The portable kinds
+
+These read only the vault. They work anywhere.
+
+`metrics`, `charts` and `hub` also leave the app: the head's **Print** action
+(SUB-676) prints the live pane as designed — a workbook's *active* page, not
+every page — through the same `@media print` surface notes use (Save as PDF
+lives in the dialog). The machine-specific kinds stay screen-only.
+
+### `metrics` — stat cards over a sheet
+
+Cards bind to named summaries on a [sheet](sheets-spec.md). Two notes: the sheet
+holds data + formulas, the dashboard holds the cards.
+
+````markdown
+---
+type: sheet
+title: Holdings
+---
+
+```csv
+asset,bucket,units,price_usd
+GLOW,etf,1200,31.4
+BTC,crypto,4.1,64200
+```
+
+```formulas
+value_usd = units * price_usd
+total  = SUM(value_usd)
+crypto = SUMIF(bucket, "crypto", value_usd)
+```
+````
+
+```markdown
+---
+type: dashboard
+dashboard: metrics
+cards:
+  - label: Total value
+    bind: "{{Holdings.total}}"
+    format: usd
+    emph: true
+  - label: Crypto
+    bind: "{{Holdings.crypto}}"
+    format: usd
+---
+```
+
+`format`: `eur` | `usd` | `number` | `pct`; optional `digits`. A bind must name a
+**summary** (an aggregate line), not a column. `emph: true` marks a card as one
+of the board's anchors — at most two stay sharp, everything else sinks to the
+quiet voice (design principle 11). `FX("USD","EUR")` in formulas uses a
+live rate cached on the sheet's own `fx_rate`/`fx_date` props.
+
+### `charts` — bar/line charts over a database or sheet
+
+One ` ```chart ` fence per chart; the body can hold several. `source` is a database
+type or `{{Sheet Name}}`.
+
+````markdown
+---
+type: dashboard
+dashboard: charts
+---
+
+```chart
+source: release
+x: released:month
+y: count
+kind: bar
+title: Releases per month
+```
+
+```chart
+source: {{Holdings}}
+x: asset
+y: sum:value_usd
+kind: bar
+```
+````
+
+`x` is a prop, or `prop:day|week|month` for date bucketing; `y` is `count`,
+`sum:<prop>`, or `avg:<prop>`. A malformed fence renders its parse error in place
+and never breaks the others.
+
+**Plotting a sheet's summaries (`series`).** `x`/`y` plot *rows*, so a set of
+bucket totals that only exists in the summary bar would need bucket rows
+materialized in the sheet to chart. `series` binds those named summaries
+directly — one bar per name, in fence order:
+
+````markdown
+```chart
+source: {{Holdings}}
+series: etf, crypto, cash
+kind: bar
+title: Buckets
+```
+````
+
+`series` replaces `x`/`y` rather than joining them: a fence carrying both is a
+parse error, as is `series` on a database source (summaries are a sheet thing).
+Names match case-insensitively and the summary bar's own casing labels the bar.
+A name that isn't a summary on that sheet — a row column, a typo, a summary
+that errored or isn't a number — fails the whole chart with a message naming
+it, rather than quietly dropping the bar; a chart whose points are named by
+hand should never lie about a missing one.
+
+### `hub` — a designed home page
+
+The body stays ordinary markdown; the renderer lays it out. `## ` headings become
+section labels, a run of consecutive callouts (no blank lines between them)
+becomes a side-by-side card row, and ` ```view ` fences embed live database
+tables between them.
+
+````markdown
+---
+type: dashboard
+dashboard: hub
+---
+
+## Now
+
+> [!note] Studio
+> Mixdown pass on [[Vessel]] this week.
+> [!warn] Deadline
+> Master delivery due Friday.
+> [!idea] Later
+> Try the granular chain on the outro.
+
+## Releases in flight
+
+```view
+type: release
+query: status:mastering
+view: table
+```
+````
+
+### `food` — daily net-kcal tracker
+
+The dashboard note holds only config; rows live in a separate log **sheet** the
+pane reads and appends to (columns `date,food,kcal,protein_g`; negative kcal =
+exercise). The ‹ › arrows or a click on a strip bar review/log past days. A
+second sheet (`db` prop, default "Food DB") holds stable kcal bases the
+autocomplete prices from — `per` is `100g`, `100ml`, or `x` (per unit), with
+optional `protein` at the same basis and optional `g` (grams per unit) on `x`
+entries, which lets gram-typed quantities price against piece-based foods;
+the pane's Database section adds/removes entries. The food field also takes kcal expressions: `<name> <qty>g <kcal>ph`
+prices a weight at a per-hundred basis ("Eintopf 200g 100ph" → 200), and
+trailing arithmetic evaluates ("Pizza 2*180", "23+23") — either beats the
+remembered/DB fill.
+
+````markdown
+---
+type: dashboard
+dashboard: food
+log: Food Log
+db: Food DB
+floor: 1900
+ceiling: 2300
+---
+````
+
+````markdown
+---
+type: sheet
+title: Food Log
+---
+
+```csv
+date,food,kcal,protein_g
+2026-07-20,Porridge with berries,420,14
+2026-07-20,Evening run,-300,0
+```
+````
+
+````markdown
+---
+type: sheet
+title: Food DB
+---
+
+```csv
+name,kcal,per,protein
+Skyr,60,100g,11
+Eggs,80,x,7
+```
+````
+
+### `feed` — curated newsfeed
+
+The dashboard note holds only config; the items live in a separate **sheet** an
+external curator agent writes (columns
+`date,topic,title,source,url,blurb,why,fb`). One unified stream, newest day
+first — and inside a day the sheet's row order stays untouched, because that
+order is the curator's ranking. `blurb` says what it is, `why` says why it
+matters to you. `curated` is rendered verbatim as the head's meta — and parsed
+leniently for the head's state dot: a stamp older than ~36h reads as a warning
+`stale · <age>` instead of the item count (SUB-699); anything unparseable
+stays neutral.
+
+The app writes **only** the `fb` column: ↑ / ↓ per item, clicking the active
+verdict clears it. The write is conflict-guarded and touches that single cell,
+so a re-curation mid-session fails safe instead of clobbering the new stream.
+
+````markdown
+---
+type: dashboard
+dashboard: feed
+items: News Items
+curated: 2026-07-26 09:10
+---
+````
+
+````markdown
+---
+type: sheet
+title: News Items
+---
+
+```csv
+date,topic,title,source,url,blurb,why,fb
+2026-07-26,plugins,"Morph 3 ships, realtime now",CDM,https://cdm.link/x,"Spectral morph, low latency.","First one you could perform with.",up
+2026-07-25,ai,Open-weights stem separator,HN,https://news.ycombinator.com/x,"Local, ~2x realtime.","Archive salvage for tracks with no stems.",
+```
+````
+
+Unknown `topic` values render with a neutral chip, so the curator is free to
+invent slugs. A non-`http(s)` or empty `url` renders the title unlinked.
+
+
+### `music-work` — the work index, pivoted
+
+A read-only board over a **sheet** an external tree scanner writes (columns
+`category,client,job,year,last_active,files,size_mb,flags`). The production
+folder tree it indexes is category-first — `MASTERING/<artist>/<job>` — so the
+filesystem already answers "everything for this artist" and can't answer "what
+did I do in 2025". This pane supplies the missing axes over the same rows.
+
+Three views, switched in the head: **year** (default — years newest first,
+categories inside), **artist** (artists A–Z, their years newest first), and
+**category** (categories A–Z, years inside). The group header carries the
+page's two sharp values, the group's job count and total size; every job line
+stays quiet. The filter box narrows by artist or job substring and the group
+totals follow it. A non-empty `flags` cell puts a small chip on the job name
+with the scanner's reason in its tooltip — it marks dating the scan isn't sure
+about, not a broken job.
+
+The app never writes this sheet, so a malformed row is skipped rather than
+raised, and a missing sheet reads as an empty state, not an error.
+
+````markdown
+---
+type: dashboard
+dashboard: music-work
+index: Work Index
+---
+````
+
+````markdown
+---
+type: sheet
+title: Work Index
+---
+
+```csv
+category,client,job,year,last_active,files,size_mb,flags
+MASTERING,Ada Voss,Voss Signal,2026,2026-06-13,318,23949,
+MASTERING,Mira,Fern Static,2025,2026-07-29,51,1392,name 2025 vs files 2026
+MIXING,Juno Marek,ep4,2026,2026-07-18,196,14324,
+```
+````
+
+`index:` names the sheet by title and defaults to `Work Index`. Column order is
+free and header matching is case-insensitive, so the scanner can grow columns
+without breaking the pane; a row with no job name or no 4-digit year is
+skipped, and missing counts read as 0.
+
+### `yield-apr` — the yield/APR tracker
+
+Owns its data: an append-only csv fence of snapshots in its own body. The pane
+computes per-interval APR and projected day/week/month/year yield, and its form
+appends rows.
+
+````markdown
+---
+type: dashboard
+dashboard: yield-apr
+---
+
+```csv
+at,yield_usd,principal_usd
+2026-07-17 10:00,0,100000
+2026-07-18 10:00,26,100000
+2026-07-19 10:00,53,100000
+```
+````
+
+A note with `type: dashboard` and no recognized `dashboard:` key falls back by
+body content: ` ```chart ` fences → charts, otherwise the yield tracker.
+
+
+## Workbook pages — tabs at the bottom (SUB-464)
+
+Any dashboard can grow pages: add a `pages:` list to its frontmatter and the
+pane gains a sheet-tab strip at the bottom, like a spreadsheet. The first tab
+is the dashboard itself; each entry adds a page pointing at a sheet note
+(editable grid), another dashboard (rendered flat — no nested tabs), or a
+database cut (`view:` + optional `query:`, or `saved:` for a pin). ⌃⇥ / ⌃⇧⇥
+cycle pages. The demo vault's `Label Accounting` workbook is the reference:
+metrics cards over a statements sheet, with the statement and splits sheets
+plus the release database one tab away. Full contract: `vault-format.md` §5.6a.
+
+## Creating one in-app
+
+New note (⌘N or the palette), then add the props — set “Database” to `dashboard`
+and add a `dashboard` prop with the kind. The sidebar's Dashboards section lists
+every `type: dashboard` note. Since dashboards are files, an external tool or
+agent can also just write them into the vault; the watcher picks them up live.

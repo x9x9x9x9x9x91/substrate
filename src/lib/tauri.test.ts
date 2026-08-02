@@ -1,0 +1,740 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import type {
+  NoteMeta,
+  RelatedEntry,
+  RenameResult,
+  SavedView,
+  SchemaConfig,
+  ViewsConfig,
+} from "./types.ts";
+
+/* The mock backend lives behind `isTauri`, which sniffs `window` at module
+   scope — shim one before importing so node lands on the mock lane. */
+(globalThis as { window?: unknown }).window = globalThis;
+const { invoke } = await import("./tauri.ts");
+const { splitEcho, __resetOwnWrites } = await import("./ownwrites.ts");
+
+test("template reads reuse the listed spelling, exact first", async () => {
+  const listed = await invoke<string[]>("vault_template_list");
+  assert.ok(listed.includes("release"));
+  const template = await invoke<{ body: string } | null>("vault_template_read", {
+    noteType: "RELEASE",
+  });
+  assert.match(template?.body ?? "", /\{\{title\}\}/);
+});
+
+test("create rejects folded engine-owned props at the mock boundary", async () => {
+  const note = await invoke<NoteMeta>("vault_create", {
+    title: "Folded Owned Props 728",
+    folder: "",
+    noteType: "release",
+    props: [
+      ["Type", "hijack"],
+      ["TITLE", "Hijack"],
+      ["Created", "1999-01-01"],
+      ["Status", "todo"],
+    ],
+  });
+  assert.equal(note.props.type, "release");
+  assert.ok(note.props.created);
+  assert.equal(note.props.Status, "todo");
+  assert.equal(note.props.Type, undefined);
+  assert.equal(note.props.TITLE, undefined);
+  assert.equal(note.props.Created, undefined);
+});
+
+test("mock create rejects folded duplicate props before mutation", async () => {
+  const before = await invoke<NoteMeta[]>("vault_list");
+  await assert.rejects(
+    () =>
+      invoke("vault_create", {
+        title: "Folded Duplicate Props 728",
+        folder: "Never Created 728",
+        props: [["Status", "first"], ["status", "second"]],
+      }),
+    /duplicate property “status”/
+  );
+  const after = await invoke<NoteMeta[]>("vault_list");
+  assert.equal(after.length, before.length);
+  assert.ok(!after.some((n) => n.title === "Folded Duplicate Props 728"));
+});
+
+test("mock template rename and delete reuse folded sanitized stored identity", async () => {
+  await invoke("vault_create_type", { name: "template:admin:rename:728", props: [] });
+  await invoke("vault_write_body", {
+    path: ".vault/templates/Template Admin Rename 728.md",
+    body: "rename me\n",
+  });
+  await invoke("vault_rename_type", {
+    old: "template:admin:rename:728",
+    new: "template:admin:renamed:728",
+  });
+  let listed = await invoke<string[]>("vault_template_list");
+  assert.ok(!listed.some((t) => t.toLowerCase() === "template admin rename 728"));
+  assert.ok(listed.includes("template admin renamed 728"));
+
+  await invoke("vault_create_type", { name: "template:admin:delete:728", props: [] });
+  await invoke("vault_write_body", {
+    path: ".vault/templates/Template Admin Delete 728.md",
+    body: "delete me\n",
+  });
+  await invoke("vault_delete_type", {
+    dbType: "template:admin:delete:728",
+    trashNotes: false,
+  });
+  listed = await invoke<string[]>("vault_template_list");
+  assert.ok(!listed.some((t) => t.toLowerCase() === "template admin delete 728"));
+
+  await invoke("vault_create_type", { name: "template-admin-case-728", props: [] });
+  await invoke("vault_write_body", {
+    path: ".vault/templates/template-admin-case-728.md",
+    body: "change my case\n",
+  });
+  await invoke("vault_rename_type", {
+    old: "template-admin-case-728",
+    new: "Template-Admin-Case-728",
+  });
+  listed = await invoke<string[]>("vault_template_list");
+  assert.ok(listed.includes("Template-Admin-Case-728"));
+  assert.ok(!listed.includes("template-admin-case-728"));
+});
+
+test("mock template aliases reject public writes and legacy lifecycle fails closed", async () => {
+  await invoke("vault_create_type", { name: "Probe:A728", props: [] });
+  await assert.rejects(
+    () => invoke("vault_create_type", { name: "Probe?A728", props: [] }),
+    /share template file/
+  );
+  await invoke("vault_create_type", { name: "Probe Rename Source 728", props: [] });
+  await assert.rejects(
+    () =>
+      invoke("vault_rename_type", {
+        old: "Probe Rename Source 728",
+        new: "Probe?A728",
+      }),
+    /share template file/
+  );
+
+  assert.ok(window.__mockEditSchema);
+  window.__mockEditSchema("Probe?A728", {});
+  await invoke("vault_write_body", {
+    path: ".vault/templates/Probe A728.md",
+    body: "shared legacy template\n",
+  });
+  assert.equal(
+    await invoke("vault_template_read", { noteType: "Probe:A728" }),
+    null,
+    "ambiguous ownership fails closed"
+  );
+  await invoke("vault_delete_type", { dbType: "Probe?A728", trashNotes: false });
+  assert.ok((await invoke<string[]>("vault_template_list")).includes("Probe A728"));
+  assert.equal(
+    (await invoke<{ body: string } | null>("vault_template_read", { noteType: "Probe:A728" }))
+      ?.body,
+    "shared legacy template\n"
+  );
+
+  window.__mockEditSchema("Probe?A728", {});
+  await invoke("vault_rename_type", { old: "Probe?A728", new: "Probe Unique 728" });
+  assert.ok((await invoke<string[]>("vault_template_list")).includes("Probe A728"));
+  await invoke("vault_delete_type", { dbType: "Probe Unique 728", trashNotes: false });
+  await invoke("vault_delete_type", { dbType: "Probe:A728", trashNotes: false });
+});
+
+test("mock type rename refuses a distinct case-only schema peer before mutation", async () => {
+  const upper = "LegacyCaseMock728";
+  const lower = "legacycasemock728";
+  await invoke("vault_create_type", {
+    name: upper,
+    props: [{ name: "UpperOnly", kind: "text" }],
+  });
+  const note = await invoke<NoteMeta>("vault_create", {
+    title: "Legacy Case Mock Note 728",
+    folder: "",
+    noteType: lower,
+  });
+  assert.ok(window.__mockEditSchema);
+  window.__mockEditSchema(lower, {
+    LowerOnly: { options: [], kind: "text", description: "keep lower" },
+  });
+
+  const schemaBefore = await invoke<SchemaConfig>("vault_schema_read");
+  const noteBefore = await invoke<{ props: Record<string, unknown> }>("vault_read", {
+    path: note.path,
+  });
+  await assert.rejects(
+    () => invoke("vault_rename_type", { old: upper, new: lower }),
+    /a database named “legacycasemock728” already exists/
+  );
+  const schemaAfter = await invoke<SchemaConfig>("vault_schema_read");
+  const noteAfter = await invoke<{ props: Record<string, unknown> }>("vault_read", {
+    path: note.path,
+  });
+  assert.deepEqual(schemaAfter[upper], schemaBefore[upper]);
+  assert.deepEqual(schemaAfter[lower], schemaBefore[lower]);
+  assert.equal(schemaAfter[lower].LowerOnly.description, "keep lower");
+  assert.deepEqual(noteAfter.props, noteBefore.props, "the note was not rewritten before refusal");
+
+  await invoke("vault_delete_type", { dbType: upper, trashNotes: false });
+  await invoke("vault_delete_type", { dbType: lower, trashNotes: false });
+
+  const solo = "SoloCaseMock728";
+  await invoke("vault_create_type", { name: solo, props: [] });
+  const soloNote = await invoke<NoteMeta>("vault_create", {
+    title: "Solo Case Mock Note 728",
+    folder: "",
+    noteType: solo.toLowerCase(),
+  });
+  await invoke("vault_rename_type", { old: solo, new: solo.toUpperCase() });
+  const soloSchema = await invoke<SchemaConfig>("vault_schema_read");
+  assert.equal(Object.prototype.hasOwnProperty.call(soloSchema, solo.toUpperCase()), true);
+  assert.equal(
+    (await invoke<{ props: Record<string, unknown> }>("vault_read", { path: soloNote.path })).props
+      .type,
+    solo.toUpperCase()
+  );
+  await invoke("vault_delete_type", { dbType: solo.toUpperCase(), trashNotes: false });
+});
+
+test("mock prototype-shaped database stores survive create, admin writes, rename, and delete", async () => {
+  await invoke("vault_create_type", { name: "__proto__", props: [] });
+  await invoke("vault_schema_set_icon", {
+    dbType: "__proto__",
+    emoji: "🧪",
+    glyph: null,
+    tint: null,
+  });
+  await invoke("vault_schema_home_set", { dbType: "__proto__", home: "ProtoHome728" });
+  await invoke("vault_views_set", { db: "__proto__", view: "table" });
+  await invoke("vault_write_body", {
+    path: ".vault/templates/__proto__.md",
+    body: "prototype template\n",
+  });
+
+  let schema = await invoke<SchemaConfig>("vault_schema_read");
+  assert.equal(Object.prototype.hasOwnProperty.call(schema, "__proto__"), true);
+  assert.deepEqual(schema["__proto__"].icon, { emoji: "🧪" });
+  assert.equal(schema["__proto__"].home, "ProtoHome728");
+  let views = await invoke<ViewsConfig>("vault_views_read");
+  assert.equal(Object.prototype.hasOwnProperty.call(views, "__proto__"), true);
+  assert.equal(views["__proto__"].view, "table");
+  assert.equal(
+    (await invoke<{ body: string } | null>("vault_template_read", { noteType: "__PROTO__" }))
+      ?.body,
+    "prototype template\n"
+  );
+
+  await invoke("vault_rename_type", { old: "__proto__", new: "Proto Identity 728" });
+  schema = await invoke<SchemaConfig>("vault_schema_read");
+  assert.equal(Object.prototype.hasOwnProperty.call(schema, "__proto__"), false);
+  assert.deepEqual(schema["Proto Identity 728"].icon, { emoji: "🧪" });
+  assert.equal(schema["Proto Identity 728"].home, "ProtoHome728");
+  views = await invoke<ViewsConfig>("vault_views_read");
+  assert.equal(views["Proto Identity 728"].view, "table");
+  assert.ok((await invoke<string[]>("vault_template_list")).includes("Proto Identity 728"));
+
+  await invoke("vault_delete_type", { dbType: "Proto Identity 728", trashNotes: false });
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      await invoke<SchemaConfig>("vault_schema_read"),
+      "Proto Identity 728"
+    ),
+    false
+  );
+  assert.ok(!(await invoke<string[]>("vault_template_list")).includes("Proto Identity 728"));
+});
+
+test("mock property rename never overwrites a distinct case-only schema destination", async () => {
+  assert.ok(window.__mockEditSchema);
+  window.__mockEditSchema("Mock Rename Duplicate 728", {
+    Status: { options: [], kind: "text", description: "upper" },
+    status: { options: [], kind: "text", description: "keep lower" },
+  });
+
+  await assert.rejects(
+    () =>
+      invoke("vault_rename_prop", {
+        dbType: "Mock Rename Duplicate 728",
+        old: "Status",
+        new: "status",
+      }),
+    /already has a property/
+  );
+  const props = (await invoke<SchemaConfig>("vault_schema_read"))["Mock Rename Duplicate 728"];
+  assert.equal(props.Status.description, "upper");
+  assert.equal(props.status.description, "keep lower");
+  await invoke("vault_delete_type", { dbType: "Mock Rename Duplicate 728", trashNotes: false });
+});
+
+test("rename rewrites only relation props aimed at the renamed note's type (SUB-216)", async () => {
+  // two databases, a same-named note in each — renaming the artist must not
+  // drag the pressing's `label` value along; it points at the label
+  // database's note that happens to share the title
+  await invoke("vault_schema_set", { dbType: "pressing", prop: "artist", kind: "relation", target: "artist" });
+  await invoke("vault_schema_set", { dbType: "pressing", prop: "label", kind: "relation", target: "label" });
+  await invoke<NoteMeta>("vault_create", { title: "X", folder: "", noteType: "artist" });
+  await invoke<NoteMeta>("vault_create", { title: "X", folder: "Labels", noteType: "label" });
+  const pressing = await invoke<NoteMeta>("vault_create", { title: "Test Pressing", folder: "", noteType: "pressing" });
+  await invoke("vault_set_prop", { path: pressing.path, key: "artist", value: "X" });
+  await invoke("vault_set_prop", { path: pressing.path, key: "label", value: "X" });
+
+  await invoke("vault_rename", { path: "X.md", title: "X Prime" });
+
+  const after = await invoke<{ body: string; props: Record<string, unknown> }>("vault_read", {
+    path: pressing.path,
+  });
+  assert.equal(after.props["artist"], "X Prime", "aimed at the renamed note's type: rewrites");
+  assert.equal(after.props["label"], "X", "aimed at the other database's same-named note: untouched");
+});
+
+test("mock relations fold the stored prop key for backlinks and rename rewrites", async () => {
+  const sourceType = "Relation Source Folded 728";
+  const targetType = "Relation Target Folded 728";
+  await invoke("vault_schema_set", {
+    dbType: sourceType,
+    prop: "Contact",
+    kind: "relation",
+    target: targetType,
+  });
+  const target = await invoke<NoteMeta>("vault_create", {
+    title: "Relation Target Note 728",
+    folder: "",
+    noteType: targetType,
+  });
+  const source = await invoke<NoteMeta>("vault_create", {
+    title: "Relation Source Note 728",
+    folder: "",
+    noteType: sourceType,
+  });
+  await invoke("vault_set_prop", {
+    path: source.path,
+    key: "contact",
+    value: target.title,
+  });
+
+  const related = await invoke<RelatedEntry[]>("vault_related", { path: target.path });
+  const backlink = related.find((entry) => entry.path === source.path);
+  assert.equal(backlink?.prop, "contact", "backlinks report the actual stored spelling");
+
+  await invoke("vault_rename", { path: target.path, title: "Relation Target Renamed 728" });
+  const read = await invoke<{ props: Record<string, unknown> }>("vault_read", {
+    path: source.path,
+  });
+  assert.equal(read.props.contact, "Relation Target Renamed 728");
+  assert.equal(read.props.Contact, undefined, "rename does not create the schema spelling in parallel");
+});
+
+test("write_body recomputes the excerpt like the engine (SUB-290 b)", async () => {
+  const note = await invoke<NoteMeta>("vault_create", {
+    title: "Excerpt Parity 290",
+    folder: "",
+    body: "old first line\n",
+  });
+  assert.equal(note.excerpt, "old first line");
+
+  // engine make_excerpt: first non-empty line, leading `# > - * ` markup
+  // stripped, [[ ]] brackets removed
+  const updated = await invoke<NoteMeta>("vault_write_body", {
+    path: note.path,
+    body: "\n# Heading with [[Some Link]] inside\nsecond line\n",
+  });
+  assert.equal(updated.excerpt, "Heading with Some Link inside");
+
+  // lists read the index — the fresh excerpt must show there too, not the
+  // stale pre-edit one
+  const list = await invoke<NoteMeta[]>("vault_list");
+  assert.equal(
+    list.find((n) => n.path === note.path)?.excerpt,
+    "Heading with Some Link inside"
+  );
+
+  // truncation mirrors the engine: 120 chars + ellipsis
+  const longLine = "abcdefghij".repeat(13); // 130 chars
+  const truncated = await invoke<NoteMeta>("vault_write_body", { path: note.path, body: longLine });
+  assert.equal(truncated.excerpt, `${longLine.slice(0, 120)}…`);
+
+  // emptying the body clears the excerpt
+  const emptied = await invoke<NoteMeta>("vault_write_body", { path: note.path, body: "" });
+  assert.equal(emptied.excerpt, "");
+});
+
+test("rename rejects a case-insensitive collision, allows a case-only self-rename (SUB-290 c)", async () => {
+  await invoke<NoteMeta>("vault_create", { title: "Collision Alpha 290", folder: "" });
+  const beta = await invoke<NoteMeta>("vault_create", { title: "Collision Beta 290", folder: "" });
+
+  // "Beta"→"ALPHA" while "Alpha.md" exists — the engine's exists-check on a
+  // case-insensitive filesystem rejects this, and so does vault_create's
+  // dedupe; rename now agrees with both
+  await assert.rejects(
+    () => invoke("vault_rename", { path: beta.path, title: "COLLISION ALPHA 290" }),
+    /already exists/
+  );
+  // a rejected rename leaves the note exactly as it was
+  const list = await invoke<NoteMeta[]>("vault_list");
+  assert.equal(list.find((n) => n.path === beta.path)?.title, "Collision Beta 290");
+
+  // the check compares full paths like the engine's new_abs: a same-named
+  // note in a DIFFERENT folder does not collide
+  await invoke<NoteMeta>("vault_create", { title: "Scoped Same 290", folder: "ScopeA290" });
+  const other = await invoke<NoteMeta>("vault_create", { title: "Scoped Other 290", folder: "ScopeB290" });
+  const cross = await invoke<RenameResult>("vault_rename", { path: other.path, title: "SCOPED SAME 290" });
+  assert.equal(cross.meta.path, "ScopeB290/SCOPED SAME 290.md");
+
+  // a case-only rename of the note itself stays allowed (the engine skips
+  // the exists-check when only the case differs from its own path)
+  const self = await invoke<RenameResult>("vault_rename", { path: beta.path, title: "COLLISION BETA 290" });
+  assert.equal(self.meta.path, "COLLISION BETA 290.md");
+  assert.equal(self.meta.title, "COLLISION BETA 290");
+});
+
+test("search commands cap their result set like the engine (SUB-519)", async () => {
+  // both engine queries are capped — `vault_search` at 30 (vault.rs:2572),
+  // `vault_search_full` at FULL_SEARCH_MAX_NOTES = 200 (vault.rs:94, :2636).
+  // A token no seeded note carries, on more notes than either cap.
+  for (let i = 0; i < 205; i++) {
+    await invoke("vault_create", {
+      title: `Capfixture519 ${i}`,
+      folder: "Cap519",
+      body: "zqxcapfixture matches nothing else\n",
+    });
+  }
+
+  const hits = await invoke<unknown[]>("vault_search", { q: "zqxcapfixture" });
+  assert.equal(hits.length, 30, "vault_search caps at 30");
+
+  const full = await invoke<{ hits: unknown[]; total_notes: number; truncated: boolean }>(
+    "vault_search_full",
+    { q: "zqxcapfixture" }
+  );
+  assert.equal(full.hits.length, 200, "vault_search_full caps at FULL_SEARCH_MAX_NOTES");
+  // the page is capped but the count is of the whole match set (SUB-566), so
+  // the UI can say "first 200 of 205" instead of presenting 200 as the total
+  assert.equal(full.total_notes, 205, "vault_search_full counts every match");
+  assert.equal(full.truncated, true, "vault_search_full reports the truncation");
+});
+
+test("search orders by match, not by insertion order (SUB-519)", async () => {
+  // Seeded deliberately backwards: the note that must rank LAST is created
+  // FIRST, so a mock returning insertion order fails every assertion here.
+  await invoke("vault_create", {
+    title: "Zzz Rank519 Tail",
+    folder: "Rank519",
+    body: "nothing here\n\npadded padded padded padded rank519fix late in the body\n",
+  });
+  await invoke("vault_create", {
+    title: "Aaa Rank519 Early",
+    folder: "Rank519",
+    body: "rank519fix on the very first line\n",
+  });
+  await invoke("vault_create", {
+    title: "Rank519fix In The Title",
+    folder: "Rank519",
+    body: "no body match at all\n",
+  });
+
+  // vault_search returns a bare array; vault_search_full wraps its page in
+  // `{hits, total_notes, truncated}` (SUB-566) — unwrap so both read alike
+  const paths = (r: unknown) => {
+    const list = Array.isArray(r) ? r : (r as { hits: unknown[] }).hits;
+    return list.map((h) => (h as { path: string }).path);
+  };
+
+  for (const cmd of ["vault_search", "vault_search_full"]) {
+    const got = paths(await invoke<unknown>(cmd, { q: "rank519fix" }));
+    assert.deepEqual(
+      got,
+      [
+        "Rank519/Rank519fix In The Title.md",
+        "Rank519/Aaa Rank519 Early.md",
+        "Rank519/Zzz Rank519 Tail.md",
+      ],
+      `${cmd}: title match first, then earliest body offset`
+    );
+  }
+
+  // path ascending is the tiebreak — two notes matching identically at the
+  // same offset must come back in a stable order, not creation order
+  await invoke("vault_create", { title: "Zed Tie519", folder: "Tie519", body: "tie519fix\n" });
+  await invoke("vault_create", { title: "Alpha Tie519", folder: "Tie519", body: "tie519fix\n" });
+  for (const cmd of ["vault_search", "vault_search_full"]) {
+    const got = paths(await invoke<unknown>(cmd, { q: "tie519fix" }));
+    assert.deepEqual(
+      got,
+      ["Tie519/Alpha Tie519.md", "Tie519/Zed Tie519.md"],
+      `${cmd}: equal matches break ties on path, ascending`
+    );
+  }
+});
+
+/* SUB-653 — a structural op names BOTH sides of itself as its own write. The
+   engine renames on disk and the watcher emits the vacated rel in the same
+   burst; before this, only the destination was recorded, so the old path's
+   echo read as external and App.tsx invalidated the very undo entry the
+   move/rename had just made ("it changed on disk"). invoke() attributes
+   through writtenPathsFor, so drive that seam: run the command, then split
+   the burst the watcher would emit. The create is reset away first — it
+   recorded the same path the op is about to vacate, and would mask a
+   regression by vouching for it. */
+test("move names the vacated path as its own write (SUB-653)", async () => {
+  const note = await invoke<NoteMeta>("vault_create", {
+    title: "Ownwrite653 Move",
+    folder: "",
+  });
+  __resetOwnWrites();
+  const moved = await invoke<NoteMeta>("vault_move", { path: note.path, folder: "Own653" });
+  assert.equal(moved.path, "Own653/Ownwrite653 Move.md");
+
+  const split = splitEcho([note.path, moved.path]);
+  assert.equal(split.unknown, false);
+  assert.deepEqual(split.external, [], "the vacated path must not read as somebody else's write");
+  assert.deepEqual([...split.own].sort(), [moved.path, note.path].sort());
+});
+
+test("rename names the vacated path as its own write (SUB-653)", async () => {
+  const note = await invoke<NoteMeta>("vault_create", {
+    title: "Ownwrite653 Rename",
+    folder: "",
+  });
+  __resetOwnWrites();
+  const renamed = await invoke<RenameResult>("vault_rename", {
+    path: note.path,
+    title: "Ownwrite653 Renamed",
+  });
+  assert.equal(renamed.meta.path, "Ownwrite653 Renamed.md");
+
+  // the engine's burst: the vacated rel plus `touched` (the renamed note at
+  // its new path and every note the link sweep rewrote)
+  const split = splitEcho([note.path, ...renamed.touched]);
+  assert.equal(split.unknown, false);
+  assert.deepEqual(split.external, [], "no side of the rename reads as somebody else's write");
+  assert.ok(split.own.includes(note.path), "the vacated path is our own echo");
+});
+
+/* SUB-660: the four database/property bulk sweeps rewrite ordinary vault
+   notes, so their echo comes back through the watcher like any other write.
+   Each must record an own-write — an unnamed one, since a `BulkSweep` returns
+   counts and never the swept paths — or the echo lands as an external edit
+   and flattens the undo stack. */
+test("the database/property bulk sweeps record an unnamed own-write (SUB-660)", async () => {
+  const { splitEcho, __resetOwnWrites } = await import("./ownwrites.ts");
+
+  await invoke("vault_schema_set", { dbType: "sweep660", prop: "mood", kind: "text" });
+  const note = await invoke<NoteMeta>("vault_create", {
+    title: "Sweep660 Subject",
+    folder: "",
+    noteType: "sweep660",
+  });
+  await invoke("vault_set_prop", { path: note.path, key: "mood", value: "warm" });
+
+  // each sweep, then the watcher echo naming the note it rewrote: an
+  // unnamed own-write in the window makes that echo ours, not external
+  const sweeps: [string, Record<string, unknown>][] = [
+    ["vault_rename_prop", { dbType: "sweep660", old: "mood", new: "feel" }],
+    ["vault_clear_prop", { dbType: "sweep660", prop: "feel" }],
+    ["vault_rename_type", { old: "sweep660", new: "sweep660b" }],
+    ["vault_delete_type", { dbType: "sweep660b", trashNotes: false }],
+  ];
+  for (const [cmd, args] of sweeps) {
+    __resetOwnWrites();
+    // cold: nothing recorded, so the same echo reads as somebody else's write
+    const cold = splitEcho([note.path]);
+    assert.deepEqual(cold.external, [note.path], `${cmd}: control — no own-write yet`);
+
+    await invoke(cmd, args);
+    const split = splitEcho([note.path]);
+    assert.equal(split.unknown, true, `${cmd}: unnamed reach — BulkSweep names no paths`);
+    assert.deepEqual(split.external, [], `${cmd}: the sweep's own echo is not external`);
+    assert.equal(split.recentOwn, true, `${cmd}: the write was recorded`);
+  }
+});
+
+test("vault_schema_set stores and validates the rollup wiring (SUB-678)", async () => {
+  // the relation to follow must exist first, as a relation-kind prop of the
+  // same database — exactly like the engine's set_schema_prop
+  await invoke("vault_schema_set", { dbType: "rollrel", prop: "entries", kind: "relation", target: "ledger" });
+  const schema = await invoke<SchemaConfig>("vault_schema_set", {
+    dbType: "rollrel",
+    prop: "earned",
+    kind: "rollup",
+    relation: "entries",
+    rollupProp: "amount",
+    agg: "sum",
+  });
+  const ps = schema["rollrel"]?.["earned"];
+  assert.equal(ps?.kind, "rollup");
+  assert.equal(ps?.relation, "entries");
+  assert.equal(ps?.prop, "amount");
+  assert.equal(ps?.agg, "sum");
+  assert.deepEqual(ps?.options, [], "a rollup carries no options");
+
+  // validation mirrors the engine, message for message
+  await assert.rejects(
+    invoke("vault_schema_set", { dbType: "rollrel", prop: "x", kind: "rollup", rollupProp: "amount", agg: "sum" }),
+    /relation to follow/
+  );
+  await assert.rejects(
+    invoke("vault_schema_set", { dbType: "rollrel", prop: "x", kind: "rollup", relation: "entries", agg: "sum" }),
+    /target property/
+  );
+  await assert.rejects(
+    invoke("vault_schema_set", { dbType: "rollrel", prop: "x", kind: "rollup", relation: "entries", rollupProp: "amount", agg: "total" }),
+    /unknown rollup function/
+  );
+  await assert.rejects(
+    invoke("vault_schema_set", { dbType: "rollrel", prop: "x", kind: "rollup", relation: "earned", rollupProp: "amount", agg: "sum" }),
+    /not a relation property/
+  );
+
+  // renaming the followed relation retargets the rollup's reference (same
+  // database, case-folded) — renaming a prop of THIS database leaves the
+  // target prop, which lives on the related db, alone (SUB-740 owns that side)
+  await invoke("vault_rename_prop", { dbType: "rollrel", old: "entries", new: "royalties" });
+  const after = await invoke<SchemaConfig>("vault_schema_read");
+  assert.equal(after["rollrel"]?.["earned"]?.relation, "royalties");
+  assert.equal(after["rollrel"]?.["earned"]?.prop, "amount");
+
+  // create_type refuses a rollup initial prop, like the engine
+  await assert.rejects(
+    invoke("vault_create_type", { name: "RollCT", props: [{ name: "x", kind: "rollup" }] }),
+    /rollup property/
+  );
+});
+
+test("mock rename retargets cross-database rollup target props (SUB-740)", async () => {
+  // release.entries → LEDGER-740 (casing differs on purpose); earned rolls
+  // up "Amount" on that related database
+  await invoke("vault_schema_set", { dbType: "rel740", prop: "entries", kind: "relation", target: "LEDGER-740" });
+  await invoke("vault_schema_set", {
+    dbType: "rel740",
+    prop: "earned",
+    kind: "rollup",
+    relation: "Entries",
+    rollupProp: "Amount",
+    agg: "sum",
+  });
+  // a second rollup through a relation to a DIFFERENT database, rolling a
+  // prop that happens to share the renamed name — it must not move
+  await invoke("vault_schema_set", { dbType: "rel740", prop: "outgoings", kind: "relation", target: "costs740" });
+  await invoke("vault_schema_set", {
+    dbType: "rel740",
+    prop: "spend",
+    kind: "rollup",
+    relation: "outgoings",
+    rollupProp: "amount",
+    agg: "sum",
+  });
+  await invoke("vault_schema_set", { dbType: "ledger-740", prop: "amount", kind: "number" });
+
+  await invoke("vault_rename_prop", { dbType: "ledger-740", old: "amount", new: "value" });
+  const after = await invoke<SchemaConfig>("vault_schema_read");
+  assert.equal(
+    after["rel740"]?.["earned"]?.prop,
+    "value",
+    "the cross-db rollup target follows the rename"
+  );
+  assert.equal(after["rel740"]?.["earned"]?.relation, "Entries", "the relation reference is untouched");
+  assert.equal(
+    after["rel740"]?.["spend"]?.prop,
+    "amount",
+    "a rollup through a relation to another database keeps its target"
+  );
+  assert.ok(after["ledger-740"]?.["value"], "the schema key itself moved");
+});
+
+test("mock rename retargets a rollup through a self-relation (SUB-740)", async () => {
+  await invoke("vault_schema_set", { dbType: "task740", prop: "subtasks", kind: "relation", target: "task740" });
+  await invoke("vault_schema_set", { dbType: "task740", prop: "hours", kind: "number" });
+  await invoke("vault_schema_set", {
+    dbType: "task740",
+    prop: "total",
+    kind: "rollup",
+    relation: "subtasks",
+    rollupProp: "hours",
+    agg: "sum",
+  });
+
+  await invoke("vault_rename_prop", { dbType: "task740", old: "hours", new: "effort" });
+  const after = await invoke<SchemaConfig>("vault_schema_read");
+  assert.equal(after["task740"]?.["total"]?.prop, "effort", "the self-relation rollup target follows");
+  assert.ok(after["task740"]?.["effort"]);
+  assert.ok(!after["task740"]?.["hours"]);
+});
+
+test("mock property rename remaps saved query and view metadata in exact database", async () => {
+  const db = "query-remap-723";
+  await invoke("vault_schema_set", { dbType: db, prop: "price", kind: "number" });
+  const mine: SavedView = {
+    id: "query-remap-723-mine",
+    name: "mine",
+    db,
+    query: 'Price > 500 price plain "price:500"',
+    sort: { key: "price", dir: 1 },
+    sorts: [
+      { key: "price", dir: 1 },
+      { key: "title", dir: -1 },
+    ],
+    group_by: "price",
+    table_group_by: "price",
+    columns: ["price", "cost", "note"],
+  };
+  const other: SavedView = { ...mine, id: "query-remap-723-other", db: ` ${db} ` };
+  await invoke("vault_saved_view_set", { view: mine });
+  await invoke("vault_saved_view_set", { view: other });
+
+  await invoke("vault_rename_prop", { dbType: db, old: "price", new: "cost" });
+  const views = await invoke<SavedView[]>("vault_saved_views_read");
+  const renamed = views.find((view) => view.id === mine.id)!;
+  assert.equal(renamed.query, 'cost > 500 price plain "price:500"');
+  assert.deepEqual(renamed.sort, { key: "cost", dir: 1 });
+  assert.deepEqual(renamed.sorts, [
+    { key: "cost", dir: 1 },
+    { key: "title", dir: -1 },
+  ]);
+  assert.equal(renamed.group_by, "cost");
+  assert.equal(renamed.table_group_by, "cost");
+  assert.deepEqual(renamed.columns, ["cost", "note"], "existing destination wins once");
+  assert.deepEqual(
+    views.find((view) => view.id === other.id),
+    other,
+    "saved-view database ownership is exact"
+  );
+});
+
+test("mock property clear uses the caller's former number kind with no note values", async () => {
+  const db = "query-clear-723";
+  const cases: SavedView[] = [
+    { id: "query-clear-723-number", name: "number", db, query: "price > 500 drift" },
+    { id: "query-clear-723-text", name: "text", db, query: "score > 500 drift" },
+    { id: "query-clear-723-date", name: "date", db, query: "due < 7d drift" },
+  ];
+  for (const view of cases) await invoke("vault_saved_view_set", { view });
+
+  await invoke("vault_clear_prop", {
+    dbType: db,
+    prop: "price",
+    wasNumber: true,
+    stripValues: false,
+  });
+  await invoke("vault_clear_prop", {
+    dbType: db,
+    prop: "score",
+    wasNumber: false,
+    stripValues: false,
+  });
+  await invoke("vault_clear_prop", {
+    dbType: db,
+    prop: "due",
+    wasNumber: false,
+    stripValues: false,
+  });
+
+  const views = await invoke<SavedView[]>("vault_saved_views_read");
+  assert.equal(views.find((view) => view.id === cases[0].id)?.query, undefined);
+  assert.equal(
+    views.find((view) => view.id === cases[1].id)?.query,
+    "score > 500 drift",
+    "numeric-looking comparison stays text without the old number kind"
+  );
+  assert.equal(views.find((view) => view.id === cases[2].id)?.query, undefined);
+});

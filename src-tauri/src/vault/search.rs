@@ -1,0 +1,561 @@
+//! Search over the vault: the FTS-backed title/body search behind ⌘K, the
+//! full-text view with per-line snippets, and the two link-graph queries
+//! (`backlinks`, `related`).
+//!
+//! Split out of `vault.rs` (SUB-692). Snippet highlighting rides on two
+//! private-use marker chars SQLite's `snippet()` inserts, parsed back into
+//! typed `SnippetPart`s here rather than leaking markup to the frontend.
+
+use super::*;
+
+#[derive(Serialize)]
+pub struct SearchHit {
+    pub path: String,
+    pub snippet: String,
+}
+
+/// One run of snippet text; `hit` marks a matched token.
+#[derive(Debug, Serialize)]
+pub struct SnippetPart {
+    pub text: String,
+    pub hit: bool,
+}
+
+/// One body line containing matches, as alternating text/hit segments.
+#[derive(Debug, Serialize)]
+pub struct SearchMatch {
+    /// 1-based line in the note body (frontmatter excluded — editor coordinates)
+    pub line: u32,
+    pub parts: Vec<SnippetPart>,
+}
+
+/// Full-search result for one note: matching lines plus the true total match
+/// count (which keeps counting past the per-note line cap).
+#[derive(Debug, Serialize)]
+pub struct FullSearchHit {
+    pub path: String,
+    pub title_parts: Vec<SnippetPart>,
+    pub total: u32,
+    pub matches: Vec<SearchMatch>,
+}
+
+/// A full-search page plus how much of the match set it represents (SUB-566).
+/// `hits` is capped at `FULL_SEARCH_MAX_NOTES`; `total_notes` counts every
+/// note the query matches *within the requested scope*, so the UI can say
+/// "first 200 of 359" instead of presenting a truncated page as the whole
+/// truth — and can tell "nothing matched" apart from "the page ran out".
+#[derive(Debug, Serialize)]
+pub struct FullSearchResult {
+    pub hits: Vec<FullSearchHit>,
+    pub total_notes: u32,
+    pub truncated: bool,
+}
+
+/// One note pointing at another through a schema'd relation prop — the
+/// structured cousin of a backlink (`db_type` + `prop` say HOW it points:
+/// "this release's contact").
+#[derive(Clone, Debug, Serialize)]
+pub struct RelatedEntry {
+    pub path: String,
+    pub title: String,
+    pub db_type: String,
+    pub prop: String,
+}
+
+/// Markers FTS5 highlight() wraps around matched tokens — private-use
+/// codepoints, so real note text can't collide with them in practice
+/// (and stray occurrences are dropped by the parser, never trusted).
+const MARK_START: char = '\u{E000}';
+
+const MARK_END: char = '\u{E001}';
+
+const FULL_SEARCH_MAX_NOTES: usize = 200;
+
+const FULL_SEARCH_MAX_LINES: usize = 12;
+
+/// Snippet trimming: cap the lead-in before the first hit and the whole
+/// line, so one giant paragraph can't flood the pane.
+const SNIPPET_LEAD_MAX: usize = 64;
+
+const SNIPPET_LEAD_KEEP: usize = 56;
+
+const SNIPPET_LINE_MAX: usize = 240;
+
+/// Parse highlight() output into text/hit segments; returns the hit count.
+fn parse_marked(s: &str) -> (Vec<SnippetPart>, u32) {
+    let mut parts: Vec<SnippetPart> = Vec::new();
+    let mut buf = String::new();
+    let mut in_hit = false;
+    let mut count = 0u32;
+    for c in s.chars() {
+        match c {
+            MARK_START if !in_hit => {
+                if !buf.is_empty() {
+                    parts.push(SnippetPart { text: std::mem::take(&mut buf), hit: false });
+                }
+                in_hit = true;
+            }
+            MARK_END if in_hit => {
+                if !buf.is_empty() {
+                    parts.push(SnippetPart { text: std::mem::take(&mut buf), hit: true });
+                    count += 1;
+                }
+                in_hit = false;
+            }
+            MARK_START | MARK_END => {}
+            c => buf.push(c),
+        }
+    }
+    if !buf.is_empty() {
+        if in_hit {
+            count += 1;
+        }
+        parts.push(SnippetPart { text: buf, hit: in_hit });
+    }
+    (parts, count)
+}
+
+/// Trim a matching line for display: shorten the lead-in before the first
+/// hit and cap total length, marking cuts with an ellipsis.
+fn trim_parts(mut parts: Vec<SnippetPart>) -> Vec<SnippetPart> {
+    if let Some(first) = parts.first_mut() {
+        if !first.hit {
+            let n = first.text.chars().count();
+            if n > SNIPPET_LEAD_MAX {
+                let tail: String = first.text.chars().skip(n - SNIPPET_LEAD_KEEP).collect();
+                first.text = format!("…{}", tail.trim_start());
+            }
+        }
+    }
+    let mut used = 0usize;
+    let mut out: Vec<SnippetPart> = Vec::new();
+    for mut p in parts {
+        let n = p.text.chars().count();
+        if used + n > SNIPPET_LINE_MAX {
+            if p.hit {
+                // never cut a hit in half — keep it whole, then stop
+                out.push(p);
+            } else {
+                let keep = SNIPPET_LINE_MAX.saturating_sub(used);
+                if keep > 0 {
+                    p.text = p.text.chars().take(keep).collect::<String>() + "…";
+                    out.push(p);
+                } else if let Some(last) = out.last_mut() {
+                    if !last.text.ends_with('…') {
+                        last.text.push('…');
+                    }
+                }
+            }
+            break;
+        }
+        used += n;
+        out.push(p);
+    }
+    out
+}
+
+/// Every whitespace token becomes a quoted prefix term — matches search-as-
+/// you-type expectations and neutralizes FTS query syntax in user input.
+fn fts_match_expr(q: &str) -> String {
+    q.split_whitespace()
+        .map(|t| format!("\"{}\"*", t.replace('"', "")))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+impl Engine {
+    /// Load `scope` into the reusable `search_scope` temp table and return the
+    /// `AND …` clause that restricts a query to it (SUB-566). The caller's
+    /// structured filters (`type:`, `folder:`, date comparisons) live in the
+    /// UI, so the engine takes their verdict as a path allow-list rather than
+    /// re-implementing the semantics — what matters here is only that the
+    /// restriction happens BEFORE the LIMIT, so the page is drawn from the
+    /// notes the user can actually see. Empty string = unscoped.
+    fn apply_scope(&self, scope: Option<&[String]>) -> Result<&'static str, ()> {
+        let Some(paths) = scope else { return Ok("") };
+        self.db
+            .execute_batch(
+                "CREATE TEMP TABLE IF NOT EXISTS search_scope(path TEXT PRIMARY KEY); \
+                 DELETE FROM search_scope;",
+            )
+            .map_err(|_| ())?;
+        {
+            let mut ins = self
+                .db
+                .prepare_cached("INSERT OR IGNORE INTO search_scope(path) VALUES(?1)")
+                .map_err(|_| ())?;
+            for p in paths {
+                ins.execute([p]).map_err(|_| ())?;
+            }
+        }
+        Ok(" AND path IN (SELECT path FROM search_scope)")
+    }
+
+    /// Palette search. `scope`, when given, is the allow-list of paths the
+    /// caller's filters left standing — applied inside the query so the
+    /// LIMIT 30 page is the top 30 of the FILTERED set (SUB-566), not the top
+    /// 30 overall with the filters cutting it down to nothing afterwards.
+    pub fn search(&self, q: &str, scope: Option<&[String]>) -> Vec<SearchHit> {
+        let q = q.trim();
+        if q.is_empty() {
+            return Vec::new();
+        }
+        if self.fts {
+            let Ok(clause) = self.apply_scope(scope) else { return Vec::new() };
+            let sql = format!(
+                "SELECT path, snippet(notes_fts, 2, '', '', ' … ', 14) FROM notes_fts \
+                 WHERE notes_fts MATCH ?1{clause} ORDER BY rank LIMIT 30"
+            );
+            let mut stmt = match self.db.prepare(&sql) {
+                Ok(s) => s,
+                Err(_) => return Vec::new(),
+            };
+            let rows = stmt.query_map([fts_match_expr(q)], |row| {
+                Ok(SearchHit { path: row.get(0)?, snippet: row.get(1)? })
+            });
+            match rows {
+                Ok(r) => r.flatten().collect(),
+                Err(_) => Vec::new(),
+            }
+        } else {
+            let ql = q.to_lowercase();
+            self.notes
+                .values()
+                .filter(|n| scope.is_none_or(|s| s.iter().any(|p| p == &n.path)))
+                .filter(|n| {
+                    n.title.to_lowercase().contains(&ql) || n.excerpt.to_lowercase().contains(&ql)
+                })
+                .take(30)
+                .map(|n| SearchHit { path: n.path.clone(), snippet: n.excerpt.clone() })
+                .collect()
+        }
+    }
+
+    /// Full search for the search pane: per-line match context with exact
+    /// tokenizer semantics (prefixes, diacritics) via FTS5 highlight().
+    ///
+    /// `scope` is the path allow-list the caller's structured filters left
+    /// standing (SUB-566) — pushed into the query so the top-N page is the
+    /// top N of the FILTERED set. `total_notes` reports the true size of that
+    /// set, so a truncated page never reads as the whole answer.
+    pub fn search_full(&self, q: &str, scope: Option<&[String]>) -> FullSearchResult {
+        let q = q.trim();
+        if q.is_empty() {
+            return FullSearchResult { hits: Vec::new(), total_notes: 0, truncated: false };
+        }
+        if !self.fts {
+            // no FTS (shouldn't happen with bundled sqlite) — degrade to the
+            // same substring scan search() uses, one unhighlighted line each
+            let ql = q.to_lowercase();
+            let all: Vec<&NoteMeta> = self
+                .notes
+                .values()
+                .filter(|n| scope.is_none_or(|s| s.iter().any(|p| p == &n.path)))
+                .filter(|n| {
+                    n.title.to_lowercase().contains(&ql) || n.excerpt.to_lowercase().contains(&ql)
+                })
+                .collect();
+            let total_notes = all.len() as u32;
+            let hits = all
+                .into_iter()
+                .take(50)
+                .map(|n| FullSearchHit {
+                    path: n.path.clone(),
+                    title_parts: vec![SnippetPart { text: n.title.clone(), hit: false }],
+                    total: 1,
+                    matches: if n.excerpt.is_empty() {
+                        Vec::new()
+                    } else {
+                        vec![SearchMatch {
+                            line: 1,
+                            parts: vec![SnippetPart { text: n.excerpt.clone(), hit: false }],
+                        }]
+                    },
+                })
+                .collect::<Vec<_>>();
+            let truncated = (hits.len() as u32) < total_notes;
+            return FullSearchResult { hits, total_notes, truncated };
+        }
+        let empty = || FullSearchResult { hits: Vec::new(), total_notes: 0, truncated: false };
+        let Ok(clause) = self.apply_scope(scope) else { return empty() };
+        let expr = fts_match_expr(q);
+        // the true size of the match set, so a capped page can say so
+        let total_notes: u32 = self
+            .db
+            .query_row(
+                &format!("SELECT COUNT(*) FROM notes_fts WHERE notes_fts MATCH ?1{clause}"),
+                [&expr],
+                |r| r.get::<_, i64>(0),
+            )
+            .map(|n| n as u32)
+            .unwrap_or(0);
+        let sql = format!(
+            "SELECT path, highlight(notes_fts, 1, ?2, ?3), highlight(notes_fts, 2, ?2, ?3) \
+             FROM notes_fts WHERE notes_fts MATCH ?1{clause} ORDER BY rank LIMIT {}",
+            FULL_SEARCH_MAX_NOTES
+        );
+        let mut stmt = match self.db.prepare(&sql) {
+            Ok(s) => s,
+            Err(_) => return empty(),
+        };
+        let rows = stmt.query_map(
+            rusqlite::params![expr, MARK_START.to_string(), MARK_END.to_string()],
+            |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+            },
+        );
+        let Ok(rows) = rows else { return empty() };
+        let mut out = Vec::new();
+        for (path, title_hl, body_hl) in rows.flatten() {
+            let (title_parts, title_count) = parse_marked(&title_hl);
+            let mut total = title_count;
+            let mut matches = Vec::new();
+            for (i, line) in body_hl.split('\n').enumerate() {
+                if !line.contains(MARK_START) {
+                    continue;
+                }
+                let (parts, count) = parse_marked(line);
+                if count == 0 {
+                    continue;
+                }
+                total += count;
+                if matches.len() < FULL_SEARCH_MAX_LINES {
+                    matches.push(SearchMatch { line: (i + 1) as u32, parts: trim_parts(parts) });
+                }
+            }
+            if total > 0 {
+                out.push(FullSearchHit { path, title_parts, total, matches });
+            }
+        }
+        // `total_notes` counts MATCH rows; a row whose hits all landed in a
+        // machine fence drops out here, so never report fewer than we return.
+        let total_notes = total_notes.max(out.len() as u32);
+        let truncated = (out.len() as u32) < total_notes;
+        FullSearchResult { hits: out, total_notes, truncated }
+    }
+
+    pub fn backlinks(&self, rel: &str) -> Vec<NoteMeta> {
+        let Some(target) = self.notes.get(rel) else { return Vec::new() };
+        let names = [target.title.to_lowercase(), target.stem.to_lowercase()];
+        let mut out: Vec<NoteMeta> = self
+            .links
+            .iter()
+            .filter(|(src, tgt)| src != rel && names.contains(tgt))
+            .filter_map(|(src, _)| self.notes.get(src).cloned())
+            .collect();
+        out.sort_by(|a, b| a.title.cmp(&b.title));
+        out.dedup_by(|a, b| a.path == b.path);
+        out
+    }
+
+    /// Every note naming `rel` in a relation prop aimed at its type — the
+    /// structured cousin of backlinks: "3 releases point here".
+    pub fn related(&self, rel: &str) -> Vec<RelatedEntry> {
+        let Some(target) = self.notes.get(rel) else { return Vec::new() };
+        let names = [target.title.to_lowercase(), target.stem.to_lowercase()];
+        let target_type = folded_prop_str(&target.props, "type").unwrap_or_default().to_lowercase();
+        let schema = self.schema();
+        let mut out: Vec<RelatedEntry> = Vec::new();
+        for n in self.notes.values() {
+            if n.path == rel {
+                continue;
+            }
+            let Some(t) = folded_prop_str(&n.props, "type") else { continue };
+            let Some(schema_key) = folded_hash_key(&schema, &t) else { continue };
+            let Some(props) = schema.get(schema_key) else { continue };
+            for (key, ps) in &props.props {
+                if ps.kind.as_deref() != Some("relation") {
+                    continue;
+                }
+                // only relations aimed at this note's type point at it; an
+                // untyped target can't be aimed at, so any relation matches
+                let aimed = target_type.is_empty()
+                    || ps.target.as_deref().map(str::to_lowercase).as_deref()
+                        == Some(target_type.as_str());
+                if !aimed {
+                    continue;
+                }
+                let name_hit = |s: &str| names.contains(&s.trim().to_lowercase());
+                let Some(actual_key) = folded_prop_key(&n.props, key) else { continue };
+                let hit = match n.props.get(actual_key) {
+                    Some(serde_json::Value::String(s)) => name_hit(s),
+                    Some(serde_json::Value::Array(items)) => {
+                        items.iter().filter_map(serde_json::Value::as_str).any(name_hit)
+                    }
+                    _ => false,
+                };
+                if hit {
+                    out.push(RelatedEntry {
+                        path: n.path.clone(),
+                        title: n.title.clone(),
+                        db_type: schema_key.to_string(),
+                        prop: actual_key.to_string(),
+                    });
+                }
+            }
+        }
+        out.sort_by(|a, b| a.title.cmp(&b.title).then(a.prop.cmp(&b.prop)));
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::testutil::*;
+    use super::*;
+
+    #[test]
+    fn fts_search_finds_body_text() {
+        let (e, dir) = temp_vault("fts");
+        let hits = e.search("granular rework", None);
+        assert!(hits.iter().any(|h| h.path == "Slow Bloom EP.md"));
+        let hits = e.search("gran", None);
+        assert!(hits.iter().any(|h| h.path == "Slow Bloom EP.md"), "prefix search");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_full_lines_counts_and_title_hits() {
+        let (mut e, dir) = temp_vault("sf");
+        fs::write(
+            dir.join("Field Notes.md"),
+            "---\ntype: note\n---\nfirst line plain\nspectral texture here\nplain again\nspectral and spectral twice\n",
+        )
+        .unwrap();
+        e.apply_changes(&[dir.join("Field Notes.md")]);
+        let hits = e.search_full("spectral", None).hits;
+        let h = hits.iter().find(|h| h.path == "Field Notes.md").expect("note found");
+        assert_eq!(h.total, 3, "counts every hit, not lines");
+        assert_eq!(h.matches.len(), 2, "one entry per matching line");
+        assert_eq!(h.matches[0].line, 2, "1-based body line numbers");
+        assert_eq!(h.matches[1].line, 4);
+        assert!(h.matches[0].parts.iter().any(|p| p.hit && p.text == "spectral"));
+        assert_eq!(
+            h.matches[1].parts.iter().filter(|p| p.hit).count(),
+            2,
+            "both hits on the line marked"
+        );
+        // matches in the title are counted and segmented too
+        let hits = e.search_full("bloom", None).hits;
+        let h = hits.iter().find(|h| h.path == "Slow Bloom EP.md").expect("title hit");
+        assert!(h.title_parts.iter().any(|p| p.hit && p.text == "Bloom"));
+        assert!(h.total >= 1);
+        // prefix query highlights the whole matched token
+        let hits = e.search_full("gran", None).hits;
+        let h = hits.iter().find(|h| h.path == "Slow Bloom EP.md").expect("prefix hit");
+        assert!(h
+            .matches
+            .iter()
+            .flat_map(|m| m.parts.iter())
+            .any(|p| p.hit && p.text == "granular"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn search_full_trims_long_lines() {
+        let (mut e, dir) = temp_vault("sft");
+        let long =
+            format!("---\ntype: note\n---\n{} needle {}\n", "x".repeat(150), "y".repeat(300));
+        fs::write(dir.join("Long.md"), long).unwrap();
+        e.apply_changes(&[dir.join("Long.md")]);
+        let hits = e.search_full("needle", None).hits;
+        let h = hits.iter().find(|h| h.path == "Long.md").expect("hit");
+        let parts = &h.matches[0].parts;
+        assert!(parts[0].text.starts_with('…'), "long lead-in shortened");
+        assert!(parts.iter().any(|p| p.hit && p.text == "needle"), "hit survives trimming");
+        assert!(parts.last().unwrap().text.ends_with('…'), "long tail cut");
+        let total: usize = parts.iter().map(|p| p.text.chars().count()).sum();
+        assert!(total <= SNIPPET_LINE_MAX + 10, "line capped, got {}", total);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn machine_fences_stay_out_of_search() {
+        // SUB-261: ```view/```chart (and csv/formulas) fence bodies are app
+        // config/data, not prose — they must neither match nor snippet, while
+        // prose in the same note still does.
+        let (mut e, dir) = temp_vault("mf");
+        fs::write(
+            dir.join("Hub.md"),
+            "---\ntype: note\n---\nLabel hub prose.\n\n```view\ntype: release\nquery: status:mastering\nview: table\n```\n\n```chart\nsource: release\ny: count\n```\n\ntrail prose line\n",
+        )
+        .unwrap();
+        e.apply_changes(&[dir.join("Hub.md")]);
+        // a note matching ONLY inside a view fence no longer matches
+        assert!(
+            e.search("mastering", None).iter().all(|h| h.path != "Hub.md"),
+            "view fence config is not indexed"
+        );
+        assert!(e.search_full("mastering", None).hits.iter().all(|h| h.path != "Hub.md"));
+        assert!(
+            e.search_full("count", None).hits.iter().all(|h| h.path != "Hub.md"),
+            "chart fence config is not indexed"
+        );
+        // prose in the same note still hits — on its raw-body line number
+        let hits = e.search_full("trail", None).hits;
+        let h = hits.iter().find(|h| h.path == "Hub.md").expect("prose still indexed");
+        assert_eq!(h.matches[0].line, 14, "line numbers map to the raw body");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn backlinks_resolve_by_title() {
+        let (e, dir) = temp_vault("bl");
+        let bl = e.backlinks("Static Bouquet.md");
+        assert!(bl.iter().any(|n| n.path == "Slow Bloom EP.md"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn related_lists_pointing_notes() {
+        let (mut e, dir) = temp_vault("related");
+        e.create("Gero", "", Some("contact")).unwrap();
+        e.set_schema_prop(
+            "release",
+            "Contact",
+            vec![],
+            Some("relation".into()),
+            None,
+            Some("contact".into()),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        // a relation aimed at a different database must NOT match
+        e.set_schema_prop(
+            "release",
+            "label",
+            vec![],
+            Some("relation".into()),
+            None,
+            Some("label".into()),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        e.set_prop("Gero.md", "type", None).unwrap();
+        e.set_prop("Gero.md", "Type", Some("CONTACT")).unwrap();
+        e.set_prop("Slow Bloom EP.md", "type", None).unwrap();
+        e.set_prop("Slow Bloom EP.md", "Type", Some("RELEASE")).unwrap();
+        e.set_prop("Slow Bloom EP.md", "contact", Some("Gero")).unwrap();
+        e.set_prop_value("Static Bouquet.md", "contact", Some(serde_json::json!(["Gero", "Noa"])))
+            .unwrap();
+        e.set_prop("Vessel Songs.md", "label", Some("Gero")).unwrap();
+
+        let rel = e.related("Gero.md");
+        assert_eq!(rel.len(), 2, "two releases point here, multi counts once");
+        assert!(rel
+            .iter()
+            .all(|r| folded_eq(&r.db_type, "release") && r.prop == "contact"));
+        assert!(rel.iter().any(|r| r.path == "Slow Bloom EP.md"));
+        assert!(rel.iter().any(|r| r.path == "Static Bouquet.md"));
+
+        // rename integrity: after the target moves, related still resolves
+        let renamed = e.rename("Gero.md", "Gero X").unwrap();
+        let rel = e.related(&renamed.path);
+        assert_eq!(rel.len(), 2, "relation values followed the rename");
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

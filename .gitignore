@@ -1,0 +1,37 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-release/
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.worktrees/
+.claude/*
+!.claude/skills/
+
+# Playwright
+/test-results/
+/playwright-report/
+# evidence-only shots (SHOTS=1 specs), never product
+/shots/
+
+# TS incremental build state
+*.tsbuildinfo

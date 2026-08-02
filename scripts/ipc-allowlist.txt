@@ -1,0 +1,33 @@
+# IPC inventory allowlist (SUB-428) — read by scripts/check-ipc.ts.
+#
+# Two directives, one per line; `#` starts a comment:
+#
+#   no-ts   <cmd>   Rust registers it, but nothing under src/ invokes it.
+#                   Backend-internal commands only (tray/menu/Rust callers).
+#   no-mock <cmd>   The TS layer invokes it, but the mock backend has no case.
+#                   Only for commands e2e can never reach.
+#
+# Every entry needs a reason. An entry that stops being true is itself
+# reported as drift, so this file cannot rot quietly.
+
+# ── no-mock ─────────────────────────────────────────────────────────────────
+
+# Desktop-only terminal HUD (src-tauri/src/term.rs). App.tsx never mounts
+# TerminalHud when !isTauri, so the browser/e2e lane cannot reach these four.
+no-mock term_spawn
+no-mock term_write
+no-mock term_resize
+no-mock term_kill
+
+# Save/print paths that end in an OS dialog or the native print sheet. The
+# e2e lane stops at the file picker (file_pick is mocked to return null), so
+# execution never reaches these; a mock arm would assert nothing.
+no-mock export_text
+no-mock export_note_bundle
+no-mock print_window
+
+# The smoke driver (src/lib/smoke.ts) is excluded from production bundles and
+# only runs inside the real app under SUBSTRATE_SMOKE=1 — the browser/e2e lane
+# never loads it, so a mock arm would assert nothing.
+no-mock smoke_signal
+no-mock smoke_exit
