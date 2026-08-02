@@ -127,6 +127,13 @@ Any path component starting with `.` is invisible to the app's note index: it is
 never listed, searched, or watched. That is why `.vault/` and `.claude/` don't
 show up as notes.
 
+Root `AGENTS.md` and `CLAUDE.md` — this file and its pointer — are a softer
+case: indexed and ordinary on disk, but **concealed from the app's note lists
+and search by default** so the vault reads as the user's, not the tooling's.
+The user reveals them with `show-agent-files: true` in `Settings.md` (a switch
+in the ⌘, settings sheet). Don't be surprised when the user says they can't
+see them, and don't "fix" it by duplicating their content into visible notes.
+
 ## `.vault/` — read it, don't hand-edit it
 
 Machine-managed JSON, and the fastest way to orient yourself in an unfamiliar

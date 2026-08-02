@@ -224,6 +224,30 @@ const mockNotes: MockNote[] = [
     excerpt: "This is the Inbox. ⌘N drops new notes here instantly.",
     body: "This is the Inbox. ⌘N drops new notes here instantly — file them later by adding them to a database, or don't.\n",
   },
+  /* The seeded agent orientation files (SUB-831): indexed like the real
+     engine indexes them, concealed by the App-side filter unless Settings.md
+     says `show-agent-files: true` — which is exactly what the e2e spec
+     exercises. Bodies are stand-ins, not the shipped seed text. */
+  {
+    path: "AGENTS.md",
+    stem: "AGENTS",
+    title: "AGENTS",
+    folder: "",
+    props: {},
+    updated_ms: now - 5 * 86_400_000,
+    excerpt: "Mock agent orientation — how to work in this vault.",
+    body: "Mock agent orientation — how to work in this vault.\n",
+  },
+  {
+    path: "CLAUDE.md",
+    stem: "CLAUDE",
+    title: "CLAUDE",
+    folder: "",
+    props: {},
+    updated_ms: now - 5 * 86_400_000,
+    excerpt: "Mock pointer at AGENTS.md.",
+    body: "Mock pointer at AGENTS.md.\n",
+  },
   {
     path: "Slow Bloom EP.md",
     stem: "Slow Bloom EP",

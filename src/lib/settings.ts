@@ -124,6 +124,26 @@ export function parseDbGrid(props: Record<string, unknown>): boolean {
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 
+/** The vault-root agent orientation files (SUB-831): seeded for the ⌘⇧T
+    terminal's agent CLI, but concealed from the app's own note surfaces so a
+    fresh vault reads as the user's blank slate. On disk, in the engine index
+    and to Finder they stay ordinary notes — `show-agent-files: true` lists
+    them in-app again. Exact names only: a user's own "agents notes.md" or a
+    nested copy is normal content. */
+export const AGENT_FILES: readonly string[] = ["AGENTS.md", "CLAUDE.md"];
+
+export function isAgentFile(path: string): boolean {
+  return AGENT_FILES.includes(path);
+}
+
+/** `show-agent-files` — the reveal switch for the two files above (SUB-831).
+    Default OFF, inverted rule from `drop-hint`: only an explicit `true`
+    reveals, so an unset key or a typo keeps the blank slate. */
+export function parseShowAgentFiles(props: Record<string, unknown>): boolean {
+  const v = props["show-agent-files"];
+  return v === true || (typeof v === "string" && v.trim().toLowerCase() === "true");
+}
+
 export function parseTerminalSettings(props: Record<string, unknown>): TerminalSettings {
   const str = (k: string) => {
     const v = props[k];

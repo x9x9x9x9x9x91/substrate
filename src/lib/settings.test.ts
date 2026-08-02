@@ -2,9 +2,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULT_TERMINAL_HEIGHT,
+  isAgentFile,
   parseDbGrid,
   parseDropHint,
   parseModHud,
+  parseShowAgentFiles,
   parseTerminalActions,
   parseTerminalSettings,
   terminalActionsToText,
@@ -163,4 +165,28 @@ test("parseDbGrid: only an explicit false turns table grid lines off (SUB-607)",
   assert.equal(parseDbGrid({}), true);
   assert.equal(parseDbGrid({ "db-grid": true }), true);
   assert.equal(parseDbGrid({ "db-grid": "off" }), true);
+});
+
+test("parseShowAgentFiles: only an explicit true reveals the agent files (SUB-831)", () => {
+  // the inverse rule of the other bools: the blank slate is the default, so
+  // an unset key, garbage, or `false` in any casing all keep them concealed
+  assert.equal(parseShowAgentFiles({ "show-agent-files": true }), true);
+  assert.equal(parseShowAgentFiles({ "show-agent-files": "true" }), true);
+  assert.equal(parseShowAgentFiles({ "show-agent-files": " TRUE " }), true);
+  assert.equal(parseShowAgentFiles({}), false);
+  assert.equal(parseShowAgentFiles({ "show-agent-files": false }), false);
+  assert.equal(parseShowAgentFiles({ "show-agent-files": "false" }), false);
+  assert.equal(parseShowAgentFiles({ "show-agent-files": "yes" }), false);
+  assert.equal(parseShowAgentFiles({ "show-agent-files": 1 }), false);
+});
+
+test("isAgentFile: exact root names only (SUB-831)", () => {
+  assert.equal(isAgentFile("AGENTS.md"), true);
+  assert.equal(isAgentFile("CLAUDE.md"), true);
+  // a user's own note that happens to share a stem, or a nested copy, is
+  // ordinary content — concealment is about the two seeded root files
+  assert.equal(isAgentFile("agents.md"), false);
+  assert.equal(isAgentFile("Notes/AGENTS.md"), false);
+  assert.equal(isAgentFile("AGENTS notes.md"), false);
+  assert.equal(isAgentFile("Settings.md"), false);
 });

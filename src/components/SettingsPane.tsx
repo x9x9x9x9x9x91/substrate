@@ -71,6 +71,12 @@ const FIELDS: Field[] = [
     defaultOn: true,
   },
   {
+    key: "show-agent-files",
+    label: "Show agent files",
+    hint: "list AGENTS.md and CLAUDE.md — the seeded orientation notes for the ⌘⇧T agent — in notes and search; they stay on disk either way",
+    kind: "bool",
+  },
+  {
     key: "terminal-command",
     label: "Terminal command",
     hint: "what the ⌘⇧T terminal runs on start — your agent CLI (claude, codex, pi…); empty = plain shell",

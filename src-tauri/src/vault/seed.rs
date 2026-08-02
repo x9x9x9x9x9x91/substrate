@@ -32,10 +32,12 @@ pub(super) fn seed(root: &Path) {
         }
         write_atomic(&p, content).ok();
     };
-    write(
-        "Welcome.md",
-        "---\ncreated: 2026-07-17\n---\nEverything here is a plain markdown file on disk. A note becomes a database row by gaining properties — nothing ever moves.\n\n## The basics\n\n- **⌘K** — command palette: open anything, create anything, search everything\n- **⌘N** — capture a thought into the Inbox, zero filing decisions\n- **⌘1 / ⌘2 / ⌘3** — Inbox, All notes, Recent\n- Link notes with [[Slow Bloom EP]] style wikilinks — backlinks appear at the bottom of each note\n- Property chips under a note's title are its frontmatter — the same note is a row in every view that matches\n\n## Checklists and tables\n\n- [ ] tasks render as real checkboxes — click one to flip it\n- [x] done items get struck through\n\n| release | status |\n| --- | --- |\n| [[Slow Bloom EP]] | in review |\n| [[Static Bouquet]] | live |\n\n## Sample content\n\nThe releases and gear notes are sample data — replace them with the real catalog when ready.\n",
-    );
+    // The Welcome tutorial (SUB-831) — a guided tour rather than a hotkey
+    // list, since the agent files it mentions are concealed and this note is
+    // the only place that says so. `include_str!` like the flagship
+    // dashboard: multi-section markdown as an escaped literal is unreviewable.
+    // Fresh vaults only (this fn) — never backfilled over an existing Welcome.
+    write("Welcome.md", include_str!("../seed/welcome.md"));
     write(
         "Inbox/Capture anything.md",
         "---\ncreated: 2026-07-17\n---\nThis is the Inbox. ⌘N drops new notes here instantly — file them later by adding them to a database, or don't. This note is safe to delete.\n",
@@ -128,7 +130,7 @@ pub(crate) fn seed_settings(root: &Path) {
     }
     write_atomic(
         &abs,
-        "---\ncapture-hotkey: alt+space\nclose-to-tray: false\nterminal-actions:\n  - 'Set up vault skills: /setup'\n---\nSubstrate settings — edit and save; changes apply within a second (⌘, opens the settings form).\n\n- `capture-hotkey` — global quick-capture shortcut, works from any app (e.g. `alt+space`, `cmd+shift+j`)\n- `close-to-tray` — when `true`, closing the window keeps Substrate in the menu bar; quit from the tray menu\n- `terminal-command` — command the ⌘⇧T terminal runs on start (e.g. `claude`, `codex`); empty = plain shell\n- `terminal-cwd` — folder the terminal starts in (`~` expands); empty = the vault folder\n- `terminal-height` — how much of the window the terminal covers (`0.2`–`0.9`, default `0.45`)\n- `terminal-actions` — command-palette quick actions, one `Label: command` per list entry; each types its command into the terminal\n- `drop-hint` — when `false`, hides the drag-over hint about copy vs ⇧-link (default `true`)\n- `db-grid` — when `false`, turns off the vertical grid lines in database tables everywhere; a database's ⋯ menu can still override per database (default `true`)\n",
+        "---\ncapture-hotkey: alt+space\nclose-to-tray: false\nterminal-actions:\n  - 'Set up vault skills: /setup'\n---\nSubstrate settings — edit and save; changes apply within a second (⌘, opens the settings form).\n\n- `capture-hotkey` — global quick-capture shortcut, works from any app (e.g. `alt+space`, `cmd+shift+j`)\n- `close-to-tray` — when `true`, closing the window keeps Substrate in the menu bar; quit from the tray menu\n- `terminal-command` — command the ⌘⇧T terminal runs on start (e.g. `claude`, `codex`); empty = plain shell\n- `terminal-cwd` — folder the terminal starts in (`~` expands); empty = the vault folder\n- `terminal-height` — how much of the window the terminal covers (`0.2`–`0.9`, default `0.45`)\n- `terminal-actions` — command-palette quick actions, one `Label: command` per list entry; each types its command into the terminal\n- `drop-hint` — when `false`, hides the drag-over hint about copy vs ⇧-link (default `true`)\n- `db-grid` — when `false`, turns off the vertical grid lines in database tables everywhere; a database's ⋯ menu can still override per database (default `true`)\n- `show-agent-files` — when `true`, lists the seeded `AGENTS.md`/`CLAUDE.md` agent orientation notes in the app; by default they stay concealed (still normal files on disk)\n",
     )
     .ok();
 }
@@ -376,6 +378,32 @@ mod tests {
             .map(|x| x.path().display().to_string())
             .collect();
         assert!(strays.is_empty(), "seed left temp files behind: {strays:?}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// SUB-831: the Welcome tutorial names only things this same seed writes —
+    /// a tour step pointing at a note that isn't there would be the quiet
+    /// failure worth catching. It is also the one place that tells the USER
+    /// about the concealed agent files, so that section is load-bearing.
+    #[test]
+    fn fresh_seed_welcome_tour_matches_the_seeded_vault() {
+        let (e, dir) = temp_vault("seed-welcome");
+        let raw = fs::read_to_string(dir.join("Welcome.md")).unwrap();
+        // every wikilinked tour stop ships in this seed
+        for stop in ["Slow Bloom EP", "Static Bouquet", "Rondo MX180", "Start Here", "Label Overview", "Catalogue"] {
+            assert!(raw.contains(&format!("[[{stop}]]")), "tour names no [[{stop}]]");
+            assert!(
+                e.list().iter().any(|n| n.stem == stop),
+                "tour stop “{stop}” is not in the seeded vault"
+            );
+        }
+        // the agent-files section: names both files and the reveal switch
+        assert!(raw.contains("AGENTS.md"), "no agent-files section");
+        assert!(raw.contains("CLAUDE.md"), "agent-files section misses the pointer file");
+        assert!(raw.contains("Show agent files"), "no pointer at the settings switch");
+        // and the settings note documents the key the switch writes
+        let settings = fs::read_to_string(dir.join(Settings::REL_PATH)).unwrap();
+        assert!(settings.contains("show-agent-files"), "Settings.md body misses the key");
         let _ = fs::remove_dir_all(&dir);
     }
 

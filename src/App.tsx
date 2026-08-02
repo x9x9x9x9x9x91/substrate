@@ -55,8 +55,10 @@ import {
 import { announceRename } from "./lib/renamebus";
 import { migrateSessionFolds } from "./lib/foldsession";
 import {
+  isAgentFile,
   parseDbGrid,
   parseModHud,
+  parseShowAgentFiles,
   parseTerminalActions,
   SETTINGS_PATH,
 } from "./lib/settings";
@@ -216,7 +218,7 @@ const EMPTY_ORDER: string[] = [];
 
 export default function App() {
   const {
-    notes,
+    notes: indexedNotes,
     setNotes,
     notesRef,
     folders,
@@ -260,6 +262,11 @@ export default function App() {
   const [paletteStart, setPaletteStart] = useState<StartStage | null>(null);
   // SUB-490: `mod-hud` in Settings.md, default on until a read says otherwise
   const [modHud, setModHud] = useState(true);
+  // SUB-831: `show-agent-files` in Settings.md — the seeded AGENTS.md/CLAUDE.md
+  // stay ordinary files on disk (and in the engine index), but the app's own
+  // note surfaces conceal them unless this is explicitly true, so a fresh
+  // vault reads as the user's blank slate rather than the tooling's
+  const [showAgentFiles, setShowAgentFiles] = useState(false);
   // SUB-607: `db-grid` in Settings.md — the global default for table grid
   // lines; a database's ViewPref `grid` overrides it either way
   const [dbGrid, setDbGrid] = useState(true);
@@ -394,9 +401,20 @@ export default function App() {
         setTerminalActions(parseTerminalActions(c.props));
         setModHud(parseModHud(c.props));
         setDbGrid(parseDbGrid(c.props));
+        setShowAgentFiles(parseShowAgentFiles(c.props));
       })
       .catch(() => setTerminalActions([]));
   }, [vaultEpoch]);
+
+  // SUB-831: what the rest of the app calls `notes` — the index minus the
+  // concealed agent files. One boundary here, so every downstream surface
+  // (lists, palette, search, sidebar counts, wikilink completion) agrees;
+  // paths that must still WORK on a concealed file (openNote by path,
+  // selectedMeta, followLink) read the full index via `indexedNotes`.
+  const notes = useMemo(
+    () => (showAgentFiles ? indexedNotes : indexedNotes.filter((n) => !isAgentFile(n.path))),
+    [indexedNotes, showAgentFiles]
+  );
 
   // templates are plain files edited outside the watcher, so there is no
   // vault:changed to observe — re-read the list on every overlay change
@@ -576,6 +594,9 @@ export default function App() {
     // Settings.md opened via the ⌘, sheet's "edit raw" (SUB-398): the mock
     // backend keeps it out of the index, so membership can't decide for it
     if (selected === SETTINGS_PATH && !notes.some((n) => n.path === SETTINGS_PATH)) return;
+    // a concealed agent file opened by wikilink (SUB-831) has no row in any
+    // view — membership can't decide for it either
+    if (selected && isAgentFile(selected) && !notes.some((n) => n.path === selected)) return;
     if (viewNotes.length === 0) {
       setSelected(null);
       return;
@@ -603,7 +624,9 @@ export default function App() {
   }, [viewNotes, viewRows, selected, ghostPath, mobile]);
 
   const selectedMeta = useMemo(() => {
-    const found = notes.find((n) => n.path === selected) ?? null;
+    // the full index, not the concealed view (SUB-831): a hidden agent file
+    // followed by wikilink must still open in the editor
+    const found = indexedNotes.find((n) => n.path === selected) ?? null;
     if (found) return found;
     // templates are unindexed: synthesize the meta NotePane needs — content
     // is read from disk by path anyway (SUB-59)
@@ -649,7 +672,7 @@ export default function App() {
       };
     }
     return null;
-  }, [notes, selected, ghostPath]);
+  }, [indexedNotes, selected, ghostPath]);
 
   // leaving a ghost daily (SUB-210) discards it — nothing was ever written
   useEffect(() => {
@@ -669,7 +692,9 @@ export default function App() {
 
   const openNote = useCallback(
     (path: string) => {
-      const note = notes.find((n) => n.path === path);
+      // full index (SUB-831): "Open" from search-by-path, a wikilink, or a
+      // notification must reach a concealed agent file too
+      const note = indexedNotes.find((n) => n.path === path);
       // inside a database (or one of its pins), a note of that type opens in
       // the side split
       const paneType =
@@ -692,7 +717,7 @@ export default function App() {
       setSelected(path);
       showMobileDetail();
     },
-    [notes, view, activeSaved, showMobileDetail]
+    [indexedNotes, view, activeSaved, showMobileDetail]
   );
   useEffect(() => {
     openNoteRef.current = openNote;

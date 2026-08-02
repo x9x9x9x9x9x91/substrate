@@ -1816,7 +1816,10 @@ Plain notes the app treats specially — all optional, all just files:
   `drop-hint` (default `true`; `false` hides the drag-over copy-vs-⇧-link
   hint), and `db-grid` (SUB-607, default `true`; `false` turns off the
   vertical grid lines in database tables globally — a database's own
-  views.json `grid` override, §7, wins either way). Hot-reloaded
+  views.json `grid` override, §7, wins either way), and `show-agent-files`
+  (SUB-831, default `false`; only an explicit `true` lists the root
+  `AGENTS.md`/`CLAUDE.md` in the app's note surfaces — see the entry below).
+  Hot-reloaded
   within a second of saving; the ⌘, sheet is a typed form over the same keys.
   Unlike the other notes here it is not merely seeded on first run: the desktop
   app writes it on launch whenever it is absent (SUB-473), so vaults predating
@@ -1852,6 +1855,15 @@ Plain notes the app treats specially — all optional, all just files:
   excludes only `.assets/`, `.trash/`, and `.DS_Store` — so a skill written on
   one device shows up on the others. `.claude/` is hidden (§1) and therefore
   never a note; `AGENTS.md` is an ordinary, frontmatter-less note in the index.
+  **In-app concealment (SUB-831)**: the engine indexes both root files
+  normally — external tools, Finder and sync see nothing special — but the
+  app's own note surfaces (lists, palette, search, sidebar counts, wikilink
+  completion) filter them out unless `Settings.md` says
+  `show-agent-files: true` (a switch in the ⌘, sheet), so a fresh vault reads
+  as the user's blank slate. Wikilinks to them still resolve and open —
+  concealment is presentation, not access control. Frontend-only by design:
+  the filter is one memo boundary in `App.tsx` over the exact root paths
+  (`src/lib/settings.ts` `AGENT_FILES`).
 - `Inbox/` — default folder for new/captured notes; auto-created on launch.
 - `Journal/YYYY-MM-DD.md` — daily notes (⌘D). Title is the ISO date string;
   recognized by path, so any note in `Journal/` with a real date name is a daily.
