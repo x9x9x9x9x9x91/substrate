@@ -3,6 +3,18 @@
 <!-- Generated from src/lib/changelog.ts by scripts/gen-changelog.ts.
      Edit that file, then run `node scripts/gen-changelog.ts`. -->
 
+## 0.20.1 — 2026-08-02 — The updater's first flight
+
+### Highlights
+
+- This release shipped through the new update channel. If a toast offered it and a
+  restart brought you here, the updater has now proven itself end to end — signed
+  artifact, verified signature, background install.
+
+### Improved
+
+- Fresh downloads get this version directly; everyone on 0.20.0 gets the toast.
+
 ## 0.20.0 — 2026-08-02 — It updates itself now
 
 ### Highlights

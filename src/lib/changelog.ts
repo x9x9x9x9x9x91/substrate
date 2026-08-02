@@ -84,6 +84,22 @@ export function groupRelease(release: ChangelogRelease): GroupedRelease {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "0.20.1",
+    date: "2026-08-02",
+    title: "The updater's first flight",
+    items: [
+      {
+        text: "This release shipped through the new update channel. If a toast offered it and a restart brought you here, the updater has now proven itself end to end — signed artifact, verified signature, background install.",
+        kind: "new",
+        headline: true,
+      },
+      {
+        text: "Fresh downloads get this version directly; everyone on 0.20.0 gets the toast.",
+        kind: "improved",
+      },
+    ],
+  },
+  {
     version: "0.20.0",
     date: "2026-08-02",
     title: "It updates itself now",
