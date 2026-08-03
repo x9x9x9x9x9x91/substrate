@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { ChangeSpec } from "@codemirror/state";
-import { EditorState, Range, StateEffect, StateField, Transaction } from "@codemirror/state";
+import {
+  Compartment,
+  EditorState,
+  Range,
+  StateEffect,
+  StateField,
+  Transaction,
+} from "@codemirror/state";
 import {
   Decoration,
   DecorationSet,
@@ -1307,6 +1314,14 @@ interface EditorProps {
   onExtractNote?: (title: string, body: string) => Promise<NoteMeta>;
   /** shown while the doc is empty — a ghost daily's "type to create" cue (SUB-320) */
   emptyHint?: string;
+  /** SUB-822: the doc is a historical projection — make the buffer itself
+      read-only. Blocking beforeinput/paste/drop at the app root is not
+      enough: CodeMirror's own keymap commands (Enter, Backspace, the
+      history/search bindings) dispatch transactions directly and never
+      surface a DOM input event, so they mutated the past body and NotePane
+      later flushed it over the live file. Reconfigured through a compartment
+      so entering/leaving the past never rebuilds the view. */
+  readOnly?: boolean;
 }
 
 export default function Editor({
@@ -1334,6 +1349,7 @@ export default function Editor({
   onToast,
   onExtractNote,
   emptyHint,
+  readOnly = false,
 }: EditorProps) {
   const shell = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -1562,6 +1578,12 @@ export default function Editor({
   useEffect(() => {
     foldKeyRef.current = foldKey ?? docKey;
   }, [foldKey, docKey]);
+  // SUB-822: past mode toggles EditorState.readOnly through a compartment —
+  // the ref keeps the mount-time value correct when a note opens while the
+  // scrubber is already open.
+  const readOnlyComp = useRef(new Compartment());
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
   const rememberFolds = (view: EditorView) => {
     const ranges: { from: number; to: number }[] = [];
     foldedRanges(view.state).between(0, view.state.doc.length, (from, to) => {
@@ -1575,6 +1597,7 @@ export default function Editor({
     const state = EditorState.create({
       doc: initial,
       extensions: [
+        readOnlyComp.current.of(EditorState.readOnly.of(readOnlyRef.current)),
         history(),
         drawSelection(),
         highlightSpecialChars(),
@@ -1837,6 +1860,17 @@ export default function Editor({
       viewRef.current = null;
     };
   }, [docKey]);
+
+  // SUB-822: entering/leaving the past flips the buffer's read-only state in
+  // place; docRef's external-adopt dispatch still lands (readOnly blocks user
+  // input, not programmatic changes).
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: readOnlyComp.current.reconfigure(EditorState.readOnly.of(readOnly)),
+    });
+  }, [readOnly, docKey]);
 
   // a vault epoch bump rebuilds view-embed DOM in place (SUB-122) — cursor,
   // scroll and undo history ride along untouched

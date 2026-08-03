@@ -5,6 +5,7 @@ import { foldedPropKey, foldedPropStr, propStr } from "../lib/types";
 import type { EmbedResult, EmbedSpec } from "../lib/embeds";
 import {
   fileOpen,
+  onHistoryLeave,
   pathExists,
   vaultBacklinks,
   vaultCreate,
@@ -91,6 +92,17 @@ const isGoneErr = (e: unknown) =>
    Module scope, not a ref: App remounts NotePane on some navigations, and a
    buffer surviving the pane is the entire point. */
 const orphanedEdits = new Map<string, string>();
+
+/** SUB-822: drop every orphaned buffer. Called when the app leaves the past —
+    text captured while a historical projection was on screen belongs to a
+    body that no longer exists, and reopening the note in the present would
+    otherwise adopt the past text and save it over the live file. Losing a
+    genuinely-live orphan here is the safe trade: leaving the past already
+    reloads every pane from disk. */
+export function dropOrphanedEdits() {
+  orphanedEdits.clear();
+}
+onHistoryLeave(dropOrphanedEdits);
 
 /** the note's own name, for a message about a note that isn't on screen */
 const titleOf = (path: string) => path.replace(/^.*\//, "").replace(/\.md$/, "");
@@ -187,6 +199,10 @@ interface NotePaneProps {
       SUB-549 also uses the action form for a save that failed on a note the
       user has already left — the only surface left for it */
   onToast?: (msg: string, action?: { label: string; run: () => void }) => void;
+  /** SUB-822: the note on screen is a historical projection — the body
+      editor is read-only for the duration (the app-root input guard misses
+      CodeMirror's own keymap commands). */
+  readOnly?: boolean;
 }
 
 function NotePane({
@@ -227,6 +243,7 @@ function NotePane({
   reveal,
   onRevealed,
   onToast,
+  readOnly = false,
 }: NotePaneProps) {
   const undo = useUndo();
   // docPath is the identity the mounted editor is keyed under (docKey). It
@@ -1867,6 +1884,7 @@ function NotePane({
               onToast={onToast}
               focusRef={editorFocusRef}
               docRef={docReplaceRef}
+              readOnly={readOnly}
             />
           ) : (
             <Editor
@@ -1894,6 +1912,7 @@ function NotePane({
               onToast={onToast}
               onExtractNote={extractToNote}
               emptyHint={ghost ? "No entry — start writing" : undefined}
+              readOnly={readOnly}
             />
           )
         )}

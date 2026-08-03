@@ -1,4 +1,5 @@
-import { invoke } from "./tauri.ts";
+import { invoke, setHistoryReadOnly } from "./tauri.ts";
+import { isAppFile, SETTINGS_PATH } from "./settings.ts";
 import type { OnboardingStatus, VaultCandidate } from "./onboarding.ts";
 import type {
   AggKind,
@@ -20,6 +21,7 @@ import type {
   HiddenPerLayout,
   HistoryEntry,
   HistoryStatus,
+  HistoryVaultSnapshot,
   NewTypeProp,
   NoteContent,
   NoteMeta,
@@ -40,7 +42,62 @@ import type {
   TrashEntry,
   VaultSyncStatus,
   ViewsConfig,
+  VaultHistoryPoint,
 } from "./types";
+
+let historyProjection: HistoryVaultSnapshot | null = null;
+/** true from historyEnter until the write guard is released again — spans the
+    present-mode reload, where the projection is already gone (SUB-822). */
+let pastSession = false;
+const clone = <T,>(value: T): T => structuredClone(value);
+/** SUB-822 (perf): one deep copy of the projection's note list, made when the
+    snapshot is adopted. `vaultList` is called on every `vault:changed` — and
+    the live vault keeps emitting those while the past is on screen — so a deep
+    `structuredClone` per call re-copied every note in the vault for a list that
+    cannot have changed. Callers get `.slice()` of this, so the array they sort
+    or splice is still their own; only in-place edits of a NoteMeta object would
+    be shared, and nothing in the app mutates one (writes go through the engine
+    and come back as fresh metas). */
+let projectedNotes: NoteMeta[] = [];
+
+/** Fetch + activate one immutable whole-vault history projection. */
+export async function historyEnter(id: string): Promise<HistoryVaultSnapshot> {
+  const snapshot = await invoke<HistoryVaultSnapshot>("history_vault_snapshot", { id });
+  historyProjection = snapshot;
+  projectedNotes = clone(snapshot.notes);
+  pastSession = true;
+  setHistoryReadOnly(true);
+  return clone(snapshot);
+}
+
+/* SUB-822: modules that stage unsaved text outside the mounted pane register
+   a purge here — NotePane's orphanedEdits is the one that matters. Text
+   captured while a historical body was on screen must never survive the trip
+   back to the present, or reopening that note adopts the past text and saves
+   it over the live file. Registered at module scope by the holder, so a new
+   buffer can't forget the hook; kept here (not imported from the component)
+   to keep ipc.ts free of component imports. */
+const historyLeaveHooks = new Set<() => void>();
+export function onHistoryLeave(purge: () => void): void {
+  historyLeaveHooks.add(purge);
+}
+
+/** Drop the projection; subsequent reads return to the live vault. During the
+ * present-mode reload, callers can retain the write guard until every live
+ * index/config has been adopted. */
+export function historyLeave(unlock = true): void {
+  // The purge runs on every leg of the trip back, not just the first: the
+  // present-mode reload runs with the write guard still on, so a pane
+  // flushing there gets a rejected write and stages a fresh orphan from the
+  // historical body (SUB-822).
+  if (pastSession) for (const purge of historyLeaveHooks) purge();
+  historyProjection = null;
+  projectedNotes = [];
+  if (unlock) pastSession = false;
+  if (unlock) setHistoryReadOnly(false);
+}
+
+export const historyProjectionActive = () => historyProjection !== null;
 
 export const vaultRoot = () => invoke<string>("vault_root");
 
@@ -60,8 +117,26 @@ export const vaultDemo = () => invoke<string>("vault_demo");
 export const onboardingSetAgent = (command: string) =>
   invoke<null>("onboarding_set_agent", { command });
 export const appRelaunch = () => invoke<null>("app_relaunch");
-export const vaultList = () => invoke<NoteMeta[]>("vault_list");
-export const vaultRead = (path: string) => invoke<NoteContent>("vault_read", { path });
+export const vaultList = () =>
+  historyProjection
+    ? Promise.resolve(projectedNotes.slice())
+    : invoke<NoteMeta[]>("vault_list");
+/** SUB-822: Settings.md is app configuration, not vault content, and several
+    live surfaces re-read it while the scrubber is open — the terminal HUD, the
+    palette's quick actions, the conceal toggle, the drop hint. Projecting the
+    historical copy silently swapped the running app's behaviour (a quick action
+    the user deleted last week comes back, `terminal-command` reverts to an old
+    agent) for as long as they browsed. The past is a read of the vault's notes;
+    it is not a settings rollback. */
+export const vaultRead = (path: string) => {
+  if (historyProjection && path !== SETTINGS_PATH) {
+    const content = historyProjection.contents[path];
+    return content
+      ? Promise.resolve(clone(content))
+      : Promise.reject(new Error("note did not exist at this snapshot"));
+  }
+  return invoke<NoteContent>("vault_read", { path });
+};
 export const vaultWriteBody = (path: string, body: string, expectedBody?: string | null) =>
   invoke<NoteMeta>("vault_write_body", { path, body, expectedBody: expectedBody ?? null });
 /** Write one property. `expected` is the undo guard (SUB-477): omit it and the
@@ -76,7 +151,13 @@ export const vaultSetProp = (
   expected?: { value: PropValue }
 ) => invoke<SetPropResult>("vault_set_prop", { path, key, value, expected: expected ?? null });
 /** Raw frontmatter block + health (SUB-430); null = the note has no block. */
-export const vaultFmRaw = (path: string) => invoke<FmState | null>("vault_fm_raw", { path });
+export const vaultFmRaw = (path: string) =>
+  historyProjection
+    ? // SUB-822: serve the snapshot's own frontmatter. Falling back to the
+      // live block would be worse than null — the props panel would show
+      // today's frontmatter above a historical body.
+      Promise.resolve<FmState | null>(clone(historyProjection.fm[path] ?? null))
+    : invoke<FmState | null>("vault_fm_raw", { path });
 /** Replace the frontmatter block (body preserved); rejects a still-broken
     block with its bare diagnosis. Empty fm removes the block. */
 export const vaultFmWrite = (path: string, fm: string) =>
@@ -161,14 +242,103 @@ export const vaultTrashDeleteTemplate = (id: string) =>
     cap, so the page comes from notes the user can actually see. Omit it when
     the query has no filters. `excludeAppFiles` mirrors the conceal toggle
     (SUB-831/878): pass true while the app hides AGENTS.md/CLAUDE.md/
-    Settings.md so the engine's counts and page slots skip them too (SUB-907). */
-export const vaultSearch = (q: string, scope?: string[], excludeAppFiles?: boolean) =>
-  invoke<SearchHit[]>("vault_search", { q, scope, excludeAppFiles });
-export const vaultSearchFull = (q: string, scope?: string[], excludeAppFiles?: boolean) =>
-  invoke<FullSearchResult>("vault_search_full", { q, scope, excludeAppFiles });
-export const vaultBacklinks = (path: string) => invoke<NoteMeta[]>("vault_backlinks", { path });
-export const vaultRelated = (path: string) => invoke<RelatedEntry[]>("vault_related", { path });
-export const vaultResolve = (name: string) => invoke<NoteMeta | null>("vault_resolve", { name });
+    Settings.md so the engine's counts and page slots skip them too (SUB-907).
+    The historical projection applies the same boundary (SUB-822) — a snapshot
+    search must not surface files the live conceal toggle hides. */
+const historySearchNotes = (q: string, scope?: string[], excludeAppFiles?: boolean) => {
+  if (!historyProjection) return [];
+  const needle = q.trim().toLocaleLowerCase();
+  if (!needle) return [];
+  const allowed = scope ? new Set(scope) : null;
+  return historyProjection.notes.filter((note) => {
+    if (excludeAppFiles && isAppFile(note.path)) return false;
+    if (allowed && !allowed.has(note.path)) return false;
+    const content = historyProjection?.contents[note.path];
+    return `${note.title}\n${content?.body ?? ""}`.toLocaleLowerCase().includes(needle);
+  });
+};
+
+const highlightedParts = (text: string, q: string) => {
+  const needle = q.trim().toLocaleLowerCase();
+  if (!needle) return [{ text, hit: false }];
+  const parts: { text: string; hit: boolean }[] = [];
+  const lower = text.toLocaleLowerCase();
+  let cursor = 0;
+  while (cursor < text.length) {
+    const start = lower.indexOf(needle, cursor);
+    if (start < 0) {
+      parts.push({ text: text.slice(cursor), hit: false });
+      break;
+    }
+    if (start > cursor) parts.push({ text: text.slice(cursor, start), hit: false });
+    parts.push({ text: text.slice(start, start + needle.length), hit: true });
+    cursor = start + needle.length;
+  }
+  return parts.length ? parts : [{ text, hit: false }];
+};
+
+export const vaultSearch = (q: string, scope?: string[], excludeAppFiles?: boolean) => {
+  if (!historyProjection) return invoke<SearchHit[]>("vault_search", { q, scope, excludeAppFiles });
+  return Promise.resolve(
+    historySearchNotes(q, scope, excludeAppFiles).map((note) => ({
+      path: note.path,
+      snippet: historyProjection?.contents[note.path]?.body.split("\n").find((line) =>
+        line.toLocaleLowerCase().includes(q.trim().toLocaleLowerCase()),
+      ) ?? note.title,
+    })),
+  );
+};
+export const vaultSearchFull = (q: string, scope?: string[], excludeAppFiles?: boolean) => {
+  if (!historyProjection)
+    return invoke<FullSearchResult>("vault_search_full", { q, scope, excludeAppFiles });
+  const needle = q.trim().toLocaleLowerCase();
+  const all = historySearchNotes(q, scope, excludeAppFiles);
+  const hits = all.slice(0, 200).map((note) => {
+    const body = historyProjection?.contents[note.path]?.body ?? "";
+    const matchingLines = body.split("\n").flatMap((line, index) =>
+      line.toLocaleLowerCase().includes(needle)
+        ? [{ line: index + 1, parts: highlightedParts(line, q) }]
+        : [],
+    );
+    return {
+      path: note.path,
+      title_parts: highlightedParts(note.title, q),
+      total: matchingLines.length + (note.title.toLocaleLowerCase().includes(needle) ? 1 : 0),
+      matches: matchingLines.slice(0, 20),
+    };
+  });
+  return Promise.resolve({ hits, total_notes: all.length, truncated: all.length > hits.length });
+};
+export const vaultBacklinks = (path: string) => {
+  if (!historyProjection) return invoke<NoteMeta[]>("vault_backlinks", { path });
+  const target = historyProjection.notes.find((note) => note.path === path);
+  if (!target) return Promise.resolve([]);
+  const names = new Set([target.stem.toLowerCase(), target.title.toLowerCase()]);
+  const links = /!?\[\[([^[]+?)\]\]/g;
+  const out = historyProjection.notes.filter((note) => {
+    const body = historyProjection?.contents[note.path]?.body ?? "";
+    for (const match of body.matchAll(links)) {
+      if (!match[0].startsWith("!") && names.has(match[1].trim().toLowerCase())) return true;
+    }
+    return false;
+  });
+  return Promise.resolve(clone(out));
+};
+export const vaultRelated = (path: string) =>
+  historyProjection
+    ? Promise.resolve<RelatedEntry[]>([])
+    : invoke<RelatedEntry[]>("vault_related", { path });
+export const vaultResolve = (name: string) => {
+  if (!historyProjection) return invoke<NoteMeta | null>("vault_resolve", { name });
+  const key = name.trim().replace(/\.md$/i, "").toLowerCase();
+  const note = historyProjection.notes.find(
+    (candidate) =>
+      candidate.path.toLowerCase() === name.trim().toLowerCase() ||
+      candidate.stem.toLowerCase() === key ||
+      candidate.title.toLowerCase() === key
+  );
+  return Promise.resolve(note ? clone(note) : null);
+};
 export const vaultSaveAsset = (name: string, dataB64: string) =>
   invoke<string>("vault_save_asset", { name, data: dataB64 });
 export const vaultReadAsset = (name: string) => invoke<string>("vault_read_asset", { name });
@@ -213,6 +383,7 @@ export const vaultSyncResolveClear = (path: string) =>
 /** Commits the merge once every conflicted file has a choice. */
 export const vaultSyncResolveFinish = () => invoke<SyncReport>("vault_sync_resolve_finish");
 export const historyList = (path: string) => invoke<HistoryEntry[]>("history_list", { path });
+export const historyPoints = () => invoke<VaultHistoryPoint[]>("history_points");
 export const historyDiff = (id: string, file: string) =>
   invoke<DiffLine[]>("history_diff", { id, file });
 /** `baselineMs` is the `updated_ms` the caller is rendering. When the file on
@@ -231,8 +402,14 @@ export const exportText = (dest: string, contents: string) =>
 export const exportNoteBundle = (path: string, destDir: string) =>
   invoke<number>("export_note_bundle", { path, destDir });
 export const printWindow = () => invoke<void>("print_window");
-export const vaultViewsRead = () => invoke<ViewsConfig>("vault_views_read");
-export const vaultSchemaRead = () => invoke<SchemaConfig>("vault_schema_read");
+export const vaultViewsRead = () =>
+  historyProjection
+    ? Promise.resolve(clone(historyProjection.views))
+    : invoke<ViewsConfig>("vault_views_read");
+export const vaultSchemaRead = () =>
+  historyProjection
+    ? Promise.resolve(clone(historyProjection.schema))
+    : invoke<SchemaConfig>("vault_schema_read");
 export const vaultSchemaSet = (
   dbType: string,
   prop: string,
@@ -308,7 +485,10 @@ export const vaultViewsSet = (
     grid: grid ?? null,
     hiddenPerLayout: hiddenPerLayout ?? null,
   });
-export const vaultFolders = () => invoke<string[]>("vault_folders");
+export const vaultFolders = () =>
+  historyProjection
+    ? Promise.resolve(clone(historyProjection.folders))
+    : invoke<string[]>("vault_folders");
 export const vaultCreateFolder = (path: string) =>
   invoke<string>("vault_create_folder", { path });
 export const vaultRenameFolder = (path: string, name: string) =>
@@ -320,11 +500,17 @@ export const vaultMoveFolder = (path: string, folder: string) =>
   invoke<string>("vault_move_folder", { path, folder });
 export const vaultMove = (path: string, folder: string) =>
   invoke<NoteMeta>("vault_move", { path, folder });
-export const vaultSidebarOrder = () => invoke<SidebarOrder>("vault_sidebar_order");
+export const vaultSidebarOrder = () =>
+  historyProjection
+    ? Promise.resolve(clone(historyProjection.sidebar_order))
+    : invoke<SidebarOrder>("vault_sidebar_order");
 export const vaultSetSidebarOrder = (order: SidebarOrder) =>
   invoke<SidebarOrder>("vault_set_sidebar_order", { order });
 /** Per-folder metadata (SUB-84): vault-relative folder path → icon. */
-export const vaultFolderMetaRead = () => invoke<FolderMetaMap>("vault_folder_meta_read");
+export const vaultFolderMetaRead = () =>
+  historyProjection
+    ? Promise.resolve(clone(historyProjection.folder_meta))
+    : invoke<FolderMetaMap>("vault_folder_meta_read");
 /** Set or clear a folder's icon (SUB-84) — the whole icon at once; null
     removes it (plain folder glyph fallback). */
 export const vaultFolderIconSet = (path: string, icon: DbIcon | null) =>
@@ -348,7 +534,10 @@ export const agendaOpenCapture = () => invoke<void>("agenda_open_capture");
 /** Fit the tray popover to its rendered card (SUB-746). `height` is the
     card's logical height; Rust clamps it and re-anchors under the tray icon. */
 export const agendaResize = (height: number) => invoke<void>("agenda_resize", { height });
-export const vaultSavedViewsRead = () => invoke<SavedView[]>("vault_saved_views_read");
+export const vaultSavedViewsRead = () =>
+  historyProjection
+    ? Promise.resolve(clone(historyProjection.saved_views))
+    : invoke<SavedView[]>("vault_saved_views_read");
 export const vaultSavedViewSet = (view: SavedView) =>
   invoke<SavedView[]>("vault_saved_view_set", { view });
 export const vaultSavedViewDelete = (id: string) =>

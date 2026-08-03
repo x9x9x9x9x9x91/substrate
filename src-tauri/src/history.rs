@@ -32,6 +32,15 @@ pub struct HistoryEntry {
     pub dels: u32,
 }
 
+/// One vault-wide restore point. Unlike `HistoryEntry`, this is not scoped to
+/// a note: it is the commit the whole-vault time scrubber renders.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct VaultHistoryPoint {
+    pub id: String,
+    pub ts_ms: u64,
+    pub subject: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct DiffLine {
     pub kind: String, // "add" | "del" | "ctx" | "hunk"
@@ -153,6 +162,49 @@ impl History {
     /// then a no-op (mutations) or a refusal (reads).
     pub fn is_enabled(&self) -> bool {
         self.enabled
+    }
+
+    /// Every whole-vault snapshot, newest first.
+    #[cfg(mobile)]
+    pub fn points(&self) -> Result<Vec<VaultHistoryPoint>, String> {
+        if !self.enabled {
+            return Err(FOREIGN_MSG.into());
+        }
+        crate::githist::history_points(&self.root)
+    }
+
+    /// Every whole-vault snapshot, newest first.
+    #[cfg(not(mobile))]
+    pub fn points(&self) -> Result<Vec<VaultHistoryPoint>, String> {
+        if !self.enabled {
+            return Err(FOREIGN_MSG.into());
+        }
+        let out = self.git(&["log", "--format=%H%x1f%ct%x1f%s"])?;
+        out.lines()
+            .filter(|line| !line.is_empty())
+            .map(|line| {
+                let mut fields = line.splitn(3, '\u{1f}');
+                let id = fields.next().unwrap_or_default().to_string();
+                let ts_ms = fields
+                    .next()
+                    .ok_or_else(|| "version history timestamp unavailable".to_string())?
+                    .parse::<u64>()
+                    .map_err(|_| "version history timestamp is invalid".to_string())?
+                    .saturating_mul(1000);
+                let subject = fields.next().unwrap_or_default().to_string();
+                Ok(VaultHistoryPoint { id, ts_ms, subject })
+            })
+            .collect()
+    }
+
+    /// Projection-relevant blobs in one snapshot, decoded lossily like the
+    /// live vault reader. libgit2 does this in one repository walk on desktop
+    /// and mobile, avoiding one `git show` process per note for a large vault.
+    pub fn snapshot_files(&self, id: &str) -> Result<Vec<(String, String)>, String> {
+        if !self.enabled {
+            return Err(FOREIGN_MSG.into());
+        }
+        crate::githist::history_snapshot_files(&self.root, id)
     }
 
     #[cfg(not(mobile))]

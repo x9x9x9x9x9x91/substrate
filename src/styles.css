@@ -205,6 +205,167 @@ button:focus-visible,
   height: 100vh;
 }
 
+/* SUB-822 — whole-vault history floats above the normal shell. It changes
+   the shell's geometry (rather than covering it), so the banner never hides
+   note tools or the sidebar's first row. */
+.app.time-travel-open {
+  box-sizing: border-box;
+  padding-top: 62px;
+}
+
+.timebar {
+  position: fixed;
+  top: 14px;
+  left: 76px;
+  right: 10px;
+  z-index: 190;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 9px 7px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.28);
+}
+
+.timebar.active {
+  box-shadow:
+    inset 3px 0 0 var(--text-3),
+    0 8px 30px rgba(0, 0, 0, 0.28);
+}
+
+.timebar-mark {
+  flex: none;
+  color: var(--text-2);
+}
+
+.timebar-copy {
+  min-width: 190px;
+  max-width: 320px;
+}
+
+.timebar-title {
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.timebar-sub {
+  margin-top: 2px;
+  color: var(--text-3);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.timebar-rail {
+  flex: 1;
+  min-width: 160px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-3);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.timebar-rail input {
+  flex: 1;
+  min-width: 80px;
+  accent-color: var(--text-2);
+}
+
+.timebar-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.timebar-button,
+.timebar-close {
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 11px;
+}
+
+.timebar-button:hover,
+.timebar-close:hover {
+  border-color: var(--border-strong);
+  color: var(--text-1);
+}
+
+.timebar-button.primary {
+  background: var(--text-1);
+  color: var(--bg);
+}
+
+.timebar-close {
+  width: 28px;
+  padding: 0;
+}
+
+/* SUB-822: the past has to read as a different room at a glance. The old cue
+   was `filter: saturate(0.35)` on the sidebar/main, which was both too quiet
+   on already-desaturated chrome and a real layout bug: a filtered element
+   becomes the containing block for its `position: fixed` descendants, so the
+   drag-over `.drop-hint` anchored to `.main` instead of the viewport. An
+   overlay does neither — no filter anywhere, plus an amber inset frame. It
+   sits under the time bar (z 190) so the controls stay full-strength. */
+.viewing-past::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+  background: rgba(190, 130, 60, 0.07);
+  box-shadow: inset 0 0 0 2px rgba(190, 130, 60, 0.42);
+}
+
+/* Controls can still explain themselves on hover, but the common creation
+   affordances step back. The IPC read-only boundary remains the authority. */
+.viewing-past .side-add,
+.viewing-past .sidebar-new,
+.viewing-past .list-new,
+.viewing-past .db-tab-add,
+.viewing-past .dash-add {
+  opacity: 0.28;
+  pointer-events: none;
+}
+
+@media (max-width: 760px) {
+  .app.time-travel-open {
+    padding-top: 104px;
+  }
+
+  .timebar {
+    left: 8px;
+    right: 8px;
+    flex-wrap: wrap;
+  }
+
+  .timebar-copy {
+    flex: 1;
+  }
+
+  .timebar-rail {
+    order: 3;
+    flex-basis: 100%;
+  }
+}
+
 .sidebar {
   /* yields below ~954px window width so the note column keeps room (SUB-151);
      SUB-686 widened the ceiling — labels truncated too early at 218px */

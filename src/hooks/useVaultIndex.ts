@@ -54,6 +54,7 @@ export function useVaultIndex() {
     setNotes,
     notesRef,
     folders,
+    setFolders,
     vaultEpoch,
     setVaultEpoch,
     changedPaths,

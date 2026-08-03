@@ -26,6 +26,7 @@ import {
   CalendarIcon,
   ChartIcon,
   ChevronIcon,
+  ClockIcon,
   DbIcon as DbGlyphIcon,
   FolderIcon,
   FolderOpenIcon,
@@ -160,6 +161,12 @@ interface SidebarProps {
   };
   /** open the ⌘, settings sheet from the bottom-rail gear (SUB-476) */
   onOpenSettings: () => void;
+  /** open the vault-wide history scrubber (SUB-822) */
+  onOpenTimeTravel: () => void;
+  /** SUB-822: already browsing the past — the clock's own call
+      (history_snapshot) is a write and the guard rejects it, so the button
+      goes quiet instead of erroring. */
+  viewingPast?: boolean;
 }
 
 /** The reorderable sidebar lanes (SUB-585): the Dashboards section's rows, one
@@ -225,6 +232,8 @@ function Sidebar({
   onCapture,
   keyAssign,
   onOpenSettings,
+  onOpenTimeTravel,
+  viewingPast = false,
 }: SidebarProps) {
   const key = viewKey(view);
   const [root, setRoot] = useState("~/Vault");
@@ -1283,6 +1292,16 @@ function Sidebar({
                  weight, because both are "about the app", not the vault */
               trailing={
                 <>
+                  <button
+                    type="button"
+                    className="side-tool-btn"
+                    title={viewingPast ? "Already viewing the past" : "Browse the vault's past"}
+                    aria-label="Browse the vault's past"
+                    disabled={viewingPast}
+                    onClick={onOpenTimeTravel}
+                  >
+                    <ClockIcon />
+                  </button>
                   <button
                     type="button"
                     className="side-tool-btn"

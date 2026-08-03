@@ -47,8 +47,11 @@ Capacities, Affine).*
 - **Local reality** — link/index real files on disk; Shift-drag links in
   place without copying (0.15); map any folder of notes as a database (0.18).
 - **Full history, zero setup** — vendored libgit2: every vault gets complete
-  git history, in-app diff/restore, restore-conflict warnings, and purge that
-  is physically gone (history rewrite + `gc --prune=now` — accidents fully
+  git history, in-app diff/restore, and a whole-vault time scrubber: pick any
+  commit and notes, databases, dashboards, schemas, and saved views all render
+  together as they were, read-only, without checking out over the live vault.
+  Restore one note from there, or return to the untouched present. Purge is
+  physically gone (history rewrite + `gc --prune=now` — accidents fully
   removable, not hidden). Trash parks a note/folder's surrounding config too
   (icon, pins, sidebar row); restore into a changed world yields, never
   overwrites. Vs Obsidian File Recovery: 7-day snapshots, .md/.canvas only,
@@ -159,9 +162,8 @@ Capacities, Affine).*
 
 Tracked in the issue tracker; headline shapes: reality-mounted databases
 (non-md files as database rows with extracted columns + sidecars),
-materialized views on disk, vault time scrubber + time-travel queries over
-git history, timestamped audio annotations, iOS
-home-screen widgets, per-fact provenance
+materialized views on disk, time-travel queries over git history,
+timestamped audio annotations, iOS home-screen widgets, per-fact provenance
 receipts, live values in prose, deterministic file-event reflexes, voice
 capture with on-device transcript, cross-type joins, units & inline math.
 

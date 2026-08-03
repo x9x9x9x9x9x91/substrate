@@ -10,7 +10,7 @@
 // cfg-gating it away would let mobile-only code rot untested on desktop.
 #![allow(dead_code)]
 
-use crate::history::{DiffLine, HistoryEntry, FOREIGN_MSG, SENTINEL};
+use crate::history::{DiffLine, HistoryEntry, VaultHistoryPoint, FOREIGN_MSG, SENTINEL};
 use git2::{
     Commit, Delta, Diff, DiffFindOptions, DiffOptions, Index, ObjectType, Oid, Patch, Repository,
     ResetType, Sort, Tree,
@@ -315,6 +315,67 @@ pub(crate) fn history_show(root: &Path, id: &str, file: &str) -> Result<String, 
         .find_blob(entry.id())
         .map_err(|e| format!("version history file {file} unavailable: {e}"))?;
     Ok(String::from_utf8_lossy(blob.content()).into_owned())
+}
+
+/// Mobile/libgit2 half of `History::points`.
+pub(crate) fn history_points(root: &Path) -> Result<Vec<VaultHistoryPoint>, String> {
+    let repo = owned_repo(root)?;
+    let mut walk = repo.revwalk().map_err(|e| format!("could not walk version history: {e}"))?;
+    walk.push_head()
+        .and_then(|_| walk.set_sorting(Sort::TOPOLOGICAL | Sort::TIME))
+        .map_err(|e| format!("could not walk version history: {e}"))?;
+    walk.map(|oid| {
+        let oid = oid.map_err(|e| format!("could not walk version history: {e}"))?;
+        let commit = repo
+            .find_commit(oid)
+            .map_err(|e| format!("version history snapshot unavailable: {e}"))?;
+        Ok(VaultHistoryPoint {
+            id: oid.to_string(),
+            ts_ms: (commit.time().seconds().max(0) as u64).saturating_mul(1000),
+            subject: commit.summary().unwrap_or_default().to_string(),
+        })
+    })
+    .collect()
+}
+
+/// Read the markdown and config blobs used by the historical projection
+/// without touching the working tree. A vault can track large unrelated
+/// files; the scrubber must not load those into memory just to ignore them.
+pub(crate) fn history_snapshot_files(
+    root: &Path,
+    id: &str,
+) -> Result<Vec<(String, String)>, String> {
+    let repo = owned_repo(root)?;
+    let commit = commit_from_spec(&repo, id)?;
+    let tree =
+        commit.tree().map_err(|e| format!("version history snapshot tree unavailable: {e}"))?;
+    let mut entries = Vec::new();
+    tree.walk(git2::TreeWalkMode::PreOrder, |directory, entry| {
+        if entry.kind() == Some(git2::ObjectType::Blob) {
+            if let Some(name) = entry.name() {
+                let path = format!("{directory}{name}");
+                let projection_file = path.eq_ignore_ascii_case(".vault/schema.json")
+                    || path.eq_ignore_ascii_case(".vault/views.json")
+                    || Path::new(&path)
+                        .extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("md"));
+                if projection_file {
+                    entries.push((path, entry.id()));
+                }
+            }
+        }
+        git2::TreeWalkResult::Ok
+    })
+    .map_err(|e| format!("could not walk version history snapshot: {e}"))?;
+    let mut files = Vec::with_capacity(entries.len());
+    for (path, oid) in entries {
+        let blob = repo
+            .find_blob(oid)
+            .map_err(|e| format!("version history file {path} unavailable: {e}"))?;
+        files.push((path, String::from_utf8_lossy(blob.content()).into_owned()));
+    }
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(files)
 }
 
 fn maintenance_repo(root: &Path) -> Result<Option<Repository>, String> {

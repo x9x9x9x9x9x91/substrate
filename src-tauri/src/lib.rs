@@ -818,6 +818,8 @@ pub fn run() {
             fx_usd_eur,
             share_upload,
             history_list,
+            history_points,
+            history_vault_snapshot,
             history_diff,
             history_restore,
             history_purge_note,

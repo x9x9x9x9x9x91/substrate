@@ -36,6 +36,69 @@ import { isAppFile } from "./settings.ts";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
 
+/* Whole-vault time travel is a frontend read projection over one git tree.
+   Keep the safety boundary below every component: old dashboards and editors
+   may still render controls, but no vault mutation crosses IPC while the
+   projection is active. `history_restore` is the one intentional exception —
+   restoring the open historical note is the feature's explicit write. */
+let historyReadOnly = false;
+export const setHistoryReadOnly = (active: boolean) => {
+  historyReadOnly = active;
+};
+
+/* SUB-822: the guard is an ALLOW-list, not a deny-list. The first shape only
+   denied `history_*`/`vault_*` plus three names, so every other family passed
+   by default — sync_control could push the historical projection to a remote,
+   jobs_control could run a job against it, term_spawn could open a shell in a
+   vault whose on-screen state is a lie, share_upload could publish a past body
+   as if it were current. A new command family is a write until it is listed
+   here on purpose. Everything below is a pure read, a projection fetch, or the
+   one intentional write (`history_restore` — restoring the open historical
+   note IS the feature). */
+const HISTORY_MODE_COMMANDS = new Set([
+  /* the projection itself */
+  "history_status",
+  "history_list",
+  "history_diff",
+  "history_points",
+  "history_vault_snapshot",
+  "history_restore",
+  /* vault reads — served either from the projection (ipc.ts) or live */
+  "vault_root",
+  "vault_list",
+  "vault_read",
+  "vault_fm_raw",
+  "vault_template_read",
+  "vault_template_list",
+  "vault_search",
+  "vault_search_full",
+  "vault_backlinks",
+  "vault_related",
+  "vault_resolve",
+  "vault_read_asset",
+  "vault_asset_info",
+  "vault_assets_orphaned",
+  "vault_doctor",
+  "vault_folders",
+  "vault_views_read",
+  "vault_schema_read",
+  "vault_saved_views_read",
+  "vault_sidebar_order",
+  "vault_folder_meta_read",
+  "vault_sync_status",
+  "vault_sync_conflicts",
+  "vault_trash_list",
+  /* app-shell reads with no vault side effect */
+  "onboarding_status",
+  "path_exists",
+  "drop_shift_down",
+]);
+
+function blockedByHistoryMode(cmd: string): boolean {
+  if (!historyReadOnly) return false;
+  return !HISTORY_MODE_COMMANDS.has(cmd);
+}
+
 /* e2e hooks into the mock backend (SUB-156/SUB-158), all prefixed `__mock`:
    __mockFail is created by specs themselves; the rest are installed by the
    mock-only block at the bottom of this file, so the shipped app never has
@@ -4574,6 +4637,55 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const path = args?.path as string;
       return mockEntries(path, mockHistory.get(path) ?? []);
     }
+    case "history_points":
+      return [
+        { id: "vault-snap-0", ts_ms: now, subject: "snapshot" },
+        { id: "vault-snap-1", ts_ms: now - 3 * 3_600_000, subject: "snapshot" },
+        { id: "vault-snap-2", ts_ms: now - 27 * 3_600_000, subject: "snapshot" },
+      ];
+    case "history_vault_snapshot": {
+      const level = Math.max(0, Math.min(2, Number(String(args?.id ?? "").split("-").pop())));
+      const point = [
+        { id: "vault-snap-0", ts_ms: now, subject: "snapshot" },
+        { id: "vault-snap-1", ts_ms: now - 3 * 3_600_000, subject: "snapshot" },
+        { id: "vault-snap-2", ts_ms: now - 27 * 3_600_000, subject: "snapshot" },
+      ][level];
+      const notes = mockNotes
+        .map((note) => ({ ...meta(note), updated_ms: point.ts_ms }))
+        .sort((a, b) => a.path.localeCompare(b.path));
+      const contents = Object.fromEntries(
+        mockNotes.map((note) => [
+          note.path,
+          { body: snapsFor(note)[level]?.body ?? note.body, props: structuredClone(note.props) },
+        ])
+      );
+      const fm = Object.fromEntries(
+        mockNotes
+          .filter((note) => Object.keys(note.props).length > 0)
+          .map((note) => [
+            note.path,
+            {
+              raw: Object.entries(note.props)
+                .map(([key, value]) => `${key}: ${JSON.stringify(value)}`)
+                .join("\n"),
+              error: null,
+              repairable: true,
+            },
+          ])
+      );
+      return {
+        point,
+        notes,
+        contents,
+        fm,
+        folders: [...mockFolders].sort(),
+        views: structuredClone(mockViews),
+        schema: structuredClone(mockSchema),
+        sidebar_order: structuredClone(mockSidebarOrder),
+        saved_views: structuredClone(mockSavedViews),
+        folder_meta: structuredClone(mockFolderMeta),
+      };
+    }
     case "history_diff": {
       const file = args?.file as string;
       const n = mockNotes.find((m) => m.path === file);
@@ -4587,7 +4699,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const n = find();
       if (!n) throw new Error("not found");
       const snaps = snapsFor(n);
-      const snap = snaps.find((s) => s.id === args?.id);
+      const vaultLevel = String(args?.id ?? "").startsWith("vault-snap-")
+        ? Number(String(args?.id).split("-").pop())
+        : null;
+      const snap = vaultLevel === null ? snaps.find((s) => s.id === args?.id) : snaps[vaultLevel];
       if (!snap) throw new Error("snapshot not found");
       n.body = snap.body;
       n.updated_ms = Date.now();
@@ -4635,6 +4750,9 @@ const rawInvoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T> 
   : (mockInvoke as <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>);
 
 export const invoke = async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
+  if (blockedByHistoryMode(cmd)) {
+    throw new Error("viewing the past is read-only — return to the present to make changes");
+  }
   const result = await rawInvoke<T>(cmd, args);
   // only watcher-visible mutations echo back as vault:changed, so only they
   // need attributing; a template or asset write never returns to us at all

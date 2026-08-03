@@ -1,9 +1,14 @@
 //! Version history: the git-backed snapshot panel (list, diff, restore) plus
 //! the purge/trim commands that rewrite it.
 
-use crate::history::{DiffLine, History, HistoryEntry};
-use crate::vault::{Engine, NoteMeta};
+use crate::history::{DiffLine, History, HistoryEntry, VaultHistoryPoint};
+use crate::vault::{
+    fm_state, note_from_history, Engine, FmState, FolderMeta, NoteContent, NoteMeta, SavedView,
+    SchemaConfig, SidebarOrder, ViewPref,
+};
 use crate::{blocking, AppState, HistoryState, SnapDirty};
+use serde::de::DeserializeOwned;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use tauri::{Manager, State};
 
@@ -61,6 +66,121 @@ pub(crate) fn history_status(h: State<HistoryState>) -> HistoryStatus {
         Some(hist) => HistoryStatus { available: true, enabled: hist.is_enabled() },
         None => HistoryStatus { available: false, enabled: false },
     }
+}
+
+/// A complete read-only vault projection at one history commit. Note bodies
+/// and the three view/config projections come from the same tree, so an old
+/// database always renders against its old schema instead of today's files.
+#[derive(serde::Serialize)]
+pub(crate) struct HistoryVaultSnapshot {
+    point: VaultHistoryPoint,
+    notes: Vec<NoteMeta>,
+    contents: HashMap<String, NoteContent>,
+    /// Raw frontmatter per note, as of this snapshot (SUB-822). `read()`
+    /// strips the block, so without this the frontmatter panel showed every
+    /// historical note as having none.
+    fm: HashMap<String, FmState>,
+    folders: Vec<String>,
+    views: HashMap<String, ViewPref>,
+    schema: SchemaConfig,
+    sidebar_order: SidebarOrder,
+    saved_views: Vec<SavedView>,
+    folder_meta: HashMap<String, FolderMeta>,
+}
+
+fn json_or_default<T: DeserializeOwned + Default>(raw: Option<&String>) -> T {
+    raw.and_then(|text| serde_json::from_str(text).ok()).unwrap_or_default()
+}
+
+pub(crate) fn build_vault_snapshot(
+    hist: &History,
+    id: &str,
+) -> Result<HistoryVaultSnapshot, String> {
+    let point = hist
+        .points()?
+        .into_iter()
+        .find(|point| point.id == id)
+        .ok_or_else(|| "version history snapshot unavailable".to_string())?;
+    let files: HashMap<String, String> = hist.snapshot_files(id)?.into_iter().collect();
+    let mut notes = Vec::new();
+    let mut contents = HashMap::new();
+    let mut fm = HashMap::new();
+    let mut folder_set = HashSet::new();
+    for (path, raw) in &files {
+        let Some((meta, content)) = note_from_history(path, raw, point.ts_ms) else { continue };
+        if let Some(state) = fm_state(raw) {
+            fm.insert(path.clone(), state);
+        }
+        let mut folder = meta.folder.as_str();
+        while !folder.is_empty() {
+            folder_set.insert(folder.to_string());
+            folder = folder.rsplit_once('/').map(|(parent, _)| parent).unwrap_or("");
+        }
+        contents.insert(path.clone(), content);
+        notes.push(meta);
+    }
+    // A git tree has no mtimes. Avoid pretending every note changed at once
+    // by using a deterministic path order inside this historical projection.
+    notes.sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
+    let mut folders: Vec<String> = folder_set.into_iter().collect();
+    folders.sort_by_key(|folder| folder.to_lowercase());
+
+    let schema = json_or_default(files.get(".vault/schema.json"));
+    let view_root: serde_json::Map<String, serde_json::Value> =
+        json_or_default(files.get(".vault/views.json"));
+    let views = view_root
+        .iter()
+        .filter(|(key, _)| !key.starts_with('$'))
+        .filter_map(|(key, value)| {
+            serde_json::from_value::<ViewPref>(value.clone()).ok().map(|view| (key.clone(), view))
+        })
+        .collect();
+    let sidebar_order = view_root
+        .get("$sidebar")
+        .and_then(|value| serde_json::from_value(value.clone()).ok())
+        .unwrap_or_default();
+    let saved_views = view_root
+        .get("$views")
+        .and_then(|value| serde_json::from_value(value.clone()).ok())
+        .unwrap_or_default();
+    let folder_meta = view_root
+        .get("$folders")
+        .and_then(|value| serde_json::from_value(value.clone()).ok())
+        .unwrap_or_default();
+
+    Ok(HistoryVaultSnapshot {
+        point,
+        notes,
+        contents,
+        fm,
+        folders,
+        views,
+        schema,
+        sidebar_order,
+        saved_views,
+        folder_meta,
+    })
+}
+
+#[tauri::command]
+pub(crate) async fn history_points(app: tauri::AppHandle) -> Result<Vec<VaultHistoryPoint>, String> {
+    blocking(move || {
+        let h: State<HistoryState> = app.state();
+        with_history(&h, History::points)
+    })
+    .await?
+}
+
+#[tauri::command]
+pub(crate) async fn history_vault_snapshot(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<HistoryVaultSnapshot, String> {
+    blocking(move || {
+        let h: State<HistoryState> = app.state();
+        with_history(&h, |hist| build_vault_snapshot(hist, &id))
+    })
+    .await?
 }
 
 // async so a slow git log (large history, cold cache) can't freeze the UI.
@@ -453,6 +573,94 @@ mod tests {
         // And the purge itself still works under both locks: the old versions
         // are gone and the re-snapshot left exactly one, a fresh version 1.
         assert_eq!(hist.lock().unwrap().as_ref().unwrap().list(&meta.path).unwrap().len(), 1);
+    }
+
+    /// SUB-822: one commit must project notes, schema and saved-view config
+    /// from that SAME tree, and reading it must leave the live worktree byte
+    /// for byte alone.
+    #[test]
+    fn vault_snapshot_is_a_coherent_read_only_tree_projection() {
+        let t = tempfile::TempDir::new().unwrap();
+        let root = t.path().join("Vault");
+        std::fs::create_dir_all(root.join("Projects")).unwrap();
+        std::fs::create_dir_all(root.join(".vault")).unwrap();
+        std::fs::write(
+            root.join("Projects/One.md"),
+            "---\ntype: release\nstatus: draft\n---\nold body\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".vault/schema.json"),
+            r#"{"release":{"status":{"kind":"text"}}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".vault/views.json"),
+            r#"{"release":{"view":"board"},"$sidebar":{"databases":["release"]},"$views":[{"id":"drafts","name":"Drafts","db":"release","query":"status:draft"}]}"#,
+        )
+        .unwrap();
+        std::fs::write(root.join("archive.bin"), vec![7_u8; 128]).unwrap();
+        let hist = crate::history::History::new(root.clone()).unwrap();
+        hist.snapshot("old vault").unwrap();
+        let old = hist.points().unwrap()[0].clone();
+
+        std::fs::write(
+            root.join("Projects/One.md"),
+            "---\ntype: release\nstatus: live\n---\ncurrent body\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join(".vault/schema.json"),
+            r#"{"release":{"status":{"options":[{"value":"live"}]}}}"#,
+        )
+        .unwrap();
+        std::fs::write(root.join(".vault/views.json"), r#"{"release":{"view":"table"}}"#)
+            .unwrap();
+        hist.snapshot("current vault").unwrap();
+        assert_eq!(
+            crate::githist::history_points(&root).unwrap(),
+            hist.points().unwrap(),
+            "the mobile/libgit2 scrubber order matches desktop git"
+        );
+        let live_before = std::fs::read(root.join("Projects/One.md")).unwrap();
+
+        let snapshot = super::build_vault_snapshot(&hist, &old.id).unwrap();
+
+        assert_eq!(snapshot.point, old);
+        assert_eq!(snapshot.notes.len(), 1);
+        assert_eq!(snapshot.contents["Projects/One.md"].body, "old body\n");
+        assert_eq!(snapshot.contents["Projects/One.md"].props["status"], "draft");
+        assert_eq!(snapshot.schema["release"].props["status"].kind.as_deref(), Some("text"));
+        assert_eq!(snapshot.views["release"].view, "board");
+        assert_eq!(snapshot.sidebar_order.databases, vec!["release"]);
+        assert_eq!(snapshot.saved_views[0].id, "drafts");
+        assert!(
+            hist.snapshot_files(&old.id)
+                .unwrap()
+                .iter()
+                .all(|(path, _)| path != "archive.bin"),
+            "unrelated tracked blobs are not loaded into the time projection"
+        );
+        assert_eq!(
+            std::fs::read(root.join("Projects/One.md")).unwrap(),
+            live_before,
+            "historical projection never checks out over the live vault"
+        );
+
+        std::fs::remove_file(root.join("Projects/One.md")).unwrap();
+        std::fs::remove_dir(root.join("Projects")).unwrap();
+        let mut engine = crate::vault::Engine::new(root.clone());
+        let restored = super::restore_note(
+            &mut engine,
+            &hist,
+            "Projects/One.md",
+            &old.id,
+            "Projects/One.md",
+            0,
+        )
+        .unwrap();
+        assert_eq!(restored.meta.path, "Projects/One.md");
+        assert!(root.join("Projects/One.md").is_file(), "restore recreates an old folder");
     }
 
     /// A `pre-commit` hook that refuses makes `git commit` fail while leaving

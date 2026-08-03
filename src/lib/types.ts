@@ -490,6 +490,30 @@ export interface HistoryEntry {
   dels: number;
 }
 
+/** One whole-vault commit on the time scrubber, newest first. */
+export interface VaultHistoryPoint {
+  id: string;
+  ts_ms: number;
+  subject: string;
+}
+
+/** The complete read projection for one vault history commit. */
+export interface HistoryVaultSnapshot {
+  point: VaultHistoryPoint;
+  notes: NoteMeta[];
+  contents: Record<string, NoteContent>;
+  /** Raw frontmatter per note as of this snapshot (SUB-822) — the body in
+      `contents` has the block stripped, so this is the past's only sight of
+      it. Missing key = the note had no frontmatter then. */
+  fm: Record<string, FmState>;
+  folders: string[];
+  views: ViewsConfig;
+  schema: SchemaConfig;
+  sidebar_order: SidebarOrder;
+  saved_views: SavedView[];
+  folder_meta: FolderMetaMap;
+}
+
 export interface DiffLine {
   kind: "add" | "del" | "ctx" | "hunk";
   text: string;

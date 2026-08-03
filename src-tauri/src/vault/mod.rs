@@ -39,10 +39,42 @@ pub struct RenameResult {
     pub touched: Vec<String>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct NoteContent {
     pub body: String,
     pub props: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Parse one markdown blob from a historical tree into the same read models
+/// the live engine exposes. Git trees have no mtimes, so `snapshot_ms` is the
+/// honest timestamp available for `updated_ms`: the selected whole-vault
+/// snapshot, not a fabricated filesystem date.
+pub(crate) fn note_from_history(
+    rel: &str,
+    raw: &str,
+    snapshot_ms: u64,
+) -> Option<(NoteMeta, NoteContent)> {
+    let path = Path::new(rel);
+    if hidden_rel(rel)
+        || !path.extension().map(|ext| ext.eq_ignore_ascii_case("md")).unwrap_or(false)
+    {
+        return None;
+    }
+    let (fm, body) = split_frontmatter(raw);
+    let props = parse_props(fm);
+    let stem = path.file_stem()?.to_string_lossy().to_string();
+    let title = prop_str(&props, "title").unwrap_or_else(|| stem.clone());
+    let folder = path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    let meta = NoteMeta {
+        path: rel.to_string(),
+        stem,
+        title,
+        folder,
+        props: props.clone(),
+        updated_ms: snapshot_ms,
+        excerpt: make_excerpt(body),
+    };
+    Some((meta, NoteContent { body: body.to_string(), props }))
 }
 
 /// A note's raw frontmatter block (no fences) plus its health (SUB-430).
@@ -302,6 +334,33 @@ fn fm_diagnosis(fm: &str) -> Option<FmFault> {
         Ok(_) => Some(FmFault::NotAMap),
         Err(_) => Some(FmFault::InvalidYaml),
     }
+}
+
+/// The raw frontmatter block + its health for one note's text (SUB-430).
+/// None = the note has no block. Split out of `Engine::fm_raw` so the
+/// historical projection can carry the same state for a git blob it never
+/// reads off disk (SUB-822) — the past showed "no frontmatter" for every
+/// note, which reads as data loss rather than as an unimplemented lane.
+pub(crate) fn fm_state(raw: &str) -> Option<FmState> {
+    let (fm, _) = split_frontmatter(raw);
+    // SUB-552: an unterminated opener has no block to hand back, but the
+    // banner must still say so — the prop lanes refuse on it, and without
+    // a diagnosis the user sees property edits fail with no explanation.
+    // `raw` is empty and `repairable` false: there is no delimited block
+    // to edit, and the whole file (opening fence, props, body) is already
+    // in the editor, so typing the closing fence there is the repair.
+    if fm.is_none() && has_unterminated_frontmatter(raw) {
+        return Some(FmState {
+            raw: String::new(),
+            error: Some(FmFault::Unterminated.short().to_string()),
+            repairable: false,
+        });
+    }
+    fm.map(|fm| FmState {
+        raw: fm.to_string(),
+        error: fm_diagnosis(fm).map(|f| f.short().to_string()),
+        repairable: true,
+    })
 }
 
 /// Prop parse for the write lanes (SUB-215). Reads stay lenient — a block
@@ -1093,25 +1152,7 @@ impl Engine {
         }
         let abs = self.abs(rel)?;
         let raw = read_lossy(&abs)?;
-        let (fm, _) = split_frontmatter(&raw);
-        // SUB-552: an unterminated opener has no block to hand back, but the
-        // banner must still say so — the prop lanes refuse on it, and without
-        // a diagnosis the user sees property edits fail with no explanation.
-        // `raw` is empty and `repairable` false: there is no delimited block
-        // to edit, and the whole file (opening fence, props, body) is already
-        // in the editor, so typing the closing fence there is the repair.
-        if fm.is_none() && has_unterminated_frontmatter(&raw) {
-            return Ok(Some(FmState {
-                raw: String::new(),
-                error: Some(FmFault::Unterminated.short().to_string()),
-                repairable: false,
-            }));
-        }
-        Ok(fm.map(|fm| FmState {
-            raw: fm.to_string(),
-            error: fm_diagnosis(fm).map(|f| f.short().to_string()),
-            repairable: true,
-        }))
+        Ok(fm_state(&raw))
     }
 
     /// Replace a note's frontmatter block, body preserved byte-verbatim
@@ -1220,10 +1261,12 @@ impl Engine {
         }
         let abs = self.abs(rel)?;
         self.ensure_inside_root(&abs)?;
-        if template_rel(rel) {
-            if let Some(dir) = abs.parent() {
-                fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-            }
+        // A whole-vault historical snapshot can contain a note whose folder
+        // no longer exists in the present. Restoring that note is explicitly
+        // additive, so recreate its confined parent chain before the atomic
+        // write; `ensure_inside_root` above already rejected symlink escapes.
+        if let Some(dir) = abs.parent() {
+            fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
         write_atomic(&abs, raw)?;
         self.reindex_one(rel);

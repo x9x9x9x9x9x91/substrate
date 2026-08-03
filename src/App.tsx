@@ -4,7 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTyping, isTypingNow } from "./lib/dom";
 import { MENU_SURFACES } from "./lib/menusurfaces";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { DbIcon, DbLayout, NewTypeProp, NoteMeta, NumberFormat, PropKind, PropValue, RollupConfig, SavedView, SavedViewSort, SelectOption, SidebarOrder, View, ViewPref } from "./lib/types";
+import type { DbIcon, DbLayout, NewTypeProp, NoteMeta, NumberFormat, PropKind, PropValue, RollupConfig, SavedView, SavedViewSort, SelectOption, SidebarOrder, VaultHistoryPoint, View, ViewPref } from "./lib/types";
 import { foldedPropKey, foldedPropStr, FUNCTIONAL_TYPES, propStr, typeHome, viewKey } from "./lib/types";
 import { byFoldedKey, foldedObjectKey, isTypePropName, typeSchemaFor } from "./lib/schemalookup";
 import { folderDefaultIcon, iconForType, iconsByType } from "./lib/dbicons";
@@ -65,6 +65,11 @@ import {
 import {
   folderDbsAdd,
   folderDbsRescan,
+  historyEnter,
+  historyLeave,
+  historyPoints,
+  historyProjectionActive,
+  historyRestore,
   historySnapshot,
   urlCapture,
   vaultClearProp,
@@ -76,6 +81,8 @@ import {
   vaultDeleteType,
   vaultFolderIconSet,
   vaultFolderMetaRead,
+  vaultFolders,
+  vaultList,
   vaultRead,
   vaultRenameProp,
   vaultRenameType,
@@ -157,6 +164,7 @@ import KeyAssignHud from "./components/KeyAssignHud";
 import ModKeyHud, { type ModKeyHudCtx } from "./components/ModKeyHud";
 import InfoView from "./components/InfoView";
 import DonationNag from "./components/DonationNag";
+import TimeTravelBar from "./components/TimeTravelBar";
 import SettingsPane from "./components/SettingsPane";
 // lazy: TerminalHud is the only xterm.js importer, and the web/mock surface
 // (e2e) never renders it — code-splitting keeps xterm's parse cost out of
@@ -223,6 +231,7 @@ export default function App() {
     setNotes,
     notesRef,
     folders,
+    setFolders,
     vaultEpoch,
     setVaultEpoch,
     changedPaths,
@@ -250,6 +259,11 @@ export default function App() {
   const [overlay, setOverlay] = useState<null | "palette" | "capture">(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [timeTravelOpen, setTimeTravelOpen] = useState(false);
+  const [timePoints, setTimePoints] = useState<VaultHistoryPoint[]>([]);
+  const [timePoint, setTimePoint] = useState<VaultHistoryPoint | null>(null);
+  const [timeBusy, setTimeBusy] = useState(false);
+  const [timeError, setTimeError] = useState<string | null>(null);
   const {
     termOpen,
     termSettings,
@@ -677,6 +691,159 @@ export default function App() {
     }
     return null;
   }, [indexedNotes, selected, ghostPath]);
+
+  const selectTimePoint = useCallback(
+    async (id: string) => {
+      setTimeBusy(true);
+      setTimeError(null);
+      try {
+        const snapshot = await historyEnter(id);
+        setTimePoint(snapshot.point);
+        setNotes(snapshot.notes);
+        setFolders(snapshot.folders);
+        setViewsConfig(snapshot.views);
+        setSchema(snapshot.schema);
+        setSidebarOrder(snapshot.sidebar_order);
+        setSavedViews(snapshot.saved_views);
+        setFolderMeta(snapshot.folder_meta);
+        setChangedPaths(null);
+        setVaultEpoch((epoch) => epoch + 1);
+        setOverlay(null);
+        setSettingsOpen(false);
+      } catch (error) {
+        setTimeError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setTimeBusy(false);
+      }
+    },
+    [
+      setChangedPaths,
+      setFolderMeta,
+      setFolders,
+      setNotes,
+      setSavedViews,
+      setSchema,
+      setSidebarOrder,
+      setVaultEpoch,
+      setViewsConfig,
+    ]
+  );
+
+  const openTimeTravel = useCallback(async () => {
+    setTimeTravelOpen(true);
+    setTimeError(null);
+    setTimeBusy(true);
+    try {
+      await (flushOpenRef.current?.() ?? Promise.resolve());
+      // Make the departure state a real commit before any historical restore
+      // can replace a live note. A clean tree already has that restore point.
+      await historySnapshot("before vault time travel");
+      const points = await historyPoints();
+      setTimePoints(points);
+      if (points.length === 0) setTimeError("No vault snapshots yet");
+    } catch (error) {
+      setTimeError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTimeBusy(false);
+    }
+  }, []);
+
+  const reloadPresent = useCallback(async (reselect: string | null) => {
+    const [liveNotes, liveFolders, liveViews, liveSchema, liveSidebar, liveSaved, liveFolderMeta] =
+      await Promise.all([
+        vaultList(),
+        vaultFolders(),
+        vaultViewsRead(),
+        vaultSchemaRead(),
+        vaultSidebarOrder(),
+        vaultSavedViewsRead(),
+        vaultFolderMetaRead(),
+      ]);
+    setNotes(liveNotes);
+    setFolders(liveFolders);
+    setViewsConfig(liveViews);
+    setSchema(liveSchema);
+    setSidebarOrder(liveSidebar);
+    setSavedViews(liveSaved);
+    setFolderMeta(liveFolderMeta);
+    setChangedPaths(null);
+    setVaultEpoch((epoch) => epoch + 1);
+    setSelected(reselect && liveNotes.some((note) => note.path === reselect) ? reselect : null);
+  }, [
+    setChangedPaths,
+    setFolderMeta,
+    setFolders,
+    setNotes,
+    setSavedViews,
+    setSchema,
+    setSidebarOrder,
+    setVaultEpoch,
+    setViewsConfig,
+  ]);
+
+  const returnToPresent = useCallback(async () => {
+    const reselect = selected;
+    setTimeBusy(true);
+    setTimeError(null);
+    setSelected(null);
+    // Live reads begin now, but shortcuts and every IPC mutation stay blocked
+    // until their results have replaced the historical projection in React.
+    historyLeave(false);
+    try {
+      await reloadPresent(reselect);
+      historyLeave();
+      setTimePoint(null);
+      setTimeTravelOpen(false);
+    } catch (error) {
+      setTimeError(error instanceof Error ? error.message : String(error));
+      // Recovery must never dead-end: the guard is still on with no
+      // projection behind it, so a failed re-entry would leave every write
+      // blocked and no working control on screen (SUB-822). Re-show the past
+      // if we can; otherwise release the guard and land in the present, where
+      // the error message is at least actionable.
+      try {
+        if (!timePoint) throw new Error("no snapshot to return to");
+        await selectTimePoint(timePoint.id);
+      } catch {
+        historyLeave();
+        setTimePoint(null);
+        setTimeTravelOpen(false);
+      }
+    } finally {
+      setTimeBusy(false);
+    }
+  }, [reloadPresent, selected, selectTimePoint, timePoint]);
+
+  const restoreFromTime = useCallback(
+    async (note: NoteMeta) => {
+      if (!timePoint) return;
+      setTimeBusy(true);
+      setTimeError(null);
+      try {
+        // the baseline is the version being restored (SUB-822): any live
+        // file newer than it means this restore would bury someone else's
+        // change, which is exactly what SUB-781's detection + rescue
+        // snapshot exist for. Passing 0 disabled both.
+        await historyRestore(note.path, timePoint.id, note.path, note.updated_ms);
+        setSelected(null);
+        historyLeave(false);
+        await reloadPresent(note.path);
+        historyLeave();
+        setTimePoint(null);
+        setTimeTravelOpen(false);
+        setView({ kind: "all" });
+        showToast(`Restored ${note.title}`);
+      } catch (error) {
+        if (!historyProjectionActive() && timePoint) await selectTimePoint(timePoint.id);
+        setTimeError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setTimeBusy(false);
+      }
+    },
+    [reloadPresent, selectTimePoint, showToast, timePoint]
+  );
+
+  useEffect(() => () => historyLeave(), []);
 
   // leaving a ghost daily (SUB-210) discards it — nothing was ever written
   useEffect(() => {
@@ -3252,11 +3419,20 @@ export default function App() {
   return (
     <UndoContext.Provider value={undoApi}>
     <div
-      className={`app${mobile ? " mobile" : ""}`}
+      className={`app${mobile ? " mobile" : ""}${timeTravelOpen ? " time-travel-open" : ""}${timePoint ? " viewing-past" : ""}`}
       onPointerDown={onMobilePointerDown}
       onPointerUp={onMobilePointerUp}
       onPointerCancel={() => {
         mobileSwipeStart.current = null;
+      }}
+      onBeforeInputCapture={(event) => {
+        if (timePoint) event.preventDefault();
+      }}
+      onPasteCapture={(event) => {
+        if (timePoint) event.preventDefault();
+      }}
+      onDropCapture={(event) => {
+        if (timePoint) event.preventDefault();
       }}
       // SUB-590: bare chrome answers right-click with the minimal app menu
       // instead of the webview's stock "Reload" — anything a deeper surface
@@ -3288,6 +3464,26 @@ export default function App() {
       }}
     >
       <div className="titlebar-drag" data-tauri-drag-region />
+      {timeTravelOpen && (
+        <TimeTravelBar
+          points={timePoints}
+          active={timePoint}
+          busy={timeBusy}
+          error={timeError}
+          note={
+            timePoint && selectedMeta && notes.some((note) => note.path === selectedMeta.path)
+              ? selectedMeta
+              : null
+          }
+          onSelect={selectTimePoint}
+          onRestore={restoreFromTime}
+          onPresent={returnToPresent}
+          onClose={() => {
+            setTimeTravelOpen(false);
+            setTimeError(null);
+          }}
+        />
+      )}
       {mobile && (
         <div className="mobile-nav" aria-label="Mobile navigation">
           {mobileDetailActive ? (
@@ -3376,6 +3572,8 @@ export default function App() {
           setOverlay(null);
           setSettingsOpen(true);
         }}
+        onOpenTimeTravel={openTimeTravel}
+        viewingPast={timePoint !== null}
       />
       )}
       {bootError && (
@@ -3650,6 +3848,7 @@ export default function App() {
                 reveal={reveal}
                 onRevealed={clearReveal}
                 onToast={showToast}
+                readOnly={timePoint !== null}
               />
             </div>
           )}
@@ -3715,6 +3914,7 @@ export default function App() {
             reveal={reveal}
             onRevealed={clearReveal}
             onToast={showToast}
+            readOnly={timePoint !== null}
           />
         ) : (
           <div className="note">

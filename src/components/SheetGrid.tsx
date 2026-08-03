@@ -66,6 +66,10 @@ interface SheetGridProps {
    * clean buffer (SUB-93). Adopts in place like the plain editor: an open
    * cell edit (input, focus, draft) survives; no remount, no onChange. */
   docRef?: React.MutableRefObject<((body: string) => void) | null>;
+  /** past mode (SUB-822): the source-mode editor is a CodeMirror surface too —
+   * keymap commands bypass the app-root beforeinput guard, so it needs the
+   * same EditorState.readOnly the plain editor gets. */
+  readOnly?: boolean;
 }
 
 export default function SheetGrid({
@@ -78,6 +82,7 @@ export default function SheetGrid({
   onToast,
   focusRef,
   docRef,
+  readOnly = false,
 }: SheetGridProps) {
   const [body, setBody] = useState(initial);
   const { fx } = useUsdEur();
@@ -543,7 +548,7 @@ export default function SheetGrid({
         </span>
       )}
       <span className="sheet-flex" />
-      {!source && model.hasCsv && (
+      {!source && model.hasCsv && !readOnly && (
         <>
           <button className="sheet-tool" onClick={onAddRow}>
             + row
@@ -586,6 +591,7 @@ export default function SheetGrid({
             }}
             onFollowLink={onFollowLink}
             onToast={onToast}
+            readOnly={readOnly}
           />
         </div>
       </div>
@@ -617,11 +623,11 @@ export default function SheetGrid({
                 }
               }}
             />
-          ) : (
+          ) : !readOnly ? (
             <button className="sheet-tool" onClick={() => setAddingCol(true)}>
               + column
             </button>
-          )}
+          ) : null}
         </div>
       </div>
     );
