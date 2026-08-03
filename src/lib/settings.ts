@@ -177,22 +177,26 @@ export function parseDbGrid(props: Record<string, unknown>): boolean {
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 
-/** The vault-root agent orientation files (SUB-831): seeded for the ⌘⇧T
-    terminal's agent CLI, but concealed from the app's own note surfaces so a
-    fresh vault reads as the user's blank slate. On disk, in the engine index
-    and to Finder they stay ordinary notes — `show-agent-files: true` lists
-    them in-app again. Exact names only: a user's own "agents notes.md" or a
-    nested copy is normal content. */
-export const AGENT_FILES: readonly string[] = ["AGENTS.md", "CLAUDE.md"];
+/** The vault-root files the app itself owns (SUB-831; Settings.md joined in
+    SUB-878): the seeded agent orientation pair for the ⌘⇧T terminal's CLI,
+    plus the settings note behind the ⌘, sheet. Concealed from the app's own
+    note surfaces so a vault reads as the user's content, not the tooling's.
+    On disk, in the engine index and to Finder they stay ordinary notes —
+    `show-agent-files: true` lists them in-app again, and the ⌘, sheet's
+    "edit raw" opens Settings.md regardless. Exact names only: a user's own
+    "agents notes.md" or a nested copy is normal content. */
+export const APP_FILES: readonly string[] = ["AGENTS.md", "CLAUDE.md", SETTINGS_PATH];
 
-export function isAgentFile(path: string): boolean {
-  return AGENT_FILES.includes(path);
+export function isAppFile(path: string): boolean {
+  return APP_FILES.includes(path);
 }
 
-/** `show-agent-files` — the reveal switch for the two files above (SUB-831).
-    Default OFF, inverted rule from `drop-hint`: only an explicit `true`
-    reveals, so an unset key or a typo keeps the blank slate. */
-export function parseShowAgentFiles(props: Record<string, unknown>): boolean {
+/** `show-agent-files` — the reveal switch for the files above (SUB-831).
+    The key name predates Settings.md joining the set (SUB-878) and is kept
+    so existing vaults that set it stay revealed; the ⌘, sheet labels it
+    "Show app files". Default OFF, inverted rule from `drop-hint`: only an
+    explicit `true` reveals, so an unset key or a typo keeps the blank slate. */
+export function parseShowAppFiles(props: Record<string, unknown>): boolean {
   const v = props["show-agent-files"];
   return v === true || (typeof v === "string" && v.trim().toLowerCase() === "true");
 }

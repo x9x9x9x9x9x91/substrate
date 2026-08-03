@@ -1862,7 +1862,9 @@ Plain notes the app treats specially — all optional, all just files:
   vertical grid lines in database tables globally — a database's own
   views.json `grid` override, §7, wins either way), `show-agent-files`
   (SUB-831, default `false`; only an explicit `true` lists the root
-  `AGENTS.md`/`CLAUDE.md` in the app's note surfaces — see the entry below),
+  `AGENTS.md`/`CLAUDE.md` — and, since SUB-878, `Settings.md` itself — in the
+  app's note surfaces; the key keeps its original name for existing vaults,
+  the ⌘, sheet labels it "Show app files" — see the concealment entry below),
   and the SUB-833 "Send as link" pair: `share-relay-url` (http(s) URL of the
   handoff relay the encrypted copy uploads to; empty = the action explains
   setup instead of sending; see `scripts/handoff-relay/README.md`) and
@@ -1903,15 +1905,18 @@ Plain notes the app treats specially — all optional, all just files:
   excludes only `.assets/`, `.trash/`, and `.DS_Store` — so a skill written on
   one device shows up on the others. `.claude/` is hidden (§1) and therefore
   never a note; `AGENTS.md` is an ordinary, frontmatter-less note in the index.
-  **In-app concealment (SUB-831)**: the engine indexes both root files
+  **In-app concealment (SUB-831; SUB-878 added `Settings.md`)**: the engine
+  indexes all three root files
   normally — external tools, Finder and sync see nothing special — but the
   app's own note surfaces (lists, palette, search, sidebar counts, wikilink
   completion) filter them out unless `Settings.md` says
-  `show-agent-files: true` (a switch in the ⌘, sheet), so a fresh vault reads
-  as the user's blank slate. Wikilinks to them still resolve and open —
+  `show-agent-files: true` (the ⌘, sheet's "Show app files" switch), so a
+  fresh vault reads
+  as the user's blank slate. Wikilinks to them still resolve and open, and
+  the ⌘, sheet's "edit raw" opens `Settings.md` with the switch off —
   concealment is presentation, not access control. Frontend-only by design:
   the filter is one memo boundary in `App.tsx` over the exact root paths
-  (`src/lib/settings.ts` `AGENT_FILES`).
+  (`src/lib/settings.ts` `APP_FILES`).
 - `Inbox/` — default folder for new/captured notes; auto-created on launch.
 - `Journal/YYYY-MM-DD.md` — daily notes (⌘D). Title is the ISO date string;
   recognized by path, so any note in `Journal/` with a real date name is a daily.

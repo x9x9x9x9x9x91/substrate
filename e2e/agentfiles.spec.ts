@@ -3,9 +3,10 @@ import { expect, test, type Page } from "@playwright/test";
 // SUB-831: the seeded AGENTS.md/CLAUDE.md stay real files (the mock indexes
 // them like the engine does) but the app conceals them until Settings.md says
 // `show-agent-files: true` — a fresh vault reads as the user's blank slate,
-// not the tooling's. The toggle lives in the ⌘, sheet; the flag rides the
-// same Settings.md read as `mod-hud`, so flipping it applies on the watcher
-// echo without a restart.
+// not the tooling's. SUB-878 added Settings.md itself to the concealed set
+// (the ⌘, sheet's "edit raw" opens it regardless). The toggle lives in the
+// ⌘, sheet; the flag rides the same Settings.md read as `mod-hud`, so
+// flipping it applies on the watcher echo without a restart.
 
 function row(page: Page, title: string) {
   return page.locator(".list .row", { has: page.getByText(title, { exact: true }) });
@@ -17,19 +18,21 @@ async function bootAll(page: Page) {
   await expect(page.locator(".list-title")).toHaveText("All notes");
 }
 
-test("agent files are concealed from lists and palette by default (SUB-831)", async ({ page }) => {
+test("app files are concealed from lists and palette by default (SUB-831, SUB-878)", async ({ page }) => {
   await bootAll(page);
-  // seeded content is there, the agent files are not
+  // seeded content is there, the app files are not
   await expect(row(page, "Welcome")).toBeVisible();
   await expect(row(page, "AGENTS")).toHaveCount(0);
   await expect(row(page, "CLAUDE")).toHaveCount(0);
+  await expect(row(page, "Settings")).toHaveCount(0);
 
-  // the scratch Notes view conceals them too (both are typeless root notes,
-  // which is exactly what that view lists)
+  // the scratch Notes view conceals them too (all three are typeless root
+  // notes, which is exactly what that view lists)
   await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await expect(page.locator(".list-title")).toHaveText("Notes");
   await expect(row(page, "Welcome")).toBeVisible();
   await expect(row(page, "AGENTS")).toHaveCount(0);
+  await expect(row(page, "Settings")).toHaveCount(0);
 
   // palette: no note row may surface them — the "create" rows for the typed
   // query also contain the text, so match the row LABEL exactly
@@ -41,14 +44,14 @@ test("agent files are concealed from lists and palette by default (SUB-831)", as
   await page.keyboard.press("Escape");
 });
 
-test("the settings toggle reveals them live, and re-conceals (SUB-831)", async ({ page }) => {
+test("the settings toggle reveals them live, and re-conceals (SUB-831, SUB-878)", async ({ page }) => {
   await bootAll(page);
   // the toggle writes Settings.md and the watcher echo is what re-reads the
   // flag — the mock mirrors that cadence on request (same as modkeyhud.spec)
   await page.evaluate(() => window.__mockSetEchoOnWrites?.(true));
 
   await page.keyboard.press("Meta+,");
-  const toggleRow = page.locator(".settings-row", { hasText: "Show agent files" });
+  const toggleRow = page.locator(".settings-row", { hasText: "Show app files" });
   await expect(toggleRow).toBeVisible();
   const sw = toggleRow.locator(".settings-switch");
   // default OFF — concealment is the resting state
@@ -58,9 +61,10 @@ test("the settings toggle reveals them live, and re-conceals (SUB-831)", async (
   await page.keyboard.press("Escape");
   await expect(page.locator(".settings-sheet")).toHaveCount(0);
 
-  // once the echo lands, both files list like ordinary notes
+  // once the echo lands, all three files list like ordinary notes
   await expect(row(page, "AGENTS")).toBeVisible();
   await expect(row(page, "CLAUDE")).toBeVisible();
+  await expect(row(page, "Settings")).toBeVisible();
 
   // and they open like ordinary notes
   await row(page, "AGENTS").click();
@@ -75,5 +79,21 @@ test("the settings toggle reveals them live, and re-conceals (SUB-831)", async (
   await page.keyboard.press("Escape");
   await expect(row(page, "AGENTS")).toHaveCount(0);
   await expect(row(page, "CLAUDE")).toHaveCount(0);
+  await expect(row(page, "Settings")).toHaveCount(0);
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("AGENTS");
+});
+
+test("edit raw opens Settings.md while it stays concealed (SUB-878)", async ({ page }) => {
+  await bootAll(page);
+  await expect(row(page, "Welcome")).toBeVisible();
+  await expect(row(page, "Settings")).toHaveCount(0);
+
+  // the ⌘, sheet's escape hatch works with the toggle OFF — concealment is
+  // presentation, not access control
+  await page.keyboard.press("Meta+,");
+  await page.getByRole("button", { name: "edit raw" }).click();
+  await expect(page.locator(".settings-sheet")).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Settings");
+  // and the open note doesn't conjure a list row
+  await expect(row(page, "Settings")).toHaveCount(0);
 });

@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_TERMINAL_HEIGHT,
   DEFAULT_TERMINAL_WIDTH,
-  isAgentFile,
+  isAppFile,
   parseDbGrid,
   parseDropHint,
   parseModHud,
-  parseShowAgentFiles,
+  parseShowAppFiles,
   parseTerminalActions,
   parseTerminalSettings,
   terminalActionsToText,
@@ -255,26 +255,30 @@ test("parseDbGrid: only an explicit false turns table grid lines off (SUB-607)",
   assert.equal(parseDbGrid({ "db-grid": "off" }), true);
 });
 
-test("parseShowAgentFiles: only an explicit true reveals the agent files (SUB-831)", () => {
+test("parseShowAppFiles: only an explicit true reveals the app files (SUB-831)", () => {
   // the inverse rule of the other bools: the blank slate is the default, so
-  // an unset key, garbage, or `false` in any casing all keep them concealed
-  assert.equal(parseShowAgentFiles({ "show-agent-files": true }), true);
-  assert.equal(parseShowAgentFiles({ "show-agent-files": "true" }), true);
-  assert.equal(parseShowAgentFiles({ "show-agent-files": " TRUE " }), true);
-  assert.equal(parseShowAgentFiles({}), false);
-  assert.equal(parseShowAgentFiles({ "show-agent-files": false }), false);
-  assert.equal(parseShowAgentFiles({ "show-agent-files": "false" }), false);
-  assert.equal(parseShowAgentFiles({ "show-agent-files": "yes" }), false);
-  assert.equal(parseShowAgentFiles({ "show-agent-files": 1 }), false);
+  // an unset key, garbage, or `false` in any casing all keep them concealed.
+  // The key keeps its pre-SUB-878 name so existing vaults stay revealed.
+  assert.equal(parseShowAppFiles({ "show-agent-files": true }), true);
+  assert.equal(parseShowAppFiles({ "show-agent-files": "true" }), true);
+  assert.equal(parseShowAppFiles({ "show-agent-files": " TRUE " }), true);
+  assert.equal(parseShowAppFiles({}), false);
+  assert.equal(parseShowAppFiles({ "show-agent-files": false }), false);
+  assert.equal(parseShowAppFiles({ "show-agent-files": "false" }), false);
+  assert.equal(parseShowAppFiles({ "show-agent-files": "yes" }), false);
+  assert.equal(parseShowAppFiles({ "show-agent-files": 1 }), false);
 });
 
-test("isAgentFile: exact root names only (SUB-831)", () => {
-  assert.equal(isAgentFile("AGENTS.md"), true);
-  assert.equal(isAgentFile("CLAUDE.md"), true);
+test("isAppFile: exact root names only (SUB-831, SUB-878)", () => {
+  assert.equal(isAppFile("AGENTS.md"), true);
+  assert.equal(isAppFile("CLAUDE.md"), true);
+  // SUB-878: the settings note behind the ⌘, sheet is app chrome too
+  assert.equal(isAppFile("Settings.md"), true);
   // a user's own note that happens to share a stem, or a nested copy, is
-  // ordinary content — concealment is about the two seeded root files
-  assert.equal(isAgentFile("agents.md"), false);
-  assert.equal(isAgentFile("Notes/AGENTS.md"), false);
-  assert.equal(isAgentFile("AGENTS notes.md"), false);
-  assert.equal(isAgentFile("Settings.md"), false);
+  // ordinary content — concealment is about the seeded root files
+  assert.equal(isAppFile("agents.md"), false);
+  assert.equal(isAppFile("Notes/AGENTS.md"), false);
+  assert.equal(isAppFile("AGENTS notes.md"), false);
+  assert.equal(isAppFile("settings.md"), false);
+  assert.equal(isAppFile("Notes/Settings.md"), false);
 });

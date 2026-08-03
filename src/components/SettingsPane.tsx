@@ -97,8 +97,8 @@ const FIELDS: Field[] = [
   },
   {
     key: "show-agent-files",
-    label: "Show agent files",
-    hint: "list AGENTS.md and CLAUDE.md — the seeded orientation notes for the ⌘⇧T agent — in notes and search; they stay on disk either way",
+    label: "Show app files",
+    hint: "list AGENTS.md, CLAUDE.md and Settings.md — the notes the app itself seeds and reads — in notes and search; they stay on disk either way, and “edit raw” below always opens Settings.md",
     kind: "bool",
   },
   {

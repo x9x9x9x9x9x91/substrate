@@ -2096,11 +2096,16 @@ const mockTemplates = mockRecord<{ props: Record<string, unknown>; body: string 
 /* Mock Settings.md (SUB-398): the ⌘, sheet reads/writes the root settings
    note by path. In the real engine it's a normal indexed note; here it lives
    outside mockNotes — like the template store above — so the seeded list
-   counts every spec asserts stay put. Parity covers the read/set_prop IPC the
-   settings sheet uses, not list membership. */
-const mockSettings: { props: Record<string, unknown>; body: string } = {
+   counts every spec asserts stay put (concealed by default since SUB-878,
+   `vault_list` serves it so the reveal toggle can be exercised; only a spec
+   that flips `show-agent-files` ever sees the row). Parity covers the
+   read/set_prop IPC the settings sheet uses plus that list membership. */
+const mockSettings: { props: Record<string, unknown>; body: string; updated_ms: number } = {
   props: { "capture-hotkey": "alt+space", "close-to-tray": "false" },
   body: "Substrate settings — edit and save; changes apply within a second (⌘, opens the settings form).\n",
+  // stable like the other seeds (a Date.now() here would float the row to the
+  // top of every list once revealed, SUB-878); writes bump it like real notes
+  updated_ms: now - 5 * 86_400_000,
 };
 
 function mockSettingsMeta(): NoteMeta {
@@ -2110,7 +2115,7 @@ function mockSettingsMeta(): NoteMeta {
     title: "Settings",
     folder: "",
     props: { ...mockSettings.props },
-    updated_ms: Date.now(),
+    updated_ms: mockSettings.updated_ms,
     excerpt: mockMakeExcerpt(mockSettings.body),
   };
 }
@@ -2752,7 +2757,11 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       mockRelaunched = true;
       return null;
     case "vault_list":
-      return mockNotes.map(meta).sort((a, b) => b.updated_ms - a.updated_ms);
+      // Settings.md is indexed like the real engine indexes it (SUB-878) —
+      // the App-side app-file filter is what conceals it by default
+      return [...mockNotes.map(meta), mockSettingsMeta()].sort(
+        (a, b) => b.updated_ms - a.updated_ms
+      );
     case "vault_read": {
       const stem = templateStem(args?.path);
       if (stem) {
@@ -2814,6 +2823,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           throw new Error("conflict: file changed on disk");
         }
         mockSettings.body = args?.body as string;
+        mockSettings.updated_ms = Date.now();
         return mockSettingsMeta();
       }
       const n = find();
@@ -2867,6 +2877,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       if (args?.path === "Settings.md") {
         const prior = guard(mockSettings.props);
         apply(mockSettings.props);
+        mockSettings.updated_ms = Date.now();
         return { meta: mockSettingsMeta(), prior };
       }
       const n = find();

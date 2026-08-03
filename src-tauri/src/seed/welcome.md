@@ -51,9 +51,10 @@ you're ready.
 - **⌘/** — every keyboard shortcut
 - **⌘⇧T** — a built-in terminal over the vault. If you use an AI agent CLI
   (claude, codex…), it starts here with your notes as its working folder. The
-  vault ships with orientation files for agents — `AGENTS.md` and `CLAUDE.md`
-  at the root. They stay out of your notes and search so this vault reads as
-  yours, not the tooling's; they're normal files in Finder, and the
-  "Show agent files" switch in settings lists them in-app. The seeded
+  vault ships with app files at the root — `Settings.md`, plus `AGENTS.md`
+  and `CLAUDE.md` for agent orientation. They stay out of your notes and
+  search so this vault reads as yours, not the tooling's; they're normal
+  files in Finder, and the "Show app files" switch in settings lists them
+  in-app. The seeded
   `/setup` command interviews you and writes agent skills fitted to your
   actual notes.

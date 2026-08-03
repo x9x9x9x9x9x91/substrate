@@ -55,10 +55,10 @@ import {
 import { announceRename } from "./lib/renamebus";
 import { migrateSessionFolds } from "./lib/foldsession";
 import {
-  isAgentFile,
+  isAppFile,
   parseDbGrid,
   parseModHud,
-  parseShowAgentFiles,
+  parseShowAppFiles,
   parseTerminalActions,
   SETTINGS_PATH,
 } from "./lib/settings";
@@ -265,11 +265,12 @@ export default function App() {
   const [paletteStart, setPaletteStart] = useState<StartStage | null>(null);
   // SUB-490: `mod-hud` in Settings.md, default on until a read says otherwise
   const [modHud, setModHud] = useState(true);
-  // SUB-831: `show-agent-files` in Settings.md — the seeded AGENTS.md/CLAUDE.md
-  // stay ordinary files on disk (and in the engine index), but the app's own
-  // note surfaces conceal them unless this is explicitly true, so a fresh
-  // vault reads as the user's blank slate rather than the tooling's
-  const [showAgentFiles, setShowAgentFiles] = useState(false);
+  // SUB-831/SUB-878: `show-agent-files` in Settings.md — the seeded
+  // AGENTS.md/CLAUDE.md and Settings.md itself stay ordinary files on disk
+  // (and in the engine index), but the app's own note surfaces conceal them
+  // unless this is explicitly true, so a vault reads as the user's content
+  // rather than the tooling's
+  const [showAppFiles, setShowAppFiles] = useState(false);
   // SUB-607: `db-grid` in Settings.md — the global default for table grid
   // lines; a database's ViewPref `grid` overrides it either way
   const [dbGrid, setDbGrid] = useState(true);
@@ -406,19 +407,19 @@ export default function App() {
         setTerminalActions(parseTerminalActions(c.props));
         setModHud(parseModHud(c.props));
         setDbGrid(parseDbGrid(c.props));
-        setShowAgentFiles(parseShowAgentFiles(c.props));
+        setShowAppFiles(parseShowAppFiles(c.props));
       })
       .catch(() => setTerminalActions([]));
   }, [vaultEpoch]);
 
   // SUB-831: what the rest of the app calls `notes` — the index minus the
-  // concealed agent files. One boundary here, so every downstream surface
+  // concealed app files. One boundary here, so every downstream surface
   // (lists, palette, search, sidebar counts, wikilink completion) agrees;
   // paths that must still WORK on a concealed file (openNote by path,
   // selectedMeta, followLink) read the full index via `indexedNotes`.
   const notes = useMemo(
-    () => (showAgentFiles ? indexedNotes : indexedNotes.filter((n) => !isAgentFile(n.path))),
-    [indexedNotes, showAgentFiles]
+    () => (showAppFiles ? indexedNotes : indexedNotes.filter((n) => !isAppFile(n.path))),
+    [indexedNotes, showAppFiles]
   );
 
   // templates are plain files edited outside the watcher, so there is no
@@ -596,12 +597,10 @@ export default function App() {
     if (selected && templateTypeOf(selected)) return;
     // a ghost daily (SUB-210) has no file yet, so it's never in viewNotes
     if (selected && selected === ghostPath) return;
-    // Settings.md opened via the ⌘, sheet's "edit raw" (SUB-398): the mock
-    // backend keeps it out of the index, so membership can't decide for it
-    if (selected === SETTINGS_PATH && !notes.some((n) => n.path === SETTINGS_PATH)) return;
-    // a concealed agent file opened by wikilink (SUB-831) has no row in any
-    // view — membership can't decide for it either
-    if (selected && isAgentFile(selected) && !notes.some((n) => n.path === selected)) return;
+    // a concealed app file (SUB-831/SUB-878) — Settings.md via the ⌘, sheet's
+    // "edit raw" (SUB-398), an agent file opened by wikilink — has no row in
+    // any view, so membership can't decide for it
+    if (selected && isAppFile(selected) && !notes.some((n) => n.path === selected)) return;
     if (viewNotes.length === 0) {
       setSelected(null);
       return;
@@ -662,9 +661,9 @@ export default function App() {
         };
       }
     }
-    // Settings.md via ⌘, "edit raw" (SUB-398): indexed on desktop, special-
-    // cased in the mock backend — synthesize like a template so the editor
-    // opens either way (content is read from disk by path anyway)
+    // Settings.md via ⌘, "edit raw" (SUB-398): concealed from `notes`, but
+    // still present in the full index — synthesize the selected meta so the
+    // editor can open it by path like the other concealed app files
     if (selected === SETTINGS_PATH) {
       return {
         path: SETTINGS_PATH,
