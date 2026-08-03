@@ -10,9 +10,10 @@ import { openDb } from "./nav";
 // so the two states stay distinguishable by weight. Runs against the
 // deterministic mock backend (fresh page = fresh vault).
 
-// the grid hairline (--border-soft) vs the freeze cue (--border) — asserted
-// by computed value so a token swap that erases the distinction fails here
-const GRID_EDGE = "rgba(255, 255, 255, 0.06) -1px 0px 0px 0px inset";
+// the grid hairline (--grid-line, SUB-936) vs the freeze cue (--border) —
+// asserted by computed value so a token swap that erases the distinction
+// fails here
+const GRID_EDGE = "rgba(255, 255, 255, 0.04) -1px 0px 0px 0px inset";
 const FREEZE_EDGE = "rgba(255, 255, 255, 0.09) -1px 0px 0px 0px inset";
 
 async function openDbFresh(page: Page, name: string) {

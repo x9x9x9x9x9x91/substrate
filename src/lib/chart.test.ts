@@ -99,6 +99,16 @@ test("parseChartBlocks: finds all fences in order, keeps errors per block", () =
   assert.equal(parseChartBlocks("no fences here").length, 0);
 });
 
+test("parseChartBlocks: parses CRLF chart fences (SUB-930)", () => {
+  const body =
+    "prose\r\n```chart\r\nsource: release\r\nx: released:month\r\ny: count\r\n```\r\ntail";
+  const blocks = parseChartBlocks(body);
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].error, null);
+  assert.deepEqual(blocks[0].config?.source, { kind: "db", type: "release" });
+  assert.equal(blocks[0].config?.bind, "rows");
+});
+
 // ---------- date bucketing ----------
 
 test("dateOf: leading ISO date, datetime strings, rejects junk", () => {

@@ -157,7 +157,7 @@ export function parseChartConfig(inner: string): ChartConfig {
 
 /** All ```chart fences in a note body, in order. Never throws. */
 export function parseChartBlocks(body: string): ChartBlock[] {
-  const re = /```chart\n([\s\S]*?)```/g;
+  const re = /```chart\r?\n([\s\S]*?)```/g;
   const out: ChartBlock[] = [];
   let m;
   while ((m = re.exec(body)) !== null) {

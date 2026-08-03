@@ -78,7 +78,7 @@ import {
 import type { EmbedResult, EmbedSpec } from "../lib/embeds";
 import type { NoteMeta, PropValue } from "../lib/types";
 import type { RelationCandidate } from "../lib/relation";
-import { TASK_PREFIX_RE } from "../lib/markdown";
+import { markdownLinkLabel, TASK_PREFIX_RE } from "../lib/markdown";
 import { extractLink, extractTitle } from "../lib/extractnote";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 
@@ -354,11 +354,11 @@ function toggleLink(view: EditorView): boolean {
   const selection = view.state.selection.main;
   if (selection.empty) return false;
   const selected = view.state.sliceDoc(selection.from, selection.to);
-  const existing = /^\[([^\]]+)]\(([^)]+)\)$/.exec(selected);
-  if (existing) {
+  const existingLabel = markdownLinkLabel(selected);
+  if (existingLabel !== null) {
     view.dispatch({
-      changes: { from: selection.from, to: selection.to, insert: existing[1] },
-      selection: { anchor: selection.from, head: selection.from + existing[1].length },
+      changes: { from: selection.from, to: selection.to, insert: existingLabel },
+      selection: { anchor: selection.from, head: selection.from + existingLabel.length },
       scrollIntoView: true,
     });
     return true;

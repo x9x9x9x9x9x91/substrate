@@ -11,3 +11,11 @@ export const TASK_PREFIX_RE = /^([ \t]*(?:>[ \t]*)*)((?:[-*+]|\d+[.)])[ \t]+)$/;
 /** A task line's prefix through the checkbox state character: everything up
  *  to `[` in group 1, the state (` `/`x`) in 2. */
 export const TASK_RE = /^([ \t]*(?:>[ \t]*)*(?:[-*+]|\d+[.)])[ \t]+\[)([ xX])\]/;
+
+/** Label of a complete Markdown link selection, or null when `text` is not
+ *  exactly one link. Destinations keep one balanced parenthesis level so
+ *  Wikipedia-style URLs (…/A_(b)) can be safely unwrapped (SUB-929). */
+export function markdownLinkLabel(text: string): string | null {
+  const match = /^\[([^\]]+)]\(((?:[^()]|\([^()]*\))+)\)$/.exec(text);
+  return match?.[1] ?? null;
+}

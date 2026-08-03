@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { TASK_PREFIX_RE, TASK_RE } from "./markdown.ts";
+import { markdownLinkLabel, TASK_PREFIX_RE, TASK_RE } from "./markdown.ts";
 
 test("TASK_PREFIX_RE matches plain and indented list prefixes", () => {
   assert.deepEqual(TASK_PREFIX_RE.exec("- ")?.slice(1), ["", "- "]);
@@ -24,4 +24,14 @@ test("TASK_RE toggles tasks inside blockquotes (SUB-104)", () => {
   assert.equal(done?.[2], "x");
   assert.equal(TASK_RE.exec("- [ ] plain")?.[2], " ");
   assert.equal(TASK_RE.exec("not a task"), null);
+});
+
+test("markdownLinkLabel unwraps complete links with parenthesized destinations (SUB-929)", () => {
+  assert.equal(markdownLinkLabel("[label](https://example.test)"), "label");
+  assert.equal(
+    markdownLinkLabel("[wiki](https://en.wikipedia.org/wiki/Granular_(synthesis))"),
+    "wiki"
+  );
+  assert.equal(markdownLinkLabel("prefix [label](https://example.test)"), null);
+  assert.equal(markdownLinkLabel("[broken](https://example.test_(nested_(twice)))"), null);
 });
