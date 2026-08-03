@@ -99,6 +99,55 @@ export function splitLead(text: string): { lead: string; rest: string } | null {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
+    version: "0.22.0",
+    date: "2026-08-03",
+    title: "Time travel for the whole vault, and a calendar that follows your feeds",
+    items: [
+      {
+        text: "Time travel: scrub the whole vault back to any past snapshot and read it as it was — notes, dashboards and sheets all render from that moment, past mode is strictly read-only with a clear cue, and restoring takes a safety snapshot first so the present is never lost.",
+        kind: "new",
+        headline: true,
+      },
+      {
+        text: "The calendar can subscribe to external calendar feeds (ICS): subscribed events appear alongside your vault's own dates, day cells count everything they show and say when a day is busy, and feeds are fetched carefully — capped, contained, and every outbound fetch named in the docs.",
+        kind: "new",
+        headline: true,
+      },
+      {
+        text: "Remind me before it's due: date properties take a lead time, and the reminder fires that many days ahead of the day-of alert.",
+        kind: "new",
+      },
+      {
+        text: "Charts split into series with by: — one measure pivoted by a second column — and hovering or keyboard-focusing any point answers with an exact-value tooltip card.",
+        kind: "new",
+      },
+      {
+        text: "Sheet summaries grew up: formula lines group by blank lines, the summary bar ranks its chips, and one shared error reports once instead of cascading down every dependent line.",
+        kind: "new",
+      },
+      {
+        text: "Two designed PDF exports join the generic print: a note one-sheet (artwork, title block, quiet fact rows) and a clean database table sheet.",
+        kind: "new",
+      },
+      {
+        text: "A fresh vault seeds a reading + travel showcase — a small realistic library and trip log — instead of the old demo theme.",
+        kind: "improved",
+      },
+      {
+        text: "The app stopped being picky about typed input: German-style decimals (1,5) are understood in sheet grids, hand-edited log rows, settings and the terminal-size box, and frontmatter and Settings.md keys are no longer case-sensitive — queries, filters, rollups, charts, dashboards and notification schedules read Status and status alike.",
+        kind: "fixed",
+      },
+      {
+        text: "Edge-case markdown now survives everywhere it renders: link URLs containing parentheses stay intact, notes saved with Windows line endings show their views and charts, and numbered lists that follow bullet lists keep their numbering in print.",
+        kind: "fixed",
+      },
+      {
+        text: "Notification times accept single-digit hours (9:00), and a hand-edited out-of-range lead time can no longer silently stop the reminder scheduler.",
+        kind: "fixed",
+      },
+    ],
+  },
+  {
     version: "0.21.0",
     date: "2026-08-03",
     title: "Send a note as a link, and a tasks board that knows what's urgent",

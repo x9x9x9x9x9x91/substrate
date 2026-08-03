@@ -3,6 +3,48 @@
 <!-- Generated from src/lib/changelog.ts by scripts/gen-changelog.ts.
      Edit that file, then run `node scripts/gen-changelog.ts`. -->
 
+## 0.22.0 — 2026-08-03 — Time travel for the whole vault, and a calendar that follows your feeds
+
+### Highlights
+
+- Time travel: scrub the whole vault back to any past snapshot and read it as it was —
+  notes, dashboards and sheets all render from that moment, past mode is strictly
+  read-only with a clear cue, and restoring takes a safety snapshot first so the present
+  is never lost.
+- The calendar can subscribe to external calendar feeds (ICS): subscribed events appear
+  alongside your vault's own dates, day cells count everything they show and say when a
+  day is busy, and feeds are fetched carefully — capped, contained, and every outbound
+  fetch named in the docs.
+
+### New
+
+- Remind me before it's due: date properties take a lead time, and the reminder fires
+  that many days ahead of the day-of alert.
+- Charts split into series with by: — one measure pivoted by a second column — and
+  hovering or keyboard-focusing any point answers with an exact-value tooltip card.
+- Sheet summaries grew up: formula lines group by blank lines, the summary bar ranks its
+  chips, and one shared error reports once instead of cascading down every dependent
+  line.
+- Two designed PDF exports join the generic print: a note one-sheet (artwork, title
+  block, quiet fact rows) and a clean database table sheet.
+
+### Improved
+
+- A fresh vault seeds a reading + travel showcase — a small realistic library and trip
+  log — instead of the old demo theme.
+
+### Fixed
+
+- The app stopped being picky about typed input: German-style decimals (1,5) are
+  understood in sheet grids, hand-edited log rows, settings and the terminal-size box,
+  and frontmatter and Settings.md keys are no longer case-sensitive — queries, filters,
+  rollups, charts, dashboards and notification schedules read Status and status alike.
+- Edge-case markdown now survives everywhere it renders: link URLs containing
+  parentheses stay intact, notes saved with Windows line endings show their views and
+  charts, and numbered lists that follow bullet lists keep their numbering in print.
+- Notification times accept single-digit hours (9:00), and a hand-edited out-of-range
+  lead time can no longer silently stop the reminder scheduler.
+
 ## 0.21.0 — 2026-08-03 — Send a note as a link, and a tasks board that knows what's urgent
 
 ### Highlights
