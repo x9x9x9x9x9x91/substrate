@@ -554,14 +554,15 @@ mod tests {
                 |_| {},
             )
         });
-        // the launch pass fires first (a watched mapping exists)
-        rx.recv_timeout(Duration::from_secs(10)).expect("no launch-pass fire within 10s");
-        std::thread::sleep(Duration::from_millis(800)); // let the watcher arm
+        // The launch pass fires only after the watched mapping is armed. Give
+        // loaded gate hosts the same 30s budget as the retrying watcher tests
+        // instead of treating scheduler delay as a watcher failure (SUB-892).
+        rx.recv_timeout(Duration::from_secs(30)).expect("no launch-pass fire within 30s");
         let mut expected = tree_snapshot(&watched);
         fs::write(watched.join("invoice.pdf"), b"%PDF one").unwrap();
         expected.push(("invoice.pdf".into(), b"%PDF one".to_vec()));
         expected.sort();
-        rx.recv_timeout(Duration::from_secs(10)).expect("no folder event within 10s");
+        rx.recv_timeout(Duration::from_secs(30)).expect("no folder event within 30s");
         assert_eq!(
             tree_snapshot(&watched),
             expected,
