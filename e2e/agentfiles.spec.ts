@@ -83,6 +83,37 @@ test("the settings toggle reveals them live, and re-conceals (SUB-831, SUB-878)"
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("AGENTS");
 });
 
+test("search totals don't count concealed app files (SUB-907)", async ({ page }) => {
+  // "orientation" matches the mock AGENTS.md body plus 210 seeded title
+  // matches — enough to overflow the 200-note page, which is where the count
+  // surfaces: the truncated header quotes the ENGINE's total while the page
+  // rows pass through the client's conceal filter. With the app files
+  // concealed the engine must leave them out of that total, or the header
+  // claims a note the user can never reach.
+  await page.addInitScript(() => {
+    const install = () => {
+      const seed = (window as unknown as { __mockSeedMatching?: unknown }).__mockSeedMatching as
+        | ((o: { folder: string; count: number; token: string; where: "title" | "body" }) => void)
+        | undefined;
+      if (!seed) return false;
+      seed({ folder: "Bulk", count: 210, token: "orientation", where: "title" });
+      return true;
+    };
+    if (!install()) {
+      const t = setInterval(() => {
+        if (install()) clearInterval(t);
+      }, 5);
+    }
+  });
+  await bootAll(page);
+  await page.keyboard.press("Meta+Shift+f");
+  await expect(page.locator(".search-input")).toBeFocused();
+  await page.locator(".search-input").fill("orientation");
+  // 210 seeded + AGENTS.md = 211 engine matches; concealed, the total the
+  // header quotes must be the 210 the user can see
+  await expect(page.locator(".search-stats")).toHaveText("first 200 of 210 notes");
+});
+
 test("edit raw opens Settings.md while it stays concealed (SUB-878)", async ({ page }) => {
   await bootAll(page);
   await expect(row(page, "Welcome")).toBeVisible();

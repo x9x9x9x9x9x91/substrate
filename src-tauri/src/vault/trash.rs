@@ -996,7 +996,7 @@ mod tests {
         e.trash("Rondo MX180.md").unwrap();
         assert!(!dir.join("Rondo MX180.md").exists());
         assert!(e.list().iter().all(|n| n.path != "Rondo MX180.md"));
-        assert!(e.search("Rotary mixer", None).is_empty());
+        assert!(e.search("Rotary mixer", None, false).is_empty());
         assert!(e.trash("Rondo MX180.md").is_err(), "second trash errors");
         assert!(e.trash("../outside.md").is_err(), "path escape rejected");
 

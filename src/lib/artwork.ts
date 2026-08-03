@@ -2,6 +2,8 @@
  * parsing only (node-testable). Turning a target name into a renderable URL
  * lives in `assets.ts`. */
 
+import { byFoldedKey } from "./schemalookup.ts";
+
 // the canonical inline-image set — editor embeds, gallery covers, hub
 // dashboards, print, and PDF export all route through isImageName, so a
 // format added here renders everywhere at once. heic/heif ride on WebKit's
@@ -34,7 +36,7 @@ export function unwrapEmbed(v: string): string {
 /** The `artwork` prop names a cover as a bare asset name, an absolute path,
  * or a `![[...]]` / `[[...]]` embed — normalize all three to the target. */
 export function artworkTarget(props: Record<string, unknown>): string | null {
-  const raw = props["artwork"];
+  const raw = byFoldedKey(props, "artwork");
   if (typeof raw !== "string") return null;
   const v = unwrapEmbed(raw);
   return v ? v : null;

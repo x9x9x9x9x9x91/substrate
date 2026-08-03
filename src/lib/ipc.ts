@@ -143,11 +143,13 @@ export const vaultTrashDeleteTemplate = (id: string) =>
 /** `scope`, when given, is the allow-list of paths the caller's structured
     filters left standing (SUB-566) — the engine applies it BEFORE its result
     cap, so the page comes from notes the user can actually see. Omit it when
-    the query has no filters. */
-export const vaultSearch = (q: string, scope?: string[]) =>
-  invoke<SearchHit[]>("vault_search", { q, scope });
-export const vaultSearchFull = (q: string, scope?: string[]) =>
-  invoke<FullSearchResult>("vault_search_full", { q, scope });
+    the query has no filters. `excludeAppFiles` mirrors the conceal toggle
+    (SUB-831/878): pass true while the app hides AGENTS.md/CLAUDE.md/
+    Settings.md so the engine's counts and page slots skip them too (SUB-907). */
+export const vaultSearch = (q: string, scope?: string[], excludeAppFiles?: boolean) =>
+  invoke<SearchHit[]>("vault_search", { q, scope, excludeAppFiles });
+export const vaultSearchFull = (q: string, scope?: string[], excludeAppFiles?: boolean) =>
+  invoke<FullSearchResult>("vault_search_full", { q, scope, excludeAppFiles });
 export const vaultBacklinks = (path: string) => invoke<NoteMeta[]>("vault_backlinks", { path });
 export const vaultRelated = (path: string) => invoke<RelatedEntry[]>("vault_related", { path });
 export const vaultResolve = (name: string) => invoke<NoteMeta | null>("vault_resolve", { name });

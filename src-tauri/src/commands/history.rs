@@ -446,9 +446,8 @@ mod tests {
         .unwrap();
         pull.join().unwrap();
 
-        assert_eq!(
+        assert!(
             observed.lock().unwrap().unwrap(),
-            true,
             "the rewrite ran only after the pull's engine gate was released"
         );
         // And the purge itself still works under both locks: the old versions

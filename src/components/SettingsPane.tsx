@@ -7,9 +7,11 @@
 
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { onboardingStatus, vaultRead } from "../lib/ipc";
+import { normalizeNumberInput } from "../lib/aggregate";
 import { setPropUndoable } from "../lib/undoprops";
 import { useUndo } from "../lib/undoContext";
 import { SETTINGS_PATH, terminalActionsToText, textToTerminalActions } from "../lib/settings";
+import { foldedPropKey } from "../lib/types";
 import {
   TERMINAL_HEIGHT_MAX,
   TERMINAL_HEIGHT_MIN,
@@ -207,7 +209,8 @@ export default function SettingsPane({
       if (!mountedRef.current) return;
       const v: Record<string, string> = {};
       for (const f of FIELDS) {
-        const raw = c.props[f.key];
+        // fold the read (SUB-924) — a hand-cased key still shows its value
+        const raw = c.props[foldedPropKey(c.props, f.key)];
         v[f.key] =
           f.kind === "multiline"
             ? terminalActionsToText(raw)
@@ -290,7 +293,8 @@ export default function SettingsPane({
       if (next === (saved[key] ?? "")) return;
       // the HUD sizes get validated here so a typo can't silently collapse it
       if (field?.range && next !== "") {
-        const n = Number.parseFloat(next);
+        // accept de-DE typed fractions like the reader does (SUB-926)
+        const n = Number.parseFloat(normalizeNumberInput(next));
         if (!Number.isFinite(n) || n < field.range.min || n > field.range.max) {
           onToast(
             `${field.label.toLowerCase()} must be between ${field.range.min} and ${field.range.max}`

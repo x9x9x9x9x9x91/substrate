@@ -163,6 +163,30 @@ fn fts_match_expr(q: &str) -> String {
         .join(" ")
 }
 
+/// The vault-root files the app itself owns and conceals by default
+/// (SUB-831/878) — the same exact-path set as the client's `APP_FILES` in
+/// src/lib/settings.ts. A nested copy or a user's own "agents notes.md" is
+/// normal content and stays in.
+fn is_app_file(path: &str) -> bool {
+    path == seed::AGENTS_REL_PATH || path == seed::CLAUDE_REL_PATH || path == Settings::REL_PATH
+}
+
+/// SQL twin of [`is_app_file`], appended to the FTS queries when the caller
+/// wants the concealed files out (SUB-907). Static literals, not bound params
+/// — the surrounding queries already interpolate their scope clause the same
+/// way, and the three names are compile-time constants.
+fn app_files_clause(exclude: bool) -> String {
+    if !exclude {
+        return String::new();
+    }
+    format!(
+        " AND path NOT IN ('{}', '{}', '{}')",
+        seed::AGENTS_REL_PATH,
+        seed::CLAUDE_REL_PATH,
+        Settings::REL_PATH
+    )
+}
+
 impl Engine {
     /// Load `scope` into the reusable `search_scope` temp table and return the
     /// `AND …` clause that restricts a query to it (SUB-566). The caller's
@@ -195,16 +219,22 @@ impl Engine {
     /// caller's filters left standing — applied inside the query so the
     /// LIMIT 30 page is the top 30 of the FILTERED set (SUB-566), not the top
     /// 30 overall with the filters cutting it down to nothing afterwards.
-    pub fn search(&self, q: &str, scope: Option<&[String]>) -> Vec<SearchHit> {
+    ///
+    /// `exclude_app_files` mirrors the app's conceal boundary (SUB-831/878):
+    /// with the toggle off, AGENTS.md/CLAUDE.md/Settings.md never surface, so
+    /// they must fall out here — before the cap — or they silently eat page
+    /// slots the client then filters into nothing (SUB-907).
+    pub fn search(&self, q: &str, scope: Option<&[String]>, exclude_app_files: bool) -> Vec<SearchHit> {
         let q = q.trim();
         if q.is_empty() {
             return Vec::new();
         }
         if self.fts {
             let Ok(clause) = self.apply_scope(scope) else { return Vec::new() };
+            let app = app_files_clause(exclude_app_files);
             let sql = format!(
                 "SELECT path, snippet(notes_fts, 2, '', '', ' … ', 14) FROM notes_fts \
-                 WHERE notes_fts MATCH ?1{clause} ORDER BY rank LIMIT 30"
+                 WHERE notes_fts MATCH ?1{clause}{app} ORDER BY rank LIMIT 30"
             );
             let mut stmt = match self.db.prepare(&sql) {
                 Ok(s) => s,
@@ -221,6 +251,7 @@ impl Engine {
             let ql = q.to_lowercase();
             self.notes
                 .values()
+                .filter(|n| !(exclude_app_files && is_app_file(&n.path)))
                 .filter(|n| scope.is_none_or(|s| s.iter().any(|p| p == &n.path)))
                 .filter(|n| {
                     n.title.to_lowercase().contains(&ql) || n.excerpt.to_lowercase().contains(&ql)
@@ -238,7 +269,19 @@ impl Engine {
     /// standing (SUB-566) — pushed into the query so the top-N page is the
     /// top N of the FILTERED set. `total_notes` reports the true size of that
     /// set, so a truncated page never reads as the whole answer.
-    pub fn search_full(&self, q: &str, scope: Option<&[String]>) -> FullSearchResult {
+    ///
+    /// `exclude_app_files` (SUB-907): with the conceal toggle off the client
+    /// drops AGENTS.md/CLAUDE.md/Settings.md from the page, but `total_notes`
+    /// and `truncated` are computed HERE — counting concealed files makes the
+    /// pane's "first N of M notes" header and its truncated empty state claim
+    /// matches the user cannot see. The exclusion has to happen before both
+    /// the COUNT and the LIMIT.
+    pub fn search_full(
+        &self,
+        q: &str,
+        scope: Option<&[String]>,
+        exclude_app_files: bool,
+    ) -> FullSearchResult {
         let q = q.trim();
         if q.is_empty() {
             return FullSearchResult { hits: Vec::new(), total_notes: 0, truncated: false };
@@ -250,6 +293,7 @@ impl Engine {
             let all: Vec<&NoteMeta> = self
                 .notes
                 .values()
+                .filter(|n| !(exclude_app_files && is_app_file(&n.path)))
                 .filter(|n| scope.is_none_or(|s| s.iter().any(|p| p == &n.path)))
                 .filter(|n| {
                     n.title.to_lowercase().contains(&ql) || n.excerpt.to_lowercase().contains(&ql)
@@ -278,12 +322,13 @@ impl Engine {
         }
         let empty = || FullSearchResult { hits: Vec::new(), total_notes: 0, truncated: false };
         let Ok(clause) = self.apply_scope(scope) else { return empty() };
+        let app = app_files_clause(exclude_app_files);
         let expr = fts_match_expr(q);
         // the true size of the match set, so a capped page can say so
         let total_notes: u32 = self
             .db
             .query_row(
-                &format!("SELECT COUNT(*) FROM notes_fts WHERE notes_fts MATCH ?1{clause}"),
+                &format!("SELECT COUNT(*) FROM notes_fts WHERE notes_fts MATCH ?1{clause}{app}"),
                 [&expr],
                 |r| r.get::<_, i64>(0),
             )
@@ -291,7 +336,7 @@ impl Engine {
             .unwrap_or(0);
         let sql = format!(
             "SELECT path, highlight(notes_fts, 1, ?2, ?3), highlight(notes_fts, 2, ?2, ?3) \
-             FROM notes_fts WHERE notes_fts MATCH ?1{clause} ORDER BY rank LIMIT {}",
+             FROM notes_fts WHERE notes_fts MATCH ?1{clause}{app} ORDER BY rank LIMIT {}",
             FULL_SEARCH_MAX_NOTES
         );
         let mut stmt = match self.db.prepare(&sql) {
@@ -407,9 +452,9 @@ mod tests {
     #[test]
     fn fts_search_finds_body_text() {
         let (e, dir) = temp_vault("fts");
-        let hits = e.search("granular rework", None);
+        let hits = e.search("granular rework", None, false);
         assert!(hits.iter().any(|h| h.path == "Slow Bloom EP.md"));
-        let hits = e.search("gran", None);
+        let hits = e.search("gran", None, false);
         assert!(hits.iter().any(|h| h.path == "Slow Bloom EP.md"), "prefix search");
         let _ = fs::remove_dir_all(&dir);
     }
@@ -423,7 +468,7 @@ mod tests {
         )
         .unwrap();
         e.apply_changes(&[dir.join("Field Notes.md")]);
-        let hits = e.search_full("spectral", None).hits;
+        let hits = e.search_full("spectral", None, false).hits;
         let h = hits.iter().find(|h| h.path == "Field Notes.md").expect("note found");
         assert_eq!(h.total, 3, "counts every hit, not lines");
         assert_eq!(h.matches.len(), 2, "one entry per matching line");
@@ -436,12 +481,12 @@ mod tests {
             "both hits on the line marked"
         );
         // matches in the title are counted and segmented too
-        let hits = e.search_full("bloom", None).hits;
+        let hits = e.search_full("bloom", None, false).hits;
         let h = hits.iter().find(|h| h.path == "Slow Bloom EP.md").expect("title hit");
         assert!(h.title_parts.iter().any(|p| p.hit && p.text == "Bloom"));
         assert!(h.total >= 1);
         // prefix query highlights the whole matched token
-        let hits = e.search_full("gran", None).hits;
+        let hits = e.search_full("gran", None, false).hits;
         let h = hits.iter().find(|h| h.path == "Slow Bloom EP.md").expect("prefix hit");
         assert!(h
             .matches
@@ -458,7 +503,7 @@ mod tests {
             format!("---\ntype: note\n---\n{} needle {}\n", "x".repeat(150), "y".repeat(300));
         fs::write(dir.join("Long.md"), long).unwrap();
         e.apply_changes(&[dir.join("Long.md")]);
-        let hits = e.search_full("needle", None).hits;
+        let hits = e.search_full("needle", None, false).hits;
         let h = hits.iter().find(|h| h.path == "Long.md").expect("hit");
         let parts = &h.matches[0].parts;
         assert!(parts[0].text.starts_with('…'), "long lead-in shortened");
@@ -466,6 +511,82 @@ mod tests {
         assert!(parts.last().unwrap().text.ends_with('…'), "long tail cut");
         let total: usize = parts.iter().map(|p| p.text.chars().count()).sum();
         assert!(total <= SNIPPET_LINE_MAX + 10, "line capped, got {}", total);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn exclude_app_files_keeps_counts_honest() {
+        // SUB-907: with the conceal toggle off the client drops the app files
+        // from the page, but total_notes/truncated come from the engine — so
+        // the engine must be able to exclude them BEFORE the count and LIMIT,
+        // or "first N of M notes" claims matches the user cannot see.
+        let (mut e, dir) = temp_vault("appx");
+        // "substrate" appears in the seeded AGENTS.md, CLAUDE.md body text and
+        // Settings.md — plus this one user note
+        fs::write(
+            dir.join("Mine.md"),
+            "---\ntype: note\n---\nsubstrate keeps my notes plain\n",
+        )
+        .unwrap();
+        // a NESTED copy is normal content (exact root paths only)
+        fs::create_dir_all(dir.join("Old")).unwrap();
+        fs::write(dir.join("Old/AGENTS.md"), "---\ntype: note\n---\nsubstrate archive copy\n")
+            .unwrap();
+        e.apply_changes(&[dir.join("Mine.md"), dir.join("Old/AGENTS.md")]);
+
+        let all = e.search_full("substrate", None, false);
+        assert!(
+            all.hits.iter().any(|h| h.path == "AGENTS.md"),
+            "sanity: the seeded app files match this query at all"
+        );
+
+        let user = e.search_full("substrate", None, true);
+        assert!(
+            user.hits
+                .iter()
+                .all(|h| h.path != "AGENTS.md" && h.path != "CLAUDE.md" && h.path != "Settings.md"),
+            "excluded from the page"
+        );
+        assert_eq!(
+            user.total_notes,
+            user.hits.len() as u32,
+            "the count matches what the user can see — nothing concealed left in it"
+        );
+        assert!(user.total_notes < all.total_notes, "the app files left the count too");
+        assert!(!user.truncated, "an uncapped page must not claim truncation");
+        assert!(
+            user.hits.iter().any(|h| h.path == "Old/AGENTS.md"),
+            "a nested same-name copy is normal content and stays"
+        );
+
+        // the palette page skips them the same way
+        assert!(e.search("substrate", None, false).iter().any(|h| h.path == "AGENTS.md"));
+        let pal = e.search("substrate", None, true);
+        assert!(pal
+            .iter()
+            .all(|h| h.path != "AGENTS.md" && h.path != "CLAUDE.md" && h.path != "Settings.md"));
+        assert!(pal.iter().any(|h| h.path == "Mine.md"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn machine_fence_strip_covers_crlf_notes() {
+        // SUB-913: a Windows-authored/synced note opens its fences with
+        // ```view\r\n — the strip must treat CRLF like LF or the fence body
+        // indexes as prose (SUB-261 broken for CRLF files).
+        let (mut e, dir) = temp_vault("crlfmf");
+        fs::write(
+            dir.join("Win.md"),
+            "---\r\ntype: note\r\n---\r\nprose here.\r\n\r\n```view\r\ntype: release\r\nquery: status:mastering\r\n```\r\n\r\ntrail prose\r\n",
+        )
+        .unwrap();
+        e.apply_changes(&[dir.join("Win.md")]);
+        assert!(
+            e.search("mastering", None, false).iter().all(|h| h.path != "Win.md"),
+            "CRLF view fence config must not index"
+        );
+        // prose in the same CRLF note still hits
+        assert!(e.search("trail prose", None, false).iter().any(|h| h.path == "Win.md"));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -483,16 +604,16 @@ mod tests {
         e.apply_changes(&[dir.join("Hub.md")]);
         // a note matching ONLY inside a view fence no longer matches
         assert!(
-            e.search("mastering", None).iter().all(|h| h.path != "Hub.md"),
+            e.search("mastering", None, false).iter().all(|h| h.path != "Hub.md"),
             "view fence config is not indexed"
         );
-        assert!(e.search_full("mastering", None).hits.iter().all(|h| h.path != "Hub.md"));
+        assert!(e.search_full("mastering", None, false).hits.iter().all(|h| h.path != "Hub.md"));
         assert!(
-            e.search_full("count", None).hits.iter().all(|h| h.path != "Hub.md"),
+            e.search_full("count", None, false).hits.iter().all(|h| h.path != "Hub.md"),
             "chart fence config is not indexed"
         );
         // prose in the same note still hits — on its raw-body line number
-        let hits = e.search_full("trail", None).hits;
+        let hits = e.search_full("trail", None, false).hits;
         let h = hits.iter().find(|h| h.path == "Hub.md").expect("prose still indexed");
         assert_eq!(h.matches[0].line, 14, "line numbers map to the raw body");
         let _ = fs::remove_dir_all(&dir);

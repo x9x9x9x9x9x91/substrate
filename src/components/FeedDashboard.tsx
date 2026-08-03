@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { NoteMeta } from "../lib/types";
-import { propStr } from "../lib/types";
+import { foldedPropStr } from "../lib/types";
 import { vaultRead, vaultResolve, vaultWriteBody } from "../lib/ipc";
 import { isTauri } from "../lib/tauri";
 import {
@@ -74,13 +74,13 @@ export default function FeedDashboard({
   onOpenSource,
   onMutated,
 }: FeedDashboardProps) {
-  const itemsName = propStr(meta.props, "items") ?? "News Items";
+  const itemsName = foldedPropStr(meta.props, "items") ?? "News Items";
   // rendered verbatim — the curator's own stamp. SUB-699 also parses it for
   // the head's staleness dot: a stamp older than ~36h means the curator (and
   // its watchdog) died, so the dead pipeline becomes the headline — a warning
   // dot with an age instead of the item count. A stamp that won't parse
   // simply stays neutral; the parse never gates anything.
-  const curated = propStr(meta.props, "curated");
+  const curated = foldedPropStr(meta.props, "curated");
   const staleness = feedStaleness(curated);
 
   // null = resolving; missing = no such note (a calm empty state, not an error)

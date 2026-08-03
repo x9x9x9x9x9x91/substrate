@@ -27,6 +27,14 @@ test("parseFoodRows: typed rows, log order, optional protein", () => {
   assert.equal(rows[1].protein, null);
 });
 
+test("parseFoodRows: de-DE typed kcal/protein read (SUB-923)", () => {
+  // "1.234" is de-DE 1234, not the float 1.234; "12,5" is 12.5
+  const rows = parseFoodRows(bodyWith(['2026-08-01,Feast,"1.234","12,5"']));
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].kcal, 1234);
+  assert.equal(rows[0].protein, 12.5);
+});
+
 test("parseFoodRows: header order is free, protein_g column optional", () => {
   const rows = parseFoodRows(bodyWith(["Toast,2026-07-21,300"], "food,date,kcal"));
   assert.equal(rows.length, 1);

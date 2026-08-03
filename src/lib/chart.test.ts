@@ -445,6 +445,16 @@ test("dbRows: filters by type (case-insensitive), lowercases prop keys", () => {
   assert.deepEqual(s.points.map((p) => p.key), ["2026-05", "2026-06"]);
 });
 
+test("dbRows: a cased `Type:` KEY still joins the source (SUB-918)", () => {
+  // hand-written YAML capitalizes the key, not just the value — the table
+  // shows the row (folded reads), so the chart must count it too
+  const notes = [
+    note("A.md", { Type: "release", released: "2026-05-30" }),
+    note("B.md", { type: "release", released: "2026-06-19" }),
+  ];
+  assert.equal(dbRows(notes, "release").length, 2);
+});
+
 test("sheetRows: data columns typed, computed columns available for sum", () => {
   const body = [
     "```csv",

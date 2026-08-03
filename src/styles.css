@@ -934,7 +934,14 @@ button.empty-hint-fix:hover {
   /* Notion's reading measure is ~900px; 700 read cramped next to it
      (2026-07-20: "more space in notion") — 780 keeps lines readable
      while letting the page breathe */
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
   max-width: 780px;
+  /* .note is a flex item rather than an explicitly-sized containing block,
+     so a percentage min-height collapses to content height here. Match the
+     desktop pane's viewport minus .main's 8px top/bottom frame instead. */
+  min-height: calc(100vh - 18px);
   margin: 0 auto;
   padding: 44px clamp(24px, 4.5vw, 56px) 120px;
 }
@@ -1361,12 +1368,16 @@ button.empty-hint-fix:hover {
 
 .editor-shell {
   position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
 }
 
-/* the body breathes after the property block (the 4px trailing margin there
-   collapses into this) */
+/* the body breathes after the property block. .note-inner is a flex column,
+   so the prop block's 4px trailing margin adds to this 16px instead of
+   collapsing with it: 20px total, matching the original rhythm. */
 .prop-rows + .editor-shell {
-  margin-top: 20px;
+  margin-top: 16px;
 }
 
 .editor-shell.with-outline {
@@ -1377,7 +1388,14 @@ button.empty-hint-fix:hover {
 }
 
 .editor-wrap {
-  margin-top: 14px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  /* The heading-fold gutter lives in the note's left breathing room instead
+     of shifting every body line right of the title/property column. */
+  width: calc(100% + 18px);
+  margin-top: 0;
+  margin-left: -18px;
 }
 
 .editor-toolbar {
@@ -1591,11 +1609,14 @@ button.empty-hint-fix:hover {
 }
 
 .cm-editor {
+  flex: 1;
+  min-height: 100%;
   background: transparent !important;
   outline: none !important;
 }
 
 .cm-editor .cm-scroller {
+  flex: 1;
   font-family: var(--font);
   font-size: 15px;
   line-height: 1.75;
@@ -1603,6 +1624,7 @@ button.empty-hint-fix:hover {
 }
 
 .cm-editor .cm-content {
+  align-self: stretch;
   padding: 0;
   caret-color: var(--text-1);
 }
@@ -10786,14 +10808,24 @@ body.col-resizing * {
     pointer-events: none;
     transition:
       transform 140ms ease-out,
-      visibility 0s linear 140ms;
+      visibility 0s linear 140ms,
+      pointer-events 0s linear;
+    transition-behavior: allow-discrete;
   }
 
   .sidebar.mobile-open {
     transform: translateX(0);
     visibility: visible;
     pointer-events: auto;
-    transition: transform 140ms ease-out;
+    /* SUB-793: keep the moving drawer out of hit-testing until its final
+       position. Under load, actionability could sample two stalled frames and
+       dispatch a tap at the row's old x-coordinate; the scrim received it and
+       navigation silently stayed on the current view. Closing still disables
+       pointer events immediately via the zero-delay base transition above. */
+    transition:
+      transform 140ms ease-out,
+      pointer-events 0s linear 140ms;
+    transition-behavior: allow-discrete;
   }
 
   .sidebar-drag {
@@ -11003,6 +11035,7 @@ body.col-resizing * {
 
   .note-inner {
     max-width: none;
+    min-height: 100dvh;
     margin: 0;
     padding: calc(68px + env(safe-area-inset-top)) 18px
       calc(96px + env(safe-area-inset-bottom));

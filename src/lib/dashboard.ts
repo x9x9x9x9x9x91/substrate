@@ -1,5 +1,6 @@
 import { daysInMonth, formatDateHuman, isIsoDate } from "./dates.ts";
 import { findFence } from "./sheet.ts";
+import { byFoldedKey } from "./schemalookup.ts";
 
 export interface Snapshot {
   at: Date;
@@ -116,7 +117,7 @@ export function appendSnapshotToBody(body: string, s: { atRaw: string; yieldUsd:
     the withdrawal. The running claimed total lives on the note as a
     `claimed_usd` prop; the log form adds it to entered venue balances. */
 export function readClaimedUsd(props: Record<string, unknown>): number {
-  const raw = props["claimed_usd"];
+  const raw = byFoldedKey(props, "claimed_usd");
   const n = typeof raw === "number" ? raw : typeof raw === "string" ? parseFloat(raw) : NaN;
   return isFinite(n) && n > 0 ? n : 0;
 }

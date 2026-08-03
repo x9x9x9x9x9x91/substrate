@@ -40,3 +40,7 @@ test("firstImageEmbed finds the first image, skipping audio embeds", () => {
   assert.equal(firstImageEmbed("no embeds here"), null);
   assert.equal(firstImageEmbed("![[take.flac]]"), null);
 });
+
+test("a cased Artwork: key still names the cover (SUB-921)", () => {
+  assert.equal(artworkTarget({ Artwork: "cover.png" }), "cover.png");
+});

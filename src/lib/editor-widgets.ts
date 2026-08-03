@@ -108,9 +108,12 @@ function splitRow(line: string): string[] {
 
 /** Inline marks a rendered cell honors (SUB-201): wikilinks plus the basic
  * emphasis set. One alternation, first match wins; bold/italic/strike recurse
- * so `**[[link]]**` works, code stays literal. No heavier nesting. */
+ * so `**[[link]]**` works, code stays literal. No heavier nesting. The
+ * md-link destination keeps one level of balanced parens (SUB-902/912) —
+ * Wikipedia-style URLs (…/A_(b)) would otherwise truncate at the first ")",
+ * and the print/hub twins already accept this shape. */
 const CELL_MARK_RE =
-  /\[\[([^[\]]+)\]\]|\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*|~~([^~]+)~~/g;
+  /\[\[([^[\]]+)\]\]|\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)|`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*|~~([^~]+)~~/g;
 
 function renderCell(el: HTMLElement, text: string) {
   let last = 0;

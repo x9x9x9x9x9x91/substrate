@@ -18,7 +18,7 @@
     nothing, since derived values never land in props. */
 
 import type { NoteMeta, PropSchema, RollupConfig } from "./types.ts";
-import { propStr } from "./types.ts";
+import { foldedPropKey, foldedPropStr } from "./types.ts";
 import { aggregate } from "./aggregate.ts";
 import { propList } from "./relation.ts";
 
@@ -75,7 +75,7 @@ export function rollupColumns(
     if (!map) {
       map = new Map<string, NoteMeta>();
       for (const n of allNotes) {
-        if ((propStr(n.props, "type") ?? "").toLowerCase() !== key) continue;
+        if ((foldedPropStr(n.props, "type") ?? "").toLowerCase() !== key) continue;
         const title = n.title.trim().toLowerCase();
         const stem = n.stem.trim().toLowerCase();
         if (title && !map.has(title)) map.set(title, n);
@@ -106,9 +106,11 @@ export function rollupColumns(
       if (!relEntry || !targetType) continue;
       const targets = targetMapFor(targetType);
       const values: string[] = [];
-      for (const v of propList(n.props, relEntry[0])) {
+      for (const v of propList(n.props, foldedPropKey(n.props, relEntry[0]))) {
         const t = targets.get(v.trim().toLowerCase());
-        if (t) values.push(propStr(t.props, cfg.prop) ?? "");
+        // fold like the table's own cell read (SUB-917) — hand-cased
+        // frontmatter must feed the rollup exactly as it renders
+        if (t) values.push(foldedPropStr(t.props, cfg.prop) ?? "");
       }
       // the footer's own convention: sum/avg/min/max over zero numeric
       // inputs read as no value; count always has one (zero links → 0)

@@ -3,10 +3,12 @@ import type { NoteMeta } from "../lib/types";
 import { propStr } from "../lib/types";
 import { vaultRead, vaultResolve } from "../lib/ipc";
 import { fmtFx } from "../lib/dashboard";
+import { normalizeNumberInput } from "../lib/aggregate";
 import { useUsdEur } from "./useFx";
 import {
   addSheetColumn,
   addSheetRow,
+  columnTakesNumberInput,
   deleteSheetColumn,
   deleteSheetFormula,
   deleteSheetRow,
@@ -264,14 +266,23 @@ export default function SheetGrid({
       const ed = editingRef.current;
       if (!ed) return;
       setEditing(null);
-      applyBody(setSheetCell(body, ed.r, ed.c, ed.draft));
+      // German-typed numbers normalize at the commit boundary (SUB-636's
+      // rule, missed here — SUB-915). Sheets carry no kind column, so the
+      // gate is earned from the column itself: only when its other cells
+      // read as numbers and it isn't a label column. Everywhere else the
+      // draft commits verbatim — an ip "192.168" or a year "2.026" must
+      // survive an open-and-Enter untouched.
+      const draft = columnTakesNumberInput(model, ed.c, ed.r)
+        ? normalizeNumberInput(ed.draft)
+        : ed.draft;
+      applyBody(setSheetCell(body, ed.r, ed.c, draft));
       pendingFocus.current = true;
       if (moveDir === "down") setFocus({ r: Math.min(ed.r + 1, rowCount - 1), c: ed.c });
       else if (moveDir === "right")
         setFocus(ed.c + 1 < cols ? { r: ed.r, c: ed.c + 1 } : { r: ed.r, c: ed.c });
       else setFocus({ r: ed.r, c: ed.c });
     },
-    [body, applyBody, rowCount, cols]
+    [body, applyBody, rowCount, cols, model]
   );
 
   const cancelEdit = () => {

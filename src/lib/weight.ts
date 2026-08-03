@@ -9,7 +9,7 @@
 // Pure TS, erasable syntax only — runs in the app and under `node --test`.
 
 import { findFence, parseCsv } from "./sheet.ts";
-import { parseStrictNumber } from "./aggregate.ts";
+import { normalizeNumberInput, parseStrictNumber } from "./aggregate.ts";
 
 export interface WeightRow {
   /** local day, YYYY-MM-DD */
@@ -77,7 +77,9 @@ export function parseWeightRows(body: string): WeightRow[] {
     const date = (cells[di] ?? "").trim();
     // strict parse like the food log (SUB-221): "7e1" is skipped text, never
     // a 70 kg weigh-in
-    const kg = parseStrictNumber(cells[ki] ?? "");
+    // Hand edits type the app's own de-DE display dialect ("72,5"), which the
+    // strict parser alone reads as text — fold it first (SUB-923).
+    const kg = parseStrictNumber(normalizeNumberInput(cells[ki] ?? ""));
     if (!DAY_RE.test(date) || kg === null || !kgInRange(kg)) continue;
     out.push({ date, kg });
   }

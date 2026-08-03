@@ -50,6 +50,14 @@ test("parseTerminalSize: in-range values pass through, strings and numbers alike
   assert.equal(parseTerminalSize("right", 0.7), 0.7);
 });
 
+test("parseTerminalSize: de-DE typed fractions read as their value (SUB-926)", () => {
+  assert.equal(parseTerminalSize("bottom", "0,6"), 0.6);
+  assert.equal(parseTerminalSize("right", "0,5"), 0.5);
+  // canonical spelling unaffected, garbage still falls back
+  assert.equal(parseTerminalSize("bottom", "0.6"), 0.6);
+  assert.equal(parseTerminalSize("bottom", ",6"), DEFAULT_TERMINAL_HEIGHT);
+});
+
 test("parseTerminalSize: a typed out-of-range value falls back, it does NOT clamp", () => {
   // `terminal-height: 7` is a mistake, not a request for 90% — landing on the
   // default says "this key isn't doing anything" more clearly than 0.9 would

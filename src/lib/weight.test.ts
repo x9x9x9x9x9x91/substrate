@@ -24,6 +24,12 @@ test("parseWeightRows: typed rows, log order", () => {
   ]);
 });
 
+test("parseWeightRows: de-DE typed kg reads (SUB-923)", () => {
+  // hand edits type the app's own display dialect — "72,5" is 72.5
+  const rows = parseWeightRows(bodyWith(['2026-08-01,"72,5"']));
+  assert.deepEqual(rows, [{ date: "2026-08-01", kg: 72.5 }]);
+});
+
 test("parseWeightRows: header order is free and case-insensitive", () => {
   const rows = parseWeightRows(bodyWith(["76.2,2026-07-24"], "KG,Date"));
   assert.deepEqual(rows, [{ date: "2026-07-24", kg: 76.2 }]);

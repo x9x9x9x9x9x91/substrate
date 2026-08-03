@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { ChangeSpec } from "@codemirror/state";
 import { EditorState, Range, StateEffect, StateField, Transaction } from "@codemirror/state";
 import {
@@ -166,7 +166,7 @@ function outlineHeadings(state: EditorState): OutlineHeading[] {
         .replace(/\s+#+\s*$/, "")
         .trim();
       const text = raw
-        .replace(/!?(?:\[\[|\[)([^\]]+)(?:\]\]|\]\([^)]*\))/g, "$1")
+        .replace(/!?(?:\[\[|\[)([^\]]+)(?:\]\]|\]\((?:[^()]|\([^()]*\))*\))/g, "$1")
         .replace(/[*_~`]/g, "")
         .trim();
       headings.push({ from: line.from, level: Number(match[1]), text: text || "Untitled" });
@@ -1988,10 +1988,34 @@ export default function Editor({
   const showOutline = outline.length >= 3;
   const outlineBase = showOutline ? Math.min(...outline.map((heading) => heading.level)) : 1;
 
+  const focusFromEmptyGutter = (event: ReactMouseEvent<HTMLDivElement>) => {
+    const view = viewRef.current;
+    const target = event.target as HTMLElement;
+    if (!view || event.button !== 0 || event.defaultPrevented) return;
+    const content = view.contentDOM.getBoundingClientRect();
+    // SUB-895: the fold gutter is visually part of the body surface, but
+    // CodeMirror leaves a click on its empty rows focused on the scroller.
+    // Map that click onto the matching document line (or the end of a sparse
+    // document). A real fold marker prevents the event in its own handler, so
+    // folding is untouched.
+    if (
+      !target.closest?.(".cm-gutters") &&
+      !(target.closest?.(".cm-scroller") && event.clientX < content.left)
+    ) {
+      return;
+    }
+    event.preventDefault();
+    const pos =
+      view.posAtCoords({ x: content.left + 1, y: event.clientY }) ?? view.state.doc.length;
+    view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+    view.focus();
+  };
+
   return (
     <div
       className={`editor-shell${showOutline && outlineOpen ? " with-outline" : ""}`}
       ref={shell}
+      onMouseDown={focusFromEmptyGutter}
     >
       <div className="editor-wrap" ref={host} />
       {dropHint && (

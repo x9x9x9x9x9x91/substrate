@@ -392,3 +392,10 @@ test("due chip labels read Today, day-month in-year, and carry the year beyond i
   assert.equal(dueChipLabel("2027-01-04", 156, NOW), "4 Jan 27");
   assert.equal(dueChipLabel("nonsense", 3, NOW), "nonsense");
 });
+
+test("cased Areas/Stale_Days keys still configure (SUB-921)", () => {
+  assert.deepEqual(tasksDashboardConfig({ Areas: "A", Stale_Days: "14" }), {
+    areas: ["A"],
+    staleDays: 14,
+  });
+});

@@ -51,3 +51,28 @@ test("stripMachineFences: prose on the open/close lines survives", () => {
   assert.ok(out.startsWith("see below \n"), "open-line prose kept");
   assert.ok(out.endsWith(" done here\n"), "close-line prose kept");
 });
+
+test("stripMachineFences: a view fence with an info-string tail still strips (SUB-899)", () => {
+  // the editor and hub render ```view <anything> as a live widget (first
+  // word decides), so its config must leave the search index like the bare
+  // form — including a stray trailing space after ```view
+  for (const open of ["```view table", "```view "]) {
+    const out = stripMachineFences(`a\n${open}\nquery: secret\n\`\`\`\nb`);
+    assert.ok(!out.includes("secret"), `config stripped for "${open}"`);
+    assert.equal(out.split("\n").length, 5, "line count preserved");
+  }
+  // chart/csv/formulas parsers are strict bare-form: a tailed fence is NOT
+  // machine content (it renders as a plain code box), so it stays searchable
+  const chart = "a\n```chart x\nsource: r\n```\nb";
+  assert.equal(stripMachineFences(chart), chart, "tailed chart fence stays prose");
+});
+
+test("stripMachineFences handles CRLF fences (SUB-913)", () => {
+  const body = "prose\r\n```view\r\ntype: release\r\n```\r\ntail";
+  const out = stripMachineFences(body);
+  assert.ok(!out.includes("type: release"), "fence body blanked");
+  assert.ok(out.includes("prose"), "prose kept");
+  assert.ok(out.includes("tail"), "tail kept");
+  // newline-for-newline: line numbers must keep mapping
+  assert.equal(out.split("\n").length, body.split("\n").length);
+});

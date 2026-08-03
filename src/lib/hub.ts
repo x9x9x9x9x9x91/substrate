@@ -31,7 +31,10 @@ export type HubBlock =
 const CALLOUT_HEADER_RE = /^(\s*>\s*\[!(note|warn|idea)\]\s*)/i;
 const QUOTE_PREFIX_RE = /^(\s*>\s?)/;
 
-const FENCE_OPEN_RE = /^```(\S*)\s*$/;
+// the opener takes a full info string (```rust ignore) — first word is the
+// language; a spaced info string must not leak the fence body into callout
+// scanning by demoting the opener to prose (SUB-898)
+const FENCE_OPEN_RE = /^```(\S*)(?:\s[^`]*)?$/;
 const FENCE_CLOSE_RE = /^```\s*$/;
 const SECTION_RE = /^##\s+(.*)$/;
 

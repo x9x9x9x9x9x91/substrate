@@ -89,6 +89,9 @@ export type StartStage = { kind: "moveto"; note: NoteMeta };
 interface PaletteProps {
   mode: "palette" | "capture";
   notes: NoteMeta[];
+  /** true while the app conceals AGENTS.md/CLAUDE.md/Settings.md (SUB-831) —
+      forwarded to the engine so its 30-hit page skips them (SUB-907) */
+  excludeAppFiles: boolean;
   databases: { type: string; count: number }[];
   /** per-type database icons (SUB-27), keyed by type name */
   icons: Record<string, DbIcon>;
@@ -153,6 +156,7 @@ async function absPath(rel: string): Promise<string> {
 export default function Palette({
   mode,
   notes,
+  excludeAppFiles,
   databases,
   icons,
   dashboards,
@@ -261,7 +265,7 @@ export default function Palette({
     }
     const t = window.setTimeout(() => {
       const id = searchGuard.issue();
-      vaultSearch(searchText, searchScope ?? undefined)
+      vaultSearch(searchText, searchScope ?? undefined, excludeAppFiles)
         .then((hits) => {
           if (searchGuard.isLatest(id)) {
             setHits(hits);
@@ -277,7 +281,7 @@ export default function Palette({
         });
     }, 100);
     return () => window.clearTimeout(t);
-  }, [searchText, searchScope, mode, stage.kind, searchGuard]);
+  }, [searchText, searchScope, mode, stage.kind, searchGuard, excludeAppFiles]);
 
   const visibleHits = useMemo(
     () => (hitsQuery === searchText ? hits : []),

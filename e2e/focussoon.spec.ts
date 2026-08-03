@@ -49,6 +49,14 @@ test("a fast-typed string after ⌘N lands whole, and titles the note", async ({
 test("with the list focused, a non-printable key after ⌘N is not yanked into the title (SUB-455)", async ({
   page,
 }) => {
+  // SUB-883: this test used to race the real 80ms handoff timer — on a
+  // saturated machine the arrow arrived after the timer had fired, and the
+  // title taking focus then is the *intended* idle-user behavior, not a bug.
+  // Fake time removes the race: the handoff timer cannot fire while the
+  // clock is paused, so the arrow provably lands inside the window, and
+  // advancing the clock afterwards proves the focus was cancelled outright
+  // rather than merely not yet due.
+  await page.clock.install();
   await openNotes(page);
   // arrow-key selection active: the list, not the void, owns the keyboard
   await page.locator(".sidebar-title").click();
@@ -56,10 +64,21 @@ test("with the list focused, a non-printable key after ⌘N is not yanked into t
   const selected = page.locator(".list .row.selected");
   const before = await selected.getAttribute("data-path");
 
+  await page.clock.pauseAt(Date.now() + 1000);
   await page.keyboard.press("Meta+n");
+  // let the mock create resolve (≤25ms of fake time) without coming near
+  // the 80ms handoff; the seeded row appearing proves the deferred focus
+  // is armed before the arrow is sent
+  await page.clock.runFor(30);
+  await expect(page.locator(".row", { hasText: "Untitled" })).toHaveCount(1);
+
   await page.keyboard.press("ArrowDown");
   // the arrow belonged to the list; it must not have been swallowed by a
   // title that stole focus out from under it
   await expect(page.locator(".note-title")).not.toBeFocused();
   expect(await selected.getAttribute("data-path")).not.toBe(before);
+
+  // past where the handoff would have fired: still cancelled, not pending
+  await page.clock.runFor(200);
+  await expect(page.locator(".note-title")).not.toBeFocused();
 });

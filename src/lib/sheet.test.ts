@@ -18,6 +18,7 @@ import {
   serializeCsv,
   setSheetCell,
   updateSheetFormula,
+  columnTakesNumberInput,
   type SheetModel,
 } from "./sheet.ts";
 
@@ -1161,4 +1162,48 @@ test("SUB-751 control: an ordinary sheet is completely unchanged", () => {
   const ev2 = evaluateSheet(same, fx);
   assert.deepEqual(ev2.computed[0].cells, [4, 8]);
   assert.equal(findSummary(ev2, "t"), 6);
+});
+
+describe("SUB-915 — de-DE input gate is earned per column, not assumed", () => {
+  const model = (csv: string) => parseSheet("```csv\n" + csv + "\n```\n");
+
+  test("a numeric column qualifies; its other rows are the evidence", () => {
+    const m = model("asset,price\nGLOW,31.4\nBTC,64200\nARC,92.5");
+    assert.equal(columnTakesNumberInput(m, 1, 0), true);
+    // the text column next to it never does
+    assert.equal(columnTakesNumberInput(m, 0, 0), false);
+  });
+
+  test("a text column with dotted values is left alone (192.168 stays)", () => {
+    const m = model("host,port\nrouter,80\ngateway,443");
+    // editing row 0 of `host`: the other host cell is text → no normalization
+    assert.equal(columnTakesNumberInput(m, 0, 0), false);
+  });
+
+  test("a label column never qualifies even when every cell is a number", () => {
+    const m = model("year,order_id,amount\n2024,48211,10\n2025,48212,20");
+    assert.equal(columnTakesNumberInput(m, 0, 0), false);
+    assert.equal(columnTakesNumberInput(m, 1, 0), false);
+    assert.equal(columnTakesNumberInput(m, 2, 0), true);
+  });
+
+  test("no evidence (single row, or all-blank column) → verbatim", () => {
+    const one = model("a,b\n1,2");
+    assert.equal(columnTakesNumberInput(one, 1, 0), false); // only row is the edited one
+    const blank = model("a,b\n1,\n2,");
+    assert.equal(columnTakesNumberInput(blank, 1, 0), false);
+    // blanks abstain rather than veto: numbers elsewhere still qualify
+    const gappy = model("a,b\n1,5\n2,\n3,7");
+    assert.equal(columnTakesNumberInput(gappy, 1, 1), true);
+  });
+
+  test("one non-numeric cell disqualifies the whole column", () => {
+    const m = model("a,qty\nx,10\ny,n/a\nz,30");
+    assert.equal(columnTakesNumberInput(m, 1, 0), false);
+  });
+
+  test("out-of-range column index is not numeric", () => {
+    const m = model("a,b\n1,2\n3,4");
+    assert.equal(columnTakesNumberInput(m, 9, 0), false);
+  });
 });

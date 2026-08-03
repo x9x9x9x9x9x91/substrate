@@ -45,7 +45,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
 
-use crate::vault::{prop_str, NoteMeta, SchemaConfig};
+use crate::vault::{folded_hash_key, folded_prop_key, folded_prop_str, NoteMeta, SchemaConfig};
 
 pub const STATE_REL_PATH: &str = ".vault/notifications.json";
 /// How long fired/snoozed entries are kept before pruning.
@@ -110,14 +110,17 @@ type Endpoint = (NaiveDate, Option<NaiveTime>);
 fn parse_endpoint(value: &str) -> Option<Endpoint> {
     let v = value.trim();
     // Shape-check BEFORE chrono (SUB-637): chrono's numeric fields scan
-    // 1..=width digits, so unpadded forms (`2026-8-1`, a `9:15` hour) and a
-    // doubled separator parse here while the TS grammar (`DAY_TIME_RE`:
-    // exactly 4-2-2 digits, ONE space-or-T, HH:MM) rejects them — the
+    // 1..=width digits, so unpadded DATE fields (`2026-8-1`) and a doubled
+    // separator parse there while the TS grammar rejects them — the
     // scheduler then fired for an item no date surface can render. Fixed
     // positions make the byte slices boundary-safe (the separator is ASCII).
+    // The HOUR may be single-digit since SUB-714 widened the TS side
+    // (`DAY_TIME_RE`: (\d{1,2}):(\d{2})) — the UI renders `9:30` as 09:30,
+    // so the scheduler and doctor must accept it too (SUB-906). Minutes stay
+    // two-digit, seconds stay refused (SUB-571).
     let (day, time) = match v.len() {
         10 => (v, None),
-        16 if matches!(v.as_bytes()[10], b' ' | b'T') => (&v[..10], Some(&v[11..])),
+        15 | 16 if matches!(v.as_bytes()[10], b' ' | b'T') => (&v[..10], Some(&v[11..])),
         _ => return None,
     };
     if day.as_bytes()[4] != b'-' || day.as_bytes()[7] != b'-' {
@@ -127,7 +130,9 @@ fn parse_endpoint(value: &str) -> Option<Endpoint> {
     let Some(t) = time else {
         return Some((date, None));
     };
-    if t.as_bytes()[2] != b':' {
+    // `H:MM` (len 4) or `HH:MM` (len 5); the colon position pins the minutes
+    // to exactly two digits either way.
+    if t.as_bytes()[t.len() - 3] != b':' {
         return None;
     }
     let time = NaiveTime::parse_from_str(t, "%H:%M").ok()?;
@@ -303,7 +308,7 @@ fn occurrence_day(anchor: NaiveDate, r: Repeat, today: NaiveDate) -> Option<Naiv
 fn repeat_until(props: &serde_json::Map<String, serde_json::Value>) -> Option<NaiveDate> {
     use serde_json::Value;
 
-    let raw = props.get("repeat_until")?;
+    let raw = props.get(folded_prop_key(props, "repeat_until")?)?;
     let value = match raw {
         Value::String(value) => value,
         // TS `propStr` joins an all-string list. A single element therefore
@@ -320,7 +325,9 @@ fn repeat_until(props: &serde_json::Map<String, serde_json::Value>) -> Option<Na
 /// way: `(Array.isArray(v) ? v : [v]).filter(is-string-and-parseDay)`.
 fn repeat_skips(props: &serde_json::Map<String, serde_json::Value>) -> Vec<NaiveDate> {
     use serde_json::Value;
-    let Some(raw) = props.get("repeat_skip") else { return Vec::new() };
+    let Some(raw) = folded_prop_key(props, "repeat_skip").and_then(|k| props.get(k)) else {
+        return Vec::new();
+    };
     let items: &[Value] = match raw {
         Value::Array(a) => a,
         other => std::slice::from_ref(other),
@@ -333,12 +340,15 @@ fn repeat_skips(props: &serde_json::Map<String, serde_json::Value>) -> Vec<Naive
 /// a bare bool, imports and hand edits carry the string) and a completed
 /// status (SUB-205's `isComplete`: done/cancelled, trimmed, case-insensitive).
 fn note_notifies(note: &NoteMeta) -> bool {
-    let hidden = matches!(note.props.get("calendar"), Some(serde_json::Value::Bool(false)))
-        || matches!(note.props.get("calendar"), Some(serde_json::Value::String(s)) if s == "false");
+    // every read here folds key casing (SUB-920) — the calendar's TS twin
+    // (SUB-696) already does, and hand-written frontmatter capitalizes freely
+    let calendar = folded_prop_key(&note.props, "calendar").and_then(|k| note.props.get(k));
+    let hidden = matches!(calendar, Some(serde_json::Value::Bool(false)))
+        || matches!(calendar, Some(serde_json::Value::String(s)) if s == "false");
     if hidden {
         return false;
     }
-    if let Some(status) = prop_str(&note.props, "status") {
+    if let Some(status) = folded_prop_str(&note.props, "status") {
         let s = status.trim().to_lowercase();
         if s == "done" || s == "cancelled" {
             return false;
@@ -360,7 +370,7 @@ fn occurrence_for(
     // recurrence ignores ranges (SUB-596), like the calendar: a range-valued
     // prop repeats from its START, which is all `parse_due` returns —
     // occurrences are single days.
-    let Some(repeat) = prop_str(props, "repeat").and_then(|r| parse_repeat(&r)) else {
+    let Some(repeat) = folded_prop_str(props, "repeat").and_then(|r| parse_repeat(&r)) else {
         return Some(anchor);
     };
     let day = occurrence_day(anchor, repeat, day)?;
@@ -407,12 +417,13 @@ fn item_for_key(
     if !note_notifies(note) {
         return None;
     }
-    let note_type = prop_str(&note.props, "type")?;
-    let ps = schema.get(note_type.trim())?.props.get(prop)?;
+    let note_type = folded_prop_str(&note.props, "type")?;
+    let type_schema = &schema.get(folded_hash_key(schema, note_type.trim())?)?.props;
+    let ps = type_schema.get(folded_hash_key(type_schema, prop)?)?;
     if !ps.notify || ps.kind.as_deref() != Some("date") {
         return None;
     }
-    let (anchor, time) = parse_due(&prop_str(&note.props, prop)?)?;
+    let (anchor, time) = parse_due(&folded_prop_str(&note.props, prop)?)?;
     if occurrence_for(&note.props, anchor, date)? != date {
         return None;
     }
@@ -509,13 +520,14 @@ pub fn due_now(
         if !note_notifies(note) {
             continue;
         }
-        let Some(note_type) = prop_str(&note.props, "type") else { continue };
-        let Some(type_schema) = schema.get(note_type.trim()) else { continue };
+        let Some(note_type) = folded_prop_str(&note.props, "type") else { continue };
+        let Some(type_key) = folded_hash_key(schema, note_type.trim()) else { continue };
+        let Some(type_schema) = schema.get(type_key) else { continue };
         for (prop, ps) in &type_schema.props {
             if !ps.notify || ps.kind.as_deref() != Some("date") {
                 continue;
             }
-            let Some(value) = prop_str(&note.props, prop) else { continue };
+            let Some(value) = folded_prop_str(&note.props, prop) else { continue };
             let Some((anchor, time)) = parse_due(&value) else { continue };
             let Some(date) = occurrence_for(&note.props, anchor, now.date()) else { continue };
             let item = DueItem {
@@ -843,7 +855,6 @@ mod tests {
     fn parse_due_rejects_unpadded_fields_and_loose_separators() {
         assert!(parse_due("2026-8-1").is_none(), "unpadded month and day");
         assert!(parse_due("2026-7-19 14:30").is_none(), "unpadded day");
-        assert!(parse_due("2026-08-01 9:15").is_none(), "unpadded hour");
         assert!(parse_due("2026-08-01 09:5").is_none(), "unpadded minute");
         assert!(parse_due("2026-08-01  14:30").is_none(), "doubled separator");
         assert!(parse_due("2026-08-01T 14:30").is_none(), "separator plus space");
@@ -854,8 +865,24 @@ mod tests {
         // ranges route through the same endpoint parser (SUB-596): a loose
         // endpoint poisons the whole value, a padded one still parses
         assert!(parse_due_range("2026-9-01/2026-09-21").is_none());
-        assert!(parse_due_range("2026-09-01/2026-09-21 9:00").is_none());
         assert!(parse_due_range("2026-09-01 09:00/2026-09-03 17:00").is_some());
+    }
+
+    /// SUB-906: SUB-714 widened the TS grammar to a single-digit hour
+    /// (`2026-08-03 9:30` renders as 09:30 on every surface), so the
+    /// scheduler and doctor accept it too — the SUB-637 contract is
+    /// "grammar matches what the UI can render", in both directions.
+    #[test]
+    fn parse_due_accepts_single_digit_hours_like_the_ui() {
+        let (_, t) = parse_due("2026-08-03 9:30").unwrap();
+        assert_eq!(t, NaiveTime::from_hms_opt(9, 30, 0));
+        let (_, t) = parse_due("2026-08-03T9:30").unwrap();
+        assert_eq!(t, NaiveTime::from_hms_opt(9, 30, 0));
+        // minutes stay two-digit, seconds stay refused
+        assert!(parse_due("2026-08-03 9:3").is_none());
+        assert!(parse_due("2026-08-03 9:30:00").is_none());
+        // a single-digit-hour endpoint no longer poisons a range
+        assert!(parse_due_range("2026-09-01/2026-09-21 9:00").is_some());
     }
 
     /// SUB-596: the interval form. `parse_due` keeps returning the START, so
@@ -905,6 +932,40 @@ mod tests {
         // other days → nothing (no overdue noise, no early fire)
         assert!(due_now(&notes, &schema, &state, dt(2026, 7, 16, 12, 0)).is_empty());
         assert!(due_now(&notes, &schema, &state, dt(2026, 7, 18, 12, 0)).is_empty());
+    }
+
+    /// SUB-920: hand-written frontmatter capitalizes freely and every other
+    /// date surface folds key casing (SUB-696) — the scheduler must too, in
+    /// both directions: a cased note still fires, a cased completion or
+    /// opt-out still silences.
+    #[test]
+    fn due_folds_prop_key_casing_like_the_calendar() {
+        let schema = notify_schema();
+        let state = NotifyState::default();
+        // cased Type + Due: the item must fire, not silently vanish
+        let cased = vec![note("Tasks/Cased.md", &[("Type", "task"), ("Due", "2026-07-17")])];
+        let due = due_now(&cased, &schema, &state, dt(2026, 7, 17, 9, 0));
+        assert_eq!(due.len(), 1, "cased Type/Due fires: {due:?}");
+        // cased Status: done still silences (no phantom nag)
+        let done = vec![note(
+            "Tasks/Done.md",
+            &[("type", "task"), ("due", "2026-07-17"), ("Status", "done")],
+        )];
+        assert!(due_now(&done, &schema, &state, dt(2026, 7, 17, 9, 0)).is_empty());
+        // cased Calendar: false opt-out still respected
+        let optout = vec![note(
+            "Tasks/Hidden.md",
+            &[("type", "task"), ("due", "2026-07-17"), ("Calendar", "false")],
+        )];
+        assert!(due_now(&optout, &schema, &state, dt(2026, 7, 17, 9, 0)).is_empty());
+        // cased Repeat: the series recurs past its anchor
+        let series = vec![note(
+            "Tasks/Series.md",
+            &[("type", "task"), ("due", "2026-07-10"), ("Repeat", "weekly")],
+        )];
+        let due = due_now(&series, &schema, &state, dt(2026, 7, 17, 9, 0));
+        assert_eq!(due.len(), 1, "cased Repeat recurs: {due:?}");
+        assert_eq!(due[0].date, NaiveDate::from_ymd_opt(2026, 7, 17).unwrap());
     }
 
     #[test]

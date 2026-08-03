@@ -4,6 +4,7 @@ import type { NoteMeta, PropSchema } from "./types.ts";
 import {
   compareTarget,
   completeFilter,
+  filterCompletions,
   filterDeadEndHint,
   filterInherits,
   filterLabel,
@@ -316,6 +317,19 @@ test("parseQuery: the spaced form splits multi-values too (SUB-78)", () => {
   assert.deepEqual(parseQuery('category: "Club/Venue",Festival ', TODAY).filters, [
     { key: "category", values: ["club/venue", "festival"] },
   ]);
+});
+
+test("matchesFilters: a capitalized frontmatter key still matches (SUB-916)", () => {
+  // hand-written YAML says `Status: live`; the parse folds the filter key to
+  // lowercase — propValues must fold the prop read like every other surface
+  const f = parseQuery("status:live ", TODAY).filters;
+  assert.ok(matchesFilters(note("a", { Status: "live" }), f, TODAY));
+  assert.ok(!matchesFilters(note("b", { Status: "parked" }), f, TODAY));
+  // exact-first: a note carrying both spellings reads the exact key
+  assert.ok(matchesFilters(note("c", { status: "live", Status: "parked" }), f, TODAY));
+  // completions see the cased column's values too
+  const cased = [note("d", { Status: "live" }), note("e", { Status: "parked" })];
+  assert.deepEqual(filterCompletions(cased, "status", "").sort(), ["live", "parked"]);
 });
 
 test("matchesFilters: a multi-value filter is an OR (SUB-78)", () => {

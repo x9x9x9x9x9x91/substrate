@@ -11,6 +11,7 @@
     end of the same byte format. Keep the three in lockstep. */
 
 import { renderPrintBody, escapeHtml, type AssetSrc } from "./print.ts";
+import { foldedPropKey } from "./types.ts";
 
 /** Sealed-payload layout: magic + format version, then the fresh 96-bit
     GCM IV, then ciphertext. Versioned so a future format (chunked audio,
@@ -162,7 +163,7 @@ export function buildHandoffDocument(opts: {
     unconfigured; the dialog explains setup instead of failing. Trailing
     slashes are trimmed so link building never doubles them. */
 export function parseShareRelayUrl(props: Record<string, unknown>): string {
-  const v = props["share-relay-url"];
+  const v = props[foldedPropKey(props, "share-relay-url")];
   if (typeof v !== "string") return "";
   const s = v.trim().replace(/\/+$/, "");
   return /^https?:\/\/.+/i.test(s) ? s : "";

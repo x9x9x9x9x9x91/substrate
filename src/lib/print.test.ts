@@ -41,6 +41,12 @@ test("task lists, tables, quotes, and rules render", () => {
   assert.match(html, /<hr>/);
 });
 
+test("adjacent bullet and numbered runs keep their own list tags (SUB-901)", () => {
+  const html = renderPrintBody("- a\n- b\n1) first\n2) second", noAssets);
+  assert.match(html, /<ul><li>a<\/li><li>b<\/li><\/ul>/, "bullets close before the numbers");
+  assert.match(html, /<ol><li>first<\/li><li>second<\/li><\/ol>/, "numbered run keeps <ol>");
+});
+
 test("wikilinks flatten to text; embeds use the asset resolver", () => {
   const src = (n: string) => (n === "shot.png" ? "data:image/png;base64,AA" : undefined);
   const html = renderPrintBody("See [[Static Bouquet]] ![[shot.png]] ![[gone.png]]", src);
@@ -79,4 +85,22 @@ test("code fences swallow markdown and inline rules stay out of code spans", () 
   assert.ok(!html.includes("<strong>"), "no emphasis inside fences or code spans");
   assert.match(html, /<code>\*\*lit\*\*<\/code>/);
   assert.match(html, /\*\*not bold\*\* !\[\[x.png\]\]/);
+});
+
+test("md links keep parenthesized URLs whole (SUB-902)", () => {
+  const html = renderPrintBody("[x](https://en.wikipedia.org/wiki/A_(b)) tail", noAssets);
+  assert.match(html, /<a href="https:\/\/en\.wikipedia\.org\/wiki\/A_\(b\)">x<\/a> tail/);
+  // plain links unchanged
+  const plain = renderPrintBody("[y](https://ok.com/path)", noAssets);
+  assert.match(plain, /<a href="https:\/\/ok\.com\/path">y<\/a>/);
+});
+
+test("a spaced info string still opens a fence — content below stays prose (SUB-898)", () => {
+  const html = renderPrintBody(
+    "before\n```rust ignore\nlet x = 1;\n```\nafter paragraph\n\n# Real heading",
+    noAssets
+  );
+  assert.match(html, /<pre><code>let x = 1;<\/code><\/pre>/, "fence body prints as code");
+  assert.match(html, /<p>after paragraph<\/p>/, "text after the closer is prose again");
+  assert.match(html, /<h1>Real heading<\/h1>/, "headings below the fence still render");
 });

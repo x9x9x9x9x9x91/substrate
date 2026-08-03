@@ -2,7 +2,7 @@
     Values stay raw in YAML; only the rendering is shaped here. */
 
 import type { NoteMeta, NumberFormat, PropKind, PropSchema } from "./types.ts";
-import { propStr } from "./types.ts";
+import { foldedPropStr, propStr } from "./types.ts";
 import { formatAgg, parseCellNumber } from "./aggregate.ts";
 import { isAudioEmbed, unwrapEmbed } from "./artwork.ts";
 import { splitDateRange, type DayTime } from "./calendar.ts";
@@ -19,7 +19,7 @@ export function displayType(type: string): string {
 /** Right-hand hint slot for a note row (SUB-258): the note's db type via
     displayType, else its folder — root-level loose notes show nothing. */
 export function noteHint(n: NoteMeta): string | undefined {
-  const t = propStr(n.props, "type");
+  const t = foldedPropStr(n.props, "type");
   return t ? displayType(t) : n.folder || undefined;
 }
 

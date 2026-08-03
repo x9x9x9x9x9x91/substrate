@@ -75,6 +75,43 @@ test("right-click on a table's external-link cell opens nothing (SUB-657)", asyn
   );
 });
 
+test("a table cell md-link keeps a parenthesized URL whole (SUB-912)", async ({ page }) => {
+  // SUB-902 fixed print + hub; the cell renderer is the third twin. The
+  // destination must keep its one balanced paren level and the trailing ")"
+  // must not leak into the cell text.
+  await page.addInitScript(() => {
+    (window as unknown as { __opened: string[] }).__opened = [];
+    const real = window.open.bind(window);
+    window.open = ((url?: string | URL, ...rest: unknown[]) => {
+      (window as unknown as { __opened: string[] }).__opened.push(String(url));
+      return real(url as string, ...(rest as [string?, string?]));
+    }) as typeof window.open;
+  });
+  await page.goto("/");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await page.keyboard.press("Meta+n");
+  await expect(page.locator(".note-title")).toBeFocused();
+  await page.keyboard.type("Paren link table");
+  await page.keyboard.press("Enter");
+
+  await page.locator(".cm-content").click();
+  await page.keyboard.insertText(
+    "intro line\n\n| site | note |\n| --- | --- |\n| [wiki](https://en.wikipedia.org/wiki/Granular_(synthesis)) | a link |\n"
+  );
+  await page.locator(".cm-line", { hasText: "intro line" }).click();
+
+  const table = page.locator(".cm-md-table");
+  await expect(table).toBeVisible();
+  const link = table.locator(".cm-cell-extlink", { hasText: "wiki" });
+  await expect(link).toBeVisible();
+  // the ")" belongs to the URL, not the cell text next to the link
+  await expect(table.locator("td", { hasText: "wiki" })).not.toContainText(")");
+  await link.click();
+  expect(await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened)).toEqual(
+    ["https://en.wikipedia.org/wiki/Granular_(synthesis)"]
+  );
+});
+
 test("right-click on a view-embed row does not navigate (SUB-657)", async ({ page }) => {
   await page.goto("/");
   await page.locator(".side-folder", { hasText: "Projects" }).click();

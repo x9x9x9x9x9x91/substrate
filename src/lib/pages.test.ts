@@ -52,3 +52,9 @@ test("whitespace-only targets don't count", () => {
   const pages = parsePages({ pages: [{ label: "X", note: "  " }] });
   assert.equal(pages[0].kind, "error");
 });
+
+test("a cased Pages: key still makes tabs (SUB-921)", () => {
+  const pages = parsePages({ Pages: [{ label: "S", note: "Sheet" }] });
+  assert.equal(pages.length, 1);
+  assert.deepEqual(pages[0], { kind: "note", label: "S", note: "Sheet" });
+});

@@ -1,6 +1,7 @@
 import { durationFrom, isIsoDate, todayIso } from "./dates.ts";
 import { splitDateRange } from "./calendar.ts";
 import { parseStrictNumber } from "./aggregate.ts";
+import { foldedPropKey } from "./types.ts";
 import type { NoteMeta, PropSchema } from "./types.ts";
 
 /** The schema a query is read against, when the caller has one — a database
@@ -407,7 +408,9 @@ function numberMatches(actual: string | undefined, wanted: string): boolean {
 /** A prop's individual values — a multi-value prop (relation list) filters
     per entry, not as one joined string. */
 export function propValues(n: NoteMeta, key: string): string[] {
-  const v = n.props[key];
+  // filter keys arrive lowercased from the parse while frontmatter keeps the
+  // author's spelling — fold like every other prop read (SUB-916)
+  const v = n.props[foldedPropKey(n.props, key)];
   if (v === undefined || v === null) return [];
   if (Array.isArray(v)) return v.filter((x): x is string => typeof x === "string");
   return [typeof v === "string" ? v : JSON.stringify(v)];

@@ -3,6 +3,7 @@
    `close-to-tray`; the terminal HUD keys (SUB-398) are frontend-owned — the
    PTY spawn call passes them down, so the Rust side never parses them. */
 
+import { foldedPropKey } from "./types.ts";
 import {
   DEFAULT_TERMINAL_DOCK,
   DEFAULT_TERMINAL_HEIGHT,
@@ -108,7 +109,7 @@ function terminalActionLine(item: unknown): string | null {
 }
 
 export function parseTerminalActions(props: Record<string, unknown>): TerminalAction[] {
-  const raw = props["terminal-actions"];
+  const raw = props[foldedPropKey(props, "terminal-actions")];
   const items = Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : [];
   const out: TerminalAction[] = [];
   for (const item of items) {
@@ -153,11 +154,15 @@ export function textToTerminalActions(text: string): string[] {
     .filter((l) => l !== "");
 }
 
+/* Key reads below fold casing (SUB-924): Settings.md is hand-editable, so a
+   cased spelling (`Drop-Hint:`) must read like the documented one — same
+   exact-first rule as every other frontmatter read. */
+
 /** `drop-hint` — the drag-over pill explaining copy vs ⇧-link (SUB-438).
     Default ON; only an explicit `false` hides it, so an unset key or any
     typo'd value keeps the affordance discoverable. */
 export function parseDropHint(props: Record<string, unknown>): boolean {
-  const v = props["drop-hint"];
+  const v = props[foldedPropKey(props, "drop-hint")];
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 
@@ -165,7 +170,7 @@ export function parseDropHint(props: Record<string, unknown>): boolean {
     `drop-hint`: only an explicit `false` hides it, so an unset key or a typo'd
     value keeps a discovery affordance discoverable. */
 export function parseModHud(props: Record<string, unknown>): boolean {
-  const v = props["mod-hud"];
+  const v = props[foldedPropKey(props, "mod-hud")];
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 
@@ -173,7 +178,7 @@ export function parseModHud(props: Record<string, unknown>): boolean {
     ON, same rule as `drop-hint`: only an explicit `false` turns the grid off
     globally. A database's own ViewPref `grid` overrides this either way. */
 export function parseDbGrid(props: Record<string, unknown>): boolean {
-  const v = props["db-grid"];
+  const v = props[foldedPropKey(props, "db-grid")];
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 
@@ -197,13 +202,13 @@ export function isAppFile(path: string): boolean {
     "Show app files". Default OFF, inverted rule from `drop-hint`: only an
     explicit `true` reveals, so an unset key or a typo keeps the blank slate. */
 export function parseShowAppFiles(props: Record<string, unknown>): boolean {
-  const v = props["show-agent-files"];
+  const v = props[foldedPropKey(props, "show-agent-files")];
   return v === true || (typeof v === "string" && v.trim().toLowerCase() === "true");
 }
 
 export function parseTerminalSettings(props: Record<string, unknown>): TerminalSettings {
   const str = (k: string) => {
-    const v = props[k];
+    const v = props[foldedPropKey(props, k)];
     return typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : "";
   };
   // height and width are parsed independently of the current dock: flipping
@@ -212,9 +217,9 @@ export function parseTerminalSettings(props: Record<string, unknown>): TerminalS
   return {
     command: str("terminal-command"),
     cwd: str("terminal-cwd"),
-    dock: parseTerminalDock(props["terminal-dock"]),
-    height: parseTerminalSize("bottom", props["terminal-height"]),
-    width: parseTerminalSize("right", props["terminal-width"]),
+    dock: parseTerminalDock(props[foldedPropKey(props, "terminal-dock")]),
+    height: parseTerminalSize("bottom", props[foldedPropKey(props, "terminal-height")]),
+    width: parseTerminalSize("right", props[foldedPropKey(props, "terminal-width")]),
     font: str("terminal-font"),
   };
 }

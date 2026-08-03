@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { NoteMeta } from "../lib/types";
+import { foldedPropKey } from "../lib/types";
 import { shareUpload, vaultRead } from "../lib/ipc";
 import { buildNoteHandoffHtml } from "../lib/export";
 import {
@@ -56,7 +57,7 @@ export default function SendLinkDialog({
     vaultRead(SETTINGS_PATH)
       .then((c) => {
         setRelay(parseShareRelayUrl(c.props));
-        const t = c.props["share-relay-token"];
+        const t = c.props[foldedPropKey(c.props, "share-relay-token")];
         setRelayToken(typeof t === "string" ? t.trim() : "");
       })
       .catch(() => setRelay(""));

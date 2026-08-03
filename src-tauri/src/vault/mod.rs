@@ -63,10 +63,18 @@ pub struct FmState {
 /// embeds, charts, sheet csv + formulas — are machine content, not prose:
 /// their bodies stay out of the search index (SUB-261). The regex follows
 /// the app parsers' semantics (```<lang>\n anywhere … next ``` or EOF);
-/// user code fences (```ts, …) stay searchable.
+/// user code fences (```ts, …) stay searchable. `view` alone also takes an
+/// info-string tail (```view table, a trailing space): the editor and hub
+/// render a view widget on the FIRST WORD of the info string, so those
+/// fences are live widgets, not prose (SUB-899); chart/csv/formulas parsers
+/// are strict bare-form, and a tailed one renders as plain code — prose.
+/// CRLF openers (```view\r\n) strip too (SUB-913).
+/// Lockstep twin: MACHINE_FENCE_RE in src/lib/fences.ts.
 fn machine_fence_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"```(?:view|chart|csv|formulas)\n[\s\S]*?(?:```|\z)").unwrap())
+    RE.get_or_init(|| {
+        Regex::new(r"```(?:view(?:[ \t][^\n]*)?|chart|csv|formulas)\r?\n[\s\S]*?(?:```|\z)").unwrap()
+    })
 }
 
 /// Byte ranges of `body` that are literal code: fenced blocks (``` or ~~~,
@@ -342,7 +350,7 @@ pub(super) fn folded_eq(left: &str, right: &str) -> bool {
 }
 
 /** Existing frontmatter key for a database property, exact first. */
-pub(super) fn folded_prop_key<'a>(
+pub(crate) fn folded_prop_key<'a>(
     props: &'a serde_json::Map<String, serde_json::Value>,
     key: &str,
 ) -> Option<&'a str> {
@@ -352,7 +360,7 @@ pub(super) fn folded_prop_key<'a>(
     props.keys().find(|candidate| folded_eq(candidate, key)).map(String::as_str)
 }
 
-pub(super) fn folded_prop_str(
+pub(crate) fn folded_prop_str(
     props: &serde_json::Map<String, serde_json::Value>,
     key: &str,
 ) -> Option<String> {
@@ -361,7 +369,7 @@ pub(super) fn folded_prop_str(
 
 /** Existing string key in a HashMap, exact first. Schema identity has the
 same case-folded contract as note frontmatter identity. */
-pub(super) fn folded_hash_key<'a, T>(map: &'a HashMap<String, T>, key: &str) -> Option<&'a str> {
+pub(crate) fn folded_hash_key<'a, T>(map: &'a HashMap<String, T>, key: &str) -> Option<&'a str> {
     if let Some((actual, _)) = map.get_key_value(key) {
         return Some(actual.as_str());
     }
@@ -760,11 +768,13 @@ impl Settings {
     pub fn load(root: &Path) -> Self {
         let raw = read_lossy(&root.join(Self::REL_PATH)).unwrap_or_default();
         let props = parse_props(split_frontmatter(&raw).0);
-        let capture_hotkey = prop_str(&props, "capture-hotkey")
+        // Folded reads (SUB-924): Settings.md is hand-editable, so a cased
+        // spelling (`Capture-Hotkey:`) must read like the documented one.
+        let capture_hotkey = folded_prop_str(&props, "capture-hotkey")
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| Self::DEFAULT_HOTKEY.into());
-        let close_to_tray = prop_str(&props, "close-to-tray")
+        let close_to_tray = folded_prop_str(&props, "close-to-tray")
             .map(|s| s.trim().eq_ignore_ascii_case("true"))
             .unwrap_or(false);
         Settings { capture_hotkey, close_to_tray }
@@ -1454,8 +1464,18 @@ impl Engine {
     /// the bare link (scheme and www. stripped) until a fetched page title
     /// upgrades it via rename — or forever, if the fetch never succeeds.
     pub fn create_reference(&mut self, url: &str) -> Result<NoteMeta, String> {
+        // ASCII-case-insensitive prefix strip: RFC 3986 schemes are
+        // case-insensitive and some sources paste `HTTPS://…` (SUB-908); the
+        // TS twin (url.ts looksLikeUrl/urlDisplayTitle) already matches /i,
+        // and a guard stricter than the client's turns a promised capture
+        // into an error toast with nothing created.
+        fn strip_prefix_ci<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
+            s.get(..prefix.len())
+                .filter(|head| head.eq_ignore_ascii_case(prefix))
+                .map(|_| &s[prefix.len()..])
+        }
         let url = url.trim();
-        if !(url.starts_with("http://") || url.starts_with("https://")) {
+        if strip_prefix_ci(url, "http://").is_none() && strip_prefix_ci(url, "https://").is_none() {
             return Err("only http(s) links can be captured".into());
         }
         // credentials must never reach the vault: not the filename, not the
@@ -1463,11 +1483,10 @@ impl Engine {
         // this repeats it defensively for every other caller.
         let stripped = crate::net::strip_userinfo(url);
         let url = stripped.as_str();
-        let display = url
-            .trim_start_matches("https://")
-            .trim_start_matches("http://")
-            .trim_start_matches("www.")
-            .trim_end_matches('/');
+        let no_scheme = strip_prefix_ci(url, "https://")
+            .or_else(|| strip_prefix_ci(url, "http://"))
+            .unwrap_or(url);
+        let display = strip_prefix_ci(no_scheme, "www.").unwrap_or(no_scheme).trim_end_matches('/');
         let display = if display.is_empty() { url } else { display };
         let name = sanitize_filename(display);
         // a hostile or degenerate URL must not produce an invisible note or
@@ -2161,6 +2180,8 @@ mod assets;
 pub use assets::AssetInfo;
 
 mod trash;
+// `TrashKind` is consumed through the façade by sibling-module tests.
+#[cfg_attr(not(test), allow(unused_imports))]
 pub use trash::{TrashEntry, TrashKind};
 use trash::{trash_asset_name, TRASH_ASSETS_DIR, TRASH_DIR};
 
@@ -2170,6 +2191,8 @@ use foldersync::{glob_match, read_folder_mappings, write_folder_mappings};
 
 mod seed;
 pub use seed::seed_new_vault;
+// `AGENTS_REL_PATH` is consumed through the façade by the property tests.
+#[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use seed::{set_terminal_command, AGENTS_REL_PATH};
 use seed::{seed_agent_files, seed_settings};
 
@@ -2184,6 +2207,21 @@ mod tests {
     use super::testutil::*;
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn machine_fence_strip_covers_info_string_tails() {
+        // ```view <tail> renders as a live widget (first word decides), so
+        // its config leaves the index like the bare form (SUB-899); a tailed
+        // chart fence renders as plain code and stays searchable prose.
+        for open in ["```view", "```view table", "```view "] {
+            let body = format!("a\n{open}\nquery: secret\n```\nb");
+            let out = strip_machine_fences(&body);
+            assert!(!out.contains("secret"), "config stripped for {open:?}: {out:?}");
+            assert_eq!(out.matches('\n').count(), body.matches('\n').count(), "line map kept");
+        }
+        let chart = "a\n```chart x\nsource: r\n```\nb";
+        assert_eq!(strip_machine_fences(chart), chart, "tailed chart fence stays prose");
+    }
 
     #[test]
     fn folded_identity_handles_common_unicode_case_pairs() {
@@ -3169,7 +3207,7 @@ mod tests {
         assert!(raw.ends_with("new body\n"));
         // still never indexed, searched, or listed
         assert!(e.list().iter().all(|n| !n.path.starts_with(".vault/")));
-        assert!(e.search("Agenda", None).is_empty());
+        assert!(e.search("Agenda", None, false).is_empty());
         assert_eq!(e.template_list(), vec!["event".to_string()]);
         // other hidden paths stay unreachable through the note commands
         fs::create_dir_all(dir.join(".hidden")).unwrap();
@@ -3209,7 +3247,7 @@ mod tests {
         fs::write(dir.join("Rondo MX180.md"), "---\ntype: gear\n---\nRecapped the summing bus\n")
             .unwrap();
         e.apply_changes(&[dir.join("Rondo MX180.md")]);
-        assert!(e.search("summing bus", None).iter().any(|h| h.path == "Rondo MX180.md"));
+        assert!(e.search("summing bus", None, false).iter().any(|h| h.path == "Rondo MX180.md"));
         assert_eq!(e.list().len(), before);
 
         // delete → note drops out
@@ -3562,6 +3600,24 @@ mod tests {
     }
 
     #[test]
+    fn create_reference_accepts_uppercase_scheme_like_the_client() {
+        // SUB-908: looksLikeUrl matches the scheme case-insensitively and the
+        // palette promises "capture link to Inbox" — a case-sensitive guard
+        // here turned that promise into an error toast with nothing created.
+        // The display strip is case-insensitive too, so an uppercase scheme
+        // or WWW. never leaks into the title (RFC 3986: schemes and host are
+        // case-insensitive; the path keeps its case).
+        let (mut e, dir) = temp_vault("crcase");
+        let m = e.create_reference("HTTPS://WWW.Example.com/Page").unwrap();
+        assert_eq!(m.title, "Example.com/Page", "scheme and www. stripped despite the casing");
+        assert_eq!(m.path, "Inbox/Example.com Page.md");
+        // still refuses non-http(s) in any casing
+        let err = e.create_reference("FILE:///etc/passwd").unwrap_err();
+        assert!(err.contains("http"), "{}", err);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn rename_to_control_char_title_rewrites_nothing() {
         // SUB-223, found by proptest: a control character survives
         // sanitize_filename (it isn't whitespace), so the name only failed at
@@ -3694,7 +3750,7 @@ mod tests {
         assert_eq!(e.list().len(), 5003);
 
         let t = std::time::Instant::now();
-        let hits = e.search("granular spectral", None);
+        let hits = e.search("granular spectral", None, false);
         let search = t.elapsed();
         assert!(!hits.is_empty());
 
@@ -3853,7 +3909,7 @@ mod tests {
             "backlink follows the move"
         );
         assert!(e
-            .search("granular rework", None)
+            .search("granular rework", None, false)
             .iter()
             .any(|h| h.path == "Releases/2026/Slow Bloom EP.md"));
         // and back to the root
@@ -4167,7 +4223,7 @@ mod tests {
         assert!(paths.contains(&"Projects/Current/Draft B.md".to_string()));
         assert!(!paths.iter().any(|p| p.contains("Active")), "old paths gone: {:?}", paths);
         assert!(e.resolve_link("Draft A").is_some(), "stem links survive folder rename");
-        assert!(e.search("Draft", None).iter().any(|h| h.path.starts_with("Projects/Current/")));
+        assert!(e.search("Draft", None, false).iter().any(|h| h.path.starts_with("Projects/Current/")));
         // rename-to-same-name is a no-op; collisions and bad input error
         assert_eq!(e.rename_folder("Projects/Current", "Current").unwrap(), "Projects/Current");
         assert!(e.rename_folder("Projects/Current", "").is_err());

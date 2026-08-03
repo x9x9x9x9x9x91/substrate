@@ -11,7 +11,7 @@
 // Pure TS, erasable syntax only — runs in the app and under `node --test`.
 
 import { findFence, parseCsv, replaceCsvRows } from "./sheet.ts";
-import { parseStrictNumber } from "./aggregate.ts";
+import { normalizeNumberInput, parseStrictNumber } from "./aggregate.ts";
 import { shiftDate } from "./dates.ts";
 
 export interface FoodRow {
@@ -124,9 +124,11 @@ export function parseFoodRows(body: string): FoodRow[] {
     const date = (cells[di] ?? "").trim();
     // strict parse like sheet cells (SUB-221): "1e3"/"0x10"/"Infinity" are
     // skipped text, never 1000 kcal
-    const kcal = parseStrictNumber(cells[ki] ?? "");
+    // Hand edits type the app's own de-DE display dialect ("1.234"), which
+    // the strict parser alone reads as text — fold it first (SUB-923).
+    const kcal = parseStrictNumber(normalizeNumberInput(cells[ki] ?? ""));
     if (!DAY_RE.test(date) || kcal === null) continue;
-    const protein = pi >= 0 ? parseStrictNumber(cells[pi] ?? "") : null;
+    const protein = pi >= 0 ? parseStrictNumber(normalizeNumberInput(cells[pi] ?? "")) : null;
     out.push({ date, food: (fi >= 0 ? cells[fi] ?? "" : "").trim(), kcal, protein, idx: r - 1 });
   }
   return out;

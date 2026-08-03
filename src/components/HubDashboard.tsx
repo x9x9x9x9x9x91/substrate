@@ -72,9 +72,11 @@ function openExternalLink(url: string) {
 
 /** The editor's cell-mark set (editor-widgets.ts CELL_MARK_RE) plus `![[...]]`
  *  embeds up front (print.ts order): wikilink, md-link, code, bold, italic,
- *  strike — bold/italic/strike recurse, code stays literal. No more. */
+ *  strike — bold/italic/strike recurse, code stays literal. No more. The
+ *  md-link destination takes one level of balanced parens (SUB-902), so a
+ *  Wikipedia-style URL doesn't truncate at its first ")". */
 const INLINE_MARK_RE =
-  /!\[\[([^[\]]+)\]\]|\[\[([^[\]]+)\]\]|\[([^\]]+)\]\(([^)\s]+)\)|`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*|~~([^~]+)~~/g;
+  /!\[\[([^[\]]+)\]\]|\[\[([^[\]]+)\]\]|\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)|`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*|~~([^~]+)~~/g;
 
 function Inline({ text, ctx }: { text: string; ctx: Ctx }): ReactNode {
   const out: ReactNode[] = [];
@@ -170,7 +172,9 @@ function DashEmbed({ name }: { name: string }) {
 
 /* ---- linear markdown chunks (print.ts block set, as React) --------------- */
 
-const FENCE_OPEN_RE = /^```(\S*)\s*$/;
+// opener accepts a full info string; group 1 stays the first word, the same
+// "first word decides" read as the editor's isViewFence (SUB-898)
+const FENCE_OPEN_RE = /^```(\S*)(?:\s[^`]*)?$/;
 const FENCE_CLOSE_RE = /^```\s*$/;
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
 const HR_RE = /^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/;

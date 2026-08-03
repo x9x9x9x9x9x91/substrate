@@ -124,6 +124,21 @@ test("matching is case-insensitive on type, title and stem", () => {
   assert.equal(rollupColumns(rows2, schema, ALL)!.get("Releases/R2.md")?.earned, "70");
 });
 
+test("hand-cased frontmatter keys feed the rollup like the table reads them (SUB-917)", () => {
+  // row side: YAML says `Entries:` while the schema says `entries`
+  const casedRow = [note("Releases/R3.md", { type: "release", Entries: ["L1"] })];
+  assert.equal(rollupColumns(casedRow, RELEASE_SCHEMA, ALL)!.get("Releases/R3.md")?.earned, "100");
+  // target side: the linked note spells the value prop `Amount:`
+  const casedTarget = note("Ledger/LC.md", { type: "ledger", Amount: "42" });
+  const rows = [note("Releases/R4.md", { type: "release", entries: "LC" })];
+  const rolled = rollupColumns(rows, RELEASE_SCHEMA, [...ALL, casedTarget])!;
+  assert.equal(rolled.get("Releases/R4.md")?.earned, "42");
+  // type side: `Type: Ledger` still joins the target map
+  const casedType = note("Ledger/LT.md", { Type: "Ledger", amount: "7" });
+  const rows2 = [note("Releases/R5.md", { type: "release", entries: "LT" })];
+  assert.equal(rollupColumns(rows2, RELEASE_SCHEMA, [casedType])!.get("Releases/R5.md")?.earned, "7");
+});
+
 test("a relation that isn't relation-kind links no rows", () => {
   const schema: Record<string, PropSchema> = {
     entries: { options: [], kind: "text" },

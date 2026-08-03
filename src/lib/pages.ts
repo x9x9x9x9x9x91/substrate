@@ -18,6 +18,8 @@
 //
 // Pure TS, no DOM imports: runs in the app and under `node --test`.
 
+import { byFoldedKey } from "./schemalookup.ts";
+
 export type PageEntry =
   | { kind: "note"; label: string; note: string }
   | { kind: "view"; label: string; view: string; query?: string }
@@ -27,7 +29,8 @@ export type PageEntry =
 /** Parse the `pages:` prop into page entries. Not-a-list (or an empty list)
     means no tabs — the dashboard renders exactly as before. */
 export function parsePages(props: Record<string, unknown>): PageEntry[] {
-  const raw = props["pages"];
+  // config keys fold like every prop read (SUB-921) — cased YAML still counts
+  const raw = byFoldedKey(props, "pages");
   if (!Array.isArray(raw)) return [];
   const out: PageEntry[] = [];
   for (const [i, p] of raw.entries()) {

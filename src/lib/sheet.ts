@@ -547,6 +547,42 @@ function isLabelColumn(header: string): boolean {
   return /^(year|jahr|yr)$/.test(h) || /(^|[\s_.-])(id|no|nr)$/.test(h);
 }
 
+/** Is this column numeric *by evidence*, so a typed draft may be normalized
+ * from de-DE into canonical dot-decimal (SUB-915)?
+ *
+ * `normalizeNumberInput` is documented for number-KIND columns only (SUB-636
+ * gated every other call site on kind === "number"). Sheets carry no schema,
+ * so the grid has to earn that gate instead of assuming it: without one,
+ * committing an unrelated text cell — an ip `192.168`, a version, a dotted
+ * label — silently rewrites it to `192168`, which is data loss on Enter.
+ *
+ * Two conditions, both required:
+ *  1. The column's OTHER data cells (every row but the one being edited)
+ *     parse as numbers via typedCell, and there is at least one of them.
+ *     A column of text has no claim on the de-DE grammar; a column that is
+ *     all numbers does. An all-blank or single-row column stays verbatim —
+ *     no evidence, no rewrite.
+ *  2. The column is not a label column (isLabelColumn, SUB-633), which
+ *     exists exactly for "the digits here are names, not quantities": a
+ *     `year` column of 2.024/2.025 is dotted on purpose and must survive. */
+export function columnTakesNumberInput(
+  model: SheetModel,
+  col: number,
+  editingRow: number
+): boolean {
+  const header = model.headers[col];
+  if (header === undefined || isLabelColumn(header)) return false;
+  let seen = false;
+  for (let r = 0; r < model.rows.length; r++) {
+    if (r === editingRow) continue;
+    const v = typedCell(model.rows[r][col] ?? "");
+    if (v === null) continue; // blank cells abstain
+    if (typeof v !== "number") return false;
+    seen = true;
+  }
+  return seen;
+}
+
 /** The one grid-wide number format (SUB-282: de-DE like every other surface):
  * dot thousands grouping, comma decimals; fractional values show exactly
  * 2 decimals, integers stay bare (1.234 — never 1.234,00).

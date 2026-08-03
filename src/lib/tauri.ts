@@ -31,6 +31,7 @@ import { MOCK_FX } from "./fx.ts";
 import { noteOwnWrite } from "./ownwrites.ts";
 import { remapSavedQueryProperty } from "./query.ts";
 import { isSystemPropName } from "./schemalookup.ts";
+import { isAppFile } from "./settings.ts";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -2404,6 +2405,12 @@ function mockValidateNoteTitle(title: string, slug: string) {
   if (slug.startsWith(".")) throw new Error("titles cannot start with a dot");
   if (title.includes("[") || title.includes("]"))
     throw new Error("titles cannot contain [ or ]");
+  // the engine's third refusal (SUB-223/SUB-909): a control char isn't
+  // whitespace, so it survives the slug collapse and only fails at the
+  // filesystem. Same Cc set as Rust char::is_control: C0, DEL, C1.
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(slug))
+    throw new Error("titles cannot contain control characters");
 }
 
 
@@ -3269,7 +3276,11 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // that rank outside the top 30 vanish.
       const scope = (args?.scope as string[] | undefined) ?? null;
       const inScope = scope ? new Set(scope) : null;
+      // conceal parity (SUB-907): the engine drops the app files before its
+      // cap when asked, so the mock must too
+      const skipAppFiles = (args?.excludeAppFiles as boolean | undefined) ?? false;
       return mockNotes
+        .filter((n) => !(skipAppFiles && isAppFile(n.path)))
         .filter((n) => inScope === null || inScope.has(n.path))
         .filter((n) => {
           const hay = words(`${n.title}\n${stripMachineFences(n.body)}`);
@@ -3300,6 +3311,9 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // scope (SUB-566): path allow-list applied before the cap, like the engine
       const fullScope = (args?.scope as string[] | undefined) ?? null;
       const fullInScope = fullScope ? new Set(fullScope) : null;
+      // conceal parity (SUB-907): excluded before the count AND the cap, so
+      // total_notes/truncated never speak for files the user can't see
+      const fullSkipAppFiles = (args?.excludeAppFiles as boolean | undefined) ?? false;
       const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const res = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${terms.map(esc).join("|")})[\\p{L}\\p{N}_]*`, "giu");
       const segment = (text: string): { parts: { text: string; hit: boolean }[]; count: number } => {
@@ -3319,6 +3333,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const bound = "[\\p{L}\\p{N}_]";
       const ranked = [];
       for (const n of mockNotes) {
+        if (fullSkipAppFiles && isAppFile(n.path)) continue;
         if (fullInScope !== null && !fullInScope.has(n.path)) continue;
         const title = segment(n.title);
         let total = title.count;
@@ -4269,20 +4284,34 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       return [...mockFolders].sort();
     case "vault_create_folder": {
       const raw = ((args?.path as string) ?? "").trim();
-      const parts = raw.split(/[/\\]/).map((p) => p.trim()).filter(Boolean);
-      if (parts.length === 0) throw new Error("folder name cannot be empty");
-      if (parts.some((p) => p === "." || p === ".." || p.startsWith("."))) {
-        throw new Error("invalid folder path");
+      // engine parity (SUB-910): sanitize_folder_rel checks each RAW part,
+      // sanitizes it (reserved chars → space, whitespace collapsed), then
+      // re-checks the sanitized form — ":.." sanitizes to ".." and must
+      // refuse, and "My: Folder" must store as "My Folder", not verbatim
+      const parts: string[] = [];
+      for (const rawPart of raw.split(/[/\\]/).map((p) => p.trim())) {
+        if (!rawPart) continue;
+        if (rawPart === "." || rawPart === "..") throw new Error("invalid folder path");
+        if (rawPart.startsWith(".")) throw new Error("hidden folders are not managed");
+        const part = mockSanitizeFilename(rawPart);
+        if (part === "." || part === "..") throw new Error("invalid folder path");
+        if (part.startsWith(".")) throw new Error("hidden folders are not managed");
+        parts.push(part);
       }
+      if (parts.length === 0) throw new Error("folder name cannot be empty");
       const clean = parts.join("/");
       mockAddFolder(clean);
       return clean;
     }
     case "vault_rename_folder": {
       const oldRel = ((args?.path as string) ?? "").replace(/^[/\\]+|[/\\]+$/g, "");
-      const name = ((args?.name as string) ?? "").trim();
+      const rawName = ((args?.name as string) ?? "").trim();
       if (!oldRel) throw new Error("cannot rename the vault root");
-      if (!name) throw new Error("folder name cannot be empty");
+      if (!rawName) throw new Error("folder name cannot be empty");
+      // engine parity (SUB-910): rename_folder sanitizes the new leaf and
+      // refuses a hidden result, exactly like create
+      const name = mockSanitizeFilename(rawName);
+      if (name.startsWith(".")) throw new Error("hidden folders are not managed");
       if (!mockFolders.has(oldRel)) throw new Error("folder not found");
       const parent = mockFolderOf(oldRel);
       const newRel = parent ? `${parent}/${name}` : name;

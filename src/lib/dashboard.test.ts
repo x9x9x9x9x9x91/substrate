@@ -270,3 +270,7 @@ test("metricsColumns: wraps without leaving a lone orphan tile", () => {
 test("metricsColumns: the Portfolio board (7 cards) splits 4 + 3", () => {
   assert.equal(metricsColumns(7), 4);
 });
+
+test("a cased Claimed_USD key still counts (SUB-921)", () => {
+  assert.equal(readClaimedUsd({ Claimed_USD: 120 }), 120);
+});

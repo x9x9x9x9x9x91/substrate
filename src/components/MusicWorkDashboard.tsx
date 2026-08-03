@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { NoteMeta } from "../lib/types";
-import { propStr } from "../lib/types";
+import { foldedPropStr } from "../lib/types";
 import { vaultRead, vaultResolve } from "../lib/ipc";
 import { filterWorkJobs, fmtSizeMb, groupWork, parseWorkJobs, WORK_VIEWS } from "../lib/musicwork";
 import type { WorkView } from "../lib/musicwork";
@@ -44,9 +44,9 @@ export default function MusicWorkDashboard({
   vaultEpoch,
   onOpenSource,
 }: MusicWorkDashboardProps) {
-  const indexName = propStr(meta.props, "index") ?? "Work Index";
+  const indexName = foldedPropStr(meta.props, "index") ?? "Work Index";
   // rendered verbatim — the scanner's own stamp, never parsed as a date
-  const scanned = propStr(meta.props, "scanned");
+  const scanned = foldedPropStr(meta.props, "scanned");
 
   // null = resolving; missing = no such note (a calm empty state, not an error)
   const [indexPath, setIndexPath] = useState<string | null>(null);

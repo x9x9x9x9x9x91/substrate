@@ -139,7 +139,11 @@ impl Engine {
 
         // ---- body scan: embeds and ```view fences -----------------------
         let embed_re = Regex::new(r"!\[\[([^\[\]]+)\]\]").unwrap();
-        let view_fence_re = Regex::new(r"```view\n([\s\S]*?)(?:```|\z)").unwrap();
+        // opener matches the live-widget grammar (SUB-899: info-string tail,
+        // first word decides; SUB-913: CRLF) — lockstep with machine_fence_re
+        // in vault/mod.rs and MACHINE_FENCE_RE in src/lib/fences.ts
+        let view_fence_re =
+            Regex::new(r"```view(?:[ \t][^\n]*)?\r?\n([\s\S]*?)(?:```|\z)").unwrap();
         let saved = self.saved_views();
         let mut md_paths = walk_md_files(&self.root);
         md_paths.sort();
@@ -513,6 +517,23 @@ mod tests {
             stale.iter().any(|f| f.subject == "ghostdb"),
             "so are its leftover view prefs: {stale:?}"
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn doctor_view_fence_scan_covers_tails_and_crlf() {
+        // both openers render live widgets (SUB-899 first-word rule; CRLF per
+        // SUB-913), so their dead saved-refs must surface like the bare form
+        let (mut engine, dir) = temp_vault("doctor-view-openers");
+        fs::write(dir.join("Tail.md"), "---\n---\n```view table\nsaved: ghost-a\n```\n").unwrap();
+        fs::write(dir.join("Crlf.md"), "---\r\n---\r\n```view\r\nsaved: ghost-b\r\n```\r\n")
+            .unwrap();
+        engine.rescan();
+        let report = engine.doctor().unwrap();
+        let refs = findings_of(&report, DoctorKind::BrokenViewRef);
+        let subjects: Vec<&str> = refs.iter().map(|f| f.subject.as_str()).collect();
+        assert!(subjects.contains(&"ghost-a"), "tailed fence scanned: {refs:?}");
+        assert!(subjects.contains(&"ghost-b"), "CRLF fence scanned: {refs:?}");
         let _ = fs::remove_dir_all(&dir);
     }
 

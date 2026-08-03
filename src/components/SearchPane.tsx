@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { FullSearchHit, NoteMeta, SearchMatch, SnippetPart } from "../lib/types";
-import { propStr } from "../lib/types";
+import { foldedPropStr } from "../lib/types";
 import { vaultSearchFull } from "../lib/ipc";
 import { createLatestGuard } from "../lib/latest";
 import {
@@ -34,6 +34,9 @@ interface SearchPaneProps {
   onRestoredSel?: () => void;
   /** the app-level note context menu (SUB-378) — same items as list rows */
   onRowContextMenu: (path: string, x: number, y: number) => void;
+  /** true while the app conceals AGENTS.md/CLAUDE.md/Settings.md (SUB-831) —
+      forwarded to the engine so its counts and page slots skip them (SUB-907) */
+  excludeAppFiles: boolean;
 }
 
 function Snippet({ parts }: { parts: SnippetPart[] }) {
@@ -55,6 +58,7 @@ export default function SearchPane({
   restoreSel,
   onRestoredSel,
   onRowContextMenu,
+  excludeAppFiles,
 }: SearchPaneProps) {
   const [engineResult, setEngineResult] = useState<{
     query: string;
@@ -124,7 +128,7 @@ export default function SearchPane({
     }
     const t = window.setTimeout(() => {
       const id = searchGuard.issue();
-      vaultSearchFull(searchText, scope ?? undefined)
+      vaultSearchFull(searchText, scope ?? undefined, excludeAppFiles)
         .then((res) => {
           if (searchGuard.isLatest(id))
             setEngineResult({
@@ -141,7 +145,7 @@ export default function SearchPane({
         });
     }, 120);
     return () => window.clearTimeout(t);
-  }, [searchText, scope, searchGuard]);
+  }, [searchText, scope, searchGuard, excludeAppFiles]);
 
   const engineHits = useMemo(
     () => (engineResult.query === searchText ? engineResult.hits : []),
@@ -358,7 +362,7 @@ export default function SearchPane({
         ) : (
           groups.map(({ h, n }) => {
             const noteIdx = ++idx;
-            const type = propStr(n.props, "type");
+            const type = foldedPropStr(n.props, "type");
             return (
               <div className="search-group" key={h.path} role="group" aria-label={`${displayTitle(n)} matches`}>
                 <div

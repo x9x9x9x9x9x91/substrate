@@ -26,7 +26,7 @@ import { isErr } from "./formula.ts";
 import { propSchemaFor } from "./schemalookup.ts";
 import type { SheetEval, SheetModel } from "./sheet.ts";
 import type { NoteMeta, SchemaConfig, SelectOption } from "./types.ts";
-import { propStr } from "./types.ts";
+import { foldedPropStr } from "./types.ts";
 
 export type ChartBucket = "day" | "week" | "month";
 export type ChartKind = "bar" | "line";
@@ -439,7 +439,7 @@ export function xSchemaOptions(
 export function dbRows(notes: NoteMeta[], type: string): ChartRow[] {
   const t = type.toLowerCase();
   return notes
-    .filter((n) => propStr(n.props, "type")?.toLowerCase() === t)
+    .filter((n) => foldedPropStr(n.props, "type")?.toLowerCase() === t)
     .map((n) => {
       const row: ChartRow = { title: n.title };
       for (const [k, v] of Object.entries(n.props)) row[k.toLowerCase()] = v;

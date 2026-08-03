@@ -25,6 +25,40 @@ test("template reads reuse the listed spelling, exact first", async () => {
   assert.match(template?.body ?? "", /\{\{title\}\}/);
 });
 
+test("mock title validation refuses control characters like the engine (SUB-909)", async () => {
+  // Engine::validate_note_title's third refusal (SUB-223): a control char
+  // survives the slug collapse and only fails at the filesystem — the mock
+  // must refuse at the same boundary or e2e greens a flow the engine errors
+  // on. \u0007 (BEL) is a C0 control that a terminal paste can carry.
+  await assert.rejects(
+    invoke("vault_create", { title: "bad\u0007title", body: "" }),
+    /control characters/
+  );
+  // sanity: the sibling refusals still fire, and a clean title still lands
+  await assert.rejects(invoke("vault_create", { title: "[bracketed]", body: "" }), /\[ or \]/);
+  const ok = await invoke<NoteMeta>("vault_create", { title: "Clean Title 909", body: "" });
+  assert.equal(ok.title, "Clean Title 909");
+});
+
+test("mock folder create/rename sanitize parts like the engine (SUB-910)", async () => {
+  // sanitize_folder_rel: reserved chars become spaces per component, and the
+  // SANITIZED form is re-checked — ":.." collapses to ".." and must refuse
+  const clean = await invoke<string>("vault_create_folder", { path: "My: Folder/Sub*Part" });
+  assert.equal(clean, "My Folder/Sub Part");
+  await assert.rejects(invoke("vault_create_folder", { path: ":.." }), /invalid folder path/);
+  await assert.rejects(invoke("vault_create_folder", { path: ".hidden" }), /hidden folders/);
+  // rename sanitizes the new leaf the same way (engine rename_folder)
+  const renamed = await invoke<string>("vault_rename_folder", {
+    path: "My Folder/Sub Part",
+    name: "New: Leaf",
+  });
+  assert.equal(renamed, "My Folder/New Leaf");
+  await assert.rejects(
+    invoke("vault_rename_folder", { path: "My Folder/New Leaf", name: ".dot" }),
+    /hidden folders/
+  );
+});
+
 test("create rejects folded engine-owned props at the mock boundary", async () => {
   const note = await invoke<NoteMeta>("vault_create", {
     title: "Folded Owned Props 728",

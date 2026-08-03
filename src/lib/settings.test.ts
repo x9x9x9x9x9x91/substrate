@@ -14,6 +14,7 @@ import {
   terminalFontFamily,
   textToTerminalActions,
 } from "./settings.ts";
+import { parseShareRelayUrl } from "./handoff.ts";
 
 const MONO = "ui-monospace, Menlo, monospace";
 
@@ -30,6 +31,38 @@ test("parseTerminalSettings: reads the terminal keys", () => {
   assert.equal(s.height, 0.6);
   assert.equal(s.width, 0.55);
   assert.equal(s.dock, "right");
+});
+
+test("settings keys read case-folded — Settings.md is hand-editable (SUB-924)", () => {
+  const t = parseTerminalSettings({
+    "Terminal-Command": "claude",
+    "Terminal-Cwd": "~",
+    "Terminal-Dock": "right",
+    "Terminal-Height": "0.6",
+    "Terminal-Width": "0.5",
+    "Terminal-Font": "JetBrainsMono Nerd Font",
+  });
+  assert.equal(t.command, "claude");
+  assert.equal(t.cwd, "~");
+  assert.equal(t.dock, "right");
+  assert.equal(t.height, 0.6);
+  assert.equal(t.width, 0.5);
+  assert.equal(t.font, "JetBrainsMono Nerd Font");
+
+  assert.equal(parseDropHint({ "Drop-Hint": "false" }), false);
+  assert.equal(parseModHud({ "Mod-HUD": "false" }), false);
+  assert.equal(parseDbGrid({ "DB-Grid": "false" }), false);
+  assert.equal(parseShowAppFiles({ "Show-Agent-Files": "true" }), true);
+
+  assert.deepEqual(parseTerminalActions({ "Terminal-Actions": ["Cal: /cal"] }), [
+    { label: "Cal", command: "/cal" },
+  ]);
+
+  // the share-relay pair lives in the same hand-edited Settings.md
+  assert.equal(
+    parseShareRelayUrl({ "Share-Relay-URL": "https://relay.example/" }),
+    "https://relay.example"
+  );
 });
 
 test("parseTerminalSettings: missing keys → empty command/cwd, default geometry", () => {

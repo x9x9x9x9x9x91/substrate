@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { NoteMeta } from "../lib/types";
-import { propStr } from "../lib/types";
+import { foldedPropStr } from "../lib/types";
 import { vaultRead, vaultResolve, vaultWriteBody } from "../lib/ipc";
 import { isTyping } from "../lib/dom";
 import { appendFoodEntry, dayLabel, foodData, kcalInRange, removeFoodEntry } from "../lib/food";
@@ -75,7 +75,7 @@ function colX(i: number, n: number): number {
 /** floor/ceiling are free-form props — anything missing or non-numeric
     falls back to the cut's default band */
 function numProp(meta: NoteMeta, key: string, def: number): number {
-  const s = propStr(meta.props, key);
+  const s = foldedPropStr(meta.props, key);
   if (s === undefined) return def;
   const v = Number(s);
   return isFinite(v) ? v : def;
@@ -90,9 +90,9 @@ export default function FoodDashboard({
 }: FoodDashboardProps) {
   const todayIso = useTodayIso();
   const publishDashUndo = useDashUndo(dashUndo);
-  const logName = propStr(meta.props, "log") ?? "Food Log";
-  const dbName = propStr(meta.props, "db") ?? "Food DB";
-  const weightName = propStr(meta.props, "weight") ?? "Weight Log";
+  const logName = foldedPropStr(meta.props, "log") ?? "Food Log";
+  const dbName = foldedPropStr(meta.props, "db") ?? "Food DB";
+  const weightName = foldedPropStr(meta.props, "weight") ?? "Weight Log";
   const floorRaw = numProp(meta, "floor", 1900);
   const ceilingRaw = numProp(meta, "ceiling", 2300);
   // a misconfigured floor > ceiling would flip the band negative and turn

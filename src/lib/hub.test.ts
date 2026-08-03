@@ -127,6 +127,21 @@ test("callout-looking lines inside code fences are not parsed", () => {
   assert.equal(cards.callouts[0].kind, "idea");
 });
 
+test("a fence opener with a spaced info string still shields its body (SUB-898)", () => {
+  const body = [
+    "```rust ignore",
+    "> [!note] not a callout",
+    "```",
+    "",
+    "## After",
+    "> [!idea] real",
+  ].join("\n");
+  const blocks = parseHub(body);
+  assert.deepEqual(kinds(blocks), ["markdown", "section", "cards"]);
+  const md = blocks[0];
+  if (md.kind === "markdown") assert.ok(md.text.includes("> [!note] not a callout"));
+});
+
 test("CRLF bodies parse like LF bodies", () => {
   const lf = parseHub("## Sec\n\n> [!note] A\n> x\n\npara\n");
   const crlf = parseHub("## Sec\r\n\r\n> [!note] A\r\n> x\r\n\r\npara\r\n");

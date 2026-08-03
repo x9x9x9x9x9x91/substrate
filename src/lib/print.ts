@@ -58,8 +58,10 @@ function inline(raw: string, assetSrc: AssetSrc): string {
           : `<span class="print-missing">missing image · ${n}</span>`;
       });
       s = s.replace(/\[\[([^[\]]+)\]\]/g, '<span class="print-link">$1</span>');
+      // one level of balanced parens in the destination (SUB-902): Wikipedia
+      // -style URLs (…/A_(b)) would otherwise truncate at the first ")"
       s = s.replace(
-        /\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
+        /\[([^\]]+)\]\((https?:(?:[^()\s]|\([^()\s]*\))+)\)/g,
         '<a href="$2">$1</a>'
       );
       s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
@@ -94,7 +96,10 @@ export function renderPrintBody(md: string, assetSrc: AssetSrc): string {
   };
   while (i < lines.length) {
     const line = lines[i];
-    const fence = line.match(/^```(\S*)\s*$/);
+    // opener accepts a full info string (```rust ignore, ```js title=x) —
+    // only the closing ``` is bare, so a spaced info string must not demote
+    // the opener to prose and promote its closer to an opener (SUB-898)
+    const fence = line.match(/^```(\S*)(?:\s[^`]*)?$/);
     if (fence) {
       flushPara();
       const code: string[] = [];
@@ -146,16 +151,19 @@ export function renderPrintBody(md: string, assetSrc: AssetSrc): string {
       const ordered = list[2] !== undefined;
       const items: string[] = [];
       while (i < lines.length) {
-        const m = lines[i].match(/^\s*(?:[-*+]|\d+[.)])\s+(.*)$/);
+        const m = lines[i].match(/^\s*(?:([-*+])|\d+[.)])\s+(.*)$/);
         if (!m) break;
-        const task = m[1].match(/^\[([ xX])\]\s+(.*)$/);
+        // a marker-kind flip (bullets → numbers or back) starts a new list of
+        // the right tag; consuming it here would strip the numbering (SUB-901)
+        if ((m[1] === undefined) !== ordered) break;
+        const task = m[2].match(/^\[([ xX])\]\s+(.*)$/);
         if (task) {
           const done = task[1] !== " ";
           items.push(
             `<li class="print-task${done ? " done" : ""}"><span class="print-box">${done ? "✓" : ""}</span>${inline(task[2], assetSrc)}</li>`
           );
         } else {
-          items.push(`<li>${inline(m[1], assetSrc)}</li>`);
+          items.push(`<li>${inline(m[2], assetSrc)}</li>`);
         }
         i++;
       }

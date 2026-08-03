@@ -1,6 +1,7 @@
+import { byFoldedKey } from "../lib/schemalookup";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { NoteMeta, SchemaConfig } from "../lib/types";
-import { propStr } from "../lib/types";
+import { foldedPropStr } from "../lib/types";
 import { vaultRead, vaultResolve } from "../lib/ipc";
 import { parseChartBlocks } from "../lib/chart";
 import ChartsDashboard from "./ChartsDashboard";
@@ -43,7 +44,7 @@ interface MetricCard {
 //       format: eur
 //       emph: true
 function parseCards(props: Record<string, unknown>): MetricCard[] {
-  const raw = props["cards"];
+  const raw = byFoldedKey(props, "cards");
   if (!Array.isArray(raw)) return [];
   const out: MetricCard[] = [];
   for (const c of raw) {
@@ -159,7 +160,7 @@ export default function MetricsDashboard({
             models.set(name.toLowerCase(), ferr(`no note named “${name}”`));
             continue;
           }
-          if (propStr(resolved.props, "type") !== "sheet") {
+          if (foldedPropStr(resolved.props, "type")?.toLowerCase() !== "sheet") {
             models.set(name.toLowerCase(), ferr(`“${name}” is not a sheet`));
             continue;
           }

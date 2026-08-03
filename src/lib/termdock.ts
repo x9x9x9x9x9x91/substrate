@@ -13,6 +13,8 @@
    flipping the dock should return you to the size you last chose for that
    side, not rescale the other one. */
 
+import { normalizeNumberInput } from "./aggregate.ts";
+
 export type TerminalDock = "bottom" | "right";
 
 export const DEFAULT_TERMINAL_DOCK: TerminalDock = "bottom";
@@ -53,7 +55,10 @@ export function parseTerminalDock(v: unknown): TerminalDock {
     into it: a `terminal-height: 7` is a mistake, not a request for 90%. */
 export function parseTerminalSize(dock: TerminalDock, v: unknown): number {
   const { min, max, fallback } = terminalSizeRange(dock);
-  const n = typeof v === "number" ? v : Number.parseFloat(typeof v === "string" ? v : "");
+  // de-DE typed fractions ("0,6") are the app's own display dialect, not a
+  // typo — fold them to dot-decimal before parsing (SUB-926, SUB-636 family)
+  const n =
+    typeof v === "number" ? v : Number.parseFloat(typeof v === "string" ? normalizeNumberInput(v) : "");
   return Number.isFinite(n) && n >= min && n <= max ? n : fallback;
 }
 

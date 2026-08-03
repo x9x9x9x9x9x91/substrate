@@ -3387,6 +3387,7 @@ export default function App() {
         <div className="main">
           <SearchPane
             notes={notes}
+            excludeAppFiles={!showAppFiles}
             query={searchQuery}
             setQuery={setSearchQuery}
             onOpenMatch={openSearchHit}
@@ -3728,6 +3729,7 @@ export default function App() {
         <Palette
           mode={overlay}
           notes={notes}
+          excludeAppFiles={!showAppFiles}
           databases={databases}
           icons={dbIcons}
           dashboards={mobileDashboards}

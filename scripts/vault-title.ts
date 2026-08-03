@@ -28,6 +28,14 @@ export function validateNoteTitle(title: string, slug: string): void {
   if (title.includes("[") || title.includes("]")) {
     throw new Error("titles cannot contain [ or ]");
   }
+  // Mirrors the engine's third refusal (SUB-904): a control char (NUL, DEL)
+  // isn't whitespace, so it survives the collapse into the slug and the
+  // filesystem then refuses the name -- after side effects, in the engine's
+  // rename case. Same Cc set as Rust's char::is_control: C0, DEL, C1.
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(slug)) {
+    throw new Error("titles cannot contain control characters");
+  }
 }
 
 /** Title → file stem, sanitized and guarded. Throws the engine's reason when

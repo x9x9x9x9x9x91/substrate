@@ -23,6 +23,16 @@ test("extractTitle: inline marks strip, labels survive", () => {
   assert.equal(extractTitle("[a label](https://x.test) link"), "a label link");
 });
 
+test("extractTitle: a parenthesized URL strips whole — no stray ) (SUB-919)", () => {
+  // the SUB-902/912 regex family: destination keeps one balanced paren level
+  assert.equal(
+    extractTitle("See [wiki](https://en.wikipedia.org/wiki/Granular_(synthesis)) for background"),
+    "See wiki for background"
+  );
+  // embeds with the same destination shape strip too
+  assert.equal(extractTitle("![shot](shots/a_(v2).png) caption"), "shot caption");
+});
+
 test("extractTitle: whitespace collapses, sentence stops drop", () => {
   assert.equal(extractTitle("  many   spaces\tand\ttabs  "), "many spaces and tabs");
   assert.equal(extractTitle("a full sentence."), "a full sentence");

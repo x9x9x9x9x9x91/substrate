@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { DbIcon, NoteMeta, SchemaConfig } from "../lib/types";
-import { propStr } from "../lib/types";
+import { foldedPropStr } from "../lib/types";
 import { TODAY_PROP, todayData, type LeftoverItem, type PickedItem } from "../lib/today";
 import { isComplete, type AgendaItem } from "../lib/agenda";
 import { humanDay } from "../lib/calendar";
@@ -103,7 +103,7 @@ function PickedRow({
   onRowContextMenu: (path: string, x: number, y: number) => void;
 }) {
   const n = item.note;
-  const done = isComplete(propStr(n.props, "status"));
+  const done = isComplete(foldedPropStr(n.props, "status"));
   return (
     <div
       className={done ? "today-row done" : "today-row"}
@@ -113,7 +113,7 @@ function PickedRow({
       }}
     >
       <button type="button" className="today-open" onClick={() => onOpenNote(n.path)}>
-        <EntryIcon type={propStr(n.props, "type") ?? ""} icons={icons} />
+        <EntryIcon type={foldedPropStr(n.props, "type") ?? ""} icons={icons} />
         {item.time && <span className="cal-entry-time">{item.time}</span>}
         <span className="today-row-title">{n.title}</span>
       </button>
@@ -157,7 +157,7 @@ function LeftoverRow({
       }}
     >
       <button type="button" className="today-open" onClick={() => onOpenNote(n.path)}>
-        <EntryIcon type={propStr(n.props, "type") ?? ""} icons={icons} />
+        <EntryIcon type={foldedPropStr(n.props, "type") ?? ""} icons={icons} />
         <span className="today-row-title">{n.title}</span>
         <span className="today-row-day">{humanDay(item.day)}</span>
       </button>

@@ -14,7 +14,7 @@ const BLOCK_MARKS_RE =
     emphasis/code ticks drop. The outline's strip (Editor.tsx), mirrored. */
 function stripInline(text: string): string {
   return text
-    .replace(/!?(?:\[\[|\[)([^\]]+)(?:\]\]|\]\([^)]*\))/g, "$1")
+    .replace(/!?(?:\[\[|\[)([^\]]+)(?:\]\]|\]\((?:[^()]|\([^()]*\))*\))/g, "$1")
     .replace(/[*_~`]/g, "");
 }
 

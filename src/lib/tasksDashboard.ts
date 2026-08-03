@@ -1,4 +1,5 @@
 import { isComplete } from "./calendar.ts";
+import { byFoldedKey } from "./schemalookup.ts";
 import type { NoteMeta } from "./types.ts";
 
 /** `stale_days` is deliberately conservative: a task gets a full month before
@@ -95,8 +96,8 @@ function parseStaleDays(value: unknown): number {
 
 export function tasksDashboardConfig(props: Record<string, unknown>): TasksDashboardConfig {
   return {
-    areas: parseAreas(props.areas),
-    staleDays: parseStaleDays(props.stale_days),
+    areas: parseAreas(byFoldedKey(props, "areas")),
+    staleDays: parseStaleDays(byFoldedKey(props, "stale_days")),
   };
 }
 
