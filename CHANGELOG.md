@@ -3,6 +3,41 @@
 <!-- Generated from src/lib/changelog.ts by scripts/gen-changelog.ts.
      Edit that file, then run `node scripts/gen-changelog.ts`. -->
 
+## 0.21.0 — 2026-08-03 — Send a note as a link, and a tasks board that knows what's urgent
+
+### Highlights
+
+- Send as link: any note becomes an encrypted, self-expiring link you can hand to anyone
+  — no account, no reader app. The relay only ever stores ciphertext (the key rides in
+  the link fragment and never leaves your side), links can burn on first read or expire
+  after 1–30 days, and you can point the app at your own self-hosted relay.
+- The tasks board leads with urgency now: overdue, today and this-week buckets come
+  first, checkboxes are visible on every row, due dates and priority edit inline,
+  quick-add lives at the top, and snoozed tasks park in their own section until their
+  wake day.
+
+### New
+
+- Hub dashboards render view fences as live database tables — the same editable views
+  notes get, now on your home hub.
+- A public dashboard cookbook ships with the repo: eight copy-paste recipes for boards,
+  feeds and trackers, with a section on the landing page to browse them.
+
+### Improved
+
+- The built-in terminal grew up: drag it to the size you want, dock it at the bottom or
+  the right edge, and give it its own font from Settings.
+- This What's-new pane is easier to scan — group labels read as section rules and only
+  headlines carry dots.
+- Seeded vaults conceal the app's own files (Settings.md, agent instructions) from your
+  notes list by default, and the seeded AGENTS.md now points agents at the repo docs and
+  covers tasks.
+
+### Fixed
+
+- An update package could carry stray macOS metadata files that made some installs fail
+  with "Update failed" — release packaging now strips and gates against them.
+
 ## 0.20.1 — 2026-08-02 — The updater's first flight
 
 ### Highlights
