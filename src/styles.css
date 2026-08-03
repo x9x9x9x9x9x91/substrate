@@ -8167,6 +8167,162 @@ span.asset-thumb svg {
     border-top: 1px solid #e2e4e8;
     margin: 14px 0;
   }
+
+  /* ---- designed templates (SUB-816) ----
+     The one-sheet and table sheet ride the same surface and palette but
+     carry their own deliberate layout — confident title, quiet fact rows,
+     restrained accents. Hierarchy comes from size and weight only. */
+
+  #print-surface .os-head {
+    display: flex;
+    gap: 26px;
+    align-items: flex-start;
+    margin-bottom: 26px;
+  }
+
+  #print-surface .os-art {
+    width: 220px;
+    height: 220px;
+    object-fit: cover;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  #print-surface .os-id {
+    flex: 1;
+    min-width: 0;
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #print-surface .os-title {
+    font-size: 30px;
+    font-weight: 650;
+    letter-spacing: -0.025em;
+    line-height: 1.15;
+    margin: 0;
+  }
+
+  #print-surface .os-byline {
+    font-size: 13px;
+    color: #565b63;
+    margin-top: 5px;
+  }
+
+  #print-surface .os-facts {
+    margin-top: auto;
+    padding-top: 18px;
+  }
+
+  #print-surface .os-fact {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 18px;
+    padding: 4.5px 0;
+    border-top: 1px solid #e6e8eb;
+    font-size: 11px;
+  }
+
+  #print-surface .os-fact:last-child {
+    border-bottom: 1px solid #e6e8eb;
+  }
+
+  #print-surface .os-fact-label {
+    color: #9198a1;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-size: 9.5px;
+    font-weight: 500;
+  }
+
+  #print-surface .os-fact-value {
+    color: #1b1e22;
+    font-weight: 500;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* no artwork: the facts still sit as a block under the title, not glued
+     to the page bottom */
+  #print-surface .os-head:not(:has(.os-art)) .os-facts {
+    margin-top: 0;
+  }
+
+  #print-surface .os-body {
+    border-top: 1px solid #d5d8dc;
+    padding-top: 16px;
+  }
+
+  /* table sheet: horizontal hairlines only — the designed listing, not the
+     generic bordered grid the body renderer prints */
+  #print-surface .ts-title {
+    font-size: 24px;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    margin: 0;
+  }
+
+  #print-surface .ts-meta {
+    color: #71767e;
+    font-size: 10.5px;
+    margin: 4px 0 20px;
+  }
+
+  #print-surface .print-sheet table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  #print-surface .print-sheet th,
+  #print-surface .print-sheet td {
+    border: none;
+    border-bottom: 1px solid #e6e8eb;
+    background: none;
+    padding: 6.5px 14px 6.5px 0;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  #print-surface .print-sheet th {
+    color: #9198a1;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-size: 9.5px;
+    font-weight: 500;
+    border-bottom-color: #b6bac1;
+    padding-bottom: 5px;
+  }
+
+  #print-surface .print-sheet td {
+    font-size: 11px;
+  }
+
+  #print-surface .print-sheet td.ts-name {
+    font-weight: 550;
+  }
+
+  #print-surface .print-sheet th.ts-num,
+  #print-surface .print-sheet td.ts-num {
+    text-align: right;
+    padding-right: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  #print-surface .print-sheet td.ts-date {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  #print-surface .print-sheet th:last-child,
+  #print-surface .print-sheet td:last-child {
+    padding-right: 0;
+  }
+
+  #print-surface .print-sheet tr {
+    break-inside: avoid;
+  }
 }
 
 @page {

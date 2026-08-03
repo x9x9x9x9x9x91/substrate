@@ -87,7 +87,11 @@ Capacities, Affine).*
   relations/rollups don't transfer yet.
 - **Terminal HUD** (⌘⇧T) with PTY trust checks — a notes app that can host
   your shell.
-- **Print** — dashboards/agenda produce clean paper layouts (0.18).
+- **Print** — dashboards/agenda produce clean paper layouts (0.18), and any
+  note or database view exports as a *designed* PDF: a one-sheet (hero
+  artwork + title + quiet fact rows + body — a press sheet straight from a
+  release note) or a clean data listing (the CSV export's printed twin).
+  Nothing fetched at export time; images come from the vault only.
 - **Sync conflicts that never lose either side** — a conflicted pull
   *refuses* (conflict markers never land in a note); per file keep-mine /
   take-theirs / keep-both, conflicting frontmatter keys reported before
@@ -153,7 +157,7 @@ Capacities, Affine).*
 Tracked in the issue tracker; headline shapes: reality-mounted databases
 (non-md files as database rows with extracted columns + sidecars),
 materialized views on disk, vault time scrubber + time-travel queries over
-git history, timestamped audio annotations, designed PDF one-sheets, iOS
+git history, timestamped audio annotations, iOS
 home-screen widgets, calendar subscribe (external ICS), per-fact provenance
 receipts, live values in prose, deterministic file-event reflexes, voice
 capture with on-device transcript, cross-type joins, units & inline math.

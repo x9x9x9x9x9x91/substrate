@@ -110,7 +110,7 @@ import {
   splitPins,
 } from "./lib/sidebar";
 import { buildNoteActions, duplicateNote as duplicateNoteInVault } from "./lib/noteactions";
-import { exportNoteMarkdown, exportNotePdf } from "./lib/export";
+import { exportNoteMarkdown, exportNoteOneSheet, exportNotePdf } from "./lib/export";
 import { embedQueryFor, type EmbedSpec } from "./lib/embeds";
 import {
   buildEntryBody,
@@ -2296,6 +2296,7 @@ export default function App() {
         reveal: () => revealRel(n.path),
         exportMarkdown: () => afterOpenFlush(() => exportNoteMarkdown(n).catch(console.error)),
         exportPdf: () => afterOpenFlush(() => exportNotePdf(n).catch(console.error)),
+        exportOneSheet: () => afterOpenFlush(() => exportNoteOneSheet(n).catch(console.error)),
         sendAsLink: () => afterOpenFlush(() => setSendLink(n)),
         togglePin: () => setPinned(n.path, !pinnedPaths.includes(n.path)),
         pinned: pinnedPaths.includes(n.path),

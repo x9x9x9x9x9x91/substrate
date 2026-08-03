@@ -115,6 +115,7 @@ test("hub: cards, table and link text clone — links stay on paper as content",
   await expect(surface.locator(".dash-actions")).toBeHidden();
 });
 
+
 test("workbook: the ACTIVE page prints — sheet/view pages offer no action, tabs never print", async ({
   page,
 }) => {

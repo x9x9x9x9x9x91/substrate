@@ -5,7 +5,7 @@ import { vaultRoot, vaultSearch, folderDbsRescan } from "../lib/ipc";
 import { setPropUndoable } from "../lib/undoprops";
 import { useUndo } from "../lib/undoContext";
 import { createLatestGuard } from "../lib/latest";
-import { exportNoteMarkdown, exportNotePdf } from "../lib/export";
+import { exportNoteMarkdown, exportNoteOneSheet, exportNotePdf } from "../lib/export";
 import { buildNoteActions } from "../lib/noteactions";
 import { scanSummary } from "../lib/folders";
 import { fuzzyScore } from "../lib/fuzzy";
@@ -362,6 +362,7 @@ export default function Palette({
         reveal: () => revealNote(note),
         exportMarkdown: () => exportNoteMarkdown(note).catch(console.error),
         exportPdf: () => exportNotePdf(note).catch(console.error),
+        exportOneSheet: () => exportNoteOneSheet(note).catch(console.error),
         sendAsLink: () => onSendAsLink(note),
         togglePin: () => onTogglePin(note.path, !pinnedPaths.includes(note.path)),
         pinned: pinnedPaths.includes(note.path),

@@ -6,6 +6,7 @@ import { exportNoteBundle, exportText, printWindow, vaultRead, vaultReadAsset } 
 import { buildCsv } from "./csv";
 import { renderPrintBody, escapeHtml, type AssetSrc } from "./print";
 import { buildHandoffDocument } from "./handoff";
+import { buildOneSheet, buildTableSheet } from "./onesheet";
 import { isImageName } from "./artwork";
 
 const EMBED_RE = /!\[\[([^[\]]+)\]\]/g;
@@ -148,6 +149,32 @@ export async function exportNotePdf(meta: NoteMeta) {
     `<h1 class="print-title">${escapeHtml(meta.title)}</h1>` +
     (line ? `<div class="print-props">${line}</div>` : "") +
     renderPrintBody(body, assetSrc);
+  await runPrintDialog(surface);
+}
+
+/** Note → one-sheet PDF (SUB-816): the designed layout — hero artwork,
+    title block, quiet fact rows, then the body — through the same print
+    surface and dialog as the generic export. Assets inline exactly like
+    the plain PDF path: vault-local only, nothing fetched at export time. */
+export async function exportNoteOneSheet(meta: NoteMeta) {
+  const { body, props, assetSrc } = await readNoteInlined(meta);
+  const surface = printSurface();
+  surface.innerHTML = buildOneSheet({ title: meta.title, props, body, assetSrc });
+  await runPrintDialog(surface);
+}
+
+/** Database view → table-sheet PDF (SUB-816): the columns and row order the
+    table currently shows, as a designed data listing — the CSV export's
+    printed twin. */
+export async function exportDbPdf(dbType: string, columns: string[], rows: NoteMeta[]) {
+  const name = dbType.charAt(0).toUpperCase() + dbType.slice(1);
+  const date = new Date().toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+  const surface = printSurface();
+  surface.innerHTML = buildTableSheet({ name, columns, rows, date });
   await runPrintDialog(surface);
 }
 

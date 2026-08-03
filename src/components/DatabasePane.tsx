@@ -11,7 +11,7 @@ import { useUndo } from "../lib/undoContext";
 import { nextUndoId } from "../lib/undo";
 import { completeFilter, filterCompletions, filterDeadEndHint, filterInherits, filterLabel, matchesFilters, parseQuery } from "../lib/query";
 import { filterByQuery } from "../lib/views";
-import { exportDbCsv } from "../lib/export";
+import { exportDbCsv, exportDbPdf } from "../lib/export";
 import { todayIso } from "../lib/dates";
 import { displayColLabel, displayValue } from "../lib/display";
 import {
@@ -1012,6 +1012,10 @@ export default function DatabasePane({
   const doExportCsv = () => {
     exportDbCsv(dbType, shown, rows).catch(reportFailure("export"));
   };
+  // the CSV export's printed twin (SUB-816): same columns, order and de-dup
+  const doExportPdf = () => {
+    exportDbPdf(dbType, shown, rows).catch(reportFailure("export"));
+  };
   const exportNow = useRef(doExportCsv);
   exportNow.current = doExportCsv;
   useEffect(() => {
@@ -1591,6 +1595,7 @@ export default function DatabasePane({
               { label: "Rename database…", icon: <PenIcon />, run: onRenameDb },
               { label: "Delete database…", icon: <TrashIcon />, run: onDeleteDb },
               { label: "Export CSV…", icon: <ExportIcon />, run: doExportCsv },
+              { label: "Export PDF…", icon: <ExportIcon />, run: doExportPdf },
             ]}
           />
         </span>

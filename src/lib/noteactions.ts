@@ -94,6 +94,9 @@ export interface NoteActionHandlers {
   reveal?: () => void;
   exportMarkdown?: () => void;
   exportPdf?: () => void;
+  /** SUB-816: the designed one-sheet layout (hero artwork + facts + body),
+      next to the generic PDF dump */
+  exportOneSheet?: () => void;
   /** SUB-833: encrypt the rendered note client-side and park it on the
       relay as a one-shot/expiring link */
   sendAsLink?: () => void;
@@ -124,6 +127,14 @@ export function buildNoteActions(h: NoteActionHandlers): NoteAction[] {
     out.push({ id: "export-md", label: "Export Markdown…", icon: "export", run: h.exportMarkdown });
   if (h.exportPdf)
     out.push({ id: "export-pdf", label: "Export PDF…", icon: "export", run: h.exportPdf });
+  if (h.exportOneSheet)
+    out.push({
+      id: "export-onesheet",
+      label: "Export one-sheet…",
+      icon: "export",
+      hint: "designed PDF",
+      run: h.exportOneSheet,
+    });
   if (h.sendAsLink)
     out.push({ id: "send-link", label: "Send as link…", icon: "share", run: h.sendAsLink });
   if (h.toggleCalendar)

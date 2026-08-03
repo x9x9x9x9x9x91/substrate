@@ -112,13 +112,14 @@ test("buildNoteActions: the full handler set yields the canonical order", () => 
     reveal: noop,
     exportMarkdown: noop,
     exportPdf: noop,
+    exportOneSheet: noop,
     toggleCalendar: noop,
     togglePin: noop,
     trash: noop,
   });
   assert.deepEqual(
     acts.map((a) => a.id),
-    ["open", "move", "rename", "duplicate", "prop", "copy", "reveal", "export-md", "export-pdf", "calendar", "pin", "trash"]
+    ["open", "move", "rename", "duplicate", "prop", "copy", "reveal", "export-md", "export-pdf", "export-onesheet", "calendar", "pin", "trash"]
   );
 });
 

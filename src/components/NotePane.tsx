@@ -20,7 +20,7 @@ import { renameUndoable, recordCreate } from "../lib/undostruct";
 import { onRenameAnnounce } from "../lib/renamebus";
 import { useUndo } from "../lib/undoContext";
 import { isTauri } from "../lib/tauri";
-import { exportNoteMarkdown, exportNotePdf } from "../lib/export";
+import { exportNoteMarkdown, exportNoteOneSheet, exportNotePdf } from "../lib/export";
 import { buildNoteActions } from "../lib/noteactions";
 import { formatDateHuman, shiftDate } from "../lib/dates";
 import { formatNumber, formatDateTimeHuman } from "../lib/display";
@@ -1234,6 +1234,10 @@ function NotePane({
     exportPdf: () => {
       flush();
       exportNotePdf(meta).catch(console.error);
+    },
+    exportOneSheet: () => {
+      flush();
+      exportNoteOneSheet(meta).catch(console.error);
     },
     sendAsLink: onSendAsLink
       ? () => {
