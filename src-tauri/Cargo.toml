@@ -41,6 +41,8 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 notify = "8"
 walkdir = "2"
 chrono = "0.4"
+chrono-tz = "0.10"
+icalendar = { version = "0.17.13", features = ["parser", "recurrence"] }
 regex = "1"
 base64 = "0.22"
 ureq = "2"

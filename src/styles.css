@@ -8638,6 +8638,275 @@ span.asset-thumb svg {
   color: var(--text-1);
 }
 
+.cal-feeds-button.active::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--opt-teal);
+}
+
+.cal-feeds-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.cal-feeds-menu {
+  position: absolute;
+  top: 48px;
+  right: 18px;
+  width: 430px;
+  max-width: calc(100vw - 36px);
+  max-height: calc(100vh - 70px);
+  overflow-y: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  box-shadow: 0 14px 48px rgba(0, 0, 0, 0.5);
+}
+
+.cal-feeds-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 13px 14px 11px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.cal-feeds-title {
+  color: var(--text-1);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.cal-feeds-sub,
+.cal-feeds-empty,
+.cal-feed-pending {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.cal-feeds-sub {
+  margin-top: 2px;
+}
+
+.cal-feeds-close,
+.cal-feed-remove {
+  border: 0;
+  background: transparent;
+  color: var(--text-3);
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.cal-feeds-close {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  font-size: 18px;
+  line-height: 20px;
+}
+
+.cal-feeds-close:hover,
+.cal-feed-remove:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.cal-feeds-error,
+.cal-feed-error {
+  color: var(--danger);
+  font-size: 11px;
+}
+
+.cal-feeds-error {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.cal-feeds-list {
+  padding: 5px;
+}
+
+.cal-feeds-empty {
+  padding: 12px 9px;
+}
+
+.cal-feed-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 8px 7px;
+  border-radius: 7px;
+}
+
+.cal-feed-row:hover {
+  background: var(--hover);
+}
+
+.cal-feed-row.disabled .cal-feed-copy {
+  opacity: 0.55;
+}
+
+.cal-feed-toggle {
+  flex: none;
+  width: 28px;
+  height: 18px;
+  padding: 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 9px;
+  background: var(--active);
+  cursor: pointer;
+}
+
+.cal-feed-toggle span {
+  display: block;
+  width: 12px;
+  height: 12px;
+  margin-left: 10px;
+  border-radius: 50%;
+  transition: margin 120ms ease-out;
+}
+
+.cal-feed-toggle[aria-checked="false"] {
+  background: transparent;
+}
+
+.cal-feed-toggle[aria-checked="false"] span {
+  margin-left: 0;
+  background: var(--text-3) !important;
+}
+
+.cal-feed-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.cal-feed-name {
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 540;
+}
+
+.cal-feed-source {
+  overflow: hidden;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cal-feed-remove {
+  flex: none;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-size: 11px;
+}
+
+.cal-feed-form {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.cal-feed-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-3);
+  font-size: 10.5px;
+}
+
+.cal-feed-form input {
+  width: 100%;
+  height: 29px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  outline: 0;
+  background: var(--bg-input);
+  color: var(--text-1);
+  font-size: 12px;
+}
+
+.cal-feed-form input:focus {
+  border-color: var(--accent);
+}
+
+.cal-feed-tints {
+  display: flex;
+  gap: 5px;
+}
+
+.cal-feed-tints button {
+  width: 18px;
+  height: 18px;
+  border: 4px solid var(--bg-elevated);
+  border-radius: 50%;
+  outline: 1px solid transparent;
+  background: var(--feed-dot);
+}
+
+.cal-feed-tints button.active {
+  outline-color: var(--text-2);
+}
+
+.cal-feed-form-actions,
+.cal-feeds-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cal-feed-form-actions {
+  justify-content: flex-end;
+}
+
+.cal-feed-form-actions button,
+.cal-feeds-actions button {
+  height: 27px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 11.5px;
+}
+
+.cal-feed-form-actions button:hover,
+.cal-feeds-actions button:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.cal-feed-form-actions button.primary {
+  background: var(--accent);
+  color: #fff;
+}
+
+.cal-feed-form p {
+  color: var(--text-3);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.cal-feeds-actions {
+  padding: 8px 10px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.cal-feeds-actions .refresh {
+  margin-left: auto;
+}
+
 .cal-grid-scroll {
   flex: 1;
   min-height: 0;
@@ -9034,6 +9303,36 @@ span.asset-thumb svg {
   background: var(--active);
 }
 
+/* External subscriptions share the calendar geometry, but never the note
+   interaction language: muted feed tint, hollow mark, default cursor. */
+.cal-entry.external,
+.cal-ag-item.external {
+  background: color-mix(in srgb, var(--entry-tint, var(--opt-gray)) 9%, transparent);
+  cursor: default;
+}
+
+.cal-entry.external:hover,
+.cal-ag-item.external:hover {
+  background: color-mix(in srgb, var(--entry-tint, var(--opt-gray)) 13%, transparent);
+}
+
+.cal-external-mark {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border: 1px solid var(--entry-tint, var(--opt-gray));
+  border-radius: 50%;
+  opacity: 0.8;
+}
+
+.cal-feed-badge {
+  flex: none;
+  margin-left: 7px;
+  color: var(--entry-tint, var(--text-3));
+  font-size: 10px;
+}
+
 /* month chips (SUB-701): the Notion-Calendar line language — a small rounded
    color bar carrying the database's identity tint, dim HH:MM, title. No box,
    no icon: the boxed icon-chip cost ~2× the height and read heavy at seven
@@ -9183,6 +9482,22 @@ span.asset-thumb svg {
   background: var(--bg-elevated);
   border-color: var(--border-strong);
   border-left-color: var(--entry-tint, var(--border-strong));
+}
+
+/* Month/week surface rules above carry more selector weight than the shared
+   external rule. Reassert the quiet read-only fill after both layouts. */
+.cal-grid.month .cal-entry.external,
+.cal-grid.week .cal-entry.external,
+.cal-entry.cal-wk-block.external,
+.cal-ag-item.external {
+  background: color-mix(in srgb, var(--entry-tint, var(--opt-gray)) 9%, transparent);
+}
+
+.cal-grid.month .cal-entry.external:hover,
+.cal-grid.week .cal-entry.external:hover,
+.cal-entry.cal-wk-block.external:hover,
+.cal-ag-item.external:hover {
+  background: color-mix(in srgb, var(--entry-tint, var(--opt-gray)) 13%, transparent);
 }
 
 .cal-wk-head {

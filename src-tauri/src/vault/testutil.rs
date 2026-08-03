@@ -22,7 +22,7 @@ pub(crate) fn refuse_config_writes(root: &Path) {
     fs::create_dir_all(root.join(".vault")).unwrap();
     fs::write(
         root.join(".vault/format.json"),
-        "{\"schema\": 99, \"views\": 99, \"folders\": 99, \"notifications\": 99}",
+        "{\"schema\": 99, \"views\": 99, \"folders\": 99, \"notifications\": 99, \"calendars\": 99}",
     )
     .unwrap();
 }

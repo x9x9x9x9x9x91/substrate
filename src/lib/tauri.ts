@@ -2,6 +2,7 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import type {
   AggKind,
+  CalendarFeedConfig,
   ConflictSide,
   ConflictState,
   DbIcon,
@@ -1705,6 +1706,7 @@ function mockRelocateFolder(oldRel: string, newRel: string): void {
 }
 
 let mockSavedViews: SavedView[] = [];
+let mockCalendarFeeds: CalendarFeedConfig[] = [];
 
 /** Keep mock pins in the same state Engine::remap_saved_view_prop writes.
     Database and property identities are case-folded; query operator keys are
@@ -2975,6 +2977,57 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     // historical rate the fixtures carry, so e2e baselines stay stable
     case "fx_usd_eur":
       return { usdEur: MOCK_FX.usdEur, asOf: MOCK_FX.asOf };
+    case "calendar_feeds_read": {
+      const enabled = mockCalendarFeeds.filter((feed) => feed.enabled);
+      return {
+        feeds: mockCalendarFeeds.map((feed) => ({
+          ...feed,
+          fetchedAt: Math.floor(Date.now() / 1000),
+          error: null,
+          cached: true,
+        })),
+        events: enabled.map((feed, i) => ({
+          id: `${feed.url}:mock-${i}`,
+          feedUrl: feed.url,
+          feedName: feed.name,
+          tint: feed.tint,
+          title: `${feed.name} appointment`,
+          startDay: day(i + 1),
+          startTime: "10:00",
+          endDay: day(i + 1),
+          endTime: "11:00",
+          allDay: false,
+          location: null,
+        })),
+        refreshing: false,
+        configError: null,
+      };
+    }
+    case "calendar_feed_save": {
+      const feed = args?.feed as CalendarFeedConfig;
+      if (!feed?.url?.trim() || !feed?.name?.trim()) throw new Error("Calendar address and name are required.");
+      const original = (args?.originalUrl as string | null) ?? null;
+      if (original) {
+        const index = mockCalendarFeeds.findIndex((item) => item.url === original);
+        if (index < 0) throw new Error("Calendar subscription no longer exists.");
+        mockCalendarFeeds[index] = { ...feed };
+      } else {
+        if (mockCalendarFeeds.some((item) => item.url === feed.url))
+          throw new Error("That calendar is already subscribed.");
+        mockCalendarFeeds.push({ ...feed });
+      }
+      queueMicrotask(() => window.__mockEmit?.("calendar:feeds-changed"));
+      return structuredClone(mockCalendarFeeds);
+    }
+    case "calendar_feed_delete": {
+      const url = String(args?.url ?? "");
+      mockCalendarFeeds = mockCalendarFeeds.filter((feed) => feed.url !== url);
+      queueMicrotask(() => window.__mockEmit?.("calendar:feeds-changed"));
+      return structuredClone(mockCalendarFeeds);
+    }
+    case "calendar_feeds_refresh":
+      queueMicrotask(() => window.__mockEmit?.("calendar:feeds-changed"));
+      return null;
     // never uploads: a deterministic id keeps the send-dialog e2e stable,
     // and the same shape guards the real command enforces are mirrored so
     // the mock refuses what the engine would refuse

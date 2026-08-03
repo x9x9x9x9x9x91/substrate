@@ -2192,7 +2192,10 @@ use trash::{trash_asset_name, TRASH_ASSETS_DIR, TRASH_DIR};
 
 mod foldersync;
 pub use foldersync::{FolderMapping, FolderScanStats, FOLDERS_REL_PATH};
-use foldersync::{glob_match, read_folder_mappings, write_folder_mappings};
+// The deny-scope check (`crate::denyscope`) borrows this matcher so the
+// asset-protocol deny list has exactly one implementation.
+pub(crate) use foldersync::glob_match;
+use foldersync::{read_folder_mappings, write_folder_mappings};
 
 mod seed;
 pub use seed::seed_new_vault;

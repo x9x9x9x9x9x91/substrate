@@ -106,6 +106,9 @@ Capacities, Affine).*
 - **Recurring dates in human-readable frontmatter** — `repeat: every 3
   weeks`, no RRULE anywhere; occurrences are virtual (one file, many
   instances); delete offers this-one / following / all.
+- **External calendars without an account** — subscribe to remote or local
+  `.ics` feeds beside vault-backed dates; events stay visibly read-only, refresh
+  off the UI thread, and keep the last good cache offline.
 - **Exports that respect the data** — note → PDF (full note, not the visible
   viewport), note → portable markdown bundle with its assets, database → CSV
   exactly as the view shows. An Ableton project-pool importer ships in
@@ -158,7 +161,7 @@ Tracked in the issue tracker; headline shapes: reality-mounted databases
 (non-md files as database rows with extracted columns + sidecars),
 materialized views on disk, vault time scrubber + time-travel queries over
 git history, timestamped audio annotations, iOS
-home-screen widgets, calendar subscribe (external ICS), per-fact provenance
+home-screen widgets, per-fact provenance
 receipts, live values in prose, deterministic file-event reflexes, voice
 capture with on-device transcript, cross-type joins, units & inline math.
 

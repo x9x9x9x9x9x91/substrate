@@ -19,7 +19,7 @@
 //!
 //! ```json
 //! // .vault/format.json
-//! { "schema": 1, "views": 1, "folders": 1, "notifications": 1 }
+//! { "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1 }
 //! ```
 //!
 //! An older app doesn't know the sidecar exists and ignores it — its config
@@ -56,11 +56,17 @@ pub enum VaultFile {
     Views,
     Folders,
     Notifications,
+    Calendars,
 }
 
 impl VaultFile {
-    pub const ALL: [VaultFile; 4] =
-        [VaultFile::Schema, VaultFile::Views, VaultFile::Folders, VaultFile::Notifications];
+    pub const ALL: [VaultFile; 5] = [
+        VaultFile::Schema,
+        VaultFile::Views,
+        VaultFile::Folders,
+        VaultFile::Notifications,
+        VaultFile::Calendars,
+    ];
 
     /// This file's key in the sidecar.
     pub fn key(self) -> &'static str {
@@ -69,6 +75,7 @@ impl VaultFile {
             VaultFile::Views => "views",
             VaultFile::Folders => "folders",
             VaultFile::Notifications => "notifications",
+            VaultFile::Calendars => "calendars",
         }
     }
 
@@ -78,6 +85,7 @@ impl VaultFile {
             VaultFile::Views => crate::vault::ViewPref::REL_PATH,
             VaultFile::Folders => crate::vault::FOLDERS_REL_PATH,
             VaultFile::Notifications => crate::notify::STATE_REL_PATH,
+            VaultFile::Calendars => crate::calendarfeed::CONFIG_REL_PATH,
         }
     }
 
@@ -88,6 +96,7 @@ impl VaultFile {
             VaultFile::Views => 1,
             VaultFile::Folders => 1,
             VaultFile::Notifications => 1,
+            VaultFile::Calendars => 1,
         }
     }
 
@@ -99,6 +108,7 @@ impl VaultFile {
             VaultFile::Views => "layout preferences",
             VaultFile::Folders => "folder databases",
             VaultFile::Notifications => "notification state",
+            VaultFile::Calendars => "calendar subscriptions",
         }
     }
 
@@ -116,6 +126,7 @@ impl VaultFile {
             VaultFile::Views => &[],
             VaultFile::Folders => &[],
             VaultFile::Notifications => &[],
+            VaultFile::Calendars => &[],
         }
     }
 }
@@ -321,6 +332,7 @@ mod tests {
         assert_eq!(version_of(&junk, VaultFile::Schema), 1);
         assert_eq!(version_of(&junk, VaultFile::Folders), 1);
         assert_eq!(version_of(&junk, VaultFile::Notifications), 7);
+        assert_eq!(version_of(&junk, VaultFile::Calendars), 1);
     }
 
     #[test]

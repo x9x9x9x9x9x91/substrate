@@ -55,13 +55,16 @@ That distinction drives the defenses that exist:
   no remote script origin. Rationale and the full policy:
   [docs/security-config.md](docs/security-config.md).
 - **A note cannot make the app reach into your network.** Every place the app
-  fetches a URL — link previews, the USD→EUR reference rate, a **Send as link**
-  upload — resolves the host first and refuses loopback, private,
+  fetches a URL — link previews, the USD→EUR reference rate, **Send as link**
+  uploads, and external calendar subscriptions — resolves the host first and
+  refuses loopback, private,
   carrier-grade-NAT, link-local, and unique-local addresses, on the initial
   request *and* on every redirect hop, and refuses any scheme other than
-  `http`/`https` (`src-tauri/src/net.rs`). That matters most for the share relay
-  URL, which comes from `Settings.md` — vault content — and so passes the same
-  guard as a pasted link.
+  `http`/`https` (`src-tauri/src/net.rs`). That matters most for URLs from
+  vault content, including the share relay URL in `Settings.md`. Calendar
+  subscriptions are the one fetch that also repeats on its own: once you add a
+  feed, the app refetches it in the background every 30 minutes while it is
+  running, unattended.
 - **A synced note cannot silently run a command.** Settings.md can name a
   `terminal-command` for the terminal HUD. It runs only after you approve that
   exact command on that machine; the approval is a hash in local app state and is

@@ -6,7 +6,7 @@ the third-party code the app bundles and ships:
 
 - the **63 npm packages** in the production dependency closure, compiled into
   the app's frontend bundle;
-- the **569 Rust crates** pinned by `src-tauri/Cargo.lock`, listed
+- the **577 Rust crates** pinned by `src-tauri/Cargo.lock`, listed
   conservatively — the lockfile is the whole pinned set, so build- and test-only
   crates are listed too rather than guessed away.
 
@@ -2377,7 +2377,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### MIT
 
-128 crates:
+133 crates:
 
 - atk 0.18.2 — crates.io
 - atk-sys 0.18.2 — crates.io
@@ -2427,6 +2427,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - infer 0.19.0 — crates.io
 - is-docker 0.2.0 — crates.io
 - is-wsl 0.4.0 — crates.io
+- iso8601 0.6.5 — crates.io
 - javascriptcore-rs 1.1.2 — crates.io
 - javascriptcore-rs-sys 1.1.1 — crates.io
 - kqueue 1.2.0 — crates.io
@@ -2438,6 +2439,8 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - mio 1.2.2 — crates.io
 - new_debug_unreachable 1.0.6 — crates.io
 - nix 0.28.0 — crates.io
+- nom 8.0.0 — crates.io
+- nom-language 0.1.0 — crates.io
 - objc2 0.6.4 — crates.io
 - objc2-encode 4.1.0 — crates.io
 - objc2-foundation 0.3.2 — crates.io
@@ -2445,10 +2448,12 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - openssl-sys 0.9.117 — crates.io
 - pango 0.18.3 — crates.io
 - pango-sys 0.18.0 — crates.io
+- phf 0.12.1 — crates.io
 - phf 0.13.1 — crates.io
 - phf_codegen 0.13.1 — crates.io
 - phf_generator 0.13.1 — crates.io
 - phf_macros 0.13.1 — crates.io
+- phf_shared 0.12.1 — crates.io
 - phf_shared 0.13.1 — crates.io
 - plist 1.10.0 — crates.io
 - portable-pty 0.9.0 — crates.io
@@ -2510,7 +2515,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### MIT OR Apache-2.0
 
-255 crates:
+257 crates:
 
 - anyhow 1.0.103 — crates.io
 - arbitrary 1.4.2 — crates.io
@@ -2528,6 +2533,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - cfg-expr 0.15.8 — crates.io
 - cfg-if 1.0.4 — crates.io
 - chrono 0.4.45 — crates.io
+- chrono-tz 0.10.4 — crates.io
 - cookie 0.18.1 — crates.io
 - core-foundation 0.10.1 — crates.io
 - core-foundation-sys 0.8.7 — crates.io
@@ -2640,6 +2646,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - regex-automata 0.4.16 — crates.io
 - regex-syntax 0.8.11 — crates.io
 - reqwest 0.13.4 — crates.io
+- rrule 0.14.0 — crates.io
 - rustc_version 0.4.1 — crates.io
 - rustls-pki-types 1.15.0 — crates.io
 - rustls-platform-verifier 0.7.0 — crates.io
@@ -2791,7 +2798,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### MIT/Apache-2.0
 
-31 crates:
+32 crates:
 
 - android_system_properties 0.1.5 — crates.io
 - bitflags 1.3.2 — crates.io
@@ -2803,6 +2810,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - foreign-types 0.5.0 — crates.io
 - foreign-types-macros 0.2.3 — crates.io
 - foreign-types-shared 0.3.1 — crates.io
+- icalendar 0.17.13 — crates.io
 - ident_case 1.0.1 — crates.io
 - jni 0.21.1 — crates.io
 - json-patch 3.0.1 — crates.io

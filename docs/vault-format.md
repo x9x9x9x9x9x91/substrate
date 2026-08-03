@@ -9,6 +9,7 @@ update this file in the same merge).
 Sources of truth: `src-tauri/src/vault/` (engine — `Engine` façade in `mod.rs`,
 plus the `schema`, `views`, `search`, `trash`, `assets`, `foldersync`, `watch`,
 `doctor`, `seed` modules), `src-tauri/src/lib.rs` + `src-tauri/src/commands/` (IPC),
+`src-tauri/src/calendarfeed.rs` (read-only iCalendar subscriptions),
 `src-tauri/src/history.rs` (vault git), `src/lib/*.ts` (frontend formats),
 `docs/sheets-spec.md` (the sheet formula language).
 
@@ -67,7 +68,7 @@ Vault/
 ├── .claude/skills/            # agent skills, seeded + user-written (§12)
 ├── .assets/                   # embedded binaries, flat (§9)
 ├── .trash/                    # deleted notes + folders, recoverable (§10)
-├── .vault/                    # format.json + schema.json + views.json + folders.json + notifications.json + jobs-exit.json + templates/ + backup/ (§5b–§8)
+├── .vault/                    # format.json + schema.json + views.json + folders.json + calendars.json + notifications.json + jobs-exit.json + templates/ + backup/ (§5b–§8)
 └── .git/                      # version history, owned by the app (§11)
 ```
 
@@ -962,11 +963,12 @@ an older app rewriting a newer file used to silently drop what it didn't
 understand.
 
 ```json
-{ "schema": 1, "views": 1, "folders": 1, "notifications": 1 }
+{ "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1 }
 ```
 
-- Keys are `schema`, `views`, `folders`, `notifications` (§6, §7, the
-  notification sub-section, §8). Current version for all four: **1**.
+- Keys are `schema`, `views`, `folders`, `notifications`, `calendars` (§5c,
+  §6, §7, the notification sub-section, §8). Current version for all five:
+  **1**.
 - **A missing sidecar, or a missing/non-positive-integer entry, reads as
   version 1** — the current format, which is what every existing vault is
   already in. Nothing migrates on upgrade; the sidecar just appears on the
@@ -975,9 +977,9 @@ understand.
 - **The version is NOT stored inside the config files.** It can't be:
   `schema.json` is parsed as a map of type entries, so a top-level number
   makes shipped builds fail to parse the whole file and read an empty schema;
-  `folders.json` is a JSON array with nowhere to put a key. The four files
-  keep exactly the shape they had. External writers should ignore the sidecar
-  unless they're deliberately writing a newer format.
+  `folders.json` and `calendars.json` are JSON arrays with nowhere to put a
+  key. The files keep exactly the shape they had. External writers should
+  ignore the sidecar unless they're deliberately writing a newer format.
 - **Refuse-newer**: when a file's recorded version is above what the running
   app knows, the app treats that ONE file as read-only. Reads keep working
   normally; the write path fails with "This vault was written by a newer
@@ -991,6 +993,51 @@ understand.
 - Neither `.vault/format.json` nor `.vault/backup/` is watched (§13 rule 2) —
   they're read from disk on access, and a version stamp never triggers a
   config-changed event.
+
+## 5c. `.vault/calendars.json` — read-only external calendars
+
+An optional JSON array subscribes the global calendar to external iCalendar
+feeds. The app never creates it by default. Each entry has exactly this shape:
+
+```json
+[
+  {
+    "url": "https://example.test/team.ics",
+    "name": "Team",
+    "tint": "teal",
+    "enabled": true
+  },
+  {
+    "url": "/Users/me/Calendars/family.ics",
+    "name": "Family",
+    "tint": "violet",
+    "enabled": false
+  }
+]
+```
+
+- `url` is either an `http://` / `https://` ICS address or an absolute local
+  path ending in `.ics`; adding a remote URL is the user's explicit consent
+  for Substrate to fetch it. Remote requests and every redirect are restricted
+  to publicly routable addresses. A feed is capped at 8 MB.
+- `name` is a 1–80 character display label. `tint` is one of `gray`, `blue`,
+  `indigo`, `violet`, `pink`, `red`, `orange`, `yellow`, `green`, `teal`.
+  `enabled` is optional on disk and defaults to `true`.
+- Feed events are read-only. They render beside note-backed dates but never
+  become notes, participate in search, or support calendar drag/edit actions.
+  Recurrence and time zones are expanded only for the visible calendar window.
+- Fetched ICS bodies, timestamps, and errors are machine-local in
+  `calendar-feeds-cache.json` under the OS app-config directory, not the vault.
+  The UI reads that cache synchronously; network and file refreshes run in the
+  background at most once per feed per 30 minutes (plus a manual refresh).
+  A failed refresh retains the last good body for offline use. One malformed
+  feed or event is reported/skipped without blanking other feeds.
+- The list itself is vault data, so it syncs: adding a feed on one device makes
+  every synced device fetch it in the background too, under that device's own
+  network.
+- A malformed `calendars.json` is shown as a config error and is never silently
+  overwritten. Unknown entry keys are rejected so misspelled subscription
+  settings cannot appear to work.
 
 ## 6. `.vault/schema.json` — database schema
 
@@ -1989,9 +2036,10 @@ Plain notes the app treats specially — all optional, all just files:
    300ms debounce; more than 500 changed paths in one burst triggers a full
    rescan. No restart, no manual refresh. Writes under dot-paths (`.git`,
    `.assets/`, …) are deliberately invisible to it — with one exception:
-   edits to `.vault/schema.json`, `.vault/views.json` and
-   `.vault/folders.json` are picked up live and surface as a separate
-   `vault:config-changed` event (the app's config listeners re-read the
+   edits to `.vault/schema.json`, `.vault/views.json`,
+   `.vault/folders.json`, and `.vault/calendars.json` are picked up live and
+   surface as a separate `vault:config-changed` event (the app's config
+   listeners re-read the
    files from disk; no note refetch fires). Everything else under `.vault/`
    (templates, notification state, `jobs-exit.json`, `format.json`, `backup/`)
    stays unwatched and is re-read from disk on every access.
@@ -2020,8 +2068,9 @@ Plain notes the app treats specially — all optional, all just files:
    a format the app doesn't know yet — a version above the app's makes that
    one config file read-only in Substrate until it updates. Leaving the
    sidecar alone is always right for an external writer, including one adding
-   its own keys: unknown keys in the four config files ride along untouched at
-   v1. `.vault/backup/` is the app's pre-migration copies — read it, don't
+   its own keys: unknown keys in the four older config files ride along
+   untouched at v1; `calendars.json` deliberately rejects unknown entry keys (§5c).
+   `.vault/backup/` is the app's pre-migration copies — read it, don't
    depend on it.
 
 ### 13.1 Concurrency contract

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { flushSync } from "react-dom";
-import type { NoteMeta, SchemaConfig } from "../lib/types";
+import type { CalendarFeedSnapshot, NoteMeta, SchemaConfig } from "../lib/types";
 import { isTyping, isTypingNow } from "../lib/dom";
 import {
   addDays,
@@ -36,21 +36,28 @@ import {
   timeToMinutes,
 } from "../lib/weekgrid";
 import { formatDateHuman } from "../lib/dates";
-import { vaultCreate, vaultTemplateRead } from "../lib/ipc";
+import { calendarFeedsRead, vaultCreate, vaultTemplateRead } from "../lib/ipc";
+import { listen } from "../lib/tauri";
 import { setPropUndoable, setPropsUndoable } from "../lib/undoprops";
 import { useUndo } from "../lib/undoContext";
 import { nextUndoId } from "../lib/undo";
 import { foldedPropKey, foldedPropStr, typeHome } from "../lib/types";
 import { typeSchemaFor } from "../lib/schemalookup";
 import { buildEntryBody, buildEntryProps, mergeEntryProp } from "../lib/templates";
-import { iconForType, iconsByType, typeTint } from "../lib/dbicons";
-import { ChevronLeftIcon, ChevronRightIcon, NoteIcon, RepeatIcon } from "./Icons";
+import { iconForType, iconsByType, tintVar, typeTint } from "../lib/dbicons";
+import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, NoteIcon, RepeatIcon } from "./Icons";
+import {
+  compareExternalTime,
+  externalEntries,
+  type ExternalCalEntry,
+} from "../lib/externalcalendar";
 import SelectMenu, { anchorFrom, type AnchorRect } from "./SelectMenu";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import TypeIcon from "./TypeIcon";
 import CalPeek from "./CalPeek";
 import { cardSubtitle } from "./DatabasePane";
 import { useTodayIso } from "./useTodayIso";
+import CalendarFeedsMenu from "./CalendarFeedsMenu";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 /** month cells show this many entries before collapsing into "+N more" —
@@ -70,6 +77,19 @@ const SLOT_FINE = 15;
 /** where the cursor lands on its first ↑/↓ — the working day's start, so the
     keyboard path opens on the same part of the day the canvas scrolls to */
 const SLOT_SEED = 9 * 60;
+const EMPTY_FEEDS: CalendarFeedSnapshot = {
+  feeds: [],
+  events: [],
+  refreshing: false,
+  configError: null,
+};
+
+type CalendarRenderEntry = CalEntry | ExternalCalEntry;
+/** Shared empty day, so a dayless cell keeps a stable identity. */
+const NO_ENTRIES: CalendarRenderEntry[] = [];
+
+const isExternalEntry = (entry: CalendarRenderEntry): entry is ExternalCalEntry =>
+  "feedUrl" in entry;
 
 /** SUB-521: the pane unmounts whenever an entry is opened (the note takes the
     view), so the two pieces of "where I was reading" have to live outside it.
@@ -134,6 +154,9 @@ export default function CalendarPane({
     () => new Date(calSession.cursor ?? Date.now())
   );
   const [layout, setLayout] = useState<"month" | "week">(() => readCalLayout());
+  const [feedSnapshot, setFeedSnapshot] = useState<CalendarFeedSnapshot>(EMPTY_FEEDS);
+  const [feedsOpen, setFeedsOpen] = useState(false);
+  const [feedReload, setFeedReload] = useState(0);
   useEffect(() => {
     calSession.cursor = cursor.getTime();
   }, [cursor]);
@@ -220,6 +243,52 @@ export default function CalendarPane({
   );
   const visible = useMemo(() => new Set(days.map(isoDay)), [days]);
 
+  const feedGridStart = isoDay(days[0]);
+  const feedGridEnd = isoDay(days[days.length - 1]);
+  const feedUpcomingStart = todayIso;
+  const feedUpcomingEnd = isoDay(addDays(parseDay(todayIso) ?? new Date(), 13));
+  useEffect(() => {
+    let live = true;
+    Promise.all([
+      calendarFeedsRead(feedGridStart, feedGridEnd),
+      calendarFeedsRead(feedUpcomingStart, feedUpcomingEnd),
+    ])
+      .then(([grid, upcoming]) => {
+        if (!live) return;
+        const events = new Map(grid.events.map((event) => [event.id, event]));
+        for (const event of upcoming.events) events.set(event.id, event);
+        setFeedSnapshot({
+          feeds: grid.feeds,
+          events: [...events.values()],
+          refreshing: grid.refreshing || upcoming.refreshing,
+          configError: grid.configError ?? upcoming.configError,
+        });
+      })
+      .catch((error) => {
+        console.error(error);
+        if (live) onToast?.("Couldn’t read external calendars.");
+      });
+    return () => {
+      live = false;
+    };
+  }, [feedGridStart, feedGridEnd, feedUpcomingStart, feedUpcomingEnd, feedReload, onToast]);
+  useEffect(() => {
+    let dead = false;
+    let unlisten: (() => void)[] = [];
+    const reload = () => setFeedReload((n) => n + 1);
+    Promise.all([
+      listen("calendar:feeds-changed", reload),
+      listen("vault:config-changed", reload),
+    ]).then((callbacks) => {
+      if (dead) callbacks.forEach((callback) => callback());
+      else unlisten = callbacks;
+    });
+    return () => {
+      dead = true;
+      unlisten.forEach((callback) => callback());
+    };
+  }, []);
+
   // recurrence expands over the grid AND the 14-day upcoming list — both read
   // the same byDay map, so both windows feed it (SUB-174). Two windows, not
   // one spanning both: paging months back moves the grid away from today while
@@ -257,6 +326,28 @@ export default function CalendarPane({
       );
     return map;
   }, [entries]);
+  const external = useMemo(() => externalEntries(feedSnapshot.events), [feedSnapshot.events]);
+  const externalByDay = useMemo(() => {
+    const map = new Map<string, ExternalCalEntry[]>();
+    for (const entry of external)
+      map.set(entry.day, [...(map.get(entry.day) ?? []), entry]);
+    for (const list of map.values()) list.sort(compareExternalTime);
+    return map;
+  }, [external]);
+  // one merged day map per data change, instead of re-concatenating and
+  // re-sorting on every cell of every render
+  const mergedByDay = useMemo(() => {
+    const map = new Map<string, CalendarRenderEntry[]>();
+    for (const iso of new Set([...byDay.keys(), ...externalByDay.keys()]))
+      map.set(
+        iso,
+        [...(byDay.get(iso) ?? []), ...(externalByDay.get(iso) ?? [])].sort(
+          (a, b) => (a.time ?? "").localeCompare(b.time ?? "")
+        )
+      );
+    return map;
+  }, [byDay, externalByDay]);
+  const renderItems = (iso: string): CalendarRenderEntry[] => mergedByDay.get(iso) ?? NO_ENTRIES;
   const types = useMemo(() => calendarTypes(schema), [schema]);
 
   // opening the week (or paging into a new one) scrolls the canvas to the
@@ -783,6 +874,14 @@ export default function CalendarPane({
         : "var(--opt-gray)",
     }) as CSSProperties;
 
+  const externalTintStyle = (e: ExternalCalEntry) =>
+    ({
+      "--entry-tint": tintVar(e.tint) ?? "var(--opt-gray)",
+    }) as CSSProperties;
+
+  const externalTip = (e: ExternalCalEntry) =>
+    [e.feedName, e.title, e.location].filter(Boolean).join(" · ");
+
   /** SUB-701: done-from-the-calendar, visible but resolved — dim + strike.
       Non-repeating only: a series' status is the one note's, so a done
       weekly would wrongly strike every future occurrence. */
@@ -1046,15 +1145,21 @@ export default function CalendarPane({
         // the canvas double-click (SUB-453)
         if (slotMin !== null) openDraft(isoDay(focusDate()), undefined, minutesToTime(slotMin));
         else {
-          const items = byDay.get(isoDay(focusDate())) ?? [];
-          if (items.length > 0) onOpenNote(items[0].path);
+          // subscribed events are read-only chips with nothing to open, so
+          // Enter reaches past them for the first note of the day
+          const note = renderItems(isoDay(focusDate())).find(
+            (i): i is CalEntry => !isExternalEntry(i)
+          );
+          if (note) onOpenNote(note.path);
           else openDraft(isoDay(focusDate()));
         }
       } else if (/^[1-9]$/.test(k)) {
-        const item = (byDay.get(isoDay(focusDate())) ?? [])[Number(k) - 1];
+        // count what the day actually shows: with a feed merged in, the nth
+        // chip is not the nth vault note
+        const item = renderItems(isoDay(focusDate()))[Number(k) - 1];
         if (item) {
           e.preventDefault();
-          onOpenNote(item.path);
+          if (!isExternalEntry(item)) onOpenNote(item.path);
         }
       } else if (k === "n") {
         e.preventDefault();
@@ -1091,7 +1196,7 @@ export default function CalendarPane({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [days, focusIso, draft, byDay, layout, cursor, onOpenNote, peek, slotMin]);
+  }, [days, focusIso, draft, mergedByDay, layout, cursor, onOpenNote, peek, slotMin]);
 
   // roving tabindex (SUB-512): real DOM focus follows the focused day when a
   // keyboard gesture asks for it, so the ring is where focus actually is and a
@@ -1117,11 +1222,11 @@ export default function CalendarPane({
   );
 
   const upcoming = (() => {
-    const out: { iso: string; label: string; items: CalEntry[] }[] = [];
+    const out: { iso: string; label: string; items: CalendarRenderEntry[] }[] = [];
     for (let i = 0; i < 14; i++) {
       const d = addDays(today, i);
       const iso = isoDay(d);
-      const items = byDay.get(iso);
+      const items = renderItems(iso);
       if (!items?.length) continue;
       const label =
         i === 0 ? "Today" : i === 1 ? "Tomorrow" : `${WEEKDAYS[(d.getDay() + 6) % 7]} ${humanDay(iso, today)}`;
@@ -1212,6 +1317,29 @@ export default function CalendarPane({
     );
   };
 
+  const externalChip = (e: ExternalCalEntry) => (
+    <button
+      type="button"
+      key={`external:${e.id}:${e.day}`}
+      className={`cal-entry external${e.spanPos ? ` span ${e.spanPos}` : ""}`}
+      style={externalTintStyle(e)}
+      title={externalTip(e)}
+      aria-label={`${e.title}, external calendar ${e.feedName}`}
+      aria-disabled="true"
+      tabIndex={-1}
+      onClick={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => event.stopPropagation()}
+    >
+      {e.spanPos === undefined && <span className="cal-entry-bar" aria-hidden="true" />}
+      {e.time && <span className="cal-entry-time">{e.time}</span>}
+      <span className="cal-entry-title">{e.title}</span>
+      <span className="cal-external-mark" aria-hidden="true" />
+    </button>
+  );
+
+  const monthItem = (entry: CalendarRenderEntry) =>
+    isExternalEntry(entry) ? externalChip(entry) : entryChip(entry);
+
   /* ── Week layout (SUB-247) ── a real weekly surface, not a stretched month
      row: seven day columns of full entry cards (icon + title + time when
      timed + a compact prop subtitle, the database card language). byDay
@@ -1275,6 +1403,31 @@ export default function CalendarPane({
     );
   };
 
+  const externalWeekCard = (e: ExternalCalEntry) => (
+    <button
+      type="button"
+      key={`external:${e.id}:${e.day}`}
+      className={`cal-entry external${e.spanPos ? ` span ${e.spanPos}` : ""}`}
+      style={externalTintStyle(e)}
+      title={externalTip(e)}
+      aria-label={`${e.title}, external calendar ${e.feedName}`}
+      aria-disabled="true"
+      tabIndex={-1}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <span className="cal-wk-head">
+        <CalendarIcon />
+        {e.time && <span className="cal-entry-time">{e.time}</span>}
+        <span className="cal-entry-title">{e.title}</span>
+        <span className="cal-external-mark" aria-hidden="true" />
+      </span>
+      <span className="row-sub cal-wk-sub">{e.feedName}</span>
+    </button>
+  );
+
+  const weekItem = (entry: CalendarRenderEntry) =>
+    isExternalEntry(entry) ? externalWeekCard(entry) : weekCard(entry);
+
   /** the strip's day cell (SUB-448): day number + create affordance +
       all-day cards. Dropping here reschedules to the day AND clears the
       value's time — "make it all-day", the timed canvas's counterpart.
@@ -1287,7 +1440,7 @@ export default function CalendarPane({
     // a time the canvas math can't place renders here instead of stacking
     // silently at 00:00 (defensive — splitDayTime and the canvas's HH_MM
     // agree today)
-    const items = (byDay.get(iso) ?? []).filter(
+    const items = renderItems(iso).filter(
       (e) => !e.time || timeToMinutes(e.time) === null
     );
     const expanded = expandedIso === iso;
@@ -1352,7 +1505,7 @@ export default function CalendarPane({
           </span>
         </button>
         {draft?.day === iso && !draft.time && composer}
-        {items.slice(0, cap).map(weekCard)}
+        {items.slice(0, cap).map(weekItem)}
         {overflow > 0 && (
           <button
             type="button"
@@ -1447,6 +1600,42 @@ export default function CalendarPane({
     );
   };
 
+  const externalCanvasBlock = (
+    e: ExternalCalEntry,
+    box: { top: number; height: number; left: number; width: number }
+  ) => (
+    <button
+      type="button"
+      key={`external:${e.id}:${e.day}`}
+      className="cal-entry cal-wk-block external"
+      style={{
+        top: `${box.top}%`,
+        height: `${box.height}%`,
+        left: `${box.left}%`,
+        width: `${box.width}%`,
+        ...externalTintStyle(e),
+      }}
+      title={externalTip(e)}
+      aria-label={`${e.title}, external calendar ${e.feedName}`}
+      aria-disabled="true"
+      tabIndex={-1}
+      onClick={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => event.stopPropagation()}
+    >
+      <span className="cal-wk-head">
+        <CalendarIcon />
+        <span className="cal-entry-time">{e.time}</span>
+        <span className="cal-external-mark" aria-hidden="true" />
+      </span>
+      <span className="cal-entry-title">{e.title}</span>
+    </button>
+  );
+
+  const canvasItem = (
+    entry: CalendarRenderEntry,
+    box: { top: number; height: number; left: number; width: number }
+  ) => isExternalEntry(entry) ? externalCanvasBlock(entry, box) : canvasBlock(entry, box);
+
   /** minute-of-day under the pointer, snapped to the drop grid — the column
       IS 24h tall, so offset scales linearly */
   const minuteAt = (clientY: number, col: HTMLElement) => {
@@ -1468,7 +1657,7 @@ export default function CalendarPane({
 
   const canvasColumn = (d: Date) => {
     const iso = isoDay(d);
-    const timed = (byDay.get(iso) ?? []).filter(
+    const timed = renderItems(iso).filter(
       (e) => e.time && timeToMinutes(e.time) !== null
     );
     // a same-day range shapes its own block (SUB-646) — height AND the
@@ -1477,7 +1666,10 @@ export default function CalendarPane({
     // its start day keeps the default block rather than painting a lie.
     const boxes = layoutLanes(
       timed.map((e) =>
-        blockSpan(e.time ?? "", e.endDay === undefined || e.endDay === e.day ? e.endTime : undefined)
+        blockSpan(
+          e.time ?? "",
+          e.endDay == null || e.endDay === e.day ? e.endTime ?? undefined : undefined
+        )
       )
     );
     const cls = [
@@ -1550,7 +1742,7 @@ export default function CalendarPane({
           </div>
         )}
         {timed.map((e, i) =>
-          canvasBlock(e, {
+          canvasItem(e, {
             top: (boxes[i].start / DAY_MIN) * 100,
             height: ((boxes[i].end - boxes[i].start) / DAY_MIN) * 100,
             left: (boxes[i].lane / boxes[i].lanes) * 100,
@@ -1624,7 +1816,7 @@ export default function CalendarPane({
 
   const dayCell = (d: Date) => {
     const iso = isoDay(d);
-    const items = byDay.get(iso) ?? [];
+    const items = renderItems(iso);
     // SUB-107: "+N more" expands the cell in place — it renders (and scrolls)
     // its full entry list until a second click, Esc, or a click elsewhere
     const expanded = expandedIso === iso;
@@ -1690,7 +1882,7 @@ export default function CalendarPane({
           </span>
         </button>
         {draft?.day === iso && composer}
-        {items.slice(0, cap).map(entryChip)}
+        {items.slice(0, cap).map(monthItem)}
         {overflow > 0 && (
           <button
             type="button"
@@ -1731,6 +1923,13 @@ export default function CalendarPane({
           {layout === "month" ? monthTitle(cursor.getFullYear(), cursor.getMonth()) : weekTitle()}
         </span>
         <div className="db-tools">
+          <button
+            className={`db-new cal-feeds-button${feedSnapshot.feeds.some((feed) => feed.enabled) ? " active" : ""}`}
+            onClick={() => setFeedsOpen(true)}
+            title="External calendars"
+          >
+            Calendars
+          </button>
           <button className="db-new" onClick={() => openDraft(isoDay(focusDate()))} title="New entry (N)">
             New
           </button>
@@ -1758,6 +1957,14 @@ export default function CalendarPane({
           </div>
         </div>
       </div>
+      {feedsOpen && (
+        <CalendarFeedsMenu
+          snapshot={feedSnapshot}
+          onClose={() => setFeedsOpen(false)}
+          onChanged={() => setFeedReload((n) => n + 1)}
+          onToast={onToast}
+        />
+      )}
       <div className="cal-grid-scroll">
         <div className={`cal-weekdays${layout === "week" ? " week" : ""}`}>
           {layout === "week" && <span className="cal-wk-spacer" aria-hidden="true" />}
@@ -1854,24 +2061,39 @@ export default function CalendarPane({
                 {g.label}
               </button>
               <div className="cal-ag-items">
-                {g.items.map((e) => (
-                  <button
-                    type="button"
-                    key={`${e.path}:${e.prop}:${e.day}`}
-                    className={`cal-ag-item${entryDone(e) ? " done" : ""}${isSelected(e) ? " selected" : ""}`}
-                    onClick={() => onOpenNote(e.path)}
-                    onContextMenu={(ev) => {
-                      ev.preventDefault();
-                      ev.stopPropagation();
-                      setMenu({ x: ev.clientX, y: ev.clientY, entry: e, anchor: anchorFrom(ev.currentTarget) });
-                    }}
-                    aria-label={e.title}
-                  >
-                    {entryIcon(e)}
-                    {e.time && <span className="cal-entry-time">{e.time}</span>}
-                    <span className="cal-entry-title">{e.title}</span>
-                  </button>
-                ))}
+                {g.items.map((e) =>
+                  isExternalEntry(e) ? (
+                    <div
+                      key={`external:${e.id}:${e.day}`}
+                      className="cal-ag-item external"
+                      style={externalTintStyle(e)}
+                      title={externalTip(e)}
+                      aria-label={`${e.title}, external calendar ${e.feedName}`}
+                    >
+                      <CalendarIcon />
+                      {e.time && <span className="cal-entry-time">{e.time}</span>}
+                      <span className="cal-entry-title">{e.title}</span>
+                      <span className="cal-feed-badge">{e.feedName}</span>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      key={`${e.path}:${e.prop}:${e.day}`}
+                      className={`cal-ag-item${entryDone(e) ? " done" : ""}${isSelected(e) ? " selected" : ""}`}
+                      onClick={() => onOpenNote(e.path)}
+                      onContextMenu={(ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        setMenu({ x: ev.clientX, y: ev.clientY, entry: e, anchor: anchorFrom(ev.currentTarget) });
+                      }}
+                      aria-label={e.title}
+                    >
+                      {entryIcon(e)}
+                      {e.time && <span className="cal-entry-time">{e.time}</span>}
+                      <span className="cal-entry-title">{e.title}</span>
+                    </button>
+                  )
+                )}
               </div>
             </div>
           ))}

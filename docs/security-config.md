@@ -60,16 +60,18 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
   channel; the asset origins are there because waveform peaks `fetch()` the
   asset URL (`src/lib/assets.ts:153`). No remote origin is allowed: every
   outbound HTTP request the app makes goes through Rust (`src-tauri/src/net.rs`),
-  where the SSRF guard can see it. Three do: link capture reads a page's title
-  (`fetch_url_meta`), the finance surfaces read one USD→EUR rate from
-  frankfurter (`fetch_usd_eur`, command `fx_usd_eur` — SUB-667), and "Send as
+  where the SSRF guard can see it. Four do: link capture reads a page's title
+  (`fetch_url_meta`); the finance surfaces read one USD→EUR rate from
+  frankfurter (`fetch_usd_eur`, command `fx_usd_eur` — SUB-667); "Send as
   link" POSTs a sealed handoff payload to the user-configured relay
-  (`share_upload` — SUB-833). That last one is the only request whose target
-  comes from Settings.md, which is exactly why it rides `guard_url`: a synced
-  vault must not be able to point the app at the local network. What leaves
-  the machine is ciphertext only — the note is AES-256-GCM-sealed in the
-  webview first, and the key exists nowhere but the share link's `#fragment`
-  (`src/lib/handoff.ts`, `scripts/handoff-relay/`).
+  (`share_upload` — SUB-833), and a calendar subscription reads a user-added
+  remote ICS feed (`calendarfeed.rs` — SUB-821). Every user-controlled
+  destination rides `guard_url`; redirect-following reads re-check every hop,
+  while handoff uploads refuse redirects. A synced vault therefore cannot
+  point the app at the local network. Only the handoff request carries a
+  payload, and that payload is ciphertext — the note is AES-256-GCM-sealed in
+  the webview first, and the key exists nowhere but the share link's
+  `#fragment` (`src/lib/handoff.ts`, `scripts/handoff-relay/`).
 - **`object-src 'none'` / `frame-src 'none'` / `frame-ancestors 'none'` /
   `form-action 'none'`** — the app has no `<iframe>`, `<object>`, or `<form>`
   submission anywhere. Denying them costs nothing and closes three classes of

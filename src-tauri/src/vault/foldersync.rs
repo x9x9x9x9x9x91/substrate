@@ -49,7 +49,7 @@ pub struct FolderScanStats {
 
 /// Case-insensitive file-name glob; `*` is the only wildcard (matches any
 /// run of characters, including none). Everything else compares literally.
-pub(super) fn glob_match(pattern: &str, name: &str) -> bool {
+pub(crate) fn glob_match(pattern: &str, name: &str) -> bool {
     let p: Vec<char> = pattern.to_lowercase().chars().collect();
     let n: Vec<char> = name.to_lowercase().chars().collect();
     let (mut i, mut j) = (0, 0);

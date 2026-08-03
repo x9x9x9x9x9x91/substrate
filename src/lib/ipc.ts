@@ -4,6 +4,8 @@ import type {
   AggKind,
   AssetInfo,
   BulkSweep,
+  CalendarFeedConfig,
+  CalendarFeedSnapshot,
   ConflictChoice,
   ConflictState,
   DbIcon,
@@ -104,6 +106,20 @@ export const urlCapture = (url: string) => invoke<NoteMeta>("url_capture", { url
     CSP allows no remote origin — a browser fetch here only ever worked in the
     browser lane. Rejects rather than reporting a rate it isn't sure of. */
 export const fxUsdEur = () => invoke<{ usdEur: number; asOf: string }>("fx_usd_eur");
+/** Cached read-only external calendar events. This call never waits on a URL
+    or local `.ics` file; the backend refresh loop updates the cache separately. */
+export const calendarFeedsRead = (start: string, end: string) =>
+  invoke<CalendarFeedSnapshot>("calendar_feeds_read", { start, end });
+export const calendarFeedSave = (feed: CalendarFeedConfig, originalUrl?: string) =>
+  invoke<CalendarFeedConfig[]>("calendar_feed_save", {
+    feed,
+    originalUrl: originalUrl ?? null,
+  });
+export const calendarFeedDelete = (url: string) =>
+  invoke<CalendarFeedConfig[]>("calendar_feed_delete", { url });
+/** Resolves false when a refresh was already running, so the press did
+    nothing — the caller says so instead of leaving the button looking idle. */
+export const calendarFeedsRefresh = () => invoke<boolean>("calendar_feeds_refresh");
 /** Upload a sealed handoff payload to the relay (SUB-833); returns the
     handoff id. Engine-side for the same CSP reason as fxUsdEur, plus the
     SSRF guard on the user-configured relay URL. The key never rides along —

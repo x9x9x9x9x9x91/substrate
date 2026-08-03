@@ -1,6 +1,8 @@
 #[macro_use]
 mod applog;
 mod appcfg;
+mod calendarfeed;
+mod denyscope;
 #[cfg(target_os = "macos")]
 mod dragfix;
 mod githist;
@@ -119,6 +121,7 @@ struct SharedRuntime(Mutex<RuntimeState>);
 mod commands;
 use commands::app::*;
 use commands::assets::*;
+use commands::calendarfeeds::*;
 use commands::files::*;
 use commands::fx::*;
 use commands::history::*;
@@ -399,7 +402,10 @@ pub fn run() {
                         (placeholder, true)
                     }
                 };
-            app.manage(OnboardingState { pending: Mutex::new(first_run), config_dir });
+            app.manage(OnboardingState {
+                pending: Mutex::new(first_run),
+                config_dir: config_dir.clone(),
+            });
             // A fresh phone vault is populated by its first sync pull. Create
             // the container now so Engine does not seed desktop demo notes,
             // which would manufacture an unrelated root commit and conflicts.
@@ -427,6 +433,7 @@ pub fn run() {
                 }
             };
             app.manage(AppState(Mutex::new(engine)));
+            app.manage(calendarfeed::CalendarFeedState::new(&config_dir));
             app.manage(HistoryState(Mutex::new(hist)));
             app.manage(VaultSyncState {
                 credentials_path: app
@@ -713,6 +720,7 @@ pub fn run() {
             // date props; runs off the tray, no window needed.
             let notify_handle = app.handle().clone();
             std::thread::spawn(move || notify::run(notify_handle));
+            calendarfeed::run(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -782,6 +790,10 @@ pub fn run() {
             vault_schema_set,
             vault_schema_set_icon,
             vault_schema_home_set,
+            calendar_feeds_read,
+            calendar_feed_save,
+            calendar_feed_delete,
+            calendar_feeds_refresh,
             vault_create_type,
             vault_rename_type,
             vault_delete_type,

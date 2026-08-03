@@ -382,6 +382,43 @@ export interface RollupConfig {
   agg: AggKind;
 }
 
+/** One read-only `.ics` subscription stored in `.vault/calendars.json`. */
+export interface CalendarFeedConfig {
+  url: string;
+  name: string;
+  tint: string;
+  enabled: boolean;
+}
+
+/** Subscription health returned with the cached event window. */
+export interface CalendarFeed extends CalendarFeedConfig {
+  fetchedAt: number | null;
+  error: string | null;
+  cached: boolean;
+}
+
+/** One expanded VEVENT occurrence from a cached external feed. */
+export interface ExternalCalendarEvent {
+  id: string;
+  feedUrl: string;
+  feedName: string;
+  tint: string;
+  title: string;
+  startDay: string;
+  startTime: string | null;
+  endDay: string | null;
+  endTime: string | null;
+  allDay: boolean;
+  location: string | null;
+}
+
+export interface CalendarFeedSnapshot {
+  feeds: CalendarFeed[];
+  events: ExternalCalendarEvent[];
+  refreshing: boolean;
+  configError: string | null;
+}
+
 /** A database's icon (SUB-27): a curated outline glyph id or an emoji,
     optionally tinted with a muted palette name (`--opt-*` tokens). Stored on
     the type's entry in `.vault/schema.json` under the reserved `icon` key.
