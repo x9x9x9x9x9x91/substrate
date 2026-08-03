@@ -244,6 +244,7 @@ const day = (offset: number) => {
    lane (SUB-202) — chips never decode the payload, so a stub suffices. */
 const PIXEL_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
 const mockAssets = new Map<string, string>([
   ["blueprint-sketch.png", PIXEL_PNG],
   ["stale-screenshot.png", PIXEL_PNG],

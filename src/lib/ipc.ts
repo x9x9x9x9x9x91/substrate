@@ -574,6 +574,7 @@ export const vaultClearProp = (
 export const historySnapshot = (label: string) =>
   invoke<boolean>("history_snapshot", { label });
 
+
 /* Real-app smoke lane (SUB-426). Both refuse unless the engine
    saw SUBSTRATE_SMOKE=1; only src/lib/smoke.ts calls them, and that module is
    tree-shaken out of production builds. */

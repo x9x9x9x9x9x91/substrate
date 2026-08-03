@@ -156,6 +156,7 @@ export interface FolderMapping {
 
 
 
+
 export type View =
   | { kind: "today" }
   | { kind: "notes" }

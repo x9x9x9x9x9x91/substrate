@@ -33,10 +33,13 @@ export function useVaultIndex() {
   // assume anything". Panes that key off vaultEpoch use it to skip work for a
   // change that didn't touch them; an app write passes null because the app
   // has already updated itself and the re-read is only a safety net.
+  // Returns once the note list has landed, for the rare caller that must wait
+  // for it — selecting a path the app wrote but has no meta for yet (SUB-861).
+  // Everyone else keeps calling it fire-and-forget.
   const refresh = useCallback((ownWrite: boolean = true, paths: string[] | null = null) => {
     if (ownWrite !== false) lastOwnRefreshRef.current = Date.now();
     setChangedPaths(paths);
-    vaultList()
+    const listed = vaultList()
       .then((ns) => {
         setNotes(ns);
         setBootError(null); // a later refresh (vault:changed) recovered
@@ -47,6 +50,7 @@ export function useVaultIndex() {
       });
     vaultFolders().then(setFolders).catch(console.error);
     setVaultEpoch((e) => e + 1);
+    return listed;
   }, []);
 
   return {

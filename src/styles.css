@@ -3890,6 +3890,7 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-2);
 }
 
+
 /* "cards" are ruled tiles now — same anatomy as .dash-metrics */
 .dash-cards {
   display: grid;

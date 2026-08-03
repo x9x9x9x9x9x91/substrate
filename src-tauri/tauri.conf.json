@@ -82,6 +82,7 @@
     "resources": {
       "../examples/vault/": "demo-vault",
       "../THIRD-PARTY-FONTS.md": "THIRD-PARTY-FONTS.md",
+      "../cookbook/": "cookbook",
       "../THIRD-PARTY-LICENSES.md": "THIRD-PARTY-LICENSES.md"
     },
     "macOS": {

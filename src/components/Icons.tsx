@@ -292,6 +292,7 @@ export const BookIcon = () => (
   </svg>
 );
 
+
 export const ChevronLeftIcon = () => (
   <svg {...base} width={13} height={13}>
     <path d="M10 3.5 5.5 8l4.5 4.5" />
