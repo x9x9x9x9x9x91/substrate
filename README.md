@@ -129,7 +129,10 @@ for this project's own builds.
 
 The app bundles the Inter typeface under the SIL Open Font License 1.1; its
 notice and license text are in
-[THIRD-PARTY-FONTS.md](THIRD-PARTY-FONTS.md).
+[THIRD-PARTY-FONTS.md](THIRD-PARTY-FONTS.md). The third-party code the app
+bundles — the production npm closure and every crate pinned by
+`src-tauri/Cargo.lock` — is covered in
+[THIRD-PARTY-LICENSES.md](THIRD-PARTY-LICENSES.md).
 
 Contributions ship under the same license — see
 [CONTRIBUTING.md](CONTRIBUTING.md).
