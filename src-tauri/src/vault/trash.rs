@@ -622,7 +622,7 @@ impl Engine {
                 file.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
             let title = read_lossy(&file)
                 .ok()
-                .and_then(|raw| prop_str(&parse_props(split_frontmatter(&raw).0), "title"))
+                .and_then(|raw| folded_prop_str(&parse_props(split_frontmatter(&raw).0), "title"))
                 .unwrap_or(stem);
             out.push(TrashEntry {
                 id: id.clone(),
@@ -1006,6 +1006,21 @@ mod tests {
         assert_eq!(entries[0].title, "Rondo MX180");
         assert!(entries[0].deleted_ms > 0);
         assert!(dir.join(TRASH_DIR).join(&entries[0].id).is_file(), "file lives in trash");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn trash_list_reads_a_recased_title_key() {
+        let (mut e, dir) = temp_vault("trash-title-case");
+        let path = dir.join("Filename fallback.md");
+        fs::write(&path, "---\nTitle: Handwritten title\n---\nBody\n").unwrap();
+        e.apply_changes(&[path]);
+
+        e.trash("Filename fallback.md").unwrap();
+        let entries = e.trash_list();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].title, "Handwritten title");
+
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -79,6 +79,18 @@ pub(super) fn glob_match(pattern: &str, name: &str) -> bool {
 /// the schema, and user edits to them are refreshed away on the next scan.
 pub(super) const SYNC_PROPS: [&str; 7] = ["type", "title", "file", "modified", "size", "missing", "created"];
 
+/// The key a sync-owned prop must be written under: the spelling already in
+/// the note wins (so `Modified:` is refreshed in place rather than gaining a
+/// lowercase twin), and a prop the note doesn't carry yet is created in the
+/// canonical lowercase form (SUB-925). Pairs with `folded_prop_str` on the
+/// read side — every folded read here has a matching folded write.
+pub(super) fn folded_write_key(
+    props: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> String {
+    folded_prop_key(props, key).unwrap_or(key).to_string()
+}
+
 /// Folder→database mappings from `.vault/folders.json` under `root`. A
 /// missing or corrupt file reads as no mappings — sync config is a
 /// convenience, never something to error over.
@@ -189,7 +201,7 @@ impl Engine {
         // the watched tree, wherever the note itself lives
         let mut managed: HashMap<PathBuf, String> = HashMap::new();
         for (rel, note) in &self.notes {
-            let Some(file) = prop_str(&note.props, "file") else { continue };
+            let Some(file) = folded_prop_str(&note.props, "file") else { continue };
             let abs = normalize_file_path(&expand_tilde(&file));
             if !abs.starts_with(&root) {
                 continue;
@@ -224,21 +236,27 @@ impl Engine {
             match managed.get(&file) {
                 Some(rel) => {
                     let Some(note) = self.notes.get(rel).cloned() else { continue };
-                    let flagged = prop_str(&note.props, "missing").as_deref() == Some("true");
-                    let stale = prop_str(&note.props, "modified").as_deref()
+                    let flagged =
+                        folded_prop_str(&note.props, "missing").as_deref() == Some("true");
+                    let stale = folded_prop_str(&note.props, "modified").as_deref()
                         != Some(modified.as_str())
-                        || prop_str(&note.props, "size").as_deref() != Some(size.as_str());
+                        || folded_prop_str(&note.props, "size").as_deref()
+                            != Some(size.as_str());
                     if flagged || stale {
                         // one write per file: stamp refresh and missing-flag
-                        // clear land in a single re-serialize (SUB-61)
+                        // clear land in a single re-serialize (SUB-61). Each
+                        // one goes through the key the note actually spells,
+                        // so a recased `Modified:`/`Size:` is refreshed rather
+                        // than twinned, and a recased `Missing:` is really
+                        // removed instead of surviving every tick (SUB-925).
                         match self.edit_props(rel, |p| {
-                            p.insert(
-                                "modified".into(),
-                                serde_json::Value::String(modified.clone()),
-                            );
-                            p.insert("size".into(), serde_json::Value::String(size.clone()));
+                            let modified_key = folded_write_key(p, "modified");
+                            p.insert(modified_key, serde_json::Value::String(modified.clone()));
+                            let size_key = folded_write_key(p, "size");
+                            p.insert(size_key, serde_json::Value::String(size.clone()));
                             if flagged {
-                                p.remove("missing");
+                                let key = folded_write_key(p, "missing");
+                                p.remove(&key);
                             }
                         }) {
                             Ok(_) => {
@@ -293,9 +311,13 @@ impl Engine {
                 continue;
             }
             let Some(note) = self.notes.get(rel).cloned() else { continue };
-            if prop_str(&note.props, "missing").as_deref() != Some("true") {
-                // a note we could not flag is not flagged (SUB-541)
-                if let Err(e) = self.set_prop(rel, "missing", Some("true")) {
+            if folded_prop_str(&note.props, "missing").as_deref() != Some("true") {
+                // a note we could not flag is not flagged (SUB-541); the flag
+                // lands on the existing spelling of the key (SUB-925)
+                if let Err(e) = self.edit_props(rel, |p| {
+                    let key = folded_write_key(p, "missing");
+                    p.insert(key, serde_json::Value::String("true".into()));
+                }) {
                     stats.error.get_or_insert(format!("missing flag for {rel}: {e}"));
                     continue;
                 }
@@ -533,6 +555,197 @@ mod tests {
         assert_eq!(e.list().len(), before, "no “ 2” duplicates");
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&watched);
+    }
+
+    #[test]
+    fn folder_sync_recognizes_recased_stub_keys() {
+        let (mut e, dir) = temp_vault("fsync-case");
+        let watched = temp_watched("fsync-case");
+        let file = watched.join("receipt.pdf");
+        fs::write(&file, b"receipt").unwrap();
+        write_folders_json(
+            &dir,
+            &format!(
+                r#"[{{"path": "{}", "type": "finance-doc", "globs": []}}]"#,
+                watched.display()
+            ),
+        );
+
+        assert_eq!(e.sync_folders()[0].created, 1);
+        let stub = e
+            .list()
+            .into_iter()
+            .find(|n| prop_str(&n.props, "type").as_deref() == Some("finance-doc"))
+            .unwrap();
+        let stub_abs = dir.join(&stub.path);
+        let recased = fs::read_to_string(&stub_abs)
+            .unwrap()
+            .replace("\nfile:", "\nFile:")
+            .replace("\nmodified:", "\nModified:")
+            .replace("\nsize:", "\nSize:");
+        fs::write(&stub_abs, recased).unwrap();
+        e.rescan();
+
+        let before_len = e.list().len();
+        let before_writes = e.note_writes;
+        let stats = e.sync_folders();
+        assert_eq!(stats[0].created, 0, "a recased File key still identifies the managed stub");
+        assert_eq!(stats[0].updated, 0, "recased stamp keys compare against the live file");
+        assert_eq!(e.list().len(), before_len, "rescan does not create a duplicate stub");
+        assert_eq!(e.note_writes, before_writes, "recasing alone causes no rewrite");
+
+        fs::remove_file(&file).unwrap();
+        assert_eq!(e.sync_folders()[0].missing, 1);
+        let recased = fs::read_to_string(&stub_abs).unwrap().replace("\nmissing:", "\nMissing:");
+        fs::write(&stub_abs, recased).unwrap();
+        e.rescan();
+        let before_writes = e.note_writes;
+        assert_eq!(e.sync_folders()[0].missing, 1);
+        assert_eq!(e.note_writes, before_writes, "a recased Missing flag is not written again");
+        assert_eq!(
+            stub_prop_keys(&stub_abs).iter().filter(|k| folded_eq(k, "missing")).count(),
+            1,
+            "flagging a note that already carries `Missing:` adds no lowercase twin"
+        );
+
+        // the file comes back: the flag has to go away through the key the
+        // note actually spells, or every later tick re-writes it forever
+        fs::write(&file, b"receipt v2").unwrap();
+        let stats = e.sync_folders();
+        assert_eq!(stats[0].missing, 0, "the restored file clears the missing count");
+        assert_eq!(stats[0].updated, 1, "one write refreshes the stamps and drops the flag");
+        let keys = stub_prop_keys(&stub_abs);
+        assert!(
+            !keys.iter().any(|k| folded_eq(k, "missing")),
+            "the recased Missing flag is gone, in either spelling: {keys:?}"
+        );
+        assert!(keys.contains(&"Modified".to_string()), "stamps stay on their key: {keys:?}");
+        assert!(keys.contains(&"Size".to_string()), "stamps stay on their key: {keys:?}");
+        assert!(
+            !keys.contains(&"modified".to_string()) && !keys.contains(&"size".to_string()),
+            "no lowercase stamp twins beside the recased keys: {keys:?}"
+        );
+
+        // and it converges: two further ticks touch nothing at all
+        for tick in 0..2 {
+            let before_writes = e.note_writes;
+            let before_len = e.list().len();
+            let stats = e.sync_folders();
+            assert_eq!(stats[0].updated, 0, "tick {tick} has nothing left to update");
+            assert_eq!(stats[0].missing, 0, "tick {tick} sees no missing file");
+            assert_eq!(stats[0].created, 0, "tick {tick} creates no second stub");
+            assert_eq!(e.note_writes, before_writes, "tick {tick} writes nothing");
+            assert_eq!(e.list().len(), before_len, "tick {tick} adds no note");
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// Narrow companion to the test above: no missing flag in play, just a
+    /// changed file behind recased stamp keys (SUB-925).
+    #[test]
+    fn folder_sync_refreshes_recased_stamp_keys_in_place() {
+        let (mut e, dir) = temp_vault("fsync-stamp-case");
+        let watched = temp_watched("fsync-stamp-case");
+        let file = watched.join("statement.csv");
+        fs::write(&file, b"v1").unwrap();
+        write_folders_json(
+            &dir,
+            &format!(
+                r#"[{{"path": "{}", "type": "finance-doc", "globs": []}}]"#,
+                watched.display()
+            ),
+        );
+        assert_eq!(e.sync_folders()[0].created, 1);
+        let stub = e
+            .list()
+            .into_iter()
+            .find(|n| prop_str(&n.props, "type").as_deref() == Some("finance-doc"))
+            .unwrap();
+        let stub_abs = dir.join(&stub.path);
+        let recased = fs::read_to_string(&stub_abs)
+            .unwrap()
+            .replace("\nfile:", "\nFile:")
+            .replace("\nmodified:", "\nModified:")
+            .replace("\nsize:", "\nSize:");
+        fs::write(&stub_abs, recased).unwrap();
+        e.rescan();
+
+        fs::write(&file, b"a longer second version").unwrap();
+        assert_eq!(e.sync_folders()[0].updated, 1, "the changed file refreshes the stamps");
+
+        let keys = stub_prop_keys(&stub_abs);
+        assert_eq!(
+            keys.iter().filter(|k| folded_eq(k, "modified")).count(),
+            1,
+            "exactly one modified key: {keys:?}"
+        );
+        assert_eq!(
+            keys.iter().filter(|k| folded_eq(k, "size")).count(),
+            1,
+            "exactly one size key: {keys:?}"
+        );
+        let props = parse_props(split_frontmatter(&fs::read_to_string(&stub_abs).unwrap()).0);
+        assert_eq!(
+            prop_str(&props, "Size").as_deref(),
+            Some("23"),
+            "the recased key carries the new size"
+        );
+        assert_eq!(e.sync_folders()[0].updated, 0, "the refreshed stamps compare equal next tick");
+
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// The other half of the pair: flagging a vanished file lands on the
+    /// note's own spelling of `missing` (SUB-925).
+    #[test]
+    fn folder_sync_flags_missing_on_the_recased_key() {
+        let (mut e, dir) = temp_vault("fsync-missing-case");
+        let watched = temp_watched("fsync-missing-case");
+        let file = watched.join("invoice.pdf");
+        fs::write(&file, b"v1").unwrap();
+        write_folders_json(
+            &dir,
+            &format!(
+                r#"[{{"path": "{}", "type": "finance-doc", "globs": []}}]"#,
+                watched.display()
+            ),
+        );
+        assert_eq!(e.sync_folders()[0].created, 1);
+        let stub = e
+            .list()
+            .into_iter()
+            .find(|n| prop_str(&n.props, "type").as_deref() == Some("finance-doc"))
+            .unwrap();
+        let stub_abs = dir.join(&stub.path);
+        // a hand-written `Missing:` that isn't the flag yet — the write path,
+        // not the already-flagged short-circuit
+        let seeded =
+            fs::read_to_string(&stub_abs).unwrap().replace("\nsize:", "\nMissing: no\nsize:");
+        fs::write(&stub_abs, seeded).unwrap();
+        e.rescan();
+
+        fs::remove_file(&file).unwrap();
+        assert_eq!(e.sync_folders()[0].missing, 1);
+        let keys = stub_prop_keys(&stub_abs);
+        assert_eq!(
+            keys.iter().filter(|k| folded_eq(k, "missing")).count(),
+            1,
+            "the flag replaced the existing key rather than twinning it: {keys:?}"
+        );
+        let props = parse_props(split_frontmatter(&fs::read_to_string(&stub_abs).unwrap()).0);
+        assert_eq!(prop_str(&props, "Missing").as_deref(), Some("true"));
+
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// Frontmatter keys as the file on disk actually spells them.
+    fn stub_prop_keys(abs: &std::path::Path) -> Vec<String> {
+        let raw = fs::read_to_string(abs).unwrap();
+        parse_props(split_frontmatter(&raw).0).keys().cloned().collect()
     }
 
     #[test]

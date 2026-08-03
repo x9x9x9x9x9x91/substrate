@@ -1266,6 +1266,11 @@ impl Engine {
         })
     }
 
+    /// The string-shaped convenience over `set_prop_value`. Since folder-sync
+    /// started writing its flag through the note's own spelling of the key
+    /// (SUB-925) every remaining caller is a test, so a non-test build sees
+    /// none — same situation as `create` above.
+    #[allow(dead_code)]
     pub fn set_prop(
         &mut self,
         rel: &str,
