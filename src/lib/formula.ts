@@ -119,6 +119,23 @@ export function hasAggregate(e: Expr, rowShaped?: (ref: string) => boolean): boo
   }
 }
 
+/** Does the expression call `name` (already uppercased, as the parser stores
+    call names) anywhere inside it? The summary bar asks this about `FX` so a
+    sheet that never converts currency stops carrying a USD→EUR stamp under it
+    (SUB-939). */
+export function callsFunction(e: Expr, name: string): boolean {
+  switch (e.k) {
+    case "call":
+      return e.name === name || e.args.some((a) => callsFunction(a, name));
+    case "bin":
+      return callsFunction(e.l, name) || callsFunction(e.r, name);
+    case "neg":
+      return callsFunction(e.e, name);
+    default:
+      return false;
+  }
+}
+
 // All column names referenced anywhere in the expression (lowercased).
 // Cross-sheet refs come out dotted: "holdings.total".
 export function collectRefs(e: Expr, out: string[] = []): string[] {

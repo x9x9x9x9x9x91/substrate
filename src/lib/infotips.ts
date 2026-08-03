@@ -728,7 +728,7 @@ export const TIPS: TipEntry[] = [
     selector: ".sheet-summary",
     tip: {
       title: "Summary row",
-      body: "Named aggregates from the formulas block, recalculated whenever the table changes.",
+      body: "Named aggregates from the formulas block, recalculated whenever the table changes. A blank line in that block splits it: the first group with summaries shows here, the rest wait behind “show all”.",
     },
   },
   /* version history */

@@ -17,6 +17,8 @@ import {
   parseSheet,
   serializeCsv,
   setSheetCell,
+  sheetUsesFx,
+  summaryBar,
   updateSheetFormula,
   columnTakesNumberInput,
   type SheetModel,
@@ -1205,5 +1207,95 @@ describe("SUB-915 — de-DE input gate is earned per column, not assumed", () =>
   test("out-of-range column index is not numeric", () => {
     const m = model("a,b\n1,2\n3,4");
     assert.equal(columnTakesNumberInput(m, 9, 0), false);
+  });
+});
+
+describe("SUB-939 — summary bar hierarchy, error rollup, FX stamp", () => {
+  const sheet = (formulas: string, csv = "asset,bucket,units,price_usd\nGLOW,etf,1200,31.4\nBTC,crypto,4.1,64200") =>
+    parseSheet("```csv\n" + csv + "\n```\n\n```formulas\n" + formulas + "\n```\n");
+  const bar = (formulas: string, csv?: string) =>
+    summaryBar(evaluateSheet(sheet(formulas, csv), fx).summaries);
+  const names = (chips: { name: string }[]) => chips.map((c) => c.name);
+
+  test("blank lines group the fence; runs, leading blanks and comments don't invent groups", () => {
+    const m = sheet(
+      "\n# helpers\nvalue_usd = units * price_usd\n\n\ntotal = SUM(value_usd)\n# a comment inside the block\nbig = MAX(value_usd)\n\nspare = 25000\n"
+    );
+    assert.deepEqual(
+      m.formulas.map((f) => [f.name, f.group]),
+      [
+        ["value_usd", 0],
+        ["total", 1],
+        ["big", 1],
+        ["spare", 2],
+      ]
+    );
+  });
+
+  test("a fence with no blank lines is one group — the bar is unchanged", () => {
+    const b = bar("value_usd = units * price_usd\ntotal = SUM(value_usd)\nbig = MAX(value_usd)");
+    assert.deepEqual(names(b.headline), ["total", "big"]);
+    assert.deepEqual(b.rest, []);
+    assert.deepEqual(b.rollups, []);
+  });
+
+  test("the headline is the first summary-bearing group, not group 0", () => {
+    // the canonical shape: computed columns above the blank line, totals below
+    const b = bar(
+      "value_usd = units * price_usd\nvalue_eur = value_usd * FX(\"USD\",\"EUR\")\n\ntotal = SUM(value_eur)\ncrypto = SUMIF(bucket, \"crypto\", value_eur)"
+    );
+    assert.deepEqual(names(b.headline), ["total", "crypto"]);
+    assert.deepEqual(b.rest, []);
+  });
+
+  test("later groups collapse behind the toggle, in definition order", () => {
+    const b = bar(
+      "total = SUM(units)\nbig = MAX(units)\n\navg = AVG(units)\nlow = MIN(units)\n\ncount = COUNT(units)"
+    );
+    assert.deepEqual(names(b.headline), ["total", "big"]);
+    assert.deepEqual(names(b.rest), ["avg", "low", "count"]);
+  });
+
+  test("summaries failing from one root cause become a single rollup chip", () => {
+    // `value_eur` is both a data column and a formula name (SUB-751): every
+    // summary reading it carries the same collision message
+    const b = bar(
+      "value_usd = units * price_usd\nvalue_eur = value_usd * 2\n\ntotal = SUM(value_eur)\ncrypto = SUMIF(bucket, \"crypto\", value_eur)\netf = SUMIF(bucket, \"etf\", value_eur)",
+      "asset,bucket,units,price_usd,value_eur\nGLOW,etf,1200,31.4,1\nBTC,crypto,4.1,64200,2"
+    );
+    assert.equal(b.rollups.length, 1);
+    assert.match(b.rollups[0].message ?? "", /value_eur/);
+    assert.deepEqual(b.rollups[0].names, ["total", "crypto", "etf"]);
+    // the headline row stops being a row of `!` — the rolled-up ones move back
+    assert.deepEqual(b.headline, []);
+    assert.deepEqual(names(b.rest), ["total", "crypto", "etf"]);
+  });
+
+  test("a lone failure stays a chip in place — its name is the useful part", () => {
+    const b = bar("total = SUM(units)\nnope = SUM(missing_column)");
+    assert.deepEqual(b.rollups, []);
+    assert.deepEqual(names(b.headline), ["total", "nope"]);
+  });
+
+  test("unrelated failures collapse into one untargeted chip once there are two", () => {
+    const b = bar("total = SUM(units)\nnope = SUM(missing_a)\nalso = SUM(missing_b)");
+    assert.equal(b.rollups.length, 1);
+    assert.equal(b.rollups[0].message, null);
+    assert.deepEqual(b.rollups[0].names, ["nope", "also"]);
+    assert.deepEqual(names(b.headline), ["total"]);
+    assert.deepEqual(names(b.rest), ["nope", "also"]);
+  });
+
+  test("an empty summary list is an empty bar", () => {
+    const b = bar("value_usd = units * price_usd");
+    assert.deepEqual(b, { headline: [], rest: [], rollups: [] });
+  });
+
+  test("the FX stamp asks whether this sheet converts currency", () => {
+    assert.equal(sheetUsesFx(sheet("eur = units * price_usd * FX(\"USD\",\"EUR\")")), true);
+    assert.equal(sheetUsesFx(sheet("total = ROUND(SUM(units * FX(\"USD\",\"EUR\")), 2)")), true);
+    assert.equal(sheetUsesFx(sheet("total = SUM(units)\nbig = MAX(price_usd)")), false);
+    // an unparsable line can't claim a rate either
+    assert.equal(sheetUsesFx(sheet("total = SUM(")), false);
   });
 });

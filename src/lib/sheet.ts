@@ -6,6 +6,7 @@
 import { parseStrictNumber } from "./aggregate.ts";
 import { todayIso } from "./dates.ts";
 import {
+  callsFunction,
   collectCrossRefs,
   collectRefs,
   evaluate,
@@ -40,6 +41,14 @@ export interface FormulaLine {
   src: string; // right-hand side source text
   expr: Expr | FErr;
   aggregate: boolean;
+  /** Which blank-line-separated block of the fence this line sits in, 0-based
+      (SUB-939). The summary bar reads it for hierarchy: the first block that
+      holds summaries is the headline, later ones collapse. A run of blank
+      lines is one separator, and blanks before the first formula line bind to
+      block 0 — so an empty block never exists and a fence with no blank lines
+      is one block, exactly as before. Comments and unparsable lines never open
+      a block; they neither start one nor break one. */
+  group: number;
 }
 
 export interface SheetModel {
@@ -54,7 +63,10 @@ export interface SheetEval {
   headers: string[];
   rows: Cell[][]; // typed data cells
   computed: { name: string; cells: Value[] }[];
-  summaries: { name: string; value: Value }[];
+  /** `group` is the formula line's block in the fence (FormulaLine.group) —
+      the summary bar's hierarchy, carried here so a reader doesn't have to
+      re-parse the note. */
+  summaries: { name: string; value: Value; group: number }[];
   /** Folded names two things bind to → the message every reference gets
       instead of data (SUB-751). Kept on the eval so a *reader* sheet can see
       this sheet's ambiguity too (SUB-756); keyed by folded (lowercased) name. */
@@ -225,16 +237,26 @@ export function parseSheet(body: string): SheetModel {
     // summary defined later in the fence still classifies as a summary; a line
     // touching anything row-shaped (a data column or a computed column,
     // wherever defined) stays a data row.
-    const parsed: { name: string; src: string; expr: Expr | FErr }[] = [];
+    const parsed: { name: string; src: string; expr: Expr | FErr; group: number }[] = [];
+    let group = 0;
+    let pendingBreak = false; // a blank line seen after at least one formula
     for (const rawLine of ff.inner.split("\n")) {
       const line = rawLine.trim();
-      if (!line || line.startsWith("#")) continue;
+      if (!line) {
+        if (parsed.length > 0) pendingBreak = true;
+        continue;
+      }
+      if (line.startsWith("#")) continue;
       const m = FORMULA_LINE_RE.exec(line);
       if (!m) {
         errors.push(`can't parse formula line: ${line}`);
         continue;
       }
-      parsed.push({ name: m[1], src: m[2], expr: parseFormula(m[2]) });
+      if (pendingBreak) {
+        group++;
+        pendingBreak = false;
+      }
+      parsed.push({ name: m[1], src: m[2], expr: parseFormula(m[2]), group });
     }
     // A bare (non-dotted) reference that isn't a summary is row-shaped: a data
     // column or a computed column. Used by the SUB-748 rule — a LOOKUP whose
@@ -264,6 +286,7 @@ export function parseSheet(body: string): SheetModel {
         src: p.src,
         expr: p.expr,
         aggregate: summaryNames.has(p.name.toLowerCase()),
+        group: p.group,
       });
     }
   }
@@ -405,7 +428,7 @@ function evalSheetInner(
 ): SheetEval {
   const rows: Cell[][] = model.rows.map((r) => r.map(typedCell));
   const computed: { name: string; cells: Value[] }[] = [];
-  const summaries: { name: string; value: Value }[] = [];
+  const summaries: { name: string; value: Value; group: number }[] = [];
 
   // Names two things fold onto (SUB-751). Bound over every scope below, after
   // the real bindings, so an ambiguous name resolves to its own error instead
@@ -509,12 +532,12 @@ function evalSheetInner(
     if (!f.aggregate) continue;
     const own = collisionOf(f.name);
     if (own || isErr(f.expr)) {
-      summaries.push({ name: f.name, value: own ?? (f.expr as FErr) });
+      summaries.push({ name: f.name, value: own ?? (f.expr as FErr), group: f.group });
       continue;
     }
     const v = evaluate(f.expr, summaryScope, fxResolver, today);
     const value = Array.isArray(v) ? ferr(COL_AS_VALUE) : (v as Value);
-    summaries.push({ name: f.name, value });
+    summaries.push({ name: f.name, value, group: f.group });
     // A colliding name keeps its collision error in scope — a later summary
     // must not overwrite the ambiguity it caused with its own value.
     if (!isErr(value) && !own) summaryScope.set(f.name.toLowerCase(), value);
@@ -628,6 +651,98 @@ export function formatValue(v: Value | Cell, header?: string): string {
 
 export function errMessage(v: unknown): string | null {
   return isErr(v) ? v.err : null;
+}
+
+// ---------- summary bar layout (SUB-939) ----------
+
+export interface BarSummary {
+  name: string;
+  value: Value;
+}
+
+/** One error chip standing in for several broken summaries. `message` is the
+    shared cause when they all failed the same way — the engine's own message,
+    which already names the culprit (`“value_eur” is both a column and a
+    formula name — rename one`) — and null when the only thing they have in
+    common is that they failed. */
+export interface BarRollup {
+  message: string | null;
+  names: string[];
+}
+
+export interface SummaryBar {
+  /** Read at a glance: the first block of the fence that holds summaries. */
+  headline: BarSummary[];
+  /** Behind the "show all" toggle: later blocks, plus anything a rollup
+      already speaks for (its chip expands to these). Definition order. */
+  rest: BarSummary[];
+  rollups: BarRollup[];
+}
+
+/** Split the evaluated summaries into what the bar shows first, what it hides,
+    and the error rollups (SUB-939).
+ *
+ * Hierarchy comes from the note itself: blank lines in the ```formulas fence
+ * group the lines, and the FIRST group holding summaries is the headline. It
+ * is deliberately the first *summary-bearing* group, not group 0 — the
+ * canonical sheet shape puts computed columns above a blank line and the
+ * totals below it, so keying on group 0 would headline nothing and bury every
+ * total. A fence with one group therefore behaves exactly as it always did:
+ * everything is headline, nothing collapses, no toggle appears.
+ *
+ * Errors roll up by their message, which is how one root cause is attributed:
+ * a name collision or a broken upstream ref propagates the *same* message into
+ * every summary that reads it, so grouping on the message says "these N are
+ * one problem" without guessing. Two or more sharing a message become one
+ * chip; leftover one-off failures collapse into a single untargeted chip only
+ * once there are at least two of them (a lone failure stays a normal chip in
+ * place, where its name is the useful part). Rolled-up summaries move to
+ * `rest` so the headline row stops being a row of `!`. */
+export function summaryBar(summaries: SheetEval["summaries"]): SummaryBar {
+  const messages = summaries.map((s) => errMessage(s.value));
+  const byMessage = new Map<string, number[]>();
+  messages.forEach((m, i) => {
+    if (m === null) return;
+    const at = byMessage.get(m);
+    if (at) at.push(i);
+    else byMessage.set(m, [i]);
+  });
+
+  const rollups: BarRollup[] = [];
+  const rolled = new Set<number>();
+  const strays: number[] = [];
+  for (const [message, at] of byMessage) {
+    if (at.length < 2) {
+      strays.push(at[0]);
+      continue;
+    }
+    rollups.push({ message, names: at.map((i) => summaries[i].name) });
+    for (const i of at) rolled.add(i);
+  }
+  if (strays.length > 1) {
+    strays.sort((a, b) => a - b);
+    rollups.push({ message: null, names: strays.map((i) => summaries[i].name) });
+    for (const i of strays) rolled.add(i);
+  }
+
+  const headGroup = summaries.length > 0 ? Math.min(...summaries.map((s) => s.group)) : 0;
+  const headline: BarSummary[] = [];
+  const rest: BarSummary[] = [];
+  summaries.forEach((s, i) => {
+    const chip = { name: s.name, value: s.value };
+    if (s.group === headGroup && !rolled.has(i)) headline.push(chip);
+    else rest.push(chip);
+  });
+  return { headline, rest, rollups };
+}
+
+/** Does this sheet convert currency through `FX()` (SUB-939)? The bar's
+    `USD→EUR …` stamp used to render under every sheet, including ones with no
+    money in them at all. The question is asked of this sheet's own formulas
+    only: a cross-sheet total that was converted elsewhere carries its rate on
+    the sheet that did the converting, where the reader can see the line. */
+export function sheetUsesFx(model: SheetModel): boolean {
+  return model.formulas.some((f) => !isErr(f.expr) && callsFunction(f.expr, "FX"));
 }
 
 // ---------- body edit ops (preserve everything outside the csv fence) ----------

@@ -19,7 +19,10 @@ import {
   moveSheetRow,
   parseSheet,
   setSheetCell,
+  sheetUsesFx,
+  summaryBar,
   updateSheetFormula,
+  type BarSummary,
   type SheetModel,
 } from "../lib/sheet";
 import {
@@ -92,6 +95,7 @@ export default function SheetGrid({
   const [gridMenu, setGridMenu] = useState<GridMenu | null>(null);
   const [colDraft, setColDraft] = useState("");
   const [source, setSource] = useState(false);
+  const [showAll, setShowAll] = useState(false);
   const [editCol, setEditCol] = useState<{ name: string; draft: string; err: string | null } | null>(
     null
   );
@@ -171,6 +175,25 @@ export default function SheetGrid({
   const dataCols = model.headers.length;
   const cols = dataCols + ev.computed.length;
   const rowCount = ev.rows.length;
+
+  /* Summary bar (SUB-939): the fence's first summary-bearing group is the
+     headline, later groups sit behind one toggle, and summaries that broke
+     for one shared reason are spoken for by a single rollup chip. */
+  const bar = useMemo(() => summaryBar(ev.summaries), [ev]);
+  const usesFx = useMemo(() => sheetUsesFx(model), [model]);
+  const sumChip = (s: BarSummary, i: number, quiet: boolean) => {
+    const err = errMessage(s.value);
+    return (
+      <span
+        className={"sheet-sum" + (quiet ? " sheet-sum-quiet" : "")}
+        key={`${s.name}-${i}`}
+        title={err ?? undefined}
+      >
+        <span className="sheet-sum-name">{s.name}</span>
+        <span className={"sheet-sum-val" + (err ? " sheet-err" : "")}>{formatValue(s.value)}</span>
+      </span>
+    );
+  };
 
   /* a column reads numeric when every non-blank, non-error cell is a number —
      numeric headers right-align over their digits (SUB-137) */
@@ -749,27 +772,51 @@ export default function SheetGrid({
         </table>
       </div>
       <div className="sheet-summary">
-        {ev.summaries.length > 0 ? (
-          ev.summaries.map((s) => {
-            const err = errMessage(s.value);
-            return (
-              <span className="sheet-sum" key={s.name} title={err ?? undefined}>
-                <span className="sheet-sum-name">{s.name}</span>
-                <span className={"sheet-sum-val" + (err ? " sheet-err" : "")}>
-                  {formatValue(s.value)}
-                </span>
-              </span>
-            );
-          })
-        ) : (
-          <span className="sheet-sum-hint">
-            Named aggregates in the ```formulas block (SUM, SUMIF, …) appear here
+        <div className="sheet-sum-row">
+          {ev.summaries.length > 0 ? (
+            <>
+              {bar.headline.map((s, i) => sumChip(s, i, false))}
+              {bar.rollups.map((r, i) => (
+                <button
+                  className="sheet-sum sheet-sum-rollup"
+                  key={r.message ?? `mixed-${i}`}
+                  aria-expanded={showAll}
+                  title={(r.message ? r.message + "\n" : "") + r.names.join(", ")}
+                  onClick={() => setShowAll((v) => !v)}
+                >
+                  <span className="sheet-sum-why sheet-err">
+                    {r.message ?? `${r.names.length} summaries failed`}
+                  </span>
+                  <span className="sheet-sum-count">
+                    {r.message ? `broke ${r.names.length} summaries` : "different causes"}
+                  </span>
+                </button>
+              ))}
+              {bar.rest.length > 0 && (
+                <button
+                  className="sheet-sum-more"
+                  aria-expanded={showAll}
+                  onClick={() => setShowAll((v) => !v)}
+                >
+                  {showAll ? "hide" : `show all (${bar.rest.length})`}
+                </button>
+              )}
+            </>
+          ) : (
+            <span className="sheet-sum-hint">
+              Named aggregates in the ```formulas block (SUM, SUMIF, …) appear here
+            </span>
+          )}
+          <span className="sheet-meta">
+            {rowCount} {rowCount === 1 ? "row" : "rows"}
+            {fx && usesFx ? ` · USD→EUR ${fmtFx(fx.usdEur)}${fx.live ? "" : " (cached)"}` : ""}
           </span>
+        </div>
+        {showAll && bar.rest.length > 0 && (
+          <div className="sheet-sum-row sheet-sum-rest">
+            {bar.rest.map((s, i) => sumChip(s, i, true))}
+          </div>
         )}
-        <span className="sheet-meta">
-          {rowCount} {rowCount === 1 ? "row" : "rows"}
-          {fx ? ` · USD→EUR ${fmtFx(fx.usdEur)}${fx.live ? "" : " (cached)"}` : ""}
-        </span>
       </div>
       {gridMenu && (
         <ContextMenu

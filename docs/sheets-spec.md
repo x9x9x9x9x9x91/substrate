@@ -48,6 +48,23 @@ etf         = SUMIF(bucket, "etf", value_eur)
   one named value in the summary bar, never repeated down the rows (SUB-715).
   Row scope stays data and computed columns only, so a per-row formula can't
   reference a constant by name — inline the literal there.
+- **Blank lines group the fence, and the summary bar reads that grouping
+  (SUB-939)**: lines separated by a blank line form blocks, and the FIRST block
+  holding summaries is the sheet's headline — the numbers the bar shows at a
+  glance. Every later block collapses behind one `show all (N)` toggle, closed
+  by default, so a finance sheet's helpers and intermediates stop competing with
+  its totals. The example above is the canonical shape: computed columns, blank
+  line, totals — and because the headline is the first *summary-bearing* block,
+  not simply the first block, those totals headline exactly as they did before.
+  Consequences worth knowing when writing a fence:
+  - A fence with no blank lines is one block: everything is headline, nothing
+    collapses, no toggle appears. Existing sheets don't change.
+  - A run of blank lines is one separator, and blanks above the first formula
+    line belong to the first block — an empty block can't exist.
+  - Comments (`#`) and unparsable lines never open or break a block.
+  - Grouping is presentation only. It changes nothing about evaluation,
+    classification, dashboard bindings or cross-sheet references — a summary in
+    a collapsed block is bindable exactly like one in the headline.
 - Everything greppable, diffable, agent-writable, syncable. The grid UI is a view.
 
 ## Formula language v1
@@ -255,6 +272,23 @@ AVG(days_held)`.
 - Sheet notes open as a grid (like the DB list pane but real columns): editable data
   cells, computed columns read-only (dimmed), summary bar pinned below with the named
   aggregates. Tab/arrow navigation, Enter to edit. Add row/column inline.
+- **The summary bar is ranked, not a wrap (SUB-939).** Three rules, all of them
+  hierarchy through size, weight and spacing — the bar adds no color of its own:
+  - **Two tiers.** The headline block (above) renders larger; `show all (N)`
+    opens a second, quieter row with everything else. The toggle only exists
+    when something is actually hidden.
+  - **One chip per shared cause.** Summaries that failed carrying the *same*
+    engine message came from one root cause — a name collision, a broken
+    upstream ref — so the bar says it once: the message, then `broke N
+    summaries`, expanding to the individual chips on click. That message
+    already names the culprit, which is the attribution; when failures share
+    nothing but failing, two or more of them collapse into one untargeted
+    `N summaries failed` chip instead. A lone failure stays a normal chip in
+    place, where its own name is the useful part.
+  - **The `USD→EUR …` stamp renders only on sheets that call `FX()`**, asked of
+    the sheet's own formula lines. A cross-sheet total converted elsewhere
+    carries its rate on the sheet that did the converting, next to the line
+    that did it.
 - Computed column headers edit the formula: double-click opens the line in fence form
   (`name = formula`); Enter applies, Esc cancels. A rename rewrites references on
   every other formula line (string literals, function names, and other sheets'

@@ -391,6 +391,12 @@ crypto = SUMIF(bucket, "crypto", value_eur)
 - Formula lines are `name = expression`; `#` starts a comment. Lines referencing
   columns per-row become computed columns; lines using aggregates or only
   summaries/cross-sheet values become named summaries.
+- **Blank lines inside the formulas fence are meaningful (SUB-939)**: they split
+  it into blocks, and the app's summary bar shows the first block holding
+  summaries while later ones collapse behind a toggle. Purely presentational —
+  evaluation, classification and bindings ignore the grouping — but a writer
+  reordering a fence should know the blank lines carry intent. The example
+  above is the idiomatic shape: computed columns, blank line, totals.
 - Cross-sheet references: `Holdings.total`, quoted when the name has spaces
   (`"Portfolio Tracker".total`); resolved by note title/stem, case-insensitive.
 - The full formula language (aggregates, `IF`, `ROUND`, `FX`) is specified in
