@@ -194,6 +194,7 @@ type: release
 | `items`, `curated` | feed dashboard config: items-sheet name, and the curator's own last-run stamp, rendered verbatim (§5.2) |
 | `index`, `scanned` | music-work dashboard config: work-index sheet name, and the scanner's own last-run stamp, rendered verbatim (§5.2) |
 | `areas`, `stale_days` | tasks dashboard area allowlist and stale-age threshold (§5.2) |
+| `now`, `snoozed_until` | tasks board: pinned to the focus section / parked until a wake day, both board-scoped (§5.2) |
 
 Everything else is yours. Unknown props are preserved and shown as chips.
 
@@ -440,11 +441,13 @@ none falls back to the yield tracker. So a charts dashboard needs no specific
 key, just the fences; `dashboard: charts` is the conventional label, not a
 dispatched value.
 
-`tasks` (SUB-732; actions SUB-786) is an attention view over task notes. Row
-clicks open the source note; the board also writes task state through the
-standard prop path (`vault_set_prop`, undoable): checkoff sets `status: done`,
-the Now/Later verb sets/removes `now`, and the snooze menu sets
-`snoozed_until`. Its dashboard note holds only optional config:
+`tasks` (SUB-732; actions SUB-786; board v3 SUB-870) is a task interface over
+task notes, led by due dates. Row clicks open the source note; the board also
+authors and writes task state through the standard paths (`vault_create` for
+the composer, `vault_set_prop` — undoable — for the rest): checkoff sets
+`status` to the task type's own done-like option, the Now/Later verb
+sets/removes `now`, the snooze menu sets `snoozed_until` and Wake clears it.
+Its dashboard note holds only optional config:
 
 ```yaml
 ---
@@ -461,27 +464,56 @@ stale_days: 30         # positive whole number; default 30
   the group order/label. Omitted means all areas, while a supplied empty list
   means none. Without an allowlist groups sort by name with missing `area`
   under `Unassigned` last.
+- **Sections (SUB-870)**: the board's spine is **Overdue**, **Due today**,
+  **Now**, then the area groups, and an empty section is omitted rather than
+  rendered blank. `due` is a strict `YYYY-MM-DD`, optionally with a trailing
+  ` HH:MM` (SUB-270) that buckets by its day; it places a row in Overdue
+  (before today) or Due today, wherever its area is. Urgency outranks the pin:
+  a `now: true` task that is overdue or due today shows in that section, not
+  in Now. Everything else — upcoming and undated alike — stays in its area
+  group. A missing or malformed `due` is simply no due date: never a finding,
+  never a reason to move or hide the row.
+- **Ranking (SUB-870)**: within every section the order is due bucket
+  (overdue → today → upcoming → none), then priority, then age, then title,
+  then path — so input order never changes the board
+  (`src/lib/tasksDashboard.ts`). Trimmed, case-insensitive `high` / `medium` /
+  `low` weigh 3 / 2 / 1; missing or unknown priority weighs 1. Age is the
+  tiebreaker only; the `age × priority` rot score that ordered v2 is gone.
+  `priority` renders as a pill in the schema's own option color, falling back
+  to red / yellow / gray when the vault never schema'd the prop.
 - Age is whole local-calendar days from a strict `created: YYYY-MM-DD` value;
-  future dates clamp to zero. Missing/invalid dates render as an `undated`
-  attention finding with no age and score zero. A dated task is stale at
-  `age >= stale_days`; an invalid/non-positive threshold uses 30.
-- Within each area, rot order is `age × priority weight` descending. Trimmed,
-  case-insensitive `high` / `medium` / `low` weigh 3 / 2 / 1; missing or unknown
-  priority weighs 1. Ties resolve by age, weight, title, then path, so input
-  order never changes the board (`src/lib/tasksDashboard.ts`).
+  future dates clamp to zero. Missing/invalid dates render an `undated`
+  finding and no age. A dated task is stale at `age >= stale_days`; an
+  invalid/non-positive threshold uses 30. Both findings are secondary
+  diagnostics — amber chips beside a row, not its place on the board.
 - **Now (SUB-786)**: a task with `now: true` (YAML boolean, or the string
-  `"true"` after trim/case folding) pins to a cross-area "Now" section above
-  the groups — the hand-picked focus list. Pinned rows keep the same rot
-  ordering but never carry `stale`/`undated` findings and don't count toward
-  the header's attention tally: Now is chosen work, not rot. Unpinning
-  removes the key. There is deliberately no cap.
-- **Snooze (SUB-786)**: a task whose `snoozed_until` is a strict future
-  `YYYY-MM-DD` (local calendar) is hidden from the board and counted in the
-  header's `N snoozed` tally instead; snoozed ≠ stale. Today, past dates, and
-  malformed values never hide a task — a bad date silently vanishing a row is
-  the worst failure shape for a trust surface. The prop is board-scoped:
-  database views, Today, and the calendar ignore it. Counting happens after
-  the area allowlist, so off-board areas don't inflate the tally.
+  `"true"` after trim/case folding) pins to a cross-area "Now" section, the
+  hand-picked focus list, while nothing is due on it. Pinned rows never carry
+  `stale`/`undated` findings: Now is chosen work, not rot. Unpinning removes
+  the key. There is deliberately no cap.
+- **Snooze (SUB-786; round trip SUB-870)**: a task whose `snoozed_until` is a
+  strict future `YYYY-MM-DD` (local calendar) leaves the board for a collapsed
+  **Snoozed** section listing each row with its wake day, soonest first;
+  snoozed ≠ stale. Wake clears the prop and the row rejoins the board. Today,
+  past dates, and malformed values never hide a task — a bad date silently
+  vanishing a row is the worst failure shape for a trust surface. The prop is
+  board-scoped: database views, Today, and the calendar ignore it. The section
+  is filled after the area allowlist, so off-board areas don't inflate it.
+- **Inline editing (SUB-870)**: a row's due chip and priority pill are the
+  edit affordances for those props, writing `due` and `priority` through the
+  same undoable path the verbs use. An unset value keeps a placeholder in the
+  same cell, so the grid never shifts. Priority offers the schema's own
+  options where the vault defines them, high/medium/low otherwise; the board
+  never edits the schema itself.
+- **Quick-add (SUB-870)**: the composer creates a `task` note in the type's
+  home folder and seeds the schema's first non-completion `status` (else
+  `todo`), today's `created`, when the board runs an allowlist its first
+  `area`, and the optional `due` picked on the composer's own chip. The
+  created row is scrolled to and briefly highlighted, since under urgency
+  ranking an undated new task sorts to the bottom of its area group. The area
+  seed is load-bearing: an area-less
+  task lands in `Unassigned`, which an allowlist filters straight off the
+  board, so a row created here would appear to vanish.
 
 `hub` (SUB-189) is the column-first home-page renderer. The body stays
 ordinary markdown — no on-disk column syntax — and the renderer lays it out

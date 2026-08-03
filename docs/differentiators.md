@@ -68,9 +68,11 @@ Capacities, Affine).*
   with wildcards, SUMPRODUCT, date arithmetic, identifiers in any language.
 - **Dashboards as a mini-app platform** — metrics/stat cards, charts, hub
   pages (prose + live embedded views), food/kcal tracking (quantity grammar —
-  "200g oats" logs itself, weight-curve overlay), tasks (Now/Later + snooze),
-  news feed with agent curator, plus **workbook pages** — any dashboard grows
-  spreadsheet-style bottom tabs (sheet grid / dashboard / database cut).
+  "200g oats" logs itself, weight-curve overlay), tasks (an urgency-led board:
+  Overdue/Due today sections, quick-add, checkoff with a real undo, Now/Later,
+  snooze round trip), news feed with agent curator, plus **workbook pages** —
+  any dashboard grows spreadsheet-style bottom tabs (sheet grid / dashboard /
+  database cut).
   Machine-specific dashboard kinds exist in the author's private build and
   are deliberately not product features — the platform is the claim, and the
   cookbook (`cookbook/`) is the evidence.

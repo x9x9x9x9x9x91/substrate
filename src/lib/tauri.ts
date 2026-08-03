@@ -1184,9 +1184,21 @@ for (let i = 0; i < DIARY.length; i++) {
    4 scratch rows), no ISO-shaped prop sneaks in beyond the scheduling one
    (`due` / `date` — `created` is exempt), and titles/bodies stay clear of the
    search/palette keywords listed above. */
-const DENSE_TASKS: { title: string; due: number; status: string; line: string }[] = [
+/* `area`/`priority` are optional here and drive ONLY the tasks board (SUB-870):
+   the allowlist is Label/Studio/Admin, so a filler without an area stays off
+   that board while still counting as one of the 17 seeded tasks every db-view
+   spec pins. Three carry an area on purpose — one more overdue row, and two
+   upcoming ones so the board's area groups render below its urgency spine. */
+const DENSE_TASKS: {
+  title: string;
+  due: number;
+  status: string;
+  line: string;
+  area?: string;
+  priority?: string;
+}[] = [
   // overdue-adjacent: joined "Renew Bandcamp plan" in the overdue strip
-  { title: "Chase the test pressing approvals", due: -1, status: "doing", line: "Two plants answered, one still owes the green light." },
+  { title: "Chase the test pressing approvals", due: -1, status: "doing", area: "Label", priority: "High", line: "Two plants answered, one still owes the green light." },
   { title: "Update the Bandcamp payout details", due: -3, status: "todo", line: "New account since spring — check the split settings too." },
   { title: "Return the borrowed spring reverb", due: -8, status: "todo", line: "It lives on the drum bus until the bounce is done." },
   // a dense today (with the seeded task + both events: 7 dated entries)
@@ -1199,8 +1211,8 @@ const DENSE_TASKS: { title: string; due: number; status: string; line: string }[
   { title: "Pack the merch box for the label night", due: 3, status: "todo", line: "Tees, totes, and the last of the tape stock." },
   { title: "Set up the pre-save page for the September single", due: 5, status: "todo", line: "Artwork crop still pending — use the placeholder." },
   // next week and beyond (outside next-7-days, still on the month)
-  { title: "Renew the webshop shipping rates", due: 8, status: "todo", line: "Carrier raised prices again — recompute the bundles." },
-  { title: "Send the live-room recording quote", due: 11, status: "todo", line: "Two days, house kit included, dry hire on day three." },
+  { title: "Renew the webshop shipping rates", due: 8, status: "todo", area: "Admin", priority: "Medium", line: "Carrier raised prices again — recompute the bundles." },
+  { title: "Send the live-room recording quote", due: 11, status: "todo", area: "Studio", line: "Two days, house kit included, dry hire on day three." },
   { title: "Sequence the winter sampler", due: 16, status: "todo", line: "One track per roster artist; the opener picks itself." },
 ];
 for (const t of DENSE_TASKS) {
@@ -1209,7 +1221,14 @@ for (const t of DENSE_TASKS) {
     stem: t.title,
     title: t.title,
     folder: "Tasks",
-    props: { type: "task", status: t.status, due: day(t.due), created: FIXED_BASE },
+    props: {
+      type: "task",
+      status: t.status,
+      due: day(t.due),
+      created: FIXED_BASE,
+      ...(t.area ? { area: t.area } : {}),
+      ...(t.priority ? { priority: t.priority } : {}),
+    },
     updated_ms: genUpdated(),
     excerpt: t.line,
     body: `${t.line}\n`,
@@ -1755,6 +1774,15 @@ const mockSchemaSeed: SchemaConfig = {
     },
     // notify flag = the tray agenda's deadline / due-date notification opt-in
     due: { options: [], kind: "date", notify: true },
+    // the tasks board pills priority in the schema's own colors (SUB-870);
+    // an unschema'd vault falls back to the same roster in tasksDashboard.ts
+    priority: {
+      options: [
+        { value: "High", color: "red" },
+        { value: "Medium", color: "yellow" },
+        { value: "Low", color: "gray" },
+      ],
+    },
   },
   release: {
     status: {

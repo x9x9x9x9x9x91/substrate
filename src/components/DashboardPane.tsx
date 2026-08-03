@@ -42,8 +42,11 @@ interface DashboardPaneProps {
   onFollowLink?: (name: string) => void;
   /** open a database / saved view full-screen (workbook view pages) */
   onOpenView?: (dbType: string, savedId?: string) => void;
-  /** App's toast — a dashboard action's quiet confirmation (SUB-680) */
-  onToast?: (msg: string) => void;
+  /** App's toast — a dashboard action's quiet confirmation (SUB-680). The
+      optional action carries a real verb (the tasks board's Undo, SUB-870);
+      it used to be narrowed to a bare string here, which silently dropped
+      App's own second argument on the way down. */
+  onToast?: (msg: string, action?: { label: string; run: () => void }) => void;
   /** create a typed entry inline (SUB-680's release picker create half) */
   onCreateEntry?: (dbType: string, title: string) => Promise<NoteMeta>;
   /** workbook page stepping (⌃⇥ / ⌃⇧⇥) — wired only while a tab strip renders */

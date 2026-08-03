@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_TASK_STALE_DAYS,
   buildTasksDashboard,
+  dueChipLabel,
+  priorityFallbackColor,
   taskAgeDays,
+  taskDueBucket,
+  taskDueDays,
   taskIsNow,
   taskIsSnoozed,
   taskPriorityWeight,
@@ -25,6 +29,13 @@ function note(title: string, props: Record<string, unknown>, path = `Tasks/${tit
   };
 }
 
+/** The area sections only — the spine's Overdue/Due today/Now come first. */
+const areaSections = (model: ReturnType<typeof buildTasksDashboard>) =>
+  model.sections.filter((s) => s.kind === "area");
+
+const sectionNamed = (model: ReturnType<typeof buildTasksDashboard>, label: string) =>
+  model.sections.find((s) => s.label === label);
+
 test("filters to open tasks with case/whitespace-insensitive type and completion status", () => {
   const model = buildTasksDashboard(
     [
@@ -37,7 +48,7 @@ test("filters to open tasks with case/whitespace-insensitive type and completion
     NOW
   );
   assert.equal(model.total, 1);
-  assert.equal(model.groups[0]?.rows[0]?.title, "open");
+  assert.equal(areaSections(model)[0]?.rows[0]?.title, "open");
 });
 
 test("area allowlist accepts YAML lists or comma text, matches case-insensitively, and orders groups", () => {
@@ -47,14 +58,14 @@ test("area allowlist accepts YAML lists or comma text, matches case-insensitivel
     note("label", { type: "task", area: "Label", created: "2026-07-01" }),
   ];
   const yaml = buildTasksDashboard(notes, { areas: ["Admin", "Studio"] }, NOW);
-  assert.deepEqual(yaml.groups.map((group) => group.area), ["Admin", "Studio"]);
-  assert.deepEqual(yaml.groups.flatMap((group) => group.rows.map((row) => row.title)), [
+  assert.deepEqual(areaSections(yaml).map((s) => s.label), ["Admin", "Studio"]);
+  assert.deepEqual(areaSections(yaml).flatMap((s) => s.rows.map((row) => row.title)), [
     "admin",
     "studio",
   ]);
 
   const comma = buildTasksDashboard(notes, { areas: " studio, LABEL " }, NOW);
-  assert.deepEqual(comma.groups.map((group) => group.area), ["studio", "LABEL"]);
+  assert.deepEqual(areaSections(comma).map((s) => s.label), ["studio", "LABEL"]);
 });
 
 test("without an allowlist groups every area alphabetically and puts unassigned last", () => {
@@ -67,7 +78,7 @@ test("without an allowlist groups every area alphabetically and puts unassigned 
     {},
     NOW
   );
-  assert.deepEqual(model.groups.map((group) => group.area), ["alpha", "Zulu", "Unassigned"]);
+  assert.deepEqual(areaSections(model).map((s) => s.label), ["alpha", "Zulu", "Unassigned"]);
 });
 
 test("created age is strict, local-calendar based, DST-safe, and clamps future dates", () => {
@@ -85,27 +96,6 @@ test("priority weights are case-insensitive and unknown priorities stay conserva
   assert.equal(taskPriorityWeight("low"), 1);
   assert.equal(taskPriorityWeight("urgent"), 1);
   assert.equal(taskPriorityWeight(undefined), 1);
-});
-
-test("age×priority order is stable and deterministic through score ties", () => {
-  const input = [
-    note("Zulu tie", { type: "task", area: "A", priority: "high", created: "2026-07-22" }),
-    note("Alpha tie", { type: "task", area: "A", priority: "medium", created: "2026-07-17" }),
-    note("Older low", { type: "task", area: "A", priority: "low", created: "2026-06-22" }),
-    note("Winner", { type: "task", area: "A", priority: "HIGH", created: "2026-07-12" }),
-  ];
-  const before = structuredClone(input);
-  const model = buildTasksDashboard(input, {}, NOW);
-  assert.deepEqual(
-    model.groups[0]?.rows.map((row) => [row.title, row.score]),
-    [
-      ["Winner", 60],
-      ["Older low", 40],
-      ["Alpha tie", 30],
-      ["Zulu tie", 30],
-    ]
-  );
-  assert.deepEqual(input, before, "input notes and props are not mutated");
 });
 
 test("stale threshold is inclusive; invalid settings use the documented default", () => {
@@ -127,12 +117,20 @@ test("stale threshold is inclusive; invalid settings use the documented default"
     { stale_days: 14 },
     NOW
   );
-  const rows = model.groups[0]?.rows ?? [];
+  const rows = areaSections(model)[0]?.rows ?? [];
   assert.equal(rows.find((row) => row.title === "boundary")?.stale, true);
   assert.equal(rows.find((row) => row.title === "young")?.stale, false);
   assert.equal(rows.find((row) => row.title === "bad date")?.finding, "undated");
-  assert.equal(rows.find((row) => row.title === "missing date")?.score, 0);
-  assert.equal(model.attention, 3);
+  assert.equal(rows.find((row) => row.title === "missing date")?.ageDays, null);
+  // boundary is stale, both undated rows are undated — three findings in all
+  assert.deepEqual(
+    rows.filter((row) => row.finding !== null).map((row) => [row.title, row.finding]).sort(),
+    [
+      ["bad date", "undated"],
+      ["boundary", "stale"],
+      ["missing date", "undated"],
+    ]
+  );
 });
 
 test("now accepts YAML true and the string form, nothing else (SUB-786)", () => {
@@ -144,7 +142,7 @@ test("now accepts YAML true and the string form, nothing else (SUB-786)", () => 
   assert.equal(taskIsNow(undefined), false);
 });
 
-test("now rows pin to a cross-area focus list, carry no findings, and leave groups (SUB-786)", () => {
+test("now rows pin to a cross-area focus section, carry no findings, and leave groups (SUB-786)", () => {
   const model = buildTasksDashboard(
     [
       note("pinned old", { type: "task", area: "Studio", now: true, created: "2026-05-01" }),
@@ -156,12 +154,18 @@ test("now rows pin to a cross-area focus list, carry no findings, and leave grou
     NOW
   );
   // stale + undated rows pinned to Now raise nothing; the one Later stale row does
-  assert.deepEqual(model.nowRows.map((row) => row.title), ["pinned old", "pinned undated"]);
-  assert.deepEqual(model.nowRows.map((row) => row.finding), [null, null]);
-  assert.equal(model.attention, 1);
-  assert.deepEqual(model.groups.map((group) => group.area), ["Studio"]);
+  const now = sectionNamed(model, "Now");
+  assert.deepEqual(now?.rows.map((row) => row.title), ["pinned old", "pinned undated"]);
+  assert.deepEqual(now?.rows.map((row) => row.finding), [null, null]);
+  assert.equal(model.nowCount, 2);
+  // the one Later stale row is the only finding on the board
   assert.deepEqual(
-    model.groups[0]?.rows.map((row) => row.title),
+    model.sections.flatMap((s) => s.rows).filter((row) => row.finding !== null).map((row) => row.title),
+    ["later stale"]
+  );
+  assert.deepEqual(areaSections(model).map((s) => s.label), ["Studio"]);
+  assert.deepEqual(
+    areaSections(model)[0]?.rows.map((row) => row.title),
     ["later stale", "later fresh"]
   );
   assert.equal(model.total, 4);
@@ -188,7 +192,7 @@ test("snoozed_until hides strict future dates only; malformed values never hide 
   assert.equal(model.snoozed, 1);
   assert.equal(model.total, 2);
   assert.deepEqual(
-    model.groups[0]?.rows.map((row) => row.title),
+    areaSections(model)[0]?.rows.map((row) => row.title),
     ["woke today", "open"]
   );
 });
@@ -204,4 +208,187 @@ test("snoozed tasks outside the area allowlist do not count as snoozed (SUB-786)
   );
   assert.equal(model.snoozed, 1);
   assert.equal(model.total, 0);
+});
+
+/* —————————————————————— SUB-870: due dates lead —————————————————————— */
+
+test("due days count local calendar days and bucket around today (SUB-870)", () => {
+  // NOW is 2026-08-01 local
+  assert.equal(taskDueDays("2026-07-31", NOW), -1);
+  assert.equal(taskDueDays("2026-08-01", NOW), 0);
+  assert.equal(taskDueDays("2026-08-08", NOW), 7);
+  // a timed due value (SUB-270) still buckets by its day
+  assert.equal(taskDueDays("2026-08-01 09:30", NOW), 0);
+  // malformed values are simply undated — never urgent, never hidden
+  assert.equal(taskDueDays("2026-02-30", NOW), null);
+  assert.equal(taskDueDays("next week", NOW), null);
+  assert.equal(taskDueDays(undefined, NOW), null);
+  assert.equal(taskDueDays(20260801, NOW), null);
+
+  assert.equal(taskDueBucket(-1), "overdue");
+  assert.equal(taskDueBucket(0), "today");
+  assert.equal(taskDueBucket(1), "upcoming");
+  assert.equal(taskDueBucket(null), null);
+});
+
+test("the spine is Overdue, Due today, Now, then areas — empty sections are omitted (SUB-870)", () => {
+  const model = buildTasksDashboard(
+    [
+      note("late", { type: "task", area: "Label", due: "2026-07-20", created: "2026-07-01" }),
+      note("today", { type: "task", area: "Studio", due: "2026-08-01", created: "2026-07-01" }),
+      note("pinned", { type: "task", area: "Studio", now: true, created: "2026-07-01" }),
+      note("someday", { type: "task", area: "Admin", due: "2026-09-09", created: "2026-07-01" }),
+      note("no date", { type: "task", area: "Admin", created: "2026-07-01" }),
+    ],
+    {},
+    NOW
+  );
+  assert.deepEqual(
+    model.sections.map((s) => [s.kind, s.label]),
+    [
+      ["overdue", "Overdue"],
+      ["today", "Due today"],
+      ["now", "Now"],
+      ["area", "Admin"],
+    ]
+  );
+  assert.equal(model.overdue, 1);
+  assert.equal(model.dueToday, 1);
+  assert.equal(model.nowCount, 1);
+  // Studio's only rows went to Due today and Now, so the group disappears
+  assert.deepEqual(areaSections(model).map((s) => s.label), ["Admin"]);
+  assert.deepEqual(sectionNamed(model, "Admin")?.rows.map((r) => r.title), ["someday", "no date"]);
+
+  const empty = buildTasksDashboard([note("solo", { type: "task", area: "A" })], {}, NOW);
+  assert.deepEqual(empty.sections.map((s) => s.kind), ["area"]);
+});
+
+test("urgency outranks the Now pin: a late pinned task shows under Overdue (SUB-870)", () => {
+  const model = buildTasksDashboard(
+    [
+      note("pinned late", { type: "task", area: "Studio", now: true, due: "2026-07-25" }),
+      note("pinned due today", { type: "task", area: "Studio", now: true, due: "2026-08-01" }),
+      note("pinned undated", { type: "task", area: "Studio", now: true }),
+    ],
+    {},
+    NOW
+  );
+  assert.deepEqual(sectionNamed(model, "Overdue")?.rows.map((r) => r.title), ["pinned late"]);
+  assert.deepEqual(sectionNamed(model, "Due today")?.rows.map((r) => r.title), ["pinned due today"]);
+  assert.deepEqual(sectionNamed(model, "Now")?.rows.map((r) => r.title), ["pinned undated"]);
+  assert.equal(model.nowCount, 1);
+  // a row never appears twice, and never falls out of the board
+  assert.equal(model.total, 3);
+  assert.equal(model.sections.reduce((n, s) => n + s.rows.length, 0), 3);
+});
+
+test("ranking inside a section is due bucket → priority → age, with rot only a tiebreaker (SUB-870)", () => {
+  const input = [
+    // same area, no due dates: priority now leads where age×priority used to
+    note("Old low", { type: "task", area: "A", priority: "low", created: "2026-01-01" }),
+    note("Young high", { type: "task", area: "A", priority: "high", created: "2026-07-31" }),
+    note("Old medium", { type: "task", area: "A", priority: "medium", created: "2026-02-01" }),
+    note("Young medium", { type: "task", area: "A", priority: "medium", created: "2026-07-30" }),
+    // a due date beats every undated row in the same group
+    note("Upcoming low", { type: "task", area: "A", priority: "low", due: "2026-08-20" }),
+  ];
+  const before = structuredClone(input);
+  const model = buildTasksDashboard(input, {}, NOW);
+  assert.deepEqual(
+    areaSections(model)[0]?.rows.map((row) => row.title),
+    ["Upcoming low", "Young high", "Old medium", "Young medium", "Old low"]
+  );
+  assert.deepEqual(input, before, "input notes and props are not mutated");
+
+  // inside one due bucket, ties fall through priority → age → title
+  const overdue = buildTasksDashboard(
+    [
+      note("later day medium", { type: "task", area: "A", priority: "medium", due: "2026-07-31" }),
+      note("earlier day low", { type: "task", area: "A", priority: "low", due: "2026-06-01" }),
+      note("zulu high", { type: "task", area: "A", priority: "high", due: "2026-07-30", created: "2026-07-01" }),
+      note("alpha high", { type: "task", area: "A", priority: "high", due: "2026-07-30", created: "2026-07-01" }),
+    ],
+    {},
+    NOW
+  );
+  assert.deepEqual(
+    sectionNamed(overdue, "Overdue")?.rows.map((row) => row.title),
+    ["alpha high", "zulu high", "later day medium", "earlier day low"]
+  );
+});
+
+test("a malformed due date leaves the row in its area group rather than hiding it (SUB-870)", () => {
+  const model = buildTasksDashboard(
+    [
+      note("impossible", { type: "task", area: "A", due: "2026-02-30", created: "2026-07-01" }),
+      note("prose", { type: "task", area: "A", due: "sometime soon", created: "2026-07-01" }),
+      note("real", { type: "task", area: "A", due: "2026-07-01", created: "2026-07-01" }),
+    ],
+    {},
+    NOW
+  );
+  assert.equal(model.total, 3);
+  const rows = areaSections(model)[0]?.rows ?? [];
+  assert.deepEqual(rows.map((r) => r.title), ["impossible", "prose"]);
+  assert.deepEqual(rows.map((r) => r.due), [null, null]);
+  assert.deepEqual(rows.map((r) => r.dueBucket), [null, null]);
+  assert.deepEqual(sectionNamed(model, "Overdue")?.rows.map((r) => r.title), ["real"]);
+});
+
+test("snoozed rows keep their wake day and queue soonest-first (SUB-870)", () => {
+  const model = buildTasksDashboard(
+    [
+      note("late wake", { type: "task", area: "A", snoozed_until: "2026-09-01" }),
+      note("soon wake", { type: "task", area: "A", snoozed_until: "2026-08-05" }),
+      note("awake", { type: "task", area: "A" }),
+    ],
+    {},
+    NOW
+  );
+  assert.deepEqual(
+    model.snoozedRows.map((row) => [row.title, row.snoozedUntil]),
+    [
+      ["soon wake", "2026-08-05"],
+      ["late wake", "2026-09-01"],
+    ]
+  );
+  assert.equal(model.snoozed, 2);
+  // parked rows are not part of the visible board
+  assert.equal(model.total, 1);
+  assert.equal(model.sections.reduce((n, s) => n + s.rows.length, 0), 1);
+});
+
+test("a snoozed row that is also overdue stays parked until it wakes (SUB-870)", () => {
+  const model = buildTasksDashboard(
+    [
+      note("parked and late", {
+        type: "task",
+        area: "A",
+        due: "2026-07-01",
+        snoozed_until: "2026-08-20",
+      }),
+    ],
+    {},
+    NOW
+  );
+  assert.equal(model.overdue, 0);
+  assert.equal(model.sections.length, 0);
+  assert.deepEqual(model.snoozedRows.map((r) => [r.title, r.dueBucket]), [
+    ["parked and late", "overdue"],
+  ]);
+});
+
+test("priority falls back to the roster colors only where a schema doesn't (SUB-870)", () => {
+  assert.equal(priorityFallbackColor(" HIGH "), "red");
+  assert.equal(priorityFallbackColor("Medium"), "yellow");
+  assert.equal(priorityFallbackColor("low"), "gray");
+  assert.equal(priorityFallbackColor("urgent"), undefined);
+  assert.equal(priorityFallbackColor(undefined), undefined);
+});
+
+test("due chip labels read Today, day-month in-year, and carry the year beyond it (SUB-870)", () => {
+  assert.equal(dueChipLabel("2026-08-01", 0, NOW), "Today");
+  assert.equal(dueChipLabel("2026-06-15", -47, NOW), "15 Jun");
+  assert.equal(dueChipLabel("2027-01-04", 156, NOW), "4 Jan 27");
+  assert.equal(dueChipLabel("nonsense", 3, NOW), "nonsense");
 });
