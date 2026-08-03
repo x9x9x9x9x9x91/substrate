@@ -46,12 +46,13 @@ interface FoodDashboardProps {
    hero, rows list and the form's log date follow a focus day (‹ › arrows or
    clicking a strip bar); avg7/week-delta/strip stay today-anchored trends.
    The band is a floor, not a target: under the floor means "still eating",
-   so it reads yellow, not green. Negative kcal = exercise, so a day's total
-   is already net. */
+   so it reads light green — on the way, not done — against the band's deep
+   green (SUB-977: no yellow; only blowing the ceiling is a warning state).
+   Negative kcal = exercise, so a day's total is already net. */
 
 const STATE_COLOR: Record<DayState, string> = {
   empty: "var(--text-3)",
-  under: "var(--opt-yellow)",
+  under: "var(--ok-soft)",
   in: "var(--ok)",
   over: "var(--danger)",
 };
@@ -722,16 +723,31 @@ export default function FoodDashboard({
                           preserveAspectRatio="none"
                           aria-hidden="true"
                         >
-                          <polyline
-                            className="food-weight-line"
-                            points={weight.points
+                          {/* casing first, line on top (SUB-977): a background-
+                              colored stroke under the line cuts a dark gap
+                              wherever it crosses a bar, so the line stays
+                              readable over any bar color. Both polylines opt
+                              out of the viewBox's non-uniform stretch or they
+                              render thick-and-wobbly. */}
+                          {(() => {
+                            const pts = weight.points
                               .map((p) => `${colX(p.col, d.days.length)},${100 - p.y * 100}`)
-                              .join(" ")}
-                            // the viewBox is stretched non-uniformly to fill
-                            // the plot, so the stroke must opt out of that
-                            // scaling or it renders thick-and-wobbly
-                            vectorEffect="non-scaling-stroke"
-                          />
+                              .join(" ");
+                            return (
+                              <>
+                                <polyline
+                                  className="food-weight-line-casing"
+                                  points={pts}
+                                  vectorEffect="non-scaling-stroke"
+                                />
+                                <polyline
+                                  className="food-weight-line"
+                                  points={pts}
+                                  vectorEffect="non-scaling-stroke"
+                                />
+                              </>
+                            );
+                          })()}
                         </svg>
                       )}
                       {/* dots ride the same percent geometry as the labels,

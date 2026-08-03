@@ -26,6 +26,8 @@
   --active: rgba(255, 255, 255, 0.09);
   --danger: #eb5757;
   --ok: #4cb782;
+  /* pale tint of --ok for "progressing, not there yet" states (SUB-977) */
+  --ok-soft: color-mix(in srgb, var(--ok) 55%, #fff);
   /* select-option dot palette — meaning-carrying marks only, never chrome;
      saturated enough to pop on the neutral ground (SUB-89), Linear-dosage */
   --opt-gray: #8d939e;
@@ -10871,7 +10873,7 @@ body.col-resizing * {
 }
 
 .food-bar.food-under {
-  background: var(--opt-yellow);
+  background: var(--ok-soft);
 }
 
 .food-bar.food-over {
@@ -10920,8 +10922,9 @@ body.col-resizing * {
 /* weight overlay (SUB-707): a line across the same day columns on its own
    vertical scale. It sits ABOVE the bars but never takes the pointer — the
    strip underneath is still the day picker — except the dots, which carry
-   their own hover title. Teal (the pane's existing burn accent), so it reads
-   as a second quantity rather than another band verdict. */
+   their own hover title. Blue (SUB-977; was the burn-accent teal, which
+   drowned in the bars' greens), with a bg-colored casing stroke and dot
+   rings so the line reads over any bar color. */
 .food-weight {
   position: absolute;
   inset: 0;
@@ -10935,13 +10938,20 @@ body.col-resizing * {
   overflow: visible;
 }
 
+.food-weight-line-casing {
+  fill: none;
+  stroke: var(--bg);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
 .food-weight-line {
   fill: none;
-  stroke: var(--opt-teal);
+  stroke: var(--opt-blue);
   stroke-width: 1.5px;
   stroke-linejoin: round;
   stroke-linecap: round;
-  opacity: 0.75;
 }
 
 .food-weight-dot {
@@ -10950,7 +10960,8 @@ body.col-resizing * {
   height: 5px;
   margin: 0 0 -2.5px -2.5px; /* centre on the column/value point */
   border-radius: 50%;
-  background: var(--opt-teal);
+  background: var(--opt-blue);
+  box-shadow: 0 0 0 2px var(--bg); /* same casing as the line */
   pointer-events: auto;
 }
 
@@ -10959,10 +10970,13 @@ body.col-resizing * {
   transform: translate(-50%, 0);
   margin-bottom: 7px; /* clear of its dot */
   font: var(--dash-label);
-  color: var(--opt-teal);
+  color: var(--opt-blue);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  opacity: 0.85;
+  /* bg halo so a label crossing a bar stays legible */
+  text-shadow:
+    0 0 3px var(--bg),
+    0 0 6px var(--bg);
 }
 
 .food-labels {
