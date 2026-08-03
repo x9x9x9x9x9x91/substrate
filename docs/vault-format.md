@@ -68,7 +68,7 @@ Vault/
 ├── .claude/skills/            # agent skills, seeded + user-written (§12)
 ├── .assets/                   # embedded binaries, flat (§9)
 ├── .trash/                    # deleted notes + folders, recoverable (§10)
-├── .vault/                    # format.json + schema.json + views.json + folders.json + calendars.json + notifications.json + jobs-exit.json + templates/ + backup/ (§5b–§8)
+├── .vault/                    # format.json + schema.json + views.json + folders.json + calendars.json + notifications.json + jobs-exit.json + templates/ + kinds/ + backup/ (§5b–§8)
 └── .git/                      # version history, owned by the app (§11)
 ```
 
@@ -954,6 +954,116 @@ multi-day span is a second scheduling concept (overlapping occurrences, spans
 longer than their own cadence) and is deliberately out of scope; the value
 stays legal on disk and every non-calendar surface still reads it as a range.
 
+### 5.8 Custom kind bundles — `.vault/kinds/<id>/`
+
+> **Contract, not yet live.** This section is the on-disk format the
+> custom-kinds arc (SUB-957) lands across several units; the loading
+> mechanism, the enable pane and the dispatch branch ship after the format
+> does. Until the arc completes, a `dashboard:` value naming a bundle still
+> falls through to charts-or-yield (§5.2). The format is documented here first
+> so bundles written against it stay valid.
+
+A **custom kind** is dashboard renderer code that lives in the vault. It
+exists so that a dashboard nobody but its owner wants is a file, not a merge
+into the app — "make me a board that shows X" becomes something an agent can
+finish. The escape hatch, not the default path: a dashboard that can be
+expressed with the built-in kinds and their markdown config (§5.2–§5.6)
+should be.
+
+```
+.vault/kinds/gear-log/
+  kind.json      # manifest (required)
+  index.js       # entry, plain ES module, no import statements (required)
+  style.css      # optional
+  README.md      # optional, ignored by the app
+```
+
+`.vault/` because that is where config travelling with the data already lives
+(§6–§8), and because hidden means kind code never shows up in search, the
+sidebar or a view.
+
+**The folder name is the kind id**, and a note reaches the kind by naming it:
+`dashboard: gear-log`. Grammar `[a-z0-9][a-z0-9-]{0,39}` — lowercase letters,
+digits and dashes, starting with a letter or digit, up to 40 characters. The
+id is a path segment, a URL segment and a frontmatter value at once, so the
+grammar is the intersection of what is unambiguous in all three.
+
+`kind.json`:
+
+```json
+{
+  "id": "gear-log",
+  "title": "Gear log",
+  "api": 1,
+  "entry": "index.js",
+  "description": "What is plugged into what, by room.",
+  "style": "style.css",
+  "icon": "zap",
+  "author": "avery"
+}
+```
+
+- `id` (required) must **equal the folder name**. A mismatch is an invalid
+  bundle, not a silent preference for one of the two — the id is what a note
+  and a served URL both use, and letting them disagree would make one bundle
+  mean two things.
+- `title` (required, non-empty) and `description` (key required, value may be
+  empty) are what a human reads before deciding to trust the code.
+- `api` (required, positive integer) is the ctx contract version the kind was
+  written against. Above what the app speaks → "needs a newer Substrate"
+  (the refuse-newer posture of §5b); below the app's floor → refused. In
+  range → it mounts.
+- `entry` (required) and `style` (optional) are **bare filenames inside the
+  bundle**. Slashes, backslashes, `..`, a leading dot and control characters
+  (`0x00`–`0x1F`, `0x7F`) are all rejected — in the app and again before any
+  path join. A leading dot would hide the code that runs; a control character
+  would let a filename carry the `0x0A` the bundle hash joins names with, so
+  two different bundles could share one digest.
+- `icon` (optional) resolves through the curated glyph set (§5.2); `author`
+  (optional) is shown on the enable card.
+
+Anything unrecognized in `kind.json` is ignored, so a future key doesn't
+invalidate a bundle on an older app.
+
+**Built-in kinds always win.** A bundle whose folder name collides with a
+kind the app dispatches itself (§5.2, plus the reserved name `charts`) is
+invalid, with "rename the folder" — never a shadow. Built-ins write to the
+vault (task state, food log, feed read-marks), so shadowing one is a way to
+capture those writes, and §5.2's dispatch table is a contract external
+writers already rely on.
+
+**A bundle is invalid loudly, never skipped.** Every failure above surfaces
+as a card naming the kind and the specific reason. A kind that quietly
+vanishes is indistinguishable from one that was never installed.
+
+**Consent lives outside the vault.** Enabling a kind is an explicit
+per-vault, per-device decision recorded in the OS app-config directory
+(beside `config.json`), keyed by vault path — never in the vault itself.
+Git-excluding an in-vault consent file would not help: folder-mirroring sync
+tools copy `.vault/` wholesale, so a consent record a synced vault can carry
+is not a consent record. The consequence is deliberate: a second device
+consents again. That is what per-device means.
+
+The record pins a **SHA-256 hash over the bundle's files** — the manifest,
+the entry, and the style file when the manifest names one. Filenames sorted
+by their UTF-8 bytes; for each, the filename bytes, `0x0A`, the file bytes,
+`0x0A`; the digest is written `sha256:<hex>`. Filenames are inside the hash
+so that a rename alone (swapping which file is `index.js`) cannot change what
+executes without changing the digest. File bytes are hashed **exactly as they
+sit on disk** — no BOM strip, no newline normalization, no re-serialization
+of the parsed manifest — so every implementation of this digest agrees byte
+for byte. When the bytes on disk stop matching
+the enabled hash, the kind stops running and asks again — a synced vault
+delivering new code into an already-trusted folder does not get to run it.
+
+Custom kinds run with the **same access as Substrate itself**: they can read
+and change anything in the vault. There is no sandbox; the enable decision is
+the boundary. Nothing auto-enables from any install path.
+
+External writers: `.vault/kinds/` is app-owned. Write a bundle there only
+deliberately, and never touch the consent record — it is not in the vault by
+design.
+
 ## 5b. `.vault/format.json` — config format versions (covers §6–§8)
 
 One sidecar records which format version each hidden config file is in
@@ -963,12 +1073,20 @@ an older app rewriting a newer file used to silently drop what it didn't
 understand.
 
 ```json
-{ "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1 }
+{ "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1, "kinds": 1 }
 ```
 
-- Keys are `schema`, `views`, `folders`, `notifications`, `calendars` (§5c,
-  §6, §7, the notification sub-section, §8). Current version for all five:
-  **1**.
+- Keys are `schema`, `views`, `folders`, `notifications`, `calendars`, `kinds`
+  (§5c, §6, §7, the notification sub-section, §8, §5.8). Current version
+  for all six: **1**.
+- `kinds` versions the **bundle format** of §5.8, not any one file: it says
+  which shape of `kind.json` and which bundle layout the vault's
+  `.vault/kinds/` folders are written in. **RESERVED** — the key is defined
+  by the format unit that documents §5.8, and nothing reads or enforces it
+  yet. Refuse-newer for `kinds` (a version above what the app knows means
+  this build does not understand the bundles well enough to enable them) and
+  the surface that says so land with the loader units of the custom-kinds
+  arc, alongside §5.8's own "contract, not yet live" status.
 - **A missing sidecar, or a missing/non-positive-integer entry, reads as
   version 1** — the current format, which is what every existing vault is
   already in. Nothing migrates on upgrade; the sidecar just appears on the
