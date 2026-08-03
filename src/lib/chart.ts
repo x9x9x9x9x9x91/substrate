@@ -18,6 +18,16 @@
 //   series: etf, crypto, cash  # named summaries on that sheet
 //   ```
 //
+// An optional `by: <prop|column>` splits the y measure into one series per
+// distinct value of that field (SUB-941) — stacked bars, multi-line:
+//
+//   ```chart
+//   source: expense
+//   x: spent:month
+//   y: sum:amount
+//   by: category        # one series per category
+//   ```
+//
 // Pure TS, no DOM/node imports: runs in the app and under `node --test`.
 
 import { parseStrictNumber } from "./aggregate.ts";
@@ -45,7 +55,7 @@ export interface ChartAxis {
     summaries instead — one point per named summary, no rows involved — so a
     per-bucket COUNTIF/SUMIF set charts without materializing bucket rows. */
 export type ChartBind =
-  | { bind: "rows"; x: ChartAxis; y: ChartAgg }
+  | { bind: "rows"; x: ChartAxis; y: ChartAgg; by: string | null }
   | { bind: "summaries"; series: string[] };
 
 export type ChartConfig = {
@@ -73,16 +83,26 @@ export interface ChartPoint {
 export interface ChartSeries {
   points: ChartPoint[];
   skipped: number; // rows dropped: missing/unparseable x, or non-numeric y
-  /** Named error when a bound x/y property exists nowhere in the source —
+  /** Named error when a bound x/y/by property exists nowhere in the source —
       "no column “value_usd” on Holdings (has: …)". Null when every bound
       property is real, so genuine zero-match plots keep the neutral empty
       state instead of accusing a column that is there. */
   missing: string | null;
+  /** The `by:` split (SUB-941), null for a single-measure chart. Bands share
+      the x axis: every band lists the SAME keys in the same order, so a bar
+      stacks and a line reads point-for-point against its neighbours. */
+  bands: ChartBand[] | null;
+}
+
+/** One series of a `by:`-split chart — the distinct value plus its points. */
+export interface ChartBand {
+  name: string; // the distinct `by` value, in its first-seen casing
+  points: ChartPoint[];
 }
 
 // ---------- config parsing ----------
 
-const KNOWN_KEYS = new Set(["source", "x", "y", "kind", "title", "series"]);
+const KNOWN_KEYS = new Set(["source", "x", "y", "kind", "title", "series", "by"]);
 const BUCKETS = new Set(["day", "week", "month"]);
 
 function parseSource(v: string): ChartSource {
@@ -137,6 +157,12 @@ export function parseChartConfig(inner: string): ChartConfig {
     if (kv.has("x") || kv.has("y")) {
       throw new Error("series charts plot summaries — drop x and y, or drop series");
     }
+    // `by` splits a row measure into series; `series` already IS the series
+    // list. Both together name the same axis twice, so say which one to drop
+    // rather than letting one quietly win (SUB-941).
+    if (kv.has("by")) {
+      throw new Error("by splits a row measure — drop by, or drop series");
+    }
     if (source.kind !== "sheet") {
       throw new Error("series names sheet summaries — source must be {{Sheet Name}}");
     }
@@ -152,7 +178,20 @@ export function parseChartConfig(inner: string): ChartConfig {
   for (const req of ["x", "y"]) {
     if (!kv.has(req)) throw new Error(`missing required key "${req}"`);
   }
-  return { ...head, bind: "rows", x: parseAxis(kv.get("x")!), y: parseAgg(kv.get("y")!) };
+  // a valueless `by:` never reaches here — the line parser rejects it like any
+  // other empty key, which is the message the author already knows
+  const y = parseAgg(kv.get("y")!);
+  const by = kv.get("by")?.trim() || null;
+  if (by && head.kind === "bar" && y.fn === "avg") {
+    throw new Error("by + avg cannot be stacked — use kind: line, sum or count");
+  }
+  return {
+    ...head,
+    bind: "rows",
+    x: parseAxis(kv.get("x")!),
+    y,
+    by,
+  };
 }
 
 /** All ```chart fences in a note body, in order. Never throws. */
@@ -263,8 +302,9 @@ function cellNumber(v: unknown): number | null {
 
 /** What a source calls its fields, for honest binding errors: a sheet has
     columns, a database has properties. */
-function fieldNoun(source: ChartSource): string {
-  return source.kind === "sheet" ? "column" : "property";
+function fieldNoun(source: ChartSource, n: number): string {
+  if (n === 1) return source.kind === "sheet" ? "column" : "property";
+  return source.kind === "sheet" ? "columns" : "properties";
 }
 
 /** The name a binding error points at ("Holdings", "release"). */
@@ -291,19 +331,38 @@ function missingBinding(rows: ChartRow[], config: RowChartConfig): string | null
   }
   const bound: string[] = [config.x.prop];
   if (config.y.fn !== "count") bound.push(config.y.prop);
+  if (config.by) bound.push(config.by);
   const gone = bound.filter((p) => !present.has(p.toLowerCase()));
   if (gone.length === 0) return null;
-  const noun = fieldNoun(config.source);
+  const noun = fieldNoun(config.source, gone.length);
   const names = gone.map((p) => `“${p}”`).join(" or ");
   const has = [...present.values()].join(", ");
-  return `no ${noun}${gone.length > 1 ? "s" : ""} ${names} on ${sourceLabel(config.source)} (has: ${has})`;
+  return `no ${noun} ${names} on ${sourceLabel(config.source)} (has: ${has})`;
+}
+
+/** One reduced cell: the running sum and the rows behind it. */
+interface Cell {
+  sum: number;
+  n: number;
+}
+
+function reduce(cell: Cell, fn: ChartAgg["fn"]): number {
+  return fn === "avg" ? cell.sum / cell.n : fn === "sum" ? cell.sum : cell.n;
 }
 
 /** Bucket rows by the x axis and reduce them per the y aggregation. Date axes
     sort ascending by key; categorical axes follow the schema option order when
     `xOptions` is given (unschematized values keep first-appearance order after),
     else plain first-appearance order. Prop lookup is case-insensitive (row keys
-    are normalized here). */
+    are normalized here).
+
+    With `by` (SUB-941) the same rows additionally pivot into one band per
+    distinct value of that field, first-seen order — the axis is unchanged, so
+    `points` stays the whole-chart series (the foot's count, the empty state)
+    and `bands` carries the split. Bands walk the SAME ordered x keys as
+    `points`: bars carry every key (absent = a 0-height slice, so stacks line
+    up), lines carry only the keys where that band has rows (a drawn zero would
+    read as data — the single-series line rule, per band). */
 export function aggregate(
   rows: ChartRow[],
   config: RowChartConfig,
@@ -311,13 +370,16 @@ export function aggregate(
 ): ChartSeries {
   const xKey = config.x.prop.toLowerCase();
   const yKey = config.y.fn === "count" ? null : config.y.prop.toLowerCase();
+  const byKey = config.by?.toLowerCase() ?? null;
   const missing = missingBinding(rows, config);
   const norm = rows.map((r) => {
     const o: ChartRow = {};
     for (const [k, v] of Object.entries(r)) o[k.toLowerCase()] = v;
     return o;
   });
-  const buckets = new Map<string, { label: string; sum: number; n: number }>();
+  const buckets = new Map<string, { label: string } & Cell>();
+  // band name (folded) → display name + its cells by x key; first-seen order
+  const bands = new Map<string, { name: string; cells: Map<string, Cell> }>();
   let skipped = 0;
   for (const row of norm) {
     let key: string;
@@ -349,6 +411,18 @@ export function aggregate(
       }
       yv = n;
     }
+    // a row with no honest `by` value has no band to land in — skipped like a
+    // missing x, rather than inventing an "(none)" series the author didn't ask
+    // for
+    let bandName: string | null = null;
+    if (byKey !== null) {
+      const s = categoricalCellString(row[byKey])?.trim();
+      if (!s) {
+        skipped++;
+        continue;
+      }
+      bandName = s;
+    }
     let b = buckets.get(key);
     if (!b) {
       b = { label, sum: 0, n: 0 };
@@ -356,11 +430,26 @@ export function aggregate(
     }
     b.sum += yv;
     b.n += 1;
+    if (bandName !== null) {
+      const folded = bandName.toLowerCase();
+      let band = bands.get(folded);
+      if (!band) {
+        band = { name: bandName, cells: new Map() };
+        bands.set(folded, band);
+      }
+      let cell = band.cells.get(key);
+      if (!cell) {
+        cell = { sum: 0, n: 0 };
+        band.cells.set(key, cell);
+      }
+      cell.sum += yv;
+      cell.n += 1;
+    }
   }
-  const points: ChartPoint[] = [...buckets.entries()].map(([key, b]) => ({
+  let points: ChartPoint[] = [...buckets.entries()].map(([key, b]) => ({
     key,
     label: b.label,
-    value: config.y.fn === "avg" ? b.sum / b.n : config.y.fn === "sum" ? b.sum : b.n,
+    value: reduce(b, config.y.fn),
     n: b.n,
   }));
   if (config.x.bucket) {
@@ -368,17 +457,24 @@ export function aggregate(
     // bars: fill empty buckets so periods aren't silently skipped; lines keep
     // only real points (a zero would read as data, and the stroke already
     // implies continuity)
-    const filled = config.kind === "bar" ? zeroFilled(points, config.x.bucket) : points;
-    return { points: filled, skipped, missing };
-  }
-  if (xOptions?.length) {
+    if (config.kind === "bar") points = zeroFilled(points, config.x.bucket);
+  } else if (xOptions?.length) {
     // schema option order first (case-insensitive, like board columns); the
     // sort is stable, so unschematized values keep first-appearance order
     const rank = new Map(xOptions.map((o, i) => [o.value.toLowerCase(), i]));
     const rankOf = (p: ChartPoint) => rank.get(p.key.toLowerCase()) ?? xOptions.length;
     points.sort((a, b) => rankOf(a) - rankOf(b));
   }
-  return { points, skipped, missing };
+  if (byKey === null) return { points, skipped, missing, bands: null };
+  const banded: ChartBand[] = [...bands.values()].map((band) => ({
+    name: band.name,
+    points: points.flatMap((p) => {
+      const cell = band.cells.get(p.key);
+      if (!cell) return config.kind === "bar" ? [{ ...p, value: 0, n: 0 }] : [];
+      return [{ key: p.key, label: p.label, value: reduce(cell, config.y.fn), n: cell.n }];
+    }),
+  }));
+  return { points, skipped, missing, bands: banded };
 }
 
 /** One point per named summary of a sheet (SUB-745): the summary binding, for
@@ -416,7 +512,7 @@ export function summarySeries(
     points.push({ key: hit.name.toLowerCase(), label: hit.name, value: n, n: 1 });
   }
   if (bad.length > 0) return { series: null, error: bad.join("; ") };
-  return { series: { points, skipped: 0, missing: null }, error: null };
+  return { series: { points, skipped: 0, missing: null, bands: null }, error: null };
 }
 
 /** Schema options of a chart's x prop, resolving both the database type and
@@ -515,11 +611,15 @@ export function chartTitle(c: ChartConfig): string {
     return `${cap(c.source.kind === "db" ? c.source.type : c.source.name)} summaries`;
   }
   const per = c.x.bucket ? `per ${c.x.bucket}` : `by ${c.x.prop}`;
+  // a `by:` split is the second half of the sentence the title already speaks
+  // ("Sum of amount per month, split by category") — the legend names the
+  // bands, the title says what the split IS
+  const split = c.by ? `, split by ${c.by}` : "";
   if (c.y.fn === "count") {
     const src = c.source.kind === "db" ? c.source.type : c.source.name;
-    return `${cap(src)} ${per}`;
+    return `${cap(src)} ${per}${split}`;
   }
-  return `${cap(c.y.fn)} of ${c.y.prop} ${per}`;
+  return `${cap(c.y.fn)} of ${c.y.prop} ${per}${split}`;
 }
 
 /** Provenance line for the chart foot. */

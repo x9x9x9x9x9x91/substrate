@@ -584,6 +584,34 @@ test("the database/property bulk sweeps record an unnamed own-write (SUB-660)", 
   }
 });
 
+test("vault_schema_set normalizes the lead time like the engine does (SUB-842)", async () => {
+  const set = (args: Record<string, unknown>) =>
+    invoke<SchemaConfig>("vault_schema_set", { dbType: "lead842", prop: "due", ...args });
+
+  // a lead time stands alone — notify off is legal
+  let schema = await set({ kind: "date", notify: false, notifyBefore: 3 });
+  assert.equal(schema["lead842"]?.["due"]?.notifyBefore, 3);
+  assert.equal(schema["lead842"]?.["due"]?.notify, undefined);
+
+  // an absent arg keeps the stored value
+  schema = await set({ kind: "date" });
+  assert.equal(schema["lead842"]?.["due"]?.notifyBefore, 3, "unspecified keeps the stored lead time");
+
+  // longer than a year clamps
+  schema = await set({ kind: "date", notifyBefore: 4000 });
+  assert.equal(schema["lead842"]?.["due"]?.notifyBefore, 365);
+
+  // zero is how the UI clears it
+  schema = await set({ kind: "date", notifyBefore: 0 });
+  assert.equal(schema["lead842"]?.["due"]?.notifyBefore, undefined, "zero clears");
+
+  // and a non-date kind normalizes it away
+  schema = await set({ kind: "date", notifyBefore: 5 });
+  assert.equal(schema["lead842"]?.["due"]?.notifyBefore, 5);
+  schema = await set({ kind: "text" });
+  assert.equal(schema["lead842"]?.["due"]?.notifyBefore, undefined, "lead time is date-kind only");
+});
+
 test("vault_schema_set stores and validates the rollup wiring (SUB-678)", async () => {
   // the relation to follow must exist first, as a relation-kind prop of the
   // same database — exactly like the engine's set_schema_prop

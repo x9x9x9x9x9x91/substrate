@@ -515,7 +515,7 @@ mod tests {
         e.save_asset("stale.wav", &b64).unwrap();
         e.write_body(
             "Welcome.md",
-            &format!("embed ![[{used}]] and a [[Static Bouquet]] link\n"),
+            &format!("embed ![[{used}]] and a [[Kyoto]] link\n"),
             None,
         )
         .unwrap();
@@ -665,7 +665,7 @@ mod tests {
         let (mut e, dir) = temp_vault("adedupe");
         let b64 = base64::engine::general_purpose::STANDARD.encode([1u8, 2, 3]);
         e.save_asset("shot.png", &b64).unwrap();
-        e.trash("Rondo MX180.md").unwrap();
+        e.trash("Weeknight Ramen.md").unwrap();
         e.assets_delete(&["shot.png".into()]).unwrap();
 
         let entries = e.trash_list();

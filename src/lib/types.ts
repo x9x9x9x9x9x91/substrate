@@ -349,6 +349,10 @@ export interface PropSchema {
   kind?: PropKind;
   /** date-kind only: macOS notification when the date comes due (SUB-21) */
   notify?: boolean;
+  /** date-kind only (SUB-842): an ADDITIONAL macOS alert this many days
+      before the date comes due. Independent of `notify` — either may stand
+      alone, both set means two alerts. Absent/0 = off, capped at 365. */
+  notifyBefore?: number;
   /** relation kind only: the database type this prop points at */
   type?: string;
   /** number kind only (SUB-188): display format; absent = plain */

@@ -280,10 +280,15 @@ export function isComplete(status: string | undefined): boolean {
 /** A date prop is a deadline when the schema flags it for due-date
     notifications — the same opt-in SUB-21's scheduler fires on. Lives here
     (not agenda.ts) so the calendar's overdue helper shares it without a
-    module cycle; agenda.ts re-exports it (SUB-206). */
+    module cycle; agenda.ts re-exports it (SUB-206).
+
+    A lead time alone counts (SUB-842): the scheduler fires for
+    `notifyBefore > 0` with `notify` off, so Today/Calendar must show that
+    prop too — otherwise the alert points at an entry no surface lists. */
 export function isDeadline(schema: SchemaConfig, type: string, prop: string): boolean {
   const ps = propSchemaFor(schema, type, prop);
-  return ps?.kind === "date" && ps?.notify === true;
+  if (ps?.kind !== "date") return false;
+  return ps.notify === true || (ps.notifyBefore ?? 0) > 0;
 }
 
 /** Status schema for Calendar entry actions, folding both the entry's stored

@@ -43,32 +43,32 @@ pub(super) fn seed(root: &Path) {
         "---\ncreated: 2026-07-17\n---\nThis is the Inbox. ⌘N drops new notes here instantly — file them later by adding them to a database, or don't. This note is safe to delete.\n",
     );
     write(
-        "Slow Bloom EP.md",
-        "---\ntype: release\nstatus: in review\ncat#: SMP-030\nartist: various\ncreated: 2026-07-17\n---\nSample release note. Track order still open — the granular rework wants to close the B side. See [[Static Bouquet]] for the artwork direction.\n",
+        "Lisbon.md",
+        "---\ntype: trip\nstatus: done\ndays: 5\ncost: 900\ncreated: 2026-08-03\n---\nSample trip note. Five October days — trams, tiles, one rained-out castle. Photos sorted; [[Kyoto]] reuses this packing list.\n",
     );
     write(
-        "Vessel Songs.md",
-        "---\ntype: release\nstatus: mastering\ncat#: SMP-029\nartist: 1k petals\ncreated: 2026-07-17\n---\nSample release note. Masters v2 due back this week; vocal-led opener confirmed.\n",
+        "Kyoto.md",
+        "---\ntype: trip\nstatus: booked\ndays: 10\ncost: 2400\ncreated: 2026-08-03\n---\nSample trip note. Flights booked for the April cherry-blossom window — same packing list as [[Lisbon]]. Day trip to Nara still undecided.\n",
     );
     write(
-        "Static Bouquet.md",
-        "---\ntype: release\nstatus: live\ncat#: SMP-028\nartist: chroma weather\ncreated: 2026-07-17\n---\nSample release note. The blue series artwork lives here — [[Slow Bloom EP]] follows the same palette.\n",
+        "Dolomites.md",
+        "---\ntype: trip\nstatus: planned\ndays: 7\ncost: 1200\ncreated: 2026-08-03\n---\nSample trip note. Hut-to-hut week, next summer. Waiting on the refuge booking window to open.\n",
     );
-    // The flagship dashboard (SUB-788) and the sheet it reads. Both are
-    // `include_str!` rather than escaped literals: they are multi-fence
-    // markdown, and a csv/formulas/chart fence written as `\n`-escapes is
-    // unreviewable. Everything they bind to ships in this same seed — the
-    // three release notes and the sheet below — so a brand-new vault renders
-    // real numbers, not empty states.
-    write("Catalogue.md", include_str!("../seed/catalogue.md"));
-    write("Dashboards/Label Overview.md", include_str!("../seed/label-overview.md"));
+    // The flagship dashboard (SUB-788; reading+travel theme SUB-871) and the
+    // sheet it reads. Both are `include_str!` rather than escaped literals:
+    // they are multi-fence markdown, and a csv/formulas/chart fence written
+    // as `\n`-escapes is unreviewable. Everything they bind to ships in this
+    // same seed — the three trip notes and the sheet below — so a brand-new
+    // vault renders real numbers, not empty states.
+    write("Bookshelf.md", include_str!("../seed/bookshelf.md"));
+    write("Dashboards/Reading & Travel.md", include_str!("../seed/reading-travel.md"));
     write(
         "Dashboards/Start Here.md",
-        "---\ntype: dashboard\ndashboard: hub\ncreated: 2026-07-17\n---\n## What a dashboard is\n\n> [!note] The property does it\n> Any note whose frontmatter carries a `dashboard:` property stops rendering as text and becomes a live surface instead. This one is `dashboard: hub` — a page whose body is ordinary markdown, laid out in sections and cards.\n> [!idea] See it with data\n> [[Label Overview]] is the other seeded dashboard: `metrics` cards bound to the [[Catalogue]] sheet's totals, two charts over the release notes and that sheet, and tabs at the bottom for the sheet itself and the release database. Nothing outside this vault feeds it.\n> [!note] Other kinds\n> `charts` plots a database on its own, `food` and `feed` are small trackers, and `yield-apr` tracks a series of snapshots. The demo vault in the repo's `examples/vault/` has a working example of each.\n\n## Editing this\n\nThe source is a plain file like every other note — \"Open source note\" in the header opens it in the editor, and this note can be deleted whenever it has served its purpose.\n",
+        "---\ntype: dashboard\ndashboard: hub\ncreated: 2026-07-17\n---\n## What a dashboard is\n\n> [!note] The property does it\n> Any note whose frontmatter carries a `dashboard:` property stops rendering as text and becomes a live surface instead. This one is `dashboard: hub` — a page whose body is ordinary markdown, laid out in sections and cards.\n> [!idea] See it with data\n> [[Reading & Travel]] is the other seeded dashboard: `metrics` cards bound to the [[Bookshelf]] sheet's totals, two charts over the trip notes and that sheet, and tabs at the bottom for the sheet itself and the trip database. Nothing outside this vault feeds it.\n> [!note] Other kinds\n> `charts` plots a database on its own, `tasks` is a working board that puts overdue and due-today work first, then what needs attention now, `food` and `feed` are small trackers, and `yield-apr` tracks a series of snapshots. The demo vault in the repo's `examples/vault/` has a working example of each.\n\n## Editing this\n\nThe source is a plain file like every other note — \"Open source note\" in the header opens it in the editor, and this note can be deleted whenever it has served its purpose.\n",
     );
     write(
-        "Rondo MX180.md",
-        "---\ntype: gear\ncategory: mixer\nstatus: in studio\ncreated: 2026-07-17\n---\nSample gear note. Rotary mixer, main console spot. Service history and patchbay routing notes go here.\n",
+        "Weeknight Ramen.md",
+        "---\ntype: recipe\ncuisine: japanese\nstatus: keeper\ncreated: 2026-08-03\n---\nSample recipe note. Shoyu base, soft egg, 25 minutes end to end. Doubles fine; the broth freezes well. Picked up on the [[Kyoto]] research binge.\n",
     );
     seed_settings(root);
     seed_agent_files(root);
@@ -390,7 +390,7 @@ mod tests {
         let (e, dir) = temp_vault("seed-welcome");
         let raw = fs::read_to_string(dir.join("Welcome.md")).unwrap();
         // every wikilinked tour stop ships in this seed
-        for stop in ["Slow Bloom EP", "Static Bouquet", "Rondo MX180", "Start Here", "Label Overview", "Catalogue"] {
+        for stop in ["Lisbon", "Kyoto", "Weeknight Ramen", "Start Here", "Reading & Travel", "Bookshelf"] {
             assert!(raw.contains(&format!("[[{stop}]]")), "tour names no [[{stop}]]");
             assert!(
                 e.list().iter().any(|n| n.stem == stop),
@@ -440,7 +440,7 @@ mod tests {
     #[test]
     fn fresh_seed_writes_the_flagship_dashboard_over_its_own_data() {
         let (mut e, dir) = temp_vault("seed-flagship");
-        let raw = fs::read_to_string(dir.join("Dashboards/Label Overview.md"))
+        let raw = fs::read_to_string(dir.join("Dashboards/Reading & Travel.md"))
             .expect("fresh vault missing its flagship dashboard");
         let (fm, body) = split_frontmatter(&raw);
         let props = parse_props(fm);
@@ -449,54 +449,54 @@ mod tests {
         assert!(props.contains_key("created"), "flagship has no created date");
         assert!(!body.trim().is_empty(), "flagship has an empty body");
         assert!(
-            e.list().iter().any(|n| n.path == "Dashboards/Label Overview.md"),
+            e.list().iter().any(|n| n.path == "Dashboards/Reading & Travel.md"),
             "flagship dashboard was not indexed"
         );
 
         // The sheet it binds to ships in the same seed and parses as a sheet.
         let sheet_raw =
-            fs::read_to_string(dir.join("Catalogue.md")).expect("fresh vault missing Catalogue.md");
+            fs::read_to_string(dir.join("Bookshelf.md")).expect("fresh vault missing Bookshelf.md");
         let (sheet_fm, sheet_body) = split_frontmatter(&sheet_raw);
         assert_eq!(parse_props(sheet_fm).get("type").and_then(|v| v.as_str()), Some("sheet"));
-        assert!(sheet_body.contains("```csv"), "Catalogue has no data fence");
-        assert!(sheet_body.contains("```formulas"), "Catalogue has no formulas fence");
+        assert!(sheet_body.contains("```csv"), "Bookshelf has no data fence");
+        assert!(sheet_body.contains("```formulas"), "Bookshelf has no formulas fence");
         assert!(
-            e.list().iter().any(|n| n.path == "Catalogue.md"),
-            "Catalogue sheet was not indexed"
+            e.list().iter().any(|n| n.path == "Bookshelf.md"),
+            "Bookshelf sheet was not indexed"
         );
 
         // Every card binds to a summary the sheet actually defines, and every
-        // workbook page names a note this seed writes (or the release db).
-        for summary in ["releases", "runtime", "tracks_total", "vinyl"] {
+        // workbook page names a note this seed writes (or the trip db).
+        for summary in ["finished_count", "pages_read", "avg_rating", "reading_now"] {
             assert!(
-                body.contains(&format!("{{{{Catalogue.{summary}}}}}"))
-                    || raw.contains(&format!("{{{{Catalogue.{summary}}}}}")),
+                body.contains(&format!("{{{{Bookshelf.{summary}}}}}"))
+                    || raw.contains(&format!("{{{{Bookshelf.{summary}}}}}")),
                 "no card binds {summary}"
             );
             assert!(
                 sheet_body.contains(&format!("{summary} ")) || sheet_body.contains(&format!("{summary}=")),
-                "Catalogue defines no “{summary}” summary — the card would read “—”"
+                "Bookshelf defines no “{summary}” summary — the card would read “—”"
             );
         }
         assert!(body.contains("```chart"), "flagship has no chart fence");
-        assert!(body.contains("source: release"), "no chart over the seeded release notes");
-        assert!(body.contains("source: {{Catalogue}}"), "no chart over the seeded sheet");
-        // the release database the `view:` page and the status chart read is
+        assert!(body.contains("source: trip"), "no chart over the seeded trip notes");
+        assert!(body.contains("source: {{Bookshelf}}"), "no chart over the seeded sheet");
+        // the trip database the `view:` page and the status chart read is
         // non-empty on a fresh vault
         assert!(
             e.list()
                 .iter()
-                .filter(|n| n.props.get("type").and_then(|v| v.as_str()) == Some("release"))
+                .filter(|n| n.props.get("type").and_then(|v| v.as_str()) == Some("trip"))
                 .count()
                 >= 3,
-            "the status chart and the Releases page would be empty"
+            "the status chart and the Trips page would be empty"
         );
 
         // deletable: it is a plain note like any other, so trashing it leaves
         // the rest of the vault intact and nothing re-creates it
-        e.trash("Dashboards/Label Overview.md").expect("flagship is not trashable");
-        assert!(!dir.join("Dashboards/Label Overview.md").exists());
-        assert!(dir.join("Catalogue.md").exists(), "trashing the board took its sheet along");
+        e.trash("Dashboards/Reading & Travel.md").expect("flagship is not trashable");
+        assert!(!dir.join("Dashboards/Reading & Travel.md").exists());
+        assert!(dir.join("Bookshelf.md").exists(), "trashing the board took its sheet along");
         assert!(dir.join("Welcome.md").exists());
 
         let _ = fs::remove_dir_all(&dir);

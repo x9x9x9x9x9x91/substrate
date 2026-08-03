@@ -11,10 +11,10 @@ nothing ever moves when a note joins or leaves a database.
 
 ```markdown
 ---
-type: release
-status: in review
-artist: various
-created: 2026-07-17
+type: trip
+status: booked
+days: 10
+created: 2026-08-03
 ---
 Body text, then links and embeds (see below).
 ```
@@ -74,13 +74,13 @@ file would be scanned as a real embed — open with backticks + `view`, close wi
 backticks:
 
     (open fence, info string: view)
-    type: release
-    query: status:unreleased
+    type: trip
+    query: status:planned
     view: table
     (close fence)
 
 - `type` — a database type, spelled exactly as in the notes' `type:` key.
-- `query` — optional; the filter-bar operator language (`status:live`,
+- `query` — optional; the filter-bar operator language (`status:booked`,
   comma-OR, `due < 7d`, bare words match titles).
 - `view` — accepted, but only `table` renders today.
 - `saved` — alternative one-key form naming a pinned view by id or name; when

@@ -452,10 +452,10 @@ mod tests {
     #[test]
     fn fts_search_finds_body_text() {
         let (e, dir) = temp_vault("fts");
-        let hits = e.search("granular rework", None, false);
-        assert!(hits.iter().any(|h| h.path == "Slow Bloom EP.md"));
-        let hits = e.search("gran", None, false);
-        assert!(hits.iter().any(|h| h.path == "Slow Bloom EP.md"), "prefix search");
+        let hits = e.search("packing list", None, false);
+        assert!(hits.iter().any(|h| h.path == "Lisbon.md"));
+        let hits = e.search("pack", None, false);
+        assert!(hits.iter().any(|h| h.path == "Lisbon.md"), "prefix search");
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -481,18 +481,18 @@ mod tests {
             "both hits on the line marked"
         );
         // matches in the title are counted and segmented too
-        let hits = e.search_full("bloom", None, false).hits;
-        let h = hits.iter().find(|h| h.path == "Slow Bloom EP.md").expect("title hit");
-        assert!(h.title_parts.iter().any(|p| p.hit && p.text == "Bloom"));
+        let hits = e.search_full("lisbon", None, false).hits;
+        let h = hits.iter().find(|h| h.path == "Lisbon.md").expect("title hit");
+        assert!(h.title_parts.iter().any(|p| p.hit && p.text == "Lisbon"));
         assert!(h.total >= 1);
         // prefix query highlights the whole matched token
-        let hits = e.search_full("gran", None, false).hits;
-        let h = hits.iter().find(|h| h.path == "Slow Bloom EP.md").expect("prefix hit");
+        let hits = e.search_full("pack", None, false).hits;
+        let h = hits.iter().find(|h| h.path == "Lisbon.md").expect("prefix hit");
         assert!(h
             .matches
             .iter()
             .flat_map(|m| m.parts.iter())
-            .any(|p| p.hit && p.text == "granular"));
+            .any(|p| p.hit && p.text == "packing"));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -622,8 +622,8 @@ mod tests {
     #[test]
     fn backlinks_resolve_by_title() {
         let (e, dir) = temp_vault("bl");
-        let bl = e.backlinks("Static Bouquet.md");
-        assert!(bl.iter().any(|n| n.path == "Slow Bloom EP.md"));
+        let bl = e.backlinks("Kyoto.md");
+        assert!(bl.iter().any(|n| n.path == "Lisbon.md"));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -632,10 +632,11 @@ mod tests {
         let (mut e, dir) = temp_vault("related");
         e.create("Gero", "", Some("contact")).unwrap();
         e.set_schema_prop(
-            "release",
+            "trip",
             "Contact",
             vec![],
             Some("relation".into()),
+            None,
             None,
             Some("contact".into()),
             None,
@@ -645,10 +646,11 @@ mod tests {
         .unwrap();
         // a relation aimed at a different database must NOT match
         e.set_schema_prop(
-            "release",
+            "trip",
             "label",
             vec![],
             Some("relation".into()),
+            None,
             None,
             Some("label".into()),
             None,
@@ -658,20 +660,20 @@ mod tests {
         .unwrap();
         e.set_prop("Gero.md", "type", None).unwrap();
         e.set_prop("Gero.md", "Type", Some("CONTACT")).unwrap();
-        e.set_prop("Slow Bloom EP.md", "type", None).unwrap();
-        e.set_prop("Slow Bloom EP.md", "Type", Some("RELEASE")).unwrap();
-        e.set_prop("Slow Bloom EP.md", "contact", Some("Gero")).unwrap();
-        e.set_prop_value("Static Bouquet.md", "contact", Some(serde_json::json!(["Gero", "Noa"])))
+        e.set_prop("Lisbon.md", "type", None).unwrap();
+        e.set_prop("Lisbon.md", "Type", Some("TRIP")).unwrap();
+        e.set_prop("Lisbon.md", "contact", Some("Gero")).unwrap();
+        e.set_prop_value("Kyoto.md", "contact", Some(serde_json::json!(["Gero", "Noa"])))
             .unwrap();
-        e.set_prop("Vessel Songs.md", "label", Some("Gero")).unwrap();
+        e.set_prop("Dolomites.md", "label", Some("Gero")).unwrap();
 
         let rel = e.related("Gero.md");
-        assert_eq!(rel.len(), 2, "two releases point here, multi counts once");
+        assert_eq!(rel.len(), 2, "two trips point here, multi counts once");
         assert!(rel
             .iter()
-            .all(|r| folded_eq(&r.db_type, "release") && r.prop == "contact"));
-        assert!(rel.iter().any(|r| r.path == "Slow Bloom EP.md"));
-        assert!(rel.iter().any(|r| r.path == "Static Bouquet.md"));
+            .all(|r| folded_eq(&r.db_type, "trip") && r.prop == "contact"));
+        assert!(rel.iter().any(|r| r.path == "Lisbon.md"));
+        assert!(rel.iter().any(|r| r.path == "Kyoto.md"));
 
         // rename integrity: after the target moves, related still resolves
         let renamed = e.rename("Gero.md", "Gero X").unwrap();

@@ -79,8 +79,8 @@ Capacities, Affine).*
 - **Global capture** — ⌥Space from any app, menu-bar tray, zero-decision
   Inbox.
 - **Real notifications** — date+time props fire real notifications with
-  snooze, recurrence, DST-safe. Notes apps don't do this; task apps don't
-  own your notes.
+  snooze, recurrence, lead-time reminders ("remind N days before"),
+  DST-safe. Notes apps don't do this; task apps don't own your notes.
 - **Notion importer** — pages land as notes, database rows land typed, date
   ranges survive (`start → end`). Rollups then compute over the imported
   data. The exit ramp is paved; select colors and Notion-side

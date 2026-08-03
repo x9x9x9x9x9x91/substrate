@@ -17,6 +17,7 @@ import {
   summarySeries,
   xFractions,
   xSchemaOptions,
+  type ChartBand,
   type ChartBlock,
   type ChartPoint,
   type ChartSeries,
@@ -56,8 +57,145 @@ function fmtVal(v: number): string {
   return fmtFull(v);
 }
 
-function tooltip(p: ChartPoint): string {
-  return `${p.label} · ${fmtFull(p.value)}${p.n > 1 ? ` · ${p.n} rows` : ""}`;
+/** One line of a tooltip: a value, plus the band it belongs to when the chart
+    is split (`by:`). `band` is the index in the chart's band list, not in the
+    tooltip — a band with no rows at this x is absent here but keeps its
+    treatment. */
+interface TipRow {
+  name: string | null;
+  band: number;
+  value: number;
+  n: number;
+}
+
+interface TipState {
+  label: string;
+  rows: TipRow[];
+  /** px from the chart wrap's left edge / top edge */
+  x: number;
+  y: number;
+  /** which edge the card hangs from, so the first and last x stay on-screen */
+  align: "l" | "c" | "r";
+  /** Tall marks and line slots sit near the top; those cards open downward so
+      they do not cover the legend above the plot. */
+  vertical: "above" | "below";
+}
+
+/** The same reading, as one sentence — the tooltip is decoration for a screen
+    reader, so the focusable slot carries this on `aria-label` instead. */
+function tipText(label: string, rows: TipRow[]): string {
+  if (rows.length === 0) return `${label} · no rows`;
+  if (rows.length === 1 && rows[0].name === null) {
+    const r = rows[0];
+    return `${label} · ${fmtFull(r.value)}${r.n > 1 ? ` · ${r.n} rows` : ""}`;
+  }
+  return `${label} · ${rows.map((r) => `${r.name}: ${fmtFull(r.value)}`).join(", ")}`;
+}
+
+/** Hover/focus tooltip shared by both chart kinds (SUB-941). The card is
+    positioned inside the chart's own wrap — one element per chart, moved to the
+    hovered slot, rather than one card per bar. Anchoring is by the slot's box,
+    so a bar's card sits on top of the bar and a line's sits at the plot top. */
+function useChartTip() {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [tip, setTip] = useState<TipState | null>(null);
+  const show = (el: Element | null, label: string, rows: TipRow[]) => {
+    const wrap = wrapRef.current;
+    if (!wrap || !el) return;
+    const r = el.getBoundingClientRect();
+    const w = wrap.getBoundingClientRect();
+    const x = r.left - w.left + r.width / 2;
+    // no measuring pass: past either edge the card hangs from that side, so a
+    // centred card never runs off the first or last slot
+    const align = x < TIP_EDGE_PX ? "l" : x > w.width - TIP_EDGE_PX ? "r" : "c";
+    const y = r.top - w.top;
+    setTip({ label, rows, x, y, align, vertical: y < TIP_FLIP_PX ? "below" : "above" });
+  };
+  return { wrapRef, tip, show, hide: () => setTip(null) };
+}
+
+/** how close to an edge a slot must be before its card hangs from that side */
+const TIP_EDGE_PX = 84;
+const TIP_FLIP_PX = 96;
+
+function ChartTip({ tip }: { tip: TipState | null }) {
+  if (!tip) return null;
+  const multi = tip.rows.length > 1 || (tip.rows[0]?.name ?? null) !== null;
+  return (
+    // the sentence is already on the slot's aria-label — a screen reader that
+    // read both would say every value twice
+    <div
+      className={`chart-tip is-${tip.align} is-${tip.vertical}`}
+      style={{ left: tip.x, top: tip.y }}
+      aria-hidden="true"
+    >
+      <div className="chart-tip-x">{tip.label}</div>
+      {tip.rows.map((r) => (
+        <div className="chart-tip-row" key={r.band}>
+          {multi ? (
+            <>
+              <span className={`chart-swatch ${bandClass(r.band)}`} />
+              <span className="chart-tip-name">{r.name}</span>
+            </>
+          ) : null}
+          <span className="chart-tip-val">{fmtFull(r.value)}</span>
+        </div>
+      ))}
+      {!multi && tip.rows[0] && tip.rows[0].n > 1 ? (
+        <div className="chart-tip-n">{tip.rows[0].n} rows</div>
+      ) : null}
+      {tip.rows.length === 0 ? <div className="chart-tip-n">No rows</div> : null}
+    </div>
+  );
+}
+
+/** The neutral token ramp safely carries two data series. Three or more wait
+    on the categorical-palette decision in SUB-952 rather than repeating or
+    inventing colors here. */
+const BAND_TREATMENTS = 2;
+
+function bandClass(i: number): string {
+  return `band-${i % BAND_TREATMENTS}`;
+}
+
+/** Compact legend for a `by:` split — a swatch and the band's own value, in
+    band order, so the stack reads bottom-up as the legend reads left-right. */
+function ChartLegend({ bands }: { bands: ChartBand[] }) {
+  return (
+    <div className="chart-legend">
+      {bands.map((b, i) => (
+        <span className="chart-legend-item" key={b.name}>
+          <span className={`chart-swatch ${bandClass(i)}`} />
+          {b.name}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Roving tabindex over a chart's x slots: one tab stop per chart, arrows walk
+    the axis. 40 bars must not be 40 tab stops — the pattern every grid-like
+    widget uses, so the keyboard reading matches the pointer's. */
+function useRoving(n: number) {
+  const [active, setActive] = useState(0);
+  const slots = useRef<(HTMLElement | null)[]>([]);
+  const go = (i: number) => {
+    const next = Math.max(0, Math.min(n - 1, i));
+    setActive(next);
+    slots.current[next]?.focus();
+  };
+  const onKeyDown = (e: React.KeyboardEvent, i: number) => {
+    const key = e.key;
+    if (key === "ArrowRight") go(i + 1);
+    else if (key === "ArrowLeft") go(i - 1);
+    else if (key === "Home") go(0);
+    else if (key === "End") go(n - 1);
+    else return;
+    e.preventDefault();
+  };
+  // a chart that reflows shorter must not keep a tab stop past its own end
+  const tabIndexOf = (i: number) => (i === Math.min(active, n - 1) ? 0 : -1);
+  return { slots, onKeyDown, tabIndexOf };
 }
 
 /** Bar chart in the dashboard idiom: flat columns, value on top, label below,
@@ -65,38 +203,98 @@ function tooltip(p: ChartPoint): string {
     colors (xOptions), each bar wears its option's hue at the pill's color-mix
     dose; uncolored values stay neutral. Values and labels thin out when
     crowded. */
-function BarChart({ points, xOptions }: { points: ChartPoint[]; xOptions?: SelectOption[] }) {
-  const max = Math.max(0, ...points.map((p) => p.value));
+function BarChart({
+  points,
+  bands,
+  xOptions,
+}: {
+  points: ChartPoint[];
+  /** `by:` split — each column stacks its bands bottom-up in band order */
+  bands?: ChartBand[] | null;
+  xOptions?: SelectOption[];
+}) {
+  const { wrapRef, tip, show, hide } = useChartTip();
+  const { slots, onKeyDown, tabIndexOf } = useRoving(points.length);
+  // a stacked column is as tall as its own total, so the axis has to measure
+  // totals — otherwise the tallest stack overflows the plot
+  const totals = bands
+    ? points.map((_, i) => bands.reduce((s, b) => s + (b.points[i]?.value ?? 0), 0))
+    : points.map((p) => p.value);
+  const max = Math.max(0, ...totals);
   const showVals = points.length <= 12;
   const labelEvery = Math.max(1, Math.ceil(points.length / 10));
+  const rowsAt = (i: number): TipRow[] =>
+    bands
+      ? bands
+          .map((b, bi) => ({ name: b.name, band: bi, value: b.points[i]?.value ?? 0, n: b.points[i]?.n ?? 0 }))
+          .filter((r) => r.n > 0)
+      : [{ name: null, band: 0, value: points[i].value, n: points[i].n }];
   return (
-    <div className="dash-chart">
-      {points.map((p, i) => {
-        const h = max > 0 ? Math.max(3, (p.value / max) * 120) : 3;
-        const tint = xOptions?.length ? optionColorVar(optionColor(xOptions, p.label)) : undefined;
-        const style = (
-          tint
-            ? {
-                height: h,
-                "--bar": `color-mix(in srgb, ${tint} 55%, transparent)`,
-                "--bar-hover": `color-mix(in srgb, ${tint} 72%, transparent)`,
-              }
-            : { height: h }
-        ) as CSSProperties;
-        return (
-          <div className="dash-bar-col" key={p.key} title={tooltip(p)}>
-            {/* an empty bucket is already said by the baseline tick — the "0"
-                label on top of it is the same statement twice (SUB-527) */}
-            <span className="dash-bar-val">
-              {showVals && p.value !== 0 ? fmtVal(p.value) : ""}
-            </span>
-            <div className="dash-bar" style={style} />
-            <span className="dash-bar-time">
-              {i % labelEvery === 0 || i === points.length - 1 ? p.label : ""}
-            </span>
-          </div>
-        );
-      })}
+    <div className="chart-wrap" ref={wrapRef}>
+      <div className="dash-chart">
+        {points.map((p, i) => {
+          const rows = rowsAt(i);
+          const total = totals[i];
+          const h = max > 0 ? Math.max(3, (total / max) * 120) : 3;
+          const tint =
+            !bands && xOptions?.length ? optionColorVar(optionColor(xOptions, p.label)) : undefined;
+          const style = (
+            tint
+              ? {
+                  height: h,
+                  "--bar": `color-mix(in srgb, ${tint} 55%, transparent)`,
+                  "--bar-hover": `color-mix(in srgb, ${tint} 72%, transparent)`,
+                }
+              : { height: h }
+          ) as CSSProperties;
+          const onEnter = (e: { currentTarget: Element }) =>
+            show(e.currentTarget.querySelector(".dash-bar"), p.label, rows);
+          return (
+            <div
+              className="dash-bar-col"
+              key={p.key}
+              ref={(el) => {
+                slots.current[i] = el;
+              }}
+              tabIndex={tabIndexOf(i)}
+              role="button"
+              aria-label={tipText(p.label, rows)}
+              onMouseEnter={onEnter}
+              onMouseLeave={hide}
+              onFocus={onEnter}
+              onBlur={hide}
+              onKeyDown={(e) => onKeyDown(e, i)}
+            >
+              {/* an empty bucket is already said by the baseline tick — the "0"
+                  label on top of it is the same statement twice (SUB-527) */}
+              <span className="dash-bar-val">{showVals && total !== 0 ? fmtVal(total) : ""}</span>
+              {bands ? (
+                // the whole stack is one bar-height box; the slices divide it by
+                // share, so a column reads as one mark and the totals compare
+                <div className={`dash-bar is-stack${total === 0 ? " is-empty" : ""}`} style={{ height: h }}>
+                  {bands.map((b, bi) => {
+                    const v = b.points[i]?.value ?? 0;
+                    if (v <= 0) return null;
+                    return (
+                      <div
+                        className={`dash-bar-slice ${bandClass(bi)}`}
+                        key={b.name}
+                        style={{ flexGrow: v }}
+                      />
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="dash-bar" style={style} />
+              )}
+              <span className="dash-bar-time">
+                {i % labelEvery === 0 || i === points.length - 1 ? p.label : ""}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <ChartTip tip={tip} />
     </div>
   );
 }
@@ -112,8 +310,13 @@ const LABEL_FALLBACK_PX = 560;
     their real date gaps, categorical axes keep even index spacing. The plot
     insets right of a fixed 40px gutter that holds the hi/lo value hints at
     their y positions; a baseline runs under the whole chart. */
-function LineChart({ points }: { points: ChartPoint[] }) {
-  const vals = points.map((p) => p.value);
+function LineChart({ points, bands }: { points: ChartPoint[]; bands?: ChartBand[] | null }) {
+  const { wrapRef, tip, show, hide } = useChartTip();
+  const { slots, onKeyDown, tabIndexOf } = useRoving(points.length);
+  // `points` is the shared axis even when split: every band's keys are a subset
+  // of it (lib/chart.ts builds bands from the final axis), so a band's point at
+  // key k lands at the same x as every other band's.
+  const vals = bands ? bands.flatMap((b) => b.points.map((p) => p.value)) : points.map((p) => p.value);
   const lo0 = Math.min(...vals);
   const hi0 = Math.max(...vals);
   const pad = (hi0 - lo0) * 0.1 || 1;
@@ -159,27 +362,77 @@ function LineChart({ points }: { points: ChartPoint[] }) {
     if (i === n - 1) return { left: "100%", transform: "translateX(-100%)" };
     return { left: `${px(i)}%`, transform: "translateX(-50%)" };
   };
+  const slotStyle = (i: number): CSSProperties => {
+    const here = px(i);
+    const left = i === 0 ? 0 : (px(i - 1) + here) / 2;
+    const right = i === n - 1 ? 100 : (here + px(i + 1)) / 2;
+    return { left: `${left}%`, width: `${right - left}%` };
+  };
+
+  // a band skips x keys it has no rows for, so its dots index by key
+  const at = new Map(points.map((p, i) => [p.key, i]));
+  const lines = bands
+    ? bands.map((b) => b.points.map((p) => ({ p, i: at.get(p.key) ?? 0 })))
+    : [points.map((p, i) => ({ p, i }))];
+  const rowsAt = (i: number): TipRow[] =>
+    bands
+      ? bands
+          .map((b, bi): TipRow | null => {
+            const hit = b.points.find((p) => p.key === points[i].key);
+            return hit ? { name: b.name, band: bi, value: hit.value, n: hit.n } : null;
+          })
+          .filter((r): r is TipRow => r !== null)
+      : [{ name: null, band: 0, value: points[i].value, n: points[i].n }];
 
   return (
-    <>
+    <div className="chart-wrap" ref={wrapRef}>
       <div className="chart-line">
         <div className="chart-line-plot">
           <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-            <polyline
-              className="chart-line-path"
-              fill="none"
-              vectorEffect="non-scaling-stroke"
-              points={points.map((p, i) => `${px(i)},${py(p.value)}`).join(" ")}
-            />
+            {lines.map((line, bi) => (
+              <polyline
+                key={bi}
+                className={`chart-line-path ${bands ? bandClass(bi) : ""}`}
+                fill="none"
+                vectorEffect="non-scaling-stroke"
+                points={line.map(({ p, i }) => `${px(i)},${py(p.value)}`).join(" ")}
+              />
+            ))}
           </svg>
-          {points.map((p, i) => (
-            <span
-              key={p.key}
-              className="chart-dot"
-              style={{ left: `${px(i)}%`, top: `${py(p.value)}%` }}
-              title={tooltip(p)}
-            />
-          ))}
+          {lines.map((line, bi) =>
+            line.map(({ p, i }) => (
+              <span
+                key={`${bi}-${p.key}`}
+                className={`chart-dot ${bands ? bandClass(bi) : ""}`}
+                style={{ left: `${px(i)}%`, top: `${py(p.value)}%` }}
+                aria-hidden="true"
+              />
+            ))
+          )}
+          {/* one invisible full-height slot per x, so hover and focus land on
+              the column rather than on a 5px dot — and a split chart reads all
+              its bands at that x in one card */}
+          {points.map((p, i) => {
+            const onEnter = (e: { currentTarget: Element }) => show(e.currentTarget, p.label, rowsAt(i));
+            return (
+              <span
+                key={p.key}
+                className="chart-line-slot"
+                style={slotStyle(i)}
+                ref={(el) => {
+                  slots.current[i] = el;
+                }}
+                tabIndex={tabIndexOf(i)}
+                role="button"
+                aria-label={tipText(p.label, rowsAt(i))}
+                onMouseEnter={onEnter}
+                onMouseLeave={hide}
+                onFocus={onEnter}
+                onBlur={hide}
+                onKeyDown={(e) => onKeyDown(e, i)}
+              />
+            );
+          })}
         </div>
         {hints.map((h) => (
           <span key={`hint-${h.v}`} className="chart-line-hint" style={{ top: `${h.y}%` }}>
@@ -187,6 +440,7 @@ function LineChart({ points }: { points: ChartPoint[] }) {
           </span>
         ))}
       </div>
+      <ChartTip tip={tip} />
       <div className="chart-line-labels" ref={labelsRef}>
         {kept.map((i) => (
           <span key={points[i].key} style={labelStyle(i)}>
@@ -194,7 +448,7 @@ function LineChart({ points }: { points: ChartPoint[] }) {
           </span>
         ))}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -219,6 +473,12 @@ function ChartSection({
     );
   }
   const c = block.config;
+  const splitError =
+    series?.bands && series.bands.length > BAND_TREATMENTS
+      ? `This split has ${series.bands.length} series; the current grayscale chart can distinguish ${BAND_TREATMENTS}.`
+      : c.kind === "bar" && series?.bands?.some((band) => band.points.some((p) => p.value < 0))
+        ? "Stacked bars cannot represent negative split values — use kind: line."
+        : null;
   return (
     <div>
       <div className="dash-section-label">{chartTitle(c)}</div>
@@ -234,14 +494,23 @@ function ChartSection({
         // the property names" is the app knowing the answer and not saying it
         // (SUB-749). A renamed column lands here; genuine zero-match below.
         <div className="chart-err">{series.missing}</div>
+      ) : splitError ? (
+        <div className="chart-err">{splitError}</div>
       ) : series.points.length === 0 ? (
         <div className="dash-foot" style={{ margin: "4px 0 0" }}>
           No rows matched — check the source and property names.
         </div>
-      ) : c.kind === "line" ? (
-        <LineChart points={series.points} />
       ) : (
-        <BarChart points={series.points} xOptions={xOptions} />
+        <>
+          {/* the legend sits above the plot: it names what the marks mean, so
+              it has to be read before them, not after */}
+          {series.bands && series.bands.length > 0 ? <ChartLegend bands={series.bands} /> : null}
+          {c.kind === "line" ? (
+            <LineChart points={series.points} bands={series.bands} />
+          ) : (
+            <BarChart points={series.points} bands={series.bands} xOptions={xOptions} />
+          )}
+        </>
       )}
       <div className="dash-foot" style={{ margin: "10px 0 0" }}>
         {chartSourceDesc(c)} · {series?.points.length ?? 0}{" "}

@@ -104,6 +104,39 @@ kind: bar
 `sum:<prop>`, or `avg:<prop>`. A malformed fence renders its parse error in place
 and never breaks the others.
 
+Hovering or focusing a bar or a point shows the exact value, the x label, and —
+on a split chart — every series at that x. Each chart is one tab stop: arrow
+keys, Home and End walk the axis. Tooltips are a pointer affordance and never
+print.
+
+**Splitting into series (`by`).** `by: <prop|column>` pivots the measure into
+one series per distinct value of that field — a stacked bar or a multi-line
+chart, with a legend above the plot:
+
+````markdown
+```chart
+source: {{Spending}}
+x: month
+y: sum:amount
+by: category
+kind: bar
+title: Spending per month, by category
+```
+````
+
+Bands keep first-seen order and first-seen casing, folding case to group. A row
+whose `by` field is blank is skipped, not collected into an invented series.
+`by` and `series` both name the series axis, so a fence with both is a parse
+error; a `by` field that exists nowhere in the source is named in the chart's
+error like any other binding.
+
+The current neutral token ramp distinguishes two series. A split resolving to
+three or more renders an in-place message instead of repeating an ambiguous
+gray; SUB-952 carries the categorical-palette call under SUB-932. Stacked bars
+accept non-negative `sum`/`count` measures; use a line chart for averages or
+negative split values. On a split bar the series encoding replaces any schema
+hue that the x-axis options would otherwise supply.
+
 **Plotting a sheet's summaries (`series`).** `x`/`y` plot *rows*, so a set of
 bucket totals that only exists in the summary bar would need bucket rows
 materialized in the sheet to chart. `series` binds those named summaries
@@ -297,24 +330,34 @@ free and header matching is case-insensitive, so the scanner can grow columns
 without breaking the pane; a row with no job name or no 4-digit year is
 skipped, and missing counts read as 0.
 
-### `tasks` — the open-tasks board
+### `tasks` — the working board
 
-Reads every `type: task` note in the vault (SUB-786). Open tasks group by their
-`area:` prop; a hand-picked **Now** focus list (`now: true` on the task) floats
-above the groups, cross-area. A `status:` of `done` or `cancelled` drops a task
-out, a future `snoozed_until: YYYY-MM-DD` hides one from the board (it still
-shows in the snoozed count), and the rest rank by rot: whole-day age (from
-`created:`) × priority weight (`priority:` high 3,
-medium 2, low/unknown 1). A task older than the stale threshold — or one with
-no `created:` date at all — is flagged as needing attention; pinned Now rows
-never are, since they're already chosen.
+Reads every `type: task` note in the vault (SUB-786, reshaped in SUB-870). The
+board's spine, in render order: **Overdue**, **Due today**, the hand-picked
+**Now** list (`now: true` on the task), then a section per `area:`. Empty
+sections are omitted. Urgency outranks the pin — a pinned task that is overdue
+or due today sits in that section instead of Now — and `due:` accepts a bare
+`YYYY-MM-DD` or a timed `YYYY-MM-DD HH:MM`; a malformed value reads as no due
+date rather than bucketing the row as urgent or dropping it.
+
+A `status:` of `done` or `cancelled` drops a task out, and a future
+`snoozed_until: YYYY-MM-DD` moves one into its own collapsed **Snoozed**
+section, soonest wake first, so nothing vanishes silently.
+
+Inside every section rows sort by due bucket (overdue → today → upcoming → no
+due), then priority (`priority:` high 3, medium 2, low/unknown 1), then
+whole-day age from `created:`. Rot is the tiebreaker, not the headline. Age
+still drives the secondary chips: a task past the stale threshold reads
+`stale`, one with no `created:` at all reads `undated`. Those are diagnostics,
+never a row's reason for being on the board — and pinned Now rows carry none,
+since they're already chosen.
 
 Config is the dashboard note's own frontmatter, all optional:
 
 | prop | meaning |
 | --- | --- |
 | `areas` | area allowlist — comma-separated or a YAML list. Omit for every area; tasks without an `area:` group under Unassigned. |
-| `stale_days` | whole days before age alone flags a task (default 30). |
+| `stale_days` | whole days before age alone chips a task (default 30). |
 
 ````markdown
 ---

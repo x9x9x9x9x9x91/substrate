@@ -35,7 +35,7 @@ interview toward what the user *plans* to keep, not what's there.
 ## 2. Interview — few questions, concrete, with defaults
 
 Open with one or two sentences of what you found ("You've got 140 notes,
-databases for `release` / `gear` / `contact`, and 23 unfiled things in Inbox").
+databases for `trip` / `recipe` / `contact`, and 23 unfiled things in Inbox").
 That grounds the conversation and proves you looked.
 
 Then ask **at most three or four questions**, in the user's language, each with

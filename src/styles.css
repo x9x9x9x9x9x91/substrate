@@ -51,6 +51,16 @@
      axes and page footers only. */
   --hair: rgba(255, 255, 255, 0.1);
   --hair-soft: rgba(255, 255, 255, 0.055);
+  /* SUB-943: the page's one strong hairline (.list-head / .dash-head) reads as
+     a sky gradient dissolving to nothing toward the right. The single spot of
+     colour in the chrome — every other rule stays neutral. */
+  --hairline-accent: linear-gradient(
+    90deg,
+    #4f86d8,
+    #6cc0ec 40%,
+    rgba(155, 224, 245, 0.85) 70%,
+    rgba(155, 224, 245, 0)
+  );
   --text-4: #54565a;
   --bg-input: #0d0d0e;
   --r: 2px;
@@ -3412,6 +3422,15 @@ body.agenda-window .palette:focus-visible {
   border-bottom: 1px solid var(--hair);
 }
 
+/* SUB-943: the two strong hairlines carry the sky fade. The border stays in
+   the box model (transparent) so nothing reflows; the gradient paints as a
+   1.5px strip along the bottom of the padding box, where the rule sat. */
+.list-head,
+.dash-head {
+  border-bottom-color: transparent;
+  background: var(--hairline-accent) bottom / 100% 1.5px no-repeat;
+}
+
 .dash-title {
   font-size: 15px;
   font-weight: 650;
@@ -3560,17 +3579,38 @@ body.agenda-window .palette:focus-visible {
 }
 
 
-/* ————— changelog (SUB-452, structured SUB-817) —————
+/* ————— changelog (SUB-452, structured SUB-817, visual pass SUB-938) —————
    A release history in the instrument language: the version is the section
    label's own text, the release name rides the label voice beside it, the
    date sits at the right end of the same rule. Headline items lead the
    release a step up from sentence voice; the rest sit under New / Improved /
-   Fixed micro-labels, where the kind dot lives once instead of on every row. */
+   Fixed micro-labels, where the kind color lives on label and dot. Entries
+   authored "Lead: detail" carry the lead a voice up — the pane scans as
+   phrases, not paragraphs. */
+
+.chlog-release {
+  /* prose reads at a reading measure, not the 1120px dashboard grid — the
+     wide measure was the "wall of text" (SUB-938) */
+  max-width: 720px;
+}
 
 .chlog-release .dash-section-label {
   /* the label already carries the trailing hairline; the date must sit
      after that rule, so the tail flexes between them */
   margin-top: 26px;
+}
+
+/* releases after the first get real air — the gap is what separates two
+   releases more than any rule could */
+.chlog-release + .chlog-release .dash-section-label {
+  margin-top: 46px;
+}
+
+.chlog-release .dash-section-label > span:first-child {
+  /* the version number is the scan anchor down the page */
+  font-weight: 650;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
 }
 
 .chlog-release-title {
@@ -3601,9 +3641,29 @@ body.agenda-window .palette:focus-visible {
 }
 
 .chlog-headline-text {
-  /* one step above sentence voice — the flagship reads before anything else */
-  font: 500 14.5px/1.5 var(--font);
+  /* the flagship's bold lead carries the prominence; its detail run recedes
+     so a three-line paragraph reads as "phrase — then detail if you want it" */
+  font: 400 14px/1.55 var(--font);
+  color: var(--text-2);
+}
+
+.chlog-headline-text.no-lead {
+  /* a flagship without an authored lead keeps the old full-voice treatment —
+     it must not read dimmer than the group items below it */
+  font-weight: 500;
   color: var(--text-1);
+}
+
+.chlog-lead {
+  color: var(--text-1);
+}
+
+.chlog-headline-text .chlog-lead {
+  font-weight: 600;
+}
+
+.chlog-text .chlog-lead {
+  font-weight: 500;
 }
 
 .chlog-group {
@@ -3613,8 +3673,11 @@ body.agenda-window .palette:focus-visible {
 /* the group label is a section voice, not a row (SUB-866): uppercase
    micro-label closed by a trailing hairline, same anatomy as
    .dash-section-label one step down. No dot — a dotted label read as a
-   bullet peer of the dotted headlines. */
-.chlog-group-label {
+   bullet peer of the dotted headlines. The highlights label shares the
+   anatomy; kind labels take their kind color inline, highlights stays
+   neutral (its rows mix kinds — each row's ✦ carries its own). */
+.chlog-group-label,
+.chlog-highlights-label {
   display: flex;
   align-items: center; /* the ::after rule wants the label's optical middle */
   gap: 10px;
@@ -3625,7 +3688,12 @@ body.agenda-window .palette:focus-visible {
   margin-bottom: 2px;
 }
 
-.chlog-group-label::after {
+.chlog-highlights-label {
+  color: var(--text-2);
+}
+
+.chlog-group-label::after,
+.chlog-highlights-label::after {
   content: "";
   flex: 1;
   border-bottom: 1px solid var(--hair-soft);
@@ -3649,10 +3717,11 @@ body.agenda-window .palette:focus-visible {
 }
 
 .chlog-mark {
-  /* the dot rides the first text line's baseline, not the row's centre */
+  /* a ✦ in the kind color — a highlight mark, not a state dot (SUB-938);
+     baseline-aligned with the row's first line by the flex parent */
   flex: none;
-  position: relative;
-  top: 1px;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .chlog-text {
@@ -3695,6 +3764,12 @@ body.agenda-window .palette:focus-visible {
   font: var(--dash-data);
   color: var(--danger);
   margin-top: 3px;
+}
+
+/* the positioning ground for a chart's one tooltip card — the card moves to
+   the hovered slot rather than one card existing per bar (SUB-941) */
+.chart-wrap {
+  position: relative;
 }
 
 .dash-chart {
@@ -3828,6 +3903,165 @@ body.agenda-window .palette:focus-visible {
   position: absolute;
   top: 0;
   white-space: nowrap;
+}
+
+/* Two neutral series treatments for a `by:` split (SUB-941). Both are existing
+   ramp tokens; 3+ series stop with an honest in-place message pending SUB-952. */
+.chart-swatch {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 1px;
+  background: var(--band, var(--text-1));
+}
+
+.band-0 {
+  --band: var(--text-1);
+}
+
+.band-1 {
+  --band: var(--text-3);
+}
+
+/* the legend names the bands before the plot draws them — one line, label
+   voice, no box */
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin: 6px 0 2px;
+  font: var(--dash-label);
+  color: var(--text-3);
+}
+
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* a stacked column is one bar-height box; slices divide it by share, so the
+   column still reads as a single mark and totals stay comparable */
+.dash-bar.is-stack {
+  display: flex;
+  flex-direction: column-reverse;
+  background: none;
+  overflow: hidden;
+}
+
+.dash-bar.is-stack.is-empty {
+  background: var(--hair);
+}
+
+.dash-bar-slice {
+  flex-basis: 0;
+  min-height: 0;
+  background: var(--band);
+  /* a hairline in the page ground keeps two adjacent doses from fusing */
+  border-top: 1px solid var(--bg);
+}
+
+.dash-bar-slice:first-child {
+  border-top: 0;
+}
+
+.dash-bar-col:hover .dash-bar-slice,
+.dash-bar-col:focus-visible .dash-bar-slice {
+  filter: brightness(1.15);
+}
+
+.chart-line-path.band-1 {
+  stroke-dasharray: 5 3;
+}
+
+.chart-line-path.band-0,
+.chart-line-path.band-1 {
+  stroke: var(--band);
+}
+
+.chart-dot.band-0,
+.chart-dot.band-1 {
+  background: var(--band);
+}
+
+/* full-height hover/focus target per x — hovering a 5px dot is a pixel hunt,
+   and a split chart has to answer for every band at that x at once */
+.chart-line-slot {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 1px;
+  border-radius: var(--r);
+}
+
+.chart-line-slot:hover {
+  background: var(--hover-dense);
+}
+
+/* The tooltip: an elevated card in the palette's chrome, anchored to the
+   hovered slot and lifted clear of it. Never a hit target of its own — the
+   pointer must be able to cross it to the next bar. */
+.chart-tip {
+  position: absolute;
+  z-index: 3;
+  --tip-x: -50%;
+  --tip-y: -100%;
+  transform: translate(var(--tip-x), var(--tip-y));
+  margin-top: -8px;
+  pointer-events: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.5);
+  padding: 6px 9px;
+  min-width: 74px;
+  white-space: nowrap;
+}
+
+/* at the axis ends the card hangs from that side instead of centring, so the
+   first and last slot never push it past the chart */
+.chart-tip.is-l {
+  --tip-x: -14px;
+}
+
+.chart-tip.is-r {
+  --tip-x: calc(-100% + 14px);
+}
+
+.chart-tip.is-below {
+  --tip-y: 0;
+  margin-top: 8px;
+}
+
+.chart-tip-x {
+  font: var(--dash-label);
+  color: var(--text-3);
+  margin-bottom: 3px;
+}
+
+.chart-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: var(--dash-data);
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tip-name {
+  color: var(--text-2);
+  margin-right: auto;
+}
+
+.chart-tip-val {
+  font-variant-numeric: tabular-nums;
+}
+
+.chart-tip-n {
+  font: var(--dash-label);
+  color: var(--text-4);
+  margin-top: 2px;
 }
 
 .chart-err {
@@ -7078,6 +7312,28 @@ span.asset-thumb svg {
   white-space: nowrap;
 }
 
+/* lead-time row (SUB-842): same family as the notify checkbox above it, so
+   the pair reads as one reminder block */
+.selmenu-notify-lead {
+  padding-top: 0;
+}
+
+.selmenu-notify-days {
+  width: 40px;
+  padding: 1px 4px;
+  font: inherit;
+  text-align: center;
+  color: var(--text-1);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+}
+
+.selmenu-notify-days:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 .selmenu-notify-note {
   margin-left: auto;
   font-size: 11px;
@@ -8000,11 +8256,22 @@ span.asset-thumb svg {
     display: none;
   }
 
-  /* the chart language's few hard-coded white alphas (dark-ground fills)
-     would vanish on paper — they join the print palette; tinted bars keep
-     their schema hue via the inline --bar */
+  /* tinted bars keep their schema hue via the inline --bar */
   #print-surface .dash-bar {
     background: var(--bar, #9198a1);
+  }
+
+  /* a stack is drawn by its slices — the id-scoped rule above would otherwise
+     paint a solid column behind them */
+  #print-surface .dash-bar.is-stack {
+    background: none;
+  }
+
+  /* a tooltip is a pointer affordance — on paper there is no pointer, and a
+     card frozen over one bar would be a lie about which one matters */
+  #print-surface .chart-tip,
+  #print-surface .chart-line-slot {
+    display: none;
   }
 
   #print-surface .chart-line {
@@ -11577,6 +11844,14 @@ body.termhud-resizing-ew .termhud {
   font-size: 11.5px;
   line-height: 1.35;
   color: var(--text-3);
+}
+
+/* the terminal-font row's "not found" line (SUB-873): the hint's own type, one
+   grey step brighter so it reads as the newer line without becoming an error
+   state — nothing is broken, the font just isn't resolving */
+.settings-hint-warn {
+  margin-top: 3px;
+  color: var(--text-2);
 }
 
 .settings-input {

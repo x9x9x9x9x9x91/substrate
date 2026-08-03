@@ -192,6 +192,7 @@ function cfg(over: Partial<RowChartConfig>): RowChartConfig {
     bind: "rows",
     x: { prop: "released", bucket: "month" },
     y: { fn: "count" },
+    by: null,
     kind: "bar",
     title: null,
     ...over,
@@ -936,4 +937,176 @@ test("parseChartBlocks: summary fences parse alongside row fences (SUB-745)", ()
   assert.equal(blocks[0].error, null);
   assert.equal(blocks[0].config?.bind, "summaries");
   assert.equal(blocks[1].config?.bind, "rows");
+});
+
+// ---------- `by:` multi-series (SUB-941) ----------
+
+test("parse: by names the split field; absent means null (SUB-941)", () => {
+  const split = parseRow("source: expense\nx: spent:month\ny: sum:amount\nby: category\n");
+  assert.equal(split.by, "category");
+  assert.equal(parseRow("source: expense\nx: spent:month\ny: sum:amount\n").by, null);
+  // the field name keeps its authored casing and inner spaces — lookup folds
+  // case, the legend and the error message read back what was typed
+  assert.equal(parseRow("source: e\nx: a\ny: count\nby: Cost Center\n").by, "Cost Center");
+});
+
+test("parse errors: by is exclusive with series, and must name a field (SUB-941)", () => {
+  assert.throws(
+    () => parseChartConfig("source: {{Holdings}}\nseries: etf, cash\nby: bucket\n"),
+    /by splits a row measure — drop by, or drop series/
+  );
+  // an empty `by:` names nothing — the line parser rejects it like any other
+  // valueless key, rather than a chart plotted with an invisible split
+  assert.throws(() => parseChartConfig("source: e\nx: a\ny: count\nby:   \n"), /can't parse line: by:/);
+  assert.throws(
+    () => parseChartConfig("source: e\nx: a\ny: avg:value\nby: group\nkind: bar\n"),
+    /by \+ avg cannot be stacked/
+  );
+  assert.equal(
+    parseRow("source: e\nx: a\ny: avg:value\nby: group\nkind: line\n").kind,
+    "line"
+  );
+});
+
+test("aggregate: by pivots into one band per distinct value, first-seen order (SUB-941)", () => {
+  const rows = [
+    { spent: "2026-05-04", amount: "10", category: "food" },
+    { spent: "2026-05-19", amount: "5", category: "rent" },
+    { spent: "2026-06-02", amount: "7", category: "food" },
+    { spent: "2026-06-08", amount: "3", category: "food" },
+  ];
+  const s = aggregate(
+    rows,
+    cfg({ x: { prop: "spent", bucket: "month" }, y: { fn: "sum", prop: "amount" }, by: "category" })
+  );
+  // the whole-chart series is unchanged by the split — it still totals both
+  assert.deepEqual(
+    s.points.map((p) => [p.key, p.value]),
+    [["2026-05", 15], ["2026-06", 10]]
+  );
+  assert.deepEqual(s.bands?.map((b) => b.name), ["food", "rent"]);
+  // bars carry every x key so stacks line up — rent's empty June is a 0 slice
+  assert.deepEqual(
+    s.bands?.map((b) => b.points.map((p) => [p.key, p.value, p.n])),
+    [
+      [["2026-05", 10, 1], ["2026-06", 10, 2]],
+      [["2026-05", 5, 1], ["2026-06", 0, 0]],
+    ]
+  );
+});
+
+test("aggregate: by bands fold case but keep first-seen casing (SUB-941)", () => {
+  const s = aggregate(
+    [{ x: "a", by: "Food" }, { x: "b", by: "food" }, { x: "c", by: "FOOD" }],
+    cfg({ x: { prop: "x", bucket: null }, by: "by" })
+  );
+  assert.deepEqual(s.bands?.map((b) => b.name), ["Food"]);
+  assert.deepEqual(s.bands?.[0].points.map((p) => p.value), [1, 1, 1]);
+});
+
+test("aggregate: line bands keep only their own points — no drawn zeros (SUB-941)", () => {
+  const s = aggregate(
+    [
+      { spent: "2026-05-04", category: "food" },
+      { spent: "2026-06-02", category: "rent" },
+    ],
+    cfg({ kind: "line", x: { prop: "spent", bucket: "month" }, by: "category" })
+  );
+  assert.deepEqual(
+    s.bands?.map((b) => [b.name, b.points.map((p) => p.key)]),
+    [
+      ["food", ["2026-05"]],
+      ["rent", ["2026-06"]],
+    ]
+  );
+});
+
+test("aggregate: bar bands span the zero-filled axis, not just their own months (SUB-941)", () => {
+  const s = aggregate(
+    [
+      { spent: "2026-05-04", category: "food" },
+      { spent: "2026-07-02", category: "food" },
+    ],
+    cfg({ x: { prop: "spent", bucket: "month" }, by: "category" })
+  );
+  // the zero-filled June is on the axis, so the band carries it too — a band
+  // shorter than the axis would stack against the wrong bar
+  assert.deepEqual(s.points.map((p) => p.key), ["2026-05", "2026-06", "2026-07"]);
+  assert.deepEqual(s.bands?.[0].points.map((p) => [p.key, p.value]), [
+    ["2026-05", 1],
+    ["2026-06", 0],
+    ["2026-07", 1],
+  ]);
+});
+
+test("aggregate: by avg reduces per band, not by splitting the whole-chart mean (SUB-941)", () => {
+  const s = aggregate(
+    [
+      { x: "q1", v: "10", g: "a" },
+      { x: "q1", v: "20", g: "a" },
+      { x: "q1", v: "9", g: "b" },
+    ],
+    cfg({ x: { prop: "x", bucket: null }, y: { fn: "avg", prop: "v" }, by: "g" })
+  );
+  assert.equal(s.points[0].value, 13); // (10+20+9)/3
+  assert.deepEqual(s.bands?.map((b) => [b.name, b.points[0].value]), [["a", 15], ["b", 9]]);
+});
+
+test("aggregate: a row with no by value is skipped, never an invented band (SUB-941)", () => {
+  const s = aggregate(
+    [{ x: "a", g: "food" }, { x: "b" }, { x: "c", g: "  " }],
+    cfg({ x: { prop: "x", bucket: null }, by: "g" })
+  );
+  assert.equal(s.skipped, 2);
+  assert.deepEqual(s.points.map((p) => p.key), ["a"]);
+  assert.deepEqual(s.bands?.map((b) => b.name), ["food"]);
+});
+
+test("aggregate: a missing by column is named like any other binding (SUB-941)", () => {
+  const rows = [{ asset: "btc", value_eur: 3 }];
+  const sheet = aggregate(
+    rows,
+    cfg({
+      source: { kind: "sheet", name: "Holdings" },
+      x: { prop: "asset", bucket: null },
+      by: "bucket",
+    })
+  );
+  assert.equal(sheet.missing, "no column “bucket” on Holdings (has: asset, value_eur)");
+  const db = aggregate(rows, cfg({ x: { prop: "asset", bucket: null }, by: "bucket" }));
+  assert.equal(db.missing, "no property “bucket” on release (has: asset, value_eur)");
+  // x and by both gone report together, in binding order
+  const both = aggregate(rows, cfg({ x: { prop: "when", bucket: null }, by: "bucket" }));
+  assert.match(both.missing!, /no properties “when” or “bucket” on release/);
+});
+
+test("aggregate: a by field that is there keeps the neutral empty state (SUB-941)", () => {
+  const s = aggregate(
+    [{ x: "a", g: null }],
+    cfg({ x: { prop: "x", bucket: null }, by: "g" })
+  );
+  assert.equal(s.missing, null);
+  assert.deepEqual(s.points, []);
+  assert.deepEqual(s.bands, []);
+});
+
+test("aggregate: without by, bands stays null (SUB-941 regression)", () => {
+  const s = aggregate([{ released: "2026-05-04" }], cfg({}));
+  assert.equal(s.bands, null);
+});
+
+test("chartTitle: a by split is spoken in the derived title (SUB-941)", () => {
+  assert.equal(
+    chartTitle(parseChartConfig("source: expense\nx: spent:month\ny: sum:amount\nby: category")),
+    "Sum of amount per month, split by category"
+  );
+  assert.equal(
+    chartTitle(parseChartConfig("source: expense\nx: status\ny: count\nby: owner")),
+    "Expense by status, split by owner"
+  );
+  // an explicit title still wins outright
+  assert.equal(
+    chartTitle(parseChartConfig("source: e\nx: a\ny: count\nby: g\ntitle: Spend")),
+    "Spend"
+  );
 });

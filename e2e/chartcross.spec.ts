@@ -83,10 +83,19 @@ test("a chart over a cross-referencing sheet plots real values (SUB-671)", async
   // the cross-sheet summary reached every row: 10 + 300 and 20 + 300
   await expect(bars.nth(0).locator(".dash-bar-time")).toHaveText("etf");
   await expect(bars.nth(0).locator(".dash-bar-val")).toHaveText("310");
-  await expect(bars.nth(0)).toHaveAttribute("title", "etf · 310");
+  // the reading a screen reader gets; the drawn tooltip says the same (SUB-941)
+  await expect(bars.nth(0)).toHaveAttribute("aria-label", "etf · 310");
   await expect(bars.nth(1).locator(".dash-bar-time")).toHaveText("crypto");
   await expect(bars.nth(1).locator(".dash-bar-val")).toHaveText("320");
-  await expect(bars.nth(1)).toHaveAttribute("title", "crypto · 320");
+  await expect(bars.nth(1)).toHaveAttribute("aria-label", "crypto · 320");
+
+  // hovering draws the card with the exact value and the x label
+  await bars.nth(0).hover();
+  const tip = page.locator(".chart-tip");
+  await expect(tip).toBeVisible();
+  await expect(tip.locator(".chart-tip-x")).toHaveText("etf");
+  await expect(tip.locator(".chart-tip-val")).toHaveText("310");
+  await expect(tip.locator(".chart-swatch")).toHaveCount(0);
 
   // none of the pre-fix failure modes: no all-rows-skipped notice, no error
   // banner, no stringified error object as a bar label, no skipped rows

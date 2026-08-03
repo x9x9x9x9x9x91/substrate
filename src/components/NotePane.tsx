@@ -109,6 +109,7 @@ interface NotePaneProps {
     options: SelectOption[],
     kind: PropKind | null,
     notify?: boolean,
+    notifyBefore?: number,
     target?: string,
     format?: NumberFormat,
     description?: string,
@@ -1472,6 +1473,7 @@ function NotePane({
                   canEditSchema
                   kind={kind}
                   notify={pschema?.notify}
+                  notifyBefore={pschema?.notifyBefore}
                   target={pschema?.type}
                   format={pschema?.format}
                   description={pschema?.description}
@@ -1485,7 +1487,7 @@ function NotePane({
                   }
                   startEditing
                   onCommit={(nv) => commitChip(k, nv)}
-                  onSaveSchema={(o, nk, nf, t, f, d, r) => onSaveSchema(noteType, k, o, nk, nf, t, f, d, r)}
+                  onSaveSchema={(o, nk, nf, nb, t, f, d, r) => onSaveSchema(noteType, k, o, nk, nf, nb, t, f, d, r)}
                   onClose={() => {
                     setEditingChip(null);
                     setSchemaEditChip(null);
@@ -1540,6 +1542,7 @@ function NotePane({
                   canEditSchema={!isType}
                   kind={kind}
                   notify={pschema?.notify}
+                  notifyBefore={pschema?.notifyBefore}
                   target={pschema?.type}
                   format={pschema?.format}
                   description={pschema?.description}
@@ -1558,7 +1561,7 @@ function NotePane({
                     setEditingChip(null);
                     removeChip(k);
                   }}
-                  onSaveSchema={(o, nk, nf, t, f, d, r) => onSaveSchema(noteType, k, o, nk, nf, t, f, d, r)}
+                  onSaveSchema={(o, nk, nf, nb, t, f, d, r) => onSaveSchema(noteType, k, o, nk, nf, nb, t, f, d, r)}
                   onClose={() => setEditingChip(null)}
                 />
               );

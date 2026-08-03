@@ -800,7 +800,7 @@ export const TIPS: TipEntry[] = [
     selector: ".selmenu-notify",
     tip: {
       title: "Reminder",
-      body: "Get a Today entry when this date arrives. Nothing is sent outside the app.",
+      body: "Get a Today entry when this date arrives, and — if you set a lead time — an earlier heads-up that many days before. Either can stand alone. Nothing is sent outside the app.",
     },
   },
   {

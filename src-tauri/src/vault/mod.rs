@@ -2905,7 +2905,7 @@ mod tests {
         // re-serialize a broken block — the note's bytes stay verbatim.
         let (mut e, dir) = temp_vault("rnguard");
         let content =
-            "---\ntype: release\n\tstatus: in review\n---\nBody links [[Static Bouquet]].\n";
+            "---\ntype: trip\n\tstatus: booked\n---\nBody links [[Kyoto]].\n";
         fs::write(dir.join("Broken.md"), content).unwrap();
         fs::write(dir.join("Referrer.md"), "See [[Broken]].\n").unwrap();
         e.rescan();
@@ -3249,23 +3249,23 @@ mod tests {
         let before = e.list().len();
 
         // external edit → only that path reindexed
-        fs::write(dir.join("Rondo MX180.md"), "---\ntype: gear\n---\nRecapped the summing bus\n")
+        fs::write(dir.join("Weeknight Ramen.md"), "---\ntype: recipe\n---\nSwapped in a miso broth\n")
             .unwrap();
-        e.apply_changes(&[dir.join("Rondo MX180.md")]);
-        assert!(e.search("summing bus", None, false).iter().any(|h| h.path == "Rondo MX180.md"));
+        e.apply_changes(&[dir.join("Weeknight Ramen.md")]);
+        assert!(e.search("miso broth", None, false).iter().any(|h| h.path == "Weeknight Ramen.md"));
         assert_eq!(e.list().len(), before);
 
         // delete → note drops out
-        fs::remove_file(dir.join("Rondo MX180.md")).unwrap();
-        e.apply_changes(&[dir.join("Rondo MX180.md")]);
-        assert!(e.list().iter().all(|n| n.path != "Rondo MX180.md"));
+        fs::remove_file(dir.join("Weeknight Ramen.md")).unwrap();
+        e.apply_changes(&[dir.join("Weeknight Ramen.md")]);
+        assert!(e.list().iter().all(|n| n.path != "Weeknight Ramen.md"));
 
         // file rename → old path gone, new path indexed, links intact
-        fs::rename(dir.join("Slow Bloom EP.md"), dir.join("Slow Bloom LP.md")).unwrap();
-        e.apply_changes(&[dir.join("Slow Bloom EP.md"), dir.join("Slow Bloom LP.md")]);
-        assert!(e.list().iter().all(|n| n.path != "Slow Bloom EP.md"));
-        assert!(e.list().iter().any(|n| n.path == "Slow Bloom LP.md"));
-        assert!(e.backlinks("Static Bouquet.md").iter().any(|n| n.path == "Slow Bloom LP.md"));
+        fs::rename(dir.join("Lisbon.md"), dir.join("Porto.md")).unwrap();
+        e.apply_changes(&[dir.join("Lisbon.md"), dir.join("Porto.md")]);
+        assert!(e.list().iter().all(|n| n.path != "Lisbon.md"));
+        assert!(e.list().iter().any(|n| n.path == "Porto.md"));
+        assert!(e.backlinks("Kyoto.md").iter().any(|n| n.path == "Porto.md"));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -3273,10 +3273,10 @@ mod tests {
     fn apply_changes_reports_the_rel_paths_it_touched() {
         let (mut e, dir) = temp_vault("touched");
         // edit and delete both name the note that moved
-        fs::write(dir.join("Rondo MX180.md"), "---\ntype: gear\n---\nRecapped\n").unwrap();
-        assert_eq!(e.apply_changes(&[dir.join("Rondo MX180.md")]), vec!["Rondo MX180.md"]);
-        fs::remove_file(dir.join("Rondo MX180.md")).unwrap();
-        assert_eq!(e.apply_changes(&[dir.join("Rondo MX180.md")]), vec!["Rondo MX180.md"]);
+        fs::write(dir.join("Weeknight Ramen.md"), "---\ntype: recipe\n---\nMiso now\n").unwrap();
+        assert_eq!(e.apply_changes(&[dir.join("Weeknight Ramen.md")]), vec!["Weeknight Ramen.md"]);
+        fs::remove_file(dir.join("Weeknight Ramen.md")).unwrap();
+        assert_eq!(e.apply_changes(&[dir.join("Weeknight Ramen.md")]), vec!["Weeknight Ramen.md"]);
 
         // a folder rename reports both sides — the vanished subtree and the new
         // paths — so a consumer can drop the old and fetch the new
@@ -3394,21 +3394,21 @@ mod tests {
     #[test]
     fn rename_follows_title_and_rewrites_links() {
         let (mut e, dir) = temp_vault("rn");
-        // Static Bouquet links to [[Slow Bloom EP]] (by stem/title)
-        let m = e.rename("Slow Bloom EP.md", "Slow Bloom LP").unwrap();
-        assert_eq!(m.path, "Slow Bloom LP.md");
-        assert_eq!(m.title, "Slow Bloom LP");
+        // Kyoto links to [[Lisbon]] (by stem/title)
+        let m = e.rename("Lisbon.md", "Porto").unwrap();
+        assert_eq!(m.path, "Porto.md");
+        assert_eq!(m.title, "Porto");
         assert!(!m.props.contains_key("title"), "clean slug needs no title prop");
-        assert!(!dir.join("Slow Bloom EP.md").exists());
-        assert!(dir.join("Slow Bloom LP.md").exists());
-        let bouquet = e.read("Static Bouquet.md").unwrap();
-        assert!(bouquet.body.contains("[[Slow Bloom LP]]"), "link rewritten: {}", bouquet.body);
-        assert!(!bouquet.body.contains("Slow Bloom EP"));
-        assert!(e.resolve_link("Slow Bloom LP").is_some());
-        assert!(e.resolve_link("Slow Bloom EP").is_none());
-        assert!(e.backlinks("Slow Bloom LP.md").iter().any(|n| n.path == "Static Bouquet.md"));
+        assert!(!dir.join("Lisbon.md").exists());
+        assert!(dir.join("Porto.md").exists());
+        let kyoto = e.read("Kyoto.md").unwrap();
+        assert!(kyoto.body.contains("[[Porto]]"), "link rewritten: {}", kyoto.body);
+        assert!(!kyoto.body.contains("Lisbon"));
+        assert!(e.resolve_link("Porto").is_some());
+        assert!(e.resolve_link("Lisbon").is_none());
+        assert!(e.backlinks("Porto.md").iter().any(|n| n.path == "Kyoto.md"));
         // other frontmatter survives the rename
-        assert_eq!(m.props.get("cat#").and_then(|v| v.as_str()), Some("SMP-030"));
+        assert_eq!(m.props.get("status").and_then(|v| v.as_str()), Some("done"));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -3465,6 +3465,7 @@ mod tests {
             vec![],
             Some("relation".into()),
             None,
+            None,
             Some("contact".into()),
             None,
             None,
@@ -3510,28 +3511,28 @@ mod tests {
     #[test]
     fn rename_rewrites_stem_links_when_title_prop_differs() {
         let (mut e, dir) = temp_vault("rns");
-        // Welcome.md links to [[Slow Bloom EP]]; give the target a divergent
+        // Kyoto links to [[Lisbon]]; give the target a divergent
         // title prop, then rename — stem-based links must still be rewritten
-        e.set_prop("Slow Bloom EP.md", "title", Some("Fancy Display Title")).unwrap();
-        let m = e.rename("Slow Bloom EP.md", "Bloom Archive").unwrap();
-        assert_eq!(m.path, "Bloom Archive.md");
-        let bouquet = e.read("Static Bouquet.md").unwrap();
-        assert!(bouquet.body.contains("[[Bloom Archive]]"), "{}", bouquet.body);
+        e.set_prop("Lisbon.md", "title", Some("Fancy Display Title")).unwrap();
+        let m = e.rename("Lisbon.md", "Trip Archive").unwrap();
+        assert_eq!(m.path, "Trip Archive.md");
+        let kyoto = e.read("Kyoto.md").unwrap();
+        assert!(kyoto.body.contains("[[Trip Archive]]"), "{}", kyoto.body);
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn rename_guards_collisions_and_keeps_exact_title() {
         let (mut e, dir) = temp_vault("rnc");
-        let err = e.rename("Vessel Songs.md", "Static Bouquet").unwrap_err();
+        let err = e.rename("Dolomites.md", "Kyoto").unwrap_err();
         assert!(err.contains("already exists"), "{}", err);
-        assert!(dir.join("Vessel Songs.md").exists(), "source untouched on collision");
-        assert!(e.notes.contains_key("Vessel Songs.md"));
+        assert!(dir.join("Dolomites.md").exists(), "source untouched on collision");
+        assert!(e.notes.contains_key("Dolomites.md"));
         // a title the filesystem can't carry keeps its exact form as a prop
-        let m = e.rename("Vessel Songs.md", "Vessel: Songs/Live").unwrap();
-        assert_eq!(m.path, "Vessel Songs Live.md");
-        assert_eq!(m.title, "Vessel: Songs/Live");
-        assert_eq!(m.props.get("title").and_then(|v| v.as_str()), Some("Vessel: Songs/Live"));
+        let m = e.rename("Dolomites.md", "Dolomites: Hut/Tour").unwrap();
+        assert_eq!(m.path, "Dolomites Hut Tour.md");
+        assert_eq!(m.title, "Dolomites: Hut/Tour");
+        assert_eq!(m.props.get("title").and_then(|v| v.as_str()), Some("Dolomites: Hut/Tour"));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -3540,38 +3541,38 @@ mod tests {
         // SUB-223: a dot-stem lands outside the index (hidden_rel) — the
         // guard must fire before the move and before any link rewrite
         let (mut e, dir) = temp_vault("rndot");
-        let err = e.rename("Slow Bloom EP.md", ".secret").unwrap_err();
+        let err = e.rename("Lisbon.md", ".secret").unwrap_err();
         assert!(err.contains("dot"), "{}", err);
-        assert!(dir.join("Slow Bloom EP.md").exists(), "file must not move");
+        assert!(dir.join("Lisbon.md").exists(), "file must not move");
         assert!(!dir.join(".secret.md").exists(), "no hidden file left behind");
         // a sanitizing detour ("/" → " ") into a leading dot is caught too
-        let err = e.rename("Slow Bloom EP.md", "/.secret").unwrap_err();
+        let err = e.rename("Lisbon.md", "/.secret").unwrap_err();
         assert!(err.contains("dot"), "{}", err);
-        assert!(dir.join("Slow Bloom EP.md").exists());
-        let bouquet = e.read("Static Bouquet.md").unwrap();
-        assert!(bouquet.body.contains("[[Slow Bloom EP]]"), "link not rewritten: {}", bouquet.body);
-        assert!(e.notes.contains_key("Slow Bloom EP.md"), "still indexed");
-        assert!(e.backlinks("Slow Bloom EP.md").iter().any(|n| n.path == "Static Bouquet.md"));
+        assert!(dir.join("Lisbon.md").exists());
+        let kyoto = e.read("Kyoto.md").unwrap();
+        assert!(kyoto.body.contains("[[Lisbon]]"), "link not rewritten: {}", kyoto.body);
+        assert!(e.notes.contains_key("Lisbon.md"), "still indexed");
+        assert!(e.backlinks("Lisbon.md").iter().any(|n| n.path == "Kyoto.md"));
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn rename_rejects_brackets_and_keeps_links_intact() {
-        // SUB-223: "]]" in a title would rewrite [[Slow Bloom EP]] into
-        // [[Slow]]Bloom EP]] — every link corrupted behind a "successful"
+        // SUB-223: "]]" in a title would rewrite [[Lisbon]] into
+        // [[Lis]]bon]] — every link corrupted behind a "successful"
         // rename. Reject instead; nothing moves, nothing rewrites.
         let (mut e, dir) = temp_vault("rnbrk");
-        let err = e.rename("Slow Bloom EP.md", "Slow]]Bloom EP").unwrap_err();
+        let err = e.rename("Lisbon.md", "Lis]]bon").unwrap_err();
         assert!(err.contains('['), "{}", err);
-        let err = e.rename("Slow Bloom EP.md", "Slow [[Bloom").unwrap_err();
+        let err = e.rename("Lisbon.md", "Lis [[bon").unwrap_err();
         assert!(err.contains('['), "{}", err);
-        assert!(dir.join("Slow Bloom EP.md").exists(), "file must not move");
-        assert!(!dir.join("Slow]]Bloom EP.md").exists());
-        let bouquet = e.read("Static Bouquet.md").unwrap();
-        assert!(bouquet.body.contains("[[Slow Bloom EP]]"), "link intact: {}", bouquet.body);
-        assert!(!bouquet.body.contains("Slow]]Bloom"), "no corrupt rewrite: {}", bouquet.body);
-        assert!(e.resolve_link("Slow Bloom EP").is_some());
-        assert!(e.backlinks("Slow Bloom EP.md").iter().any(|n| n.path == "Static Bouquet.md"));
+        assert!(dir.join("Lisbon.md").exists(), "file must not move");
+        assert!(!dir.join("Lis]]bon.md").exists());
+        let kyoto = e.read("Kyoto.md").unwrap();
+        assert!(kyoto.body.contains("[[Lisbon]]"), "link intact: {}", kyoto.body);
+        assert!(!kyoto.body.contains("Lis]]bon"), "no corrupt rewrite: {}", kyoto.body);
+        assert!(e.resolve_link("Lisbon").is_some());
+        assert!(e.backlinks("Lisbon.md").iter().any(|n| n.path == "Kyoto.md"));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -3898,28 +3899,28 @@ mod tests {
     #[test]
     fn move_note_keeps_links_and_reindexes() {
         let (mut e, dir) = temp_vault("mv");
-        // Static Bouquet links to [[Slow Bloom EP]] — by stem/title, so the
+        // Kyoto links to [[Lisbon]] — by stem/title, so the
         // link must survive the file moving to another folder unchanged
-        let m = e.move_note("Slow Bloom EP.md", "Releases/2026").unwrap();
-        assert_eq!(m.path, "Releases/2026/Slow Bloom EP.md");
-        assert_eq!(m.folder, "Releases/2026");
-        assert!(!dir.join("Slow Bloom EP.md").exists());
-        assert!(dir.join("Releases/2026/Slow Bloom EP.md").is_file());
-        assert!(e.list().iter().all(|n| n.path != "Slow Bloom EP.md"));
-        assert!(e.resolve_link("Slow Bloom EP").is_some(), "stem resolve survives");
+        let m = e.move_note("Lisbon.md", "Trips/2026").unwrap();
+        assert_eq!(m.path, "Trips/2026/Lisbon.md");
+        assert_eq!(m.folder, "Trips/2026");
+        assert!(!dir.join("Lisbon.md").exists());
+        assert!(dir.join("Trips/2026/Lisbon.md").is_file());
+        assert!(e.list().iter().all(|n| n.path != "Lisbon.md"));
+        assert!(e.resolve_link("Lisbon").is_some(), "stem resolve survives");
         assert!(
-            e.backlinks("Releases/2026/Slow Bloom EP.md")
+            e.backlinks("Trips/2026/Lisbon.md")
                 .iter()
-                .any(|n| n.path == "Static Bouquet.md"),
+                .any(|n| n.path == "Kyoto.md"),
             "backlink follows the move"
         );
         assert!(e
-            .search("granular rework", None, false)
+            .search("packing list", None, false)
             .iter()
-            .any(|h| h.path == "Releases/2026/Slow Bloom EP.md"));
+            .any(|h| h.path == "Trips/2026/Lisbon.md"));
         // and back to the root
-        let m = e.move_note("Releases/2026/Slow Bloom EP.md", "").unwrap();
-        assert_eq!(m.path, "Slow Bloom EP.md");
+        let m = e.move_note("Trips/2026/Lisbon.md", "").unwrap();
+        assert_eq!(m.path, "Lisbon.md");
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -3930,16 +3931,16 @@ mod tests {
         let m = e.move_note("Inbox/Capture anything.md", "Inbox").unwrap();
         assert_eq!(m.path, "Inbox/Capture anything.md");
         // collision: same filename already in the target folder
-        e.create("Slow Bloom EP", "Inbox", None).unwrap();
-        let err = e.move_note("Slow Bloom EP.md", "Inbox").unwrap_err();
+        e.create("Lisbon", "Inbox", None).unwrap();
+        let err = e.move_note("Lisbon.md", "Inbox").unwrap_err();
         assert!(err.contains("already exists"), "{}", err);
-        assert!(dir.join("Slow Bloom EP.md").is_file(), "source untouched on collision");
-        assert!(e.notes.contains_key("Slow Bloom EP.md"));
+        assert!(dir.join("Lisbon.md").is_file(), "source untouched on collision");
+        assert!(e.notes.contains_key("Lisbon.md"));
         // unknown note + path escape are rejected
         assert!(e.move_note("nope.md", "Inbox").is_err());
         assert!(e.move_note("../outside.md", "Inbox").is_err());
-        assert!(e.move_note("Vessel Songs.md", "..").is_err());
-        assert!(e.move_note("Vessel Songs.md", ".hidden").is_err());
+        assert!(e.move_note("Dolomites.md", "..").is_err());
+        assert!(e.move_note("Dolomites.md", ".hidden").is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -3982,36 +3983,36 @@ mod tests {
 
         // a string list persists as a YAML list and reads back as an array
         let meta = e
-            .set_prop_value("Slow Bloom EP.md", "contact", Some(serde_json::json!(["Gero", "Noa"])))
+            .set_prop_value("Lisbon.md", "contact", Some(serde_json::json!(["Gero", "Noa"])))
             .unwrap();
         assert_eq!(meta.props.get("contact"), Some(&serde_json::json!(["Gero", "Noa"])));
-        let raw = fs::read_to_string(dir.join("Slow Bloom EP.md")).unwrap();
+        let raw = fs::read_to_string(dir.join("Lisbon.md")).unwrap();
         assert!(raw.contains("contact:"), "prop written");
         assert!(raw.contains("- Gero"), "yaml list form on disk");
 
         // a single value stays a plain scalar; an empty list removes the prop
-        let meta = e.set_prop("Slow Bloom EP.md", "contact", Some("Gero")).unwrap();
+        let meta = e.set_prop("Lisbon.md", "contact", Some("Gero")).unwrap();
         assert_eq!(meta.props.get("contact"), Some(&serde_json::json!("Gero")));
         let meta =
-            e.set_prop_value("Slow Bloom EP.md", "contact", Some(serde_json::json!([]))).unwrap();
+            e.set_prop_value("Lisbon.md", "contact", Some(serde_json::json!([]))).unwrap();
         assert!(!meta.props.contains_key("contact"));
 
         // non-string lists are refused
         assert!(e
-            .set_prop_value("Slow Bloom EP.md", "contact", Some(serde_json::json!([1, 2])))
+            .set_prop_value("Lisbon.md", "contact", Some(serde_json::json!([1, 2])))
             .is_err());
         // a bare number is accepted since SUB-477 — it is a scalar the vault
         // already stores and hands back as `prior`, so undo must be able to
         // write it. Structured values stay refused.
         assert_eq!(
-            e.set_prop_value("Slow Bloom EP.md", "contact", Some(serde_json::json!(42)))
+            e.set_prop_value("Lisbon.md", "contact", Some(serde_json::json!(42)))
                 .unwrap()
                 .props
                 .get("contact"),
             Some(&serde_json::json!(42))
         );
         assert!(e
-            .set_prop_value("Slow Bloom EP.md", "contact", Some(serde_json::json!({"a": 1})))
+            .set_prop_value("Lisbon.md", "contact", Some(serde_json::json!({"a": 1})))
             .is_err());
         let _ = fs::remove_dir_all(&dir);
     }
@@ -4023,15 +4024,15 @@ mod tests {
         // read back as a bool, not the string "false"
         let (mut e, dir) = temp_vault("spbool");
         let meta = e
-            .set_prop_value("Slow Bloom EP.md", "calendar", Some(serde_json::json!(false)))
+            .set_prop_value("Lisbon.md", "calendar", Some(serde_json::json!(false)))
             .unwrap();
         assert_eq!(meta.props.get("calendar"), Some(&serde_json::json!(false)));
-        let raw = fs::read_to_string(dir.join("Slow Bloom EP.md")).unwrap();
+        let raw = fs::read_to_string(dir.join("Lisbon.md")).unwrap();
         assert!(raw.contains("calendar: false"), "bare yaml bool on disk: {raw}");
         assert!(!raw.contains("calendar: 'false'") && !raw.contains("calendar: \"false\""));
 
         // None removes the flag like any other prop
-        let meta = e.set_prop_value("Slow Bloom EP.md", "calendar", None).unwrap();
+        let meta = e.set_prop_value("Lisbon.md", "calendar", None).unwrap();
         assert!(!meta.props.contains_key("calendar"));
         let _ = fs::remove_dir_all(&dir);
     }
@@ -4042,10 +4043,11 @@ mod tests {
         e.create("Gero", "", Some("contact")).unwrap();
         e.create("Noa", "", Some("contact")).unwrap();
         e.set_schema_prop(
-            "release",
+            "trip",
             "contact",
             vec![],
             Some("relation".into()),
+            None,
             None,
             Some("contact".into()),
             None,
@@ -4053,27 +4055,27 @@ mod tests {
             None,
         )
         .unwrap();
-        e.set_prop("Slow Bloom EP.md", "contact", Some("Gero")).unwrap();
-        e.set_prop_value("Static Bouquet.md", "contact", Some(serde_json::json!(["Gero", "Noa"])))
+        e.set_prop("Lisbon.md", "contact", Some("Gero")).unwrap();
+        e.set_prop_value("Kyoto.md", "contact", Some(serde_json::json!(["Gero", "Noa"])))
             .unwrap();
         // same name in a free-text prop and on an undeclared type: untouched
-        e.set_prop("Vessel Songs.md", "billing", Some("Gero")).unwrap();
-        e.set_prop("Rondo MX180.md", "contact", Some("Gero")).unwrap();
+        e.set_prop("Dolomites.md", "billing", Some("Gero")).unwrap();
+        e.set_prop("Weeknight Ramen.md", "contact", Some("Gero")).unwrap();
 
         e.rename("Gero.md", "Gero X").unwrap();
 
-        let single = e.meta("Slow Bloom EP.md").unwrap();
+        let single = e.meta("Lisbon.md").unwrap();
         assert_eq!(single.props.get("contact"), Some(&serde_json::json!("Gero X")));
-        let multi = e.meta("Static Bouquet.md").unwrap();
+        let multi = e.meta("Kyoto.md").unwrap();
         assert_eq!(
             multi.props.get("contact"),
             Some(&serde_json::json!(["Gero X", "Noa"])),
             "only the renamed target rewrites inside a list"
         );
-        let free = e.meta("Vessel Songs.md").unwrap();
+        let free = e.meta("Dolomites.md").unwrap();
         assert_eq!(free.props.get("billing"), Some(&serde_json::json!("Gero")));
-        let gear = e.meta("Rondo MX180.md").unwrap();
-        assert_eq!(gear.props.get("contact"), Some(&serde_json::json!("Gero")));
+        let ramen = e.meta("Weeknight Ramen.md").unwrap();
+        assert_eq!(ramen.props.get("contact"), Some(&serde_json::json!("Gero")));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -4088,10 +4090,11 @@ mod tests {
         e.set_prop("X.md", "type", None).unwrap();
         e.set_prop("X.md", "Type", Some("ARTIST")).unwrap();
         e.set_schema_prop(
-            "release",
+            "trip",
             "Artist",
             vec![],
             Some("relation".into()),
+            None,
             None,
             Some("artist".into()),
             None,
@@ -4100,10 +4103,11 @@ mod tests {
         )
         .unwrap();
         e.set_schema_prop(
-            "release",
+            "trip",
             "label",
             vec![],
             Some("relation".into()),
+            None,
             None,
             Some("label".into()),
             None,
@@ -4111,24 +4115,24 @@ mod tests {
             None,
         )
         .unwrap();
-        e.set_prop("Slow Bloom EP.md", "artist", Some("X")).unwrap();
-        e.set_prop("Slow Bloom EP.md", "label", Some("X")).unwrap();
-        e.set_prop("Slow Bloom EP.md", "type", None).unwrap();
-        e.set_prop("Slow Bloom EP.md", "Type", Some("RELEASE")).unwrap();
-        e.set_prop_value("Static Bouquet.md", "label", Some(serde_json::json!(["X", "Other"])))
+        e.set_prop("Lisbon.md", "artist", Some("X")).unwrap();
+        e.set_prop("Lisbon.md", "label", Some("X")).unwrap();
+        e.set_prop("Lisbon.md", "type", None).unwrap();
+        e.set_prop("Lisbon.md", "Type", Some("TRIP")).unwrap();
+        e.set_prop_value("Kyoto.md", "label", Some(serde_json::json!(["X", "Other"])))
             .unwrap();
         // a hand-edited schema may carry a relation with no target — no
         // declared scope, so it still follows any rename
         let schema_file = dir.join(SCHEMA_REL_PATH);
         let mut raw: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(&schema_file).unwrap()).unwrap();
-        raw["release"]["see also"] = serde_json::json!({ "kind": "relation" });
+        raw["trip"]["see also"] = serde_json::json!({ "kind": "relation" });
         fs::write(&schema_file, serde_json::to_string_pretty(&raw).unwrap()).unwrap();
-        e.set_prop("Vessel Songs.md", "see also", Some("X")).unwrap();
+        e.set_prop("Dolomites.md", "see also", Some("X")).unwrap();
 
         e.rename("X.md", "X Prime").unwrap();
 
-        let ep = e.meta("Slow Bloom EP.md").unwrap();
+        let ep = e.meta("Lisbon.md").unwrap();
         assert_eq!(
             ep.props.get("artist"),
             Some(&serde_json::json!("X Prime")),
@@ -4139,15 +4143,15 @@ mod tests {
             Some(&serde_json::json!("X")),
             "aimed at the other database's same-named note: untouched"
         );
-        let sb = e.meta("Static Bouquet.md").unwrap();
+        let ky = e.meta("Kyoto.md").unwrap();
         assert_eq!(
-            sb.props.get("label"),
+            ky.props.get("label"),
             Some(&serde_json::json!(["X", "Other"])),
             "list values aimed elsewhere stay too"
         );
-        let vessel = e.meta("Vessel Songs.md").unwrap();
+        let dolo = e.meta("Dolomites.md").unwrap();
         assert_eq!(
-            vessel.props.get("see also"),
+            dolo.props.get("see also"),
             Some(&serde_json::json!("X Prime")),
             "untargeted relation still follows the rename"
         );
@@ -4315,6 +4319,7 @@ mod tests {
             vec![],
             Some("relation".into()),
             None,
+            None,
             Some("artist".into()),
             None,
             None,
@@ -4376,7 +4381,7 @@ mod tests {
         e.create_folder("Elsewhere").unwrap();
         e.set_schema_home("task", Some("Area".into())).unwrap();
         e.set_schema_home("project", Some("Area/Projects".into())).unwrap();
-        e.set_schema_prop("contact", "email", vec![], Some("text".into()), None, None, None, None, None)
+        e.set_schema_prop("contact", "email", vec![], Some("text".into()), None, None, None, None, None, None)
             .unwrap();
         e.set_schema_home("contact", Some("Elsewhere".into())).unwrap();
 

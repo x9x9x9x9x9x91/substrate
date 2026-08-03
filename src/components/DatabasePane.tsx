@@ -80,7 +80,7 @@ interface DatabasePaneProps {
   icon?: DbIcon;
   onSaveIcon: (icon: DbIcon | null) => void;
   usedValues: (key: string) => string[];
-  onSaveSchema: (prop: string, options: SelectOption[], kind: PropKind | null, notify?: boolean, target?: string, format?: NumberFormat, description?: string, rollup?: RollupConfig | null) => void;
+  onSaveSchema: (prop: string, options: SelectOption[], kind: PropKind | null, notify?: boolean, notifyBefore?: number, target?: string, format?: NumberFormat, description?: string, rollup?: RollupConfig | null) => void;
   /** entries of a relation column's target database (picker source) */
   relationCandidates: (dbType: string) => RelationCandidate[];
   /** create a new entry of a database inline from the relation picker */
@@ -1733,9 +1733,9 @@ export default function DatabasePane({
           databases={dbTypes}
           rollupRelations={rollupRelations}
           rollupPropsFor={rollupPropsFor}
-          onSave={(name, o, k, n, t, f, d, r) => {
+          onSave={(name, o, k, n, nb, t, f, d, r) => {
             setAddPropAt(null);
-            onSaveSchema(name, o, k, n, t, f, d, r);
+            onSaveSchema(name, o, k, n, nb, t, f, d, r);
           }}
           onClose={() => setAddPropAt(null)}
         />
@@ -1804,6 +1804,7 @@ export default function DatabasePane({
           canEditSchema
           kind={byFoldedKey(typeSchema, editSchemaCol.col)?.kind}
           notify={byFoldedKey(typeSchema, editSchemaCol.col)?.notify}
+          notifyBefore={byFoldedKey(typeSchema, editSchemaCol.col)?.notifyBefore}
           target={byFoldedKey(typeSchema, editSchemaCol.col)?.type}
           format={byFoldedKey(typeSchema, editSchemaCol.col)?.format}
           description={byFoldedKey(typeSchema, editSchemaCol.col)?.description}
@@ -1813,7 +1814,7 @@ export default function DatabasePane({
           rollup={editSchemaCol ? rollups[editSchemaCol.col] : undefined}
           startEditing
           onCommit={() => undefined}
-          onSaveSchema={(o, k, n, t, f, d, r) => onSaveSchema(editSchemaCol.col, o, k, n, t, f, d, r)}
+          onSaveSchema={(o, k, n, nb, t, f, d, r) => onSaveSchema(editSchemaCol.col, o, k, n, nb, t, f, d, r)}
           onClose={() => setEditSchemaCol(null)}
         />
       )}

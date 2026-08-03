@@ -759,15 +759,38 @@ binding) or `series` (summary binding)):
   not a numeric summary on that sheet (a row column, a typo, an errored or
   non-numeric summary) errors the whole chart naming it, rather than dropping
   the point — a hand-named point set must not silently lose one.
+- `by` — optional series split (SUB-941): a prop or column whose distinct values
+  each become one series — stacked slices on a bar, one line each on a line
+  chart, named by a legend above the plot. Row binding only, and exclusive with
+  `series` (both name the series axis, so a fence carrying both is a parse
+  error). Values fold case to group and keep their first-seen casing; series
+  order is first-seen. A row whose `by` field is blank or unreadable is skipped
+  like a missing x, never gathered into an invented series; a `by` field absent
+  from the whole source is named in the chart's binding error alongside x and y.
+  The current neutral token ramp distinguishes two series. Three or more render
+  an in-place message pending the categorical-palette call in SUB-952/SUB-932.
+  A stacked bar accepts non-negative `sum`/`count` measures; use `kind: line`
+  for averages or negative split values. A split's series encoding replaces
+  schema hue on a categorical x-axis.
 - `kind` — `bar` (default) | `line`.
 - `title` — optional; derived when absent (`Release per month`,
-  `Sum of value_eur by asset`, `Holdings summaries`).
+  `Sum of value_eur by asset`, `Holdings summaries`); a `by` split appends
+  `, split by <field>`.
 
 Semantics: prop lookup is case-insensitive; rows with a missing/unparseable x or
 a non-numeric y are skipped (reported as a skip count); date axes sort ascending,
 categorical axes keep first-appearance order. A dashboard renders every ` ```chart `
 fence in body order; a malformed fence renders its parse error in place — it never
 breaks the others, and fixing the text fixes the chart.
+
+Every series of a `by` split shares the chart's x axis: a bar series carries the
+whole (zero-filled) axis so stacks line up, and a line series omits keys it has
+no rows for rather than drawing a fabricated zero. The chart's own point count
+and skip count stay whole-chart figures.
+
+Hover or focus any bar or point for a tooltip with the exact value, the x label,
+and — on a split chart — every series at that x. Each chart is a single tab stop
+with arrow/Home/End navigation along the axis; tooltips never print.
 
 ### 5.6 View embeds — ` ```view ` fences
 
@@ -1061,7 +1084,7 @@ PropSchema fields:
   `"text"` = explicit free text (SUB-43): a schema-registered text column that
   survives the demote rule, so the column shows for every entry even with no
   values; `"date"` = ISO-day value (optionally carrying ` HH:MM`, SUB-270)
-  with a calendar picker (`notify` = macOS alert on the day); `"file"` = path link (§4); `"relation"` = a typed link to
+  with a calendar picker (`notify` = macOS alert on the day; `notifyBefore` = an ADDITIONAL lead-time alert that many days earlier, SUB-842 — date-kind only, independent of `notify` so either may stand alone, 0/absent = off and anything longer than 365 clamps); `"file"` = path link (§4); `"relation"` = a typed link to
   entries of the database named by the entry's `"type"` key (stored as the
   target's title/stem or a YAML list, rewritten on rename); `"multi"` (SUB-79)
   = a select with several values per note — options/colors exactly like
@@ -1238,7 +1261,7 @@ only the wiring; the VALUE is computed on read (in the frontend,
 
 ### `.vault/notifications.json` — due-notification state
 
-Fired/snoozed state for §6's `notify: true` date props (`src-tauri/src/notify.rs`),
+Fired/snoozed state for §6's `notify: true` / `notifyBefore` date props (`src-tauri/src/notify.rs`),
 persisted so a due date never refires across restarts. App-owned — external
 writers should leave it alone (a missing or corrupt file just reads as empty
 state, so deleting it means today's already-fired dues fire again).
@@ -1253,6 +1276,14 @@ state, so deleting it means today's already-fired dues fire again).
 - Keys are `<note path>|<prop>|<YYYY-MM-DD>` (the due date — the occurrence
   day for a recurring note); values are unix seconds — for `fired`, when it
   fired; for `snoozed`, quiet-until.
+- A **lead-time** alert (SUB-842, `notifyBefore: n`) keys as
+  `<note path>|<prop>|<YYYY-MM-DD>|lead` — the date stays the DUE date, not
+  the day the alert fires, so the lead and the day-of alert of one occurrence
+  carry distinct keys and fire independently. The trailing `lead` marker only
+  counts as a marker when it is the final segment AND the segment before it
+  parses as a date, so a prop literally named `lead` still keys and parses
+  normally. Lead alerts fire at the value's own `HH:MM`, else 09:00, on
+  `due − n` days; they snooze exactly like day-of alerts.
 - A scheduler in the main process (alive as long as the tray, no window
   needed) scans every 60s and fires a macOS notification when a notify-flagged
   date prop is due: at the time the value carries (`YYYY-MM-DD HH:MM`), else
@@ -1267,7 +1298,9 @@ state, so deleting it means today's already-fired dues fire again).
   fired key carries the occurrence day, so each occurrence fires exactly once
   and the 14-day pruning below keeps working.
 - Dues that pass while the app isn't running do NOT fire late; the one
-  late-fire is an explicit snooze expiring. Snoozing moves the key from
+  late-fire is an explicit snooze expiring. A **missed lead day** likewise
+  fires nothing — the day-of alert is the backstop, so a machine that was
+  asleep through the heads-up still gets told on the day (SUB-842). Snoozing moves the key from
   `fired` to `snoozed` (later today / tomorrow at the prop's fire time).
 - **A snooze that outlives its occurrence day still fires** (SUB-737):
   "tomorrow" on a *weekly* deadline targets a day the series doesn't land
@@ -1281,7 +1314,8 @@ state, so deleting it means today's already-fired dues fire again).
   regular occurrence fires on its own key. Re-snoozing a late-fired
   notification behaves like any other snooze. A snooze is **stale** and
   does not fire while the deadline it names no longer exists in that shape:
-  note deleted or moved, prop or `notify` flag gone, note completed or
+  note deleted or moved, prop gone, the `notify` flag (or, for a lead key,
+  `notifyBefore`) gone, note completed or
   `calendar: false`, or a `due`/`repeat`/`repeat_until`/`repeat_skip` edit
   that means the key's day is no longer an occurrence. (The entry itself
   stays in the map until the 14-day prune — if the vault changes back

@@ -31,6 +31,11 @@ pub struct SelectOption {
 /// `notify`: date-kind only — fire a macOS notification when the date comes
 /// due (see notify.rs). Per-prop opt-in; off unless explicitly set.
 ///
+/// `notify_before` (SUB-842, on disk `notifyBefore`): date-kind only — fire an
+/// ADDITIONAL lead-time alert N days before the date comes due. Independent of
+/// `notify`: either may be set alone (lead-only reminders are legal), both set
+/// means two alerts per occurrence. 0/absent = off, clamped to 365.
+///
 /// `format`: number-kind only (SUB-188) — the display format (`euro` /
 /// `percent`; absent = plain). Display-only: the note's stored value never
 /// changes.
@@ -57,6 +62,10 @@ pub struct PropSchema {
     pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub notify: bool,
+    /// date kind only (SUB-842): lead-time alert N days before the due date
+    /// (None = off). Independent of `notify`.
+    #[serde(rename = "notifyBefore", default, skip_serializing_if = "Option::is_none")]
+    pub notify_before: Option<u32>,
     /// relation kind only: the database type this prop points at.
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
@@ -218,7 +227,9 @@ impl Engine {
     /// and no
     /// options demotes the prop back to free text. `notify` (None = keep the
     /// stored flag) only ever sticks to date-kind props — notifications on
-    /// anything else are meaningless.
+    /// anything else are meaningless. `notify_before` (SUB-842, None = keep the
+    /// stored value) follows the same date-only rule: `Some(0)` clears it,
+    /// anything larger clamps to 365.
     pub fn set_schema_prop(
         &self,
         db_type: &str,
@@ -226,6 +237,7 @@ impl Engine {
         options: Vec<SelectOption>,
         kind: Option<String>,
         notify: Option<bool>,
+        notify_before: Option<u32>,
         target: Option<String>,
         format: Option<String>,
         description: Option<String>,
@@ -350,9 +362,17 @@ impl Engine {
             }
             let prior = map.get(&db_type).and_then(|ts| ts.props.get(&prop));
             let keep = prior.map(|ps| ps.notify).unwrap_or(false);
+            let keep_before = prior.and_then(|ps| ps.notify_before);
             // keys a newer app wrote on this prop ride along (SUB-433)
             let extra = prior.map(|ps| ps.extra.clone()).unwrap_or_default();
             let notify = notify.unwrap_or(keep) && kind.as_deref() == Some("date");
+            // lead time (SUB-842) rides the same date-only rule as `notify`;
+            // 0 clears it, anything longer than a year clamps
+            let notify_before = notify_before
+                .or(keep_before)
+                .filter(|_| kind.as_deref() == Some("date"))
+                .filter(|n| *n > 0)
+                .map(|n| n.min(365));
             let (relation, rollup_prop, agg) = match rollup {
                 Some((r, p, a)) => (Some(r), Some(p), Some(a)),
                 None => (None, None, None),
@@ -363,6 +383,7 @@ impl Engine {
                     options,
                     kind,
                     notify,
+                    notify_before,
                     target,
                     format,
                     relation,
@@ -580,6 +601,7 @@ impl Engine {
                     options: Vec::new(),
                     kind,
                     notify: false,
+                    notify_before: None,
                     target,
                     format: None,
                     relation: None,
@@ -1242,6 +1264,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         let status = &map["release"].props["status"].options;
@@ -1265,6 +1288,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         let map = e
@@ -1272,6 +1296,7 @@ mod tests {
                 "gear",
                 "category",
                 vec![opt("mixer", None)],
+                None,
                 None,
                 None,
                 None,
@@ -1286,16 +1311,16 @@ mod tests {
 
         // empty options demote the prop; an emptied type drops entirely
         let map = e
-            .set_schema_prop("gear", "category", vec![], None, None, None, None, None, None)
+            .set_schema_prop("gear", "category", vec![], None, None, None, None, None, None, None)
             .unwrap();
         assert!(!map.contains_key("gear"));
         assert_eq!(map["release"].props.len(), 2, "other types untouched");
 
         assert!(e
-            .set_schema_prop("", "status", vec![], None, None, None, None, None, None)
+            .set_schema_prop("", "status", vec![], None, None, None, None, None, None, None)
             .is_err());
         assert!(e
-            .set_schema_prop("release", " ", vec![], None, None, None, None, None, None)
+            .set_schema_prop("release", " ", vec![], None, None, None, None, None, None, None)
             .is_err());
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1327,9 +1352,9 @@ mod tests {
         // guards: case-insensitive dupe (both vs schema and vs note types),
         // reserved names, unknown kind, targetless relation, duplicate props
         assert!(e.create_type("books", vec![]).is_err());
-        e.set_prop("Slow Bloom EP.md", "type", None).unwrap();
-        e.set_prop("Slow Bloom EP.md", "Type", Some("RELEASE")).unwrap();
-        assert!(e.create_type("RELEASE", vec![]).is_err(), "seed's note type collides");
+        e.set_prop("Lisbon.md", "type", None).unwrap();
+        e.set_prop("Lisbon.md", "Type", Some("TRIP")).unwrap();
+        assert!(e.create_type("TRIP", vec![]).is_err(), "seed's note type collides");
         assert!(e.create_type("dashboard", vec![]).is_err());
         assert!(e.create_type("$sidebar", vec![]).is_err());
         assert!(e.create_type("$folders", vec![]).is_err());
@@ -1361,6 +1386,7 @@ mod tests {
                 "ledger",
                 "status",
                 vec![opt("live", None)],
+                None,
                 None,
                 None,
                 None,
@@ -1520,6 +1546,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_prop(
@@ -1527,6 +1554,7 @@ mod tests {
             "adaptation",
             vec![],
             Some("relation".into()),
+            None,
             None,
             Some("books".into()),
             None,
@@ -1594,6 +1622,7 @@ mod tests {
             "author",
             vec![],
             Some("text".into()),
+            None,
             None,
             None,
             None,
@@ -1796,6 +1825,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_view_pref(
@@ -1834,6 +1864,7 @@ mod tests {
             "rating",
             vec![],
             Some("text".into()),
+            None,
             None,
             None,
             None,
@@ -1925,6 +1956,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -1998,9 +2030,9 @@ mod tests {
         e.create("A", "Inbox", Some("books")).unwrap();
         e.set_prop("Inbox/A.md", "price", Some("12")).unwrap();
         e.set_prop("Inbox/A.md", "Gebühr", Some("high")).unwrap();
-        e.set_schema_prop("books", "price", vec![], Some("number".into()), None, None, None, None, None)
+        e.set_schema_prop("books", "price", vec![], Some("number".into()), None, None, None, None, None, None)
             .unwrap();
-        e.set_schema_prop("books", "Gebühr", vec![], Some("text".into()), None, None, None, None, None)
+        e.set_schema_prop("books", "Gebühr", vec![], Some("text".into()), None, None, None, None, None, None)
             .unwrap();
 
         let query = r#"Price:500 -PRICE:100 price: 250 price<500 price <500 price< 500 price <= 500 -price >= 2 status:live price "price:500" https://example.test/price:500 C:\price:500 Gebühr:high"#;
@@ -2033,7 +2065,7 @@ mod tests {
         let (mut e, dir) = temp_vault("cpquery");
         e.create("A", "Inbox", Some("books")).unwrap();
         e.set_prop("Inbox/A.md", "price", Some("12")).unwrap();
-        e.set_schema_prop("books", "price", vec![], Some("number".into()), None, None, None, None, None)
+        e.set_schema_prop("books", "price", vec![], Some("number".into()), None, None, None, None, None, None)
             .unwrap();
 
         let referenced = r#"status:live PRICE >= 500 "price:500""#;
@@ -2070,7 +2102,7 @@ mod tests {
             [("price", "12", "number"), ("score", "12", "text"), ("due", "2026-08-01", "date")]
         {
             e.set_prop("Inbox/A.md", key, Some(value)).unwrap();
-            e.set_schema_prop("books", key, vec![], Some(kind.into()), None, None, None, None, None)
+            e.set_schema_prop("books", key, vec![], Some(kind.into()), None, None, None, None, None, None)
                 .unwrap();
         }
         let cases = [
@@ -2086,7 +2118,7 @@ mod tests {
         // Production is a two-step flow: preserve the old kind, demote the
         // schema entry, then pass that bit to the confirmed value sweep.
         for (key, was_number) in [("price", true), ("score", false), ("due", false)] {
-            e.set_schema_prop("books", key, vec![], None, None, None, None, None, None).unwrap();
+            e.set_schema_prop("books", key, vec![], None, None, None, None, None, None, None).unwrap();
             e.clear_prop("books", key, was_number, true).unwrap();
         }
 
@@ -2134,11 +2166,11 @@ mod tests {
         for (key, value) in [("price", "12"), ("score", "12"), ("due", "2026-08-01")] {
             e.set_prop("Inbox/A.md", key, Some(value)).unwrap();
         }
-        e.set_schema_prop("books", "price", vec![], Some("number".into()), None, None, None, None, None)
+        e.set_schema_prop("books", "price", vec![], Some("number".into()), None, None, None, None, None, None)
             .unwrap();
-        e.set_schema_prop("books", "score", vec![], Some("text".into()), None, None, None, None, None)
+        e.set_schema_prop("books", "score", vec![], Some("text".into()), None, None, None, None, None, None)
             .unwrap();
-        e.set_schema_prop("books", "due", vec![], Some("date".into()), None, None, None, None, None)
+        e.set_schema_prop("books", "due", vec![], Some("date".into()), None, None, None, None, None, None)
             .unwrap();
 
         let query = r#"price:10,,20 price:,, price:"" price: "kept" price > 500 score > 500 drift due < 7d"#;
@@ -2195,7 +2227,7 @@ mod tests {
         e.create("A", "Inbox", Some("books")).unwrap();
         for key in ["price", "ΟΣ", "ǅΣ", "AΣʰ", "Ⅰ"] {
             e.set_prop("Inbox/A.md", key, Some("yes")).unwrap();
-            e.set_schema_prop("books", key, vec![], Some("text".into()), None, None, None, None, None)
+            e.set_schema_prop("books", key, vec![], Some("text".into()), None, None, None, None, None, None)
                 .unwrap();
         }
         e.set_saved_view(&saved_query("quote", "books", r#""slow price:500 drift"#)).unwrap();
@@ -2243,7 +2275,7 @@ mod tests {
         let (mut e, dir) = temp_vault("querydbexact");
         e.create("A", "Inbox", Some("books")).unwrap();
         e.set_prop("Inbox/A.md", "price", Some("12")).unwrap();
-        e.set_schema_prop("books", "price", vec![], Some("number".into()), None, None, None, None, None)
+        e.set_schema_prop("books", "price", vec![], Some("number".into()), None, None, None, None, None, None)
             .unwrap();
         e.set_saved_view(&saved_query("canonical", "books", "price:12")).unwrap();
         e.set_saved_view(&saved_query("spaced", " books ", "price:12")).unwrap();
@@ -2275,6 +2307,7 @@ mod tests {
             "price",
             vec![],
             Some("text".into()),
+            None,
             None,
             None,
             None,
@@ -2532,6 +2565,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].props["released"].kind.as_deref(), Some("date"));
@@ -2542,6 +2576,7 @@ mod tests {
                 "contract",
                 vec![],
                 Some("file".into()),
+                None,
                 None,
                 None,
                 None,
@@ -2561,6 +2596,7 @@ mod tests {
                 vec![opt("junk", None)],
                 Some("url".into()),
                 Some(true),
+                None,
                 None,
                 None,
                 None,
@@ -2586,6 +2622,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         let ps = &map["contact"].props["email"];
@@ -2599,6 +2636,7 @@ mod tests {
                 "phone",
                 vec![],
                 Some("phone".into()),
+                None,
                 None,
                 None,
                 None,
@@ -2622,6 +2660,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         let ps = &map["inventory"].props["in use"];
@@ -2640,6 +2679,7 @@ mod tests {
                 vec![opt("junk", None)],
                 Some("number".into()),
                 Some(true),
+                None,
                 None,
                 Some(" euro ".into()),
                 None,
@@ -2660,6 +2700,7 @@ mod tests {
             Some("number".into()),
             None,
             None,
+            None,
             Some("percent".into()),
             None,
             None,
@@ -2670,6 +2711,7 @@ mod tests {
             "count",
             vec![],
             Some("number".into()),
+            None,
             None,
             None,
             Some("plain".into()),
@@ -2695,6 +2737,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert_eq!(map["inventory"].props["price"].format, None);
@@ -2705,6 +2748,7 @@ mod tests {
                 "release",
                 "status",
                 vec![opt("live", None)],
+                None,
                 None,
                 None,
                 None,
@@ -2725,6 +2769,7 @@ mod tests {
                 Some("number".into()),
                 None,
                 None,
+                None,
                 Some("usd".into()),
                 None,
                 None,
@@ -2739,6 +2784,7 @@ mod tests {
                 "release",
                 "status",
                 vec![opt("live", None)],
+                None,
                 None,
                 None,
                 None,
@@ -2760,6 +2806,7 @@ mod tests {
                 "price",
                 vec![],
                 Some("number".into()),
+                None,
                 None,
                 None,
                 Some("euro".into()),
@@ -2800,6 +2847,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 Some("   ".into()),
                 None,
             )
@@ -2817,6 +2865,7 @@ mod tests {
             "release",
             "status",
             vec![opt("live", None)],
+            None,
             None,
             None,
             None,
@@ -2841,6 +2890,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert!(!map["release"].props.contains_key("released"), "blank kind + no options demotes");
@@ -2850,6 +2900,7 @@ mod tests {
                 "x",
                 vec![],
                 Some("multiselect".into()),
+                None,
                 None,
                 None,
                 None,
@@ -2871,6 +2922,7 @@ mod tests {
                 "format",
                 vec![opt("Vinyl", Some("violet")), opt("Digital", None)],
                 Some("multi".into()),
+                None,
                 None,
                 None,
                 None,
@@ -2902,6 +2954,7 @@ mod tests {
                 vec![opt("Vinyl", None)],
                 Some("multi".into()),
                 Some(true),
+                None,
                 Some("contact".into()),
                 None,
                 None,
@@ -2914,7 +2967,7 @@ mod tests {
         // no kind + no options demotes the entry away, like any prop — and
         // the emptied type entry drops out with it (no icon/home here)
         let map = e
-            .set_schema_prop("release", "format", vec![], None, None, None, None, None, None)
+            .set_schema_prop("release", "format", vec![], None, None, None, None, None, None, None)
             .unwrap();
         assert!(!map.contains_key("release"), "demote sweeps a multi too");
         let _ = fs::remove_dir_all(&dir);
@@ -2936,6 +2989,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert!(map["release"].props["due"].notify);
@@ -2950,6 +3004,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert!(map["release"].props["due"].notify, "unspecified notify keeps the stored flag");
@@ -2958,6 +3013,7 @@ mod tests {
             "release",
             "status",
             vec![opt("live", None)],
+            None,
             None,
             None,
             None,
@@ -2987,6 +3043,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert!(!map["release"].props["due"].notify, "notify is date-kind only");
@@ -3001,9 +3058,148 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert!(!map["release"].props["due"].notify);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// SUB-842: the lead-time field normalizes like `notify` — date-kind
+    /// only, `Some(0)` clears, a year is the ceiling, and an absent arg
+    /// keeps whatever is stored.
+    #[test]
+    fn schema_notify_before_roundtrip_and_normalization() {
+        let (e, dir) = temp_vault("schemabefore");
+
+        let map = e
+            .set_schema_prop(
+                "release",
+                "due",
+                vec![],
+                Some("date".into()),
+                Some(false),
+                Some(3),
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            map["release"].props["due"].notify_before,
+            Some(3),
+            "a lead time stands on its own — notify off is legal"
+        );
+        let raw: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.join(SCHEMA_REL_PATH)).unwrap()).unwrap();
+        assert_eq!(raw["release"]["due"]["notifyBefore"], serde_json::json!(3), "camelCase on disk");
+
+        // an unspecified arg keeps the stored value
+        let map = e
+            .set_schema_prop(
+                "release",
+                "due",
+                vec![],
+                Some("date".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(map["release"].props["due"].notify_before, Some(3));
+
+        // …and a kind flip clears it, on disk too
+        let map = e
+            .set_schema_prop(
+                "release",
+                "due",
+                vec![],
+                Some("text".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(map["release"].props["due"].notify_before, None, "lead time is date-kind only");
+        let raw: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.join(SCHEMA_REL_PATH)).unwrap()).unwrap();
+        assert!(raw["release"]["due"].get("notifyBefore").is_none(), "off is omitted on disk");
+
+        // longer than a year clamps; zero is how the UI clears the field
+        let map = e
+            .set_schema_prop(
+                "release",
+                "due",
+                vec![],
+                Some("date".into()),
+                None,
+                Some(4000),
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(map["release"].props["due"].notify_before, Some(365));
+        let map = e
+            .set_schema_prop(
+                "release",
+                "due",
+                vec![],
+                Some("date".into()),
+                None,
+                Some(0),
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(map["release"].props["due"].notify_before, None, "zero clears");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// SUB-842 + SUB-433: a stored lead time and a newer app's unknown key
+    /// both survive a rewrite driven by an older-shaped call.
+    #[test]
+    fn notify_before_and_unknown_keys_survive_a_rewrite() {
+        let (e, dir) = temp_vault("beforekeys");
+        fs::create_dir_all(dir.join(".vault")).unwrap();
+        fs::write(
+            dir.join(SCHEMA_REL_PATH),
+            r#"{"release": {"due": {"options": [], "kind": "date", "notify": true, "notifyBefore": 7, "futureNudge": "loud"}}}"#,
+        )
+        .unwrap();
+        e.set_schema_prop(
+            "release",
+            "due",
+            vec![],
+            Some("date".into()),
+            None,
+            None,
+            None,
+            None,
+            Some("ship day".into()),
+            None,
+        )
+        .unwrap();
+        let after: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.join(SCHEMA_REL_PATH)).unwrap()).unwrap();
+        assert_eq!(after["release"]["due"]["description"], serde_json::json!("ship day"), "the edit landed");
+        assert_eq!(after["release"]["due"]["notifyBefore"], serde_json::json!(7), "the lead time rode along");
+        assert_eq!(after["release"]["due"]["notify"], serde_json::json!(true));
+        assert_eq!(
+            after["release"]["due"]["futureNudge"],
+            serde_json::json!("loud"),
+            "a newer app's key survives"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -3018,6 +3214,7 @@ mod tests {
                 "contact",
                 vec![opt("junk", None)],
                 Some("relation".into()),
+                None,
                 None,
                 Some(" contact ".into()),
                 None,
@@ -3048,6 +3245,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .is_err());
         assert!(e
@@ -3056,6 +3254,7 @@ mod tests {
                 "agent",
                 vec![],
                 Some("relation".into()),
+                None,
                 None,
                 Some(" ".into()),
                 None,
@@ -3069,6 +3268,7 @@ mod tests {
                 "released",
                 vec![],
                 Some("date".into()),
+                None,
                 None,
                 Some("contact".into()),
                 None,
@@ -3092,6 +3292,7 @@ mod tests {
                 "release",
                 "status",
                 vec![opt("live", None)],
+                None,
                 None,
                 None,
                 None,
@@ -3156,6 +3357,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_icon("release", Some("music".into()), None, None).unwrap();
@@ -3174,13 +3376,14 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         assert!(e.schema()["release"].icon.is_some());
         // … and demoting every prop keeps the entry while an icon remains
-        e.set_schema_prop("release", "status", vec![], None, None, None, None, None, None).unwrap();
+        e.set_schema_prop("release", "status", vec![], None, None, None, None, None, None, None).unwrap();
         let map = e
-            .set_schema_prop("release", "artist", vec![], None, None, None, None, None, None)
+            .set_schema_prop("release", "artist", vec![], None, None, None, None, None, None, None)
             .unwrap();
         assert!(map["release"].props.is_empty());
         assert!(map["release"].icon.is_some(), "icon-only entry stays");
@@ -3280,11 +3483,12 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_home("task", Some("Tasks".into())).unwrap();
         let map = e
-            .set_schema_prop("task", "status", vec![], None, None, None, None, None, None)
+            .set_schema_prop("task", "status", vec![], None, None, None, None, None, None, None)
             .unwrap();
         assert!(map["task"].props.is_empty());
         assert_eq!(map["task"].home.as_deref(), Some("Tasks"), "home-only entry stays");
@@ -3358,6 +3562,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         let after: serde_json::Value =
@@ -3425,6 +3630,7 @@ mod tests {
             vec![],
             Some("relation".into()),
             None,
+            None,
             Some("ledger".into()),
             None,
             None,
@@ -3440,6 +3646,7 @@ mod tests {
                 "earned",
                 vec![],
                 Some("rollup".into()),
+                None,
                 None,
                 None,
                 None,
@@ -3473,6 +3680,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 Some(RollupSet { relation: relation.into(), prop: prop.into(), agg: agg.into() }),
             )
         };
@@ -3495,6 +3703,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 None
             )
             .is_err());
@@ -3504,6 +3713,7 @@ mod tests {
                 "plain",
                 vec![],
                 Some("text".into()),
+                None,
                 None,
                 None,
                 None,
@@ -3520,6 +3730,7 @@ mod tests {
                 "earned",
                 vec![opt("stray", None)],
                 Some("rollup".into()),
+                None,
                 None,
                 None,
                 None,
@@ -3555,6 +3766,7 @@ mod tests {
             vec![],
             Some("relation".into()),
             None,
+            None,
             Some("ledger".into()),
             None,
             None,
@@ -3566,6 +3778,7 @@ mod tests {
             "earned",
             vec![],
             Some("rollup".into()),
+            None,
             None,
             None,
             None,
@@ -3613,6 +3826,7 @@ mod tests {
             vec![],
             Some("relation".into()),
             None,
+            None,
             Some("LEDGER".into()),
             None,
             None,
@@ -3624,6 +3838,7 @@ mod tests {
             "earned",
             vec![],
             Some("rollup".into()),
+            None,
             None,
             None,
             None,
@@ -3643,6 +3858,7 @@ mod tests {
             vec![],
             Some("relation".into()),
             None,
+            None,
             Some("costs".into()),
             None,
             None,
@@ -3658,6 +3874,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             Some(RollupSet {
                 relation: "outgoings".into(),
                 prop: "amount".into(),
@@ -3665,7 +3882,7 @@ mod tests {
             }),
         )
         .unwrap();
-        e.set_schema_prop("ledger", "amount", vec![], Some("number".into()), None, None, None, None, None)
+        e.set_schema_prop("ledger", "amount", vec![], Some("number".into()), None, None, None, None, None, None)
             .unwrap();
 
         e.rename_prop("ledger", "amount", "value").unwrap();
@@ -3702,19 +3919,21 @@ mod tests {
             vec![],
             Some("relation".into()),
             None,
+            None,
             Some("task".into()),
             None,
             None,
             None,
         )
         .unwrap();
-        e.set_schema_prop("task", "hours", vec![], Some("number".into()), None, None, None, None, None)
+        e.set_schema_prop("task", "hours", vec![], Some("number".into()), None, None, None, None, None, None)
             .unwrap();
         e.set_schema_prop(
             "task",
             "total",
             vec![],
             Some("rollup".into()),
+            None,
             None,
             None,
             None,
@@ -3760,6 +3979,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             Some(RollupSet {
                 relation: "entries".into(),
                 prop: "amount".into(),
@@ -3789,7 +4009,7 @@ mod tests {
         e.create("B", "Inbox", Some("books")).unwrap();
         e.set_prop("Inbox/A.md", "author", Some("Herbert")).unwrap();
         e.set_prop("Inbox/B.md", "author", Some("Tolkien")).unwrap();
-        e.set_schema_prop("books", "author", vec![], Some("text".into()), None, None, None, None, None)
+        e.set_schema_prop("books", "author", vec![], Some("text".into()), None, None, None, None, None, None)
             .unwrap();
 
         refuse_config_writes(&dir);

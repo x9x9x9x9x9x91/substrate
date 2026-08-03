@@ -10,8 +10,15 @@ import { onboardingStatus, vaultRead } from "../lib/ipc";
 import { normalizeNumberInput } from "../lib/aggregate";
 import { setPropUndoable } from "../lib/undoprops";
 import { useUndo } from "../lib/undoContext";
-import { SETTINGS_PATH, terminalActionsToText, textToTerminalActions } from "../lib/settings";
+import {
+  missingTerminalFonts,
+  SETTINGS_PATH,
+  terminalActionsToText,
+  textToTerminalActions,
+} from "../lib/settings";
+import type { TerminalFontProblems } from "../lib/settings";
 import { foldedPropKey } from "../lib/types";
+import { isTauri } from "../lib/tauri";
 import {
   TERMINAL_HEIGHT_MAX,
   TERMINAL_HEIGHT_MIN,
@@ -46,6 +53,50 @@ interface Field {
   /** text fields only: render as a password input (shoulder-surfing guard —
       the value still lives in Settings.md as plain frontmatter) */
   masked?: boolean;
+}
+
+/* SUB-873: a `terminal-font` the machine can't resolve looks like the setting
+   simply doesn't work — xterm falls back to the app's mono with no sign.
+
+   NOT `document.fonts.check`: that answers "can this text be rendered", and
+   fallback means it can, so it returns true for every family name including
+   nonsense ones (measured in this app's own webview). The one thing the
+   platform will tell us is metrics — render a probe string in `family, base`
+   and in `base` alone, and if the family is installed the width moves. Three
+   bases, because a real font can happen to match one of them; installed means
+   differing from ANY of them.
+
+   False "not found" envelope, both quiet: a font metrically identical to mono
+   AND sans AND serif, and a font with no Latin coverage at all (CJK, symbol
+   and icon families render the probe string from the fallback, so the widths
+   never move). Which is why this line is a hint and not an error state.
+
+   The measurement is also platform-dependent — CoreText drops an unknown
+   family from the list, fontconfig substitutes one — so the e2e can't assert
+   a nonsense name here. `__mockFontAvailable` is the seam it stubs; the
+   shipped app never has it and measures exactly as before. */
+const FONT_PROBE = "mmmmmwwwwwiiiii0123456789";
+const FONT_BASES = ["monospace", "sans-serif", "serif"];
+
+/** measured families, keyed by name — the debounce re-runs the whole chain on
+    every settled keystroke and each miss costs 3 canvases × 6 measureText */
+const fontSeen = new Map<string, boolean>();
+
+function fontAvailable(family: string): boolean {
+  const stub = isTauri ? undefined : window.__mockFontAvailable;
+  if (stub) return stub(family);
+  const hit = fontSeen.get(family);
+  if (hit !== undefined) return hit;
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (!ctx) return true; // no canvas → can't tell; never cry wolf
+  const ok = FONT_BASES.some((base) => {
+    ctx.font = `72px ${base}`;
+    const plain = ctx.measureText(FONT_PROBE).width;
+    ctx.font = `72px "${family}", ${base}`;
+    return ctx.measureText(FONT_PROBE).width !== plain;
+  });
+  fontSeen.set(family, ok);
+  return ok;
 }
 
 /** current state of a bool field, honoring its default when unset */
@@ -189,6 +240,22 @@ export default function SettingsPane({
       a backend too old to answer, in which case the row simply stays hidden */
   const [vault, setVault] = useState<OnboardingStatus | null>(null);
   const [switching, setSwitching] = useState(false);
+  /** families in the current `terminal-font` that won't take effect (SUB-873),
+      settled a beat after the last keystroke so half-typed names don't flash a
+      warning at someone who is still spelling one correctly */
+  const [badFonts, setBadFonts] = useState<TerminalFontProblems>({
+    missing: [],
+    unusable: [],
+  });
+
+  const fontValue = values?.["terminal-font"] ?? "";
+  useEffect(() => {
+    const t = window.setTimeout(
+      () => setBadFonts(missingTerminalFonts(fontValue, fontAvailable)),
+      350
+    );
+    return () => window.clearTimeout(t);
+  }, [fontValue]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -430,6 +497,20 @@ export default function SettingsPane({
                     </label>
                   )}
                   <div className="settings-hint">{f.hint}</div>
+                  {f.key === "terminal-font" && badFonts.missing.length > 0 && (
+                    <div className="settings-hint settings-hint-warn" data-testid="font-missing">
+                      font not found: {badFonts.missing.join(", ")} — check the exact family name
+                      in Font Book
+                    </div>
+                  )}
+                  {/* a dropped entry isn't a family the machine could have —
+                      sending someone to Font Book to look up "0.45" is the
+                      wrong hint, so this one just says what it is */}
+                  {f.key === "terminal-font" && badFonts.unusable.length > 0 && (
+                    <div className="settings-hint settings-hint-warn" data-testid="font-unusable">
+                      not a usable font name: {badFonts.unusable.join(", ")}
+                    </div>
+                  )}
                 </div>
                 {f.kind === "bool" ? (
                   <button

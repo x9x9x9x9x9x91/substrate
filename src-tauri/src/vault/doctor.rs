@@ -441,7 +441,7 @@ mod tests {
         let (mut engine, dir) = temp_vault("doctor-links");
         fs::write(
             dir.join("Hub.md"),
-            "---\ncreated: 2026-07-25\n---\nSee [[Slow Bloom EP]] and [[Ghost Note]].\n",
+            "---\ncreated: 2026-07-25\n---\nSee [[Lisbon]] and [[Ghost Note]].\n",
         )
         .unwrap();
         engine.rescan();

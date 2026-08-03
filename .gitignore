@@ -36,3 +36,7 @@ dist-ssr
 
 # TS incremental build state
 *.tsbuildinfo
+
+# npm ci freshness marker written by scripts/rig-gates-runner.sh — a local
+# build artifact, and an untracked one would make the tree unreleasable
+.npm-ci-stamp

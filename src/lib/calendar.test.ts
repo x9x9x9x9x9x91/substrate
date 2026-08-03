@@ -739,6 +739,25 @@ test("isDeadline / datePropFor fold type and prop case (SUB-696)", () => {
   assert.equal(datePropFor("release", notes, schema), "due");
 });
 
+test("isDeadline counts a lead time standing alone (SUB-842)", () => {
+  const schema: SchemaConfig = {
+    task: {
+      // the engine blesses this shape: heads-up only, nothing on the day
+      lead: { options: [], kind: "date", notifyBefore: 3 },
+      both: { options: [], kind: "date", notify: true, notifyBefore: 3 },
+      off: { options: [], kind: "date" },
+      zero: { options: [], kind: "date", notifyBefore: 0 },
+      // a lead time on a non-date prop is meaningless — kind still gates
+      text: { options: [], notifyBefore: 3 },
+    },
+  };
+  assert.equal(isDeadline(schema, "task", "lead"), true);
+  assert.equal(isDeadline(schema, "task", "both"), true);
+  assert.equal(isDeadline(schema, "task", "off"), false);
+  assert.equal(isDeadline(schema, "task", "zero"), false);
+  assert.equal(isDeadline(schema, "task", "text"), false);
+});
+
 test("datePropFor folds note types for its usage fallback (SUB-728)", () => {
   const notes = [
     note("Tasks/A.md", { Type: "TASK", Due: "2026-09-01" }, "Tasks"),

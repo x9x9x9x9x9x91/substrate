@@ -30,6 +30,7 @@ export default function PropForm({
     opts: SelectOption[],
     kind: PropKind | null,
     notify?: boolean,
+    notifyBefore?: number,
     target?: string,
     format?: NumberFormat,
     description?: string,
@@ -75,7 +76,7 @@ export default function PropForm({
       onCommit={() => undefined}
       rollupRelations={rollupRelations}
       rollupPropsFor={rollupPropsFor}
-      onSaveSchema={(o, k, n, t, f, d, r) => onSave(trimmed, o, k, n, t, f, d, r)}
+      onSaveSchema={(o, k, n, nb, t, f, d, r) => onSave(trimmed, o, k, n, nb, t, f, d, r)}
       onClose={onClose}
     />
   );

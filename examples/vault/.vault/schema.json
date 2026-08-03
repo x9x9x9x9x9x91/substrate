@@ -17,6 +17,29 @@
     "contact": { "options": [], "kind": "relation", "type": "contact" },
     "link": { "options": [], "kind": "url" }
   },
+  "task": {
+    "icon": { "glyph": "check-square", "tint": "orange" },
+    "home": "Tasks",
+    "status": {
+      "options": [
+        { "value": "open", "color": "blue" },
+        { "value": "done", "color": "green" }
+      ]
+    },
+    "area": {
+      "options": [{ "value": "Label", "color": "violet" }, { "value": "Studio", "color": "teal" }]
+    },
+    "priority": {
+      "options": [
+        { "value": "high", "color": "red" },
+        { "value": "medium", "color": "yellow" },
+        { "value": "low", "color": "gray" }
+      ]
+    },
+    "due": { "options": [], "kind": "date" },
+    "now": { "options": [], "kind": "checkbox" },
+    "snoozed_until": { "options": [], "kind": "date" }
+  },
   "contact": {
     "icon": { "glyph": "user", "tint": "teal" },
     "email": { "options": [], "kind": "email" },

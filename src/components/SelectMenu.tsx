@@ -110,6 +110,8 @@ interface SelectMenuProps {
   kind?: PropKind;
   /** current notify flag (date-kind props only) */
   notify?: boolean;
+  /** current lead time in days (date-kind props only, SUB-842) */
+  notifyBefore?: number;
   /** relation kind only: the database this prop currently points at */
   target?: string;
   /** number kind only: the current display format (undefined = plain) */
@@ -153,7 +155,7 @@ interface SelectMenuProps {
       parent commits live, like the relation picker */
   onToggle?: (v: string) => void;
   onClear?: () => void;
-  onSaveSchema: (opts: SelectOption[], kind: PropKind | null, notify?: boolean, target?: string, format?: NumberFormat, description?: string, rollup?: RollupConfig | null) => void;
+  onSaveSchema: (opts: SelectOption[], kind: PropKind | null, notify?: boolean, notifyBefore?: number, target?: string, format?: NumberFormat, description?: string, rollup?: RollupConfig | null) => void;
   /** rollup kind only (SUB-678): relation props of THIS database the rollup
       can follow — absent means the rollup kind can't be configured here */
   rollupRelations?: string[];
@@ -215,6 +217,19 @@ const AGG_LABELS: [AggKind, string][] = [
   ["count", "Count"],
 ];
 
+/** The lead time the engine will actually store for what was typed into the
+    days field (SUB-842). The `min`/`max` attributes are advisory — a typed
+    `0.5`, `-5`, or `abc` reaches save untouched — so the same rules the
+    engine applies run here: unparseable or ≤0 clears the lead time, a
+    fraction rounds to whole days (never silently below the 1-day minimum),
+    and anything past a year clamps to 365. The caller writes the result back
+    into the field, so the UI never shows a number the vault does not hold. */
+export function leadDaysFor(raw: string): number {
+  const n = Number(raw.trim());
+  if (!raw.trim() || !Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(365, Math.max(1, Math.round(n)));
+}
+
 const MENU_MAX_H = 320;
 
 /** Palette-style value picker for a property: filter-as-you-type, ↑↓ + Enter,
@@ -234,6 +249,7 @@ export default function SelectMenu({
   canEditSchema,
   kind,
   notify,
+  notifyBefore,
   target,
   format,
   description,
@@ -281,6 +297,9 @@ export default function SelectMenu({
     kind ?? (options.length > 0 ? "select" : "text")
   );
   const [draftNotify, setDraftNotify] = useState(notify ?? false);
+  // lead time (SUB-842) lives as text so the field can be blank = off; the
+  // save turns blank into 0, which is how the backend clears a stored value
+  const [draftBefore, setDraftBefore] = useState(notifyBefore ? String(notifyBefore) : "");
   const [draftTarget, setDraftTarget] = useState(target ?? "");
   const [draftFormat, setDraftFormat] = useState<NumberFormat>(format ?? "plain");
   const [draftDesc, setDraftDesc] = useState(description ?? "");
@@ -418,7 +437,7 @@ export default function SelectMenu({
         // adding the typed value to the schema keeps the prop's kind — a
         // multi stays a multi; the description (SUB-191) rides along or an
         // inline promote would silently clear it
-        onSaveSchema([...options, { value: row.value }], isMulti ? "multi" : null, undefined, undefined, undefined, description);
+        onSaveSchema([...options, { value: row.value }], isMulti ? "multi" : null, undefined, undefined, undefined, undefined, description);
         if (isMulti) onToggle?.(row.value);
         else onCommit(row.value);
         break;
@@ -597,6 +616,21 @@ export default function SelectMenu({
           />
           <span className="selmenu-notify-label">Notify when due</span>
           <span className="selmenu-notify-note">macOS alert on the day</span>
+        </label>
+      )}
+      {draftKind === "date" && (
+        <label className="selmenu-notify selmenu-notify-lead">
+          <input
+            type="number"
+            className="selmenu-notify-days"
+            min={1}
+            max={365}
+            value={draftBefore}
+            placeholder="—"
+            onChange={(e) => setDraftBefore(e.target.value)}
+          />
+          <span className="selmenu-notify-label">Remind days before</span>
+          <span className="selmenu-notify-note">blank = off</span>
         </label>
       )}
       {draftKind === "relation" && (
@@ -882,24 +916,39 @@ export default function SelectMenu({
                   (p) => p.toLowerCase() === draftRollProp.trim().toLowerCase()
                 ) ?? draftRollProp.trim();
               if (rel && rollProp)
-                onSaveSchema([], "rollup", undefined, undefined, undefined, desc, {
+                onSaveSchema([], "rollup", undefined, undefined, undefined, undefined, desc, {
                   relation: rel,
                   prop: rollProp,
                   agg: draftRollAgg,
                 });
             }
-            else if (draftKind === "date" || draftKind === "file" || draftKind === "url" || draftKind === "email" || draftKind === "phone" || draftKind === "checkbox")
-              onSaveSchema([], draftKind, draftKind === "date" ? draftNotify : undefined, undefined, undefined, desc);
+            else if (draftKind === "date" || draftKind === "file" || draftKind === "url" || draftKind === "email" || draftKind === "phone" || draftKind === "checkbox") {
+              // blank/garbage lead time saves as 0 — the engine reads that as
+              // "clear it", which a plain undefined would not (SUB-842). Out
+              // of range input is normalized HERE and echoed back into the
+              // field, so what the box shows is what gets stored.
+              const lead = draftKind === "date" ? leadDaysFor(draftBefore) : undefined;
+              if (lead !== undefined) setDraftBefore(lead ? String(lead) : "");
+              onSaveSchema(
+                [],
+                draftKind,
+                draftKind === "date" ? draftNotify : undefined,
+                lead,
+                undefined,
+                undefined,
+                desc
+              );
+            }
             else if (draftKind === "number")
               // plain stores as absent — the engine normalizes it away
-              onSaveSchema([], "number", undefined, undefined, draftFormat === "plain" ? undefined : draftFormat, desc);
+              onSaveSchema([], "number", undefined, undefined, undefined, draftFormat === "plain" ? undefined : draftFormat, desc);
             else if (draftKind === "relation")
-              onSaveSchema([], "relation", undefined, draftTarget.trim(), undefined, desc);
-            else if (draftKind === "multi") onSaveSchema(draft, "multi", undefined, undefined, undefined, desc);
-            else if (draftKind === "select") onSaveSchema(draft, null, undefined, undefined, undefined, desc);
+              onSaveSchema([], "relation", undefined, undefined, draftTarget.trim(), undefined, desc);
+            else if (draftKind === "multi") onSaveSchema(draft, "multi", undefined, undefined, undefined, undefined, desc);
+            else if (draftKind === "select") onSaveSchema(draft, null, undefined, undefined, undefined, undefined, desc);
             // text registers explicitly (SUB-43) — a schema'd text column
             // survives the demote rule; removal is the separate remove flow
-            else onSaveSchema([], "text", undefined, undefined, undefined, desc);
+            else onSaveSchema([], "text", undefined, undefined, undefined, undefined, desc);
             // a kind change swaps which menu this chip/cell opens — close out;
             // select and multi keep riding THIS menu, so stay open
             if (

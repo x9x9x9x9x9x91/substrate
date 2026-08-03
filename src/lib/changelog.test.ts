@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { CHANGELOG, groupRelease } from "./changelog.ts";
+import { CHANGELOG, groupRelease, splitLead } from "./changelog.ts";
 
 function cmpVersion(a: string, b: string): number {
   const pa = a.split(".").map(Number);
@@ -98,4 +98,22 @@ test("groupRelease splits headlines out and buckets the rest in kind order", () 
       ["fixed", ["fix b", "fix a"]],
     ]
   );
+});
+
+test("splitLead splits an authored lead and leaves prose alone (SUB-938)", () => {
+  assert.deepEqual(splitLead("Send as link: any note becomes a link"), {
+    lead: "Send as link",
+    rest: "any note becomes a link",
+  });
+  // no colon → no lead
+  assert.equal(splitLead("Fresh downloads get this version directly."), null);
+  // a colon deep in the sentence is punctuation, not an authored label
+  assert.equal(
+    splitLead(
+      "An update package could carry stray macOS metadata files that made installs fail: now stripped."
+    ),
+    null
+  );
+  // a colon without a following space (a time, "10:30") never splits
+  assert.equal(splitLead("The 10:30 build works"), null);
 });

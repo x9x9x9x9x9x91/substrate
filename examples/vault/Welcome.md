@@ -21,8 +21,9 @@ What's inside:
 - **Dashboards** — in `Dashboards/`: [[Portfolio]] (metrics cards over the sheet),
   [[Release Charts]] (chart fences over the database), [[Home]] (a hub page with
   callout cards and an embedded live view), [[Food]] (net-kcal tracker reading
-  [[Food Log]]), [[News]] (a curated feed reading [[News Items]]), and [[Yield]]
-  (the APR tracker).
+  [[Food Log]]), [[News]] (a curated feed reading [[News Items]]), [[Tasks]] (a
+  working board over the `task` notes in `Tasks/` — late work first, with
+  checkoff, inline edits and quick-add), and [[Yield]] (the APR tracker).
 - **Links** — wikilinks like [[Holdings]] connect notes; backlinks render at the
   bottom of each note. Follow a link to a missing note and it's created.
 

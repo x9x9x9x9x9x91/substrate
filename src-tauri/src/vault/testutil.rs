@@ -49,7 +49,7 @@ pub(crate) fn vault_with_poisoned_note(name: &str) -> (Engine, PathBuf) {
         e.create(stem, "Inbox", Some("books")).unwrap();
         e.set_prop(&format!("Inbox/{stem}.md"), "author", Some("Herbert")).unwrap();
     }
-    e.set_schema_prop("books", "author", vec![], Some("text".into()), None, None, None, None, None)
+    e.set_schema_prop("books", "author", vec![], Some("text".into()), None, None, None, None, None, None)
         .unwrap();
     // B sorts between A and C, so the sweep rewrites A, dies on B, never
     // reaches C — the poison lands after the index already read the type
@@ -83,7 +83,7 @@ pub(crate) fn vault_with_stale_indexed_broken_note(name: &str) -> (Engine, PathB
         "---\ntype: books\nauthor: Tolkien\n\tbad: x\n---\nBody.\n",
     )
     .unwrap();
-    e.set_schema_prop("books", "author", vec![], Some("text".into()), None, None, None, None, None)
+    e.set_schema_prop("books", "author", vec![], Some("text".into()), None, None, None, None, None, None)
         .unwrap();
     (e, dir)
 }

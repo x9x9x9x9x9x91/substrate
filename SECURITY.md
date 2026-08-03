@@ -34,8 +34,10 @@ upgrading for.
 ## Threat model
 
 **What Substrate is.** A desktop app (Tauri: a Rust backend and a system webview
-frontend) over a folder of plain files. No server, no account, no telemetry. When
-sync is enabled it talks to an endpoint you configure and nothing else.
+frontend) over a folder of plain files. There is no Substrate account, hosted
+vault server, or telemetry. Local-first is not the same as offline-only: the
+small set of automatic and user-triggered network requests is documented in
+[sync and security for users](docs/user/sync-and-security.md).
 
 **Who the app trusts.** You, your machine, and the OS user account you run under.
 Anything running as your user can already read your vault directly — the app
@@ -52,11 +54,14 @@ That distinction drives the defenses that exist:
   Content-Security-Policy with `script-src 'self'` — no inline script, no `eval`,
   no remote script origin. Rationale and the full policy:
   [docs/security-config.md](docs/security-config.md).
-- **A note cannot make the app reach into your network.** The one place the app
-  fetches a URL (link previews) resolves the host first and refuses loopback,
-  private, carrier-grade-NAT, link-local, and unique-local addresses, on the
-  initial request *and* on every redirect hop, and refuses any scheme other than
-  `http`/`https` (`src-tauri/src/net.rs`).
+- **A note cannot make the app reach into your network.** Every place the app
+  fetches a URL — link previews, the USD→EUR reference rate, a **Send as link**
+  upload — resolves the host first and refuses loopback, private,
+  carrier-grade-NAT, link-local, and unique-local addresses, on the initial
+  request *and* on every redirect hop, and refuses any scheme other than
+  `http`/`https` (`src-tauri/src/net.rs`). That matters most for the share relay
+  URL, which comes from `Settings.md` — vault content — and so passes the same
+  guard as a pasted link.
 - **A synced note cannot silently run a command.** Settings.md can name a
   `terminal-command` for the terminal HUD. It runs only after you approve that
   exact command on that machine; the approval is a hash in local app state and is

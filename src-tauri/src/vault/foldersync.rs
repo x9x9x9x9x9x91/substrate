@@ -338,6 +338,7 @@ impl Engine {
                 None,
                 None,
                 None,
+                None,
             )
             .ok();
         }
@@ -478,12 +479,14 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_prop(
             "finance-doc",
             "status",
             vec![opt("booked", None)],
+            None,
             None,
             None,
             None,
@@ -903,12 +906,14 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_prop(
             "finance-doc",
             "year",
             vec![opt("2025", None), opt("2026", None)],
+            None,
             None,
             None,
             None,

@@ -47,8 +47,10 @@ test("a release leads with its headline and groups the rest by kind (SUB-817)", 
   await page.getByRole("button", { name: "What's new" }).click();
 
   // the newest release (0.19.0+) always flags a headline; it renders before
-  // the kind groups and carries the larger voice
+  // the kind groups, under a "Highlights" label matching the generated
+  // CHANGELOG.md (SUB-938)
   const first = page.locator(".chlog-release").first();
+  await expect(first.locator(".chlog-highlights-label")).toHaveText("Highlights");
   await expect(first.locator(".chlog-headline")).not.toHaveCount(0);
   await expect(first.locator(".chlog-headline-text").first()).not.toBeEmpty();
 
@@ -65,10 +67,14 @@ test("a release leads with its headline and groups the rest by kind (SUB-817)", 
   for (let i = 1; i < texts.length; i++) {
     expect(rank(texts[i])).toBeGreaterThan(rank(texts[i - 1]));
   }
-  // the kind dot lives on headline rows only
+  // the kind mark (✦, SUB-938 — was a dot) lives on headline rows only;
+  // labels and items stay unmarked (SUB-866)
   await expect(first.locator(".chlog-group-label .dash-dot")).toHaveCount(0);
   await expect(first.locator(".chlog-item .dash-dot")).toHaveCount(0);
-  await expect(first.locator(".chlog-headline .dash-dot").first()).toBeVisible();
+  await expect(first.locator(".chlog-headline .dash-dot")).toHaveCount(0);
+  const mark = first.locator(".chlog-headline .chlog-mark").first();
+  await expect(mark).toBeVisible();
+  await expect(mark).toHaveText("✦");
 });
 
 test("the pane is read-only — no inputs, no editor", async ({ page }) => {
@@ -80,4 +86,19 @@ test("the pane is read-only — no inputs, no editor", async ({ page }) => {
   await expect(pane.getByRole("textbox")).toHaveCount(0);
   await expect(pane.locator("input, textarea, select, [contenteditable='true']")).toHaveCount(0);
   await expect(pane.locator(".cm-content")).toHaveCount(0);
+});
+
+test("'Lead: detail' entries carry a bold lead-in (SUB-938)", async ({ page }) => {
+  await page.getByRole("button", { name: "What's new" }).click();
+  // pane-wide, not first-release-only: any release may lack authored leads,
+  // but the history as a whole always has them
+  await expect(page.locator(".chlog-lead").first()).toBeVisible();
+  // group labels carry their kind color, not the neutral label gray
+  const label = page.locator(".chlog-group-label").first();
+  const color = await label.evaluate((el) => getComputedStyle(el).color);
+  const gray = await page
+    .locator(".dash-state")
+    .first()
+    .evaluate((el) => getComputedStyle(el).color);
+  expect(color).not.toBe(gray);
 });

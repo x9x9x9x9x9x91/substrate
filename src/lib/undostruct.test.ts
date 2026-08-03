@@ -197,7 +197,7 @@ test("rename: undo and redo announce their move through onApplied (SUB-783)", as
 test("rename: a relation prop pointing at the note counts as touched", async () => {
   await vaultCreate("Undo Rel Contact", "People", "contact", [], "x\n");
   const { vaultSchemaSet } = await import("./ipc.ts");
-  await vaultSchemaSet("charter", "contact", [], "relation", undefined, "contact");
+  await vaultSchemaSet("charter", "contact", [], "relation", undefined, undefined, "contact");
   const charter = await vaultCreate("Undo Rel Charter", "Releases", "charter", [], "y\n");
   await vaultSetProp(charter.path, "contact", "Undo Rel Contact");
   const { box, record } = recorder();

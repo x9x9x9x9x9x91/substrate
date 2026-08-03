@@ -52,9 +52,10 @@ Linear (speed, keyboard-first, command palette). The layer everything grows on.
 
 ## Try it
 
-Prerequisites: [Node.js](https://nodejs.org) ≥ 20, [Rust](https://rustup.rs)
-(stable), and Xcode Command Line Tools (`xcode-select --install`). First build
-compiles the Rust engine — expect a few minutes.
+Prerequisites: [Node.js](https://nodejs.org) ≥ 20, [Rust via rustup](https://rustup.rs)
+(the repository's `rust-toolchain.toml` selects the exact version), and Xcode
+Command Line Tools (`xcode-select --install`). First build compiles the Rust
+engine — expect a few minutes.
 
 ```sh
 git clone <this repo> && cd substrate
@@ -72,6 +73,13 @@ want inside this repo.) Without `VAULT_DIR` the app uses `~/Vault`, creating
 it if needed.
 
 `npm run tauri build` produces a distributable `Substrate.app` bundle.
+
+## Help
+
+[Troubleshooting](docs/user/troubleshooting.md) ·
+[sync and security](docs/user/sync-and-security.md) ·
+[upgrades, backup, and restore](docs/user/upgrades-and-backups.md) ·
+[export and uninstall](docs/user/export-and-uninstall.md)
 
 ## Stack
 
@@ -94,7 +102,7 @@ cd src-tauri && cargo test   # Rust engine tests
 npm run e2e                  # Playwright smoke over the mock backend
 ```
 
-Docs: [dashboards](docs/dashboards.md) · [sheets](docs/sheets-spec.md) ·
+Developer docs: [dashboards](docs/dashboards.md) · [sheets](docs/sheets-spec.md) ·
 [vault format on disk](docs/vault-format.md).
 
 ## Status

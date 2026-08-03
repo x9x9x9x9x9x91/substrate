@@ -420,8 +420,8 @@ mod tests {
         assert!(root.join("Welcome.md").is_file(), "starter note");
         assert!(root.join("Settings.md").is_file(), "settings note");
         assert!(root.join("Inbox").is_dir(), "Inbox");
-        assert!(root.join("Dashboards/Label Overview.md").is_file(), "sample dashboard");
-        assert!(root.join("Catalogue.md").is_file(), "the sheet that dashboard reads");
+        assert!(root.join("Dashboards/Reading & Travel.md").is_file(), "sample dashboard");
+        assert!(root.join("Bookshelf.md").is_file(), "the sheet that dashboard reads");
         assert!(
             engine.list().iter().any(|n| n.path == "Welcome.md"),
             "the engine indexed the seeded notes, so the app is not empty: {:?}",

@@ -917,10 +917,10 @@ export default function App() {
   );
 
   const saveSchemaProp = useCallback(
-    (dbType: string, prop: string, options: SelectOption[], kind: PropKind | null, notify?: boolean, target?: string, format?: NumberFormat, description?: string, rollup?: RollupConfig | null) => {
+    (dbType: string, prop: string, options: SelectOption[], kind: PropKind | null, notify?: boolean, notifyBefore?: number, target?: string, format?: NumberFormat, description?: string, rollup?: RollupConfig | null) => {
       const storedDb = schemaDbKey(dbType);
       const storedProp = schemaPropKey(dbType, prop);
-      vaultSchemaSet(storedDb, storedProp, options, kind ?? undefined, notify, target, format, description, rollup)
+      vaultSchemaSet(storedDb, storedProp, options, kind ?? undefined, notify, notifyBefore, target, format, description, rollup)
         .then(setSchema)
         .catch(console.error);
     },
@@ -3514,7 +3514,7 @@ export default function App() {
               icon={iconForType(dbIcons, view.type)}
               onSaveIcon={(ic) => saveSchemaIcon(view.type, ic)}
               usedValues={(key) => usedValues(view.type, key)}
-              onSaveSchema={(prop, opts, kind, notify, target, format, description, rollup) => saveSchemaProp(view.type, prop, opts, kind, notify, target, format, description, rollup)}
+              onSaveSchema={(prop, opts, kind, notify, notifyBefore, target, format, description, rollup) => saveSchemaProp(view.type, prop, opts, kind, notify, notifyBefore, target, format, description, rollup)}
               relationCandidates={relCandidates}
               onCreateEntry={createEntry}
               dbTypes={dbTypes}
@@ -3568,7 +3568,7 @@ export default function App() {
               icon={iconForType(dbIcons, activeSaved.db)}
               onSaveIcon={(ic) => saveSchemaIcon(activeSaved.db, ic)}
               usedValues={(key) => usedValues(activeSaved.db, key)}
-              onSaveSchema={(prop, opts, kind, notify, target, format, description, rollup) => saveSchemaProp(activeSaved.db, prop, opts, kind, notify, target, format, description, rollup)}
+              onSaveSchema={(prop, opts, kind, notify, notifyBefore, target, format, description, rollup) => saveSchemaProp(activeSaved.db, prop, opts, kind, notify, notifyBefore, target, format, description, rollup)}
               relationCandidates={relCandidates}
               onCreateEntry={createEntry}
               dbTypes={dbTypes}

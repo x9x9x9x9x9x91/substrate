@@ -86,7 +86,7 @@ already concedes these are not row-invertible.
 
 | Command | lib.rs | What changes | Invertible |
 |---|---|---|---|
-| `vault_schema_set` | `:608` | One prop's schema in `.vault/schema.json` | ✅ prior `PropSchema` + type-entry-existed flag. **Caveat**: `notify` is `unwrap_or(keep)` (`vault/schema.rs:352`) — the inverse must pass `Some(old_notify)` explicitly |
+| `vault_schema_set` | `:608` | One prop's schema in `.vault/schema.json` | ✅ prior `PropSchema` + type-entry-existed flag. **Caveat**: `notify` is `unwrap_or(keep)` and `notify_before` is `.or(keep_before)` (`vault/schema.rs`) — the inverse must pass `Some(old_notify)` and the old lead time explicitly, `Some(0)` where it was off (SUB-842) |
 | `vault_schema_set_icon` | `:630` | Type icon | ✅ prior `DbIcon`; build from the *stored* value (emoji beats glyph, orphan tint drops) |
 | `vault_schema_home_set` | `:650` | Type home folder | ✅ prior `Option<String>`; the uniqueness check can make the inverse *fail* |
 | `vault_create_type` | `:664` | New type entry | ✅ remove the entry |
@@ -271,7 +271,7 @@ state needed to reverse itself. Per class:
 | create | `vaultDelete(createdPath)` | the returned path |
 | trash | `vaultTrashRestore(trashId)` | **the trash id — requires the API change in §6.2** |
 | view-config | `vaultViewsSet(db, priorPref)` etc. | the whole prior object + index where order matters |
-| schema (single-prop) | `vaultSchemaSet(db, prop, priorSchema)` | prior `PropSchema`, incl. explicit `Some(old_notify)` |
+| schema (single-prop) | `vaultSchemaSet(db, prop, priorSchema)` | prior `PropSchema`, incl. explicit `Some(old_notify)` and `Some(old_notify_before)` / `Some(0)` |
 | schema (bulk sweep) | — | **does not participate**; the pre-sweep snapshot is the recovery path (§5) |
 
 **Why inverses and not snapshots.** A snapshot of "the vault before this action"

@@ -75,6 +75,50 @@ test("the terminal dock choice round-trips (SUB-864)", async ({ page }) => {
   ).toHaveAttribute("aria-checked", "true");
 });
 
+test("the terminal-font row warns when the family doesn't resolve (SUB-873)", async ({ page }) => {
+  /* Availability is stubbed rather than measured: the real check compares
+     canvas text widths, and the platforms disagree about what an unknown
+     family even does — CoreText drops it from the list (widths stay put, the
+     name reports missing), fontconfig substitutes one (widths move, the same
+     name reports installed). Asserting a nonsense name against the host's
+     font stack is therefore red on Linux CI and green on a Mac for reasons
+     that have nothing to do with this row. What the spec owns is the wiring:
+     a name the checker rejects raises the hint, one it accepts clears it. */
+  await page.addInitScript(() => {
+    (window as unknown as { __mockFontAvailable: (f: string) => boolean }).__mockFontAvailable =
+      (f: string) => f === "Menlo";
+  });
+  await page.reload();
+  await expect(page.locator(".list-title")).toHaveText("Notes");
+
+  const gear = page.locator(".side-tools").getByRole("button", { name: "Settings" });
+  await gear.click();
+
+  const font = page.locator("#set-terminal-font");
+  const warn = page.getByTestId("font-missing");
+  const unusable = page.getByTestId("font-unusable");
+  await expect(warn).toHaveCount(0);
+
+  await font.fill("JetBrainsMone Nerd Font");
+  await expect(warn).toContainText("font not found: JetBrainsMone Nerd Font");
+
+  // an available family clears it again
+  await font.fill("Menlo");
+  await expect(warn).toHaveCount(0);
+
+  // a generic keyword never reaches the checker, so it's never reported —
+  // this one is platform-safe with or without the stub
+  await font.fill("monospace");
+  await expect(warn).toHaveCount(0);
+  await expect(unusable).toHaveCount(0);
+
+  // and a value that isn't a font name at all gets its own wording: Font Book
+  // would be a wild goose chase for a height typed into the font row
+  await font.fill("0.45");
+  await expect(unusable).toContainText("not a usable font name: 0.45");
+  await expect(warn).toHaveCount(0);
+});
+
 test("escaping out of the box keeps the edit", async ({ page }) => {
   // the field commits on blur, and Esc unmounts the sheet — so without an
   // explicit blur on the way out the typing is thrown away (SUB-476)

@@ -67,26 +67,63 @@ pub struct DueItem {
     pub path: String,
     pub title: String,
     pub prop: String,
+    /// The DUE date — for a lead-time alert (SUB-842) this is still the day
+    /// the deadline lands on, not the day the alert fires.
     pub date: NaiveDate,
     pub time: Option<NaiveTime>,
+    /// SUB-842: `Some(n)` marks this firing as the lead-time alert that runs
+    /// `n` days ahead of `date`. `None` is the day-of alert.
+    pub lead: Option<u32>,
 }
 
+/// Marker appended to a lead-time alert's state key (SUB-842). Day-of keys
+/// keep their exact historical shape, so `.vault/notifications.json` files
+/// written by older builds keep working.
+const LEAD_MARK: &str = "lead";
+
 impl DueItem {
-    /// Identity of a firing: same note, same prop, same due date.
+    /// Identity of a firing: same note, same prop, same due date — plus the
+    /// `|lead` marker for a lead-time alert, so the two alerts of one due
+    /// date fire (and snooze) independently.
     pub fn key(&self) -> String {
-        format!("{}|{}|{}", self.path, self.prop, self.date.format("%Y-%m-%d"))
+        let base = format!("{}|{}|{}", self.path, self.prop, self.date.format("%Y-%m-%d"));
+        match self.lead {
+            Some(_) => format!("{base}|{LEAD_MARK}"),
+            None => base,
+        }
     }
 
     pub fn fire_time(&self) -> NaiveTime {
         self.time.unwrap_or_else(|| NaiveTime::from_hms_opt(9, 0, 0).unwrap())
     }
 
-    /// Notification body: "due — Jul 17, 2026" (+ " · 14:30" when set).
+    /// The day this firing belongs to: the due date, or `lead` days before it.
+    pub fn alert_date(&self) -> NaiveDate {
+        match self.lead {
+            Some(n) => self.date - Duration::days(n as i64),
+            None => self.date,
+        }
+    }
+
+    /// Notification body: "due — Jul 17, 2026" (+ " · 14:30" when set). A
+    /// lead-time alert keeps exactly that stack and appends how far off the
+    /// due date still is: "due — Jul 17, 2026 · 14:30 · in 3 days". The prop
+    /// name already carries the word the deadline is called, so the lead
+    /// branch does NOT repeat it — and it shows the value's own time for the
+    /// same reason the day-of branch does: an alert that hides 14:30 reads
+    /// like an all-day deadline.
     pub fn describe(&self) -> String {
         let date = self.date.format("%b %-d, %Y").to_string();
-        match self.time {
-            Some(t) => format!("{} — {} · {}", self.prop, date, t.format("%H:%M")),
-            None => format!("{} — {}", self.prop, date),
+        let when = match self.time {
+            Some(t) => format!("{date} · {}", t.format("%H:%M")),
+            None => date,
+        };
+        match self.lead {
+            Some(n) => {
+                let days = if n == 1 { "1 day".to_string() } else { format!("{n} days") };
+                format!("{} — {when} · in {days}", self.prop)
+            }
+            None => format!("{} — {when}", self.prop),
         }
     }
 }
@@ -384,13 +421,24 @@ fn occurrence_for(
     Some(day)
 }
 
-/// Split a state key back into its parts — `<path>|<prop>|<YYYY-MM-DD>`.
-/// Split from the right so a path containing `|` survives the trip.
-fn split_key(key: &str) -> Option<(&str, &str, NaiveDate)> {
-    let (rest, date) = key.rsplit_once('|')?;
+/// Split a state key back into its parts — `<path>|<prop>|<YYYY-MM-DD>`, or
+/// `<path>|<prop>|<YYYY-MM-DD>|lead` for a lead-time alert (SUB-842); the
+/// bool is that marker. Split from the right so a path containing `|`
+/// survives the trip. The marker is only consumed when it is the FINAL
+/// segment AND the segment before it parses as a date, so a prop literally
+/// named `lead` still round-trips as a day-of key.
+fn split_key(key: &str) -> Option<(&str, &str, NaiveDate, bool)> {
+    let (rest, last) = key.rsplit_once('|')?;
+    let (rest, date, is_lead) = match NaiveDate::parse_from_str(last, "%Y-%m-%d") {
+        Ok(date) => (rest, date, false),
+        Err(_) if last == LEAD_MARK => {
+            let (rest, date) = rest.rsplit_once('|')?;
+            (rest, NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()?, true)
+        }
+        Err(_) => return None,
+    };
     let (path, prop) = rest.rsplit_once('|')?;
-    let date = NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()?;
-    Some((path, prop, date))
+    Some((path, prop, date, is_lead))
 }
 
 /// Rebuild the item a snooze key names, if the deadline it was snoozed from
@@ -405,14 +453,7 @@ fn item_for_key(
     key: &str,
     today: NaiveDate,
 ) -> Option<DueItem> {
-    let (path, prop, date) = split_key(key)?;
-    // A key whose occurrence day hasn't arrived is not late — it is early.
-    // Without this, a future occurrence snoozed across midnight fires days
-    // ahead AND marks fired, swallowing the real fire on its own day. The
-    // primary pass gets the same guard for free by only building today.
-    if date > today {
-        return None;
-    }
+    let (path, prop, date, is_lead) = split_key(key)?;
     let note = notes.iter().find(|n| n.path == path)?;
     if !note_notifies(note) {
         return None;
@@ -420,14 +461,44 @@ fn item_for_key(
     let note_type = folded_prop_str(&note.props, "type")?;
     let type_schema = &schema.get(folded_hash_key(schema, note_type.trim())?)?.props;
     let ps = type_schema.get(folded_hash_key(type_schema, prop)?)?;
-    if !ps.notify || ps.kind.as_deref() != Some("date") {
+    if ps.kind.as_deref() != Some("date") {
+        return None;
+    }
+    // the flag the key's own alert rides on must still be set: a lead key is
+    // stale once `notifyBefore` is cleared, a day-of key once `notify` is
+    // (SUB-842)
+    let lead = match is_lead {
+        // same clamp as due_now: a hand-edited out-of-range value must not
+        // panic the date math below
+        true => Some(ps.notify_before.filter(|n| *n > 0).map(|n| n.min(365))?),
+        false if ps.notify => None,
+        false => return None,
+    };
+    // A key whose alert day hasn't arrived is not late — it is early. Without
+    // this, a future occurrence snoozed across midnight fires days ahead AND
+    // marks fired, swallowing the real fire on its own day. The primary pass
+    // gets the same guard for free by only building today. For a lead key the
+    // alert day is `lead` days before the due date, so it may legitimately
+    // fire while the due date is still ahead.
+    let alert_date = match lead {
+        Some(n) => date - Duration::days(n as i64),
+        None => date,
+    };
+    if alert_date > today {
         return None;
     }
     let (anchor, time) = parse_due(&folded_prop_str(&note.props, prop)?)?;
     if occurrence_for(&note.props, anchor, date)? != date {
         return None;
     }
-    Some(DueItem { path: note.path.clone(), title: note.title.clone(), prop: prop.into(), date, time })
+    Some(DueItem {
+        path: note.path.clone(),
+        title: note.title.clone(),
+        prop: prop.into(),
+        date,
+        time,
+        lead,
+    })
 }
 
 fn ts(t: NaiveDateTime) -> i64 {
@@ -524,33 +595,59 @@ pub fn due_now(
         let Some(type_key) = folded_hash_key(schema, note_type.trim()) else { continue };
         let Some(type_schema) = schema.get(type_key) else { continue };
         for (prop, ps) in &type_schema.props {
-            if !ps.notify || ps.kind.as_deref() != Some("date") {
+            if ps.kind.as_deref() != Some("date") {
+                continue;
+            }
+            // clamp mirrors set_schema_prop: the write path caps at 365, but
+            // schema() deserializes hand-edited files raw, and an unclamped
+            // value would panic chrono's date math past NaiveDate::MAX —
+            // killing the scheduler thread silently for the whole session
+            let lead_days = ps.notify_before.filter(|n| *n > 0).map(|n| n.min(365));
+            if !ps.notify && lead_days.is_none() {
                 continue;
             }
             let Some(value) = folded_prop_str(&note.props, prop) else { continue };
             let Some((anchor, time)) = parse_due(&value) else { continue };
-            let Some(date) = occurrence_for(&note.props, anchor, now.date()) else { continue };
-            let item = DueItem {
-                path: note.path.clone(),
-                title: note.title.clone(),
-                prop: prop.clone(),
-                date,
-                time,
-            };
-            let key = item.key();
-            if state.is_fired(&key) {
-                continue;
+            // day-of looks for an occurrence on today; the lead alert (SUB-842)
+            // looks `n` days ahead — today is its alert day when `today + n` is
+            // an occurrence. The two are independent: either may be configured
+            // alone, and a note can hit both on the same scan.
+            let mut candidates: Vec<(NaiveDate, Option<u32>)> = Vec::new();
+            if ps.notify {
+                if let Some(date) = occurrence_for(&note.props, anchor, now.date()) {
+                    candidates.push((date, None));
+                }
             }
-            match state.snoozed_until(&key) {
-                Some(until) if until > ts(now) => continue, // snooze still running
-                Some(_) => {
-                    out.push(item); // snooze expired — the user asked for this one
+            if let Some(n) = lead_days {
+                let ahead = now.date() + Duration::days(n as i64);
+                if let Some(date) = occurrence_for(&note.props, anchor, ahead) {
+                    candidates.push((date, Some(n)));
+                }
+            }
+            for (date, lead) in candidates {
+                let item = DueItem {
+                    path: note.path.clone(),
+                    title: note.title.clone(),
+                    prop: prop.clone(),
+                    date,
+                    time,
+                    lead,
+                };
+                let key = item.key();
+                if state.is_fired(&key) {
                     continue;
                 }
-                None => {}
-            }
-            if date == now.date() && now.time() >= item.fire_time() {
-                out.push(item);
+                match state.snoozed_until(&key) {
+                    Some(until) if until > ts(now) => continue, // snooze still running
+                    Some(_) => {
+                        out.push(item); // snooze expired — the user asked for this one
+                        continue;
+                    }
+                    None => {}
+                }
+                if item.alert_date() == now.date() && now.time() >= item.fire_time() {
+                    out.push(item);
+                }
             }
         }
     }
@@ -632,6 +729,12 @@ impl NotifyState {
     }
 
     /// Drop entries whose due date is long past so the file stays small.
+    ///
+    /// Load-bearing: the cutoff anchors on the key's DUE date, never on the
+    /// day its alert fired. That is what lets a long lead time survive —
+    /// a 365-day lead fires a year early, and pruning on the alert day would
+    /// forget it had fired long before the deadline arrives, re-firing it on
+    /// every scan in between.
     pub fn prune(&mut self, today: NaiveDate) {
         let cutoff = today - Duration::days(KEEP_DAYS);
         let stale = |key: &String| key_date(key).map(|d| d < cutoff).unwrap_or(true);
@@ -640,9 +743,11 @@ impl NotifyState {
     }
 }
 
+/// The due date a state key names. Lead-time keys (SUB-842) carry a trailing
+/// `|lead` marker after the date — without stepping over it, prune would read
+/// every live lead key as unparseable and drop it on the next scan.
 fn key_date(key: &str) -> Option<NaiveDate> {
-    let (_, date) = key.rsplit_once('|')?;
-    NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()
+    split_key(key).map(|(_, _, date, _)| date)
 }
 
 /// "Tomorrow" = next day at the prop's own fire time (09:00 unless set).
@@ -776,44 +881,37 @@ mod tests {
         }
     }
 
-    fn notify_schema() -> SchemaConfig {
-        let mut task = HashMap::new();
-        task.insert(
-            "due".to_string(),
-            PropSchema {
-                options: Vec::<SelectOption>::new(),
-                kind: Some("date".into()),
-                notify: true,
-                target: None,
-                format: None,
-                relation: None,
-                prop: None,
-                agg: None,
-                description: None,
-                extra: Default::default(),
-            },
-        );
-        task.insert(
-            "quiet".to_string(),
-            PropSchema {
-                options: Vec::new(),
-                kind: Some("date".into()),
-                notify: false,
-                target: None,
-                format: None,
-                relation: None,
-                prop: None,
-                agg: None,
-                description: None,
-                extra: Default::default(),
-            },
-        );
+    /// One date-kind prop schema: day-of flag + optional lead time (SUB-842).
+    fn date_prop(notify: bool, notify_before: Option<u32>) -> PropSchema {
+        PropSchema {
+            options: Vec::<SelectOption>::new(),
+            kind: Some("date".into()),
+            notify,
+            notify_before,
+            target: None,
+            format: None,
+            relation: None,
+            prop: None,
+            agg: None,
+            description: None,
+            extra: Default::default(),
+        }
+    }
+
+    /// A `task` schema whose props are the given (name, prop schema) pairs.
+    fn schema_of(props: &[(&str, PropSchema)]) -> SchemaConfig {
+        let task: HashMap<String, PropSchema> =
+            props.iter().map(|(k, v)| (k.to_string(), v.clone())).collect();
         let mut schema = SchemaConfig::new();
         schema.insert(
             "task".to_string(),
             crate::vault::TypeSchema { icon: None, home: None, props: task },
         );
         schema
+    }
+
+    fn notify_schema() -> SchemaConfig {
+        schema_of(&[("due", date_prop(true, None)), ("quiet", date_prop(false, None))])
     }
 
     #[test]
@@ -946,6 +1044,15 @@ mod tests {
         let cased = vec![note("Tasks/Cased.md", &[("Type", "task"), ("Due", "2026-07-17")])];
         let due = due_now(&cased, &schema, &state, dt(2026, 7, 17, 9, 0));
         assert_eq!(due.len(), 1, "cased Type/Due fires: {due:?}");
+        // SUB-842: the lead alert reads the value through the same folded
+        // reader, so a cased Due owes BOTH firings, not just the day-of one
+        let both = schema_of(&[("due", date_prop(true, Some(3)))]);
+        let lead = due_now(&cased, &both, &state, dt(2026, 7, 14, 9, 0));
+        assert_eq!(lead.len(), 1, "cased Due fires the lead alert: {lead:?}");
+        assert_eq!(lead[0].lead, Some(3));
+        let day_of = due_now(&cased, &both, &state, dt(2026, 7, 17, 9, 0));
+        assert_eq!(day_of.len(), 1, "cased Due still fires day-of: {day_of:?}");
+        assert_eq!(day_of[0].lead, None);
         // cased Status: done still silences (no phantom nag)
         let done = vec![note(
             "Tasks/Done.md",
@@ -1009,6 +1116,215 @@ mod tests {
             1,
             "a snooze expiring on a later day still fires"
         );
+    }
+
+    /// SUB-842: a lead time fires N days BEFORE the due date, at the value's
+    /// own time (09:00 unless the value carries one) — and nowhere else.
+    #[test]
+    fn lead_fires_n_days_before_at_default_and_explicit_time() {
+        let schema = schema_of(&[("due", date_prop(false, Some(3)))]);
+        let notes = vec![note("Tasks/Ship it.md", &[("type", "task"), ("due", "2026-07-17")])];
+        let state = NotifyState::default();
+        // three days before, before 09:00 → nothing
+        assert!(due_now(&notes, &schema, &state, dt(2026, 7, 14, 8, 59)).is_empty());
+        let due = due_now(&notes, &schema, &state, dt(2026, 7, 14, 9, 0));
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].lead, Some(3));
+        assert_eq!(due[0].date, NaiveDate::from_ymd_opt(2026, 7, 17).unwrap());
+        assert_eq!(due[0].alert_date(), NaiveDate::from_ymd_opt(2026, 7, 14).unwrap());
+        assert_eq!(due[0].key(), "Tasks/Ship it.md|due|2026-07-17|lead");
+        // the prop name is not repeated, and the stack matches the day-of
+        // branch: value, then its time when set, then how far off it still is
+        assert_eq!(due[0].describe(), "due — Jul 17, 2026 · in 3 days");
+        // no other day fires — including the due day itself (notify is off)
+        for d in [13u32, 15, 16, 17, 18] {
+            assert!(
+                due_now(&notes, &schema, &state, dt(2026, 7, d, 12, 0)).is_empty(),
+                "lead-only fired on the {d}th"
+            );
+        }
+        // the value's own time carries onto the lead alert
+        let notes = vec![note("Tasks/Timed.md", &[("type", "task"), ("due", "2026-07-17T14:30")])];
+        assert!(due_now(&notes, &schema, &state, dt(2026, 7, 14, 14, 29)).is_empty());
+        let due = due_now(&notes, &schema, &state, dt(2026, 7, 14, 14, 30));
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].describe(), "due — Jul 17, 2026 · 14:30 · in 3 days");
+        // singular day reads as a day, not "1 days"
+        let schema = schema_of(&[("due", date_prop(false, Some(1)))]);
+        let due = due_now(&notes, &schema, &state, dt(2026, 7, 16, 14, 30));
+        assert_eq!(due[0].describe(), "due — Jul 17, 2026 · 14:30 · in 1 day");
+    }
+
+    /// SUB-842: an out-of-range lead time from a hand-edited schema file
+    /// clamps instead of panicking chrono's date math — `set_schema_prop`
+    /// caps writes at 365, but `Engine::schema()` deserializes raw, and an
+    /// unwinding scan would silently kill the scheduler thread for the
+    /// whole session.
+    #[test]
+    fn hand_edited_out_of_range_lead_clamps_instead_of_panicking() {
+        let schema = schema_of(&[("due", date_prop(false, Some(u32::MAX)))]);
+        let notes = vec![note("Tasks/Ship it.md", &[("type", "task"), ("due", "2026-07-17")])];
+        let state = NotifyState::default();
+        // the scan must survive; a 365-day lead on this due date fires on
+        // 2025-07-17, so nearby days stay quiet
+        assert!(due_now(&notes, &schema, &state, dt(2026, 7, 14, 9, 0)).is_empty());
+        let due = due_now(&notes, &schema, &state, dt(2025, 7, 17, 9, 0));
+        assert_eq!(due.len(), 1);
+        assert_eq!(due[0].lead, Some(365));
+        // the snooze-rebuild path clamps the same way instead of panicking
+        let key = "Tasks/Ship it.md|due|2026-07-17|lead";
+        let rebuilt = item_for_key(&notes, &schema, key, dt(2025, 7, 17, 9, 0).date());
+        assert_eq!(rebuilt.map(|i| i.lead), Some(Some(365)));
+    }
+
+    /// SUB-842: both flags set = two independent alerts, distinct keys —
+    /// firing or snoozing one leaves the other alone.
+    #[test]
+    fn lead_and_day_of_fire_independently() {
+        let schema = schema_of(&[("due", date_prop(true, Some(2)))]);
+        let notes = vec![note("Tasks/Ship it.md", &[("type", "task"), ("due", "2026-07-17")])];
+        let mut state = NotifyState::default();
+
+        let lead = due_now(&notes, &schema, &state, dt(2026, 7, 15, 9, 0));
+        assert_eq!(lead.len(), 1);
+        assert_eq!(lead[0].key(), "Tasks/Ship it.md|due|2026-07-17|lead");
+        state.mark_fired(&lead[0].key(), ts(dt(2026, 7, 15, 9, 0)));
+        assert!(due_now(&notes, &schema, &state, dt(2026, 7, 15, 10, 0)).is_empty());
+
+        // the day-of alert is untouched by the lead having fired
+        let day_of = due_now(&notes, &schema, &state, dt(2026, 7, 17, 9, 0));
+        assert_eq!(day_of.len(), 1);
+        assert_eq!(day_of[0].key(), "Tasks/Ship it.md|due|2026-07-17");
+        assert_eq!(day_of[0].lead, None);
+        assert_eq!(day_of[0].describe(), "due — Jul 17, 2026");
+    }
+
+    /// SUB-842: a lead time on a repeating series fires once per occurrence,
+    /// keyed on that occurrence's OWN due date.
+    #[test]
+    fn lead_on_a_repeat_series_fires_per_occurrence() {
+        let schema = schema_of(&[("due", date_prop(false, Some(2)))]);
+        let notes = vec![note(
+            "Tasks/Standup.md",
+            &[("type", "task"), ("due", "2026-07-06"), ("repeat", "weekly")],
+        )];
+        let mut state = NotifyState::default();
+        // Mondays 6, 13, 20 July → leads land on the 4th, 11th, 18th
+        let first = due_now(&notes, &schema, &state, dt(2026, 7, 4, 9, 0));
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].key(), "Tasks/Standup.md|due|2026-07-06|lead");
+        state.mark_fired(&first[0].key(), ts(dt(2026, 7, 4, 9, 0)));
+        assert!(due_now(&notes, &schema, &state, dt(2026, 7, 4, 10, 0)).is_empty());
+        // days that are neither an occurrence nor two days before one stay quiet
+        assert!(due_now(&notes, &schema, &state, dt(2026, 7, 6, 9, 0)).is_empty());
+        assert!(due_now(&notes, &schema, &state, dt(2026, 7, 8, 9, 0)).is_empty());
+        // the next occurrence's lead carries its own key and fires
+        let second = due_now(&notes, &schema, &state, dt(2026, 7, 11, 9, 0));
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].key(), "Tasks/Standup.md|due|2026-07-13|lead");
+    }
+
+    /// SUB-842: `|lead` is only a marker when it sits last AND the segment
+    /// before it is a date — a prop literally named `lead` must round-trip as
+    /// the day-of key it is, and every legacy key must keep parsing.
+    #[test]
+    fn key_parsing_handles_lead_marker_legacy_and_a_prop_named_lead() {
+        let day_of = NaiveDate::from_ymd_opt(2026, 7, 17).unwrap();
+        // legacy / day-of key
+        assert_eq!(
+            split_key("Tasks/Ship it.md|due|2026-07-17"),
+            Some(("Tasks/Ship it.md", "due", day_of, false))
+        );
+        // lead key
+        assert_eq!(
+            split_key("Tasks/Ship it.md|due|2026-07-17|lead"),
+            Some(("Tasks/Ship it.md", "due", day_of, true))
+        );
+        // a prop NAMED lead: its day-of key ends in the date, so no marker
+        assert_eq!(
+            split_key("Tasks/Ship it.md|lead|2026-07-17"),
+            Some(("Tasks/Ship it.md", "lead", day_of, false))
+        );
+        // …and its own lead key still parses as a lead of prop `lead`
+        assert_eq!(
+            split_key("Tasks/Ship it.md|lead|2026-07-17|lead"),
+            Some(("Tasks/Ship it.md", "lead", day_of, true))
+        );
+        // a path carrying a pipe survives, and junk is still rejected
+        assert_eq!(
+            split_key("Odd|name.md|due|2026-07-17|lead"),
+            Some(("Odd|name.md", "due", day_of, true))
+        );
+        assert_eq!(split_key("Tasks/Ship it.md|due|not-a-date"), None);
+        assert_eq!(split_key("Tasks/Ship it.md|lead"), None);
+        // key_date reads through the marker — prune depends on it
+        assert_eq!(key_date("Tasks/Ship it.md|due|2026-07-17|lead"), Some(day_of));
+        assert_eq!(key_date("Tasks/Ship it.md|due|2026-07-17"), Some(day_of));
+        assert_eq!(key_date("garbage"), None);
+    }
+
+    /// SUB-842: prune keys off the DUE date, marker or not — a live lead key
+    /// must survive, an old one must go.
+    #[test]
+    fn prune_keeps_live_lead_keys_and_drops_old_ones() {
+        let mut state = NotifyState::default();
+        state.mark_fired("A.md|due|2026-07-17|lead", ts(dt(2026, 7, 14, 9, 0)));
+        state.mark_fired("B.md|due|2026-06-01|lead", ts(dt(2026, 5, 29, 9, 0)));
+        state.snooze("C.md|due|2026-07-17|lead", ts(dt(2026, 7, 17, 12, 0)));
+        state.prune(NaiveDate::from_ymd_opt(2026, 7, 17).unwrap());
+        assert!(state.is_fired("A.md|due|2026-07-17|lead"), "live lead key pruned away");
+        assert!(!state.is_fired("B.md|due|2026-06-01|lead"));
+        assert!(state.snoozed_until("C.md|due|2026-07-17|lead").is_some());
+    }
+
+    /// SUB-842: a lead alert snoozes like any other, including the SUB-737
+    /// late pass that rebuilds the item from its key — and the rebuild goes
+    /// stale when the schema drops the lead time.
+    #[test]
+    fn lead_alerts_snooze_and_rebuild_from_their_key() {
+        let schema = schema_of(&[("due", date_prop(false, Some(3)))]);
+        let notes = vec![note(
+            "Tasks/Standup.md",
+            &[("type", "task"), ("due", "2026-07-06"), ("repeat", "weekly")],
+        )];
+        let key = "Tasks/Standup.md|due|2026-07-06|lead";
+        let mut state = NotifyState::default();
+        // snoozed to tomorrow — a day that is neither an occurrence nor a lead
+        // day, so only the SUB-737 pass can find it
+        state.snooze(key, ts(dt(2026, 7, 4, 9, 0)));
+        assert!(due_now(&notes, &schema, &state, dt(2026, 7, 3, 12, 0)).is_empty());
+        let late = due_now(&notes, &schema, &state, dt(2026, 7, 4, 9, 0));
+        assert_eq!(late.len(), 1);
+        assert_eq!(late[0].key(), key);
+        assert_eq!(late[0].lead, Some(3));
+
+        // item_for_key validates the schema still carries a lead time
+        let today = NaiveDate::from_ymd_opt(2026, 7, 4).unwrap();
+        assert!(item_for_key(&notes, &schema, key, today).is_some());
+        let no_lead = schema_of(&[("due", date_prop(true, None))]);
+        assert!(item_for_key(&notes, &no_lead, key, today).is_none(), "lead key went stale");
+        // …and the day-of key stays valid on that same schema, from its own
+        // day (on the 4th it is still in the future — early, not late)
+        let day_of = "Tasks/Standup.md|due|2026-07-06";
+        let occurrence = NaiveDate::from_ymd_opt(2026, 7, 6).unwrap();
+        assert!(item_for_key(&notes, &no_lead, day_of, today).is_none(), "day-of fired early");
+        assert!(item_for_key(&notes, &no_lead, day_of, occurrence).is_some());
+        // a lead-only schema leaves the day-of key stale in turn
+        assert!(item_for_key(&notes, &schema, day_of, occurrence).is_none());
+    }
+
+    /// SUB-842: a lead day missed while the app was closed does NOT fire late
+    /// — the day-of alert is the backstop.
+    #[test]
+    fn missed_lead_days_never_fire_late() {
+        let schema = schema_of(&[("due", date_prop(true, Some(3)))]);
+        let notes = vec![note("Tasks/Ship it.md", &[("type", "task"), ("due", "2026-07-17")])];
+        let state = NotifyState::default();
+        // the 14th was the lead day; on the 15th and 16th nothing fires
+        assert!(due_now(&notes, &schema, &state, dt(2026, 7, 15, 9, 0)).is_empty());
+        assert!(due_now(&notes, &schema, &state, dt(2026, 7, 16, 23, 0)).is_empty());
+        // the day-of alert still lands
+        assert_eq!(due_now(&notes, &schema, &state, dt(2026, 7, 17, 9, 0)).len(), 1);
     }
 
     /// SUB-643: `parse_repeat` is the Rust port of TS `parseRepeat`

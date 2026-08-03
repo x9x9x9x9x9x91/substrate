@@ -58,6 +58,11 @@ declare global {
     /** replace one mock schema entry like a hand edit on disk; public schema
         writes reject the duplicate identities this regression hook stages */
     __mockEditSchema?: (dbType: string, props: Record<string, PropSchema>) => void;
+    /** stub the settings pane's terminal-font availability check (SUB-873):
+        the real one measures canvas text, and whether an unknown family is
+        dropped (CoreText) or substituted (fontconfig) is platform-specific,
+        so a spec asserting the hint installs deterministic answers here */
+    __mockFontAvailable?: (family: string) => boolean;
     /** bump a mock asset's mtime — a re-bounce under the same name (SUB-158) */
     __mockTouchAsset?: (name: string) => void;
     /** drop an asset straight into the mock .assets store — no app write (SUB-289) */
@@ -3794,8 +3799,14 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       } else {
         const keep = mockSchema[dbType]?.[prop]?.notify ?? false;
         const notify = ((args?.notify as boolean | null) ?? keep) && kind === "date";
+        // lead time (SUB-842) rides the same date-only rule: 0 clears it,
+        // longer than a year clamps, an absent arg keeps the stored value
+        const keepBefore = mockSchema[dbType]?.[prop]?.notifyBefore;
+        const before = (args?.notifyBefore as number | null) ?? keepBefore;
+        const notifyBefore =
+          kind === "date" && before && before > 0 ? Math.min(before, 365) : undefined;
         (mockSchema[dbType] ??= mockRecord())[prop] = kind
-          ? { options: kind === "multi" ? options : [], kind, ...(kind === "relation" ? { type: target } : {}), ...(kind === "number" && format && format !== "plain" ? { format: format as NumberFormat } : {}), ...(kind === "rollup" ? { relation: rollRelation, prop: rollProp, agg: rollAgg as AggKind } : {}), ...(notify ? { notify: true } : {}), ...(desc ? { description: desc } : {}) }
+          ? { options: kind === "multi" ? options : [], kind, ...(kind === "relation" ? { type: target } : {}), ...(kind === "number" && format && format !== "plain" ? { format: format as NumberFormat } : {}), ...(kind === "rollup" ? { relation: rollRelation, prop: rollProp, agg: rollAgg as AggKind } : {}), ...(notify ? { notify: true } : {}), ...(notifyBefore ? { notifyBefore } : {}), ...(desc ? { description: desc } : {}) }
           : { options, ...(desc ? { description: desc } : {}) };
       }
       return mockSchemaRead();

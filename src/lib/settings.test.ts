@@ -4,6 +4,7 @@ import {
   DEFAULT_TERMINAL_HEIGHT,
   DEFAULT_TERMINAL_WIDTH,
   isAppFile,
+  missingTerminalFonts,
   parseDbGrid,
   parseDropHint,
   parseModHud,
@@ -168,6 +169,88 @@ test("terminalFontFamily: CSS metacharacters never pass through (vault content i
   assert.equal(terminalFontFamily("A}.dbform-foot{display:none}.x{a:b", MONO), MONO);
   assert.equal(terminalFontFamily("x;background:url(//evil)", MONO), MONO);
   assert.equal(terminalFontFamily("Menlo, A}bad{", MONO), `Menlo, ${MONO}`);
+});
+
+/* SUB-873: the hint on the settings row. `isAvailable` is stubbed here — in
+   the app the pane measures the family against the generic bases on a canvas
+   (widths move when the family is really installed). */
+const installed = (...names: string[]) => (f: string) => names.includes(f);
+const NONE = { missing: [], unusable: [] };
+
+test("missingTerminalFonts: a resolving family reports nothing", () => {
+  assert.deepEqual(missingTerminalFonts("Menlo", installed("Menlo")), NONE);
+  assert.deepEqual(
+    missingTerminalFonts("'JetBrainsMono Nerd Font'", installed("JetBrainsMono Nerd Font")),
+    NONE
+  );
+});
+
+test("missingTerminalFonts: an uninstalled family is reported as typed", () => {
+  assert.deepEqual(missingTerminalFonts("JetBrainsMone Nerd Font", installed("Menlo")), {
+    missing: ["JetBrainsMone Nerd Font"],
+    unusable: [],
+  });
+});
+
+test("missingTerminalFonts: a mixed chain reports only the families that fail", () => {
+  assert.deepEqual(missingTerminalFonts("Fira Code, Menlo, Nope", installed("Menlo")), {
+    missing: ["Fira Code", "Nope"],
+    unusable: [],
+  });
+});
+
+test("missingTerminalFonts: whitelist-dropped garbage lands in `unusable`, not `missing`", () => {
+  // available() says yes to everything: these are reported because the
+  // normalization drops them, not because they're uninstalled — and the pane
+  // words them differently (Font Book can't help you find "0.45")
+  const yes = () => true;
+  assert.deepEqual(missingTerminalFonts("A}bad{", yes), { missing: [], unusable: ["A}bad{"] });
+  assert.deepEqual(missingTerminalFonts("O'Brien Mono", yes), {
+    missing: [],
+    unusable: ["O'Brien Mono"],
+  });
+  assert.deepEqual(missingTerminalFonts("0.45", yes), { missing: [], unusable: ["0.45"] });
+  assert.deepEqual(missingTerminalFonts("Menlo, A}bad{", installed("Menlo")), {
+    missing: [],
+    unusable: ["A}bad{"],
+  });
+});
+
+test("missingTerminalFonts: the two causes are reported side by side", () => {
+  assert.deepEqual(missingTerminalFonts("Nope, 0.45, Menlo", installed("Menlo")), {
+    missing: ["Nope"],
+    unusable: ["0.45"],
+  });
+});
+
+test("missingTerminalFonts: generic keywords are never reported", () => {
+  const no = () => false;
+  for (const g of ["monospace", "sans-serif", "serif", "ui-monospace", "Monospace"]) {
+    assert.deepEqual(missingTerminalFonts(g, no), NONE, g);
+  }
+  assert.deepEqual(missingTerminalFonts("Nope, monospace", no), {
+    missing: ["Nope"],
+    unusable: [],
+  });
+});
+
+test("missingTerminalFonts: an empty or punctuation-only setting reports nothing", () => {
+  const no = () => false;
+  assert.deepEqual(missingTerminalFonts("", no), NONE);
+  assert.deepEqual(missingTerminalFonts("   ", no), NONE);
+  assert.deepEqual(missingTerminalFonts("Menlo,", installed("Menlo")), NONE);
+  assert.deepEqual(missingTerminalFonts(",,", no), NONE);
+});
+
+test("missingTerminalFonts: a family repeated in the chain is reported once", () => {
+  assert.deepEqual(missingTerminalFonts("Nope, Nope", () => false), {
+    missing: ["Nope"],
+    unusable: [],
+  });
+  assert.deepEqual(missingTerminalFonts("0.45, 0.45", () => true), {
+    missing: [],
+    unusable: ["0.45"],
+  });
 });
 
 test("parseTerminalActions: `Label: command` entries, in order (SUB-441)", () => {

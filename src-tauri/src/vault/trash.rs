@@ -992,18 +992,18 @@ mod tests {
     #[test]
     fn trash_moves_file_and_drops_index_entry() {
         let (mut e, dir) = temp_vault("del");
-        assert!(dir.join("Rondo MX180.md").is_file());
-        e.trash("Rondo MX180.md").unwrap();
-        assert!(!dir.join("Rondo MX180.md").exists());
-        assert!(e.list().iter().all(|n| n.path != "Rondo MX180.md"));
-        assert!(e.search("Rotary mixer", None, false).is_empty());
-        assert!(e.trash("Rondo MX180.md").is_err(), "second trash errors");
+        assert!(dir.join("Weeknight Ramen.md").is_file());
+        e.trash("Weeknight Ramen.md").unwrap();
+        assert!(!dir.join("Weeknight Ramen.md").exists());
+        assert!(e.list().iter().all(|n| n.path != "Weeknight Ramen.md"));
+        assert!(e.search("Shoyu base", None, false).is_empty());
+        assert!(e.trash("Weeknight Ramen.md").is_err(), "second trash errors");
         assert!(e.trash("../outside.md").is_err(), "path escape rejected");
 
         let entries = e.trash_list();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].path, "Rondo MX180.md");
-        assert_eq!(entries[0].title, "Rondo MX180");
+        assert_eq!(entries[0].path, "Weeknight Ramen.md");
+        assert_eq!(entries[0].title, "Weeknight Ramen");
         assert!(entries[0].deleted_ms > 0);
         assert!(dir.join(TRASH_DIR).join(&entries[0].id).is_file(), "file lives in trash");
         let _ = fs::remove_dir_all(&dir);
@@ -1051,25 +1051,25 @@ mod tests {
     #[test]
     fn trash_returns_id_that_restores_that_exact_version() {
         let (mut e, dir) = temp_vault("twiceid");
-        e.write_body("Vessel Songs.md", "first version\n", None).unwrap();
-        let first = e.trash("Vessel Songs.md").unwrap();
+        e.write_body("Dolomites.md", "first version\n", None).unwrap();
+        let first = e.trash("Dolomites.md").unwrap();
 
         // recreate at the same path and trash it again
-        fs::write(dir.join("Vessel Songs.md"), "---\ntype: note\n---\nsecond version\n").unwrap();
-        e.apply_changes(&[dir.join("Vessel Songs.md")]);
-        let second = e.trash("Vessel Songs.md").unwrap();
+        fs::write(dir.join("Dolomites.md"), "---\ntype: note\n---\nsecond version\n").unwrap();
+        e.apply_changes(&[dir.join("Dolomites.md")]);
+        let second = e.trash("Dolomites.md").unwrap();
 
         assert_ne!(first, second, "two deletions of one path get distinct ids");
         let entries = e.trash_list();
         assert_eq!(entries.len(), 2, "both versions sit in the trash");
-        assert!(entries.iter().all(|t| t.path == "Vessel Songs.md"), "same path, different ids");
+        assert!(entries.iter().all(|t| t.path == "Dolomites.md"), "same path, different ids");
 
         // Undo of the FIRST deletion brings back the first version, even
         // though a path scan would have found the second
         let m = e.trash_restore(&first).unwrap();
-        assert_eq!(m.path, "Vessel Songs.md", "original path is free again");
+        assert_eq!(m.path, "Dolomites.md", "original path is free again");
         assert!(
-            e.read("Vessel Songs.md").unwrap().body.contains("first version"),
+            e.read("Dolomites.md").unwrap().body.contains("first version"),
             "restored by id, not by path scan"
         );
         assert_eq!(e.trash_list().len(), 1);
@@ -1092,27 +1092,27 @@ mod tests {
     #[test]
     fn trash_restore_dedupes_when_path_reoccupied() {
         let (mut e, dir) = temp_vault("resdup");
-        e.trash("Vessel Songs.md").unwrap();
+        e.trash("Dolomites.md").unwrap();
         let id = e.trash_list()[0].id.clone();
-        fs::write(dir.join("Vessel Songs.md"), "---\ntype: note\n---\nNew tenant\n").unwrap();
-        e.apply_changes(&[dir.join("Vessel Songs.md")]);
+        fs::write(dir.join("Dolomites.md"), "---\ntype: note\n---\nNew tenant\n").unwrap();
+        e.apply_changes(&[dir.join("Dolomites.md")]);
         let m = e.trash_restore(&id).unwrap();
-        assert_eq!(m.path, "Vessel Songs 2.md", "restore never overwrites");
-        assert!(e.read("Vessel Songs.md").unwrap().body.contains("New tenant"));
-        assert!(e.read("Vessel Songs 2.md").unwrap().body.contains("Masters v2"));
+        assert_eq!(m.path, "Dolomites 2.md", "restore never overwrites");
+        assert!(e.read("Dolomites.md").unwrap().body.contains("New tenant"));
+        assert!(e.read("Dolomites 2.md").unwrap().body.contains("Hut-to-hut"));
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn trash_delete_and_empty_are_permanent() {
         let (mut e, dir) = temp_vault("perm");
-        e.trash("Vessel Songs.md").unwrap();
-        e.trash("Static Bouquet.md").unwrap();
+        e.trash("Dolomites.md").unwrap();
+        e.trash("Kyoto.md").unwrap();
         let entries = e.trash_list();
         assert_eq!(entries.len(), 2);
-        assert_eq!(entries[0].path, "Static Bouquet.md", "newest deletion first");
+        assert_eq!(entries[0].path, "Kyoto.md", "newest deletion first");
 
-        let doomed = entries.iter().find(|t| t.path == "Vessel Songs.md").unwrap();
+        let doomed = entries.iter().find(|t| t.path == "Dolomites.md").unwrap();
         e.trash_delete(&doomed.id).unwrap();
         assert_eq!(e.trash_list().len(), 1);
         assert!(e.trash_delete(&doomed.id).is_err(), "second delete errors");

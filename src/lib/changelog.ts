@@ -82,6 +82,21 @@ export function groupRelease(release: ChangelogRelease): GroupedRelease {
   return { headlines, groups };
 }
 
+/** A colon later than this is sentence punctuation, not an authored label. */
+const LEAD_MAX = 60;
+
+/**
+ * Entries authored as "Lead phrase: detail" split here so the pane can render
+ * the lead a step up — a release then scans as short bold phrases instead of a
+ * wall of even sentences (SUB-938). Presentation-only: the generated
+ * CHANGELOG.md keeps the raw text. No early colon → null, render plain.
+ */
+export function splitLead(text: string): { lead: string; rest: string } | null {
+  const at = text.indexOf(": ");
+  if (at <= 0 || at > LEAD_MAX) return null;
+  return { lead: text.slice(0, at), rest: text.slice(at + 2) };
+}
+
 export const CHANGELOG: ChangelogRelease[] = [
   {
     version: "0.21.0",

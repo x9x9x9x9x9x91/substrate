@@ -223,6 +223,8 @@ export const vaultSchemaSet = (
   options: SelectOption[],
   kind?: PropKind,
   notify?: boolean,
+  /** date kind only (SUB-842): lead-time alert N days before; 0 clears it */
+  notifyBefore?: number,
   target?: string,
   format?: NumberFormat,
   description?: string,
@@ -235,6 +237,7 @@ export const vaultSchemaSet = (
     options,
     kind: kind ?? null,
     notify: notify ?? null,
+    notifyBefore: notifyBefore ?? null,
     target: target ?? null,
     format: format ?? null,
     description: description ?? null,

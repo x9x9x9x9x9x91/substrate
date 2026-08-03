@@ -61,20 +61,106 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
     stray quote, a number in the wrong row) degrades to the app's mono chain
     instead of invalidating the whole rule and landing the terminal in the
     browser's proportional default. */
-export function terminalFontFamily(userFont: string, fallbackChain: string): string {
-  const families: string[] = [];
+/** one comma-separated entry of a `terminal-font` value */
+interface FontPart {
+  /** the family as typed, unwrapped from its quotes and trimmed */
+  name: string;
+  /** the CSS token it normalizes to, or null when the whitelist drops it */
+  css: string | null;
+}
+
+/* Single parse of the user's chain — `terminalFontFamily` builds the CSS
+   declaration from it, `missingTerminalFonts` reports what fell out. Two
+   copies of this whitelist would drift, and a drifted hint is worse than
+   none (it would clear on a family the HUD is actually dropping). */
+function terminalFontParts(userFont: string): FontPart[] {
+  const parts: FontPart[] = [];
   for (const part of userFont.split(",")) {
     let f = part.trim();
     const quoted = f.match(/^(['"])(.*)\1$/);
     if (quoted) f = quoted[2].trim();
+    // an empty entry is punctuation (trailing comma), not a family: it isn't
+    // a dropped name and mustn't surface as one
+    if (!f) continue;
     // whitelist, and not a bare number (a height typed into the font row)
-    if (!f || !/^[A-Za-z0-9 _.-]+$/.test(f) || /^[\d. ]+$/.test(f)) continue;
+    if (!/^[A-Za-z0-9 _.-]+$/.test(f) || /^[\d. ]+$/.test(f)) {
+      parts.push({ name: f, css: null });
+      continue;
+    }
     // bare only when it's a clean CSS identifier — keeps generic keywords
     // (monospace) working; anything else (spaces, dots, leading digit) is
     // quoted so one odd name can't invalidate the whole declaration
-    families.push(/^[A-Za-z][A-Za-z0-9_-]*$/.test(f) ? f : `"${f}"`);
+    parts.push({ name: f, css: /^[A-Za-z][A-Za-z0-9_-]*$/.test(f) ? f : `"${f}"` });
   }
+  return parts;
+}
+
+export function terminalFontFamily(userFont: string, fallbackChain: string): string {
+  const families = terminalFontParts(userFont)
+    .map((p) => p.css)
+    .filter((c): c is string => c !== null);
   return families.length ? `${families.join(", ")}, ${fallbackChain}` : fallbackChain;
+}
+
+/* CSS generic families and the global keywords: never a name to look up, so
+   never "not found" — a canvas measurement would report them as resolving
+   anyway, but the exemption is stated here so the helper is honest on its
+   own, and it keeps the platform's substitution rules out of the answer. */
+const GENERIC_FAMILIES = new Set([
+  "monospace",
+  "sans-serif",
+  "serif",
+  "cursive",
+  "fantasy",
+  "system-ui",
+  "ui-monospace",
+  "ui-sans-serif",
+  "ui-serif",
+  "ui-rounded",
+  "math",
+  "emoji",
+  "fangsong",
+  "inherit",
+  "initial",
+  "revert",
+  "revert-layer",
+  "unset",
+]);
+
+/** entries in `terminal-font` that won't take effect (SUB-873).
+
+    Two ways to type a font the terminal never uses, and they need different
+    words on the settings row: a name the normalization above drops (whitelist
+    reject, a height typed in the font row) isn't a font at all, so pointing at
+    Font Book would be a wild goose chase; a name that survives but isn't
+    installed is exactly the Font Book case. xterm falls back to the app's mono
+    for both, silently. Reported as typed, split by cause.
+
+    `isAvailable` is injected — the pane measures the family against the
+    generic bases — so this stays a pure function. */
+export interface TerminalFontProblems {
+  /** survived normalization, but the machine has no such family */
+  missing: string[];
+  /** never reached the font check: not a usable family name */
+  unusable: string[];
+}
+
+export function missingTerminalFonts(
+  userFont: string,
+  isAvailable: (family: string) => boolean
+): TerminalFontProblems {
+  const missing: string[] = [];
+  const unusable: string[] = [];
+  for (const { name, css } of terminalFontParts(userFont)) {
+    if (GENERIC_FAMILIES.has(name.toLowerCase())) continue;
+    if (css === null) {
+      if (!unusable.includes(name)) unusable.push(name);
+      continue;
+    }
+    if (isAvailable(name)) continue;
+    if (!missing.includes(name)) missing.push(name);
+  }
+  return { missing, unusable };
 }
 
 /** One palette quick action typed into the terminal HUD (SUB-441). */

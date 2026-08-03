@@ -165,6 +165,7 @@ export default function DbTableLayout({
     options: SelectOption[],
     kind: PropKind | null,
     notify?: boolean,
+    notifyBefore?: number,
     target?: string,
     format?: NumberFormat,
     description?: string,
@@ -541,6 +542,7 @@ export default function DbTableLayout({
                             canEditSchema
                             kind={ckind}
                             notify={cschema?.notify}
+                            notifyBefore={cschema?.notifyBefore}
                             target={cschema?.type}
                             format={cschema?.format}
                             description={cschema?.description}
@@ -549,7 +551,7 @@ export default function DbTableLayout({
                             rollupPropsFor={rollupPropsFor}
                             startEditing
                             onCommit={(v) => commitCell(v)}
-                            onSaveSchema={(o, nk, nf, t, f, d, r) => onSaveSchema(c, o, nk, nf, t, f, d, r)}
+                            onSaveSchema={(o, nk, nf, nb, t, f, d, r) => onSaveSchema(c, o, nk, nf, nb, t, f, d, r)}
                             onClose={closeCell}
                           />
                         ) : ckind === "relation" && cschema?.type ? (
@@ -592,6 +594,7 @@ export default function DbTableLayout({
                             canEditSchema
                             kind={ckind}
                             notify={cschema?.notify}
+                            notifyBefore={cschema?.notifyBefore}
                             target={cschema?.type}
                             format={cschema?.format}
                             description={cschema?.description}
@@ -621,7 +624,7 @@ export default function DbTableLayout({
                             }
                             onCommit={(v) => commitCell(v)}
                             onClear={() => commitCell(null)}
-                            onSaveSchema={(o, nk, nf, t, f, d, r) => onSaveSchema(c, o, nk, nf, t, f, d, r)}
+                            onSaveSchema={(o, nk, nf, nb, t, f, d, r) => onSaveSchema(c, o, nk, nf, nb, t, f, d, r)}
                             onClose={closeCell}
                           />
                         )
@@ -783,6 +786,7 @@ export default function DbTableLayout({
             canEditSchema
             kind={bulkKind}
             notify={bulkSchema?.notify}
+            notifyBefore={bulkSchema?.notifyBefore}
             target={bulkSchema?.type}
             format={bulkSchema?.format}
             description={bulkSchema?.description}
@@ -803,7 +807,7 @@ export default function DbTableLayout({
             }
             onCommit={(v) => bulkCommit(bulkKey, v)}
             onClear={() => bulkCommit(bulkKey, null)}
-            onSaveSchema={(o, nk, nf, t, f, d, r) => onSaveSchema(bulkKey, o, nk, nf, t, f, d, r)}
+            onSaveSchema={(o, nk, nf, nb, t, f, d, r) => onSaveSchema(bulkKey, o, nk, nf, nb, t, f, d, r)}
             onClose={closeBulkEdit}
           />
         ))}
