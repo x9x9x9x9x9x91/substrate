@@ -26,6 +26,7 @@ one-line prompt.
 | [`release-charts/`](release-charts) | charts | bar charts over a database and a sheet |
 | [`label-accounting/`](label-accounting) | metrics + pages | a workbook: cards, sheets, and a database as bottom tabs |
 | [`music-work/`](music-work) | music-work | years of work pivoted from one scanner-written sheet |
+| [`annual-report/`](annual-report) | metrics | the year in cards + charts, printable as a designed PDF |
 
 Screenshots live in [`shots/`](shots) — each is the recipe's own files
 rendered in the app, captured by `e2e/cookbookshots.spec.ts`.

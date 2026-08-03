@@ -130,7 +130,7 @@ test("the seed's documented view example parses to the keys it claims (SUB-474)"
 test("dashboard kinds are ones the app dispatches", () => {
   const kinds = new Set(["metrics", "yield-apr", "sync", "music", "hub", "food", "coding", "feed", "music-work", "charts"]);
   const dashboards = notes.filter((n) => n.props["type"] === "dashboard");
-  assert.equal(dashboards.length, 8);
+  assert.equal(dashboards.length, 9);
   for (const n of dashboards) {
     const k = n.props["dashboard"];
     assert.ok(typeof k === "string" && kinds.has(k), `${n.path}: unknown dashboard kind "${k}"`);
@@ -167,6 +167,30 @@ test("Label Accounting workbook: pages resolve, sheets evaluate, binds land", ()
     assert.ok(model && model.headers.length > 0, `${name} sheet missing or empty`);
     const ev = evaluateSheet(model, fx);
     for (const s of ev.summaries) assert.ok(!isErr(s.value), `${name} summary ${s.name}: ${JSON.stringify(s.value)}`);
+  }
+});
+
+test("Vault 2025 evaluates; Annual Report's binds resolve and fences parse", () => {
+  const model = loadSheet("Vault 2025");
+  assert.ok(model && model.headers.length > 0, "Vault 2025 sheet missing or empty");
+  const ev = evaluateSheet(model, fx);
+  for (const s of ev.summaries) assert.ok(!isErr(s.value), `Vault 2025 summary ${s.name}: ${JSON.stringify(s.value)}`);
+
+  const report = byStem("Annual Report");
+  assert.ok(report, "Dashboards/Annual Report.md missing");
+  const binds = [...readFileSync(join(VAULT, report.path), "utf8").matchAll(/\{\{([^.}]+)\.([^}]+)\}\}/g)];
+  assert.ok(binds.length >= 3, "Annual Report should bind at least 3 cards");
+  for (const [, sheet, name] of binds) {
+    assert.equal(sheet, "Vault 2025", `bind targets unknown sheet "${sheet}"`);
+    assert.ok(!isErr(findSummary(ev, name)), `bind {{${sheet}.${name}}} resolves no summary`);
+  }
+  const blocks = parseChartBlocks(report.body);
+  assert.equal(blocks.length, 2);
+  for (const b of blocks) {
+    assert.equal(b.error, null, `chart fence error: ${b.error}`);
+    assert.ok(b.config, "chart fence produced no config");
+    const src = b.config.source;
+    assert.ok(src.kind === "sheet" && loadSheet(src.name), "chart should read the bundled sheet");
   }
 });
 

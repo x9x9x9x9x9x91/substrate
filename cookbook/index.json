@@ -102,6 +102,16 @@
       "expects": { "sheets": ["Work Index"], "databases": [] },
       "files": ["Dashboards/Music Work.md", "Work Index.md"],
       "shot": "shots/music-work.png"
+    },
+    {
+      "id": "annual-report",
+      "title": "Annual report",
+      "kind": "metrics",
+      "blurb": "The year, as the vault saw it: headline cards over an annual stats sheet, monthly charts underneath. An agent writes the sheet once a year from version history — every edit is already a snapshot — and the head's Print action turns the pane into the shareable PDF.",
+      "adapt": "Have an agent fill Vault 2025.md from your history (notes created, words added, rows grown per month), or hand-edit the rows; add cards and chart fences for whatever else you track.",
+      "expects": { "sheets": ["Vault 2025"], "databases": [] },
+      "files": ["Dashboards/Annual Report.md", "Vault 2025.md"],
+      "shot": "shots/annual-report.png"
     }
   ]
 }

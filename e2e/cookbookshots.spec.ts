@@ -230,6 +230,22 @@ const SHOTS: Shot[] = [
     },
   },
   {
+    id: "annual-report",
+    nav: "Annual Report",
+    installs: [
+      { file: "Dashboards/Annual Report.md", target: "Dashboards/Annual Report.md", cloneFrom: "Dashboards/Portfolio.md" },
+      { file: "Vault 2025.md", target: "Vault 2025.md", cloneFrom: "Holdings.md" },
+    ],
+    ready: async (page) => {
+      await expect(page.locator(".metrics-cards .dash-card")).toHaveCount(4);
+      await expect(page.locator(".dash-card-miss")).toHaveCount(0);
+      // one bar fence, one line fence — different chart bodies
+      await expect(page.locator(".dash-chart")).toHaveCount(1);
+      await expect(page.locator(".chart-line")).toHaveCount(1);
+      await expect(page.locator(".chart-err")).toHaveCount(0);
+    },
+  },
+  {
     id: "music-work",
     nav: "Music Work",
     installs: [
