@@ -38,6 +38,10 @@ export async function setPropUndoable(opts: {
   /** pre-minted (undo.nextUndoId()) when the caller needs to reference the
       entry — a toast's Undo button pointing at exactly this action */
   id?: number;
+  /** Refresh caller-owned state after an inverse lands. The forward write is
+      still the caller's promise to follow; this hook belongs to undo/redo,
+      whose closures otherwise have no route back to the originating UI. */
+  onApplied?: () => void | Promise<void>;
 }): Promise<NoteMeta> {
   const { path, key, value, record } = opts;
   const { meta, prior } = await vaultSetProp(path, key, value);
@@ -51,9 +55,11 @@ export async function setPropUndoable(opts: {
     // overwrite whatever replaced it
     undo: async () => {
       await vaultSetProp(path, key, prior, { value });
+      await opts.onApplied?.();
     },
     redo: async () => {
       await vaultSetProp(path, key, value, { value: prior });
+      await opts.onApplied?.();
     },
   });
   return meta;

@@ -8,6 +8,7 @@ import {
   type TerminalAction,
   type TerminalSettings,
 } from "../lib/settings";
+import type { TerminalDock } from "../lib/termdock";
 import { vaultRead } from "../lib/ipc";
 
 /**
@@ -27,23 +28,30 @@ export function useTerminalHud(mobile: boolean) {
       (SUB-441) — empty until the note says otherwise, which is the default */
   const [terminalActions, setTerminalActions] = useState<TerminalAction[]>([]);
 
+  /** Reconcile the render-time copy with the note after any settings write,
+      including an undo/redo closure that runs after its originating surface
+      has gone away. A failed read falls back safely and never turns an
+      otherwise-successful property inverse into a failed undo. */
+  const refreshTerminalSettings = useCallback(async () => {
+    try {
+      const c = await vaultRead(SETTINGS_PATH);
+      setTermSettings(parseTerminalSettings(c.props));
+      setTerminalActions(parseTerminalActions(c.props));
+    } catch {
+      setTermSettings(DEFAULT_TERMINAL_SETTINGS);
+    }
+  }, []);
+
   /** toggle the HUD; on open, re-read Settings.md first so a just-changed
       command/cwd/height applies to this open (a live session still keeps
       its shell — spawn settings bind at spawn time) */
   const toggleTerminal = useCallback(() => {
     if (!isTauri || mobile) return;
     setTermOpen((o) => {
-      if (!o) {
-        vaultRead(SETTINGS_PATH)
-          .then((c) => {
-            setTermSettings(parseTerminalSettings(c.props));
-            setTerminalActions(parseTerminalActions(c.props));
-          })
-          .catch(() => setTermSettings(DEFAULT_TERMINAL_SETTINGS));
-      }
+      if (!o) void refreshTerminalSettings();
       return !o;
     });
-  }, [mobile]);
+  }, [mobile, refreshTerminalSettings]);
 
   /** summon the HUD and type `text` into the PTY — the palette quick-action
       path (a `terminal-actions` row's command + CR); plain keystrokes, so it
@@ -54,19 +62,22 @@ export function useTerminalHud(mobile: boolean) {
       termSeq.current += 1;
       setTermInject({ seq: termSeq.current, text });
       setTermOpen((o) => {
-        if (!o) {
-          vaultRead(SETTINGS_PATH)
-            .then((c) => {
-              setTermSettings(parseTerminalSettings(c.props));
-              setTerminalActions(parseTerminalActions(c.props));
-            })
-            .catch(() => setTermSettings(DEFAULT_TERMINAL_SETTINGS));
-        }
+        if (!o) void refreshTerminalSettings();
         return true;
       });
     },
-    [mobile]
+    [mobile, refreshTerminalSettings]
   );
+
+  /** a finished drag of the HUD's edge (SUB-863): the write goes to
+      Settings.md, but the note is only re-read on the next open, so the live
+      copy is updated here too. An external edit still wins on that next open —
+      this is optimistic state, not a second source of truth. */
+  const setTerminalSize = useCallback((dock: TerminalDock, fraction: number) => {
+    setTermSettings((s) =>
+      dock === "right" ? { ...s, width: fraction } : { ...s, height: fraction }
+    );
+  }, []);
 
   return {
     termOpen,
@@ -74,6 +85,8 @@ export function useTerminalHud(mobile: boolean) {
     termInject,
     terminalActions,
     setTerminalActions,
+    setTerminalSize,
+    refreshTerminalSettings,
     toggleTerminal,
     terminalRun,
   };

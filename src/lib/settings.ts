@@ -3,6 +3,23 @@
    `close-to-tray`; the terminal HUD keys (SUB-398) are frontend-owned — the
    PTY spawn call passes them down, so the Rust side never parses them. */
 
+import {
+  DEFAULT_TERMINAL_DOCK,
+  DEFAULT_TERMINAL_HEIGHT,
+  DEFAULT_TERMINAL_WIDTH,
+  parseTerminalDock,
+  parseTerminalSize,
+  type TerminalDock,
+} from "./termdock.ts";
+
+export {
+  DEFAULT_TERMINAL_DOCK,
+  DEFAULT_TERMINAL_HEIGHT,
+  DEFAULT_TERMINAL_WIDTH,
+  parseTerminalDock,
+  type TerminalDock,
+} from "./termdock.ts";
+
 export const SETTINGS_PATH = "Settings.md";
 
 /** the ⌘⇧T terminal's spawn config, read from Settings.md at open time */
@@ -11,18 +28,22 @@ export interface TerminalSettings {
   command: string;
   /** working directory; empty or missing on disk = the vault root (backend fallback) */
   cwd: string;
-  /** HUD height as a fraction of the window, clamped to 0.2–0.9 */
+  /** which window edge the HUD docks to (SUB-864) */
+  dock: TerminalDock;
+  /** bottom-dock height as a fraction of the window, 0.2–0.9 */
   height: number;
+  /** right-dock width as a fraction of the window, 0.2–0.7 (SUB-864) */
+  width: number;
   /** font family for the HUD terminal; empty = the app's `--mono` chain */
   font: string;
 }
 
-export const DEFAULT_TERMINAL_HEIGHT = 0.45;
-
 export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
   command: "",
   cwd: "",
+  dock: DEFAULT_TERMINAL_DOCK,
   height: DEFAULT_TERMINAL_HEIGHT,
+  width: DEFAULT_TERMINAL_WIDTH,
   font: "",
 };
 
@@ -181,11 +202,15 @@ export function parseTerminalSettings(props: Record<string, unknown>): TerminalS
     const v = props[k];
     return typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : "";
   };
-  const h = Number.parseFloat(str("terminal-height"));
+  // height and width are parsed independently of the current dock: flipping
+  // the dock must not have to re-read the note, and each side remembers the
+  // size last chosen for it
   return {
     command: str("terminal-command"),
     cwd: str("terminal-cwd"),
-    height: Number.isFinite(h) && h >= 0.2 && h <= 0.9 ? h : DEFAULT_TERMINAL_HEIGHT,
+    dock: parseTerminalDock(props["terminal-dock"]),
+    height: parseTerminalSize("bottom", props["terminal-height"]),
+    width: parseTerminalSize("right", props["terminal-width"]),
     font: str("terminal-font"),
   };
 }

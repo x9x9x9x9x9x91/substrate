@@ -21,12 +21,20 @@
    string spawns a plain shell / withholds the keystrokes and asks instead;
    approval is remembered per machine (see lib/termtrust.ts). */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { invoke, listen } from "../lib/tauri";
-import { terminalFontFamily, type TerminalSettings } from "../lib/settings";
+import { SETTINGS_PATH, terminalFontFamily, type TerminalSettings } from "../lib/settings";
+import {
+  clampDraggedSize,
+  draggedSize,
+  terminalSizeRange,
+  type TerminalDock,
+} from "../lib/termdock";
+import { setPropUndoable } from "../lib/undoprops";
+import { useUndo } from "../lib/undoContext";
 import { TERM_TRUST_KEY, decideInject, isCommandTrusted, withTrusted } from "../lib/termtrust";
 
 /** A withheld command: `command` is what the user is asked about and what the
@@ -45,6 +53,12 @@ interface TerminalHudProps {
   settings: TerminalSettings;
   /** bumped by palette quick actions: text typed into the PTY on arrival */
   inject: { seq: number; text: string } | null;
+  /** a finished drag: the new fraction for the current dock, so the hook's
+      copy of the settings matches what was just written to Settings.md
+      (the note is only re-read on the next open) */
+  onSized: (dock: TerminalDock, fraction: number) => void;
+  /** Reconcile render settings after undo/redo or a failed optimistic save. */
+  onSettingsChanged: () => void | Promise<void>;
   onToast: (msg: string) => void;
 }
 
@@ -70,7 +84,16 @@ function monoChain() {
   );
 }
 
-export default function TerminalHud({ open, settings, inject, onToast }: TerminalHudProps) {
+export default function TerminalHud({
+  open,
+  settings,
+  inject,
+  onSized,
+  onSettingsChanged,
+  onToast,
+}: TerminalHudProps) {
+  const undo = useUndo();
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -78,6 +101,9 @@ export default function TerminalHud({ open, settings, inject, onToast }: Termina
   /** exited sessions respawn on next open; -1 = nothing to respawn */
   const deadRef = useRef(false);
   const injectedSeq = useRef(0);
+  /** Active pointer drag cleanup. Kept outside the handler closure so hiding
+      or unmounting the HUD cannot strand window listeners or a body cursor. */
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
   // spawn settings (command, cwd) are read at spawn time only — a change while
   // the shell runs applies on the next respawn, never yanks a live session.
   // Render settings (font) are not the shell's business and apply live, below.
@@ -251,13 +277,156 @@ export default function TerminalHud({ open, settings, inject, onToast }: Termina
     return () => window.clearTimeout(t);
   }, [inject, open]);
 
-  // keep the PTY sized to the panel across window resizes while visible
+  // Keep the PTY sized to the panel while visible. A ResizeObserver on the
+  // host covers every way the panel can change size — window resize, a drag
+  // of the grip, a dock flip, a Settings.md edit landing — with one path, so
+  // none of those has to remember to refit. rAF-coalesced: a drag fires the
+  // observer every frame and fit() resizes the terminal buffer, which is not
+  // free.
   useEffect(() => {
     if (!open) return;
-    const onResize = () => fitRef.current?.fit();
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    const host = hostRef.current;
+    if (!host || typeof ResizeObserver === "undefined") return;
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        // a hidden panel measures 0 and would fit to a 1×1 terminal
+        if (host.offsetParent !== null || host.clientWidth > 0) fitRef.current?.fit();
+      });
+    });
+    ro.observe(host);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
   }, [open]);
+
+  /* SUB-863 — drag the panel's inner edge to resize it, double-click to reset.
+
+     Same shape as the database column handle (DatabasePane `startResize`):
+     window-level listeners so the pointer may leave the 6px strip, the live
+     size written straight to the node's inline style (no React re-render per
+     mousemove, and the ResizeObserver above turns each of those into a refit),
+     and one Settings.md write on mouseup. `onSized` keeps the hook's copy in
+     step, since Settings.md is only re-read on the next open. */
+  const persistSize = useCallback(
+    (dock: TerminalDock, fraction: number) => {
+      onSized(dock, fraction);
+      setPropUndoable({
+        path: SETTINGS_PATH,
+        key: dock === "right" ? "terminal-width" : "terminal-height",
+        value: fraction,
+        label: `Terminal size → ${Math.round(fraction * 100)}%`,
+        record: undo.record,
+        onApplied: onSettingsChanged,
+      }).catch((e) => {
+        // `onSized` is optimistic; return to the note if its write refused.
+        void onSettingsChanged();
+        onToast(`couldn't save terminal size (${e})`);
+      });
+    },
+    [onSettingsChanged, onSized, onToast, undo]
+  );
+
+  const dock = settings.dock;
+  const size = dock === "right" ? settings.width : settings.height;
+
+  const startResize = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const panel = panelRef.current;
+    if (!panel) return;
+    // A second press before the first one completed must not stack global
+    // listeners; cancel the older drag and restore its owned value first.
+    resizeCleanupRef.current?.();
+    const right = dock === "right";
+    const startPos = right ? e.clientX : e.clientY;
+    const windowPx = right ? window.innerWidth : window.innerHeight;
+    document.body.classList.add(right ? "termhud-resizing-ew" : "termhud-resizing-ns");
+    let next = size;
+    let finished = false;
+    const setInlineSize = (fraction: number) => {
+      const px = `${Math.round(fraction * 100)}${right ? "vw" : "vh"}`;
+      if (right) panel.style.width = px;
+      else panel.style.height = px;
+    };
+    const onMove = (ev: MouseEvent) => {
+      // the panel is anchored to a window edge, so travel AWAY from that edge
+      // (up when docked bottom, left when docked right) grows it
+      const grow = startPos - (right ? ev.clientX : ev.clientY);
+      next = draggedSize(dock, size, grow, windowPx);
+      setInlineSize(next);
+    };
+    function finish(commit: boolean) {
+      if (finished) return;
+      finished = true;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("blur", onBlur);
+      document.body.classList.remove("termhud-resizing-ew", "termhud-resizing-ns");
+      // a no-move click (and each half of a double-click) commits nothing
+      const committed = commit && Math.abs(next - size) >= 0.005;
+      if (committed) persistSize(dock, next);
+      // hand the inline style back AT the owned value, never removeProperty:
+      // the style comes from React's style prop, and after a no-move click
+      // React's diff sees no change and would never re-write the property —
+      // the panel collapses to its content (grip + empty host) and stays there
+      const back = committed ? next : size;
+      setInlineSize(back);
+      resizeCleanupRef.current = null;
+    }
+    function onUp() {
+      finish(true);
+    }
+    function onBlur() {
+      // Releasing outside the webview otherwise leaves the body cursor and
+      // listeners live forever. Commit the last position the app observed.
+      finish(true);
+    }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("blur", onBlur);
+    resizeCleanupRef.current = () => finish(false);
+  };
+
+  useEffect(() => {
+    if (!open) resizeCleanupRef.current?.();
+  }, [open]);
+
+  useEffect(
+    () => () => {
+      resizeCleanupRef.current?.();
+      document.body.classList.remove("termhud-resizing-ew", "termhud-resizing-ns");
+    },
+    []
+  );
+
+  /** double-click the grip → the dock's default size, mirroring the column
+      handle's reset-to-auto */
+  const resetSize = () => {
+    const { fallback } = terminalSizeRange(dock);
+    if (Math.abs(size - fallback) < 0.005) return;
+    persistSize(dock, fallback);
+  };
+
+  const resizeWithKeyboard = (e: React.KeyboardEvent) => {
+    const { min, max } = terminalSizeRange(dock);
+    let next: number;
+    if (e.key === "Home") next = min;
+    else if (e.key === "End") next = max;
+    else if (e.key === "ArrowUp" || (dock === "right" && e.key === "ArrowRight")) {
+      next = clampDraggedSize(dock, size + 0.01);
+    } else if (e.key === "ArrowDown" || (dock === "right" && e.key === "ArrowLeft")) {
+      next = clampDraggedSize(dock, size - 0.01);
+    } else {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    if (Math.abs(next - size) >= 0.005) persistSize(dock, next);
+  };
 
   // Approve: remember the hash on this machine, then type the command into the
   // shell that is already up — no respawn, so nothing in the session is lost.
@@ -284,15 +453,33 @@ export default function TerminalHud({ open, settings, inject, onToast }: Termina
     termRef.current?.focus();
   };
 
-  const pct = Math.round(Math.min(0.9, Math.max(0.2, settings.height)) * 100);
+  // clamped again at render: the setting is read from a note anyone can edit
+  const { min, max } = terminalSizeRange(dock);
+  const pct = Math.round(Math.min(max, Math.max(min, size)) * 100);
+  const right = dock === "right";
   return (
     <>
       <div
-        className={`termhud${open ? " open" : ""}`}
-        style={{ height: `${pct}vh` }}
+        ref={panelRef}
+        className={`termhud${right ? " dock-right" : ""}${open ? " open" : ""}`}
+        style={right ? { width: `${pct}vw` } : { height: `${pct}vh` }}
         aria-hidden={!open}
       >
-        <div className="termhud-grip" />
+        <div
+          className="termhud-grip"
+          onMouseDown={startResize}
+          onDoubleClick={resetSize}
+          onKeyDown={resizeWithKeyboard}
+          role="separator"
+          tabIndex={open ? 0 : -1}
+          aria-orientation={right ? "vertical" : "horizontal"}
+          aria-label="Resize terminal"
+          aria-valuemin={Math.round(min * 100)}
+          aria-valuemax={Math.round(max * 100)}
+          aria-valuenow={pct}
+          aria-valuetext={`${pct}%`}
+          title="Drag or use arrow keys to resize · double-click to reset"
+        />
         <div className="termhud-host" ref={hostRef} />
       </div>
       {open && pending !== null && (

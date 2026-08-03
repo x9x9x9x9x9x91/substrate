@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULT_TERMINAL_HEIGHT,
+  DEFAULT_TERMINAL_WIDTH,
   isAgentFile,
   parseDbGrid,
   parseDropHint,
@@ -16,22 +17,55 @@ import {
 
 const MONO = "ui-monospace, Menlo, monospace";
 
-test("parseTerminalSettings: reads the three terminal keys", () => {
+test("parseTerminalSettings: reads the terminal keys", () => {
   const s = parseTerminalSettings({
     "terminal-command": " my-agent-cli ",
     "terminal-cwd": "~/Coding/substrate",
     "terminal-height": "0.6",
+    "terminal-width": "0.55",
+    "terminal-dock": "right",
   });
   assert.equal(s.command, "my-agent-cli");
   assert.equal(s.cwd, "~/Coding/substrate");
   assert.equal(s.height, 0.6);
+  assert.equal(s.width, 0.55);
+  assert.equal(s.dock, "right");
 });
 
-test("parseTerminalSettings: missing keys → empty command/cwd, default height", () => {
+test("parseTerminalSettings: missing keys → empty command/cwd, default geometry", () => {
   const s = parseTerminalSettings({});
   assert.equal(s.command, "");
   assert.equal(s.cwd, "");
+  assert.equal(s.dock, "bottom");
   assert.equal(s.height, DEFAULT_TERMINAL_HEIGHT);
+  assert.equal(s.width, DEFAULT_TERMINAL_WIDTH);
+});
+
+test("parseTerminalSettings: both sizes are read whatever the dock is (SUB-864)", () => {
+  // flipping the dock must not need a re-read — each side keeps the size last
+  // chosen for it, so both keys parse regardless of which one is in use
+  const s = parseTerminalSettings({
+    "terminal-dock": "bottom",
+    "terminal-height": "0.8",
+    "terminal-width": "0.3",
+  });
+  assert.equal(s.height, 0.8);
+  assert.equal(s.width, 0.3);
+});
+
+test("parseTerminalSettings: each size is judged by its OWN range (SUB-864)", () => {
+  // 0.85 is a fine height and an out-of-range width; the shared-clamp bug
+  // would let the width through
+  const s = parseTerminalSettings({ "terminal-height": "0.85", "terminal-width": "0.85" });
+  assert.equal(s.height, 0.85);
+  assert.equal(s.width, DEFAULT_TERMINAL_WIDTH);
+});
+
+test("parseTerminalSettings: out-of-band or garbage width falls back (SUB-864)", () => {
+  for (const bad of ["7", "0.1", "0.75", "wide", "", null, true]) {
+    const s = parseTerminalSettings({ "terminal-width": bad });
+    assert.equal(s.width, DEFAULT_TERMINAL_WIDTH, `width ${JSON.stringify(bad)}`);
+  }
 });
 
 test("parseTerminalSettings: out-of-band or garbage height falls back", () => {

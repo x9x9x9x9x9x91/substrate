@@ -1808,8 +1808,14 @@ Plain notes the app treats specially — all optional, all just files:
 - `Settings.md` (vault root) — app settings as frontmatter: `capture-hotkey`
   (default `alt+space`), `close-to-tray` (default `false`), and the ⌘⇧T terminal
   HUD's `terminal-command` (agent CLI typed into the fresh shell; empty = plain
-  shell), `terminal-cwd` (start folder, `~` expands; empty = the vault folder) and
-  `terminal-height` (window fraction `0.2`–`0.9`, default `0.45`),
+  shell), `terminal-cwd` (start folder, `~` expands; empty = the vault folder),
+  `terminal-dock` (SUB-864, `bottom` or `right`, default `bottom`; anything else
+  reads as `bottom`), `terminal-height` (window fraction `0.2`–`0.9`, default
+  `0.45`, used when docked bottom) and `terminal-width` (window fraction
+  `0.2`–`0.7`, default `0.38`, used when docked right) — both sizes are also
+  written by dragging the panel's inner edge (SUB-863), and each side keeps the
+  size last chosen for it, so flipping the dock restores it; an out-of-range
+  value typed into the note falls back to the default rather than clamping,
   `terminal-font` (SUB-862, font family for the HUD terminal — one name or a
   comma-separated chain; names are normalized (quotes optional, spaced names
   quoted for you) and restricted to letters/digits/space/`_``.``-`, anything

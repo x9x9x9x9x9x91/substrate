@@ -256,6 +256,8 @@ export default function App() {
     termInject,
     terminalActions,
     setTerminalActions,
+    setTerminalSize,
+    refreshTerminalSettings,
     toggleTerminal,
     terminalRun,
   } = useTerminalHud(mobile);
@@ -3810,6 +3812,7 @@ export default function App() {
         <SettingsPane
           onClose={() => setSettingsOpen(false)}
           onEditRaw={() => openNote(SETTINGS_PATH)}
+          onSettingsChanged={refreshTerminalSettings}
           onToast={showToast}
         />
       )}
@@ -3819,6 +3822,8 @@ export default function App() {
             open={termOpen}
             settings={termSettings}
             inject={termInject}
+            onSized={setTerminalSize}
+            onSettingsChanged={refreshTerminalSettings}
             onToast={showToast}
           />
         </Suspense>

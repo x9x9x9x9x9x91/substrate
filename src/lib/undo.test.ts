@@ -171,6 +171,26 @@ test("8: a list value round-trips without stringification", async () => {
   );
 });
 
+test("8b: a property inverse announces undo and redo after each write", async () => {
+  const path = await freshNote("Undo Applied Callback");
+  let recorded: Omit<import("./undo.ts").UndoEntry, "id"> | null = null;
+  const applied: string[] = [];
+  await setPropUndoable({
+    path,
+    key: "status",
+    value: "done",
+    record: (e) => (recorded = e),
+    onApplied: async () => {
+      applied.push(String((await vaultRead(path)).props.status ?? "absent"));
+    },
+  });
+
+  assert.deepEqual(applied, [], "the forward write stays the caller's promise");
+  await recorded!.undo();
+  await recorded!.redo!();
+  assert.deepEqual(applied, ["absent", "done"]);
+});
+
 test("9: bulk over 3 paths where 1 fails records one entry with 2 paths", async () => {
   const a = await freshNote("Undo Bulk A");
   const b = await freshNote("Undo Bulk B");
