@@ -95,17 +95,25 @@ pub struct FmState {
 /// embeds, charts, sheet csv + formulas — are machine content, not prose:
 /// their bodies stay out of the search index (SUB-261). The regex follows
 /// the app parsers' semantics (```<lang>\n anywhere … next ``` or EOF);
-/// user code fences (```ts, …) stay searchable. `view` alone also takes an
-/// info-string tail (```view table, a trailing space): the editor and hub
-/// render a view widget on the FIRST WORD of the info string, so those
-/// fences are live widgets, not prose (SUB-899); chart/csv/formulas parsers
-/// are strict bare-form, and a tailed one renders as plain code — prose.
-/// CRLF openers (```view\r\n) strip too (SUB-913).
-/// Lockstep twin: MACHINE_FENCE_RE in src/lib/fences.ts.
+/// user code fences (```ts, ```python foo, …) stay searchable, tail and all.
+/// The LIVE-DISPATCH languages (view, chart, cards) also take an info-string
+/// tail (```view table, ```chart compact, a trailing space): the editor and
+/// hub dispatch on the FIRST WORD of the info string, so a tailed opener is
+/// a live widget like the bare form and its config leaves the index too
+/// (SUB-899 for view, SUB-983 for chart/cards; cards renders once the hub
+/// canvas lands, SUB-964 — stripping it now is contract, not yet render).
+/// csv/formulas parsers are strict bare-form — a tailed one renders as plain
+/// code and stays searchable prose. A tail may not contain a backtick: an
+/// inline prose mention of an opener must never swallow its line and blank
+/// prose to the next fence (SUB-983 review finding). CRLF openers
+/// (```view\r\n) strip too (SUB-913).
+/// Lockstep twin: MACHINE_FENCE_RE in src/lib/fences.ts (mirrored by hand;
+/// change both together).
 fn machine_fence_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"```(?:view(?:[ \t][^\n]*)?|chart|csv|formulas)\r?\n[\s\S]*?(?:```|\z)").unwrap()
+        Regex::new(r"```(?:(?:view|chart|cards)(?:[ \t][^`\n]*)?|csv|formulas)\r?\n[\s\S]*?(?:```|\z)")
+            .unwrap()
     })
 }
 
@@ -2261,17 +2269,40 @@ mod tests {
 
     #[test]
     fn machine_fence_strip_covers_info_string_tails() {
-        // ```view <tail> renders as a live widget (first word decides), so
-        // its config leaves the index like the bare form (SUB-899); a tailed
-        // chart fence renders as plain code and stays searchable prose.
-        for open in ["```view", "```view table", "```view "] {
+        // ```view/```chart/```cards <tail> renders as a live widget (first
+        // word decides), so its config leaves the index like the bare form
+        // (SUB-899 for view, SUB-983 for chart/cards). Lockstep twin: the
+        // "info-string tail" test in src/lib/fences.test.ts, same corpus.
+        for open in ["```view", "```view table", "```view ", "```chart compact", "```cards two-up"] {
             let body = format!("a\n{open}\nquery: secret\n```\nb");
             let out = strip_machine_fences(&body);
             assert!(!out.contains("secret"), "config stripped for {open:?}: {out:?}");
             assert_eq!(out.matches('\n').count(), body.matches('\n').count(), "line map kept");
         }
-        let chart = "a\n```chart x\nsource: r\n```\nb";
-        assert_eq!(strip_machine_fences(chart), chart, "tailed chart fence stays prose");
+        // csv/formulas parsers are strict bare-form: a tailed one renders as
+        // plain code and stays searchable — as does any tailed user fence.
+        for prose in [
+            "a\n```csv raw\nsecret,1\n```\nb",
+            "a\n```formulas x\nsecret = A1\n```\nb",
+            "a\n```python foo\nsecret = 1\n```\nb",
+        ] {
+            assert_eq!(strip_machine_fences(prose), prose, "tailed bare-form fence stays prose");
+        }
+    }
+
+    #[test]
+    fn machine_fence_inline_mention_never_blanks_prose() {
+        // An inline prose mention of an opener (`` ```chart `` in running
+        // text) carries a backtick right after the language word; without the
+        // tail's backtick guard it swallowed the rest of the line and blanked
+        // prose to the next fence (SUB-983 review finding — 48 prose lines of
+        // the seeded AGENTS.md left the index). Lockstep twin: the
+        // "inline prose mention" test in src/lib/fences.test.ts.
+        let body = "One ` ```chart ` fence per chart; prose continues.\nmore prose\n```chart\nsource: r\n```\nafter";
+        let out = strip_machine_fences(body);
+        assert!(out.contains("prose continues"), "inline mention line survives: {out:?}");
+        assert!(out.contains("more prose"), "following prose survives");
+        assert!(!out.contains("source: r"), "the real fence still strips");
     }
 
     #[test]

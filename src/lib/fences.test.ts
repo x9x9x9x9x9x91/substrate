@@ -52,19 +52,39 @@ test("stripMachineFences: prose on the open/close lines survives", () => {
   assert.ok(out.endsWith(" done here\n"), "close-line prose kept");
 });
 
-test("stripMachineFences: a view fence with an info-string tail still strips (SUB-899)", () => {
-  // the editor and hub render ```view <anything> as a live widget (first
-  // word decides), so its config must leave the search index like the bare
-  // form — including a stray trailing space after ```view
-  for (const open of ["```view table", "```view "]) {
+test("stripMachineFences: an info-string tail strips for live-dispatch langs (SUB-899, SUB-983)", () => {
+  // the editor and hub render ```view/```chart/```cards <anything> as a live
+  // widget (first word decides), so the config must leave the search index
+  // like the bare form — including a stray trailing space after the language.
+  // Lockstep twin: machine_fence_strip_covers_info_string_tails in
+  // src-tauri/src/vault/mod.rs asserts this same corpus.
+  const tailed = ["```view", "```view table", "```view ", "```chart compact", "```cards two-up"];
+  for (const open of tailed) {
     const out = stripMachineFences(`a\n${open}\nquery: secret\n\`\`\`\nb`);
     assert.ok(!out.includes("secret"), `config stripped for "${open}"`);
     assert.equal(out.split("\n").length, 5, "line count preserved");
   }
-  // chart/csv/formulas parsers are strict bare-form: a tailed fence is NOT
-  // machine content (it renders as a plain code box), so it stays searchable
-  const chart = "a\n```chart x\nsource: r\n```\nb";
-  assert.equal(stripMachineFences(chart), chart, "tailed chart fence stays prose");
+  // csv/formulas parsers are strict bare-form: a tailed one renders as plain
+  // code and stays searchable prose — as does any tailed user code fence.
+  for (const prose of [
+    "a\n```csv raw\nsecret,1\n```\nb",
+    "a\n```formulas x\nsecret = A1\n```\nb",
+    "a\n```python foo\nsecret = 1\n```\nb",
+  ]) {
+    assert.equal(stripMachineFences(prose), prose, "tailed bare-form fence stays prose");
+  }
+});
+
+test("stripMachineFences: an inline prose mention of an opener never blanks prose (SUB-983)", () => {
+  // `` ```chart `` mentioned in running text carries a backtick right after
+  // the language word; without the tail's backtick guard the old regex
+  // swallowed the rest of the line and blanked everything to the next fence
+  // (44 prose lines of docs/dashboards.md, 48 of the seeded AGENTS.md).
+  const body = "One ` ```chart ` fence per chart; prose continues.\nmore prose\n```chart\nsource: r\n```\nafter";
+  const out = stripMachineFences(body);
+  assert.ok(out.includes("prose continues"), "inline mention line survives");
+  assert.ok(out.includes("more prose"), "following prose survives");
+  assert.ok(!out.includes("source: r"), "the real fence still strips");
 });
 
 test("stripMachineFences handles CRLF fences (SUB-913)", () => {

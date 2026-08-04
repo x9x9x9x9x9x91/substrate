@@ -97,9 +97,14 @@ test("the first group is the headline; the rest sit behind one toggle", async ({
 
   const more = page.locator(".sheet-sum-more");
   await expect(more).toHaveText("show all (6)");
+  const controlledId = await more.getAttribute("aria-controls");
+  expect(controlledId).toBeTruthy();
+  await expect(more).toHaveAttribute("aria-expanded", "false");
   await more.click();
-  await expect(page.locator(".sheet-sum-rest .sheet-sum")).toHaveCount(6);
-  await expect(page.locator(".sheet-sum-rest")).toContainText("worst_month");
+  const details = page.locator(`[id="${controlledId}"]`);
+  await expect(details.locator(".sheet-sum")).toHaveCount(6);
+  await expect(details).toContainText("worst_month");
+  await expect(more).toHaveAttribute("aria-expanded", "true");
   await expect(more).toHaveText("hide");
 
   await more.click();
@@ -112,12 +117,18 @@ test("summaries broken by one cause collapse into a single chip that expands", a
   await expect(rollup).toHaveCount(1);
   await expect(rollup).toContainText("value_eur");
   await expect(rollup).toContainText("broke 4 summaries");
+  await expect(rollup).toHaveAccessibleName(/value_eur.*Broke 4 summaries.*total.*biggest/i);
+  const controlledId = await rollup.getAttribute("aria-controls");
+  expect(controlledId).toBeTruthy();
+  await expect(rollup).toHaveAttribute("aria-expanded", "false");
   // no bare `!` chips left in the headline row
   await expect(page.locator(".sheet-summary .sheet-sum-val")).toHaveCount(0);
 
-  await rollup.click();
-  await expect(page.locator(".sheet-sum-rest .sheet-sum")).toHaveCount(4);
-  await expect(page.locator(".sheet-sum-rest")).toContainText("crypto");
+  await rollup.press("Enter");
+  const details = page.locator(`[id="${controlledId}"]`);
+  await expect(details.locator(".sheet-sum")).toHaveCount(4);
+  await expect(details).toContainText("crypto");
+  await expect(rollup).toHaveAttribute("aria-expanded", "true");
 });
 
 test("the USD→EUR stamp renders only where the sheet converts currency", async ({ page }) => {

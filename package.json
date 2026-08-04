@@ -15,7 +15,8 @@
     "check:ipc": "node scripts/check-ipc.ts",
     "hooks:install": "bash scripts/install-git-hooks.sh",
     "import:notion": "node scripts/import-notion.ts",
-    "import:ableton": "node scripts/import-ableton.ts"
+    "import:ableton": "node scripts/import-ableton.ts",
+    "append:row": "node scripts/append-row.ts"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

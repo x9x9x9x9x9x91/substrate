@@ -233,6 +233,25 @@ function BarChart({
 }) {
   const { wrapRef, tip, show, hide } = useChartTip();
   const { slots, onKeyDown, tabIndexOf } = useRoving(points.length);
+  const chartRef = useRef<HTMLDivElement>(null);
+  const [labelEvery, setLabelEvery] = useState(1);
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return;
+    const measure = () => {
+      const labels = Array.from(chart.querySelectorAll<HTMLElement>(".dash-bar-time"));
+      const widestRatio = labels.reduce(
+        (ratio, label) => Math.max(ratio, label.scrollWidth / Math.max(1, label.clientWidth)),
+        1
+      );
+      const next = Math.max(1, Math.ceil(widestRatio));
+      setLabelEvery((current) => (current === next ? current : next));
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(chart);
+    measure();
+    return () => ro.disconnect();
+  }, [points]);
   // a stacked column is as tall as its own total, so the axis has to measure
   // totals — otherwise the tallest stack overflows the plot
   const totals = bands
@@ -240,7 +259,8 @@ function BarChart({
     : points.map((p) => p.value);
   const max = Math.max(0, ...totals);
   const showVals = points.length <= 12;
-  const labelEvery = Math.max(1, Math.ceil(points.length / 10));
+  const showLabel = (i: number) =>
+    i === 0 || i === points.length - 1 || (i % labelEvery === 0 && points.length - 1 - i >= labelEvery);
   const rowsAt = (i: number): TipRow[] =>
     bands
       ? bands
@@ -249,11 +269,12 @@ function BarChart({
       : [{ name: null, band: 0, value: points[i].value, n: points[i].n }];
   return (
     <div className="chart-wrap" ref={wrapRef}>
-      <div className="dash-chart">
+      <div className="dash-chart" ref={chartRef}>
         {points.map((p, i) => {
           const rows = rowsAt(i);
           const total = totals[i];
           const h = max > 0 ? Math.max(3, (total / max) * 120) : 3;
+          const valueLabel = showVals && total !== 0 && h >= 18 ? fmtVal(total) : "";
           const tint = !bands
             ? xOptions?.length
               ? optionColorVar(optionColor(xOptions, p.label))
@@ -298,7 +319,9 @@ function BarChart({
             >
               {/* an empty bucket is already said by the baseline tick — the "0"
                   label on top of it is the same statement twice (SUB-527) */}
-              <span className="dash-bar-val">{showVals && total !== 0 ? fmtVal(total) : ""}</span>
+              <span className="dash-bar-val" title={valueLabel || undefined}>
+                {valueLabel}
+              </span>
               {bands ? (
                 // the whole stack is one bar-height box; the slices divide it by
                 // share, so a column reads as one mark and the totals compare
@@ -318,8 +341,12 @@ function BarChart({
               ) : (
                 <div className="dash-bar" style={style} />
               )}
-              <span className="dash-bar-time">
-                {i % labelEvery === 0 || i === points.length - 1 ? p.label : ""}
+              <span
+                className={`dash-bar-time${showLabel(i) ? "" : " is-hidden"}`}
+                title={p.label}
+                aria-hidden="true"
+              >
+                {p.label}
               </span>
             </div>
           );

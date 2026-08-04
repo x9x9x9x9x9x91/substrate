@@ -103,7 +103,8 @@ npm run e2e                  # Playwright smoke over the mock backend
 ```
 
 Developer docs: [dashboards](docs/dashboards.md) · [sheets](docs/sheets-spec.md) ·
-[vault format on disk](docs/vault-format.md).
+[vault format on disk](docs/vault-format.md) ·
+[integrating external tools](docs/integrations.md).
 
 ## Status
 

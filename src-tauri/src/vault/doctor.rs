@@ -139,11 +139,14 @@ impl Engine {
 
         // ---- body scan: embeds and ```view fences -----------------------
         let embed_re = Regex::new(r"!\[\[([^\[\]]+)\]\]").unwrap();
-        // opener matches the live-widget grammar (SUB-899: info-string tail,
-        // first word decides; SUB-913: CRLF) — lockstep with machine_fence_re
-        // in vault/mod.rs and MACHINE_FENCE_RE in src/lib/fences.ts
+        // opener matches the live-widget grammar for view fences (SUB-899:
+        // info-string tail, first word decides; SUB-913: CRLF; SUB-983:
+        // backtick-guarded tail so an inline prose mention never matches).
+        // The strip twins (machine_fence_re in vault/mod.rs, MACHINE_FENCE_RE
+        // in src/lib/fences.ts) cover MORE languages; this one is view-only
+        // by design — the doctor scans view fences alone.
         let view_fence_re =
-            Regex::new(r"```view(?:[ \t][^\n]*)?\r?\n([\s\S]*?)(?:```|\z)").unwrap();
+            Regex::new(r"```view(?:[ \t][^`\n]*)?\r?\n([\s\S]*?)(?:```|\z)").unwrap();
         let saved = self.saved_views();
         let mut md_paths = walk_md_files(&self.root);
         md_paths.sort();

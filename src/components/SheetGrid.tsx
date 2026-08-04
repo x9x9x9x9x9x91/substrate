@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { NoteMeta } from "../lib/types";
 import { propStr } from "../lib/types";
 import { vaultRead, vaultResolve } from "../lib/ipc";
@@ -96,6 +96,8 @@ export default function SheetGrid({
   const [colDraft, setColDraft] = useState("");
   const [source, setSource] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const summaryDetailsId = useId();
+  const toggleSummaryDetails = () => setShowAll((visible) => !visible);
   const [editCol, setEditCol] = useState<{ name: string; draft: string; err: string | null } | null>(
     null
   );
@@ -781,8 +783,12 @@ export default function SheetGrid({
                   className="sheet-sum sheet-sum-rollup"
                   key={r.message ?? `mixed-${i}`}
                   aria-expanded={showAll}
+                  aria-controls={summaryDetailsId}
+                  aria-label={`${r.message ?? `${r.names.length} summaries failed`}. ${
+                    r.message ? `Broke ${r.names.length} summaries` : "Different causes"
+                  }: ${r.names.join(", ")}`}
                   title={(r.message ? r.message + "\n" : "") + r.names.join(", ")}
-                  onClick={() => setShowAll((v) => !v)}
+                  onClick={toggleSummaryDetails}
                 >
                   <span className="sheet-sum-why sheet-err">
                     {r.message ?? `${r.names.length} summaries failed`}
@@ -796,7 +802,8 @@ export default function SheetGrid({
                 <button
                   className="sheet-sum-more"
                   aria-expanded={showAll}
-                  onClick={() => setShowAll((v) => !v)}
+                  aria-controls={summaryDetailsId}
+                  onClick={toggleSummaryDetails}
                 >
                   {showAll ? "hide" : `show all (${bar.rest.length})`}
                 </button>
@@ -813,7 +820,7 @@ export default function SheetGrid({
           </span>
         </div>
         {showAll && bar.rest.length > 0 && (
-          <div className="sheet-sum-row sheet-sum-rest">
+          <div className="sheet-sum-row sheet-sum-rest" id={summaryDetailsId}>
             {bar.rest.map((s, i) => sumChip(s, i, true))}
           </div>
         )}

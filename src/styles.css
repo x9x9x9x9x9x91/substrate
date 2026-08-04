@@ -4027,10 +4027,12 @@ body.agenda-window .palette:focus-visible {
   right: 0;
   bottom: 19px;
   border-bottom: 1px solid var(--hair);
+  pointer-events: none;
 }
 
 .dash-bar-col {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -4060,12 +4062,32 @@ body.agenda-window .palette:focus-visible {
   font: var(--dash-label);
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
+  width: 100%;
+  height: 14px;
+  line-height: 14px;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dash-bar-time {
   font: var(--dash-label);
   color: var(--text-4);
   font-variant-numeric: tabular-nums;
+  width: 100%;
+  height: 14px;
+  line-height: 14px;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Keep every label measurable so the renderer can thin by its real width,
+   but hide skipped ticks without collapsing the shared axis band. */
+.dash-bar-time.is-hidden {
+  visibility: hidden;
 }
 
 /* Chart blocks (```chart fences) — line kind in the bar idiom's greys. The
@@ -6416,17 +6438,26 @@ th.sheet-computed:hover {
   border: none;
   background: transparent;
   font-family: var(--font);
-  padding: 0;
+  padding: 2px 7px;
+  margin: -2px -7px;
+  border-radius: 5px;
   text-align: left;
   min-width: 0;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.sheet-sum-rollup:hover {
+  background: var(--hover);
 }
 
 .sheet-sum-why {
   font-size: 12px;
   max-width: 52ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .sheet-sum-count {
@@ -6444,6 +6475,7 @@ th.sheet-computed:hover {
   padding: 2px 7px;
   margin-left: -7px;
   border-radius: 5px;
+  cursor: pointer;
   transition:
     background-color 120ms ease-out,
     color 120ms ease-out;

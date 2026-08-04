@@ -2251,6 +2251,11 @@ Plain notes the app treats specially — all optional, all just files:
 
 ## 13. Rules for well-behaved external writers
 
+The rules below are the contract. [`docs/integrations.md`](integrations.md) is
+the practical companion — runnable bash and python snippets, the
+`scripts/append-row.ts` helper, and what actually happens on screen when an
+external write races an open editor.
+
 1. **Prefer the app's IPC when it's running** (§14) — the engine stays consistent,
    links get rewritten on rename, snapshots batch correctly. Direct file writes
    are first-class when the app is closed, or for bulk work.

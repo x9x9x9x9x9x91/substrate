@@ -620,6 +620,31 @@ mod tests {
     }
 
     #[test]
+    fn tailed_machine_fences_stay_out_of_search() {
+        // SUB-983: the hub dispatches a fence on the FIRST WORD of its info
+        // string, so ```chart compact renders a live chart — its config must
+        // leave the index like the bare form. A tail on a non-machine
+        // language is still someone's code and stays searchable.
+        let (mut e, dir) = temp_vault("mftail");
+        fs::write(
+            dir.join("Tailed.md"),
+            "---\ntype: note\n---\nhub prose.\n\n```chart compact\nsource: release\ny: hiddencount\n```\n\n```python foo\nvisiblecode = 1\n```\n\ntrail prose line\n",
+        )
+        .unwrap();
+        e.apply_changes(&[dir.join("Tailed.md")]);
+        assert!(
+            e.search("hiddencount", None, false).iter().all(|h| h.path != "Tailed.md"),
+            "tailed chart fence config is not indexed"
+        );
+        assert!(
+            e.search("visiblecode", None, false).iter().any(|h| h.path == "Tailed.md"),
+            "a tailed code fence stays searchable prose"
+        );
+        assert!(e.search("trail", None, false).iter().any(|h| h.path == "Tailed.md"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn backlinks_resolve_by_title() {
         let (e, dir) = temp_vault("bl");
         let bl = e.backlinks("Kyoto.md");
