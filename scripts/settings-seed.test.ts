@@ -19,14 +19,12 @@ const seed = readFileSync(join(ROOT, "src-tauri/src/vault/seed.rs"), "utf8");
 /** Every settings key the ⌘, form manages (the FIELDS array). */
 const paneKeys = [...pane.matchAll(/^\s*key: "([^"]+)"/gm)].map((m) => m[1]);
 
-/** The seeded Settings.md body: the one string literal in seed_settings.
-    Matched from the fn so a second seeded file can't satisfy the test. */
-const seedFn = /pub\(crate\) fn seed_settings[\s\S]*?write_atomic\(\s*&abs,\s*"([\s\S]*?)",\s*\)/.exec(
-  seed
-);
+/** The seeded Settings.md body: the SETTINGS_BODY literal (SUB-973 split it
+    off the frontmatter so the body can be refreshed in existing vaults). */
+const seedFn = /pub\(crate\) const SETTINGS_BODY: &str = "([\s\S]*?)";/.exec(seed);
 
 test("seed_settings body exists where this test expects it", () => {
-  assert.ok(seedFn, "seed.rs seed_settings write_atomic literal not found — update this test's regex");
+  assert.ok(seedFn, "seed.rs SETTINGS_BODY literal not found — update this test's regex");
 });
 
 test("every ⌘, pane key is documented in the seeded Settings.md body", () => {

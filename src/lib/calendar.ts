@@ -351,7 +351,13 @@ function spanDays(start: string, end: string, window?: CalWindow): string[] {
   const from = parseDay(start);
   if (!from) return days;
   const seen = new Set(days);
-  for (let i = 1; i <= MAX_SPAN_DAYS; i++) {
+  // A window jumps straight to its own slice of the span (SUB-1024): the cap
+  // bounds ITERATIONS, so counting them from the range's start made a window
+  // more than MAX_SPAN_DAYS past that start emit nothing — a legitimate
+  // multi-year range vanished from the grid, Today and Upcoming mid-span.
+  const winStart = window ? parseDay(window.start) : null;
+  const first = winStart ? Math.max(1, dayDiff(from, winStart)) : 1;
+  for (let i = first; i < first + MAX_SPAN_DAYS; i++) {
     const day = isoDay(addDays(from, i));
     if (day > end) break;
     if (window && (day < window.start || day > window.end)) continue;

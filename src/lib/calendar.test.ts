@@ -890,6 +890,20 @@ test("entriesForNote: interior span days are clipped to the window", () => {
   assert.deepEqual(days, ["2026-09-01", "2026-09-10", "2026-09-11", "2026-09-12"]);
 });
 
+test("entriesForNote: a window >366 days past the range start still gets its days (SUB-1024)", () => {
+  // the span cap bounds iterations; counted from the range start it exhausted
+  // before ever reaching a far window, blacking out a running multi-year range
+  const n = note("Projects/Long.md", { type: "event", date: "2025-06-01/2027-05-31" }, "Projects");
+  const days = entriesForNote(n, {}, { start: "2026-08-01", end: "2026-08-31" }).map((e) => e.day);
+  assert.equal(days[0], "2025-06-01", "the start day always survives");
+  assert.deepEqual(
+    days.slice(1, 4),
+    ["2026-08-01", "2026-08-02", "2026-08-03"],
+    "the window's own slice is emitted"
+  );
+  assert.equal(days.length, 32, "start + all 31 window days");
+});
+
 test("recurrence ignores ranges: one single-day occurrence per step", () => {
   const notes = [
     note(

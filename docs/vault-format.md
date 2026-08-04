@@ -2176,10 +2176,17 @@ Plain notes the app treats specially — all optional, all just files:
   within a second of saving; the ⌘, sheet is a typed form over the same keys.
   Unlike the other notes here it is not merely seeded on first run: the desktop
   app writes it on launch whenever it is absent (SUB-473), so vaults predating
-  the setting get one, and deleting it brings back the defaults. An existing
-  note is never touched, and no write happens if `.vault/format.json` says a
+  the setting get one, and deleting it brings back the defaults. No write
+  happens if `.vault/format.json` says a
   newer app owns the vault (§5b). Desktop-only, and skipped on a vault that has
   a sync remote — both for the same reasons as the `AGENTS.md` backfill below.
+  An existing note is split in two (SUB-973): **the frontmatter is never
+  touched** — those are the user's values, and a key they removed simply means
+  "default" — while the **body**, which is the app's own per-key documentation
+  and rots as settings are added, is refreshed under the known-revisions rule
+  below whenever it still byte-matches a body the app shipped. The body is
+  hashed on its own; a note with no frontmatter at all is treated as the
+  user's entirely.
 - `AGENTS.md` (vault root) + `CLAUDE.md` + `.claude/skills/setup/SKILL.md` —
   the orientation the agent CLI in the ⌘⇧T terminal HUD reads about the vault
   it is running inside (SUB-474): `AGENTS.md` is this format in one page,
@@ -2190,7 +2197,29 @@ Plain notes the app treats specially — all optional, all just files:
   the user's real types and folders proposes against an imagined schema.
   Both are written when **absent**, on every launch, not only on first run
   (`vault/seed.rs` `seed_agent_files`), so deleting one brings the shipped version
-  back; an existing file is never overwritten, whatever is in it. They carry no
+  back. **Known revisions (SUB-973)**: `seed.rs` also embeds the full text of
+  every revision of each of these files the app has ever shipped (`SEED_FILES`,
+  with the historical ones frozen under `src/seed/revisions/`). On launch, a
+  file whose text still matches *any* shipped revision is one nobody has
+  touched, so it is replaced with the current text — otherwise every existing
+  vault would keep its original `AGENTS.md` forever while the agent door it
+  documents moves on. A file matching no shipped revision is the user's and is
+  never overwritten, whatever is in it. Matching is by **bytes** of the
+  canonical form (`normalize`): trailing newlines dropped, and the app's bundle
+  identifier folded to its `com.example.substrate` placeholder, which is the
+  form the frozen revisions are stored in — a vault seeded before that fold
+  still holds the literal identifier and must keep reading as untouched. An
+  FNV-1a fingerprint over the same canonical form narrows the candidates first,
+  but a hash match alone never authorizes an overwrite, so a user edit that
+  happened to collide with a shipped fingerprint is still left alone. Only a
+  **regular file** is considered: a symlink at a seeded path — live or dangling
+  — is the user's arrangement and is neither replaced nor written through. A
+  refresh writes through `write_atomic` like any other vault write, so the
+  watcher re-indexes it as an ordinary external edit and concealment (below) is
+  unchanged. Changing a seed's text means freezing the outgoing text as a new
+  `revisions/` file and appending it in the same commit — a unit test
+  (`seed_revisions_stay_in_lockstep_with_the_seed_text`) fails until it is
+  there, since a missing entry would freeze every existing copy. They carry no
   format version of their own, so the boot-time write is guarded at vault level
   by `vaultfmt::vault_written_by_newer_app` (§5b) — a vault a newer Substrate
   has written gets no backfill. It is also **skipped whenever the vault has a

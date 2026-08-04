@@ -878,9 +878,14 @@ impl Engine {
             // ⌘⇧T terminal runs knows nothing about the vault it is sitting
             // in; vaults predating SUB-398 have no Settings.md, so the ⌘,
             // form renders only its missing state and the terminal has no
-            // configured cwd. Backfill each whenever it is absent, never
-            // overwriting — deleting one gets it back on the next launch, the
-            // same deal as a fresh vault.
+            // configured cwd. Backfill each whenever it is absent — deleting
+            // one gets it back on the next launch, the same deal as a fresh
+            // vault — and refresh one that still byte-matches a revision this
+            // app shipped (SUB-973): untouched copies would otherwise keep a
+            // years-old agent door in exactly the vaults that are in use. A
+            // file the user has edited matches no shipped revision and is
+            // never overwritten, and `Settings.md`'s frontmatter — their
+            // values — is copied through byte-for-byte either way.
             //
             // Desktop only: the phone's vault container is pre-created, so
             // this branch is the one a first-boot phone takes and its content

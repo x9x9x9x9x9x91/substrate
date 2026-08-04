@@ -78,6 +78,126 @@ pub(super) fn seed(root: &Path) {
 /// Both live in the vault so they sync with it and stay the user's to edit.
 pub(crate) const AGENTS_REL_PATH: &str = "AGENTS.md";
 
+/// FNV-1a (64-bit) over the *normalized* text — the cheap **prefilter** over
+/// the known revisions (SUB-973). Not a security primitive and deliberately not
+/// a new dependency: all it has to do is skip the byte-compare for the common
+/// case, over a handful of short revisions per file.
+///
+/// A fingerprint match never authorizes a replacement on its own. 64 bits of
+/// non-cryptographic hash means a user edit *could* collide with something the
+/// app shipped, and silently overwriting that edit is the one failure this
+/// whole mechanism must not have — so `seed_or_refresh` byte-compares the
+/// on-disk text against the revision that matched before it writes anything
+/// (review, SUB-973). The revision tables below hold the full historical text
+/// for exactly that reason.
+///
+/// The lockstep test pins each revision's hash as a literal, so the exact
+/// bytes this hashes are a committed contract — see `normalize`.
+pub(crate) fn seed_hash(text: &str) -> u64 {
+    let canonical = normalize(text);
+    let bytes = canonical.as_bytes();
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut i = 0;
+    while i < bytes.len() {
+        h ^= bytes[i] as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+        i += 1;
+    }
+    h
+}
+
+/// The app's real bundle identifier, as it appears in the seeded `AGENTS.md`
+/// where that file tells an agent where the app keeps its own state.
+const BUNDLE_ID: &str = "com.example.substrate";
+
+/// What the frozen revisions under `src/seed/revisions/` carry in its place.
+/// The public mirror rewrites the real identifier to this placeholder
+/// (`scripts/share-mirror.sh`), so the two trees would otherwise hash the same
+/// revision to two different values and the pinned literals could only be
+/// right in one of them. Canonicalizing before hashing keeps the history
+/// identical on both sides — and lets a vault seeded with either form still be
+/// recognized as untouched (SUB-973).
+const BUNDLE_ID_PLACEHOLDER: &str = "com.example.substrate";
+
+/// Canonical form of a seed text: what every hash and every byte-compare in
+/// this module actually sees.
+///
+/// Trailing newlines are dropped so a filesystem round-trip — or an editor
+/// that trims/adds a final newline on save — doesn't read as a user edit and
+/// freeze the file forever. The bundle identifier is folded to its placeholder
+/// for the reason above: a vault seeded by a private build holds the real id
+/// where the mirror's frozen revision holds the placeholder, and those are the
+/// same untouched file.
+fn normalize(text: &str) -> std::borrow::Cow<'_, str> {
+    let mut bytes = text.as_bytes();
+    while let [rest @ .., b'\n' | b'\r'] = bytes {
+        bytes = rest;
+    }
+    // safe: only whole ASCII bytes were trimmed off the end of a &str
+    let trimmed = std::str::from_utf8(bytes).unwrap_or(text);
+    if trimmed.contains(BUNDLE_ID) {
+        std::borrow::Cow::Owned(trimmed.replace(BUNDLE_ID, BUNDLE_ID_PLACEHOLDER))
+    } else {
+        std::borrow::Cow::Borrowed(trimmed)
+    }
+}
+
+/// One seeded file the app keeps current: where it lives, what the app ships
+/// today, and the full text of *every* revision ever shipped, oldest first
+/// (the last entry is `current`).
+///
+/// The refresh rule (SUB-973): on-disk text byte-identical to any entry in
+/// `revisions` is a copy the user never touched, so it is replaced with
+/// `current`; anything else is the user's file and is left alone. Before this,
+/// an existing vault kept its original seed forever while the app's copy — the
+/// agent door especially — moved on.
+///
+/// The historical revisions are the *text*, not just its fingerprint: a 64-bit
+/// FNV match is a prefilter, and only the bytes may authorize an overwrite
+/// (review, SUB-973). Each one is a frozen copy under `src/seed/revisions/` —
+/// those files are history, so they are appended to and never edited.
+pub(crate) struct SeedFile {
+    pub rel: &'static str,
+    pub current: &'static str,
+    pub revisions: &'static [&'static str],
+}
+
+/// **Lockstep contract.** Changing any seed text below means, in the same
+/// commit: freezing the outgoing text as a new `src/seed/revisions/` file,
+/// APPENDING it to that file's list, and appending its hash to the pinned
+/// history in the test — never editing an existing entry, which would erase the
+/// revision users still have on disk and freeze their copies.
+/// `seed_revisions_stay_in_lockstep_with_the_seed_text` fails until you do.
+pub(crate) const SEED_FILES: &[SeedFile] = &[
+    SeedFile {
+        rel: AGENTS_REL_PATH,
+        current: include_str!("../seed/AGENTS.md"),
+        // legacy shipped seeds (v0.16.0-v0.21.0), then r1 (SUB-973)
+        // Keep every distinct revision: an untouched vault may still hold any one.
+        revisions: &[
+            include_str!("../seed/revisions/agents-v0.16.md"),
+            include_str!("../seed/revisions/agents-v0.20.md"),
+            include_str!("../seed/revisions/agents-v0.21.md"),
+            include_str!("../seed/AGENTS.md"),
+        ],
+    },
+    SeedFile {
+        rel: CLAUDE_REL_PATH,
+        current: include_str!("../seed/CLAUDE.md"),
+        // r1
+        revisions: &[include_str!("../seed/CLAUDE.md")],
+    },
+    SeedFile {
+        rel: SETUP_SKILL_REL_PATH,
+        current: include_str!("../seed/setup-skill.md"),
+        // legacy shipped seed (v0.16.0-v0.21.0), then r1
+        revisions: &[
+            include_str!("../seed/revisions/setup-skill-v0.16.md"),
+            include_str!("../seed/setup-skill.md"),
+        ],
+    },
+];
+
 /// A one-line pointer at `AGENTS.md` under the filename Claude Code actually
 /// auto-loads (SUB-802). A pointer rather than a copy on purpose: two full
 /// copies would silently diverge the first time a user edits one.
@@ -94,45 +214,161 @@ pub(crate) const SETUP_SKILL_REL_PATH: &str = ".claude/skills/setup/SKILL.md";
 /// folders is worse than none.
 ///
 /// Written for fresh vaults by `seed` and backfilled into existing ones by
-/// `Engine::new`. Never overwrites — an existing file is the user's, whatever
-/// is in it. Absence is the only trigger, so deleting one brings it back on
-/// the next launch, the same deal as `Settings.md`.
+/// `Engine::new`. Absence is one trigger, so deleting one brings it back on
+/// the next launch, the same deal as `Settings.md`. The other is a file that
+/// still byte-matches a revision the app shipped (SUB-973): nobody has touched
+/// it, so it is refreshed to the current text rather than left to rot a
+/// version of the agent door behind the app it documents. A file matching no
+/// shipped revision is the user's, whatever is in it, and is never overwritten.
+///
+/// A refresh writes through `write_atomic` like every other vault write, so the
+/// watcher sees it as an ordinary external edit and re-indexes it.
 pub(crate) fn seed_agent_files(root: &Path) {
-    for (rel, content) in [
-        (AGENTS_REL_PATH, include_str!("../seed/AGENTS.md")),
-        (CLAUDE_REL_PATH, include_str!("../seed/CLAUDE.md")),
-        (SETUP_SKILL_REL_PATH, include_str!("../seed/setup-skill.md")),
-    ] {
-        let abs = root.join(rel);
-        if abs.exists() {
-            continue;
-        }
-        if let Some(dir) = abs.parent() {
-            fs::create_dir_all(dir).ok();
-        }
-        write_atomic(&abs, content).ok();
+    for f in SEED_FILES {
+        seed_or_refresh(&root.join(f.rel), f.current, f.revisions);
     }
 }
 
-/// The seed `Settings.md`, written for fresh vaults by `seed` and backfilled
-/// into existing ones by `Engine::new` (SUB-473) — vaults predating SUB-398
-/// have no settings note at all, which leaves the ⌘, form stuck in its
-/// missing state and the terminal with no configured cwd. Never overwrites:
-/// an existing note is the user's, whatever is in it. Absence is the only
-/// trigger, so a deleted settings note is recreated on the next launch.
-pub(crate) fn seed_settings(root: &Path) {
-    let abs = root.join(Settings::REL_PATH);
-    if abs.exists() {
-        return;
+/// Write `current` to `abs` when the file is absent, or when what is there is
+/// byte-identical (modulo trailing newlines) to a revision this app once
+/// shipped. Anything else stays put — that is a file the user owns.
+///
+/// A symlink at a seeded path — live or dangling — is the user's arrangement
+/// and is never written through or replaced.
+///
+/// Takes `revisions` rather than reading the table so the tests can hand it a
+/// simulated older revision, which is the case that cannot otherwise be
+/// exercised until the seed text changes for the first time.
+fn seed_or_refresh(abs: &Path, current: &str, revisions: &[&str]) {
+    seed_or_refresh_with(abs, current, revisions, seed_hash);
+}
+
+/// The body of `seed_or_refresh`. `hash` is a parameter only so a test can hand
+/// in a deliberately colliding stand-in and prove that the byte-compare, not
+/// the fingerprint, is what authorizes a replacement; production always passes
+/// `seed_hash`.
+fn seed_or_refresh_with(abs: &Path, current: &str, revisions: &[&str], hash: fn(&str) -> u64) {
+    // `symlink_metadata`, not `exists()`: `exists()` follows the link, so a
+    // user who symlinked AGENTS.md at a file they keep elsewhere would have
+    // that link replaced by a regular file — and a *dangling* link reads as
+    // absent, so the backfill would clobber it. Only a regular file is ours to
+    // consider (review, SUB-973).
+    match fs::symlink_metadata(abs) {
+        Ok(md) => {
+            if !md.file_type().is_file() {
+                return;
+            }
+            let Ok(raw) = fs::read_to_string(abs) else { return };
+            // the newline-normalized compare matters: without it a file that came
+            // back from disk one `\n` short would be rewritten on every launch
+            let on_disk = normalize(&raw);
+            if on_disk == normalize(current) {
+                return;
+            }
+            if matches_a_shipped_revision(&on_disk, revisions, hash) {
+                write_atomic(abs, current).ok();
+            }
+            return;
+        }
+        // absent (or unreadable) — fall through to the backfill
+        Err(_) => {}
     }
     if let Some(dir) = abs.parent() {
         fs::create_dir_all(dir).ok();
     }
-    write_atomic(
-        &abs,
-        "---\ncapture-hotkey: alt+space\nclose-to-tray: false\nterminal-actions:\n  - 'Set up vault skills: /setup'\n---\nSubstrate settings — edit and save; changes apply within a second (⌘, opens the settings form).\n\n- `capture-hotkey` — global quick-capture shortcut, works from any app (e.g. `alt+space`, `cmd+shift+j`)\n- `close-to-tray` — when `true`, closing the window keeps Substrate in the menu bar; quit from the tray menu\n- `terminal-command` — command the ⌘⇧T terminal runs on start (e.g. `claude`, `codex`); empty = plain shell\n- `terminal-cwd` — folder the terminal starts in (`~` expands); empty = the vault folder\n- `terminal-font` — font family for the terminal, e.g. a nerd font so prompt glyphs render (`JetBrainsMono Nerd Font`); empty = the app's mono\n- `terminal-dock` — which edge the ⌘⇧T terminal slides in from: `bottom` or `right`; drag its inner edge to resize either way\n- `terminal-height` — how much of the window the terminal covers when docked to the bottom (`0.2`–`0.9`, default `0.45`)\n- `terminal-width` — how much of the window the terminal covers when docked to the right (`0.2`–`0.7`, default `0.38`)\n- `terminal-actions` — command-palette quick actions, one `Label: command` per list entry; each types its command into the terminal\n- `drop-hint` — when `false`, hides the drag-over hint about copy vs ⇧-link (default `true`)\n- `mod-hud` — when `false`, holding ⌘ no longer folds out the shortcut HUD (default `true`)\n- `db-grid` — when `false`, turns off the vertical grid lines in database tables everywhere; a database's ⋯ menu can still override per database (default `true`)\n- `show-agent-files` — when `true`, lists the seeded `Settings.md`, `AGENTS.md`, and `CLAUDE.md` app files; by default they stay concealed (still normal files on disk)\n- `share-relay-url` — where “Send as link” parks the encrypted copy; the relay only ever sees ciphertext (self-host one with scripts/handoff-relay)\n- `share-relay-token` — only if your relay requires a token for uploads; recipients never need it\n",
-    )
-    .ok();
+    write_atomic(abs, current).ok();
+}
+
+/// Is `on_disk` — already normalized — a copy of something this app shipped?
+///
+/// The fingerprint only narrows the candidates; the bytes decide. Without the
+/// second half, a user edit that happened to collide with a shipped hash would
+/// be silently overwritten, which is the one thing the refresh must never do.
+fn matches_a_shipped_revision(on_disk: &str, revisions: &[&str], hash: fn(&str) -> u64) -> bool {
+    let want = hash(on_disk);
+    revisions.iter().any(|r| hash(r) == want && normalize(r) == on_disk)
+}
+
+/// The seed `Settings.md` in its two halves. The frontmatter is *defaults* —
+/// once the note exists those keys are the user's values, and a missing key
+/// just means "default" (the ⌘, sheet writes keys on change). The body is the
+/// app's own per-key documentation, which grows every time a setting is added.
+pub(crate) const SETTINGS_FRONTMATTER: &str =
+    "---\ncapture-hotkey: alt+space\nclose-to-tray: false\nterminal-actions:\n  - 'Set up vault skills: /setup'\n---\n";
+
+/// The documented-keys body. `scripts/settings-seed.test.ts` reads this literal
+/// to check every ⌘, pane key has a bullet here.
+pub(crate) const SETTINGS_BODY: &str = "Substrate settings — edit and save; changes apply within a second (⌘, opens the settings form).\n\n- `capture-hotkey` — global quick-capture shortcut, works from any app (e.g. `alt+space`, `cmd+shift+j`)\n- `close-to-tray` — when `true`, closing the window keeps Substrate in the menu bar; quit from the tray menu\n- `terminal-command` — command the ⌘⇧T terminal runs on start (e.g. `claude`, `codex`); empty = plain shell\n- `terminal-cwd` — folder the terminal starts in (`~` expands); empty = the vault folder\n- `terminal-font` — font family for the terminal, e.g. a nerd font so prompt glyphs render (`JetBrainsMono Nerd Font`); empty = the app's mono\n- `terminal-dock` — which edge the ⌘⇧T terminal slides in from: `bottom` or `right`; drag its inner edge to resize either way\n- `terminal-height` — how much of the window the terminal covers when docked to the bottom (`0.2`–`0.9`, default `0.45`)\n- `terminal-width` — how much of the window the terminal covers when docked to the right (`0.2`–`0.7`, default `0.38`)\n- `terminal-actions` — command-palette quick actions, one `Label: command` per list entry; each types its command into the terminal\n- `drop-hint` — when `false`, hides the drag-over hint about copy vs ⇧-link (default `true`)\n- `mod-hud` — when `false`, holding ⌘ no longer folds out the shortcut HUD (default `true`)\n- `db-grid` — when `false`, turns off the vertical grid lines in database tables everywhere; a database's ⋯ menu can still override per database (default `true`)\n- `show-agent-files` — when `true`, lists the seeded `Settings.md`, `AGENTS.md`, and `CLAUDE.md` app files; by default they stay concealed (still normal files on disk)\n- `share-relay-url` — where “Send as link” parks the encrypted copy; the relay only ever sees ciphertext (self-host one with scripts/handoff-relay)\n- `share-relay-token` — only if your relay requires a token for uploads; recipients never need it\n";
+
+/// Every `Settings.md` **body** the app has shipped, oldest first, in full —
+/// the same lockstep contract as `SEED_FILES`: appending only, never editing an
+/// existing entry. Kept separate from the frontmatter because only the body is
+/// the app's to refresh.
+pub(crate) const SETTINGS_BODY_REVISIONS: &[&str] = &[
+    // legacy shipped bodies (v0.18.0-v0.21.0), then r1 (SUB-973)
+    include_str!("../seed/revisions/settings-body-v0.18.md"),
+    include_str!("../seed/revisions/settings-body-v0.20.md"),
+    include_str!("../seed/revisions/settings-body-v0.21.md"),
+    SETTINGS_BODY,
+];
+
+/// The seed `Settings.md`, written for fresh vaults by `seed` and backfilled
+/// into existing ones by `Engine::new` (SUB-473) — vaults predating SUB-398
+/// have no settings note at all, which leaves the ⌘, form stuck in its
+/// missing state and the terminal with no configured cwd. Absence is one
+/// trigger, so a deleted settings note is recreated on the next launch.
+///
+/// The other is a stale but untouched **body** (SUB-973). The note is split
+/// down the middle: everything up to and including the closing `---` fence is
+/// the user's settings and is copied through byte-for-byte — a value the user
+/// changed, a key they deleted (which just means "default"), even hand-written
+/// spacing. The body below it is the app's per-key documentation, and a body
+/// that still byte-matches a revision the app shipped is refreshed to the
+/// current text, so keys added since the vault was created are documented in
+/// the file the user actually opens. A body they edited matches no shipped
+/// revision and is left alone, and a note with no frontmatter at all is
+/// treated as theirs entirely.
+pub(crate) fn seed_settings(root: &Path) {
+    seed_or_refresh_settings(root, SETTINGS_BODY_REVISIONS);
+}
+
+/// The body half of `seed_settings`, split out for the same reason as
+/// `seed_or_refresh`: the tests need to hand it a simulated older revision.
+fn seed_or_refresh_settings(root: &Path, body_revisions: &[&str]) {
+    seed_or_refresh_settings_with(root, body_revisions, seed_hash);
+}
+
+/// `hash` is injectable for the same reason as in `seed_or_refresh_with`: a
+/// test needs to prove a fingerprint collision cannot authorize a rewrite.
+fn seed_or_refresh_settings_with(root: &Path, body_revisions: &[&str], hash: fn(&str) -> u64) {
+    let abs = root.join(Settings::REL_PATH);
+    // a symlinked Settings.md is the user's arrangement — see `seed_or_refresh_with`
+    match fs::symlink_metadata(&abs) {
+        Ok(md) => {
+            if !md.file_type().is_file() {
+                return;
+            }
+            let Ok(raw) = fs::read_to_string(&abs) else { return };
+            let (fm, body) = split_frontmatter(&raw);
+            if fm.is_none()
+                || normalize(body) == normalize(SETTINGS_BODY)
+                || !matches_a_shipped_revision(&normalize(body), body_revisions, hash)
+            {
+                return;
+            }
+            // `body` is a suffix of `raw` (proptest `split_frontmatter_is_a_lossless_slice`),
+            // so everything before it — both fences and the user's props — carries over verbatim.
+            let head = &raw[..raw.len() - body.len()];
+            write_atomic(&abs, format!("{head}{SETTINGS_BODY}")).ok();
+            return;
+        }
+        // absent (or unreadable) — fall through to the whole-note seed
+        Err(_) => {}
+    }
+    if let Some(dir) = abs.parent() {
+        fs::create_dir_all(dir).ok();
+    }
+    write_atomic(&abs, format!("{SETTINGS_FRONTMATTER}{SETTINGS_BODY}")).ok();
 }
 
 /// Write `terminal-command` into the vault's `Settings.md` — the onboarding
@@ -266,6 +502,458 @@ mod tests {
         assert!(e4.root.join(Settings::REL_PATH).exists(), "fresh seed missing Settings.md");
 
         let _ = fs::remove_dir_all(&base);
+    }
+
+    /// SUB-973 **lockstep gate**: the last entry of every revision list is the
+    /// hash of the text the app ships today. Edit a seed file without appending
+    /// its predecessor's hash and this fails — which is the point: without the
+    /// old hash in the list, every existing vault's copy stops matching a
+    /// shipped revision and is frozen as if the user had written it.
+    #[test]
+    fn seed_revisions_stay_in_lockstep_with_the_seed_text() {
+        // This is deliberately a second, test-only copy of the complete
+        // history committed today. Exact equality makes dropping, replacing,
+        // or reordering any predecessor fail. When a seed changes, append its
+        // new hash to both the production table and this pinned history;
+        // changing an existing entry is never valid. (The AGENTS.md column was
+        // re-pinned once, in SUB-973's follow-up: the hash is taken over the
+        // canonical form now — see `normalize` — which moved every entry that
+        // names the bundle identifier without changing what any of them mean.)
+        const PINNED_SEED_REVISIONS: &[(&str, &[u64])] = &[
+            (
+                AGENTS_REL_PATH,
+                &[
+                    0x9c2b_89d4_8ecc_97c6,
+                    0xba02_662e_d0fc_da36,
+                    0xc1c1_f089_9128_2ddd,
+                    0xc740_6d43_a27a_f658,
+                ],
+            ),
+            (CLAUDE_REL_PATH, &[0xa5e2_3bfd_dbde_1340]),
+            (
+                SETUP_SKILL_REL_PATH,
+                &[0xfc2a_3b78_9d1d_a0e0, 0x39d9_5503_e12c_30f9],
+            ),
+        ];
+        const PINNED_SETTINGS_BODY_REVISIONS: &[u64] = &[
+            0x13f7_700a_e456_15ec,
+            0x7915_e915_0f97_fd31,
+            0x3776_ebbb_6925_e406,
+            0x56b3_956b_7aa3_3bdc,
+        ];
+
+        // the tables hold TEXT now (review, SUB-973), so the pin doubles as the
+        // check that each frozen `src/seed/revisions/` file really is the
+        // historical revision it claims to be: hash it and it must equal the
+        // literal shipped under that version.
+        let hashes = |revs: &[&str]| revs.iter().map(|r| seed_hash(r)).collect::<Vec<u64>>();
+
+        for f in SEED_FILES {
+            let (_, pinned) = PINNED_SEED_REVISIONS
+                .iter()
+                .find(|(rel, _)| *rel == f.rel)
+                .unwrap_or_else(|| panic!("missing pinned revision history for {}", f.rel));
+            assert!(
+                revision_history_matches_pin(&hashes(f.revisions), pinned),
+                "{} revision history changed: retain all {} pinned revisions in order and \
+                 append only — freeze the outgoing text under src/seed/revisions/, append it \
+                 to `revisions`, and append {:#018x} here",
+                f.rel,
+                pinned.len(),
+                seed_hash(f.current)
+            );
+            assert_eq!(
+                f.revisions.last().map(|r| normalize(r)),
+                Some(normalize(f.current)),
+                "{}'s last revision must be the text the app ships today",
+                f.rel
+            );
+            let mut seen = hashes(f.revisions);
+            seen.sort_unstable();
+            seen.dedup();
+            assert_eq!(seen.len(), f.revisions.len(), "duplicate revision for {}", f.rel);
+        }
+        assert!(
+            revision_history_matches_pin(
+                &hashes(SETTINGS_BODY_REVISIONS),
+                PINNED_SETTINGS_BODY_REVISIONS
+            ),
+            "Settings.md body revision history changed: retain all {} pinned revisions in \
+             order and append only — freeze the outgoing body under src/seed/revisions/, \
+             append it to SETTINGS_BODY_REVISIONS, and append {:#018x} here",
+            PINNED_SETTINGS_BODY_REVISIONS.len(),
+            seed_hash(SETTINGS_BODY)
+        );
+        assert_eq!(
+            SETTINGS_BODY_REVISIONS.last().map(|r| normalize(r)),
+            Some(normalize(SETTINGS_BODY)),
+            "the last Settings.md body revision must be the body the app ships today"
+        );
+        let mut seen = hashes(SETTINGS_BODY_REVISIONS);
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(
+            seen.len(),
+            SETTINGS_BODY_REVISIONS.len(),
+            "duplicate Settings.md body revision"
+        );
+        // the body is hashed on its own, so the whole-file text must never
+        // collide with it — otherwise a frontmatter-less note would look like
+        // an unedited body
+        assert_ne!(
+            seed_hash(SETTINGS_BODY),
+            seed_hash(&format!("{SETTINGS_FRONTMATTER}{SETTINGS_BODY}"))
+        );
+    }
+
+    fn revision_history_matches_pin(actual: &[u64], pinned: &[u64]) -> bool {
+        actual.len() == pinned.len() && actual.starts_with(pinned)
+    }
+
+    #[test]
+    fn revision_history_guard_rejects_dropped_or_replaced_predecessors() {
+        let pinned = [1, 2, 3];
+        assert!(revision_history_matches_pin(&[1, 2, 3], &pinned));
+        assert!(!revision_history_matches_pin(&[1, 3], &pinned));
+        assert!(!revision_history_matches_pin(&[1, 9, 3], &pinned));
+        assert!(!revision_history_matches_pin(&[1, 2, 3, 4], &pinned));
+    }
+
+    /// The hash is only useful if a filesystem round-trip — or an editor that
+    /// trims or adds the final newline on save — still reads as "untouched".
+    #[test]
+    fn seed_hash_ignores_trailing_newlines_only() {
+        assert_eq!(seed_hash("a\nb\n"), seed_hash("a\nb"));
+        assert_eq!(seed_hash("a\nb\n"), seed_hash("a\nb\n\n\n"));
+        assert_eq!(seed_hash("a\nb\n"), seed_hash("a\nb\r\n"));
+        // anything else is a real edit
+        assert_ne!(seed_hash("a\nb\n"), seed_hash("a\n b\n"));
+        assert_ne!(seed_hash("a\nb\n"), seed_hash("\na\nb\n"));
+        assert_ne!(seed_hash("a\nb\n"), seed_hash("a\nB\n"));
+    }
+
+    /// SUB-973: an untouched seed file is refreshed when the app's copy moves
+    /// on; an edited one never is; a missing one is still backfilled (SUB-474's
+    /// contract). The "old revision" is simulated by pinning a hash of text the
+    /// app no longer ships — the same shape a real appended revision has.
+    #[test]
+    fn stale_unedited_seed_files_are_refreshed_and_edited_ones_are_not() {
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path();
+
+        // an old shipped revision of AGENTS.md — the state every existing
+        // vault is in. Pinned as a revision the way a real seed change appends
+        // one, since the shipped list has only r1 until the text first changes.
+        let old_text = "# Substrate vault (an older shipped revision)\n";
+        let current = SEED_FILES[0].current;
+        let shipped = [old_text, current];
+        let abs = root.join(AGENTS_REL_PATH);
+
+        // upgrade: on-disk text hashing to a known revision is replaced
+        fs::write(&abs, old_text).unwrap();
+        seed_or_refresh(&abs, current, &shipped);
+        assert_eq!(
+            fs::read_to_string(&abs).unwrap(),
+            current,
+            "an untouched copy of an older revision was not upgraded"
+        );
+
+        // …and once upgraded it is stable: a second pass rewrites nothing
+        let stamp = fs::metadata(&abs).unwrap().modified().unwrap();
+        seed_or_refresh(&abs, current, &shipped);
+        assert_eq!(fs::read_to_string(&abs).unwrap(), current);
+        assert_eq!(fs::metadata(&abs).unwrap().modified().unwrap(), stamp, "rewrote a current file");
+
+        // edited: one appended line means no revision matches, so it stays
+        let edited = format!("{old_text}my own notes\n");
+        fs::write(&abs, &edited).unwrap();
+        seed_or_refresh(&abs, current, &shipped);
+        assert_eq!(fs::read_to_string(&abs).unwrap(), edited);
+
+        // missing: still backfilled, and into a folder that doesn't exist yet
+        let nested = root.join("nested").join(SETUP_SKILL_REL_PATH);
+        seed_or_refresh(&nested, current, &shipped);
+        assert_eq!(fs::read_to_string(&nested).unwrap(), current);
+
+        // the real seeding path, end to end: missing → backfilled, current →
+        // untouched, edited → untouched
+        let v = t.path().join("vault");
+        fs::create_dir_all(&v).unwrap();
+        seed_agent_files(&v);
+        for f in SEED_FILES {
+            assert_eq!(fs::read_to_string(v.join(f.rel)).unwrap(), f.current, "{}", f.rel);
+        }
+        let mine = "# hands off\n";
+        fs::write(v.join(CLAUDE_REL_PATH), mine).unwrap();
+        // a trailing-newline round-trip on another file must still count as untouched
+        fs::write(v.join(AGENTS_REL_PATH), format!("{}\n\n", SEED_FILES[0].current)).unwrap();
+        seed_agent_files(&v);
+        assert_eq!(fs::read_to_string(v.join(CLAUDE_REL_PATH)).unwrap(), mine);
+        assert_eq!(
+            fs::read_to_string(v.join(AGENTS_REL_PATH)).unwrap(),
+            format!("{}\n\n", SEED_FILES[0].current),
+            "a newline-only difference was rewritten — churn on every launch"
+        );
+    }
+
+    /// SUB-973 follow-up: the frozen revisions are stored with the bundle
+    /// identifier in placeholder form (the public mirror rewrites it, and the
+    /// pinned hashes have to be right in both trees). Real vaults out there
+    /// were seeded by private builds and carry the *real* identifier, so
+    /// canonicalizing before hashing is what keeps those copies recognizable
+    /// as untouched — without it every one of them would freeze forever.
+    #[test]
+    fn a_vault_seeded_with_the_real_bundle_id_still_matches_a_placeholder_revision() {
+        // In a build whose source has already been rewritten to the
+        // placeholder there is no fold left to exercise — the two forms are
+        // the same string and every other test here already covers the plain
+        // byte-compare.
+        if BUNDLE_ID == BUNDLE_ID_PLACEHOLDER {
+            return;
+        }
+        let t = tempfile::tempdir().unwrap();
+        let abs = t.path().join(AGENTS_REL_PATH);
+
+        // as stored in src/seed/revisions/: placeholder form
+        let stored = "# Substrate vault\n\nState lives under `com.example.substrate`.\n";
+        // as genuinely shipped into a vault by a private build: real form
+        let on_disk = stored.replace(BUNDLE_ID_PLACEHOLDER, BUNDLE_ID);
+        assert_ne!(on_disk, stored, "the two forms must actually differ");
+        let current = "# Substrate vault (r2)\n";
+        let shipped = [stored, current];
+
+        fs::write(&abs, &on_disk).unwrap();
+        seed_or_refresh(&abs, current, &shipped);
+        assert_eq!(
+            fs::read_to_string(&abs).unwrap(),
+            current,
+            "a vault holding the real bundle id was not recognized as an untouched seed"
+        );
+
+        // …and the fold is not a licence to overwrite: the same file with one
+        // edited line matches no revision in either form and stays put
+        let edited = format!("{on_disk}my own notes\n");
+        fs::write(&abs, &edited).unwrap();
+        seed_or_refresh(&abs, current, &shipped);
+        assert_eq!(fs::read_to_string(&abs).unwrap(), edited, "an edited file was overwritten");
+    }
+
+    /// SUB-973 review: a seeded path the user has turned into a symlink is
+    /// their arrangement, not a stale seed. `exists()` follows links, so the
+    /// refresh would have replaced a live link with a regular file — quietly
+    /// detaching the file the user actually keeps — and the backfill would have
+    /// clobbered a dangling one, since a broken link reads as absent.
+    #[test]
+    #[cfg(unix)]
+    fn symlinked_seed_paths_are_left_alone_live_or_dangling() {
+        use std::os::unix::fs::symlink;
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path();
+        let current = SEED_FILES[0].current;
+        let old_text = "# Substrate vault (an older shipped revision)\n";
+        let shipped = [old_text, current];
+
+        // LIVE: the target even holds an old shipped revision, so the refresh
+        // rule would otherwise fire on it
+        let target = root.join("my real agents file.md");
+        fs::write(&target, old_text).unwrap();
+        let live = root.join("live-AGENTS.md");
+        symlink(&target, &live).unwrap();
+        seed_or_refresh(&live, current, &shipped);
+        assert!(
+            fs::symlink_metadata(&live).unwrap().file_type().is_symlink(),
+            "a live symlink was replaced by a regular file"
+        );
+        assert_eq!(
+            fs::read_to_string(&target).unwrap(),
+            old_text,
+            "the refresh wrote through the symlink into the user's real file"
+        );
+
+        // DANGLING: nothing is created at the link's target and the link stays
+        let dangling = root.join("dangling-AGENTS.md");
+        symlink(root.join("nowhere.md"), &dangling).unwrap();
+        seed_or_refresh(&dangling, current, &shipped);
+        assert!(
+            fs::symlink_metadata(&dangling).unwrap().file_type().is_symlink(),
+            "a dangling symlink was clobbered by the backfill"
+        );
+        assert!(!root.join("nowhere.md").exists(), "the backfill wrote through a dangling symlink");
+
+        // regular-file semantics are unchanged: a stale copy still refreshes…
+        let plain = root.join("plain-AGENTS.md");
+        fs::write(&plain, old_text).unwrap();
+        seed_or_refresh(&plain, current, &shipped);
+        assert_eq!(fs::read_to_string(&plain).unwrap(), current);
+        // …an edited one still does not…
+        let mine = format!("{old_text}my own notes\n");
+        fs::write(&plain, &mine).unwrap();
+        seed_or_refresh(&plain, current, &shipped);
+        assert_eq!(fs::read_to_string(&plain).unwrap(), mine);
+        // …and a missing one is still backfilled
+        let absent = root.join("absent-AGENTS.md");
+        seed_or_refresh(&absent, current, &shipped);
+        assert_eq!(fs::read_to_string(&absent).unwrap(), current);
+
+        // Settings.md goes through its own function and needs the same guard
+        let linked = root.join("linked-vault");
+        fs::create_dir_all(&linked).unwrap();
+        let settings_target = root.join("my real settings.md");
+        let old_body = "Substrate settings — an older shipped revision.\n";
+        fs::write(&settings_target, format!("{SETTINGS_FRONTMATTER}{old_body}")).unwrap();
+        symlink(&settings_target, linked.join(Settings::REL_PATH)).unwrap();
+        let with_old: Vec<&str> =
+            std::iter::once(old_body).chain(SETTINGS_BODY_REVISIONS.iter().copied()).collect();
+        seed_or_refresh_settings(&linked, &with_old);
+        assert!(
+            fs::symlink_metadata(linked.join(Settings::REL_PATH)).unwrap().file_type().is_symlink(),
+            "a live Settings.md symlink was replaced by a regular file"
+        );
+        assert_eq!(
+            fs::read_to_string(&settings_target).unwrap(),
+            format!("{SETTINGS_FRONTMATTER}{old_body}"),
+            "the settings refresh wrote through the symlink"
+        );
+
+        let dangling_vault = root.join("dangling-vault");
+        fs::create_dir_all(&dangling_vault).unwrap();
+        symlink(root.join("no-settings.md"), dangling_vault.join(Settings::REL_PATH)).unwrap();
+        seed_settings(&dangling_vault);
+        assert!(
+            fs::symlink_metadata(dangling_vault.join(Settings::REL_PATH))
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "a dangling Settings.md symlink was clobbered by the seed"
+        );
+        assert!(!root.join("no-settings.md").exists());
+    }
+
+    /// SUB-973 review: the fingerprint is a prefilter, not the authorization.
+    /// A colliding user edit must not be overwritten — the bytes decide.
+    ///
+    /// A real FNV-1a-64 collision is impractical to construct here, and
+    /// weakening the hash to make one easy would be testing a different
+    /// function, so the hash is injected instead: `collide` maps *everything*
+    /// to one value, the worst case the production hash could ever degrade to.
+    #[test]
+    fn a_fingerprint_collision_does_not_authorize_a_replacement() {
+        fn collide(_: &str) -> u64 {
+            0
+        }
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path();
+        let current = SEED_FILES[0].current;
+        let old_text = "# Substrate vault (an older shipped revision)\n";
+        let shipped = [old_text, current];
+        let abs = root.join(AGENTS_REL_PATH);
+
+        // the user's own file: it "hashes" to a shipped revision, but no
+        // revision's bytes match it, so it stays exactly as written
+        let mine = "# my own AGENTS.md\n";
+        fs::write(&abs, mine).unwrap();
+        seed_or_refresh_with(&abs, current, &shipped, collide);
+        assert_eq!(
+            fs::read_to_string(&abs).unwrap(),
+            mine,
+            "a fingerprint collision overwrote a file the user wrote"
+        );
+
+        // the seam is real, not a no-op: under the same colliding hash, bytes
+        // that DO match a shipped revision still refresh
+        fs::write(&abs, old_text).unwrap();
+        seed_or_refresh_with(&abs, current, &shipped, collide);
+        assert_eq!(fs::read_to_string(&abs).unwrap(), current);
+
+        // the Settings.md body half has the same rule
+        let v = root.join("vault");
+        fs::create_dir_all(&v).unwrap();
+        let user_fm = "---\ncapture-hotkey: cmd+shift+j\n---\n";
+        let old_body = "Substrate settings — an older shipped revision.\n";
+        let bodies = [old_body, SETTINGS_BODY];
+        let my_body = "my own notes about these settings\n";
+        fs::write(v.join(Settings::REL_PATH), format!("{user_fm}{my_body}")).unwrap();
+        seed_or_refresh_settings_with(&v, &bodies, collide);
+        assert_eq!(
+            fs::read_to_string(v.join(Settings::REL_PATH)).unwrap(),
+            format!("{user_fm}{my_body}"),
+            "a fingerprint collision overwrote a settings body the user wrote"
+        );
+
+        fs::write(v.join(Settings::REL_PATH), format!("{user_fm}{old_body}")).unwrap();
+        seed_or_refresh_settings_with(&v, &bodies, collide);
+        assert_eq!(
+            fs::read_to_string(v.join(Settings::REL_PATH)).unwrap(),
+            format!("{user_fm}{SETTINGS_BODY}")
+        );
+    }
+
+    /// SUB-973, the Settings.md split: the body is the app's documentation and
+    /// refreshes; the frontmatter is the user's values and is copied through
+    /// byte-for-byte, missing keys and all.
+    #[test]
+    fn settings_body_refreshes_while_frontmatter_is_preserved_byte_for_byte() {
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path();
+
+        // an existing vault whose body is a shipped revision but whose
+        // frontmatter is entirely the user's: a changed value, a key the seed
+        // never wrote, and two seeded keys deleted (= defaults)
+        let user_fm = "---\ncapture-hotkey: cmd+shift+j\nterminal-command: codex\n---\n";
+        let old_body = "Substrate settings — an older shipped revision.\n\n- `capture-hotkey` — global quick-capture shortcut\n";
+        fs::write(root.join(Settings::REL_PATH), format!("{user_fm}{old_body}")).unwrap();
+
+        // pin the old body as a shipped revision the way a real append does
+        let with_old: Vec<&str> =
+            std::iter::once(old_body).chain(SETTINGS_BODY_REVISIONS.iter().copied()).collect();
+        seed_or_refresh_settings(root, &with_old);
+
+        let after = fs::read_to_string(root.join(Settings::REL_PATH)).unwrap();
+        assert!(after.starts_with(user_fm), "frontmatter was not preserved byte-for-byte: {after}");
+        assert!(after.ends_with(SETTINGS_BODY), "body was not refreshed: {after}");
+        assert!(after.contains("terminal-command: codex"), "user value lost: {after}");
+        // the keys the user removed stay removed — they are only *documented*
+        // in the refreshed body, never re-added to their frontmatter
+        let (fm_after, _) = split_frontmatter(&after);
+        assert!(!fm_after.unwrap().contains("close-to-tray"), "a deleted key came back: {after}");
+        assert!(!fm_after.unwrap().contains("terminal-actions"), "a deleted key came back: {after}");
+
+        // the shipped path itself: a current body is left exactly as it is…
+        let before = fs::read_to_string(root.join(Settings::REL_PATH)).unwrap();
+        seed_settings(root);
+        assert_eq!(fs::read_to_string(root.join(Settings::REL_PATH)).unwrap(), before);
+
+        // …an edited body is never touched…
+        let edited = format!("{user_fm}my own notes about these settings\n");
+        fs::write(root.join(Settings::REL_PATH), &edited).unwrap();
+        seed_or_refresh_settings(root, &with_old);
+        assert_eq!(fs::read_to_string(root.join(Settings::REL_PATH)).unwrap(), edited);
+
+        // …an old body under a *hand-written* frontmatter still refreshes only
+        // the body, fences and spacing included
+        let odd_fm = "---\n\ncapture-hotkey:   alt+space\n\n---\n";
+        fs::write(root.join(Settings::REL_PATH), format!("{odd_fm}{old_body}")).unwrap();
+        seed_or_refresh_settings(root, &with_old);
+        assert_eq!(
+            fs::read_to_string(root.join(Settings::REL_PATH)).unwrap(),
+            format!("{odd_fm}{SETTINGS_BODY}"),
+            "hand-written frontmatter was reformatted"
+        );
+
+        // …a note with no frontmatter at all is the user's entirely, even if
+        // its whole text happens to be the seeded body…
+        fs::write(root.join(Settings::REL_PATH), SETTINGS_BODY).unwrap();
+        seed_settings(root);
+        assert_eq!(fs::read_to_string(root.join(Settings::REL_PATH)).unwrap(), SETTINGS_BODY);
+
+        // …and a missing note is still seeded whole (SUB-473)
+        fs::remove_file(root.join(Settings::REL_PATH)).unwrap();
+        seed_settings(root);
+        assert_eq!(
+            fs::read_to_string(root.join(Settings::REL_PATH)).unwrap(),
+            format!("{SETTINGS_FRONTMATTER}{SETTINGS_BODY}")
+        );
+        assert_eq!(Settings::load(root).capture_hotkey, Settings::DEFAULT_HOTKEY);
     }
 
     #[test]
