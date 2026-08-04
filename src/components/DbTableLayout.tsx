@@ -16,6 +16,17 @@ import SelectMenu, { anchorFrom, MultiValues, optionColor, OptionDot, OptionPill
 import { ChevronIcon, PlusIcon, XIcon } from "./Icons";
 import { AGG_OPTIONS, ColMenu, openExternalLink, WIN_INITIAL, type Focus } from "./DbPaneShared";
 import { byFoldedKey, isBuiltinDateName } from "../lib/schemalookup";
+import type { HopDir } from "../lib/cellhop";
+
+/** the open cell editor (SUB-947 adds the two ways it can open pre-filled:
+    `seed` = the keystroke that opened it, `caretAtEnd` = F2's edit-in-place) */
+type EditCellState = {
+  path: string;
+  key: string;
+  anchor: AnchorRect;
+  seed?: string;
+  caretAtEnd?: boolean;
+};
 
 /** The table layout (SUB-621 split out of DatabasePane): the windowed
     thead/tbody/tfoot render, its group headers and spacers, the aggregation
@@ -88,6 +99,7 @@ export default function DbTableLayout({
   schemaEditCell,
   setSchemaEditCell,
   startEdit,
+  hopEdit,
   commitCell,
   commitListCell,
   toggleCheckboxCell,
@@ -185,11 +197,18 @@ export default function DbTableLayout({
       still showing this count */
   bulkClosing: number;
   clearSel: () => void;
-  editCell: { path: string; key: string; anchor: AnchorRect } | null;
-  setEditCell: (v: { path: string; key: string; anchor: AnchorRect } | null) => void;
+  editCell: EditCellState | null;
+  setEditCell: (v: EditCellState | null) => void;
   schemaEditCell: boolean;
   setSchemaEditCell: (v: boolean) => void;
-  startEdit: (path: string, key: string, el: Element | null | undefined) => void;
+  startEdit: (
+    path: string,
+    key: string,
+    el: Element | null | undefined,
+    opts?: { seed?: string; caretAtEnd?: boolean }
+  ) => void;
+  /** SUB-947: an editor committed and asked to carry on to the next cell */
+  hopEdit: (from: { path: string; key: string }, dir: HopDir) => void;
   commitCell: (value: string | null) => void;
   commitListCell: (path: string, key: string, values: string[]) => void;
   toggleCheckboxCell: (path: string, key: string) => void;
@@ -575,6 +594,10 @@ export default function DbTableLayout({
                     setEditCell(null);
                     setSchemaEditCell(false);
                   };
+                  // SUB-947: Enter/Tab in this cell's editor commit and carry
+                  // on to the next one. Bound to the CELL, not the editor —
+                  // the editor has already closed itself by the time this runs
+                  const hop = (dir: HopDir) => hopEdit({ path: n.path, key: c }, dir);
                   // SUB-945: a write that just landed here lights the cell for
                   // one fade -- the confirmation a single-cell edit never got
                   const flashed = lastWritten?.path === n.path && lastWritten.key === c;
@@ -695,6 +718,8 @@ export default function DbTableLayout({
                             values={propList(n.props, actualKey)}
                             candidates={relationCandidates(cschema.type)}
                             targetType={cschema.type}
+                            seed={editCell.seed}
+                            onHop={hop}
                             onCommit={(vals) => commitListCell(n.path, c, vals)}
                             onCreate={(t) => createRelationTarget(n.path, c, cschema.type!, t)}
                             onClear={() => commitCell(null)}
@@ -705,6 +730,8 @@ export default function DbTableLayout({
                           <DateMenu
                             anchor={editCell.anchor}
                             value={val}
+                            seed={editCell.seed}
+                            onHop={hop}
                             onCommit={(v) => commitCell(v)}
                             onClear={() => commitCell(null)}
                             onEditSchema={() => setSchemaEditCell(true)}
@@ -715,6 +742,8 @@ export default function DbTableLayout({
                             anchor={editCell.anchor}
                             value={val}
                             exists={val ? fileOk[val] ?? null : null}
+                            seed={editCell.seed}
+                            onHop={hop}
                             onCommit={(v) => commitCell(v)}
                             onClear={() => commitCell(null)}
                             onEditSchema={() => setSchemaEditCell(true)}
@@ -739,6 +768,9 @@ export default function DbTableLayout({
                             rollupPropsFor={rollupPropsFor}
                             label={`Pick ${c}`}
                             cell
+                            seed={editCell.seed}
+                            caretAtEnd={editCell.caretAtEnd}
+                            onHop={hop}
                             values={ckind === "multi" ? multiVals : undefined}
                             onToggle={
                               ckind === "multi"

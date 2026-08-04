@@ -10,12 +10,18 @@ import {
 import { dateRangeValue, splitDateRange } from "../lib/calendar";
 import { formatDateTimeHuman } from "../lib/display";
 import type { AnchorRect } from "./SelectMenu";
+import type { HopDir } from "../lib/cellhop";
 
 interface DateMenuProps {
   anchor: AnchorRect;
   /** current value — ISO day with an optional ` HH:MM` (SUB-270), or any
       leftover free text */
   value: string;
+  /** SUB-947 type-to-replace: the keystroke that opened this picker, seeded
+      into the date input — typing `2` over a date cell starts parsing there */
+  seed?: string;
+  /** SUB-947: Enter/Tab commit AND carry the editor onward (see SelectMenu) */
+  onHop?: (dir: HopDir) => void;
   onCommit: (iso: string) => void;
   onClear?: () => void;
   /** open the shared schema editor (change this prop's kind/options) */
@@ -35,13 +41,17 @@ const WEEKDAYS = ["M", "T", "W", "T", "F", "S", "S"];
 export default function DateMenu({
   anchor,
   value,
+  seed,
+  onHop,
   onCommit,
   onClear,
   onEditSchema,
   aboveOverlay,
   onClose,
 }: DateMenuProps) {
-  const [text, setText] = useState("");
+  // SUB-947: a type-to-replace keystroke lands in the parse input, so the
+  // date reads as typed-over rather than picked from the grid
+  const [text, setText] = useState(seed ?? "");
   // the current value, split (SUB-270/SUB-596): a timed value still opens on
   // its day, grid picks keep its time, and a range opens showing both ends
   const valueSplit = splitDateRange(value);
@@ -142,6 +152,17 @@ export default function DateMenu({
       e.preventDefault();
       if (text.trim()) commitText();
       else pick(cursor);
+      // SUB-947: same commit, then carry the editor down the column. A range
+      // being drawn is mid-gesture — the second click closes it, so no hop.
+      if (!ranging) onHop?.(e.shiftKey ? "up" : "down");
+    } else if (e.key === "Tab" && onHop) {
+      // SUB-947: commit what's typed (an untouched picker just closes) and
+      // land one cell over — the arrows belong to the calendar grid, so Tab
+      // is the only horizontal hop a date cell offers
+      e.preventDefault();
+      if (text.trim()) commitText();
+      else onClose();
+      onHop(e.shiftKey ? "left" : "right");
     } else if (e.key === "ArrowLeft") {
       e.preventDefault();
       moveCursor(-1);

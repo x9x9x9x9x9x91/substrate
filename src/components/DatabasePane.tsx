@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import type { AggKind, DbIcon, DbLayout, NoteMeta, NumberFormat, PropKind, PropSchema, PropValue, RollupConfig, SavedView, SavedViewSort, SchemaConfig, SelectOption, ViewPref } from "../lib/types";
 import { foldedPropKey, foldedPropStr, typeHome } from "../lib/types";
 import { isTyping, isTypingNow } from "../lib/dom";
+import { isPrintableKey, nextEditableCell, type HopDir, type HopGrid } from "../lib/cellhop";
 import { cycleSortKeys, restingCmp, sortCmpFor } from "../lib/dbsort";
 import { rangePaths, togglePath } from "../lib/bulkselect";
 import { aggregationKind, aggregateColumnsUnits, formatUnit, normalizeNumberInput, updateAggregation } from "../lib/aggregate";
@@ -587,6 +588,21 @@ export default function DatabasePane({
     path: string;
     key: string;
     anchor: AnchorRect;
+    /** SUB-947 type-to-replace: the keystroke that opened this editor */
+    seed?: string;
+    /** SUB-947 (F2): open on the current value, caret at its end */
+    caretAtEnd?: boolean;
+  } | null>(null);
+  /** SUB-947: where a commit-and-move is headed. The editor for the target
+      cell can only open once that cell is PAINTED, and in a windowed table
+      (SUB-310) the hop routinely lands on a row that isn't in the DOM yet —
+      so the landing is a small state machine, not a straight call. */
+  const [pendingEdit, setPendingEdit] = useState<{
+    c: number;
+    r: number;
+    path: string;
+    key: string;
+    tries: number;
   } | null>(null);
   // cell whose kind/options editor was opened from a date/file menu
   const [schemaEditCell, setSchemaEditCell] = useState(false);
@@ -1154,9 +1170,15 @@ export default function DatabasePane({
   const diskPropsOf = (path: string): Record<string, unknown> =>
     diskNotes.find((n) => n.path === path)?.props ?? {};
 
-  const startEdit = (path: string, key: string, el: Element | null | undefined) => {
+  const startEdit = (
+    path: string,
+    key: string,
+    el: Element | null | undefined,
+    // SUB-947: a keystroke that opened the editor, or F2's edit-in-place
+    opts?: { seed?: string; caretAtEnd?: boolean }
+  ) => {
     if (!el) return;
-    setEditCell({ path, key, anchor: anchorFrom(el) });
+    setEditCell({ path, key, anchor: anchorFrom(el), ...opts });
   };
 
   // SUB-240: one funnel for cell writes — a failure used to die on the
@@ -1293,6 +1315,68 @@ export default function DatabasePane({
   const commitListCell = (path: string, key: string, values: string[]) => {
     writeCell(path, key, propListValue(values));
   };
+
+  // SUB-947: the grid the hop arithmetic walks — the columns the view SHOWS,
+  // the rows it currently lists, and each column's kind so derived (rollup)
+  // columns can be stepped over.
+  const hopGrid = (): HopGrid => ({
+    cols: shown.length,
+    rows: rows.length,
+    kindAt: (i) => {
+      const key = shown[i];
+      return key ? byFoldedKey(typeSchema, key)?.kind : undefined;
+    },
+  });
+
+  /** Enter/Tab inside an editor: the value has already been committed through
+      the one write door (SUB-946), and this carries the editor to the next
+      cell. Focus moves first — a windowed table (SUB-310) may not have the
+      target row in the DOM at all, and the focus effect is what scrolls and
+      repaints the window around it. `pendingEdit` then opens the editor on
+      the frame the cell actually exists. */
+  const hopEdit = (from: { path: string; key: string }, dir: HopDir) => {
+    if (layout !== "table") return;
+    const c = shown.indexOf(from.key) + 1;
+    const r = rows.findIndex((n) => n.path === from.path);
+    if (c < 1 || r < 0) return;
+    const next = nextEditableCell({ c, r }, dir, hopGrid());
+    // the end of the column/table: the value is saved, the editor closes, and
+    // focus stays where it was — the spreadsheet behaviour
+    if (!next) return;
+    const path = rows[next.r]?.path;
+    const key = shown[next.c - 1];
+    if (!path || !key) return;
+    setFocus({ c: next.c, r: next.r, path });
+    setPendingEdit({ c: next.c, r: next.r, path, key, tries: 0 });
+  };
+
+  // SUB-947: land the hop. The target cell may need a repaint (windowed
+  // table) or simply a frame; retry a bounded number of times against the
+  // live DOM, and give up quietly rather than leave a hop half-done.
+  useEffect(() => {
+    if (!pendingEdit) return;
+    const { c, r, path, key, tries } = pendingEdit;
+    const el = bodyRef.current?.querySelector<HTMLElement>(
+      `[data-fc="${c}"][data-fr="${r}"]`
+    );
+    // never open an editor over a row that moved under the coordinate
+    if (el && el.dataset.focusPath === path) {
+      setPendingEdit(null);
+      const kind = byFoldedKey(typeSchema, key)?.kind;
+      // a checkbox is toggled, never typed into (SUB-173) — the hop lands
+      // focus on it and stops there rather than opening a text editor
+      if (kind !== "checkbox" && kind !== "rollup") startEdit(path, key, el);
+      return;
+    }
+    if (tries > 8) {
+      setPendingEdit(null);
+      return;
+    }
+    winSyncRef.current();
+    const t = setTimeout(() => setPendingEdit((cur) => (cur ? { ...cur, tries: cur.tries + 1 } : cur)), 16);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingEdit, win, rows]);
 
   // checkbox cells (SUB-173): one click toggles and saves immediately, no
   // editor popup — checked stores the YAML scalar `true`, unchecked REMOVES
@@ -1548,8 +1632,19 @@ export default function DatabasePane({
         target?.closest("button, a[href], [role='button'], summary")
       )
         return;
+      // SUB-947: on a focused DATA cell of a table, a bare letter is the
+      // start of a value, not vim nav — h/j/k/l have to be typeable into a
+      // cell. The arrows still move there, and hjkl keeps moving everywhere
+      // else (the title column, boards, galleries, lists).
+      const vimNav = !(layout === "table" && focus && focus.c > 0);
       const horiz =
-        layout === "list" ? 0 : e.key === "ArrowRight" || e.key === "l" ? 1 : e.key === "ArrowLeft" || e.key === "h" ? -1 : 0;
+        layout === "list"
+          ? 0
+          : e.key === "ArrowRight" || (vimNav && e.key === "l")
+            ? 1
+            : e.key === "ArrowLeft" || (vimNav && e.key === "h")
+              ? -1
+              : 0;
       // gallery wraps a flat row index into a responsive grid — column count
       // comes from the rendered tracks, so nav always matches what's on screen
       const galleryCols = () => {
@@ -1557,7 +1652,12 @@ export default function DatabasePane({
         if (!grid) return 1;
         return Math.max(1, getComputedStyle(grid).gridTemplateColumns.split(" ").length);
       };
-      const vert = e.key === "ArrowDown" || e.key === "j" ? 1 : e.key === "ArrowUp" || e.key === "k" ? -1 : 0;
+      const vert =
+        e.key === "ArrowDown" || (vimNav && e.key === "j")
+          ? 1
+          : e.key === "ArrowUp" || (vimNav && e.key === "k")
+            ? -1
+            : 0;
       if (horiz || vert) {
         e.preventDefault();
         const cur = focus ?? { c: 0, r: -1 };
@@ -1628,11 +1728,38 @@ export default function DatabasePane({
         setFocus(null);
         const active = document.activeElement;
         if (active instanceof HTMLElement && active.matches("[data-fc][data-fr]")) active.blur();
+        return;
+      }
+      // SUB-947, the two openers a spreadsheet has that this grid lacked.
+      // Both need a focused DATA cell in a table, and both refuse the cells
+      // with no text editor behind them (checkbox toggles, rollup is derived).
+      if (layout !== "table" || !focus || focus.c === 0) return;
+      const n = rows[focus.r];
+      const key = shown[focus.c - 1];
+      if (!n || !key) return;
+      const kind = byFoldedKey(typeSchema, key)?.kind;
+      if (kind === "checkbox" || kind === "rollup") return;
+      const cellEl = () =>
+        bodyRef.current?.querySelector(`[data-fc="${focus.c}"][data-fr="${focus.r}"]`);
+      // F2: edit what's there, caret at the end — the one opener that does
+      // NOT replace, which is exactly why a spreadsheet has it
+      if (e.key === "F2") {
+        e.preventDefault();
+        startEdit(n.path, key, cellEl(), { caretAtEnd: true });
+        return;
+      }
+      // type-to-replace: a printable key opens the editor already carrying it.
+      // Free text/number cells read it as the new value; optioned, date and
+      // relation cells read it as the picker's filter query.
+      if (isPrintableKey(e)) {
+        e.preventDefault();
+        startEdit(n.path, key, cellEl(), { seed: e.key });
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [layout, shown, rows, boardCols, focus, editCell, onOpenNote]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout, shown, rows, boardCols, focus, editCell, onOpenNote, typeSchema]);
 
   const focusedCls = (c: number, r: number) =>
     focus && focus.c === c && focus.r === r ? " focused" : "";
@@ -2271,6 +2398,7 @@ export default function DatabasePane({
       schemaEditCell={schemaEditCell}
       setSchemaEditCell={setSchemaEditCell}
       startEdit={startEdit}
+      hopEdit={hopEdit}
       commitCell={commitCell}
       commitListCell={commitListCell}
       toggleCheckboxCell={toggleCheckboxCell}

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { RelationCandidate } from "../lib/relation";
 import { filterCandidates, toggleValue } from "../lib/relation";
 import type { AnchorRect } from "./SelectMenu";
+import type { HopDir } from "../lib/cellhop";
 import { PlusIcon } from "./Icons";
 
 type Row =
@@ -23,6 +24,13 @@ interface RelationMenuProps {
   candidates: RelationCandidate[];
   /** the target database type — labels the create row */
   targetType: string;
+  /** SUB-947 type-to-replace: the keystroke that opened this picker, seeded
+      as its filter query */
+  seed?: string;
+  /** SUB-947: Tab commits-and-carries the editor one cell over. Enter does
+      NOT hop here — a relation cell is multi-pick and its menu stays open by
+      design (SUB-79), so Enter keeps toggling links. */
+  onHop?: (dir: HopDir) => void;
   /** live multi-pick commits; the menu stays open */
   onCommit: (values: string[]) => void;
   /** create a new entry of the target type, then add it (parent commits) */
@@ -45,13 +53,16 @@ export default function RelationMenu({
   bulkNote,
   candidates,
   targetType,
+  seed,
+  onHop,
   onCommit,
   onCreate,
   onClear,
   onEditSchema,
   onClose,
 }: RelationMenuProps) {
-  const [query, setQuery] = useState("");
+  // SUB-947: the keystroke that opened the picker is already its filter
+  const [query, setQuery] = useState(seed ?? "");
   const [sel, setSel] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -118,6 +129,12 @@ export default function RelationMenu({
     } else if (e.key === "Enter") {
       e.preventDefault();
       pick(rows[sel]);
+    } else if (e.key === "Tab" && onHop) {
+      // SUB-947: links commit live as they toggle, so Tab has nothing to
+      // write — it just leaves this cell for the next one
+      e.preventDefault();
+      onClose();
+      onHop(e.shiftKey ? "left" : "right");
     } else if (e.key === "Escape") {
       e.preventDefault();
       onClose();

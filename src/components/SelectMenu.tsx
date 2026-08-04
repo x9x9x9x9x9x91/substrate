@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AggKind, DbIcon, NumberFormat, PropKind, RollupConfig, SelectOption } from "../lib/types";
+import type { HopDir } from "../lib/cellhop";
 import { optionColorVar, resolveIcon } from "../lib/dbicons";
 import { byFoldedKey } from "../lib/schemalookup";
 import { PlusIcon, XIcon } from "./Icons";
@@ -153,6 +154,17 @@ interface SelectMenuProps {
   aboveOverlay?: boolean;
   /** owner token for scroll-dismiss events; omitted outside a scrolling DB pane */
   staleScope?: string;
+  /** SUB-947 type-to-replace: the keystroke that opened this editor. It seeds
+      the input instead of the current value, so typing over a cell reads like
+      a spreadsheet — the first character is already in. */
+  seed?: string;
+  /** SUB-947 (F2): open on the current value with the caret at its end rather
+      than selected, so the edit extends the text instead of replacing it */
+  caretAtEnd?: boolean;
+  /** SUB-947: Enter/Tab commit AND carry the editor onward. This fires after
+      the commit above with the direction to hop; the owner moves focus and
+      opens the next cell's editor. Absent outside the database table. */
+  onHop?: (dir: HopDir) => void;
   /** per-value icons for picker rows — the type picker shows each database's
       identity icon so "type" reads as database membership (SUB-73) */
   valueIcons?: Record<string, DbIcon>;
@@ -294,6 +306,9 @@ export default function SelectMenu({
   cell,
   aboveOverlay,
   staleScope,
+  seed,
+  caretAtEnd,
+  onHop,
   onCommit,
   values,
   bulkNote,
@@ -312,8 +327,15 @@ export default function SelectMenu({
   // a real inline editor (prefilled, selected) and Enter commits its text;
   // sel -1 = the input owns Enter, arrowing down hands it to the list
   const freeCell = !!cell && options.length === 0 && !isMulti;
-  const [query, setQuery] = useState(freeCell ? value : "");
-  const [dirty, setDirty] = useState(false);
+  // SUB-947 type-to-replace: a keystroke on a focused cell opens the editor
+  // already holding it — free text starts from the character alone (it
+  // REPLACES the old value, spreadsheet-style), an optioned cell uses it as
+  // the picker's filter query. Without a seed nothing changes: free cells
+  // prefill the value, pickers open on an empty filter.
+  const [query, setQuery] = useState(seed ?? (freeCell ? value : ""));
+  // a seeded free cell is already an edit in progress — click-away must
+  // commit it, exactly as if the character had been typed into the editor
+  const [dirty, setDirty] = useState(!!seed && freeCell);
   const [sel, setSel] = useState(freeCell ? -1 : 0);
   const inputRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState(startEditing ?? false);
@@ -429,9 +451,17 @@ export default function SelectMenu({
   }, [fq]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the prefilled raw value opens selected, like a rename input — typing
-  // replaces, arrows-in-text still work after any key
+  // replaces, arrows-in-text still work after any key. SUB-947: a seeded
+  // (type-to-replace) or F2 editor instead parks the caret after the text —
+  // selecting would make the next keystroke wipe what the user just typed.
   useEffect(() => {
-    if (freeCell) inputRef.current?.select();
+    if (!freeCell) return;
+    const el = inputRef.current;
+    if (!el) return;
+    if (seed !== undefined || caretAtEnd) {
+      const end = el.value.length;
+      el.setSelectionRange(end, end);
+    } else el.select();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -492,6 +522,20 @@ export default function SelectMenu({
     else onCommit(t);
   };
 
+  /* SUB-947: a commit that carries the editor to the next cell. The commit
+     itself is unchanged — the same onCommit/onClear the click path uses, so
+     there is exactly one write door (SUB-946's optimistic path included).
+     The hop is announced afterwards; the owner opens the next editor.
+
+     `pick` on a "edit" row opens the schema editor rather than committing, so
+     that one never hops — the user is still in this cell. Multi/relation
+     cells commit live and keep their menu open by design (SUB-79); Enter
+     there keeps toggling, and only Tab leaves. */
+  const hopAfter = (dir: HopDir, commit: () => void) => {
+    commit();
+    onHop?.(dir);
+  };
+
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -502,8 +546,24 @@ export default function SelectMenu({
       setSel((s) => Math.max(s - 1, freeCell ? -1 : 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (freeCell && sel === -1) commitFree();
-      else pick(rows[sel]);
+      const row = freeCell && sel === -1 ? undefined : rows[sel];
+      const commit = () => (freeCell && sel === -1 ? commitFree() : pick(rows[sel]));
+      // Shift-Enter walks back up the column, the way Shift-Tab walks left
+      if (onHop && !isMulti && row?.kind !== "edit")
+        hopAfter(e.shiftKey ? "up" : "down", commit);
+      else commit();
+    } else if (e.key === "Tab" && onHop) {
+      // Tab commits like Enter and lands one cell over, wrapping rows at the
+      // ends — the table owns the key here, so the browser never walks its
+      // own tab order out of the grid mid-edit
+      e.preventDefault();
+      const dir = e.shiftKey ? "left" : "right";
+      if (freeCell) hopAfter(dir, commitFree);
+      else if (isMulti || rows[sel] === undefined || rows[sel].kind === "edit")
+        // nothing to commit from a picker's highlight (a multi already
+        // committed each toggle live): leave the cell as it stands
+        hopAfter(dir, onClose);
+      else hopAfter(dir, () => pick(rows[sel]));
     } else if (e.key === "Escape") {
       e.preventDefault();
       onClose();

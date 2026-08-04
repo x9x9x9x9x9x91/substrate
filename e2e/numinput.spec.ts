@@ -34,6 +34,8 @@ test("number cell: German-typed value round-trips through the app's own display"
   const input = page.locator(".selmenu .selmenu-input");
   await input.fill("1.234,56");
   await input.press("Enter");
+  // Enter now carries the editor to the row below (SUB-947); Escape leaves it
+  await page.keyboard.press("Escape");
   await expect(page.locator(".selmenu")).toHaveCount(0);
   // stored canonical → rendered back in the dialect it was typed in
   await expect(cell()).toHaveText("1.234,56 €");
@@ -47,18 +49,21 @@ test("number cell: German-typed value round-trips through the app's own display"
   await cell().click();
   await page.locator(".selmenu .selmenu-input").fill("1.234");
   await page.locator(".selmenu .selmenu-input").press("Enter");
+  await page.keyboard.press("Escape");
   await expect(cell()).toHaveText("1.234 €");
 
   // comma decimal alone
   await cell().click();
   await page.locator(".selmenu .selmenu-input").fill("12,5");
   await page.locator(".selmenu .selmenu-input").press("Enter");
+  await page.keyboard.press("Escape");
   await expect(cell()).toHaveText("12,5 €");
 
   // en-style input still works untouched
   await cell().click();
   await page.locator(".selmenu .selmenu-input").fill("1234.56");
   await page.locator(".selmenu .selmenu-input").press("Enter");
+  await page.keyboard.press("Escape");
   await expect(cell()).toHaveText("1.234,56 €");
 });
 
@@ -171,6 +176,7 @@ test("non-number cells keep dotted/comma text verbatim", async ({ page }) => {
   const input = page.locator(".selmenu .selmenu-input");
   await input.fill("1.234,56");
   await input.press("Enter");
+  await page.keyboard.press("Escape");
   await expect(page.locator(".selmenu")).toHaveCount(0);
   await expect(cell()).toHaveText("1.234,56");
 });

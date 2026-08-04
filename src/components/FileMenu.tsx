@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { fileOpen, fileReveal, filePick } from "../lib/ipc";
 import { basename } from "../lib/files";
 import type { AnchorRect } from "./SelectMenu";
+import type { HopDir } from "../lib/cellhop";
 
 interface FileMenuProps {
   anchor: AnchorRect;
@@ -10,6 +11,11 @@ interface FileMenuProps {
   value: string;
   /** does the target exist? null while unknown */
   exists: boolean | null;
+  /** SUB-947 type-to-replace: the keystroke that opened this menu, seeded
+      into the path input */
+  seed?: string;
+  /** SUB-947: Enter/Tab commit AND carry the editor onward (see SelectMenu) */
+  onHop?: (dir: HopDir) => void;
   onCommit: (path: string) => void;
   onClear?: () => void;
   /** open the shared schema editor (change this prop's kind/options) */
@@ -28,12 +34,15 @@ export default function FileMenu({
   anchor,
   value,
   exists,
+  seed,
+  onHop,
   onCommit,
   onClear,
   onEditSchema,
   onClose,
 }: FileMenuProps) {
-  const [text, setText] = useState("");
+  // SUB-947: a type-to-replace keystroke starts the path text
+  const [text, setText] = useState(seed ?? "");
   const [sel, setSel] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
   const listId = useId();
@@ -86,8 +95,18 @@ export default function FileMenu({
       setSel((s) => Math.max(s - 1, 0));
     } else if (e.key === "Enter") {
       e.preventDefault();
+      if (text.trim()) {
+        commitText();
+        // SUB-947: a typed path commits and carries on down the column. A
+        // highlighted ACTION row (open/reveal/choose…) is not a value edit —
+        // it runs and stays put, so no hop.
+        onHop?.(e.shiftKey ? "up" : "down");
+      } else rows[sel]?.run();
+    } else if (e.key === "Tab" && onHop) {
+      e.preventDefault();
       if (text.trim()) commitText();
-      else rows[sel]?.run();
+      else onClose();
+      onHop(e.shiftKey ? "left" : "right");
     } else if (e.key === "Escape") {
       e.preventDefault();
       onClose();

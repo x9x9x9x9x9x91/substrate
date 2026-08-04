@@ -57,9 +57,12 @@ test("free-text cell edits in place: input on the cell rect, prefilled, Enter co
   );
   expect(allSelected).toBe(true);
 
-  // Enter commits the typed text
+  // Enter commits the typed text. Since SUB-947 it also carries the editor to
+  // the cell below, so the menu still on screen belongs to the NEXT row —
+  // Escape puts the table back at rest.
   await input.fill("2019");
   await input.press("Enter");
+  await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
   await expect(
     page
@@ -96,10 +99,11 @@ test("free-text cell: Escape discards, click-away commits, emptied Enter clears"
   await expect(page.locator(".selmenu")).toHaveCount(0);
   await expect(cell()).toHaveText("2021");
 
-  // emptying + Enter clears the value explicitly
+  // emptying + Enter clears the value explicitly (and hops on, per SUB-947)
   await cell().click();
   await input.fill("");
   await input.press("Enter");
+  await page.keyboard.press("Escape");
   await expect(page.locator(".selmenu")).toHaveCount(0);
   await expect(cell()).toHaveText("");
 });

@@ -41,7 +41,10 @@ test("a list-valued cell in an untyped column survives the raw editor (SUB-557)"
   await cell.click();
   const input = page.locator(".selmenu .selmenu-input");
   await expect(input).toHaveValue("Ase, Noa");
+  // Enter commits and carries the editor to the row below (SUB-947), so the
+  // menu that stays on screen is the next cell's — Escape closes it again
   await input.press("Enter");
+  await page.keyboard.press("Escape");
   await expect(page.locator(".selmenu")).toHaveCount(0);
   expect(await page.evaluate((p) => window.__mockPropOf!(p, "artist"), NOTE)).toEqual(["Ase", "Noa"]);
   await expect(cell).toHaveText("Ase, Noa");
@@ -50,6 +53,7 @@ test("a list-valued cell in an untyped column survives the raw editor (SUB-557)"
   await cell.click();
   await page.locator(".selmenu .selmenu-input").fill("Ase, Noa, Gero");
   await page.locator(".selmenu .selmenu-input").press("Enter");
+  await page.keyboard.press("Escape");
   await expect(cell).toHaveText("Ase, Noa, Gero");
   expect(await page.evaluate((p) => window.__mockPropOf!(p, "artist"), NOTE)).toEqual([
     "Ase",
@@ -61,6 +65,7 @@ test("a list-valued cell in an untyped column survives the raw editor (SUB-557)"
   await cell.click();
   await page.locator(".selmenu .selmenu-input").fill("Gero");
   await page.locator(".selmenu .selmenu-input").press("Enter");
+  await page.keyboard.press("Escape");
   expect(await page.evaluate((p) => window.__mockPropOf!(p, "artist"), NOTE)).toEqual("Gero");
 
   // a scalar cell is untouched — a comma in plain text stays plain text
@@ -68,6 +73,7 @@ test("a list-valued cell in an untyped column survives the raw editor (SUB-557)"
   await scalar.click();
   await page.locator(".selmenu .selmenu-input").fill("SMP-030, remaster");
   await page.locator(".selmenu .selmenu-input").press("Enter");
+  await page.keyboard.press("Escape");
   expect(await page.evaluate((p) => window.__mockPropOf!(p, "cat#"), NOTE)).toEqual(
     "SMP-030, remaster"
   );
