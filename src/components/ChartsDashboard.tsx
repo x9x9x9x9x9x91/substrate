@@ -6,6 +6,7 @@ import { vaultRead, vaultResolve } from "../lib/ipc";
 import { fmtFx } from "../lib/dashboard";
 import { useUsdEur } from "./useFx";
 import { evaluateSheet, parseSheet, type SheetEval, type SheetModel } from "../lib/sheet";
+import { useEdgeFade } from "../hooks/useEdgeFade";
 import { collectCrossRefs, ferr, isErr, type FErr, type FxResolver } from "../lib/formula";
 import {
   aggregate,
@@ -567,6 +568,10 @@ export default function ChartsDashboard({
 }: ChartsDashboardProps) {
   const { fx } = useUsdEur();
   const [sheets, setSheets] = useState<Map<string, SheetState>>(new Map());
+  // SUB-1001: the last chart's title used to cut in half against the pane's
+  // bottom edge with nothing marking the overflow. Declared above the `embed`
+  // branch below — hooks can't sit behind a conditional return.
+  const fade = useEdgeFade<HTMLDivElement>();
 
   const blocks = useMemo(() => parseChartBlocks(body), [body]);
   const sheetNames = useMemo(() => {
@@ -694,7 +699,7 @@ export default function ChartsDashboard({
   }
 
   return (
-    <div className="note">
+    <div className={`note${fade.className}`} {...fade.props}>
       <div className="dash-inner">
         <DashHead
           title={meta.title}

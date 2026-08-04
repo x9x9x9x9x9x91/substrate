@@ -6,6 +6,7 @@ import { setPropUndoable } from "../lib/undoprops";
 import { useUndo } from "../lib/undoContext";
 import { createLatestGuard } from "../lib/latest";
 import { exportNoteMarkdown, exportNoteOneSheet, exportNotePdf } from "../lib/export";
+import { useEdgeFade } from "../hooks/useEdgeFade";
 import { buildNoteActions } from "../lib/noteactions";
 import { scanSummary } from "../lib/folders";
 import { fuzzyScore } from "../lib/fuzzy";
@@ -203,6 +204,7 @@ export default function Palette({
   const [searchGuard] = useState(createLatestGuard);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const listFade = useEdgeFade<HTMLDivElement>();
   const closeTimer = useRef<number | undefined>(undefined);
   const listId = useId();
   const rowId = (i: number) => `${listId}-row-${i}`;
@@ -1195,11 +1197,15 @@ export default function Palette({
         ) : (
           <>
             <div
-              className="palette-results"
+              className={`palette-results${listFade.className}`}
               id={listId}
               role={items.length > 0 ? "listbox" : undefined}
               aria-label={items.length > 0 ? "Command palette results" : undefined}
-              ref={listRef}
+              ref={(node) => {
+                listRef.current = node;
+                listFade.props.ref(node);
+              }}
+              onScroll={listFade.props.onScroll}
             >
               {noMatches && (
                 <div className="palette-empty" role="status">No results for “{searchText}”</div>

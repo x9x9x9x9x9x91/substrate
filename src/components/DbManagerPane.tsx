@@ -5,6 +5,7 @@ import { iconForType } from "../lib/dbicons";
 import { typeSchemaFor } from "../lib/schemalookup";
 import TypeIcon from "./TypeIcon";
 import { DbIcon as DbGlyphIcon, DotsIcon, PlusIcon } from "./Icons";
+import { useEdgeFade } from "../hooks/useEdgeFade";
 
 interface DbManagerPaneProps {
   /** every database in the schema, homed and homeless, zero-note ones
@@ -34,6 +35,11 @@ export default function DbManagerPane({
   onRowMenu,
   onNewDatabase,
 }: DbManagerPaneProps) {
+  // SUB-1001: the list overflows once the window is short enough (it fits at
+  // 900px, not at 600), and scrolled it butted a half row against the pane's
+  // edge with nothing marking the overflow.
+  const fade = useEdgeFade<HTMLDivElement>();
+
   return (
     <div className="dbmgr">
       <div className="list-head" data-tauri-drag-region>
@@ -47,7 +53,7 @@ export default function DbManagerPane({
           </button>
         </div>
       </div>
-      <div className="dbmgr-body">
+      <div className={`dbmgr-body${fade.className}`} {...fade.props}>
         {databases.length === 0 ? (
           <div className="empty">
             <DbGlyphIcon />

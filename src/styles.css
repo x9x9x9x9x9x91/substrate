@@ -588,6 +588,38 @@ button.side-item {
   );
 }
 
+/* SUB-1001: the same gate, generalised. Five surfaces were clipping content
+   mid-glyph at a container edge with nothing saying more was there; rather
+   than five bespoke fades, any scroller opting in via useEdgeFade() gets this
+   one. Depths match the sidebar (14px in, 20px out) so every fade in the app
+   reads the same. Mask, not scrim: no background token, no theme coupling. */
+.edge-fade-y.edge-more-y {
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to bottom, black calc(100% - 20px), transparent);
+}
+
+.edge-fade-y.edge-scrolled-y {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 14px);
+  mask-image: linear-gradient(to bottom, transparent, black 14px);
+}
+
+.edge-fade-y.edge-scrolled-y.edge-more-y {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black 14px,
+    black calc(100% - 20px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    black 14px,
+    black calc(100% - 20px),
+    transparent
+  );
+}
+
 .side-label-row {
   display: flex;
   align-items: center;
@@ -2778,15 +2810,15 @@ button.empty-hint-fix:hover {
   margin-left: auto;
 }
 
-/* bottom fade = scroll affordance; the extra 28px of bottom padding keeps the
-   last row clear of the fade when scrolled to the end */
+/* SUB-1001: was the last unconditional bottom fade — it dissolved the final
+   result at the bottom stop. Now rides the shared gate (.edge-fade-y), which
+   paints only toward the side the list can still scroll. The bottom padding
+   stays as clearance so the last row clears the footer's hairline. */
 .palette-results {
   max-height: 380px;
   overflow-y: auto;
   border-top: 1px solid var(--border-soft);
   padding: 6px 6px 34px;
-  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 28px), transparent);
-  mask-image: linear-gradient(to bottom, black calc(100% - 28px), transparent);
 }
 
 .palette-section {
@@ -3051,13 +3083,16 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-1);
 }
 
+/* SUB-1001: this fade used to be unconditional, so the sheet dissolved its own
+   last row even at the bottom stop — "Show app files" read as a rendering bug
+   at a 900px window height. It now rides the shared gate (.edge-fade-y), which
+   turns the fade off wherever the scroller can't move further. The bottom
+   padding stays as clearance so the last row clears the footer's hairline. */
 .shortcut-sheet-body {
   max-height: 420px;
   overflow-y: auto;
   border-top: 1px solid var(--border-soft);
   padding: 6px 6px 34px;
-  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 28px), transparent);
-  mask-image: linear-gradient(to bottom, black calc(100% - 28px), transparent);
 }
 
 .shortcut-row {
@@ -4718,8 +4753,9 @@ body.agenda-window .palette:focus-visible {
 }
 
 .db-tabs.db-more-x {
-  -webkit-mask-image: linear-gradient(to right, black calc(100% - 12px), transparent);
-  mask-image: linear-gradient(to right, black calc(100% - 12px), transparent);
+  /* 20px matches the table fade right below it (SUB-1001 review) */
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);
 }
 
 .db-tab {
@@ -4945,11 +4981,14 @@ body.agenda-window .palette:focus-visible {
 /* the right-edge fade says more columns hide past the edge (SUB-130) — SUB-195
    gates it on actual scrollability: gone at max scroll so the last column
    renders crisp, and absent entirely when the table fits its pane. The board
-   scrolls the same axis, so it carries the same cue (SUB-207) */
+   scrolls the same axis, so it carries the same cue (SUB-207).
+   SUB-1001: widened 12px → 20px. At 12px a chip or a numeral clipped by the
+   pane edge still ended in a near-solid stub, which read as a rendering fault
+   rather than a cue; 20px also matches every other fade in the app. */
 .db-body:has(> .db-table).db-more-x,
 .db-board.db-more-x {
-  -webkit-mask-image: linear-gradient(to right, black calc(100% - 12px), transparent);
-  mask-image: linear-gradient(to right, black calc(100% - 12px), transparent);
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);
 }
 
 .db-list {

@@ -8,6 +8,7 @@ import {
   type Shortcut,
 } from "../lib/shortcuts";
 import { ASSIGNABLE_KEYS, keyLabel, targetLabel } from "../lib/keyassign";
+import { useEdgeFade } from "../hooks/useEdgeFade";
 
 /** The ? cheat sheet (SUB-28): every row comes from the shortcut registry, so
     the sheet always matches the real bindings. Opens on ? or ⌘/ (dispatched
@@ -65,11 +66,13 @@ export default function ShortcutOverlay({
     });
   };
 
+  const fade = useEdgeFade<HTMLDivElement>();
+
   return (
     <div className={`overlay${closing ? " closing" : ""}`} onMouseDown={close}>
       <div className="shortcut-sheet" onMouseDown={(e) => e.stopPropagation()}>
         <div className="shortcut-sheet-title">Keyboard shortcuts</div>
-        <div className="shortcut-sheet-body">
+        <div className={`shortcut-sheet-body${fade.className}`} {...fade.props}>
           {GROUPS.map((group) => {
             const rows = entries
               .filter((s) => s.group === group)

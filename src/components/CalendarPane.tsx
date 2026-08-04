@@ -41,6 +41,7 @@ import { calendarFeedsRead, vaultCreate, vaultTemplateRead } from "../lib/ipc";
 import { listen } from "../lib/tauri";
 import { setPropUndoable, setPropsUndoable } from "../lib/undoprops";
 import { useUndo } from "../lib/undoContext";
+import { useEdgeFade } from "../hooks/useEdgeFade";
 import { nextUndoId } from "../lib/undo";
 import { foldedPropKey, foldedPropStr, typeHome } from "../lib/types";
 import { typeSchemaFor } from "../lib/schemalookup";
@@ -145,6 +146,10 @@ export default function CalendarPane({
   onOpenJournal,
 }: CalendarPaneProps) {
   const undo = useUndo();
+  // SUB-1001: the Upcoming rail is a fixed 168px against the viewport bottom,
+  // so a full agenda cut its last row in half with nothing saying more was
+  // below it.
+  const agendaFade = useEdgeFade<HTMLDivElement>();
   // SUB-521: opening an entry unmounts the pane (the note takes the view), so
   // both of these have to outlive the mount or coming back — ⌫, or the sidebar
   // — silently resets the calendar you were reading. `cursor` is session
@@ -2009,7 +2014,7 @@ export default function CalendarPane({
       </div>
       <div className="cal-agenda">
         <div className="cal-agenda-head">Upcoming</div>
-        <div className="cal-agenda-body">
+        <div className={`cal-agenda-body${agendaFade.className}`} {...agendaFade.props}>
           {/* SUB-206: past non-repeating deadlines pin to the top, oldest
               first — no overdue, no group (and no empty header) */}
           {overdue.length > 0 && (

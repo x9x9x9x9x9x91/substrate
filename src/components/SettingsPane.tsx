@@ -9,6 +9,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { onboardingStatus, vaultRead } from "../lib/ipc";
 import { normalizeNumberInput } from "../lib/aggregate";
 import { setPropUndoable } from "../lib/undoprops";
+import { useEdgeFade } from "../hooks/useEdgeFade";
 import { useUndo } from "../lib/undoContext";
 import {
   missingTerminalFonts,
@@ -444,6 +445,8 @@ export default function SettingsPane({
     [values, saved, onSettingsChanged, onToast, reconcileSettings, undo]
   );
 
+  const fade = useEdgeFade<HTMLDivElement>();
+
   return (
     <div className={`overlay${closing ? " closing" : ""}`} onMouseDown={close}>
       <div className="shortcut-sheet settings-sheet" onMouseDown={(e) => e.stopPropagation()}>
@@ -459,7 +462,7 @@ export default function SettingsPane({
             edit raw
           </button>
         </div>
-        <div className="shortcut-sheet-body">
+        <div className={`shortcut-sheet-body${fade.className}`} {...fade.props}>
           {vault && (
             <div className="settings-row">
               <div className="settings-row-text">
