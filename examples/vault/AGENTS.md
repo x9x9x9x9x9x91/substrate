@@ -94,6 +94,22 @@ dashboard's csv snapshots, the metrics dashboard's `cards:` bindings, chart
 fences, and workbook `pages:` — see §5 of `docs/vault-format.md` in the
 Substrate repo (linked below), which is the authority.
 
+**When none of the built-ins fits, you can write the renderer yourself** — into
+this vault, not into the app. A folder under `.vault/kinds/<id>/` holding a
+`kind.json` manifest and a plain ES module that default-exports an object with
+a `mount(el, ctx)` becomes a dashboard kind: a note naming it (`dashboard: <id>`)
+mounts your code in the pane, with `ctx` giving you the vault's notes, sheets,
+guarded writes and the app's own class names. No build step and no app change.
+It runs with the app's own access, so it does nothing until the human enables
+that exact bundle on that device, and any edit to the bytes stops it and asks
+again — write the bundle, then tell them to enable it; you cannot self-approve.
+Bundles live in the vault, so version history covers them like notes. Reach for
+this last: a chart over a sheet is a chart fence, a row of numbers is the
+metrics kind, and configuration survives upgrades untouched. The full contract
+(manifest grammar, every `ctx` member, the consent/hash rules) is §5.8 of
+`docs/vault-format.md`, with a complete copy-pasteable example under "Writing
+your own kind" in `docs/dashboards.md`.
+
 ## Where the full docs and examples live
 
 This vault is self-contained, but the app's repo carries the deeper reference
@@ -103,6 +119,13 @@ material. If you can fetch URLs, these are the breadcrumbs:
 - Vault format spec (the authority): `docs/vault-format.md`
 - Dashboards guide — every kind, with frontmatter examples: `docs/dashboards.md`
 - Cookbook — working per-kind dashboard recipes with screenshots: `cookbook/`
+
+The cookbook is built to be read by an agent, not just a human: `cookbook/index.json`
+is machine-readable, and every recipe declares the `files` it consists of, what
+data it `expects` (which sheets, which database types) and how to `adapt` the
+sample data to real data. So "copy the portfolio recipe and set it up against my
+holdings" is a single prompt you can execute — read the entry, copy its files
+into this vault, then rewrite the sample rows and bindings per its `adapt` line.
 
 The app also bundles a **demo vault** (the "Try the demo vault" door on the
 vault picker) with working examples of most portable dashboard kinds — worth
