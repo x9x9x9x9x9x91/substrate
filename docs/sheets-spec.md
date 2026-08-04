@@ -164,8 +164,12 @@ etf         = SUMIF(bucket, "etf", value_eur)
   An odd, unpaired trailing column is an arity error, and `SUMIF(col)` /
   `COUNTIF(col)` with no match keeps erroring as before. Criteria columns of
   different lengths are an error too, rather than a silent truncation — there is
-  no honest row-by-row reading of a short column. Computed columns work as
-  criteria columns anywhere, since they are ordinary scope columns.
+  no honest row-by-row reading of a short column. The value column obeys the
+  same rule (SUB-1026): rows pair off criteria against values, so a value
+  column of another length — reachable via a cross-sheet reference — errors
+  instead of silently reading its overhang as blank rows that sum to 0.
+  Computed columns work as criteria columns anywhere, since they are ordinary
+  scope columns.
 - `LAST(col)` returns the last non-empty cell in stored row order (not the sorted
   view), as-is — number, string, date, no coercion. Empty follows the cell-typing
   convention: nulls and blank/whitespace-only strings are skipped; error cells

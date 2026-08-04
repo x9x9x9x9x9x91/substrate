@@ -49,8 +49,12 @@ export default function DbTableLayout({
   gridOn,
   scrolledX,
   setScrolledX,
+  scrolledY,
+  setScrolledY,
   moreRight,
   setMoreRight,
+  dismissAnchored,
+  anchorStaleScope,
   cycleSort,
   startResize,
   resetWidth,
@@ -68,6 +72,8 @@ export default function DbTableLayout({
   onNoteMenu,
   onTrashNotes,
   sel,
+  lastWritten,
+  bulkClosing,
   clearSel,
   editCell,
   setEditCell,
@@ -89,7 +95,6 @@ export default function DbTableLayout({
   tallied,
   aggs,
   aggResults,
-  hasAggs,
   bulkColMenu,
   setBulkColMenu,
   bulkCheck,
@@ -130,8 +135,14 @@ export default function DbTableLayout({
   gridOn: boolean;
   scrolledX: boolean;
   setScrolledX: (v: boolean) => void;
+  scrolledY: boolean;
+  setScrolledY: (v: boolean) => void;
   moreRight: boolean;
   setMoreRight: (v: boolean) => void;
+  /** SUB-945: drop every popover anchored to a rect this scroller just moved */
+  dismissAnchored: () => void;
+  /** scopes SelectMenu's scroll-dismiss event to this database pane */
+  anchorStaleScope: string;
   cycleSort: (key: string, additive: boolean) => void;
   startResize: (key: string, e: React.MouseEvent) => void;
   resetWidth: (key: string) => void;
@@ -149,6 +160,11 @@ export default function DbTableLayout({
   onNoteMenu: (path: string, x: number, y: number) => void;
   onTrashNotes: (paths: string[]) => void;
   sel: ReadonlySet<string>;
+  /** SUB-945: the cell a write just landed in, lit for one fade */
+  lastWritten: { path: string; key: string; nonce: number } | null;
+  /** SUB-945: while >0 the selection just emptied and the bar is fading out,
+      still showing this count */
+  bulkClosing: number;
   clearSel: () => void;
   editCell: { path: string; key: string; anchor: AnchorRect } | null;
   setEditCell: (v: { path: string; key: string; anchor: AnchorRect } | null) => void;
@@ -182,7 +198,6 @@ export default function DbTableLayout({
   tallied: NoteMeta[];
   aggs: Record<string, AggKind>;
   aggResults: Record<string, number | null>;
-  hasAggs: boolean;
   bulkColMenu: AnchorRect | null;
   setBulkColMenu: (v: AnchorRect | null) => void;
   bulkCheck: { key: string; anchor: AnchorRect } | null;
@@ -302,7 +317,7 @@ export default function DbTableLayout({
       {tabRow}
       {bar}
       <div
-        className={`db-body${scrolledX ? " db-scrolled-x" : ""}${moreRight ? " db-more-x" : ""}`}
+        className={`db-body${scrolledX ? " db-scrolled-x" : ""}${scrolledY ? " db-scrolled-y" : ""}${moreRight ? " db-more-x" : ""}`}
         ref={bodyRef}
         // SUB-194/195: scroll events aren't cancelable, so this can't block
         // scrolling; an unchanged boolean bails out of re-render, meaning the
@@ -311,7 +326,13 @@ export default function DbTableLayout({
         onScroll={(e) => {
           const el = e.currentTarget;
           setScrolledX(el.scrollLeft > 0);
+          // SUB-945: the sticky header only reads as a lid once rows have gone
+          // under it -- same gate idiom as the freeze line, same bail-out
+          setScrolledY(el.scrollTop > 0);
           setMoreRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1);
+          // SUB-945: cell editors and header menus hold a rect captured at open
+          // -- once the rows slide under them they point at the wrong cell
+          dismissAnchored();
           winSyncRef.current();
         }}
       >
@@ -462,13 +483,16 @@ export default function DbTableLayout({
                     setEditCell(null);
                     setSchemaEditCell(false);
                   };
+                  // SUB-945: a write that just landed here lights the cell for
+                  // one fade -- the confirmation a single-cell edit never got
+                  const flashed = lastWritten?.path === n.path && lastWritten.key === c;
                   return (
                     <td
                       key={c}
                       data-fc={i + 1}
                       data-fr={r}
                       data-focus-path={n.path}
-                      className={`db-cell${focusedCls(i + 1, r)}${isEditing ? " editing" : ""}`}
+                      className={`db-cell${focusedCls(i + 1, r)}${isEditing ? " editing" : ""}${flashed ? " db-flashing" : ""}`}
                       tabIndex={tabIndexFor(i + 1, r)}
                       onFocus={(e) => {
                         if (e.target === e.currentTarget)
@@ -494,6 +518,10 @@ export default function DbTableLayout({
                         });
                       }}
                     >
+                      {/* keyed on the nonce so a second write to the same cell
+                          restarts the fade instead of sitting through it; a
+                          decorative span, so remounting costs no focus */}
+                      {flashed && <span key={lastWritten.nonce} className="db-cell-flash" aria-hidden="true" />}
                       <span
                         className={`db-cell-txt${broken ? " file-broken" : ""}${ckind === "date" ? " cell-mono" : ""}${ckind === "checkbox" ? " cell-check" : ""}${ckind === "number" || ckind === "rollup" ? " cell-num" : ""}`}
                       >
@@ -535,6 +563,7 @@ export default function DbTableLayout({
                       {isEditing && editCell && (
                         schemaEditCell ? (
                           <SelectMenu
+                            staleScope={anchorStaleScope}
                             anchor={editCell.anchor}
                             value={val}
                             options={copts}
@@ -587,6 +616,7 @@ export default function DbTableLayout({
                           />
                         ) : (
                           <SelectMenu
+                            staleScope={anchorStaleScope}
                             anchor={editCell.anchor}
                             value={val}
                             options={copts}
@@ -639,8 +669,13 @@ export default function DbTableLayout({
             })}
             {windowed && winBottomH > 0 && spacerRow(winBottomH, "db-win-bottom")}
           </tbody>
-          {hasAggs && (
-            <tfoot>
+          {/* SUB-945: the footer is always here. It used to mount with the
+              first aggregation, so the table's geometry jumped the moment you
+              set one and there was nothing to discover the feature from
+              (design-principles.md 4 + 5). At rest it states the row count;
+              the per-column "Calc" ghost reveals on hover/focus and keeps its
+              space, like every other row action */}
+          <tfoot>
               <tr>
                 <td className="db-agg-cell db-agg-title">{tallied.length} rows</td>
                 {shown.map((c) => {
@@ -651,6 +686,7 @@ export default function DbTableLayout({
                       <button
                         className="db-agg-btn"
                         title={`${c} — calculate`}
+                        tabIndex={kind ? 0 : -1}
                         onClick={(e) =>
                           setAggMenu({ col: c, anchor: anchorFrom(e.currentTarget), up: true })
                         }
@@ -661,7 +697,13 @@ export default function DbTableLayout({
                               {AGG_OPTIONS.find((o) => o.kind === kind)?.label}
                             </span>
                             {res != null && (
-                              <span className="db-agg-value">{formatAgg(res, kind, byFoldedKey(typeSchema, c)?.format)}</span>
+                              // SUB-945: keyed on the value so a recompute
+                              // remounts the span and fades the new figure in
+                              // -- a number that silently swaps reads as a
+                              // misread rather than a result
+                              <span key={res} className="db-agg-value">
+                                {formatAgg(res, kind, byFoldedKey(typeSchema, c)?.format)}
+                              </span>
                             )}
                           </>
                         ) : (
@@ -673,15 +715,14 @@ export default function DbTableLayout({
                 })}
                 <td className="db-agg-cell db-add-cell" />
               </tr>
-            </tfoot>
-          )}
+          </tfoot>
         </table>
         {noMatch}
       </div>
       {adminPop}
-      {sel.size > 0 && (
-        <div className="bulkbar">
-          <span className="bulkbar-count">{sel.size} selected</span>
+      {(sel.size > 0 || bulkClosing > 0) && (
+        <div className={`bulkbar${sel.size === 0 ? " closing" : ""}`}>
+          <span className="bulkbar-count">{sel.size || bulkClosing} selected</span>
           <button type="button" onClick={(e) => setBulkColMenu(anchorFrom(e.currentTarget))}>
             Set property…
           </button>
@@ -779,6 +820,7 @@ export default function DbTableLayout({
           />
         ) : (
           <SelectMenu
+            staleScope={anchorStaleScope}
             anchor={bulkEdit.anchor}
             value=""
             options={bulkSchema?.options ?? []}

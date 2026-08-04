@@ -40,10 +40,28 @@ guard_checkout_freshness() {
     printf '%s: refusing to run — this checkout is detached at %s, behind origin/main (%s).\n' \
       "$tool" "$(git -C "$root" rev-parse --short HEAD)" "$(git -C "$root" rev-parse --short "$main")" >&2
     printf '  %s\n' \
-      "You are about to run that older copy of scripts/, not main's (SUB-509)." \
-      "Invoke it from the worktree you are working in instead, e.g.:" \
-      "    cd .worktrees/_main && bash scripts/${tool}" \
-      "Deliberate? Re-run with SUBSTRATE_ALLOW_STALE_SCRIPTS=1." >&2
+      "You are about to run that older copy of scripts/, not main's (SUB-509)." >&2
+
+    local main_tree
+    main_tree=$(git -C "$root" worktree list --porcelain 2>/dev/null | awk '
+      $1 == "worktree" { path = substr($0, 10) }
+      $1 == "branch" && $2 == "refs/heads/main" { print path; exit }
+    ')
+    if [[ -n "$main_tree" ]]; then
+      printf '  %s\n' \
+        "Invoke it from the main worktree instead:" \
+        "    cd $main_tree && bash scripts/${tool}" >&2
+    elif git -C "$root" show-ref --verify --quiet refs/heads/main; then
+      printf '  %s\n' \
+        "Fresh clone? Bootstrap the read-mostly checkout with:" \
+        "    git checkout main" \
+        "    npm run hooks:install" \
+        "    git checkout --detach origin/main" >&2
+    else
+      printf '  %s\n' \
+        "Create or enter a current main worktree, then run scripts/${tool} there." >&2
+    fi
+    printf '  %s\n' "Deliberate? Re-run with SUBSTRATE_ALLOW_STALE_SCRIPTS=1." >&2
     exit 1
   fi
 

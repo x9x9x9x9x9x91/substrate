@@ -22,6 +22,7 @@ import {
   scratchNotes,
   type DbBlock,
 } from "./lib/views";
+import { exportSavedView, exportSummary, savedViewRows } from "./lib/viewexport";
 import { focusSoon } from "./lib/focussoon";
 import { dailyDateOf, dailyPath, journalOrder, JOURNAL_DIR } from "./lib/journal";
 import { todayIso } from "./lib/dates";
@@ -108,6 +109,8 @@ import {
   vaultViewsRead,
   vaultViewsSet,
   vaultWriteBody,
+  viewExportForget,
+  viewExportTarget,
 } from "./lib/ipc";
 import {
   applyOrder,
@@ -122,7 +125,7 @@ import {
 } from "./lib/sidebar";
 import { buildNoteActions, duplicateNote as duplicateNoteInVault } from "./lib/noteactions";
 import { exportNoteMarkdown, exportNoteOneSheet, exportNotePdf } from "./lib/export";
-import { embedQueryFor, type EmbedSpec } from "./lib/embeds";
+import { embedQueryFor, type ViewSpecResult } from "./lib/embeds";
 import {
   buildEntryBody,
   buildEntryProps,
@@ -187,7 +190,7 @@ import {
   RenameDialog,
   StripPropDialog,
 } from "./components/DbAdmin";
-import { DbIcon as DbGlyphIcon, FolderIcon, KeyboardIcon, MenuIcon, NoteActionGlyph, NoteIcon, PenIcon, PinIcon, PlusIcon, SidebarIcon, TrashIcon, XIcon, ChevronLeftIcon, ChevronUpIcon, ChevronDownIcon } from "./components/Icons";
+import { DbIcon as DbGlyphIcon, ExportIcon, FolderIcon, KeyboardIcon, MenuIcon, NoteActionGlyph, NoteIcon, PenIcon, PinIcon, PlusIcon, RepeatIcon, SidebarIcon, TrashIcon, XIcon, ChevronLeftIcon, ChevronUpIcon, ChevronDownIcon } from "./components/Icons";
 import { useSidebarHidden } from "./hooks/useSidebarHidden";
 import { useZoom } from "./hooks/useZoom";
 import { useTerminalHud } from "./hooks/useTerminalHud";
@@ -406,6 +409,29 @@ export default function App() {
     refreshConfigs,
     persistViewsConfig,
   } = useVaultConfigs(showToast);
+
+  /* SUB-810: which pins already have a link folder on THIS machine, by view
+     id. Device-local state, so it is read over IPC rather than from the
+     synced views config — a target path is true for one machine only. */
+  const [exportTargets, setExportTargets] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let live = true;
+    Promise.all(
+      savedViews.map((v) =>
+        viewExportTarget(v.id)
+          .catch(() => null)
+          .then((t) => [v.id, t] as const)
+      )
+    ).then((pairs) => {
+      if (!live) return;
+      setExportTargets(
+        Object.fromEntries(pairs.filter((p): p is readonly [string, string] => !!p[1]))
+      );
+    });
+    return () => {
+      live = false;
+    };
+  }, [savedViews]);
 
   // window drag (SUB-81 round 2): `data-tauri-drag-region` only fires when the
   // mousedown target IS the marked element — the header bars are mostly covered
@@ -1092,6 +1118,15 @@ export default function App() {
         vaultSavedViewsRead,
         "Couldn't save view settings"
       );
+      // SUB-810: the pin's remembered export target goes with it. The folder
+      // on disk stays — it is the user's, and it says so on the tin.
+      setExportTargets((cur) => {
+        if (!(id in cur)) return cur;
+        const next = { ...cur };
+        delete next[id];
+        return next;
+      });
+      void viewExportForget(id).catch(() => undefined);
       // an open pin that just got removed falls back to its database
       if (sv) {
         setView((v) => (v.kind === "saved" && v.id === id ? { kind: "db", type: sv.db } : v));
@@ -2081,7 +2116,7 @@ export default function App() {
   // resolve a ```view fence against the current vault snapshot; the widget
   // re-asks on every render, so this closure must follow the latest state
   const embedQuery = useCallback(
-    (spec: EmbedSpec) => embedQueryFor(spec, notes, schema, savedViews),
+    (spec: ViewSpecResult) => embedQueryFor(spec, notes, schema, savedViews),
     [notes, schema, savedViews]
   );
 
@@ -2943,19 +2978,71 @@ export default function App() {
   );
 
 
+  /* SUB-810: a pin that has been exported once knows where it exports to, so
+     its menu offers Regenerate instead of asking again. The targets live on
+     the machine, not in the vault (an export path is true for one machine
+     only), which is why they arrive over IPC rather than off the pin. */
+  const exportView = useCallback(
+    async (id: string, reask = false) => {
+      const v = savedViews.find((sv) => sv.id === id);
+      if (!v) return;
+      try {
+        const rows = savedViewRows(notes, v, typeSchemaFor(schema, v.db));
+        const report = await exportSavedView(v, rows, reask);
+        // null = the user closed the dialog; nothing happened, say nothing
+        if (!report) return;
+        setExportTargets((cur) => ({ ...cur, [id]: report.dest }));
+        showToast(`Exported "${v.name}" — ${exportSummary(report)}`, {
+          label: "Show",
+          run: () => void revealItemInDir(report.dest).catch(() => undefined),
+        });
+      } catch (e) {
+        // the refusal to overwrite a real folder is the message worth reading
+        showToast(String(e instanceof Error ? e.message : e));
+      }
+    },
+    [savedViews, notes, schema, showToast]
+  );
+
   const savedViewMenuItems = useCallback(
-    (id: string): MenuItem[] => [
-      { label: "Open", icon: <PinIcon />, onSelect: () => setView({ kind: "saved", id }) },
-      { label: "Rename…", icon: <PenIcon />, onSelect: () => setRenamingViewId(id) },
-      {
-        label: "Remove pin",
-        icon: <TrashIcon />,
-        danger: true,
-        separatorAbove: true,
-        onSelect: () => removeView(id),
-      },
-    ],
-    [removeView]
+    (id: string): MenuItem[] => {
+      const target = exportTargets[id];
+      return [
+        { label: "Open", icon: <PinIcon />, onSelect: () => setView({ kind: "saved", id }) },
+        { label: "Rename…", icon: <PenIcon />, onSelect: () => setRenamingViewId(id) },
+        target
+          ? {
+              label: "Regenerate link folder",
+              icon: <RepeatIcon />,
+              hint: target.split("/").pop(),
+              separatorAbove: true,
+              onSelect: () => void exportView(id),
+            }
+          : {
+              label: "Export as link folder…",
+              icon: <ExportIcon />,
+              separatorAbove: true,
+              onSelect: () => void exportView(id),
+            },
+        ...(target
+          ? [
+              {
+                label: "Export to a new location…",
+                icon: <ExportIcon />,
+                onSelect: () => void exportView(id, true),
+              },
+            ]
+          : []),
+        {
+          label: "Remove pin",
+          icon: <TrashIcon />,
+          danger: true,
+          separatorAbove: true,
+          onSelect: () => removeView(id),
+        },
+      ];
+    },
+    [removeView, exportView, exportTargets]
   );
 
   /* SUB-492: the non-drag lane for assignable keys (SUB-467). The HUD's drag

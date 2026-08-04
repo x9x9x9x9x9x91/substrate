@@ -17,6 +17,7 @@ export default function DbBoardLayout({
   dbType,
   typeSchema,
   openPath,
+  lastWritten,
   bgMenuProps,
   head,
   tabRow,
@@ -28,6 +29,7 @@ export default function DbBoardLayout({
   bodyRef,
   moreRight,
   setMoreRight,
+  dismissAnchored,
   dragPath,
   setDragPath,
   dropCol,
@@ -47,6 +49,8 @@ export default function DbBoardLayout({
   dbType: string;
   typeSchema: Record<string, PropSchema>;
   openPath: string | null;
+  /** SUB-945: the note a write just landed on, lit for one fade */
+  lastWritten: { path: string; key: string; nonce: number } | null;
   bgMenuProps: { onContextMenu: (e: React.MouseEvent) => void };
   head: React.ReactNode;
   tabRow: React.ReactNode;
@@ -58,6 +62,8 @@ export default function DbBoardLayout({
   bodyRef: React.RefObject<HTMLDivElement | null>;
   moreRight: boolean;
   setMoreRight: (v: boolean) => void;
+  /** SUB-945: drop every popover anchored to a rect this scroller just moved */
+  dismissAnchored: () => void;
   dragPath: string | null;
   setDragPath: (v: string | null) => void;
   dropCol: string | null;
@@ -100,16 +106,22 @@ export default function DbBoardLayout({
       {head}
       {tabRow}
       {bar}
-      {noMatch ?? (
+      {/* SUB-945: the scroller stays mounted while a filter matches nothing --
+          the empty state renders inside it, the way the gallery does. Swapping
+          the scroller out dropped the board's geometry and scroll position
+          mid-typing (design-principles.md 4: structure never conditionally
+          unmounts) */}
       <div
         className={`db-board${moreRight ? " db-more-x" : ""}`}
         ref={bodyRef}
         onScroll={(e) => {
           const el = e.currentTarget;
           setMoreRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1);
+          // SUB-945: the cards moved, the menus anchored to them did not
+          dismissAnchored();
         }}
       >
-        {boardCols.map((col, ci) => {
+        {noMatch ?? boardCols.map((col, ci) => {
           const colKey = col.value ?? "\0";
           return (
             <div
@@ -151,7 +163,7 @@ export default function DbBoardLayout({
                     data-fc={ci}
                     data-fr={ri}
                     data-focus-path={n.path}
-                    className={`db-card${focusedCls(ci, ri)}${dragPath === n.path ? " dragging" : ""}${openPath === n.path ? " open" : ""}`}
+                    className={`db-card${focusedCls(ci, ri)}${dragPath === n.path ? " dragging" : ""}${openPath === n.path ? " open" : ""}${lastWritten?.path === n.path ? " db-flashing" : ""}`}
                     role="button"
                     aria-label={n.title}
                     tabIndex={boardTabIndexFor(ci, ri)}
@@ -194,14 +206,25 @@ export default function DbBoardLayout({
                       onNoteMenu(n.path, e.clientX, e.clientY);
                     }}
                   >
+                    {/* SUB-945: a card that just landed in this column lights
+                        the same way a written cell does -- the drop moved it
+                        somewhere the eye has to re-find */}
+                    {lastWritten?.path === n.path && (
+                      <span key={lastWritten.nonce} className="db-cell-flash" aria-hidden="true" />
+                    )}
                     <span className="db-card-title">{n.title}</span>
                     {cardSubtitle(n, typeSchema, groupBy) && (
                       <span className="row-sub">{cardSubtitle(n, typeSchema, groupBy)}</span>
                     )}
                   </div>
                 ))}
+                {/* SUB-945: a visible button in every column is the
+                    per-row-button anti-pattern (design-principles.md 6). It
+                    reveals on column hover/focus-within and keeps its space
+                    either way, and stays up while this column holds the open
+                    draft so it never vanishes out from under the typing */}
                 <button
-                  className="db-col-new"
+                  className={`db-col-new${draftColKey === colKey ? " busy" : ""}`}
                   title={`New ${dbType} in this column`}
                   onClick={() => startDraft(col)}
                 >
@@ -212,7 +235,6 @@ export default function DbBoardLayout({
           );
         })}
       </div>
-      )}
       {adminPop}
     </div>
   );

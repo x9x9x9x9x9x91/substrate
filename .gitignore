@@ -40,3 +40,7 @@ dist-ssr
 # npm ci freshness marker written by scripts/rig-gates-runner.sh — a local
 # build artifact, and an untracked one would make the tree unreleasable
 .npm-ci-stamp
+
+# Local Cargo config is intentionally untracked. Checked-in absolute paths
+# made every clone fail after the primary-machine cutover (SUB-987).
+.cargo/config.toml

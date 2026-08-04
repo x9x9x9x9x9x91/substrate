@@ -28,6 +28,7 @@ These read only the vault. They work anywhere.
 every page — through the same `@media print` surface notes use (Save as PDF
 lives in the dialog). The machine-specific kinds stay screen-only.
 
+
 ### `metrics` — stat cards over a sheet
 
 Cards bind to named summaries on a [sheet](sheets-spec.md). Two notes: the sheet
@@ -172,6 +173,7 @@ type: dashboard
 dashboard: hub
 ---
 
+
 ## Now
 
 > [!note] Studio
@@ -181,14 +183,30 @@ dashboard: hub
 > [!idea] Later
 > Try the granular chain on the outro.
 
+
 ## Releases in flight
 
 ```view
 type: release
 query: status:mastering
 view: table
+sort: released:desc
+limit: 5
+columns: status, artist
 ```
 ````
+
+A fence's `sort:`, `limit:` and `columns:` keys are all optional (SUB-942).
+`sort: <prop>` / `<prop>:desc` orders by the database table's own rules
+(declared select order, numeric numbers, chronological dates); `limit: N` cuts
+AFTER the query and the sort, so the pair above means "the five newest"; and
+`columns:` picks and orders the columns explicitly, matched case-insensitively.
+When rows are cut the table says so honestly — "5 of 23 rows — this view's
+limit" for your own `limit:`, "open the database for the rest" when the
+surface's safety cap is what clipped it. An unknown key or a malformed value
+renders a quiet error card in place of that one table, never taking the rest of
+the page down. Full key list: `docs/vault-format.md` §5.6.
+
 
 ### `food` — daily net-kcal tracker
 
@@ -403,7 +421,9 @@ Any dashboard can grow pages: add a `pages:` list to its frontmatter and the
 pane gains a sheet-tab strip at the bottom, like a spreadsheet. The first tab
 is the dashboard itself; each entry adds a page pointing at a sheet note
 (editable grid), another dashboard (rendered flat — no nested tabs), or a
-database cut (`view:` + optional `query:`, or `saved:` for a pin). ⌃⇥ / ⌃⇧⇥
+database cut (`view:` or `saved:`) with the same optional `sort:`, `limit:` and
+`columns:` keys as a view fence; `query:` applies to `view:`, while `saved:`
+keeps its pin's query. ⌃⇥ / ⌃⇧⇥
 cycle pages. The demo vault's `Label Accounting` workbook is the reference:
 metrics cards over a statements sheet, with the statement and splits sheets
 plus the release database one tab away. Full contract: `vault-format.md` §5.6a.

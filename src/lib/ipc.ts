@@ -1,5 +1,6 @@
 import { invoke, setHistoryReadOnly } from "./tauri.ts";
 import { isAppFile, SETTINGS_PATH } from "./settings.ts";
+import type { KindBundleInfo } from "./kinds.ts";
 import type { OnboardingStatus, VaultCandidate } from "./onboarding.ts";
 import type {
   AggKind,
@@ -43,6 +44,7 @@ import type {
   TagFolder,
   TrashEntry,
   VaultSyncStatus,
+  ViewExportReport,
   ViewsConfig,
   VaultHistoryPoint,
 } from "./types";
@@ -184,6 +186,19 @@ export const vaultTemplateRead = (type: string) =>
   invoke<NoteContent | null>("vault_template_read", { noteType: type });
 /** Types that have a template note under `.vault/templates/`. */
 export const vaultTemplateList = () => invoke<string[]>("vault_template_list");
+/** Custom dashboard kinds installed in this vault (SUB-959), each with the
+    consent record for THIS vault when there is one — enough to run
+    `resolveKindState` without a second round trip. Broken bundles are in the
+    list too, carrying the reason they are broken. */
+export const kindsList = () => invoke<KindBundleInfo[]>("kinds_list");
+/** Record consent to run `id`'s code at exactly `hash` — the hash the enable
+    card showed. Rejects if the bundle changed since, so consent is never
+    applied to bytes nobody read. */
+export const kindsEnable = (id: string, hash: string) =>
+  invoke<void>("kinds_enable", { id, hash });
+/** Withdraw consent. Never fails on an unknown id — a bundle deleted from the
+    vault still has to be revocable. */
+export const kindsDisable = (id: string) => invoke<void>("kinds_disable", { id });
 export const urlCapture = (url: string) => invoke<NoteMeta>("url_capture", { url });
 /** Today's USD→EUR reference rate (SUB-667). Engine-side because the shipped
     CSP allows no remote origin — a browser fetch here only ever worked in the
@@ -404,6 +419,19 @@ export const exportText = (dest: string, contents: string) =>
 export const exportNoteBundle = (path: string, destDir: string) =>
   invoke<number>("export_note_bundle", { path, destDir });
 export const printWindow = () => invoke<void>("print_window");
+/** Where this saved view exports to on this machine, or null if never asked. */
+export const viewExportTarget = (viewId: string) =>
+  invoke<string | null>("view_export_target", { viewId });
+/** Rebuild the view's link folder at `dest` and remember it as the target. */
+export const viewExportRun = (
+  viewId: string,
+  viewName: string,
+  dest: string,
+  paths: string[]
+) => invoke<ViewExportReport>("view_export_run", { viewId, viewName, dest, paths });
+/** Drop a remembered target — the folder on disk is left alone. */
+export const viewExportForget = (viewId: string) =>
+  invoke<void>("view_export_forget", { viewId });
 export const vaultViewsRead = () =>
   historyProjection
     ? Promise.resolve(clone(historyProjection.views))

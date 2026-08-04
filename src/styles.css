@@ -165,7 +165,8 @@ button:focus-visible,
   transition:
     background-color 120ms ease-out,
     color 120ms ease-out,
-    border-color 120ms ease-out;
+    border-color 120ms ease-out,
+    box-shadow 120ms ease-out;
 }
 
 .side-item:active,
@@ -822,6 +823,51 @@ button.side-item {
   to {
     opacity: 1;
     transform: scale(1);
+  }
+}
+
+/* SUB-945: one pop-in for every anchored menu. The context menu and the
+   palette animated; the property/date/column/dots popovers appeared
+   instantly, so the same kind of click read as two different surfaces.
+   The menu grows out of its trigger — origin top-left when it drops, and
+   mirrored to bottom-left for the flipped-up cases. No fill mode: once the
+   100ms is over the transform is gone, so the menu stops being a
+   containing block for anything positioned inside it. */
+@keyframes menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.98);
+  }
+}
+
+@keyframes menu-pop-up {
+  from {
+    opacity: 0;
+    transform: translateY(3px) scale(0.98);
+  }
+}
+
+.selmenu:not(.selmenu-cell),
+.selmenu-cell-panel,
+.colmenu,
+.dots-menu {
+  transform-origin: top left;
+  animation: menu-pop 100ms ease-out;
+}
+
+.selmenu.flip-up:not(.selmenu-cell),
+.selmenu-cell.flip-up .selmenu-cell-panel,
+.colmenu.flip-up {
+  transform-origin: bottom left;
+  animation-name: menu-pop-up;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .selmenu:not(.selmenu-cell),
+  .selmenu-cell-panel,
+  .colmenu,
+  .dots-menu {
+    animation: none;
   }
 }
 
@@ -2634,6 +2680,20 @@ button.empty-hint-fix:hover {
   gap: 6px;
 }
 
+/* SUB-945: it arrived on a curve and left on a cut. Same closing idiom as the
+   palette overlay — the pane holds it mounted for one 90ms fade. */
+.bulkbar.closing {
+  opacity: 0;
+  transition: opacity 90ms ease-out;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bulkbar.closing {
+    transition: none;
+  }
+}
+
 .bulkbar-count {
   margin-right: 4px;
   font-variant-numeric: tabular-nums;
@@ -4212,8 +4272,29 @@ body.agenda-window .palette:focus-visible {
   overflow: hidden;
 }
 
-.dash-bar.is-stack.is-empty {
+/* An empty bucket — no rows behind it, split or not (SUB-954) — reads as a
+   flat tick in the axis hairline rather than as a bar of its own. */
+.dash-bar.is-empty {
   background: var(--hair);
+}
+
+/* A real zero stack has rows but no positive slice to paint. Give its 3px box
+   the same resting and hover fills as a plain zero bar. */
+.dash-bar.is-stack.is-zero {
+  background: var(--bar, rgba(255, 255, 255, 0.38));
+}
+
+.dash-bar-col:hover .dash-bar.is-stack.is-zero {
+  background: var(--bar-hover, rgba(255, 255, 255, 0.5));
+}
+
+/* `.dash-bar.is-empty` has lower specificity than the generic column-hover
+   rule, so pointer hover already brightens a plain empty tick. This explicit
+   rule supplies the missing keyboard-focus response and keeps both shapes on
+   the same deliberate treatment: axis grey, quieter than any real bar. */
+.dash-bar-col:hover .dash-bar.is-empty,
+.dash-bar-col:focus-visible .dash-bar.is-empty {
+  background: var(--text-4);
 }
 
 .dash-bar-slice {
@@ -4648,6 +4729,25 @@ body.agenda-window .palette:focus-visible {
   color: var(--danger);
 }
 
+/* a ```chart fence (SUB-964) — the charts dashboard renders it embedded, so
+   the wrapper only owns the gap to the next block; the chart carries its own
+   label and provenance foot. */
+.hub-chart {
+  margin: 0 0 16px;
+}
+
+/* a ```cards fence's strip sits in the flow like the view tables do */
+.hub-body .metrics-strip {
+  margin: 0 0 16px;
+}
+
+/* one broken fence, one error, siblings untouched — same voice as .hub-view-err */
+.hub-cards-err {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  color: var(--danger);
+}
+
 .hub-pre {
   margin: 0 0 12px;
   padding: 10px 12px;
@@ -4813,6 +4913,23 @@ body.agenda-window .palette:focus-visible {
   bottom: 0;
   height: 2px;
   background: var(--accent);
+  /* SUB-945: the underline draws itself under the tab you just picked
+     instead of blinking into place. Per-tab, not a shared sliding element */
+  transform-origin: left center;
+  animation: tab-underline 140ms ease-out;
+}
+
+@keyframes tab-underline {
+  from {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-tab.active::after {
+    animation: none;
+  }
 }
 
 /* SUB-677: a pinned view's ⌘-digit rides its tab — the app-wide keycap
@@ -4923,6 +5040,23 @@ body.agenda-window .palette:focus-visible {
 /* the database filter bar (SUB-18): one quiet query row under the tab bar,
    rendered only on demand — an active query, focus, the naming flow, or the
    funnel toggle keep it on screen */
+/* SUB-945: the filter row and its completion chips form one block. The chips
+   overlay the body rather than joining the column flow, so appearing and
+   vanishing mid-typing never moves the table (design-principles.md 4) */
+.db-filter-wrap {
+  flex: none;
+  position: relative;
+  z-index: 4;
+}
+
+.db-filter-wrap .search-completions {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  background: var(--bg-elevated);
+}
+
 .db-filter {
   display: flex;
   align-items: center;
@@ -4960,6 +5094,7 @@ body.agenda-window .palette:focus-visible {
 /* visible "pin this filter" affordance — the ⋯-menu path stays (SUB-82) */
 .db-filter-save {
   flex: none;
+  transition: opacity 120ms ease-out;
   padding: 2px 8px;
   border: 1px solid var(--border-soft);
   border-radius: 5px;
@@ -4978,6 +5113,7 @@ body.agenda-window .palette:focus-visible {
 
 .db-filter-clear {
   flex: none;
+  transition: opacity 120ms ease-out;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4992,6 +5128,22 @@ body.agenda-window .palette:focus-visible {
 .db-filter-clear:hover {
   background: var(--hover);
   color: var(--text-1);
+}
+
+/* SUB-945: nothing to save or clear yet — the buttons hold their space and
+   fade out, so the first keystroke lights them up instead of shoving the
+   input sideways */
+.db-filter-save.is-off,
+.db-filter-clear.is-off {
+  opacity: 0;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-filter-save,
+  .db-filter-clear {
+    transition: none;
+  }
 }
 
 .db-body {
@@ -5055,6 +5207,15 @@ body.agenda-window .palette:focus-visible {
 
 .db-table th:hover {
   color: var(--text-1);
+  transition: color 120ms ease-out;
+}
+
+/* SUB-945: rows sliding under the sticky header need the header to read as a
+   lid over them. One step on the border it already has — the vertical twin of
+   the .db-scrolled-x freeze line, and at scroll 0 nothing changes. */
+.db-scrolled-y .db-table th {
+  border-bottom-color: var(--border-strong);
+  transition: border-bottom-color 120ms ease-out;
 }
 
 .db-sort {
@@ -5112,8 +5273,11 @@ body.agenda-window .palette:focus-visible {
     inset -1px 0 0 var(--border);
 }
 
+/* SUB-945: the wash eases in on the shared 120ms grammar and snaps back out
+   on leave — an easing exit trails the pointer across a long table */
 .db-table tbody tr:hover td {
   background: var(--hover);
+  transition: background-color 120ms ease-out;
 }
 
 /* SUB-272: a multi-selected row carries the accent tint — it outranks the
@@ -5122,11 +5286,17 @@ body.agenda-window .palette:focus-visible {
 .db-table tbody tr.is-selected td,
 .db-table tbody tr.is-selected:hover td {
   background: var(--accent-soft);
+  /* SUB-945: the tint arrives over 140ms so a shift-range select reads as one
+     sweep; declared on the selected rules only, so deselect snaps clear */
+  transition: background-color 140ms ease-out;
 }
 
 .db-table tbody tr.is-selected td:first-child,
 .db-table tbody tr.is-selected:hover td:first-child {
   background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--bg-panel);
+  /* the frozen cell carries its tint as a layer over the opaque base, so it
+     is background-image that has to ease here for the row to tint as one */
+  transition: background-image 140ms ease-out;
 }
 
 .db-table tr.db-open td {
@@ -5143,11 +5313,26 @@ body.agenda-window .palette:focus-visible {
   position: sticky;
   left: 0;
   z-index: 2;
-  background: var(--bg-panel);
+  /* SUB-945: the transparent layer renders identically to the bare token but
+     gives hover/selected a background-image to interpolate from */
+  background: linear-gradient(transparent, transparent), var(--bg-panel);
 }
 
 .db-table tbody tr:hover td:first-child {
   background: linear-gradient(var(--hover), var(--hover)), var(--bg-panel);
+  transition: background-image 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-table th:hover,
+  .db-table tbody tr:hover td,
+  .db-table tbody tr:hover td:first-child,
+  .db-table tbody tr.is-selected td,
+  .db-table tbody tr.is-selected:hover td,
+  .db-table tbody tr.is-selected td:first-child,
+  .db-table tbody tr.is-selected:hover td:first-child {
+    transition: none;
+  }
 }
 
 .db-table tr.db-open td:first-child {
@@ -5196,6 +5381,40 @@ body.agenda-window .palette:focus-visible {
 
 .db-cell.focused {
   box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+/* SUB-945: commit flash. An edited cell used to close its editor and look
+   exactly as it did before — the write and a discarded edit were the same
+   picture. One accent wash, one-shot, laid over the cell so the value's own
+   colours (option pills, links) are untouched. */
+.db-cell.db-flashing,
+.db-card.db-flashing {
+  position: relative;
+}
+
+.db-cell-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  background: var(--accent-soft);
+  animation: cell-flash 700ms ease-out forwards;
+}
+
+@keyframes cell-flash {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-cell-flash {
+    animation: none;
+    opacity: 0;
+  }
 }
 
 /* grouped table (SUB-184): a section header row spans the full width in the
@@ -5419,6 +5638,13 @@ body.agenda-window .palette:focus-visible {
   padding: 12px 14px;
 }
 
+/* SUB-945: the no-matches state renders inside the scroller, so it has to
+   claim the row rather than sit at content width against the left edge */
+.db-board > .empty {
+  flex: 1;
+  align-self: stretch;
+}
+
 .db-col {
   flex: none;
   width: 236px;
@@ -5430,8 +5656,20 @@ body.agenda-window .palette:focus-visible {
   background: rgba(255, 255, 255, 0.018);
 }
 
+/* SUB-945: the target column takes a faint accent wash under the ring, so
+   the drop target is legible without reading the border alone */
 .db-col.drop {
   border-color: var(--accent);
+  background: var(--accent-soft);
+  transition:
+    border-color 120ms ease-out,
+    background-color 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-col.drop {
+    transition: none;
+  }
 }
 
 .db-col-head {
@@ -5471,7 +5709,8 @@ body.agenda-window .palette:focus-visible {
   cursor: grab;
 }
 
-.db-card:hover {
+.db-card:hover,
+.db-gcard:hover {
   border-color: var(--border-strong);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
@@ -5515,11 +5754,28 @@ body.agenda-window .palette:focus-visible {
   font-size: 11.5px;
   font-weight: 500;
   text-align: left;
+  /* SUB-945: hidden at rest, but it keeps its grid space, so revealing it
+     never shifts the column's cards */
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.db-col:hover .db-col-new,
+.db-col:focus-within .db-col-new,
+.db-col-new:focus-visible,
+.db-col-new.busy {
+  opacity: 1;
 }
 
 .db-col-new:hover {
   background: var(--hover);
   color: var(--text-1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-col-new {
+    transition: none;
+  }
 }
 
 .db-card.focused {
@@ -5528,6 +5784,7 @@ body.agenda-window .palette:focus-visible {
 
 .db-card.dragging {
   opacity: 0.45;
+  cursor: grabbing;
 }
 
 .db-card.open {
@@ -5566,10 +5823,6 @@ body.agenda-window .palette:focus-visible {
   overflow: hidden;
 }
 
-.db-gcard:hover {
-  border-color: var(--border-strong);
-}
-
 .db-gcard.focused {
   box-shadow: 0 0 0 1.5px var(--accent);
 }
@@ -5592,6 +5845,29 @@ body.agenda-window .palette:focus-visible {
   height: 100%;
   object-fit: cover;
   display: block;
+  opacity: 0;
+}
+
+.db-gcover img.is-loaded {
+  opacity: 1;
+}
+
+/* SUB-945: start only when the bitmap reports load, not when its element
+   mounts. Cached remounts keep is-loaded but never regain this class. */
+.db-gcover img.cover-entering {
+  animation: cover-in 220ms ease-out;
+}
+
+@keyframes cover-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-gcover img.cover-entering {
+    animation: none;
+  }
 }
 
 /* artless cover: the db's TypeIcon recedes to a quiet mark — the card's
@@ -5699,9 +5975,30 @@ tr.db-draft-tr td.db-title {
   background: var(--bg-elevated);
 }
 
+/* SUB-945: the draft settles into the list instead of appearing already
+   there — the one moment where a row genuinely arrives */
+tr.db-draft-tr,
+.db-card.db-draft,
+.row.db-draft {
+  animation: row-in 120ms ease-out;
+}
+
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .db-new {
     transition: none;
+  }
+
+  tr.db-draft-tr,
+  .db-card.db-draft,
+  .row.db-draft {
+    animation: none;
   }
 }
 
@@ -6614,6 +6911,7 @@ th.sheet-computed:hover {
 .metrics-cards .dash-card .dash-label {
   flex: 1 0 auto;
 }
+
 
 /* Select-type properties — option dots + value picker (SUB-11) */
 
@@ -7921,6 +8219,17 @@ span.asset-thumb svg {
   font-variant-numeric: tabular-nums;
   padding: 4px 0;
   border-radius: 5px;
+  /* SUB-945: arrowing through the grid glides the cursor and the span
+     shading across the days instead of teleporting cell to cell */
+  transition:
+    background-color 90ms ease-out,
+    color 90ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .datemenu-day {
+    transition: none;
+  }
 }
 
 .datemenu-day.out {
@@ -8650,6 +8959,18 @@ span.asset-thumb svg {
     background: none;
   }
 
+  /* a real zero stack has no slices, so its box keeps the ordinary zero fill */
+  #print-surface .dash-bar.is-stack.is-zero {
+    background: var(--bar, #9198a1);
+  }
+
+  /* an empty bucket prints as the faint tick it draws on screen, in both
+     shapes — the id-scoped rules above would otherwise print a split gap as
+     nothing and a plain one as a solid grey mark (SUB-954) */
+  #print-surface .dash-bar.is-empty {
+    background: var(--hair);
+  }
+
   /* a tooltip is a pointer affordance — on paper there is no pointer, and a
      card frozen over one bar would be a lie about which one matters */
   #print-surface .chart-tip,
@@ -8664,9 +8985,11 @@ span.asset-thumb svg {
     background: #f6f7f8;
   }
 
-  #print-surface .hub-view-err {
+  #print-surface .hub-view-err,
+  #print-surface .hub-cards-err {
     color: #a33636;
   }
+
 
   #print-surface .print-title {
     font-size: 23px;
@@ -10623,6 +10946,14 @@ body.col-resizing * {
   color: var(--text-3);
 }
 
+/* Keep the footer's label under the frozen Name column explicitly; the
+   generic first-cell rule supplies the same left edge above, but this pins
+   the footer contract where its sticky stacking is defined. */
+.db-table tfoot td:first-child {
+  left: 0;
+  z-index: 2;
+}
+
 .db-agg-btn {
   display: flex;
   align-items: baseline;
@@ -10653,14 +10984,43 @@ body.col-resizing * {
 
 .db-agg-value {
   color: var(--text-2);
+  /* SUB-945: keyed on the value in DbTableLayout, so this runs on every
+     recompute -- the figure fades in rather than swapping under the eye */
+  animation: agg-in 200ms ease-out;
+}
+
+@keyframes agg-in {
+  from {
+    opacity: 0;
+  }
 }
 
 .db-agg-btn:hover .db-agg-value {
   color: var(--text-1);
 }
 
+/* SUB-945: the resting footer's only offer. Hidden until the footer is
+   hovered or keyboard-focused, but it holds its space, so setting the first
+   aggregation moves nothing (design-principles.md 5) */
 .db-agg-ghost {
   color: var(--text-3);
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.db-agg-cell:hover .db-agg-ghost,
+.db-agg-cell:focus-within .db-agg-ghost {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-agg-value {
+    animation: none;
+  }
+
+  .db-agg-ghost {
+    transition: none;
+  }
 }
 
 /* add-property popover's name field (rides the schema editor card) */
@@ -11868,11 +12228,6 @@ body.col-resizing * {
 .propvis-list {
   max-height: 320px;
   overflow-y: auto;
-}
-
-.propvis-item .prop-check {
-  width: 13px;
-  height: 13px;
 }
 
 .propvis-name {

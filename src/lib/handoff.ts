@@ -159,12 +159,17 @@ export function buildHandoffDocument(opts: {
   );
 }
 
-/** `share-relay-url` (Settings.md) — where "Send as link" uploads. Empty =
-    unconfigured; the dialog explains setup instead of failing. Trailing
-    slashes are trimmed so link building never doubles them. */
+export const HOSTED_HANDOFF_RELAY_URL = "https://drop.substrate.zone";
+
+/** `share-relay-url` (Settings.md) — where "Send as link" uploads. Missing
+    uses the hosted default so existing vaults adopt it without a rewrite;
+    `disabled` (and legacy `off`) or an explicit empty value opts out. Trailing slashes are trimmed
+    so link building never doubles them. */
 export function parseShareRelayUrl(props: Record<string, unknown>): string {
   const v = props[foldedPropKey(props, "share-relay-url")];
+  if (v === undefined || v === null) return HOSTED_HANDOFF_RELAY_URL;
   if (typeof v !== "string") return "";
   const s = v.trim().replace(/\/+$/, "");
+  if (["disabled", "off"].includes(s.toLowerCase())) return "";
   return /^https?:\/\/.+/i.test(s) ? s : "";
 }

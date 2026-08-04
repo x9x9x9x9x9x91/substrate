@@ -89,6 +89,21 @@ test("detached BEHIND origin/main refuses, naming both SHAs (SUB-509)", () => {
     assert.match(r.stderr, new RegExp(rig.older.slice(0, 7)));
     assert.match(r.stderr, new RegExp(rig.newer.slice(0, 7)));
     assert.match(r.stderr, /SUB-509/);
+    assert.match(r.stderr, /Fresh clone\? Bootstrap/);
+    assert.match(r.stderr, /git checkout main/);
+    assert.doesNotMatch(r.stderr, /\.worktrees\/_main/);
+  });
+});
+
+test("a stale primary names the existing main worktree", () => {
+  withRig((rig) => {
+    execFileSync("git", ["-C", rig.repo, "checkout", "-q", "--detach", rig.older]);
+    const mainTree = join(rig.repo, "main-tree");
+    execFileSync("git", ["-C", rig.repo, "worktree", "add", "-q", mainTree, "main"]);
+    const r = run(rig);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /cd .*main-tree && bash scripts\/tool\.sh/);
+    assert.doesNotMatch(r.stderr, /Fresh clone\? Bootstrap/);
   });
 });
 

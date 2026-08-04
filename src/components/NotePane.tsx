@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { NoteMeta, FmState, NumberFormat, PropKind, PropSchema, PropValue, RelatedEntry, RollupConfig, SchemaConfig, SelectOption, TagCount } from "../lib/types";
 import { foldedPropKey, foldedPropStr, propStr } from "../lib/types";
-import type { EmbedResult, EmbedSpec } from "../lib/embeds";
+import type { EmbedResult, ViewSpecResult } from "../lib/embeds";
 import {
   fileOpen,
   onHistoryLeave,
@@ -142,7 +142,7 @@ interface NotePaneProps {
   tagUniverse?: TagCount[];
   onOpenNote: (path: string) => void;
   /** ```view embeds (SUB-86): resolve a fence spec to its table model */
-  embedQuery?: (spec: EmbedSpec) => EmbedResult;
+  embedQuery?: (spec: ViewSpecResult) => EmbedResult;
   /** ```view embeds: header click opens the database */
   onOpenView?: (dbType: string, savedId?: string) => void;
   /** ```view embeds (SUB-796): commit one cell through the app's undoable write */

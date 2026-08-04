@@ -264,10 +264,17 @@ test("tasks: the snooze menu offers a date picker anchored to its verb (SUB-870)
   // one of the verb's own horizontal edges — under its bottom, or flipped
   // above its top when the bottom of the window is close. A click-coordinate
   // anchor would land on the pointer's y, mid-row, matching neither.
-  const box = await picker.boundingBox();
   const width = await page.evaluate(() => window.innerWidth);
-  expect(box?.x).toBeCloseTo(Math.min(verbBox?.x ?? 0, width - 268), 0);
-  const under = (verbBox?.y ?? 0) + (verbBox?.height ?? 0) + 4;
-  const flippedAbove = (verbBox?.y ?? 0) - 4 - (box?.height ?? 0);
-  expect(Math.min(Math.abs((box?.y ?? 0) - under), Math.abs((box?.y ?? 0) - flippedAbove))).toBeLessThan(1);
+  // measured once the pop-in has settled (SUB-945 gave every anchored menu the
+  // same short entrance) -- the assertion itself stays exact, so a menu that is
+  // genuinely anchored to the pointer never converges
+  await expect(async () => {
+    const box = await picker.boundingBox();
+    expect(box?.x).toBeCloseTo(Math.min(verbBox?.x ?? 0, width - 268), 0);
+    const under = (verbBox?.y ?? 0) + (verbBox?.height ?? 0) + 4;
+    const flippedAbove = (verbBox?.y ?? 0) - 4 - (box?.height ?? 0);
+    expect(
+      Math.min(Math.abs((box?.y ?? 0) - under), Math.abs((box?.y ?? 0) - flippedAbove))
+    ).toBeLessThan(1);
+  }).toPass({ timeout: 2000 });
 });

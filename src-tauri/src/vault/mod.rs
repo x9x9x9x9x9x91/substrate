@@ -783,6 +783,15 @@ fn file_stamp(md: &fs::Metadata) -> (String, String) {
 /// edited as a plain markdown file and applies to future entries only.
 pub const TEMPLATES_REL_DIR: &str = ".vault/templates";
 
+/// `.vault/kinds/<id>/` — custom dashboard kinds (SUB-957/959): a manifest, an
+/// entry module and an optional stylesheet per folder. App-owned like the rest
+/// of `.vault/`: never indexed, never watched, and NOT reachable through the
+/// note commands — `template_rel` stays the only hidden-path exception. The
+/// bytes leave the vault exactly one way, through the `substrate-kind:` scheme
+/// in `crate::kinds`, and only for a bundle whose current hash matches the one
+/// consent was recorded for.
+pub const KINDS_REL_DIR: &str = ".vault/kinds";
+
 /// The one hidden subtree the note commands serve by explicit path (SUB-59):
 /// `.vault/templates/<type>.md`, flat. Still never indexed or watched like the
 /// rest of `.vault/` — but a direct read/write must succeed so a template can
@@ -2119,6 +2128,39 @@ impl Engine {
                 if let Some(stem) = p.file_stem().map(|s| s.to_string_lossy().to_string()) {
                     out.push(stem);
                 }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// `<vault>/.vault/kinds` — the custom-kind bundle root (SUB-959).
+    ///
+    /// Deliberately a path accessor and not a reader: `hidden_rel` still hides
+    /// every `.`-prefixed segment from the note commands, so nothing about
+    /// `.vault/kinds` is reachable as a note. `crate::kinds` reads through this
+    /// and re-checks containment, the enable record and the bundle hash before
+    /// a single byte is served.
+    pub fn kinds_dir(&self) -> PathBuf {
+        self.root.join(KINDS_REL_DIR)
+    }
+
+    /// Bundle folder names under `.vault/kinds/`, alphabetically. Dot-folders
+    /// are skipped (they can't be valid kind ids); everything else is listed
+    /// even when it is broken, because "installed but invalid" is a state the
+    /// enable pane has to be able to show. Missing dir = none.
+    pub fn kind_ids(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        if let Ok(rd) = fs::read_dir(self.kinds_dir()) {
+            for e in rd.flatten() {
+                if !e.path().is_dir() {
+                    continue;
+                }
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') {
+                    continue;
+                }
+                out.push(name);
             }
         }
         out.sort();
@@ -3892,6 +3934,11 @@ mod tests {
             props["terminal-actions"],
             serde_json::json!(["Set up vault skills: /setup"]),
             "seeded Settings.md lost its /setup quick action: {raw}"
+        );
+        assert_eq!(
+            props["share-relay-url"],
+            serde_json::json!("https://drop.substrate.zone"),
+            "seeded Settings.md lost the hosted handoff default: {raw}"
         );
 
         fs::write(

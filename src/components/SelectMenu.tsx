@@ -89,6 +89,16 @@ export function anchorFrom(el: Element): AnchorRect {
   return { left: r.left, top: r.top, bottom: r.bottom, width: r.width, height: r.height };
 }
 
+/** SUB-945: an anchor is a viewport rect captured when the menu opened — the
+    moment its scroller moves, the menu is pointing at empty space. Events are
+    scoped to the pane that owns that scroller: another database or surface
+    must never close this menu. */
+export const ANCHOR_STALE_EVENT = "substrate:anchor-stale";
+
+export function anchorsWentStale(scope: string) {
+  window.dispatchEvent(new CustomEvent(ANCHOR_STALE_EVENT, { detail: { scope } }));
+}
+
 type Row =
   | { kind: "option"; opt: SelectOption }
   | { kind: "used"; value: string }
@@ -141,6 +151,8 @@ interface SelectMenuProps {
   /** opened from inside a z-100 overlay dialog (SUB-647): ride above it.
       Default stays 60 — below the palette overlay, as everywhere else. */
   aboveOverlay?: boolean;
+  /** owner token for scroll-dismiss events; omitted outside a scrolling DB pane */
+  staleScope?: string;
   /** per-value icons for picker rows — the type picker shows each database's
       identity icon so "type" reads as database membership (SUB-73) */
   valueIcons?: Record<string, DbIcon>;
@@ -263,6 +275,7 @@ export default function SelectMenu({
   valueIcons,
   cell,
   aboveOverlay,
+  staleScope,
   onCommit,
   values,
   bulkNote,
@@ -514,9 +527,19 @@ export default function SelectMenu({
     const onDown = (e: MouseEvent) => {
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) clickAway.current();
     };
+    // SUB-945: the anchor rect was captured at open, so a scrolled cell leaves
+    // the menu floating over unrelated rows — same exit as a click away
+    const onStale = (event: Event) => {
+      const detail = (event as CustomEvent<{ scope?: string }>).detail;
+      if (detail?.scope === staleScope) clickAway.current();
+    };
     window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
-  }, []);
+    if (staleScope) window.addEventListener(ANCHOR_STALE_EVENT, onStale);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      if (staleScope) window.removeEventListener(ANCHOR_STALE_EVENT, onStale);
+    };
+  }, [staleScope]);
 
   const flipUp = anchor.bottom + MENU_MAX_H + 8 > window.innerHeight && anchor.top > MENU_MAX_H;
   // dropped panel (default, and the schema editor) — under the anchor
@@ -965,7 +988,7 @@ export default function SelectMenu({
     </div>
   ) : (
     <div
-      className={`selmenu${cell ? " selmenu-cell" : ""}${cell && flipUp ? " flip-up" : ""}`}
+      className={`selmenu${cell ? " selmenu-cell" : ""}${flipUp ? " flip-up" : ""}`}
       style={style}
       ref={boxRef}
       onClick={stop}

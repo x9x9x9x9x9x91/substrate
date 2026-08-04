@@ -24,6 +24,9 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || {
   echo "verify-gates: not inside a git worktree" >&2; exit 2
 }
 cd "$ROOT"
+# shellcheck source=scripts/lib/cargo-target.sh
+. "$ROOT/scripts/lib/cargo-target.sh"
+substrate_use_shared_cargo_target
 
 ONLY="tsc,test,cargo,e2e,lint"
 REF=""

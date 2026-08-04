@@ -8,6 +8,7 @@ import {
   fromBase64Url,
   openHandoff,
   parseShareRelayUrl,
+  HOSTED_HANDOFF_RELAY_URL,
   sealHandoff,
   toBase64Url,
 } from "./handoff.ts";
@@ -101,10 +102,13 @@ test("document inlines image embeds via assetSrc", () => {
   assert.match(html, /<img src="data:image\/png;base64,AAAA"/);
 });
 
-test("share-relay-url parses http(s) only and trims trailing slashes", () => {
+test("share-relay-url defaults hosted, preserves custom URLs, and honors opt-out", () => {
   assert.equal(parseShareRelayUrl({ "share-relay-url": "https://s.zone/" }), "https://s.zone");
   assert.equal(parseShareRelayUrl({ "share-relay-url": " http://my.box:8787 " }), "http://my.box:8787");
-  assert.equal(parseShareRelayUrl({}), "");
+  assert.equal(parseShareRelayUrl({}), HOSTED_HANDOFF_RELAY_URL);
+  assert.equal(parseShareRelayUrl({ "share-relay-url": "off" }), "");
+  assert.equal(parseShareRelayUrl({ "share-relay-url": "disabled" }), "");
+  assert.equal(parseShareRelayUrl({ "share-relay-url": "" }), "");
   assert.equal(parseShareRelayUrl({ "share-relay-url": "ftp://nope" }), "");
   assert.equal(parseShareRelayUrl({ "share-relay-url": 7 }), "");
 });

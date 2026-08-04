@@ -11,9 +11,16 @@ const port = Number(process.env.E2E_PORT || 1429);
 // CI instead of per-spec whack-a-mole: every pipeline surfaced a different
 // spec clipping a correct run (databasecontrols 2.5m, syncmanager 20.2s).
 const ci = !!process.env.CI;
+// The local budget has the same starvation class (SUB-998): on a pristine
+// clone (cold Vite caches) or a loaded dev box, the first post-goto click of
+// a spec's boot helper starves while the app boots — 2 random victims in the
+// stranger's 4-worker run, 10 across six unrelated specs at the 64-worker
+// repro dial, dbflows itself green and every victim at ms-speed when boot
+// isn't contended. Declare the boot cost in the budget (SUB-606 shape);
+// assertions keep the tight 5s expect timeout, so real slow paths still fail.
 export default defineConfig({
   testDir: "./e2e",
-  timeout: ci ? 120_000 : 20_000,
+  timeout: ci ? 120_000 : 60_000,
   expect: { timeout: ci ? 15_000 : 5_000 },
   fullyParallel: true,
   workers: ci ? 2 : 4,

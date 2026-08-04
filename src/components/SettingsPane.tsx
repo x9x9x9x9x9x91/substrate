@@ -27,6 +27,7 @@ import {
   TERMINAL_WIDTH_MIN,
 } from "../lib/termdock";
 import type { OnboardingStatus } from "../lib/onboarding";
+import { HOSTED_HANDOFF_RELAY_URL } from "../lib/handoff";
 
 const Onboarding = lazy(() => import("./Onboarding"));
 
@@ -103,6 +104,16 @@ function fontAvailable(family: string): boolean {
 /** current state of a bool field, honoring its default when unset */
 function boolOn(f: Field, raw: string): boolean {
   return raw === "" ? !!f.defaultOn : raw === "true";
+}
+
+function fieldText(f: Field, raw: unknown): string {
+  if (f.key === "share-relay-url") {
+    if (raw === undefined || raw === null) return HOSTED_HANDOFF_RELAY_URL;
+    if (String(raw).trim().toLowerCase() === "off") return "";
+  }
+  if (f.kind === "multiline") return terminalActionsToText(raw);
+  if (raw === undefined || raw === null) return "";
+  return typeof raw === "boolean" ? String(raw) : String(raw).trim();
 }
 
 /** which option a select field is on: an unset key — or a value the note
@@ -279,14 +290,7 @@ export default function SettingsPane({
       for (const f of FIELDS) {
         // fold the read (SUB-924) — a hand-cased key still shows its value
         const raw = c.props[foldedPropKey(c.props, f.key)];
-        v[f.key] =
-          f.kind === "multiline"
-            ? terminalActionsToText(raw)
-            : raw === undefined || raw === null
-              ? ""
-              : typeof raw === "boolean"
-                ? String(raw)
-                : String(raw).trim();
+        v[f.key] = fieldText(f, raw);
       }
       setValues(v);
       setSaved(v);
@@ -381,7 +385,11 @@ export default function SettingsPane({
       setPropUndoable({
         path: SETTINGS_PATH,
         key,
-        value: next === "" ? null : next,
+        // Missing means "use the hosted default". Persist an explicit
+        // sentinel when the user clears this one field so opt-out survives
+        // reloads and sync. `disabled` stays a string even in YAML 1.1 tools;
+        // legacy `off` remains accepted by the reader.
+        value: key === "share-relay-url" && next === "" ? "disabled" : next === "" ? null : next,
         record: undo.record,
         onApplied: reconcileSettings,
       })

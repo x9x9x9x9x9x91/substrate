@@ -30,16 +30,27 @@ test.beforeEach(async ({ page }) => {
   await boot(page);
 });
 
-test("unconfigured relay: the dialog explains setup instead of failing", async ({ page }) => {
+test("cleared relay: the dialog explains setup instead of failing", async ({ page }) => {
+  await setRelayUrl(page, "");
   await row(page, "Capture anything").click({ button: "right" });
   await page.locator(".ctx-item", { hasText: "Send as link…" }).click();
 
   const dialog = page.getByRole("dialog", { name: "Send as link" });
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText("No share relay is set up yet");
+  await expect(dialog).toContainText("Hosted sharing is off");
   await expect(dialog).toContainText("Settings");
   await dialog.getByRole("button", { name: "Close" }).click();
   await expect(dialog).toHaveCount(0);
+});
+
+test("fresh vault uses the hosted relay without setup", async ({ page }) => {
+  await row(page, "Capture anything").click({ button: "right" });
+  await page.locator(".ctx-item", { hasText: "Send as link…" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Send as link" });
+  await dialog.getByRole("button", { name: "Create link" }).click();
+  const url = new URL(await dialog.getByRole("textbox", { name: "Share link" }).inputValue());
+  expect(url.origin).toBe("https://drop.substrate.zone");
 });
 
 test("configured relay: expiry defaults to 7 days, link carries the key in the fragment", async ({
@@ -53,7 +64,9 @@ test("configured relay: expiry defaults to 7 days, link carries the key in the f
   const dialog = page.getByRole("dialog", { name: "Send as link" });
   await expect(dialog).toBeVisible();
   // honesty copy: the relay stores ciphertext, the key stays in the link
-  await expect(dialog).toContainText("the relay stores only ciphertext");
+  await expect(dialog).toContainText("the relay stores ciphertext");
+  await expect(dialog).toContainText("It will upload to https://drop.example.org");
+  await expect(dialog).toContainText("use a relay operator you trust");
   await expect(dialog.getByRole("radio", { name: "7 days" })).toHaveAttribute(
     "aria-checked",
     "true"

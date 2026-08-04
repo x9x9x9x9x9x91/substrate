@@ -83,7 +83,7 @@ import {
   isAudioEmbed,
   isImageEmbed,
 } from "../lib/editor-widgets";
-import type { EmbedResult, EmbedSpec } from "../lib/embeds";
+import type { EmbedResult, ViewSpecResult } from "../lib/embeds";
 import type { NoteMeta, PropValue, TagCount } from "../lib/types";
 import type { RelationCandidate } from "../lib/relation";
 import { markdownLinkLabel, TASK_PREFIX_RE } from "../lib/markdown";
@@ -1311,7 +1311,7 @@ interface EditorProps {
   /** all database types — the ```view fence's `type:` completion (SUB-469) */
   dbTypes?: string[];
   /** ```view embeds (SUB-86): resolve a fence spec to its table model */
-  embedQuery?: (spec: EmbedSpec) => EmbedResult;
+  embedQuery?: (spec: ViewSpecResult) => EmbedResult;
   /** ```view embeds: row click opens the entry note */
   onOpenNote?: (path: string) => void;
   /** ```view embeds (SUB-86): header click opens the database */

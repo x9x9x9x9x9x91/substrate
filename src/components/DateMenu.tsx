@@ -203,7 +203,13 @@ export default function DateMenu({
     spanEnds !== null && iso >= spanEnds[0] && iso <= spanEnds[1];
 
   const menu = (
-    <div className="selmenu datemenu" style={style} ref={boxRef} onClick={stop} onKeyDown={stop}>
+    <div
+      className={`selmenu datemenu${flipUp ? " flip-up" : ""}`}
+      style={style}
+      ref={boxRef}
+      onClick={stop}
+      onKeyDown={stop}
+    >
       <input
         className="selmenu-input"
         autoFocus

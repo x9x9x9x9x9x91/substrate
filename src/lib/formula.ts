@@ -806,6 +806,15 @@ function evalAggregate(
       // SUMIF(col, match) sums col itself; SUMIF(col, match, valueCol) sums valueCol.
       const vals = args.length >= 3 ? colArg(args[2], "value column") : pairs[0].col;
       if (isErr(vals)) return vals;
+      // Rows pair off criteria against values, so a length mismatch has no
+      // honest reading here either — reachable via a cross-sheet value column,
+      // where an overhang would silently read as blank rows summing to 0.
+      if (vals.length !== rows) {
+        return ferr(
+          `${name}: value column must have the same number of rows as the ` +
+            `criteria column (${rows} vs ${vals.length})`
+        );
+      }
       let sum = 0;
       for (let i = 0; i < rows; i++) {
         const h = rowHit(i);

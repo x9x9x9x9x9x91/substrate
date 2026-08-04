@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Server } from "node:http";
@@ -12,9 +12,25 @@ after(async () => {
   for (const c of cleanups.reverse()) await c();
 });
 
-async function startRelay(opts: { maxBytes?: number; storeToken?: string } = {}) {
+async function startRelay(
+  opts: {
+    maxBytes?: number;
+    maxTotalBytes?: number;
+    maxEntries?: number;
+    maxConcurrentStores?: number;
+    beforeCreate?: (dataDir: string) => Promise<void>;
+  } & { storeToken?: string } = {}
+) {
   const dataDir = await mkdtemp(join(tmpdir(), "handoff-relay-"));
-  const server = createHandoffRelay({ dataDir, ...opts });
+  await opts.beforeCreate?.(dataDir);
+  const server = createHandoffRelay({
+    dataDir,
+    maxBytes: opts.maxBytes,
+    maxTotalBytes: opts.maxTotalBytes,
+    maxEntries: opts.maxEntries,
+    maxConcurrentStores: opts.maxConcurrentStores,
+    storeToken: opts.storeToken,
+  });
   const port = await new Promise<number>((res, rej) => {
     server.once("error", rej);
     server.listen(0, "127.0.0.1", () => {
@@ -86,6 +102,18 @@ test("burn links serve exactly one claim, then are gone from disk", async () => 
   assert.deepEqual(left, [], "payload and meta deleted after the claim");
 });
 
+test("concurrent burn claims have exactly one winner", async () => {
+  const { base } = await startRelay();
+  const { payload } = await sealHandoff(new TextEncoder().encode("one-shot race"));
+  const { id } = (await (await store(base, payload, "burn")).json()) as { id: string };
+
+  const responses = await Promise.all([claim(base, id), claim(base, id)]);
+  assert.deepEqual(
+    responses.map((response) => response.status).sort(),
+    [200, 404]
+  );
+});
+
 test("expired entries are refused and removed on claim", async () => {
   const { base, dataDir } = await startRelay();
   const { payload } = await sealHandoff(new TextEncoder().encode("old"));
@@ -133,17 +161,73 @@ test("store token gates uploads but never claims", async () => {
   assert.equal((await claim(base, id)).status, 200, "claim needs no token");
 });
 
+test("concurrent stores cannot race past the entry quota", async () => {
+  const { base, dataDir } = await startRelay({ maxEntries: 1 });
+  const { payload } = await sealHandoff(new TextEncoder().encode("quota"));
+  const responses = await Promise.all([store(base, payload, "7d"), store(base, payload, "7d")]);
+  assert.deepEqual(
+    responses.map((r) => r.status).sort(),
+    [201, 507]
+  );
+  assert.equal(
+    (await readdir(dataDir)).filter((name) => /^[A-Za-z0-9_-]{16,32}$/.test(name)).length,
+    1
+  );
+});
+
+test("concurrent stores cannot race past the byte quota", async () => {
+  const { payload } = await sealHandoff(new TextEncoder().encode("byte quota"));
+  const { base } = await startRelay({ maxTotalBytes: payload.length + 100 });
+  const responses = await Promise.all([store(base, payload, "7d"), store(base, payload, "7d")]);
+  assert.deepEqual(
+    responses.map((r) => r.status).sort(),
+    [201, 507]
+  );
+});
+
+test("startup sweep reclaims a crash-orphaned payload after the grace period", async () => {
+  const orphan = "orphanedPayload123456";
+  const { dataDir } = await startRelay({
+    beforeCreate: async (dir) => {
+      const path = join(dir, orphan);
+      await writeFile(path, "ciphertext without metadata");
+      const old = new Date(Date.now() - 2 * 3600_000);
+      await utimes(path, old, old);
+    },
+  });
+  const deadline = Date.now() + 1000;
+  while ((await readdir(dataDir)).includes(orphan) && Date.now() < deadline)
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.ok(!(await readdir(dataDir)).includes(orphan));
+});
+
+test("startup sweep preserves a fresh temporary metadata write", async () => {
+  const temporary = ".tmp-pending.json";
+  const { dataDir } = await startRelay({
+    beforeCreate: async (dir) => {
+      await writeFile(join(dir, temporary), "pending metadata");
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.ok((await readdir(dataDir)).includes(temporary));
+});
+
 test("viewer page never leaks referrers, refuses indexing, ships a CSP", async () => {
   const { base } = await startRelay();
   const r = await fetch(`${base}/h/whatever1234567890`);
   assert.equal(r.headers.get("referrer-policy"), "no-referrer");
   assert.equal(r.headers.get("x-robots-tag"), "noindex");
   assert.equal(r.headers.get("x-content-type-options"), "nosniff");
+  assert.equal(r.headers.get("cache-control"), "no-store");
   const csp = r.headers.get("content-security-policy") ?? "";
   assert.match(csp, /default-src 'none'/);
   assert.match(csp, /connect-src 'self'/);
   const html = await r.text();
   assert.match(html, /sandbox=/, "document renders in a sandboxed iframe");
   assert.ok(!/sandbox="[^"]*allow-scripts/.test(html), "sandbox never allows scripts");
+  assert.ok(
+    !/sandbox="[^"]*allow-popups-to-escape-sandbox/.test(html),
+    "shared content cannot open an unsandboxed branded popup"
+  );
   assert.match(html, /SBH1/, "viewer checks the payload magic");
 });

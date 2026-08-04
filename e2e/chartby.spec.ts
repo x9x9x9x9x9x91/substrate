@@ -158,19 +158,22 @@ test("a negative split cannot masquerade as a positive stacked bar (SUB-941)", a
   await expect(page.locator(".chart-legend, .dash-chart")).toHaveCount(0);
 });
 
+// a May and a July row with June empty between them: the bar axis zero-fills
+// the gap, so the middle bucket is the empty one in both shapes
+const DATED = [
+  "Date split.",
+  "",
+  "```csv",
+  "asset,bucket,date,value_eur",
+  "AAA,etf,2026-05-03,10",
+  "BBB,crypto,2026-07-08,20",
+  "```",
+  "",
+].join("\n");
+
 test("a zero-filled split bucket says that it has no rows (SUB-941)", async ({ page }) => {
-  const dated = [
-    "Date split.",
-    "",
-    "```csv",
-    "asset,bucket,date,value_eur",
-    "AAA,etf,2026-05-03,10",
-    "BBB,crypto,2026-07-08,20",
-    "```",
-    "",
-  ].join("\n");
   const byMonth = SPLIT.replace("x: quarter", "x: date:month");
-  await openOverview(page, byMonth, dated);
+  await openOverview(page, byMonth, DATED);
 
   const bars = page.locator(".dash-bar-col");
   await expect(bars).toHaveCount(3);
@@ -179,4 +182,198 @@ test("a zero-filled split bucket says that it has no rows (SUB-941)", async ({ p
   await bars.nth(1).hover();
   await expect(page.locator(".chart-tip-x")).toHaveText("Jun 2026");
   await expect(page.locator(".chart-tip-n")).toHaveText("No rows");
+});
+
+test("a real zero split bucket keeps an honest visible zero mark (SUB-954)", async ({ page }) => {
+  const zeroRows = HOLDINGS.replace("AAA,etf,Q1,10", "AAA,etf,Q1,0").replace(
+    "BBB,crypto,Q1,20",
+    "BBB,crypto,Q1,0"
+  );
+  await openOverview(page, SPLIT, zeroRows);
+
+  const splitCol = page.locator(".dash-bar-col").first();
+  const splitZero = splitCol.locator(".dash-bar.is-stack.is-zero");
+  await expect(splitCol).toHaveAttribute("aria-label", "Q1 · etf: 0, crypto: 0");
+  await expect(splitZero).toHaveCount(1);
+  await expect(splitZero.locator(".dash-bar-slice")).toHaveCount(0);
+  const splitBox = (await splitZero.boundingBox())!;
+  expect(splitBox.height).toBeGreaterThanOrEqual(3);
+  const splitFill = await splitZero.evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(splitFill).not.toBe("rgba(0, 0, 0, 0)");
+
+  // The non-split form has always painted a real zero as its normal 3px bar.
+  // The exact fill differs between shapes since SUB-932 (categorical plain
+  // bars wear the series ramp); the shared invariant is a visible, painted,
+  // not-row-empty mark in both.
+  await openOverview(page, PLAIN, zeroRows);
+  const plainCol = page.locator(".dash-bar-col").first();
+  const plainZero = plainCol.locator(".dash-bar:not(.is-empty)");
+  await expect(plainCol).toHaveAttribute("aria-label", "Q1 · 0 · 2 rows");
+  await expect(plainZero).toHaveCount(1);
+  const plainBox = (await plainZero.boundingBox())!;
+  expect(plainBox.height).toBeGreaterThanOrEqual(3);
+  const plainFill = await plainZero.evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(plainFill).not.toBe("rgba(0, 0, 0, 0)");
+});
+
+// SUB-954: the same empty bucket without a `by:` — one reading for both
+// shapes. It used to claim a value of 0, which is a different statement from
+// "nothing landed here".
+test("a zero-filled plain bucket reads as empty, exactly like a split one (SUB-954)", async ({
+  page,
+}) => {
+  const byMonth = PLAIN.replace("x: quarter", "x: date:month");
+  await openOverview(page, byMonth, DATED);
+
+  const bars = page.locator(".dash-bar-col");
+  await expect(bars).toHaveCount(3);
+  await expect(bars.nth(1)).toHaveAttribute("aria-label", "Jun 2026 · no rows");
+  await expect(bars.nth(1).locator(".dash-bar.is-empty")).toHaveCount(1);
+  // the buckets that do have rows keep their own reading, and no empty mark
+  await expect(bars.nth(0)).toHaveAttribute("aria-label", "May 2026 · 10");
+  await expect(bars.nth(0).locator(".dash-bar.is-empty")).toHaveCount(0);
+
+  await bars.nth(1).hover();
+  await expect(page.locator(".chart-tip-x")).toHaveText("Jun 2026");
+  await expect(page.locator(".chart-tip-n")).toHaveText("No rows");
+  await expect(page.locator(".chart-tip-row")).toHaveCount(0);
+});
+
+// SUB-954: the generic hover rule already outweighs `.dash-bar.is-empty`; the
+// explicit empty-state rule is load-bearing for keyboard focus. Exercise the
+// split shape too so a later stack override cannot silently erase either
+// response. Assert the change, not a literal colour — tokens are free to move.
+for (const [shape, fence] of [
+  ["split", SPLIT],
+  ["plain", PLAIN],
+] as const) {
+  test(`an empty ${shape} bucket still answers hover and focus (SUB-954)`, async ({ page }) => {
+    await openOverview(page, fence.replace("x: quarter", "x: date:month"), DATED);
+
+    const col = page.locator(".dash-bar-col").nth(1);
+    const bar = col.locator(".dash-bar.is-empty");
+    await expect(bar).toHaveCount(1);
+    const fill = () => bar.evaluate((el) => getComputedStyle(el).backgroundColor);
+
+    await page.mouse.move(0, 0);
+    const rest = await fill();
+    expect(rest).not.toBe("rgba(0, 0, 0, 0)");
+
+    // polled, not read once: the fill is transitioned, so an immediate read
+    // still returns the resting colour mid-animation
+    await col.hover();
+    await expect.poll(fill).not.toBe(rest);
+
+    // keyboard focus lands on the column and must light the same mark
+    await page.mouse.move(0, 0);
+    await expect.poll(fill).toBe(rest);
+    await page.locator(".dash-bar-col").first().focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(col).toBeFocused();
+    await expect.poll(fill).not.toBe(rest);
+  });
+}
+
+// SUB-954: the card flips below its anchor near the top of the plot so it
+// never covers the legend. Asserted geometrically — a class name alone does
+// not prove the box moved.
+test("a tall bar's card opens downward, a short one's opens upward (SUB-954)", async ({ page }) => {
+  const skewed = HOLDINGS.replace("CCC,etf,Q2,30", "CCC,etf,Q2,3000").replace(
+    "DDD,crypto,Q2,40\n",
+    ""
+  );
+  await openOverview(page, PLAIN, skewed);
+
+  const bars = page.locator(".dash-bar-col");
+  await expect(bars).toHaveCount(2);
+  const tip = page.locator(".chart-tip");
+
+  // the full-height bar starts near the top of the plot: its card hangs below
+  await bars.nth(1).hover();
+  await expect(tip).toHaveClass(/is-below/);
+  const tallBar = (await bars.nth(1).locator(".dash-bar").boundingBox())!;
+  const below = (await tip.boundingBox())!;
+  expect(below.y).toBeGreaterThanOrEqual(tallBar.y - 1);
+
+  // the short bar sits at the baseline, far from the legend: card above, and
+  // clear of the mark rather than on top of it
+  await page.mouse.move(0, 0);
+  await bars.nth(0).hover();
+  await expect(tip).toHaveClass(/is-above/);
+  const shortBar = (await bars.nth(0).locator(".dash-bar").boundingBox())!;
+  const above = (await tip.boundingBox())!;
+  expect(above.y + above.height).toBeLessThanOrEqual(shortBar.y + 1);
+  // each card is placed against its own anchor, so the two cards are not
+  // comparable to each other in page coordinates — a baseline bar's upward
+  // card can still sit lower than a full-height bar's downward one.
+});
+
+// SUB-954: hover slots partition the plot at the MIDPOINTS between dots, so
+// an irregular time axis hands each point the space nearest to it — and no
+// pixel of the plot belongs to nobody.
+test("line hover slots partition the plot at dot midpoints (SUB-954)", async ({ page }) => {
+  const irregular = [
+    "Snapshots.",
+    "",
+    "```csv",
+    "asset,bucket,date,value_eur",
+    "AAA,etf,2026-01-01,10",
+    "BBB,etf,2026-01-02,20",
+    "CCC,etf,2026-01-20,30",
+    "DDD,etf,2026-01-25,40",
+    "```",
+    "",
+  ].join("\n");
+  const daily = PLAIN.replace("x: quarter", "x: date:day").replace("kind: bar", "kind: line");
+  await openOverview(page, daily, irregular);
+
+  const plot = (await page.locator(".chart-line-plot").boundingBox())!;
+  const dots = await page.locator(".chart-dot").all();
+  const slots = await page.locator(".chart-line-slot").all();
+  expect(dots).toHaveLength(4);
+  expect(slots).toHaveLength(4);
+
+  const centers: number[] = [];
+  for (const d of dots) {
+    const b = (await d.boundingBox())!;
+    centers.push(b.x + b.width / 2);
+  }
+  const boxes = [];
+  for (const s of slots) boxes.push((await s.boundingBox())!);
+
+  // the irregular gaps really are irregular — otherwise this asserts nothing
+  expect(centers[1] - centers[0]).toBeLessThan((centers[2] - centers[1]) / 2);
+
+  // ends pinned to the plot, no gaps or overlaps in between, every boundary
+  // on the midpoint of the two dots it separates
+  expect(Math.abs(boxes[0].x - plot.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(boxes[3].x + boxes[3].width - (plot.x + plot.width))).toBeLessThanOrEqual(1);
+  for (let i = 0; i < 3; i++) {
+    const edge = boxes[i].x + boxes[i].width;
+    expect(Math.abs(edge - boxes[i + 1].x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(edge - (centers[i] + centers[i + 1]) / 2)).toBeLessThanOrEqual(1);
+  }
+  // and each dot is inside its own slot, not its neighbour's
+  for (let i = 0; i < 4; i++) {
+    expect(centers[i]).toBeGreaterThanOrEqual(boxes[i].x - 1);
+    expect(centers[i]).toBeLessThanOrEqual(boxes[i].x + boxes[i].width + 1);
+  }
+});
+
+// SUB-954: the per-slot band lookup is indexed by key now; a band that has no
+// row at an x must still be absent from that x's card rather than reading as
+// a zero or as its neighbour's value.
+test("a split line names only the bands present at each x (SUB-954)", async ({ page }) => {
+  const gappy = HOLDINGS.replace("DDD,crypto,Q2,40\n", "");
+  await openOverview(page, SPLIT.replace("kind: bar", "kind: line"), gappy);
+
+  const slots = page.locator(".chart-line-slot");
+  await expect(slots).toHaveCount(2);
+  await expect(slots.nth(0)).toHaveAttribute("aria-label", "Q1 · etf: 10, crypto: 20");
+  await expect(slots.nth(1)).toHaveAttribute("aria-label", "Q2 · etf: 30");
+
+  await slots.nth(1).hover();
+  await expect(page.locator(".chart-tip-row")).toHaveCount(1);
+  await expect(page.locator(".chart-tip-name")).toHaveText("etf");
+  await expect(page.locator(".chart-tip-val")).toHaveText("30");
 });

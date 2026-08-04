@@ -500,8 +500,8 @@ any machine-specific kinds this build carries); an `icon:` prop overrides it (a
 curated glyph id, anything else treated as an emoji), and kinds without a mark
 keep the generic chart glyph.
 
-Dispatch (`src/components/DashboardPane.tsx` `DashboardBody`) — a fixed key set,
-and only these are dispatched: `metrics` → the metrics cards renderer (§5.4);
+Dispatch (`src/components/DashboardPane.tsx` `DashboardBody`) — a fixed key set.
+These public kinds are dispatched: `metrics` → the metrics cards renderer (§5.4);
 `yield-apr` → the yield tracker (§5.3); `hub` → the hub renderer (below);
 `food` → the food log tracker (below); `feed` → the curated newsfeed (below);
 `music-work` → the work-index board (below); `tasks` → the read-only task
@@ -606,6 +606,7 @@ as a hub:
   embeds, fences, plain quotes) renders full-width in linear flow between
   card rows. Checkboxes are display-only; audio/file embeds render their
   `embedded file · <name>` placeholder.
+
 
 The hub is read-only — "Open source note" drops into the editor, and the file
 stays plain markdown any editor can read (`src/lib/hub.ts`,
@@ -786,6 +787,7 @@ cards:
   order if more are flagged; with none flagged the first card is sharp.
   Unflagged cards render in the quiet voice (design principle 11).
 
+
 ### 5.5 Chart blocks — ` ```chart ` fences
 
 A ` ```chart ` fence inside a dashboard note declares one chart (SUB-33). Config
@@ -882,6 +884,9 @@ no navigation away. Config is hand-editable `key: value` text, one per line;
 type: release
 query: status:unreleased
 view: table
+sort: released:desc
+limit: 5
+columns: status, artist
 ```
 
 ```view
@@ -898,17 +903,43 @@ Keys (`src/lib/embeds.ts`):
 - `view` — accepted, but only `table` renders in v1; any other value falls
   back to table.
 - `saved` — one-key alternative: a pinned view's id (or name), resolved
-  case-insensitively; the pin's database and query drive the table. When
-  present it wins over `type`/`query`.
-- Unknown keys are ignored. Every ` ```view ` fence in the body renders its
-  own table (unlike the single-match csv/formulas fences above).
+  case-insensitively; the pin's database, query and saved sort order drive the
+  table. When present it wins over `type`/`query`; an explicit fence `sort:`
+  overrides the saved order.
+- `sort` — optional (SUB-942); `sort: <prop>` ascending, `sort: <prop>:desc`
+  descending (`asc`/`desc`, either case). The property is matched
+  case-insensitively against the database's own columns, plus `title`. The
+  ordering IS the database table's: a select column follows its declared
+  option order, a number sorts numerically, a date chronologically, and
+  missing values sort last in both directions.
+- `limit` — optional (SUB-942); a positive whole number of rows, applied
+  AFTER the query and AFTER the sort — so `sort: released:desc` + `limit: 5`
+  means "the five newest". The table then says "5 of 23 rows — this view's
+  limit" rather than implying five is all there is.
+- `columns` — optional (SUB-942); a comma-separated pick and order
+  (`columns: status, artist`), matched case-insensitively against the
+  database's columns and still bounded by the surface's column cap. Wins over
+  a `saved:` pin's own curated list.
+- Every ` ```view ` fence in the body renders its own table (unlike the
+  single-match csv/formulas fences above).
 
-Semantics: a fence with no usable keys, an unknown database, or an unknown
-saved id renders a quiet inline error card ("Unknown database “x”") — never
-a crash, and fixing the text fixes the card. The table shows the title column
-plus the database's first four columns (`dbColumns`), at most 50 rows with a
-"… N more" line when clipped. The header (database name + total count) opens
-the full database; the title cell of a row opens its note.
+Semantics: a fence with no usable keys, an unknown key, a malformed value, an
+unknown database, an unknown column or sort property, or an unknown saved id
+renders a quiet inline error card ("Unknown database “x”", "Unknown key
+“sortt” — try type, query, saved, …") — never a crash, never a broken sibling
+fence, and fixing the text fixes the card. Empty `sort:`, `limit:` and
+`columns:` values are malformed; while editing, the caret keeps the raw fence
+visible rather than flashing its error card.
+Unknown keys were silently ignored before SUB-942; a typo now says so.
+
+The table shows the title column plus the database's first four columns
+(`dbColumns`) — or exactly the `columns:` list — and at most 50 rows in the
+editor (200 on a workbook page). When rows are cut, the count line names WHICH
+cut fired: an author's `limit:` reads "this view's limit", the surface's
+safety cap reads "open the database for the rest". `total` is always the full
+match count, so the shown/total pair is honest either way. The header
+(database name + count) opens the full database; the title cell of a row opens
+its note.
 
 Editable (SUB-796). Every non-title cell edits in place with the database
 pane's own semantics: a checkbox toggles on click, select/multi/date/relation
@@ -953,6 +984,9 @@ pages:
   - label: Releases
     view: release              # a database type…
     query: status:live         # …optionally filtered (§7 query language)
+    sort: released:desc        # same optional cut keys as a §5.6 fence
+    limit: 5
+    columns: status, artist
   - label: Unreleased
     saved: umbra-unreleased    # or a pinned view by id/name
 ---
@@ -967,14 +1001,17 @@ pages:
   strip, never nested. Anything else, a missing note, or a page pointing at
   its own workbook renders an in-place error page.
 - `view:`/`saved:` render a read-only database table through the §5.6 embed
-  semantics with full-page caps (8 columns / 200 rows); the same query
-  language and saved-pin resolution apply.
+  semantics with full-page caps (8 columns / 200 rows). `sort:`, `limit:` and
+  `columns:` use the same parser and semantics as a fence; explicit page
+  options override a saved pin's display choices. `query:` applies to a
+  `view:` page; a `saved:` page always uses the pin's own query.
 - A malformed entry becomes an error page in place — the ` ```chart `-fence
   convention: it never breaks sibling pages. Unknown keys inside an entry
   are ignored (forward compat).
 - The active tab is ephemeral UI state (like scroll position) — nothing
   about it is written to disk. External writers add/remove/reorder pages by
   editing the frontmatter list.
+
 
 ### 5.7 Recurring calendar entries — `repeat` / `repeat_until` / `repeat_skip`
 
@@ -1873,6 +1910,45 @@ rewritten (SUB-433). Current reserved keys:
   id/name/db, unknown layouts, and `dir` values other than ±1 (in `sort` or
   any `sorts` entry).
 
+### Exported link folders — `.substrate-view` (SUB-810)
+
+A saved view can be **exported** as a real folder outside the vault whose
+entries are symlinks to the notes the view matches — so Finder, a sample
+browser, or any file dialog sees the query's result as an ordinary folder.
+The export is explicit: the user picks Export (choosing where, once) or
+Regenerate from the pin's menu. Nothing watches, and nothing regenerates in
+the background.
+
+- The folder carries a `.substrate-view` marker file at its top level. Its
+  first line reads `Managed by Substrate — safe to delete.`, followed by
+  plain-language terms and the fields `view`, `view-id`, `vault` and
+  `generated`. **The marker is the entire permission to replace the
+  folder's contents**: Substrate refuses to export into any non-empty folder
+  that lacks it (an empty folder is adopted, since the save dialog just made
+  it), and refuses a marked folder whose `view-id` names a different saved
+  view — one pin's folder never becomes another's.
+- Entries are **symlinks, never copies** — no vault content lives in the
+  folder, so deleting it loses nothing. Symlinks rather than Finder aliases
+  because the kernel resolves them for every reader; a Finder alias is an
+  opaque bookmark blob that only Finder and bookmark-aware Cocoa apps follow,
+  and any browser walking the folder with ordinary file APIs would find a
+  small binary file where the note should be.
+- Regeneration rebuilds the folder from scratch: managed symlinks are removed
+  and recreated, the marker is rewritten. A **real file someone put in the
+  folder is left untouched** and reported back, never deleted.
+- Link names are the source files' own names, made unique deterministically:
+  sources sorted by vault-relative path, the first keeping the plain name and
+  later collisions taking ` 2`, ` 3`, … before the extension. The same view
+  therefore always produces the same folder.
+- **Which folder a view exports to is device-local**, recorded in
+  `view-exports.json` in the OS app-config dir (beside `config.json`), keyed
+  by view id and carrying the vault path — never in the vault, because an
+  export path is true for exactly one machine and `.vault/` syncs. Removing
+  the pin drops the record; the folder on disk stays.
+- Sync/backup pipelines should skip these folders — they are derived, and
+  following the links would duplicate vault content. The marker file is the
+  reliable thing to exclude on.
+
 ### `.vault/templates/<type>.md` — per-type entry templates
 
 One optional markdown file per database type (SUB-17): its frontmatter becomes
@@ -2280,8 +2356,13 @@ Plain notes the app treats specially — all optional, all just files:
   app's note surfaces; the key keeps its original name for existing vaults,
   the ⌘, sheet labels it "Show app files" — see the concealment entry below),
   and the SUB-833 "Send as link" pair: `share-relay-url` (http(s) URL of the
-  handoff relay the encrypted copy uploads to; empty = the action explains
-  setup instead of sending; see `scripts/handoff-relay/README.md`) and
+  handoff relay the encrypted copy uploads to; fresh settings notes seed
+  `https://drop.substrate.zone`, and an existing note with no key uses that
+  runtime default without being rewritten. `disabled` (what the Settings form
+  writes when cleared) or an explicit empty value disables hosted sharing;
+  legacy `off` remains accepted on read for existing settings notes;
+  the hosted default and the self-hostable relay speak the same protocol — see
+  `scripts/handoff-relay/README.md`) and
   `share-relay-token` (optional bearer token, only for relays that gate
   uploads). Hot-reloaded
   within a second of saving; the ⌘, sheet is a typed form over the same keys.

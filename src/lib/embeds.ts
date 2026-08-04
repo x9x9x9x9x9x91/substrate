@@ -6,6 +6,9 @@
 //   type: release              # a database type
 //   query: status:unreleased   # the SUB-7 filter-bar language (optional)
 //   view: table                # accepted; only table renders in v1
+//   sort: released:desc        # SUB-942, optional
+//   limit: 5                   # SUB-942, optional
+//   columns: status, artist    # SUB-942, optional
 //   ```
 //
 // or the one-key saved form, referencing a pinned view by id (or name):
@@ -14,14 +17,18 @@
 //   saved: umbra-unreleased
 //   ```
 //
-// Unknown keys are ignored. Malformed/unknown references render as a quiet
-// inline error card, never a crash. The fence is plain markdown — the widget
-// snapshot rebuilds on doc edits/remounts and on every vault change (the
-// vault epoch rides the widget identity, SUB-122).
+// Unknown keys and malformed lines are parse ERRORS since SUB-942 — a fence
+// that says `sortt:` used to render silently unsorted, which is the worst of
+// both worlds. Errors, malformed values and unknown references all render as
+// a quiet inline error card, never a crash and never a broken sibling. The
+// fence is plain markdown — the widget snapshot rebuilds on doc edits/remounts
+// and on every vault change (the vault epoch rides the widget identity,
+// SUB-122).
 //
 // Pure TS, no DOM/node imports: runs in the app and under `node --test`.
 
-import { dbColumns, effectiveColumns } from "./dbcolumns.ts";
+import { canonicalColumn, dbColumns, effectiveColumns } from "./dbcolumns.ts";
+import { sortCmpFor } from "./dbsort.ts";
 import { displayValue } from "./display.ts";
 import { filterInherits, parseQuery } from "./query.ts";
 import {
@@ -33,16 +40,41 @@ import {
 } from "./schemalookup.ts";
 import { filterByQuery } from "./views.ts";
 import { foldedPropStr } from "./types.ts";
-import type { NoteMeta, PropSchema, SavedView, SchemaConfig } from "./types.ts";
+import type {
+  NoteMeta,
+  PropSchema,
+  SavedView,
+  SavedViewSort,
+  SchemaConfig,
+} from "./types.ts";
 
-/** The spec a ```view fence declares — every key optional, unknown keys dropped. */
+/** The spec a ```view fence declares — every key optional. */
 export interface EmbedSpec {
   type?: string;
   query?: string;
   saved?: string;
   /** accepted but v1 renders table regardless */
   view?: string;
+  /** SUB-942: one ordering key, `sort: <prop>` or `sort: <prop>:desc`. The
+      property is resolved (and the ordering itself run) against the database's
+      own columns at query time, not here. */
+  sort?: SavedViewSort;
+  /** SUB-942: the fence's own row cut, applied after filtering and sorting.
+      Distinct from the surface's safety cap — see `EmbedResult.cut`. */
+  limit?: number;
+  /** SUB-942: explicit column pick and order, matched case-insensitively
+      against the database's columns. Wins over a `saved:` pin's own list. */
+  columns?: string[];
 }
+
+/** A parsed fence: its spec, or the first thing wrong with the text (SUB-942).
+    Malformed and unknown keys are errors now rather than silent no-ops — a
+    fence that says `sortt:` used to render, unsorted, with nothing to show for
+    the typo. The error travels as a value through `embedQueryFor` into the
+    same quiet card an unknown database gets; nothing throws. */
+export type ViewSpecResult = EmbedSpec | { error: string };
+
+const KNOWN_KEYS = ["type", "query", "saved", "view", "sort", "limit", "columns"] as const;
 
 export interface EmbedRow {
   path: string;
@@ -77,6 +109,11 @@ export type EmbedResult =
           seeds a row from it, and a pinned embed must seed from the pin's own
           filter, not from the fence's (absent) `query:` line */
       query: string;
+      /** Why `rows` is shorter than `total`, when it is (SUB-942). The two
+          reasons are not the same fact and must not read the same way: a
+          `limit:` is the author SAYING "top 5", a cap is the surface refusing
+          to paint 4000 rows in a note. Absent when nothing was cut. */
+      cut?: { kind: "limit" | "cap"; shown: number };
     }
   | { error: string };
 
@@ -86,30 +123,84 @@ export const EMBED_MAX_ROWS = 50;
 
 const KEY_RE = /^([A-Za-z][\w-]*)\s*:\s*([\s\S]*)$/;
 
-/** Parse one fence body into its spec. Never throws — unknown keys and
-    malformed lines are ignored, so a half-typed fence is simply an empty spec. */
-export function parseViewSpec(inner: string): EmbedSpec {
+/** `sort: released` / `sort: released:desc` — direction optional, either case. */
+const SORT_RE = /^(.*?)(?::\s*(asc|desc))?$/i;
+
+/** Parse one fence body into its spec, or the first error in its text
+    (SUB-942). Never throws: a bad fence is a VALUE the render path turns into
+    the same quiet card an unknown database gets.
+
+    Blank selector values (`query:`, for example) stay draftable. Empty
+    option values (`sort:`, `limit:`, `columns:`) are malformed, but the editor
+    shows raw source while the caret is inside the fence, so that error never
+    flashes over the keystroke that creates it.
+
+    Errors quote what the author actually typed, because the fix is a text edit
+    and the card is the only place they'll read it. */
+export function parseViewSpec(inner: string): ViewSpecResult {
   const spec: EmbedSpec = {};
   for (const rawLine of inner.split("\n")) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
     const m = KEY_RE.exec(line);
-    if (!m) continue;
+    if (!m) return { error: `Not a key: value line — “${line}”` };
+    const key = m[1].toLowerCase();
     const value = m[2].trim();
-    switch (m[1].toLowerCase()) {
+    if (!(KNOWN_KEYS as readonly string[]).includes(key)) {
+      return { error: `Unknown key “${m[1]}” — try ${KNOWN_KEYS.join(", ")}` };
+    }
+    // Existing selector keys keep their tolerant empty-value behavior while
+    // a fence is being drafted. The three option keys are only meaningful
+    // with values, though, and the editor shows source while the caret is in
+    // the fence, so reporting these as malformed never flashes over typing.
+    if (!value) {
+      if (key === "sort") return { error: "Malformed sort: add <prop> or <prop>:desc" };
+      if (key === "limit") return { error: "Malformed limit: add a whole number of rows" };
+      if (key === "columns") return { error: "Malformed columns: add a comma-separated list" };
+      continue;
+    }
+    switch (key) {
       case "type":
-        if (value) spec.type = value;
+        spec.type = value;
         break;
       case "query":
-        if (value) spec.query = value;
+        spec.query = value;
         break;
       case "saved":
-        if (value) spec.saved = value;
+        spec.saved = value;
         break;
       case "view":
-        if (value) spec.view = value;
+        spec.view = value;
         break;
-      // unknown keys ignored (forward-compat)
+      case "sort": {
+        const s = SORT_RE.exec(value);
+        const prop = s?.[1].trim();
+        if (!prop) return { error: `Malformed sort: “${value}” — want <prop> or <prop>:desc` };
+        spec.sort = { key: prop, dir: s?.[2]?.toLowerCase() === "desc" ? -1 : 1 };
+        break;
+      }
+      case "limit": {
+        // a limit is a count of rows: a positive whole number and nothing else.
+        // "0" is rejected rather than read as "show nothing" — nobody writes a
+        // fence to hide its own table, so it's a typo every time.
+        const n = Number(value);
+        if (!/^\d+$/.test(value) || !Number.isSafeInteger(n) || n === 0) {
+          return { error: `Malformed limit: “${value}” — want a whole number of rows` };
+        }
+        spec.limit = n;
+        break;
+      }
+      case "columns": {
+        const names = value
+          .split(",")
+          .map((c) => c.trim())
+          .filter((c) => c !== "");
+        if (names.length === 0) {
+          return { error: `Malformed columns: “${value}” — want a comma-separated list` };
+        }
+        spec.columns = names;
+        break;
+      }
     }
   }
   return spec;
@@ -171,14 +262,22 @@ export function findSavedView(savedViews: SavedView[], ref: string): SavedView |
 }
 
 /** Resolve a parsed spec against a vault snapshot into the widget's table
-    model. Never throws — unknown database/saved references and empty specs
-    come back as quiet errors. Columns follow the database table's own set
-    (dbColumns over every note of the type) — or the pin's own `columns` when
-    a `saved:` view curates them (SUB-212) — capped at EMBED_MAX_COLS; rows
-    are the query matches in vault order, capped at EMBED_MAX_ROWS with
-    `total` holding the full count. */
+    model. Never throws — a parse error, an unknown database/saved reference
+    and an empty spec all come back as quiet errors, so a caller can hand the
+    `parseViewSpec` result straight in.
+
+    Columns follow the database table's own set (dbColumns over every note of
+    the type) — or the fence's own `columns:` (SUB-942), else the pin's own
+    `columns` when a `saved:` view curates them (SUB-212) — capped at
+    EMBED_MAX_COLS.
+
+    Rows are the query matches, ordered by `sort:` when the fence names one
+    and otherwise in vault order, then cut. `total` always holds the full
+    match count, before any cut; `cut` says which cut fired (see EmbedResult).
+    Ordering runs BEFORE the cut, which is the only reading that makes
+    `sort: released:desc` + `limit: 5` mean "the five newest". */
 export function embedQueryFor(
-  spec: EmbedSpec,
+  spec: ViewSpecResult,
   notes: NoteMeta[],
   schema: SchemaConfig,
   savedViews: SavedView[],
@@ -186,6 +285,7 @@ export function embedQueryFor(
   // (workbook view pages, SUB-464) passes wider ones
   caps: { cols: number; rows: number } = { cols: EMBED_MAX_COLS, rows: EMBED_MAX_ROWS }
 ): EmbedResult {
+  if ("error" in spec) return { error: spec.error };
   let dbType = spec.type;
   let query = spec.query ?? "";
   let savedId: string | undefined;
@@ -216,9 +316,76 @@ export function embedQueryFor(
   // parseQuery/matchesFilters, trailing-stub and title-word matching included)
   const typeSchema = declared ?? {};
   const matched = query.trim() ? filterByQuery(ofType, query, undefined, typeSchema) : ofType;
-  // a pin with curated columns (SUB-212) renders those — its order, unknown
-  // keys dropped — instead of the union; either way capped for the widget
-  const columns = effectiveColumns(pin, dbColumns(ofType, typeSchema)).slice(0, caps.cols);
+  const dbCols = dbColumns(ofType, typeSchema);
+  // Three sources for the column list, in falling authority: the fence's own
+  // `columns:` (SUB-942), the pin's curated list (SUB-212), the full union.
+  //
+  // The fence's list is the only one that ERRORS on an unknown name. A pin's
+  // list is persisted state that outlives prop renames, so a key falling out
+  // of it stays a quiet drop; a fence's list is text the author is looking at
+  // right now, and a silently-missing column there is just a wrong table.
+  let columns: string[];
+  if (spec.columns) {
+    const picked: string[] = [];
+    const seen = new Set<string>();
+    for (const name of spec.columns) {
+      // Title is the table's fixed leading column, not a vault property. Let
+      // authors include it in the natural left-to-right list without either
+      // duplicating it or spending one of the optional-property slots.
+      if (name.trim().toLowerCase() === "title") continue;
+      const canonical = canonicalColumn(dbCols, name);
+      if (canonical === undefined) {
+        return { error: `Unknown column “${name}” in “${dbType}”` };
+      }
+      // a name listed twice is one column, kept at its first position
+      if (seen.has(canonical)) continue;
+      seen.add(canonical);
+      picked.push(canonical);
+    }
+    columns = picked;
+  } else {
+    columns = effectiveColumns(pin, dbCols);
+  }
+  // the cap is the surface's, not the author's — an explicit `columns:` list
+  // is still bounded by what the surface can paint
+  columns = columns.slice(0, caps.cols);
+
+  // Ordering: the fence's `sort:` runs through the table's own comparator
+  // (dbsort), so a select column orders by its declared option order, a number
+  // column numerically and a date column chronologically — exactly as clicking
+  // that header in the database pane does. `title` is sortable without being a
+  // column, same as there.
+  let ordered = matched;
+  if (spec.sort) {
+    const canonical =
+      spec.sort.key.toLowerCase() === "title" ? "title" : canonicalColumn(dbCols, spec.sort.key);
+    if (canonical === undefined) {
+      return { error: `Unknown sort property “${spec.sort.key}” in “${dbType}”` };
+    }
+    const cmp = sortCmpFor([{ key: canonical, dir: spec.sort.dir }], typeSchema);
+    if (cmp) ordered = [...matched].sort(cmp);
+  } else if (pin) {
+    // A saved embed is the saved view in miniature. Preserve its persisted
+    // multi-key order unless this fence/page supplies an explicit override.
+    const pinSorts = pin.sorts ?? (pin.sort ? [pin.sort] : []);
+    const cmp = sortCmpFor(pinSorts, typeSchema);
+    if (cmp) ordered = [...matched].sort(cmp);
+  }
+
+  // The cut, after filtering and ordering. `limit` is the author's statement
+  // about the table; `caps.rows` is the surface refusing to paint thousands of
+  // rows inline. When both apply the tighter one wins, and `cut.kind` names
+  // the one that actually fired — the row-count line reads differently for
+  // each, and claiming a cap where the author wrote `limit: 5` (or the
+  // reverse) is a lie about their own document.
+  const allowed = Math.min(spec.limit ?? Infinity, caps.rows);
+  const shown = Math.min(ordered.length, allowed);
+  const cut =
+    shown === ordered.length
+      ? undefined
+      : spec.limit !== undefined && spec.limit <= caps.rows
+        ? ({ kind: "limit", shown } as const)
+        : ({ kind: "cap", shown } as const);
   // cells go through the same displayValue pipeline as the database table
   // (SUB-179): dates human, files/embeds by basename — created/updated are
   // date-kind unless the schema overrides, matching the table (SUB-167)
@@ -232,9 +399,10 @@ export function embedQueryFor(
     ...(savedId !== undefined ? { savedId, savedName } : {}),
     columns,
     total: matched.length,
+    ...(cut !== undefined ? { cut } : {}),
     typeSchema,
     query,
-    rows: matched.slice(0, caps.rows).map((n) => ({
+    rows: ordered.slice(0, shown).map((n) => ({
       path: n.path,
       title: n.title,
       props: n.props,

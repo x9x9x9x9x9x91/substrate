@@ -170,7 +170,7 @@ export default function RelationMenu({
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
   const menu = (
-    <div className="selmenu" style={style} ref={boxRef} onClick={stop}>
+    <div className={`selmenu${flipUp ? " flip-up" : ""}`} style={style} ref={boxRef} onClick={stop}>
       <input
         className="selmenu-input"
         autoFocus

@@ -847,7 +847,7 @@ stems for the motion piece due Friday.
         <div class="lrow"><span class="k">workbooks</span><span class="v">Any dashboard grows spreadsheet-style bottom tabs — sheet grid, dashboard, database cut — all in one file.</span></div>
         <div class="lrow"><span class="k">purge</span><span class="v">Deletes are recoverable — but an explicit purge rewrites history and is <em style="font-style:normal;color:var(--ink)">physically gone</em>. Accidents removable, not hidden.</span></div>
         <div class="lrow"><span class="k">conflicts</span><span class="v">A conflicted sync pull refuses — markers never land in a note. Per file: keep mine, take theirs, keep both; a half-resolved merge survives quitting.</span></div>
-        <div class="lrow"><span class="k">send as link</span><span class="v">Seal a note AES-256-GCM in the app, key only in the URL fragment, relay you host yourself — burn-after-open or timed expiry.</span></div>
+        <div class="lrow"><span class="k">send as link</span><span class="v">Seal a note AES-256-GCM in the app, key only in the URL fragment, ciphertext-only relay hosted by default or run yourself — burn-after-open or timed expiry.</span></div>
         <div class="lrow"><span class="k">terminal</span><span class="v"><kbd>⌘⇧T</kbd> drops a real shell into the notes app — with PTY trust checks, because that sentence should scare you a little.</span></div>
         <div class="lrow"><span class="k">exit ramps</span><span class="v">In: Notion export lands as typed rows, date ranges intact. Out: PDF, portable markdown bundle, CSV exactly as the view shows. Both directions paved.</span></div>
       </div>
@@ -858,7 +858,7 @@ stems for the motion piece due Friday.
       <h3 class="big">Built on a few stubborn ideas.</h3>
       <div class="creed">
         <div class="c"><span class="n">01</span><div><h4>Files are the only truth.</h4><p>Export a PDF to send someone, sure. But you&#8217;ll never need to export <em style="font-style:normal;color:var(--ink)">your data</em> — it was never inside.</p></div></div>
-        <div class="c"><span class="n">02</span><div><h4>Nothing phones home.</h4><p>No account, no telemetry, no cloud — your vault never leaves your machines uninvited. The only outbound calls are features you can see: currency rates for sheets, titles for pasted links.</p></div></div>
+        <div class="c"><span class="n">02</span><div><h4>No hidden phone-home.</h4><p>No account, telemetry, analytics, or update pings. Outbound calls belong to features you invoke: currency rates for sheets, titles for pasted links, and encrypted handoffs when you choose Send as link.</p></div></div>
         <div class="c"><span class="n">03</span><div><h4>Speed is a feature, not a benchmark.</h4><p>The app should feel like a room, not a machine.</p></div></div>
         <div class="c"><span class="n">04</span><div><h4>Agent-native, by design rule.</h4><p>Boring formats, documented conventions — the agent uses the same door you do.</p></div></div>
         <div class="c"><span class="n">05</span><div><h4>Built for one person first.</h4><p>Not a product committee — a daily driver. Every feature exists because someone needed it that week.</p></div></div>
@@ -911,7 +911,7 @@ stems for the motion piece due Friday.
         </details>
         <details>
           <summary>Does it phone home?</summary>
-          <p>No telemetry, no analytics, no account, no update pings you didn’t ask for. Two boring exceptions, both user-visible features: sheets fetch currency rates, and pasting a URL fetches its title. The source is open so you don’t have to take our word for it.</p>
+          <p>No telemetry, analytics, account, or update pings. Three user-visible network features: sheets fetch currency rates, pasting a URL fetches its title, and Send as link uploads an encrypted handoff to the relay configured in Settings. The source is open so you don’t have to take our word for it.</p>
         </details>
         <details>
           <summary>Is the App Store build different?</summary>
@@ -1754,7 +1754,7 @@ stems for the motion piece due Friday.
     { "@type": "Question", "name": "Where is my data, exactly?", "acceptedAnswer": { "@type": "Answer", "text": "In ~/Vault (or any folder you choose): markdown files with YAML frontmatter, plus a small .vault/ folder of plain JSON for schemas and views." } },
     { "@type": "Question", "name": "Isn't this just Obsidian?", "acceptedAnswer": { "@type": "Answer", "text": "Closest neighbor, different bet. Four differences: typed databases, sheets, and dashboards are the native core rather than a plugin stack; sheets and dashboards add a spreadsheet-and-dashboard layer Bases doesn't reach; the file conventions are designed to be operated by agents (documented spec, external edits as the designed path); and Substrate is open source while Obsidian is closed." } },
     { "@type": "Question", "name": "What happens if the project dies?", "acceptedAnswer": { "@type": "Answer", "text": "Nothing. Your vault is markdown — every editor on earth opens it." } },
-    { "@type": "Question", "name": "Does it phone home?", "acceptedAnswer": { "@type": "Answer", "text": "No telemetry, no analytics, no account. Two user-visible exceptions: sheets fetch currency rates, and pasting a URL fetches its title. The source is open so you don't have to take our word for it." } }
+    { "@type": "Question", "name": "Does it phone home?", "acceptedAnswer": { "@type": "Answer", "text": "No telemetry, analytics, account, or update pings. User-visible network features fetch currency rates, fetch titles for pasted links, and upload an encrypted handoff when you choose Send as link. The source is open so you don't have to take our word for it." } }
   ]
 }
 </script>

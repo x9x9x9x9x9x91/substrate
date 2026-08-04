@@ -1,13 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { NoteMeta, SchemaConfig, SelectOption } from "../lib/types";
-import { propStr } from "../lib/types";
-import { vaultRead, vaultResolve } from "../lib/ipc";
 import { fmtFx } from "../lib/dashboard";
 import { useUsdEur } from "./useFx";
-import { evaluateSheet, parseSheet, type SheetEval, type SheetModel } from "../lib/sheet";
 import { useEdgeFade } from "../hooks/useEdgeFade";
-import { collectCrossRefs, ferr, isErr, type FErr, type FxResolver } from "../lib/formula";
+import { dashboardSheets, type DashboardSheetState } from "../lib/dashboardSheets";
 import {
   aggregate,
   chartSourceDesc,
@@ -20,6 +17,7 @@ import {
   xSchemaOptions,
   type ChartBand,
   type ChartBlock,
+  type ChartConfig,
   type ChartPoint,
   type ChartSeries,
 } from "../lib/chart";
@@ -38,9 +36,11 @@ interface ChartsDashboardProps {
       (metrics cards, SUB: finance surface) can host charts below its own
       content */
   embed?: boolean;
+  /** An embedding surface may have already run the canonical chart parser.
+      Reuse that validated config instead of wrapping its text in a synthetic
+      fence and parsing it a second time. */
+  configOverride?: ChartConfig;
 }
-
-type SheetState = { model: SheetModel; ev: SheetEval } | { error: string };
 
 /** full-precision value — tooltips keep every digit */
 function fmtFull(v: number): string {
@@ -261,21 +261,33 @@ function BarChart({
   const showVals = points.length <= 12;
   const showLabel = (i: number) =>
     i === 0 || i === points.length - 1 || (i % labelEvery === 0 && points.length - 1 - i >= labelEvery);
+  /** One empty-bucket reading for both shapes (SUB-954): a bucket with no rows
+      behind it — a zero-filled gap in a date axis, split or not — carries no
+      tooltip rows, so it says "no rows" and wears the empty treatment. A
+      bucket whose real rows happen to sum to zero is NOT empty and keeps its
+      own value reading. */
   const rowsAt = (i: number): TipRow[] =>
     bands
       ? bands
           .map((b, bi) => ({ name: b.name, band: bi, value: b.points[i]?.value ?? 0, n: b.points[i]?.n ?? 0 }))
           .filter((r) => r.n > 0)
-      : [{ name: null, band: 0, value: points[i].value, n: points[i].n }];
+      : points[i].n > 0
+        ? [{ name: null, band: 0, value: points[i].value, n: points[i].n }]
+        : [];
   return (
     <div className="chart-wrap" ref={wrapRef}>
       <div className="dash-chart" ref={chartRef}>
         {points.map((p, i) => {
           const rows = rowsAt(i);
+          const empty = rows.length === 0;
           const total = totals[i];
+          // A real split bucket can contain rows whose values are all zero.
+          // It is not empty, but it has no positive slice to paint, so the
+          // stack itself carries the same honest zero mark as a plain bar.
+          const zero = !empty && total === 0;
           const h = max > 0 ? Math.max(3, (total / max) * 120) : 3;
           const valueLabel = showVals && total !== 0 && h >= 18 ? fmtVal(total) : "";
-          const tint = !bands
+          const tint = !bands && !empty
             ? xOptions?.length
               ? optionColorVar(optionColor(xOptions, p.label))
               : categorical
@@ -325,7 +337,10 @@ function BarChart({
               {bands ? (
                 // the whole stack is one bar-height box; the slices divide it by
                 // share, so a column reads as one mark and the totals compare
-                <div className={`dash-bar is-stack${total === 0 ? " is-empty" : ""}`} style={{ height: h }}>
+                <div
+                  className={`dash-bar is-stack${empty ? " is-empty" : zero ? " is-zero" : ""}`}
+                  style={{ height: h }}
+                >
                   {bands.map((b, bi) => {
                     const v = b.points[i]?.value ?? 0;
                     if (v <= 0) return null;
@@ -339,7 +354,7 @@ function BarChart({
                   })}
                 </div>
               ) : (
-                <div className="dash-bar" style={style} />
+                <div className={`dash-bar${empty ? " is-empty" : ""}`} style={style} />
               )}
               <span
                 className={`dash-bar-time${showLabel(i) ? "" : " is-hidden"}`}
@@ -432,15 +447,22 @@ function LineChart({ points, bands }: { points: ChartPoint[]; bands?: ChartBand[
   const lines = bands
     ? bands.map((b) => b.points.map((p) => ({ p, i: at.get(p.key) ?? 0 })))
     : [points.map((p, i) => ({ p, i }))];
-  const rowsAt = (i: number): TipRow[] =>
-    bands
-      ? bands
-          .map((b, bi): TipRow | null => {
-            const hit = b.points.find((p) => p.key === points[i].key);
-            return hit ? { name: b.name, band: bi, value: hit.value, n: hit.n } : null;
-          })
-          .filter((r): r is TipRow => r !== null)
-      : [{ name: null, band: 0, value: points[i].value, n: points[i].n }];
+  // `aggregate()` rebuilds `bands` whenever the parent renders, so memoizing
+  // this index by array identity cannot cache it across those renders. Build
+  // the O(bands × points) index once per render instead; then the two readings
+  // for every slot use O(1) key lookups rather than rescanning each band and
+  // making the render quadratic in the number of points (SUB-954).
+  const bandAt = bands?.map((b) => new Map(b.points.map((p) => [p.key, p]))) ?? null;
+  const rowsAt = (i: number): TipRow[] => {
+    const p = points[i];
+    if (!bands || !bandAt) return p.n > 0 ? [{ name: null, band: 0, value: p.value, n: p.n }] : [];
+    const out: TipRow[] = [];
+    bands.forEach((b, bi) => {
+      const hit = bandAt[bi].get(p.key);
+      if (hit) out.push({ name: b.name, band: bi, value: hit.value, n: hit.n });
+    });
+    return out;
+  };
 
   return (
     <div className="chart-wrap" ref={wrapRef}>
@@ -592,15 +614,19 @@ export default function ChartsDashboard({
   schema,
   onOpenSource,
   embed,
+  configOverride,
 }: ChartsDashboardProps) {
   const { fx } = useUsdEur();
-  const [sheets, setSheets] = useState<Map<string, SheetState>>(new Map());
+  const [sheets, setSheets] = useState<Map<string, DashboardSheetState>>(new Map());
   // SUB-1001: the last chart's title used to cut in half against the pane's
   // bottom edge with nothing marking the overflow. Declared above the `embed`
   // branch below — hooks can't sit behind a conditional return.
   const fade = useEdgeFade<HTMLDivElement>();
 
-  const blocks = useMemo(() => parseChartBlocks(body), [body]);
+  const blocks = useMemo<ChartBlock[]>(
+    () => configOverride ? [{ config: configOverride, error: null }] : parseChartBlocks(body),
+    [body, configOverride]
+  );
   const sheetNames = useMemo(() => {
     const seen = new Map<string, string>();
     for (const b of blocks) {
@@ -610,68 +636,26 @@ export default function ChartsDashboard({
     return [...seen.values()];
   }, [blocks]);
 
-  const fxResolver: FxResolver = (from, to) => {
-    if (!fx) return null;
-    if (from === "USD" && to === "EUR") return fx.usdEur;
-    if (from === "EUR" && to === "USD") return 1 / fx.usdEur;
-    return null;
-  };
-
   // Load every charted sheet — and transitively any sheet its formulas
   // reference — then evaluate each with the cross-sheet loader (SUB-671).
   // Without the loader a computed column reading another sheet evaluated to an
-  // error in every cell, which the chart then skipped or stringified.
+  // error in every cell, which the chart then skipped or stringified. The
+  // epoch/rate cache shares the same work across composed dashboard tiles.
   useEffect(() => {
     let gone = false;
-    (async () => {
-      const models = new Map<string, SheetModel | FErr>();
-      const queue = [...sheetNames];
-      const queued = new Set(queue.map((n) => n.toLowerCase()));
-      while (queue.length > 0) {
-        const name = queue.shift()!;
-        try {
-          const resolved = await vaultResolve(name);
-          if (!resolved) {
-            models.set(name.toLowerCase(), ferr(`no note named “${name}”`));
-            continue;
-          }
-          if (propStr(resolved.props, "type") !== "sheet") {
-            models.set(name.toLowerCase(), ferr(`“${name}” is not a sheet`));
-            continue;
-          }
-          const content = await vaultRead(resolved.path);
-          const m = parseSheet(content.body);
-          models.set(name.toLowerCase(), m);
-          for (const f of m.formulas) {
-            if (isErr(f.expr)) continue;
-            for (const cr of collectCrossRefs(f.expr)) {
-              if (!queued.has(cr.sheet)) {
-                queued.add(cr.sheet);
-                queue.push(cr.sheet);
-              }
-            }
-          }
-        } catch (e) {
-          models.set(name.toLowerCase(), ferr(String(e)));
-        }
-      }
-      if (gone) return;
-      const load = (name: string) =>
-        models.get(name.toLowerCase()) ?? ferr(`no sheet named “${name}”`);
-      const next = new Map<string, SheetState>();
-      for (const name of sheetNames) {
-        const m = models.get(name.toLowerCase());
-        if (!m || isErr(m)) {
-          next.set(name.toLowerCase(), { error: m ? m.err : "not loaded" });
-          continue;
-        }
-        next.set(name.toLowerCase(), {
-          model: m,
-          ev: evaluateSheet(m, fxResolver, { self: name, load }),
-        });
-      }
-      setSheets(next);
-    })();
+    dashboardSheets(sheetNames, vaultEpoch, fx?.usdEur ?? null)
+      .then((next) => {
+        if (!gone) setSheets(next);
+      })
+      // a rejected pass (evicted from the cache) surfaces as a per-sheet
+      // error instead of leaving every chart loading forever
+      .catch((error) => {
+        if (gone) return;
+        const msg = error instanceof Error ? error.message : String(error);
+        setSheets(
+          new Map(sheetNames.map((n) => [n.toLowerCase(), { error: `sheet load failed: ${msg}` }])),
+        );
+      });
     // the flag exists to drop a stale pass; without this cleanup it never
     // flipped, so a slow earlier load could overwrite a newer one
     return () => {

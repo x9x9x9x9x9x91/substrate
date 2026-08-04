@@ -82,6 +82,14 @@ export default function SendLinkDialog({
   }, [meta]);
 
   const sizeWarn = useMemo(() => size !== null && size > SIZE_WARN_BYTES, [size]);
+  const relayOrigin = useMemo(() => {
+    if (!relay) return "";
+    try {
+      return new URL(relay).origin;
+    } catch {
+      return relay;
+    }
+  }, [relay]);
 
   const send = () => {
     if (busy || !relay || html === null) return;
@@ -121,10 +129,9 @@ export default function SendLinkDialog({
         {relay === "" && (
           <>
             <div className="dbform-note">
-              No share relay is set up yet. A relay is a tiny server that holds the encrypted
-              copy — it can never read your note; the key stays in the link you send. Add your
-              relay's URL in Settings → “Share relay URL”, or self-host one (see
-              scripts/handoff-relay/ in the Substrate repo).
+              Hosted sharing is off. Add https://drop.substrate.zone or your own public HTTPS
+              relay in Settings → “Share relay URL”. The relay stores ciphertext; the key stays
+              in the link you send. Self-hosting instructions live in scripts/handoff-relay/.
             </div>
             <div className="dbform-foot">
               <button className="selmenu-btn" onClick={onClose}>
@@ -137,9 +144,10 @@ export default function SendLinkDialog({
         {relay !== "" && relay !== null && link === null && (
           <>
             <div className="dbform-note">
-              The note is rendered and encrypted on this machine; the relay stores only
-              ciphertext. The link carries the key after “#” — anyone with the full link can
-              read the note until it expires.
+              The note is rendered and encrypted on this machine; the relay stores ciphertext.
+              It will upload to {relayOrigin}. Its viewer code runs in the recipient's browser,
+              so use a relay operator you trust. The link carries the key after “#” — anyone
+              with the full link can read the note until it expires.
             </div>
             <div className="sendlink-expiry" role="radiogroup" aria-label="Link expires">
               {EXPIRY_ORDER.map((e) => (

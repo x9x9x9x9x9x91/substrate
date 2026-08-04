@@ -109,6 +109,22 @@ test("the seeded agent files ship in the example vault, byte-identical (SUB-474)
   }
 });
 
+test("the seeded agent door matches editable-view and recoverable-asset contracts (SUB-996)", () => {
+  const seed = readFileSync(
+    fileURLToPath(new URL("../src-tauri/src/seed/AGENTS.md", import.meta.url)),
+    "utf8"
+  );
+  assert.match(seed, /view fence[^\n]*live, editable/);
+  assert.match(seed, /non-title cells edit\s+in place/);
+  assert.match(seed, /Deleting one through the app moves it to `\.trash\/`/);
+  assert.doesNotMatch(seed, /view fence[^\n]*live, read-only/);
+  assert.doesNotMatch(seed, /Deleting one is permanent/);
+  assert.doesNotMatch(seed, /machine-specific kinds/);
+  assert.match(seed, /`tasks`, `charts`/);
+  assert.match(seed, /unknown value shows an “unknown kind” card/);
+  assert.doesNotMatch(seed, /dashboard: charts` is a conventional label/);
+});
+
 test("the seed's documented view example parses to the keys it claims (SUB-474)", () => {
   const seed = readFileSync(
     fileURLToPath(new URL("../src-tauri/src/seed/AGENTS.md", import.meta.url)),
@@ -223,6 +239,7 @@ test("Home hub parses into sections, card rows, and valid view fences", () => {
   assert.equal(fences.length, 2);
   for (const [, inner] of fences) {
     const spec = parseViewSpec(inner);
+    assert.ok(!("error" in spec), `view fence doesn't parse: ${"error" in spec ? spec.error : ""}`);
     assert.ok(spec.type && dbTypes.has(spec.type), `view fence targets unknown database "${spec.type}"`);
   }
 });

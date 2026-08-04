@@ -12,6 +12,7 @@ import {
   resolveDashboardKind,
   resolveKindState,
   type KindBundle,
+  type KindEnableRecord,
   type KindFiles,
   type KindManifest,
 } from "./kinds.ts";
@@ -319,6 +320,15 @@ async function bundle(over: Record<string, unknown> = {}, folder = "gear-log"): 
   return { id: folder, hash: await hashKindBundle(files), manifest: parseKindManifest(folder, text) };
 }
 
+/** A stored consent record. `enabledAt` is stamped by Rust at enable time
+ * (SUB-959) and the state machine never reads it, so a fixed value keeps the
+ * cases below about the two fields that decide anything. */
+const rec = (hash: string, api = KIND_API): KindEnableRecord => ({
+  hash,
+  api,
+  enabledAt: "2026-08-03T09:00:00Z",
+});
+
 test("state: no record means disabled, with the manifest to show on the card", async () => {
   const b = await bundle();
   const s = resolveKindState(b, undefined);
@@ -328,12 +338,12 @@ test("state: no record means disabled, with the manifest to show on the card", a
 
 test("state: matching hash means enabled", async () => {
   const b = await bundle();
-  assert.equal(resolveKindState(b, { hash: b.hash, api: 1 }).state, "enabled");
+  assert.equal(resolveKindState(b, rec(b.hash)).state, "enabled");
 });
 
 test("state: a record for other bytes is hash-drift, not disabled", async () => {
   const b = await bundle();
-  const s = resolveKindState(b, { hash: "sha256:" + "0".repeat(64), api: 1 });
+  const s = resolveKindState(b, rec("sha256:" + "0".repeat(64)));
   assert.equal(s.state, "hash-drift");
   assert.equal(s.state === "hash-drift" && s.manifest.id, "gear-log");
 });
@@ -341,7 +351,7 @@ test("state: a record for other bytes is hash-drift, not disabled", async () => 
 test("state: api out of range beats the enable question, either way", async () => {
   const tooNew = await bundle({ api: KIND_API + 1 });
   assert.equal(resolveKindState(tooNew, undefined).state, "api-too-new");
-  assert.equal(resolveKindState(tooNew, { hash: tooNew.hash, api: 1 }).state, "api-too-new");
+  assert.equal(resolveKindState(tooNew, rec(tooNew.hash)).state, "api-too-new");
 
   const tooOld: KindBundle = {
     id: "gear-log",
@@ -351,7 +361,7 @@ test("state: api out of range beats the enable question, either way", async () =
     manifest: { ok: true, manifest: { ...GOOD, api: KIND_API_MIN - 1 } },
   };
   assert.equal(resolveKindState(tooOld, undefined).state, "api-too-old");
-  assert.equal(resolveKindState(tooOld, { hash: tooOld.hash, api: 0 }).state, "api-too-old");
+  assert.equal(resolveKindState(tooOld, rec(tooOld.hash, 0)).state, "api-too-old");
 });
 
 test("state: a broken manifest is invalid and carries the parse reason", async () => {
@@ -367,7 +377,7 @@ test("state: a broken manifest is invalid and carries the parse reason", async (
 
 test("state: colliding with a built-in is invalid, and the reason names it", async () => {
   const b = await bundle({}, "tasks");
-  for (const record of [undefined, { hash: b.hash, api: 1 }]) {
+  for (const record of [undefined, rec(b.hash)]) {
     const s = resolveKindState(b, record);
     assert.equal(s.state, "invalid");
     assert.match(s.state === "invalid" ? s.reason : "", /"tasks" is a built-in/);

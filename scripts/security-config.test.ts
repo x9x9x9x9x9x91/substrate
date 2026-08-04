@@ -24,6 +24,8 @@ const conf = JSON.parse(readFileSync(join(ROOT, "src-tauri/tauri.conf.json"), "u
   plugins?: { updater?: { pubkey?: string; endpoints?: string[] } };
 };
 const sec = conf.app.security;
+const tauriLib = readFileSync(join(ROOT, "src-tauri/src/lib.rs"), "utf8");
+const kindCommands = readFileSync(join(ROOT, "src-tauri/src/commands/kinds.rs"), "utf8");
 
 function directive(csp: string, name: string): string | null {
   const hit = csp
@@ -41,6 +43,77 @@ test("shipped csp exists and keeps script-src locked down", () => {
   assert.ok(
     !script.includes("unsafe-inline") && !script.includes("unsafe-eval"),
     `script-src must never relax to inline/eval in the SHIPPED policy: ${script}`
+  );
+});
+
+/** A directive's source list, minus the directive name. */
+function sources(csp: string, name: string): string[] {
+  const hit = directive(csp, name);
+  assert.ok(hit, `csp has no ${name}`);
+  return hit.split(/\s+/).slice(1);
+}
+
+// SUB-959: the two origins vault-resident custom-kind code is served from —
+// `substrate-kind://localhost/…` on macOS/iOS, `http://substrate-kind.localhost/…`
+// on Windows/Android. Both spellings of the SAME scheme; neither is optional,
+// and neither is a wildcard.
+const KIND_SOURCES = ["substrate-kind:", "http://substrate-kind.localhost"];
+
+test("script-src and connect-src are EXACT lists, not merely non-empty", () => {
+  // Pinned as full lists rather than `includes` checks: custom kinds mean the
+  // webview now executes code the user dropped in a folder, so the set of
+  // origins it may load from and talk to is the whole boundary. A widened
+  // directive — a stray `blob:`, `data:`, `https:` or `*` — is exactly how
+  // that code would reach something it wasn't given. Growing either list is a
+  // deliberate edit here, in the same commit.
+  assert.deepEqual(sources(sec.csp!, "script-src"), ["'self'", ...KIND_SOURCES]);
+  assert.deepEqual(sources(sec.csp!, "connect-src"), [
+    "'self'",
+    ...KIND_SOURCES,
+    "asset:",
+    "http://asset.localhost",
+    "ipc:",
+    "http://ipc.localhost",
+    "data:",
+    "blob:",
+  ]);
+});
+
+test("devCsp carries the same kind origins as the shipped policy", () => {
+  // The dev policy is looser by design (`unsafe-inline`/`unsafe-eval` for the
+  // Vite lane, the localhost websocket) but it must not be looser about WHERE
+  // kind code comes from — otherwise a bundle works in dev and 404s in the
+  // shipped app for a reason nobody can see.
+  assert.deepEqual(sources(sec.devCsp!, "script-src"), [
+    "'self'",
+    "'unsafe-inline'",
+    "'unsafe-eval'",
+    ...KIND_SOURCES,
+  ]);
+  assert.deepEqual(sources(sec.devCsp!, "connect-src"), [
+    "'self'",
+    ...KIND_SOURCES,
+    "asset:",
+    "http://asset.localhost",
+    "ipc:",
+    "http://ipc.localhost",
+    "data:",
+    "blob:",
+    "ws://localhost:1420",
+    "http://localhost:1420",
+  ]);
+});
+
+test("custom-kind execution stays disabled on iOS", () => {
+  assert.match(
+    tauriLib,
+    /#\[cfg\(not\(target_os = "ios"\)\)\]\s*let builder = builder\.register_uri_scheme_protocol\(kinds::SCHEME/,
+    "the custom scheme must not be registered in the first iOS build"
+  );
+  assert.match(
+    kindCommands,
+    /if cfg!\(target_os = "ios"\)\s*\{\s*return Err\("custom dashboard kinds are not available on iOS yet"\.into\(\)\);/,
+    "kinds_enable must explicitly refuse consent on iOS"
   );
 });
 

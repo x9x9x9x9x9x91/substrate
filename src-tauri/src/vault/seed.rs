@@ -172,12 +172,13 @@ pub(crate) const SEED_FILES: &[SeedFile] = &[
     SeedFile {
         rel: AGENTS_REL_PATH,
         current: include_str!("../seed/AGENTS.md"),
-        // legacy shipped seeds (v0.16.0-v0.21.0), then r1 (SUB-973)
+        // legacy shipped seeds (v0.16.0-v0.22.0), then r1 (SUB-973)
         // Keep every distinct revision: an untouched vault may still hold any one.
         revisions: &[
             include_str!("../seed/revisions/agents-v0.16.md"),
             include_str!("../seed/revisions/agents-v0.20.md"),
             include_str!("../seed/revisions/agents-v0.21.md"),
+            include_str!("../seed/revisions/agents-v0.22.md"),
             include_str!("../seed/AGENTS.md"),
         ],
     },
@@ -294,11 +295,11 @@ fn matches_a_shipped_revision(on_disk: &str, revisions: &[&str], hash: fn(&str) 
 /// just means "default" (the ⌘, sheet writes keys on change). The body is the
 /// app's own per-key documentation, which grows every time a setting is added.
 pub(crate) const SETTINGS_FRONTMATTER: &str =
-    "---\ncapture-hotkey: alt+space\nclose-to-tray: false\nterminal-actions:\n  - 'Set up vault skills: /setup'\n---\n";
+    "---\ncapture-hotkey: alt+space\nclose-to-tray: false\nshare-relay-url: https://drop.substrate.zone\nterminal-actions:\n  - 'Set up vault skills: /setup'\n---\n";
 
 /// The documented-keys body. `scripts/settings-seed.test.ts` reads this literal
 /// to check every ⌘, pane key has a bullet here.
-pub(crate) const SETTINGS_BODY: &str = "Substrate settings — edit and save; changes apply within a second (⌘, opens the settings form).\n\n- `capture-hotkey` — global quick-capture shortcut, works from any app (e.g. `alt+space`, `cmd+shift+j`)\n- `close-to-tray` — when `true`, closing the window keeps Substrate in the menu bar; quit from the tray menu\n- `terminal-command` — command the ⌘⇧T terminal runs on start (e.g. `claude`, `codex`); empty = plain shell\n- `terminal-cwd` — folder the terminal starts in (`~` expands); empty = the vault folder\n- `terminal-font` — font family for the terminal, e.g. a nerd font so prompt glyphs render (`JetBrainsMono Nerd Font`); empty = the app's mono\n- `terminal-dock` — which edge the ⌘⇧T terminal slides in from: `bottom` or `right`; drag its inner edge to resize either way\n- `terminal-height` — how much of the window the terminal covers when docked to the bottom (`0.2`–`0.9`, default `0.45`)\n- `terminal-width` — how much of the window the terminal covers when docked to the right (`0.2`–`0.7`, default `0.38`)\n- `terminal-actions` — command-palette quick actions, one `Label: command` per list entry; each types its command into the terminal\n- `drop-hint` — when `false`, hides the drag-over hint about copy vs ⇧-link (default `true`)\n- `mod-hud` — when `false`, holding ⌘ no longer folds out the shortcut HUD (default `true`)\n- `db-grid` — when `false`, turns off the vertical grid lines in database tables everywhere; a database's ⋯ menu can still override per database (default `true`)\n- `show-agent-files` — when `true`, lists the seeded `Settings.md`, `AGENTS.md`, and `CLAUDE.md` app files; by default they stay concealed (still normal files on disk)\n- `share-relay-url` — where “Send as link” parks the encrypted copy; the relay only ever sees ciphertext (self-host one with scripts/handoff-relay)\n- `share-relay-token` — only if your relay requires a token for uploads; recipients never need it\n";
+pub(crate) const SETTINGS_BODY: &str = "Substrate settings — edit and save; changes apply within a second (⌘, opens the settings form).\n\n- `capture-hotkey` — global quick-capture shortcut, works from any app (e.g. `alt+space`, `cmd+shift+j`)\n- `close-to-tray` — when `true`, closing the window keeps Substrate in the menu bar; quit from the tray menu\n- `terminal-command` — command the ⌘⇧T terminal runs on start (e.g. `claude`, `codex`); empty = plain shell\n- `terminal-cwd` — folder the terminal starts in (`~` expands); empty = the vault folder\n- `terminal-font` — font family for the terminal, e.g. a nerd font so prompt glyphs render (`JetBrainsMono Nerd Font`); empty = the app's mono\n- `terminal-dock` — which edge the ⌘⇧T terminal slides in from: `bottom` or `right`; drag its inner edge to resize either way\n- `terminal-height` — how much of the window the terminal covers when docked to the bottom (`0.2`–`0.9`, default `0.45`)\n- `terminal-width` — how much of the window the terminal covers when docked to the right (`0.2`–`0.7`, default `0.38`)\n- `terminal-actions` — command-palette quick actions, one `Label: command` per list entry; each types its command into the terminal\n- `drop-hint` — when `false`, hides the drag-over hint about copy vs ⇧-link (default `true`)\n- `mod-hud` — when `false`, holding ⌘ no longer folds out the shortcut HUD (default `true`)\n- `db-grid` — when `false`, turns off the vertical grid lines in database tables everywhere; a database's ⋯ menu can still override per database (default `true`)\n- `show-agent-files` — when `true`, lists the seeded `Settings.md`, `AGENTS.md`, and `CLAUDE.md` app files; by default they stay concealed (still normal files on disk)\n- `share-relay-url` — where “Send as link” parks the encrypted copy; defaults to Substrate's hosted ciphertext-only relay, or replace it with your self-hosted relay\n- `share-relay-token` — optional bearer token for a self-hosted relay that gates uploads; the hosted default does not use one\n";
 
 /// Every `Settings.md` **body** the app has shipped, oldest first, in full —
 /// the same lockstep contract as `SEED_FILES`: appending only, never editing an
@@ -309,6 +310,7 @@ pub(crate) const SETTINGS_BODY_REVISIONS: &[&str] = &[
     include_str!("../seed/revisions/settings-body-v0.18.md"),
     include_str!("../seed/revisions/settings-body-v0.20.md"),
     include_str!("../seed/revisions/settings-body-v0.21.md"),
+    include_str!("../seed/revisions/settings-body-v0.22.md"),
     SETTINGS_BODY,
 ];
 
@@ -527,6 +529,7 @@ mod tests {
                     0xba02_662e_d0fc_da36,
                     0xc1c1_f089_9128_2ddd,
                     0xc740_6d43_a27a_f658,
+                    0x8e8c_be80_3589_fb9d,
                 ],
             ),
             (CLAUDE_REL_PATH, &[0xa5e2_3bfd_dbde_1340]),
@@ -540,6 +543,7 @@ mod tests {
             0x7915_e915_0f97_fd31,
             0x3776_ebbb_6925_e406,
             0x56b3_956b_7aa3_3bdc,
+            0x170e_3f45_6e6a_3061,
         ];
 
         // the tables hold TEXT now (review, SUB-973), so the pin doubles as the

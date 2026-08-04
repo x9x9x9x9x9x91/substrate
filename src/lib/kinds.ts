@@ -337,10 +337,20 @@ export interface KindBundle {
 /** Consent, as recorded outside the vault (`kinds.json` in the OS app-config
     dir, keyed by vault path). The hash pins consent to exact bytes; the api
     is what was consented to, kept so a record can be read back without the
-    bundle. */
+    bundle; `enabledAt` is when, so a decision made long ago against code that
+    has been sitting in a synced folder since is visible as such. */
 export interface KindEnableRecord {
   hash: string;
   api: number;
+  enabledAt: string;
+}
+
+/** One `kinds_list` row (SUB-959): the bundle as Rust found it on disk, plus
+    the consent record for the open vault when there is one. Carried together
+    so a pane resolves state from a single round trip and the list can never
+    be one call stale against the record it is judged by. */
+export interface KindBundleInfo extends KindBundle {
+  record?: KindEnableRecord;
 }
 
 /** What a pane should render for one bundle. Exactly one of these, always:

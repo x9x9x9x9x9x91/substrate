@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { AggKind, DbIcon, DbLayout, NoteMeta, NumberFormat, PropKind, PropSchema, RollupConfig, SavedView, SavedViewSort, SchemaConfig, SelectOption, ViewPref } from "../lib/types";
 import { foldedPropKey, foldedPropStr, typeHome } from "../lib/types";
 import { isTyping, isTypingNow } from "../lib/dom";
@@ -32,7 +32,7 @@ import {
   tableGroupBy,
   tableGroups,
 } from "../lib/dbgroup";
-import SelectMenu, { anchorFrom, type AnchorRect } from "./SelectMenu";
+import SelectMenu, { anchorFrom, anchorsWentStale, type AnchorRect } from "./SelectMenu";
 import PropForm from "./PropForm";
 import DotsMenu from "./DotsMenu";
 import InlineEdit from "./InlineEdit";
@@ -150,6 +150,11 @@ interface DatabasePaneProps {
   onToast?: (msg: string, action?: { label: string; run: () => void }) => void;
 }
 
+/** SUB-945: how long a just-written cell stays lit. Matches the cell-flash
+    keyframe in styles.css — long enough to catch out of the corner of an eye,
+    short enough that it is gone before the next edit. */
+const CELL_FLASH_MS = 700;
+
 export default function DatabasePane({
   dbType,
   notes,
@@ -191,6 +196,7 @@ export default function DatabasePane({
   onToast,
 }: DatabasePaneProps) {
   const undo = useUndo();
+  const anchorStaleScope = useId();
   const layout: DbLayout = pref?.view ?? "table";
   const columns = useMemo(() => dbColumns(notes, typeSchema), [notes, typeSchema]);
   const normalizedPref = useMemo(
@@ -484,6 +490,17 @@ export default function DatabasePane({
   // at click time so a re-sort can't strand a numeric index
   const [sel, setSel] = useState<ReadonlySet<string>>(EMPTY_SEL);
   const [selAnchor, setSelAnchor] = useState<string | null>(null);
+  // SUB-945: the bar slides in but used to vanish on the frame the selection
+  // emptied. It stays mounted for the fade-out, and keeps the count it was
+  // showing — a bar reading "0 selected" on its way out is worse than none
+  const [bulkClosing, setBulkClosing] = useState(0);
+  const lastSelSize = useRef(0);
+  // SUB-945: the cell (or board card) a write just landed in, lit for one
+  // fade. The nonce distinguishes two writes to the same cell.
+  const [lastWritten, setLastWritten] = useState<{ path: string; key: string; nonce: number } | null>(
+    null
+  );
+  const writeNonce = useRef(0);
   // the bulk bar's popovers: first the column picker, then the picked
   // column's kind editor (checkbox columns get a two-choice menu instead —
   // they have no value editor in the single-cell machinery either)
@@ -497,6 +514,7 @@ export default function DatabasePane({
   // SUB-194: gates the frozen Name column's edge cue — true only while the
   // table's scroller is off its left stop
   const [scrolledX, setScrolledX] = useState(false);
+  const [scrolledY, setScrolledY] = useState(false);
   // SUB-195: gates the right-edge fade — true only while columns hide past
   // the scroller's right edge (never at max scroll, never when it fits)
   const [moreRight, setMoreRight] = useState(false);
@@ -569,6 +587,32 @@ export default function DatabasePane({
   useEffect(() => {
     if (filterOpen) filterInputRef.current?.focus();
   }, [filterOpen]);
+
+  // SUB-945: hold the bulk bar for one fade after the selection empties (the
+  // Palette's closing idiom, same 90ms). A new selection during the fade wins
+  // — the timer is cleared and the bar is a live bar again.
+  useEffect(() => {
+    if (sel.size > 0) {
+      lastSelSize.current = sel.size;
+      setBulkClosing(0);
+      return;
+    }
+    // nothing was selected to begin with (mount, or a cleared selection that
+    // already faded) — no bar, nothing to fade
+    if (lastSelSize.current === 0) return;
+    setBulkClosing(lastSelSize.current);
+    lastSelSize.current = 0;
+    const t = window.setTimeout(() => setBulkClosing(0), 90);
+    return () => window.clearTimeout(t);
+  }, [sel]);
+
+  // let the commit flash expire, so a re-render long after the write (a sort,
+  // a filter) never relights a cell that settled minutes ago
+  useEffect(() => {
+    if (!lastWritten) return;
+    const t = window.setTimeout(() => setLastWritten(null), CELL_FLASH_MS);
+    return () => window.clearTimeout(t);
+  }, [lastWritten]);
 
   // the tab strip's fade tracks its scroll position and the tab count
   useEffect(() => {
@@ -666,9 +710,10 @@ export default function DatabasePane({
     [dispNotes, query, typeSchema]
   );
   const parsedQuery = useMemo(() => parseQuery(query, undefined, typeSchema), [query, typeSchema]);
-  // a filter hiding every row swaps the body for the "No matches" empty state
-  // (noMatch below) — the board's branch unmounts its scroller for it, so the
-  // SUB-194/195 fade sync effect re-runs on this flag to re-attach
+  // a filter hiding every row renders the "No matches" empty state inside the
+  // scroller (noMatch below) — every layout keeps its scroller mounted through
+  // it (SUB-945), but the contents change size, so the SUB-194/195 fade sync
+  // effect re-runs on this flag to re-read the geometry
   const filterEmpty = visible.length === 0 && query.trim() !== "" && newTitle === null;
   // SUB-266: why the filter dead-ended — one muted line under "No matches",
   // clickable when there's a corrected query to apply
@@ -856,7 +901,6 @@ export default function DatabasePane({
     () => normalizedPref?.aggregations ?? {},
     [normalizedPref?.aggregations]
   );
-  const hasAggs = Object.keys(aggs).length > 0;
   const aggResults = useMemo(() => {
     return aggregateColumns(aggs, (col) =>
       tallied.map((n) => foldedPropStr(n.props, col) ?? "")
@@ -970,6 +1014,7 @@ export default function DatabasePane({
     const body = bodyRef.current;
     const sync = () => {
       setScrolledX((body?.scrollLeft ?? 0) > 0);
+      setScrolledY((body?.scrollTop ?? 0) > 0);
       setMoreRight(body ? body.scrollLeft < body.scrollWidth - body.clientWidth - 1 : false);
       // a resized scroller shows a different row band — re-window (SUB-310)
       winSyncRef.current();
@@ -1056,6 +1101,12 @@ export default function DatabasePane({
     return setPropUndoable({ path, key: actualKey, value, id, record: undo.record, keyLabel: displayColLabel(key) })
       .then(() => {
         onMutated();
+        // SUB-945: a write that lands silently is indistinguishable from one
+        // that didn't. The cell the value went into carries one short accent
+        // fade -- the same confirmation the toast gives a bulk write, at the
+        // scale of a single cell. The nonce restarts it when the same cell is
+        // written twice inside one flash.
+        setLastWritten({ path, key, nonce: ++writeNonce.current });
         return true;
       })
       .catch((err) => {
@@ -1088,6 +1139,60 @@ export default function DatabasePane({
     // (SUB-557, the table half of SUB-553's chip fix). null still clears.
     writeCell(path, key, value === null ? null : chipCommitValue(props[actualKey], value));
   };
+
+  // read by the scroll handlers, which run far more often than any of these
+  // change — a ref keeps them off the handler's dependency list
+  const activeAnchor =
+    editCell?.anchor ??
+    colMenu?.anchor ??
+    aggMenu?.anchor ??
+    propVisAt ??
+    addPropAt ??
+    editSchemaCol?.anchor ??
+    bulkColMenu ??
+    bulkEdit?.anchor ??
+    bulkCheck?.anchor ??
+    null;
+  const anchoredOpen = useRef(false);
+  // where the scroller stood when the popover opened. Opening one often moves
+  // the scroller itself — clicking a header caret parked off the right edge
+  // focuses it, and the browser scrolls it into view before the menu exists.
+  // That scroll event lands after the menu is mounted and used to close it on
+  // the frame it opened; measuring against this baseline ignores it and still
+  // catches the first scroll the user actually asks for.
+  const anchorScroll = useRef<{ top: number; left: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    anchoredOpen.current = activeAnchor !== null;
+    anchorScroll.current = activeAnchor && el ? { top: el.scrollTop, left: el.scrollLeft } : null;
+  }, [activeAnchor]);
+
+  // SUB-945: every anchored popover in the pane holds a viewport rect captured
+  // when it opened. Scrolling the body moves the cell out from under it and the
+  // menu stays put, pointing at an unrelated row. The scroll handlers call this:
+  // anchorsWentStale() first, so a SelectMenu applies its own click-away
+  // contract (a dirty free-text cell commits, a picker just closes), then the
+  // pane drops the menus it owns outright.
+  const dismissAnchored = useCallback(() => {
+    // a scroll fires this every frame; with nothing anchored open there is
+    // nothing to say, and the stale-anchor event should not reach popovers
+    // outside this pane
+    if (!anchoredOpen.current) return;
+    const el = bodyRef.current;
+    const base = anchorScroll.current;
+    if (el && base && el.scrollTop === base.top && el.scrollLeft === base.left) return;
+    anchorsWentStale(anchorStaleScope);
+    setEditCell(null);
+    setSchemaEditCell(false);
+    setColMenu(null);
+    setAggMenu(null);
+    setPropVisAt(null);
+    setAddPropAt(null);
+    setEditSchemaCol(null);
+    setBulkColMenu(null);
+    setBulkEdit(null);
+    setBulkCheck(null);
+  }, [anchorStaleScope]);
 
   // list-valued cells (relation, multi — SUB-79) commit live as the picker
   // toggles (menu stays open); current values re-read from the latest notes
@@ -1649,25 +1754,31 @@ export default function DatabasePane({
               }
             }}
           />
-          {query && (
-            <>
-              <button
-                className="db-filter-save"
-                onMouseDown={(e) => e.preventDefault() /* keep the input's focus */}
-                onClick={() => setNamingView(true)}
-                title="Pin this filter to the sidebar"
-              >
-                Save view
-              </button>
-              <button
-                className="db-filter-clear"
-                onClick={() => setQuery("")}
-                title="Clear filter"
-              >
-                <XIcon />
-              </button>
-            </>
-          )}
+          {/* SUB-945: both actions stay mounted at their full size — they used
+              to appear with the first keystroke, which re-laid-out the row the
+              cursor was sitting in (design-principles.md 4). They fade in with
+              the query, and are disabled while there is nothing to save or
+              clear, so an invisible button is never a tab stop or a click
+              target */}
+          <button
+            className={`db-filter-save${query ? "" : " is-off"}`}
+            disabled={!query}
+            aria-hidden={query ? undefined : true}
+            onMouseDown={(e) => e.preventDefault() /* keep the input's focus */}
+            onClick={() => setNamingView(true)}
+            title="Pin this filter to the sidebar"
+          >
+            Save view
+          </button>
+          <button
+            className={`db-filter-clear${query ? "" : " is-off"}`}
+            disabled={!query}
+            aria-hidden={query ? undefined : true}
+            onClick={() => setQuery("")}
+            title="Clear filter"
+          >
+            <XIcon />
+          </button>
         </>
       )}
     </div>
@@ -1692,12 +1803,15 @@ export default function DatabasePane({
       </div>
     ) : null;
 
-  const bar = (
-    <>
-      {showFilter && filterBar}
+  // SUB-945: the completion chips hang off the filter row instead of sitting
+  // in the column flow — a band that opens and closes as you type used to
+  // push the whole table down under the cursor (design-principles.md 4)
+  const bar = showFilter ? (
+    <div className="db-filter-wrap">
+      {filterBar}
       {completionRow}
-    </>
-  );
+    </div>
+  ) : null;
 
   const noMatch = filterEmpty ? (
     <div className="empty">
@@ -1797,6 +1911,7 @@ export default function DatabasePane({
       )}
       {editSchemaCol && (
         <SelectMenu
+          staleScope={anchorStaleScope}
           anchor={editSchemaCol.anchor}
           value=""
           options={byFoldedKey(typeSchema, editSchemaCol.col)?.options ?? []}
@@ -1874,6 +1989,7 @@ export default function DatabasePane({
         dbType={dbType}
         typeSchema={typeSchema}
         openPath={openPath}
+        lastWritten={lastWritten}
         bgMenuProps={bgMenuProps}
         head={head}
         tabRow={tabRow}
@@ -1885,6 +2001,7 @@ export default function DatabasePane({
         bodyRef={bodyRef}
         moreRight={moreRight}
         setMoreRight={setMoreRight}
+        dismissAnchored={dismissAnchored}
         dragPath={dragPath}
         setDragPath={setDragPath}
         dropCol={dropCol}
@@ -1979,8 +2096,12 @@ export default function DatabasePane({
       gridOn={gridOn}
       scrolledX={scrolledX}
       setScrolledX={setScrolledX}
+      scrolledY={scrolledY}
+      setScrolledY={setScrolledY}
       moreRight={moreRight}
       setMoreRight={setMoreRight}
+      dismissAnchored={dismissAnchored}
+      anchorStaleScope={anchorStaleScope}
       cycleSort={cycleSort}
       startResize={startResize}
       resetWidth={resetWidth}
@@ -1998,6 +2119,8 @@ export default function DatabasePane({
       onNoteMenu={onNoteMenu}
       onTrashNotes={onTrashNotes}
       sel={sel}
+      lastWritten={lastWritten}
+      bulkClosing={bulkClosing}
       clearSel={clearSel}
       editCell={editCell}
       setEditCell={setEditCell}
@@ -2019,7 +2142,6 @@ export default function DatabasePane({
       tallied={tallied}
       aggs={aggs}
       aggResults={aggResults}
-      hasAggs={hasAggs}
       bulkColMenu={bulkColMenu}
       setBulkColMenu={setBulkColMenu}
       bulkCheck={bulkCheck}

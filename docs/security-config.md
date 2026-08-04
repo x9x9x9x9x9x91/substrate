@@ -15,10 +15,11 @@ derived from what the app actually does, not from a template; each allowance has
 a call site.
 
 ```
-default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+default-src 'self'; script-src 'self' substrate-kind: http://substrate-kind.localhost;
+style-src 'self' 'unsafe-inline';
 font-src 'self' data:; img-src 'self' asset: http://asset.localhost data: blob:;
 media-src 'self' asset: http://asset.localhost data: blob:;
-connect-src 'self' asset: http://asset.localhost ipc: http://ipc.localhost data: blob:;
+connect-src 'self' substrate-kind: http://substrate-kind.localhost asset: http://asset.localhost ipc: http://ipc.localhost data: blob:;
 worker-src 'self' blob:; object-src 'none'; base-uri 'self';
 frame-src 'none'; frame-ancestors 'none'; form-action 'none'
 ```
@@ -26,6 +27,28 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
 - **`script-src 'self'`** — no `'unsafe-inline'`, no `'unsafe-eval'`, no remote
   origin. This is the directive that matters: it is what stops a crafted note
   from executing anything.
+- **`substrate-kind:` / `http://substrate-kind.localhost` in `script-src` and
+  `connect-src`** (SUB-959) — the custom-kind scheme, and the only reason
+  `script-src` is not bare `'self'`. Custom dashboard kinds are JS that lives in
+  the vault (`.vault/kinds/<id>/`), so it cannot be bundled and cannot be
+  `'self'`; a scheme handler is what lets it load *and* stay refusable. Two
+  spellings because Tauri serves custom schemes as `substrate-kind://localhost/…`
+  on macOS/Linux and `http://substrate-kind.localhost/…` on Windows/Android —
+  the same handler, so both or neither. The first iOS build deliberately does
+  not register the handler and `kinds_enable` refuses there; the shared CSP
+  keeps the origin listed so enabling iOS later does not require widening the
+  policy. What makes this narrow is the handler
+  (`src-tauri/src/kinds.rs`), not the CSP: every request is refused with a bare
+  404 unless the path resolves inside `<vault>/.vault/kinds/<id>/` after
+  canonicalisation (traversal, absolute paths, separators and symlink escapes
+  all die here), the id is enabled *for this exact vault path* in the
+  out-of-vault `kinds.json`, and the bundle's current on-disk hash still equals
+  the hash that was enabled. Edited files stop being served until the user
+  looks again. Responses are `no-store` and `Access-Control-Allow-Origin` names
+  the app origin alone. No `blob:`, no `data:`, no wildcard is added anywhere
+  — those would let kind code fabricate its own script source and route around
+  the whole check. `scripts/security-config.test.ts` pins both directives as
+  exact lists for that reason.
 - **`style-src 'unsafe-inline'`** — three things depend on it: React
   `style={{…}}` attributes in 64 places (measured attributes, panel heights,
   grid columns — there is no `style-src-attr` here, so attributes fall back
@@ -80,7 +103,14 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
 `devCsp` is the same policy plus what Vite's dev server needs and nothing else:
 `'unsafe-inline' 'unsafe-eval'` in `script-src` for the dev transform, and
 `ws://localhost:1420 http://localhost:1420` in `connect-src` for HMR. These
-relaxations exist only in `tauri dev`; the shipped bundle uses `csp`.
+relaxations exist only in `tauri dev`; the shipped bundle uses `csp`. It is not
+looser about *where* kind code may come from — a bundle that runs in dev and
+404s in the shipped app is the worst possible failure mode here.
+
+`npm test` only proves this file and the config agree. Whether a CSP actually
+holds is a property of the packaged webview, and only the real-app smoke lane
+(`SMOKE_BUNDLE=1`, private repo — SUB-610/612) exercises it. A green gate run
+is not evidence that a scheme or directive change works.
 
 That port is hardcoded and coupled to `SUBSTRATE_DEV_PORT` in `vite.config.ts`
 — JSON has no substitution, so the CSP cannot follow an override. Running the

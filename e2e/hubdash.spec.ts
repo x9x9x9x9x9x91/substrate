@@ -8,7 +8,10 @@ import { expect, test, type Page } from "@playwright/test";
 // kind) wikilinking Slow Bloom EP / Vessel Songs / Static Bouquet, then a
 // paragraph and a table, then two ```view fences (SUB-860): a `type: contact`
 // one that resolves to a live table, and a broken one that must fail in
-// place. Runs against the deterministic mock backend.
+// place. SUB-964 adds a ```cards fence, a QUOTED cards fence and a chart+cards
+// pair inside a callout body (all three must stay code boxes) and two ```chart
+// fences (one sound, one with a broken `y:`) to the same fixture. Runs against
+// the deterministic mock backend.
 
 async function openHub(page: Page) {
   await page.goto("/");
@@ -83,8 +86,12 @@ test("a ```view fence renders a live database table, not a code box", async ({ p
   await expect(table.locator("thead th").first()).toHaveText("Title");
   await expect(table.locator("thead th", { hasText: "role" })).toHaveCount(1);
   await expect(table.locator("tbody tr", { hasText: "booking" })).toHaveCount(1);
-  // the fence is gone from the code-box path entirely
-  await expect(page.locator(".hub-body .hub-pre")).toHaveCount(0);
+  // the fence is gone from the code-box path entirely — the page's three code
+  // boxes are the deliberately quoted/nested fences, and none of them sits at
+  // the top level of the body
+  await expect(page.locator(".hub-body .hub-pre")).toHaveCount(3);
+  await expect(page.locator(".hub-body > .hub-pre")).toHaveCount(0);
+  await expect(page.locator(".hub-body .hub-pre", { hasText: "type:" })).toHaveCount(0);
 });
 
 test("a row title in a hub view fence opens the source note", async ({ page }) => {
@@ -107,6 +114,95 @@ test("a fence naming an unknown database fails in place, siblings unaffected", a
   await expect(page.locator(".dash-cards.hub-cards .dash-card")).toHaveCount(3);
   await expect(page.locator(".hub-body .dash-table")).toHaveCount(1);
   await expect(page.locator(".hub-body .hub-view .embed-view-table")).toHaveCount(1);
+});
+
+test("one hub body renders markdown, a cards fence, a chart fence and a view fence together (SUB-964)", async ({
+  page,
+}) => {
+  await openHub(page);
+
+  // markdown: the paragraph and the table from the top of the body
+  await expect(page.locator(".hub-body .hub-p", { hasText: "linear flow" })).toBeVisible();
+  await expect(page.locator(".hub-body .dash-table")).toHaveCount(1);
+
+  // ```cards: the metrics strip, with the same cards the frontmatter form
+  // would produce — resolved against the Holdings sheet, not fixture text
+  const strip = page.locator(".hub-body .metrics-strip");
+  await expect(strip).toHaveCount(1);
+  const cards = strip.locator(".dash-card");
+  await expect(cards).toHaveCount(3);
+  await expect(cards.nth(0).locator(".dash-label")).toHaveText("Total value");
+  await expect(cards.nth(0).locator(".dash-card-eur")).toHaveText(/€/);
+  await expect(cards.nth(2).locator(".dash-label")).toHaveText("Positions");
+  await expect(cards.nth(2).locator(".dash-card-eur")).toHaveText("4");
+  // the emphasis cap is per page (principle 11): only the emph card keeps
+  // the sharp voice, the other two sink
+  await expect(strip.locator(".dash-card.sunk")).toHaveCount(2);
+
+  // ```chart: the sound fence plots, with its title and provenance foot
+  const chart = page.locator(".hub-body .hub-chart");
+  await expect(chart).toHaveCount(2);
+  const good = chart.first();
+  await expect(good.locator(".dash-section-label")).toHaveText("Holdings by bucket");
+  await expect(good.locator(".dash-bar-col")).toHaveCount(2);
+  await expect(good.locator(".chart-err")).toHaveCount(0);
+
+  // ```view: the live database table
+  await expect(page.locator(".hub-body .hub-view .embed-view-table tbody tr")).toHaveCount(4);
+
+  // and none of the four fell through to a top-level code box; the three code
+  // boxes are deliberately nested in a quote/callout, never live fences
+  await expect(page.locator(".hub-body .hub-pre")).toHaveCount(3);
+  await expect(page.locator(".hub-body > .hub-pre")).toHaveCount(0);
+});
+
+test("a quoted ```cards fence stays a code box and takes no page slot (SUB-964)", async ({
+  page,
+}) => {
+  await openHub(page);
+
+  // a plain quote renders linear markdown: the fence inside it is quoted
+  // TEXT, so it renders as a code box rather than a live strip
+  const quoted = page.locator(".hub-body .hub-quote .hub-pre");
+  await expect(quoted).toHaveCount(1);
+  await expect(quoted).toContainText("label: Quoted");
+  await expect(page.locator(".hub-body .hub-quote .metrics-strip")).toHaveCount(0);
+
+  // and it consumed no slot: the real fence right below it still renders its
+  // OWN three cards, not the quoted one's
+  const strip = page.locator(".hub-body .metrics-strip");
+  await expect(strip).toHaveCount(1);
+  await expect(strip.locator(".dash-card")).toHaveCount(3);
+  await expect(strip.locator(".dash-label").first()).toHaveText("Total value");
+  await expect(strip).not.toContainText("Quoted");
+});
+
+test("chart and cards fences inside a callout stay code boxes (SUB-964)", async ({ page }) => {
+  await openHub(page);
+
+  const callout = page.locator(".hub-card-idea", { hasText: "Next up" });
+  await expect(callout.locator(".hub-pre")).toHaveCount(2);
+  await expect(callout.locator(".hub-pre").first()).toContainText("source: release");
+  await expect(callout.locator(".hub-pre").nth(1)).toContainText("label: Nested");
+  await expect(callout.locator(".hub-chart")).toHaveCount(0);
+  await expect(callout.locator(".metrics-strip")).toHaveCount(0);
+});
+
+test("a malformed chart fence errors in place while its siblings render (SUB-964)", async ({
+  page,
+}) => {
+  await openHub(page);
+
+  // the broken `y:` fails where it sits, naming the mistake
+  const err = page.locator(".hub-body .hub-chart .chart-err");
+  await expect(err).toHaveCount(1);
+  await expect(err).toHaveText(/y must be count, sum:<prop> or avg:<prop>/);
+
+  // the other three surfaces are untouched
+  await expect(page.locator(".hub-body .metrics-strip .dash-card")).toHaveCount(3);
+  await expect(page.locator(".hub-body .hub-chart .dash-bar-col").first()).toBeVisible();
+  await expect(page.locator(".hub-body .hub-view .embed-view-table")).toHaveCount(1);
+  await expect(page.locator(".hub-body .dash-table")).toHaveCount(1);
 });
 
 test("Open source note lands in the editor on the hub note's plain markdown", async ({

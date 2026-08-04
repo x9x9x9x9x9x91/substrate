@@ -44,6 +44,27 @@ test("a view page renders the database cut read-only with click-through", async 
   await expect(page.locator(".dash-state")).toContainText("rows");
 });
 
+test("a view page accepts YAML-list columns with the natural Title leader", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() => {
+    window.__mockEditProp?.("Dashboards/Label Books.md", "pages", [
+      {
+        label: "Projection",
+        view: "release",
+        query: "status:live",
+        columns: ["title", "artist"],
+      },
+    ]);
+    window.__mockEmit?.("vault:changed");
+  });
+
+  await page.locator(".side-item", { hasText: "Label Books" }).click();
+  await page.locator(".wb-tab", { hasText: "Projection" }).click();
+  await expect(page.locator(".wb-page-err")).toHaveCount(0);
+  await expect(page.locator(".wb-view-table thead th")).toHaveText(["Title", "artist"]);
+  await expect(page.locator(".wb-view-table .dash-link", { hasText: "Static Bouquet" })).toBeVisible();
+});
+
 test("a broken entry is an error page in place — siblings unaffected", async ({ page }) => {
   await openWorkbook(page);
   await page.locator(".wb-tab", { hasText: "Broken" }).click();

@@ -52,14 +52,14 @@ Linear (speed, keyboard-first, command palette). The layer everything grows on.
 
 ## Try it
 
-Prerequisites: [Node.js](https://nodejs.org) ≥ 20, [Rust via rustup](https://rustup.rs)
+Prerequisites: [Node.js](https://nodejs.org) ≥ 22.6, [Rust via rustup](https://rustup.rs)
 (the repository's `rust-toolchain.toml` selects the exact version), and Xcode
 Command Line Tools (`xcode-select --install`). First build compiles the Rust
 engine — expect a few minutes.
 
 ```sh
 git clone <this repo> && cd substrate
-npm install
+npm ci
 cp -r examples/vault ~/SubstrateDemo
 VAULT_DIR=~/SubstrateDemo npm run tauri dev
 ```
@@ -99,6 +99,7 @@ npm run dev                  # front end only, mock backend, plain browser
 npx tsc --noEmit             # typecheck
 npm test                     # node test suite (lib + scripts)
 cd src-tauri && cargo test   # Rust engine tests
+npx playwright install chromium # once, before the first browser test
 npm run e2e                  # Playwright smoke over the mock backend
 ```
 

@@ -60,16 +60,27 @@ export function openExternalLink(url: string) {
     otherwise the database's TypeIcon at placeholder scale — the title below
     leads the card (SUB-313). Stays blank while resolving so cards don't
     flash the icon before the image lands. */
+const revealedGalleryCovers = new Set<string>();
+
 export function GalleryCover({ note, dbType, icon }: { note: NoteMeta; dbType: string; icon?: DbIcon }) {
   const [url, setUrl] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [entering, setEntering] = useState(false);
   useEffect(() => {
     let live = true;
     setUrl(null);
     setMissing(false);
+    setLoaded(false);
+    setEntering(false);
     coverSource(note).then((u) => {
       if (!live) return;
-      if (u) setUrl(u);
+      if (u) {
+        // A decoded source remounted by a layout switch is already visible;
+        // only the first real load gets the one-shot entrance motion.
+        setLoaded(revealedGalleryCovers.has(u));
+        setUrl(u);
+      }
       else setMissing(true);
     });
     return () => {
@@ -80,11 +91,19 @@ export function GalleryCover({ note, dbType, icon }: { note: NoteMeta; dbType: s
     <div className="db-gcover">
       {url ? (
         <img
+          className={`${loaded ? "is-loaded" : ""}${entering ? " cover-entering" : ""}`}
           src={url}
           alt=""
           draggable={false}
           loading="lazy"
+          onLoad={() => {
+            const firstReveal = !revealedGalleryCovers.has(url);
+            revealedGalleryCovers.add(url);
+            setEntering(firstReveal);
+            setLoaded(true);
+          }}
           onError={() => {
+            revealedGalleryCovers.delete(url);
             setUrl(null);
             setMissing(true);
           }}
@@ -140,7 +159,7 @@ export function ColMenu({
     ? { left: Math.min(anchor.left, window.innerWidth - 200), bottom: window.innerHeight - anchor.top + 4 }
     : { left: Math.min(anchor.left, window.innerWidth - 200), top: anchor.bottom + 4 };
   return createPortal(
-    <div className="colmenu" style={style} ref={boxRef}>
+    <div className={`colmenu${up ? " flip-up" : ""}`} style={style} ref={boxRef}>
       {items.map((it) => (
         <button
           key={it.label}
@@ -210,11 +229,19 @@ export function ColumnsMenu({
       {open && (
         <div className="dots-menu db-cols-menu">
           {columns.map((c) => {
-            // ✓-prefix idiom of the aggregation picker; null = all on
+            // null = all on. SUB-945: the same check control PropVisMenu uses
+            // — these are two checklists of the same columns, and a ✓ glued to
+            // the label read as a different kind of list
             const on = checked ? checked.includes(c) : true;
             return (
-              <button key={c} className="dots-item db-cols-item" onClick={() => onToggle(c)}>
-                <span className="db-cols-name">{`${on ? "✓ " : ""}${c}`}</span>
+              <button
+                key={c}
+                className="dots-item db-cols-item"
+                onClick={() => onToggle(c)}
+                aria-pressed={on}
+              >
+                <span className={`prop-check${on ? " on" : ""}`} aria-hidden="true" />
+                <span className="db-cols-name">{c}</span>
               </button>
             );
           })}

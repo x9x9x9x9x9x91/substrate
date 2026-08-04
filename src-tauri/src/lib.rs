@@ -8,6 +8,7 @@ mod dragfix;
 mod githist;
 mod gitsync;
 mod history;
+mod kinds;
 mod net;
 mod notify;
 #[cfg(target_os = "macos")]
@@ -18,6 +19,7 @@ mod term;
 mod testenv;
 mod vault;
 mod vaultfmt;
+mod viewexport;
 
 use gitsync::SyncReport;
 use history::History;
@@ -125,6 +127,7 @@ use commands::calendarfeeds::*;
 use commands::files::*;
 use commands::fx::*;
 use commands::history::*;
+use commands::kinds::*;
 use commands::notes::*;
 use commands::schema::*;
 use commands::search::*;
@@ -132,6 +135,7 @@ use commands::share::*;
 use commands::tags::*;
 use commands::trash::*;
 use commands::vaultsync::*;
+use commands::viewexport::*;
 use commands::views::*;
 use commands::window::*;
 
@@ -349,6 +353,18 @@ pub fn run() {
     let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init());
+    // Custom dashboard kinds (SUB-959): the only door vault-resident renderer
+    // code gets out through. Registered everywhere except iOS for the first
+    // TestFlight build — macOS/Linux see `substrate-kind://localhost/…`,
+    // Windows/Android
+    // `http://substrate-kind.localhost/…`, which is why the CSP in
+    // tauri.conf.json names both. The handler refuses with a bare 404 unless
+    // the path resolves inside `.vault/kinds/<id>`, the id is enabled for THIS
+    // vault, and the bundle still hashes to what consent was given for.
+    #[cfg(not(target_os = "ios"))]
+    let builder = builder.register_uri_scheme_protocol(kinds::SCHEME, |ctx, request| {
+        kinds::serve(ctx.app_handle(), &request)
+    });
     let app = builder
         .setup(|app| {
             // Mobile has no $HOME vault — the vault lives in the app's own
@@ -741,6 +757,9 @@ pub fn run() {
             vault_create,
             vault_template_read,
             vault_template_list,
+            kinds_list,
+            kinds_enable,
+            kinds_disable,
             url_capture,
             vault_rename,
             vault_delete,
@@ -791,6 +810,9 @@ pub fn run() {
             vault_saved_views_read,
             vault_saved_view_set,
             vault_saved_view_delete,
+            view_export_target,
+            view_export_run,
+            view_export_forget,
             vault_schema_read,
             vault_schema_set,
             vault_schema_set_icon,

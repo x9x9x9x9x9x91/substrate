@@ -130,16 +130,26 @@ test("database: table ↔ board toggle", async ({ page }) => {
 test("table aggregation footer: pick, compute, persist (SUB-74)", async ({ page }) => {
   await openDb(page, "Release");
   await expect(page.locator(".db-table")).toBeVisible();
-  // no aggregation chosen → no footer row
-  await expect(page.locator(".db-table tfoot")).toHaveCount(0);
+  // SUB-945: the footer rests there with no aggregation set — row count in
+  // the title cell, and a "Calc" ghost per column that stays out of the way
+  // until the footer is hovered, without ever moving the table's geometry
+  await expect(page.locator(".db-table tfoot")).toHaveCount(1);
+  await expect(page.locator(".db-agg-title")).toHaveText("5 rows");
+  const tracksGhost = page.locator('.db-agg-cell[data-col="tracks"] .db-agg-ghost');
+  await expect(tracksGhost).toHaveText("Calc");
+  await expect(tracksGhost).toHaveCSS("opacity", "0");
+  // per-CELL reveal (SUB-945 review round): only the hovered cell's ghost
+  // wakes, so a resting footer never lights up wholesale
+  await page.locator('.db-agg-cell[data-col="tracks"]').hover();
+  await expect(tracksGhost).toHaveCSS("opacity", "1");
 
-  // first calculation starts from the column caret (the footer is hidden
-  // until one exists) — Sum over the numeric tracks column
+  // first calculation starts from the column caret — Sum over the numeric
+  // tracks column
   await page.locator(".db-table th", { hasText: "tracks" }).locator(".db-th-caret").click();
   await page.locator(".colmenu .dots-item", { hasText: "Calculate…" }).click();
   await page.locator(".colmenu .dots-item", { hasText: /^Sum$/ }).click();
 
-  // footer appears: row count in the title cell, Sum 42 under tracks
+  // the column fills in: Sum 42 under tracks
   const tracks = page.locator('.db-agg-cell[data-col="tracks"]');
   await expect(page.locator(".db-agg-title")).toHaveText("5 rows");
   await expect(tracks.locator(".db-agg-kind")).toHaveText("Sum");
@@ -157,14 +167,16 @@ test("table aggregation footer: pick, compute, persist (SUB-74)", async ({ page 
   await expect(page.locator('.db-agg-cell[data-col="tracks"] .db-agg-value')).toHaveText("42");
   await expect(page.locator('.db-agg-cell[data-col="artist"] .db-agg-value')).toHaveText("5");
 
-  // the active option is marked; setting both back to None hides the footer
+  // the active option is marked; setting both back to None returns the
+  // footer to rest — still mounted, back to ghosts (SUB-945)
   await tracks.locator(".db-agg-btn").click();
   await expect(page.locator(".colmenu .dots-item", { hasText: "✓ Sum" })).toHaveCount(1);
   await page.locator(".colmenu .dots-item", { hasText: /^None$/ }).click();
   await expect(tracks.locator(".db-agg-ghost")).toHaveText("Calc");
   await page.locator('.db-agg-cell[data-col="artist"] .db-agg-btn').click();
   await page.locator(".colmenu .dots-item", { hasText: /^None$/ }).click();
-  await expect(page.locator(".db-table tfoot")).toHaveCount(0);
+  await expect(page.locator(".db-table tfoot")).toHaveCount(1);
+  await expect(page.locator('.db-agg-cell[data-col="artist"] .db-agg-ghost')).toHaveText("Calc");
 });
 
 test("board: drag card between columns", async ({ page }) => {
@@ -1810,7 +1822,9 @@ test("saved view: per-view display columns curate table + list, recalled by the 
   await colsBtn.click();
   const menu = page.locator(".db-cols-menu");
   await expect(menu.locator(".db-cols-item")).toHaveCount(10);
-  await expect(menu.locator(".db-cols-item", { hasText: "✓" })).toHaveCount(10);
+  // SUB-945: the curator uses the same check control as the property
+  // checklist, so "shown" is the pressed state, not a ✓ glued to the label
+  await expect(menu.locator('.db-cols-item[aria-pressed="true"]')).toHaveCount(10);
 
   // unchecking re-renders immediately (menu stays open for multi-toggle)
   await menu.locator(".db-cols-item", { hasText: "cat#" }).click();
@@ -1848,9 +1862,15 @@ test("saved view: per-view display columns curate table + list, recalled by the 
 
   // the curator inside the pin reflects the persisted selection
   await colsBtn.click();
-  await expect(menu.locator(".db-cols-item", { hasText: "✓" })).toHaveCount(8);
-  await expect(menu.locator(".db-cols-item", { hasText: "cat#" })).not.toContainText("✓");
-  await expect(menu.locator(".db-cols-item", { hasText: "status" })).toContainText("✓");
+  await expect(menu.locator('.db-cols-item[aria-pressed="true"]')).toHaveCount(8);
+  await expect(menu.locator(".db-cols-item", { hasText: "cat#" })).toHaveAttribute(
+    "aria-pressed",
+    "false"
+  );
+  await expect(menu.locator(".db-cols-item", { hasText: "status" })).toHaveAttribute(
+    "aria-pressed",
+    "true"
+  );
   await page.keyboard.press("Escape");
 
   // list layout: the subtitle follows the curated columns too

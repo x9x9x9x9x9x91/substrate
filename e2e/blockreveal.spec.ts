@@ -64,7 +64,7 @@ test("a rendered view embed survives cursor moves that touch no block", async ({
   await expect(page.locator(".cm-content")).not.toContainText("status:mastering");
 });
 
-test("a callout below the fold decorates once scrolled into view", async ({ page }) => {
+test("a callout scrolled out and back stays decorated", async ({ page }) => {
   await page.goto("/");
   await page.locator(".side-item", { hasText: "Umbra Home" }).click();
   await expect(page.locator(".dash-title")).toHaveText("Umbra Home");
@@ -75,11 +75,15 @@ test("a callout below the fold decorates once scrolled into view", async ({ page
   await expect(callouts.first()).toBeVisible();
   const before = await callouts.count();
 
-  // scroll to the bottom: whatever the viewport now holds must still be
-  // decorated (the viewport-scoped scan rebuilds on viewportChanged)
+  // scroll past them to the bottom, then back: a callout the viewport lost
+  // and regained must be decorated again (the viewport-scoped scan rebuilds
+  // on viewportChanged). Asserting on the bottom of the note would only
+  // hold while the fixture fits one screen — it no longer does.
   await page.locator(".cm-content").click();
   await page.keyboard.press("Meta+ArrowDown");
+  await page.keyboard.press("Meta+ArrowUp");
   await expect(page.locator(".cm-callout-line").first()).toBeVisible();
+  expect(await page.locator(".cm-callout-line").count()).toBe(before);
   expect(before).toBeGreaterThan(0);
 });
 

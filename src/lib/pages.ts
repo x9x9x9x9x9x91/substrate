@@ -18,13 +18,61 @@
 //
 // Pure TS, no DOM imports: runs in the app and under `node --test`.
 
+import { parseViewSpec, type EmbedSpec } from "./embeds.ts";
 import { byFoldedKey } from "./schemalookup.ts";
 
 export type PageEntry =
   | { kind: "note"; label: string; note: string }
-  | { kind: "view"; label: string; view: string; query?: string }
-  | { kind: "saved"; label: string; saved: string }
+  | { kind: "view"; label: string; spec: EmbedSpec }
+  | { kind: "saved"; label: string; spec: EmbedSpec }
   | { kind: "error"; label: string; error: string };
+
+const PAGE_VIEW_KEYS = ["query", "sort", "limit", "columns"] as const;
+
+/** Adapt a workbook page map into the same parser used by ```view fences.
+    YAML naturally decodes an unquoted limit as a number and a conventional
+    columns list as string[]; scalar options stay strings. Unknown page keys
+    remain ignored for the workbook's forward-compat contract. */
+function pageViewSpec(
+  o: Record<string, unknown>,
+  target: { key: "type" | "saved"; value: string }
+): EmbedSpec | { error: string } {
+  if (/[\r\n]/.test(target.value)) {
+    return { error: `${target.key}: must stay on one line` };
+  }
+  const lines = [`${target.key}: ${target.value}`];
+  for (const key of PAGE_VIEW_KEYS) {
+    const raw = o[key];
+    if (raw === undefined) continue;
+    // query predates the validating options and non-string values were
+    // historically ignored; preserve that tolerant workbook behavior.
+    if (key === "query" && typeof raw !== "string") continue;
+    if (key === "limit" && typeof raw === "number") {
+      lines.push(`${key}: ${raw}`);
+    } else if (key === "columns" && Array.isArray(raw)) {
+      if (!raw.every((item) => typeof item === "string")) {
+        return { error: "columns: list items must be text" };
+      }
+      if (raw.some((item) => /[\r\n]/.test(item))) {
+        return { error: "columns: must stay on one line" };
+      }
+      // Keep one source of syntax truth: the adapter only serializes the
+      // natural YAML shape, then the shared fence parser validates it.
+      lines.push(`${key}: ${raw.join(", ")}`);
+    } else if (typeof raw === "string") {
+      if (/[\r\n]/.test(raw)) return { error: `${key}: must stay on one line` };
+      lines.push(`${key}: ${raw}`);
+    } else {
+      return {
+        error:
+          key === "limit"
+            ? "limit: must be a positive whole number"
+            : `${key}: must be quoted text`,
+      };
+    }
+  }
+  return parseViewSpec(lines.join("\n"));
+}
 
 /** Parse the `pages:` prop into page entries. Not-a-list (or an empty list)
     means no tabs — the dashboard renders exactly as before. */
@@ -52,9 +100,19 @@ export function parsePages(props: Record<string, unknown>): PageEntry[] {
     } else if (note !== undefined) {
       out.push({ kind: "note", label, note });
     } else if (view !== undefined) {
-      out.push({ kind: "view", label, view, query: str("query") });
+      const spec = pageViewSpec(o, { key: "type", value: view });
+      out.push(
+        "error" in spec
+          ? { kind: "error", label, error: spec.error }
+          : { kind: "view", label, spec }
+      );
     } else {
-      out.push({ kind: "saved", label, saved: saved! });
+      const spec = pageViewSpec(o, { key: "saved", value: saved! });
+      out.push(
+        "error" in spec
+          ? { kind: "error", label, error: spec.error }
+          : { kind: "saved", label, spec }
+      );
     }
   }
   return out;

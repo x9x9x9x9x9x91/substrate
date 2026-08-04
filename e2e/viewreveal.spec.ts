@@ -113,7 +113,20 @@ test("arrow keys reach a rendered markdown table too (SUB-472)", async ({ page }
   await expect(page.locator(".note-title")).toHaveValue("Umbra Home");
   await expect(page.locator(".cm-md-table")).toBeVisible();
 
-  await page.locator(".cm-line", { hasText: "Everything below the cards" }).click();
+  // The callout above hosts chart/cards fences (SUB-964) whose widgets render
+  // late and shift line geometry between locator resolution and the click —
+  // the click can land on a neighboring line. Anchor the cursor explicitly
+  // before walking; the arrow-walk assertions below stay at full strength.
+  const anchor = page.locator(".cm-line", { hasText: "Everything below the cards" });
+  await anchor.click();
+  await expect
+    .poll(async () => {
+      const line = await cursorLine(page);
+      if (line.includes("Everything below the cards")) return "anchored";
+      await anchor.click();
+      return line;
+    })
+    .toBe("anchored");
   await page.keyboard.press("ArrowDown"); // blank line
   await page.keyboard.press("ArrowDown"); // into the table → raw source
 

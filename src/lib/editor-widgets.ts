@@ -5,7 +5,12 @@ import { assetBlobUrl, audioSource, loadPeaks, PEAKS_AUTO_MAX_BYTES, type AudioS
 import { isImageName } from "./artwork.ts";
 import { formatFileSize } from "./display.ts";
 import { fileOpen, vaultAssetInfo, vaultRoot } from "./ipc.ts";
-import { parseViewSpec, seedPropsFromQuery, type EmbedResult, type EmbedSpec } from "./embeds.ts";
+import {
+  parseViewSpec,
+  seedPropsFromQuery,
+  type EmbedResult,
+  type ViewSpecResult,
+} from "./embeds.ts";
 import { missingEmbedKind, missingEmbedLabel } from "./embedstate.ts";
 import { isTauri } from "./tauri.ts";
 import { TASK_RE } from "./markdown.ts";
@@ -238,7 +243,7 @@ export class TableWidget extends WidgetType {
  * them off state at toDOM time — like the TableWidget's view access, this
  * keeps callback threading out of the decoration data. */
 export interface EmbedHandlers {
-  query?: (spec: EmbedSpec) => EmbedResult;
+  query?: (spec: ViewSpecResult) => EmbedResult;
   openNote?: (path: string) => void;
   /** `savedId` set when the embed came from a `saved:` pin — open that view */
   openView?: (dbType: string, savedId?: string) => void;
@@ -477,10 +482,15 @@ function paintViewWidget(wrap: HTMLElement, view: EditorView, inner: string): bo
     empty.className = "embed-view-more";
     empty.textContent = "No matching rows";
     wrap.insertBefore(empty, state.hostEl);
-  } else if (result.total > result.rows.length) {
+  } else if (result.cut) {
+    // an author's `limit:` and the surface's cap are different facts (SUB-942):
+    // "… 18 more" under a `limit: 5` reads as a cap we imposed. Say which.
     const more = document.createElement("div");
     more.className = "embed-view-more";
-    more.textContent = `… ${result.total - result.rows.length} more`;
+    more.textContent =
+      result.cut.kind === "limit"
+        ? `${result.rows.length} of ${result.total} — this fence's limit`
+        : `… ${result.total - result.rows.length} more`;
     wrap.insertBefore(more, state.hostEl);
   }
 

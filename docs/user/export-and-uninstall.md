@@ -13,6 +13,15 @@ For smaller exports:
   PDF…**, which opens the macOS print flow.
 - A database's **⋯** menu offers **Export CSV…** for the columns, filters, sort,
   and row order currently shown.
+- A saved view's menu (right-click its tab or its sidebar row) offers **Export
+  as link folder…**, which builds a folder outside the vault whose items are
+  links to the notes the view matches — so Finder, a file dialog, or another
+  app's browser can see the view's result as an ordinary folder. The first
+  export asks where; after that the menu offers **Regenerate link folder**,
+  which silently rebuilds the same folder. It holds links only, never copies,
+  and carries a `.substrate-view` file saying so: deleting the folder loses
+  nothing, and Substrate refuses to write into a folder that isn't one of
+  its own. Anything you drop in there yourself is left alone.
 
 ## Uninstall the app
 
@@ -38,8 +47,10 @@ in Finder with **Go → Go to Folder…**:
 ~/Library/Preferences/<bundle-id>.plist
 ```
 
-The Application Support folder contains the remembered vault location. Removing
-it does not remove the vault itself. The exact `config.json` path is also shown
+The Application Support folder contains the remembered vault location, and the
+folders any saved views export to. Removing it does not remove the vault
+itself, nor any exported link folder — those sit wherever you put them and can
+be deleted whenever you like, since they hold links only. The exact `config.json` path is also shown
 at the bottom of the **Settings → Vault → switch…** sheet. If you configured
 vault sync, open Keychain Access and delete password items whose service is
 `com.substrate.vault-sync` to remove the saved access tokens as well.

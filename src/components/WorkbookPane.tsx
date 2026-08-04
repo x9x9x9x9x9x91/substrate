@@ -150,7 +150,14 @@ function ViewPage({
       <div className="dash-inner">
         <DashHead
           title={result.savedName ?? title}
-          state={{ label: `${result.total} ${result.total === 1 ? "row" : "rows"}` }}
+          state={{
+            // the head counts what the page SHOWS against what matched when a
+            // cut fired (SUB-942) — "23 rows" over a five-row table is a lie
+            // the table's own foot then has to walk back
+            label: result.cut
+              ? `${result.rows.length} of ${result.total} rows`
+              : `${result.total} ${result.total === 1 ? "row" : "rows"}`,
+          }}
           sourcePath={sourcePath}
           onOpenSource={onOpenSource}
           actions={
@@ -260,7 +267,7 @@ export default function WorkbookPane(props: WorkbookProps & {
       <ViewPage
         title={entry.label}
         result={embedQueryFor(
-          entry.kind === "view" ? { type: entry.view, query: entry.query } : { saved: entry.saved },
+          entry.spec,
           props.notes,
           props.schema,
           props.savedViews,

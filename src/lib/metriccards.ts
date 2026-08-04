@@ -1,0 +1,214 @@
+/** Metric cards — the one card contract (SUB-964). A metrics dashboard reads
+ *  its cards from frontmatter; a hub body reads the same cards from a ```cards
+ *  fence, so one note can mix headings, callout rows, views, charts and stat
+ *  cards without either surface growing its own dialect.
+ *
+ *  Frontmatter form (metrics dashboards):
+ *
+ *    cards:
+ *      - label: Total value
+ *        bind: "{{Holdings.total}}"
+ *        format: eur
+ *        emph: true
+ *
+ *  Fence form (hub bodies) — the same item schema, nothing added:
+ *
+ *    ```cards
+ *    - label: Total value
+ *      bind: "{{Holdings.total}}"
+ *      format: eur
+ *      emph: true
+ *    ```
+ *
+ *  Pure TS, no DOM/node imports: runs in the app and under `node --test`.
+ *  Resolution and rendering live in src/components/MetricCards.tsx. */
+
+import { fmtMoney } from "./dashboard.ts";
+import { isErr, type Value } from "./formula.ts";
+import { byFoldedKey } from "./schemalookup.ts";
+import { formatValue } from "./sheet.ts";
+
+export interface MetricCard {
+  label: string;
+  bind: string;
+  format?: string;
+  digits?: number;
+  /** contrast discipline (principle 11): this card keeps the sharp voice */
+  emph?: boolean;
+}
+
+/** Cards from a dashboard note's frontmatter. Lenient by design: a malformed
+    entry in a YAML block the app didn't parse is skipped, not fatal. */
+export function parseCards(props: Record<string, unknown>): MetricCard[] {
+  const raw = byFoldedKey(props, "cards");
+  if (!Array.isArray(raw)) return [];
+  const out: MetricCard[] = [];
+  for (const c of raw) {
+    if (typeof c !== "object" || c === null) continue;
+    const o = c as Record<string, unknown>;
+    if (typeof o.label !== "string" || typeof o.bind !== "string") continue;
+    out.push({
+      label: o.label,
+      bind: o.bind,
+      format: typeof o.format === "string" ? o.format : undefined,
+      digits: typeof o.digits === "number" ? o.digits : undefined,
+      // anything but a literal true (absent, "yes", 1, garbage) is not emphasis
+      emph: o.emph === true,
+    });
+  }
+  return out;
+}
+
+// "{{Holdings.total}}" or "Holdings.total" → { sheet: "Holdings", name: "total" }
+export function parseBind(bind: string): { sheet: string; name: string } | null {
+  const t = bind
+    .trim()
+    .replace(/^\{\{\s*/, "")
+    .replace(/\s*\}\}$/, "")
+    .trim();
+  const m = /^([^.]+)\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(t);
+  return m ? { sheet: m[1].trim(), name: m[2] } : null;
+}
+
+export function fmtCard(v: Value, format?: string, digits?: number): string {
+  if (isErr(v)) return "—";
+  if (typeof v !== "number") return formatValue(v);
+  switch (format) {
+    case "eur":
+      return fmtMoney(v, "€", digits ?? 0);
+    case "usd":
+      return fmtMoney(v, "$", digits ?? 0);
+    case "number":
+      return v.toLocaleString("de-DE", {
+        minimumFractionDigits: digits ?? 0,
+        maximumFractionDigits: digits ?? 2,
+      });
+    case "pct":
+      return (
+        v.toLocaleString("de-DE", {
+          minimumFractionDigits: digits ?? 1,
+          maximumFractionDigits: digits ?? 1,
+        }) + "%"
+      );
+    default:
+      return formatValue(v);
+  }
+}
+
+// ---------- ```cards fence parsing ----------
+
+const CARD_KEYS = new Set(["label", "bind", "format", "digits", "emph"]);
+export const CARD_FORMATS = ["eur", "usd", "number", "pct"];
+
+const ITEM_RE = /^(\s*)-\s+(.*)$/;
+const KV_RE = /^([A-Za-z][\w-]*)\s*:\s*([\s\S]*)$/;
+
+function unquote(v: string): string {
+  const t = v.trim();
+  if (t.length >= 2 && ((t[0] === '"' && t.endsWith('"')) || (t[0] === "'" && t.endsWith("'")))) {
+    return t.slice(1, -1);
+  }
+  return t;
+}
+
+function assign(card: Partial<MetricCard>, rawKey: string, rawValue: string) {
+  const key = rawKey.toLowerCase();
+  if (!CARD_KEYS.has(key)) {
+    throw new Error(`unknown key "${rawKey}" — cards take label, bind, format, digits, emph`);
+  }
+  if (key in card) throw new Error(`duplicate key "${rawKey}" on one card`);
+  const v = unquote(rawValue);
+  if (key === "label" || key === "bind" || key === "format") {
+    if (v === "") throw new Error(`"${key}" needs a value`);
+    if (key === "format" && !CARD_FORMATS.includes(v.toLowerCase())) {
+      throw new Error(`unknown format "${v}" — want ${CARD_FORMATS.join(", ")}`);
+    }
+    card[key] = key === "format" ? v.toLowerCase() : v;
+    return;
+  }
+  if (key === "digits") {
+    const n = Number(v);
+    if (!/^\d+$/.test(v) || !isFinite(n)) throw new Error(`digits must be a whole number — got "${v}"`);
+    card.digits = n;
+    return;
+  }
+  const b = v.toLowerCase();
+  if (b !== "true" && b !== "false") throw new Error(`emph must be true or false — got "${v}"`);
+  card.emph = b === "true";
+}
+
+/** Parse one ```cards fence body; throws on anything malformed. The fence is
+    hand-written text a person edits, so every mistake gets named rather than
+    silently dropping a card the way frontmatter parsing does. */
+export function parseCardsConfig(inner: string): MetricCard[] {
+  const cards: MetricCard[] = [];
+  let cur: Partial<MetricCard> | null = null;
+  const push = () => {
+    if (!cur) return;
+    if (cur.label === undefined) throw new Error("a card needs a label");
+    if (cur.bind === undefined) throw new Error(`card "${cur.label}" needs a bind`);
+    cards.push({ ...cur } as MetricCard);
+    cur = null;
+  };
+  for (const rawLine of inner.replace(/\r\n/g, "\n").split("\n")) {
+    const line = rawLine.replace(/\s+$/, "");
+    if (line.trim() === "" || line.trim().startsWith("#")) continue;
+    const item = ITEM_RE.exec(line);
+    if (item) {
+      push();
+      cur = {};
+      const kv = KV_RE.exec(item[2].trim());
+      if (!kv) throw new Error(`can't parse line: ${line.trim()}`);
+      assign(cur, kv[1], kv[2]);
+      continue;
+    }
+    if (!cur) throw new Error(`cards is a list — start each card with "- label: …"`);
+    const kv = KV_RE.exec(line.trim());
+    if (!kv) throw new Error(`can't parse line: ${line.trim()}`);
+    assign(cur, kv[1], kv[2]);
+  }
+  push();
+  if (cards.length === 0) throw new Error("no cards — list at least one with a label and a bind");
+  return cards;
+}
+
+/** One parsed ```cards fence: either its cards or a human-readable error —
+    the chart-block shape, so a broken fence renders in place and never takes
+    its siblings down. */
+export interface CardsBlock {
+  cards: MetricCard[];
+  error: string | null;
+}
+
+export function parseCardsBlock(inner: string): CardsBlock {
+  try {
+    return { cards: parseCardsConfig(inner), error: null };
+  } catch (e) {
+    return { cards: [], error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// same fence readers the hub parser uses (src/lib/hub.ts) — a ```cards line
+// inside a quote or an indented block is not a fence opener
+const FENCE_OPEN_RE = /^```(\S*)(?:\s[^`]*)?$/;
+const FENCE_CLOSE_RE = /^```\s*$/;
+
+/** Every ```cards fence body in a note, in document order. The renderer needs
+    them all up front because the emphasis cap is per PAGE, not per fence
+    (principle 11): two sharp values across the whole hub, however many strips
+    it carries. */
+export function collectCardsFences(body: string): string[] {
+  const lines = body.replace(/\r\n/g, "\n").split("\n");
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const m = FENCE_OPEN_RE.exec(lines[i]);
+    i++;
+    if (!m) continue;
+    const inner: string[] = [];
+    while (i < lines.length && !FENCE_CLOSE_RE.test(lines[i])) inner.push(lines[i++]);
+    i++; // closing fence (or EOF)
+    if (m[1].toLowerCase() === "cards") out.push(inner.join("\n"));
+  }
+  return out;
+}

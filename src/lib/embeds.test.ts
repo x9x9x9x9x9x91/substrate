@@ -50,11 +50,70 @@ test("saved one-key form", () => {
   });
 });
 
-test("unknown keys and malformed lines are ignored", () => {
-  assert.deepEqual(
-    parseViewSpec("type: release\ncolumns: status, artist\nnot a kv line\n\n# comment\n: orphan"),
-    { type: "release" }
-  );
+test("blank lines and # comments are skipped, not judged", () => {
+  assert.deepEqual(parseViewSpec("type: release\n\n# a note to self\ncolumns: status, artist"), {
+    type: "release",
+    columns: ["status", "artist"],
+  });
+});
+
+test("an unknown key is an error, naming the keys that exist (SUB-942)", () => {
+  const r = parseViewSpec("type: release\nsortt: status");
+  assert.ok("error" in r);
+  assert.match(r.error, /Unknown key “sortt”/);
+  assert.match(r.error, /sort/);
+});
+
+test("a line that isn't key: value is an error, quoting it back (SUB-942)", () => {
+  assert.deepEqual(parseViewSpec("type: release\nnot a kv line"), {
+    error: "Not a key: value line — “not a kv line”",
+  });
+  const orphan = parseViewSpec(": orphan");
+  assert.ok("error" in orphan);
+});
+
+test("sort parses a bare prop as ascending and honors :desc, either case", () => {
+  assert.deepEqual(parseViewSpec("sort: released"), { sort: { key: "released", dir: 1 } });
+  assert.deepEqual(parseViewSpec("sort: released:desc"), { sort: { key: "released", dir: -1 } });
+  assert.deepEqual(parseViewSpec("sort: released:DESC"), { sort: { key: "released", dir: -1 } });
+  assert.deepEqual(parseViewSpec("sort: released:asc"), { sort: { key: "released", dir: 1 } });
+  // a prop whose own name has spaces survives; the direction is the last segment
+  assert.deepEqual(parseViewSpec("sort: cat#:desc"), { sort: { key: "cat#", dir: -1 } });
+});
+
+test("a sort direction with no property is malformed", () => {
+  const r = parseViewSpec("sort: :desc");
+  assert.ok("error" in r);
+  assert.match(r.error, /Malformed sort/);
+});
+
+test("limit takes a positive whole number and nothing else", () => {
+  assert.deepEqual(parseViewSpec("limit: 5"), { limit: 5 });
+  for (const bad of ["five", "-3", "2.5", "0", "5 rows"]) {
+    const r = parseViewSpec(`limit: ${bad}`);
+    assert.ok("error" in r, `expected “${bad}” to be an error`);
+    assert.match(r.error, /Malformed limit/);
+  }
+  const unsafe = parseViewSpec(`limit: ${Number.MAX_SAFE_INTEGER + 1}`);
+  assert.ok("error" in unsafe);
+});
+
+test("columns splits on commas and trims; an all-commas list is malformed", () => {
+  assert.deepEqual(parseViewSpec("columns:  status ,artist  "), {
+    columns: ["status", "artist"],
+  });
+  const r = parseViewSpec("columns: , ,");
+  assert.ok("error" in r);
+  assert.match(r.error, /Malformed columns/);
+});
+
+test("empty option values are malformed, while selector values stay draftable", () => {
+  for (const key of ["sort", "limit", "columns"]) {
+    const r = parseViewSpec(`type: release\n${key}:`);
+    assert.ok("error" in r);
+    assert.match(r.error, new RegExp(`Malformed ${key}`));
+  }
+  assert.deepEqual(parseViewSpec("type: release\nquery:\nsaved:"), { type: "release" });
 });
 
 test("values are trimmed; empty values drop the key", () => {
@@ -293,6 +352,223 @@ test("unknown saved id → quiet error card", () => {
 test("empty spec → quiet error card", () => {
   const r = embedQueryFor({}, RELEASES, SCHEMA, []);
   assert.ok("error" in r);
+});
+
+/* ---------- sort / limit / columns (SUB-942) ---------- */
+
+test("sort orders rows ascending and descending by a plain column", () => {
+  const asc = embedQueryFor({ type: "release", sort: { key: "cat#", dir: 1 } }, RELEASES, SCHEMA, []);
+  assert.ok(!("error" in asc));
+  assert.deepEqual(asc.rows.map((r) => r.title), ["Static Bouquet", "Vessel Songs", "Slow Bloom EP"]);
+  const desc = embedQueryFor({ type: "release", sort: { key: "cat#", dir: -1 } }, RELEASES, SCHEMA, []);
+  assert.ok(!("error" in desc));
+  assert.deepEqual(desc.rows.map((r) => r.title), ["Slow Bloom EP", "Vessel Songs", "Static Bouquet"]);
+});
+
+test("sort is the database table's comparator, not a second one (SUB-309 select order)", () => {
+  // `status` is a schema select whose only declared option is "live" — the
+  // table orders declared options first, so this must NOT be alphabetical
+  const r = embedQueryFor({ type: "release", sort: { key: "status", dir: 1 } }, RELEASES, SCHEMA, []);
+  assert.ok(!("error" in r));
+  assert.deepEqual(r.rows.map((row) => row.title), [
+    "Static Bouquet", // live: the one declared option
+    "Slow Bloom EP", // "in review" / "mastering" collate among themselves
+    "Vessel Songs",
+  ]);
+});
+
+test("sort resolves the property case-insensitively, and title without being a column", () => {
+  const byProp = embedQueryFor({ type: "release", sort: { key: "CAT#", dir: 1 } }, RELEASES, SCHEMA, []);
+  assert.ok(!("error" in byProp));
+  assert.deepEqual(byProp.rows.map((r) => r.title), ["Static Bouquet", "Vessel Songs", "Slow Bloom EP"]);
+  const byTitle = embedQueryFor({ type: "release", sort: { key: "Title", dir: -1 } }, RELEASES, SCHEMA, []);
+  assert.ok(!("error" in byTitle));
+  assert.deepEqual(byTitle.rows.map((r) => r.title), ["Vessel Songs", "Static Bouquet", "Slow Bloom EP"]);
+});
+
+test("an unknown sort property is a quiet error, not an unsorted table", () => {
+  assert.deepEqual(embedQueryFor({ type: "release", sort: { key: "bogus", dir: 1 } }, RELEASES, SCHEMA, []), {
+    error: "Unknown sort property “bogus” in “release”",
+  });
+});
+
+test("limit cuts AFTER the sort, so sort+limit means “the top N”", () => {
+  const r = embedQueryFor(
+    { type: "release", sort: { key: "cat#", dir: -1 }, limit: 2 },
+    RELEASES,
+    SCHEMA,
+    []
+  );
+  assert.ok(!("error" in r));
+  assert.deepEqual(r.rows.map((row) => row.title), ["Slow Bloom EP", "Vessel Songs"]);
+});
+
+test("limit cuts AFTER filtering, and total keeps the full match count", () => {
+  const r = embedQueryFor({ type: "release", query: "status:mastering,live", limit: 1 }, RELEASES, SCHEMA, []);
+  assert.ok(!("error" in r));
+  assert.equal(r.rows.length, 1);
+  assert.equal(r.total, 2); // two matched; one is shown
+});
+
+test("cut names the author's limit, so the row-count line can say so (SUB-942)", () => {
+  const r = embedQueryFor({ type: "release", limit: 2 }, RELEASES, SCHEMA, []);
+  assert.ok(!("error" in r));
+  assert.deepEqual(r.cut, { kind: "limit", shown: 2 });
+  assert.equal(r.total, 3);
+});
+
+test("a limit no smaller than the result set cuts nothing", () => {
+  const exact = embedQueryFor({ type: "release", limit: 3 }, RELEASES, SCHEMA, []);
+  assert.ok(!("error" in exact));
+  assert.equal(exact.cut, undefined);
+  const roomy = embedQueryFor({ type: "release", limit: 99 }, RELEASES, SCHEMA, []);
+  assert.ok(!("error" in roomy));
+  assert.equal(roomy.cut, undefined);
+  assert.equal(roomy.rows.length, 3);
+});
+
+test("the surface cap is a different fact from the author's limit", () => {
+  const many = Array.from({ length: EMBED_MAX_ROWS + 10 }, (_, i) =>
+    note(`R${i}`, { type: "release", status: "live" })
+  );
+  // no limit: the cap fired, and the wording must not blame the author
+  const capped = embedQueryFor({ type: "release" }, many, {}, []);
+  assert.ok(!("error" in capped));
+  assert.deepEqual(capped.cut, { kind: "cap", shown: EMBED_MAX_ROWS });
+  // a limit ABOVE the cap can't be honored — the cap is what actually cut
+  const over = embedQueryFor({ type: "release", limit: EMBED_MAX_ROWS + 5 }, many, {}, []);
+  assert.ok(!("error" in over));
+  assert.deepEqual(over.cut, { kind: "cap", shown: EMBED_MAX_ROWS });
+  assert.equal(over.rows.length, EMBED_MAX_ROWS);
+  // a tighter limit is the one the reader sees, so it owns the message
+  const under = embedQueryFor({ type: "release", limit: 5 }, many, {}, []);
+  assert.ok(!("error" in under));
+  assert.deepEqual(under.cut, { kind: "limit", shown: 5 });
+  assert.equal(under.total, EMBED_MAX_ROWS + 10);
+});
+
+test("a wider surface honors a limit the inline cap would have swallowed", () => {
+  const many = Array.from({ length: EMBED_MAX_ROWS + 10 }, (_, i) =>
+    note(`R${i}`, { type: "release", status: "live" })
+  );
+  const r = embedQueryFor({ type: "release", limit: EMBED_MAX_ROWS + 5 }, many, {}, [], {
+    cols: 8,
+    rows: 200,
+  });
+  assert.ok(!("error" in r));
+  assert.deepEqual(r.cut, { kind: "limit", shown: EMBED_MAX_ROWS + 5 });
+});
+
+test("columns accept the fixed Title leader, then pick properties case-insensitively", () => {
+  const r = embedQueryFor(
+    { type: "release", columns: ["Title", "ARTIST", "title", "Status"] },
+    RELEASES,
+    SCHEMA,
+    []
+  );
+  assert.ok(!("error" in r));
+  // Title stays on every row and outside the optional-property projection;
+  // listing it twice neither duplicates it nor consumes a column slot.
+  assert.equal(r.rows[0].title, "Slow Bloom EP");
+  assert.deepEqual(r.columns, ["artist", "status"]);
+  // cells follow the requested order 1:1
+  assert.deepEqual(r.rows[0].cells, ["various", "in review"]);
+});
+
+test("a column listed twice is one column, kept at its first position", () => {
+  const r = embedQueryFor({ type: "release", columns: ["status", "artist", "STATUS"] }, RELEASES, SCHEMA, []);
+  assert.ok(!("error" in r));
+  assert.deepEqual(r.columns, ["status", "artist"]);
+});
+
+test("an unknown column in a fence is an error — unlike a pin's stale list", () => {
+  assert.deepEqual(embedQueryFor({ type: "release", columns: ["artist", "bogus"] }, RELEASES, SCHEMA, []), {
+    error: "Unknown column “bogus” in “release”",
+  });
+});
+
+test("an explicit columns list is still bounded by the surface's column cap", () => {
+  const wide = [
+    note("A", { type: "release", status: "live", "cat#": "X-1", artist: "a", category: "lp", created: "2026-01-01" }),
+  ];
+  const r = embedQueryFor(
+    { type: "release", columns: ["created", "category", "artist", "cat#", "status"] },
+    wide,
+    {},
+    []
+  );
+  assert.ok(!("error" in r));
+  assert.equal(r.columns.length, EMBED_MAX_COLS);
+  assert.deepEqual(r.columns, ["created", "category", "artist", "cat#"]);
+  assert.deepEqual(r.rows[0].cells, ["Jan 1, 2026", "lp", "a", "X-1"]);
+});
+
+test("a fence's own columns/sort/limit apply over a saved pin", () => {
+  const pins: SavedView[] = [
+    { id: "curated", name: "Curated", db: "release", columns: ["artist", "status"] },
+  ];
+  const r = embedQueryFor(
+    { saved: "curated", columns: ["cat#"], sort: { key: "cat#", dir: 1 }, limit: 2 },
+    RELEASES,
+    SCHEMA,
+    pins
+  );
+  assert.ok(!("error" in r));
+  // the fence's list wins over the pin's curated one
+  assert.deepEqual(r.columns, ["cat#"]);
+  assert.deepEqual(r.rows.map((row) => row.title), ["Static Bouquet", "Vessel Songs"]);
+  assert.equal(r.total, 3);
+  assert.deepEqual(r.cut, { kind: "limit", shown: 2 });
+  // the pin's identity survives the fence's extra keys
+  assert.equal(r.savedId, "curated");
+});
+
+test("a fence sort composes with the pin's own query", () => {
+  const r = embedQueryFor({ saved: "unreleased", sort: { key: "cat#", dir: -1 } }, RELEASES, SCHEMA, SAVED);
+  assert.ok(!("error" in r));
+  assert.deepEqual(r.rows.map((row) => row.title), ["Vessel Songs"]);
+  assert.equal(r.query, "status:mastering");
+});
+
+test("a saved embed keeps the pin's multi-key sort unless the fence overrides it", () => {
+  const pins: SavedView[] = [
+    {
+      id: "ordered",
+      name: "Ordered",
+      db: "release",
+      sorts: [
+        { key: "status", dir: 1 },
+        { key: "cat#", dir: -1 },
+      ],
+    },
+  ];
+  const inherited = embedQueryFor({ saved: "ordered" }, RELEASES, SCHEMA, pins);
+  assert.ok(!("error" in inherited));
+  assert.deepEqual(inherited.rows.map((row) => row.title), ["Static Bouquet", "Slow Bloom EP", "Vessel Songs"]);
+
+  const overridden = embedQueryFor(
+    { saved: "ordered", sort: { key: "title", dir: 1 } },
+    RELEASES,
+    SCHEMA,
+    pins
+  );
+  assert.ok(!("error" in overridden));
+  assert.deepEqual(overridden.rows.map((row) => row.title), ["Slow Bloom EP", "Static Bouquet", "Vessel Songs"]);
+});
+
+test("a parse error travels through as the render path's own error", () => {
+  assert.deepEqual(
+    embedQueryFor(parseViewSpec("type: release\nsortt: status"), RELEASES, SCHEMA, []),
+    { error: "Unknown key “sortt” — try type, query, saved, view, sort, limit, columns" }
+  );
+});
+
+test("a plain fence without the new keys is unchanged (regression)", () => {
+  const r = embedQueryFor(parseViewSpec("type: release\nview: table"), RELEASES, SCHEMA, []);
+  assert.ok(!("error" in r));
+  assert.equal(r.cut, undefined);
+  assert.equal(r.total, 3);
+  assert.deepEqual(r.rows.map((row) => row.title), RELEASES.map((n) => n.title));
 });
 
 test("a schema-only database renders with zero rows (not an error)", () => {

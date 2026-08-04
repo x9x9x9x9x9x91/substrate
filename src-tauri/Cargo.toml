@@ -45,6 +45,10 @@ chrono-tz = "0.10"
 icalendar = { version = "0.17.13", features = ["parser", "recurrence"] }
 regex = "1"
 base64 = "0.22"
+# already in the tree via tauri's updater — named here because kinds.rs hashes
+# custom-kind bundles itself (SUB-959), and that digest is what consent to run
+# vault-resident code is pinned to
+sha2 = "0.10"
 ureq = "2"
 # already in the tree as ureq's own dependency — named here because net.rs
 # parses and re-joins redirect targets itself (SUB-427 SSRF guard)

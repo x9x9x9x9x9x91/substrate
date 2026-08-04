@@ -5,7 +5,7 @@
     Everything renders read-only; the "Open source note" button drops into the
     editor, which stays the editing surface. */
 
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { NoteMeta, SavedView, SchemaConfig } from "../lib/types";
 import { vaultRead } from "../lib/ipc";
@@ -14,8 +14,13 @@ import { imageSource } from "../lib/assets";
 import { isImageName } from "../lib/artwork";
 import { parseHub, type HubCallout } from "../lib/hub";
 import { embedQueryFor, parseViewSpec } from "../lib/embeds";
+import { collectCardsFences, parseCardsBlock, type CardsBlock } from "../lib/metriccards";
+import { sharpCardIndices } from "../lib/dashboard";
+import { useUsdEur } from "./useFx";
 import { DashHead, DashPrintButton } from "./DashHead";
 import EmbedViewTable from "./EmbedViewTable";
+import ChartsDashboard from "./ChartsDashboard";
+import { MetricCardStrip, useCardValues, type CardValue } from "./MetricCards";
 import { optionColor, OptionPill } from "./SelectMenu";
 
 interface HubDashboardProps {
@@ -40,6 +45,26 @@ interface Ctx {
     savedViews: SavedView[];
     onOpenSource: (path: string) => void;
   };
+  /** the ```chart fence's inputs — the charts dashboard renders each fence */
+  chart?: {
+    meta: NoteMeta;
+    notes: NoteMeta[];
+    schema: SchemaConfig;
+    vaultEpoch: number;
+    onOpenSource: (path: string) => void;
+  };
+  /** the ```cards fence's inputs. `slot` maps a fence's ordinal WITHIN this
+      markdown chunk to its slice of the page-wide decision — the emphasis cap
+      belongs to the PAGE (principle 11), so a fence can't pick its own sharp
+      set. Absent (as in a callout body) means cards fences stay code boxes. */
+  cards?: { slot: (n: number) => CardsSlot | null };
+}
+
+interface CardsSlot {
+  block: CardsBlock;
+  /** page-wide sharp indices, rebased onto this fence's cards */
+  sharp: Set<number>;
+  cardValue: (i: number) => CardValue;
 }
 
 /** Schema pill color for a hub-table cell: a status cell here and the same
@@ -221,11 +246,54 @@ function HubViewFence({
   );
 }
 
+/** A ```chart fence in a hub body (SUB-964): the same chart the charts
+    dashboard draws, in the section slot it was written into. The fence is
+    handed back to ChartsDashboard verbatim in embed mode — one parser
+    (lib/chart.ts), one renderer, so a chart never reads differently depending
+    on which dashboard hosts it. A malformed fence renders its parse error in
+    place, like a broken view fence does. */
+function HubChartFence({ inner, chart }: { inner: string; chart: NonNullable<Ctx["chart"]> }) {
+  const body = useMemo(() => "```chart\n" + inner + "\n```\n", [inner]);
+  return (
+    <div className="hub-chart">
+      <ChartsDashboard
+        meta={chart.meta}
+        notes={chart.notes}
+        body={body}
+        vaultEpoch={chart.vaultEpoch}
+        schema={chart.schema}
+        onOpenSource={chart.onOpenSource}
+        embed
+      />
+    </div>
+  );
+}
+
+/** A ```cards fence in a hub body (SUB-964): the metrics board's card strip,
+    same item schema and same bind resolution, sitting where it was written.
+    Emphasis is capped across the whole page, not per fence — the parent hands
+    down this fence's slice of that decision. */
+function HubCardsFence({ slot }: { slot: CardsSlot }) {
+  if (slot.block.error) return <div className="hub-cards-err">{slot.block.error}</div>;
+  return <MetricCardStrip cards={slot.block.cards} sharp={slot.sharp} cardValue={slot.cardValue} />;
+}
+
+/** The ctx for markdown nested inside a callout body or a plain quote (§5.2):
+    that markdown is quoted TEXT, not a second dashboard surface, so a ```chart
+    or ```cards fence written there falls through to a code box. Dropping both
+    from the recursion's ctx is what does it — and it also keeps a nested cards
+    fence from consuming a page slot that belongs to a real one. ```view keeps
+    working, because an embedded table inside a card is still one table. */
+function nestedMarkdownCtx(ctx: Ctx): Ctx {
+  return { ...ctx, chart: undefined, cards: undefined };
+}
+
 function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
   const lines = md.split("\n");
   const out: ReactNode[] = [];
   let k = 0;
   let i = 0;
+  let cardsSeen = 0;
   const para: string[] = [];
   const flushPara = () => {
     if (para.length) {
@@ -251,15 +319,34 @@ function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
       i++;
       while (i < lines.length && !FENCE_CLOSE_RE.test(lines[i])) code.push(lines[i++]);
       i++; // closing fence (or EOF)
-      out.push(
-        fence[1].toLowerCase() === "view" && ctx.view !== undefined ? (
-          <HubViewFence key={k++} inner={code.join("\n")} view={ctx.view} />
-        ) : (
+      const inner = code.join("\n");
+      const lang = fence[1].toLowerCase();
+      // fences the hub renders live; anything else stays a code box
+      if (lang === "view" && ctx.view !== undefined) {
+        out.push(<HubViewFence key={k++} inner={inner} view={ctx.view} />);
+      } else if (lang === "chart" && ctx.chart !== undefined) {
+        out.push(<HubChartFence key={k++} inner={inner} chart={ctx.chart} />);
+      } else if (lang === "cards" && ctx.cards !== undefined) {
+        // this chunk's n-th cards fence is the page's (base + n)-th — the
+        // count is derived from position, never from a render-order counter,
+        // so a re-render can't shift a strip onto another fence's cards
+        const slot = ctx.cards.slot(cardsSeen++);
+        out.push(
+          slot ? (
+            <HubCardsFence key={k++} slot={slot} />
+          ) : (
+            <pre className="hub-pre" key={k++}>
+              <code>{inner}</code>
+            </pre>
+          )
+        );
+      } else {
+        out.push(
           <pre className="hub-pre" key={k++}>
-            <code>{code.join("\n")}</code>
+            <code>{inner}</code>
           </pre>
-        )
-      );
+        );
+      }
       continue;
     }
     const heading = HEADING_RE.exec(line);
@@ -286,7 +373,7 @@ function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
         quote.push(lines[i++].replace(QUOTE_STRIP_RE, ""));
       out.push(
         <blockquote className="hub-quote" key={k++}>
-          {renderBlocks(quote.join("\n"), ctx)}
+          {renderBlocks(quote.join("\n"), nestedMarkdownCtx(ctx))}
         </blockquote>
       );
       continue;
@@ -392,13 +479,14 @@ function MarkdownChunk({ text, ctx }: { text: string; ctx: Ctx }) {
 }
 
 function HubCard({ callout, ctx }: { callout: HubCallout; ctx: Ctx }) {
+  const bodyCtx = useMemo(() => nestedMarkdownCtx(ctx), [ctx]);
   return (
     <div className={`dash-card hub-card hub-card-${callout.kind}`}>
       <div className="hub-card-title">
         {callout.title !== "" ? <Inline text={callout.title} ctx={ctx} /> : callout.kind}
       </div>
       {callout.body.length > 0 && (
-        <div className="hub-card-body">{renderBlocks(callout.body.join("\n"), ctx)}</div>
+        <div className="hub-card-body">{renderBlocks(callout.body.join("\n"), bodyCtx)}</div>
       )}
     </div>
   );
@@ -425,14 +513,58 @@ export default function HubDashboard({
   }, [meta.path, vaultEpoch]);
 
   const blocks = useMemo(() => (body !== null ? parseHub(body) : []), [body]);
-  const ctx = useMemo(
+
+  // ```cards fences, page-wide (SUB-964): every fence is parsed up front so
+  // the sharp-value cap and the sheet loads are decided once for the whole
+  // page — two sharp values across the hub, one pass over the bound sheets,
+  // however many strips the body carries. parseHub keeps fences inside their
+  // markdown chunk, so chunk order is document order and the per-chunk
+  // offsets below index straight into this list.
+  const cardBlocks = useMemo(() => collectCardsFences(body ?? "").map(parseCardsBlock), [body]);
+  const allCards = useMemo(() => cardBlocks.flatMap((b) => b.cards), [cardBlocks]);
+  const allSharp = useMemo(() => sharpCardIndices(allCards), [allCards]);
+  const { fx } = useUsdEur();
+  const cardValue = useCardValues(allCards, vaultEpoch, meta.path, fx);
+
+  /** the page's n-th cards fence, with the page-wide decisions rebased onto it */
+  const slotAt = useCallback(
+    (n: number): CardsSlot | null => {
+      const block = cardBlocks[n];
+      if (!block) return null;
+      const base = cardBlocks.slice(0, n).reduce((t, b) => t + b.cards.length, 0);
+      return {
+        block,
+        sharp: new Set(block.cards.map((_, j) => j).filter((j) => allSharp.has(base + j))),
+        cardValue: (j: number) => cardValue(base + j),
+      };
+    },
+    [cardBlocks, allSharp, cardValue]
+  );
+
+  // stable across renders: a fresh `view`/`chart` object each render would
+  // re-run every fence's query memo and re-mount its widget
+  const base: Ctx = useMemo(
     () => ({
       onFollowLink,
       schema,
       view: { notes, schema, savedViews: savedViews ?? [], onOpenSource },
+      chart: { meta, notes, schema, vaultEpoch, onOpenSource },
     }),
-    [onFollowLink, schema, notes, savedViews, onOpenSource]
+    [onFollowLink, schema, notes, savedViews, onOpenSource, meta, vaultEpoch]
   );
+
+  // how many ```cards fences sit above each markdown chunk — the chunk's
+  // fences continue the page's list from there. Derived with the blocks, so
+  // the fence scan runs once per body, not once per block per render.
+  const fencesBefore = useMemo(() => {
+    const out: number[] = [];
+    let seen = 0;
+    for (const b of blocks) {
+      out.push(seen);
+      if (b.kind === "markdown") seen += collectCardsFences(b.text).length;
+    }
+    return out;
+  }, [blocks]);
 
   if (body === null) return <div className="note" />;
 
@@ -459,17 +591,20 @@ export default function HubDashboard({
             if (b.kind === "section")
               return (
                 <div className="dash-section-label" key={i}>
-                  <Inline text={b.text} ctx={ctx} />
+                  <Inline text={b.text} ctx={base} />
                 </div>
               );
             if (b.kind === "cards")
               return (
                 <div className="dash-cards hub-cards" key={i}>
                   {b.callouts.map((c, j) => (
-                    <HubCard key={j} callout={c} ctx={ctx} />
+                    <HubCard key={j} callout={c} ctx={base} />
                   ))}
                 </div>
               );
+            // each chunk resolves its own fences against the page-wide list
+            const off = fencesBefore[i];
+            const ctx: Ctx = { ...base, cards: { slot: (n) => slotAt(off + n) } };
             return <MarkdownChunk key={i} text={b.text} ctx={ctx} />;
           })}
         </div>

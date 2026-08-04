@@ -30,6 +30,9 @@ Practically:
 Match the code around what you touch — the codebase is fairly uniform, and the
 existing patterns are the style guide. Beyond that:
 
+Use Node.js 22.6 or newer and install the lockfile exactly with `npm ci`. Before
+the first browser test, install its browser with `npx playwright install chromium`.
+
 - Typecheck must be clean: `npx tsc --noEmit`.
 - The node suite must pass: `npm test` (covers `src/lib/*.test.ts` and the
   `scripts/` suites).

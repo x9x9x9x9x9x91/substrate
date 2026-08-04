@@ -557,6 +557,18 @@ export interface HistoryStatus {
   enabled: boolean;
 }
 
+/** What one saved-view link-folder export did (SUB-810). */
+export interface ViewExportReport {
+  /** Absolute path of the folder holding the links. */
+  dest: string;
+  /** How many links it now holds. */
+  links: number;
+  /** Rows whose file was gone at export time — skipped, never fatal. */
+  missing: number;
+  /** Entries left alone because they are not links Substrate manages. */
+  kept: number;
+}
+
 export interface SyncReport {
   pushed: number;
   pulled: number;

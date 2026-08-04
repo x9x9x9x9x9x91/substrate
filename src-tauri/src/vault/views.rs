@@ -10,9 +10,10 @@
 
 use super::*;
 
-/// One ```view fence body → its `key: value` pairs, mirroring `embeds.ts`
-/// parseViewSpec: blank and `#` lines skipped, unknown keys kept (the caller
-/// only reads the ones it knows), values trimmed, never fails.
+/// One ```view fence body → the references the vault doctor needs. Unlike the
+/// UI's validating `parseViewSpec`, this extractor is intentionally tolerant:
+/// it keeps unknown keys and never fails because its callers only diagnose
+/// broken `type:` / `saved:` references.
 pub(super) fn parse_view_fence(inner: &str) -> HashMap<String, String> {
     let mut out = HashMap::new();
     for line in inner.lines() {

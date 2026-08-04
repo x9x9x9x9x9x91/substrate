@@ -47,9 +47,16 @@ export default function EmbedViewTable({
           ))}
         </tbody>
       </table>
-      {result.total > result.rows.length && (
+      {/* Why the table is short, said honestly (SUB-942). An author's `limit:`
+          and the surface's safety cap are different facts: the first is the
+          table they asked for, the second is rows we declined to paint. Both
+          state the count they can see against the full match count, so a
+          five-row cut of twenty-three never reads as "twenty-three releases". */}
+      {result.cut && (
         <div className="dash-foot">
-          {result.rows.length} of {result.total} rows — open the database for the rest
+          {result.cut.kind === "limit"
+            ? `${result.rows.length} of ${result.total} rows — this view's limit`
+            : `${result.rows.length} of ${result.total} rows — open the database for the rest`}
         </div>
       )}
     </>

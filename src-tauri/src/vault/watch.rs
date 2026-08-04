@@ -66,16 +66,48 @@ where
     F: Fn(WatchBatch) + Send + 'static,
     E: Fn(String) + Send + 'static,
 {
-    watch_with_interval(root, on_change, on_error, DEGRADED_RESCAN_INTERVAL)
+    // SUB-953: on iOS notify's recommended backend is kqueue, which holds one
+    // open fd per watched file. A real vault (thousands of notes) blows the
+    // ~256-fd process cap the moment a sync checkout populates it, starving
+    // every later `open` in the app (first-device sync died staging its
+    // snapshot). There polling is the primary mode, not the fallback.
+    watch_with_interval(
+        root,
+        on_change,
+        on_error,
+        DEGRADED_RESCAN_INTERVAL,
+        cfg!(target_os = "ios"),
+    )
 }
 
 /// `watch` with the degraded-mode cadence as a parameter — tests inject
 /// milliseconds so the retry/promote path is exercisable (SUB-157).
-fn watch_with_interval<F, E>(root: PathBuf, on_change: F, on_error: E, degraded_interval: Duration)
+fn watch_with_interval<F, E>(
+    root: PathBuf,
+    on_change: F,
+    on_error: E,
+    degraded_interval: Duration,
+    poll_only: bool,
+)
 where
     F: Fn(WatchBatch) + Send + 'static,
     E: Fn(String) + Send + 'static,
 {
+    // Poll-only mode (SUB-953): never arm the notify backend — arming walks
+    // the whole tree opening an fd per file on kqueue targets, so even a
+    // failed retry churns the fd budget. Not routed through `on_error`:
+    // polling here is the designed mode, not a degradation.
+    if poll_only {
+        applog!(
+            "vault watcher: poll-only mode, full rescan every {degraded_interval:?} \
+             (kqueue holds an fd per watched file; SUB-953)"
+        );
+        loop {
+            std::thread::sleep(degraded_interval);
+            on_change(WatchBatch::Rescan);
+        }
+    }
+
     enum Msg {
         Paths(Vec<PathBuf>),
         Rescan,
@@ -636,6 +668,42 @@ mod tests {
     }
 
     #[test]
+    fn watcher_poll_only_never_arms_live_events() {
+        // SUB-953: in poll-only mode (iOS) the watcher must deliver periodic
+        // `Rescan`s and nothing else — a perfectly watchable root with a
+        // fresh write would produce a `Paths` batch if a live backend were
+        // armed, and arming is exactly what poll-only mode exists to avoid
+        // (kqueue's fd-per-file cost).
+        let root = std::env::temp_dir().join(format!("vault-wpoll-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let root = root.canonicalize().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel::<WatchBatch>();
+        let troot = root.clone();
+        std::thread::spawn(move || {
+            watch_with_interval(
+                troot,
+                move |b| {
+                    tx.send(b).ok();
+                },
+                |err| panic!("poll-only mode must not report errors, got: {err}"),
+                Duration::from_millis(50),
+                true,
+            )
+        });
+        fs::write(root.join("note.md"), "fresh\n").unwrap();
+        for _ in 0..3 {
+            match rx.recv_timeout(Duration::from_secs(5)).expect("no poll rescan within 5s") {
+                WatchBatch::Rescan => {}
+                WatchBatch::Paths(p) => {
+                    panic!("poll-only mode delivered a live path batch ({} paths)", p.len())
+                }
+            }
+        }
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn watcher_degraded_rescans_then_promotes() {
         // SUB-157: an unwatchable root (it sits under a regular FILE, so
         // path canonicalization fails on every notify backend) reports
@@ -663,6 +731,7 @@ mod tests {
                     etx.send(err).ok();
                 },
                 Duration::from_millis(100),
+                false,
             )
         });
         let err = erx

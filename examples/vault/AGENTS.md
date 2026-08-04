@@ -54,21 +54,21 @@ Dates are `YYYY-MM-DD`, optionally ` HH:MM`. Relations store the target note's
 ## Dashboards, sheets and views
 
 A **dashboard** is a note with `type: dashboard`. A `dashboard:` prop names the
-renderer, and only these values are dispatched: `metrics`, `yield-apr`, `hub`,
-`food`, `feed`, `music-work`, `tasks`, plus whichever machine-specific kinds
-this build carries.
-**Anything else — including no
-`dashboard:` prop at all — falls through to a body scan**: one or more
-` ```chart ` fences make it a charts dashboard, none falls back to the yield
-tracker. So a chart dashboard needs no special kind, just the fences;
-`dashboard: charts` is a conventional label, not a dispatched value.
+renderer, and the public built-ins are: `metrics`, `yield-apr`, `hub`, `food`,
+`feed`, `music-work`, `tasks`, `charts`. `dashboard: charts` always selects the
+chart-fence renderer. With no `dashboard:` prop, the app scans the body: one or
+more ` ```chart ` fences select charts, and none falls back to the yield
+tracker. A present but unknown value shows an “unknown kind” card instead of
+silently rendering the wrong dashboard.
 
 A **sheet** is `type: sheet` with a ` ```csv ` fence (first row = headers) and an
 optional ` ```formulas ` fence of `name = expression` lines.
 
-The primitive you will reach for most is the **view fence** — a live, read-only
-cut of a database, embedded anywhere in a note body. It is a code fence whose
-info string is `view`, holding one `key: value` per line (`#` comments allowed).
+The primitive you will reach for most is the **view fence** — a live, editable
+cut of a database, embedded anywhere in a note body. Its non-title cells edit
+in place, and its “+ New” row creates a note in that database. It is a code
+fence whose info string is `view`, holding one `key: value` per line (`#`
+comments allowed).
 Sketched below with the three backticks left off, because a real fence in this
 file would be scanned as a real embed — open with backticks + `view`, close with
 backticks:
@@ -167,8 +167,9 @@ live and a torn read looks like an empty file.
 
 ## Off limits
 
-- `.assets/` — binaries, referenced by embeds. Deleting one is permanent;
-  there is no trash and no history for assets.
+- `.assets/` — binaries, referenced by embeds. Do not edit or delete them by
+  hand. Deleting one through the app moves it to `.trash/`, recoverable until
+  the trash is emptied; assets have no version history.
 - `.trash/` — deleted notes, restorable. Treat as read-only.
 - `.git/` — the app owns version history here.
 

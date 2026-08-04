@@ -73,6 +73,9 @@ const HISTORY_MODE_COMMANDS = new Set([
   "vault_fm_raw",
   "vault_template_read",
   "vault_template_list",
+  /* what is installed and what was consented to — both pure reads; enabling
+     is a decision about live code and has no meaning against a past snapshot */
+  "kinds_list",
   "vault_search",
   "vault_search_full",
   "vault_backlinks",
@@ -86,6 +89,9 @@ const HISTORY_MODE_COMMANDS = new Set([
   "vault_views_read",
   "vault_schema_read",
   "vault_saved_views_read",
+  /* SUB-810: reads one line of device-local config (where a pin exports to);
+     touches no vault, writes nothing. The export/forget writes stay blocked. */
+  "view_export_target",
   "vault_sidebar_order",
   "vault_folder_meta_read",
   "vault_tags",
@@ -136,6 +142,12 @@ declare global {
     __mockTouchAsset?: (name: string) => void;
     /** drop an asset straight into the mock .assets store — no app write (SUB-289) */
     __mockSaveAsset?: (name: string, data: string) => void;
+    /** pretend the saved view named `viewName` has already been exported to
+        `dest` (SUB-810). The real first export goes through a native folder
+        dialog, which no browser spec can drive, so the remembered-target
+        state is staged; the pin is named rather than id'd because ids are
+        generated inside the app. */
+    __mockSetExportTarget?: (viewName: string, dest: string) => void;
     /** opt-in: completed note-mutating commands echo vault:changed, debounced
         like the engine's watcher (SUB-296) */
     __mockSetEchoOnWrites?: (on: boolean) => void;
@@ -570,7 +582,7 @@ const mockNotes: MockNote[] = [
     props: { type: "dashboard", dashboard: "hub", created: "2026-07-17" },
     updated_ms: now - 9 * 86_400_000,
     excerpt: "Label home — the pipeline at a glance.",
-    body: "Label home — the pipeline at a glance.\n\n## Releases\n\n> [!note] In review\n> [[Slow Bloom EP]] is with the label for sequencing notes.\n> [!warn] Waiting on masters\n> [[Vessel Songs]] masters v2 are due back this week.\n> [!idea] Next up\n> [[Static Bouquet]] blue-series follow-up — pitch the live session.\n\nEverything below the cards renders in linear flow.\n\n| release | status |\n| --- | --- |\n| [[Slow Bloom EP]] | in review |\n| [[Vessel Songs]] | mastering |\n\n## People\n\n```view\ntype: contact\nview: table\n```\n\n## Broken\n\n```view\ntype: nosuchtype\n```\n",
+    body: "Label home — the pipeline at a glance.\n\n## Releases\n\n> [!note] In review\n> [[Slow Bloom EP]] is with the label for sequencing notes.\n> [!warn] Waiting on masters\n> [[Vessel Songs]] masters v2 are due back this week.\n> [!idea] Next up\n> [[Static Bouquet]] blue-series follow-up — pitch the live session.\n> ```chart\n> source: release\n> x: status\n> y: count\n> ```\n> ```cards\n> - label: Nested\n>   bind: {{Holdings.total}}\n> ```\n\nEverything below the cards renders in linear flow.\n\n| release | status |\n| --- | --- |\n| [[Slow Bloom EP]] | in review |\n| [[Vessel Songs]] | mastering |\n\n## Money\n\n> A quoted cards fence is quoted text, not a board:\n> ```cards\n> - label: Quoted\n>   bind: {{Holdings.total}}\n> ```\n\n```cards\n- label: Total value\n  bind: \"{{Holdings.total}}\"\n  format: eur\n  emph: true\n- label: Crypto\n  bind: \"{{Holdings.crypto}}\"\n  format: eur\n- label: Positions\n  bind: \"{{Holdings.positions}}\"\n  format: number\n```\n\n```chart\nsource: {{Holdings}}\nx: bucket\ny: sum:value_usd\nkind: bar\ntitle: Holdings by bucket\n```\n\n## People\n\n```view\ntype: contact\nview: table\n```\n\n## Broken\n\n```view\ntype: nosuchtype\n```\n\n```chart\nsource: release\nx: status\ny: nonsense\n```\n",
   },
   {
     // tasks dashboard seed (SUB-732): a read-only cut of task notes. Areas is
@@ -1784,6 +1796,9 @@ function mockRelocateFolder(oldRel: string, newRel: string): void {
 
 let mockSavedViews: SavedView[] = [];
 let mockCalendarFeeds: CalendarFeedConfig[] = [];
+/** SUB-810: remembered link-folder targets, per saved view. Device-local in
+    the real app (app-config dir), in-memory here. */
+const mockExportTargets = new Map<string, string>();
 
 /** Keep mock pins in the same state Engine::remap_saved_view_prop writes.
     Database and property identities are case-folded; query operator keys are
@@ -3054,6 +3069,16 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     }
     case "vault_template_list":
       return Object.keys(mockTemplates).sort();
+    // Custom kinds (SUB-959) are vault-resident code served through a real
+    // Tauri scheme; the mock lane has no vault and no scheme, so it answers
+    // "none installed" rather than pretending a bundle exists. Enable/disable
+    // are accepted and dropped: the e2e lane must be able to walk the pane
+    // without a consent file appearing anywhere.
+    case "kinds_list":
+      return [];
+    case "kinds_enable":
+    case "kinds_disable":
+      return null;
     // the mock lane never reaches the network: it answers with the same
     // historical rate the fixtures carry, so e2e baselines stay stable
     case "fx_usd_eur":
@@ -4690,6 +4715,20 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       mockRetargetSidebarKeys((t) => (t === `sv:${args?.id}` ? null : undefined));
       return [...mockSavedViews];
     }
+    /* SUB-810: the link folder itself is real-filesystem work the mock can't
+       do, so the mock backend models the part the UI depends on — which view
+       has a remembered target, and what a run reports back. */
+    case "view_export_target":
+      return mockExportTargets.get(args?.viewId as string) ?? null;
+    case "view_export_run": {
+      const dest = args?.dest as string;
+      const paths = (args?.paths as string[]) ?? [];
+      mockExportTargets.set(args?.viewId as string, dest);
+      return { dest, links: paths.length, missing: 0, kept: 0 };
+    }
+    case "view_export_forget":
+      mockExportTargets.delete(args?.viewId as string);
+      return undefined;
     case "history_list": {
       const n = find();
       if (n) return mockEntries(n.path, snapsFor(n));
@@ -4913,6 +4952,11 @@ if (!isTauri) {
   // window, so the next __mockEmit refreshes immediately
   window.__mockSaveAsset = (name, data) => {
     mockAssets.set(name, data);
+  };
+  window.__mockSetExportTarget = (viewName, dest) => {
+    const view = mockSavedViews.find((v) => v.name === viewName);
+    if (!view) throw new Error(`__mockSetExportTarget: no saved view named ${viewName}`);
+    mockExportTargets.set(view.id, dest);
   };
   // SUB-296/SUB-295 opt-ins; off by default, reset by the next page load
   window.__mockSetEchoOnWrites = (on) => {

@@ -264,6 +264,28 @@ test("SUMIF / COUNTIF with criteria", () => {
   assert.equal(run("SUMIF(units, 80)", holdingsScope), 80);
 });
 
+// SUB-1026: rows pair off criteria against values, so a value column of a
+// different length (a cross-sheet ref) errors like SUMPRODUCT instead of
+// silently reading the overhang as blank rows that sum to 0
+test("SUMIF: mismatched value-column length is an error (SUB-1026)", () => {
+  const scope: Scope = new Map([
+    ["bucket", ["etf", "etf", "etf"]],
+    ["amt", [1, 2]],
+    ["long", [1, 2, 3, 4]],
+  ]);
+  const short = run('SUMIF(bucket, "etf", amt)', scope);
+  assert.ok(isErr(short) && /same number of rows/.test(short.err), JSON.stringify(short));
+  assert.ok(isErr(run('SUMIF(bucket, "etf", long)', scope)));
+  // equal lengths keep working, multi-criteria form included
+  const even: Scope = new Map([
+    ["bucket", ["etf", "stock", "etf"]],
+    ["amt", [1, 2, 4]],
+    ["flag", ["y", "y", "n"]],
+  ]);
+  near(run('SUMIF(bucket, "etf", amt)', even), 5);
+  near(run('SUMIF(bucket, "etf", amt, flag, "y")', even), 1);
+});
+
 // SUB-743: comparison criteria strings in SUMIF/COUNTIF
 const scoreScope: Scope = new Map([
   ["score", [0, 1, 2.5, 5, -1]],

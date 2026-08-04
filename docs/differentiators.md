@@ -46,6 +46,12 @@ Capacities, Affine).*
   (1400-row tables don't stall), keyboard-reachable everything, ⌘K palette.
 - **Local reality** — link/index real files on disk; Shift-drag links in
   place without copying (0.15); map any folder of notes as a database (0.18).
+  And the way back out: **export a saved view as a folder of links** other
+  apps can see — a query like "unfinished / 128bpm" becomes a real folder for
+  a sample browser or a file dialog, rebuilt on demand from the pin's menu.
+  The folder is marked, holds only links, and is refused if it isn't ours, so
+  it is always safe to delete and never holds your data. Notion cannot touch
+  the disk at all; Obsidian's structure stops at its own window.
 - **Full history, zero setup** — vendored libgit2: every vault gets complete
   git history, in-app diff/restore, and a whole-vault time scrubber: pick any
   commit and notes, databases, dashboards, schemas, and saved views all render
@@ -102,10 +108,12 @@ Capacities, Affine).*
   Mac-side sync server scripts.
 - **Ephemeral encrypted handoff** — right-click → Send as link: the note is
   sealed AES-256-GCM client-side, the key travels only in the URL fragment,
-  the relay (`scripts/handoff-relay/`) is a dumb self-hostable blob store;
-  burn-after-open or 1/7/30-day expiry. No competitor has an E2E ephemeral
-  share. Requires a configured relay — lead with the self-host story until a
-  hosted relay exists.
+  the default hosted relay at `drop.substrate.zone` and the free self-hostable
+  relay (`scripts/handoff-relay/`) are both ciphertext-only blob stores; the
+  relay-served viewer still makes operator trust explicit;
+  burn-after-open or 1/7/30-day expiry. No competitor has this client-sealed
+  ephemeral share. It works out of the box without making the self-host path
+  second-class.
 - **Tag folders that act** — `#tags` in prose and a `tags:` prop are one
   set, and a saved tag query sits in the sidebar as a folder (chips +
   any/all + "but not …", no query language anywhere). The twist is that it
@@ -159,8 +167,6 @@ Capacities, Affine).*
   Current
   transport is authenticated git-over-HTTPS with a Keychain token. Never
   market encryption as shipped.
-- **Hosted handoff relay**: the handoff feature is shipped; a public hosted
-  relay is not. Until one exists, the self-host story leads.
 - **Known parity gaps — don't invite the comparison**: multi-column page
   layout, timeline view, PDF/doc embeds (image+audio only). Undo covers
   props + structural edits, not yet everything.
@@ -169,7 +175,7 @@ Capacities, Affine).*
 
 Tracked in the issue tracker; headline shapes: reality-mounted databases
 (non-md files as database rows with extracted columns + sidecars),
-materialized views on disk, time-travel queries over git history,
+time-travel queries over git history,
 timestamped audio annotations, iOS home-screen widgets, per-fact provenance
 receipts, live values in prose, deterministic file-event reflexes, voice
 capture with on-device transcript, cross-type joins, units & inline math.
