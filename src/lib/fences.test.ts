@@ -2,7 +2,27 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { stripMachineFences } from "./fences.ts";
 
-test("stripMachineFences blanks view/chart/csv/formulas bodies (SUB-261)", () => {
+test("stripMachineFences blanks a heatmap body too (SUB-966)", () => {
+  const body = [
+    "Sessions this year.",
+    "",
+    "```heatmap",
+    "source: session",
+    "date: logged",
+    "value: sum:minutes",
+    "```",
+    "",
+    "after",
+  ].join("\n");
+  const out = stripMachineFences(body);
+  for (const config of ["source:", "logged", "minutes", "```heatmap"])
+    assert.ok(!out.includes(config), `${config} stripped`);
+  assert.ok(out.includes("Sessions this year."), "prose before survives");
+  assert.ok(out.includes("after"), "prose after survives");
+  assert.equal(out.split("\n").length, body.split("\n").length, "line count preserved");
+});
+
+test("stripMachineFences blanks view/chart/progress/csv/formulas bodies (SUB-261)", () => {
   const body = [
     "Label hub prose.",
     "",
@@ -17,6 +37,12 @@ test("stripMachineFences blanks view/chart/csv/formulas bodies (SUB-261)", () =>
     "y: count",
     "```",
     "",
+    "```progress",
+    "label: Portfolio target",
+    "value: {{Holdings.thermotarget}}",
+    "target: 500000",
+    "```",
+    "",
     "```csv",
     "at,yield_usd",
     "2026-07-17 10:28,3",
@@ -29,7 +55,15 @@ test("stripMachineFences blanks view/chart/csv/formulas bodies (SUB-261)", () =>
     "trail prose line",
   ].join("\n");
   const out = stripMachineFences(body);
-  for (const config of ["mastering", "query", "source", "yield_usd", "SUM", "```view"])
+  for (const config of [
+    "mastering",
+    "query",
+    "source",
+    "thermotarget",
+    "yield_usd",
+    "SUM",
+    "```view",
+  ])
     assert.ok(!out.includes(config), `${config} stripped`);
   assert.ok(out.includes("Label hub prose."), "prose before survives");
   assert.ok(out.includes("trail prose line"), "prose after survives");
@@ -53,12 +87,20 @@ test("stripMachineFences: prose on the open/close lines survives", () => {
 });
 
 test("stripMachineFences: an info-string tail strips for live-dispatch langs (SUB-899, SUB-983)", () => {
-  // the editor and hub render ```view/```chart/```cards <anything> as a live
-  // widget (first word decides), so the config must leave the search index
-  // like the bare form — including a stray trailing space after the language.
-  // Lockstep twin: machine_fence_strip_covers_info_string_tails in
+  // the editor and hub render ```view/```chart/```progress/```cards <anything>
+  // as a live widget (first word decides), so the config must leave the search
+  // index like the bare form — including a stray trailing space after the
+  // language. Lockstep twin: machine_fence_strip_covers_info_string_tails in
   // src-tauri/src/vault/mod.rs asserts this same corpus.
-  const tailed = ["```view", "```view table", "```view ", "```chart compact", "```cards two-up"];
+  const tailed = [
+    "```view",
+    "```view table",
+    "```view ",
+    "```chart compact",
+    "```progress",
+    "```progress wide",
+    "```cards two-up",
+  ];
   for (const open of tailed) {
     const out = stripMachineFences(`a\n${open}\nquery: secret\n\`\`\`\nb`);
     assert.ok(!out.includes("secret"), `config stripped for "${open}"`);
@@ -69,10 +111,22 @@ test("stripMachineFences: an info-string tail strips for live-dispatch langs (SU
   for (const prose of [
     "a\n```csv raw\nsecret,1\n```\nb",
     "a\n```formulas x\nsecret = A1\n```\nb",
+    "a\n```heatmap year\nsecret: session\n```\nb",
     "a\n```python foo\nsecret = 1\n```\nb",
   ]) {
     assert.equal(stripMachineFences(prose), prose, "tailed bare-form fence stays prose");
   }
+});
+
+test("stripMachineFences: bare heatmap strips, tailed heatmap stays prose (SUB-966)", () => {
+  // the two halves of the bare-form contract, on the fence this branch adds:
+  // the hub renders ONLY the bare opener live (HubDashboard's BARE_ONLY
+  // guard), so only the bare one may leave the index. Lockstep twin:
+  // machine_fence_strip_covers_heatmap_fences in src-tauri/src/vault/mod.rs.
+  const bare = "a\n```heatmap\nsource: session\ndate: logged\n```\nb";
+  assert.ok(!stripMachineFences(bare).includes("logged"), "bare heatmap config stripped");
+  const tailed = "a\n```heatmap year\nsource: session\ndate: logged\n```\nb";
+  assert.equal(stripMachineFences(tailed), tailed, "tailed heatmap fence stays prose");
 });
 
 test("stripMachineFences: an inline prose mention of an opener never blanks prose (SUB-983)", () => {

@@ -1,4 +1,5 @@
-// Machine fences (```view / ```chart / ```cards / ```csv / ```formulas) hold
+// Machine fences (```view / ```chart / ```progress / ```cards / ```heatmap / ```csv /
+// ```formulas) hold
 // app-parsed config/data, not prose (vault-format §5) — their bodies stay out
 // of search indexing (SUB-261). Mirrors strip_machine_fences in
 // src-tauri/src/vault/mod.rs; keep the fence set and semantics in lockstep
@@ -8,13 +9,15 @@
     of the info string — so a tailed opener (```view table, ```chart compact)
     renders as a widget and its config must leave the index like the bare form
     (SUB-899 for view, SUB-983 for chart/cards). `cards` renders live once the
-    hub-canvas lands (SUB-964); stripping it is contract, not yet render. */
-export const TAILED_MACHINE_FENCE_LANGS = ["view", "chart", "cards"] as const;
+    hub-canvas lands (SUB-964); stripping it is contract, not yet render.
+    `progress` joins them with the goal thermometer (SUB-967) — a fence's
+    target, deadline and bind are config, so they leave the index too. */
+export const TAILED_MACHINE_FENCE_LANGS = ["view", "chart", "progress", "cards"] as const;
 
 /** Fence languages whose parsers are strict bare-form (the sheet csv/formulas
     parsers): a TAILED one renders as plain code — someone's prose — and stays
     searchable. Only the bare opener is machine content. */
-export const BARE_MACHINE_FENCE_LANGS = ["csv", "formulas"] as const;
+export const BARE_MACHINE_FENCE_LANGS = ["csv", "formulas", "heatmap"] as const;
 
 /** The app parsers' fence semantics: "```<lang>\n" anywhere opens, the next
     "```" (or EOF) closes — the same regex shape the view/chart/sheet/csv

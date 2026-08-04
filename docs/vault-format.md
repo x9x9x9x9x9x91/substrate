@@ -981,6 +981,8 @@ Hover or focus any bar or point for a tooltip with the exact value, the x label,
 and — on a split chart — every series at that x. Each chart is a single tab stop
 with arrow/Home/End navigation along the axis; tooltips never print.
 
+
+
 ### 5.6 View embeds — ` ```view ` fences
 
 A ` ```view ` fence renders a live, editable inline database table inside the

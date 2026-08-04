@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type { NoteMeta, SchemaConfig, SelectOption } from "../lib/types";
 import { fmtFx } from "../lib/dashboard";
 import { usdEurFrom } from "../lib/fx";
@@ -44,6 +44,9 @@ interface ChartsDashboardProps {
       Reuse that validated config instead of wrapping its text in a synthetic
       fence and parsing it a second time. */
   configOverride?: ChartConfig;
+  /** rendered under the chart sections, above the foot — how a note that also
+      carries ```heatmap fences shows them without a second pane head (SUB-966) */
+  after?: ReactNode;
 }
 
 /** full-precision value — tooltips keep every digit */
@@ -633,6 +636,7 @@ export default function ChartsDashboard({
   onOpenSource,
   embed,
   configOverride,
+  after,
 }: ChartsDashboardProps) {
   // one table, one resolver (SUB-834); the footer's single pair is derived
   const { fx: rates } = useFxRates();
@@ -840,6 +844,8 @@ export default function ChartsDashboard({
             />
           );
         })}
+
+        {after}
 
         <div className="dash-foot">
           Charts are chart fences in this note — edit the text to reconfigure them.

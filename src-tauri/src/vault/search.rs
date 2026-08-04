@@ -592,13 +592,15 @@ mod tests {
 
     #[test]
     fn machine_fences_stay_out_of_search() {
-        // SUB-261: ```view/```chart (and csv/formulas) fence bodies are app
-        // config/data, not prose — they must neither match nor snippet, while
-        // prose in the same note still does.
+        // SUB-261: ```view/```chart/```progress (and csv/formulas) fence
+        // bodies are app config/data, not prose — they must neither match nor
+        // snippet, while prose in the same note still does. The progress fence
+        // sits AFTER the prose line so the line-number assertion below keeps
+        // pinning the raw-body mapping.
         let (mut e, dir) = temp_vault("mf");
         fs::write(
             dir.join("Hub.md"),
-            "---\ntype: note\n---\nLabel hub prose.\n\n```view\ntype: release\nquery: status:mastering\nview: table\n```\n\n```chart\nsource: release\ny: count\n```\n\ntrail prose line\n",
+            "---\ntype: note\n---\nLabel hub prose.\n\n```view\ntype: release\nquery: status:mastering\nview: table\n```\n\n```chart\nsource: release\ny: count\n```\n\ntrail prose line\n\n```progress\nlabel: Portfolio target\nvalue: {{Holdings.thermotarget}}\ntarget: 500000\n```\n",
         )
         .unwrap();
         e.apply_changes(&[dir.join("Hub.md")]);
@@ -611,6 +613,10 @@ mod tests {
         assert!(
             e.search_full("count", None, false).hits.iter().all(|h| h.path != "Hub.md"),
             "chart fence config is not indexed"
+        );
+        assert!(
+            e.search_full("thermotarget", None, false).hits.iter().all(|h| h.path != "Hub.md"),
+            "progress fence config is not indexed (SUB-967)"
         );
         // prose in the same note still hits — on its raw-body line number
         let hits = e.search_full("trail", None, false).hits;

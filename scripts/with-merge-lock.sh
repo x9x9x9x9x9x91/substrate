@@ -43,10 +43,25 @@ fi
 
 LOCK_DIR="$GITDIR/substrate-merge.lock"
 
+cleanup_lock() { rm -rf "$LOCK_DIR"; }
+
+
+on_exit() {
+  local rc=$?
+  cleanup_lock
+}
+
+# Signals are routed through EXIT rather than handled separately: bash dying to
+# an unhandled signal skips the EXIT trap entirely, which would both leak the
+# lock and swallow the verdict.
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
 acquire() {
   if mkdir "$LOCK_DIR" 2>/dev/null; then
     printf '%s\n' "$$" >"$LOCK_DIR/pid"
-    trap 'rm -rf "$LOCK_DIR"' EXIT
+    trap on_exit EXIT
     return 0
   fi
   local owner
@@ -62,7 +77,7 @@ acquire() {
   rm -rf "$LOCK_DIR"
   mkdir "$LOCK_DIR" || die "could not take the merge lock at $LOCK_DIR"
   printf '%s\n' "$$" >"$LOCK_DIR/pid"
-  trap 'rm -rf "$LOCK_DIR"' EXIT
+  trap on_exit EXIT
 }
 
 acquire

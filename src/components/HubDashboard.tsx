@@ -15,11 +15,14 @@ import { isImageName } from "../lib/artwork";
 import { parseHub, type HubCallout } from "../lib/hub";
 import { embedQueryFor, parseViewSpec } from "../lib/embeds";
 import { collectCardsFences, parseCardsBlock, type CardsBlock } from "../lib/metriccards";
+import { BARE_MACHINE_FENCE_LANGS } from "../lib/fences";
 import { sharpCardIndices } from "../lib/dashboard";
 import { useFxRates } from "./useFx";
 import { DashHead, DashPrintButton } from "./DashHead";
 import EmbedViewTable from "./EmbedViewTable";
 import ChartsDashboard from "./ChartsDashboard";
+import HeatmapDashboard from "./HeatmapDashboard";
+import ProgressDashboard from "./ProgressDashboard";
 import { MetricCardStrip, useCardValues, type CardValue } from "./MetricCards";
 import { optionColor, OptionPill } from "./SelectMenu";
 
@@ -53,11 +56,23 @@ interface Ctx {
     vaultEpoch: number;
     onOpenSource: (path: string) => void;
   };
+  /** the ```heatmap fence's inputs — same shape as `chart`, same rule: absent
+      means the fence stays a code box */
+  heatmap?: {
+    meta: NoteMeta;
+    notes: NoteMeta[];
+    schema: SchemaConfig;
+    vaultEpoch: number;
+    onOpenSource: (path: string) => void;
+  };
   /** the ```cards fence's inputs. `slot` maps a fence's ordinal WITHIN this
       markdown chunk to its slice of the page-wide decision — the emphasis cap
       belongs to the PAGE (principle 11), so a fence can't pick its own sharp
       set. Absent (as in a callout body) means cards fences stay code boxes. */
   cards?: { slot: (n: number) => CardsSlot | null };
+  /** the ```progress fence's inputs (SUB-967) — same shape the chart fence
+      needs, since both hand the fence back to their own dashboard */
+  progress?: NonNullable<Ctx["chart"]>;
 }
 
 interface CardsSlot {
@@ -198,8 +213,14 @@ function DashEmbed({ name }: { name: string }) {
 /* ---- linear markdown chunks (print.ts block set, as React) --------------- */
 
 // opener accepts a full info string; group 1 stays the first word, the same
-// "first word decides" read as the editor's isViewFence (SUB-898)
-const FENCE_OPEN_RE = /^```(\S*)(?:\s[^`]*)?$/;
+// "first word decides" read as the editor's isViewFence (SUB-898). Group 2 is
+// the tail, and it decides for the bare-form languages: their parsers only
+// accept "```<lang>\n", so a tailed opener must fall through to a code box
+// here too — otherwise the hub draws a live widget whose config
+// stripMachineFences leaves in the search index (SUB-966; the SUB-899/SUB-983
+// leak class).
+const FENCE_OPEN_RE = /^```(\S*)(\s[^`]*)?$/;
+const BARE_ONLY = new Set<string>(BARE_MACHINE_FENCE_LANGS);
 const FENCE_CLOSE_RE = /^```\s*$/;
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
 const HR_RE = /^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/;
@@ -269,6 +290,52 @@ function HubChartFence({ inner, chart }: { inner: string; chart: NonNullable<Ctx
   );
 }
 
+/** A ```heatmap fence in a hub body (SUB-966): the year grid, in the slot it
+    was written into. Handed to HeatmapDashboard verbatim in embed mode, the
+    way a chart fence is — one parser, one renderer. */
+function HubHeatmapFence({ inner, heatmap }: { inner: string; heatmap: NonNullable<Ctx["heatmap"]> }) {
+  const body = useMemo(() => "```heatmap\n" + inner + "\n```\n", [inner]);
+  return (
+    <div className="hub-heatmap">
+      <HeatmapDashboard
+        meta={heatmap.meta}
+        notes={heatmap.notes}
+        body={body}
+        vaultEpoch={heatmap.vaultEpoch}
+        schema={heatmap.schema}
+        onOpenSource={heatmap.onOpenSource}
+        embed
+      />
+    </div>
+  );
+}
+
+/** A ```progress fence in a hub body (SUB-967): the same goal thermometer the
+    progress dashboard draws, in the section slot it was written into. Handed
+    back to ProgressDashboard verbatim in embed mode — one parser
+    (lib/progress.ts), one renderer, so a goal never reads differently
+    depending on which surface hosts it. */
+function HubProgressFence({
+  inner,
+  progress,
+}: {
+  inner: string;
+  progress: NonNullable<Ctx["progress"]>;
+}) {
+  const body = useMemo(() => "```progress\n" + inner + "\n```\n", [inner]);
+  return (
+    <div className="hub-progress">
+      <ProgressDashboard
+        meta={progress.meta}
+        notes={progress.notes}
+        body={body}
+        vaultEpoch={progress.vaultEpoch}
+        schema={progress.schema}
+      />
+    </div>
+  );
+}
+
 /** A ```cards fence in a hub body (SUB-964): the metrics board's card strip,
     same item schema and same bind resolution, sitting where it was written.
     Emphasis is capped across the whole page, not per fence — the parent hands
@@ -279,13 +346,15 @@ function HubCardsFence({ slot }: { slot: CardsSlot }) {
 }
 
 /** The ctx for markdown nested inside a callout body or a plain quote (§5.2):
-    that markdown is quoted TEXT, not a second dashboard surface, so a ```chart
-    or ```cards fence written there falls through to a code box. Dropping both
-    from the recursion's ctx is what does it — and it also keeps a nested cards
-    fence from consuming a page slot that belongs to a real one. ```view keeps
-    working, because an embedded table inside a card is still one table. */
+    that markdown is quoted TEXT, not a second dashboard surface, so a
+    ```chart, ```cards, ```heatmap or ```progress fence written there falls
+    through to a code box.
+    Dropping them all from the recursion's ctx is what does it — and it also
+    keeps a nested cards fence from consuming a page slot that belongs to a
+    real one. ```view keeps working, because an embedded table inside a card is
+    still one table. */
 function nestedMarkdownCtx(ctx: Ctx): Ctx {
-  return { ...ctx, chart: undefined, cards: undefined };
+  return { ...ctx, chart: undefined, cards: undefined, heatmap: undefined, progress: undefined };
 }
 
 function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
@@ -321,11 +390,24 @@ function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
       i++; // closing fence (or EOF)
       const inner = code.join("\n");
       const lang = fence[1].toLowerCase();
+      // a tailed opener of a bare-form language is prose, not config: its own
+      // parser wouldn't read it, so neither does the hub (SUB-966)
+      const bareOnlyTail = fence[2] !== undefined && BARE_ONLY.has(lang);
       // fences the hub renders live; anything else stays a code box
-      if (lang === "view" && ctx.view !== undefined) {
+      if (bareOnlyTail) {
+        out.push(
+          <pre className="hub-pre" key={k++}>
+            <code>{inner}</code>
+          </pre>
+        );
+      } else if (lang === "view" && ctx.view !== undefined) {
         out.push(<HubViewFence key={k++} inner={inner} view={ctx.view} />);
       } else if (lang === "chart" && ctx.chart !== undefined) {
         out.push(<HubChartFence key={k++} inner={inner} chart={ctx.chart} />);
+      } else if (lang === "heatmap" && ctx.heatmap !== undefined) {
+        out.push(<HubHeatmapFence key={k++} inner={inner} heatmap={ctx.heatmap} />);
+      } else if (lang === "progress" && ctx.progress !== undefined) {
+        out.push(<HubProgressFence key={k++} inner={inner} progress={ctx.progress} />);
       } else if (lang === "cards" && ctx.cards !== undefined) {
         // this chunk's n-th cards fence is the page's (base + n)-th — the
         // count is derived from position, never from a render-order counter,
@@ -549,6 +631,8 @@ export default function HubDashboard({
       schema,
       view: { notes, schema, savedViews: savedViews ?? [], onOpenSource },
       chart: { meta, notes, schema, vaultEpoch, onOpenSource },
+      heatmap: { meta, notes, schema, vaultEpoch, onOpenSource },
+      progress: { meta, notes, schema, vaultEpoch, onOpenSource },
     }),
     [onFollowLink, schema, notes, savedViews, onOpenSource, meta, vaultEpoch]
   );

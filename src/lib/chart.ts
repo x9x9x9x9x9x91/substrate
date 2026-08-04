@@ -105,7 +105,10 @@ export interface ChartBand {
 const KNOWN_KEYS = new Set(["source", "x", "y", "kind", "title", "series", "by"]);
 const BUCKETS = new Set(["day", "week", "month"]);
 
-function parseSource(v: string): ChartSource {
+/** The shared fence source grammar: a bare word is a database type, `{{Name}}`
+    is a sheet. Exported because every fence that reads rows (```chart,
+    ```heatmap, ```progress) must accept exactly the same spelling. */
+export function parseSource(v: string): ChartSource {
   const m = /^\{\{\s*([^{}]+?)\s*\}\}$/.exec(v);
   if (m) return { kind: "sheet", name: m[1] };
   if (!v) throw new Error("source must be a database or {{Sheet Name}}");
@@ -274,7 +277,7 @@ export type ChartRow = Record<string, unknown>;
 
 /** One scalar cell as an x label. An FErr or any structured value has no
     honest scalar form; date axes deliberately stay on this narrower path. */
-function scalarCellString(v: unknown): string | undefined {
+export function scalarCellString(v: unknown): string | undefined {
   if (typeof v === "string") return v;
   if (typeof v === "number" || typeof v === "boolean") return String(v);
   return undefined;
@@ -294,7 +297,7 @@ function categoricalCellString(v: unknown): string | undefined {
     `parseStrictNumber` the footer/formula/sheet/sort surfaces use), so "1e3",
     "0x10" and "Infinity" stay text and count as skipped rows rather than
     charting as 1000, 16 or an axis-breaking Infinity point. */
-function cellNumber(v: unknown): number | null {
+export function cellNumber(v: unknown): number | null {
   if (typeof v === "number") return isFinite(v) ? v : null;
   if (typeof v === "string") return parseStrictNumber(v);
   return null;
@@ -320,8 +323,16 @@ function sourceLabel(source: ChartSource): string {
     Absence is structural, not a skip count: the universe is the union of the
     rows' own keys, so a column that exists but whose cells all fail (filters,
     errors, non-numeric text) still reads as a genuine zero-match. With no rows
-    at all there is no universe to judge against, so nothing is claimed. */
-function missingBinding(rows: ChartRow[], config: RowChartConfig): string | null {
+    at all there is no universe to judge against, so nothing is claimed.
+
+    Takes the bound names rather than a chart config so every row-reading fence
+    speaks with one voice — the ```heatmap fence binds `date:`/`sum:` and gets
+    the identical sentence. */
+export function missingBinding(
+  rows: ChartRow[],
+  source: ChartSource,
+  bound: string[],
+): string | null {
   if (rows.length === 0) return null;
   // first-seen order, as authored — the fence author reads back their own
   // headers, so the list keeps the source's casing rather than the folded keys
@@ -329,15 +340,12 @@ function missingBinding(rows: ChartRow[], config: RowChartConfig): string | null
   for (const row of rows) {
     for (const k of Object.keys(row)) if (!present.has(k.toLowerCase())) present.set(k.toLowerCase(), k);
   }
-  const bound: string[] = [config.x.prop];
-  if (config.y.fn !== "count") bound.push(config.y.prop);
-  if (config.by) bound.push(config.by);
   const gone = bound.filter((p) => !present.has(p.toLowerCase()));
   if (gone.length === 0) return null;
-  const noun = fieldNoun(config.source, gone.length);
+  const noun = fieldNoun(source, gone.length);
   const names = gone.map((p) => `“${p}”`).join(" or ");
   const has = [...present.values()].join(", ");
-  return `no ${noun} ${names} on ${sourceLabel(config.source)} (has: ${has})`;
+  return `no ${noun} ${names} on ${sourceLabel(source)} (has: ${has})`;
 }
 
 /** One reduced cell: the running sum and the rows behind it. */
@@ -371,7 +379,11 @@ export function aggregate(
   const xKey = config.x.prop.toLowerCase();
   const yKey = config.y.fn === "count" ? null : config.y.prop.toLowerCase();
   const byKey = config.by?.toLowerCase() ?? null;
-  const missing = missingBinding(rows, config);
+  const missing = missingBinding(rows, config.source, [
+    config.x.prop,
+    ...(config.y.fn !== "count" ? [config.y.prop] : []),
+    ...(config.by ? [config.by] : []),
+  ]);
   const norm = rows.map((r) => {
     const o: ChartRow = {};
     for (const [k, v] of Object.entries(r)) o[k.toLowerCase()] = v;

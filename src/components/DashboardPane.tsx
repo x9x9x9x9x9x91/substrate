@@ -18,12 +18,14 @@ import {
 } from "../lib/dashboard";
 import { parseChartBlocks } from "../lib/chart";
 import { resolveDashboardKind, resolveDispatchTail, type KindBundleInfo } from "../lib/kinds";
+import { parseHeatmapBlocks } from "../lib/heatmap";
 import { resolveKindPane } from "../lib/kindpane";
 import { kindsList } from "../lib/ipc";
 import { DashHead } from "./DashHead";
 import CustomKindPane from "./CustomKindPane";
 import MetricsDashboard from "./MetricsDashboard";
 import ChartsDashboard from "./ChartsDashboard";
+import HeatmapDashboard from "./HeatmapDashboard";
 import HubDashboard from "./HubDashboard";
 import { useUsdEur } from "./useFx";
 import FoodDashboard from "./FoodDashboard";
@@ -472,12 +474,23 @@ function YieldDashboard({
 }
 
 /** `dashboard: charts` (SUB-993) — the chart-fence renderer by name, fences
-    or not. Reads the body the same way `ChartOrYield` does; an empty body
-    renders the charts shell with no sections rather than a wrong tracker. */
+    or not. Reads the body the same way `ChartOrYield` does — heatmap fences
+    included, hung under the charts: naming the kind must not silently drop a
+    fence the same body renders when the kind is left off (SUB-966). An empty
+    body renders the charts shell with no sections rather than a wrong tracker. */
 function ChartsByKind(props: DashboardPaneProps) {
   const body = useNoteBody(props.meta.path, props.vaultEpoch);
   if (body === null) return <div className="note" />;
-  return <ChartsDashboard {...props} body={body} />;
+  return <ChartsDashboard {...props} body={body} after={heatmapAfter(props, body)} />;
+}
+
+/** The heatmap half of a charts-leading dashboard: the same `after` slot both
+    the keyed (`dashboard: charts`) and keyless paths hand ChartsDashboard, so
+    one body reads the same either way. */
+function heatmapAfter(props: DashboardPaneProps, body: string) {
+  return parseHeatmapBlocks(body).length > 0 ? (
+    <HeatmapDashboard {...props} body={body} embed />
+  ) : undefined;
 }
 
 /** An unrecognized `dashboard:` value (SUB-993): a quiet inline card naming
@@ -538,14 +551,19 @@ function useNoteBody(path: string, vaultEpoch: number): string | null {
   return body;
 }
 
-/** Default dashboards: a ```chart fence declares chart blocks (SUB-33);
-    without one the note is a yield tracker (the original dashboard). Reached
-    only by a note with NO `dashboard:` prop (SUB-993) — a named-but-unknown
-    kind gets the error card instead. */
+/** Default dashboards: a ```chart fence declares chart blocks (SUB-33), a
+    ```heatmap fence a year grid (SUB-966); without either the note is a yield
+    tracker (the original dashboard). A note carrying both leads with its
+    charts and hangs the heatmaps under them, so neither fence goes unrendered
+    for having been written second. Reached only by a note with NO `dashboard:`
+    prop (SUB-993) — a named-but-unknown kind gets the error card instead. */
 function ChartOrYield(props: DashboardPaneProps) {
   const body = useNoteBody(props.meta.path, props.vaultEpoch);
   if (body === null) return <div className="note" />;
-  if (parseChartBlocks(body).length > 0) return <ChartsDashboard {...props} body={body} />;
+  const heat = parseHeatmapBlocks(body).length > 0;
+  if (parseChartBlocks(body).length > 0)
+    return <ChartsDashboard {...props} body={body} after={heatmapAfter(props, body)} />;
+  if (heat) return <HeatmapDashboard {...props} body={body} />;
   return <YieldDashboard {...props} />;
 }
 

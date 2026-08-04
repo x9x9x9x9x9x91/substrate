@@ -4730,6 +4730,268 @@ body.agenda-window .palette:focus-visible {
   margin: 2px 0 6px;
 }
 
+/* Heatmap blocks (```heatmap fences, SUB-966) — a year of day squares in the
+   chart language's greyscale. Intensity is the same white-alpha ramp the bars
+   use, five steps of it, so a heatmap next to a chart reads as one surface:
+   no hue means no claim about which day was good. */
+
+.heatmap {
+  --hm-gap: 3px;
+  /* level 0 is the empty day: the grid's own hairline, present but silent */
+  --hm-0: var(--grid-line);
+  --hm-1: rgba(255, 255, 255, 0.11);
+  --hm-2: rgba(255, 255, 255, 0.19);
+  --hm-3: rgba(255, 255, 255, 0.28);
+  --hm-4: rgba(255, 255, 255, 0.42);
+  margin-top: 8px;
+}
+
+.heatmap-years {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.heatmap-year {
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 11px;
+  background: none;
+  font: var(--dash-label);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  cursor: pointer;
+  transition:
+    color 120ms ease-out,
+    background 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.heatmap-year:hover {
+  background: var(--hover);
+  border-color: var(--border);
+  color: var(--text-1);
+}
+
+.heatmap-year.is-on {
+  background: var(--hover);
+  border-color: var(--border-strong);
+  color: var(--text-1);
+}
+
+/* a narrow pane scrolls the year rather than shrinking the squares to dust */
+.heatmap-scroll {
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.heatmap-plot {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 6px;
+  /* floor keeps a square legible; ceiling keeps 53 of them from turning into
+     tiles on a wide pane */
+  min-width: 470px;
+  max-width: 780px;
+}
+
+.heatmap-months {
+  display: grid;
+  grid-template-columns: repeat(var(--weeks), minmax(0, 1fr));
+  font: var(--dash-label);
+  color: var(--text-4);
+}
+
+.heatmap-months span {
+  white-space: nowrap;
+}
+
+/* rides the same 7 rows as a week column, so Mon/Wed/Fri sit on their squares */
+.heatmap-wd {
+  display: grid;
+  grid-template-rows: repeat(7, 1fr);
+  gap: var(--hm-gap);
+  align-items: center;
+  font: var(--dash-label);
+  color: var(--text-4);
+  text-align: right;
+}
+
+.heatmap-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--weeks), minmax(0, 1fr));
+  gap: var(--hm-gap);
+}
+
+.heatmap-grid:focus-visible {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.heatmap-week {
+  display: grid;
+  grid-template-rows: repeat(7, auto);
+  gap: var(--hm-gap);
+}
+
+.heatmap-day,
+.heatmap-pad {
+  aspect-ratio: 1;
+  border-radius: var(--r);
+}
+
+.heatmap-day {
+  background: var(--hm-0);
+  transition: background 120ms ease-out;
+}
+
+.heatmap-day[data-level="1"] {
+  background: var(--hm-1);
+}
+
+.heatmap-day[data-level="2"] {
+  background: var(--hm-2);
+}
+
+.heatmap-day[data-level="3"] {
+  background: var(--hm-3);
+}
+
+.heatmap-day[data-level="4"] {
+  background: var(--hm-4);
+}
+
+/* the keyboard cursor: a ring, never a fill — the fill is the value */
+.heatmap-day.is-cursor {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.heatmap-day:hover {
+  box-shadow: inset 0 0 0 1px var(--hair);
+}
+
+.heatmap-under {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 8px;
+}
+
+/* the readout says what the cursor is on — aria-live for AT, plain text for
+   everyone else, so a heatmap is readable without a mouse or a tooltip */
+.heatmap-readout {
+  font: var(--dash-data);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font: var(--dash-label);
+  color: var(--text-4);
+  flex: none;
+}
+
+.heatmap-key {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--r);
+  background: var(--hm-0);
+}
+
+.heatmap-key[data-level="1"] {
+  background: var(--hm-1);
+}
+
+.heatmap-key[data-level="2"] {
+  background: var(--hm-2);
+}
+
+.heatmap-key[data-level="3"] {
+  background: var(--hm-3);
+}
+
+.heatmap-key[data-level="4"] {
+  background: var(--hm-4);
+}
+
+/* the goal thermometer (SUB-967) — a ```progress fence. It is a section like
+   a chart is: label above, picture, then the reading and the pace line. */
+.progress-fence {
+  margin-top: 26px;
+  /* the squeeze point is the fence's own width, not the window (principle 4):
+     a sidebar can starve it while the viewport stays wide */
+  container: progress-fence / inline-size;
+}
+
+.progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+/* the percent is the same statement as the bar, so it stays a hint, not a
+   second headline — the reading below carries the value/target voice */
+.progress-pct {
+  font: var(--dash-data);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-track {
+  height: 6px;
+  margin-top: 8px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+/* a goal bar is a flow bar: neutral grayscale, no accent or heat ramp — the
+   accent belongs to quota alone, so one hue never carries two meanings
+   (design principle 4). Ahead/behind is said in words, not in colour. */
+.progress-fill {
+  display: block;
+  height: 100%;
+  width: var(--progress-fill, 0%);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.35);
+  transition: width 0.4s ease;
+}
+
+.progress-read {
+  margin-top: 8px;
+  font: var(--dash-value);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-foot {
+  margin-top: 3px;
+  font: var(--dash-data);
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+}
+
+/* one broken fence, one error, siblings untouched — the chart error's voice */
+.progress-err {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--danger);
+}
+
+/* a narrow pane stacks the label and its percent rather than squeezing both
+   onto one line; the squeeze point is the pane, not the window (principle 4) */
+@container progress-fence (max-width: 320px) {
+  .progress-head {
+    flex-direction: column;
+    gap: 2px;
+  }
+}
+
 /* the form is a section, not a box — its section label carries the frame */
 .dash-form {
   margin-top: 30px;
@@ -5052,6 +5314,23 @@ body.agenda-window .palette:focus-visible {
    label and provenance foot. */
 .hub-chart {
   margin: 0 0 16px;
+}
+
+/* a ```heatmap fence (SUB-966) — same deal as .hub-chart: the wrapper owns
+   only the gap, the grid carries its own label, legend and foot */
+.hub-heatmap {
+  margin: 0 0 16px;
+}
+
+/* a ```progress fence (SUB-967) — the thermometer owns its own head, bar and
+   pace line, so the wrapper only owns the gap to the next block. Its first
+   fence drops the standalone top margin: in a hub the section label above it
+   already sets the distance. */
+.hub-progress {
+  margin: 0 0 16px;
+}
+.hub-progress .progress-fence:first-child {
+  margin-top: 0;
 }
 
 /* a ```cards fence's strip sits in the flow like the view tables do */
@@ -9541,6 +9820,15 @@ span.asset-thumb svg {
   }
   #print-surface .chart-line {
     border-bottom-color: #e2e4e8;
+  }
+
+  /* the heatmap ramp inverts for paper: darker ink = busier day */
+  #print-surface .heatmap {
+    --hm-0: #eef0f2;
+    --hm-1: #d3d7dc;
+    --hm-2: #b0b6bd;
+    --hm-3: #8b929b;
+    --hm-4: #626973;
   }
 
   #print-surface .hub-pre {

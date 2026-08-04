@@ -44,9 +44,22 @@ pub(crate) fn onboarding_status(
 
 /// Report what a candidate folder is, so the UI can offer the right verb
 /// ("Open vault" vs "Initialize here") before anything is written.
+///
+/// Resolves the typed path exactly like `vault_choose` does (SUB-1096): the
+/// verb the picker offers and the action its button runs must describe the
+/// same folder. Inspecting `~/Notes` literally found no such folder relative
+/// to the process cwd, so the picker offered "Create vault here" while the
+/// button adopted the real `$HOME/Notes`.
 #[tauri::command]
 pub(crate) fn vault_inspect(path: String) -> appcfg::VaultCandidate {
-    appcfg::inspect(std::path::Path::new(&path))
+    appcfg::inspect(&picked_path(&path))
+}
+
+/// The one place a path typed into the picker becomes a path on disk. Both
+/// sides of the picker — inspect and choose — go through it, so they can
+/// never disagree about which folder the user named.
+pub(crate) fn picked_path(raw: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from(shellexpand_home(raw))
 }
 
 /// Validate + initialize + persist the choice. A refusal — bad path, missing
@@ -70,7 +83,7 @@ pub(crate) fn vault_choose(
     path: String,
     consent: bool,
 ) -> Result<String, String> {
-    let p = std::path::PathBuf::from(shellexpand_home(&path));
+    let p = picked_path(&path);
     if p.as_os_str().is_empty() {
         return Err("no folder chosen".into());
     }
@@ -1070,6 +1083,46 @@ mod tests {
         // the stored choice still pointing at the legacy copy is left alone
         // too — deleting or repointing it would strand the user harder
         assert_eq!(crate::appcfg::read_config(&cfg).vault.as_deref(), Some(legacy.as_path()));
+    }
+
+    /// SUB-1096: the picker's two halves must resolve a typed path
+    /// identically. `vault_inspect` used to hand the raw string to
+    /// `appcfg::inspect`, so `~/Notes` was looked for as a literal folder
+    /// named `~` next to the process cwd — never there, so the picker offered
+    /// "Create vault here" for a button that then adopted `$HOME/Notes`.
+    #[test]
+    fn inspect_resolves_a_typed_tilde_the_same_way_choose_does() {
+        let home = std::env::var("HOME").expect("tests run with a HOME");
+        for typed in ["~/Notes", "  ~/Notes  "] {
+            // the path choose would act on
+            let chosen = super::picked_path(typed);
+            let seen = super::vault_inspect(typed.to_string());
+            assert_eq!(
+                seen.path,
+                chosen.display().to_string(),
+                "inspect reported a different folder than choose would act on for {typed:?}"
+            );
+            assert_eq!(chosen, std::path::PathBuf::from(format!("{home}/Notes")));
+            assert!(
+                std::path::Path::new(&seen.path).is_absolute(),
+                "a typed tilde must reach the filesystem expanded, not as a literal folder: {}",
+                seen.path
+            );
+        }
+    }
+
+    /// The other half of the agreement: for a folder that IS a vault, the verb
+    /// the picker offers ("Open") and what `init_chosen_vault` does (adopt,
+    /// no seeding) describe the same outcome.
+    #[test]
+    fn inspect_and_choose_agree_that_an_existing_vault_is_opened_not_created() {
+        let t = tempfile::TempDir::new().unwrap();
+        let root = t.path().join("Mine");
+        std::fs::create_dir_all(root.join(".vault")).unwrap();
+
+        let seen = super::vault_inspect(root.display().to_string());
+        assert!(seen.exists && seen.is_vault, "picker offers Open: {seen:?}");
+        assert_eq!(super::init_chosen_vault(&root, false), Ok(false), "adopted, not seeded");
     }
 
     #[test]

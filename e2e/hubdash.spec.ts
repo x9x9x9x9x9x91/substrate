@@ -86,10 +86,10 @@ test("a ```view fence renders a live database table, not a code box", async ({ p
   await expect(table.locator("thead th").first()).toHaveText("Title");
   await expect(table.locator("thead th", { hasText: "role" })).toHaveCount(1);
   await expect(table.locator("tbody tr", { hasText: "booking" })).toHaveCount(1);
-  // the fence is gone from the code-box path entirely — the page's three code
+  // the fence is gone from the code-box path entirely — the page's four code
   // boxes are the deliberately quoted/nested fences, and none of them sits at
   // the top level of the body
-  await expect(page.locator(".hub-body .hub-pre")).toHaveCount(3);
+  await expect(page.locator(".hub-body .hub-pre")).toHaveCount(4);
   await expect(page.locator(".hub-body > .hub-pre")).toHaveCount(0);
   await expect(page.locator(".hub-body .hub-pre", { hasText: "type:" })).toHaveCount(0);
 });
@@ -150,9 +150,9 @@ test("one hub body renders markdown, a cards fence, a chart fence and a view fen
   // ```view: the live database table
   await expect(page.locator(".hub-body .hub-view .embed-view-table tbody tr")).toHaveCount(4);
 
-  // and none of the four fell through to a top-level code box; the three code
+  // and none of the four fell through to a top-level code box; the four code
   // boxes are deliberately nested in a quote/callout, never live fences
-  await expect(page.locator(".hub-body .hub-pre")).toHaveCount(3);
+  await expect(page.locator(".hub-body .hub-pre")).toHaveCount(4);
   await expect(page.locator(".hub-body > .hub-pre")).toHaveCount(0);
 });
 
@@ -177,15 +177,21 @@ test("a quoted ```cards fence stays a code box and takes no page slot (SUB-964)"
   await expect(strip).not.toContainText("Quoted");
 });
 
-test("chart and cards fences inside a callout stay code boxes (SUB-964)", async ({ page }) => {
+test("chart, cards and progress fences inside a callout stay code boxes (SUB-964)", async ({
+  page,
+}) => {
   await openHub(page);
 
   const callout = page.locator(".hub-card-idea", { hasText: "Next up" });
-  await expect(callout.locator(".hub-pre")).toHaveCount(2);
+  await expect(callout.locator(".hub-pre")).toHaveCount(3);
   await expect(callout.locator(".hub-pre").first()).toContainText("source: release");
   await expect(callout.locator(".hub-pre").nth(1)).toContainText("label: Nested");
+  await expect(callout.locator(".hub-pre").nth(2)).toContainText("label: Nested goal");
   await expect(callout.locator(".hub-chart")).toHaveCount(0);
   await expect(callout.locator(".metrics-strip")).toHaveCount(0);
+  // a live thermometer inside a quoted body would be a second dashboard
+  // surface inside a card (SUB-967 follows the SUB-964 rule)
+  await expect(callout.locator(".hub-progress")).toHaveCount(0);
 });
 
 test("a malformed chart fence errors in place while its siblings render (SUB-964)", async ({

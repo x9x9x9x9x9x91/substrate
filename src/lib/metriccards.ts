@@ -85,6 +85,17 @@ export function parseBind(bind: string): { sheet: string; name: string } | null 
   return m ? { sheet: m[1].trim(), name: m[2] } : null;
 }
 
+/** The distinct sheets a set of binds names, first spelling winning — the
+    sheet loader's work list, shared by cards and the ```progress fence. */
+export function bindSheets(binds: string[]): string[] {
+  const seen = new Map<string, string>();
+  for (const raw of binds) {
+    const b = parseBind(raw);
+    if (b && !seen.has(b.sheet.toLowerCase())) seen.set(b.sheet.toLowerCase(), b.sheet);
+  }
+  return [...seen.values()];
+}
+
 export function fmtCard(v: Value, format?: string, digits?: number): string {
   if (isErr(v)) return "—";
   if (typeof v !== "number") return formatValue(v);
@@ -119,7 +130,9 @@ export const CARD_FORMATS = ["eur", "usd", "number", "pct"];
 const ITEM_RE = /^(\s*)-\s+(.*)$/;
 const KV_RE = /^([A-Za-z][\w-]*)\s*:\s*([\s\S]*)$/;
 
-function unquote(v: string): string {
+/** Strip one layer of matching quotes. Shared with the ```progress fence
+    (SUB-967) so `bind: "{{Holdings.total}}"` reads the same in both. */
+export function unquote(v: string): string {
   const t = v.trim();
   if (t.length >= 2 && ((t[0] === '"' && t.endsWith('"')) || (t[0] === "'" && t.endsWith("'")))) {
     return t.slice(1, -1);

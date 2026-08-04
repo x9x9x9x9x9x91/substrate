@@ -155,12 +155,21 @@ test("every executable entry point in scripts/ is guarded", () => {
     "verify-gates.sh",
     "verify-quarantine.sh",
   ];
+  // Exempt ON PURPOSE, and asserted to STAY exempt so the exemption cannot rot
+  // into an oversight: a script here must not call the guard, and must say why.
+  const exempt: Array<[string, string]> = [
+  ];
   for (const name of entries) {
     const body = execFileSync("cat", [join(ROOT, "scripts", name)], { encoding: "utf8" });
     assert.match(body, /guard_checkout_freshness/, `${name} does not call the checkout guard`);
   }
+  for (const [name, why] of exempt) {
+    const body = execFileSync("cat", [join(ROOT, "scripts", name)], { encoding: "utf8" });
+    assert.doesNotMatch(body, /guard_checkout_freshness/, `${name} is listed exempt (${why}) but calls the guard — pick one`);
+  }
   const listed = execFileSync("ls", [join(ROOT, "scripts")], { encoding: "utf8" })
     .split("\n")
     .filter((f) => f.endsWith(".sh"));
-  assert.deepEqual(listed.sort(), [...entries].sort(), "a scripts/*.sh entry point appeared or vanished — guard it too");
+  const accounted = [...entries, ...exempt.map(([name]) => name)];
+  assert.deepEqual(listed.sort(), accounted.sort(), "a scripts/*.sh entry point appeared or vanished — guard it too");
 });

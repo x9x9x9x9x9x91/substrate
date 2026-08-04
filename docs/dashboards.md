@@ -189,6 +189,8 @@ that errored or isn't a number — fails the whole chart with a message naming
 it, rather than quietly dropping the bar; a chart whose points are named by
 hand should never lie about a missing one.
 
+
+
 ### `hub` — a designed home page
 
 The body stays ordinary markdown; the renderer lays it out. `## ` headings become

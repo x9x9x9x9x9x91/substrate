@@ -30,6 +30,7 @@ import type {
   VaultSyncStatus,
   ViewsConfig,
 } from "./types.ts";
+import { daysAgoIso } from "./dates.ts";
 import { stripMachineFences } from "./fences.ts";
 import { noteTags, propTags, tagUniverse } from "./tags.ts";
 import { MOCK_FX, MOCK_FX_RATES } from "./fx.ts";
@@ -276,6 +277,14 @@ interface MockNote extends NoteMeta {
 }
 
 const now = Date.now();
+
+/** An ISO day `d` days from today — the ```progress fixtures (SUB-967) need
+    deadlines that stay in the future, since a fence's pace line reads against
+    the real calendar and a hard-coded date would rot the fixture. Built on
+    daysAgoIso so the day is a LOCAL calendar day: a UTC slice would land a day
+    off near local midnight, against the todayIso() the pace line reads
+    (SUB-718). */
+const isoDay = (d: number) => daysAgoIso(-d, new Date(now));
 
 /* onboarding mock state (SUB-436): the mock vault is always present, so
    first-run is opt-in via __mockSetFirstRun before the app boots. */
@@ -658,7 +667,29 @@ const mockNotes: MockNote[] = [
     props: { type: "dashboard", dashboard: "hub", created: "2026-07-17" },
     updated_ms: now - 9 * 86_400_000,
     excerpt: "Label home — the pipeline at a glance.",
-    body: "Label home — the pipeline at a glance.\n\n## Releases\n\n> [!note] In review\n> [[Slow Bloom EP]] is with the label for sequencing notes.\n> [!warn] Waiting on masters\n> [[Vessel Songs]] masters v2 are due back this week.\n> [!idea] Next up\n> [[Static Bouquet]] blue-series follow-up — pitch the live session.\n> ```chart\n> source: release\n> x: status\n> y: count\n> ```\n> ```cards\n> - label: Nested\n>   bind: {{Holdings.total}}\n> ```\n\nEverything below the cards renders in linear flow.\n\n| release | status |\n| --- | --- |\n| [[Slow Bloom EP]] | in review |\n| [[Vessel Songs]] | mastering |\n\n## Money\n\n> A quoted cards fence is quoted text, not a board:\n> ```cards\n> - label: Quoted\n>   bind: {{Holdings.total}}\n> ```\n\n```cards\n- label: Total value\n  bind: \"{{Holdings.total}}\"\n  format: eur\n  emph: true\n- label: Crypto\n  bind: \"{{Holdings.crypto}}\"\n  format: eur\n- label: Positions\n  bind: \"{{Holdings.positions}}\"\n  format: number\n```\n\n```chart\nsource: {{Holdings}}\nx: bucket\ny: sum:value_usd\nkind: bar\ntitle: Holdings by bucket\n```\n\n## People\n\n```view\ntype: contact\nview: table\n```\n\n## Broken\n\n```view\ntype: nosuchtype\n```\n\n```chart\nsource: release\nx: status\ny: nonsense\n```\n",
+    body:
+      "Label home — the pipeline at a glance.\n\n## Releases\n\n> [!note] In review\n> [[Slow Bloom EP]] is with the label for sequencing notes.\n> [!warn] Waiting on masters\n> [[Vessel Songs]] masters v2 are due back this week.\n> [!idea] Next up\n> [[Static Bouquet]] blue-series follow-up — pitch the live session.\n> ```chart\n> source: release\n> x: status\n> y: count\n> ```\n> ```cards\n> - label: Nested\n>   bind: {{Holdings.total}}\n> ```\n> ```progress\n> label: Nested goal\n> value: count\n> source: contact\n> target: 8\n> ```\n\nEverything below the cards renders in linear flow.\n\n| release | status |\n| --- | --- |\n| [[Slow Bloom EP]] | in review |\n| [[Vessel Songs]] | mastering |\n\n## Money\n\n> A quoted cards fence is quoted text, not a board:\n> ```cards\n> - label: Quoted\n>   bind: {{Holdings.total}}\n> ```\n\n```cards\n- label: Total value\n  bind: \"{{Holdings.total}}\"\n  format: eur\n  emph: true\n- label: Crypto\n  bind: \"{{Holdings.crypto}}\"\n  format: eur\n- label: Positions\n  bind: \"{{Holdings.positions}}\"\n  format: number\n```\n\n```chart\nsource: {{Holdings}}\nx: bucket\ny: sum:value_usd\nkind: bar\ntitle: Holdings by bucket\n```\n\n```progress\nlabel: Portfolio target\nvalue: {{Holdings.total}}\ntarget: 500000\nformat: eur\n" +
+      `deadline: ${isoDay(45)}\n` +
+      "```\n\n## People\n\n```view\ntype: contact\nview: table\n```\n\n## Broken\n\n```view\ntype: nosuchtype\n```\n\n```chart\nsource: release\nx: status\ny: nonsense\n```\n\n```progress\nlabel: Broken goal\nvalue: count\ntarget: 5\n```\n",
+  },
+  {
+    // progress fence seed (SUB-967): a hub body can be only progress fences,
+    // which is the standalone fence form without inventing another dashboard
+    // kind. It carries a sheet bind, a database count and one malformed fence.
+    path: "Dashboards/Goals.md",
+    stem: "Goals",
+    title: "Goals",
+    folder: "Dashboards",
+    props: { type: "dashboard", dashboard: "hub", created: "2026-07-17" },
+    updated_ms: now - 9 * 86_400_000,
+    excerpt: "Label goals — value against target, with the days left.",
+    body:
+      "Label goals — each fence puts one number against the number it should reach.\n\n" +
+      "```progress\nlabel: Portfolio target\nvalue: {{Holdings.total}}\ntarget: 500000\nformat: eur\n" +
+      `deadline: ${isoDay(60)}\nstart: ${isoDay(-30)}\n` +
+      "```\n\n" +
+      "```progress\nlabel: Contacts logged\nvalue: count\nsource: contact\ntarget: 8\n```\n\n" +
+      "```progress\nlabel: Broken goal\nvalue: count\ntarget: 5\n```\n",
   },
   {
     // tasks dashboard seed (SUB-732): a read-only cut of task notes. Areas is

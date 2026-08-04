@@ -11,8 +11,12 @@ import { dashboardMounts, type DashboardMountState } from "../lib/dashboardMount
 import { MOUNT_AGGREGATES, isMountAggregate, mountCardText, mountAggregate } from "../lib/mountdash";
 import { mountStatus } from "../lib/mounts";
 import { findSummary } from "../lib/sheet";
-import { isErr } from "../lib/formula";
+import { isErr, type Value } from "../lib/formula";
 import type { FxRatesState } from "../lib/fx";
+
+/** One loaded sheet as the bind readers see it. Alias of the loader's own
+    state so cards and the ```progress fence share one shape, not two. */
+export type SheetState = DashboardSheetState;
 
 export interface CardValue {
   text: string;
@@ -55,28 +59,105 @@ function mountCard(
   };
 }
 
-/** Load every bound sheet — and transitively any sheet its formulas reference
-    — then evaluate each with the cross-sheet loader, and read one card's value
-    out of the result. The load itself goes through the shared dashboard sheet
-    cache (SUB-940), so several card strips on one board — a hub with two
-    ```cards fences, say — bound to the same sheet SET cost one IPC + BFS +
-    evaluation pass, not one per strip. Strips with different root sets load
-    independently (the cache keys on the whole set, not per sheet). */
-export function useCardValues(
-  cards: MetricCard[],
+/** Load every named sheet — and transitively any sheet its formulas reference
+    — then evaluate each with the cross-sheet loader. Shared by the card strip
+    and the ```progress fence (SUB-967): one bind grammar deserves one loader,
+    so a summary can't resolve differently depending on who asked.
+
+    The load itself goes through the shared dashboard sheet cache (SUB-940), so
+    several surfaces on one board — a hub with two ```cards fences and a
+    thermometer, say — bound to the same sheet SET cost one IPC + BFS +
+    evaluation pass, not one per surface. Surfaces with different root sets
+    load independently (the cache keys on the whole set, not per sheet). */
+export function useSheetStates(
+  sheetNames: string[],
   vaultEpoch: number,
   /** the hosting note's path — kept as an effect key so a different note
       re-reads its cards; identical sheet roots at one vault epoch and FX rate
       still resolve to the same cached evaluation */
   scope: string,
-  /** the whole quoted rate table (SUB-834) — a card's sheet may convert any
+  /** the whole quoted rate table (SUB-834) — a bound sheet may convert any
       pair, not only USD→EUR */
   rates: FxRatesState | null,
+): Map<string, SheetState> {
+  const [sheets, setSheets] = useState<Map<string, SheetState>>(new Map());
+
+  useEffect(() => {
+    let gone = false;
+    dashboardSheets(sheetNames, vaultEpoch, rates)
+      .then((next) => {
+        if (!gone) setSheets(next);
+      })
+      // a rejected pass (evicted from the cache) surfaces as a per-sheet
+      // error instead of leaving every card on "…" forever
+      .catch((error) => {
+        if (gone) return;
+        const msg = error instanceof Error ? error.message : String(error);
+        setSheets(
+          new Map(sheetNames.map((n) => [n.toLowerCase(), { error: `sheet load failed: ${msg}` }])),
+        );
+      });
+    return () => {
+      gone = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope, vaultEpoch, sheetNames.join("|"), rates]);
+
+  return sheets;
+}
+
+/** One bind read out of loaded sheets: the value, or the reason there isn't
+    one. `value` is null while the sheets are still loading (`loading`) and
+    when the read missed (the reason is then in `miss`/`title`). */
+export interface BindRead {
+  value: Value | null;
+  loading: boolean;
+  miss?: string;
+  title?: string;
+}
+
+// A bound summary that doesn't exist is the same class of miss the charts
+// name (SUB-749): renaming it left the card reading "—" with the reason
+// buried in a hover tooltip, which on a dashboard is indistinguishable from
+// a summary that legitimately has no value. The reader now names the summary
+// it couldn't find; the sheet's actual summary list stays in the tooltip,
+// since a card is too narrow to carry an inventory and hover already answers
+// "then what IS there".
+export function readBind(sheets: Map<string, SheetState>, bind: string): BindRead {
+  const b = parseBind(bind);
+  if (!b) {
+    return { value: null, loading: false, title: `bad binding “${bind}” — want {{Sheet.summary}}` };
+  }
+  const state = sheets.get(b.sheet.toLowerCase());
+  if (!state) return { value: null, loading: true };
+  if ("error" in state) return { value: null, loading: false, title: state.error };
+  const hit = state.ev.summaries.find((s) => s.name.toLowerCase() === b.name.toLowerCase());
+  if (!hit) {
+    const has = state.ev.summaries.map((s) => s.name).join(", ");
+    return {
+      value: null,
+      loading: false,
+      miss: `no summary “${b.name}” on ${b.sheet}`,
+      title: `no summary “${b.name}” on ${b.sheet}${has ? ` (has: ${has})` : " (it has none)"}`,
+    };
+  }
+  const v = findSummary(state.ev, b.name);
+  return { value: v, loading: false, title: isErr(v) ? v.err : undefined };
+}
+
+/** Read one card's value out of the loaded sheets — or a mount's index:
+    `{{Album Pool.count}}` and `{{Holdings.total}}` are the same binding
+    grammar (SUB-982), and only the vault knows which of the two a name is.
+    Sheets load through the shared `useSheetStates` loader (SUB-967), so a
+    card strip and a thermometer bound to the same sheet set cost one pass. */
+export function useCardValues(
+  cards: MetricCard[],
+  vaultEpoch: number,
+  scope: string,
+  rates: FxRatesState | null,
 ): (i: number) => CardValue {
-  const [sheets, setSheets] = useState<Map<string, DashboardSheetState>>(new Map());
-  // mounts resolve alongside sheets, not instead of them: `{{Album Pool.count}}`
-  // and `{{Holdings.total}}` are the same binding grammar (SUB-982), and only
-  // the vault knows which of the two a name is.
+  // mounts resolve alongside sheets, not instead of them (SUB-982): only the
+  // vault knows which of the two a bound name is
   const [mounts, setMounts] = useState<Map<string, DashboardMountState> | null>(null);
   // why the mount pass failed, when it did — a name that resolves as neither
   // sheet nor mount then says so instead of blaming the vault's notes alone
@@ -89,6 +170,7 @@ export function useCardValues(
     }
     return [...seen.values()];
   }, [binds]);
+  const sheets = useSheetStates(sheetNames, vaultEpoch, scope, rates);
 
   useEffect(() => {
     let gone = false;
@@ -116,34 +198,6 @@ export function useCardValues(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, vaultEpoch, sheetNames.join("|")]);
 
-  useEffect(() => {
-    let gone = false;
-    dashboardSheets(sheetNames, vaultEpoch, rates)
-      .then((next) => {
-        if (!gone) setSheets(next);
-      })
-      // a rejected pass (evicted from the cache) surfaces as a per-sheet
-      // error instead of leaving every card on "…" forever
-      .catch((error) => {
-        if (gone) return;
-        const msg = error instanceof Error ? error.message : String(error);
-        setSheets(
-          new Map(sheetNames.map((n) => [n.toLowerCase(), { error: `sheet load failed: ${msg}` }])),
-        );
-      });
-    return () => {
-      gone = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope, vaultEpoch, sheetNames.join("|"), rates]);
-
-  // A bound summary that doesn't exist is the same class of miss the charts
-  // name (SUB-749): renaming it left the card reading "—" with the reason
-  // buried in a hover tooltip, which on a dashboard is indistinguishable from
-  // a summary that legitimately has no value. The card now says the name it
-  // couldn't find; the sheet's actual summary list stays in the tooltip, since
-  // a card is too narrow to carry an inventory and hover already answers
-  // "then what IS there".
   return (i: number): CardValue => {
     const b = binds[i];
     if (!b) return { text: "—", title: `bad binding “${cards[i].bind}” — want {{Sheet.summary}}` };
@@ -158,25 +212,14 @@ export function useCardValues(
       // precedence hides it, so a miss on the mount has to say it is there
       return mountCard(mstate, b.name, cards[i], !!state && !("error" in state));
     }
-    if (!state) return { text: "…" };
-    if ("error" in state) {
+    const r = readBind(sheets, cards[i].bind);
+    if (r.loading) return { text: "…" };
+    if (r.value === null && state && "error" in state) {
       // the mount half of the lookup may be why this name resolved to nothing
       return { text: "—", title: mountsError ? `${state.error}; mounts: ${mountsError}` : state.error };
     }
-    const hit = state.ev.summaries.find((s) => s.name.toLowerCase() === b.name.toLowerCase());
-    if (!hit) {
-      const has = state.ev.summaries.map((s) => s.name).join(", ");
-      return {
-        text: "—",
-        miss: `no summary “${b.name}” on ${b.sheet}`,
-        title: `no summary “${b.name}” on ${b.sheet}${has ? ` (has: ${has})` : " (it has none)"}`,
-      };
-    }
-    const v = findSummary(state.ev, b.name);
-    return {
-      text: fmtCard(v, cards[i].format, cards[i].digits),
-      title: isErr(v) ? v.err : undefined,
-    };
+    const text = r.value === null ? "—" : fmtCard(r.value, cards[i].format, cards[i].digits);
+    return { text, ...(r.miss ? { miss: r.miss } : {}), ...(r.title ? { title: r.title } : {}) };
   };
 }
 

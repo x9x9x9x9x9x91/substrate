@@ -98,17 +98,19 @@ pub struct FmState {
 }
 
 /// Fenced blocks holding app-parsed config/data (vault-format §5) — view
-/// embeds, charts, sheet csv + formulas — are machine content, not prose:
+/// embeds, charts, heatmaps, goal thermometers, sheet csv + formulas — are
+/// machine content, not prose:
 /// their bodies stay out of the search index (SUB-261). The regex follows
 /// the app parsers' semantics (```<lang>\n anywhere … next ``` or EOF);
 /// user code fences (```ts, ```python foo, …) stay searchable, tail and all.
-/// The LIVE-DISPATCH languages (view, chart, cards) also take an info-string
+/// The LIVE-DISPATCH languages (view, chart, progress, cards) also take an info-string
 /// tail (```view table, ```chart compact, a trailing space): the editor and
 /// hub dispatch on the FIRST WORD of the info string, so a tailed opener is
 /// a live widget like the bare form and its config leaves the index too
 /// (SUB-899 for view, SUB-983 for chart/cards; cards renders once the hub
-/// canvas lands, SUB-964 — stripping it now is contract, not yet render).
-/// csv/formulas parsers are strict bare-form — a tailed one renders as plain
+/// canvas lands, SUB-964 — stripping it now is contract, not yet render;
+/// progress is the goal thermometer, SUB-967).
+/// csv/formulas/heatmap parsers are strict bare-form — a tailed one renders as plain
 /// code and stays searchable prose. A tail may not contain a backtick: an
 /// inline prose mention of an opener must never swallow its line and blank
 /// prose to the next fence (SUB-983 review finding). CRLF openers
@@ -118,7 +120,9 @@ pub struct FmState {
 fn machine_fence_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"```(?:(?:view|chart|cards)(?:[ \t][^`\n]*)?|csv|formulas)\r?\n[\s\S]*?(?:```|\z)")
+        Regex::new(
+            r"```(?:(?:view|chart|progress|cards)(?:[ \t][^`\n]*)?|csv|formulas|heatmap)\r?\n[\s\S]*?(?:```|\z)",
+        )
             .unwrap()
     })
 }
@@ -2436,11 +2440,20 @@ mod tests {
 
     #[test]
     fn machine_fence_strip_covers_info_string_tails() {
-        // ```view/```chart/```cards <tail> renders as a live widget (first
-        // word decides), so its config leaves the index like the bare form
-        // (SUB-899 for view, SUB-983 for chart/cards). Lockstep twin: the
-        // "info-string tail" test in src/lib/fences.test.ts, same corpus.
-        for open in ["```view", "```view table", "```view ", "```chart compact", "```cards two-up"] {
+        // ```view/```chart/```progress/```cards <tail> renders as a live
+        // widget (first word decides), so its config leaves the index like the
+        // bare form (SUB-899 for view, SUB-983 for chart/cards, SUB-967 for
+        // progress). Lockstep twin: the "info-string tail" test in
+        // src/lib/fences.test.ts, same corpus.
+        for open in [
+            "```view",
+            "```view table",
+            "```view ",
+            "```chart compact",
+            "```progress",
+            "```progress wide",
+            "```cards two-up",
+        ] {
             let body = format!("a\n{open}\nquery: secret\n```\nb");
             let out = strip_machine_fences(&body);
             assert!(!out.contains("secret"), "config stripped for {open:?}: {out:?}");
@@ -2470,6 +2483,20 @@ mod tests {
         assert!(out.contains("prose continues"), "inline mention line survives: {out:?}");
         assert!(out.contains("more prose"), "following prose survives");
         assert!(!out.contains("source: r"), "the real fence still strips");
+    }
+
+    #[test]
+    fn machine_fence_strip_covers_heatmap_fences() {
+        // SUB-966: a ```heatmap body is config, not prose — same rule, and the
+        // strict parser means a tailed opener is plain code that stays indexed.
+        let body = "a\n```heatmap\nsource: session\ndate: logged\n```\nb";
+        let out = strip_machine_fences(body);
+        assert!(!out.contains("logged"), "heatmap config stripped: {out:?}");
+        assert_eq!(out.matches('\n').count(), body.matches('\n').count(), "line map kept");
+        let crlf = "a\r\n```heatmap\r\nsource: session\r\n```\r\nb";
+        assert!(!strip_machine_fences(crlf).contains("session"), "CRLF opener stripped");
+        let tailed = "a\n```heatmap year\nsource: session\n```\nb";
+        assert_eq!(strip_machine_fences(tailed), tailed, "tailed heatmap fence stays prose");
     }
 
     #[test]
