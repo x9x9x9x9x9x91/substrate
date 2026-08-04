@@ -9,7 +9,7 @@ import { exportNoteMarkdown, exportNoteOneSheet, exportNotePdf } from "../lib/ex
 import { useEdgeFade } from "../hooks/useEdgeFade";
 import { buildNoteActions } from "../lib/noteactions";
 import { scanSummary } from "../lib/mounts";
-import { fuzzyScore } from "../lib/fuzzy";
+import { NO_MATCH, fuzzyScore } from "../lib/fuzzy";
 import { noteHint } from "../lib/display";
 import { displayTitle } from "../lib/journal";
 import { hoistAboveContent, onlyFallbacks, rankCommands, synFuzzyScore } from "../lib/palette";
@@ -380,7 +380,7 @@ export default function Palette({
           run: a.run,
         };
       });
-      return q.trim() ? acts.filter((a) => synFuzzyScore(q, a.label) > 0) : acts;
+      return q.trim() ? acts.filter((a) => synFuzzyScore(q, a.label) > NO_MATCH) : acts;
     }
 
     if (stage.kind === "moveto") {
@@ -406,7 +406,7 @@ export default function Palette({
           run: () => onMoveNote(note.path, f),
         });
       }
-      return q.trim() ? out.filter((i) => fuzzyScore(q, i.label) > 0) : out;
+      return q.trim() ? out.filter((i) => fuzzyScore(q, i.label) > NO_MATCH) : out;
     }
 
     if (stage.kind === "rename") {
@@ -470,7 +470,7 @@ export default function Palette({
           run: () => onRevealRel(folder),
         },
       ];
-      return q.trim() ? acts.filter((a) => synFuzzyScore(q, a.label) > 0) : acts;
+      return q.trim() ? acts.filter((a) => synFuzzyScore(q, a.label) > NO_MATCH) : acts;
     }
 
     if (stage.kind === "newfolder") {
@@ -574,7 +574,7 @@ export default function Palette({
     // "New from template…" — pick a type, then give the entry a title (SUB-17)
     if (stage.kind === "newtpl") {
       return templateTypeOptions(databases, templateTypes)
-        .filter((o) => !q.trim() || fuzzyScore(q, o.type) > 0)
+        .filter((o) => !q.trim() || fuzzyScore(q, o.type) > NO_MATCH)
         .map((o) => ({
           id: `tpl:${o.type}`,
           label: `New ${o.type}…`,
@@ -610,7 +610,7 @@ export default function Palette({
           run: () => onEditTemplate(stage.dbType),
         },
       ];
-      return q.trim() ? rows.filter((r) => synFuzzyScore(q, r.label) > 0) : rows;
+      return q.trim() ? rows.filter((r) => synFuzzyScore(q, r.label) > NO_MATCH) : rows;
     }
 
     // root stage
@@ -668,7 +668,7 @@ export default function Palette({
           n,
           s: Math.max(fuzzyScore(searchText, n.title), fuzzyScore(searchText, displayTitle(n))),
         }))
-        .filter((x) => x.s > 0)
+        .filter((x) => x.s > NO_MATCH)
         .sort((a, b) => b.s - a.s)
         .slice(0, 9);
       for (const { n } of scored) {

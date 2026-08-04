@@ -117,6 +117,27 @@ test("rankCommands: synonym rewrite never drops a literal match", () => {
   assert.equal(rankCommands("create", cmds).ranked.length, 1);
 });
 
+/**
+ * SUB-1016: ranking filtered on `s > 0`, but a real match late in a long label
+ * scores negative (0.2 penalty per character of position) — so a row the query
+ * genuinely matches vanished from the palette instead of ranking last.
+ */
+test("rankCommands: a weak late match ranks last, it does not vanish (SUB-1016)", () => {
+  const long = "Spectral Granular Synthesis Notes from the Berlin Studio Session — Workflow Quirks";
+  const cmds = [row("cmd:long", "Commands", long), row("cmd:wq", "Commands", "Wq shortcut")];
+  const { ranked } = rankCommands("wq", cmds);
+  assert.deepEqual(
+    ranked.map((c) => c.id),
+    ["cmd:wq", "cmd:long"],
+    "the long label matches 'wq' as a subsequence — it ranks below the prefix hit, not out",
+  );
+});
+
+test("rankCommands: a genuine miss is still dropped (SUB-1016)", () => {
+  const { ranked } = rankCommands("zzqqxx", releaseCommands());
+  assert.deepEqual(ranked, [], "nothing threads that query — every row drops");
+});
+
 test("hoistAboveContent: hoisted rows land directly under the Notes section", () => {
   const items = [
     row("note:a", "Notes"),

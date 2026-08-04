@@ -12,7 +12,7 @@
      completes from live database names (no exact recall needed). */
 
 import type { SyntaxNode } from "@lezer/common";
-import { fuzzyScore } from "./fuzzy.ts";
+import { NO_MATCH, fuzzyScore } from "./fuzzy.ts";
 import { todayIso } from "./dates.ts";
 
 /** `/` at line start (or after only whitespace) + the typed word. The query
@@ -91,7 +91,7 @@ export function slashOptions(query: string): SlashCommand[] {
   const out: { cmd: SlashCommand; score: number }[] = [];
   for (const cmd of slashCommands()) {
     const score = fuzzyScore(query, cmd.name);
-    if (score < 0) continue;
+    if (score === NO_MATCH) continue;
     out.push({ cmd, score });
   }
   out.sort((a, b) => b.score - a.score || a.cmd.name.localeCompare(b.cmd.name));
@@ -181,7 +181,7 @@ export function viewTypeOptions(query: string, dbTypes: string[]): string[] {
     if (!type || seen.has(type)) continue;
     seen.add(type);
     const score = fuzzyScore(query, type);
-    if (score < 0) continue;
+    if (score === NO_MATCH) continue;
     out.push({ type, score });
   }
   out.sort((a, b) => b.score - a.score || a.type.localeCompare(b.type));

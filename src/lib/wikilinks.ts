@@ -2,7 +2,7 @@
    detection, title ranking, insert text — kept free of CodeMirror so it runs
    under node --test. Editor.tsx wraps these in a CompletionSource. */
 
-import { fuzzyScore } from "./fuzzy.ts";
+import { NO_MATCH, fuzzyScore } from "./fuzzy.ts";
 
 /** Cursor inside an open wikilink: `[[` + anything but a bracket or newline. */
 const WIKI_OPEN_RE = /\[\[([^\]\n]*)$/;
@@ -34,7 +34,7 @@ export function wikiLinkOptions(query: string, titles: string[]): WikiOption[] {
     if (!title || seen.has(title)) continue;
     seen.add(title);
     const score = fuzzyScore(query, title);
-    if (score < 0) continue;
+    if (score === NO_MATCH) continue;
     out.push({ title, score });
   }
   out.sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));

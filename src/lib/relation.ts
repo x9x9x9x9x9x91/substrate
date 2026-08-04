@@ -1,6 +1,6 @@
 import type { NoteMeta, RelatedEntry } from "./types.ts";
 import { foldedPropStr, propStr } from "./types.ts";
-import { fuzzyScore } from "./fuzzy.ts";
+import { NO_MATCH, fuzzyScore } from "./fuzzy.ts";
 
 /** One entry of a relation's target database, as listed in the picker. */
 export interface RelationCandidate {
@@ -83,7 +83,7 @@ export function filterCandidates(
   if (!q) return candidates;
   return candidates
     .map((c) => ({ c, score: fuzzyScore(q, c.title) }))
-    .filter((x) => x.score >= 0)
+    .filter((x) => x.score > NO_MATCH)
     .sort((a, b) => b.score - a.score || a.c.title.localeCompare(b.c.title))
     .map((x) => x.c);
 }

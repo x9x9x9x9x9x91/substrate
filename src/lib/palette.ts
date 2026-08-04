@@ -10,7 +10,7 @@
  * Notion/Linear-style. Notes keep the very top: an exact note-title match is
  * never buried by a destination.
  */
-import { fuzzyScore } from "./fuzzy.ts";
+import { NO_MATCH, fuzzyScore } from "./fuzzy.ts";
 
 /** exact/prefix band: prefix matches score 1000 - len (>= 700 for sane names) */
 export const HOIST_MIN = 700;
@@ -48,7 +48,7 @@ export function queryVariants(q: string): string[] {
 
 /** fuzzyScore over the query and its synonym rewrite — best variant wins */
 export function synFuzzyScore(q: string, target: string): number {
-  let best = -1;
+  let best: number = NO_MATCH;
   for (const v of queryVariants(q)) best = Math.max(best, fuzzyScore(v, target));
   return best;
 }
@@ -80,7 +80,9 @@ export function rankCommands<T extends Rankable>(
   if (!query) return { ranked: commands, hoisted: [] };
   const ranked = commands
     .map((c, i) => ({ c, i, s: rankScore(query, c) }))
-    .filter((x) => x.s > 0)
+    // a row is dropped only when the query cannot be threaded through it at
+    // all: a weak match ranks last, it does not disappear (SUB-1016)
+    .filter((x) => x.s > NO_MATCH)
     .sort((a, b) => b.s - a.s || a.i - b.i)
     .map((x) => x.c);
   return {
