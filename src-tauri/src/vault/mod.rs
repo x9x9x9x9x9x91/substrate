@@ -1006,6 +1006,15 @@ impl Engine {
             // other note: from whichever device seeded them, over sync. Only
             // the standalone vault, where nobody else can be writing, is
             // backfilled here.
+            //
+            // Cost of that, worth naming (SUB-956 review, finding 5 —
+            // follow-up SUB-1110): a device joining a remote whose vault never
+            // carried these files ends up without them and never gets them
+            // back, because the branch that would fix it is the one this guard
+            // closes. Relaxing it is plausible now that SUB-956's belt adopts
+            // untouched-seed add/add conflicts — the exact shape SUB-473
+            // parked on — but that re-enables boot-time writes into every
+            // syncing vault, so it is its own round, not a line change here.
             #[cfg(desktop)]
             if !crate::vaultfmt::vault_written_by_newer_app(&root)
                 && !crate::gitsync::sync_configured(&root)
@@ -2407,7 +2416,10 @@ mod seed;
 pub use seed::seed_new_vault;
 // `AGENTS_REL_PATH` is consumed through the façade by the property tests.
 #[cfg_attr(not(test), allow(unused_imports))]
-pub(crate) use seed::{seed_hash, set_terminal_command, AGENTS_REL_PATH};
+pub(crate) use seed::{
+    is_untouched_seed_content, remove_untouched_seed_files, seed_hash, set_terminal_command,
+    starter_note_paths, vault_holds_only_untouched_seeds, AGENTS_REL_PATH,
+};
 use seed::{seed_agent_files, seed_settings};
 
 mod watch;

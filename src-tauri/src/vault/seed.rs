@@ -20,58 +20,489 @@ pub fn seed_new_vault(root: &Path) {
     seed(root);
 }
 
-pub(super) fn seed(root: &Path) {
-    // `write_atomic` for the same reason every other vault write uses it
-    // (SUB-224/SUB-431): a crash mid-seed should leave no half-written note
-    // behind for the indexer to pick up. The seed files were the last
-    // `fs::write` holdouts in the engine (SUB-523).
-    let write = |rel: &str, content: &str| {
-        let p = root.join(rel);
-        if let Some(dir) = p.parent() {
-            fs::create_dir_all(dir).ok();
-        }
-        write_atomic(&p, content).ok();
-    };
+/// The starter notes a brand-new vault opens on, in write order.
+///
+/// A table rather than a run of `write` calls so one list is both what `seed`
+/// writes and what [`is_untouched_seed_content`] recognizes — the first-join
+/// adoption (SUB-956) has to be able to say "this file is ours, nobody has
+/// touched it", and a literal buried in a function body cannot answer that.
+///
+/// Each entry carries the **full history** of what the app has ever seeded at
+/// that path, the same way [`SEED_FILES`] does, for the reason the SUB-956
+/// review named (finding 6): a vault seeded by an *older* build is exactly the
+/// belt path's audience — installs predating the first-snapshot deferral — and
+/// judging their demo notes only against today's text made every one of them
+/// read as the user's work and take the conflict UI. Historical texts were
+/// harvested from the release tags (v0.1.0 … v0.22.0), where they lived as
+/// escaped literals in `vault.rs` rather than as files, and frozen under
+/// `src/seed/revisions/` like every other revision.
+///
+/// Paths the app has **retired** are not in this table at all: their history
+/// lives in [`RETIRED_STARTER_NOTES`] as hashes, without the text.
+///
+/// The same **lockstep contract** [`SEED_FILES`] carries applies here, enforced
+/// by the same test: change a starter text and the outgoing one must be frozen
+/// under `src/seed/revisions/`, appended to `prior`, and its hash appended
+/// to the pinned history — never edited in place.
+const STARTER_NOTES: &[StarterNote] = &[
     // The Welcome tutorial (SUB-831) — a guided tour rather than a hotkey
     // list, since the agent files it mentions are concealed and this note is
     // the only place that says so. `include_str!` like the flagship
     // dashboard: multi-section markdown as an escaped literal is unreviewable.
-    // Fresh vaults only (this fn) — never backfilled over an existing Welcome.
-    write("Welcome.md", include_str!("../seed/welcome.md"));
-    write(
-        "Inbox/Capture anything.md",
-        "---\ncreated: 2026-07-17\n---\nThis is the Inbox. ⌘N drops new notes here instantly — file them later by adding them to a database, or don't. This note is safe to delete.\n",
-    );
-    write(
-        "Lisbon.md",
-        "---\ntype: trip\nstatus: done\ndays: 5\ncost: 900\ncreated: 2026-08-03\n---\nSample trip note. Five October days — trams, tiles, one rained-out castle. Photos sorted; [[Kyoto]] reuses this packing list.\n",
-    );
-    write(
-        "Kyoto.md",
-        "---\ntype: trip\nstatus: booked\ndays: 10\ncost: 2400\ncreated: 2026-08-03\n---\nSample trip note. Flights booked for the April cherry-blossom window — same packing list as [[Lisbon]]. Day trip to Nara still undecided.\n",
-    );
-    write(
-        "Dolomites.md",
-        "---\ntype: trip\nstatus: planned\ndays: 7\ncost: 1200\ncreated: 2026-08-03\n---\nSample trip note. Hut-to-hut week, next summer. Waiting on the refuge booking window to open.\n",
-    );
+    // Fresh vaults only — never backfilled over an existing Welcome.
+    StarterNote {
+        rel: "Welcome.md",
+        current: include_str!("../seed/welcome.md"),
+        prior: &[
+            include_str!("../seed/revisions/welcome-v0.1.md"),
+            include_str!("../seed/revisions/welcome-v0.2.md"),
+            include_str!("../seed/revisions/welcome-v0.6.md"),
+            include_str!("../seed/revisions/welcome-v0.20.md"),
+            include_str!("../seed/revisions/welcome-v0.21.md"),
+        ],
+    },
+    StarterNote {
+        rel: "Inbox/Capture anything.md",
+        current:
+            "---\ncreated: 2026-07-17\n---\nThis is the Inbox. ⌘N drops new notes here instantly — file them later by adding them to a database, or don't. This note is safe to delete.\n",
+        prior: &[include_str!("../seed/revisions/capture-anything-v0.1.md")],
+    },
+    StarterNote {
+        rel: "Lisbon.md",
+        current:
+            "---\ntype: trip\nstatus: done\ndays: 5\ncost: 900\ncreated: 2026-08-03\n---\nSample trip note. Five October days — trams, tiles, one rained-out castle. Photos sorted; [[Kyoto]] reuses this packing list.\n",
+        prior: &[],
+    },
+    StarterNote {
+        rel: "Kyoto.md",
+        current:
+            "---\ntype: trip\nstatus: booked\ndays: 10\ncost: 2400\ncreated: 2026-08-03\n---\nSample trip note. Flights booked for the April cherry-blossom window — same packing list as [[Lisbon]]. Day trip to Nara still undecided.\n",
+        prior: &[],
+    },
+    StarterNote {
+        rel: "Dolomites.md",
+        current:
+            "---\ntype: trip\nstatus: planned\ndays: 7\ncost: 1200\ncreated: 2026-08-03\n---\nSample trip note. Hut-to-hut week, next summer. Waiting on the refuge booking window to open.\n",
+        prior: &[],
+    },
     // The flagship dashboard (SUB-788; reading+travel theme SUB-871) and the
     // sheet it reads. Both are `include_str!` rather than escaped literals:
     // they are multi-fence markdown, and a csv/formulas/chart fence written
     // as `\n`-escapes is unreviewable. Everything they bind to ships in this
     // same seed — the three trip notes and the sheet below — so a brand-new
     // vault renders real numbers, not empty states.
-    write("Bookshelf.md", include_str!("../seed/bookshelf.md"));
-    write("Dashboards/Reading & Travel.md", include_str!("../seed/reading-travel.md"));
-    write(
-        "Dashboards/Start Here.md",
-        "---\ntype: dashboard\ndashboard: hub\ncreated: 2026-07-17\n---\n## What a dashboard is\n\n> [!note] The property does it\n> Any note whose frontmatter carries a `dashboard:` property stops rendering as text and becomes a live surface instead. This one is `dashboard: hub` — a page whose body is ordinary markdown, laid out in sections and cards.\n> [!idea] See it with data\n> [[Reading & Travel]] is the other seeded dashboard: `metrics` cards bound to the [[Bookshelf]] sheet's totals, two charts over the trip notes and that sheet, and tabs at the bottom for the sheet itself and the trip database. Nothing outside this vault feeds it.\n> [!note] Other kinds\n> `charts` plots a database on its own, `tasks` is a working board that puts overdue and due-today work first, then what needs attention now, `food` and `feed` are small trackers, and `yield-apr` tracks a series of snapshots. The demo vault in the repo's `examples/vault/` has a working example of each.\n\n## Editing this\n\nThe source is a plain file like every other note — \"Open source note\" in the header opens it in the editor, and this note can be deleted whenever it has served its purpose.\n",
-    );
-    write(
-        "Weeknight Ramen.md",
-        "---\ntype: recipe\ncuisine: japanese\nstatus: keeper\ncreated: 2026-08-03\n---\nSample recipe note. Shoyu base, soft egg, 25 minutes end to end. Doubles fine; the broth freezes well. Picked up on the [[Kyoto]] research binge.\n",
-    );
+    StarterNote {
+        rel: "Bookshelf.md",
+        current: include_str!("../seed/bookshelf.md"),
+        prior: &[],
+    },
+    StarterNote {
+        rel: "Dashboards/Reading & Travel.md",
+        current: include_str!("../seed/reading-travel.md"),
+        prior: &[],
+    },
+    StarterNote {
+        rel: "Dashboards/Start Here.md",
+        current:
+            "---\ntype: dashboard\ndashboard: hub\ncreated: 2026-07-17\n---\n## What a dashboard is\n\n> [!note] The property does it\n> Any note whose frontmatter carries a `dashboard:` property stops rendering as text and becomes a live surface instead. This one is `dashboard: hub` — a page whose body is ordinary markdown, laid out in sections and cards.\n> [!idea] See it with data\n> [[Reading & Travel]] is the other seeded dashboard: `metrics` cards bound to the [[Bookshelf]] sheet's totals, two charts over the trip notes and that sheet, and tabs at the bottom for the sheet itself and the trip database. Nothing outside this vault feeds it.\n> [!note] Other kinds\n> `charts` plots a database on its own, `tasks` is a working board that puts overdue and due-today work first, then what needs attention now, `food` and `feed` are small trackers, and `yield-apr` tracks a series of snapshots. The demo vault in the repo's `examples/vault/` has a working example of each.\n\n## Editing this\n\nThe source is a plain file like every other note — \"Open source note\" in the header opens it in the editor, and this note can be deleted whenever it has served its purpose.\n",
+        prior: &[
+            include_str!("../seed/revisions/start-here-v0.16.md"),
+            include_str!("../seed/revisions/start-here-v0.19.md"),
+        ],
+    },
+    StarterNote {
+        rel: "Weeknight Ramen.md",
+        current:
+            "---\ntype: recipe\ncuisine: japanese\nstatus: keeper\ncreated: 2026-08-03\n---\nSample recipe note. Shoyu base, soft egg, 25 minutes end to end. Doubles fine; the broth freezes well. Picked up on the [[Kyoto]] research binge.\n",
+        prior: &[],
+    },
+];
+
+/// The demo notes the app seeded up to v0.21.0, before the reading-and-travel
+/// set replaced them (SUB-871) — **as hashes, never as text**.
+///
+/// A fresh vault never sees these, but a vault seeded by one of those builds
+/// still holds them, and this is what lets its first join recognize them as the
+/// app's own text rather than the user's.
+///
+/// Hashes rather than text, unlike every other table here, because these are
+/// the one class of seed the app can afford to fingerprint. The stored text
+/// exists to authorize an *overwrite*: [`seed_or_refresh`] byte-compares before
+/// it replaces a file, since a 64-bit collision must never cost a user their
+/// edit. Nothing overwrites a retired path — nothing seeds it, nothing
+/// refreshes it — so the only question ever asked of these entries is
+/// recognition, and the worst a collision can do is let a first join adopt the
+/// remote over a note that happened to hash the same. That join is a full
+/// history adoption, not a silent overwrite: the local text is committed in the
+/// vault's own snapshot and recoverable.
+///
+/// Keeping the text would mean shipping the exact bodies of those demo notes in
+/// the tree, and two of them named real people. The public mirror's privacy
+/// register rejects the tree outright when they are present, and the frozen
+/// bodies cannot be edited to remove the names — byte-identity with what the
+/// app once wrote IS the recognition, so a scrubbed copy would recognize
+/// nothing. Hashes carry the recognition without the bodies.
+///
+/// Same **append-only lockstep contract** as the tables above: a hash here is
+/// history: a vault out there still holds the text that produced it. Append
+/// when a path retires; never edit or drop an entry.
+const RETIRED_STARTER_NOTES: &[RetiredStarterNote] = &[
+    RetiredStarterNote { rel: "Slow Bloom EP.md", revisions: &[0x0f2d_7372_879a_17cb] },
+    RetiredStarterNote {
+        rel: "Vessel Songs.md",
+        revisions: &[0xfbd3_ff60_f5af_c62c, 0x3c95_1611_5fa2_f9eb],
+    },
+    RetiredStarterNote {
+        rel: "Static Bouquet.md",
+        revisions: &[0xb6dd_5688_970f_ac73, 0xd8a0_11e7_55de_d187],
+    },
+    RetiredStarterNote { rel: "Rodec MX180.md", revisions: &[0xc411_bf87_4b6e_6ffd] },
+    // the same body under its renamed path (v0.14.0), hence the same hash
+    RetiredStarterNote { rel: "Rondo MX180.md", revisions: &[0xc411_bf87_4b6e_6ffd] },
+    RetiredStarterNote { rel: "Catalogue.md", revisions: &[0x309e_a147_b0e0_43e4] },
+    RetiredStarterNote { rel: "Dashboards/Yield APR.md", revisions: &[0x3aa8_e9cf_f293_9ded] },
+    RetiredStarterNote {
+        rel: "Dashboards/Label Overview.md",
+        revisions: &[0xc71d_05ca_d827_0078],
+    },
+];
+
+/// One retired starter path: where it lived, and the [`seed_hash`] of every
+/// text the app ever seeded there, oldest first.
+///
+/// The [`StarterNote`] shape minus the text and minus `current` — see
+/// [`RETIRED_STARTER_NOTES`] for why the text is not kept.
+pub(crate) struct RetiredStarterNote {
+    pub rel: &'static str,
+    pub revisions: &'static [u64],
+}
+
+/// One starter note: where it lives, what the app seeds there *today*, and the
+/// full text of every earlier revision it has ever seeded there, oldest first.
+///
+/// The [`SeedFile`] shape exactly. A path the app has since retired moves out
+/// of this table into [`RETIRED_STARTER_NOTES`], which keeps its history as
+/// hashes: nothing writes it and nothing requires it to be present.
+///
+/// Starter notes are never refreshed the way [`SEED_FILES`] are: a vault keeps
+/// whichever demo notes it was born with. The revisions exist only so
+/// [`is_untouched_seed_content`] can tell "the app wrote this" from "the user
+/// wrote this" on a first join.
+pub(crate) struct StarterNote {
+    pub rel: &'static str,
+    pub current: &'static str,
+    pub prior: &'static [&'static str],
+}
+
+impl StarterNote {
+    /// Every text ever shipped at this path, oldest first — `prior` then
+    /// `current`.
+    fn revisions(&self) -> impl Iterator<Item = &'static str> + '_ {
+        self.prior.iter().copied().chain(std::iter::once(self.current))
+    }
+}
+
+pub(super) fn seed(root: &Path) {
+    // `write_atomic` for the same reason every other vault write uses it
+    // (SUB-224/SUB-431): a crash mid-seed should leave no half-written note
+    // behind for the indexer to pick up. The seed files were the last
+    // `fs::write` holdouts in the engine (SUB-523).
+    for note in STARTER_NOTES {
+        let content = note.current;
+        let p = root.join(note.rel);
+        if let Some(dir) = p.parent() {
+            fs::create_dir_all(dir).ok();
+        }
+        write_atomic(&p, content).ok();
+    }
     seed_settings(root);
     seed_agent_files(root);
+}
+
+/// Is the file at `rel` holding `content` something *this app* put there and
+/// nobody has since edited?
+///
+/// The first-join question (SUB-956), asked per path. A phone that seeded a
+/// starter vault and then joined an existing remote has nothing to defend: the
+/// starter notes are the app's own text, not the user's work, so a pull may
+/// adopt the remote's copy over them without asking. Anything the answer is
+/// `false` for — a note the user wrote, a seeded note they edited — still
+/// diverges and still surfaces the conflict UI.
+///
+/// The three answer shapes:
+/// - a [`STARTER_NOTES`] path, byte-identical (modulo [`normalize`]) to *any*
+///   text the app has ever shipped there — including revisions it no longer
+///   ships, and paths it no longer seeds at all, because a vault created by an
+///   older build is exactly this question's audience;
+/// - a [`SEED_FILES`] path, byte-identical to *any* revision ever shipped —
+///   the same rule that authorizes a refresh, so a vault created by an older
+///   build still answers `true`;
+/// - `Settings.md`, whose body matches a shipped revision and whose frontmatter
+///   is the shipped one, give or take `terminal-command`. That one key is the
+///   agent chip on the onboarding screen (SUB-804), written before any sync can
+///   run; treating it as untouched is deliberate — it is a device preference,
+///   and the joining device is adopting the remote's settings note wholesale.
+///   Any other frontmatter change is the user's and blocks adoption.
+///
+/// Everything else — including any path the app does not seed — is `false`.
+pub(crate) fn is_untouched_seed_content(rel: &str, content: &str) -> bool {
+    is_untouched_seed_content_with(rel, content, seed_hash)
+}
+
+/// The body of [`is_untouched_seed_content`]; `hash` is a parameter for the
+/// same reason as in [`seed_or_refresh_with`] — so a test can prove the bytes,
+/// not the fingerprint, are what authorize adoption.
+fn is_untouched_seed_content_with(rel: &str, content: &str, hash: fn(&str) -> u64) -> bool {
+    let on_disk = normalize(content);
+    if let Some(note) = STARTER_NOTES.iter().find(|n| n.rel == rel) {
+        let want = hash(&on_disk);
+        return note.revisions().any(|r| hash(r) == want && normalize(r) == on_disk);
+    }
+    if RETIRED_STARTER_NOTES.iter().any(|n| n.rel == rel) {
+        return matches_a_retired_revision(rel, &on_disk, RETIRED_STARTER_NOTES);
+    }
+    if let Some(f) = SEED_FILES.iter().find(|f| f.rel == rel) {
+        return matches_a_shipped_revision(&on_disk, f.revisions, hash);
+    }
+    if rel == Settings::REL_PATH {
+        return settings_is_untouched(content, SETTINGS_BODY_REVISIONS, hash);
+    }
+    false
+}
+
+/// The retired half of [`is_untouched_seed_content_with`]: does `normalized`
+/// hash to one of the texts the app once shipped at `rel`?
+///
+/// A fingerprint on its own, and only here — see [`RETIRED_STARTER_NOTES`].
+/// Nothing writes a retired path, so there is no overwrite for the bytes to
+/// authorize; the hash-is-a-prefilter rule (SUB-973) has nothing to guard. The
+/// `hash` injected into the caller is deliberately not threaded through: the
+/// ledger's values are [`seed_hash`]'s, and the test that swaps in a colliding
+/// hash is asking about the overwrite seam this arm has no part in.
+///
+/// `ledger` is a parameter so a test can exercise the mechanism against
+/// synthetic text without the production history in the way.
+fn matches_a_retired_revision(rel: &str, normalized: &str, ledger: &[RetiredStarterNote]) -> bool {
+    let want = seed_hash(normalized);
+    ledger.iter().any(|n| n.rel == rel && n.revisions.contains(&want))
+}
+
+/// `Settings.md` split down the same seam [`seed_or_refresh_settings_with`]
+/// uses: the app owns the body, the user owns the frontmatter.
+fn settings_is_untouched(raw: &str, body_revisions: &[&str], hash: fn(&str) -> u64) -> bool {
+    let (Some(fm), body) = split_frontmatter(raw) else {
+        // no frontmatter block at all — the note is the user's entirely
+        return false;
+    };
+    if !matches_a_shipped_revision(&normalize(body), body_revisions, hash) {
+        return false;
+    }
+    frontmatter_is_seeded(fm)
+}
+
+/// The one frontmatter difference a vault can carry before its first sync and
+/// still count as untouched: `terminal-command`, written by the onboarding
+/// agent chip. Every other key must still hold the value the app seeded, and no
+/// key the app never seeded may be present. A missing key is fine — deleting one
+/// just means "default" (the same reading the settings loader uses).
+fn frontmatter_is_seeded(fm: &str) -> bool {
+    // Strict parse, not `parse_props`: that one answers "no props" for a block
+    // it cannot read, and a block nobody can read is a block somebody hand-wrote.
+    let on_disk = match serde_yaml::from_str::<serde_json::Value>(fm) {
+        // an empty block is legitimately zero props
+        Ok(serde_json::Value::Null) => Default::default(),
+        Ok(serde_json::Value::Object(m)) => m,
+        _ => return false,
+    };
+    let shipped = parse_props(split_frontmatter(SETTINGS_FRONTMATTER).0);
+    on_disk.iter().all(|(k, v)| k == "terminal-command" || shipped.get(k) == Some(v))
+}
+
+/// Is this whole vault still nothing but the content the app seeded?
+///
+/// The vault-wide form of [`is_untouched_seed_content`], and the question the
+/// first snapshot asks before it borns HEAD (SUB-956). A vault answering `true`
+/// holds no work: everything in it is the app's own starter text, so a device
+/// joining an existing remote can adopt that remote wholesale instead of
+/// three-way merging demo notes against the user's real vault.
+///
+/// Every path a fresh vault is seeded with: the starter notes, `Settings.md`,
+/// and the agent files — the whole of what [`seed`] writes.
+///
+/// The set [`vault_holds_only_untouched_seeds`] requires to still be *present*
+/// before it vouches for a tree (SUB-956 review, finding 3). Retired starter
+/// paths are not in it: nothing writes them, so requiring them would make every
+/// vault fail.
+fn shipped_seed_paths() -> impl Iterator<Item = &'static str> {
+    STARTER_NOTES
+        .iter()
+        .map(|n| n.rel)
+        .chain(SEED_FILES.iter().map(|f| f.rel))
+        .chain(std::iter::once(Settings::REL_PATH))
+}
+
+/// The demo notes alone — the seeded paths a joining device should not carry
+/// into the user's real vault if the remote does not already have them
+/// (SUB-956 review, finding 4).
+///
+/// Deliberately not every shipped path: `Settings.md` and the agent files are
+/// app furniture a vault is *supposed* to have, and dropping one the remote
+/// happens to lack would strand the joining device without it (SUB-1110).
+///
+/// Retired paths are included: a vault seeded by an older build carries them,
+/// and they are demo notes the remote should not inherit either.
+pub(crate) fn starter_note_paths() -> impl Iterator<Item = &'static str> {
+    STARTER_NOTES.iter().map(|n| n.rel).chain(RETIRED_STARTER_NOTES.iter().map(|n| n.rel))
+}
+
+/// Is this vault-relative path device-local state rather than vault content?
+///
+/// Derived from [`crate::history::EXCLUDE_CONTENT`] — the list that already
+/// decides what git does *not* track in a Substrate-owned vault — so the two
+/// cannot drift (SUB-956 review, finding 2). The earlier form of this filter
+/// skipped every dot-folder, which read `.vault/` as device-local; it is not.
+/// Views, schema, folder bindings, tag folders, mounts, calendars and the
+/// format sidecar all live there, are all git-tracked, and are all written by
+/// ordinary use — so a vault whose other device ever saved a view was both
+/// falsely vouched for and, once the seeds were deleted under it, wedged: the
+/// `safe()` checkout collided with the untracked `.vault/` file, HEAD stayed
+/// unborn, and every retry failed identically. Only the two genuinely
+/// device-local JSON files (notification bookkeeping, launchd run history),
+/// `.assets/`, `.trash/`, `.DS_Store` — and `.git/` itself, which git never
+/// tracks and so never lists — stay out of the walk.
+///
+/// Rules are read the way git reads them: a trailing `/` matches a directory
+/// of that name at any depth and everything under it, a rule with a slash is
+/// one exact location, and a bare name matches that file anywhere.
+fn is_device_local(rel: &str, is_dir: bool) -> bool {
+    let parts: Vec<&str> = rel.split('/').filter(|c| !c.is_empty()).collect();
+    if parts.iter().any(|c| *c == ".git") {
+        return true;
+    }
+    crate::history::EXCLUDE_CONTENT.lines().map(str::trim).filter(|r| !r.is_empty()).any(|rule| {
+        match rule.strip_suffix('/') {
+            Some(dir) => {
+                // the folder itself, or any ancestor folder of this path
+                let depth = if is_dir { parts.len() } else { parts.len().saturating_sub(1) };
+                parts[..depth].contains(&dir) || (is_dir && parts.last() == Some(&dir))
+            }
+            None if rule.contains('/') => !is_dir && rel == rule,
+            None => !is_dir && parts.last() == Some(&rule),
+        }
+    })
+}
+
+/// The walk filter both first-join passes share: vault content only.
+fn walks_vault_content(root: &Path, entry: &walkdir::DirEntry) -> bool {
+    if entry.depth() == 0 {
+        return true;
+    }
+    match entry.path().strip_prefix(root) {
+        Ok(rel) => {
+            !is_device_local(&rel.to_string_lossy().replace('\\', "/"), entry.path().is_dir())
+        }
+        // outside the root we were handed: not ours to look at
+        Err(_) => false,
+    }
+}
+
+/// Everything is walked — **including non-markdown**, so a PDF the user
+/// dropped in before their first sync makes this `false` even though no note
+/// mentions it — except what [`is_device_local`] names.
+///
+/// The first `false` stops the walk: one file the app did not write is enough
+/// to make this a vault worth defending.
+///
+/// Presence is required as well as content (SUB-956 review, finding 3). "No
+/// file the app didn't write" is also true of a vault the user emptied — and
+/// of an empty folder — which would have left HEAD unborn indefinitely, never
+/// capturing those deletions in any history. So the whole shipped seed set has
+/// to still be there: a vault missing even one of its starter notes has been
+/// worked on, borns HEAD as it always did, and reaches its first pull through
+/// the belt path instead.
+pub(crate) fn vault_holds_only_untouched_seeds(root: &Path) -> bool {
+    let mut seen: Vec<String> = Vec::new();
+    for entry in WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|e| walks_vault_content(root, e))
+        .flatten()
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let Ok(rel) = entry.path().strip_prefix(root) else {
+            // outside the root we were handed: not ours to vouch for
+            return false;
+        };
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        // unreadable, or not UTF-8 — nothing the app seeds looks like that, so
+        // it is the user's
+        let Ok(content) = fs::read_to_string(entry.path()) else { return false };
+        if !is_untouched_seed_content(&rel, &content) {
+            return false;
+        }
+        seen.push(rel);
+    }
+    shipped_seed_paths().all(|rel| seen.iter().any(|s| s == rel))
+}
+
+/// Delete the untouched seed files in `root`, clearing the way for a
+/// first-join checkout (SUB-956).
+///
+/// Every file is re-checked against [`is_untouched_seed_content`] *at the
+/// moment it is deleted*, not just once for the tree
+/// ([`vault_holds_only_untouched_seeds`] before the call). The predicate
+/// vouches for a snapshot of the folder, and the folder is live: a note synced
+/// in by another tool, or written by the user, between the vouch and this walk
+/// would otherwise be deleted uncommitted and unrecoverable (SUB-956 review,
+/// finding 1). Anything that is not the app's own text stays exactly where it
+/// is, and the `safe()` checkout that follows collides with it and fails
+/// loudly — the outcome this whole path exists to keep.
+///
+/// Deleting rather than letting the checkout overwrite, for two reasons. A
+/// `safe()` checkout refuses to write over an untracked file at all, so
+/// something has to move first; and a starter note the remote does *not* carry
+/// would otherwise survive the join as a stray demo file in the user's real
+/// vault, which is the opposite of adopting the remote wholesale.
+///
+/// Emptied directories go too, so a joined vault has no hollow `Inbox/` or
+/// `Dashboards/` unless the remote brings one. Best-effort throughout: a file
+/// that will not delete is left, and the checkout that follows reports the
+/// collision.
+///
+/// Walks exactly what the predicate walked ([`walks_vault_content`]) — anything
+/// it declined to inspect is device-local state and stays.
+pub(crate) fn remove_untouched_seed_files(root: &Path) {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for entry in WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|e| walks_vault_content(root, e))
+        .flatten()
+    {
+        if entry.file_type().is_dir() {
+            if entry.depth() > 0 {
+                dirs.push(entry.into_path());
+            }
+            continue;
+        }
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let Ok(rel) = entry.path().strip_prefix(root) else { continue };
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        let Ok(content) = fs::read_to_string(entry.path()) else { continue };
+        if is_untouched_seed_content(&rel, &content) {
+            fs::remove_file(entry.path()).ok();
+        }
+    }
+    // deepest first, so a nested empty dir is gone before its parent is tried;
+    // `remove_dir` refuses a non-empty one, which is the check we want
+    dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+    for dir in dirs {
+        fs::remove_dir(&dir).ok();
+    }
 }
 
 /// Paths of the vault's agent orientation file and of its one seeded skill.
@@ -538,10 +969,51 @@ mod tests {
                 ],
             ),
             (CLAUDE_REL_PATH, &[0xa5e2_3bfd_dbde_1340]),
+            (SETUP_SKILL_REL_PATH, &[0xfc2a_3b78_9d1d_a0e0, 0x39d9_5503_e12c_30f9]),
+        ];
+        // Same contract for the starter notes (SUB-956 review, finding 6). The
+        // history is what lets a vault seeded by an older build be recognized
+        // as untouched on its first join, so dropping an entry here silently
+        // re-opens that gap for one more release's worth of installs. Entries
+        // whose path the app no longer seeds end at their last shipped text.
+        const PINNED_STARTER_REVISIONS: &[(&str, &[u64])] = &[
             (
-                SETUP_SKILL_REL_PATH,
-                &[0xfc2a_3b78_9d1d_a0e0, 0x39d9_5503_e12c_30f9],
+                "Welcome.md",
+                &[
+                    0xe04f_6562_9105_2893,
+                    0x73fe_013b_de43_3198,
+                    0xccc3_4726_96f9_c1a1,
+                    0xcc8b_585b_5a16_ab22,
+                    0x2bd2_325b_1134_928a,
+                    0x98d0_65e0_fa70_d33b,
+                ],
             ),
+            ("Inbox/Capture anything.md", &[0xa9de_dc85_b7cd_f9a2, 0x7225_3363_06b4_eea7]),
+            ("Lisbon.md", &[0xf971_f38d_1a06_464a]),
+            ("Kyoto.md", &[0xafb9_42ab_cb8d_d8ac]),
+            ("Dolomites.md", &[0xa6d0_7eee_d584_4438]),
+            ("Bookshelf.md", &[0x0fe1_16ec_e43c_9ecb]),
+            ("Dashboards/Reading & Travel.md", &[0x5bea_63df_4730_869f]),
+            (
+                "Dashboards/Start Here.md",
+                &[0x3a21_6255_4e2f_2bfe, 0xe366_87f2_af6b_7b39, 0xdc86_97f6_f368_84a7],
+            ),
+            ("Weeknight Ramen.md", &[0xe904_ad0a_a5f3_358c]),
+        ];
+        // Retired paths pin the same way, minus the text-round-trip half: the
+        // production table already *is* hashes, so this copy is what makes an
+        // edit to one of those literals fail rather than silently re-write
+        // history no vault can reproduce.
+        const PINNED_RETIRED_REVISIONS: &[(&str, &[u64])] = &[
+            ("Slow Bloom EP.md", &[0x0f2d_7372_879a_17cb]),
+            ("Vessel Songs.md", &[0xfbd3_ff60_f5af_c62c, 0x3c95_1611_5fa2_f9eb]),
+            ("Static Bouquet.md", &[0xb6dd_5688_970f_ac73, 0xd8a0_11e7_55de_d187]),
+            ("Rodec MX180.md", &[0xc411_bf87_4b6e_6ffd]),
+            // the same body under its renamed path (v0.14.0), hence the same hash
+            ("Rondo MX180.md", &[0xc411_bf87_4b6e_6ffd]),
+            ("Catalogue.md", &[0x309e_a147_b0e0_43e4]),
+            ("Dashboards/Yield APR.md", &[0x3aa8_e9cf_f293_9ded]),
+            ("Dashboards/Label Overview.md", &[0xc71d_05ca_d827_0078]),
         ];
         const PINNED_SETTINGS_BODY_REVISIONS: &[u64] = &[
             0x13f7_700a_e456_15ec,
@@ -585,6 +1057,69 @@ mod tests {
             seen.dedup();
             assert_eq!(seen.len(), f.revisions.len(), "duplicate revision for {}", f.rel);
         }
+        assert_eq!(
+            STARTER_NOTES.len(),
+            PINNED_STARTER_REVISIONS.len(),
+            "a starter note was added or removed: pin its revision history too"
+        );
+        for n in STARTER_NOTES {
+            let (_, pinned) = PINNED_STARTER_REVISIONS
+                .iter()
+                .find(|(rel, _)| *rel == n.rel)
+                .unwrap_or_else(|| panic!("missing pinned revision history for {}", n.rel));
+            let actual = n.revisions().map(|r| seed_hash(r)).collect::<Vec<u64>>();
+            assert!(
+                revision_history_matches_pin(&actual, pinned),
+                "{} revision history changed: retain all {} pinned revisions in order and \
+                 append only — freeze the outgoing text under src/seed/revisions/, append it \
+                 to `prior`, and append its hash here",
+                n.rel,
+                pinned.len()
+            );
+            assert!(!actual.is_empty(), "{} has no shipped text at all", n.rel);
+            assert_eq!(
+                n.revisions().last().map(normalize),
+                Some(normalize(n.current)),
+                "{}'s last revision must be the text the app ships today",
+                n.rel
+            );
+            let mut seen = actual.clone();
+            seen.sort_unstable();
+            seen.dedup();
+            assert_eq!(seen.len(), actual.len(), "duplicate revision for {}", n.rel);
+        }
+        assert_eq!(
+            RETIRED_STARTER_NOTES.len(),
+            PINNED_RETIRED_REVISIONS.len(),
+            "a retired starter note was added or removed: pin its revision history too"
+        );
+        for n in RETIRED_STARTER_NOTES {
+            let (_, pinned) = PINNED_RETIRED_REVISIONS
+                .iter()
+                .find(|(rel, _)| *rel == n.rel)
+                .unwrap_or_else(|| panic!("missing pinned revision history for {}", n.rel));
+            assert!(
+                revision_history_matches_pin(n.revisions, pinned),
+                "{} revision history changed: retain all {} pinned revisions in order and \
+                 append only — a retired path's history is closed, so any change here is a \
+                 mistake",
+                n.rel,
+                pinned.len()
+            );
+            assert!(!n.revisions.is_empty(), "{} has no shipped text at all", n.rel);
+            // Duplicates *across* paths are legal — `Rodec MX180.md` and
+            // `Rondo MX180.md` are the same body at two paths — so only a
+            // repeat within one path's history is a mistake.
+            let mut seen = n.revisions.to_vec();
+            seen.sort_unstable();
+            seen.dedup();
+            assert_eq!(seen.len(), n.revisions.len(), "duplicate revision for {}", n.rel);
+            assert!(
+                !STARTER_NOTES.iter().any(|s| s.rel == n.rel),
+                "{} is both shipped and retired",
+                n.rel
+            );
+        }
         assert!(
             revision_history_matches_pin(
                 &hashes(SETTINGS_BODY_REVISIONS),
@@ -616,6 +1151,99 @@ mod tests {
             seed_hash(SETTINGS_BODY),
             seed_hash(&format!("{SETTINGS_FRONTMATTER}{SETTINGS_BODY}"))
         );
+    }
+
+    /// SUB-956 review, finding 6: the belt's real audience is a vault seeded by
+    /// an *older* build, and before the starter notes carried a history their
+    /// demo notes read as the user's work and took the conflict UI.
+    #[test]
+    fn starter_notes_from_older_builds_are_recognized_as_untouched() {
+        // a revision the app no longer ships, at a path it still seeds
+        assert!(is_untouched_seed_content(
+            "Welcome.md",
+            include_str!("../seed/revisions/welcome-v0.1.md")
+        ));
+        assert!(is_untouched_seed_content(
+            "Dashboards/Start Here.md",
+            include_str!("../seed/revisions/start-here-v0.16.md")
+        ));
+        // an edit to an old revision is still an edit
+        let edited =
+            format!("{}\nmine\n", include_str!("../seed/revisions/welcome-v0.1.md").trim_end());
+        assert!(!is_untouched_seed_content("Welcome.md", &edited));
+    }
+
+    /// The same question for a path the app has **retired** — a pre-v0.22 vault
+    /// still holds those demo notes, and they must read as the app's own text,
+    /// not the user's.
+    ///
+    /// The retired texts themselves are gone (see [`RETIRED_STARTER_NOTES`]), so
+    /// the arm is exercised against synthetic bodies and a test-local ledger.
+    /// That is the stronger test anyway: nothing here can pass by accidentally
+    /// matching some other production revision.
+    #[test]
+    fn retired_starter_notes_are_recognized_by_their_frozen_hash() {
+        let one = "# A retired demo note\n\nOne body the app used to ship.\n";
+        let two = "# A retired demo note\n\nA later body at the same path.\n";
+        // leaked because the production table is a `const` of `'static` slices;
+        // two arrays for the length of one test process is not a leak worth
+        // reshaping the type over
+        let both: &'static [u64] = Box::leak(Box::new([seed_hash(one), seed_hash(two)]));
+        let first: &'static [u64] = Box::leak(Box::new([seed_hash(one)]));
+        let ledger = &[
+            RetiredStarterNote { rel: "Retired.md", revisions: both },
+            // the same body at a second path, as a rename leaves behind
+            RetiredStarterNote { rel: "Nested/Renamed.md", revisions: first },
+        ];
+        let ok = |rel: &str, body: &str| matches_a_retired_revision(rel, &normalize(body), ledger);
+
+        // every text ever shipped at the path answers true, not just the last
+        assert!(ok("Retired.md", one));
+        assert!(ok("Retired.md", two));
+        assert!(ok("Nested/Renamed.md", one));
+        // trailing-newline drift is normalization's job, not a difference
+        assert!(ok("Retired.md", &format!("{}\n\n", one.trim_end())));
+
+        // the ledger is per path: the same text somewhere else is the user's
+        assert!(!ok("Notes/Retired.md", one));
+        assert!(!ok("Nested/Renamed.md", two));
+        // an edit is an edit
+        assert!(!ok("Retired.md", &format!("{}mine\n", one)));
+        // and a path in no ledger at all is never adopted
+        assert!(!ok("Whatever.md", one));
+
+        // the production ledger is wired into the real entry point: a path it
+        // names is answerable there, and one it does not is not
+        assert!(!RETIRED_STARTER_NOTES.is_empty());
+        for n in RETIRED_STARTER_NOTES {
+            assert!(!is_untouched_seed_content(n.rel, one), "{} adopted a stranger's text", n.rel);
+        }
+    }
+
+    /// Retired paths are recognized but never written: a fresh vault must not
+    /// sprout the demo notes v0.21 shipped.
+    #[test]
+    fn retired_starter_paths_are_not_seeded_into_a_fresh_vault() {
+        let root = std::env::temp_dir().join(format!("sub956-retired-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        seed(&root);
+        for n in STARTER_NOTES {
+            assert!(root.join(n.rel).exists(), "{} was not seeded", n.rel);
+        }
+        for n in RETIRED_STARTER_NOTES {
+            assert!(!root.join(n.rel).exists(), "{} was seeded into a fresh vault", n.rel);
+        }
+        // …but they are still swept: the belt a first join runs on drops them
+        for n in RETIRED_STARTER_NOTES {
+            assert!(
+                starter_note_paths().any(|rel| rel == n.rel),
+                "{} would be left behind by a first join",
+                n.rel
+            );
+        }
+        assert!(vault_holds_only_untouched_seeds(&root), "a freshly seeded vault must vouch");
+        let _ = fs::remove_dir_all(&root);
     }
 
     fn revision_history_matches_pin(actual: &[u64], pinned: &[u64]) -> bool {
@@ -674,7 +1302,11 @@ mod tests {
         let stamp = fs::metadata(&abs).unwrap().modified().unwrap();
         seed_or_refresh(&abs, current, &shipped);
         assert_eq!(fs::read_to_string(&abs).unwrap(), current);
-        assert_eq!(fs::metadata(&abs).unwrap().modified().unwrap(), stamp, "rewrote a current file");
+        assert_eq!(
+            fs::metadata(&abs).unwrap().modified().unwrap(),
+            stamp,
+            "rewrote a current file"
+        );
 
         // edited: one appended line means no revision matches, so it stays
         let edited = format!("{old_text}my own notes\n");
@@ -928,7 +1560,10 @@ mod tests {
         // in the refreshed body, never re-added to their frontmatter
         let (fm_after, _) = split_frontmatter(&after);
         assert!(!fm_after.unwrap().contains("close-to-tray"), "a deleted key came back: {after}");
-        assert!(!fm_after.unwrap().contains("terminal-actions"), "a deleted key came back: {after}");
+        assert!(
+            !fm_after.unwrap().contains("terminal-actions"),
+            "a deleted key came back: {after}"
+        );
 
         // the shipped path itself: a current body is left exactly as it is…
         let before = fs::read_to_string(root.join(Settings::REL_PATH)).unwrap();
@@ -982,11 +1617,8 @@ mod tests {
         assert!(raw.contains("Substrate settings"), "settings body lost: {raw}");
 
         // a user-edited note keeps its other props and body
-        fs::write(
-            root.join(Settings::REL_PATH),
-            "---\ncapture-hotkey: cmd+shift+j\n---\nmine\n",
-        )
-        .unwrap();
+        fs::write(root.join(Settings::REL_PATH), "---\ncapture-hotkey: cmd+shift+j\n---\nmine\n")
+            .unwrap();
         set_terminal_command(root, "codex").unwrap();
         let raw = fs::read_to_string(root.join(Settings::REL_PATH)).unwrap();
         assert!(raw.contains("terminal-command: codex"), "{raw}");
@@ -1090,7 +1722,9 @@ mod tests {
         let (e, dir) = temp_vault("seed-welcome");
         let raw = fs::read_to_string(dir.join("Welcome.md")).unwrap();
         // every wikilinked tour stop ships in this seed
-        for stop in ["Lisbon", "Kyoto", "Weeknight Ramen", "Start Here", "Reading & Travel", "Bookshelf"] {
+        for stop in
+            ["Lisbon", "Kyoto", "Weeknight Ramen", "Start Here", "Reading & Travel", "Bookshelf"]
+        {
             assert!(raw.contains(&format!("[[{stop}]]")), "tour names no [[{stop}]]");
             assert!(
                 e.list().iter().any(|n| n.stem == stop),
@@ -1174,7 +1808,8 @@ mod tests {
                 "no card binds {summary}"
             );
             assert!(
-                sheet_body.contains(&format!("{summary} ")) || sheet_body.contains(&format!("{summary}=")),
+                sheet_body.contains(&format!("{summary} "))
+                    || sheet_body.contains(&format!("{summary}=")),
                 "Bookshelf defines no “{summary}” summary — the card would read “—”"
             );
         }

@@ -26,9 +26,12 @@ const seedFile = (name: string) => readFileSync(join(SEED, name), "utf8");
 // files above.
 const SEED_RS = readFileSync(join(SEED, "../vault/seed.rs"), "utf8");
 function seedNoteLiteral(path: string): string {
-  const m = new RegExp(`"${path.replace(".", "\\.")}",\\s*\\n\\s*"((?:[^"\\\\]|\\\\.)*)"`).exec(
-    SEED_RS
-  );
+  // `rel: "<path>",` then the note's text — with `current:` and whatever line
+  // breaks rustfmt decides on in between, which is why the gap is matched
+  // loosely rather than as one fixed newline (SUB-956).
+  const m = new RegExp(
+    `"${path.replace(".", "\\.")}",\\s*(?:current:)?\\s*"((?:[^"\\\\]|\\\\.)*)"`
+  ).exec(SEED_RS);
   if (!m) throw new Error(`seed.rs writes no note at ${path}`);
   return m[1].replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
 }

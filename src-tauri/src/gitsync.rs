@@ -440,7 +440,8 @@ fn pinned_cert_path(repo: &Repository) -> std::path::PathBuf {
 const REWRITE_MARKER: &str = "substrate-sync-rewritten";
 
 /// What someone finding the marker in the git dir needs to know.
-const REWRITE_MARKER_NOTE: &str = "this vault's history was rewritten on this device (purge or trim)\n\
+const REWRITE_MARKER_NOTE: &str =
+    "this vault's history was rewritten on this device (purge or trim)\n\
 the sync remote may still hold the old history; the next successful push deletes this file\n";
 
 /// Record that this vault's history was rewritten on this device. Written
@@ -627,9 +628,7 @@ pub fn sync_push_gated<G>(
     let mut remote = configured_remote(&repo)?;
     let (mut options, rejections) = push_options(auth, pinned_cert(root));
     let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
-    remote
-        .push(&[&refspec], Some(&mut options))
-        .map_err(|e| push_transport_error(&repo, e))?;
+    remote.push(&[&refspec], Some(&mut options)).map_err(|e| push_transport_error(&repo, e))?;
     // A per-ref rejection leaves `push` returning Ok. Fail here, BEFORE the
     // tracking ref moves: writing it would claim the remote has commits it
     // refused, and every later push would compare against that lie and report
@@ -673,7 +672,7 @@ pub fn sync_pull_gated<G>(
     let repo = owned_repo(root)?;
     // Cheap pre-check so an obviously dirty tree fails before we hit the
     // network; the check that actually guards the checkout runs under `gate`.
-    ensure_clean(&repo)?;
+    ensure_clean_for_pull(&repo)?;
     let (branch, _) = current_branch_state(&repo)?;
     let auth = read_auth(root, credentials_path)?;
     let mut remote = configured_remote(&repo)?;
@@ -702,7 +701,7 @@ fn pull_local_phase(
     fetched_branch: &str,
     remote_oid: Oid,
 ) -> Result<SyncReport, String> {
-    ensure_clean(repo)?;
+    ensure_clean_for_pull(repo)?;
     let (branch, local_oid) = current_branch_state(repo)?;
     if branch != fetched_branch {
         return Err("vault sync branch changed mid-pull; try again".into());
@@ -723,6 +722,19 @@ fn pull_local_phase(
         }
         #[cfg(test)]
         run_post_check_race_hook();
+        // First join with the seeds still on disk (SUB-956): the deferral left
+        // HEAD unborn precisely so this arm could run, but a `safe()` checkout
+        // refuses to write over the untracked starter notes sitting there. They
+        // are the app's own text and the remote is about to supersede them, so
+        // clear them first — but only once `vault_holds_only_untouched_seeds`
+        // has vouched for every file in the tree, so a vault carrying anything
+        // the user wrote reaches the unchanged checkout below and still fails
+        // loudly rather than losing work.
+        if let Some(workdir) = repo.workdir() {
+            if crate::vault::vault_holds_only_untouched_seeds(workdir) {
+                crate::vault::remove_untouched_seed_files(workdir);
+            }
+        }
         repo.checkout_tree(
             remote_commit.as_object(),
             Some(CheckoutBuilder::new().safe().recreate_missing(true)),
@@ -796,6 +808,20 @@ fn pull_local_phase(
     let mut merged = repo
         .merge_commits(&local_commit, &remote_commit, None)
         .map_err(|e| format!("vault sync merge failed: {e}"))?;
+    // Belt for the vaults that already borned HEAD on their seeds before the
+    // deferral above existed (SUB-956): take the remote for every conflicted
+    // path whose local side is still untouched starter text, so those vaults
+    // join as quietly as a fresh one does.
+    if merged.has_conflicts() {
+        adopt_untouched_seed_conflicts(repo, &mut merged)?;
+    }
+    // ...and the other half of the same adoption (SUB-956 review, finding 4).
+    // Conflicts are only the starter notes the remote also has. The ones it
+    // does NOT have merge cleanly — as additions — and would ride into the
+    // user's real vault as demo notes, on every device, which is the opposite
+    // of adopting the remote wholesale. The unborn arm deletes them; this
+    // drops them from the merge, so both first-join paths land the same tree.
+    drop_untouched_starter_notes(repo, &mut merged, local_oid, &remote_commit)?;
     if merged.has_conflicts() {
         let conflicted = conflict_paths(&mut merged)?;
         // Choices already made stay made, as long as they still describe the
@@ -1322,6 +1348,113 @@ fn stage_side(index: &mut git2::Index, path: &str, side: &ConflictSide) -> Resul
     index.add(&entry).map_err(|e| format!("vault sync could not stage {path}: {e}"))
 }
 
+/// Resolve, remote-side, every conflict whose local version is still the app's
+/// own untouched starter text (SUB-956).
+///
+/// The belt behind the first-snapshot deferral. That deferral only helps a
+/// vault that has not committed yet; a phone that already snapshotted its
+/// seeds — every install shipped before this change — reaches its first pull
+/// with a born HEAD and an unrelated history, and every seeded path the real
+/// vault also has becomes an add/add conflict between a demo note and the
+/// user's work. Nobody authored either side of that disagreement, so nobody
+/// should be asked to arbitrate it.
+///
+/// Takes THEIRS for exactly those paths, by the same remove-then-stage move
+/// `sync_resolve_finish_gated` makes for a user's `Resolution::Theirs`. A path
+/// whose local side is anything else — user-authored, or not recognizable as a
+/// shipped seed — is left conflicted and surfaces as it always has, so a
+/// half-untouched vault still gets the conflict UI for the half that matters.
+///
+/// The local side is judged from the merge index rather than from disk: a
+/// conflicted pull has not checked anything out, so the index is what the
+/// commit actually holds, and disk could carry an edit not yet snapshotted.
+fn adopt_untouched_seed_conflicts(
+    repo: &Repository,
+    merged: &mut git2::Index,
+) -> Result<(), String> {
+    let mut adopt: Vec<(String, ConflictSide)> = Vec::new();
+    for conflict in
+        merged.conflicts().map_err(|e| format!("vault sync could not list conflicts: {e}"))?
+    {
+        let conflict = conflict.map_err(|e| format!("vault sync could not read conflict: {e}"))?;
+        // Only add/add: a conflict with an ancestor is a real divergence from
+        // shared history, not a first join, whatever the local bytes look like.
+        if conflict.ancestor.is_some() {
+            continue;
+        }
+        let (Some(ours), Some(theirs)) = (conflict.our.as_ref(), conflict.their.as_ref()) else {
+            // one side deleted: not the case this exists for
+            continue;
+        };
+        let path = String::from_utf8_lossy(&ours.path).into_owned();
+        let ours = side(repo, Some(ours))?;
+        let Some(text) = ours.text.as_deref() else {
+            // binary local side — the app seeds no such thing
+            continue;
+        };
+        if crate::vault::is_untouched_seed_content(&path, text) {
+            adopt.push((path, side(repo, Some(theirs))?));
+        }
+    }
+    for (path, theirs) in adopt {
+        merged
+            .remove_path(Path::new(&path))
+            .map_err(|e| format!("vault sync could not clear the conflict on {path}: {e}"))?;
+        stage_side(merged, &path, &theirs)?;
+    }
+    Ok(())
+}
+
+/// Drop the untouched starter notes the remote does not carry, so a first join
+/// through the belt path lands the remote's tree and not the remote's tree plus
+/// three demo notes (SUB-956 review, finding 4).
+///
+/// The mirror of what `remove_untouched_seed_files` does for the unborn arm,
+/// made on the merge index rather than on disk — a conflicted pull checks
+/// nothing out, so the index is the only place the outcome exists yet.
+///
+/// Three things keep it narrow. It runs only on a **first join**: no merge base
+/// at all, the unrelated-histories signature of a seeded vault meeting a real
+/// remote for the first time, so no ordinary pull between two synced devices
+/// can reach it. It considers only the [`vault::starter_note_paths`] demo notes
+/// — never `Settings.md` or the agent files, which a vault is meant to have.
+/// And it drops one only if the merged blob is still byte-identical to the text
+/// the app seeded there; a starter note the user edited is their work and rides
+/// the join like any other note.
+fn drop_untouched_starter_notes(
+    repo: &Repository,
+    merged: &mut git2::Index,
+    local_oid: Oid,
+    remote_commit: &git2::Commit,
+) -> Result<(), String> {
+    if repo.merge_base(local_oid, remote_commit.id()).is_ok() {
+        // shared history: an absent path is a real deletion the merge already
+        // reasons about, not a seed the remote never had
+        return Ok(());
+    }
+    let remote_tree =
+        remote_commit.tree().map_err(|e| format!("vault sync remote tree unavailable: {e}"))?;
+    let mut drop: Vec<String> = Vec::new();
+    for rel in crate::vault::starter_note_paths() {
+        let path = Path::new(rel);
+        if remote_tree.get_path(path).is_ok() {
+            continue;
+        }
+        let Some(entry) = merged.get_path(path, 0) else { continue };
+        let Ok(blob) = repo.find_blob(entry.id) else { continue };
+        let Ok(text) = std::str::from_utf8(blob.content()) else { continue };
+        if crate::vault::is_untouched_seed_content(rel, text) {
+            drop.push(rel.to_string());
+        }
+    }
+    for path in drop {
+        merged
+            .remove_path(Path::new(&path))
+            .map_err(|e| format!("vault sync could not drop the starter note {path}: {e}"))?;
+    }
+    Ok(())
+}
+
 /// Body diff mine → theirs. A missing side becomes an empty blob so a
 /// delete/edit conflict still renders as a whole-file add or removal.
 fn side_diff(
@@ -1541,16 +1674,45 @@ fn current_branch_state(repo: &Repository) -> Result<(String, Option<Oid>), Stri
 }
 
 fn ensure_clean(repo: &Repository) -> Result<(), String> {
+    if working_tree_is_dirty(repo)? {
+        Err("vault sync requires a clean working tree; snapshot pending changes first".into())
+    } else {
+        Ok(())
+    }
+}
+
+/// `ensure_clean` for a pull that may be a first join.
+///
+/// Same rule with one exemption (SUB-956): a repository whose HEAD is still
+/// unborn because the first snapshot was deferred has a working tree full of
+/// untracked starter notes and nothing else. Those files are the app's own
+/// text, so refusing the pull over them would strand the very vault the
+/// deferral exists to let through — the pull is what is about to replace them.
+///
+/// The exemption is as narrow as the deferral it serves. It applies ONLY with
+/// no commits at all, and only while every file in the tree still answers
+/// [`vault::vault_holds_only_untouched_seeds`]; anything the user wrote before
+/// their first sync fails this exactly as before, and every born-HEAD vault
+/// takes the unchanged path above.
+fn ensure_clean_for_pull(repo: &Repository) -> Result<(), String> {
+    if !working_tree_is_dirty(repo)? {
+        return Ok(());
+    }
+    let unborn_on_seeds = repo.head().is_err()
+        && repo.workdir().is_some_and(crate::vault::vault_holds_only_untouched_seeds);
+    if unborn_on_seeds {
+        return Ok(());
+    }
+    Err("vault sync requires a clean working tree; snapshot pending changes first".into())
+}
+
+fn working_tree_is_dirty(repo: &Repository) -> Result<bool, String> {
     let mut options = StatusOptions::new();
     options.include_untracked(true).recurse_untracked_dirs(true);
     let statuses = repo
         .statuses(Some(&mut options))
         .map_err(|e| format!("vault sync could not inspect the working tree: {e}"))?;
-    if statuses.is_empty() {
-        Ok(())
-    } else {
-        Err("vault sync requires a clean working tree; snapshot pending changes first".into())
-    }
+    Ok(!statuses.is_empty())
 }
 
 fn exclusive_commit_count(
@@ -3124,6 +3286,505 @@ mod tests {
         assert_eq!(fs::read(&config).unwrap(), config_before);
         assert_eq!(fs::read_to_string(root.join("mine.md")).unwrap(), "untouched\n");
         assert!(!credentials.exists());
+    }
+
+    /// A bare remote already holding a real vault, plus the vault that pushed
+    /// it — the "other device" a fresh phone is about to join.
+    struct Populated {
+        scratch: TempDir,
+        bare: std::path::PathBuf,
+        /// The pushing vault, kept alive for tests that push again from it.
+        #[allow(dead_code)]
+        a: std::path::PathBuf,
+        #[allow(dead_code)]
+        credentials_a: std::path::PathBuf,
+        #[allow(dead_code)]
+        history_a: History,
+    }
+
+    fn populated_remote(notes: &[(&str, &str)]) -> Populated {
+        let scratch = TempDir::new().unwrap();
+        let bare = scratch.path().join("remote.git");
+        Repository::init_bare(&bare).unwrap();
+        let a = scratch.path().join("a");
+        fs::create_dir_all(&a).unwrap();
+        let history_a = owned(&a);
+        let credentials_a = scratch.path().join("config-a/sync.json");
+        configure(&a, &credentials_a, &bare);
+        for (path, body) in notes {
+            write_note(&a, path, body);
+        }
+        history_a.snapshot("snapshot").unwrap();
+        sync_push(&a, &credentials_a).unwrap();
+        Populated { scratch, bare, a, credentials_a, history_a }
+    }
+
+    /// A brand-new vault as the app makes one: the full starter seed, an owned
+    /// repo, and whatever the boot auto-snapshot thread would do to it.
+    fn fresh_seeded_vault(at: std::path::PathBuf) -> (std::path::PathBuf, History) {
+        fs::create_dir_all(&at).unwrap();
+        crate::vault::seed_new_vault(&at);
+        let history = owned(&at);
+        (at, history)
+    }
+
+    #[test]
+    fn first_join_from_a_freshly_seeded_vault_adopts_the_remote_without_conflicts() {
+        let remote = populated_remote(&[
+            ("Welcome.md", "the real vault's own Welcome\n"),
+            ("Projects/Album.md", "---\ntype: note\n---\nreal work\n"),
+        ]);
+        let (b, history_b) = fresh_seeded_vault(remote.scratch.path().join("b"));
+        let credentials_b = remote.scratch.path().join("config-b/sync.json");
+        configure(&b, &credentials_b, &remote.bare);
+
+        // Option 1: the boot snapshot defers rather than borning HEAD on the
+        // starter notes, so this join has no unrelated history to merge.
+        assert!(!history_b.snapshot("snapshot").unwrap());
+        assert!(Repository::open(&b).unwrap().head().is_err());
+
+        let report = sync_pull(&b, &credentials_b).unwrap();
+
+        assert!(
+            report.conflicted.is_empty(),
+            "fresh join surfaced conflicts: {:?}",
+            report.conflicted
+        );
+        assert_eq!(
+            fs::read_to_string(b.join("Welcome.md")).unwrap(),
+            "the real vault's own Welcome\n"
+        );
+        assert!(b.join("Projects/Album.md").is_file());
+        // starter notes the remote does not carry are gone, not left behind
+        assert!(!b.join("Weeknight Ramen.md").exists());
+        assert!(!b.join("Bookshelf.md").exists());
+        assert_clean(&b);
+
+        // and the joined vault is a normal vault again: HEAD born, snapshots
+        // resume, and it can push back
+        write_note(&b, "Inbox/After join.md", "written after joining\n");
+        assert!(history_b.snapshot("snapshot").unwrap());
+        assert_eq!(sync_push(&b, &credentials_b).unwrap().pushed, 1);
+    }
+
+    /// Today's bad path, reproduced: HEAD already born on the seeds, exactly
+    /// as every install shipped before the deferral existed. Option 2 has to
+    /// carry these vaults, since option 1 can no longer reach them.
+    #[test]
+    fn a_vault_that_already_snapshotted_its_seeds_still_joins_without_conflicts() {
+        let remote = populated_remote(&[
+            ("Welcome.md", "the real vault's own Welcome\n"),
+            ("Projects/Album.md", "---\ntype: note\n---\nreal work\n"),
+        ]);
+        let (b, history_b) = fresh_seeded_vault(remote.scratch.path().join("b"));
+        let credentials_b = remote.scratch.path().join("config-b/sync.json");
+        configure(&b, &credentials_b, &remote.bare);
+
+        // born on the seeds, behind the deferral's back — the pre-SUB-956 state
+        {
+            let repo = Repository::open(&b).unwrap();
+            let mut index = repo.index().unwrap();
+            index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None).unwrap();
+            index.write().unwrap();
+            let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+            let who = git2::Signature::now("Substrate", "substrate@localhost").unwrap();
+            repo.commit(Some("HEAD"), &who, &who, "snapshot", &tree, &[]).unwrap();
+        }
+        assert!(Repository::open(&b).unwrap().head().is_ok());
+
+        let report = sync_pull(&b, &credentials_b).unwrap();
+
+        assert!(
+            report.conflicted.is_empty(),
+            "already-snapshotted seeds surfaced conflicts: {:?}",
+            report.conflicted
+        );
+        assert_eq!(
+            fs::read_to_string(b.join("Welcome.md")).unwrap(),
+            "the real vault's own Welcome\n"
+        );
+        assert!(b.join("Projects/Album.md").is_file());
+        assert_clean(&b);
+        // and the merge landed, so the next push carries it
+        assert!(sync_conflicts(&b).unwrap().files.is_empty());
+        // snapshots keep working on the joined vault
+        write_note(&b, "Inbox/After join.md", "written after joining\n");
+        assert!(history_b.snapshot("snapshot").unwrap());
+    }
+
+    /// Option 2 resolves only the untouched half: a seeded path the user
+    /// actually edited must still reach the conflict UI.
+    #[test]
+    fn an_edited_seed_still_conflicts_while_untouched_ones_adopt() {
+        let remote = populated_remote(&[
+            ("Welcome.md", "the real vault's own Welcome\n"),
+            ("Bookshelf.md", "the real vault's own Bookshelf\n"),
+        ]);
+        let (b, history_b) = fresh_seeded_vault(remote.scratch.path().join("b"));
+        let credentials_b = remote.scratch.path().join("config-b/sync.json");
+        configure(&b, &credentials_b, &remote.bare);
+        // the user typed into one of the starter notes before syncing
+        write_note(&b, "Welcome.md", "I rewrote the welcome note myself\n");
+        assert!(history_b.snapshot("snapshot").unwrap());
+
+        let report = sync_pull(&b, &credentials_b).unwrap();
+
+        assert_eq!(report.conflicted, vec!["Welcome.md".to_string()]);
+        assert_eq!(
+            fs::read_to_string(b.join("Welcome.md")).unwrap(),
+            "I rewrote the welcome note myself\n",
+            "a parked conflict must not touch the working tree"
+        );
+    }
+
+    /// The deferral is a one-way door: one file the app did not write and the
+    /// vault borns HEAD normally, so nothing here may be deleted or adopted
+    /// out from under the user.
+    #[test]
+    fn a_user_written_note_in_a_fresh_vault_still_borns_head_and_survives_the_join() {
+        let remote = populated_remote(&[("Welcome.md", "the real vault's own Welcome\n")]);
+        let (b, history_b) = fresh_seeded_vault(remote.scratch.path().join("b"));
+        let credentials_b = remote.scratch.path().join("config-b/sync.json");
+        configure(&b, &credentials_b, &remote.bare);
+
+        write_note(&b, "Inbox/Mine.md", "something I typed before syncing\n");
+        assert!(history_b.snapshot("snapshot").unwrap());
+        assert!(Repository::open(&b).unwrap().head().is_ok());
+
+        sync_pull(&b, &credentials_b).unwrap();
+
+        // the merge keeps both sides: the user's note and the remote's Welcome
+        assert_eq!(
+            fs::read_to_string(b.join("Inbox/Mine.md")).unwrap(),
+            "something I typed before syncing\n"
+        );
+        assert_eq!(
+            fs::read_to_string(b.join("Welcome.md")).unwrap(),
+            "the real vault's own Welcome\n"
+        );
+    }
+
+    /// The seeded vault as the app actually produces one: booted through the
+    /// real engine, not just `seed_new_vault` (SUB-956 review, finding 2). The
+    /// engine indexes, scans and may persist device state under `.vault/`, and
+    /// the deferral has to survive every bit of that — a helper that skips the
+    /// boot cannot tell us whether it does.
+    #[test]
+    fn a_vault_booted_through_the_real_engine_still_defers_and_joins_clean() {
+        let remote = populated_remote(&[
+            ("Welcome.md", "the real vault's own Welcome\n"),
+            ("Projects/Album.md", "---\ntype: note\n---\nreal work\n"),
+        ]);
+        let b = remote.scratch.path().join("b");
+        // the app's own first boot: seeds, scans, indexes, writes what it writes
+        let engine = crate::vault::Engine::new(b.clone());
+        drop(engine);
+        let history_b = owned(&b);
+        let credentials_b = remote.scratch.path().join("config-b/sync.json");
+        configure(&b, &credentials_b, &remote.bare);
+
+        assert!(
+            crate::vault::vault_holds_only_untouched_seeds(&b),
+            "a booted-but-untouched vault must still read as untouched seeds"
+        );
+        assert!(!history_b.snapshot("snapshot").unwrap());
+        assert!(Repository::open(&b).unwrap().head().is_err());
+
+        let report = sync_pull(&b, &credentials_b).unwrap();
+
+        assert!(
+            report.conflicted.is_empty(),
+            "booted join surfaced conflicts: {:?}",
+            report.conflicted
+        );
+        assert_eq!(
+            fs::read_to_string(b.join("Welcome.md")).unwrap(),
+            "the real vault's own Welcome\n"
+        );
+        assert!(!b.join("Bookshelf.md").exists());
+        assert_clean(&b);
+    }
+
+    /// The lesser case finding 2 names: a `.vault/` file that is vault content
+    /// (a saved view, not device-local noise) is the user's work. It must
+    /// defeat the deferral rather than be walked past — surviving the join
+    /// while every note around it is replaced wholesale is the contradiction.
+    #[test]
+    fn a_saved_view_under_dot_vault_defeats_the_deferral_and_survives() {
+        let remote = populated_remote(&[("Welcome.md", "the real vault's own Welcome\n")]);
+        let (b, history_b) = fresh_seeded_vault(remote.scratch.path().join("b"));
+        let credentials_b = remote.scratch.path().join("config-b/sync.json");
+        configure(&b, &credentials_b, &remote.bare);
+        fs::create_dir_all(b.join(".vault")).unwrap();
+        fs::write(b.join(".vault/views.json"), "{\"views\":[{\"name\":\"Trips\"}]}\n").unwrap();
+
+        assert!(!crate::vault::vault_holds_only_untouched_seeds(&b));
+        assert!(history_b.snapshot("snapshot").unwrap());
+
+        sync_pull(&b, &credentials_b).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(b.join(".vault/views.json")).unwrap(),
+            "{\"views\":[{\"name\":\"Trips\"}]}\n",
+            "the user's saved view must survive a join it was never adopted into"
+        );
+    }
+
+    /// Device-local state under `.vault/` is the other half of that rule: it is
+    /// never anybody's content, so it may not cost a fresh vault its deferral.
+    #[test]
+    fn device_local_dot_vault_state_does_not_defeat_the_deferral() {
+        let scratch = TempDir::new().unwrap();
+        let (b, _history_b) = fresh_seeded_vault(scratch.path().join("b"));
+        fs::create_dir_all(b.join(".vault")).unwrap();
+        fs::write(b.join(".vault/notifications.json"), "[]\n").unwrap();
+        fs::create_dir_all(b.join(".trash")).unwrap();
+        fs::write(b.join(".trash/old.md"), "deleted earlier\n").unwrap();
+        fs::write(b.join(".DS_Store"), "finder\n").unwrap();
+
+        assert!(crate::vault::vault_holds_only_untouched_seeds(&b));
+    }
+
+    /// The predicate vouches for a snapshot of a live folder, and the delete
+    /// walk runs after it. A note that lands in between is uncommitted and
+    /// unrecoverable, so the delete re-checks every file it touches
+    /// (SUB-956 review, finding 1).
+    #[test]
+    fn a_note_written_after_the_vouch_survives_the_seed_delete() {
+        let scratch = TempDir::new().unwrap();
+        let (b, _history_b) = fresh_seeded_vault(scratch.path().join("b"));
+
+        assert!(crate::vault::vault_holds_only_untouched_seeds(&b));
+        // another tool — or the user — writes between the vouch and the walk
+        fs::write(b.join("Welcome.md"), "I rewrote this a second ago\n").unwrap();
+        fs::write(b.join("Inbox/Just typed.md"), "mid-flight\n").unwrap();
+
+        crate::vault::remove_untouched_seed_files(&b);
+
+        assert_eq!(
+            fs::read_to_string(b.join("Welcome.md")).unwrap(),
+            "I rewrote this a second ago\n"
+        );
+        assert_eq!(fs::read_to_string(b.join("Inbox/Just typed.md")).unwrap(), "mid-flight\n");
+        // the genuinely untouched seeds still went
+        assert!(!b.join("Bookshelf.md").exists());
+    }
+
+    /// "Nothing unrecognized" is not enough: a vault the user emptied has
+    /// nothing unrecognized in it either, and adopting a remote wholesale over
+    /// deletions they made is not deferral, it is data loss
+    /// (SUB-956 review, finding 3).
+    #[test]
+    fn an_emptied_or_partial_seed_tree_no_longer_defers() {
+        let scratch = TempDir::new().unwrap();
+
+        let (b, _history_b) = fresh_seeded_vault(scratch.path().join("b"));
+        fs::remove_file(b.join("Welcome.md")).unwrap();
+        assert!(
+            !crate::vault::vault_holds_only_untouched_seeds(&b),
+            "a deleted starter note is a decision, not an untouched seed set"
+        );
+
+        let (c, _history_c) = fresh_seeded_vault(scratch.path().join("c"));
+        for entry in walkdir::WalkDir::new(&c).into_iter().flatten() {
+            if entry.file_type().is_file() {
+                fs::remove_file(entry.path()).ok();
+            }
+        }
+        assert!(
+            !crate::vault::vault_holds_only_untouched_seeds(&c),
+            "an emptied vault holds no seeds to be untouched"
+        );
+
+        let empty = scratch.path().join("empty");
+        fs::create_dir_all(&empty).unwrap();
+        assert!(!crate::vault::vault_holds_only_untouched_seeds(&empty));
+    }
+
+    /// The belt path adopts the remote wholesale, which means the starter notes
+    /// it does NOT carry have to go too. They merge cleanly — as additions —
+    /// so nothing but an explicit drop removes them (SUB-956 review, finding 4).
+    #[test]
+    fn the_belt_path_drops_starter_notes_the_remote_never_had() {
+        let remote = populated_remote(&[
+            ("Welcome.md", "the real vault's own Welcome\n"),
+            ("Projects/Album.md", "---\ntype: note\n---\nreal work\n"),
+        ]);
+        let (b, _history_b) = fresh_seeded_vault(remote.scratch.path().join("b"));
+        let credentials_b = remote.scratch.path().join("config-b/sync.json");
+        configure(&b, &credentials_b, &remote.bare);
+        // born on the seeds: the pre-SUB-956 install the belt exists for
+        {
+            let repo = Repository::open(&b).unwrap();
+            let mut index = repo.index().unwrap();
+            index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None).unwrap();
+            index.write().unwrap();
+            let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+            let who = git2::Signature::now("Substrate", "substrate@localhost").unwrap();
+            repo.commit(Some("HEAD"), &who, &who, "snapshot", &tree, &[]).unwrap();
+        }
+
+        let report = sync_pull(&b, &credentials_b).unwrap();
+
+        assert!(
+            report.conflicted.is_empty(),
+            "belt join surfaced conflicts: {:?}",
+            report.conflicted
+        );
+        // conflicting seeds adopted...
+        assert_eq!(
+            fs::read_to_string(b.join("Welcome.md")).unwrap(),
+            "the real vault's own Welcome\n"
+        );
+        // ...and the non-conflicting ones dropped, so both first-join paths
+        // land the same tree
+        assert!(!b.join("Bookshelf.md").exists());
+        assert!(!b.join("Lisbon.md").exists());
+        assert!(!b.join("Inbox/Capture anything.md").exists());
+        // app furniture is not a demo note: it stays (SUB-1110)
+        assert!(b.join(crate::vault::AGENTS_REL_PATH).is_file());
+        assert!(b.join("Projects/Album.md").is_file());
+        assert_clean(&b);
+    }
+
+    /// The drop is gated on there being no merge base: between two devices that
+    /// already share history, a starter note the remote lacks is a deletion the
+    /// merge reasons about — or a note that was never seeded at all.
+    #[test]
+    fn an_ordinary_pull_never_drops_starter_notes() {
+        let pair = paired_vaults(&[("Shared.md", "base\n")]);
+        // b keeps a starter note, byte-for-byte the seeded text, that the
+        // remote has never seen — only the merge-base gate saves it
+        let elsewhere = TempDir::new().unwrap();
+        let (seeded, _h) = fresh_seeded_vault(elsewhere.path().join("seeded"));
+        let bookshelf = fs::read_to_string(seeded.join("Bookshelf.md")).unwrap();
+        write_note(&pair.b, "Bookshelf.md", &bookshelf);
+        pair.history_b.snapshot("snapshot").unwrap();
+        write_note(&pair.a, "Shared.md", "moved on\n");
+        pair.history_a.snapshot("snapshot").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+
+        sync_pull(&pair.b, &pair.credentials_b).unwrap();
+
+        assert!(
+            pair.b.join("Bookshelf.md").is_file(),
+            "a shared-history pull must not drop a note as if it were a first join"
+        );
+        assert_eq!(fs::read_to_string(pair.b.join("Shared.md")).unwrap(), "moved on\n");
+    }
+
+    /// The wedge finding 2 named, end to end, with the engine doing the writing
+    /// (SUB-956 review; non-negotiable c).
+    ///
+    /// Saving a view is the most ordinary thing a user does before their first
+    /// sync, and it puts real, git-tracked content under `.vault/`. The old walk
+    /// skipped every dot-folder, so the vault was falsely vouched for, its seeds
+    /// were deleted, and the `safe()` checkout then collided with the untracked
+    /// `.vault/views.json` it had walked past — leaving HEAD unborn with the
+    /// seeds already gone, so every retry failed identically. Nothing recovered
+    /// it short of deleting the vault.
+    ///
+    /// Now the same vault simply does not defer: it borns HEAD, joins through
+    /// the belt, keeps its view, and adopts the remote.
+    #[test]
+    fn a_view_saved_through_the_engine_joins_cleanly_instead_of_wedging() {
+        let remote = populated_remote(&[
+            ("Welcome.md", "the real vault's own Welcome\n"),
+            ("Projects/Album.md", "---\ntype: note\n---\nreal work\n"),
+        ]);
+        let b = remote.scratch.path().join("b");
+        // the app's real first boot, then the user saves a view — which is what
+        // actually writes `.vault/views.json` and the `.vault/format.json`
+        // sidecar beside it
+        {
+            let engine = crate::vault::Engine::new(b.clone());
+            engine.create_type("trips", Vec::new()).unwrap();
+            engine
+                .set_view_pref(
+                    "trips", "table", None, None, None, None, None, None, None, None, None, None,
+                )
+                .unwrap();
+        }
+        assert!(b.join(".vault/views.json").is_file(), "the engine did not write the view file");
+        let history_b = owned(&b);
+        let credentials_b = remote.scratch.path().join("config-b/sync.json");
+        configure(&b, &credentials_b, &remote.bare);
+
+        // `.vault/` is tracked content, so the saved view is work: no deferral
+        assert!(!crate::vault::vault_holds_only_untouched_seeds(&b));
+        assert!(history_b.snapshot("snapshot").unwrap(), "HEAD must born on real work");
+        assert!(Repository::open(&b).unwrap().head().is_ok());
+
+        let report = sync_pull(&b, &credentials_b).unwrap();
+
+        assert!(
+            report.conflicted.is_empty(),
+            "engine-written view surfaced conflicts: {:?}",
+            report.conflicted
+        );
+        // the remote's vault adopted...
+        assert_eq!(
+            fs::read_to_string(b.join("Welcome.md")).unwrap(),
+            "the real vault's own Welcome\n"
+        );
+        assert!(b.join("Projects/Album.md").is_file());
+        assert!(!b.join("Bookshelf.md").exists());
+        // ...and the user's saved view still there, never walked past, never
+        // deleted, never collided with
+        assert!(b.join(".vault/views.json").is_file(), "the saved view was lost on join");
+        assert!(
+            fs::read_to_string(b.join(".vault/views.json")).unwrap().contains("trips"),
+            "the saved view was replaced rather than kept"
+        );
+        assert_clean(&b);
+        // and it is a normal vault afterwards — the wedge was that it wasn't
+        write_note(&b, "Inbox/After join.md", "written after joining\n");
+        assert!(history_b.snapshot("snapshot").unwrap());
+        // three: this vault's own seed commit, the merge that joined, and the
+        // note just written — the belt path keeps its history rather than
+        // adopting the remote's wholesale the way the unborn arm does
+        assert_eq!(sync_push(&b, &credentials_b).unwrap().pushed, 3);
+    }
+
+    /// The delete walk's half of the same rule, directly: even a vault that did
+    /// somehow reach the removal must not have its `.vault/` content deleted,
+    /// and the genuinely device-local files there must not survive to collide.
+    #[test]
+    fn the_seed_delete_leaves_dot_vault_content_alone() {
+        let scratch = TempDir::new().unwrap();
+        let b = scratch.path().join("b");
+        {
+            let engine = crate::vault::Engine::new(b.clone());
+            engine.create_type("trips", Vec::new()).unwrap();
+            engine
+                .set_view_pref(
+                    "trips", "table", None, None, None, None, None, None, None, None, None, None,
+                )
+                .unwrap();
+        }
+        fs::write(b.join(".vault/notifications.json"), "[]\n").unwrap();
+
+        crate::vault::remove_untouched_seed_files(&b);
+
+        assert!(b.join(".vault/views.json").is_file(), "tracked view content was deleted");
+        assert!(
+            b.join(".vault/notifications.json").is_file(),
+            "device-local state is not the seed walk's to delete"
+        );
+        // the seeds themselves still went
+        assert!(!b.join("Bookshelf.md").exists());
+        assert!(!b.join("Welcome.md").exists());
+    }
+
+    #[test]
+    fn a_non_markdown_file_defeats_the_first_join_deferral() {
+        let scratch = TempDir::new().unwrap();
+        let (b, history_b) = fresh_seeded_vault(scratch.path().join("b"));
+        // an image dropped in before the first sync is work too, even though
+        // no note mentions it
+        fs::write(b.join("scan.png"), [0x89u8, b'P', b'N', b'G', 0x0d]).unwrap();
+        assert!(!crate::vault::vault_holds_only_untouched_seeds(&b));
+        assert!(history_b.snapshot("snapshot").unwrap());
     }
 }
 

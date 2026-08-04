@@ -256,11 +256,42 @@ impl History {
         self.git(&["rev-parse", "--verify", "-q", "HEAD"]).is_ok()
     }
 
+    /// Would this snapshot born HEAD on nothing but the app's own starter
+    /// content?
+    ///
+    /// The first-join deferral (SUB-956). A vault that has never been
+    /// snapshotted and holds only untouched seeds has no history worth
+    /// starting: leaving HEAD unborn is what lets the first sync pull take
+    /// `pull_local_phase`'s initial-pull arm and adopt the remote wholesale,
+    /// instead of three-way merging demo notes against the user's real vault
+    /// and presenting a screen of conflicts nobody caused.
+    ///
+    /// Deliberately narrow. It answers `true` only while BOTH halves hold, and
+    /// each is a one-way door: the moment the user writes anything the content
+    /// stops being seed-only, and the moment any commit exists — a first real
+    /// edit, or the adoption itself — HEAD is born and this never fires again.
+    /// A vault with commits is therefore untouched by this change, which is the
+    /// zero-behaviour-change guarantee for every existing vault.
+    fn defer_first_snapshot(&self) -> bool {
+        !self.head_is_born() && crate::vault::vault_holds_only_untouched_seeds(&self.root)
+    }
+
+    /// Does HEAD point at a commit?
+    ///
+    /// Read off the repository rather than through either git implementation so
+    /// [`defer_first_snapshot`](Self::defer_first_snapshot) asks the same
+    /// question on desktop and mobile. An unborn HEAD is a `.git/HEAD` naming a
+    /// branch ref that does not exist yet, which is exactly the state the
+    /// deferral is protecting.
+    fn head_is_born(&self) -> bool {
+        git2::Repository::open(&self.root).is_ok_and(|repo| repo.head().is_ok())
+    }
+
     /// Stage everything and commit if anything changed. Returns whether a
     /// commit was created. Foreign repo: never stages, never commits.
     #[cfg(mobile)]
     pub fn snapshot(&self, label: &str) -> Result<bool, String> {
-        if !self.enabled {
+        if !self.enabled || self.defer_first_snapshot() {
             return Ok(false);
         }
         crate::gitsync::history_snapshot(&self.root, label)
@@ -270,7 +301,7 @@ impl History {
     /// commit was created. Foreign repo: never stages, never commits.
     #[cfg(not(mobile))]
     pub fn snapshot(&self, label: &str) -> Result<bool, String> {
-        if !self.enabled {
+        if !self.enabled || self.defer_first_snapshot() {
             return Ok(false);
         }
         self.git(&["add", "-A", "."])?;
