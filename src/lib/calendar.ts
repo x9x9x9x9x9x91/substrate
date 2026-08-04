@@ -1,6 +1,7 @@
 import { byFoldedKey, propSchemaFor, typeSchemaFor } from "./schemalookup.ts";
 import type { NoteMeta, SchemaConfig } from "./types.ts";
 import { foldedPropKey, foldedPropStr, FUNCTIONAL_TYPES, propStr } from "./types.ts";
+import { DAY_MIN, minutesToTime, timeToMinutes } from "./weekgrid.ts";
 
 /** One note placed on one day of the calendar. `prop` names the frontmatter
     key that carries the date — it is what a drag to another day rewrites. */
@@ -130,6 +131,44 @@ export function dateRangeValue(
   };
   const [a, b] = cmpDayTime(finish, start) < 0 ? [finish, start] : [start, finish];
   return `${fmtDayTime(a)}/${fmtDayTime(b)}`;
+}
+
+/** The end a spanning entry keeps when its start moves to `to` (SUB-1015).
+    The span holds its LENGTH: when both the stored endpoints and the new
+    start carry times, the duration is preserved to the minute — an 8-hour
+    block dropped on the timed canvas stays 8 hours, rolling past midnight
+    into the next day when it must. Day-only spans (and drops that leave the
+    start untimed) keep the older whole-days behavior: the end travels the
+    same number of days and its own time rides along verbatim. Returns null
+    for a non-span or an unparseable endpoint. */
+export function shiftedRangeEnd(
+  span: { day: string; time?: string | null; endDay?: string; endTime?: string | null },
+  to: { day: string; time?: string | null }
+): { day: string; time?: string } | null {
+  if (!span.endDay) return null;
+  const from = parseDay(span.day);
+  const target = parseDay(to.day);
+  const end = parseDay(span.endDay);
+  if (!from || !target || !end) return null;
+  const startMin = span.time ? timeToMinutes(span.time) : null;
+  const endMin = span.endTime ? timeToMinutes(span.endTime) : null;
+  const newStartMin = to.time ? timeToMinutes(to.time) : null;
+  if (startMin !== null && endMin !== null && newStartMin !== null) {
+    const spanDays = Math.round((end.getTime() - from.getTime()) / 86400000);
+    const duration = spanDays * DAY_MIN + endMin - startMin;
+    // a stored value can't end before it starts (splitDateRange rejects it),
+    // but the drag state isn't proof — fall through rather than invert
+    if (duration >= 0) {
+      const total = newStartMin + duration;
+      const dayDelta = Math.floor(total / DAY_MIN);
+      return {
+        day: isoDay(addDays(target, dayDelta)),
+        time: minutesToTime(total - dayDelta * DAY_MIN),
+      };
+    }
+  }
+  const deltaDays = Math.round((target.getTime() - from.getTime()) / 86400000);
+  return { day: isoDay(addDays(end, deltaDays)), time: span.endTime ?? undefined };
 }
 
 /** Parse a date prop value, range-aware (SUB-596). The grammar is the SUB-270

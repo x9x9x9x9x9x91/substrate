@@ -19,6 +19,7 @@ import {
   overdueEntries,
   parseDay,
   parseRepeat,
+  shiftedRangeEnd,
   splitDateRange,
   splitDayTime,
   startOfWeek,
@@ -792,6 +793,62 @@ test("dateRangeValue: the three same-day reversals write a parseable range (SUB-
     assert.equal(entries.length, 1, `${v} must still land on the calendar`);
     assert.equal(entries[0].day, "2026-09-01");
   }
+});
+
+test("shiftedRangeEnd: a timed span holds its duration to the minute (SUB-1015)", () => {
+  const block = { day: "2026-08-10", time: "09:00", endDay: "2026-08-10", endTime: "17:00" };
+  // canvas drop an hour later — still 8 hours, not 7
+  assert.deepEqual(shiftedRangeEnd(block, { day: "2026-08-10", time: "10:00" }), {
+    day: "2026-08-10",
+    time: "18:00",
+  });
+  // dropped past its own stored end — must NOT invert into a 1-hour block
+  assert.deepEqual(shiftedRangeEnd(block, { day: "2026-08-10", time: "18:00" }), {
+    day: "2026-08-11",
+    time: "02:00",
+  });
+  // the late drop's value round-trips as a real range
+  const v = dateRangeValue("2026-08-10", "18:00", { day: "2026-08-11", time: "02:00" });
+  assert.equal(v, "2026-08-10 18:00/2026-08-11 02:00");
+  assert.ok(splitDateRange(v));
+  // a cross-day timed span shifts both halves of the delta
+  assert.deepEqual(
+    shiftedRangeEnd(
+      { day: "2026-08-10", time: "20:00", endDay: "2026-08-12", endTime: "06:00" },
+      { day: "2026-08-11", time: "21:30" }
+    ),
+    { day: "2026-08-13", time: "07:30" }
+  );
+});
+
+test("shiftedRangeEnd: day-only spans and untimed drops keep whole-day shifts", () => {
+  // day-only span: end travels the same number of days
+  assert.deepEqual(
+    shiftedRangeEnd({ day: "2026-08-10", endDay: "2026-08-13" }, { day: "2026-08-15" }),
+    { day: "2026-08-18", time: undefined }
+  );
+  // month-cell drop keeps the value's time verbatim on the end (time rides along)
+  assert.deepEqual(
+    shiftedRangeEnd(
+      { day: "2026-08-10", time: "09:00", endDay: "2026-08-10", endTime: "17:00" },
+      { day: "2026-08-12" }
+    ),
+    { day: "2026-08-12", time: "17:00" }
+  );
+  // all-day-strip drop (time cleared): whole-day shift, end time preserved
+  assert.deepEqual(
+    shiftedRangeEnd(
+      { day: "2026-08-10", time: "09:00", endDay: "2026-08-11", endTime: "17:00" },
+      { day: "2026-08-10", time: null }
+    ),
+    { day: "2026-08-11", time: "17:00" }
+  );
+  // non-span and unparseable endpoints stay null
+  assert.equal(shiftedRangeEnd({ day: "2026-08-10" }, { day: "2026-08-12" }), null);
+  assert.equal(
+    shiftedRangeEnd({ day: "2026-08-10", endDay: "bogus" }, { day: "2026-08-12" }),
+    null
+  );
 });
 
 test("dateRangeValue: two same-day times out of order swap (SUB-631)", () => {

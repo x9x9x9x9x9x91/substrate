@@ -21,6 +21,7 @@ import {
   monthTitle,
   overdueEntries,
   parseDay,
+  shiftedRangeEnd,
   splitDateRange,
   splitDayTime,
   statusSchemaFor,
@@ -699,22 +700,12 @@ export default function CalendarPane({
     end?: { day: string; time?: string } | null
   ) => dateRangeValue(day, time, end);
 
-  /** the end a spanning entry keeps when its start day moves to `to`: the
-      span holds its length, so a dragged trip stays as long as it was. Only
-      a span's FIRST day is draggable (see `isAnchor`), so `span.day` is
-      always the range's start and the delta is unambiguous. */
-  const shiftedEnd = (
-    span: { day: string; endDay?: string; endTime?: string },
-    to: string
-  ): { day: string; time?: string } | null => {
-    if (!span.endDay) return null;
-    const from = parseDay(span.day);
-    const target = parseDay(to);
-    const end = parseDay(span.endDay);
-    if (!from || !target || !end) return null;
-    const deltaDays = Math.round((target.getTime() - from.getTime()) / 86400000);
-    return { day: isoDay(addDays(end, deltaDays)), time: span.endTime };
-  };
+  /** the end a spanning entry keeps when its start moves: the span holds its
+      length — to the minute when both ends and the new start are timed
+      (SUB-1015), by whole days otherwise. Only a span's FIRST day is
+      draggable (see `isAnchor`), so `span.day` is always the range's start
+      and the delta is unambiguous. Pure math in calendar.ts. */
+  const shiftedEnd = shiftedRangeEnd;
 
   const moveEntryTo = (
     path: string,
@@ -758,8 +749,9 @@ export default function CalendarPane({
     if (!d) return;
     const next = time === undefined ? d.time : (time ?? undefined);
     if (d.day === day && (d.time ?? null) === (next ?? null)) return;
-    // a span moves whole (SUB-596): the end travels the same number of days
-    moveEntryTo(d.path, d.prop, day, next, shiftedEnd(d, day));
+    // a span moves whole (SUB-596): the end travels with the start, holding
+    // the duration to the minute on a timed canvas drop (SUB-1015)
+    moveEntryTo(d.path, d.prop, day, next, shiftedEnd(d, { day, time: next }));
   };
 
   /* ----- entry peek writes — the same IPC the drag/chip paths use ----- */
@@ -777,8 +769,13 @@ export default function CalendarPane({
       ? { day: picked.end.day, time: picked.end.time ?? undefined }
       : stored?.end
         ? shiftedEnd(
-            { day: stored.start.day, endDay: stored.end.day, endTime: stored.end.time ?? undefined },
-            picked.start.day
+            {
+              day: stored.start.day,
+              time: stored.start.time,
+              endDay: stored.end.day,
+              endTime: stored.end.time ?? undefined,
+            },
+            picked.start
           )
         : null;
     moveEntryTo(e.path, e.prop, picked.start.day, picked.start.time, end);
