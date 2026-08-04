@@ -81,7 +81,15 @@ export function daysInMonth(y: number, m: number): number {
   return new Date(y, m, 0).getDate();
 }
 
-const DOTTED_DATE_RE = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/;
+const DOTTED_DATE_RE = /^(\d{1,2})\.(\d{1,2})\.(\d{4}|\d{2})$/;
+
+/** Two-digit years use the POSIX pivot: 69–99 → 19xx, 00–68 → 20xx. Without
+    this the dotted branch misses "7.8.26" and the input falls through to
+    Date.parse, which reads dotted dates MONTH-first — the day and month
+    silently transpose whenever the day is ≤ 12 (SUB-1029). */
+function expandYear(y: number): number {
+  return y >= 100 ? y : y >= 69 ? 1900 + y : 2000 + y;
+}
 const ISO_SHAPED_RE = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s]|$)/;
 const MONTH_DAY_RE = /^([a-z]+)\s+(\d{1,2})(?:,?\s+(\d{4}))?$/i;
 const DAY_MONTH_RE = /^(\d{1,2})\s+([a-z]+)(?:,?\s+(\d{4}))?$/i;
@@ -101,7 +109,8 @@ function monthFromName(name: string): number | null {
 }
 
 /** Loose text → ISO: accepts ISO itself, dotted day-first dates
-    ("7.8.2026" → 2026-08-07), month-name + day forms ("jul 17", "17 jul",
+    ("7.8.2026" → 2026-08-07; two-digit years pivot, "7.8.26" → 2026-08-07),
+    month-name + day forms ("jul 17", "17 jul",
     optional year), else anything Date.parse takes. ISO-shaped input keeps
     its written calendar date — the date component is validated and taken
     as-is, never routed through Date.parse, which would roll invalid days
@@ -118,7 +127,8 @@ export function parseDateLoose(text: string): string | null {
   if (isIsoDate(t)) return t;
   const dotted = DOTTED_DATE_RE.exec(t);
   if (dotted) {
-    const [, d, m, y] = dotted.map(Number);
+    const [, d, m, rawY] = dotted.map(Number);
+    const y = expandYear(rawY);
     if (m < 1 || m > 12 || d < 1 || d > daysInMonth(y, m)) return null;
     return toIso(y, m, d);
   }

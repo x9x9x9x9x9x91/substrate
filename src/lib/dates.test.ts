@@ -75,6 +75,20 @@ test("parseDateLoose: dotted dates are day-first", () => {
   assert.equal(parseDateLoose("1.13.2026"), null);
 });
 
+test("parseDateLoose: two-digit dotted years stay day-first (SUB-1029)", () => {
+  // pre-fix these fell through to Date.parse, which reads dotted input
+  // MONTH-first — "7.8.26" committed July 8 instead of August 7
+  assert.equal(parseDateLoose("7.8.26"), "2026-08-07");
+  assert.equal(parseDateLoose("07.08.26"), "2026-08-07");
+  assert.equal(parseDateLoose("1.2.26"), "2026-02-01");
+  assert.equal(parseDateLoose("31.12.25"), "2025-12-31", "day > 12 parses instead of rejecting");
+  assert.equal(parseDateLoose("29.2.24"), "2024-02-29", "leap check uses the expanded year");
+  assert.equal(parseDateLoose("29.2.26"), null);
+  assert.equal(parseDateLoose("1.7.99"), "1999-07-01", "69–99 pivot to 19xx");
+  assert.equal(parseDateLoose("1.7.68"), "2068-07-01", "00–68 pivot to 20xx");
+  assert.deepEqual(parseDateTimeLoose("7.8.26 14:30"), { day: "2026-08-07", time: "14:30" });
+});
+
 test("parseDateLoose: invalid ISO-shaped input is rejected, not rolled over", () => {
   assert.equal(parseDateLoose("2026-02-30"), null);
   assert.equal(parseDateLoose("2026-13-01"), null);
