@@ -15,6 +15,7 @@ import { parseSnapshotsFromBody } from "../src/lib/dashboard.ts";
 import { buildTasksDashboard } from "../src/lib/tasksDashboard.ts";
 import type { NoteMeta } from "../src/lib/types.ts";
 import { GLYPH_IDS, ICON_TINTS } from "../src/lib/dbicons.ts";
+import { BUILT_IN_KINDS } from "../src/lib/kinds.ts";
 
 // The example vault (examples/vault/) ships in the repo as the runnable demo
 // for docs/dashboards.md. This suite parses every file through the same lib
@@ -145,8 +146,13 @@ test("the seed's documented view example parses to the keys it claims (SUB-474)"
   assert.deepEqual(spec, { type: "trip", query: "status:planned", view: "table" });
 });
 
+// BUILT_IN_KINDS rather than a hand-copied set (SUB-1021): the copy had
+// already drifted from it. Reading the constant also makes the check honest
+// in the public mirror, where the machine-specific kinds are stripped out of
+// it — a demo dashboard on a private kind would ship a note that build cannot
+// render, and this now fails instead of passing against a stale list.
 test("dashboard kinds are ones the app dispatches", () => {
-  const kinds = new Set(["metrics", "yield-apr", "sync", "music", "hub", "food", "coding", "feed", "music-work", "tasks", "charts"]);
+  const kinds = BUILT_IN_KINDS;
   const dashboards = notes.filter((n) => n.props["type"] === "dashboard");
   assert.equal(dashboards.length, 10);
   for (const n of dashboards) {

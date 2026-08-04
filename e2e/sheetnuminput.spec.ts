@@ -39,9 +39,12 @@ test("sheet cells normalize German-typed numbers at commit (SUB-915)", async ({ 
   // value_usd = 1200 × 1234.56 — only right if the comma form became a number
   await expect(cell(page, 0, 4)).toHaveText("1.481.472");
 
-  // grouped integer: the shape the app itself renders → 1234, NOT 1.234
+  // grouped integer: the shape the app itself renders → 1234, NOT 1.234.
+  // Rendered "1.234,00" because price_usd carries fractions elsewhere in the
+  // column (92,5) and the column formats as one regime (SUB-1000) — a
+  // mis-parse of the input would still show here as "1,23".
   await commitCell(page, 0, 3, "1.234");
-  await expect(cell(page, 0, 3)).toHaveText("1234");
+  await expect(cell(page, 0, 3)).toHaveText("1.234,00");
   await expect(cell(page, 0, 4)).toHaveText("1.480.800");
 
 });

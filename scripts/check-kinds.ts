@@ -44,11 +44,16 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { blankNonCode, matchDelim } from "./check-ipc.ts";
+import { RESERVED_KINDS } from "../src/lib/kinds.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-/** Built-in names that exist to be un-shadowable, not to be dispatched. */
-export const RESERVED_KINDS: ReadonlySet<string> = new Set(["charts"]);
+/** Built-in names that exist to be un-shadowable, not to be dispatched. Owned
+    by src/lib/kinds.ts since SUB-1021 — the dispatch tail needs the same set
+    at runtime to tell a legitimate fall-through from a missing renderer, and
+    two copies of it would be one more inventory to drift. Re-exported because
+    the failures below name it and the tests import it from here. */
+export { RESERVED_KINDS };
 
 /**
  * Dispatched kinds that deliberately keep the generic chart glyph. Empty on
@@ -351,7 +356,7 @@ export function crossCheck(inv: Inventories): string[] {
     if (!dispatched.has(k)) {
       problems.push(
         `dispatch: BUILT_IN_KINDS claims "${k}" but DashboardBody never dispatches it — ` +
-          `add the branch, or add it to RESERVED_KINDS in scripts/check-kinds.ts`
+          `add the branch, or add it to RESERVED_KINDS in src/lib/kinds.ts`
       );
       continue;
     }

@@ -40,6 +40,20 @@ export const BUILT_IN_KINDS: ReadonlySet<string> = new Set([
   "charts",
 ]);
 
+/** Built-in names that exist to be un-shadowable rather than to be dispatched:
+    real `dashboard:` values with no branch of their own, because they name a
+    renderer the dispatch chain already ends in. `charts` is the whole set —
+    it names the ` ```chart `-fence dashboard (§5.5), so a branch for it would
+    be dead code.
+
+    Lives here rather than only in the drift checker (SUB-1021) because the END
+    of that chain has to tell two cases apart at runtime: a reserved name
+    reaching the fallback is the design, any OTHER built-in reaching it is a
+    renderer that never landed. scripts/check-kinds.ts imports this constant,
+    so the reserved set is written once and the app and the checker cannot
+    disagree about which fall-through is legitimate. */
+export const RESERVED_KINDS: ReadonlySet<string> = new Set(["charts"]);
+
 /** ctx contract version this build speaks, and the oldest it still mounts.
     A manifest above `KIND_API` needs a newer Substrate (the refuse-newer
     posture of vault-format §5b); below `KIND_API_MIN` is a kind written for
@@ -85,6 +99,32 @@ export function resolveDashboardKind(kind: string | undefined): DashboardDispatc
     dispatch: "unknown",
     kind: name,
     message: `unknown dashboard kind “${name}” — known kinds: ${knownKindList()}`,
+  };
+}
+
+/** What the tail of the dispatch chain should render for a built-in that got
+    all the way there (SUB-1021). */
+export type DashboardTail =
+  | { tail: "fallback" }
+  | { tail: "missing-renderer"; kind: string; message: string };
+
+/** Decide the tail. A RESERVED name belongs there — it has no branch by
+    design. Anything else arrived because BUILT_IN_KINDS names a kind whose
+    renderer was never wired, and the honest answer is a card saying so:
+    falling through to the chart-fence dashboard shows an empty chart shell,
+    which reads as "a dashboard with no data yet" rather than "this build
+    cannot render this", and that is the one wrong answer the unrecognized-
+    thing posture (SUB-993) exists to refuse.
+
+    scripts/check-kinds.ts fails `npm test` on exactly this gap, so the card
+    should be unreachable in a shipped build. It is the belt to that gate's
+    braces: the gate reads the source, this reads what actually ran. */
+export function resolveDispatchTail(kind: string): DashboardTail {
+  if (RESERVED_KINDS.has(kind)) return { tail: "fallback" };
+  return {
+    tail: "missing-renderer",
+    kind,
+    message: `dashboard kind “${kind}” has no renderer in this build — it is a built-in name with no branch behind it`,
   };
 }
 

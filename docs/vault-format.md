@@ -2143,9 +2143,29 @@ the background.
   by view id and carrying the vault path — never in the vault, because an
   export path is true for exactly one machine and `.vault/` syncs. Removing
   the pin drops the record; the folder on disk stays.
+- **The destination must be outside the vault** (SUB-1009). A link folder in
+  the vault is derived data in the one tree that syncs: the vault's git
+  history would carry symlinks whose targets are absolute paths true on
+  exactly one machine, so every other device restores them broken. The export
+  is refused — before anything is created — when the destination canonicalizes
+  to a path under the vault root, including reaching it through a symlink from
+  outside. A folder merely *named* like the vault's sibling (`…/vault-exports`
+  next to `…/vault`) is not inside it and is allowed.
 - Sync/backup pipelines should skip these folders — they are derived, and
   following the links would duplicate vault content. The marker file is the
-  reliable thing to exclude on.
+  reliable thing to exclude on. A sync tool with an *exclude-if-present*
+  rule (`--exclude-if-present .substrate-view` and equivalents) drops the
+  whole directory wherever the marker appears, without the pipeline having to
+  know any export path — which is the point of keying on the marker rather
+  than on a path, since the destination is the user's choice and device-local.
+  Two things soften the risk in the meantime: most sync tools skip symlinks
+  unless explicitly told to follow them (so a leg that never asked for
+  `--copy-links`/`--links` copies only the empty shell today), and backup
+  software that stores symlinks verbatim rather than following them
+  duplicates nothing either. Both are incidental, not guarantees — the
+  marker exclude is what makes the protection declared. Where a backup tool
+  can only exclude by path, excluding the folder is optional: it is
+  regenerable, and nothing in it is user data.
 
 ### `.vault/templates/<type>.md` — per-type entry templates
 

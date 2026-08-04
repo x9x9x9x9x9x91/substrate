@@ -20,6 +20,7 @@ import {
   moveSheetRow,
   parseSheet,
   setSheetCell,
+  sheetColumnFormats,
   sheetUsesFx,
   summaryBar,
   updateSheetFormula,
@@ -168,6 +169,11 @@ export default function SheetGrid({
       cross.map.get(name.toLowerCase()) ?? ferr(`no sheet named “${name}”`);
     return evaluateSheet(model, fxResolver, { self: meta.title, load });
   }, [model, fxResolver, cross, crossKey, meta.title]);
+
+  /* Per-column number format (SUB-1000): decided once for the whole column
+     and applied to typed and computed cells alike, so a money column can
+     never render 7400 next to 37.680. */
+  const colFmts = useMemo(() => sheetColumnFormats(ev), [ev]);
 
   const dataCols = model.headers.length;
   const cols = dataCols + ev.computed.length;
@@ -533,7 +539,7 @@ export default function SheetGrid({
               setGridMenu({ kind: "row", r, x: e.clientX, y: e.clientY });
             }}
           >
-            {formatValue(ev.rows[r][c], model.headers[c])}
+            {formatValue(ev.rows[r][c], model.headers[c], colFmts.data[c])}
           </div>
         )}
       </td>
@@ -554,7 +560,9 @@ export default function SheetGrid({
           onFocus={() => setFocus({ r, c })}
           title={err ?? `${name} = ${formulaSrc(name)}`}
         >
-          <span className={err ? "sheet-err" : ""}>{formatValue(v, name)}</span>
+          <span className={err ? "sheet-err" : ""}>
+            {formatValue(v, name, colFmts.computed[c - dataCols])}
+          </span>
         </div>
       </td>
     );

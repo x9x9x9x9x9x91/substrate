@@ -10,7 +10,9 @@ import {
   knownKindList,
   parseKindManifest,
   resolveDashboardKind,
+  resolveDispatchTail,
   resolveKindState,
+  RESERVED_KINDS,
   type KindBundle,
   type KindEnableRecord,
   type KindFiles,
@@ -431,4 +433,23 @@ test("dispatch: a near-miss typo of a real kind still resolves to unknown", () =
 test("dispatch: the known-kinds list is derived from the built-in set", () => {
   const listed = knownKindList().split(", ");
   assert.deepEqual(listed, [...BUILT_IN_KINDS].sort());
+});
+
+test("tail: a reserved name belongs at the fallback, and is a built-in (SUB-1021)", () => {
+  assert.ok(RESERVED_KINDS.size > 0, "the reserved set went empty");
+  for (const k of RESERVED_KINDS) {
+    // reserved exists to be un-shadowable, so it has to be in the source of truth
+    assert.ok(BUILT_IN_KINDS.has(k), `${k} is reserved but not a built-in`);
+    assert.deepEqual(resolveDispatchTail(k), { tail: "fallback" }, k);
+  }
+});
+
+test("tail: a built-in with no renderer says so rather than showing an empty chart", () => {
+  const t = resolveDispatchTail("gear-log");
+  assert.equal(t.tail, "missing-renderer");
+  if (t.tail !== "missing-renderer") return;
+  assert.equal(t.kind, "gear-log");
+  // the card names the kind and the reason — an empty chart shell names neither
+  assert.match(t.message, /gear-log/);
+  assert.match(t.message, /no renderer/);
 });

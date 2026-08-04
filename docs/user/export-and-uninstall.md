@@ -21,7 +21,12 @@ For smaller exports:
   which silently rebuilds the same folder. It holds links only, never copies,
   and carries a `.substrate-view` file saying so: deleting the folder loses
   nothing, and Substrate refuses to write into a folder that isn't one of
-  its own. Anything you drop in there yourself is left alone.
+  its own. Anything you drop in there yourself is left alone. The folder has
+  to live outside your vault — links inside the vault would sync to your
+  other machines as broken ones — and if the folder sits somewhere your sync
+  or backup tool watches, exclude it on that `.substrate-view` file (most
+  tools have an *exclude if this file is present* rule). Nothing is lost:
+  the folder is rebuildable at any time.
 
 ## Uninstall the app
 

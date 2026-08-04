@@ -11,12 +11,15 @@ import {
   moveSheetRow,
   evaluateSheet,
   findSummary,
+  columnFormat,
   formatNum,
+  formatNumIn,
   formatValue,
   parseCsv,
   parseSheet,
   serializeCsv,
   setSheetCell,
+  sheetColumnFormats,
   sheetUsesFx,
   summaryBar,
   updateSheetFormula,
@@ -330,6 +333,83 @@ test("formatValue: label columns render longer integers ungrouped too (SUB-633)"
   // non-numbers unaffected
   assert.equal(formatValue("2026-06-13", "year"), "2026-06-13");
   assert.equal(formatValue(null, "year"), "");
+});
+
+// ── per-column number format (SUB-1000) ──────────────────────────────────────
+
+test("columnFormat: one decision per column, not per value (SUB-1000)", () => {
+  // the collision: a money column holding 7400 and 37680 used to render
+  // "7400" beside "37.680" — one dot apart from a 1000× misread
+  assert.deepEqual(columnFormat([7400, 37680], "value_usd"), { decimals: 0, group: true });
+  // any fraction in the column puts every cell on 2 decimals
+  assert.deepEqual(columnFormat([1200, 4.1], "units"), { decimals: 2, group: true });
+  // all-integer and all under the SUB-633 threshold: still bare
+  assert.deepEqual(columnFormat([12, 340, 9999], "count"), { decimals: 0, group: false });
+  // label columns stay bare however large (SUB-633)
+  assert.deepEqual(columnFormat([48211, 1000042], "order_id"), { decimals: 0, group: false });
+  assert.deepEqual(columnFormat([2024, 2025, 2026], "year"), { decimals: 0, group: false });
+  // nothing numeric to decide from — errors, blanks, text
+  assert.deepEqual(columnFormat([], "empty"), { decimals: 0, group: false });
+  assert.deepEqual(columnFormat(["GLOW", null, { err: "boom" }], "asset"), {
+    decimals: 0,
+    group: false,
+  });
+  // non-finite values never drive the decision
+  assert.deepEqual(columnFormat([Number.NaN, 5, 7], "n"), { decimals: 0, group: false });
+});
+
+test("formatNumIn: the column's format wins over the value's own shape (SUB-1000)", () => {
+  const money = { decimals: 0, group: true } as const;
+  assert.equal(formatNumIn(7400, money), "7.400");
+  assert.equal(formatNumIn(37680, money), "37.680");
+  // a four-digit integer in a grouped money column groups too — consistency
+  // beats the bare-year rule once the column as a whole has been judged money
+  assert.equal(formatNumIn(2026, money), "2.026");
+  const two = { decimals: 2, group: true } as const;
+  assert.equal(formatNumIn(1200, two), "1.200,00");
+  assert.equal(formatNumIn(4.1, two), "4,10");
+  const bare = { decimals: 0, group: false } as const;
+  assert.equal(formatNumIn(2026, bare), "2026");
+  assert.equal(formatNumIn(48211, bare), "48211");
+});
+
+test("Holdings grid: every column renders in one regime (SUB-1000)", () => {
+  // the reported grid: units 1200 next to 4,10; price_usd 64.200 next to 3050;
+  // value_usd 37.680 next to 7400 IN THE SAME COLUMN
+  const body =
+    "```csv\nasset,bucket,units,price_usd\nGLOW,etf,1200,31.4\nBTC,crypto,4.1,64200\nCASH,cash,7400,1\n```\n\n" +
+    '```formulas\nvalue_usd = units * price_usd\nvalue_eur = value_usd * FX("USD","EUR")\n```\n';
+  const ev = evaluateSheet(parseSheet(body), fx);
+  const fmts = sheetColumnFormats(ev);
+  const col = (c: number) => ev.rows.map((row) => formatValue(row[c], ev.headers[c], fmts.data[c]));
+  const comp = (i: number) =>
+    ev.computed[i].cells.map((v) => formatValue(v, ev.computed[i].name, fmts.computed[i]));
+
+  assert.deepEqual(col(0), ["GLOW", "BTC", "CASH"]);
+  assert.deepEqual(col(2), ["1.200,00", "4,10", "7.400,00"]); // units: one regime
+  assert.deepEqual(col(3), ["31,40", "64.200,00", "1,00"]); // price_usd: one regime
+  assert.deepEqual(comp(0), ["37.680", "263.220", "7.400"]); // the 1000× trap, closed
+  assert.deepEqual(comp(1), ["32.860,73", "229.554,16", "6.453,54"]);
+
+  // entry and computed columns are judged by the same rule
+  assert.deepEqual(fmts.data[2], { decimals: 2, group: true });
+  assert.deepEqual(fmts.computed[0], { decimals: 0, group: true });
+});
+
+test("sheetColumnFormats: identifier columns survive the consistency pass (SUB-633)", () => {
+  const body =
+    "```csv\nyear,order_id,units\n2024,48211,12\n2025,1000042,3400\n```\n\n" +
+    "```formulas\ndoubled = units * 2\n```\n";
+  const ev = evaluateSheet(parseSheet(body), fx);
+  const fmts = sheetColumnFormats(ev);
+  assert.deepEqual(fmts.data[0], { decimals: 0, group: false });
+  assert.deepEqual(fmts.data[1], { decimals: 0, group: false });
+  assert.deepEqual(fmts.data[2], { decimals: 0, group: false }); // 12 and 3400: both bare
+  assert.deepEqual(fmts.computed[0], { decimals: 0, group: false }); // 24 and 6800
+  assert.deepEqual(
+    ev.rows.map((r) => formatValue(r[0], ev.headers[0], fmts.data[0])),
+    ["2024", "2025"]
+  );
 });
 
 test("Work Index sheet: the year column renders ungrouped (SUB-633)", () => {

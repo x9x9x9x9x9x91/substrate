@@ -167,6 +167,14 @@ export default function TasksDashboard({
     priority: string | null;
     anchor: AnchorRect;
   } | null>(null);
+  // the card whose move menu is open, and where it was summoned (SUB-1053)
+  const [moveMenu, setMoveMenu] = useState<{
+    path: string;
+    title: string;
+    area: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [snoozedOpen, setSnoozedOpen] = useState(false);
   // paths mid-completion: struck through until the reload drops them
   const [completing, setCompleting] = useState<string[]>([]);
@@ -295,6 +303,11 @@ export default function TasksDashboard({
       path comes off the drop event itself (set at dragStart) — that is the
       payload the browser guarantees for THIS drop; the state is the fallback
       for platforms that hand back an empty `text/plain`. */
+  const moveToArea = (row: { path: string; title: string; area: string }, area: string) => {
+    if (row.area === area) return;
+    write(row.path, "area", area === "Unassigned" ? null : area, `${row.title} → ${area}`);
+  };
+
   const dropOn = (area: string, payload?: string) => {
     const path = payload || dragPath;
     setDragPath(null);
@@ -302,9 +315,24 @@ export default function TasksDashboard({
     if (!path) return;
     const all = [...model.columns.flatMap((c) => c.rows)];
     const row = all.find((r) => r.path === path);
-    if (!row || row.area === area) return;
-    write(path, "area", area === "Unassigned" ? null : area, `${row.title} → ${area}`);
+    if (!row) return;
+    moveToArea(row, area);
   };
+
+  /** The keyboard/menu equivalent of a drop (SUB-1053): drag was the only verb
+      that could re-area a card, which left the move unreachable without a
+      pointer. One entry per column — the board's own areas, so the menu can
+      never name a target a drop couldn't reach — each running the same
+      undoable write `dropOn` does. The card's current column stays listed but
+      disabled: seeing where it already is IS the answer to "which column is
+      this in", and hiding it would make the menu's shape shift per card. */
+  const moveItems = (row: { path: string; title: string; area: string }): MenuItem[] =>
+    model.columns.map((col) => ({
+      label: `Move to ${col.area}`,
+      disabled: col.area === row.area,
+      hint: col.area === row.area ? "current" : undefined,
+      onSelect: () => moveToArea(row, col.area),
+    }));
 
   const wake = (row: TasksDashboardRow) =>
     write(row.path, "snoozed_until", null, `Awake — ${row.title}`);
@@ -527,7 +555,42 @@ export default function TasksDashboard({
         className={`tasks-card${done ? " done" : ""}${dragPath === row.path ? " dragging" : ""}${added === row.path ? " added" : ""}`}
         data-task-path={row.path}
         title={rowTitle(row, now)}
+        // the card is a labelled group, not a control: its own verbs are the
+        // buttons inside it. The label gives the group a name to announce and
+        // gives the move menu something to be summoned from (SUB-1053)
+        role="group"
+        aria-label={row.title}
+        aria-keyshortcuts="Shift+F10"
         draggable
+        // Right-click, the ContextMenu key and Shift+F10 all open the move
+        // menu — the DbBoardLayout card idiom. The handler sits on the card,
+        // not on a focusable card wrapper: every card already holds real tab
+        // stops (checkbox, title, verbs), so the key event reaches here by
+        // bubbling and the board gains no dead focus targets.
+        onContextMenu={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setMoveMenu({
+            path: row.path,
+            title: row.title,
+            area: row.area,
+            x: e.clientX,
+            y: e.clientY,
+          });
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const rect = e.currentTarget.getBoundingClientRect();
+          setMoveMenu({
+            path: row.path,
+            title: row.title,
+            area: row.area,
+            x: rect.left + 12,
+            y: rect.top + 12,
+          });
+        }}
         onDragStart={(e) => {
           e.dataTransfer.setData("text/plain", row.path);
           e.dataTransfer.effectAllowed = "move";
@@ -801,6 +864,15 @@ export default function TasksDashboard({
               </div>
             )}
           </section>
+        )}
+
+        {moveMenu && (
+          <ContextMenu
+            x={moveMenu.x}
+            y={moveMenu.y}
+            items={moveItems(moveMenu)}
+            onClose={() => setMoveMenu(null)}
+          />
         )}
 
         {snoozeMenu && (

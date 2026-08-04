@@ -257,3 +257,12 @@ test("dashboardIcon: icon prop wins, then the per-kind mark, else undefined (SUB
   // malformed props read as no icon, never an error
   assert.equal(dashboardIcon({ dashboard: 7, icon: ["x"] } as unknown as Record<string, unknown>), undefined);
 });
+
+test("dashboardIcon: normalizes the kind exactly as the dispatch does (SUB-1021)", () => {
+  // trim, like resolveDashboardKind — surrounding whitespace is a hand-edit
+  assert.deepEqual(dashboardIcon({ dashboard: "  food  " }), { glyph: "flame" });
+  // but NO case-fold: lowercase is the id grammar (KIND_ID_RE), so `Tasks` is
+  // an unknown kind the pane refuses — the sidebar must not promise its board
+  assert.equal(dashboardIcon({ dashboard: "Tasks" }), undefined);
+  assert.equal(dashboardIcon({ dashboard: "FOOD" }), undefined);
+});

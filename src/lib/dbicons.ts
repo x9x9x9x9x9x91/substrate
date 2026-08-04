@@ -317,8 +317,12 @@ const DASHBOARD_ICONS: Record<string, DbIcon> = {
 export function dashboardIcon(props: Record<string, unknown>): DbIcon | undefined {
   const mark = asMark(props.icon);
   if (mark) return GLYPHS[mark] ? { glyph: mark } : { emoji: mark };
-  const kind = asMark(props.dashboard);
-  return kind ? DASHBOARD_ICONS[kind.toLowerCase()] : undefined;
+  // the normalization resolveDashboardKind applies, exactly (SUB-1021): trim,
+  // no case-fold. KIND_ID_RE makes lowercase the grammar, so `dashboard: Tasks`
+  // is an unknown kind and gets the error card — handing it the tasks mark
+  // anyway would have the sidebar promise a board the pane then refuses.
+  const kind = asMark(props.dashboard)?.trim();
+  return kind ? DASHBOARD_ICONS[kind] : undefined;
 }
 
 /** The icon a database renders with (SUB-183): the explicit schema icon when

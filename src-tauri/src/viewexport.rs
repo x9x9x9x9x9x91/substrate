@@ -181,11 +181,56 @@ fn marker_view_id(dest: &Path) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// Canonical form of the nearest existing ancestor of `p` (or of `p` itself),
+/// with the non-existing tail rejoined. A destination the user is about to
+/// create does not exist yet, so a plain `canonicalize` would fail on exactly
+/// the case worth checking.
+fn canon_nearest(p: &Path) -> PathBuf {
+    if let Ok(c) = p.canonicalize() {
+        return c;
+    }
+    let mut tail = Vec::new();
+    let mut cur = p;
+    while let Some(parent) = cur.parent() {
+        let Some(name) = cur.file_name() else { break };
+        tail.push(name.to_os_string());
+        if let Ok(c) = parent.canonicalize() {
+            let mut out = c;
+            for part in tail.iter().rev() {
+                out.push(part);
+            }
+            return out;
+        }
+        cur = parent;
+    }
+    p.to_path_buf()
+}
+
+/// Refuse to build a link folder inside the vault itself (SUB-1009).
+///
+/// A link folder in the vault is derived data sitting in the one tree that
+/// syncs: the vault's git history would carry symlinks whose targets are
+/// absolute paths true on exactly one machine, and every other device would
+/// restore them broken. Outside the vault the folder is harmless — the sync
+/// and backup legs skip it on the [`MARKER`] file (see `docs/vault-format.md`
+/// → "Exported link folders"), which is why only this case is a refusal.
+fn check_outside_vault(root: &Path, dest: &Path) -> Result<(), String> {
+    if canon_nearest(dest).starts_with(canon_nearest(root)) {
+        return Err(format!(
+            "{} is inside the vault — link folders are derived data and would \
+             sync as broken links; export somewhere outside the vault instead",
+            dest.display()
+        ));
+    }
+    Ok(())
+}
+
 /// Refuse to touch a folder that is not ours. Empty is adoptable (the user
 /// just made it in the save dialog); occupied without a marker is someone's
 /// real folder and stays untouched; ours-but-another-view's would silently
 /// hand one pin's folder to another, so it is refused too.
-fn check_destination(dest: &Path, view_id: &str) -> Result<(), String> {
+fn check_destination(root: &Path, dest: &Path, view_id: &str) -> Result<(), String> {
+    check_outside_vault(root, dest)?;
     if !dest.exists() {
         return Ok(());
     }
@@ -226,7 +271,7 @@ pub fn export_links(
     rels: &[String],
     generated: &str,
 ) -> Result<ExportReport, String> {
-    check_destination(dest, view_id)?;
+    check_destination(root, dest, view_id)?;
     fs::create_dir_all(dest).map_err(|e| e.to_string())?;
     let kept = clear_managed(dest)?;
     // marker first: a crash between here and the last link leaves a folder
@@ -486,6 +531,60 @@ mod tests {
         fs::write(&file, "x").unwrap();
         let err = export_links(&root, &file, "V", "v1", &[], "t").unwrap_err();
         assert!(err.contains("is a file"), "{err}");
+    }
+
+    #[test]
+    fn export_refuses_a_destination_inside_the_vault() {
+        let root = vault_with(&["Notes/One.md"]);
+        // the folder does not exist yet — the case the save dialog produces
+        let inside = root.join("Views").join("Live Set");
+        let err = export_links(&root, &inside, "V", "v1", &["Notes/One.md".into()], "t")
+            .unwrap_err();
+        assert!(err.contains("inside the vault"), "{err}");
+        assert!(!inside.exists(), "refusal must not create the folder");
+
+        // an existing folder in the vault is refused too, and left alone
+        let existing = root.join("Notes");
+        let err = export_links(&root, &existing, "V", "v1", &["Notes/One.md".into()], "t")
+            .unwrap_err();
+        assert!(err.contains("inside the vault"), "{err}");
+        assert!(!is_marked(&existing));
+        assert!(existing.join("One.md").exists());
+
+        // the vault root itself is inside the vault
+        let err =
+            export_links(&root, &root, "V", "v1", &["Notes/One.md".into()], "t").unwrap_err();
+        assert!(err.contains("inside the vault"), "{err}");
+    }
+
+    #[test]
+    fn export_refuses_a_symlinked_path_that_lands_in_the_vault() {
+        let root = vault_with(&["Notes/One.md"]);
+        // a door into the vault from outside it: the textual path never
+        // mentions the vault, so only canonicalization catches this
+        let outside = tmp("door");
+        let door = outside.join("vault-door");
+        std::os::unix::fs::symlink(&root, &door).unwrap();
+        let dest = door.join("Exports");
+        let err = export_links(&root, &dest, "V", "v1", &["Notes/One.md".into()], "t")
+            .unwrap_err();
+        assert!(err.contains("inside the vault"), "{err}");
+        assert!(!root.join("Exports").exists());
+    }
+
+    #[test]
+    fn export_allows_a_sibling_folder_next_to_the_vault() {
+        // guard against an over-broad prefix test: "…/vault-exports" starts
+        // with "…/vault" as a string but is not inside it
+        let root = vault_with(&["Notes/One.md"]);
+        let sibling = root.with_file_name(format!(
+            "{}-exports",
+            root.file_name().unwrap().to_string_lossy()
+        ));
+        let rep =
+            export_links(&root, &sibling, "V", "v1", &["Notes/One.md".into()], "t").unwrap();
+        assert_eq!(rep.links, 1);
+        let _ = fs::remove_dir_all(&sibling);
     }
 
     #[test]

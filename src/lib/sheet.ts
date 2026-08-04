@@ -606,6 +606,13 @@ export function columnTakesNumberInput(
   return seen;
 }
 
+/** The one locale every sheet number renders in. It is de-DE for the same
+ * reason every other surface is (SUB-282), and it lives in exactly one
+ * binding here so the user-facing dial (SUB-1007: a `number-locale` Settings
+ * key defaulting to de-DE) has a single seam to replace rather than a
+ * per-call-site sweep. */
+const NUMBER_LOCALE = "de-DE";
+
 /** The one grid-wide number format (SUB-282: de-DE like every other surface):
  * dot thousands grouping, comma decimals; fractional values show exactly
  * 2 decimals, integers stay bare (1.234 — never 1.234,00).
@@ -632,19 +639,110 @@ export function formatNum(v: number, header?: string): string {
   if (Number.isInteger(v)) {
     const plain =
       Math.abs(v) < 10000 || (header !== undefined && isLabelColumn(header));
-    return plain ? String(v) : v.toLocaleString("de-DE", { maximumFractionDigits: 0 });
+    return plain ? String(v) : v.toLocaleString(NUMBER_LOCALE, { maximumFractionDigits: 0 });
   }
-  return v.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return v.toLocaleString(NUMBER_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** How one grid column renders every number in it (SUB-1000).
+ *
+ * The shape is decided per COLUMN, not per value, and that is the whole
+ * point: formatNum's rules are value-driven (integer vs fractional, below
+ * vs above 10000), so a single money column rendered `7400` next to
+ * `37.680` — a reader could not tell thirty-seven thousand from 37.68, and
+ * could induce no rule at all. Grouping and decimal count are properties of
+ * a column of quantities; only the digits differ per row. */
+export interface ColumnFormat {
+  /** fixed decimals every cell in the column renders with */
+  decimals: 0 | 2;
+  /** thousands grouping (dots, in the de-DE dialect) */
+  group: boolean;
+}
+
+/** The neutral shape for a column with no numbers in it at all — nothing to
+ * be consistent about, and it renders no numeric cells. */
+const PLAIN_FORMAT: ColumnFormat = { decimals: 0, group: false };
+
+/** The format one column of values renders in (SUB-1000).
+ *
+ * Two decisions, both from the whole column:
+ *
+ *  1. Decimals — 2 if ANY value in the column is fractional, else 0. A money
+ *     column holding 1200 and 4,10 shows `1.200,00` and `4,10`: the same
+ *     grammar down the column, so the decimal comma always means the same
+ *     thing. A column of whole numbers stays whole (`1.234`, never
+ *     `1.234,00`), exactly as before.
+ *  2. Grouping — on, unless the column is identifier-shaped. Two ways to be
+ *     identifier-shaped, both preserving SUB-633's rule that a number which
+ *     is really a NAME must not be dotted (de-DE writes 2026 as "2.026", and
+ *     that dot IS the thousands separator):
+ *       - a label column by header (isLabelColumn: `year`, `*_id`, `no`,
+ *         `nr`) — header-driven, never value-driven, as before;
+ *       - a column whose numbers are ALL integers below 10000, which is
+ *         where unnamed identifiers live (years, ports, PLZ, catalogue
+ *         numbers) and where grouping buys no legibility anyway.
+ *     The second is SUB-633's four-digit rule re-read per column instead of
+ *     per value. A pure year column of 2024/2025/2026 still renders bare;
+ *     a column that mixes 7400 with 37680 is a column of quantities, so both
+ *     group. That difference is the fix: the old per-value test split one
+ *     column across two regimes.
+ *
+ * Non-numbers (labels, errors, blanks) abstain — they render verbatim and
+ * have no claim on the column's number grammar. */
+export function columnFormat(values: readonly (Value | Cell)[], header?: string): ColumnFormat {
+  const nums: number[] = [];
+  for (const v of values) if (typeof v === "number" && Number.isFinite(v)) nums.push(v);
+  if (nums.length === 0) return PLAIN_FORMAT;
+  const decimals = nums.some((n) => !Number.isInteger(n)) ? 2 : 0;
+  const identifierish =
+    (header !== undefined && isLabelColumn(header)) ||
+    (decimals === 0 && nums.every((n) => Math.abs(n) < 10000));
+  return { decimals, group: !identifierish };
+}
+
+/** Every column's format for one evaluated sheet — data columns by header,
+ * computed columns by formula name, in the order the grid renders them
+ * (SUB-1000). Computed columns are shaped by the same rule as typed ones:
+ * a formula column is where the grid's worst collision lived, since its
+ * values straddle 10000 far more often than hand-typed ones do. */
+export function sheetColumnFormats(ev: SheetEval): {
+  data: ColumnFormat[];
+  computed: ColumnFormat[];
+} {
+  return {
+    data: ev.headers.map((h, c) =>
+      columnFormat(
+        ev.rows.map((row) => row[c] ?? null),
+        h
+      )
+    ),
+    computed: ev.computed.map((col) => columnFormat(col.cells, col.name)),
+  };
+}
+
+/** One number in its column's format (SUB-1000) — the digits vary per row,
+ * the grammar never does. */
+export function formatNumIn(v: number, fmt: ColumnFormat): string {
+  return v.toLocaleString(NUMBER_LOCALE, {
+    minimumFractionDigits: fmt.decimals,
+    maximumFractionDigits: fmt.decimals,
+    useGrouping: fmt.group,
+  });
 }
 
 /** `header` is the column the value renders under, when there is one — the
  * grid passes it so id columns skip thousands grouping past four digits.
  * Headerless callers (summary cards, metrics tiles) still get the four-digit
- * rule; only the header-driven half of formatNum needs the name. */
-export function formatValue(v: Value | Cell, header?: string): string {
+ * rule; only the header-driven half of formatNum needs the name.
+ *
+ * `fmt` is the column's agreed format (SUB-1000). A caller that renders a
+ * whole column — the grid — passes it and gets one grammar down the column;
+ * a caller holding a lone number with no column around it (summary chips,
+ * metric tiles) omits it and keeps the per-value rules above. */
+export function formatValue(v: Value | Cell, header?: string, fmt?: ColumnFormat): string {
   if (v === null || v === undefined) return "";
   if (isErr(v)) return "!";
-  if (typeof v === "number") return formatNum(v, header);
+  if (typeof v === "number") return fmt ? formatNumIn(v, fmt) : formatNum(v, header);
   if (typeof v === "boolean") return v ? "true" : "false";
   return v;
 }

@@ -399,3 +399,55 @@ test("tasks: dragging a card to another column rewrites its area with Undo (SUB-
   const admin = page.locator(".tasks-col", { has: page.locator(".tasks-col-name", { hasText: /^Admin$/ }) });
   await expect(admin.locator(".tasks-card", { hasText: "Renew the webshop shipping rates" })).toHaveCount(1);
 });
+
+test("tasks: a card's move menu re-areas it without a drag, by pointer and by key (SUB-1053)", async ({
+  page,
+}) => {
+  await openTasks(page);
+  await page.locator(".tasks-view button", { hasText: /^Board$/ }).click();
+
+  const studio = page.locator(".tasks-col", {
+    has: page.locator(".tasks-col-name", { hasText: /^Studio$/ }),
+  });
+  const label = page.locator(".tasks-col", {
+    has: page.locator(".tasks-col-name", { hasText: /^Label$/ }),
+  });
+
+  // right-click offers one entry per column, and the card's own column is
+  // listed but inert — the menu can never name a target a drop couldn't reach
+  const artwork = page.locator(".tasks-card", { hasText: "Approve SMP-030 artwork" });
+  await artwork.click({ button: "right" });
+  await expect(page.locator(".ctx-menu .ctx-label")).toHaveText([
+    "Move to Label",
+    "Move to Studio",
+    "Move to Admin",
+  ]);
+  await expect(page.locator(".ctx-item", { hasText: "Move to Label" })).toHaveClass(/disabled/);
+
+  await page.locator(".ctx-item", { hasText: "Move to Admin" }).click();
+  const admin = page.locator(".tasks-col", {
+    has: page.locator(".tasks-col-name", { hasText: /^Admin$/ }),
+  });
+  await expect(admin.locator(".tasks-card", { hasText: "Approve SMP-030 artwork" })).toHaveCount(1);
+
+  // the same undoable write the drop takes: the toast names the target and
+  // Undo puts the card back in its old column
+  const toast = page.locator(".toast");
+  await expect(toast).toContainText("Approve SMP-030 artwork → Admin");
+  await toast.locator("button", { hasText: "Undo" }).click();
+  await expect(label.locator(".tasks-card", { hasText: "Approve SMP-030 artwork" })).toHaveCount(1);
+
+  // and the whole path is reachable from the keyboard: Shift+F10 on anything
+  // focused inside the card opens the same menu, arrows and Enter pick
+  const chase = page.locator(".tasks-card", { hasText: "Chase the test pressing approvals" });
+  await chase.locator(".tasks-open").focus();
+  await page.keyboard.press("Shift+F10");
+  await expect(page.locator(".ctx-menu")).toBeVisible();
+  // the first stop skips the disabled current column and lands on Studio
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(
+    studio.locator(".tasks-card", { hasText: "Chase the test pressing approvals" })
+  ).toHaveCount(1);
+  await expect(page.locator(".toast")).toContainText("Chase the test pressing approvals → Studio");
+});

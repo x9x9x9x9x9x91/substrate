@@ -17,7 +17,7 @@ import {
   readClaimedUsd,
 } from "../lib/dashboard";
 import { parseChartBlocks } from "../lib/chart";
-import { resolveDashboardKind } from "../lib/kinds";
+import { resolveDashboardKind, resolveDispatchTail } from "../lib/kinds";
 import { DashHead } from "./DashHead";
 import MetricsDashboard from "./MetricsDashboard";
 import ChartsDashboard from "./ChartsDashboard";
@@ -497,6 +497,29 @@ function UnknownKindDashboard({ message, ...props }: DashboardPaneProps & { mess
   );
 }
 
+/** A built-in kind whose renderer never landed (SUB-1021): BUILT_IN_KINDS
+    names it, the if-chain above has no branch for it, so it fell through.
+    scripts/check-kinds.ts fails the build on that gap, which makes this card
+    unreachable in a shipped build — it exists because the alternative when it
+    isn't is the chart-fence dashboard with nothing in it, and "empty" is a
+    different claim from "this build can't render this". Same quiet
+    `.chart-err` card the unknown-kind path uses. */
+function MissingKindDashboard({ message, ...props }: DashboardPaneProps & { message: string }) {
+  return (
+    <div className="note">
+      <div className="dash-inner">
+        <DashHead
+          title={props.meta.title}
+          state={{ label: "no renderer" }}
+          sourcePath={props.meta.path}
+          onOpenSource={props.onOpenSource}
+        />
+        <div className="chart-err">{message}</div>
+      </div>
+    </div>
+  );
+}
+
 /** This note's body, reloaded when the vault changes under it. */
 function useNoteBody(path: string, vaultEpoch: number): string | null {
   const [body, setBody] = useState<string | null>(null);
@@ -540,8 +563,12 @@ function DashboardBody(props: DashboardPaneProps) {
   if (kind === "feed") return <FeedDashboard {...props} />;
   if (kind === "music-work") return <MusicWorkDashboard {...props} />;
   if (kind === "tasks") return <TasksDashboard {...props} />;
-  // `charts`, and the backstop if a name lands in BUILT_IN_KINDS before its
-  // renderer does: the chart-fence dashboard, never the yield tracker
+  // Everything past here reached the tail. A name that landed in
+  // BUILT_IN_KINDS before its renderer did says so (SUB-1021) instead of
+  // rendering an empty chart shell that looks like a dashboard with no data.
+  const tail = resolveDispatchTail(kind);
+  if (tail.tail === "missing-renderer") return <MissingKindDashboard {...props} message={tail.message} />;
+  // `charts`: the chart-fence dashboard (§5.5), reserved and branchless by design
   return <ChartsByKind {...props} />;
 }
 
