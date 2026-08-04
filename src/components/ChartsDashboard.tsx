@@ -151,13 +151,17 @@ function ChartTip({ tip }: { tip: TipState | null }) {
   );
 }
 
-/** The neutral token ramp safely carries two data series. Three or more wait
-    on the categorical-palette decision in SUB-952 rather than repeating or
-    inventing colors here. */
-const BAND_TREATMENTS = 2;
+/** The categorical band ramp carries five data series. The ramp is FIXED and
+    never cycles: it is walked from slot 1 in order, never rotated to fit the
+    split and never wrapped, so a legend swatch and its stack slice always
+    name the same token. A sixth series stops with an honest
+    message rather than repeating a hue; folding the tail into "Other" would
+    have to re-reduce it, and an avg: or max: of an "Other" bucket is a
+    different number from any series it contains. */
+const BAND_TREATMENTS = 5;
 
 function bandClass(i: number): string {
-  return `band-${i % BAND_TREATMENTS}`;
+  return `band-${i}`;
 }
 
 /** Compact legend for a `by:` split — a swatch and the band's own value, in
@@ -378,7 +382,7 @@ const MIN_LABEL_PX = 56;
 /** stand-in plot width for the first frame, before the ResizeObserver fires */
 const LABEL_FALLBACK_PX = 560;
 
-/** Line chart in the same language: greyscale stroke + dots (HTML, so they
+/** Line chart in the same language: accent stroke + dots (HTML, so they
     stay round at any width), tooltip per point, labels below at each kept
     point's true x. X is time-true (xFractions): irregular snapshots space by
     their real date gaps, categorical axes keep even index spacing. The plot
@@ -556,7 +560,7 @@ function ChartSection({
   const c = block.config;
   const splitError =
     series?.bands && series.bands.length > BAND_TREATMENTS
-      ? `This split has ${series.bands.length} series; the current grayscale chart can distinguish ${BAND_TREATMENTS}.`
+      ? `This split has ${series.bands.length} series; the chart ramp distinguishes ${BAND_TREATMENTS}.`
       : c.kind === "bar" && series?.bands?.some((band) => band.points.some((p) => p.value < 0))
         ? "Stacked bars cannot represent negative split values — use kind: line."
         : null;

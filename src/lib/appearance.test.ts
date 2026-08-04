@@ -334,3 +334,242 @@ test("no tone, at any nudge, drops a family colour below 3:1 on its ground", () 
   assert.ok(contrast("#c9b98f", "#090909") >= 3, "fixed screen series-5 lost contrast");
   assert.ok(contrast("#8f7a3f", "#ffffff") >= 3, "fixed paper series-5 lost contrast");
 });
+
+/* ————— the categorical band ramp is NOT part of the tone family —————
+
+   A split's colour must not move when the user retunes the accent — a
+   categorical hue that follows a dial stops being a category. These tests
+   are the guard on that boundary: the
+   band tokens are literals, they are declared on both grounds, and no dial
+   reaches them. */
+
+const BAND_SCREEN = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181"];
+const BAND_PAPER = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"];
+
+test("the band ramp ships its validated hexes on both grounds", () => {
+  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  // split on the real at-rule, not on the words: several comments name the
+  // print block, and matching one of those would hand the screen half nothing
+  const at = css.indexOf("\n@media print {");
+  assert.ok(at > 0, "no @media print block found");
+  const screen = css.slice(0, at);
+  const paper = css.slice(at);
+  BAND_SCREEN.forEach((hex, i) => {
+    assert.match(
+      screen,
+      new RegExp(`--band-${i + 1}:\\s*${hex};`, "i"),
+      `screen --band-${i + 1} drifted off ${hex}`
+    );
+  });
+  BAND_PAPER.forEach((hex, i) => {
+    assert.match(
+      paper,
+      new RegExp(`--band-${i + 1}:\\s*${hex};`, "i"),
+      `paper --band-${i + 1} drifted off ${hex}`
+    );
+  });
+});
+
+test("no accent dial reaches the band ramp", () => {
+  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  for (const m of css.matchAll(/--band-[1-5]:\s*([^;]+);/g)) {
+    assert.doesNotMatch(
+      m[1],
+      /--tone-|--tone-nudge|--accent|--series-/,
+      `--band token reads from the tone family (${m[0].trim()}) — the ramp must stay fixed`
+    );
+  }
+  // and the tone table never declares one
+  const table = css.slice(css.indexOf("accent tone table (SUB-955)"));
+  assert.doesNotMatch(table.slice(0, table.indexOf("\n@media print {")), /--tone-(?:paper-)?band-/);
+});
+
+/* ————— the adjacent-pair CVD floor, measured not asserted —————
+
+   The ramp's separation claim is scoped to ADJACENT slots (design-principles
+   §3 rule 4): 1↔2, 2↔3, 3↔4, 4↔5. Non-adjacent pairs are knowingly not
+   covered — 3↔5 and 2↔4 converge under deuteranopia, and the legend, hover
+   tooltip and line dash patterns are the relief. This test is the tooling
+   that holds the claimed scope, so it reads the hexes out of styles.css
+   rather than off a constant: edit a --band token and the floor is re-run
+   against the new hue.
+
+   Vendored, no new dependency:
+   - CIEDE2000 (Sharma, Wu & Dalal 2005, "The CIEDE2000 Color-Difference
+     Formula", Color Res. Appl. 30(1)) over CIE L*a*b* / D65.
+   - Dichromat simulation by projection onto the LMS plane spanned by the
+     surviving cones, after Viénot, Brettel & Mollon 1999 ("Digital video
+     colourmaps for checking the legibility of displays by dichromats").
+     Applied to LINEAR sRGB — the projection is a linear-light operation. */
+
+const CVD_FLOOR = 8.0;
+
+function hexToLinear(hex: string): [number, number, number] {
+  return [1, 3, 5].map((i) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  }) as [number, number, number];
+}
+
+function simulateDichromat(
+  [r, g, b]: [number, number, number],
+  kind: "protan" | "deutan"
+): [number, number, number] {
+  // linear sRGB → LMS (Viénot 1999 Table 1)
+  const L = 17.8824 * r + 43.5161 * g + 4.11935 * b;
+  const M = 3.45565 * r + 27.1554 * g + 3.86714 * b;
+  const S = 0.0299566 * r + 0.184309 * g + 1.46709 * b;
+  // replace the missing cone's response with the plane's linear fit
+  const l = kind === "protan" ? 2.02344 * M - 2.52581 * S : L;
+  const m = kind === "deutan" ? 0.494207 * L + 1.24827 * S : M;
+  // LMS → linear sRGB (inverse of the above)
+  return [
+    0.080944 * l - 0.130504 * m + 0.116721 * S,
+    -0.0102485 * l + 0.0540194 * m - 0.113615 * S,
+    -0.000365294 * l - 0.00412163 * m + 0.693513 * S,
+  ];
+}
+
+function linearToLab(rgb: [number, number, number]): [number, number, number] {
+  const [r, g, b] = rgb.map((c) => Math.min(1, Math.max(0, c)));
+  const X = 0.4124564 * r + 0.3575761 * g + 0.1804375 * b;
+  const Y = 0.2126729 * r + 0.7151522 * g + 0.072175 * b;
+  const Z = 0.0193339 * r + 0.119192 * g + 0.9503041 * b;
+  const d = (6 / 29) ** 3;
+  const f = (t: number) => (t > d ? Math.cbrt(t) : t / (3 * (6 / 29) ** 2) + 4 / 29);
+  // D65 white
+  const [fx, fy, fz] = [f(X / 0.95047), f(Y), f(Z / 1.08883)];
+  return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+}
+
+function deltaE00(
+  [L1, a1, b1]: [number, number, number],
+  [L2, a2, b2]: [number, number, number]
+): number {
+  const rad = Math.PI / 180;
+  const deg = 180 / Math.PI;
+  const cBar = (Math.hypot(a1, b1) + Math.hypot(a2, b2)) / 2;
+  const G = 0.5 * (1 - Math.sqrt(cBar ** 7 / (cBar ** 7 + 25 ** 7)));
+  const [ap1, ap2] = [(1 + G) * a1, (1 + G) * a2];
+  const [Cp1, Cp2] = [Math.hypot(ap1, b1), Math.hypot(ap2, b2)];
+  const hue = (bb: number, ap: number) => {
+    if (bb === 0 && ap === 0) return 0;
+    const h = Math.atan2(bb, ap) * deg;
+    return h < 0 ? h + 360 : h;
+  };
+  const [hp1, hp2] = [hue(b1, ap1), hue(b2, ap2)];
+  const dL = L2 - L1;
+  const dC = Cp2 - Cp1;
+  let dh = 0;
+  if (Cp1 * Cp2 !== 0) {
+    dh = hp2 - hp1;
+    if (dh > 180) dh -= 360;
+    else if (dh < -180) dh += 360;
+  }
+  const dH = 2 * Math.sqrt(Cp1 * Cp2) * Math.sin((dh * rad) / 2);
+  const Lbar = (L1 + L2) / 2;
+  const Cbarp = (Cp1 + Cp2) / 2;
+  let hbar: number;
+  if (Cp1 * Cp2 === 0) hbar = hp1 + hp2;
+  else if (Math.abs(hp1 - hp2) > 180) hbar = (hp1 + hp2 + (hp1 + hp2 < 360 ? 360 : -360)) / 2;
+  else hbar = (hp1 + hp2) / 2;
+  const T =
+    1 -
+    0.17 * Math.cos((hbar - 30) * rad) +
+    0.24 * Math.cos(2 * hbar * rad) +
+    0.32 * Math.cos((3 * hbar + 6) * rad) -
+    0.2 * Math.cos((4 * hbar - 63) * rad);
+  const Sl = 1 + (0.015 * (Lbar - 50) ** 2) / Math.sqrt(20 + (Lbar - 50) ** 2);
+  const Sc = 1 + 0.045 * Cbarp;
+  const Sh = 1 + 0.015 * Cbarp * T;
+  const Rt =
+    -Math.sin(2 * (30 * Math.exp(-(((hbar - 275) / 25) ** 2))) * rad) *
+    (2 * Math.sqrt(Cbarp ** 7 / (Cbarp ** 7 + 25 ** 7)));
+  return Math.sqrt(
+    (dL / Sl) ** 2 + (dC / Sc) ** 2 + (dH / Sh) ** 2 + Rt * (dC / Sc) * (dH / Sh)
+  );
+}
+
+function bandHexesFromCss(css: string, ground: "screen" | "paper"): string[] {
+  const at = css.indexOf("\n@media print {");
+  assert.ok(at > 0, "no @media print block found");
+  const region = ground === "screen" ? css.slice(0, at) : css.slice(at);
+  const hexes = [1, 2, 3, 4, 5].map((n) => {
+    const m = region.match(new RegExp(`--band-${n}:\\s*(#[0-9a-f]{6});`, "i"));
+    assert.ok(m, `${ground} --band-${n} is missing or not a 6-digit hex literal`);
+    return m![1].toLowerCase();
+  });
+  assert.equal(new Set(hexes).size, 5, `${ground} ramp ships a duplicate hue`);
+  return hexes;
+}
+
+test("adjacent band slots clear the CVD floor for protan and deutan, both grounds", () => {
+  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  let worst = { dE: Infinity, where: "" };
+  for (const ground of ["screen", "paper"] as const) {
+    const set = bandHexesFromCss(css, ground);
+    for (const vision of ["normal", "protan", "deutan"] as const) {
+      const labs = set.map((hex) => {
+        const lin = hexToLinear(hex);
+        return linearToLab(vision === "normal" ? lin : simulateDichromat(lin, vision));
+      });
+      for (let i = 0; i < labs.length - 1; i++) {
+        const dE = deltaE00(labs[i], labs[i + 1]);
+        if (dE < worst.dE) {
+          worst = {
+            dE,
+            where: `${ground} ${vision} band ${i + 1}↔${i + 2} (${set[i]}↔${set[i + 1]})`,
+          };
+        }
+      }
+    }
+  }
+  assert.ok(
+    worst.dE >= CVD_FLOOR,
+    `worst adjacent pair is ${worst.where} at ΔE00 ${worst.dE.toFixed(1)}, below the ${CVD_FLOOR} floor — retune the hue or drop a slot`
+  );
+});
+
+test("the vendored colour math reproduces its reference values", () => {
+  // CIEDE2000 pair 1 from Sharma, Wu & Dalal 2005 Table 1: ΔE00 = 2.0425
+  const a: [number, number, number] = [50, 2.6772, -79.7751];
+  const b: [number, number, number] = [50, 0, -82.7485];
+  assert.ok(Math.abs(deltaE00(a, b) - 2.0425) < 0.001, `ΔE00 reference drifted: ${deltaE00(a, b)}`);
+  assert.equal(deltaE00(a, a), 0);
+  // a dichromat cannot separate what a normal observer reads as red vs green:
+  // the simulation must collapse them far more than it collapses red vs blue
+  const lab = (hex: string, v: "protan" | "deutan") =>
+    linearToLab(simulateDichromat(hexToLinear(hex), v));
+  for (const v of ["protan", "deutan"] as const) {
+    assert.ok(
+      deltaE00(lab("#ff0000", v), lab("#00ff00", v)) <
+        deltaE00(lab("#ff0000", v), lab("#0000ff", v)),
+      `${v} simulation is not collapsing the red–green axis`
+    );
+  }
+});
+
+test("the non-adjacent deutan residual is real and stays documented", () => {
+  // §3 rule 4 admits that 3↔5 and 2↔4 converge under deuteranopia. If a future
+  // hue edit ever fixes that, this test fails — and the doc's honest paragraph
+  // should then be tightened rather than left overclaiming in the other
+  // direction.
+  const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
+  const labs = bandHexesFromCss(css, "screen").map((hex) =>
+    linearToLab(simulateDichromat(hexToLinear(hex), "deutan"))
+  );
+  for (const [i, j] of [
+    [2, 4],
+    [1, 3],
+  ] as const) {
+    assert.ok(
+      deltaE00(labs[i], labs[j]) < CVD_FLOOR,
+      `band ${i + 1}↔${j + 1} now clears ${CVD_FLOOR} under deutan — update design-principles §3 rule 4, which documents it as a residual`
+    );
+  }
+  assert.match(
+    readFileSync(new URL("../../docs/design-principles.md", import.meta.url), "utf8"),
+    /Arbitrary pairs are not covered/,
+    "§3 no longer states the non-adjacent residual"
+  );
+});

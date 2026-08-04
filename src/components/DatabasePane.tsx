@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import type { AggKind, DbIcon, DbLayout, NoteMeta, NumberFormat, PropKind, PropSchema, RollupConfig, SavedView, SavedViewSort, SchemaConfig, SelectOption, ViewPref } from "../lib/types";
+import type { AggKind, DbIcon, DbLayout, NoteMeta, NumberFormat, PropKind, PropSchema, PropValue, RollupConfig, SavedView, SavedViewSort, SchemaConfig, SelectOption, ViewPref } from "../lib/types";
 import { foldedPropKey, foldedPropStr, typeHome } from "../lib/types";
 import { isTyping, isTypingNow } from "../lib/dom";
 import { cycleSortKeys, restingCmp, sortCmpFor } from "../lib/dbsort";
@@ -8,7 +8,17 @@ import { aggregationKind, aggregateColumnsUnits, formatUnit, normalizeNumberInpu
 import { makeFxResolver } from "../lib/fx";
 import { useFxRates } from "./useFx";
 import { pathExists, vaultCreate, vaultTemplateRead } from "../lib/ipc";
-import { setPropUndoable, setPropUndoableBulk, type PropWriter } from "../lib/undoprops";
+import { setPropUndoable, setPropUndoableBulk, type BulkPropResult, type PropWriter } from "../lib/undoprops";
+import {
+  addPending,
+  applyPending,
+  dropPending,
+  NO_PENDING,
+  prunePending,
+  settlePending,
+  type PendingProps,
+  type PendingWrite,
+} from "../lib/pendingprops";
 import { useUndo } from "../lib/undoContext";
 import { nextUndoId } from "../lib/undo";
 import { completeFilter, filterCompletions, filterDeadEndHint, filterInherits, filterLabel, matchesFilters, parseQuery } from "../lib/query";
@@ -166,7 +176,7 @@ const CELL_FLASH_MS = 700;
 
 export default function DatabasePane({
   dbType,
-  notes,
+  notes: diskNotes,
   allNotes,
   pref,
   typeSchema,
@@ -208,6 +218,18 @@ export default function DatabasePane({
 }: DatabasePaneProps) {
   const undo = useUndo();
   const anchorStaleScope = useId();
+  // SUB-946: writes in flight, laid over disk so an edit paints the frame it
+  // happens instead of waiting for IPC plus the full re-sync onMutated kicks
+  // off. `notes` below is that composite — every read path in this pane (the
+  // filter, the sort, the board buckets, the footer, the export) sees the
+  // optimistic value, exactly as it will see the disk one a moment later.
+  // Entries die in prunePending when the refresh catches up, or immediately
+  // on a refusal (dropPending), which is what makes a rollback visible.
+  const [pending, setPending] = useState<PendingProps>(NO_PENDING);
+  const notes = useMemo(() => applyPending(diskNotes, pending), [diskNotes, pending]);
+  useEffect(() => {
+    setPending((cur) => prunePending(cur, diskNotes));
+  }, [diskNotes]);
   const layout: DbLayout = pref?.view ?? "table";
   const columns = useMemo(() => dbColumns(notes, typeSchema), [notes, typeSchema]);
   const normalizedPref = useMemo(
@@ -1124,6 +1146,14 @@ export default function DatabasePane({
     patchPref({ sorts: next.length > 0 ? next : undefined });
   };
 
+  // SUB-946: a note's props AS STORED. Key resolution (foldedPropKey) has to
+  // run against these and not the optimistic composite — a pending clear
+  // removes the key from the composite, and a resolution that misses falls
+  // back to the COLUMN's spelling, which is how a refused clear could rename
+  // a note's `Role` to `role` on the next write.
+  const diskPropsOf = (path: string): Record<string, unknown> =>
+    diskNotes.find((n) => n.path === path)?.props ?? {};
+
   const startEdit = (path: string, key: string, el: Element | null | undefined) => {
     if (!el) return;
     setEditCell({ path, key, anchor: anchorFrom(el) });
@@ -1141,11 +1171,22 @@ export default function DatabasePane({
     // pre-minted id when the caller wants to point a toast at this exact entry
     id?: number
   ): Promise<boolean> => {
-    const props = notes.find((n) => n.path === path)?.props ?? {};
+    // SUB-946: the note's OWN spelling comes off DISK, never the composite.
+    // A pending clear deletes the key from the overlay, so resolving there
+    // would lose the note's casing and fall back to the column's — writing
+    // `role` onto a note that spells it `Role` makes a case-duplicate in the
+    // file, and the undo entry's `prior` would read from the empty slot.
+    const props = diskPropsOf(path);
     const actualKey = foldedPropKey(props, key);
+    // SUB-946: paint it now. The write below reconciles — settle on success
+    // (the value holds until the refresh delivers disk truth), drop on
+    // failure (the old value comes back on screen, next to the toast).
+    const optimistic: PendingWrite[] = [{ path, key: actualKey, value }];
+    setPending((cur) => addPending(cur, optimistic));
     // SUB-477: through the undoable helper, so a mis-typed cell is one ⌘Z away
     return setPropUndoable({ path, key: actualKey, value, id, record: undo.record, keyLabel: displayColLabel(key), write: writeProp })
       .then(() => {
+        setPending((cur) => settlePending(cur, optimistic));
         onMutated();
         // SUB-945: a write that lands silently is indistinguishable from one
         // that didn't. The cell the value went into carries one short accent
@@ -1156,6 +1197,10 @@ export default function DatabasePane({
         return true;
       })
       .catch((err) => {
+        // SUB-946: the vault refused it, so the value leaves the screen the
+        // same frame the toast arrives — never a rejected value left sitting
+        // there reading as saved
+        setPending((cur) => dropPending(cur, optimistic));
         onToast?.(`couldn’t save — ${err instanceof Error ? err.message : String(err)}`);
         onMutated();
         return false;
@@ -1174,8 +1219,10 @@ export default function DatabasePane({
     const value = raw === null ? null : commitText(key, raw);
     setEditCell(null);
     setSchemaEditCell(false);
+    // what the user is editing is what the pane SHOWS (the composite), but the
+    // key's real spelling only exists on disk (SUB-946 — see diskPropsOf)
     const props = notes.find((n) => n.path === path)?.props ?? {};
-    const actualKey = foldedPropKey(props, key);
+    const actualKey = foldedPropKey(diskPropsOf(path), key);
     const cur = foldedPropStr(props, key) ?? "";
     if ((value ?? "") === cur) return;
     // a column with no list-shaped kind falls back to this raw text editor,
@@ -1251,8 +1298,10 @@ export default function DatabasePane({
   // editor popup — checked stores the YAML scalar `true`, unchecked REMOVES
   // the prop (never writes `false`); a stored `false` reads as unchecked
   const toggleCheckboxCell = (path: string, key: string) => {
+    // the checked state is what the pane shows (a pending toggle counts), but
+    // the key spelling comes off disk (SUB-946 — see diskPropsOf)
     const props = notes.find((n) => n.path === path)?.props ?? {};
-    const cur = props[foldedPropKey(props, key)] === true;
+    const cur = props[foldedPropKey(diskPropsOf(path), key)] === true;
     writeCell(path, key, cur ? null : true);
   };
 
@@ -1344,15 +1393,38 @@ export default function DatabasePane({
   // note's list, and a silent replace read as additive (the old failure-only
   // toast is why SUB-635 could bite); same wording as bulkCommit below.
   const bulkKeysByPath = (paths: string[], key: string): Record<string, string> =>
-    Object.fromEntries(paths.map((path) => {
-      const props = notes.find((n) => n.path === path)?.props ?? {};
-      return [path, foldedPropKey(props, key)];
-    }));
+    // spelling off disk, not the optimistic composite (SUB-946 — diskPropsOf)
+    Object.fromEntries(paths.map((path) => [path, foldedPropKey(diskPropsOf(path), key)]));
+
+  // SUB-946: a bulk set paints across every selected row at once, then
+  // reconciles per row — the writes are sequential (each is a read-modify-
+  // write of a file), so waiting for the last one is exactly the visible wait
+  // this issue is about. Rows whose write was refused roll back individually;
+  // the toast already names how many of N landed.
+  const bulkPending = (paths: string[], key: string, value: PropValue): PendingWrite[] => {
+    const keys = bulkKeysByPath(paths, key);
+    return paths.map((path) => ({ path, key: keys[path] ?? key, value }));
+  };
+  const reconcileBulk = (optimistic: PendingWrite[], res: BulkPropResult) => {
+    const landed = new Set(res.ok.map((o) => o.path));
+    setPending((cur) => {
+      const next = settlePending(
+        cur,
+        optimistic.filter((w) => landed.has(w.path))
+      );
+      return dropPending(
+        next,
+        optimistic.filter((w) => !landed.has(w.path))
+      );
+    });
+  };
 
   const bulkWriteLive = (key: string, value: string | string[] | boolean | null) => {
     const paths = [...sel];
     if (paths.length === 0) return;
     const label = displayColLabel(key);
+    const optimistic = bulkPending(paths, key, value);
+    setPending((cur) => addPending(cur, optimistic));
     setPropUndoableBulk({
       paths,
       key,
@@ -1363,6 +1435,7 @@ export default function DatabasePane({
       write: writeProp,
     }).then((res) => {
       const ok = res.ok.length;
+      reconcileBulk(optimistic, res);
       onMutated();
       onToast?.(
         ok < paths.length
@@ -1386,8 +1459,11 @@ export default function DatabasePane({
     clearSel();
     if (paths.length === 0) return;
     const label = displayColLabel(key);
+    const optimistic = bulkPending(paths, key, value);
+    setPending((cur) => addPending(cur, optimistic));
     setPropUndoableBulk({ paths, key, keysByPath: bulkKeysByPath(paths, key), value, record: undo.record, keyLabel: label, write: writeProp }).then((res) => {
       const ok = res.ok.length;
+      reconcileBulk(optimistic, res);
       onMutated();
       onToast?.(
         ok < paths.length

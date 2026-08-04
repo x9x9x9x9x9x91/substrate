@@ -40,6 +40,26 @@
   --opt-yellow: #d9b850;
   --opt-green: #56c17e;
   --opt-teal: #4cc2ba;
+  /* Chart-series ramp — the ONLY categorical hue set on a dashboard, and the
+     one place design principle 3's "one accent family" is amended: a `by:`
+     split needs marks that differ in hue, because a split is exactly the
+     question "which series is this". Five fixed slots, assigned by series
+     position and never cycled. Validated on ADJACENT pairs only: neighbours
+     stay ≥ 14.7 ΔE00 under protan/deutan simulation and ≥ 41.4 for normal
+     vision, on both the dark ground and the print white (appearance.test.ts
+     re-measures it from these hexes, floor 8.0). Non-adjacent pairs are NOT
+     covered — 3↔5 and 2↔4 converge under deuteranopia; the legend, the hover
+     tooltip and the line dash patterns are the relief, and a chart comparing
+     arbitrary (non-neighbouring) series pairs must cap at 3 slots or facet.
+     See docs/design-principles.md §3. Deliberately NOT part of the tone
+     family — a categorical hue that shifts with the accent dial stops being
+     an identity, so these are literals, not tone slots. Paper weights live in
+     the @media print block. Marks only: text never wears a band colour. */
+  --band-1: #3987e5;
+  --band-2: #d95926;
+  --band-3: #199e70;
+  --band-4: #c98500;
+  --band-5: #d55181;
   --code-keyword: #8b95e8;
   --code-string: #9fb8a4;
   --code-const: #c2a888;
@@ -4454,8 +4474,10 @@ body.agenda-window .palette:focus-visible {
   white-space: nowrap;
 }
 
-/* Two neutral series treatments for a `by:` split (SUB-941). Both are existing
-   ramp tokens; 3+ series stop with an honest in-place message pending SUB-952. */
+/* Five categorical band treatments for a `by:` split, walked from slot 1 in
+   order — never rotated to fit the split, never cycled. A sixth series says
+   so in place rather than borrowing slot 1's colour and lying about which
+   series it is. */
 .chart-swatch {
   width: 8px;
   height: 8px;
@@ -4465,11 +4487,23 @@ body.agenda-window .palette:focus-visible {
 }
 
 .band-0 {
-  --band: var(--text-1);
+  --band: var(--band-1);
 }
 
 .band-1 {
-  --band: var(--text-3);
+  --band: var(--band-2);
+}
+
+.band-2 {
+  --band: var(--band-3);
+}
+
+.band-3 {
+  --band: var(--band-4);
+}
+
+.band-4 {
+  --band: var(--band-5);
 }
 
 /* the legend names the bands before the plot draws them — one line, label
@@ -4541,17 +4575,42 @@ body.agenda-window .palette:focus-visible {
   filter: brightness(1.15);
 }
 
+/* Dash patterns ride along with the hue as a second, colour-free carrier: a
+   printed-mono or CVD reading still separates the paths. Slot 0 stays solid
+   as the reference line; each further slot takes its own pattern. */
 .chart-line-path.band-1 {
   stroke-dasharray: 5 3;
 }
 
+.chart-line-path.band-2 {
+  stroke-dasharray: 1 3;
+}
+
+.chart-line-path.band-3 {
+  stroke-dasharray: 8 3 1 3;
+}
+
+.chart-line-path.band-4 {
+  stroke-dasharray: 2 2 6 2;
+}
+
+/* Five fixed slots deserve a fixed-five selector: a `[class*="band-"]`
+   substring match would also claim unrelated classes that happen to contain
+   the word (`.mastering-band-flagged` already ships), so the slots are
+   enumerated. */
 .chart-line-path.band-0,
-.chart-line-path.band-1 {
+.chart-line-path.band-1,
+.chart-line-path.band-2,
+.chart-line-path.band-3,
+.chart-line-path.band-4 {
   stroke: var(--band);
 }
 
 .chart-dot.band-0,
-.chart-dot.band-1 {
+.chart-dot.band-1,
+.chart-dot.band-2,
+.chart-dot.band-3,
+.chart-dot.band-4 {
   background: var(--band);
 }
 
@@ -9378,6 +9437,24 @@ span.asset-thumb svg {
     --series-3: var(--tone-paper-series-3);
     --series-4: var(--tone-paper-series-4);
     --series-5: var(--tone-paper-series-5);
+  }
+
+  /* the band ramp's paper weights. Same five hues, darkened for white: the
+     screen set is tuned against #090909 and the lighter members wash out on
+     paper. ADJACENT-pair separation is preserved (neighbours ≥ 14.8 ΔE00
+     under protan, ≥ 17.2 under deutan, ≥ 43.2 for normal vision on white);
+     non-adjacent pairs are not covered here either — see the screen block
+     and design-principles §3. Aqua, yellow and magenta sit
+     just under 3:1 against white as bare marks — the legend is what carries
+     them, which is why a split chart always prints its legend. */
+  #print-surface,
+  #print-surface .dash-inner,
+  #print-surface .metrics-cards {
+    --band-1: #2a78d6;
+    --band-2: #eb6834;
+    --band-3: #1baf7a;
+    --band-4: #eda100;
+    --band-5: #e87ba4;
   }
 
   /* Glow is a screen affordance: a drop-shadow on ink prints as a grey

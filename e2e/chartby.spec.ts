@@ -138,12 +138,101 @@ test("keyboard walks the axis and the focused column states itself (SUB-941)", a
   await expect(bars.nth(0)).toBeFocused();
 });
 
-test("three neutral series stop honestly instead of repeating a gray (SUB-941)", async ({ page }) => {
-  const threeBands = HOLDINGS.replace("DDD,crypto,Q2,40", "DDD,crypto,Q2,40\nEEE,cash,Q2,5");
-  await openOverview(page, SPLIT, threeBands);
+// SUB-952: the ramp carries five series, so the SUB-941 ceiling of two is
+// gone. A split of four draws four distinct slices, four distinct legend
+// swatches, and four distinct colours — cycling would repeat one.
+const FOUR = [
+  "Portfolio tracker.",
+  "",
+  "```csv",
+  "asset,bucket,quarter,value_eur",
+  "AAA,etf,Q1,10",
+  "BBB,crypto,Q1,20",
+  "CCC,cash,Q1,15",
+  "DDD,bonds,Q1,25",
+  "EEE,etf,Q2,30",
+  "FFF,crypto,Q2,40",
+  "GGG,cash,Q2,12",
+  "HHH,bonds,Q2,18",
+  "```",
+  "",
+].join("\n");
+
+async function bandColors(page: Page, sel: string, prop: "backgroundColor" | "stroke") {
+  return page.locator(sel).evaluateAll(
+    (els, p) => els.map((el) => getComputedStyle(el)[p as "backgroundColor"]),
+    prop
+  );
+}
+
+test("four series each get their own colour, in both stacked bars and lines (SUB-952)", async ({
+  page,
+}) => {
+  await openOverview(page, SPLIT, FOUR);
+
+  await expect(page.locator(".chart-err")).toHaveCount(0);
+  const bars = page.locator(".dash-bar-col");
+  await expect(bars).toHaveCount(2);
+  await expect(bars.nth(0).locator(".dash-bar-slice")).toHaveCount(4);
+
+  const legend = page.locator(".chart-legend .chart-legend-item");
+  await expect(legend).toHaveCount(4);
+  await expect(legend.nth(0)).toHaveText("etf");
+  await expect(legend.nth(3)).toHaveText("bonds");
+
+  // four marks, four distinct fills — the ceiling is gone and nothing repeats
+  const slices = await bandColors(page, ".dash-bar-col >> nth=0 >> .dash-bar-slice", "backgroundColor");
+  expect(new Set(slices).size).toBe(4);
+  const swatches = await bandColors(page, ".chart-legend .chart-swatch", "backgroundColor");
+  expect(new Set(swatches).size).toBe(4);
+  // the legend swatch and the slice for the same series agree
+  expect(swatches).toEqual(slices);
+
+  await openOverview(page, SPLIT.replace("kind: bar", "kind: line"), FOUR);
+  await expect(page.locator(".chart-line-path")).toHaveCount(4);
+  const strokes = await bandColors(page, ".chart-line-path", "stroke");
+  expect(new Set(strokes).size).toBe(4);
+});
+
+// the ramp's screen weights, in token order
+const RAMP = [
+  "rgb(57, 135, 229)",
+  "rgb(217, 89, 38)",
+  "rgb(25, 158, 112)",
+  "rgb(201, 133, 0)",
+  "rgb(213, 81, 129)",
+];
+
+test("the ramp is walked from the top, in order, never cycled or offset (SUB-952)", async ({
+  page,
+}) => {
+  // a split of four takes slots 1-4; a split of three takes 1-3. The ramp is
+  // never rotated to fit and never wraps — slot i is the split's i-th series,
+  // so a legend swatch and its stack slice always name the same token.
+  await openOverview(page, SPLIT, FOUR);
+  expect(await bandColors(page, ".chart-legend .chart-swatch", "backgroundColor")).toEqual(
+    RAMP.slice(0, 4)
+  );
+
+  const three = FOUR.split("\n")
+    .filter((l) => !l.includes(",etf,"))
+    .join("\n");
+  await openOverview(page, SPLIT, three);
+  await expect(page.locator(".chart-legend .chart-legend-item")).toHaveCount(3);
+  expect(await bandColors(page, ".chart-legend .chart-swatch", "backgroundColor")).toEqual(
+    RAMP.slice(0, 3)
+  );
+});
+
+test("a sixth series stops honestly instead of repeating a hue (SUB-952)", async ({ page }) => {
+  const sixBands = FOUR.replace(
+    "HHH,bonds,Q2,18\n",
+    "HHH,bonds,Q2,18\nIII,reits,Q1,7\nJJJ,gold,Q1,9\n"
+  );
+  await openOverview(page, SPLIT, sixBands);
 
   await expect(page.locator(".chart-err")).toHaveText(
-    "This split has 3 series; the current grayscale chart can distinguish 2."
+    "This split has 6 series; the chart ramp distinguishes 5."
   );
   await expect(page.locator(".chart-legend, .dash-chart")).toHaveCount(0);
 });

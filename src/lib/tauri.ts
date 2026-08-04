@@ -158,6 +158,17 @@ declare global {
         re-render — the production resolution class behind the SUB-305
         restore race, which the random timeout is too slow to reach */
     __mockSetAsync?: (on: boolean | "microtask") => void;
+    /** SUB-946: hold every call to `cmd` open for `ms` before it runs — a
+        deterministic slow disk. `__mockHoldCommand` parks a command
+        indefinitely; this one lets it land on its own, which is what proving
+        "the paint happened BEFORE the write returned" needs. `ms: 0` clears
+        the delay for that command. */
+    __mockSetLatency?: (cmd: string, ms: number) => void;
+    /** SUB-946: reject the NEXT call to `cmd` and only that one — `__mockFail`
+        is a standing set, so with several writes to the same cell in flight it
+        refuses all of them. Refusing exactly one is what "a slow write comes
+        back refused after the user already retyped" needs. */
+    __mockFailOnce?: (cmd: string) => void;
     /** SUB-771 instrumentation: record write-lane commands plus the FX
         request seam, with args + outcome from now on */
     __mockTraceCommands?: () => void;
@@ -2726,6 +2737,16 @@ let mockCmdTraceT0 = 0;
 // IPC a spec needs to still be pending while it navigates elsewhere
 const mockHeldCommands = new Map<string, Promise<void>>();
 const mockHoldReleases = new Map<string, () => void>();
+/* SUB-946: per-command artificial latency, in ms. The hold map above parks a
+   command until a spec releases it; this one makes a command simply SLOW, so
+   an optimistic paint can be asserted while the write is still in flight and
+   the write still lands by itself. Empty by default — no spec, no cost. */
+const mockLatency = new Map<string, number>();
+/* SUB-946: one-shot refusals, per command, counted down as calls are made.
+   __mockFail is a STANDING set: with three writes to the same cell in flight
+   it refuses all three, which can't express "the slow first write comes back
+   refused after the user already retyped". */
+const mockFailOnce = new Map<string, number>();
 
 /* SUB-296: the engine never emits vault:changed from its commands — the OS
    watcher observes the write and, once the vault goes quiet for 300ms
@@ -2903,6 +2924,16 @@ function mockRank(a: MockSearchRank, b: MockSearchRank): number {
 type MockSearchRank = { titleHit: boolean; offset: number; path: string };
 
 function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
+  // SUB-946: a one-shot refusal is claimed HERE, when the call is made — not
+  // where __mockFail is read, which is after the latency gate. With three
+  // writes to one cell in flight, "the first one is refused" is only
+  // expressible if the refusal binds in call order.
+  if (mockFailOnce.get(cmd)) {
+    mockFailOnce.set(cmd, mockFailOnce.get(cmd)! - 1);
+    const wait = mockLatency.get(cmd);
+    const fail = () => Promise.reject(new Error(`mock failure: ${cmd}`));
+    return wait ? mockDelay(wait).then(fail) : fail();
+  }
   // SUB-771 instrumentation: an opt-in ring of write-lane commands plus the
   // FX request seam, with args and outcomes. No effect unless a spec installed
   // the trace hook; including FX lets privacy regressions prove call counts.
@@ -2921,11 +2952,27 @@ function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknow
   // SUB-550: an explicitly held command waits for its release before running
   const held = mockHeldCommands.get(cmd);
   if (held) return held.then(() => mockInvoke(cmd, args));
+  // SUB-946: …and a slowed one waits out its latency first
+  const wait = mockLatency.get(cmd);
+  if (wait) return mockDelay(wait).then(() => mockDispatchAfterLatency(cmd, args));
   // both flags off: straight dispatch — resolution timing byte-identical to
   // the pre-flag mock (the whole suite's baseline is the blast-radius proof)
   if (!mockAsyncDispatch && !mockEchoOnWrites) return mockDispatch(cmd, args);
   return mockInvokeFidelity(cmd, args);
 }
+
+/** SUB-946: the tail of mockInvoke, past the hold and latency gates — kept
+    separate so the latency path can't re-enter its own gate. */
+function mockDispatchAfterLatency(
+  cmd: string,
+  args?: Record<string, unknown>
+): Promise<unknown> {
+  if (!mockAsyncDispatch && !mockEchoOnWrites) return mockDispatch(cmd, args);
+  return mockInvokeFidelity(cmd, args);
+}
+
+const mockDelay = (ms: number) =>
+  new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
 // SUB-771 instrumentation: run the traced command through the normal pipeline
 // (hold gate + fidelity flags untouched) and record how it ended.
@@ -2936,6 +2983,8 @@ async function mockInvokeTraced(
 ): Promise<unknown> {
   const held = mockHeldCommands.get(cmd);
   if (held) await held;
+  const wait = mockLatency.get(cmd);
+  if (wait) await mockDelay(wait);
   try {
     const r =
       !mockAsyncDispatch && !mockEchoOnWrites
@@ -5252,6 +5301,16 @@ if (!isTauri) {
     });
     mockHeldCommands.set(cmd, gate);
     mockHoldReleases.set(cmd, release);
+  };
+  // SUB-946: a deterministic slow disk for one command
+  window.__mockSetLatency = (cmd, ms) => {
+    if (ms > 0) mockLatency.set(cmd, ms);
+    else mockLatency.delete(cmd);
+  };
+  // SUB-946: refuse the NEXT call to cmd and only that one (calls counted in
+  // call order, so it binds before the latency wait — see mockInvoke)
+  window.__mockFailOnce = (cmd) => {
+    mockFailOnce.set(cmd, (mockFailOnce.get(cmd) ?? 0) + 1);
   };
   window.__mockReleaseCommand = (cmd) => {
     mockHeldCommands.delete(cmd);
