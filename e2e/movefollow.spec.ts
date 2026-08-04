@@ -53,6 +53,33 @@ test("dragging the open note onto a sidebar folder follows it too (SUB-768)", as
   await expect(row(page, "Welcome")).toBeVisible();
 });
 
+// SUB-1061: the same trap one keystroke later. Undo moves the file back
+// outside the pane that recorded it, so without a follow the view stays on
+// the destination, `selected` names the path the note just vacated, and the
+// selection-guard snaps the editor to a neighbour — the wrong-note trap the
+// SUB-768 fix closed for the forward move, reopened by ⌘Z.
+test("⌘Z after moving the open note follows it back (SUB-1061)", async ({ page }) => {
+  await row(page, "Welcome").dragTo(sideFolder(page, "Projects"));
+  await expect(page.locator(".list-title")).toHaveText("Projects");
+  await expect(page.locator(".note-title")).toHaveValue("Welcome");
+
+  // out of the editor so ⌘Z is the vault's undo, not text undo
+  await row(page, "Welcome").click();
+  await page.keyboard.press("Meta+z");
+
+  await expect(page.locator(".toast")).toContainText("Undid Move");
+  // the view came back to Notes with the note…
+  await expect(page.locator(".list-title")).toHaveText("Notes");
+  // …and the editor still holds it, not a snapped-to neighbour
+  await expect(page.locator(".note-title")).toHaveValue("Welcome");
+  await expect(row(page, "Welcome")).toBeVisible();
+
+  // redo files it away again, and the view follows out a second time
+  await page.keyboard.press("Meta+Shift+z");
+  await expect(page.locator(".list-title")).toHaveText("Projects");
+  await expect(page.locator(".note-title")).toHaveValue("Welcome");
+});
+
 test("moving a note that isn't open leaves the view alone (SUB-768)", async ({ page }) => {
   // "Welcome" stays open; a different scratch row is the one that moves
   await row(page, "Capture anything").dragTo(sideFolder(page, "Projects"));

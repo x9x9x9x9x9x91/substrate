@@ -324,7 +324,9 @@ function Sidebar({
     flat: flatDashboards,
     groups: rawDashGroups,
     byFolder: dashesByFolder,
-  } = splitDashboards(dashboards);
+    // SUB-1079: the folder list so an existing (even empty) `Dashboards/`
+    // folder is the section's home outright, inference only without one
+  } = splitDashboards(dashboards, folders);
 
   // SUB-698: the headers follow their own persisted drag order, groups the
   // user never dragged staying in the split's alphabetical order behind them.

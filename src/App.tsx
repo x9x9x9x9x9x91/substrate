@@ -2508,6 +2508,47 @@ export default function App() {
     [afterOpenFlush, onRenamed, undoApi]
   );
 
+  // SUB-1061: a move's undo runs long after the move recorded it, so the
+  // follow decision can't ride the closure moveNote captured — it has to read
+  // the view/selection as they are at ⌘Z time.
+  const moveFollowRef = useRef({ view, selected, tagFolders });
+  moveFollowRef.current = { view, selected, tagFolders };
+
+  // SUB-1061: undo/redo apply the inverse move outside moveNote, so without
+  // this the file returns and `selected` still names the dead destination —
+  // the selection-guard snaps the editor to a neighbour and the next
+  // keystroke lands in the wrong note (SUB-768's trap, at undo time). Same
+  // shape as onRenameApplied: repair every path reference, and FOLLOW the
+  // view only when the note that moved is the open one and was on screen.
+  const onMoveApplied = useCallback(
+    (oldPath: string, m: NoteMeta) => {
+      const { view: v, selected: sel, tagFolders: tf } = moveFollowRef.current;
+      const prev = notesRef.current.find((n) => n.path === oldPath);
+      const wasShown = sel === oldPath && !!prev && inView(prev, v, tf);
+      setSelected((cur) => (cur === oldPath ? m.path : cur));
+      setDbNote((cur) => (cur === oldPath ? m.path : cur));
+      setRenaming((r) => (r === oldPath ? m.path : r));
+      setView((cur) =>
+        cur.kind === "dashboard" && cur.path === oldPath ? { ...cur, path: m.path } : cur
+      );
+      // seed the moved meta synchronously (SUB-72 trick), same reason the
+      // forward move does: app state is pre-refresh stale at this instant
+      setNotes((ns) => ns.map((n) => (n.path === oldPath ? m : n)));
+      if (wasShown && !inView(m, v, tf)) {
+        setView(
+          isScratchNote(m)
+            ? { kind: "notes" }
+            : m.folder
+              ? { kind: "folder", path: m.folder }
+              : { kind: "all" }
+        );
+      }
+      refresh();
+      migrateSidebarOrderPath(oldPath, m.path);
+    },
+    [refresh, migrateSidebarOrderPath, notesRef, setNotes]
+  );
+
   const moveNote = useCallback(
     (path: string, folder: string): Promise<void> =>
       afterOpenFlush(() => {
@@ -2517,7 +2558,9 @@ export default function App() {
         // not yank the view, and neither must moving a background note.
         const prev = notesRef.current.find((n) => n.path === path);
         const wasShown = selected === path && !!prev && inView(prev, view, tagFolders);
-        return moveUndoable({ path, folder, record: undoApi.record }).then((m) => {
+        // SUB-1061: onApplied is undo/redo only — the forward move's repair is
+        // the `.then` right below, which knows this call's own `wasShown`
+        return moveUndoable({ path, folder, record: undoApi.record, onApplied: onMoveApplied }).then((m) => {
           // the file's rel path changed — follow it everywhere it's referenced
           setSelected((sel) => (sel === path ? m.path : sel));
           setDbNote((cur) => (cur === path ? m.path : cur));
@@ -2554,6 +2597,7 @@ export default function App() {
       refresh,
       migrateSidebarOrderPath,
       undoApi,
+      onMoveApplied,
       selected,
       view,
       tagFolders,
@@ -2662,8 +2706,9 @@ export default function App() {
   // SUB-466: the `dashgroup:<folder>` ids the sidebar can actually render right
   // now — a group exists only while some dashboard lives in that subfolder
   const dashGroupIds = useMemo(
-    () => new Set(splitDashboards(orderedDashboards).groups.map((g) => `dashgroup:${g.folder}`)),
-    [orderedDashboards]
+    () =>
+      new Set(splitDashboards(orderedDashboards, folders).groups.map((g) => `dashgroup:${g.folder}`)),
+    [orderedDashboards, folders]
   );
 
   const {
@@ -2740,7 +2785,10 @@ export default function App() {
 
   // SUB-605: the same three-way dashboard split the sidebar renders — shared
   // here so the row menu's Move lane is the one the row actually reorders in
-  const dashSplit = useMemo(() => splitDashboards(mobileDashboards), [mobileDashboards]);
+  const dashSplit = useMemo(
+    () => splitDashboards(mobileDashboards, folders),
+    [mobileDashboards, folders]
+  );
 
   // SUB-698: the group headers in the order the sidebar draws them — the menu's
   // Move up/down has to index the same list the drag lane reorders
@@ -3095,7 +3143,7 @@ export default function App() {
   // move stage, which lists every folder.
   const dashMoveItems = useCallback(
     (path: string): MenuItem[] => {
-      const { home } = splitDashboards(orderedDashboards);
+      const { home } = splitDashboards(orderedDashboards, folders);
       const cur = path.slice(0, Math.max(0, path.lastIndexOf("/")));
       // home's existing subfolders (any depth — the sidebar groups them by
       // their first segment, but a move can still target a deeper one)

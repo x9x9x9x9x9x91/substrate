@@ -67,7 +67,7 @@ Vault/
 ├── Inbox/                     # default capture folder (auto-created)
 ├── Journal/                   # daily notes (§12)
 ├── Calendar/                  # standalone events created from the calendar (§12)
-├── Dashboards/                # convention only — dashboards can live anywhere
+├── Dashboards/                # optional — when present it IS the dashboards home (§5.2)
 ├── <any folders>/             # notes organize themselves; folders are just paths
 ├── .claude/skills/            # agent skills, seeded + user-written (§12)
 ├── .assets/                   # embedded binaries, flat (§9)
@@ -527,10 +527,13 @@ created: 2026-07-17
 ---
 ```
 
-Where the row lives (SUB-466, SUB-605): a dashboard note may sit in any folder,
-and its PATH decides which sidebar surface shows it. The app derives a
-"dashboards home" — the folder whose subtree holds the most dashboards, `Dashboards/`
-by convention — and gives the Dashboards section the ones inside it: directly in
+Where the row lives (SUB-466, SUB-605, SUB-1079): a dashboard note may sit in any
+folder, and its PATH decides which sidebar surface shows it. The app picks a
+"dashboards home" — a top-level `Dashboards/` folder is it whenever the vault has
+one, no matter how many dashboards live elsewhere; a vault without that folder
+falls back to inferring one, the folder whose subtree holds the most dashboards
+(ties break to the shallowest path, then alphabetically) — and gives the
+Dashboards section the ones inside it: directly in
 home flat, one level of subfolders as collapsible groups (deeper nesting folds
 into its first segment). A dashboard in any OTHER folder renders as a row inside
 that folder's node in the Folders tree instead, beside its databases and pinned
@@ -2666,7 +2669,11 @@ Plain notes the app treats specially — all optional, all just files:
   command palette, each typed into the HUD's shell; a fresh vault is seeded
   with one entry for the `/setup` skill below), and
   `drop-hint` (default `true`; `false` hides the drag-over copy-vs-⇧-link
-  hint), `db-grid` (SUB-607, default `true`; `false` turns off the
+  hint), `mod-hud` (default `true`; `false` stops the hold-⌘ panel from
+  unfolding the shortcuts that would fire right now — same rule as
+  `drop-hint`, only an explicit `false` hides it, so an unset key or a
+  typo'd value keeps the affordance discoverable. Desktop only), `db-grid`
+  (SUB-607, default `true`; `false` turns off the
   vertical grid lines in database tables globally — a database's own
   views.json `grid` override, §7, wins either way), `window-opacity`
   (SUB-951, macOS desktop only, default `90`; how solid the window is over the

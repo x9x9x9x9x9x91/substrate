@@ -298,7 +298,13 @@ AVG(days_held)`.
   every other formula line (string literals, function names, and other sheets'
   members stay untouched); name collisions with data columns or other formulas are
   rejected. Writes back to the ```formulas fence like any other edit.
-- The source note stays one click away (same pattern as dashboards).
+- The source note stays one click away (same pattern as dashboards): the toolbar's
+  note icon, **View note source**, swaps the grid for the normal editor over the
+  same file, and **← grid** returns. This is the escape hatch out of the grid for
+  hand-fixing the ```csv fence or writing body text — it is the only way to reach
+  a sheet's text, so it is documented for users in
+  [`docs/user/files-and-settings.md`](user/files-and-settings.md). A view fence
+  rendered in source mode stays read-only on purpose.
 
 ## Dashboards reading sheets
 

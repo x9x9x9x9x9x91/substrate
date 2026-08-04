@@ -120,9 +120,20 @@ export function recordCreate(opts: Common & { meta: NoteMeta }): void {
 /** Move a note between folders — the cleanest structural inverse there is
     (docs/undo.md §1.3): the filename and every link stay put. */
 export async function moveUndoable(
-  opts: Common & { path: string; folder: string }
+  opts: Common & {
+    path: string;
+    folder: string;
+    /** SUB-1061: undo/redo move the file outside the caller's own `.then`,
+        so the app is left pointing at the path the note just vacated — the
+        selection-guard then snaps the editor to a neighbour (SUB-768's
+        wrong-note trap, now at ⌘Z time). Callers pass the same follow
+        wiring the forward move uses; fires after the inverse move resolves,
+        before the stack's refresh. Same hook `renameUndoable` got for the
+        identical asymmetry under SUB-783. */
+    onApplied?: (oldPath: string, meta: NoteMeta) => void;
+  }
 ): Promise<NoteMeta> {
-  const { path, folder, record } = opts;
+  const { path, folder, record, onApplied } = opts;
   const priorFolder = folderOf(path);
   const meta = await vaultMove(path, folder);
   if (meta.path !== path) {
@@ -133,10 +144,12 @@ export async function moveUndoable(
       at: Date.now(),
       paths: [path, meta.path],
       undo: async () => {
-        await vaultMove(meta.path, priorFolder);
+        const back = await vaultMove(meta.path, priorFolder);
+        onApplied?.(meta.path, back);
       },
       redo: async () => {
-        await vaultMove(path, folder);
+        const again = await vaultMove(path, folder);
+        onApplied?.(path, again);
       },
     });
   }

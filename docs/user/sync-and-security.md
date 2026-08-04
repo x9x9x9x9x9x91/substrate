@@ -29,7 +29,12 @@ needs encryption at rest. The fuller threat model is in
   is uploaded. The decryption key stays in the link fragment and is not sent to
   the relay. Unlike the Git token, a share relay token is stored as plain text in
   `Settings.md` inside the vault, so it travels with every Push and sync of that
-  vault — use a token you are willing to have in vault content.
+  vault — use a token you are willing to have in vault content. The two tokens sit
+  in different places because they are scoped differently: the Git token is how
+  *this Mac* reaches your remote, so it stays on the machine, while the relay is
+  configured in `Settings.md` and therefore reaches every device that syncs the
+  vault. Most relays need no token at all; leave the field empty unless yours
+  gates uploads.
 - **Currency conversion:** opening a sheet or a dashboard requests the one public
   USD→EUR reference rate from `api.frankfurter.dev`. No note content is included.
 

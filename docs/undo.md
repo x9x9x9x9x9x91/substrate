@@ -386,6 +386,57 @@ input undo while a field has focus, app-undo once it blurs — the design's
 default stands. The `data-undo-scope="app"` opt-in remains for commit-and-clear
 forms like the food dashboard's.
 
+### 2.6 An inverse must repair the UI, not just the file
+
+An entry records the *inverse write*, and `runUndoEntry` runs it far away from
+whichever pane recorded it: `await run()` → advance the cursor → toast →
+`refresh()` (`useUndoStack.ts:66-71`). Nothing in that sequence knows what was
+open, selected, or in view. So for any action whose forward path also repaired
+the app's own state, the inverse has to repair it too — otherwise ⌘Z fixes the
+disk and leaves the window pointing at a path the vault no longer has.
+
+The failure is always the same shape, and it has now been found three times:
+
+- **SUB-768** — moving the open note out of the current scope, with no follow:
+  the selection-guard snaps the editor to a *neighbouring* note, and the next
+  keystroke lands in it. The wrong-note editing trap.
+- **SUB-783** — undoing a rename applied the path change as a plain prop
+  change, remounting the editor with no selection repair.
+- **SUB-1061** — the SUB-768 trap one keystroke later: the forward move
+  followed, its undo didn't, so taking the move back re-opened exactly the bug
+  the follow had closed.
+
+**The contract.** A structural helper that changes a note's or folder's path
+takes a caller-supplied UI hook and calls it from *both* inverse directions:
+
+| helper | hook | fires on |
+|---|---|---|
+| `renameUndoable` | `onApplied(oldPath, meta)` | undo, redo |
+| `moveUndoable` | `onApplied(oldPath, meta)` | undo, redo |
+| `moveFolderUndoable` | `follow(oldRel, newRel)` | forward, undo, redo |
+
+The note helpers deliberately do *not* fire on the forward call: the caller is
+already inside its own `.then` there, where it knows things the hook can't
+(SUB-768's `wasShown`, computed from the pre-move meta). The folder helper does
+fire forward, because dragging a folder has no such caller-side branch.
+
+**The hook must not close over render state.** The closure is recorded at
+forward-action time and run whenever ⌘Z reaches it — minutes and many renders
+later. A `useCallback` that lists `view`/`selected` in its deps hands the entry
+the values as they were *when the move happened*, which is precisely the wrong
+answer: the user has since navigated. Two safe forms, both in use:
+
+- functional setters only (`setSelected((cur) => …)`) — `onRenameApplied`
+  (`App.tsx:2228-2242`);
+- a render-assigned ref for anything that needs a *decision* rather than a
+  substitution — `moveFollowRef` (`App.tsx:2545-2546`), read by `onMoveApplied`,
+  which must ask "is this note the open one, and was it on screen?" against the
+  view as it stands at undo time.
+
+Everything else the forward path does still applies, including the SUB-72 trick:
+seed the moved meta into `notes` synchronously before switching the view, or the
+destination list has no row for the note yet and the guard snaps straight back.
+
 ---
 
 ## 3. The hard seam — editor undo vs filesystem undo vs external writers

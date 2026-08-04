@@ -528,3 +528,16 @@ New note (⌘N or the palette), then add the props — set “Database” to `da
 and add a `dashboard` prop with the kind. The sidebar's Dashboards section lists
 every `type: dashboard` note. Since dashboards are files, an external tool or
 agent can also just write them into the vault; the watcher picks them up live.
+
+## Where the rows show up
+
+Make a top-level `Dashboards/` folder and it is the section's home: everything in
+it lists in the Dashboards section (one level of subfolders becomes collapsible
+groups), dropping a note on the Dashboards header files it there, and dashboards
+you keep in content folders — `Studio/Gear Health.md` beside that folder's notes
+— render on their folder's row in the Folders tree instead. That holds however
+many dashboards pile up elsewhere; the folder decides, not a head count.
+
+Without a `Dashboards/` folder the app infers a home instead — whichever folder's
+subtree holds the most dashboards — so a vault that never made one still gets a
+sensible section. Create the folder any time you want to stop it moving.

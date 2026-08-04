@@ -374,9 +374,10 @@ test("splitDashboards: no dual render — every path lands in exactly one bucket
 });
 
 test("splitDashboards: content-folder dashboards don't move the home folder", () => {
-  // 2 in Dashboards vs 3 in Studio — Studio scores higher, so it takes
-  // home and the Dashboards pair becomes the tree-foldered side. The split
-  // stays a single decision either way: no path renders on both surfaces
+  // 2 in Dashboards vs 3 in Studio. The counts used to decide this and Studio
+  // took home (SUB-466); since SUB-1079 the explicit folder wins outright, so a
+  // busy content folder no longer re-roots the section. The split stays a
+  // single decision either way: no path renders on both surfaces
   const { home, flat, byFolder } = splitDashboards([
     { path: "Dashboards/Overview.md" },
     { path: "Dashboards/Sync.md" },
@@ -384,17 +385,13 @@ test("splitDashboards: content-folder dashboards don't move the home folder", ()
     { path: "Studio/B.md" },
     { path: "Studio/C.md" },
   ]);
-  assert.equal(home, "Studio");
-  // Dashboards/ is a HIDDEN root — it has no tree row for its two to nest
-  // under, so they join home's own rows in the section's flat list
-  assert.deepEqual(paths(flat), [
-    "Dashboards/Overview.md",
-    "Dashboards/Sync.md",
-    "Studio/A.md",
-    "Studio/B.md",
-    "Studio/C.md",
-  ]);
-  assert.deepEqual([...byFolder.keys()], []);
+  assert.equal(home, "Dashboards");
+  assert.deepEqual(paths(flat), ["Dashboards/Overview.md", "Dashboards/Sync.md"]);
+  // Studio owns its own tree row, so its three nest there instead
+  assert.deepEqual(
+    [...byFolder.entries()].map(([f, items]) => [f, paths(items)]),
+    [["Studio", ["Studio/A.md", "Studio/B.md", "Studio/C.md"]]]
+  );
 });
 
 test("dashboardsHome matches the home splitDashboards uses", () => {
@@ -405,6 +402,69 @@ test("dashboardsHome matches the home splitDashboards uses", () => {
   ];
   assert.equal(dashboardsHome(input), splitDashboards(input).home);
   assert.equal(dashboardsHome([]), "");
+});
+
+/* ----- SUB-1079: the explicit `Dashboards/` rule, inference as fallback ----- */
+
+test("dashboardsHome: an existing Dashboards/ folder is home regardless of counts", () => {
+  // the inference alone would hand home to Finance (3 dashboards vs 1), which
+  // is exactly the surprise SUB-1006 answered away: the conventional folder is
+  // the home, so piling dashboards up elsewhere can't re-root the section
+  const input = [
+    { path: "Dashboards/Overview.md" },
+    { path: "Finance/Ledger.md" },
+    { path: "Finance/Taxes.md" },
+    { path: "Finance/Payouts.md" },
+  ];
+  assert.equal(dashboardsHome(input), "Dashboards");
+  const split = splitDashboards(input, ["Dashboards", "Finance"]);
+  assert.equal(split.home, "Dashboards");
+  assert.deepEqual(paths(split.flat), ["Dashboards/Overview.md"]);
+  // the heavier subtree stays where the user filed it — folder tree rows
+  assert.deepEqual(
+    [...split.byFolder].map(([f, items]) => [f, paths(items)]),
+    [["Finance", ["Finance/Ledger.md", "Finance/Taxes.md", "Finance/Payouts.md"]]]
+  );
+});
+
+test("dashboardsHome: an EMPTY Dashboards/ folder still wins when folders are known", () => {
+  // nothing in it yet, so the paths alone can't see it — the folder list can,
+  // and the header's drop target should send the next dashboard there
+  const input = [{ path: "Finance/Ledger.md" }, { path: "Finance/Taxes.md" }];
+  assert.equal(dashboardsHome(input, ["Dashboards", "Finance"]), "Dashboards");
+  // without the folder list the same vault falls back to inference
+  assert.equal(dashboardsHome(input), "Finance");
+  assert.equal(splitDashboards(input, ["Dashboards", "Finance"]).home, "Dashboards");
+});
+
+test("dashboardsHome: no Dashboards/ folder → inference, exactly as before", () => {
+  const input = [
+    { path: "Finance/Ledger.md" },
+    { path: "Finance/Taxes.md" },
+    { path: "Studio/Gear.md" },
+  ];
+  // passing the folder list changes nothing when the convention isn't there
+  assert.equal(dashboardsHome(input, ["Finance", "Studio"]), "Finance");
+  assert.equal(dashboardsHome(input), "Finance");
+  assert.deepEqual(splitDashboards(input, ["Finance", "Studio"]), splitDashboards(input));
+  // and a folder that merely PREFIXES the convention is not the convention
+  assert.equal(
+    dashboardsHome([{ path: "Dashboards Archive/Old.md" }], ["Dashboards Archive"]),
+    "Dashboards Archive"
+  );
+  // nor is a nested one — the rule is the TOP-LEVEL folder, so `Work/Dashboards`
+  // goes through the inference like any other name (which roots at `Work`)
+  assert.equal(dashboardsHome([{ path: "Work/Dashboards/A.md" }], ["Work/Dashboards"]), "Work");
+});
+
+test("pinTreeFolder is unaffected by the explicit home rule", () => {
+  // pins split by their own folder, never by the dashboards home (SUB-594)
+  assert.equal(pinTreeFolder("Finance", "Finance/Ledger.md"), "Finance");
+  assert.equal(pinTreeFolder("Dashboards", "Dashboards/Overview.md"), null);
+  assert.equal(
+    pinTreeFolder("Finance", "Finance/Ledger.md", new Set(["Finance/Ledger.md"])),
+    null
+  );
 });
 
 test("splitDashboards: tree dashboards reorder in their own folder group (SUB-605)", () => {

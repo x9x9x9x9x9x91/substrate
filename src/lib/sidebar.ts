@@ -210,8 +210,21 @@ function folderOfPath(path: string): string {
   return i === -1 ? "" : path.slice(0, i);
 }
 
+/** The conventional dashboards home (SUB-1079): a top-level `Dashboards/`
+    folder IS the section's home whenever it exists, so the section's root is a
+    thing the user can see and move rather than a tally they have to reverse-
+    engineer. Same shape as the databases' explicit `home` key. */
+export const DASHBOARDS_HOME_FOLDER = "Dashboards";
+
 /**
- * The dashboards' home folder (SUB-466): the one with the highest
+ * The dashboards' home folder. EXPLICIT FIRST (SUB-1079, from SUB-1006's
+ * answer): if the vault has a top-level `Dashboards/` folder — either as a real
+ * folder in `folders`, or implied by a dashboard living in it — that folder is
+ * the home, regardless of counts. Only a vault without one falls back to the
+ * inference below, so zero-config vaults keep working and configured ones stop
+ * re-rooting themselves when dashboards pile up somewhere else.
+ *
+ * FALLBACK — inference (SUB-466): the folder with the highest
  * DESCENDANT-INCLUSIVE dashboard count — dashboards in it plus in any of its
  * subfolders — not a common path prefix and not a direct-contents tally. A
  * direct tally re-decides the whole section's shape from folder contents, so
@@ -223,7 +236,21 @@ function folderOfPath(path: string): string {
  * root "" is skipped as a candidate unless dashboards actually sit in it (as
  * everyone's ancestor it would otherwise always win).
  */
-export function dashboardsHome(dashboards: { path: string }[]): string {
+export function dashboardsHome(
+  dashboards: { path: string }[],
+  folders?: readonly string[]
+): string {
+  // the explicit rule: the conventional folder wins outright. An empty
+  // `Dashboards/` still counts when the caller knows the folder list — it is
+  // where the header's drop target should send the next dashboard.
+  if (folders?.includes(DASHBOARDS_HOME_FOLDER)) return DASHBOARDS_HOME_FOLDER;
+  const prefix = `${DASHBOARDS_HOME_FOLDER}/`;
+  for (const d of dashboards) {
+    const folder = folderOfPath(d.path);
+    if (folder === DASHBOARDS_HOME_FOLDER || folder.startsWith(prefix)) {
+      return DASHBOARDS_HOME_FOLDER;
+    }
+  }
   // score = dashboards directly in a folder plus in every descendant, so a
   // dashboard counts for its folder AND all of its ancestors
   const score = new Map<string, number>();
@@ -295,9 +322,10 @@ export function dashTreeFolder(path: string, home: string): string | null {
  * in order of their first member, members keep their order inside the group.
  */
 export function splitDashboards<T extends { path: string }>(
-  dashboards: T[]
+  dashboards: T[],
+  folders?: readonly string[]
 ): { home: string; flat: T[]; groups: DashGroup<T>[]; byFolder: Map<string, T[]> } {
-  const home = dashboardsHome(dashboards);
+  const home = dashboardsHome(dashboards, folders);
   const prefix = home ? `${home}/` : "";
   const flat: T[] = [];
   const groups: DashGroup<T>[] = [];

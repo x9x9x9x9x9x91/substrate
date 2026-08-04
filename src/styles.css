@@ -5420,8 +5420,7 @@ body.agenda-window .palette:focus-visible {
   z-index: 1;
   background: var(--bg-panel);
   text-align: left;
-  font-size: 10.5px;
-  font-weight: 520;
+  font: var(--dash-label);
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-3);

@@ -51,3 +51,47 @@ The first update check runs about 20 seconds after launch and failures stay quie
 when the Mac is offline or GitHub is unavailable. Leave the app open and try
 again later, or install the latest DMG manually; replacing the app does not touch
 the vault. See [upgrades, backup, and restore](upgrades-and-backups.md).
+
+## A file I created is missing from the app
+
+If you created `AGENTS.md`, `CLAUDE.md`, or `Settings.md` at the vault root in
+another editor, Substrate hides it on purpose: those are the files the app itself
+owns, and a fresh vault reads better without them. The file is still on disk, in
+Finder, in backups, and in sync — only the app's note lists, search, and palette
+filter it out.
+
+Turn on **Settings (⌘,) → Show app files** to see them again. Only those exact
+root filenames are hidden; a note of your own with a similar name, or one in a
+subfolder, is never affected. See
+[files, settings, and views](files-and-settings.md).
+
+## A note opens as a grid, not as text
+
+A note with the property `type: sheet` is a spreadsheet, so the app renders an
+editable table over its CSV and formula blocks instead of the text editor.
+
+To edit the raw text — to fix the CSV by hand, change the formulas, or write body
+text around them — use the note icon in the sheet's toolbar, **View note source**;
+**← grid** switches back. If the note was never meant to be a sheet, remove its
+`type: sheet` property and it becomes an ordinary note.
+
+## A setting I changed did not apply
+
+App settings are properties in `Settings.md` at the vault root, and the
+Settings sheet (⌘,) is a form over that same note — not a second copy. Either way
+of editing is valid and the last write wins; a direct edit to the note is picked
+up within about a second, with no restart.
+
+Two things account for most surprises:
+
+- **The sheet was already open when the note changed.** It reads the note when it
+  opens. Close and reopen it to see values edited elsewhere.
+- **A single database has its own override.** Column widths, sorting, visible
+  columns, and table grid lines are stored per database and win over the global
+  setting for that database. Toggle that database's own control back to the
+  global value and it follows the setting again.
+
+Deleting the setting's line in `Settings.md` is the sure way back to the
+default (clearing a form field only does the same for text fields — and the
+relay URL field turns the feature off instead). Full explanation in
+[files, settings, and views](files-and-settings.md).

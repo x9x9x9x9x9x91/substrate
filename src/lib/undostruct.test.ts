@@ -135,6 +135,29 @@ test("move: undo puts the note back in its prior folder", async () => {
   assert.equal(await listed(moved.path), true);
 });
 
+test("move: undo and redo announce their move through onApplied (SUB-1061)", async () => {
+  const m = await vaultCreate("Undo Move Announce", "Inbox", "note", [], "body\n");
+  await vaultCreateFolder("Undo Move Announce Dest");
+  const { box, record } = recorder();
+  const applied: [string, string][] = [];
+  const moved = await moveUndoable({
+    path: m.path,
+    folder: "Undo Move Announce Dest",
+    record,
+    onApplied: (oldPath, meta) => void applied.push([oldPath, meta.path]),
+  });
+  // the forward move is the caller's own .then — onApplied is undo/redo only
+  assert.deepEqual(applied, []);
+  await box.entry!.undo();
+  assert.deepEqual(applied, [[moved.path, m.path]], "undo announces new→old");
+  await box.entry!.redo!();
+  assert.deepEqual(
+    applied[applied.length - 1],
+    [m.path, moved.path],
+    "redo announces old→new"
+  );
+});
+
 test("a move that didn't move records nothing", async () => {
   const m = await vaultCreate("Undo Move Noop", "Inbox", "note", [], "body\n");
   const { box, record } = recorder();
