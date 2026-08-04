@@ -37,6 +37,21 @@ export interface MetricCard {
   emph?: boolean;
 }
 
+/** Fraction digits a card may ask for. `Number.toLocaleString` rejects digits
+    past its engine's cap with a hard RangeError — 100 on current V8/JSC, 20 on
+    engines predating Intl.NumberFormat v3 — and no board value reads past 8,
+    so one bound holds for every card surface: the grid tile parser refuses
+    outside it (src/lib/grid.ts), both card parsers clamp into it, and fmtCard
+    clamps once more so a hand-built card can't crash formatting either. */
+export const MAX_CARD_DIGITS = 8;
+
+/** A card's `digits` as the formatter can actually use it: whole, 0..8, or
+    absent for anything that isn't a finite number. */
+export function clampCardDigits(digits: unknown): number | undefined {
+  if (typeof digits !== "number" || !Number.isFinite(digits)) return undefined;
+  return Math.min(MAX_CARD_DIGITS, Math.max(0, Math.trunc(digits)));
+}
+
 /** Cards from a dashboard note's frontmatter. Lenient by design: a malformed
     entry in a YAML block the app didn't parse is skipped, not fatal. */
 export function parseCards(props: Record<string, unknown>): MetricCard[] {
@@ -51,7 +66,7 @@ export function parseCards(props: Record<string, unknown>): MetricCard[] {
       label: o.label,
       bind: o.bind,
       format: typeof o.format === "string" ? o.format : undefined,
-      digits: typeof o.digits === "number" ? o.digits : undefined,
+      digits: clampCardDigits(o.digits),
       // anything but a literal true (absent, "yes", 1, garbage) is not emphasis
       emph: o.emph === true,
     });
@@ -73,21 +88,22 @@ export function parseBind(bind: string): { sheet: string; name: string } | null 
 export function fmtCard(v: Value, format?: string, digits?: number): string {
   if (isErr(v)) return "—";
   if (typeof v !== "number") return formatValue(v);
+  const d = clampCardDigits(digits);
   switch (format) {
     case "eur":
-      return fmtMoney(v, "€", digits ?? 0);
+      return fmtMoney(v, "€", d ?? 0);
     case "usd":
-      return fmtMoney(v, "$", digits ?? 0);
+      return fmtMoney(v, "$", d ?? 0);
     case "number":
       return v.toLocaleString("de-DE", {
-        minimumFractionDigits: digits ?? 0,
-        maximumFractionDigits: digits ?? 2,
+        minimumFractionDigits: d ?? 0,
+        maximumFractionDigits: d ?? 2,
       });
     case "pct":
       return (
         v.toLocaleString("de-DE", {
-          minimumFractionDigits: digits ?? 1,
-          maximumFractionDigits: digits ?? 1,
+          minimumFractionDigits: d ?? 1,
+          maximumFractionDigits: d ?? 1,
         }) + "%"
       );
     default:
@@ -129,7 +145,7 @@ function assign(card: Partial<MetricCard>, rawKey: string, rawValue: string) {
   if (key === "digits") {
     const n = Number(v);
     if (!/^\d+$/.test(v) || !isFinite(n)) throw new Error(`digits must be a whole number — got "${v}"`);
-    card.digits = n;
+    card.digits = clampCardDigits(n);
     return;
   }
   const b = v.toLowerCase();

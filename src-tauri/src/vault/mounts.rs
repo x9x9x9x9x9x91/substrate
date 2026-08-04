@@ -38,6 +38,17 @@ pub const MOUNTS_INDEX_REL_DIR: &str = ".vault/mounts";
 /// Vault folder holding sidecar notes, one subfolder per mount name.
 pub const MOUNTS_SHADOW_DIR: &str = "Mounts";
 
+/// Prefix of the pre-migration backup an unsnapshottable vault gets instead
+/// of a history restore point (SUB-1011): `.vault/backup/<prefix><stamp>/`.
+/// It sits under the same `.vault/backup/` the format migrations already use
+/// (`vaultfmt::BACKUP_REL_DIR`), so there is one place a user looks for "what
+/// the app copied before it rewrote something".
+const MOUNTS_MIGRATION_BACKUP_PREFIX: &str = "mounts-migration.";
+
+/// Where the copied notes live inside one backup dir. Everything else in
+/// there is a hidden config file copied under its own bare name.
+const MOUNTS_MIGRATION_BACKUP_NOTES: &str = "notes";
+
 /// Bounded buffer used while streaming a file into its identity hash.
 const IDENTITY_CHUNK: usize = 64 * 1024;
 
@@ -215,6 +226,26 @@ fn safe_id(id: &str) -> bool {
 
 fn index_rel_path(id: &str) -> String {
     format!("{MOUNTS_INDEX_REL_DIR}/{id}.json")
+}
+
+/// Copy a file, or a directory tree, verbatim. Used only to stage the
+/// pre-migration backup, so it reports the first failure rather than
+/// soldiering on: a backup missing a file is not a backup.
+fn copy_tree(from: &Path, to: &Path) -> Result<(), String> {
+    let meta = fs::metadata(from).map_err(|e| format!("{}: {e}", from.display()))?;
+    if !meta.is_dir() {
+        if let Some(dir) = to.parent() {
+            fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        }
+        fs::copy(from, to).map_err(|e| format!("{}: {e}", from.display()))?;
+        return Ok(());
+    }
+    fs::create_dir_all(to).map_err(|e| format!("{}: {e}", to.display()))?;
+    for entry in fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))? {
+        let entry = entry.map_err(|e| format!("{}: {e}", from.display()))?;
+        copy_tree(&entry.path(), &to.join(entry.file_name()))?;
+    }
+    Ok(())
 }
 
 /// One mount's last-known index. Missing or corrupt reads as empty: it is a
@@ -824,8 +855,74 @@ impl Engine {
     /// (`file`, `modified`, `size`, `missing`) are dropped, because the index
     /// carries them now.
     ///
+    /// Copy everything [`Engine::migrate_folder_mappings`] is about to rewrite
+    /// into `.vault/backup/mounts-migration.<stamp>/`, and return that dir.
+    ///
+    /// This is the recovery artifact for a vault that cannot be snapshotted —
+    /// its own git repo, or a `History::new` that failed (SUB-1011). Without
+    /// it the migration deferred on every launch, forever; with it the caller
+    /// has the same "you can get the old shape back" guarantee a snapshot
+    /// gives, just as files rather than a commit.
+    ///
+    /// What it holds: the mapping notes (every note of every mapped type, the
+    /// only note content the migration rewrites or moves) under `notes/`, plus
+    /// the hidden config the run touches — `folders.json`, `mounts.json`, and
+    /// the per-mount index dir — copied under their bare names.
+    ///
+    /// The whole thing is staged under a dot-prefixed sibling and renamed into
+    /// place last, so a dir under the real name is always a COMPLETE backup: a
+    /// crash mid-copy leaves a partial nobody will mistake for one. Any failure
+    /// is returned, and the caller must then defer rather than rewrite.
+    pub fn backup_before_mounts_migration(&self) -> Result<PathBuf, String> {
+        let backups = self.root.join(crate::vaultfmt::BACKUP_REL_DIR);
+        let stamp = now_ms(SystemTime::now());
+        let dest = backups.join(format!("{MOUNTS_MIGRATION_BACKUP_PREFIX}{stamp}"));
+        let staging = backups.join(format!(".{MOUNTS_MIGRATION_BACKUP_PREFIX}{stamp}.partial"));
+        let _ = fs::remove_dir_all(&staging);
+        fs::create_dir_all(&staging).map_err(|e| format!("{}: {e}", staging.display()))?;
+
+        let copy_into = |rel: &str| -> Result<(), String> {
+            let from = self.root.join(rel);
+            if !from.exists() {
+                return Ok(()); // nothing to preserve is not a failure
+            }
+            let name = Path::new(rel).file_name().ok_or_else(|| format!("{rel}: no name"))?;
+            copy_tree(&from, &staging.join(name))
+        };
+        let staged = (|| -> Result<(), String> {
+            copy_into(FOLDERS_REL_PATH)?;
+            copy_into(MOUNTS_REL_PATH)?;
+            copy_into(MOUNTS_INDEX_REL_DIR)?;
+            let notes = staging.join(MOUNTS_MIGRATION_BACKUP_NOTES);
+            for m in self.folder_mappings() {
+                for rel in self.notes_of_type(m.db_type.trim()) {
+                    let to = notes.join(&rel);
+                    if let Some(dir) = to.parent() {
+                        fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+                    }
+                    copy_tree(&self.root.join(&rel), &to)?;
+                }
+            }
+            Ok(())
+        })();
+        if let Err(e) = staged {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(e);
+        }
+        // a leftover from an earlier same-millisecond run would make the
+        // rename fail on a non-empty dir; the copy above is the newer truth
+        let _ = fs::remove_dir_all(&dest);
+        fs::rename(&staging, &dest).map_err(|e| {
+            let _ = fs::remove_dir_all(&staging);
+            format!("{}: {e}", dest.display())
+        })?;
+        Ok(dest)
+    }
+
     /// Returns the mounts and the paths to bind for them on THIS machine — the
-    /// caller owns the config write, and the history snapshot before the call.
+    /// caller owns the config write, and the recovery point before the call:
+    /// a history snapshot where history is on, else
+    /// [`Engine::backup_before_mounts_migration`] (SUB-1011).
     pub fn migrate_folder_mappings(&mut self) -> MountMigration {
         let mut report = MountMigration::default();
         for m in self.folder_mappings() {
@@ -1601,6 +1698,137 @@ mod tests {
         assert_eq!(e.mounts().len(), 1);
         assert_eq!(e.note_writes, writes, "an adopted note is not rewritten");
         assert_eq!(snapshot(&e), rows);
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// The one backup dir a run made, and everything in it as
+    /// (path relative to that dir, bytes).
+    fn backup_dir(root: &Path) -> PathBuf {
+        let backups = root.join(crate::vaultfmt::BACKUP_REL_DIR);
+        let mut made: Vec<PathBuf> = fs::read_dir(&backups)
+            .map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.path()).collect())
+            .unwrap_or_default();
+        made.sort();
+        assert_eq!(made.len(), 1, "exactly one backup dir: {made:?}");
+        let dir = made.remove(0);
+        let name = dir.file_name().unwrap().to_string_lossy();
+        assert!(
+            name.starts_with(MOUNTS_MIGRATION_BACKUP_PREFIX) && !name.starts_with('.'),
+            "the staged partial was renamed into place: {name}"
+        );
+        dir
+    }
+
+    #[test]
+    fn a_vault_without_history_is_backed_up_and_migrates_to_a_terminal_state() {
+        // SUB-1011: a vault that is the user's own git repo (or whose history
+        // failed to open) can never be snapshotted, so the migration used to
+        // defer on EVERY launch, forever. It now writes an explicit backup of
+        // what it is about to rewrite and goes through.
+        let (mut e, dir) = temp_vault("mmig-nohist");
+        let watched = temp_watched("mmig-nohist");
+        fs::write(watched.join("a.als"), b"aaa").unwrap();
+        write_folders_json(
+            &dir,
+            &format!(r#"[{{"path": "{}", "type": "Album Pool"}}]"#, watched.display()),
+        );
+        e.sync_folders();
+        let old_folder = sanitize_filename(&watched.file_name().unwrap().to_string_lossy());
+        let stub = format!("{old_folder}/a.md");
+        e.set_prop(&stub, "status", Some("keep")).unwrap();
+        // what the vault looked like before the rewrite, to compare against
+        let folders_before = fs::read(dir.join(FOLDERS_REL_PATH)).unwrap();
+        let stub_before = fs::read(dir.join(&stub)).unwrap();
+
+        let backup = e.backup_before_mounts_migration().unwrap();
+        let report = e.migrate_folder_mappings();
+        assert!(report.errors.is_empty(), "{:?}", report.errors);
+        assert_eq!(report.adopted, 1);
+
+        // 1. terminal state: the mapping is gone, so a second launch finds
+        //    nothing to migrate — no deferral loop
+        assert!(e.folder_mappings().is_empty(), "the mapping is gone from folders.json");
+        assert_eq!(e.mount_rows(&report.mounts[0].id).len(), 1);
+
+        // 2. the artifact is on disk, holding the PRE-rewrite content
+        assert_eq!(backup, backup_dir(&dir));
+        assert_eq!(
+            fs::read(backup.join("folders.json")).unwrap(),
+            folders_before,
+            "the mapping the migration dropped is recoverable"
+        );
+        assert_eq!(
+            fs::read(backup.join(MOUNTS_MIGRATION_BACKUP_NOTES).join(&stub)).unwrap(),
+            stub_before,
+            "the stub note as it stood, before it became a sidecar"
+        );
+        assert!(
+            !fs::read_to_string(dir.join(FOLDERS_REL_PATH)).unwrap().contains("Album Pool"),
+            "the live file really was rewritten — the backup is not a copy of the new shape"
+        );
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    #[test]
+    fn a_backup_that_cannot_be_written_defers_the_migration() {
+        // SUB-1011 fail-safe: no recovery artifact, no rewrite. The caller
+        // (lib.rs) defers on the Err; what this pins is that the failure is
+        // reported rather than swallowed, and that the vault is untouched.
+        use std::os::unix::fs::PermissionsExt;
+        if !crate::testenv::readonly_dirs_enforced() {
+            return;
+        }
+        let (mut e, dir) = temp_vault("mmig-nobackup");
+        let watched = temp_watched("mmig-nobackup");
+        fs::write(watched.join("a.als"), b"aaa").unwrap();
+        write_folders_json(
+            &dir,
+            &format!(r#"[{{"path": "{}", "type": "Album Pool"}}]"#, watched.display()),
+        );
+        e.sync_folders();
+        let before = tree_snapshot(&dir);
+
+        // lock `.vault/`, so the backup dir underneath it cannot be created
+        let hidden = dir.join(".vault");
+        fs::set_permissions(&hidden, fs::Permissions::from_mode(0o555)).unwrap();
+        let err = e.backup_before_mounts_migration().unwrap_err();
+        fs::set_permissions(&hidden, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(!err.is_empty(), "the failure names its path");
+
+        assert_eq!(tree_snapshot(&dir), before, "nothing rewritten, nothing staged");
+        assert!(!e.folder_mappings().is_empty(), "the mapping is still there to retry");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    #[test]
+    fn a_second_history_less_run_finds_nothing_to_migrate() {
+        // SUB-1011 idempotency: the second launch of a history-disabled vault
+        // is a no-op — no second backup of a migrated vault, no second mount,
+        // no rewrite of an adopted note.
+        let (mut e, dir) = temp_vault("mmig-nohist-twice");
+        let watched = temp_watched("mmig-nohist-twice");
+        fs::write(watched.join("a.als"), b"aaa").unwrap();
+        write_folders_json(
+            &dir,
+            &format!(r#"[{{"path": "{}", "type": "Album Pool"}}]"#, watched.display()),
+        );
+        e.sync_folders();
+        e.backup_before_mounts_migration().unwrap();
+        let first = e.migrate_folder_mappings();
+        assert!(first.errors.is_empty(), "{:?}", first.errors);
+
+        // second launch: `folder_mappings()` is empty, so lib.rs never reaches
+        // the restore point at all — the migration is simply not attempted
+        assert!(e.folder_mappings().is_empty());
+        let writes = e.note_writes;
+        let again = e.migrate_folder_mappings();
+        assert!(again.mounts.is_empty() && again.bindings.is_empty() && again.errors.is_empty());
+        assert_eq!(e.mounts().len(), 1, "no second mount");
+        assert_eq!(e.note_writes, writes, "an adopted note is not rewritten");
+        assert_eq!(backup_dir(&dir), backup_dir(&dir), "still exactly one backup dir");
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&watched);
     }

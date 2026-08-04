@@ -109,12 +109,38 @@ fn snapshot_now(app: &tauri::AppHandle, label: &str) {
     }
 }
 
-fn mounts_migration_restore_point(snapshot: Option<Result<bool, String>>) -> Result<(), String> {
+/// What the mounts migration got as its recovery point, for the log line.
+#[derive(Debug)]
+enum MountsRestorePoint {
+    /// History was on: the rewrite is one undoable step.
+    Snapshot,
+    /// History was off or failed, so the files it will rewrite were copied
+    /// to this dir first (SUB-1011).
+    Backup(std::path::PathBuf),
+}
+
+/// Decide whether the mounts migration may rewrite, and leave a recovery point
+/// behind either way. History on → the snapshot IS the recovery point, and no
+/// duplicate backup is made. History off (the vault is the user's own git repo,
+/// or `History::new` failed) → an explicit file backup, which is what keeps a
+/// history-disabled vault from deferring on every launch forever (SUB-1011).
+/// Either failing defers, unchanged: no recovery point, no rewrite.
+fn mounts_migration_restore_point(
+    snapshot: Option<Result<bool, String>>,
+    backup: impl FnOnce() -> Result<std::path::PathBuf, String>,
+) -> Result<MountsRestorePoint, String> {
     match snapshot {
-        Some(Ok(true)) => Ok(()),
-        Some(Ok(false)) | None => {
-            Err("version history is unavailable; the old folder mapping was left untouched".into())
-        }
+        Some(Ok(true)) => Ok(MountsRestorePoint::Snapshot),
+        // no snapshot is possible at all — back the files up instead
+        Some(Ok(false)) | None => backup().map(MountsRestorePoint::Backup).map_err(|error| {
+            format!(
+                "version history is unavailable and the backup could not be written \
+                 ({error}); the old folder mapping was left untouched"
+            )
+        }),
+        // history exists but the snapshot itself failed: the vault may be
+        // mid-something (a lock, a conflicted index), so back off entirely
+        // rather than reach past a broken git with a file copy
         Some(Err(error)) => Err(format!(
             "could not create a restore point ({error}); the old folder mapping was left untouched"
         )),
@@ -483,20 +509,25 @@ pub fn run() {
             };
             // Folder-backed databases became mounts (SUB-888). Migrate on
             // load, before anything reads the vault: one folder concept
-            // afterwards, never two. The snapshot goes first so the whole
-            // rewrite is one undoable step, and the run is idempotent, so a
-            // crash mid-migration is retried on the next launch.
+            // afterwards, never two. A recovery point goes first — a snapshot
+            // where history is on, an explicit file backup where it is not
+            // (SUB-1011) — and the run is idempotent, so a crash mid-migration
+            // is retried on the next launch.
             let mut engine = engine;
             if !engine.folder_mappings().is_empty() {
                 let protected = mounts_migration_restore_point(
                     hist.as_ref()
                         .map(|h| h.snapshot_restore_point("before mounts migration")),
+                    || engine.backup_before_mounts_migration(),
                 );
                 match protected {
                     Err(error) => {
                         applog!("mounts migration deferred: {error}");
                     }
-                    Ok(()) => {
+                    Ok(point) => {
+                        if let MountsRestorePoint::Backup(dir) = &point {
+                            applog!("mounts migration: no version history, backed up to {}", dir.display());
+                        }
                         let report = engine.migrate_folder_mappings();
                         for (id, path) in &report.bindings {
                             if let Err(e) =
@@ -977,9 +1008,30 @@ pub fn run() {
 mod tests {
     #[test]
     fn mounts_migration_never_runs_without_a_restore_point() {
-        assert!(super::mounts_migration_restore_point(Some(Ok(true))).is_ok());
-        for result in [None, Some(Ok(false)), Some(Err("git failed".to_string()))] {
-            let error = super::mounts_migration_restore_point(result).unwrap_err();
+        use super::MountsRestorePoint;
+        let unused = || panic!("a snapshot was taken; no backup should be attempted");
+        assert!(matches!(
+            super::mounts_migration_restore_point(Some(Ok(true)), unused),
+            Ok(MountsRestorePoint::Snapshot)
+        ));
+
+        // no history at all: the file backup is the recovery point (SUB-1011),
+        // so the migration proceeds instead of deferring forever
+        for result in [None, Some(Ok(false))] {
+            let point = super::mounts_migration_restore_point(result.clone(), || {
+                Ok(std::path::PathBuf::from("/tmp/backup"))
+            });
+            assert!(matches!(point, Ok(MountsRestorePoint::Backup(_))), "{result:?}");
+        }
+
+        // a failed backup, and a history that exists but could not snapshot,
+        // both still refuse — and say the mapping survived
+        let failed = super::mounts_migration_restore_point(None, || Err("read-only fs".into()));
+        let cases = [failed.unwrap_err(), {
+            super::mounts_migration_restore_point(Some(Err("git failed".to_string())), unused)
+                .unwrap_err()
+        }];
+        for error in cases {
             assert!(
                 error.contains("left untouched"),
                 "every refusal explains the data-safe outcome: {error}"

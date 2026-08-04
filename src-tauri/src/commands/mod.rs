@@ -13,6 +13,11 @@ pub(crate) mod files;
 pub(crate) mod fx;
 pub(crate) mod history;
 pub(crate) mod kinds;
+// `mounts` is public: its module file, its `use` in lib.rs and its handler
+// registrations all ship in the mirror, so this declaration must survive
+// stripping too — inside the fence above it left the mirror unable to resolve
+// `commands::mounts` (SUB-1050).
+pub(crate) mod mounts;
 pub(crate) mod notes;
 pub(crate) mod schema;
 pub(crate) mod search;

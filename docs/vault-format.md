@@ -795,7 +795,10 @@ cards:
   in files). The sheet resolves by title/stem; the name must be a **summary**
   (§5.1), not a column.
 - `format`: `eur` | `usd` | `number` | `pct` (anything else → raw value);
-  `digits`: decimal places, optional.
+  `digits`: decimal places, optional, **0–8** — the same bound the grid tile
+  syntax takes (§5.6b). A card asking for more is clamped to 8 rather than
+  refused, here and in the ` ```cards ` fence; anything that isn't a whole
+  number reads as absent.
 - `emph`: optional, `true` only (anything else reads as absent). Marks the
   card as one of the board's sharp anchors — at most two, first two in card
   order if more are flagged; with none flagged the first card is sharp.
@@ -1375,6 +1378,30 @@ understand.
 - Neither `.vault/format.json` nor `.vault/backup/` is watched (§13 rule 2) —
   they're read from disk on access, and a version stamp never triggers a
   config-changed event.
+
+**`.vault/backup/` also holds one non-format artifact** (SUB-1011). The
+folders.json → mounts migration (§8) rewrites notes and config, so it needs a
+recovery point first. Normally that is a version-history snapshot — but a vault
+with history disabled (the user's own git repo, §11) can never have one, and
+the migration used to defer on every launch forever. Such a vault instead gets
+`.vault/backup/mounts-migration.<unix-ms>/`, written before the rewrite:
+
+```
+.vault/backup/mounts-migration.1754300000000/
+├── folders.json          # the mappings the migration removes
+├── mounts.json           # the registry as it stood (absent on a first run)
+├── mounts/               # the per-mount index dir, if any
+└── notes/<rel>.md        # every note of every mapped type, at its vault path
+```
+
+- It is a **plain file copy**, restorable by hand — no app command reads it
+  back. History-enabled vaults get the snapshot and no duplicate backup.
+- It is staged under a dot-prefixed sibling and renamed into place last, so a
+  directory under the real name is always a complete backup.
+- If the backup cannot be written, the migration **defers** exactly as it did
+  before and the vault is left untouched — no rewrite without a recovery point.
+- Nothing prunes these; a vault that migrated once has one, and it is safe to
+  delete after the mounts look right.
 
 ## 5c. `.vault/calendars.json` — read-only external calendars
 

@@ -68,8 +68,9 @@ cards:
 ---
 ```
 
-`format`: `eur` | `usd` | `number` | `pct`; optional `digits`. A bind must name a
-**summary** (an aggregate line), not a column. `emph: true` marks a card as one
+`format`: `eur` | `usd` | `number` | `pct`; optional `digits` (0–8; more is
+clamped to 8). A bind must name a **summary** (an aggregate line), not a
+column. `emph: true` marks a card as one
 of the board's anchors — at most two stay sharp, everything else sinks to the
 quiet voice (design principle 11). `FX("USD","EUR")` in formulas uses a
 live rate cached on the sheet's own `fx_rate`/`fx_date` props.
