@@ -2,6 +2,7 @@ import { vaultRead, vaultResolve } from "./ipc";
 import { foldedPropStr } from "./types";
 import { evaluateSheet, parseSheet, type SheetEval, type SheetModel } from "./sheet";
 import { collectCrossRefs, ferr, isErr, type FErr, type FxResolver } from "./formula";
+import { makeFxResolver, type FxRatesState } from "./fx";
 
 export type DashboardSheetState =
   | { model: SheetModel; ev: SheetEval }
@@ -9,9 +10,20 @@ export type DashboardSheetState =
 
 const cache = new Map<string, Promise<Map<string, DashboardSheetState>>>();
 
-function cacheKey(sheetNames: string[], vaultEpoch: number, usdEur: number | null): string {
+/** The whole rate table keys the cache, not just USD→EUR (SUB-834): a sheet
+    may convert any quoted pair, so two tables that agree on that one pair
+    while differing elsewhere are NOT interchangeable evaluations. */
+function ratesKey(rates: FxRatesState | null): string {
+  if (!rates) return "none";
+  const pairs = Object.entries(rates.rates)
+    .map(([code, rate]) => `${code.toUpperCase()}=${rate}`)
+    .sort();
+  return `${rates.base}|${rates.asOf}|${pairs.join(",")}`;
+}
+
+function cacheKey(sheetNames: string[], vaultEpoch: number, rates: FxRatesState | null): string {
   const names = [...new Set(sheetNames.map((name) => name.toLowerCase()))].sort();
-  return `${vaultEpoch}\u0000${usdEur ?? "none"}\u0000${names.join("\u0000")}`;
+  return `${vaultEpoch}\u0000${ratesKey(rates)}\u0000${names.join("\u0000")}`;
 }
 
 /** Load and evaluate a set of sheet roots plus their transitive cross-sheet
@@ -24,9 +36,9 @@ function cacheKey(sheetNames: string[], vaultEpoch: number, usdEur: number | nul
 export function dashboardSheets(
   sheetNames: string[],
   vaultEpoch: number,
-  usdEur: number | null,
+  rates: FxRatesState | null,
 ): Promise<Map<string, DashboardSheetState>> {
-  const key = cacheKey(sheetNames, vaultEpoch, usdEur);
+  const key = cacheKey(sheetNames, vaultEpoch, rates);
   const hit = cache.get(key);
   if (hit) return hit;
 
@@ -67,12 +79,10 @@ export function dashboardSheets(
       }
     }
 
-    const fxResolver: FxResolver = (from, to) => {
-      if (usdEur === null) return null;
-      if (from === "USD" && to === "EUR") return usdEur;
-      if (from === "EUR" && to === "USD") return 1 / usdEur;
-      return null;
-    };
+    // One shared resolver over the whole quoted table (SUB-834) — the same
+    // one sheets, cards and charts use, so a GBP column converts here exactly
+    // as it does in the grid.
+    const fxResolver: FxResolver = makeFxResolver(rates);
     const load = (name: string) =>
       models.get(name.toLowerCase()) ?? ferr(`no sheet named “${name}”`);
     const result = new Map<string, DashboardSheetState>();

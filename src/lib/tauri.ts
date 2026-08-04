@@ -8,9 +8,10 @@ import type {
   DbIcon,
   DiffLine,
   FolderMetaMap,
-  FolderMapping,
-  FolderScanStats,
   HistoryEntry,
+  MountInfo,
+  MountRow,
+  MountScanStats,
   NewTypeProp,
   NoteMeta,
   NumberFormat,
@@ -31,7 +32,7 @@ import type {
 } from "./types.ts";
 import { stripMachineFences } from "./fences.ts";
 import { noteTags, propTags, tagUniverse } from "./tags.ts";
-import { MOCK_FX } from "./fx.ts";
+import { MOCK_FX, MOCK_FX_RATES } from "./fx.ts";
 import { noteOwnWrite } from "./ownwrites.ts";
 import { remapSavedQueryProperty } from "./query.ts";
 import { isSystemPropName } from "./schemalookup.ts";
@@ -157,8 +158,8 @@ declare global {
         re-render — the production resolution class behind the SUB-305
         restore race, which the random timeout is too slow to reach */
     __mockSetAsync?: (on: boolean | "microtask") => void;
-    /** SUB-771 instrumentation: record write-lane commands (write_body /
-        rename / create / read) with args + outcome from now on */
+    /** SUB-771 instrumentation: record write-lane commands plus the FX
+        request seam, with args + outcome from now on */
     __mockTraceCommands?: () => void;
     /** SUB-771 instrumentation: read the recorded command trace */
     __mockReadCommandTrace?: () => unknown[];
@@ -290,6 +291,42 @@ mockAssets.set(
    re-bounce (window.__mockTouchAsset) changes the asset's cacheKey — the
    constant 1 made the audio-player rebind lane unreachable from specs. */
 const mockAssetMtimes = new Map<string, number>();
+
+/* SUB-812: the loose (non-.md) files a folder view lists as rows, per folder.
+   Notes live in mockNotes; these are the rest of what sits on disk beside
+   them. Nothing under `.assets/` appears here and nothing here is an asset —
+   that separation IS the dedupe rule the real engine enforces by skipping
+   dot-paths, so the browser gate exercises the same shape.
+   Deliberately a mix: two audio files (the playlist) and one that isn't
+   (the open/reveal row). */
+const mockLooseFiles = new Map<string, string[]>([
+  ["Projects", ["01 umbra rough.wav", "02 umbra bounce.wav", "umbra session.als"]],
+]);
+
+/** One stable mtime for every loose file: the player's cacheKey is built from
+    path+size+mtime, so a value that moved between calls would rebind players
+    mid-spec. */
+const mockLooseMtime = now - 3 * 86_400_000;
+
+/** A mock disk path for a loose file — what the real engine returns as
+    `FolderFile.path` and what the shared player keys on. */
+function mockLoosePath(rel: string): string {
+  return `${mockVaultRoot}/${rel}`;
+}
+
+/** The loose file a `FolderFile.path` names, or null. `vault_asset_info`
+    consults this before its broken-path branch: folder rows resolve, while
+    every OTHER absolute name keeps failing, which is what demos the broken
+    link-in-place embed state. */
+function mockLooseByPath(path: string): { rel: string; name: string } | null {
+  for (const [folder, names] of mockLooseFiles) {
+    for (const name of names) {
+      const rel = folder ? `${folder}/${name}` : name;
+      if (mockLoosePath(rel) === path) return { rel, name };
+    }
+  }
+  return null;
+}
 
 const mockNotes: MockNote[] = [
   {
@@ -719,16 +756,19 @@ const mockNotes: MockNote[] = [
     body: "Scanned production jobs — written by the nightly tree scan, never hand-edited.\n\n```csv\ncategory,client,job,year,last_active,files,size_mb,flags\nMASTERING,Ada Voss,Voss Signal,2026,2026-06-13,318,23949,\nMASTERING,Mira,mira master v2,2026,2026-03-02,12,340,\nMASTERING,Mira,Fern Static,2025,2026-07-29,51,1392,name 2025 vs files 2026\nMIXING,Juno Marek,ep4,2026,2026-07-18,196,14324,\nMIXING,Mira,\"mira adjust, alt take\",2026,2026-01-06,3,0,\nMIXING,Halo Ferry,drums session,2025,2025-11-02,88,6210,\nOWN WORK,NIGHT CIRCUIT (2026),night circuit,2026,2026-06-01,10,280,\nOWN WORK,COLLABS,Lila,2024,2024-01-23,54,3880,\n```\n",
   },
   {
-    path: "Finance/2025-11 Invoice Old Vendor.md",
+    /* A mount sidecar (SUB-888) whose file is no longer in the mounted folder:
+       the annotations survive, the row renders missing. Sidecars live under
+       Mounts/<mount name>/ and bind by content identity, not by path. */
+    path: "Mounts/finance-doc/2025-11 Invoice Old Vendor.md",
     stem: "2025-11 Invoice Old Vendor",
     title: "2025-11 Invoice Old Vendor",
-    folder: "Finance",
+    folder: "Mounts/finance-doc",
     props: {
       created: "2026-07-17",
       type: "finance-doc",
-      file: "~/Personal/Finance/2025-11 Invoice Old Vendor.pdf",
-      modified: "2026-06-01 10:12",
-      size: "90210",
+      mount: "mount-finance",
+      mount_file: "2025-11 Invoice Old Vendor.pdf",
+      mount_identity: "id-2025-11 invoice old vendor.pdf",
       year: "2025",
       category: "invoice",
       status: "booked",
@@ -2146,15 +2186,37 @@ if (PERF_DB_COUNT > 0) {
   mockAddFolder("Plugins");
 }
 
-/* Folder-database mock: one mapping, ~/Personal/Finance → finance-doc, with a
-   dozen fake files. Rescan creates stub notes idempotently (dedupe by the
-   file prop) like the real engine; the pre-seeded stub above points at a file
-   that is NOT here, so the first rescan flags it missing. The mapping's type
-   is mutable state: rename_type rewrites it and delete_type drops it
-   (SUB-71), so a rescan can't resurrect a renamed or deleted database. */
-let mockFolderMappings: { path: string; dbType: string; globs?: string[]; watch?: boolean }[] = [
-  { path: "~/Personal/Finance", dbType: "finance-doc" },
-];
+/* Reality-mounts mock (SUB-888): one mount, "finance-doc", bound on this
+   machine to ~/Personal/Finance, whose "disk" is a dozen fake files. Rows come
+   from the index, NOT from stub notes — the only note here is the pre-seeded
+   sidecar above, bound to a file that is no longer on disk, so its row renders
+   missing exactly like the engine's.
+
+   Two halves on purpose, mirroring the engine: `mockMounts` is the portable
+   registry (`.vault/mounts.json`, no path), `mockMountBindings` is what THIS
+   machine knows (app config). Unbinding leaves the mount and its index intact
+   — that is the "not on this machine" board, not an error state.
+
+   The registry is mutable state: rename_type carries the mount and delete_type
+   unmounts it (SUB-71 parity), so neither can leave a mount answering to a
+   name nothing else uses. */
+interface MockMount {
+  id: string;
+  name: string;
+  globs: string[];
+  watch?: boolean;
+}
+interface MockMountFile {
+  rel: string;
+  size: number;
+  modified: string;
+  created: string;
+  identity: string;
+  missing: boolean;
+}
+let mockMounts: MockMount[] = [{ id: "mount-finance", name: "finance-doc", globs: [] }];
+const mockMountBindings: Record<string, string> = { "mount-finance": "~/Personal/Finance" };
+const mockMountIndex: Record<string, { scanned: string; files: MockMountFile[] }> = {};
 const mockFolderFiles = [
   { name: "2026-01 Invoice Acme Mastering.pdf", size: 184211, modified: "2026-01-31 10:02" },
   { name: "2026-02 Invoice Acme Mastering.pdf", size: 186004, modified: "2026-02-27 09:41" },
@@ -2169,13 +2231,139 @@ const mockFolderFiles = [
   { name: "Quittung Rondo Service.png", size: 488203, modified: "2026-04-19 17:40" },
   { name: "Ausgaben 2026.csv", size: 4210, modified: "2026-07-15 21:03" },
 ];
-/** The wire shape of one mock mapping — the engine's FolderMapping serializes
-    `db_type` as `type`, globs always present, `watch` skipped when false. */
-const mockFolderMappingWire = (m: (typeof mockFolderMappings)[number]): FolderMapping => ({
-  path: m.path,
-  type: m.dbType,
-  globs: m.globs ?? [],
+/** Stand-in for the engine's content hash — the mock has no bytes to read, and
+    every consumer only ever compares identities for equality. */
+const mockIdentity = (name: string) => `id-${mockSanitizeFilename(name).toLowerCase()}`;
+/** The mock's "disk": every path holds the same dozen files, filtered by the
+    mount's globs the way `walk_folder_files` filters a real tree. */
+function mockDiskFiles(globs: string[]): MockMountFile[] {
+  const exts = globs.map((g) => g.trim().replace(/^\*/, "").toLowerCase()).filter(Boolean);
+  return mockFolderFiles
+    .filter((f) => !exts.length || exts.some((e) => f.name.toLowerCase().endsWith(e)))
+    .map((f) => ({
+      rel: f.name,
+      size: f.size,
+      modified: f.modified,
+      created: f.modified.slice(0, 10),
+      identity: mockIdentity(f.name),
+      missing: false,
+    }));
+}
+/** Mirrors Engine::scan_mount: match the prior index by identity first, then
+    by relative path; anything the index knew and the scan didn't find is kept
+    and flagged missing, never dropped — its sidecar keeps every annotation. */
+function mockScanMount(mount: MockMount): MountScanStats {
+  const prior = mockMountIndex[mount.id]?.files ?? [];
+  const found = mockDiskFiles(mount.globs);
+  const claimed = new Set<MockMountFile>();
+  const stats: MountScanStats = {
+    id: mount.id,
+    name: mount.name,
+    scanned: found.length,
+    added: 0,
+    updated: 0,
+    renamed: 0,
+    missing: 0,
+  };
+  for (const f of found) {
+    const was =
+      prior.find((p) => !claimed.has(p) && p.identity && p.identity === f.identity) ??
+      prior.find((p) => !claimed.has(p) && p.rel === f.rel);
+    if (!was) {
+      stats.added++;
+      continue;
+    }
+    claimed.add(was);
+    if (was.rel !== f.rel) stats.renamed++;
+    else if (was.size !== f.size || was.modified !== f.modified || was.missing) stats.updated++;
+  }
+  const gone = prior.filter((p) => !claimed.has(p)).map((p) => ({ ...p, missing: true }));
+  stats.missing = gone.length;
+  mockMountIndex[mount.id] = {
+    scanned: new Date().toISOString(),
+    files: [...found, ...gone].sort((a, b) => a.rel.localeCompare(b.rel)),
+  };
+  return stats;
+}
+/* The seeded mount's index: everything on disk plus the one file the seeded
+   sidecar points at, which is NOT there — so the board opens with a real
+   missing row instead of needing a scan to produce one. */
+mockMountIndex["mount-finance"] = {
+  scanned: new Date().toISOString(),
+  files: [
+    ...mockDiskFiles([]),
+    {
+      rel: "2025-11 Invoice Old Vendor.pdf",
+      size: 90210,
+      modified: "2026-06-01 10:12",
+      created: "2026-06-01",
+      identity: mockIdentity("2025-11 Invoice Old Vendor.pdf"),
+      missing: true,
+    },
+  ].sort((a, b) => a.rel.localeCompare(b.rel)),
+};
+/** Every sidecar bound to one mount, keyed by vault path — by the `mount`
+    prop, not by folder, so a note filed elsewhere keeps working. */
+const mockSidecarsOf = (id: string) => mockNotes.filter((n) => n.props["mount"] === id);
+/** Mirrors Engine::mount_rows: index rows carrying their sidecar (identity
+    first, then the recorded path), plus a row for every sidecar the index has
+    never heard of — an annotation is never invisible. */
+function mockMountRows(id: string): MountRow[] {
+  const index = mockMountIndex[id]?.files ?? [];
+  const sidecars = mockSidecarsOf(id);
+  const used = new Set<MockNote>();
+  const owned = new Set(["mount", "mount_file", "mount_identity", "type"]);
+  const rowOf = (f: MockMountFile, note?: MockNote): MountRow => ({
+    rel: f.rel,
+    name: f.rel.split("/").pop() ?? f.rel,
+    extension: (f.rel.split("/").pop() ?? "").split(".").slice(1).pop() ?? "",
+    size: f.size,
+    modified: f.modified,
+    created: f.created,
+    identity: f.identity,
+    ...(f.missing ? { missing: true } : {}),
+    ...(note ? { note: note.path } : {}),
+    props: note
+      ? Object.fromEntries(Object.entries(note.props).filter(([k]) => !owned.has(k)))
+      : {},
+  });
+  const rows = index.map((f) => {
+    const note =
+      (f.identity && sidecars.find((n) => !used.has(n) && n.props["mount_identity"] === f.identity)) ||
+      sidecars.find((n) => !used.has(n) && n.props["mount_file"] === f.rel);
+    if (note) used.add(note);
+    return rowOf(f, note || undefined);
+  });
+  for (const n of sidecars) {
+    if (used.has(n)) continue;
+    rows.push(
+      rowOf(
+        {
+          rel: String(n.props["mount_file"] ?? n.stem),
+          size: 0,
+          modified: "",
+          created: "",
+          identity: String(n.props["mount_identity"] ?? ""),
+          missing: true,
+        },
+        n
+      )
+    );
+  }
+  return rows.sort((a, b) => a.rel.localeCompare(b.rel));
+}
+/** One mount as `mounts_list` returns it: the portable half plus what this
+    machine knows. The mock's bound paths always exist, so `missing` is only
+    ever true for a binding pointed somewhere the mock disk isn't. */
+const mockMountInfo = (m: MockMount): MountInfo => ({
+  id: m.id,
+  name: m.name,
+  globs: m.globs,
   ...(m.watch ? { watch: true } : {}),
+  ...(mockMountBindings[m.id] ? { path: mockMountBindings[m.id] } : {}),
+  missing: (mockMountBindings[m.id] ?? "").toLowerCase().includes("missing"),
+  scanned: mockMountIndex[m.id]?.scanned ?? "",
+  files: mockMountIndex[m.id]?.files.length ?? 0,
 });
 /* Mock `.vault/templates/` (SUB-17): type → template note. `release` and
    `event` have one, so the born-complete create demos both lanes — templated
@@ -2521,7 +2709,7 @@ let mockEchoOnWrites = false;
 // resolves before React's scheduled re-render, like production thread-pool
 // IPC can — the ordering the restore race loses on)
 let mockAsyncDispatch: false | "timeout" | "microtask" = false;
-// SUB-771 instrumentation: opt-in write-lane command trace (null = off)
+// SUB-771 instrumentation: opt-in command trace (null = off)
 type MockTraceEntry = {
   ms: number;
   cmd: string;
@@ -2574,7 +2762,8 @@ const WATCHED_WRITE_COMMANDS = new Set([
   "vault_move",
   "vault_create_folder",
   "vault_rename_folder",
-  "folder_dbs_rescan",
+  "mount_rescan",
+  "mount_annotate",
   "history_restore",
   "vault_rename_type",
   "vault_delete_type",
@@ -2656,7 +2845,7 @@ function writtenPathsFor(
       return [metaPath(result)].filter((p): p is string => !!p);
     default:
       // vault_delete_folder, vault_trash_restore_folder, vault_create_folder,
-      // vault_rename_folder, folder_dbs_rescan — whole-subtree reach.
+      // vault_rename_folder, mount_rescan — whole-subtree reach.
       // vault_rename_type/_delete_type/_rename_prop/_clear_prop land here too
       // (SUB-660): a `BulkSweep` result carries counts, not paths, so the
       // sweep's reach genuinely isn't nameable from the call.
@@ -2664,13 +2853,12 @@ function writtenPathsFor(
   }
 }
 
-/** Mirrors the engine: a folder rescan echoes only when it actually created,
-    stamped, or missing-flagged notes (lib.rs emits vault:changed on
-    `changed`, not per scan). */
+/** Mirrors the engine: a mount rescan echoes only when the index actually
+    moved (lib.rs emits vault:changed on real change, not per scan). */
 function mockRescanChanged(result: unknown): boolean {
   return (
     Array.isArray(result) &&
-    result.some((s: FolderScanStats) => s.created + s.updated + s.missing > 0)
+    result.some((s: MountScanStats) => s.added + s.updated + s.renamed + s.missing > 0)
   );
 }
 
@@ -2715,10 +2903,10 @@ function mockRank(a: MockSearchRank, b: MockSearchRank): number {
 type MockSearchRank = { titleHit: boolean; offset: number; path: string };
 
 function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
-  // SUB-771 instrumentation: an opt-in ring of write-lane commands with their
-  // args and outcomes, read by the failure dump. No effect unless a spec
-  // installed the trace hook.
-  if (mockCmdTrace && /^vault_(write_body|rename|create|read)$/.test(cmd)) {
+  // SUB-771 instrumentation: an opt-in ring of write-lane commands plus the
+  // FX request seam, with args and outcomes. No effect unless a spec installed
+  // the trace hook; including FX lets privacy regressions prove call counts.
+  if (mockCmdTrace && (/^vault_(write_body|rename|create|read)$/.test(cmd) || cmd === "fx_rates")) {
     const entry: MockTraceEntry = {
       ms: Date.now() - mockCmdTraceT0,
       cmd,
@@ -2790,7 +2978,7 @@ async function mockInvokeFidelity(
     mockEchoOnWrites &&
     WATCHED_WRITE_COMMANDS.has(cmd) &&
     !templateStem(args?.path) &&
-    (cmd !== "folder_dbs_rescan" || mockRescanChanged(result))
+    (cmd !== "mount_rescan" || mockRescanChanged(result))
   ) {
     scheduleMockEcho(writtenPathsFor(cmd, args, result));
   }
@@ -3083,6 +3271,8 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     // historical rate the fixtures carry, so e2e baselines stay stable
     case "fx_usd_eur":
       return { usdEur: MOCK_FX.usdEur, asOf: MOCK_FX.asOf };
+    case "fx_rates":
+      return { base: MOCK_FX_RATES.base, rates: { ...MOCK_FX_RATES.rates }, asOf: MOCK_FX_RATES.asOf };
     case "calendar_feeds_read": {
       const enabled = mockCalendarFeeds.filter((feed) => feed.enabled);
       return {
@@ -3176,6 +3366,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         body: "",
       };
       mockNotes.push(n);
+      // SUB-834: `net-link-titles: false` skips the enrichment fetch — the
+      // note stays exactly as captured. Mirrors url_capture's `enrich` flag,
+      // so the mock can't pass a case the real engine would refuse to.
+      if (args?.enrich === false) return meta(n);
       // simulate the polite background fetch: title + description arrive late
       window.setTimeout(() => {
         if (!mockNotes.includes(n) || n.title !== display) return;
@@ -3636,6 +3830,13 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // audio names resolve to a synthesized WAV (see lib/assets.ts); path
       // embeds always miss, demoing the broken-path state
       const name = (((args?.name as string) ?? "")).trim();
+      // SUB-812: a folder row's absolute path is a real file here — the
+      // engine stats it through the same link-in-place lane. Checked before
+      // the broken-path branch below, which still owns every other path.
+      const loose = mockLooseByPath(name);
+      if (loose) {
+        return { path: name, size: 8 + loose.rel.length, mtime_ms: mockLooseMtime };
+      }
       if (name.startsWith("/") || name.startsWith("~/")) throw new Error("file not found");
       const audio = /\.(wav|aiff?|mp3|flac|m4a)$/i.test(name);
       if (!audio && !mockAssets.has(name)) throw new Error("asset not found");
@@ -4121,10 +4322,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         mockTemplates[templateNew] = mockTemplates[templateOld];
         if (templateOld !== templateNew) delete mockTemplates[templateOld];
       }
-      // folder-sync mappings follow the rename (SUB-71) — one left on the old
-      // name would resurrect the database on the next rescan
-      for (const m of mockFolderMappings) {
-        if (m.dbType.trim().toLowerCase() === oldName.toLowerCase()) m.dbType = newName;
+      // a mount IS its schema type (SUB-888), so the registry follows the
+      // rename — one left on the old name and the two identities drift apart
+      for (const m of mockMounts) {
+        if (m.name.trim().toLowerCase() === oldName.toLowerCase()) m.name = newName;
       }
       return { notes: rewritten, skipped: 0 };
     }
@@ -4190,11 +4391,15 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           template: tpl,
         });
       }
-      // folder-sync mappings targeting the deleted type go with it (SUB-71) —
+      // deleting the database unmounts the folder it stood for (SUB-888) —
       // otherwise the next rescan feeds a ghost type
-      mockFolderMappings = mockFolderMappings.filter(
-        (m) => m.dbType.trim().toLowerCase() !== dbType.toLowerCase()
-      );
+      for (const m of mockMounts) {
+        if (m.name.trim().toLowerCase() === dbType.toLowerCase()) {
+          delete mockMountIndex[m.id];
+          delete mockMountBindings[m.id];
+        }
+      }
+      mockMounts = mockMounts.filter((m) => m.name.trim().toLowerCase() !== dbType.toLowerCase());
       return { notes: doomed.length, skipped: 0 };
     }
     case "vault_rename_prop": {
@@ -4335,13 +4540,33 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       return true;
     case "path_exists": {
       const p = String(args?.path ?? "");
-      // finance-folder links exist iff the mock folder still holds the file
+      // links into the mounted folder exist iff its "disk" still holds the file
       if (p.startsWith("~/Personal/Finance/")) {
         const name = p.split("/").pop() ?? "";
         return mockFolderFiles.some((f) => f.name === name);
       }
       // mock: anything with "missing" in the name is a broken link
       return !p.toLowerCase().includes("missing");
+    }
+    case "vault_folder_files": {
+      // engine parity (SUB-812): name-ascending, case-insensitive — the
+      // running order for hand-numbered takes
+      const folder = String(args?.path ?? "");
+      const names = [...(mockLooseFiles.get(folder) ?? [])].sort((a, b) => {
+        const [al, bl] = [a.toLowerCase(), b.toLowerCase()];
+        return al < bl ? -1 : al > bl ? 1 : a < b ? -1 : a > b ? 1 : 0;
+      });
+      const files = names.map((name) => {
+        const rel = folder ? `${folder}/${name}` : name;
+        return {
+          rel,
+          name,
+          path: mockLoosePath(rel),
+          size: 8 + rel.length,
+          mtime_ms: mockLooseMtime,
+        };
+      });
+      return { files, total: files.length };
     }
     case "file_open":
       console.info("[mock] open", args?.path);
@@ -4580,110 +4805,142 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       mockSidebarOrder = args?.order as SidebarOrder;
       return mockSidebarOrder;
     }
-    case "folder_dbs_list":
-      return mockFolderMappings.map(mockFolderMappingWire);
-    case "folder_dbs_add": {
-      // mirrors Engine::add_folder_mapping (SUB-672): trimmed, empty path/type
-      // refused, an exact path+type dupe refused case-insensitively
+    case "mounts_list":
+      return mockMounts.map(mockMountInfo);
+    case "mount_add": {
+      // mirrors Engine::add_mount: trimmed name, empty refused, a folded
+      // duplicate refused — then bind on this machine and scan once, so the
+      // board has rows the moment the dialog closes
+      const name = ((args?.name as string) ?? "").trim();
       const path = ((args?.path as string) ?? "").trim();
-      const dbType = ((args?.dbType as string) ?? "").trim();
-      if (!path || !dbType) {
-        throw new Error("folder path and database type must be non-empty");
+      if (!name) throw new Error("a mount needs a name");
+      if (!path) throw new Error("a mount needs a folder");
+      if (mockMounts.some((m) => m.name.toLowerCase() === name.toLowerCase())) {
+        throw new Error(`“${name}” is already mounted`);
       }
-      if (
-        mockFolderMappings.some(
-          (m) => m.path === path && m.dbType.toLowerCase() === dbType.toLowerCase()
-        )
-      ) {
-        throw new Error(`“${path}” is already mapped to “${dbType}”`);
-      }
+      mockCheckTypeName(name, null);
       const globs = (Array.isArray(args?.globs) ? (args.globs as unknown[]) : [])
         .map((g) => String(g).trim())
         .filter(Boolean);
-      mockFolderMappings.push({
-        path,
-        dbType,
-        ...(globs.length ? { globs } : {}),
+      // a mount IS a schema type — that's what gives its sidecars props
+      mockSchema[name] = mockRecord<PropSchema>();
+      const mount: MockMount = {
+        id: `mount-${mockSanitizeFilename(name).toLowerCase()}-${mockMounts.length + 1}`,
+        name,
+        globs,
         ...(args?.watch ? { watch: true } : {}),
-      });
-      return mockFolderMappings.map(mockFolderMappingWire);
+      };
+      mockMounts.push(mount);
+      mockMountBindings[mount.id] = path;
+      return mockScanMount(mount);
     }
-    case "folder_dbs_rescan": {
-      // mirrors Engine::sync_folders: one stats entry per mapping, and the
-      // mapping's own path/db_type drive everything — never a hardcoded type,
-      // so a rename/delete can't resurrect a database here (SUB-71). Dedupe
-      // by the file prop, refresh stamps on change, flag vanished files
-      // missing (engine SYNC_PROPS: synced props never become empty chips)
-      const syncProps = new Set(["type", "title", "file", "modified", "size", "missing", "created"]);
-      const out: FolderScanStats[] = [];
-      for (const mapping of mockFolderMappings) {
-        let created = 0;
-        let updated = 0;
-        let missing = 0;
-        // the engine names the vault folder after the watched folder's
-        // sanitized basename, falling back to the type
-        const base = mapping.path.split("/").pop() ?? "";
-        const vaultFolder = base ? mockSanitizeFilename(base) : mapping.dbType;
-        const schemaEmpties = Object.keys(mockSchema[mapping.dbType] ?? {}).filter(
-          (k) => !syncProps.has(k)
-        );
-        const seen = new Set<string>();
-        for (const f of mockFolderFiles) {
-          const filePath = `${mapping.path}/${f.name}`;
-          seen.add(filePath);
-          const existing = mockNotes.find((n) => n.props["file"] === filePath);
-          if (existing) {
-            if (existing.props["missing"] === "true" || existing.props["size"] !== String(f.size)) {
-              existing.props["size"] = String(f.size);
-              existing.props["modified"] = f.modified;
-              delete existing.props["missing"];
-              existing.updated_ms = Date.now();
-              updated++;
-            }
-            continue;
-          }
-          const stem = f.name.replace(/\.[^.]+$/, "");
-          let path = `${vaultFolder}/${stem}.md`;
-          let i = 2;
-          while (mockNotes.some((n) => n.path === path)) path = `${vaultFolder}/${stem} ${i++}.md`;
-          // the engine's first stub write creates the vault folder on disk
-          mockAddFolder(vaultFolder);
-          mockNotes.push({
-            path,
-            stem: path.slice(vaultFolder.length + 1, -".md".length),
-            title: stem,
-            folder: vaultFolder,
-            props: {
-              created: day(0),
-              type: mapping.dbType,
-              file: filePath,
-              modified: f.modified,
-              size: String(f.size),
-              ...Object.fromEntries(schemaEmpties.map((k) => [k, ""])),
-            },
-            updated_ms: Date.now(),
-            excerpt: "",
-            body: "",
-          });
-          created++;
-        }
-        for (const n of mockNotes) {
-          const file = n.props["file"];
-          if (typeof file !== "string" || !file.startsWith(`${mapping.path}/`)) continue;
-          if (seen.has(file)) continue;
-          if (n.props["missing"] !== "true") n.props["missing"] = "true";
-          missing++;
-        }
-        out.push({
-          folder: mapping.path,
-          db_type: mapping.dbType,
-          scanned: mockFolderFiles.length,
-          created,
-          updated,
-          missing,
-        });
+    case "mount_bind": {
+      // "Locate folder…": bind (and rescan) or unbind. Unbinding keeps the
+      // mount, its index and its sidecars — that's the other-machine board.
+      const id = String(args?.id ?? "");
+      const path = args?.path == null ? null : String(args.path);
+      const mount = mockMounts.find((m) => m.id === id);
+      if (!mount) throw new Error(`no such mount: ${id}`);
+      if (path === null) {
+        delete mockMountBindings[id];
+        return { id, name: mount.name, scanned: 0, added: 0, updated: 0, renamed: 0, missing: 0 };
       }
-      return out;
+      mockMountBindings[id] = path;
+      return mockScanMount(mount);
+    }
+    case "mount_rescan": {
+      // one mount or all of them; mounts unbound on this machine are skipped,
+      // so their index stays as the machine holding the folder left it
+      const only = args?.id == null ? null : String(args.id);
+      return mockMounts
+        .filter((m) => mockMountBindings[m.id] && (!only || m.id === only))
+        .map(mockScanMount);
+    }
+    case "mount_rows":
+      return mockMountRows(String(args?.id ?? ""));
+    case "mount_annotate": {
+      // mirrors Engine::mount_annotate: the mount's only write path. An
+      // existing sidecar takes the prop; otherwise this first annotation
+      // creates the note under Mounts/<name>/.
+      const id = String(args?.id ?? "");
+      const rel = String(args?.rel ?? "");
+      const prop = String(args?.prop ?? "").trim();
+      const value = args?.value ?? null;
+      const mount = mockMounts.find((m) => m.id === id);
+      if (!mount) throw new Error(`no such mount: ${id}`);
+      if (!prop) throw new Error("property names must be non-empty");
+      if (["mount", "mount_file", "mount_identity"].includes(prop)) {
+        throw new Error(`“${prop}” is set by the mount`);
+      }
+      const file = (mockMountIndex[id]?.files ?? []).find((f) => f.rel === rel);
+      const sidecars = mockSidecarsOf(id);
+      const existing =
+        (file?.identity && sidecars.find((n) => n.props["mount_identity"] === file.identity)) ||
+        sidecars.find((n) => n.props["mount_file"] === rel);
+      if (existing) {
+        if (value === null) delete existing.props[prop];
+        else existing.props[prop] = value as PropValue;
+        existing.updated_ms = Date.now();
+        return meta(existing);
+      }
+      if (value === null) throw new Error(`“${rel}” has no note yet`);
+      const folder = `Mounts/${mockSanitizeFilename(mount.name)}`;
+      const stem = mockSanitizeFilename((rel.split("/").pop() ?? rel).replace(/\.[^.]+$/, ""));
+      let path = `${folder}/${stem}.md`;
+      let i = 2;
+      while (mockNotes.some((n) => n.path === path)) path = `${folder}/${stem} ${i++}.md`;
+      mockAddFolder(folder);
+      const note: MockNote = {
+        path,
+        stem: path.slice(folder.length + 1, -".md".length),
+        title: stem,
+        folder,
+        props: {
+          created: day(0),
+          type: mount.name,
+          mount: id,
+          mount_file: rel,
+          mount_identity: file?.identity ?? "",
+          [prop]: value as PropValue,
+        },
+        updated_ms: Date.now(),
+        excerpt: "",
+        body: "",
+      };
+      mockNotes.push(note);
+      return meta(note);
+    }
+    case "mount_remove": {
+      // unmount; `cleanup` trashes the sidecars (recoverable), never the
+      // mounted folder, and takes the type the mount stood for with it
+      const id = String(args?.id ?? "");
+      const gone = mockMounts.find((m) => m.id === id);
+      if (!gone) throw new Error(`no such mount: ${id}`);
+      if (args?.cleanup) {
+        for (const n of mockSidecarsOf(id)) {
+          mockNotes.splice(mockNotes.indexOf(n), 1);
+          const deleted_ms = Date.now();
+          mockTrash.unshift({
+            id: `${deleted_ms}/${n.path}`,
+            path: n.path,
+            title: n.title,
+            deleted_ms,
+            kind: "note",
+            notes: [],
+            note: n,
+          });
+        }
+        delete mockSchema[gone.name];
+      }
+      mockMounts = mockMounts.filter((m) => m.id !== id);
+      delete mockMountIndex[id];
+      delete mockMountBindings[id];
+      return mockMounts.map((m) => ({
+        id: m.id,
+        name: m.name,
+        globs: m.globs,
+        ...(m.watch ? { watch: true } : {}),
+      }));
     }
     case "agenda_open_note":
       // the real backend surfaces the main window with this note open

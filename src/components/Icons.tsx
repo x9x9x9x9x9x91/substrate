@@ -223,6 +223,18 @@ export const FolderOpenIcon = () => (
   </svg>
 );
 
+/* a mounted folder (SUB-888): FolderIcon with the vault's connection to it
+   drawn in — the plug says "this is a real folder on disk, shown here", not
+   "these files live in the vault" */
+export const MountIcon = () => (
+  <svg {...base}>
+    <path d="M2.5 9.4V4A1.5 1.5 0 0 1 4 2.5h2.4l1.5 1.8H12A1.5 1.5 0 0 1 13.5 5.8v3.6" />
+    <path d="M5.2 13.5h5.6" />
+    <path d="M8 11v2.5" />
+    <path d="M5.6 9.4h4.8" />
+  </svg>
+);
+
 export const LinkIcon = () => (
   <svg {...base}>
     <path d="M6.8 9.2 9.2 6.8" />
@@ -381,3 +393,51 @@ export function NoteActionGlyph({ name }: { name: NoteActionIcon }) {
       return <TrashIcon />;
   }
 }
+
+/* ---- playback (SUB-812) -------------------------------------------------
+
+   The play/pause pair is filled, not stroked, so it does NOT take `base`:
+   the same geometry the note embed draws (PLAY_SVG / PAUSE_SVG in
+   lib/editor-widgets.ts). Three surfaces render it now — embed, database
+   prop button, mini-player — so it lives here and cannot drift between
+   them. The triangle rides 1px right of geometric center, which is what
+   makes it look centered inside a round button. */
+
+export const PlayGlyph = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+    <path
+      d="M3 1.7v8.6c0 .55.6.88 1.06.6l6.6-4.3a.72.72 0 0 0 0-1.2l-6.6-4.3A.72.72 0 0 0 3 1.7Z"
+      fill="currentColor"
+      transform="translate(1 0)"
+    />
+  </svg>
+);
+
+export const PauseGlyph = () => (
+  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+    <rect x="2.2" y="1.6" width="2.7" height="8.8" rx="1" fill="currentColor" />
+    <rect x="7.1" y="1.6" width="2.7" height="8.8" rx="1" fill="currentColor" />
+  </svg>
+);
+
+export const SkipBackIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+    <rect x="3" y="3.4" width="1.6" height="9.2" rx="0.8" fill="currentColor" />
+    <path d="M13 4.2v7.6a.7.7 0 0 1-1.07.6L6.1 8.6a.7.7 0 0 1 0-1.2l5.83-3.8A.7.7 0 0 1 13 4.2Z" fill="currentColor" />
+  </svg>
+);
+
+export const SkipForwardIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+    <path d="M3 4.2v7.6a.7.7 0 0 0 1.07.6l5.83-3.8a.7.7 0 0 0 0-1.2L4.07 3.6A.7.7 0 0 0 3 4.2Z" fill="currentColor" />
+    <rect x="11.4" y="3.4" width="1.6" height="9.2" rx="0.8" fill="currentColor" />
+  </svg>
+);
+
+/** A file with no widget of its own — the plain row's mark. */
+export const FileIcon = ({ size = 15 }: { size?: number }) => (
+  <svg {...base} width={size} height={size}>
+    <path d="M9.3 2.5H5A1.5 1.5 0 0 0 3.5 4v8A1.5 1.5 0 0 0 5 13.5h6A1.5 1.5 0 0 0 12.5 12V5.7Z" />
+    <path d="M9.3 2.5v3.2h3.2" />
+  </svg>
+);

@@ -21,6 +21,9 @@ import { renameUndoable, recordCreate } from "../lib/undostruct";
 import { onRenameAnnounce } from "../lib/renamebus";
 import { useUndo } from "../lib/undoContext";
 import { isTauri } from "../lib/tauri";
+import { makeFxResolver } from "../lib/fx";
+import { hasExecutableCalcLine } from "../lib/calc";
+import { ensureFxRates, useFxRates } from "./useFx";
 import { exportNoteMarkdown, exportNoteOneSheet, exportNotePdf } from "../lib/export";
 import { buildNoteActions } from "../lib/noteactions";
 import { formatDateHuman, shiftDate } from "../lib/dates";
@@ -112,6 +115,9 @@ interface NotePaneProps {
   schema: SchemaConfig;
   usedValues: (dbType: string, key: string) => string[];
   vaultEpoch: number;
+  /** `number-format` (SUB-834): how the body editor's calc lines write
+      numbers; App reads it from Settings.md alongside the other switches. */
+  numberStyle?: "de" | "intl";
   /** SUB-516: the paths behind the current `vaultEpoch` bump, or null for
       "unknown — could be anything". */
   changedPaths?: string[] | null;
@@ -214,6 +220,7 @@ function NotePane({
   schema,
   usedValues,
   vaultEpoch,
+  numberStyle,
   changedPaths = null,
   onSaveSchema,
   relationCandidates,
@@ -260,6 +267,13 @@ function NotePane({
   const [loaded, setLoaded] = useState<{ path: string; docPath: string; body: string } | null>(
     null
   );
+  const calcNeeded =
+    loaded?.path === meta.path && hasExecutableCalcLine(loaded.body);
+  // calc lines (SUB-834): live rates for `= 25 USD in EUR`; the resolver is
+  // null-safe (no table yet → the quiet per-line dash, never a wrong number).
+  // Ordinary notes keep this disabled, so opening prose cannot phone out.
+  const { fx: fxRatesState } = useFxRates(calcNeeded);
+  const calcFx = useMemo(() => makeFxResolver(fxRatesState), [fxRatesState]);
   const [props, setProps] = useState<Record<string, unknown>>({});
   const [backlinks, setBacklinks] = useState<NoteMeta[]>([]);
   const [related, setRelated] = useState<RelatedEntry[]>([]);
@@ -811,6 +825,7 @@ function NotePane({
     (b: string) => {
       // a programmatic doc swap (external reload) is not an edit
       if (applyingExternal.current) return;
+      if (hasExecutableCalcLine(b)) ensureFxRates();
       pending.current = { path: meta.path, body: b };
       // the file is gone: keep the text, never schedule a write (SUB-94)
       if (missingRef.current || fileGoneRef.current) return;
@@ -1464,7 +1479,7 @@ function NotePane({
                   : kind === "url"
                     ? urlDisplayTitle(v)
                     : kind === "number"
-                      ? formatNumber(v, pschema?.format)
+                      ? formatNumber(v, pschema?.format, undefined, numberStyle)
                       : v;
             // typed notes edit via the picker; untyped notes keep plain text —
             // except `type` itself, which always offers the known databases
@@ -1901,6 +1916,8 @@ function NotePane({
               onFollowLink={onFollowLink}
               onOpenTag={onOpenTag}
               tagUniverse={tagUniverse}
+              numberStyle={numberStyle}
+              calcFx={calcFx}
               noteTitles={noteTitles}
               dbTypes={dbTypes}
               embedQuery={embedQuery}

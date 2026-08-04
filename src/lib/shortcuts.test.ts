@@ -44,6 +44,7 @@ const BASE_CTX: ShortcutCtx = {
   dashCanRedo: false,
   canUndo: false,
   canRedo: false,
+  playing: false,
 };
 
 function ctx(over: Partial<ShortcutCtx> = {}): ShortcutCtx {

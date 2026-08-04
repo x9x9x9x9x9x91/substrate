@@ -1,4 +1,4 @@
-//! The one USD→EUR quote the finance surfaces share (SUB-667).
+//! The FX rates the finance surfaces share (SUB-667, table in SUB-834).
 
 use crate::net;
 
@@ -12,4 +12,12 @@ use crate::net;
 #[tauri::command]
 pub(crate) async fn fx_usd_eur() -> Result<net::FxQuote, String> {
     crate::blocking(net::fetch_usd_eur).await?
+}
+
+/// The whole majors table (SUB-834), so a sheet can convert any pair the app
+/// knows without a request per currency. Same one call, same failure contract
+/// as [`fx_usd_eur`] — the frontend derives every cross rate from this.
+#[tauri::command]
+pub(crate) async fn fx_rates() -> Result<net::FxRates, String> {
+    crate::blocking(net::fetch_fx_rates).await?
 }

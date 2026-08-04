@@ -210,12 +210,30 @@ const KIND_HINTS: Record<DraftKind, string | null> = {
   number: "A number column — right-aligned, sums in the footer. Stored as typed.",
 };
 
-/** Number-kind display formats (SUB-188) — one quiet row riding the draft
-    UI like relation's target picker. */
+/** Number-kind display formats (SUB-188), widened to units (SUB-834) — one
+    quiet row riding the draft UI like relation's target picker, wrapping as
+    it grows.
+
+    A curated shortlist, not the whole units.ts registry: these are the units
+    a column plausibly holds, in the order they'd be reached for. `euro` and
+    `percent` keep their historical keys (that's what existing vaults store);
+    every other entry is the unit code itself. Free-form entry for the rest of
+    the registry (oz, mi, TB, …) is a later slice — the vocabulary already
+    accepts them on write, only this picker is curated. */
 const FORMAT_LABELS: [NumberFormat, string][] = [
   ["plain", "Plain"],
-  ["euro", "Euro"],
-  ["percent", "Percent"],
+  ["euro", "€"],
+  ["USD", "$"],
+  ["GBP", "£"],
+  ["CHF", "CHF"],
+  ["percent", "%"],
+  ["kg", "kg"],
+  ["g", "g"],
+  ["km", "km"],
+  ["ms", "ms"],
+  ["BPM", "BPM"],
+  ["LUFS", "LUFS"],
+  ["dB", "dB"],
 ];
 
 /** Rollup-kind aggregation functions (SUB-678) — the footer Calculate's

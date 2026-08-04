@@ -1,7 +1,9 @@
 import type { NoteMeta, PropSchema } from "../lib/types";
 import { NOTE_DRAG_MIME } from "../lib/sidebar";
+import { missingCls } from "../lib/mounts";
 import { relDate } from "./ListPane";
 import { cardSubtitle, type Focus } from "./DbPaneShared";
+import type { FxResolver } from "../lib/formula";
 
 /** The list layout (SUB-621, split out of DatabasePane): one row per note
     with its relative update date and subtitle. DatabasePane still owns the
@@ -10,6 +12,9 @@ export default function DbListLayout({
   rows,
   typeSchema,
   curated,
+  fx,
+  fxAsOf,
+  numberStyle,
   openPath,
   bgMenuProps,
   head,
@@ -28,6 +33,9 @@ export default function DbListLayout({
   rows: NoteMeta[];
   typeSchema: Record<string, PropSchema>;
   curated: string[] | undefined;
+  fx?: FxResolver;
+  fxAsOf?: string;
+  numberStyle: "de" | "intl";
   openPath: string | null;
   bgMenuProps: { onContextMenu: (e: React.MouseEvent) => void };
   head: React.ReactNode;
@@ -57,7 +65,7 @@ export default function DbListLayout({
             data-fc={0}
             data-fr={r}
             data-focus-path={n.path}
-            className={`row${focusedCls(0, r)}${openPath === n.path ? " open" : ""}`}
+            className={`row${focusedCls(0, r)}${openPath === n.path ? " open" : ""}${missingCls(n)}`}
             role="button"
             aria-label={n.title}
             tabIndex={tabIndexFor(0, r)}
@@ -95,8 +103,10 @@ export default function DbListLayout({
               <span className="row-title">{n.title}</span>
               <span className="row-date">{relDate(n.updated_ms)}</span>
             </div>
-            {cardSubtitle(n, typeSchema, undefined, curated) && (
-              <span className="row-sub">{cardSubtitle(n, typeSchema, undefined, curated)}</span>
+            {cardSubtitle(n, typeSchema, undefined, curated, fx, fxAsOf, numberStyle) && (
+              <span className="row-sub">
+                {cardSubtitle(n, typeSchema, undefined, curated, fx, fxAsOf, numberStyle)}
+              </span>
             )}
           </div>
         ))}

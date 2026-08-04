@@ -26,10 +26,34 @@ const printButton = (page: Page) =>
 const printCalls = (page: Page) =>
   page.evaluate(() => (window as unknown as { __printCalls: number }).__printCalls);
 
+// Custom properties keep their authored token stream when read directly.
+// SUB-955's nudgable tones are hsl(calc(...)), so resolve them through a real
+// color declaration before comparing the palette that actually paints.
+const resolvedColor = (page: Page, selector: string, property: string) =>
+  page
+    .locator(selector)
+    .first()
+    .evaluate((host, name) => {
+      const probe = document.createElement("span");
+      probe.style.color = `var(${name})`;
+      host.appendChild(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    }, property);
+
 // the hand-off fires after the surface's layout settle (~150ms) — poll for it
 const expectPrinted = async (page: Page) => {
   await expect.poll(() => printCalls(page)).toBe(1);
 };
+
+const enableFullGlow = (page: Page) =>
+  page.locator("html").evaluate((root) => {
+    root.dataset.glow = "on";
+    root.dataset.glowBars = "on";
+    root.style.setProperty("--glow", "1");
+    root.style.setProperty("--glow-bars", "1");
+  });
 
 test.beforeEach(async ({ page }) => {
   // stub the hand-off: no dialog blocks, and afterprint never fires so the
@@ -48,28 +72,33 @@ test("dashboard accent stays scoped and cannot replace reserved state tokens (SU
 }) => {
   await openDash(page, "Overview");
 
-  const token = (selector: string, name: string) =>
-    page.locator(selector).first().evaluate((el, property) =>
-      getComputedStyle(el).getPropertyValue(property).trim(), name
-    );
-
   // Outside a dashboard, the app keeps its interactive indigo. The dashboard
   // inherits the chosen V1 sky without moving the app-wide root token.
-  await expect.poll(() => token(".side-item", "--accent")).toBe("#5e6ad2");
-  await expect.poll(() => token(".dash-inner", "--accent")).toBe("#6cc0ec");
+  await expect
+    .poll(() => resolvedColor(page, ".side-item", "--accent"))
+    .toBe("rgb(94, 106, 210)");
+  await expect
+    .poll(() => resolvedColor(page, ".dash-inner", "--accent"))
+    .toBe("rgb(108, 192, 236)");
 
   // State remains a separate semantic band. Dashboard scoping may replace
   // accent/series tokens, never the state or schema-option tokens.
   for (const [stateToken, value] of [
-    ["--danger", "#eb5757"],
-    ["--ok", "#4cb782"],
-    ["--opt-orange", "#e8965a"],
-    ["--opt-yellow", "#d9b850"],
+    ["--danger", "rgb(235, 87, 87)"],
+    ["--ok", "rgb(76, 183, 130)"],
+    ["--opt-orange", "rgb(232, 150, 90)"],
+    ["--opt-yellow", "rgb(217, 184, 80)"],
   ] as const) {
-    await expect.poll(() => token(".side-item", stateToken)).toBe(value);
-    await expect.poll(() => token(".dash-inner", stateToken)).toBe(value);
+    await expect
+      .poll(() => resolvedColor(page, ".side-item", stateToken))
+      .toBe(value);
+    await expect
+      .poll(() => resolvedColor(page, ".dash-inner", stateToken))
+      .toBe(value);
   }
-  await expect.poll(() => token(".dash-inner", "--series-5")).toBe("#c9b98f");
+  await expect
+    .poll(() => resolvedColor(page, ".dash-inner", "--series-5"))
+    .toBe("rgb(201, 185, 143)");
 });
 
 test("metrics: Print clones the live cards into #print-surface and hands off", async ({
@@ -78,6 +107,9 @@ test("metrics: Print clones the live cards into #print-surface and hands off", a
   await openDash(page, "Portfolio");
   // wait for real values — the clone must capture resolved cards, not "…"
   await expect(page.locator("#root .metrics-cards .dash-card-eur").first()).not.toHaveText("…");
+  await enableFullGlow(page);
+  const liveSharp = page.locator("#root .metrics-cards .dash-card:not(.sunk) .dash-card-eur").first();
+  await expect(liveSharp).toHaveCSS("text-shadow", /rgb/);
   await expect(printButton(page)).toBeVisible();
   await printButton(page).click();
 
@@ -98,6 +130,10 @@ test("metrics: Print clones the live cards into #print-surface and hands off", a
   await expect(page.locator("#root")).toBeHidden();
   await expect(surface.locator(".dash-actions")).toBeHidden();
   await expect(surface.locator(".dash-label").first()).toHaveCSS("color", "rgb(113, 118, 126)");
+  await expect(surface.locator(".dash-card:not(.sunk) .dash-card-eur").first()).toHaveCSS(
+    "text-shadow",
+    "none"
+  );
 });
 
 test("charts: bars and the line chart clone with their geometry", async ({ page }) => {
@@ -105,6 +141,9 @@ test("charts: bars and the line chart clone with their geometry", async ({ page 
   // all four fences resolved (3 bar + 1 line) before the clone
   await expect(page.locator("#root .dash-chart")).toHaveCount(3);
   await expect(page.locator("#root .chart-line")).toHaveCount(1);
+  await enableFullGlow(page);
+  await expect(page.locator("#root .chart-line-path").first()).toHaveCSS("filter", /drop-shadow/);
+  await expect(page.locator("#root .dash-bar").first()).toHaveCSS("filter", /drop-shadow/);
   await printButton(page).click();
 
   const surface = page.locator("#print-surface");
@@ -120,27 +159,37 @@ test("charts: bars and the line chart clone with their geometry", async ({ page 
   // surface remaps --accent to its darker print weight, so the stroke prints
   // as deep sky-on-white rather than the dark ground's value
   await expect(surface.locator(".chart-line-path")).toHaveCSS("stroke", "rgb(22, 120, 171)");
-  const printTokens = await surface.locator(".dash-inner").evaluate((el) => {
-    const style = getComputedStyle(el);
-    return {
-      accent: style.getPropertyValue("--accent").trim(),
-      accentText: style.getPropertyValue("--accent-text").trim(),
-      series5: style.getPropertyValue("--series-5").trim(),
-      danger: style.getPropertyValue("--danger").trim(),
-      ok: style.getPropertyValue("--ok").trim(),
-      orange: style.getPropertyValue("--opt-orange").trim(),
-      yellow: style.getPropertyValue("--opt-yellow").trim(),
-    };
-  });
+  const printTokens = Object.fromEntries(
+    await Promise.all(
+      [
+        ["accent", "--accent"],
+        ["accentText", "--accent-text"],
+        ["series5", "--series-5"],
+        ["danger", "--danger"],
+        ["ok", "--ok"],
+        ["orange", "--opt-orange"],
+        ["yellow", "--opt-yellow"],
+      ].map(
+        async ([key, property]) =>
+          [
+            key,
+            await resolvedColor(page, "#print-surface .dash-inner", property),
+          ] as const,
+      ),
+    ),
+  );
   expect(printTokens).toEqual({
-    accent: "#1678ab",
-    accentText: "#14597a",
-    series5: "#8f7a3f",
-    danger: "#eb5757",
-    ok: "#4cb782",
-    orange: "#e8965a",
-    yellow: "#d9b850",
+    accent: "rgb(22, 120, 171)",
+    accentText: "rgb(20, 89, 122)",
+    series5: "rgb(143, 122, 63)",
+    danger: "rgb(235, 87, 87)",
+    ok: "rgb(76, 183, 130)",
+    orange: "rgb(232, 150, 90)",
+    yellow: "rgb(217, 184, 80)",
   });
+  await expect(surface.locator(".chart-line-path").first()).toHaveCSS("filter", "none");
+  await expect(surface.locator(".chart-dot").first()).toHaveCSS("filter", "none");
+  await expect(surface.locator(".dash-bar").first()).toHaveCSS("filter", "none");
 });
 
 test("hub: cards, table and link text clone — links stay on paper as content", async ({

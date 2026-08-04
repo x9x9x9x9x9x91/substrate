@@ -4,7 +4,8 @@ import { propStr } from "../lib/types";
 import { vaultRead, vaultResolve } from "../lib/ipc";
 import { fmtFx } from "../lib/dashboard";
 import { normalizeNumberInput } from "../lib/aggregate";
-import { useUsdEur } from "./useFx";
+import { useFxRates } from "./useFx";
+import { makeFxResolver, usdEurFrom } from "../lib/fx";
 import {
   addSheetColumn,
   addSheetRow,
@@ -88,7 +89,7 @@ export default function SheetGrid({
   readOnly = false,
 }: SheetGridProps) {
   const [body, setBody] = useState(initial);
-  const { fx } = useUsdEur();
+  const { fx: rates } = useFxRates();
   const [focus, setFocus] = useState<CellPos | null>(null);
   const [editing, setEditing] = useState<(CellPos & { draft: string }) | null>(null);
   const [addingCol, setAddingCol] = useState(false);
@@ -112,15 +113,9 @@ export default function SheetGrid({
   const editColRef = useRef(editCol);
   editColRef.current = editCol;
 
-  const fxResolver: FxResolver = useCallback(
-    (from, to) => {
-      if (!fx) return null;
-      if (from === "USD" && to === "EUR") return fx.usdEur;
-      if (from === "EUR" && to === "USD") return 1 / fx.usdEur;
-      return null;
-    },
-    [fx]
-  );
+  const fxResolver: FxResolver = useMemo(() => makeFxResolver(rates), [rates]);
+  // the footer still quotes the one pair it always did (SUB-834)
+  const fx = useMemo(() => usdEurFrom(rates), [rates]);
 
   const model = useMemo(() => parseSheet(body), [body]);
 

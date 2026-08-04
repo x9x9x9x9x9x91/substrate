@@ -1,11 +1,13 @@
 import { Fragment } from "react";
 import type { AggKind, NoteMeta, NumberFormat, PropKind, PropSchema, RollupConfig, SavedViewSort, SelectOption } from "../lib/types";
 import { foldedPropKey, foldedPropStr } from "../lib/types";
-import { aggregationKind, formatAgg } from "../lib/aggregate";
-import { audioFileTarget, displayColLabel, displayValue } from "../lib/display";
+import { aggMarker, aggregationKind, formatAgg, type UnitAgg } from "../lib/aggregate";
+import { audioFileTarget, conversionNote, displayColLabel, displayValue } from "../lib/display";
+import type { FxResolver } from "../lib/formula";
 import { contactHref } from "../lib/url";
 import { propList, propListValue, toggleValue, type RelationCandidate } from "../lib/relation";
 import { NOTE_DRAG_MIME } from "../lib/sidebar";
+import { missingCls } from "../lib/mounts";
 import { AudioPropButton } from "./AudioPropButton";
 import DateMenu from "./DateMenu";
 import FileMenu from "./FileMenu";
@@ -95,6 +97,9 @@ export default function DbTableLayout({
   tallied,
   aggs,
   aggResults,
+  fxAsOf,
+  fx,
+  numberStyle,
   bulkColMenu,
   setBulkColMenu,
   bulkCheck,
@@ -197,7 +202,20 @@ export default function DbTableLayout({
   reportFailure: (what: string) => (err: unknown) => void;
   tallied: NoteMeta[];
   aggs: Record<string, AggKind>;
-  aggResults: Record<string, number | null>;
+  /** Per-column footer aggregation (SUB-834): the value plus what the
+      conversion cost — `converted` names the foreign units folded in,
+      `skipped` the ones that couldn't be. Both empty on a unitless column. */
+  aggResults: Record<string, UnitAgg | undefined>;
+  /** As-of date of the rates cells and the footer converted at, for the
+      markers' hover text; empty when nothing is known about it (SUB-834). */
+  fxAsOf?: string;
+  /** Rates for unit columns (SUB-834): a cell stored in a foreign unit
+      renders converted into its column's. Absent → currency cells render as
+      typed, never as a wrong number. */
+  fx?: FxResolver;
+  /** Number formatting the vault is set to (SUB-834) — footer figures follow
+      the same convention as the cells above them. */
+  numberStyle: "de" | "intl";
   bulkColMenu: AnchorRect | null;
   setBulkColMenu: (v: AnchorRect | null) => void;
   bulkCheck: { key: string; anchor: AnchorRect } | null;
@@ -262,23 +280,31 @@ export default function DbTableLayout({
   // a section header row spans the full table width: option dot, label,
   // muted count — the board column header's type scale and casing. It
   // carries no data-fc/data-fr, so arrow-key focus glides over it.
-  const groupHeaderRow = (value: string | null, count: number) => (
-    <tr className="db-group-tr">
+  const groupHeaderRow = (value: string | null, count: number) => {
+    const groupSchema = tableGroup ? byFoldedKey(typeSchema, tableGroup) : undefined;
+    const converted =
+      value !== null && groupSchema?.kind === "number"
+        ? conversionNote(value, groupSchema.format, fx, fxAsOf)
+        : null;
+    return <tr className="db-group-tr">
       <td colSpan={shown.length + 2}>
         <span className="db-group-head">
           {value !== null ? (
             <span className="db-group-label">
               <OptionDot
-                color={optionColor(tableGroup ? byFoldedKey(typeSchema, tableGroup)?.options : undefined, value)}
+                color={optionColor(groupSchema?.options, value)}
               />
               {/* SUB-639: the column's format too, like the board header —
                   without it a number section read raw "1200" over cells
                   rendering "1.200,00 €" */}
               {displayValue(
                 value,
-                tableGroup ? byFoldedKey(typeSchema, tableGroup)?.kind : undefined,
-                tableGroup ? byFoldedKey(typeSchema, tableGroup)?.format : undefined
+                groupSchema?.kind,
+                groupSchema?.format,
+                fx,
+                numberStyle
               )}
+              {converted && <span className="prop-conv" title={converted}>*</span>}
             </span>
           ) : (
             <span className="db-group-label db-group-none">No {tableGroup}</span>
@@ -286,8 +312,8 @@ export default function DbTableLayout({
           <span className="db-group-count">{count}</span>
         </span>
       </td>
-    </tr>
-  );
+    </tr>;
+  };
 
   // SUB-272: the bulk bar's column editor reuses the single-cell machinery
   // (SelectMenu/DateMenu/RelationMenu/FileMenu), anchored at the bar button
@@ -420,7 +446,7 @@ export default function DbTableLayout({
                   {g ? groupHeaderRow(g.value, g.count) : null}
               <tr
                 className={
-                  `${openPath === n.path ? "db-open" : ""}${sel.has(n.path) ? " is-selected" : ""}`.trim() ||
+                  `${openPath === n.path ? "db-open" : ""}${sel.has(n.path) ? " is-selected" : ""}${missingCls(n)}`.trim() ||
                   undefined
                 }
                 // a row hosting an open cell editor stays undraggable — the
@@ -556,7 +582,21 @@ export default function DbTableLayout({
                           </span>
                         ) : (
                           <OptionPill color={optionColor(copts, val)}>
-                            {displayValue(val, ckind, cschema?.format)}
+                            {displayValue(val, ckind, cschema?.format, fx, numberStyle)}
+                            {/* SUB-834: a cell rendered in the column's unit
+                                but STORED in another says so on hover — the
+                                file still holds exactly what was typed */}
+                            {(() => {
+                              const note =
+                                ckind === "number"
+                                  ? conversionNote(val, cschema?.format, fx, fxAsOf)
+                                  : null;
+                              return note ? (
+                                <span className="prop-conv" title={note}>
+                                  *
+                                </span>
+                              ) : null;
+                            })()}
                           </OptionPill>
                         )}
                       </span>
@@ -680,7 +720,12 @@ export default function DbTableLayout({
                 <td className="db-agg-cell db-agg-title">{tallied.length} rows</td>
                 {shown.map((c) => {
                   const kind = aggregationKind(aggs, c);
-                  const res = kind ? aggResults[c] : undefined;
+                  const agg = kind ? aggResults[c] : undefined;
+                  const res = agg?.value;
+                  // the marker (SUB-834): a footer figure that folded foreign
+                  // units in — or had to leave some out — says so rather than
+                  // passing for a plain single-unit total
+                  const mark = aggMarker(agg, fxAsOf);
                   return (
                     <td key={c} className="db-agg-cell" data-col={c}>
                       <button
@@ -702,7 +747,17 @@ export default function DbTableLayout({
                               // -- a number that silently swaps reads as a
                               // misread rather than a result
                               <span key={res} className="db-agg-value">
-                                {formatAgg(res, kind, byFoldedKey(typeSchema, c)?.format)}
+                                {formatAgg(
+                                  res,
+                                  kind,
+                                  byFoldedKey(typeSchema, c)?.format,
+                                  numberStyle
+                                )}
+                                {mark && (
+                                  <span className="db-agg-mark" title={mark}>
+                                    *
+                                  </span>
+                                )}
                               </span>
                             )}
                           </>

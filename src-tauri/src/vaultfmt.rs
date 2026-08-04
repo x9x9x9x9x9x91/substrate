@@ -19,7 +19,7 @@
 //!
 //! ```json
 //! // .vault/format.json
-//! { "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1, "tagfolders": 1 }
+//! { "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1, "tagfolders": 1, "mounts": 1 }
 //! ```
 //!
 //! An older app doesn't know the sidecar exists and ignores it — its config
@@ -58,16 +58,18 @@ pub enum VaultFile {
     Notifications,
     Calendars,
     TagFolders,
+    Mounts,
 }
 
 impl VaultFile {
-    pub const ALL: [VaultFile; 6] = [
+    pub const ALL: [VaultFile; 7] = [
         VaultFile::Schema,
         VaultFile::Views,
         VaultFile::Folders,
         VaultFile::Notifications,
         VaultFile::Calendars,
         VaultFile::TagFolders,
+        VaultFile::Mounts,
     ];
 
     /// This file's key in the sidecar.
@@ -79,6 +81,7 @@ impl VaultFile {
             VaultFile::Notifications => "notifications",
             VaultFile::Calendars => "calendars",
             VaultFile::TagFolders => "tagfolders",
+            VaultFile::Mounts => "mounts",
         }
     }
 
@@ -90,6 +93,7 @@ impl VaultFile {
             VaultFile::Notifications => crate::notify::STATE_REL_PATH,
             VaultFile::Calendars => crate::calendarfeed::CONFIG_REL_PATH,
             VaultFile::TagFolders => crate::vault::TagFolder::REL_PATH,
+            VaultFile::Mounts => crate::vault::MOUNTS_REL_PATH,
         }
     }
 
@@ -102,6 +106,7 @@ impl VaultFile {
             VaultFile::Notifications => 1,
             VaultFile::Calendars => 1,
             VaultFile::TagFolders => 1,
+            VaultFile::Mounts => 1,
         }
     }
 
@@ -115,6 +120,10 @@ impl VaultFile {
             VaultFile::Notifications => "notification state",
             VaultFile::Calendars => "calendar subscriptions",
             VaultFile::TagFolders => "tag folders",
+            // one version covers the registry and the per-mount index files
+            // it owns under `.vault/mounts/` — those are derived caches,
+            // rewritten wholesale, never migrated independently
+            VaultFile::Mounts => "mounted folders",
         }
     }
 
@@ -134,6 +143,7 @@ impl VaultFile {
             VaultFile::Notifications => &[],
             VaultFile::Calendars => &[],
             VaultFile::TagFolders => &[],
+            VaultFile::Mounts => &[],
         }
     }
 }
@@ -332,7 +342,7 @@ mod tests {
         }
         // junk in the slot is not a version either — never lock a user out
         let junk: Map<String, Value> = serde_json::from_value(json!({
-            "views": "two", "schema": 0, "folders": -3, "notifications": 7
+            "views": "two", "schema": 0, "folders": -3, "notifications": 7, "mounts": 1.5
         }))
         .unwrap();
         assert_eq!(version_of(&junk, VaultFile::Views), 1);
@@ -340,6 +350,7 @@ mod tests {
         assert_eq!(version_of(&junk, VaultFile::Folders), 1);
         assert_eq!(version_of(&junk, VaultFile::Notifications), 7);
         assert_eq!(version_of(&junk, VaultFile::Calendars), 1);
+        assert_eq!(version_of(&junk, VaultFile::Mounts), 1, "a non-integer is not a version");
     }
 
     #[test]

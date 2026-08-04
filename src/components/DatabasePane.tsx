@@ -4,9 +4,11 @@ import { foldedPropKey, foldedPropStr, typeHome } from "../lib/types";
 import { isTyping, isTypingNow } from "../lib/dom";
 import { cycleSortKeys, restingCmp, sortCmpFor } from "../lib/dbsort";
 import { rangePaths, togglePath } from "../lib/bulkselect";
-import { aggregationKind, aggregateColumns, normalizeNumberInput, updateAggregation } from "../lib/aggregate";
+import { aggregationKind, aggregateColumnsUnits, formatUnit, normalizeNumberInput, updateAggregation } from "../lib/aggregate";
+import { makeFxResolver } from "../lib/fx";
+import { useFxRates } from "./useFx";
 import { pathExists, vaultCreate, vaultTemplateRead } from "../lib/ipc";
-import { setPropUndoable, setPropUndoableBulk } from "../lib/undoprops";
+import { setPropUndoable, setPropUndoableBulk, type PropWriter } from "../lib/undoprops";
 import { useUndo } from "../lib/undoContext";
 import { nextUndoId } from "../lib/undo";
 import { completeFilter, filterCompletions, filterDeadEndHint, filterInherits, filterLabel, matchesFilters, parseQuery } from "../lib/query";
@@ -95,6 +97,8 @@ interface DatabasePaneProps {
   /** the global `db-grid` setting (SUB-607) — what tables do when this
       database's pref carries no `grid` override of its own */
   gridDefault: boolean;
+  /** App-wide numeric display dialect (SUB-834). */
+  numberStyle?: "de" | "intl";
   onPrefChange: (pref: ViewPref) => void;
   onOpenNote: (path: string) => void;
   /** right-click on any row/card — App's note context menu (SUB-108) */
@@ -148,6 +152,10 @@ interface DatabasePaneProps {
       announces itself instead of vanishing silently; SUB-273: the optional
       action carries Undo after a board drag move */
   onToast?: (msg: string, action?: { label: string; run: () => void }) => void;
+  /** SUB-888: a mounted folder's rows write through `mount_annotate` — the
+      row's note may not exist until the write creates it. Absent everywhere
+      else, where a plain vaultSetProp is exactly right. */
+  writeProp?: PropWriter;
 }
 
 /** SUB-945: how long a just-written cell stays lit. Matches the cell-flash
@@ -173,6 +181,7 @@ export default function DatabasePane({
   newSignal,
   exportRef,
   gridDefault,
+  numberStyle = "de",
   onPrefChange,
   onOpenNote,
   onNoteMenu,
@@ -193,6 +202,7 @@ export default function DatabasePane({
   onDeleteDb,
   onRenameProp,
   onRemoveProp,
+  writeProp,
   onToast,
 }: DatabasePaneProps) {
   const undo = useUndo();
@@ -901,11 +911,19 @@ export default function DatabasePane({
     () => normalizedPref?.aggregations ?? {},
     [normalizedPref?.aggregations]
   );
+  // the footer's rates (SUB-834): a unit column folds foreign-unit rows in at
+  // these, and marks the figure when it did. Linear units (kg, ms) need no
+  // rates at all, so an offline table only costs currency columns.
+  const { fx: fxRatesState } = useFxRates();
+  const fxResolver = useMemo(() => makeFxResolver(fxRatesState), [fxRatesState]);
   const aggResults = useMemo(() => {
-    return aggregateColumns(aggs, (col) =>
-      tallied.map((n) => foldedPropStr(n.props, col) ?? "")
+    return aggregateColumnsUnits(
+      aggs,
+      (col) => tallied.map((n) => foldedPropStr(n.props, col) ?? ""),
+      (col) => formatUnit(byFoldedKey(typeSchema, col)?.format),
+      fxResolver
     );
-  }, [aggs, tallied]);
+  }, [aggs, tallied, typeSchema, fxResolver]);
 
   const setAgg = (col: string, kind: AggKind | null) => {
     const next = updateAggregation(aggs, col, kind);
@@ -1098,7 +1116,7 @@ export default function DatabasePane({
     const props = notes.find((n) => n.path === path)?.props ?? {};
     const actualKey = foldedPropKey(props, key);
     // SUB-477: through the undoable helper, so a mis-typed cell is one ⌘Z away
-    return setPropUndoable({ path, key: actualKey, value, id, record: undo.record, keyLabel: displayColLabel(key) })
+    return setPropUndoable({ path, key: actualKey, value, id, record: undo.record, keyLabel: displayColLabel(key), write: writeProp })
       .then(() => {
         onMutated();
         // SUB-945: a write that lands silently is indistinguishable from one
@@ -1314,6 +1332,7 @@ export default function DatabasePane({
       value,
       record: undo.record,
       keyLabel: label,
+      write: writeProp,
     }).then((res) => {
       const ok = res.ok.length;
       onMutated();
@@ -1339,7 +1358,7 @@ export default function DatabasePane({
     clearSel();
     if (paths.length === 0) return;
     const label = displayColLabel(key);
-    setPropUndoableBulk({ paths, key, keysByPath: bulkKeysByPath(paths, key), value, record: undo.record, keyLabel: label }).then((res) => {
+    setPropUndoableBulk({ paths, key, keysByPath: bulkKeysByPath(paths, key), value, record: undo.record, keyLabel: label, write: writeProp }).then((res) => {
       const ok = res.ok.length;
       onMutated();
       onToast?.(
@@ -1397,7 +1416,13 @@ export default function DatabasePane({
       const label =
         value === null
           ? `No ${groupBy}`
-          : displayValue(value, byFoldedKey(typeSchema, groupBy)?.kind, byFoldedKey(typeSchema, groupBy)?.format);
+          : displayValue(
+              value,
+              byFoldedKey(typeSchema, groupBy)?.kind,
+              byFoldedKey(typeSchema, groupBy)?.format,
+              undefined,
+              numberStyle
+            );
       onToast?.(`“${note?.title ?? path}” → ${label}`, {
         label: "Undo",
         run: () => undo.runById(id),
@@ -1988,6 +2013,9 @@ export default function DatabasePane({
         newCol={newCol}
         dbType={dbType}
         typeSchema={typeSchema}
+        fx={fxResolver}
+        fxAsOf={fxRatesState?.asOf}
+        numberStyle={numberStyle}
         openPath={openPath}
         lastWritten={lastWritten}
         bgMenuProps={bgMenuProps}
@@ -2024,6 +2052,9 @@ export default function DatabasePane({
         dbType={dbType}
         icon={icon}
         typeSchema={typeSchema}
+        fx={fxResolver}
+        fxAsOf={fxRatesState?.asOf}
+        numberStyle={numberStyle}
         openPath={openPath}
         bgMenuProps={bgMenuProps}
         head={head}
@@ -2047,6 +2078,9 @@ export default function DatabasePane({
       <DbListLayout
         rows={rows}
         typeSchema={typeSchema}
+        fx={fxResolver}
+        fxAsOf={fxRatesState?.asOf}
+        numberStyle={numberStyle}
         curated={curated}
         openPath={openPath}
         bgMenuProps={bgMenuProps}
@@ -2142,6 +2176,9 @@ export default function DatabasePane({
       tallied={tallied}
       aggs={aggs}
       aggResults={aggResults}
+      fxAsOf={fxRatesState?.asOf}
+      fx={fxResolver}
+      numberStyle={numberStyle}
       bulkColMenu={bulkColMenu}
       setBulkColMenu={setBulkColMenu}
       bulkCheck={bulkCheck}

@@ -5,6 +5,8 @@ import {
   DEFAULT_TERMINAL_WIDTH,
   isAppFile,
   missingTerminalFonts,
+  netAllowed,
+  numberFormatSetting,
   parseDbGrid,
   parseDropHint,
   parseModHud,
@@ -397,4 +399,40 @@ test("isAppFile: exact root names only (SUB-831, SUB-878)", () => {
   assert.equal(isAppFile("AGENTS notes.md"), false);
   assert.equal(isAppFile("settings.md"), false);
   assert.equal(isAppFile("Notes/Settings.md"), false);
+});
+
+test("netAllowed: only an explicit false closes an outbound call (SUB-834)", () => {
+  for (const f of ["link-titles", "fx-rates", "share-relay"] as const) {
+    const key = `net-${f}`;
+    assert.equal(netAllowed({ [key]: false }, f), false);
+    assert.equal(netAllowed({ [key]: "false" }, f), false);
+    assert.equal(netAllowed({ [key]: " FALSE " }, f), false);
+    // default ON: an unset key, `true`, or a typo all leave the feature working
+    assert.equal(netAllowed({}, f), true);
+    assert.equal(netAllowed({ [key]: true }, f), true);
+    assert.equal(netAllowed({ [key]: "off" }, f), true);
+    assert.equal(netAllowed({ [key]: 0 }, f), true);
+  }
+});
+
+test("netAllowed: the three switches are independent", () => {
+  // one closed toggle must not read as any other's state — the keys are
+  // separate rows in Settings.md and a user turning off link titles keeps
+  // currency rates and sharing
+  const props = { "net-link-titles": false };
+  assert.equal(netAllowed(props, "link-titles"), false);
+  assert.equal(netAllowed(props, "fx-rates"), true);
+  assert.equal(netAllowed(props, "share-relay"), true);
+});
+
+test("numberFormatSetting: de is the default, only `intl` switches (SUB-834)", () => {
+  assert.equal(numberFormatSetting({ "number-format": "intl" }), "intl");
+  assert.equal(numberFormatSetting({ "number-format": " INTL " }), "intl");
+  assert.equal(numberFormatSetting({ "number-format": "de" }), "de");
+  // an unset key or anything unrecognized keeps the shipped formatting, so no
+  // vault silently re-reads its numbers after an upgrade or a typo
+  assert.equal(numberFormatSetting({}), "de");
+  assert.equal(numberFormatSetting({ "number-format": "en-US" }), "de");
+  assert.equal(numberFormatSetting({ "number-format": true }), "de");
+  assert.equal(numberFormatSetting({ "number-format": 1 }), "de");
 });

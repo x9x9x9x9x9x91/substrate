@@ -47,6 +47,10 @@ const STATIC_VIEW_TIPS: Record<View["kind"], InfoTip> = {
     title: "Database",
     body: "A structured collection of notes. Change the layout, filter the rows, or save the current view.",
   },
+  mount: {
+    title: "Mounted folder",
+    body: "A real folder on disk, shown as a database. Every file is a row — nothing is imported or copied, and a note is only created for a file once you say something about it.",
+  },
   saved: {
     title: "Saved view",
     body: "A named database view with its own query, sorting, layout, and visible columns.",

@@ -89,10 +89,16 @@ pub(crate) fn vault_assets_orphaned(state: State<AppState>) -> Result<Vec<vault:
 }
 
 /// Read-only vault integrity report (SUB-432). Takes no `SnapDirty` — it
-/// never writes, so there is nothing to mark dirty.
+/// never writes, so there is nothing to mark dirty. The mount bindings come
+/// from this machine's app config (SUB-888): the doctor reports an unbound
+/// mount, and only the config knows what is bound here.
 #[tauri::command]
-pub(crate) fn vault_doctor(state: State<AppState>) -> Result<vault::DoctorReport, String> {
-    state.0.lock().unwrap().doctor()
+pub(crate) fn vault_doctor(
+    state: State<AppState>,
+    onboarding: State<crate::OnboardingState>,
+) -> Result<vault::DoctorReport, String> {
+    let bindings = crate::appcfg::read_config(&onboarding.config_dir).mounts;
+    state.0.lock().unwrap().doctor(&bindings)
 }
 
 #[tauri::command]

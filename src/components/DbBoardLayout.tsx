@@ -1,10 +1,13 @@
 import type { NoteMeta, PropSchema } from "../lib/types";
 import { displayValue } from "../lib/display";
 import { NOTE_DRAG_MIME } from "../lib/sidebar";
+import { missingCls } from "../lib/mounts";
 import { optionColor, OptionPill } from "./SelectMenu";
 import { PlusIcon } from "./Icons";
 import { cardSubtitle, type Focus } from "./DbPaneShared";
 import { byFoldedKey } from "../lib/schemalookup";
+import type { FxResolver } from "../lib/formula";
+import { conversionNote } from "../lib/display";
 
 /** The board layout (SUB-621, split out of DatabasePane): one column per
     group value, draggable cards, the per-column draft and its New button.
@@ -16,6 +19,9 @@ export default function DbBoardLayout({
   newCol,
   dbType,
   typeSchema,
+  fx,
+  fxAsOf,
+  numberStyle,
   openPath,
   lastWritten,
   bgMenuProps,
@@ -48,6 +54,9 @@ export default function DbBoardLayout({
   newCol: { value: string | null } | null;
   dbType: string;
   typeSchema: Record<string, PropSchema>;
+  fx?: FxResolver;
+  fxAsOf?: string;
+  numberStyle: "de" | "intl";
   openPath: string | null;
   /** SUB-945: the note a write just landed on, lit for one fade */
   lastWritten: { path: string; key: string; nonce: number } | null;
@@ -123,6 +132,10 @@ export default function DbBoardLayout({
       >
         {noMatch ?? boardCols.map((col, ci) => {
           const colKey = col.value ?? "\0";
+          const groupConversion =
+            col.value !== null && groupSchema?.kind === "number"
+              ? conversionNote(col.value, groupSchema.format, fx, fxAsOf)
+              : null;
           return (
             <div
               key={colKey}
@@ -142,7 +155,10 @@ export default function DbBoardLayout({
                 <span className={col.value === null ? "db-col-none" : undefined}>
                   {col.value !== null ? (
                     <OptionPill color={optionColor(groupSchema?.options, col.value)}>
-                      {displayValue(col.value, groupSchema?.kind, groupSchema?.format)}
+                      {displayValue(col.value, groupSchema?.kind, groupSchema?.format, fx, numberStyle)}
+                      {groupConversion && (
+                        <span className="prop-conv" title={groupConversion}>*</span>
+                      )}
                     </OptionPill>
                   ) : (
                     `No ${groupBy}`
@@ -163,7 +179,7 @@ export default function DbBoardLayout({
                     data-fc={ci}
                     data-fr={ri}
                     data-focus-path={n.path}
-                    className={`db-card${focusedCls(ci, ri)}${dragPath === n.path ? " dragging" : ""}${openPath === n.path ? " open" : ""}${lastWritten?.path === n.path ? " db-flashing" : ""}`}
+                    className={`db-card${focusedCls(ci, ri)}${dragPath === n.path ? " dragging" : ""}${openPath === n.path ? " open" : ""}${lastWritten?.path === n.path ? " db-flashing" : ""}${missingCls(n)}`}
                     role="button"
                     aria-label={n.title}
                     tabIndex={boardTabIndexFor(ci, ri)}
@@ -213,8 +229,10 @@ export default function DbBoardLayout({
                       <span key={lastWritten.nonce} className="db-cell-flash" aria-hidden="true" />
                     )}
                     <span className="db-card-title">{n.title}</span>
-                    {cardSubtitle(n, typeSchema, groupBy) && (
-                      <span className="row-sub">{cardSubtitle(n, typeSchema, groupBy)}</span>
+                    {cardSubtitle(n, typeSchema, groupBy, undefined, fx, fxAsOf, numberStyle) && (
+                      <span className="row-sub">
+                        {cardSubtitle(n, typeSchema, groupBy, undefined, fx, fxAsOf, numberStyle)}
+                      </span>
                     )}
                   </div>
                 ))}

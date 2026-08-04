@@ -220,6 +220,62 @@ fn strict_number_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"^[+-]?(\d+\.?\d*|\.\d+)$").unwrap())
 }
 
+/// Does this value read as a QUANTITY — a number carrying a unit (SUB-834)?
+/// `25 USD`, `$25`, `5 kg`, `128 BPM`. Mirrors `units.ts` parseQuantity
+/// closely enough for the one thing the engine needs it for: telling a
+/// healthy unit-carrying value apart from real junk in a number column.
+///
+/// The frontend stays the source of truth for what a quantity MEANS (parsing,
+/// conversion, rendering). This only asks whether the shape is one, and it
+/// checks the unit against `schema::UNIT_CODES` and the word aliases units.ts
+/// accepts, so "25 furlongs" is still junk rather than a pass for anything
+/// with a number in front.
+fn quantity_re() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    // symbol units may lead ("$25", "-€1.234,56"); word units always trail.
+    // The number itself stays deliberately loose — de-DE separators included,
+    // since a value typed in the app's own dialect is not a health problem.
+    RE.get_or_init(|| {
+        Regex::new(r"^(?:([+-]?)\s*([€$£¥])\s*([0-9][0-9.,]*|\.[0-9]+)|([+-]?(?:[0-9][0-9.,]*|\.[0-9]+))\s*(\S+))$")
+            .unwrap()
+    })
+}
+
+/// Lowercased match forms for the units a quantity may name — the codes from
+/// `schema::UNIT_CODES` plus units.ts's word/symbol aliases. Mirrors
+/// `src/lib/units.ts`; see UNIT_CODES for the keep-in-step rule.
+fn unit_aliases() -> &'static std::collections::HashSet<String> {
+    static SET: OnceLock<std::collections::HashSet<String>> = OnceLock::new();
+    SET.get_or_init(|| {
+        let mut s: std::collections::HashSet<String> =
+            schema::UNIT_CODES.iter().map(|c| c.to_lowercase()).collect();
+        for alias in [
+            "€", "euro", "euros", "$", "dollar", "dollars", "£", "pound", "pounds", "franken",
+            "franc", "francs", "¥", "yen", "zł", "milligram", "milligrams", "gram", "grams",
+            "gramm", "kilo", "kilos", "kilogram", "kilograms", "kilogramm", "ton", "tons", "tonne",
+            "tonnes", "ounce", "ounces", "lbs", "millimeter", "millimeters", "millimetre",
+            "millimetres", "centimeter", "centimeters", "centimetre", "centimetres", "meter",
+            "meters", "metre", "metres", "kilometer", "kilometers", "kilometre", "kilometres",
+            "mile", "miles", "foot", "feet", "inches", "millisecond", "milliseconds", "sec",
+            "secs", "second", "seconds", "mins", "minute", "minutes", "hr", "hrs", "hour", "hours",
+            "day", "days", "byte", "bytes", "kilobyte", "kilobytes", "megabyte", "megabytes",
+            "gigabyte", "gigabytes", "terabyte", "terabytes", "decibel", "decibels", "percent",
+            "pct", "prozent",
+        ] {
+            s.insert(alias.to_string());
+        }
+        s
+    })
+}
+
+/// Is this raw prop value a quantity (SUB-834)? Shape plus a unit we know.
+fn is_quantity(raw: &str) -> bool {
+    let Some(c) = quantity_re().captures(raw.trim()) else { return false };
+    // a symbol-prefixed match names its unit in group 2, a trailing one in 5
+    let unit = c.get(2).or_else(|| c.get(5)).map(|m| m.as_str().trim().to_lowercase());
+    unit.is_some_and(|u| unit_aliases().contains(&u))
+}
+
 pub struct Engine {
     pub root: PathBuf,
     notes: HashMap<String, NoteMeta>,
@@ -2296,6 +2352,9 @@ pub use doctor::{DoctorFinding, DoctorKind, DoctorReport, DoctorSeverity};
 mod assets;
 pub use assets::AssetInfo;
 
+mod folderfiles;
+pub use folderfiles::FolderListing;
+
 mod trash;
 // `TrashKind` is consumed through the façade by sibling-module tests.
 #[cfg_attr(not(test), allow(unused_imports))]
@@ -2303,11 +2362,15 @@ pub use trash::{TrashEntry, TrashKind};
 use trash::{trash_asset_name, TRASH_ASSETS_DIR, TRASH_DIR};
 
 mod foldersync;
-pub use foldersync::{FolderMapping, FolderScanStats, FOLDERS_REL_PATH};
+pub use foldersync::{FolderMapping, FOLDERS_REL_PATH};
 // The deny-scope check (`crate::denyscope`) borrows this matcher so the
 // asset-protocol deny list has exactly one implementation.
 pub(crate) use foldersync::glob_match;
 use foldersync::{read_folder_mappings, write_folder_mappings};
+
+mod mounts;
+pub use mounts::{Mount, MountRow, MountScanStats, MOUNTS_REL_PATH};
+use mounts::read_mounts;
 
 mod seed;
 pub use seed::seed_new_vault;
@@ -3840,7 +3903,7 @@ mod tests {
         assert_eq!(e.links.iter().filter(|(src, _)| src == "guide.md").count(), 1);
         // doctor sees no dangling link and no missing asset — every broken-looking
         // one is inside code
-        let rep = e.doctor().unwrap();
+        let rep = e.doctor(&Default::default()).unwrap();
         let noisy: Vec<_> = rep
             .findings
             .iter()

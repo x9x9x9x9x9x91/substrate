@@ -1,10 +1,10 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
 import { isTauri } from "./lib/tauri";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTyping, isTypingNow } from "./lib/dom";
 import { MENU_SURFACES } from "./lib/menusurfaces";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { DbIcon, DbLayout, NewTypeProp, NoteMeta, NumberFormat, PropKind, PropValue, RollupConfig, SavedView, SavedViewSort, SelectOption, SidebarOrder, TagFolder, VaultHistoryPoint, View, ViewPref } from "./lib/types";
+import type { DbIcon, DbLayout, FolderListing, MountInfo, MountRow, MountScanStats, NewTypeProp, NoteMeta, NumberFormat, PropKind, PropValue, RollupConfig, SavedView, SavedViewSort, SelectOption, SidebarOrder, TagFolder, VaultHistoryPoint, View, ViewPref } from "./lib/types";
 import { foldedPropKey, foldedPropStr, FUNCTIONAL_TYPES, propStr, typeHome, viewKey } from "./lib/types";
 import { tagFolderApplyTags, tagFolderMatches, tagUniverse } from "./lib/tags";
 import { byFoldedKey, foldedObjectKey, isTypePropName, typeSchemaFor } from "./lib/schemalookup";
@@ -40,7 +40,14 @@ import {
   unassignKey,
 } from "./lib/keyassign";
 import { pinKeyLabels } from "./lib/shortcuts";
-import { setPropUndoable } from "./lib/undoprops";
+import { setPropUndoable, type PropWriter } from "./lib/undoprops";
+import {
+  isIntrinsic,
+  MOUNT_SCHEME,
+  mountStatus,
+  rowMetas,
+  scanStatLine,
+} from "./lib/mounts";
 import * as undoStack from "./lib/undo";
 import { UndoContext } from "./lib/undoContext";
 import {
@@ -58,21 +65,31 @@ import { announceRename } from "./lib/renamebus";
 import { migrateSessionFolds } from "./lib/foldsession";
 import {
   isAppFile,
+  netAllowed,
+  numberFormatSetting,
   parseDbGrid,
   parseModHud,
   parseShowAppFiles,
   parseTerminalActions,
   SETTINGS_PATH,
 } from "./lib/settings";
+import { applyAppearance, DEFAULT_APPEARANCE, parseAppearance } from "./lib/appearance";
 import {
-  folderDbsAdd,
-  folderDbsRescan,
   historyEnter,
   historyLeave,
   historyPoints,
   historyProjectionActive,
   historyRestore,
+  fileOpen,
+  filePick,
+  fileReveal,
   historySnapshot,
+  mountAdd,
+  mountAnnotate,
+  mountBind,
+  mountRemove,
+  mountRows,
+  mountsList,
   urlCapture,
   vaultClearProp,
   vaultCreate,
@@ -89,6 +106,7 @@ import {
   vaultRenameProp,
   vaultRenameType,
   vaultResolve,
+  vaultFolderFiles,
   vaultRoot,
   vaultSavedViewDelete,
   vaultSavedViewSet,
@@ -153,6 +171,9 @@ import TagFolderDialog from "./components/TagFolderDialog";
 import TypeIcon from "./components/TypeIcon";
 import Sidebar, { type FolderEdit, type MenuTarget, type Section } from "./components/Sidebar";
 import ListPane from "./components/ListPane";
+import MiniPlayer from "./components/MiniPlayer";
+import { playableFiles } from "./lib/folderfiles";
+import { getQueue, startQueue, subscribeQueue, syncQueue } from "./lib/playqueue";
 import NotePane from "./components/NotePane";
 import DashboardPane from "./components/DashboardPane";
 import { useDashUndoState } from "./components/useDashUndo";
@@ -185,12 +206,13 @@ import type { AnchorRect } from "./components/SelectMenu";
 import {
   DeleteDatabaseDialog,
   CsvImportDialog,
-  MapFolderDialog,
+  MountFolderDialog,
   NewDatabaseDialog,
   RenameDialog,
   StripPropDialog,
+  UnmountDialog,
 } from "./components/DbAdmin";
-import { DbIcon as DbGlyphIcon, ExportIcon, FolderIcon, KeyboardIcon, MenuIcon, NoteActionGlyph, NoteIcon, PenIcon, PinIcon, PlusIcon, RepeatIcon, SidebarIcon, TrashIcon, XIcon, ChevronLeftIcon, ChevronUpIcon, ChevronDownIcon } from "./components/Icons";
+import { DbIcon as DbGlyphIcon, ExportIcon, FolderIcon, KeyboardIcon, MenuIcon, MountIcon, NoteActionGlyph, NoteIcon, PenIcon, PinIcon, PlusIcon, RepeatIcon, SidebarIcon, TrashIcon, XIcon, ChevronLeftIcon, ChevronUpIcon, ChevronDownIcon } from "./components/Icons";
 import { useSidebarHidden } from "./hooks/useSidebarHidden";
 import { useZoom } from "./hooks/useZoom";
 import { useTerminalHud } from "./hooks/useTerminalHud";
@@ -227,6 +249,8 @@ function inView(n: NoteMeta, view: View, tagFolders: TagFolder[] = []): boolean 
       return (n.tags ?? []).some((t) => t.toLowerCase() === view.tag.toLowerCase());
     case "search":
     case "saved":
+    // a mount's rows come from its index, not from the note list (SUB-888)
+    case "mount":
     case "dashboard":
     case "trash":
     case "assets":
@@ -306,6 +330,16 @@ export default function App() {
   // SUB-607: `db-grid` in Settings.md — the global default for table grid
   // lines; a database's ViewPref `grid` overrides it either way
   const [dbGrid, setDbGrid] = useState(true);
+  // SUB-834: `net-link-titles` in Settings.md — gates the page-title fetch
+  // behind a pasted link. The capture itself is local and always happens, so
+  // this only decides whether the engine then asks that site anything.
+  // `net-share-relay`, the other request this app makes, is enforced inside
+  // SendLinkDialog, which reads Settings.md for the relay URL anyway.
+  const [netLinkTitles, setNetLinkTitles] = useState(true);
+  /** `number-format` (SUB-834): how calc lines and unit cells write numbers —
+      de `1.234,56` (default) or intl `1,234.56`. Rides the same settings read
+      below, so a toggle in the pane repaints on the next vaultEpoch bump. */
+  const [numberStyle, setNumberStyle] = useState<"de" | "intl">("de");
   /** SUB-492: the key picker opened from a sidebar row's "Assign key…" — its
       own state, so the parent menu can close itself around it */
   const [keyPicker, setKeyPicker] = useState<{ target: string; x: number; y: number } | null>(null);
@@ -370,9 +404,14 @@ export default function App() {
   const [csvImport, setCsvImport] = useState<{ fileName: string; rows: string[][] } | null>(null);
   // SUB-833: the note being sent as an encrypted expiring link
   const [sendLink, setSendLink] = useState<NoteMeta | null>(null);
-  // SUB-672 "Map a folder…": the dialog's open state; dbType is the prefill
-  // when opened from a database's own row menu (All-databases manager)
-  const [mapFolder, setMapFolder] = useState<{ dbType?: string } | null>(null);
+  // SUB-888 "Mount a folder…": the dialog's open state
+  const [mountDialog, setMountDialog] = useState(false);
+  /** every mount in the vault, with this machine's binding resolved */
+  const [mounts, setMounts] = useState<MountInfo[]>([]);
+  /** the open mount's rows — its last-known index merged with its sidecars */
+  const [mountRowList, setMountRowList] = useState<MountRow[]>([]);
+  /** the mount whose "unmount and trash its notes" is awaiting confirmation */
+  const [unmountAsk, setUnmountAsk] = useState<MountInfo | null>(null);
   const editorFocusRef = useRef<(() => void) | null>(null);
   // focuses the note pane's title input with the text selected (⌘N in Notes)
   const titleFocusRef = useRef<(() => void) | null>(null);
@@ -465,8 +504,20 @@ export default function App() {
         setModHud(parseModHud(c.props));
         setDbGrid(parseDbGrid(c.props));
         setShowAppFiles(parseShowAppFiles(c.props));
+        // SUB-955: the appearance dials land on the document element rather
+        // than in React state — they are CSS inputs, nothing renders off
+        // them. This is also the write that CORRECTS the settings pane's
+        // optimistic preview once the note has actually taken the value.
+        applyAppearance(document.documentElement, parseAppearance(c.props));
+        setNetLinkTitles(netAllowed(c.props, "link-titles"));
+        setNumberStyle(numberFormatSetting(c.props));
       })
-      .catch(() => setTerminalActions([]));
+      .catch(() => {
+        setTerminalActions([]);
+        // an unreadable Settings.md must not leave a half-applied look from
+        // whatever the pane previewed before the read failed
+        applyAppearance(document.documentElement, DEFAULT_APPEARANCE);
+      });
   }, [vaultEpoch]);
 
   // SUB-831: what the rest of the app calls `notes` — the index minus the
@@ -548,10 +599,53 @@ export default function App() {
         casing.add(folded);
       }
     }
+    // SUB-888: a mount IS a database — its name is a schema type, so it is
+    // already in `counts`, but with the sidecar count (usually 0). Its real
+    // size is its index, and carrying the mount here is what lets every
+    // database surface route to the mount view and wear the mount glyph.
+    const byName = new Map(mounts.map((m) => [m.name.toLowerCase(), m]));
     return [...counts.entries()]
-      .map(([type, count]) => ({ type, count }))
+      .map(([type, count]) => {
+        const mount = byName.get(type.toLowerCase());
+        return mount ? { type, count: mount.files, mount } : { type, count };
+      })
       .sort((a, b) => b.count - a.count || a.type.localeCompare(b.type));
-  }, [usedTypes, schema]);
+  }, [usedTypes, schema, mounts]);
+
+  /** mount by its database name — a mount's name IS its schema type, so any
+      surface holding a type string can find out it is really a mount */
+  const mountByType = useMemo(
+    () => new Map(mounts.map((m) => [m.name.toLowerCase(), m])),
+    [mounts]
+  );
+
+  /** folded names of the mounted folders, for surfaces that only want to know
+      whether a database IS one (the sidebar's glyph) */
+  const mountDbNames = useMemo(() => new Set(mountByType.keys()), [mountByType]);
+
+  /** Open a database by name, landing on the mount view when that name is a
+      mounted folder (SUB-888). Every "open this database" path goes through
+      here, so a mount is reachable from the manager, the sidebar and the
+      palette without any of them knowing what a mount is. */
+  const openDatabase = useCallback(
+    (type: string) => {
+      const mount = mountByType.get(type.toLowerCase());
+      setView(mount ? { kind: "mount", id: mount.id } : { kind: "db", type });
+    },
+    [mountByType]
+  );
+
+  /** the mount the current view is about, or null */
+  const activeMount = useMemo(
+    () => (view.kind === "mount" ? (mounts.find((m) => m.id === view.id) ?? null) : null),
+    [view, mounts]
+  );
+
+  /** its rows in note shape, which is all DatabasePane ever wanted */
+  const mountNotes = useMemo(
+    () => (activeMount ? rowMetas(activeMount, mountRowList) : []),
+    [activeMount, mountRowList]
+  );
 
   const dashboards = useMemo(
     () =>
@@ -1189,6 +1283,46 @@ export default function App() {
     vaultFolderMetaRead().then(setFolderMeta).catch(console.error);
   }, []);
 
+  /* ----- reality mounts (SUB-888) ----- */
+
+  // the registry plus THIS machine's bindings — both halves can change
+  // without a note changing, so mounts reload on their own schedule
+  const reloadMounts = useCallback(
+    () =>
+      mountsList()
+        .then(setMounts)
+        .catch((e) => console.error(e)),
+    []
+  );
+
+  // the registry rides the same epoch as everything else — a scan, a bind,
+  // the migration at boot all bump it. Cheap: one .vault read.
+  useEffect(() => {
+    reloadMounts();
+  }, [vaultEpoch, reloadMounts]);
+
+  // …and the open mount's rows, which are its index merged with its sidecars.
+  // Only the mount being looked at is loaded: a folder can hold thousands of
+  // files, and nothing off-screen needs them.
+  useEffect(() => {
+    if (view.kind !== "mount") {
+      setMountRowList([]);
+      return;
+    }
+    let live = true;
+    mountRows(view.id)
+      .then((rows) => {
+        if (live) setMountRowList(rows);
+      })
+      .catch((e) => {
+        console.error(e);
+        if (live) setMountRowList([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [view, vaultEpoch]);
+
   /* ----- database management (SUB-43) ----- */
 
   // re-read the .vault JSONs the bulk engine ops move behind the scenes
@@ -1301,20 +1435,165 @@ export default function App() {
     [refresh, showToast]
   );
 
-  // SUB-672 "Map a folder…": write the mapping, then the first scan rides the
-  // existing rescan path — the dialog shows that mapping's stats inline, so
-  // filter the all-mappings result down to it. The schema/folder refresh
-  // covers the scan's own writes (stub notes, a seeded file-prop entry).
-  const mapFolderSubmit = useCallback(
-    async (path: string, type: string, globs: string[], watch: boolean) => {
-      await folderDbsAdd(path, type, globs, watch);
-      const stats = await folderDbsRescan();
+  // SUB-888 "Mount a folder…": register the mount, bind it here and scan it
+  // once, all inside mount_add — then read that one scan's stats back for the
+  // dialog to show inline. Nothing is imported: the scan only writes the
+  // mount's own index, so the refresh is for the new database appearing.
+  const mountSubmit = useCallback(
+    async (name: string, path: string, globs: string[], watch: boolean): Promise<MountScanStats> => {
+      const stats = await mountAdd(name, path, globs, watch);
+      await reloadMounts();
       reloadDbMeta();
       refresh();
-      const mine = stats.filter((s) => s.folder === path && s.db_type === type);
-      return mine.length > 0 ? mine : stats;
+      return stats;
     },
-    [reloadDbMeta, refresh]
+    [reloadMounts, reloadDbMeta, refresh]
+  );
+
+  // SUB-888: unmounting is two different acts. Plain "Unmount" forgets the
+  // folder and leaves every sidecar behind as an ordinary note — remounting
+  // the same folder reattaches them, which is why it needs no confirmation.
+  // The cleanup variant trashes those notes, so it goes through a dialog and
+  // a pre-sweep snapshot like every other bulk destructive op.
+  const unmountNow = useCallback(
+    async (mount: MountInfo, cleanup: boolean): Promise<void> => {
+      const snapped = cleanup
+        ? await presweepSnapshot(`before unmounting ${mount.name}`)
+        : true;
+      await mountRemove(mount.id, cleanup);
+      setUnmountAsk(null);
+      // the mount was a database: its view, its rows and its schema all go
+      setView((v) => (v.kind === "mount" && v.id === mount.id ? { kind: "dbmanager" } : v));
+      await reloadMounts();
+      reloadDbMeta();
+      refresh();
+      showToast(
+        withSnapshotWarning(
+          cleanup
+            ? `Unmounted “${mount.name}” and moved its notes to Trash`
+            : `Unmounted “${mount.name}” — its notes stay in the vault`,
+          snapped
+        )
+      );
+    },
+    [presweepSnapshot, reloadMounts, reloadDbMeta, refresh, showToast]
+  );
+
+  const unmount = useCallback(
+    (mount: MountInfo, cleanup: boolean) => {
+      if (cleanup) setUnmountAsk(mount);
+      else unmountNow(mount, false).catch((e) => showToast(String(e)));
+    },
+    [unmountNow, showToast]
+  );
+
+  /** the open mount's rows keyed the way the board keys them — by virtual
+      path AND by sidecar path, because a row answers to whichever it has */
+  const mountRowByPath = useMemo(() => {
+    const by = new Map<string, MountRow>();
+    if (!activeMount) return by;
+    for (const r of mountRowList) {
+      by.set(`${MOUNT_SCHEME}${activeMount.id}/${r.rel}`, r);
+      if (r.note) by.set(r.note, r);
+    }
+    return by;
+  }, [activeMount, mountRowList]);
+
+  /** SUB-888: a mount row's property write. Ordinary notes go through
+      vaultSetProp; a mount row can't, because the note it would write to may
+      not exist until this very edit creates it. `mount_annotate` creates the
+      sidecar on demand and returns the note either way.
+
+      Undo needs a `prior` to restore and the engine doesn't return one, so it
+      comes from the row the board is showing — the same value the cell was
+      displaying when it was edited. The guard vaultSetProp takes is dropped:
+      a mount row's props live in a file the vault alone writes. */
+  const mountWriteProp = useCallback<PropWriter>(
+    async (path, key, value) => {
+      if (!activeMount) throw new Error("no mounted folder is open");
+      const row = mountRowByPath.get(path);
+      if (!row) throw new Error("that row is no longer in the folder");
+      if (isIntrinsic(key)) throw new Error(`${key} comes from the file itself`);
+      const prior = (row.props[key] ?? null) as PropValue;
+      const meta = await mountAnnotate(activeMount.id, row.rel, key, value);
+      return { meta, prior };
+    },
+    [activeMount, mountRowByPath]
+  );
+
+  /** Point a mount at a folder on THIS machine — the "Locate folder…" lane,
+      and the same call the board's banner offers when a bound folder has gone
+      away. Binding rescans, so the rows are true again the moment it lands. */
+  const locateMount = useCallback(
+    (mount: MountInfo) => {
+      filePick(true)
+        .then(async (picked) => {
+          if (!picked) return;
+          const stats = await mountBind(mount.id, picked);
+          await reloadMounts();
+          refresh();
+          showToast(`“${mount.name}” → ${picked} — ${scanStatLine(stats)}`);
+        })
+        .catch((e) => showToast(String(e)));
+    },
+    [reloadMounts, refresh, showToast]
+  );
+
+  /** A mount row's context menu. The file is the subject, so its lanes come
+      first; the sidecar note is bookkeeping and only listed once it exists. */
+  const mountRowMenu = useCallback(
+    (path: string, x: number, y: number) => {
+      if (!activeMount) return;
+      const row = mountRowByPath.get(path);
+      if (!row) return;
+      const abs =
+        activeMount.path && !activeMount.missing && !row.missing
+          ? `${activeMount.path}/${row.rel}`
+          : null;
+      const items: MenuItem[] = [
+        {
+          label: "Open file",
+          icon: <MountIcon />,
+          disabled: !abs,
+          onSelect: () => abs && fileOpen(abs).catch((e) => showToast(String(e))),
+        },
+        {
+          label: "Reveal in Finder",
+          icon: <FolderIcon />,
+          disabled: !abs,
+          onSelect: () => abs && fileReveal(abs).catch((e) => showToast(String(e))),
+        },
+      ];
+      if (row.note) {
+        items.push({
+          label: "Open note",
+          icon: <NoteIcon />,
+          separatorAbove: true,
+          onSelect: () => openNote(row.note!),
+        });
+      }
+      setMenu({ x, y, items });
+    },
+    [activeMount, mountRowByPath, openNote, showToast]
+  );
+
+  /** Clicking a mount row opens the FILE — the row is about the file, and its
+      note (when it has one) is a place to write things down about it, reached
+      from the row menu. A row whose file isn't reachable falls back to its
+      note rather than doing nothing. */
+  const openMountRow = useCallback(
+    (path: string) => {
+      if (!activeMount) return;
+      const row = mountRowByPath.get(path);
+      if (!row) return;
+      if (activeMount.path && !activeMount.missing && !row.missing) {
+        fileOpen(`${activeMount.path}/${row.rel}`).catch((e) => showToast(String(e)));
+        return;
+      }
+      if (row.note) openNote(row.note);
+      else showToast(mountStatus(activeMount) ?? `${row.name} isn’t on this machine`);
+    },
+    [activeMount, mountRowByPath, openNote, showToast]
   );
 
   const renameDatabase = useCallback(
@@ -1861,7 +2140,9 @@ export default function App() {
 
   const captureUrl = useCallback(
     (url: string) => {
-      urlCapture(url)
+      // SUB-834: capture is local and always works; only the title fetch is
+      // gated, so a link pasted with the switch off lands as a plain URL note
+      urlCapture(url, netLinkTitles)
         .then((meta) => {
           refresh();
           // reference notes are typed, so they don't show in Notes — open in
@@ -1872,7 +2153,7 @@ export default function App() {
         })
         .catch(reportCreateFailure(`capture ${url}`, url));
     },
-    [refresh, showMobileDetail, reportCreateFailure]
+    [refresh, showMobileDetail, reportCreateFailure, netLinkTitles]
   );
 
   // capture surfaces route pasted links to reference notes, everything else to plain notes
@@ -2104,11 +2385,11 @@ export default function App() {
         // unresolved: a database name opens that view (hub-page links,
         // SUB-203) — only a genuine miss creates the note
         const db = databases.find((d) => d.type.toLowerCase() === name.trim().toLowerCase());
-        if (db) setView({ kind: "db", type: db.type });
+        if (db) openDatabase(db.type);
         else createNote(name, "");
       });
     },
-    [openNote, createNote, databases]
+    [openNote, createNote, databases, openDatabase]
   );
 
   /* ----- inline view embeds in notes (SUB-86) ----- */
@@ -2733,27 +3014,40 @@ export default function App() {
   // the All-databases manager's row menu (SUB-159): the database's standard
   // items with the home-folder lane inserted above the rename/icon/delete
   // tail; the lane swaps in the folder picker as a second-stage menu on the
-  // spot. SUB-672's "Map a folder…" lane rides beside it, prefilled with the
-  // row's type.
+  // spot. SUB-888: a mounted folder gets the unmount lanes there instead of
+  // the home lane — its "home" is a folder outside the vault entirely.
   const dbManagerMenu = useCallback(
     (type: string, x: number, y: number) => {
       const anchor = { left: x, top: y, bottom: y };
       const base = dbMenuItems(type, anchor);
-      const homeLane: MenuItem = {
-        label: typeHome(typeSchemaFor(schema, type)) ? "Change home folder…" : "Set home folder…",
-        icon: <FolderIcon />,
-        onSelect: () => setHomePicker({ dbType: type, x, y }),
-      };
-      const mapLane: MenuItem = {
-        label: "Map a folder…",
-        icon: <FolderIcon />,
-        onSelect: () => setMapFolder({ dbType: type }),
-      };
+      const mount = mountByType.get(type.toLowerCase());
+      const lanes: MenuItem[] = mount
+        ? [
+            {
+              label: "Unmount",
+              icon: <XIcon />,
+              onSelect: () => unmount(mount, false),
+            },
+            {
+              label: "Unmount and trash its notes…",
+              icon: <TrashIcon />,
+              onSelect: () => unmount(mount, true),
+            },
+          ]
+        : [
+            {
+              label: typeHome(typeSchemaFor(schema, type))
+                ? "Change home folder…"
+                : "Set home folder…",
+              icon: <FolderIcon />,
+              onSelect: () => setHomePicker({ dbType: type, x, y }),
+            },
+          ];
       // the tail is variable (Remove icon only shows when one is set, SUB-260)
       const tail = base.findIndex((it) => it.label === "Rename database…");
-      setMenu({ x, y, items: [...base.slice(0, tail), homeLane, mapLane, ...base.slice(tail)] });
+      setMenu({ x, y, items: [...base.slice(0, tail), ...lanes, ...base.slice(tail)] });
     },
-    [dbMenuItems, schema]
+    [dbMenuItems, schema, mountByType, unmount]
   );
 
   // SUB-466: the dashboard row's "Move to folder…" — a second-stage picker on
@@ -2864,7 +3158,7 @@ export default function App() {
   // the Folders "+" menu (SUB-403): the plain inline-create folder flow, or
   // a database born straight into the tree — the create dialog flagged
   // fromSidebar so createDatabase homes it on an eponymous root folder.
-  // SUB-672's "Map a folder…" backs a database with a real folder on disk.
+  // SUB-888's "Mount a folder…" shows a real folder on disk as a database.
   /* ----- tag folders (SUB-818) ----- */
 
   // the builder sheet: null = closed, { folder: null } = building a new one
@@ -2961,9 +3255,9 @@ export default function App() {
             onSelect: () => setDbDialog({ kind: "create", fromSidebar: true }),
           },
           {
-            label: "Map a folder…",
-            icon: <FolderIcon />,
-            onSelect: () => setMapFolder({}),
+            label: "Mount a folder…",
+            icon: <MountIcon />,
+            onSelect: () => setMountDialog(true),
           },
           {
             // SUB-818: born in the same menu as the real folders, because it
@@ -3476,6 +3770,12 @@ export default function App() {
     applyZoom,
   });
 
+  /* SUB-812: a folder is queued in the mini-player. Drives the bar's own
+     mount, the shell's reserved height (the bar is chrome WITH height, like
+     the time-travel banner — never a float over the panes), and the liveness
+     of the transport chords. */
+  const playing = useSyncExternalStore(subscribeQueue, getQueue) !== null;
+
   /* SUB-490: the hold HUD's context. The dispatcher above builds its ctx per
      keydown, which the HUD can't reuse — a held modifier is a state, not an
      event. `typing` is deliberately absent (SUB-498): it is knowable only at the
@@ -3507,8 +3807,9 @@ export default function App() {
       // re-derive when a write lands or ⌘Z empties the stack
       canUndo: undoStack.peekUndo(undoState) !== null,
       canRedo: undoStack.peekRedo(undoState) !== null,
+      playing,
     }),
-    [view, overlay, shortcutsOpen, settingsOpen, selectedMeta, dbNote, pinIds, sheetOpen, workbookOpen, customKeys, dashCanUndo, dashCanRedo, undoState]
+    [view, overlay, shortcutsOpen, settingsOpen, selectedMeta, dbNote, pinIds, sheetOpen, workbookOpen, customKeys, dashCanUndo, dashCanRedo, undoState, playing]
   );
 
   const mobileDetailActive =
@@ -3585,7 +3886,7 @@ export default function App() {
     [keyAssignOpen, customKeys, onSidebarAssignKey]
   );
 
-  const onListOpenDb = useCallback((type: string) => setView({ kind: "db", type }), []);
+  const onListOpenDb = openDatabase;
   const onListSelect = useCallback(
     (path: string) => {
       setSelected(path);
@@ -3607,6 +3908,70 @@ export default function App() {
   const onListActivate = useCallback(() => {
     focusSoon(() => editorFocusRef.current?.());
   }, []);
+
+  /* ----- SUB-812: a folder's loose files, and the listening queue -----
+
+     The vault index is `.md`-only by design, so non-note files come from a
+     lazy per-folder call made when a folder view opens — never from the scan.
+     Nothing is cached across folders: the fetch is one `read_dir`, and
+     holding stale listings would only produce rows for files that moved. */
+  const folderPath = view.kind === "folder" ? view.path : null;
+  const [folderFiles, setFolderFiles] = useState<FolderListing>({ files: [], total: 0 });
+  useEffect(() => {
+    if (folderPath === null) {
+      setFolderFiles({ files: [], total: 0 });
+      return;
+    }
+    let live = true;
+    vaultFolderFiles(folderPath)
+      .then((listing) => {
+        if (!live) return;
+        setFolderFiles(listing);
+        // a file added or removed under a playing queue re-seats it without
+        // changing what is playing; a queue whose file vanished is dropped
+        syncQueue(
+          folderPath,
+          playableFiles(listing.files).map((f) => ({ key: f.path, rel: f.rel, name: f.name }))
+        );
+      })
+      .catch(() => {
+        // a folder that can't be read lists no files — the notes still show,
+        // which is exactly the pre-SUB-812 pane rather than an error state
+        if (live) setFolderFiles({ files: [], total: 0 });
+      });
+    return () => {
+      live = false;
+    };
+  }, [folderPath, vaultEpoch]);
+
+  /* Pressing play on a file row seats the queue on THIS folder's playable
+     files, at that file — the row's own AudioPropButton does the playing, so
+     a second press on the same row still just pauses it. */
+  const onPlayFile = useCallback(
+    (rel: string) => {
+      if (folderPath === null) return;
+      const tracks = playableFiles(folderFiles.files).map((f) => ({
+        key: f.path,
+        rel: f.rel,
+        name: f.name,
+      }));
+      const at = tracks.findIndex((t) => t.rel === rel);
+      if (at !== -1) startQueue(folderPath, tracks, at);
+    },
+    [folderPath, folderFiles]
+  );
+  const onOpenFile = useCallback(
+    (path: string) => {
+      fileOpen(path).catch((e) => showToast(String(e)));
+    },
+    [showToast]
+  );
+  const onRevealFile = useCallback(
+    (path: string) => {
+      fileReveal(path).catch((e) => showToast(String(e)));
+    },
+    [showToast]
+  );
 
   // SUB-460: NotePane is memoized too, so its inline prop needs stable identity.
   const clearReveal = useCallback(() => setReveal(null), []);
@@ -3652,7 +4017,7 @@ export default function App() {
   return (
     <UndoContext.Provider value={undoApi}>
     <div
-      className={`app${mobile ? " mobile" : ""}${timeTravelOpen ? " time-travel-open" : ""}${timePoint ? " viewing-past" : ""}`}
+      className={`app${mobile ? " mobile" : ""}${timeTravelOpen ? " time-travel-open" : ""}${timePoint ? " viewing-past" : ""}${playing ? " has-player" : ""}`}
       onPointerDown={onMobilePointerDown}
       onPointerUp={onMobilePointerUp}
       onPointerCancel={() => {
@@ -3769,6 +4134,8 @@ export default function App() {
         onToggleCollapse={toggleCollapsed}
         icons={dbIcons}
         homeDbByFolder={homeDbByFolder}
+        mountDbs={mountDbNames}
+        onOpenDb={openDatabase}
         dashboards={mobileDashboards}
         dashPaths={dashPaths}
         pinned={pinnedNotes}
@@ -3884,7 +4251,7 @@ export default function App() {
             databases={databases}
             icons={dbIcons}
             schema={schema}
-            onOpen={(type) => setView({ kind: "db", type })}
+            onOpen={openDatabase}
             onRowMenu={dbManagerMenu}
             onNewDatabase={() => setDbDialog({ kind: "create" })}
           />
@@ -3934,6 +4301,76 @@ export default function App() {
             onOpenJournal={openJournal}
           />
         </div>
+      ) : view.kind === "mount" ? (
+        <div className="main">
+          {activeMount ? (
+            // SUB-888: a mounted folder is a database whose rows are files.
+            // Same pane, same layouts, same views — the only differences are
+            // where the rows come from (the mount's index, not the note list),
+            // where a cell write lands (`mount_annotate`), and the banner that
+            // appears when the folder isn't reachable from this machine.
+            <div className="db-mount">
+              {mountStatus(activeMount) && (
+                <div className="mount-banner">
+                  <span>{mountStatus(activeMount)}</span>
+                  <button className="mount-locate" onClick={() => locateMount(activeMount)}>
+                    Locate folder…
+                  </button>
+                </div>
+              )}
+              <DatabasePane
+                key={view.id}
+                dbType={activeMount.name}
+                notes={mountNotes}
+                allNotes={notes}
+                schema={schema}
+                pref={byFoldedKey(viewsConfig, activeMount.name)}
+                typeSchema={typeSchemaFor(schema, activeMount.name) ?? {}}
+                icon={iconForType(dbIcons, activeMount.name)}
+                onSaveIcon={(ic) => saveSchemaIcon(activeMount.name, ic)}
+                usedValues={(key) => usedValues(activeMount.name, key)}
+                onSaveSchema={(prop, opts, kind, notify, target, format, description, rollup) => saveSchemaProp(activeMount.name, prop, opts, kind, notify, target, format, description, rollup)}
+                relationCandidates={relCandidates}
+                onCreateEntry={createEntry}
+                dbTypes={dbTypes}
+                openPath={null}
+                newSignal={0}
+                exportRef={dbExportRef}
+                gridDefault={dbGrid}
+                onPrefChange={(p) => setDbPref(activeMount.name, p)}
+                // a row IS a file: opening one opens the file, and its cell
+                // writes go through the mount's own annotate path
+                onOpenNote={openMountRow}
+                onNoteMenu={mountRowMenu}
+                writeProp={mountWriteProp}
+                // rows are the folder's contents — nothing here trashes a file
+                onTrashNotes={() => showToast("A mounted folder's files are only ever read")}
+                onMutated={refresh}
+                onSaveView={(name, capture) => saveView(activeMount.name, name, capture)}
+                savedViews={savedViews.filter(
+                  (v) => v.db.toLowerCase() === activeMount.name.toLowerCase()
+                )}
+                pinKeys={mobile ? {} : pinKeys}
+                onOpenView={(id) => setView({ kind: "saved", id })}
+                onViewMenu={(id, x, y) => setMenu({ x, y, items: savedViewMenuItems(id) })}
+                onRenameDb={() => setDbDialog({ kind: "rename-db", dbType: activeMount.name })}
+                onDeleteDb={() => setDbDialog({ kind: "delete-db", dbType: activeMount.name })}
+                onRenameProp={(prop) =>
+                  setDbDialog({ kind: "rename-prop", dbType: activeMount.name, prop })
+                }
+                onRemoveProp={(prop) => removeProperty(activeMount.name, prop)}
+                onToast={showToast}
+              />
+            </div>
+          ) : (
+            <div className="db">
+              <div className="empty">
+                <span>Mounted folder not found</span>
+                <span className="empty-hint">It may have been unmounted in another window</span>
+              </div>
+            </div>
+          )}
+        </div>
       ) : view.kind === "db" || view.kind === "saved" ? (
         <div className={`main${mobile && dbNoteMeta ? " mobile-detail" : ""}`}>
           {view.kind === "db" ? (
@@ -3956,6 +4393,7 @@ export default function App() {
               newSignal={dbNewSeq}
               exportRef={dbExportRef}
               gridDefault={dbGrid}
+              numberStyle={numberStyle}
               onPrefChange={(p) => setDbPref(view.type, p)}
               onOpenNote={openNote}
               onNoteMenu={onRowMenu}
@@ -4010,6 +4448,7 @@ export default function App() {
               newSignal={dbNewSeq}
               exportRef={dbExportRef}
               gridDefault={dbGrid}
+              numberStyle={numberStyle}
               onPrefChange={setSvPref}
               onOpenNote={openNote}
               onNoteMenu={onRowMenu}
@@ -4054,6 +4493,7 @@ export default function App() {
                 schema={schema}
                 usedValues={usedValues}
                 vaultEpoch={vaultEpoch}
+                numberStyle={numberStyle}
                 changedPaths={changedPaths}
                 onSaveSchema={saveSchemaProp}
                 relationCandidates={relCandidates}
@@ -4112,6 +4552,11 @@ export default function App() {
           onNewHere={newInFolder}
           tagFolders={tagFolders}
           mobile={mobile}
+          files={folderFiles.files}
+          fileTotal={folderFiles.total}
+          onPlayFile={onPlayFile}
+          onOpenFile={onOpenFile}
+          onRevealFile={onRevealFile}
         />
         )}
         {(!mobile || mobilePane === "detail") && (selectedMeta ? (
@@ -4120,6 +4565,7 @@ export default function App() {
             schema={schema}
             usedValues={usedValues}
             vaultEpoch={vaultEpoch}
+            numberStyle={numberStyle}
             changedPaths={changedPaths}
             onSaveSchema={saveSchemaProp}
             relationCandidates={relCandidates}
@@ -4299,12 +4745,16 @@ export default function App() {
           onClose={() => setTagFolderEdit(null)}
         />
       )}
-      {mapFolder && (
-        <MapFolderDialog
-          dbTypes={dbTypes}
-          initialType={mapFolder.dbType}
-          onMap={mapFolderSubmit}
-          onClose={() => setMapFolder(null)}
+      {mountDialog && (
+        <MountFolderDialog onMount={mountSubmit} onClose={() => setMountDialog(false)} />
+      )}
+      {/* SUB-888: the destructive half of unmounting — the notes go to Trash,
+          so it asks first and snapshots before sweeping */}
+      {unmountAsk && (
+        <UnmountDialog
+          mount={unmountAsk}
+          onConfirm={() => unmountNow(unmountAsk, true)}
+          onClose={() => setUnmountAsk(null)}
         />
       )}
       {dbDialog?.kind === "rename-db" && (
@@ -4348,6 +4798,9 @@ export default function App() {
           onClose={() => setDbDialog(null)}
         />
       )}
+      {/* SUB-812: app chrome, so audio outlives every view switch below it.
+          The component renders nothing until a folder row starts a queue. */}
+      <MiniPlayer />
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
       {/* SUB-492: the second stage of the row menu's key lane */}
       {keyPicker && (

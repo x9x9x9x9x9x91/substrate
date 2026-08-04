@@ -1,4 +1,14 @@
 import type { AggKind, NumberFormat } from "./types.ts";
+import type { FxResolver } from "./formula.ts";
+import { isErr } from "./formula.ts";
+import { convert, formatQuantity, parseQuantity, resolveUnit, sameDimension } from "./units.ts";
+
+// units.ts imports this module's number grammar (normalizeNumberInput,
+// parseStrictNumber) and this module imports its unit vocabulary: a genuine
+// ESM cycle, and a safe one — neither side touches the other at module-init
+// time, and every binding crossing the seam is a hoisted `function`. Keep it
+// that way: a `const` arrow exported across this seam and called from the
+// other module's top level would land in the TDZ.
 
 /** Table-footer aggregations (SUB-74): Notion-style "Calculate" over the
     visible rows of one column. Cell values are strings (props are strings) —
@@ -85,6 +95,119 @@ export function aggregate(kind: AggKind, values: string[]): number | null {
   }
 }
 
+/** A column's format as a unit code (SUB-834), or null when the column is
+    unitless (`plain`, absent, or a format naming no unit we know — an
+    unreadable format never invents a unit). `euro` and `percent` are the two
+    historical spellings every existing vault carries on disk; they resolve to
+    EUR and % forever, so widening the vocabulary needed no migration. */
+export function formatUnit(format: NumberFormat | undefined): string | null {
+  if (!format || format === "plain") return null;
+  if (format === "euro") return "EUR";
+  if (format === "percent") return "%";
+  return resolveUnit(format)?.code ?? null;
+}
+
+/** What a unit-aware aggregate did (SUB-834). `value` is the aggregation in
+    the column's own unit — null when nothing fed it, exactly like
+    `aggregate`. `converted` names the foreign units that were converted into
+    it, sorted, so the footer can mark the figure instead of quietly mixing
+    currencies. `skipped` names the units that could NOT join: a different
+    dimension, or a currency with no rate. Both empty = the figure is as
+    honest as a single-unit column's. */
+export interface UnitAgg {
+  value: number | null;
+  converted: string[];
+  skipped: string[];
+}
+
+/** One cell as a number in `unit` (SUB-834), with the foreign unit it came
+    from when a conversion happened.
+
+    A cell carrying a unit routes through units.ts; EVERYTHING ELSE keeps the
+    strict grammar (`parseCellNumber`) it has always had, so a column's
+    existing numeric contract is untouched — "1,234" is still not a number
+    here, in the footer as on the cell, even though parseQuantity would read
+    it as a de-DE 1.234. Widening that is a separate decision from units.
+
+    A foreign-unit cell that can't join — different dimension, unknown unit,
+    a currency with no rate — comes back null with its unit named, so callers
+    skip it the way they already skip text and can still say which. */
+export function cellInUnit(
+  v: string,
+  unit: string,
+  fx: FxResolver
+): { n: number | null; from: string | null } {
+  const q = parseQuantity(v);
+  if (!q || q.unit === null) return { n: parseCellNumber(v), from: null };
+  if (q.unit === unit) return { n: q.value, from: null };
+  if (!sameDimension(q.unit, unit)) return { n: null, from: q.unit };
+  const c = convert(q, unit, fx);
+  // same dimension but no rate — never guess a number, skip and say which
+  return isErr(c) ? { n: null, from: q.unit } : { n: c, from: q.unit };
+}
+
+/** Unit-aware column aggregation (SUB-834): `aggregate` for a column that
+    carries a unit. Same-dimension cells in a foreign unit are converted into
+    the column's unit and counted; incompatible or rate-less ones are skipped
+    exactly as non-numeric text already is, and named in `skipped` so the
+    footer can say so. `count` is unchanged — it counts non-empty cells, which
+    no unit affects.
+
+    A unitless column (`formatUnit` → null) is just `aggregate` with empty
+    marker lists, so one call site covers every column. */
+export function aggregateUnits(
+  kind: AggKind,
+  values: string[],
+  unit: string | null,
+  fx: FxResolver
+): UnitAgg {
+  if (kind === "count" || unit === null) {
+    return { value: aggregate(kind, values), converted: [], skipped: [] };
+  }
+  const nums: number[] = [];
+  const converted = new Set<string>();
+  const skipped = new Set<string>();
+  for (const v of values) {
+    if (v.trim() === "") continue;
+    const c = cellInUnit(v, unit, fx);
+    if (c.n === null) {
+      if (c.from) skipped.add(c.from);
+      continue;
+    }
+    if (c.from) converted.add(c.from);
+    nums.push(c.n);
+  }
+  const marks = { converted: [...converted].sort(), skipped: [...skipped].sort() };
+  if (nums.length === 0) return { value: null, ...marks };
+  switch (kind) {
+    case "sum":
+      return { value: nums.reduce((a, b) => a + b, 0), ...marks };
+    case "avg":
+      return { value: nums.reduce((a, b) => a + b, 0) / nums.length, ...marks };
+    case "min":
+      return { value: Math.min(...nums), ...marks };
+    case "max":
+      return { value: Math.max(...nums), ...marks };
+  }
+}
+
+/** The footer marker's hover text (SUB-834): what a mixed-unit aggregation
+    actually did, so a converted figure never passes for a plain total. null
+    when the figure needs no marker — nothing converted and nothing skipped,
+    which is every unitless column and every column whose rows all share the
+    column's unit. `asOf` dates the rates when it's known. */
+export function aggMarker(agg: UnitAgg | undefined, asOf?: string): string | null {
+  if (!agg || (agg.converted.length === 0 && agg.skipped.length === 0)) return null;
+  const parts: string[] = [];
+  if (agg.converted.length > 0) {
+    const at = asOf && asOf.trim() ? ` at ${asOf.trim()} rates` : "";
+    parts.push(`Converted ${agg.converted.join(", ")}${at}`);
+  }
+  // the honest half: naming what was LEFT OUT matters more than what came in
+  if (agg.skipped.length > 0) parts.push(`Skipped ${agg.skipped.join(", ")} — not convertible`);
+  return parts.join(" · ");
+}
+
 /** Null-prototype records keep absent prototype-shaped column names absent,
     while still preserving an explicitly stored `__proto__`/`constructor` as
     an own data key. */
@@ -115,6 +238,24 @@ export function aggregateColumns(
   );
 }
 
+/** `aggregateColumns` for unit-aware columns (SUB-834): each column folds in
+    its own unit (`unitFor`, from the column's schema format) and reports what
+    the conversion cost, so the footer can mark a mixed figure. A column with
+    no unit comes back as the plain aggregation with empty marker lists. */
+export function aggregateColumnsUnits(
+  aggs: Readonly<Record<string, AggKind>>,
+  valuesFor: (column: string) => string[],
+  unitFor: (column: string) => string | null,
+  fx: FxResolver
+): Record<string, UnitAgg> {
+  return aggregationRecord(
+    Object.entries(aggs).map(
+      ([column, kind]) =>
+        [column, aggregateUnits(kind, valuesFor(column), unitFor(column), fx)] as const
+    )
+  );
+}
+
 export function updateAggregation(
   aggs: Readonly<Record<string, AggKind>>,
   column: string,
@@ -129,13 +270,21 @@ export function updateAggregation(
 /** Display form (SUB-245): German grouping with at most 2 decimals
     ("1.234,5"), honoring the column's NumberFormat like the cells do
     (display.ts formatNumber) — euro appends " €", percent " %", plain and
-    schema-less columns stay bare. Count stays a plain integer: rows counted
-    in a euro column are not euros. The pre-round kills float noise
-    (0.1 + 0.2 → "0,3"); `|| 0` normalizes -0. */
-export function formatAgg(n: number, kind: AggKind, format?: NumberFormat): string {
-  const r = Math.round(n * 100) / 100 || 0;
-  const s = r.toLocaleString("de-DE", { maximumFractionDigits: 2 });
-  if (kind !== "count" && format === "euro") return `${s} €`;
-  if (kind !== "count" && format === "percent") return `${s} %`;
-  return s;
+    schema-less columns stay bare. Since SUB-834 any units.ts code does the
+    same through the unit's own suffix ("1.234,5 kg", "128 BPM"); euro and
+    percent still route through EUR and % and still render byte-identically.
+    Count stays a plain integer: rows counted in a euro column are not euros.
+    The pre-round kills float noise (0.1 + 0.2 → "0,3"); `|| 0` normalizes -0.
+
+    `style` picks the number dialect (SUB-834): "de" is the app's own
+    (1.234,56), "intl" the en-US one (1,234.56). It defaults to "de" so every
+    existing call site renders exactly as before. */
+export function formatAgg(
+  n: number,
+  kind: AggKind,
+  format?: NumberFormat,
+  style: "de" | "intl" = "de"
+): string {
+  const unit = kind === "count" ? null : formatUnit(format);
+  return formatQuantity(n, unit, style);
 }

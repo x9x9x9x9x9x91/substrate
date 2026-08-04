@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseCellNumber } from "./aggregate.ts";
-import { audioFileTarget, audioPropTarget, displayColLabel, displayType, displayValue, formatDateTimeHuman, formatFileSize } from "./display.ts";
+import { audioFileTarget, audioPropTarget, conversionNote, displayColLabel, displayType, displayValue, formatDateTimeHuman, formatFileSize, formatNumber } from "./display.ts";
+import type { FxResolver } from "./formula.ts";
 
 test("displayType capitalizes db types like folder names (SUB-258)", () => {
   assert.equal(displayType("gear"), "Gear");
@@ -190,4 +191,118 @@ test("audioPropTarget finds a note's first audio-valued file prop (SUB-674)", ()
   // empty and missing values are skipped
   assert.equal(audioPropTarget({ contract: "" }, schema), null);
   assert.equal(audioPropTarget({}, schema), null);
+});
+
+// ---------- unit-aware cells (SUB-834) ----------
+
+/** Fixed rates, like aggregate.test's: 1 USD = 0.8 EUR, 1 GBP = 1.2 EUR;
+    anything else is a rate we don't have. */
+const FX: FxResolver = (from, to) => {
+  const eur: Record<string, number> = { EUR: 1, USD: 0.8, GBP: 1.2 };
+  const f = eur[from];
+  const t = eur[to];
+  return f === undefined || t === undefined ? null : f / t;
+};
+const NO_FX: FxResolver = () => null;
+
+test("formatNumber renders any unit column, euro/percent unchanged (SUB-834)", () => {
+  // the historical two are byte-identical to before units landed
+  assert.equal(formatNumber("1234.56", "euro"), "1.234,56 €");
+  assert.equal(formatNumber("8.5", "percent"), "8,5 %");
+  // …and every other code renders through its own suffix
+  assert.equal(formatNumber("1234.5", "USD"), "1.234,5 $");
+  assert.equal(formatNumber("2.5", "kg"), "2,5 kg");
+  assert.equal(formatNumber("128", "BPM"), "128 BPM");
+  assert.equal(formatNumber("-14.2", "LUFS"), "-14,2 LUFS");
+  assert.equal(formatNumber("42", "%"), "42 %");
+  // plain/absent and an unreadable format stay the number as stored
+  assert.equal(formatNumber("1234.56", "plain"), "1234.56");
+  assert.equal(formatNumber("1234.56", undefined), "1234.56");
+  assert.equal(formatNumber("1234.56", "furlongs"), "1234.56");
+  // the intl dialect swaps separators, suffix unchanged
+  assert.equal(formatNumber("1234.5", "euro", undefined, "intl"), "1,234.5 €");
+  assert.equal(formatNumber("1234.5", "kg", undefined, "intl"), "1,234.5 kg");
+});
+
+test("a cell in a foreign unit renders converted into the column's (SUB-834)", () => {
+  // 25 USD in a EUR column: shown as euros, stored text untouched
+  assert.equal(formatNumber("25 USD", "euro", FX), "20 €");
+  assert.equal(formatNumber("$25", "euro", FX), "20 €");
+  assert.equal(formatNumber("10 GBP", "euro", FX), "12 €");
+  // the other direction, and between two foreign codes
+  assert.equal(formatNumber("20 EUR", "USD", FX), "25 $");
+  // linear units need no rates at all
+  assert.equal(formatNumber("500 g", "kg", NO_FX), "0,5 kg");
+  assert.equal(formatNumber("1.5 km", "m", NO_FX), "1.500 m");
+  assert.equal(formatNumber("250 ms", "s", NO_FX), "0,25 s");
+  // a cell already in the column's unit just renders (no conversion marker)
+  assert.equal(formatNumber("25 EUR", "euro", FX), "25 €");
+  assert.equal(formatNumber("2 kg", "kg", NO_FX), "2 kg");
+  // a bare number is the column's unit — today's behavior, generalized
+  assert.equal(formatNumber("25", "euro", FX), "25 €");
+  assert.equal(formatNumber("2", "kg", FX), "2 kg");
+});
+
+test("an unconvertible cell renders as typed, never a wrong number (SUB-834)", () => {
+  // no resolver at all: the currency cell stays exactly what the file holds
+  assert.equal(formatNumber("25 USD", "euro"), "25 USD");
+  assert.equal(formatNumber("25 USD", "euro", NO_FX), "25 USD");
+  // a currency the table can't quote
+  assert.equal(formatNumber("1000 JPY", "euro", FX), "1000 JPY");
+  // a foreign DIMENSION is not money and never becomes a number here
+  assert.equal(formatNumber("5 kg", "euro", FX), "5 kg");
+  assert.equal(formatNumber("25 USD", "kg", FX), "25 USD");
+  // display-only units are their own dimension — BPM never becomes LUFS
+  assert.equal(formatNumber("128 BPM", "LUFS", FX), "128 BPM");
+  // a unit we don't know stays text, rather than becoming a bare number
+  assert.equal(formatNumber("25 furlongs", "euro", FX), "25 furlongs");
+  // and plain junk is untouched, as ever
+  assert.equal(formatNumber("ask", "euro", FX), "ask");
+  assert.equal(formatNumber("", "euro", FX), "");
+});
+
+test("conversionNote marks only the cells that actually converted (SUB-834)", () => {
+  // the marker names what is really on disk plus the rate's as-of date
+  assert.equal(
+    conversionNote("25 USD", "euro", FX, "2026-08-03"),
+    "Stored as 25 USD · converted at 2026-08-03 rates"
+  );
+  // no date to claim → no date clause
+  assert.equal(conversionNote("25 USD", "euro", FX), "Stored as 25 USD · converted");
+  assert.equal(conversionNote("25 USD", "euro", FX, "  "), "Stored as 25 USD · converted");
+  // a linear conversion is marked the same way
+  assert.equal(conversionNote("500 g", "kg", NO_FX, "2026-08-03"), "Stored as 500 g · converted at 2026-08-03 rates");
+  // nothing converted → no marker at all
+  assert.equal(conversionNote("25", "euro", FX), null); // bare number
+  assert.equal(conversionNote("25 EUR", "euro", FX), null); // already native
+  assert.equal(conversionNote("25 USD", "euro", NO_FX), null); // rendered as typed
+  assert.equal(conversionNote("5 kg", "euro", FX), null); // wrong dimension
+  assert.equal(conversionNote("ask", "euro", FX), null); // junk
+  assert.equal(conversionNote("25 USD", "plain", FX), null); // unitless column
+  assert.equal(conversionNote("25 USD", undefined, FX), null);
+});
+
+test("displayValue threads the resolver to number cells (SUB-834)", () => {
+  assert.equal(displayValue("25 USD", "number", "euro", FX), "20 €");
+  assert.equal(displayValue("25 USD", "number", "euro"), "25 USD");
+  assert.equal(displayValue("500 g", "number", "kg", NO_FX), "0,5 kg");
+  assert.equal(displayValue("128", "number", "BPM"), "128 BPM");
+  // the dialect reaches the cell too
+  assert.equal(displayValue("1234.5", "number", "euro", FX, "intl"), "1,234.5 €");
+  // a rollup renders through the footer's shape, unit included
+  assert.equal(displayValue("2.5", "rollup", "kg"), "2,5 kg");
+  // other kinds are untouched by any of it
+  assert.equal(displayValue("2026-07-17", "date", "euro", FX), "Jul 17, 2026");
+});
+
+test("the stored value is never rewritten by any of this (SUB-834)", () => {
+  // display-only shaping: whatever renders, the input string is the file's
+  // and stays byte-identical — these are the exact scalars a vault holds
+  for (const stored of ["25 USD", "1450", "$25", "5 kg", "ask", "128 BPM"]) {
+    const before = stored;
+    formatNumber(stored, "euro", FX);
+    conversionNote(stored, "euro", FX, "2026-08-03");
+    displayValue(stored, "number", "euro", FX);
+    assert.equal(stored, before, `${JSON.stringify(before)} is untouched`);
+  }
 });

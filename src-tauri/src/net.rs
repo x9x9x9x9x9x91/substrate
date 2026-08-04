@@ -85,7 +85,23 @@ pub struct FxQuote {
     pub as_of: String,
 }
 
+/// The whole rate table the app converts through (SUB-834): one base and the
+/// majors quoted against it, plus the day the reference bank published them.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FxRates {
+    pub base: String,
+    pub rates: std::collections::BTreeMap<String, f64>,
+    pub as_of: String,
+}
+
 const FX_URL: &str = "https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR";
+
+/// EUR base, majors only. EUR is the base because every cross rate the app
+/// computes goes through it, so the table needs no second hop — and the ECB
+/// reference set frankfurter republishes is EUR-quoted at source.
+const FX_RATES_URL: &str = "https://api.frankfurter.dev/v1/latest?base=EUR\
+&symbols=USD,GBP,CHF,JPY,CAD,AUD,SEK,NOK,DKK,PLN,CZK";
 
 /// The app's one FX read (SUB-667). It lives in Rust for the same reason link
 /// titles do: the shipped CSP allows no remote origin in `connect-src`, so a
@@ -95,13 +111,28 @@ const FX_URL: &str = "https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR
 /// No redirect loop: frankfurter answers directly, and a redirect on a
 /// hardcoded API URL is a surprise worth failing on rather than following.
 pub fn fetch_usd_eur() -> Result<FxQuote, String> {
+    let body = fetch_fx_body(FX_URL, "reads one FX rate")?;
+    parse_fx_quote(&body, "EUR")
+}
+
+/// The multi-currency read (SUB-834) — same single call, same guard, one row
+/// per major instead of one number. Still one request per refresh: the table
+/// is what every pair converts through, so nothing here fans out per currency.
+pub fn fetch_fx_rates() -> Result<FxRates, String> {
+    let body = fetch_fx_body(FX_RATES_URL, "reads FX reference rates")?;
+    parse_fx_rates(&body)
+}
+
+/// The shared GET both FX reads use — see [`fetch_usd_eur`] for why it lives
+/// in Rust and why a redirect is a failure rather than a hop to follow.
+fn fetch_fx_body(url: &str, purpose: &str) -> Result<String, String> {
     let agent = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(5))
         .timeout(Duration::from_secs(10))
         .redirects(0)
-        .user_agent("Substrate/0.1 (personal notes; reads one FX rate)")
+        .user_agent(&format!("Substrate/0.1 (personal notes; {purpose})"))
         .build();
-    let url = guard_url(FX_URL)?;
+    let url = guard_url(url)?;
     let resp = agent
         .get(url.as_str())
         .set("Accept", "application/json")
@@ -110,8 +141,7 @@ pub fn fetch_usd_eur() -> Result<FxQuote, String> {
     if (300..400).contains(&resp.status()) {
         return Err(format!("unexpected redirect ({})", resp.status()));
     }
-    let body = resp.into_string().map_err(|e| e.to_string())?;
-    parse_fx_quote(&body, "EUR")
+    resp.into_string().map_err(|e| e.to_string())
 }
 
 /// Pull one symbol's rate out of a frankfurter `/v1/latest` payload. Anything
@@ -130,6 +160,41 @@ pub fn parse_fx_quote(body: &str, symbol: &str) -> Result<FxQuote, String> {
     }
     let as_of = v.get("date").and_then(|d| d.as_str()).unwrap_or_default().to_string();
     Ok(FxQuote { usd_eur: rate, as_of })
+}
+
+/// Pull the whole `rates` object out of a frankfurter `/v1/latest` payload
+/// (SUB-834). Per-symbol junk is DROPPED rather than fatal — one bad row in a
+/// table of eleven shouldn't cost the user the other ten — but a payload with
+/// no usable row at all is an error, like the single-quote parser.
+///
+/// The base is taken from the response, not assumed: the frontend converts
+/// through whatever base came back, so a base that silently differed from the
+/// request would produce wrong figures rather than a missing rate.
+pub fn parse_fx_rates(body: &str) -> Result<FxRates, String> {
+    let v: serde_json::Value =
+        serde_json::from_str(body).map_err(|e| format!("bad json from frankfurter: {e}"))?;
+    let base = v
+        .get("base")
+        .and_then(|b| b.as_str())
+        .ok_or("no base in response")?
+        .to_ascii_uppercase();
+    let obj = v
+        .get("rates")
+        .and_then(|r| r.as_object())
+        .ok_or("no rates in response")?;
+    let mut rates = std::collections::BTreeMap::new();
+    for (code, val) in obj {
+        let Some(rate) = val.as_f64() else { continue };
+        if !rate.is_finite() || rate <= 0.0 {
+            continue;
+        }
+        rates.insert(code.to_ascii_uppercase(), rate);
+    }
+    if rates.is_empty() {
+        return Err("no usable rates in response".into());
+    }
+    let as_of = v.get("date").and_then(|d| d.as_str()).unwrap_or_default().to_string();
+    Ok(FxRates { base, rates, as_of })
 }
 
 /// Parse + vet one URL before it becomes a connection: http(s) only, a real
@@ -511,9 +576,85 @@ mod tests {
     #[test]
     fn the_fx_endpoint_clears_the_ssrf_guard_shape() {
         // no DNS here — only that the hardcoded URL is https with a public host
-        let url = Url::parse(FX_URL).unwrap();
-        assert_eq!(url.scheme(), "https");
-        assert!(!is_blocked_host_name(url.host_str().unwrap()));
+        for raw in [FX_URL, FX_RATES_URL] {
+            let url = Url::parse(raw).unwrap();
+            assert_eq!(url.scheme(), "https");
+            assert!(!is_blocked_host_name(url.host_str().unwrap()));
+        }
+    }
+
+    /* ---- FX rate table (SUB-834) ------------------------------------ */
+
+    /// A real `/v1/latest?base=EUR&symbols=…` body, captured 2026-08-03.
+    const FX_TABLE_PAYLOAD: &str = r#"{"amount":1.0,"base":"EUR","date":"2026-08-01","rates":{"AUD":1.7823,"CAD":1.5941,"CHF":0.9312,"CZK":24.615,"DKK":7.4602,"GBP":0.86445,"JPY":171.24,"NOK":11.7615,"PLN":4.2678,"SEK":11.0842,"USD":1.16401}}"#;
+
+    #[test]
+    fn parses_a_captured_frankfurter_table() {
+        let t = parse_fx_rates(FX_TABLE_PAYLOAD).unwrap();
+        assert_eq!(t.base, "EUR");
+        assert_eq!(t.as_of, "2026-08-01");
+        assert_eq!(t.rates.len(), 11);
+        assert_eq!(t.rates["USD"], 1.16401);
+        assert_eq!(t.rates["JPY"], 171.24);
+        // every symbol the app asks for came back
+        for code in ["USD", "GBP", "CHF", "JPY", "CAD", "AUD", "SEK", "NOK", "DKK", "PLN", "CZK"] {
+            assert!(t.rates.contains_key(code), "missing {code}");
+        }
+    }
+
+    #[test]
+    fn the_requested_symbols_match_the_table_the_parser_expects() {
+        // the URL and the fixture drifting apart would leave the app quietly
+        // short a currency, with every test still green
+        let query = Url::parse(FX_RATES_URL).unwrap();
+        let symbols = query
+            .query_pairs()
+            .find(|(k, _)| k == "symbols")
+            .map(|(_, v)| v.to_string())
+            .expect("symbols param");
+        let asked: std::collections::BTreeSet<&str> = symbols.split(',').collect();
+        let table = parse_fx_rates(FX_TABLE_PAYLOAD).unwrap();
+        let got: std::collections::BTreeSet<&str> =
+            table.rates.keys().map(|k| k.as_str()).collect();
+        assert_eq!(asked, got);
+    }
+
+    #[test]
+    fn fx_table_drops_bad_rows_but_keeps_the_good_ones() {
+        // one unusable row costs that currency, not the whole refresh
+        let body = r#"{"base":"EUR","date":"2026-08-01","rates":{"USD":1.164,"GBP":"0.86","CHF":0,"JPY":-1}}"#;
+        let t = parse_fx_rates(body).unwrap();
+        assert_eq!(t.rates.len(), 1);
+        assert_eq!(t.rates["USD"], 1.164);
+    }
+
+    #[test]
+    fn fx_table_missing_date_degrades_but_base_and_rates_are_required() {
+        let t = parse_fx_rates(r#"{"base":"EUR","rates":{"USD":1.1}}"#).unwrap();
+        assert_eq!(t.as_of, "");
+        assert_eq!(t.base, "EUR");
+        for body in [
+            "not json",
+            "{}",
+            r#"{"rates":{"USD":1.1}}"#,          // no base
+            r#"{"base":"EUR"}"#,                 // no rates
+            r#"{"base":"EUR","rates":{}}"#,      // empty table
+            r#"{"base":"EUR","rates":{"USD":"1.1"}}"#, // nothing usable left
+        ] {
+            assert!(parse_fx_rates(body).is_err(), "{body} should be rejected");
+        }
+    }
+
+    /// Network smoke test — excluded from the default gate like the others.
+    #[test]
+    #[ignore]
+    fn fetch_fx_rates_smoke() {
+        let t = fetch_fx_rates().expect("fetch failed");
+        assert_eq!(t.base, "EUR");
+        assert!(t.rates.len() >= 10, "rates: {:?}", t.rates.keys().collect::<Vec<_>>());
+        let usd = t.rates["USD"];
+        assert!(usd > 0.1 && usd < 10.0, "usd: {usd}");
+        assert_eq!(t.as_of.len(), 10, "as_of: {}", t.as_of);
     }
 
     /// Network smoke test — excluded from the default gate like the two below.

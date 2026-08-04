@@ -32,6 +32,7 @@ import {
   FolderIcon,
   FolderOpenIcon,
   GearIcon,
+  MountIcon,
   NoteIcon,
   NotesIcon,
   PinIcon,
@@ -97,6 +98,11 @@ interface SidebarProps {
       folder tree renders those rows as the database; every database (homed
       or not) is also reachable from the All databases manager (SUB-159) */
   homeDbByFolder: Record<string, string>;
+  /** SUB-888: the folded names of databases that are mounted folders. A homed
+      db row for one gets the mount glyph, and opens the mount view — which is
+      why opening a db goes through `onOpenDb` rather than setView here. */
+  mountDbs: ReadonlySet<string>;
+  onOpenDb: (type: string) => void;
   dashboards: NoteMeta[];
   /** SUB-594: the paths in `dashboards`, computed by App so the pin split and
       App's pin menu math run off the identical set. A pinned dashboard already
@@ -212,6 +218,8 @@ function Sidebar({
   onToggleCollapse,
   icons,
   homeDbByFolder,
+  mountDbs,
+  onOpenDb,
   dashboards,
   dashPaths,
   pinned,
@@ -1011,13 +1019,18 @@ function Sidebar({
             <button
               type="button"
               className="side-destination"
-              onClick={() => setView({ kind: "db", type: homeDb })}
+              onClick={() => onOpenDb(homeDb)}
               aria-label={node.name}
               title={`Opens the ${dbLabel} database`}
               aria-current={key === `db:${homeDb}` ? "page" : undefined}
             >
               <TypeIcon type={homeDb} icon={iconForType(icons, homeDb)} />
               <span className="side-label-text">{node.name}</span>
+              {mountDbs.has(homeDb.toLowerCase()) && (
+                <span className="side-mount" title="Mounted folder">
+                  <MountIcon />
+                </span>
+              )}
               <span className="side-db-chip">DB</span>
               {keyChip(`db:${homeDb}`)}
             </button>

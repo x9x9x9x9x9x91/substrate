@@ -4,7 +4,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { AggKind, DbIcon, DbLayout, NoteMeta, PropSchema } from "../lib/types";
 import { foldedPropStr } from "../lib/types";
 import { byFoldedKey } from "../lib/schemalookup";
-import { displayValue } from "../lib/display";
+import type { FxResolver } from "../lib/formula";
+import { conversionNote, displayValue } from "../lib/display";
 import { isTauri } from "../lib/tauri";
 import { coverSource } from "../lib/assets";
 import { optionColor, OptionDot, type AnchorRect } from "./SelectMenu";
@@ -20,9 +21,12 @@ export function cardSubtitle(
   n: NoteMeta,
   typeSchema: Record<string, PropSchema>,
   skip?: string,
-  keys?: string[]
+  keys?: string[],
+  fx?: FxResolver,
+  fxAsOf?: string,
+  numberStyle: "de" | "intl" = "de"
 ): React.ReactNode {
-  const parts: { key: string; text: string; color?: string }[] = [];
+  const parts: { key: string; text: string; color?: string; conversion?: string }[] = [];
   for (const key of keys ?? ["status", "cat#", "artist", "category"]) {
     if (key === skip) continue;
     const v = foldedPropStr(n.props, key);
@@ -30,8 +34,12 @@ export function cardSubtitle(
     const propSchema = byFoldedKey(typeSchema, key);
     parts.push({
       key,
-      text: displayValue(v, propSchema?.kind, propSchema?.format),
+      text: displayValue(v, propSchema?.kind, propSchema?.format, fx, numberStyle),
       color: optionColor(propSchema?.options, v),
+      conversion:
+        propSchema?.kind === "number"
+          ? conversionNote(v, propSchema.format, fx, fxAsOf) ?? undefined
+          : undefined,
     });
   }
   if (parts.length === 0) return n.excerpt || null;
@@ -42,6 +50,7 @@ export function cardSubtitle(
           {i > 0 && " · "}
           {p.color && <OptionDot color={p.color} />}
           {p.text}
+          {p.conversion && <span className="prop-conv" title={p.conversion}>*</span>}
         </span>
       ))}
     </span>

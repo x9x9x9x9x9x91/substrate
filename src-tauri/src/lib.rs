@@ -107,6 +107,18 @@ fn snapshot_now(app: &tauri::AppHandle, label: &str) {
     }
 }
 
+fn mounts_migration_restore_point(snapshot: Option<Result<bool, String>>) -> Result<(), String> {
+    match snapshot {
+        Some(Ok(true)) => Ok(()),
+        Some(Ok(false)) | None => {
+            Err("version history is unavailable; the old folder mapping was left untouched".into())
+        }
+        Some(Err(error)) => Err(format!(
+            "could not create a restore point ({error}); the old folder mapping was left untouched"
+        )),
+    }
+}
+
 /// Live app settings (from the vault's Settings.md) plus the hotkey we
 /// actually managed to register — kept apart so a failed registration can be
 /// retried on the next save.
@@ -128,6 +140,7 @@ use commands::files::*;
 use commands::fx::*;
 use commands::history::*;
 use commands::kinds::*;
+use commands::mounts::*;
 use commands::notes::*;
 use commands::schema::*;
 use commands::search::*;
@@ -419,6 +432,10 @@ pub fn run() {
                         (placeholder, true)
                     }
                 };
+            // Mount path bindings are machine-local, so the folder watcher
+            // reads them from the same app-config dir (SUB-888).
+            let folders_cfg_dir = config_dir.clone();
+            let migrate_cfg_dir = config_dir.clone();
             app.manage(OnboardingState {
                 pending: Mutex::new(first_run),
                 config_dir: config_dir.clone(),
@@ -449,6 +466,48 @@ pub fn run() {
                     }
                 }
             };
+            // Folder-backed databases became mounts (SUB-888). Migrate on
+            // load, before anything reads the vault: one folder concept
+            // afterwards, never two. The snapshot goes first so the whole
+            // rewrite is one undoable step, and the run is idempotent, so a
+            // crash mid-migration is retried on the next launch.
+            let mut engine = engine;
+            if !engine.folder_mappings().is_empty() {
+                let protected = mounts_migration_restore_point(
+                    hist.as_ref()
+                        .map(|h| h.snapshot_restore_point("before mounts migration")),
+                );
+                match protected {
+                    Err(error) => {
+                        applog!("mounts migration deferred: {error}");
+                    }
+                    Ok(()) => {
+                        let report = engine.migrate_folder_mappings();
+                        for (id, path) in &report.bindings {
+                            if let Err(e) =
+                                appcfg::write_mount_binding(
+                                    &migrate_cfg_dir,
+                                    id,
+                                    // bindings come back in `~/…` form; the config
+                                    // stores real paths, so expand once here
+                                    Some(&vault::expand_tilde(path)),
+                                )
+                            {
+                                applog!("mounts migration: binding {id}: {e}");
+                            }
+                        }
+                        for e in &report.errors {
+                            applog!("mounts migration: {e}");
+                        }
+                        applog!(
+                            "mounts migration: {} mount(s), {} note(s) adopted",
+                            report.mounts.len(),
+                            report.adopted
+                        );
+                        engine.rescan();
+                    }
+                }
+            }
             app.manage(AppState(Mutex::new(engine)));
             app.manage(calendarfeed::CalendarFeedState::new(&config_dir));
             app.manage(HistoryState(Mutex::new(hist)));
@@ -705,21 +764,34 @@ pub fn run() {
             });
 
             // Folder-database watcher: mappings with `"watch": true` in
-            // `.vault/folders.json` sync live. The callback runs the same
-            // sync as the palette rescan — strictly read-only on the
-            // watched folders.
+            // `.vault/folders.json`, and mounts with `"watch": true` in
+            // `.vault/mounts.json` that are bound on this machine (SUB-888),
+            // sync live. The callback runs the same sync as the palette
+            // rescan — strictly read-only on the watched folders.
             let folders_handle = app.handle().clone();
             let folders_degraded = folders_handle.clone();
+            let bindings_dir = folders_cfg_dir.clone();
             std::thread::spawn(move || {
                 vault::watch_folders(
                     folders_root,
+                    // re-read per refresh: the user can bind a mount while
+                    // the app runs, and the map lives outside the vault
+                    move || appcfg::read_config(&bindings_dir).mounts,
                     move || {
                         let state: State<AppState> = folders_handle.state();
+                        let mounts = appcfg::read_config(&folders_cfg_dir).mounts;
                         let changed = match state.0.lock() {
-                            Ok(mut engine) => engine
-                                .sync_folders()
-                                .iter()
-                                .any(|s| s.created + s.updated + s.missing > 0),
+                            Ok(mut engine) => {
+                                let folders = engine
+                                    .sync_folders()
+                                    .iter()
+                                    .any(|s| s.created + s.updated + s.missing > 0);
+                                let mounted = engine
+                                    .sync_mounts(&mounts)
+                                    .iter()
+                                    .any(|s| s.added + s.updated + s.renamed + s.missing > 0);
+                                folders || mounted
+                            }
                             Err(_) => false,
                         };
                         if changed {
@@ -834,15 +906,21 @@ pub fn run() {
             vault_sync_resolve_set,
             vault_sync_resolve_clear,
             vault_sync_resolve_finish,
-            folder_dbs_rescan,
-            folder_dbs_list,
-            folder_dbs_add,
+            mounts_list,
+            mount_add,
+            mount_bind,
+            mount_rescan,
+            mount_rows,
+            mount_annotate,
+            mount_remove,
             path_exists,
             file_open,
             file_reveal,
             file_pick,
             file_read_text,
+            vault_folder_files,
             fx_usd_eur,
+            fx_rates,
             share_upload,
             history_list,
             history_points,
@@ -880,6 +958,18 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn mounts_migration_never_runs_without_a_restore_point() {
+        assert!(super::mounts_migration_restore_point(Some(Ok(true))).is_ok());
+        for result in [None, Some(Ok(false)), Some(Err("git failed".to_string()))] {
+            let error = super::mounts_migration_restore_point(result).unwrap_err();
+            assert!(
+                error.contains("left untouched"),
+                "every refusal explains the data-safe outcome: {error}"
+            );
+        }
+    }
+
     /// The placeholder root a first run boots against (setup's
     /// `Resolution::FirstRun` branch) must stay empty. It used to collect an
     /// Inbox, Settings.md and the agent files — a half-vault in Application

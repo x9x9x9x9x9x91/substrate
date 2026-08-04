@@ -40,7 +40,8 @@ count, is the contract.
 | `vault_set_prop` | `:152` | `set_prop_value` `vault/mod.rs:1273` | One FM key set/removed; whole prop map re-serialized (BTreeMap order, YAML reflowed) | ✅ `Option<Value>` prior — `None` *is* the absence sentinel and is directly the inverse argument | Calendar drag + board drag only (§1.8) |
 | `url_capture` | `:200` | `create_reference` `vault/mod.rs:1456` | Creates `Inbox/<slug>.md`, then **asynchronously** may rename + write body (`spawn_url_enrichment`, `commands/notes.rs:122`) | 🟡 sync part inverts by trashing; the async tail lands after the undo record is taken | ❌ none |
 | `history_restore` | `:1310` | `write_raw` `vault/mod.rs:1207` | Whole file (FM included) overwritten from git, then snapshotted | ✅ the pre-restore commit id — the inverse is another restore. **No guard**: `write_raw` has no `expected` | n/a (additive by design) |
-| `folder_dbs_rescan` | `:594` | `sync_folders` `vault/foldersync.rs:155` | Creates stub notes, rewrites `modified`/`size`/`missing` across N notes, may seed schema | ❌ count-only return, multi-note | ❌ none |
+| `mount_annotate` | `commands/mounts.rs:151` | `mount_annotate` `vault/mounts.rs:514` | Sets one prop on a mount row's sidecar, **creating** the note on first annotation | ✅ same shape as `vault_set_prop` (prior `Option<Value>`); the create case inverts by trashing | ❌ none |
+| `mount_rescan` | `commands/mounts.rs:117` | `scan_mount` `vault/mounts.rs:580` | Rewrites `.vault/mounts/<id>.json`; refreshes drifted `mount_file`/`mount_identity` on sidecars. **No note content, no file on disk** | n/a — re-derivable; re-run it | n/a |
 
 ### 1.2 Property edits
 
@@ -90,7 +91,7 @@ already concedes these are not row-invertible.
 | `vault_schema_set_icon` | `:630` | Type icon | ✅ prior `DbIcon`; build from the *stored* value (emoji beats glyph, orphan tint drops) |
 | `vault_schema_home_set` | `:650` | Type home folder | ✅ prior `Option<String>`; the uniqueness check can make the inverse *fail* |
 | `vault_create_type` | `:664` | New type entry | ✅ remove the entry |
-| `vault_rename_type` | `:678` | Rewrites `type:` on every note of the type + relation targets + views key + `$sidebar` + template file + `folders.json` | ❌ count-only return (`BulkSweep`) |
+| `vault_rename_type` | `:678` | Rewrites `type:` on every note of the type + relation targets + views key + `$sidebar` + template file + `folders.json` + the mount of that name (§8 vault-format) | ❌ count-only return (`BulkSweep`) |
 | `vault_delete_type` | `:692` | Strips `type:` from N notes **or trashes them all**; deletes the template file | ❌ N unreturned trash ids, template bytes gone |
 | `vault_rename_prop` | `:705` | Renames a FM key across every note of the type; `skipped` notes already had the new key | ❌ `BulkSweep{notes,skipped}` only |
 | `vault_clear_prop` | `:720` | **Strips a FM key's value from every note of the type** + wipes it from the view pref | ❌ count only. The most data-lossy non-trash command |
@@ -191,11 +192,9 @@ neither the cheat sheet nor the hint panel.
    `vaultWriteBody` (`ipc.ts:46`). Every property undo is a blind
    last-write-wins overwrite.
 3. **Bulk commands return counts, not rows.** `vault_clear_prop`,
-   `vault_rename_type`, `vault_delete_type`, `vault_rename_prop`,
-   `folder_dbs_rescan` — none say *which* notes changed or what the old values
-   were. The four sweeps at least report *how many* even when they die partway
-   (`BulkSweep.failed`, SUB-501); `folder_dbs_rescan` still loses its tally to a
-   rejected call.
+   `vault_rename_type`, `vault_delete_type`, `vault_rename_prop` — none say
+   *which* notes changed or what the old values were. The four sweeps at least
+   report *how many* even when they die partway (`BulkSweep.failed`, SUB-501).
 4. ~~**`vault_delete_folder` discards view-config.**~~ Closed: a folder delete
    parks icon, schema home, sidebar rows and keys in an `<id>.folder.json`
    sidecar (SUB-480/SUB-499), and a note delete parks its pin and keys in an
@@ -567,7 +566,8 @@ Per the credo, each needs a named alternative recovery path.
 | `vault_sync_pull` | git-level merge | the pre-pull snapshot (`commands/vaultsync.rs:99`) |
 | `vault_sync_set_remote` | stores a token that **cannot be read back** | re-enter the credential |
 | `vault_rename_type`, `vault_delete_type`, `vault_rename_prop`, `vault_clear_prop` | count-only returns (partial runs report the count with the error, SUB-501); a reverse sweep catches notes that legitimately already matched | `presweepSnapshot` (`App.tsx:1040-1044`) → HistoryPanel restore. **Needs the UI in §6.5** |
-| `folder_dbs_rescan` | multi-note, count-only | re-run it; the source folders are untouched |
+| `mount_remove` with cleanup | trashes every sidecar of the mount + the empty database | the notes are in `.trash/` (`vault_trash_restore`); the mounted folder is never touched, and re-mounting the folder reattaches surviving sidecars by content identity |
+| `mount_rescan` | rewrites a derived index, not notes | re-run it; the mounted folder is read-only to Substrate |
 | `term::*`, `file_open`, and any machine-bridge dashboard command | external processes and machine state | n/a |
 | `export_text`, `export_note_bundle` | write **outside** the vault; prior destination contents are never read (`commands/assets.rs:20-23`) | n/a — but worth noting `export_text` silently truncates an existing file at the picked path |
 | `url_capture` | mutates **asynchronously after returning** (`commands/notes.rs:106`, enrichment spawned at `:122`) | trash the created note manually |

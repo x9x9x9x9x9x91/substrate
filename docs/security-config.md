@@ -95,6 +95,26 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
   payload, and that payload is ciphertext — the note is AES-256-GCM-sealed in
   the webview first, and the key exists nowhere but the share link's
   `#fragment` (`src/lib/handoff.ts`, `scripts/handoff-relay/`).
+
+  Three of those four have an off switch in `Settings.md`, all default on and
+  grouped under "Outbound requests" in the ⌘, sheet (SUB-834):
+  `net-link-titles`, `net-fx-rates`, `net-share-relay`. **Enforcement is at the
+  app's request-initiating call sites**, not in `net.rs` — the engine makes a
+  request only because something in the frontend asked it to, so a closed
+  switch means the ask never happens. `netAllowed()` in `src/lib/settings.ts`
+  is the one reader; only an explicit `false` closes a switch, so a typo'd
+  value leaves the app behaving as documented rather than quietly losing a
+  feature. The gates: link capture passes `enrich: false` to `url_capture`,
+  which then skips `spawn_url_enrichment` (the note is still created, keeping
+  the bare URL as its title — capture is local, only the title fetch is
+  remote); `useFx` is to skip the rate fetch and serve the last cached rates
+  with their date (`net-fx-rates` is enforced at the shared, deduplicated FX
+  refresh seam); `SendLinkDialog` explains the
+  switch instead of offering a send,
+  and re-checks it in `send()` so a stale render can't upload anyway. Turning
+  one off removes a capability, it does not add a security boundary: a user
+  who wants the guarantee that nothing leaves has the CSP and the firewall,
+  not a frontmatter key in a file that syncs.
 - **`object-src 'none'` / `frame-src 'none'` / `frame-ancestors 'none'` /
   `form-action 'none'`** — the app has no `<iframe>`, `<object>`, or `<form>`
   submission anywhere. Denying them costs nothing and closes three classes of

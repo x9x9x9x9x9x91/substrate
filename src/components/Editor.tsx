@@ -73,16 +73,20 @@ import {
 } from "../lib/slashmenu";
 import {
   AudioWidget,
+  CalcResultWidget,
   CheckboxWidget,
   FOLLOW_EVENT,
   FileWidget,
   ImageWidget,
   TableWidget,
   ViewWidget,
+  calcConfig,
   embedHandlers,
   isAudioEmbed,
   isImageEmbed,
 } from "../lib/editor-widgets";
+import { evalCalcDoc, fencedLines, isCalcLine, type NumberStyle } from "../lib/calc";
+import type { FxResolver } from "../lib/formula";
 import type { EmbedResult, ViewSpecResult } from "../lib/embeds";
 import type { NoteMeta, PropValue, TagCount } from "../lib/types";
 import type { RelationCandidate } from "../lib/relation";
@@ -556,12 +560,12 @@ function selectionTouchesRegions(tr: Transaction, regions: [number, number][]): 
  * scrolling. Instead the walk is skipped for transactions that provably cannot
  * change the result: a cursor move that neither leaves nor enters a candidate
  * block keeps the previous decorations. */
-function blockFieldUpdate(
-  prev: BlockRender,
+function blockFieldUpdate<T extends BlockRender>(
+  prev: T,
   tr: Transaction,
   epochSensitive: boolean,
-  compute: (state: EditorState) => BlockRender
-): BlockRender {
+  compute: (state: EditorState) => T
+): T {
   if (tr.docChanged) return compute(tr.state);
   // The background parse advancing past the initial window arrives as a
   // transaction with no doc/selection/focus change — skipping it would leave
@@ -685,6 +689,7 @@ const viewRender = StateField.define<BlockRender>({
   provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
 });
 
+
 /** SUB-472: the line span of every block widget currently rendered (tables and
  * ```view embeds). A `Decoration.replace({block:true})` hides the positions it
  * covers, so CodeMirror's vertical motion steps over the whole block in one
@@ -697,7 +702,11 @@ const viewRender = StateField.define<BlockRender>({
  * CodeMirror already steps through one at a time. */
 function blockWidgetLines(state: EditorState): { first: number; last: number }[] {
   const spans: { first: number; last: number }[] = [];
-  for (const field of [tableRender, viewRender]) {
+  const fields = [
+    tableRender,
+    viewRender,
+  ];
+  for (const field of fields) {
     const rendered = state.field(field, false);
     if (!rendered) continue;
     const iter = rendered.deco.iter();
@@ -850,6 +859,50 @@ function decorateMdLink(
   return true;
 }
 
+/** Calc-line answers (SUB-834), appended after each `=` line in view.
+ *
+ * The evaluation is whole-document even though the widgets are viewport-only:
+ * a `= sum` reads the lines above it and a variable reference depends on every
+ * binding before it, so a viewport-scoped pass would give a scrolled-to line a
+ * different answer than the same line at the top of the screen. Notes are
+ * small and each line costs one regex plus a short token walk, so this runs
+ * per update with no caching. If a pathological note ever makes that visible,
+ * the fix is a StateField memo keyed on the doc, not a narrower scope.
+ *
+ * Skips fenced code (a ```sh block full of `=` lines is not arithmetic) and
+ * any line covered by a rendered table or view block. */
+function addCalcDecorations(
+  view: EditorView,
+  deco: Range<Decoration>[],
+  inCovered: (from: number, to: number) => boolean
+): void {
+  const { state } = view;
+  const lines = state.doc.toString().split("\n");
+  // most notes have no calc lines at all — one cheap scan spares them the
+  // fence walk and the evaluator entirely
+  if (!lines.some(isCalcLine)) return;
+  const { style, fx } = state.facet(calcConfig);
+  const results = evalCalcDoc(lines, fx, style, fencedLines(lines));
+  if (results.size === 0) return;
+
+  for (const { from, to } of view.visibleRanges) {
+    const first = state.doc.lineAt(from).number;
+    const last = state.doc.lineAt(to).number;
+    for (let n = first; n <= last; n++) {
+      const result = results.get(n - 1);
+      if (!result) continue;
+      const line = state.doc.line(n);
+      if (inCovered(line.from, line.to)) continue;
+      deco.push(
+        Decoration.widget({
+          widget: new CalcResultWidget(result.display, result.err),
+          side: 1,
+        }).range(line.to)
+      );
+    }
+  }
+}
+
 function buildDecorations(view: EditorView): DecorationSet {
   const { state } = view;
   const active = activeLines(state);
@@ -857,10 +910,9 @@ function buildDecorations(view: EditorView): DecorationSet {
   // embed widgets carry the epoch — it enters their identity only once failed
   const epoch = state.field(vaultEpochField);
   const deco: Range<Decoration>[] = [];
-  // spans replaced by rendered tables — text-level marks must not land inside
+  // Spans actually replaced by rendered blocks — raw source still gets its
+  // normal code-fence styling while a cursor reveals an annotation block.
   const covered: [number, number][] = [];
-  const inCovered = (from: number, to: number) =>
-    covered.some(([a, b]) => from >= a && to <= b);
   // code spans/blocks render verbatim — the regex decorators must skip them
   const codeRanges: [number, number][] = [];
   const inCode = (from: number, to: number) => codeRanges.some(([a, b]) => from < b && to > a);
@@ -968,17 +1020,19 @@ function buildDecorations(view: EditorView): DecorationSet {
     while ((m = EMBED_RE.exec(text))) {
       const start = from + m.index;
       const end = start + m[0].length;
-      if (inCovered(start, end) || inCode(start, end)) continue;
+      let audioRegionCovered = false;
+      if (inCovered(start, end) || audioRegionCovered || inCode(start, end)) continue;
       const line = state.doc.lineAt(start).number;
       if (focused && active.has(line)) continue;
       const target = m[1].trim();
+      let widget = isAudioEmbed(target)
+        ? new AudioWidget(target, epoch)
+        : isImageEmbed(target)
+          ? new ImageWidget(target, epoch)
+          : new FileWidget(target, epoch);
       deco.push(
         Decoration.replace({
-          widget: isAudioEmbed(target)
-            ? new AudioWidget(target, epoch)
-            : isImageEmbed(target)
-              ? new ImageWidget(target, epoch)
-              : new FileWidget(target, epoch),
+          widget,
         }).range(start, end)
       );
     }
@@ -1014,6 +1068,7 @@ function buildDecorations(view: EditorView): DecorationSet {
       );
     }
   }
+  addCalcDecorations(view, deco, inCovered);
   deco.sort((a, b) => a.from - b.from || a.value.startSide - b.value.startSide);
   return Decoration.set(deco, true);
 }
@@ -1364,6 +1419,12 @@ interface EditorProps {
       later flushed it over the live file. Reconfigured through a compartment
       so entering/leaving the past never rebuilds the view. */
   readOnly?: boolean;
+  /** calc lines (SUB-834): the dialect their answers are formatted in — the
+      `number-format` setting. Defaults to the app's own de-DE. */
+  numberStyle?: NumberStyle;
+  /** calc lines (SUB-834): live FX for `25 USD in EUR`. Absent → currency
+      conversions report a missing rate rather than inventing one. */
+  calcFx?: FxResolver;
 }
 
 export default function Editor({
@@ -1394,6 +1455,8 @@ export default function Editor({
   onExtractNote,
   emptyHint,
   readOnly = false,
+  numberStyle,
+  calcFx,
 }: EditorProps) {
   const shell = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -1410,6 +1473,10 @@ export default function Editor({
   const [selMenu, setSelMenu] = useState<{ x: number; y: number } | null>(null);
   const [turnPage, setTurnPage] = useState(false);
   const outlineJump = useRef<{ from: number; until: number } | null>(null);
+  // calc config (SUB-834) rides a compartment rather than a ref: the number
+  // dialect and the FX table change while the editor stays mounted, and the
+  // results already on screen have to re-render when they do
+  const calcCompartment = useRef(new Compartment());
   const onChangeRef = useRef(onChange);
   const onFollowRef = useRef(onFollowLink);
   const onRevealedRef = useRef(onRevealed);
@@ -1427,6 +1494,9 @@ export default function Editor({
   const embedRelationCandidatesRef = useRef(embedRelationCandidates);
   const onEmbedCreateRelationRef = useRef(onEmbedCreateRelation);
   const vaultEpochRef = useRef(vaultEpoch);
+  // read once at mount; the effect below keeps the live editor in step
+  const numberStyleRef = useRef(numberStyle);
+  const calcFxRef = useRef(calcFx);
   // the [[ completion source is provided once at mount — titles live behind
   // a ref so vault changes reach it without recreating the editor (SUB-269)
   const noteTitlesRef = useRef(noteTitles);
@@ -1452,6 +1522,8 @@ export default function Editor({
   embedRelationCandidatesRef.current = embedRelationCandidates;
   onEmbedCreateRelationRef.current = onEmbedCreateRelation;
   vaultEpochRef.current = vaultEpoch;
+  numberStyleRef.current = numberStyle;
+  calcFxRef.current = calcFx;
   noteTitlesRef.current = noteTitles;
   dbTypesRef.current = dbTypes;
 
@@ -1728,6 +1800,9 @@ export default function Editor({
             onEmbedCreateRelationRef.current?.(path, key, targetType, title),
         }),
         trackedPositions,
+        calcCompartment.current.of(
+          calcConfig.of({ style: numberStyleRef.current ?? "de", fx: calcFxRef.current ?? (() => null) })
+        ),
         vaultEpochField.init(() => vaultEpochRef.current ?? 0),
         viewRender,
         flashLine,
@@ -1963,6 +2038,19 @@ export default function Editor({
     }, 1200);
     return () => window.clearTimeout(t);
   }, [revealNonce, revealLine, docKey]);
+
+  // SUB-834: a settings change or a fresh FX table repaints the answers on
+  // screen. The compartment is the whole mechanism — reconfiguring it is a
+  // transaction, which is what makes the livePreview plugin rebuild.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: calcCompartment.current.reconfigure(
+        calcConfig.of({ style: numberStyle ?? "de", fx: calcFx ?? (() => null) })
+      ),
+    });
+  }, [numberStyle, calcFx, docKey]);
 
   // Finder drops arrive as Tauri events with real paths — files copy into
   // .assets/ in Rust, so master-sized audio never crosses the IPC bridge.

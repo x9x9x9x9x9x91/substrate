@@ -292,6 +292,38 @@ export function parseShowAppFiles(props: Record<string, unknown>): boolean {
   return v === true || (typeof v === "string" && v.trim().toLowerCase() === "true");
 }
 
+/** The three things Substrate can send off this machine (SUB-834). Each has
+    its own `net-*` switch in Settings.md, all default ON.
+
+    Enforcement lives at the call sites, not in Rust: the shipped CSP allows no
+    remote origin, so every request is made by the engine — but the engine only
+    ever makes one because a TS call asked it to. Gate the ask and nothing
+    leaves. `link-titles` gates the enrichment fetch behind link capture (the
+    note is still created, from the bare URL), `fx-rates` gates the frankfurter
+    read (`useFx` consults it; conversions fall back to the last saved rates),
+    `share-relay` gates the "Send as link" upload. */
+export type NetFeature = "link-titles" | "fx-rates" | "share-relay";
+
+/** `net-link-titles` / `net-fx-rates` / `net-share-relay` — same rule as
+    `drop-hint`: only an explicit `false` turns one off, so an unset key or a
+    typo'd value leaves the app behaving as documented rather than quietly
+    losing a feature. */
+export function netAllowed(props: Record<string, unknown>, feature: NetFeature): boolean {
+  const v = props[`net-${feature}`];
+  return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
+}
+
+/** How numbers are written: `de` = `1.234,56`, `intl` = `1,234.56`. */
+export type NumberFormat = "de" | "intl";
+
+/** `number-format` (SUB-834). Default `de` — the app's historic and shipped
+    formatting — so an unset key or an unrecognized value keeps every existing
+    vault reading exactly as it did. */
+export function numberFormatSetting(props: Record<string, unknown>): NumberFormat {
+  const v = props["number-format"];
+  return typeof v === "string" && v.trim().toLowerCase() === "intl" ? "intl" : "de";
+}
+
 export function parseTerminalSettings(props: Record<string, unknown>): TerminalSettings {
   const str = (k: string) => {
     const v = props[foldedPropKey(props, k)];

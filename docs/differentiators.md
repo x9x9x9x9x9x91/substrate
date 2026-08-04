@@ -45,13 +45,18 @@ Capacities, Affine).*
 - **Linear-grade speed** — instant search (SQLite FTS5), lazy paint
   (1400-row tables don't stall), keyboard-reachable everything, ⌘K palette.
 - **Local reality** — link/index real files on disk; Shift-drag links in
-  place without copying (0.15); map any folder of notes as a database (0.18).
-  And the way back out: **export a saved view as a folder of links** other
-  apps can see — a query like "unfinished / 128bpm" becomes a real folder for
-  a sample browser or a file dialog, rebuilt on demand from the pin's menu.
-  The folder is marked, holds only links, and is refused if it isn't ours, so
-  it is always safe to delete and never holds your data. Notion cannot touch
-  the disk at all; Obsidian's structure stops at its own window.
+  place without copying (0.15). **Reality mounts**: mount any folder as
+  a database and every file in it is a row — no import, no copies, and no note
+  written until you annotate one, at which point a single sidecar note appears
+  beside it. Rows bind to files by content hash, so a rename or a move keeps
+  its annotations, and a folder that isn't on this machine still renders its
+  rows from the last-known index instead of disappearing. And the way back
+  out: **export a saved view as a folder of links** other apps can see — a
+  query like "unfinished / 128bpm" becomes a real folder for a sample browser
+  or a file dialog, rebuilt on demand from the pin's menu. The folder is
+  marked, holds only links, and is refused if it isn't ours, so it is always
+  safe to delete and never holds your data. Obsidian sees only markdown;
+  Notion and Anytype require importing a copy into their store.
 - **Full history, zero setup** — vendored libgit2: every vault gets complete
   git history, in-app diff/restore, and a whole-vault time scrubber: pick any
   commit and notes, databases, dashboards, schemas, and saved views all render
@@ -73,8 +78,23 @@ Capacities, Affine).*
 - **Audio in databases** — waveform embeds, play buttons on database rows
   (0.18), deferred peak decode. Careful claim: Obsidian has waveform
   *plugins*; ours is native, zero-config, and lives inside database views.
+- **A folder of audio is a playlist** — a folder view lists the loose files
+  sitting next to its notes, plays the audio ones in place (nothing imported,
+  nothing copied), and a persistent bottom bar keeps them playing while you
+  navigate the whole app. Careful claim: the differentiator is
+  *continue-while-browsing over files the app never took ownership of* —
+  Notion and Obsidian both stop the audio when you leave the page, and both
+  want the file inside their own store first.
 - **Sheets** — plain-text formula tables: LOOKUP across sheets, SUMIF/COUNTIF
   with wildcards, SUMPRODUCT, date arithmetic, identifiers in any language.
+- **Units & inline math** — any note line starting with `=` computes live
+  (`= 3.9M * 0.04`, per-note variables, `= sum` over the lines above), with
+  real units: `= 25 USD in EUR`, `= 5 kg + 500 g`. Number columns carry units
+  too — a `$` row in a `€` column converts on display and in sums, marked
+  with the rate's date, while the file keeps exactly what was typed. Notion
+  numbers are dumb floats; Obsidian needs a plugin stack for half of this.
+  Every outbound call this rides (the rates fetch) has an off switch in
+  Settings.
 - **Dashboards as a mini-app platform** — metrics/stat cards, charts, hub
   pages (prose + live embedded views), food/kcal tracking (quantity grammar —
   "200g oats" logs itself, weight-curve overlay), tasks (an urgency-led board:
@@ -173,12 +193,12 @@ Capacities, Affine).*
 
 ## Planned (roadmap material — clearly marked, never advertised as shipped)
 
-Tracked in the issue tracker; headline shapes: reality-mounted databases
-(non-md files as database rows with extracted columns + sidecars),
-time-travel queries over git history,
-timestamped audio annotations, iOS home-screen widgets, per-fact provenance
+Tracked in the issue tracker; headline shapes: extracted columns on
+mounted files (audio/PDF/.als analysis feeding a mount's rows — the mount
+itself has shipped), time-travel queries over
+git history, timestamped audio annotations, iOS home-screen widgets, per-fact provenance
 receipts, live values in prose, deterministic file-event reflexes, voice
-capture with on-device transcript, cross-type joins, units & inline math.
+capture with on-device transcript, cross-type joins.
 
 ## Maintenance
 

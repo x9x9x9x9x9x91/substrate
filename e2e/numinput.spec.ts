@@ -89,6 +89,54 @@ test("a German-typed price lands in the footer Sum, not beside it", async ({ pag
   await expect(sum).toHaveText("14.323,06 €");
 });
 
+test("the intl setting reaches table cells, totals, board cards and gallery cards", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.evaluate(() => window.__mockSetEchoOnWrites?.(true));
+  await page.locator(".side-tools").getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("radiogroup", { name: "Number format" })
+    .getByRole("radio", { name: "1,234.56" })
+    .click();
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(500);
+
+  // Make a default card-subtitle property numeric so the same value is
+  // observable in every database layout without changing production seeds.
+  await page.evaluate(() => {
+    window.__mockEditSchema?.("inventory", {
+      status: { options: [] },
+      category: { options: [], kind: "number", format: "euro" },
+      price: { options: [], kind: "number", format: "euro" },
+    });
+    window.__mockEditProp?.("Nordvik One.md", "category", "1234.56");
+    window.__mockEmit?.("vault:config-changed");
+    window.__mockEmit?.("vault:changed", ["Nordvik One.md"]);
+  });
+  await openDb(page, "Inventory");
+
+  const category = await colIndex(page, "category");
+  const nordvik = () =>
+    page.locator("tr", { has: page.locator(".db-title-txt", { hasText: "Nordvik One" }) });
+  await expect(nordvik().locator("td").nth(category)).toHaveText("1,234.56 €");
+
+  await page.locator(".db-table th", { hasText: "category" }).locator(".db-th-caret").click();
+  await page.locator(".colmenu .dots-item", { hasText: "Calculate…" }).click();
+  await page.locator(".colmenu .dots-item", { hasText: /^Sum$/ }).click();
+  await expect(page.locator('.db-agg-cell[data-col="category"] .db-agg-value')).toHaveText(
+    "1,234.56 €"
+  );
+
+  await page.getByRole("button", { name: "Board", exact: true }).click();
+  await expect(page.locator('.db-card[aria-label="Nordvik One"] .row-sub')).toContainText(
+    "1,234.56 €"
+  );
+  await page.getByRole("button", { name: "Gallery", exact: true }).click();
+  await expect(page.locator('.db-gcard[aria-label="Nordvik One"] .row-sub')).toContainText(
+    "1,234.56 €"
+  );
+});
+
 test("note property chips normalize German-typed numbers too", async ({ page }) => {
   await page.goto("/");
   await openDb(page, "Inventory");

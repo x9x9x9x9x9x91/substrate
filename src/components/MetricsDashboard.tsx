@@ -6,7 +6,8 @@ import ChartsDashboard from "./ChartsDashboard";
 import { fmtFx, sharpCardIndices } from "../lib/dashboard";
 import { parseCards, type MetricCard } from "../lib/metriccards";
 import { MetricCardStrip, useCardValues } from "./MetricCards";
-import { useUsdEur } from "./useFx";
+import { usdEurFrom } from "../lib/fx";
+import { useFxRates } from "./useFx";
 import { DashHead, DashPrintButton } from "./DashHead";
 
 interface MetricsDashboardProps {
@@ -40,7 +41,10 @@ export default function MetricsDashboard({
   cardsOverride,
   sharpOverride,
 }: MetricsDashboardProps) {
-  const { fx } = useUsdEur();
+  // The whole quoted table (SUB-834) drives card evaluation; the single
+  // USD→EUR pair is derived from it for the footer, so both read one source.
+  const { fx: rates } = useFxRates();
+  const fx = useMemo(() => usdEurFrom(rates), [rates]);
   // the note's body, for chart fences below the cards (finance surface):
   // a metrics dashboard with ```chart blocks renders them like the charts
   // dashboard does, same visual language
@@ -61,7 +65,7 @@ export default function MetricsDashboard({
     [cardsOverride, meta.props]
   );
   const sharp = useMemo(() => sharpOverride ?? sharpCardIndices(cards), [cards, sharpOverride]);
-  const cardValue = useCardValues(cards, vaultEpoch, meta.path, fx);
+  const cardValue = useCardValues(cards, vaultEpoch, meta.path, rates);
 
   const cardsSurface =
     cards.length === 0 ? (

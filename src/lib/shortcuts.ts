@@ -21,7 +21,7 @@
 
 import type { NoteMeta, View } from "./types.ts";
 
-export const GROUPS = ["Navigation", "Create", "Views", "Calendar", "Database", "Sheet", "Editor"] as const;
+export const GROUPS = ["Navigation", "Create", "Views", "Audio", "Calendar", "Database", "Sheet", "Editor"] as const;
 export type ShortcutGroup = (typeof GROUPS)[number];
 
 /** Reachability class of a binding — which standard guards apply before the
@@ -87,6 +87,10 @@ export interface ShortcutCtx {
       — ⌘Z still fires on an empty stack so a stale entry can explain itself. */
   canUndo: boolean;
   canRedo: boolean;
+  /** SUB-812: a folder is queued in the mini-player. The transport chords are
+      dead keys with nothing playing, so they only claim the event (and only
+      earn a hint row) while there is something to transport. */
+  playing: boolean;
 }
 
 export interface Shortcut {
@@ -518,6 +522,39 @@ export const SHORTCUTS: Shortcut[] = [
       return i !== null && i < ctx.pins.length;
     },
   }),
+  /* SUB-812 — the mini-player's transport. ⌥ is the only free modifier lane
+     in the app: no other registry entry requires it, and inside a text edit
+     ⌥←/⌥→ are Cocoa word-motion, which the "surface" scope already protects
+     (it stands down while typing). The bar's own buttons print the combos in
+     their tooltips.
+
+     There is deliberately NO play/pause chord. ⌥Space is the obvious one and
+     it is taken: `capture-hotkey` defaults to `alt+space` (vault-format §12)
+     and is registered SYSTEM-wide, so binding it here would fire the capture
+     window and the transport off one press. Play/pause stays a click on the
+     bar, which is on screen whenever the chord would have been live.
+
+     Placed ahead of the list-navigation entries below because those match on
+     `mod: false` alone, which does not exclude ⌥ — without this position ⌥←
+     would fall through to them. */
+  define({
+    id: "audio-prev",
+    description: "Previous track in the playing folder",
+    group: "Audio",
+    scopes: ["surface"],
+    combos: [{ key: "ArrowLeft", alt: true, mod: false, shift: false }],
+    when: (_e, ctx) => ctx.playing,
+    hint: (ctx) => ctx.playing,
+  }),
+  define({
+    id: "audio-next",
+    description: "Next track in the playing folder",
+    group: "Audio",
+    scopes: ["surface"],
+    combos: [{ key: "ArrowRight", alt: true, mod: false, shift: false }],
+    when: (_e, ctx) => ctx.playing,
+    hint: (ctx) => ctx.playing,
+  }),
   define({
     id: "sidebar-toggle",
     description: "Hide or show the sidebar",
@@ -839,7 +876,11 @@ export function hintEntries(ctx: ShortcutCtx): Shortcut[] {
 }
 
 /** The modifier chord a hold-HUD can advertise (SUB-490). ⌥ is deliberately
-    absent: no registry entry requires it, so holding it has nothing to say. */
+    absent from the chord: the HUD advertises the ⌘/⌃/⇧ families, and the one
+    ⌥ family that exists (the mini-player transport, SUB-812) is already on
+    screen — its combos are printed in the bar's own button tooltips, so a
+    held-⌥ panel would repeat what the user is looking at. `comboUnderMods`
+    filters alt combos out below; the ⌘/ sheet still lists them. */
 export type HeldMods = { mod: boolean; ctrl: boolean; shift: boolean };
 
 /** ⌘1…⌘9 — the view/pin jumps. These are deliberately OUT of the hold HUD:

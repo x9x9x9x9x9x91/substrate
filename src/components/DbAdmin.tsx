@@ -1,7 +1,7 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
-import type { FolderScanStats, NewTypeProp, PropKind } from "../lib/types";
+import { useEffect, useMemo, useState } from "react";
+import type { MountInfo, MountScanStats, NewTypeProp, PropKind } from "../lib/types";
 import { filePick } from "../lib/ipc";
-import { scanStatLine } from "../lib/folders";
+import { scanStatLine } from "../lib/mounts";
 import {
   CSV_IMPORT_LARGE,
   csvColumns,
@@ -514,42 +514,95 @@ export function StripPropDialog({
   );
 }
 
-/** "Map a folder…" (SUB-672): point a database at a real folder on disk —
-    the folder's files sync in as stub notes (vault-format.md §8), strictly
-    read-only on the folder itself. The folder comes from the native picker
-    or typed (`~/…` allowed); globs are a comma list of file-name patterns
-    with `*` the only wildcard. Submit writes the mapping to
-    `.vault/folders.json` and runs the first scan, whose stats replace the
-    form inline — the card closes from its result, no toast-only summary. */
-export function MapFolderDialog({
-  dbTypes,
-  initialType,
-  onMap,
+/** The destructive half of unmounting (SUB-888). Plain "Unmount" needs no
+    dialog — it forgets the folder and leaves the sidecar notes alone. This
+    one trashes them, so it names the folder it is NOT touching: the files on
+    disk are never at risk, only the notes the vault wrote about them. */
+export function UnmountDialog({
+  mount,
+  onConfirm,
   onClose,
 }: {
-  /** existing database types — the type field's suggestions */
-  dbTypes: string[];
-  /** set when opened from a database's own menu — its type is the prefill */
-  initialType?: string;
-  /** write the mapping + run the first scan; resolves to the new mapping's
+  mount: MountInfo;
+  onConfirm: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const go = () => {
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
+    onConfirm().catch((e) => {
+      setErr(String(e));
+      setBusy(false);
+    });
+  };
+  return (
+    <Card title={`Unmount “${mount.name}” and trash its notes?`} onClose={onClose}>
+      <div className="dbform-note">
+        The notes the vault wrote about these files move to Trash, recoverable from
+        there. {mount.path ?? "The folder"} itself is not touched — no file on disk is
+        read, changed or removed.
+      </div>
+      {err && <div className="dbform-err">{err}</div>}
+      <div className="dbform-foot dbform-foot-stack">
+        <button className="selmenu-btn selmenu-btn-danger" disabled={busy} onClick={go}>
+          Unmount and move its notes to Trash
+        </button>
+        <button className="selmenu-btn" onClick={onClose}>
+          Cancel
+        </button>
+      </div>
+    </Card>
+  );
+}
+
+/** "Mount a folder…" (SUB-888): show a real folder on disk as a database —
+    every matching file is a row, read live from an index, and nothing is
+    imported or copied (vault-format.md §8). A note is only written for a
+    file once you say something about it. The folder comes from the native
+    picker or typed (`~/…` allowed); globs are a comma list of file-name
+    patterns with `*` the only wildcard. Submit registers the mount, binds
+    it to this machine's path, and runs the first scan, whose stats replace
+    the form inline — the card closes from its result. */
+export function MountFolderDialog({
+  onMount,
+  onClose,
+}: {
+  /** register the mount + run its first scan; resolves to that mount's scan
       stats, rejects with the add/scan error */
-  onMap: (path: string, type: string, globs: string[], watch: boolean) => Promise<FolderScanStats[]>;
+  onMount: (name: string, path: string, globs: string[], watch: boolean) => Promise<MountScanStats>;
   onClose: () => void;
 }) {
   const [path, setPath] = useState("");
-  const [type, setType] = useState(initialType ?? "");
+  const [name, setName] = useState("");
+  /** true until the user types a name of their own — the name field tracks
+      the folder's own name up to that point, so the common case is no typing */
+  const [autoName, setAutoName] = useState(true);
   const [globs, setGlobs] = useState("");
   const [watch, setWatch] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [stats, setStats] = useState<FolderScanStats[] | null>(null);
+  const [stats, setStats] = useState<MountScanStats | null>(null);
 
-  const ready = path.trim().length > 0 && type.trim().length > 0;
+  const ready = path.trim().length > 0 && name.trim().length > 0;
+
+  /** the folder's own name — "~/Personal/Finance" → "Finance" */
+  const baseName = (p: string) => {
+    const parts = p.replace(/[/\\]+$/, "").split(/[/\\]/);
+    return parts[parts.length - 1] ?? "";
+  };
+
+  const setFolder = (p: string) => {
+    setPath(p);
+    if (autoName) setName(baseName(p.trim()));
+  };
 
   const pick = () => {
     filePick(true)
       .then((p) => {
-        if (p) setPath(p);
+        if (p) setFolder(p);
       })
       .catch(console.error);
   };
@@ -562,7 +615,7 @@ export function MapFolderDialog({
       .split(",")
       .map((g) => g.trim())
       .filter((g) => g.length > 0);
-    onMap(path.trim(), type.trim(), globList, watch).then(
+    onMount(name.trim(), path.trim(), globList, watch).then(
       (s) => {
         setStats(s);
         setBusy(false);
@@ -576,16 +629,12 @@ export function MapFolderDialog({
 
   if (stats) {
     return (
-      <Card title="Folder mapped" onClose={onClose}>
+      <Card title="Folder mounted" onClose={onClose}>
         <div className="dbform-note">
-          {path.trim()} → {type.trim()}
+          {path.trim()} → {name.trim()}
         </div>
-        {stats.map((s, i) => (
-          <Fragment key={i}>
-            <div className="dbform-note">{scanStatLine(s)}</div>
-            {s.error && <div className="dbform-err">{s.error}</div>}
-          </Fragment>
-        ))}
+        <div className="dbform-note">{scanStatLine(stats)}</div>
+        {stats.error && <div className="dbform-err">{stats.error}</div>}
         <div className="dbform-foot">
           <button className="selmenu-btn selmenu-btn-primary" onClick={onClose}>
             Done
@@ -596,14 +645,14 @@ export function MapFolderDialog({
   }
 
   return (
-    <Card title="Map a folder" onClose={onClose}>
+    <Card title="Mount a folder" onClose={onClose}>
       <div className="dbform-proprow">
         <input
           className="dbform-input"
           autoFocus
           placeholder="Folder path…"
           value={path}
-          onChange={(e) => setPath(e.target.value)}
+          onChange={(e) => setFolder(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") submit();
             e.stopPropagation();
@@ -615,20 +664,17 @@ export function MapFolderDialog({
       </div>
       <input
         className="dbform-input"
-        placeholder="Database type…"
-        list="mapfolder-dbtypes"
-        value={type}
-        onChange={(e) => setType(e.target.value)}
+        placeholder="Name…"
+        value={name}
+        onChange={(e) => {
+          setAutoName(false);
+          setName(e.target.value);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter") submit();
           e.stopPropagation();
         }}
       />
-      <datalist id="mapfolder-dbtypes">
-        {dbTypes.map((t) => (
-          <option key={t} value={t} />
-        ))}
-      </datalist>
       <input
         className="dbform-input"
         placeholder="Globs, optional — *.pdf, *.csv"
@@ -644,11 +690,12 @@ export function MapFolderDialog({
           className={`prop-check${watch ? " on" : ""}`}
           aria-label={watch ? "Checked" : "Unchecked"}
         />
-        Watch this folder — sync automatically on changes
+        Watch this folder — rescan automatically on changes
       </button>
       <div className="dbform-note">
-        The scan creates one stub note per matching file — the folder itself is never
-        written.
+        Every matching file becomes a row. Nothing is imported or copied, and the
+        folder itself is never written — a note is only created for a file once you
+        say something about it.
       </div>
       {err && <div className="dbform-err">{err}</div>}
       <div className="dbform-foot">
@@ -660,7 +707,7 @@ export function MapFolderDialog({
           disabled={!ready || busy}
           onClick={submit}
         >
-          Map folder
+          Mount folder
         </button>
       </div>
     </Card>

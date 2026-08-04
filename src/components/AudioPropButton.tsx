@@ -1,25 +1,9 @@
 import { useEffect, useState } from "react";
 import { onPlayerBorn, peekPlayer, togglePlayer, type SharedPlayer } from "../lib/editor-widgets";
 import { basename } from "../lib/files";
-
 /* the embed's glyphs (PLAY_SVG/PAUSE_SVG in lib/editor-widgets.ts) as JSX —
-   same paths so the two surfaces can't drift; the triangle rides 1px right
-   of geometric center, see the widget's comment */
-const PLAY_GLYPH = (
-  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-    <path
-      d="M3 1.7v8.6c0 .55.6.88 1.06.6l6.6-4.3a.72.72 0 0 0 0-1.2l-6.6-4.3A.72.72 0 0 0 3 1.7Z"
-      fill="currentColor"
-      transform="translate(1 0)"
-    />
-  </svg>
-);
-const PAUSE_GLYPH = (
-  <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-    <rect x="2.2" y="1.6" width="2.7" height="8.8" rx="1" fill="currentColor" />
-    <rect x="7.1" y="1.6" width="2.7" height="8.8" rx="1" fill="currentColor" />
-  </svg>
-);
+   same paths so the surfaces can't drift; the mini-player renders them too */
+import { PauseGlyph, PlayGlyph } from "./Icons";
 
 /** Compact play/pause for an audio-valued file prop (SUB-674), in table
     cells and on gallery cards. Drives the SAME shared player as note embeds
@@ -28,7 +12,17 @@ const PAUSE_GLYPH = (
     state. Rendering is inert: the player is peeked, never created — creation
     waits for the first toggle, and peaks/waveform decode stays embed-owned,
     so a master WAV scrolled past in a table costs nothing. */
-export function AudioPropButton({ name }: { name: string }) {
+export function AudioPropButton({
+  name,
+  onToggle,
+}: {
+  name: string;
+  /** SUB-812: run just before the shared player toggles. Folder rows use it
+      to seat the listening queue on this file, so pressing play in a folder
+      also tells the mini-player what "next" means. Toggle semantics are
+      unchanged — a second press on the playing row still pauses it. */
+  onToggle?: () => void;
+}) {
   const [player, setPlayer] = useState<SharedPlayer | null>(() => peekPlayer(name));
   // a fresh mount behind an already-playing singleton (row scrolled out and
   // back, layout switch) must light immediately — the render adjust below
@@ -101,6 +95,7 @@ export function AudioPropButton({ name }: { name: string }) {
         // this button is neither gesture
         e.preventDefault();
         e.stopPropagation();
+        onToggle?.();
         setPlayer(togglePlayer(name));
       }}
       onKeyDown={(e) => {
@@ -110,7 +105,7 @@ export function AudioPropButton({ name }: { name: string }) {
         e.stopPropagation();
       }}
     >
-      {playing ? PAUSE_GLYPH : PLAY_GLYPH}
+      {playing ? <PauseGlyph /> : <PlayGlyph />}
     </button>
   );
 }

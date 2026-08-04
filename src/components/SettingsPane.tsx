@@ -5,7 +5,7 @@
    same vault_set_prop IPC every prop editor uses. "Edit raw" opens the note
    in the normal editor for anything beyond the known keys. */
 
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { onboardingStatus, vaultRead } from "../lib/ipc";
 import { normalizeNumberInput } from "../lib/aggregate";
 import { setPropUndoable } from "../lib/undoprops";
@@ -26,6 +26,17 @@ import {
   TERMINAL_WIDTH_MAX,
   TERMINAL_WIDTH_MIN,
 } from "../lib/termdock";
+import {
+  applyAppearance,
+  DEFAULT_GLOW,
+  DEFAULT_NUDGE,
+  DEFAULT_TONE,
+  GLOW_MAX,
+  GLOW_MIN,
+  NUDGE_MAX,
+  TONES,
+  type ToneId,
+} from "../lib/appearance";
 import type { OnboardingStatus } from "../lib/onboarding";
 import { HOSTED_HANDOFF_RELAY_URL } from "../lib/handoff";
 
@@ -45,16 +56,31 @@ interface Field {
   label: string;
   hint: string;
   placeholder?: string;
-  kind: "text" | "bool" | "multiline" | "select";
+  kind: "text" | "bool" | "multiline" | "select" | "slider" | "chips" | "choice";
   /** bool fields only: an unset key reads as ON (e.g. `drop-hint`) */
   defaultOn?: boolean;
-  /** select fields only: the choices, first one being what an unset key means */
+  /** select and chips fields: the choices. For a select the FIRST option is
+      what an unset key means; chips name their default explicitly. */
   options?: { value: string; label: string }[];
+  /** chips fields only: the option an unset key reads as, and the one that
+      clears the key rather than writing it back */
+  defaultChip?: string;
   /** text fields only: an inclusive numeric range the value must fall in */
   range?: { min: number; max: number };
+  /** slider fields only (SUB-955): the dial's bounds and the value that
+      means "unset" — landing on it clears the key instead of writing it */
+  slider?: { min: number; max: number; step: number; default: number };
+  /** slider fields only: how the live number reads next to the track */
+  format?: (n: number) => string;
   /** text fields only: render as a password input (shoulder-surfing guard —
       the value still lives in Settings.md as plain frontmatter) */
   masked?: boolean;
+  /** choice fields only: the two options, first one the default an unset key
+      reads as (SUB-834) */
+  choices?: { value: string; label: string }[];
+  /** heading this field opens (rendered above its row) — the list is flat and
+      ordered, so a section runs until the next field that starts one */
+  section?: string;
 }
 
 /* SUB-873: a `terminal-font` the machine can't resolve looks like the setting
@@ -116,6 +142,22 @@ function fieldText(f: Field, raw: unknown): string {
   return typeof raw === "boolean" ? String(raw) : String(raw).trim();
 }
 
+/** where a slider sits: an unset, blank or unparseable value reads as the
+    field's default, and anything outside the bounds is clamped into them —
+    the same "a typo degrades to the default" posture the parsers take */
+function sliderValue(f: Field, raw: string): number {
+  const s = f.slider!;
+  const n = Number.parseFloat((raw ?? "").trim().replace(",", "."));
+  if (!Number.isFinite(n)) return s.default;
+  return Math.min(s.max, Math.max(s.min, Math.round(n / s.step) * s.step));
+}
+
+/** which chip a chips field is on, folding an unknown value to the default */
+function chipValue(f: Field, raw: string): string {
+  const want = (raw ?? "").trim().toLowerCase();
+  return f.options?.find((o) => o.value === want)?.value ?? f.defaultChip ?? "";
+}
+
 /** which option a select field is on: an unset key — or a value the note
     carries that isn't one of the choices — reads as the first option, which
     is the same fallback the parser applies (`parseTerminalDock`) */
@@ -123,6 +165,13 @@ function selectValue(f: Field, raw: string): string {
   const opts = f.options ?? [];
   const hit = opts.find((o) => o.value === raw.trim().toLowerCase());
   return hit?.value ?? opts[0]?.value ?? "";
+}
+
+/** current option of a choice field: an unset or unrecognized value reads as
+    the first choice, matching how the parsers in `lib/settings.ts` default */
+function choiceValue(f: Field, raw: string): string {
+  const choices = f.choices ?? [];
+  return choices.some((c) => c.value === raw) ? raw : (choices[0]?.value ?? "");
 }
 
 const FIELDS: Field[] = [
@@ -159,6 +208,32 @@ const FIELDS: Field[] = [
     hint: "vertical lines between database table columns; each database can override this in its ⋯ menu",
     kind: "bool",
     defaultOn: true,
+  },
+  /* Appearance (SUB-955) — the two dials that move the look without moving
+     the layout. Both default to the shipped picture: glow 0, tone sky. */
+  {
+    key: "glow",
+    label: "Glow",
+    hint: "bloom on dashboard chart strokes, dots and emphasised values; bars join above 70. 0 is the shipped look",
+    kind: "slider",
+    slider: { min: GLOW_MIN, max: GLOW_MAX, step: 1, default: DEFAULT_GLOW },
+    format: (n) => (n === 0 ? "off" : String(n)),
+  },
+  {
+    key: "accent-tone",
+    label: "Accent tone",
+    hint: "the hue every dashboard mark wears; state colours never move with it",
+    kind: "chips",
+    defaultChip: DEFAULT_TONE,
+    options: TONES.map((t) => ({ value: t.id, label: t.label })),
+  },
+  {
+    key: "accent-tone-nudge",
+    label: "Tone fine-tune",
+    hint: "shifts the chosen tone a few degrees; bounded so every mark stays legible on screen and on paper",
+    kind: "slider",
+    slider: { min: -NUDGE_MAX, max: NUDGE_MAX, step: 1, default: DEFAULT_NUDGE },
+    format: (n) => (n === 0 ? "0°" : `${n > 0 ? "+" : ""}${n}°`),
   },
   {
     key: "show-agent-files",
@@ -221,6 +296,41 @@ const FIELDS: Field[] = [
     kind: "multiline",
   },
   {
+    key: "number-format",
+    label: "Number format",
+    hint: "how numbers are written in tables, calc lines and totals",
+    kind: "choice",
+    choices: [
+      { value: "de", label: "1.234,56" },
+      { value: "intl", label: "1,234.56" },
+    ],
+  },
+  /* SUB-834: the three requests that leave this machine, each with its own
+     switch. Grouped under one heading so the answer to "what does this app
+     talk to?" is a single place in the UI, not three settings apart. */
+  {
+    key: "net-link-titles",
+    label: "Fetch link titles",
+    hint: "pasting a URL asks that site for its page title",
+    kind: "bool",
+    defaultOn: true,
+    section: "Outbound requests",
+  },
+  {
+    key: "net-fx-rates",
+    label: "Currency rates",
+    hint: "fetches exchange rates from frankfurter.dev; off = conversions use the last saved rates and show their date",
+    kind: "bool",
+    defaultOn: true,
+  },
+  {
+    key: "net-share-relay",
+    label: "Send as link",
+    hint: "uploads the encrypted note to your share relay; off hides the Send-as-link action",
+    kind: "bool",
+    defaultOn: true,
+  },
+  {
     key: "share-relay-url",
     label: "Share relay URL",
     hint: "where “Send as link” parks the encrypted copy — the relay only ever sees ciphertext; self-host one with scripts/handoff-relay",
@@ -235,6 +345,23 @@ const FIELDS: Field[] = [
     masked: true,
   },
 ];
+
+const field = (key: string): Field => FIELDS.find((f) => f.key === key)!;
+const GLOW_FIELD = field("glow");
+const TONE_FIELD = field("accent-tone");
+const NUDGE_FIELD = field("accent-tone-nudge");
+
+/** What the three appearance keys currently in the form add up to. The pane
+    previews through this rather than through the saved note, so dragging a
+    dial repaints the app under the sheet before anything is written
+    (SUB-955); App re-applies the committed truth on the next vault epoch. */
+function appearanceOf(v: Record<string, string>) {
+  return {
+    glow: sliderValue(GLOW_FIELD, v[GLOW_FIELD.key] ?? ""),
+    tone: chipValue(TONE_FIELD, v[TONE_FIELD.key] ?? "") as ToneId,
+    nudge: sliderValue(NUDGE_FIELD, v[NUDGE_FIELD.key] ?? ""),
+  };
+}
 
 export default function SettingsPane({
   onClose,
@@ -424,23 +551,24 @@ export default function SettingsPane({
     [values, onSettingsChanged, onToast, reconcileSettings, undo]
   );
 
-  /** a select writes on the click — there is no blur to wait for, and the
-      first option is what an unset key already means, so picking it clears
-      the key rather than writing the default back into the note */
+  /** choices write on the click — there is no blur to wait for. Select fields
+      clear their first option because that is what an unset key already means;
+      choice fields retain their explicit value, matching the existing setting. */
   const choose = useCallback(
     (f: Field, value: string) => {
       if (!values) return;
       const key = f.key;
-      // Compare the semantic selection, not the raw key: an unset value
-      // already means the first option, so clicking it must not record a
-      // no-op undo entry for clearing an absent property.
-      if (value === selectValue(f, saved[key] ?? "")) return;
+      const current =
+        f.kind === "choice"
+          ? choiceValue(f, saved[key] ?? "")
+          : selectValue(f, saved[key] ?? "");
+      if (value === current) return;
       setValues((v) => (v ? { ...v, [key]: value } : v));
-      const isDefault = value === f.options?.[0]?.value;
+      const isDefaultSelect = f.kind === "select" && value === f.options?.[0]?.value;
       setPropUndoable({
         path: SETTINGS_PATH,
         key,
-        value: isDefault ? null : value,
+        value: isDefaultSelect ? null : value,
         record: undo.record,
         onApplied: reconcileSettings,
       })
@@ -454,6 +582,106 @@ export default function SettingsPane({
   );
 
   const fade = useEdgeFade<HTMLDivElement>();
+
+  /** dragging: repaint immediately, write nothing. A range input fires
+      onChange for every step of a drag, and each write is an IPC round trip
+      plus its own undo entry — so the note learns about it on release. */
+  const slide = useCallback((f: Field, n: number) => {
+    setValues((v) => {
+      if (!v) return v;
+      const next = { ...v, [f.key]: String(n) };
+      applyAppearance(document.documentElement, appearanceOf(next));
+      return next;
+    });
+  }, []);
+
+  /** A live appearance preview is only optimistic. If Settings.md rejects
+      the write, restore that field from the last persisted snapshot and
+      repaint immediately; leaving an unsaved look active would make the
+      sheet and the next launch disagree. */
+  const rollbackAppearance = useCallback(
+    (key: string) => {
+      setValues((current) => {
+        if (!current) return current;
+        const next = { ...current, [key]: saved[key] ?? "" };
+        applyAppearance(document.documentElement, appearanceOf(next));
+        return next;
+      });
+    },
+    [saved]
+  );
+
+  /** release (pointer up, key up, or losing focus): persist if it moved */
+  const commitSlider = useCallback(
+    (f: Field) => {
+      if (!values) return;
+      const n = sliderValue(f, values[f.key]);
+      if (n === sliderValue(f, saved[f.key] ?? "")) return;
+      const isDefault = n === f.slider!.default;
+      setValues((v) => (v ? { ...v, [f.key]: String(n) } : v));
+      setPropUndoable({
+        path: SETTINGS_PATH,
+        key: f.key,
+        // the default is what an unset key already means, so landing on it
+        // clears the key rather than writing the default into the note
+        value: isDefault ? null : String(n),
+        record: undo.record,
+        onApplied: reconcileSettings,
+      })
+        .then(() => {
+          setSaved((s) => ({ ...s, [f.key]: String(n) }));
+          void onSettingsChanged();
+        })
+        .catch((e) => {
+          rollbackAppearance(f.key);
+          onToast(`couldn't save ${f.key} (${e})`);
+        });
+    },
+    [
+      values,
+      saved,
+      onSettingsChanged,
+      onToast,
+      reconcileSettings,
+      rollbackAppearance,
+      undo,
+    ]
+  );
+
+  /** a tone chip writes on the click, like the segmented control */
+  const chooseChip = useCallback(
+    (f: Field, value: string) => {
+      if (!values) return;
+      if (value === chipValue(f, saved[f.key] ?? "")) return;
+      const next = { ...values, [f.key]: value };
+      setValues(next);
+      applyAppearance(document.documentElement, appearanceOf(next));
+      setPropUndoable({
+        path: SETTINGS_PATH,
+        key: f.key,
+        value: value === f.defaultChip ? null : value,
+        record: undo.record,
+        onApplied: reconcileSettings,
+      })
+        .then(() => {
+          setSaved((s) => ({ ...s, [f.key]: value }));
+          void onSettingsChanged();
+        })
+        .catch((e) => {
+          rollbackAppearance(f.key);
+          onToast(`couldn't save ${f.key} (${e})`);
+        });
+    },
+    [
+      values,
+      saved,
+      onSettingsChanged,
+      onToast,
+      reconcileSettings,
+      rollbackAppearance,
+      undo,
+    ]
+  );
 
   return (
     <div className={`overlay${closing ? " closing" : ""}`} onMouseDown={close}>
@@ -495,126 +723,222 @@ export default function SettingsPane({
           )}
           {values &&
             FIELDS.map((f) => (
-              <div className="settings-row" key={f.key}>
-                <div className="settings-row-text">
-                  {/* a radiogroup is not a labelable element, so that row gets
-                      a plain heading (the group carries its own aria-label)
-                      rather than a <label> pointing at nothing */}
-                  {f.kind === "select" ? (
-                    <div className="settings-label">{f.label}</div>
+              <Fragment key={f.key}>
+                {f.section && <div className="palette-section">{f.section}</div>}
+                <div className="settings-row">
+                  <div className="settings-row-text">
+                    {/* radiogroups are not labelable elements, so those rows
+                        use a plain heading and name the group with aria-label */}
+                    {f.kind === "choice" || f.kind === "select" || f.kind === "chips" ? (
+                      <div className="settings-label">{f.label}</div>
+                    ) : (
+                      <label className="settings-label" htmlFor={`set-${f.key}`}>
+                        {f.label}
+                      </label>
+                    )}
+                    <div className="settings-hint">{f.hint}</div>
+                    {f.key === "terminal-font" && badFonts.missing.length > 0 && (
+                      <div className="settings-hint settings-hint-warn" data-testid="font-missing">
+                        font not found: {badFonts.missing.join(", ")} — check the exact family name
+                        in Font Book
+                      </div>
+                    )}
+                    {/* a dropped entry isn't a family the machine could have —
+                        sending someone to Font Book to look up "0.45" is the
+                        wrong hint, so this one just says what it is */}
+                    {f.key === "terminal-font" && badFonts.unusable.length > 0 && (
+                      <div className="settings-hint settings-hint-warn" data-testid="font-unusable">
+                        not a usable font name: {badFonts.unusable.join(", ")}
+                      </div>
+                    )}
+                  </div>
+                  {f.kind === "choice" ? (
+                    /* the expiry picker's idiom (SendLinkDialog): a radiogroup
+                       of latched buttons, not a <select> — two options fit
+                       inline and both stay readable without opening anything */
+                    <div className="settings-choice" role="radiogroup" aria-label={f.label}>
+                      {(f.choices ?? []).map((c) => (
+                        <button
+                          key={c.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={choiceValue(f, values[f.key]) === c.value}
+                          className={`selmenu-btn${choiceValue(f, values[f.key]) === c.value ? " on" : ""}`}
+                          onClick={() => choose(f, c.value)}
+                        >
+                          {c.label}
+                        </button>
+                      ))}
+                    </div>
+                  ) : f.kind === "bool" ? (
+                    <button
+                      id={`set-${f.key}`}
+                      role="switch"
+                      aria-checked={boolOn(f, values[f.key])}
+                      className={`settings-switch${boolOn(f, values[f.key]) ? " on" : ""}`}
+                      onClick={() => toggle(f)}
+                    >
+                      <span className="settings-knob" />
+                    </button>
+                  ) : f.kind === "select" ? (
+                    /* two choices, so a segmented control rather than a menu:
+                       both options stay readable and one click switches */
+                    <div
+                      className="settings-seg"
+                      id={`set-${f.key}`}
+                      role="radiogroup"
+                      aria-label={f.label}
+                    >
+                      {(f.options ?? []).map((o, index, options) => {
+                        const selected = selectValue(f, values[f.key]) === o.value;
+                        return (
+                          <button
+                            key={o.value}
+                            role="radio"
+                            aria-checked={selected}
+                            tabIndex={selected ? 0 : -1}
+                            className={`settings-seg-btn${selected ? " on" : ""}`}
+                            onClick={() => choose(f, o.value)}
+                            onKeyDown={(e) => {
+                              let next = index;
+                              if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                                next = (index + 1) % options.length;
+                              } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                                next = (index - 1 + options.length) % options.length;
+                              } else if (e.key === "Home") {
+                                next = 0;
+                              } else if (e.key === "End") {
+                                next = options.length - 1;
+                              } else {
+                                return;
+                              }
+                              e.preventDefault();
+                              e.stopPropagation();
+                              choose(f, options[next].value);
+                              const buttons = e.currentTarget.parentElement?.querySelectorAll("button");
+                              (buttons?.[next] as HTMLButtonElement | undefined)?.focus();
+                            }}
+                          >
+                            {o.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    ) : f.kind === "slider" ? (
+                    /* SUB-955: the appearance dials. The live number sits next
+                       to the track because "glow 46" is a value the user wants
+                       to be able to come back to, and a bare handle isn't one. */
+                    <div className="settings-slider">
+                      <input
+                        id={`set-${f.key}`}
+                        className="settings-range"
+                        type="range"
+                        min={f.slider!.min}
+                        max={f.slider!.max}
+                        step={f.slider!.step}
+                        value={sliderValue(f, values[f.key])}
+                        onChange={(e) => slide(f, Number(e.target.value))}
+                        onPointerUp={() => commitSlider(f)}
+                        onKeyUp={() => commitSlider(f)}
+                        onBlur={() => commitSlider(f)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") close();
+                          e.stopPropagation();
+                        }}
+                      />
+                      <span className="settings-slider-val">
+                        {(f.format ?? String)(sliderValue(f, values[f.key]))}
+                      </span>
+                    </div>
+                  ) : f.kind === "chips" ? (
+                    /* more than two choices and each one is a COLOUR, so the
+                       segmented control's text-only rows won't do: every chip
+                       carries a dot in the tone it names. The dots are painted
+                       from the same table the app is (styles.css), so a chip
+                       can never disagree with what picking it does. */
+                    <div
+                      className="settings-chips"
+                      id={`set-${f.key}`}
+                      role="radiogroup"
+                      aria-label={f.label}
+                    >
+                      {(f.options ?? []).map((o, index, options) => {
+                        const selected = chipValue(f, values[f.key]) === o.value;
+                        return (
+                          <button
+                            key={o.value}
+                            role="radio"
+                            aria-checked={selected}
+                            tabIndex={selected ? 0 : -1}
+                            data-tone-swatch={o.value}
+                            className={`settings-chip${selected ? " on" : ""}`}
+                            onClick={() => chooseChip(f, o.value)}
+                            onKeyDown={(e) => {
+                              let next = index;
+                              if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                                next = (index + 1) % options.length;
+                              } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                                next = (index - 1 + options.length) % options.length;
+                              } else if (e.key === "Home") {
+                                next = 0;
+                              } else if (e.key === "End") {
+                                next = options.length - 1;
+                              } else {
+                                return;
+                              }
+                              e.preventDefault();
+                              e.stopPropagation();
+                              chooseChip(f, options[next].value);
+                              const buttons =
+                                e.currentTarget.parentElement?.querySelectorAll("button");
+                              (buttons?.[next] as HTMLButtonElement | undefined)?.focus();
+                            }}
+                          >
+                            <span className="settings-chip-dot" />
+                            {o.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                ) : f.kind === "multiline" ? (
+                    <textarea
+                      id={`set-${f.key}`}
+                      className="settings-input settings-textarea"
+                      rows={4}
+                      value={values[f.key]}
+                      placeholder={f.placeholder}
+                      spellCheck={false}
+                      onChange={(e) =>
+                        setValues((v) => (v ? { ...v, [f.key]: e.target.value } : v))
+                      }
+                      onBlur={() => commit(f.key)}
+                      onKeyDown={(e) => {
+                        // Enter inserts a line here — Escape is the way out
+                        if (e.key === "Escape") close();
+                        e.stopPropagation();
+                      }}
+                    />
                   ) : (
-                    <label className="settings-label" htmlFor={`set-${f.key}`}>
-                      {f.label}
-                    </label>
-                  )}
-                  <div className="settings-hint">{f.hint}</div>
-                  {f.key === "terminal-font" && badFonts.missing.length > 0 && (
-                    <div className="settings-hint settings-hint-warn" data-testid="font-missing">
-                      font not found: {badFonts.missing.join(", ")} — check the exact family name
-                      in Font Book
-                    </div>
-                  )}
-                  {/* a dropped entry isn't a family the machine could have —
-                      sending someone to Font Book to look up "0.45" is the
-                      wrong hint, so this one just says what it is */}
-                  {f.key === "terminal-font" && badFonts.unusable.length > 0 && (
-                    <div className="settings-hint settings-hint-warn" data-testid="font-unusable">
-                      not a usable font name: {badFonts.unusable.join(", ")}
-                    </div>
+                    <input
+                      id={`set-${f.key}`}
+                      className="settings-input"
+                      type={f.masked ? "password" : "text"}
+                      value={values[f.key]}
+                      placeholder={f.placeholder}
+                      spellCheck={false}
+                      onChange={(e) =>
+                        setValues((v) => (v ? { ...v, [f.key]: e.target.value } : v))
+                      }
+                      onBlur={() => commit(f.key)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                        if (e.key === "Escape") close();
+                        e.stopPropagation();
+                      }}
+                    />
                   )}
                 </div>
-                {f.kind === "bool" ? (
-                  <button
-                    id={`set-${f.key}`}
-                    role="switch"
-                    aria-checked={boolOn(f, values[f.key])}
-                    className={`settings-switch${boolOn(f, values[f.key]) ? " on" : ""}`}
-                    onClick={() => toggle(f)}
-                  >
-                    <span className="settings-knob" />
-                  </button>
-                ) : f.kind === "select" ? (
-                  /* two choices, so a segmented control rather than a menu:
-                     both options stay readable and one click switches */
-                  <div
-                    className="settings-seg"
-                    id={`set-${f.key}`}
-                    role="radiogroup"
-                    aria-label={f.label}
-                  >
-                    {(f.options ?? []).map((o, index, options) => {
-                      const selected = selectValue(f, values[f.key]) === o.value;
-                      return (
-                        <button
-                          key={o.value}
-                          role="radio"
-                          aria-checked={selected}
-                          tabIndex={selected ? 0 : -1}
-                          className={`settings-seg-btn${selected ? " on" : ""}`}
-                          onClick={() => choose(f, o.value)}
-                          onKeyDown={(e) => {
-                            let next = index;
-                            if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-                              next = (index + 1) % options.length;
-                            } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-                              next = (index - 1 + options.length) % options.length;
-                            } else if (e.key === "Home") {
-                              next = 0;
-                            } else if (e.key === "End") {
-                              next = options.length - 1;
-                            } else {
-                              return;
-                            }
-                            e.preventDefault();
-                            e.stopPropagation();
-                            choose(f, options[next].value);
-                            const buttons = e.currentTarget.parentElement?.querySelectorAll("button");
-                            (buttons?.[next] as HTMLButtonElement | undefined)?.focus();
-                          }}
-                        >
-                          {o.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : f.kind === "multiline" ? (
-                  <textarea
-                    id={`set-${f.key}`}
-                    className="settings-input settings-textarea"
-                    rows={4}
-                    value={values[f.key]}
-                    placeholder={f.placeholder}
-                    spellCheck={false}
-                    onChange={(e) =>
-                      setValues((v) => (v ? { ...v, [f.key]: e.target.value } : v))
-                    }
-                    onBlur={() => commit(f.key)}
-                    onKeyDown={(e) => {
-                      // Enter inserts a line here — Escape is the way out
-                      if (e.key === "Escape") close();
-                      e.stopPropagation();
-                    }}
-                  />
-                ) : (
-                  <input
-                    id={`set-${f.key}`}
-                    className="settings-input"
-                    type={f.masked ? "password" : "text"}
-                    value={values[f.key]}
-                    placeholder={f.placeholder}
-                    spellCheck={false}
-                    onChange={(e) =>
-                      setValues((v) => (v ? { ...v, [f.key]: e.target.value } : v))
-                    }
-                    onBlur={() => commit(f.key)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                      if (e.key === "Escape") close();
-                      e.stopPropagation();
-                    }}
-                  />
-                )}
-              </div>
+              </Fragment>
             ))}
         </div>
         <div className="palette-foot">

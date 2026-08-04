@@ -7,7 +7,7 @@ code disagree, the code wins and the doc gets fixed (see AGENTS.md: format chang
 update this file in the same merge).
 
 Sources of truth: `src-tauri/src/vault/` (engine — `Engine` façade in `mod.rs`,
-plus the `schema`, `views`, `search`, `trash`, `assets`, `foldersync`, `watch`,
+plus the `schema`, `views`, `search`, `trash`, `assets`, `mounts`, `foldersync`, `watch`,
 `doctor`, `seed` modules), `src-tauri/src/lib.rs` + `src-tauri/src/commands/` (IPC),
 `src-tauri/src/calendarfeed.rs` (read-only iCalendar subscriptions),
 `src-tauri/src/history.rs` (vault git), `src/lib/*.ts` (frontend formats),
@@ -72,7 +72,7 @@ Vault/
 ├── .claude/skills/            # agent skills, seeded + user-written (§12)
 ├── .assets/                   # embedded binaries, flat (§9)
 ├── .trash/                    # deleted notes + folders, recoverable (§10)
-├── .vault/                    # format.json + schema.json + views.json + folders.json + calendars.json + notifications.json + jobs-exit.json + templates/ + kinds/ + backup/ (§5b–§8)
+├── .vault/                    # format.json + schema.json + views.json + folders.json + calendars.json + mounts.json + mounts/ + notifications.json + jobs-exit.json + templates/ + kinds/ + backup/ (§5b–§8)
 └── .git/                      # version history, owned by the app (§11)
 ```
 
@@ -82,6 +82,19 @@ covers `.assets/`, `.trash/`, `.vault/`, `.git/`, and any `.foo/` you add
 yourself. Only `.md` files are notes; binary files (containing NUL) are skipped,
 invalid UTF-8 is read lossily. One explicit-path exception: `.vault/templates/`
 (§7) stays unindexed but can be read and written directly.
+
+**Loose files are visible without being indexed** (SUB-812): a folder view
+lists the non-`.md` files sitting beside its notes — audio ones playable in
+place — through `vault_folder_files`, a lazy per-folder `read_dir` that runs
+when you open the folder. The index itself stays `.md`-only, so dropping a
+gigabyte of masters into a vault folder costs the scan nothing. The listing
+obeys the hidden rule above, which is also the whole dedupe story: an imported
+embed lives in `.assets/` and therefore never doubles as a folder row. A
+LINK-IN-PLACE embed (`![[/abs/path.wav]]`, §3) may point at a file a folder
+view lists, and that is correct — one file with two surfaces, sharing one
+player, because both address it by absolute path. Files past a per-folder cap
+are counted but not listed; nothing here is watched, so the pane refetches on
+the vault's own change event rather than live-updating per file.
 
 ## 2. Notes
 
@@ -260,6 +273,7 @@ brackets, **no `[[target|alias]]` form** (the pipe becomes part of the name).
 - Missing or moved targets render `missing image · <name>` / `missing audio ·
   <name>` / `missing file · <name>` — a display state, not an error; the file
   content is untouched.
+
 
 ## 3b. Tags
 
@@ -1269,6 +1283,50 @@ External writers: `.vault/kinds/` is app-owned. Write a bundle there only
 deliberately, and never touch the consent record — it is not in the vault by
 design.
 
+### 5.9 Calc lines — `= expression` (SUB-834)
+
+A body line whose first non-space character is `=` (at most 3 leading spaces —
+markdown's own block threshold, so a 4-space-indented `= 1 + 1` stays a code
+block) computes, and the answer renders beside it as a dim inline chip. The
+answer is **never written to the file**: any other markdown reader sees exactly
+the expression the user typed, nothing else. `===` setext underlines and a lone
+`=` are not calc lines; lines inside ``` fences never compute (`src/lib/calc.ts`
+`isCalcLine` / `fencedLines`).
+
+- **Expressions**: `+ - * /`, parentheses, unary minus. Numbers read in both
+  dialects (`1.234,56` and `1234.56` — same coercion as number cells) and take
+  a `k`/`M`/`B` shorthand glued to the number (`3.9M`, `12k`).
+- **Units**: a number may carry a unit — currency codes and symbols
+  (`25 USD`, `$25`, `1.234,56 €`), mass/length/time/data units (`5 kg`,
+  `12 km`, `250 ms`, `1.5 GB`), display-only codes (`128 BPM`, `-14 LUFS`).
+  The vocabulary is `src/lib/units.ts` (single source of truth, mirrored by
+  `schema.rs` for column formats). `+`/`-` require the same dimension — the
+  right side converts into the left's unit; a bare number adopts its partner's
+  unit (`100 € + 19` → `119 €`). `*`/`/` take unit×scalar, unit÷scalar, and
+  same-dimension ratios (unit÷unit → plain number). Currency converts through
+  the app-wide cached rates (§12 `net-fx-rates`); never through anything
+  stored in the note.
+- **Conversion**: a trailing `in <unit>` converts the whole result —
+  `= 25 USD in EUR`, `= 5 miles in km`. `in` is reserved for this; the inch
+  spells itself `inch`/`inches`.
+- **Variables**: `= name: expression` binds `name` for calc lines *below* it
+  (top-down, per note; forward references are unknown-name errors). Only calc
+  lines bind — a prose line `rent = 1450` never captures. The binding line
+  still shows its own value.
+- **Line aggregates**: a bare `= sum`, `= avg` or `= count` totals the
+  contiguous run of lines directly above that parse as quantities (list
+  markers `-`/`*`/`1.` are stripped first). An empty line — or any
+  non-quantity line — ends the run. The first (topmost) line of the run sets
+  the result's unit; the rest convert into it.
+- **Errors are quiet**: a line that can't compute shows a dim `–` with the
+  reason on hover — never an error wall inside prose.
+- Results format per the `number-format` setting (§12): `de` `1.234,56`
+  (default) or `intl` `1,234.56`.
+
+Agent note: calc lines are *read-time* sugar — an external writer never needs
+to compute or update anything. Write the expression, the app renders the
+answer.
+
 ## 5b. `.vault/format.json` — config format versions (covers §6–§8b)
 
 One sidecar records which format version each hidden config file is in
@@ -1278,12 +1336,12 @@ an older app rewriting a newer file used to silently drop what it didn't
 understand.
 
 ```json
-{ "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1, "kinds": 1, "tagfolders": 1 }
+{ "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1, "kinds": 1, "tagfolders": 1, "mounts": 1 }
 ```
 
 - Keys are `schema`, `views`, `folders`, `notifications`, `calendars`,
-  `kinds`, `tagfolders` (§5c, §6, §7, the notification sub-section, §8, §5.8,
-  §8b). Current version for all seven: **1**.
+  `kinds`, `tagfolders`, `mounts` (§5c, §6, §7, the notification sub-section,
+  §8, §5.8, §8b). Current version for all eight: **1**.
 - `kinds` versions the **bundle format** of §5.8, not any one file: it says
   which shape of `kind.json` and which bundle layout the vault's
   `.vault/kinds/` folders are written in. **RESERVED** — the key is defined
@@ -1300,9 +1358,10 @@ understand.
 - **The version is NOT stored inside the config files.** It can't be:
   `schema.json` is parsed as a map of type entries, so a top-level number
   makes shipped builds fail to parse the whole file and read an empty schema;
-  `folders.json` and `calendars.json` are JSON arrays with nowhere to put a
-  key. The files keep exactly the shape they had. External writers should
-  ignore the sidecar unless they're deliberately writing a newer format.
+  `folders.json`, `calendars.json`, and `mounts.json` are JSON arrays with
+  nowhere to put a key. The files keep exactly the shape they had. External
+  writers should ignore the sidecar unless they're deliberately writing a
+  newer format.
 - **Refuse-newer**: when a file's recorded version is above what the running
   app knows, the app treats that ONE file as read-only. Reads keep working
   normally; the write path fails with "This vault was written by a newer
@@ -1503,11 +1562,48 @@ PropSchema fields:
   ` €`); `"percent"` (SUB-196) renders through the same de-DE path with a
   ` %` suffix — `8,5 %`, `1.250,25 %` (the stored number IS the percent —
   no ×100 math); `"plain"` is the default and stores
-  as absent (the key is omitted). Display-only — the note's stored value
+  as absent (the key is omitted). Since SUB-834 the same field also names the
+  column's UNIT: any `src/lib/units.ts` code is a valid value (`USD`, `GBP`,
+  `kg`, `km`, `ms`, `BPM`, `LUFS`, …), and `euro`/`percent` stay forever as
+  the on-disk aliases for `EUR` and `%` — one field, no migration. A cell
+  whose stored scalar carries its OWN unit of the same dimension
+  (`25 USD` in a EUR column) renders converted into the column's unit, marked
+  (hover: original value, rate, as-of date); the stored value is untouched —
+  **rows keep their unit**. Footer aggregations convert the same way and
+  carry the same marker; a cell whose unit can't convert (unknown code, no
+  rate, wrong dimension) renders as typed and is skipped by sums — never a
+  silently wrong number. Display-only — the note's stored value
   never changes, and display parsing uses the same coercion as the table
   footer's sums (`parseCellNumber` in `src/lib/aggregate.ts`), so cells and
-  calculations never disagree. Unknown formats are refused on write; a
+  calculations never disagree. Unknown formats are refused on write (the unit
+  vocabulary is mirrored in `schema.rs`, kept in step with units.ts); a
   `format` arriving on a non-number kind drops.
+
+  Since SUB-834 the same field may equally name a **unit**: any code from the
+  unit registry (`src/lib/units.ts`, mirrored as `UNIT_CODES` in
+  `src-tauri/src/vault/schema.rs`) — `USD`, `GBP`, `CHF`, `kg`, `g`, `km`,
+  `ms`, `BPM`, `LUFS`, `dB`, `%` and the rest. Codes are matched
+  case-insensitively and stored in their canonical spelling (`usd` writes as
+  `USD`); only codes are accepted, not the registry's word aliases
+  ("dollars"). `"euro"` and `"percent"` remain valid forever as the aliases
+  for `EUR` and `%` that existing vaults already carry — one field, no
+  migration, and a vault written before units reads and writes exactly as
+  before.
+
+  **Rows keep their own unit.** A cell in a unit column may store a bare
+  number (`1450`) or a quantity (`25 USD`, `$25`, `500 g`). The scalar stays
+  byte-identical on disk — nothing is converted on entry and no stored value
+  is ever rewritten. A quantity in a *different* unit of the *same* dimension
+  renders converted into the column's unit, marked so the shown figure never
+  passes for the stored one; currency conversion uses the app's FX rates,
+  linear units (mass, length, time, data) need none. A value that cannot
+  convert honestly — a foreign dimension, an unknown unit, a currency with no
+  rate — renders exactly as typed rather than as a wrong number, and drops
+  out of footer aggregations the way non-numeric text always has. The footer
+  names both what it folded in and what it left out, so a mixed-unit column
+  is never silently summed. Because a quantity is a legal value here, the
+  vault doctor (§14) does not flag `25 USD` in a number prop; real junk
+  (`ask`, `25 furlongs`) is still flagged.
 - `relation` — rollup-kind only (SUB-678): the NAME of the relation prop on
   the same database to follow (not a database name — the relation prop's own
   `type` names the related database). Required on write; it must already
@@ -1963,65 +2059,160 @@ in-app like any note; a write creates the dir and file on first use and
 preserves frontmatter exactly as for ordinary notes. Every other hidden path
 stays unreachable through those commands.
 
-## 8. `.vault/folders.json` — folder-backed databases
+## 8. `.vault/mounts.json` — mounted folders (reality mounts)
 
-Folder→database mappings: each maps a real folder on disk to a note `type`,
-and **sync** materializes the folder's files as stub notes in the vault —
-the notes are the metadata layer over files that stay where they are. Same
-file discipline as schema.json: missing or corrupt reads as no mappings.
-Mappings are added in-app — "Map a folder…" from the All-databases manager's
-row menu or the sidebar Folders "+" menu (SUB-672), which also runs the
-first scan — or edited by hand (JSON array of mappings):
+A **mount** shows a real folder on disk as a database: every matching file is
+a row, read from a live index. Nothing is imported, nothing is copied, and
+**no note is written until a row is annotated** — at which point one sidecar
+note is created for that file and nothing else. The folder itself is strictly
+read-only: files are stat'd and read for their identity hash, never written,
+moved, renamed or deleted.
+
+A mount is split across two places on purpose:
+
+- **`.vault/mounts.json`** — the portable half: identity, name, globs, watch
+  flag. Synced, and deliberately **path-free**.
+- **This machine's app config** (`appcfg.rs`, outside the vault) — mount id →
+  local absolute path. NOT synced, because the same folder lives at a
+  different path on every machine, and on some machines it isn't there at all.
+
+Missing or corrupt reads as no mounts, same file discipline as schema.json.
+Mounts are added in-app — "Mount a folder…" from the sidebar Folders "+" menu
+or the All-databases manager's row menu, which also runs the first scan — or
+edited by hand (JSON array):
 
 ```json
 [
-  { "path": "~/Finance/Invoices", "type": "finance-doc", "globs": ["*.pdf"], "watch": true }
+  { "id": "9f1c…-uuid", "name": "Album pool", "globs": ["*.als"], "watch": true }
 ]
 ```
 
-- `path` — absolute or `~/…`; must be an existing directory that does not
-  overlap the vault (either direction). A mapping that fails either check is
-  skipped with an error stat.
-- `type` — the stub notes' `type:` prop (required).
+- `id` — UUID v4, generated once, never reused. Every sidecar, index file and
+  machine binding refers to it, so it is the one field nothing may rewrite.
+- `name` — required, unique case-insensitively. **A mount IS a schema type**:
+  registering one creates a database of that name (§6), which is what gives
+  its sidecars schema'd props, options and views for free. Renaming the
+  database renames the mount and vice versa; deleting either drops both.
 - `globs` — optional; case-insensitive file-NAME patterns with `*` as the only
-  wildcard (matches any run of characters). Empty/absent = every non-hidden
-  file; subfolders recurse, dot-names are skipped.
-- `watch` — optional, default `false`. `true` opts the mapping into the live
-  watcher (below).
-- Any other key on a mapping is preserved verbatim across app writes
-  (SUB-433) — a newer Substrate's fields survive an older app's rewrite.
-  The file's format version lives in `.vault/format.json` (§5b), and a
-  version newer than the app knows makes this file read-only.
+  wildcard. Empty/absent = every non-hidden file; subfolders recurse,
+  dot-names are skipped.
+- `watch` — optional, default `false`. Opts the mount into the live watcher
+  (below), and only takes effect on a machine where it is bound.
+- Any other key is preserved verbatim across app writes (SUB-433). The file's
+  format version lives in `.vault/format.json` under `mounts` (§5b); a version
+  newer than the app knows makes the registry AND the per-mount indexes below
+  read-only.
 
-`rename_type` / `delete_type` (§6) keep these folder mappings in sync —
-retargeted or dropped in place, so a rescan never resurrects a renamed or
-deleted type.
+### `.vault/mounts/<id>.json` — the last-known index
 
-Sync (`vault/foldersync.rs` `sync_folders`, palette → "Rescan folder databases"; the
-"Map a folder…" dialog runs the same scan the moment a mapping is added) is
-strictly **read-only on the mapped folder** — files are stat'd, never
-written, moved, renamed, or deleted:
+One app-owned file per mount, rewritten wholesale by every scan. It is what
+the board renders from, which is why it is synced: a machine that has never
+seen the folder still shows the rows, and every annotation on them.
 
-- Every glob-matching file gets a stub note named after it, in a vault folder
-  named after the mapped folder, carrying the sync-owned props: `type`,
-  `file` (absolute `~/…` path), `modified` (`YYYY-MM-DD HH:MM`), `size`
-  (bytes), `created` — plus the schema's other props seeded empty. Sync-owned
-  props are refreshed on every scan; user edits to them don't survive, other
-  props and the body do.
-- Dedupe is by the `file` prop's normalized absolute path, wherever the note
-  itself lives in the vault: a known file only gets stamp refreshes; a
-  vanished file's note is flagged `missing: true`, never deleted; a
-  reappearing file clears the flag.
-- The `file` prop's schema entry (`kind: "file"`, §6) is seeded when the type
-  has none, so open/reveal UI kicks in.
+```json
+{
+  "scanned": "2026-08-03T11:04:19+02:00",
+  "files": [
+    { "rel": "2026/kick take 3.als", "size": 481920,
+      "modified": "2026-07-31 18:22", "created": "2026-07-31",
+      "identity": "b1e0…", "missing": false }
+  ]
+}
+```
 
-Live watcher (`vault/watch.rs` `watch_folders`): recursive FSEvents over every
-`"watch": true` mapping's folder, 300ms debounce, running the same
-`sync_folders` on change and emitting `vault:changed`. `folders.json` itself
-is watched, so mapping edits (new folders, `watch` flips) apply without a
-restart, and one catch-up sync runs at app launch when at least one mapping
-opted in. The opt-in exists so big archive folders don't churn — opted-out
-mappings sync on demand only. The watcher never writes to the watched folder.
+- `rel` — path relative to the mount root, `/`-separated, the row's key.
+- `size`/`modified`/`created` — the intrinsic columns (`%Y-%m-%d %H:%M` and
+  `%Y-%m-%d`, local). Row `name` and `extension` are derived from `rel`.
+- `identity` — the file's **content identity** (below); what sidecars bind to.
+- `missing` — the index remembers the file and the last scan didn't find it.
+  Such a row is kept and greyed, never dropped, and keeps its sidecar.
+
+**Content identity** (`vault/mounts.rs` `file_identity`): hex SHA-256 over the
+file's complete byte stream, read through a bounded buffer. It is stable
+across renames, moves, and copies to another machine, and two same-sized files
+with matching headers and tails still differ when any middle byte differs. A
+rescan matches the previous index **by identity first** (so a renamed file
+keeps its row and its annotations), then by `rel` (so a file edited in place
+keeps its row and gets a fresh identity). Two files with identical content
+share an identity, so the match is one-to-one: each row claims its own
+previous entry and a duplicated file stays **two rows**, never collapses into
+one (`mount_scan_duplicate_content_stays_two_rows`).
+
+### Sidecars — the note a row grows when you annotate it
+
+Setting a prop on a row for the first time creates one **ordinary note** at
+`Mounts/<mount name>/<file stem>.md`. It has no special status: it is a note
+of the mount's type, editable, syncable, greppable, in history like any other.
+
+```yaml
+---
+type: Album pool
+mount: 9f1c…-uuid
+mount_file: 2026/kick take 3.als
+mount_identity: b1e0…
+created: 2026-07-31
+status: promising
+---
+```
+
+- `mount` / `mount_file` / `mount_identity` are engine-owned bindings, hidden
+  from the row's props. Annotating refuses them anywhere, and the schema
+  refuses them as prop names on a type that is a mount — so they can't be
+  reintroduced through the database side either. Everything else is the
+  user's.
+- Sidecars are found by their `mount` prop, not by their folder — a note filed
+  elsewhere keeps working. A scan refreshes whichever of `mount_file` /
+  `mount_identity` drifted, so a rename and an in-place edit can't both break
+  the binding.
+- A sidecar whose file the index no longer knows still gets a row, marked
+  missing. An annotation is never invisible because a drive is unplugged.
+- Renaming a mount renames its schema type and moves `Mounts/<name>/` with it.
+
+### Unbound, missing, and unmounting
+
+On a machine where the mount has no binding, or the bound folder is gone, the
+board still renders from the last-known index with its rows marked missing,
+plus a "Locate folder…" affordance that binds a path and rescans. This is a
+normal state, not an error — `vault_doctor` reports it as a **warn** about
+this machine (§15), never as a broken vault.
+
+Unmounting drops the registry entry and the index. `cleanup: false` (plain
+"Unmount") leaves every sidecar as an ordinary note — dormant, and reattached
+by content identity if the folder is ever mounted again. `cleanup: true`
+("Unmount and trash its notes…", double-confirmed) trashes the sidecars and
+the now-empty database; they are recoverable from `.trash/` (§10), never
+hard-deleted. **The mounted folder is untouched either way.**
+
+### Live watcher
+
+`vault/watch.rs` `watch_folders`: recursive FSEvents over every `"watch": true`
+mount that is **bound on this machine**, 300ms debounce, rescanning on change
+and emitting `vault:changed`. `mounts.json` is itself watched (like
+`schema.json` and `views.json`, §13 rule 2), so registry edits and `watch`
+flips apply without a restart; the machine's bindings are re-read on every
+refresh, so binding a folder starts watching it live. One catch-up scan runs at
+app launch when the watch set is non-empty — at least one mount both opted in
+**and** bound on this machine; an opted-in mount whose folder lives on another
+machine leaves nothing to catch up on here. The opt-in exists so big archive
+folders don't churn — opted-out mounts scan on demand only ("Rescan mounted
+folders" in the palette). The per-mount index files under `.vault/mounts/` are
+NOT watched: the app writes them itself.
+
+### Migration from `.vault/folders.json`
+
+Mounts replace the old folder-backed databases, which materialized one stub
+note per file. On engine load, every mapping left in `.vault/folders.json` is
+migrated (`migrate_folder_mappings`), behind a `before mounts migration`
+history snapshot: a mount is created carrying the mapping's type name, globs
+and watch flag; its folder is bound on this machine; the existing stub notes
+of that type are **adopted as sidecars** (their `file`/`modified`/`size`/
+`missing` props dropped, since the index carries them now — user props and
+bodies untouched) and moved into `Mounts/<name>/`; the folder is scanned; and
+only then is the mapping removed. Removing the mapping last makes the whole
+thing idempotent and crash-safe: a retry re-adopts into the same mount by name
+and skips notes already adopted. Afterwards there is one folder concept, not
+two; `folders.json` remains a legal file only so an interrupted migration has
+something to resume from.
 
 ## 8b. `.vault/tagfolders.json` — tag folders
 
@@ -2221,7 +2412,8 @@ pointer) is always foreign.
   `.DS_Store`, and the device-local state files written off the engine lock —
   `.vault/notifications.json` (SUB-568) and `.vault/jobs-exit.json` (SUB-706).
   Everything else is tracked — notes, `.vault/schema.json`, `.vault/views.json`,
-  `.vault/folders.json`, `.vault/templates/`, `Settings.md`.
+  `.vault/mounts.json` + `.vault/mounts/`, `.vault/folders.json`,
+  `.vault/templates/`, `Settings.md`.
 - **Why `.assets/` is excluded — text syncs, binaries don't.** The vault's
   binaries are studio files: masters, stems, bounces, artwork. Git stores every
   version of every one of them forever, and the same exclude list governs the
@@ -2364,7 +2556,31 @@ Plain notes the app treats specially — all optional, all just files:
   the hosted default and the self-hostable relay speak the same protocol — see
   `scripts/handoff-relay/README.md`) and
   `share-relay-token` (optional bearer token, only for relays that gate
-  uploads). Hot-reloaded
+  uploads), and the SUB-955 appearance dials: `glow` (0–100, default `0`,
+  the bloom around dashboard chart strokes, dots and emphasised values —
+  bars join above 70; `0` is the shipped look and switches the effect off
+  entirely rather than drawing a zero-width one), `accent-tone` (`sky` —
+  the default and the shipped SUB-932 family — `teal`, `indigo` or
+  `violet`; picks the hue the dashboard accent family and the categorical
+  series ramp wear, on screen and in print, while the state colours
+  red/amber/green stay put) and `accent-tone-nudge` (−12..12 degrees of
+  hue offset around the chosen tone; out-of-range values clamp, and the
+  bound is what keeps every ramp colour clear of 3:1 on both grounds).
+  All three degrade to their default on any value the reader can't make
+  sense of. Alongside them:
+  `number-format` (SUB-834, `de` — the default — writes `1.234,56`,
+  `intl` writes `1,234.56`; an unset or unrecognized value reads as `de`), and
+  the SUB-834 outbound-request switches, one per request the app can make, all
+  default `true` and all turned off only by an explicit `false`:
+  `net-link-titles` (a captured link asks that site for its page title — off
+  still captures the note, it just keeps the bare URL as the title),
+  `net-fx-rates` (currency conversions read rates from frankfurter.dev — off
+  is to use the last saved rates and show their date; gated in `useFxRates`,
+  the single fetch seam) and `net-share-relay`
+  ("Send as link" uploads the encrypted copy to the relay above — off makes
+  the action explain the switch instead of sending). Enforced at the app's
+  request-initiating call sites, not in the engine — see
+  `docs/security-config.md`. Hot-reloaded
   within a second of saving; the ⌘, sheet is a typed form over the same keys.
   Unlike the other notes here it is not merely seeded on first run: the desktop
   app writes it on launch whenever it is absent (SUB-473), so vaults predating
@@ -2458,9 +2674,10 @@ Plain notes the app treats specially — all optional, all just files:
   folder, written by the external `scripts/import-ableton.ts` (run by hand;
   `npm run import:ableton -- <pool>`). The source tree is strictly **read-only**
   — the script and the app only ever `stat` `.als` files, never parse, write,
-  move, or delete them. Rows follow the same stub shape and dedupe rule as the
-  engine's `.vault/folders.json` folder sync (`vault/foldersync.rs` `sync_folders`, §8), so an
-  engine-side folder mapping over the same pool would not duplicate them. The
+  move, or delete them. Rows are ordinary
+  notes it owns outright — unrelated to the mounts of §8, which index a folder
+  without writing a note per file; mounting the same pool would render its own
+  rows beside these rather than rewrite them. The
   script owns `file` (the `.als` as a `~/…` link), `modified`/`size` stamps,
   `last_touched` (ISO day, `kind: date`; from an als_introspect sidecar when
   given, else the `.als` mtime) and the musical props
@@ -2485,12 +2702,13 @@ external write races an open editor.
    rescan. No restart, no manual refresh. Writes under dot-paths (`.git`,
    `.assets/`, …) are deliberately invisible to it — with one exception:
    edits to `.vault/schema.json`, `.vault/views.json`,
-   `.vault/folders.json`, `.vault/calendars.json`, and
-   `.vault/tagfolders.json` are picked up live and
+   `.vault/folders.json`, `.vault/calendars.json`, `.vault/tagfolders.json`,
+   and `.vault/mounts.json` are picked up live and
    surface as a separate `vault:config-changed` event (the app's config
    listeners re-read the
    files from disk; no note refetch fires). Everything else under `.vault/`
-   (templates, notification state, `jobs-exit.json`, `format.json`, `backup/`)
+   (templates, notification state, `jobs-exit.json`, `format.json`, `backup/`,
+   the per-mount indexes under `mounts/`)
    stays unwatched and is re-read from disk on every access.
 3. **Write atomic-ish**: temp file in the same directory + rename. The watcher
    debounce absorbs bursts, but a torn write can be indexed mid-state. The app
@@ -2635,12 +2853,16 @@ prefer (`src-tauri/src/lib.rs`, grouped):
 - Databases (SUB-43): `vault_create_type` `vault_rename_type`
   `vault_delete_type` `vault_rename_prop` `vault_clear_prop` — bulk sweeps;
   take `history_snapshot` immediately before any of them rewrites notes
-- Folder sync: `vault_folders` `vault_create_folder` `vault_rename_folder`
-  `folder_dbs_rescan` (§8)
+- Vault folders: `vault_folders` `vault_create_folder` `vault_rename_folder`
 - Tags: `vault_tags` (the vault's tag universe with counts)
   `vault_tag_folders_read` `vault_tag_folders_write` (§8b)
   `vault_note_add_tags` (adds tags to a note's `tags:` prop; never moves it)
+- Mounts (§8): `mounts_list` `mount_add` `mount_bind` `mount_rescan`
+  `mount_rows` `mount_annotate` `mount_remove` — `mount_annotate`
+  is a mount's only write path into the vault, and every scan is read-only on
+  the mounted folder
 - Files: `path_exists` `file_open` `file_reveal` `file_pick` `file_read_text`
+  `vault_folder_files` (SUB-812 — the loose files of ONE folder; see §1)
 - History: `history_status` `history_list` `history_diff` `history_restore`
   `history_snapshot` `history_purge_note` `history_purge_notes` `history_trim`
 - Windows: `agenda_open_note` `agenda_open_capture`
@@ -2685,10 +2907,11 @@ order, so two scans of an unchanged vault produce byte-identical JSON.
 | `broken-embed` | `![[file]]` with no file behind it — under `.assets/` (error) or linked in place (warn: the volume may just be unmounted, §3) | error / warn |
 | `broken-view-ref` | a ` ```view ` fence (§5.6) naming a `saved:` view that was deleted, or a `type:` that is not a database | error |
 | `ambiguous-target` | two or more notes share a title or filename stem, so a wikilink to that name resolves to whichever the index reached first — create-dedupe is per-folder, so this is how cross-folder collisions surface (§3) | warn |
-| `stale-config` | `.vault/*.json` pointing at something gone: a schema type with zero notes, a `home`/folder-mapping path that no longer exists, a views or saved-view entry for an unknown type | warn / error |
+| `stale-config` | `.vault/*.json` pointing at something gone: a schema type with zero notes, a `home`/folder-mapping path that no longer exists, a views or saved-view entry for an unknown type. A mount that is unbound on this machine, or whose bound folder is gone, is a **warn** and never an error: its board still renders from the last-known index and "Locate folder…" fixes it (§8) | warn / error |
 | `invalid-prop` | a `date` or `number` prop whose value does not parse under the schema's kind — the value is reported, never rewritten | error |
 
 `paths` holds every note involved: one entry for most findings, one per
 colliding note for `ambiguous-target`, and the config file (`.vault/schema.json`,
-`.vault/views.json`, `.vault/folders.json`) for `stale-config`.
+`.vault/views.json`, `.vault/mounts.json`, `.vault/folders.json`) for
+`stale-config`.
 

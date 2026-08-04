@@ -16,7 +16,7 @@ import { parseHub, type HubCallout } from "../lib/hub";
 import { embedQueryFor, parseViewSpec } from "../lib/embeds";
 import { collectCardsFences, parseCardsBlock, type CardsBlock } from "../lib/metriccards";
 import { sharpCardIndices } from "../lib/dashboard";
-import { useUsdEur } from "./useFx";
+import { useFxRates } from "./useFx";
 import { DashHead, DashPrintButton } from "./DashHead";
 import EmbedViewTable from "./EmbedViewTable";
 import ChartsDashboard from "./ChartsDashboard";
@@ -523,8 +523,8 @@ export default function HubDashboard({
   const cardBlocks = useMemo(() => collectCardsFences(body ?? "").map(parseCardsBlock), [body]);
   const allCards = useMemo(() => cardBlocks.flatMap((b) => b.cards), [cardBlocks]);
   const allSharp = useMemo(() => sharpCardIndices(allCards), [allCards]);
-  const { fx } = useUsdEur();
-  const cardValue = useCardValues(allCards, vaultEpoch, meta.path, fx);
+  const { fx: rates } = useFxRates();
+  const cardValue = useCardValues(allCards, vaultEpoch, meta.path, rates);
 
   /** the page's n-th cards fence, with the page-wide decisions rebased onto it */
   const slotAt = useCallback(

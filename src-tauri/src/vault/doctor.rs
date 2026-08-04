@@ -71,7 +71,15 @@ impl Engine {
     /// prop values that don't parse as their schema kind. **Nothing is ever
     /// repaired or written** — repair is a later slice, and the tests assert
     /// the vault is byte-identical afterwards.
-    pub fn doctor(&self) -> Result<DoctorReport, String> {
+    ///
+    /// `bindings` is this machine's mount id → path map (SUB-888). It has to
+    /// come from the caller because it lives outside the vault, in the app
+    /// config: the same vault is healthy on one machine and unbound on
+    /// another, and only the caller knows which machine it is on.
+    pub fn doctor(
+        &self,
+        bindings: &std::collections::BTreeMap<String, PathBuf>,
+    ) -> Result<DoctorReport, String> {
         let mut findings: Vec<DoctorFinding> = Vec::new();
         let schema = self.schema();
 
@@ -307,8 +315,15 @@ impl Engine {
                             }
                         }
                         "number" => {
+                            // a value carrying a unit is healthy in a number
+                            // column since SUB-834: `25 USD` in a EUR column
+                            // is data the app renders converted, not junk —
+                            // the row keeps its own unit and the file is never
+                            // rewritten. Real junk ("ask", "25 furlongs")
+                            // still gets flagged.
                             let numeric = matches!(v, serde_json::Value::Number(_))
-                                || strict_number_re().is_match(&raw);
+                                || strict_number_re().is_match(&raw)
+                                || is_quantity(&raw);
                             if !numeric {
                                 findings.push(DoctorFinding {
                                     kind: DoctorKind::InvalidProp,
@@ -328,8 +343,15 @@ impl Engine {
         // ---- stale .vault/*.json ----------------------------------------
         let mut schema_types: Vec<&String> = schema.keys().collect();
         schema_types.sort();
+        // a mount owns a schema type named after itself, and its rows live on
+        // disk rather than in notes — so "no notes" is the normal state of a
+        // mount nobody has annotated yet, not a leftover (SUB-888)
+        let mounts = self.mounts();
+        let mount_types: HashSet<String> = mounts.iter().map(|m| m.name.to_lowercase()).collect();
         for t in schema_types {
-            if typed_notes.get(&t.to_lowercase()).copied().unwrap_or(0) == 0 {
+            if typed_notes.get(&t.to_lowercase()).copied().unwrap_or(0) == 0
+                && !mount_types.contains(&t.to_lowercase())
+            {
                 findings.push(DoctorFinding {
                     kind: DoctorKind::StaleConfig,
                     severity: DoctorSeverity::Warn,
@@ -418,6 +440,40 @@ impl Engine {
                 });
             }
         }
+        // Mounts (SUB-888). Unlike a folder mapping, an unbound or missing
+        // mount is NOT broken: the board still renders from the last-known
+        // index with its rows marked missing, and "Locate folder…" fixes it
+        // in one click. So these are warnings about this machine, never
+        // errors about the vault — a vault synced to a new laptop would
+        // otherwise open with a doctor full of red on first launch.
+        for m in &mounts {
+            match bindings.get(&m.id) {
+                None => findings.push(DoctorFinding {
+                    kind: DoctorKind::StaleConfig,
+                    severity: DoctorSeverity::Warn,
+                    paths: vec![MOUNTS_REL_PATH.to_string()],
+                    subject: m.name.clone(),
+                    detail: format!(
+                        "mount “{}” is not bound to a folder on this machine — its rows show as missing until you locate it",
+                        m.name
+                    ),
+                }),
+                Some(path) if !expand_tilde(&path.to_string_lossy()).is_dir() => {
+                    findings.push(DoctorFinding {
+                        kind: DoctorKind::StaleConfig,
+                        severity: DoctorSeverity::Warn,
+                        paths: vec![MOUNTS_REL_PATH.to_string()],
+                        subject: m.name.clone(),
+                        detail: format!(
+                            "mount “{}” points at “{}”, which is missing on this machine",
+                            m.name,
+                            path.display()
+                        ),
+                    })
+                }
+                Some(_) => {}
+            }
+        }
 
         findings.sort_by(|a, b| {
             a.kind
@@ -448,7 +504,7 @@ mod tests {
         )
         .unwrap();
         engine.rescan();
-        let report = engine.doctor().unwrap();
+        let report = engine.doctor(&Default::default()).unwrap();
         let broken = findings_of(&report, DoctorKind::BrokenLink);
         assert_eq!(broken.len(), 1, "only the unresolvable target: {broken:?}");
         assert_eq!(broken[0].subject, "ghost note");
@@ -465,7 +521,7 @@ mod tests {
         fs::write(dir.join("Archive/Umbra.md"), "---\n---\nold\n").unwrap();
         fs::write(dir.join("Live/Umbra.md"), "---\n---\nnew\n").unwrap();
         engine.rescan();
-        let report = engine.doctor().unwrap();
+        let report = engine.doctor(&Default::default()).unwrap();
         let amb = findings_of(&report, DoctorKind::AmbiguousTarget);
         let hit = amb
             .iter()
@@ -484,7 +540,7 @@ mod tests {
         fs::write(dir.join("Art.md"), "---\n---\n![[cover.png]] is fine, ![[gone.wav]] is not.\n")
             .unwrap();
         engine.rescan();
-        let report = engine.doctor().unwrap();
+        let report = engine.doctor(&Default::default()).unwrap();
         let embeds = findings_of(&report, DoctorKind::BrokenEmbed);
         assert_eq!(embeds.len(), 1, "only the missing one: {embeds:?}");
         assert_eq!(embeds[0].subject, "gone.wav");
@@ -507,7 +563,7 @@ mod tests {
         fs::write(dir.join("Hub.md"), "---\n---\nPinned:\n\n```view\nsaved: nowhere\n```\n")
             .unwrap();
         engine.rescan();
-        let report = engine.doctor().unwrap();
+        let report = engine.doctor(&Default::default()).unwrap();
         let refs = findings_of(&report, DoctorKind::BrokenViewRef);
         assert_eq!(refs.len(), 1, "the dangling fence ref: {refs:?}");
         assert_eq!(refs[0].subject, "nowhere");
@@ -532,7 +588,7 @@ mod tests {
         fs::write(dir.join("Crlf.md"), "---\r\n---\r\n```view\r\nsaved: ghost-b\r\n```\r\n")
             .unwrap();
         engine.rescan();
-        let report = engine.doctor().unwrap();
+        let report = engine.doctor(&Default::default()).unwrap();
         let refs = findings_of(&report, DoctorKind::BrokenViewRef);
         let subjects: Vec<&str> = refs.iter().map(|f| f.subject.as_str()).collect();
         assert!(subjects.contains(&"ghost-a"), "tailed fence scanned: {refs:?}");
@@ -575,7 +631,7 @@ mod tests {
         // parser is width-strict, so the unpadded value must be flagged
         fs::write(dir.join("Loose.md"), "---\ntype: release\ndue: 2026-8-1\n---\nbody\n").unwrap();
         engine.rescan();
-        let report = engine.doctor().unwrap();
+        let report = engine.doctor(&Default::default()).unwrap();
         let invalid = findings_of(&report, DoctorKind::InvalidProp);
         assert_eq!(
             invalid.len(),
@@ -593,6 +649,54 @@ mod tests {
         let rel = findings_of(&report, DoctorKind::BrokenRelation);
         assert_eq!(rel.len(), 1, "the relation names no note: {rel:?}");
         assert_eq!(rel[0].subject, "Nightform");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A number column may carry a unit (SUB-834) and its ROWS keep their own:
+    /// `25 USD` in a EUR column is data the app renders converted, not junk.
+    /// The doctor must not flag it — while real junk stays flagged.
+    #[test]
+    fn doctor_accepts_unit_carrying_values_in_number_props() {
+        let (mut engine, dir) = temp_vault("doctor-units");
+        fs::create_dir_all(dir.join(".vault")).unwrap();
+        fs::write(
+            dir.join(".vault/schema.json"),
+            r#"{"gear": {"price": {"kind": "number", "format": "EUR"}, "weight": {"kind": "number", "format": "kg"}}}"#,
+        )
+        .unwrap();
+        // every healthy shape: bare number, the column's own unit, a foreign
+        // same-dimension one, a symbol prefix, a display-only unit, and a
+        // value typed in the app's own de-DE dialect
+        for (name, price) in [
+            ("Bare", "1450"),
+            ("Native", "1450 EUR"),
+            ("Foreign", "25 USD"),
+            ("Symbol", "$25"),
+            ("Tight", "25USD"),
+            ("German", "1.234,56 €"),
+            ("Worded", "25 dollars"),
+        ] {
+            fs::write(
+                dir.join(format!("{name}.md")),
+                format!("---\ntype: gear\nprice: \"{price}\"\n---\nbody\n"),
+            )
+            .unwrap();
+        }
+        fs::write(dir.join("Mass.md"), "---\ntype: gear\nweight: 500 g\n---\nbody\n").unwrap();
+        // …and the junk that must still be flagged: prose, and a number
+        // carrying a unit nothing knows
+        fs::write(dir.join("Junk.md"), "---\ntype: gear\nprice: ask\n---\nbody\n").unwrap();
+        fs::write(
+            dir.join("Unknown.md"),
+            "---\ntype: gear\nweight: 25 furlongs\n---\nbody\n",
+        )
+        .unwrap();
+        engine.rescan();
+        let report = engine.doctor(&Default::default()).unwrap();
+        let invalid = findings_of(&report, DoctorKind::InvalidProp);
+        assert_eq!(invalid.len(), 2, "only the two junk values: {invalid:?}");
+        assert!(invalid.iter().any(|f| f.subject == "ask"));
+        assert!(invalid.iter().any(|f| f.subject == "25 furlongs"));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -623,7 +727,7 @@ mod tests {
         engine.rescan();
 
         let before = snapshot_tree(&dir);
-        let report = engine.doctor().unwrap();
+        let report = engine.doctor(&Default::default()).unwrap();
         let after = snapshot_tree(&dir);
         assert_eq!(before, after, "doctor left every file byte-identical");
         assert_eq!(engine.note_writes, 0, "doctor performed no note writes");
@@ -664,7 +768,7 @@ mod tests {
         )
         .unwrap();
         engine.rescan();
-        let report = engine.doctor().unwrap();
+        let report = engine.doctor(&Default::default()).unwrap();
         let stale = findings_of(&report, DoctorKind::StaleConfig);
         assert!(
             !stale.iter().any(|f| f.subject == "~"),
@@ -674,10 +778,45 @@ mod tests {
     }
 
     #[test]
+    fn doctor_warns_about_unbound_and_missing_mounts() {
+        // A mount the current machine cannot reach is a per-machine state with
+        // a one-click fix ("Locate folder…"), so it is a warning — never an
+        // error, or a vault synced to a new laptop opens full of red.
+        let (mut engine, dir) = temp_vault("doctor-mounts");
+        let folder = dir.join("bound-folder");
+        fs::create_dir_all(&folder).unwrap();
+        let bound = engine.add_mount("Album Pool", Vec::new(), false).unwrap();
+        let unbound = engine.add_mount("Archive", Vec::new(), false).unwrap();
+        let gone = engine.add_mount("Old Drive", Vec::new(), false).unwrap();
+
+        let mut bindings: std::collections::BTreeMap<String, PathBuf> = Default::default();
+        bindings.insert(bound.id.clone(), folder.clone());
+        bindings.insert(gone.id.clone(), dir.join("no-such-folder"));
+
+        let report = engine.doctor(&bindings).unwrap();
+        let stale = findings_of(&report, DoctorKind::StaleConfig);
+        let about = |name: &str| stale.iter().find(|f| f.subject == name);
+
+        assert!(about("Album Pool").is_none(), "a bound, existing mount is healthy: {stale:?}");
+
+        let f = about("Archive").expect("the unbound mount is reported");
+        assert_eq!(f.severity, DoctorSeverity::Warn);
+        assert_eq!(f.paths, vec![MOUNTS_REL_PATH.to_string()]);
+        assert!(f.detail.contains("not bound"), "{}", f.detail);
+
+        let f = about("Old Drive").expect("the mount whose folder vanished is reported");
+        assert_eq!(f.severity, DoctorSeverity::Warn);
+        assert!(f.detail.contains("missing on this machine"), "{}", f.detail);
+
+        let _ = fs::remove_dir_all(&dir);
+        let _ = unbound;
+    }
+
+    #[test]
     fn doctor_is_quiet_on_a_healthy_vault() {
         let (engine, dir) = temp_vault("doctor-clean");
         // the seeded vault has no schema.json, so nothing is typed or stale
-        let report = engine.doctor().unwrap();
+        let report = engine.doctor(&Default::default()).unwrap();
         assert!(report.notes > 0, "the seed indexed");
         assert!(report.findings.is_empty(), "a fresh vault is clean: {:?}", report.findings);
         let _ = fs::remove_dir_all(&dir);

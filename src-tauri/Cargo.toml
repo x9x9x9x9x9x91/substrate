@@ -46,9 +46,11 @@ icalendar = { version = "0.17.13", features = ["parser", "recurrence"] }
 regex = "1"
 base64 = "0.22"
 # already in the tree via tauri's updater — named here because kinds.rs hashes
-# custom-kind bundles itself (SUB-959), and that digest is what consent to run
-# vault-resident code is pinned to
+# custom-kind bundles itself (SUB-959) and mounts digest file content for
+# sidecar identity (SUB-888)
 sha2 = "0.10"
+# reality mounts (SUB-888): `uuid` names a mount portably across machines
+uuid = { version = "1", features = ["v4"] }
 ureq = "2"
 # already in the tree as ureq's own dependency — named here because net.rs
 # parses and re-joins redirect targets itself (SUB-427 SSRF guard)

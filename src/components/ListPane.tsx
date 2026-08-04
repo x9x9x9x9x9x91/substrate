@@ -1,14 +1,17 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRightIcon, NotesIcon, PlusIcon } from "./Icons";
-import type { DbIcon, NoteMeta, TagFolder, View } from "../lib/types";
+import { ChevronRightIcon, FileIcon, ImageIcon, NotesIcon, PlusIcon } from "./Icons";
+import type { DbIcon, FolderFile, NoteMeta, TagFolder, View } from "../lib/types";
 import { propStr } from "../lib/types";
 import type { DbBlock } from "../lib/views";
 import { NOTE_DRAG_MIME } from "../lib/sidebar";
 import { isTyping, isTypingNow } from "../lib/dom";
 import { displayTitle, JOURNAL_DIR } from "../lib/journal";
 import { tagFolderSummary } from "../lib/tags";
+import { fileExt, fileKind } from "../lib/folderfiles";
+import { formatFileSize } from "../lib/display";
 import InlineEdit from "./InlineEdit";
 import TypeIcon from "./TypeIcon";
+import { AudioPropButton } from "./AudioPropButton";
 
 /** `now` is injectable so a memoized row can take the label as a prop and still
  *  age: pass the minute tick (see useNowMinute) and the string changes when the
@@ -21,6 +24,10 @@ export function relDate(ms: number, now = Date.now()): string {
   if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d`;
   return new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
+
+/** stable identity for the memoized FileRow's optional callbacks — an inline
+    arrow per render would defeat the memo */
+const noop = () => {};
 
 /** The pane header's name for a view. `tagFolders` is only needed by the
     tagfolder kind — its name lives in the folder definition, not the view, so
@@ -51,6 +58,10 @@ export function viewLabel(view: View, tagFolders: TagFolder[] = []): string {
     case "saved":
       // pins render DatabasePane, never ListPane — this only feeds generic labels
       return "Saved view";
+    case "mount":
+      // a mount renders DatabasePane too, and its name lives in the registry
+      // rather than in the view — generic label only (SUB-888)
+      return "Mounted folder";
     case "dashboard":
       return "Dashboard";
     case "folder":
@@ -152,6 +163,93 @@ const NoteRow = memo(function NoteRow({
   );
 });
 
+/** SUB-812: one loose file in a folder view. Audio rows lead with the play
+    button and drive the same shared player as note embeds and database prop
+    buttons — pressing it also seats the listening queue on this folder, which
+    is what gives the mini-player its prev/next.
+
+    The always-visible play button is the sanctioned exception to "no visible
+    button per row" (design-principles §6, amended for task checkboxes in
+    SUB-870): auditioning IS a folder-of-bounces' reason to exist, and the
+    test the amendment names — is the control the row's reason, or a
+    convenience hung off it — passes here. Every other verb (Reveal) stays
+    quiet until hover or focus, and non-audio rows carry no visible button at
+    all. Rendering is inert: the button peeks the player, never creates one,
+    so opening a folder of masters stats and decodes nothing. */
+const FileRow = memo(function FileRow({
+  file,
+  audio,
+  onPlay,
+  onOpen,
+  onReveal,
+}: {
+  file: FolderFile;
+  audio: boolean;
+  onPlay: (rel: string) => void;
+  onOpen: (path: string) => void;
+  onReveal: (path: string) => void;
+}) {
+  const kind = fileKind(file);
+  const ext = fileExt(file.name);
+  // An audio row's keyboard surface is the play button it already carries, so
+  // the row itself is NOT separately focusable: Tab lands on the button and
+  // its native Enter/Space activation plays. Making the row a second tab stop
+  // would mean a focus ring that answers Enter with nothing (seating the
+  // queue is not playing) and two stops per row to walk past.
+  // Non-audio rows have no button, so the row IS the control: it opens the
+  // file in whatever the OS uses for it.
+  const primary = audio ? undefined : () => onOpen(file.path);
+  return (
+    <div
+      className={`row row-file${audio ? " row-file-audio" : ""}`}
+      data-file={file.rel}
+      role={primary ? "button" : undefined}
+      tabIndex={primary ? 0 : undefined}
+      aria-label={primary ? `Open ${file.name}` : undefined}
+      onDoubleClick={() => onOpen(file.path)}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget || !primary) return;
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        e.stopPropagation();
+        primary();
+      }}
+    >
+      <div className="row-top">
+        <span className="row-file-glyph">
+          {audio ? (
+            <AudioPropButton name={file.path} onToggle={() => onPlay(file.rel)} />
+          ) : kind === "image" ? (
+            <ImageIcon />
+          ) : (
+            <FileIcon size={14} />
+          )}
+        </span>
+        <span className="row-title" title={file.name}>
+          {file.name}
+        </span>
+        <button
+          type="button"
+          className="row-file-reveal"
+          aria-label={`Reveal ${file.name} in Finder`}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onReveal(file.path);
+          }}
+        >
+          Reveal
+        </button>
+        {/* one fact per row, right-aligned like every other list meta */}
+        <span className="row-date row-file-meta">
+          {ext && <span className="row-file-ext">{ext}</span>}
+          {formatFileSize(file.size)}
+        </span>
+      </div>
+    </div>
+  );
+});
+
 /* SUB-461 windowing knobs, the ListPane cut of DatabasePane's SUB-310 pattern:
    lists longer than WIN_MIN paint only the scroll viewport ± WIN_OVERSCAN rows
    (WIN_INITIAL rows on the first frame, before the scroller reports its
@@ -200,6 +298,20 @@ interface ListPaneProps {
   tagFolders?: TagFolder[];
   /** Phone copy avoids advertising keyboard-only chrome. */
   mobile?: boolean;
+  /** SUB-812: the folder's loose (non-note) files, below the notes. Only
+      folder views pass any — "All notes" spans folders, so there is no one
+      folder whose files it could list. */
+  files?: FolderFile[];
+  /** how many loose files the folder really has; larger than `files.length`
+      when the engine's cap bit */
+  fileTotal?: number;
+  /** press play on a file row: seat the listening queue on this folder at
+      that file. The shared player does the playing (AudioPropButton). */
+  onPlayFile?: (rel: string) => void;
+  /** open a loose file in whatever the OS uses for it */
+  onOpenFile?: (path: string) => void;
+  /** show a loose file in Finder */
+  onRevealFile?: (path: string) => void;
 }
 
 function ListPane({
@@ -220,6 +332,11 @@ function ListPane({
   onNewHere,
   tagFolders = [],
   mobile = false,
+  files = [],
+  fileTotal = 0,
+  onPlayFile,
+  onOpenFile,
+  onRevealFile,
 }: ListPaneProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
 
@@ -338,7 +455,10 @@ function ListPane({
     if (!body || !(anchor instanceof HTMLElement)) return;
     let rowH = 0;
     let subH = 0;
-    for (const el of body.querySelectorAll(".row:not(.row-dbblock)")) {
+    // file rows (SUB-812) are excluded alongside the database blocks: the
+    // window's offset math describes the NOTES region, and measuring a row of
+    // a different height into rowH would slide every painted note
+    for (const el of body.querySelectorAll(".row:not(.row-dbblock):not(.row-file)")) {
       const h = el.getBoundingClientRect().height;
       if (el.querySelector(".row-sub")) subH = subH || h;
       else rowH = rowH || h;
@@ -485,7 +605,7 @@ function ListPane({
         <span className="list-title" title={headTitle}>
           {viewLabel(view, tagFolders)}
         </span>
-        <span className="list-count">{notes.length + blocks.length}</span>
+        <span className="list-count">{notes.length + blocks.length + files.length}</span>
         {/* SUB-400: name the kind of thing that's open — a folder of 2 notes
             and a database of 1424 entries otherwise wear the same header */}
         {view.kind === "folder" && <span className="head-kind">Folder</span>}
@@ -527,7 +647,7 @@ function ListPane({
         // when the painted slice actually moves (SUB-461)
         onScroll={windowed ? () => winSyncRef.current() : undefined}
       >
-        {notes.length === 0 && blocks.length === 0 ? (
+        {notes.length === 0 && blocks.length === 0 && files.length === 0 ? (
           <div className="empty">
             <NotesIcon />
             <span>Nothing here</span>
@@ -594,6 +714,29 @@ function ListPane({
             ))}
             {winBottomH > 0 && (
               <div className="list-win-spacer" aria-hidden="true" style={{ height: winBottomH }} />
+            )}
+            {/* SUB-812: the pane's third list grammar — the folder's loose
+                files, below the notes, behind their own seam. Deliberately
+                unwindowed: the engine caps the listing, so this is a bounded
+                render, and the notes above own the window offsets. */}
+            {files.length > 0 && (notes.length > 0 || blocks.length > 0) && (
+              <div className="list-seam list-seam-files" />
+            )}
+            {files.map((f) => (
+              <FileRow
+                key={f.rel}
+                file={f}
+                audio={fileKind(f) === "audio"}
+                onPlay={onPlayFile ?? noop}
+                onOpen={onOpenFile ?? noop}
+                onReveal={onRevealFile ?? noop}
+              />
+            ))}
+            {fileTotal > files.length && (
+              <div className="list-files-more">
+                {fileTotal - files.length} more files in this folder — open it in Finder to see
+                them all
+              </div>
             )}
             {/* a sparse journal (≤ 3 dailies) gets a quiet pointer under the
                 list — the empty pane below the rows is a void otherwise */}

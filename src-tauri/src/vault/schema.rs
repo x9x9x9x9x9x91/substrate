@@ -167,7 +167,58 @@ pub const AGG_KINDS: [&str; 5] = ["sum", "avg", "min", "max", "count"];
 /// absence of a format (the number as stored), `euro` renders German-style
 /// `1.234,56 €`, `percent` (SUB-196) renders the same de-DE way with a ` %`
 /// suffix (`8,5 %`). Rendering is frontend-only; the engine stores the key.
+///
+/// Since SUB-834 a format may equally name a UNIT (`UNIT_CODES` below);
+/// `euro`/`percent` stay forever as the aliases for `EUR`/`%` that every
+/// existing vault already carries on disk, so widening the vocabulary needed
+/// no migration.
 pub const NUMBER_FORMATS: [&str; 3] = ["plain", "euro", "percent"];
+
+/// The unit codes a number column may carry (SUB-834), so `format: USD`,
+/// `format: kg` or `format: BPM` writes as readily as `euro` did.
+///
+/// SOURCE OF TRUTH: `src/lib/units.ts`. This is a mirror — the frontend does
+/// the parsing, conversion and rendering; the engine only decides what may be
+/// written. THE TWO MUST STAY IN STEP: a code added there and not here can't
+/// be saved, and a code here that units.ts doesn't know saves as a format
+/// nothing can render. `unit_codes_mirror_the_frontend` in this file's tests
+/// pins the list; update both sides together.
+///
+/// Codes match case-insensitively, like units.ts `resolveUnit`, and the
+/// canonical spelling from this list is what gets stored — so a typed "usd"
+/// lands as `USD` and "KG" as `kg`. Only CODES are accepted, not units.ts's
+/// word aliases ("dollars", "kilos"): a column format is written by the
+/// schema editor, not typed in prose, so one canonical spelling per unit is
+/// the honest storage shape.
+pub const UNIT_CODES: [&str; 39] = [
+    // currency
+    "EUR", "USD", "GBP", "CHF", "JPY", "CAD", "AUD", "SEK", "NOK", "DKK", "PLN", "CZK",
+    // mass
+    "mg", "g", "kg", "t", "oz", "lb", //
+    // length
+    "mm", "cm", "m", "km", "mi", "ft", "inch", //
+    // time
+    "ms", "s", "min", "h", "d", //
+    // data
+    "B", "KB", "MB", "GB", "TB", //
+    // display-only (never convertible)
+    "BPM", "LUFS", "dB", "%",
+];
+
+/// A number format as it gets stored (SUB-834): the canonical spelling when
+/// the text names a known format or unit code, else None. Case-insensitive
+/// like units.ts `resolveUnit`; `plain` resolves to None, being the absence
+/// of a format rather than a format.
+fn canonical_number_format(f: &str) -> Option<&'static str> {
+    if f.eq_ignore_ascii_case("plain") {
+        return None;
+    }
+    NUMBER_FORMATS
+        .iter()
+        .chain(UNIT_CODES.iter())
+        .find(|c| c.eq_ignore_ascii_case(f))
+        .copied()
+}
 
 /// One type's entry in `.vault/schema.json`: the flat prop → schema map plus
 /// the reserved `icon` and `home` keys (flattened, so the on-disk shape gains
@@ -248,6 +299,8 @@ impl Engine {
         if db_type.is_empty() || prop.is_empty() {
             return Err("database and property must be non-empty".into());
         }
+        // a mount's binding props are the engine's (SUB-888)
+        self.check_binding_prop(db_type, prop)?;
         let kind = match kind.as_deref().map(str::trim) {
             None | Some("") => None,
             Some(k) if PROP_KINDS.contains(&k) => Some(k.to_string()),
@@ -264,13 +317,16 @@ impl Engine {
         };
         // a number prop (SUB-188) may carry a display format — validated like
         // the kind vocabulary; `plain` is the absence of a format, and a
-        // format arriving on any other kind drops (like `target`)
+        // format arriving on any other kind drops (like `target`). Since
+        // SUB-834 the vocabulary also covers the unit codes, and the stored
+        // spelling is canonicalized ("usd" → "USD") so the frontend never has
+        // to guess at casing.
         let format = match format.as_deref().map(str::trim) {
             Some(f) if !f.is_empty() && kind.as_deref() == Some("number") => {
-                if !NUMBER_FORMATS.contains(&f) {
+                if !f.eq_ignore_ascii_case("plain") && canonical_number_format(f).is_none() {
                     return Err(format!("unknown number format “{f}”"));
                 }
-                (f != "plain").then(|| f.to_string())
+                canonical_number_format(f).map(str::to_string)
             }
             _ => None,
         };
@@ -573,6 +629,8 @@ impl Engine {
             if pname.eq_ignore_ascii_case("home") {
                 return Err("“home” is reserved for the database home folder".into());
             }
+            // a mount's binding props are the engine's (SUB-888)
+            self.check_binding_prop(name, pname)?;
             if entry.keys().any(|k| folded_eq(k, pname)) {
                 return Err(format!("duplicate property “{pname}”"));
             }
@@ -739,6 +797,11 @@ impl Engine {
                 return Ok(sweep);
             }
         }
+        // a mount IS its schema type (SUB-888), so the registry follows too
+        if let Err(e) = self.rename_mount_named(old, new) {
+            sweep.failed = Some(e);
+            return Ok(sweep);
+        }
         Ok(sweep)
     }
 
@@ -835,6 +898,13 @@ impl Engine {
                 return Ok(sweep);
             }
         }
+        // deleting the database unmounts the folder it stood for (SUB-888);
+        // the sidecars were this type's notes, so they went with the choice
+        // the user already made above
+        if let Err(e) = self.drop_mounts_named(db_type) {
+            sweep.failed = Some(e);
+            return Ok(sweep);
+        }
         Ok(sweep)
     }
 
@@ -872,6 +942,8 @@ impl Engine {
         if new.eq_ignore_ascii_case("home") {
             return Err("“home” is reserved for the database home folder".into());
         }
+        // a mount's binding props are the engine's (SUB-888)
+        self.check_binding_prop(db_type, new)?;
         let schema = self.schema();
         let schema_db = folded_hash_key(&schema, db_type);
         let old_is_number = if let Some(props) =
@@ -2761,6 +2833,9 @@ mod tests {
             map["release"].props["status"].format, None,
             "format drops off number-kind props"
         );
+        // (SUB-834 widened this: "usd" is now a UNIT format and saves as
+        // "USD". A format naming no unit and no display shape is still
+        // refused.)
         assert!(e
             .set_schema_prop(
                 "inventory",
@@ -2770,7 +2845,7 @@ mod tests {
                 None,
                 None,
                 None,
-                Some("usd".into()),
+                Some("furlongs".into()),
                 None,
                 None,
             )
@@ -2908,6 +2983,95 @@ mod tests {
                 None,
             )
             .is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The unit vocabulary is a MIRROR of `src/lib/units.ts` (see UNIT_CODES).
+    /// This pins it: a code added or renamed on either side breaks here, which
+    /// is the reminder to update the other. Compare against units.ts's UNITS
+    /// registry, in its order.
+    #[test]
+    fn unit_codes_mirror_the_frontend() {
+        assert_eq!(
+            UNIT_CODES.to_vec(),
+            vec![
+                "EUR", "USD", "GBP", "CHF", "JPY", "CAD", "AUD", "SEK", "NOK", "DKK", "PLN", "CZK",
+                "mg", "g", "kg", "t", "oz", "lb", "mm", "cm", "m", "km", "mi", "ft", "inch", "ms",
+                "s", "min", "h", "d", "B", "KB", "MB", "GB", "TB", "BPM", "LUFS", "dB", "%",
+            ],
+            "UNIT_CODES drifted from src/lib/units.ts — update both sides together"
+        );
+        // every code resolves to itself, case-insensitively like units.ts
+        for code in UNIT_CODES {
+            assert_eq!(canonical_number_format(code), Some(code), "{code} resolves");
+            assert_eq!(
+                canonical_number_format(&code.to_lowercase()),
+                Some(code),
+                "{code} resolves case-insensitively and stores canonically"
+            );
+        }
+        // the display shapes stay in the vocabulary forever (SUB-188/196);
+        // `plain` is the ABSENCE of a format, not a format
+        assert_eq!(canonical_number_format("euro"), Some("euro"));
+        assert_eq!(canonical_number_format("percent"), Some("percent"));
+        assert_eq!(canonical_number_format("plain"), None);
+        assert_eq!(canonical_number_format("PLAIN"), None);
+        // and nothing else gets in
+        assert_eq!(canonical_number_format("furlongs"), None);
+        assert_eq!(canonical_number_format("dollars"), None, "codes only, not word aliases");
+        assert_eq!(canonical_number_format(""), None);
+    }
+
+    /// A number column may carry a unit (SUB-834): `format: USD` writes as
+    /// readily as `euro` did, canonicalized, and `euro`/`percent` still
+    /// roundtrip untouched so existing vaults don't break.
+    #[test]
+    fn schema_number_format_accepts_unit_codes() {
+        let (e, dir) = temp_vault("units-fmt");
+        let set = |e: &Engine, prop: &str, fmt: &str| {
+            e.set_schema_prop(
+                "gear",
+                prop,
+                vec![],
+                Some("number".into()),
+                None,
+                None,
+                None,
+                Some(fmt.into()),
+                None,
+                None,
+            )
+        };
+        // a currency code, a linear unit, a display-only one — and the casing
+        // the schema editor didn't normalize
+        set(&e, "price", "USD").unwrap();
+        set(&e, "weight", "kg").unwrap();
+        set(&e, "tempo", "bpm").unwrap();
+        set(&e, "loudness", " LUFS ").unwrap();
+        let map = set(&e, "share", "%").unwrap();
+        assert_eq!(map["gear"].props["price"].format.as_deref(), Some("USD"));
+        assert_eq!(map["gear"].props["weight"].format.as_deref(), Some("kg"));
+        assert_eq!(
+            map["gear"].props["tempo"].format.as_deref(),
+            Some("BPM"),
+            "a typed code stores in its canonical casing"
+        );
+        assert_eq!(map["gear"].props["loudness"].format.as_deref(), Some("LUFS"));
+        assert_eq!(map["gear"].props["share"].format.as_deref(), Some("%"));
+        // it lands on disk and survives a reload
+        let raw: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.join(SCHEMA_REL_PATH)).unwrap()).unwrap();
+        assert_eq!(raw["gear"]["price"]["format"], "USD");
+        assert_eq!(raw["gear"]["tempo"]["format"], "BPM");
+        assert_eq!(e.schema()["gear"].props["price"].format.as_deref(), Some("USD"));
+        // BACK-COMPAT: the two historical spellings are stored verbatim, so a
+        // vault written before units still reads and writes exactly as before
+        assert_eq!(set(&e, "cost", "euro").unwrap()["gear"].props["cost"].format.as_deref(), Some("euro"));
+        assert_eq!(set(&e, "vat", "percent").unwrap()["gear"].props["vat"].format.as_deref(), Some("percent"));
+        assert_eq!(set(&e, "qty", "plain").unwrap()["gear"].props["qty"].format, None);
+        // a unit nothing can render is still refused
+        assert!(set(&e, "dist", "furlongs").is_err());
+        assert!(set(&e, "dist", "dollars").is_err(), "codes only, not word aliases");
         let _ = fs::remove_dir_all(&dir);
     }
 

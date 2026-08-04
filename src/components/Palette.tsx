@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { DbIcon, NoteMeta, SearchHit, View } from "../lib/types";
 import { propStr } from "../lib/types";
-import { vaultRoot, vaultSearch, folderDbsRescan } from "../lib/ipc";
+import { vaultRoot, vaultSearch, mountRescan } from "../lib/ipc";
 import { setPropUndoable } from "../lib/undoprops";
 import { useUndo } from "../lib/undoContext";
 import { createLatestGuard } from "../lib/latest";
 import { exportNoteMarkdown, exportNoteOneSheet, exportNotePdf } from "../lib/export";
 import { useEdgeFade } from "../hooks/useEdgeFade";
 import { buildNoteActions } from "../lib/noteactions";
-import { scanSummary } from "../lib/folders";
+import { scanSummary } from "../lib/mounts";
 import { fuzzyScore } from "../lib/fuzzy";
 import { noteHint } from "../lib/display";
 import { displayTitle } from "../lib/journal";
@@ -312,7 +312,7 @@ export default function Palette({
   );
 
   const rescanFolders = useCallback(() => {
-    folderDbsRescan()
+    mountRescan()
       .then((stats) => {
         onToast(scanSummary(stats));
         onMutated();
@@ -829,8 +829,8 @@ export default function Palette({
             ]
           : []),
         {
-          id: "cmd:rescan-folders",
-          label: "Rescan folder databases",
+          id: "cmd:rescan-mounts",
+          label: "Rescan mounted folders",
           icon: <FolderIcon />,
           section: "Commands",
           run: rescanFolders,

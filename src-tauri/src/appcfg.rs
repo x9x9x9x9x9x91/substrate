@@ -32,6 +32,14 @@ pub struct AppConfig {
     /// Absolute path of the vault this install opens. `None` = never chosen.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vault: Option<PathBuf>,
+    /// Where each mounted folder lives ON THIS MACHINE: mount id → absolute
+    /// path (SUB-888). A mount's identity, name and globs are portable and
+    /// sync inside the vault; the path binding is per-machine and must not,
+    /// which is exactly why it lives here and not in `.vault/mounts.json`.
+    /// A mount with no entry here is unbound: its board still renders from
+    /// the last-known index, with a "Locate folder…" affordance.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub mounts: std::collections::BTreeMap<String, PathBuf>,
 }
 
 /// Where a resolved root came from — the caller uses this to decide whether
@@ -62,12 +70,34 @@ pub fn read_config(cfg_dir: &Path) -> AppConfig {
         .unwrap_or_default()
 }
 
-/// Persist the chosen vault path, creating the config dir if needed.
-pub fn write_vault_choice(cfg_dir: &Path, vault: &Path) -> Result<(), String> {
+/// Read the config, let `edit` change it, write it back. EVERY write goes
+/// through here: the config has grown a second concern (mount path bindings,
+/// SUB-888) and a writer that builds a fresh `AppConfig` from one field
+/// silently drops the other. Creating the config dir is part of the write.
+pub fn update_config(cfg_dir: &Path, edit: impl FnOnce(&mut AppConfig)) -> Result<(), String> {
     fs::create_dir_all(cfg_dir).map_err(|e| e.to_string())?;
-    let cfg = AppConfig { vault: Some(vault.to_path_buf()) };
+    let mut cfg = read_config(cfg_dir);
+    edit(&mut cfg);
     let json = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
     fs::write(cfg_dir.join(CONFIG_FILE), format!("{json}\n")).map_err(|e| e.to_string())
+}
+
+/// Persist the chosen vault path, creating the config dir if needed. Other
+/// fields (mount bindings) survive the write.
+pub fn write_vault_choice(cfg_dir: &Path, vault: &Path) -> Result<(), String> {
+    update_config(cfg_dir, |cfg| cfg.vault = Some(vault.to_path_buf()))
+}
+
+/// Bind a mount to a path on THIS machine, or clear the binding with `None`.
+pub fn write_mount_binding(cfg_dir: &Path, id: &str, path: Option<&Path>) -> Result<(), String> {
+    update_config(cfg_dir, |cfg| match path {
+        Some(p) => {
+            cfg.mounts.insert(id.to_string(), p.to_path_buf());
+        }
+        None => {
+            cfg.mounts.remove(id);
+        }
+    })
 }
 
 /// How sure do we need to be that a folder is a vault?
@@ -214,6 +244,32 @@ mod tests {
         let v = dir.join("V");
         fs::create_dir_all(v.join(".vault")).unwrap();
         v
+    }
+
+    /// SUB-888: the two concerns in `config.json` are written by different
+    /// flows (picking a vault; binding a mount), and each used to be able to
+    /// erase the other by rebuilding the struct from its own field.
+    #[test]
+    fn config_writes_do_not_drop_each_other() {
+        let t = TempDir::new().unwrap();
+        let cfg = t.path().join("cfg");
+        write_vault_choice(&cfg, Path::new("/tmp/v")).unwrap();
+        write_mount_binding(&cfg, "m1", Some(Path::new("/tmp/pool"))).unwrap();
+
+        // binding a mount kept the vault choice
+        assert_eq!(read_config(&cfg).vault.as_deref(), Some(Path::new("/tmp/v")));
+        assert_eq!(read_config(&cfg).mounts.get("m1").cloned().as_deref(), Some(Path::new("/tmp/pool")));
+
+        // and re-picking a vault keeps the bindings
+        write_vault_choice(&cfg, Path::new("/tmp/v2")).unwrap();
+        assert_eq!(read_config(&cfg).mounts.get("m1").cloned().as_deref(), Some(Path::new("/tmp/pool")));
+
+        // unbinding removes just that mount
+        write_mount_binding(&cfg, "m2", Some(Path::new("/tmp/other"))).unwrap();
+        write_mount_binding(&cfg, "m1", None).unwrap();
+        assert_eq!(read_config(&cfg).mounts.get("m1").cloned(), None);
+        assert_eq!(read_config(&cfg).mounts.get("m2").cloned().as_deref(), Some(Path::new("/tmp/other")));
+        assert_eq!(read_config(&cfg).vault.as_deref(), Some(Path::new("/tmp/v2")));
     }
 
     #[test]

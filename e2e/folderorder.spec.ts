@@ -9,7 +9,7 @@ import { expect, test, type Page } from "@playwright/test";
 // home-db rows keep their FOLDER name (SUB-611); nested rows
 // (Projects/Active, Projects/Archive) and hidden surfaces are filtered
 // out of assertions below
-const ROOTS = ["Calendar", "Field notes", "Finance", "Ideas", "Inbox", "Projects", "Tasks", "ZHome"];
+const ROOTS = ["Calendar", "Field notes", "Ideas", "Inbox", "Mounts", "Projects", "Tasks", "ZHome"];
 
 async function rootOrder(page: Page): Promise<string[]> {
   const texts = await page.locator(".side-folder .side-label-text").allTextContents();
@@ -31,9 +31,9 @@ test("root folders: Move down via the context menu reorders the tree", async ({ 
   expect(await rootOrder(page)).toEqual([
     "Field notes",
     "Calendar",
-    "Finance",
     "Ideas",
     "Inbox",
+    "Mounts",
     "Projects",
     "Tasks",
     "ZHome",
@@ -53,16 +53,16 @@ test("root folders: drag a root row onto another reorders the tree", async ({ pa
   // dragover / drop handlers still do all the work
   const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
   await page.locator(".side-folder", { hasText: "Calendar" }).dispatchEvent("dragstart", { dataTransfer });
-  const finance = page.locator(".side-folder", { hasText: "Finance" });
-  await finance.dispatchEvent("dragover", { dataTransfer });
-  // drop in the row's upper half (clientY 0) — Calendar lands before Finance
-  await finance.dispatchEvent("drop", { dataTransfer });
+  const target = page.locator(".side-folder", { hasText: "Ideas" });
+  await target.dispatchEvent("dragover", { dataTransfer });
+  // drop in the row's upper half (clientY 0) — Calendar lands before Ideas
+  await target.dispatchEvent("drop", { dataTransfer });
   expect(await rootOrder(page)).toEqual([
     "Field notes",
     "Calendar",
-    "Finance",
     "Ideas",
     "Inbox",
+    "Mounts",
     "Projects",
     "Tasks",
     "ZHome",

@@ -20,9 +20,13 @@ pub(crate) fn temp_vault(name: &str) -> (Engine, PathBuf) {
 /// config write that runs after it.
 pub(crate) fn refuse_config_writes(root: &Path) {
     fs::create_dir_all(root.join(".vault")).unwrap();
+    let refused: serde_json::Map<String, serde_json::Value> = crate::vaultfmt::VaultFile::ALL
+        .iter()
+        .map(|f| (f.key().to_string(), serde_json::json!(99)))
+        .collect();
     fs::write(
         root.join(".vault/format.json"),
-        "{\"schema\": 99, \"views\": 99, \"folders\": 99, \"notifications\": 99, \"calendars\": 99}",
+        serde_json::to_string(&refused).unwrap(),
     )
     .unwrap();
 }

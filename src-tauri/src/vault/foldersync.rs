@@ -118,43 +118,6 @@ impl Engine {
         read_folder_mappings(&self.root)
     }
 
-    /// Append one mapping to `.vault/folders.json` — the in-app "Map a
-    /// folder…" flow (SUB-672). Refuses an empty path/type and an exact
-    /// duplicate (same path, same type ignoring case); anything else wrong
-    /// with the folder (missing, overlapping the vault) is the following
-    /// scan's job to report. Returns the full list as written.
-    pub fn add_folder_mapping(
-        &self,
-        path: &str,
-        db_type: &str,
-        globs: Vec<String>,
-        watch: bool,
-    ) -> Result<Vec<FolderMapping>, String> {
-        let path = path.trim();
-        let db_type = db_type.trim();
-        if path.is_empty() || db_type.is_empty() {
-            return Err("folder path and database type must be non-empty".into());
-        }
-        let globs: Vec<String> = globs
-            .into_iter()
-            .map(|g| g.trim().to_string())
-            .filter(|g| !g.is_empty())
-            .collect();
-        let mut mappings = self.folder_mappings();
-        if mappings.iter().any(|m| m.path == path && m.db_type.eq_ignore_ascii_case(db_type)) {
-            return Err(format!("“{path}” is already mapped to “{db_type}”"));
-        }
-        mappings.push(FolderMapping {
-            path: path.into(),
-            db_type: db_type.into(),
-            globs,
-            watch,
-            extra: Default::default(),
-        });
-        write_folder_mappings(&self.root, &mappings)?;
-        Ok(mappings)
-    }
-
     /// Sync every mapped folder into stub notes. READ-ONLY on the watched
     /// folders: files are only ever stat'd, never written, moved, renamed,
     /// or deleted. Dedupe is by the `file` prop's normalized absolute path —
@@ -411,50 +374,6 @@ mod tests {
         assert_eq!(ms.len(), 2);
         assert!(!ms[0].watch, "absent watch = opted out");
         assert!(ms[1].watch);
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn add_folder_mapping_appends_and_persists() {
-        let (e, dir) = temp_vault("fmadd");
-        write_folders_json(&dir, r#"[{"path": "/tmp/a", "type": "finance-doc", "future": 1}]"#);
-
-        let ms = e
-            .add_folder_mapping(" /tmp/b ", "Books", vec![" *.pdf ".into(), "".into()], true)
-            .unwrap();
-        assert_eq!(ms.len(), 2);
-        assert_eq!(ms[1].path, "/tmp/b", "trimmed");
-        assert_eq!(ms[1].db_type, "Books");
-        assert_eq!(ms[1].globs, vec!["*.pdf"], "globs trimmed, empties dropped");
-        assert!(ms[1].watch);
-
-        // reads back in the documented shape; the sibling entry's unknown
-        // key survives the rewrite (SUB-433)
-        let raw = fs::read_to_string(dir.join(FOLDERS_REL_PATH)).unwrap();
-        assert!(raw.contains("\"future\": 1"));
-        let back = e.folder_mappings();
-        assert_eq!(back.len(), 2);
-        assert!(back[1].watch);
-        let _ = fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn add_folder_mapping_refuses_empty_and_duplicates() {
-        let (e, dir) = temp_vault("fmadd-guard");
-        assert!(e.add_folder_mapping("", "books", vec![], false).is_err());
-        assert!(e.add_folder_mapping("  ", "books", vec![], false).is_err());
-        assert!(e.add_folder_mapping("/tmp/a", " ", vec![], false).is_err());
-        assert!(!dir.join(FOLDERS_REL_PATH).exists(), "no folders.json invented");
-
-        e.add_folder_mapping("/tmp/a", "books", vec![], false).unwrap();
-        assert!(e.add_folder_mapping("/tmp/a", "books", vec![], false).is_err());
-        assert!(
-            e.add_folder_mapping("/tmp/a", "BOOKS", vec![], false).is_err(),
-            "type dupe ignores case"
-        );
-        // same folder, another type is a second mapping, not a dupe
-        e.add_folder_mapping("/tmp/a", "films", vec![], false).unwrap();
-        assert_eq!(e.folder_mappings().len(), 2);
         let _ = fs::remove_dir_all(&dir);
     }
 

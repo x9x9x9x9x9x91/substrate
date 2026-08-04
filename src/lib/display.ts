@@ -3,7 +3,9 @@
 
 import type { NoteMeta, NumberFormat, PropKind, PropSchema } from "./types.ts";
 import { foldedPropStr, propStr } from "./types.ts";
-import { formatAgg, parseCellNumber } from "./aggregate.ts";
+import { cellInUnit, formatAgg, formatUnit, parseCellNumber } from "./aggregate.ts";
+import { formatQuantity } from "./units.ts";
+import type { FxResolver } from "./formula.ts";
 import { isAudioEmbed, unwrapEmbed } from "./artwork.ts";
 import { splitDateRange, type DayTime } from "./calendar.ts";
 import { formatDateHuman, MONTHS } from "./dates.ts";
@@ -30,17 +32,57 @@ export function noteHint(n: NoteMeta): string | undefined {
     value has decimals, trailing ` €`); `percent` (SUB-196) renders through
     the same de-DE path with a ` %` suffix (`8,5 %` — the stored number IS
     the percent, no ×100 math); `plain`/absent renders the number as stored.
-    Non-numeric junk renders exactly as typed — never destroy or hide data. */
-export function formatNumber(v: string, format: NumberFormat | undefined): string {
-  if (!format || format === "plain") return v;
-  const n = parseCellNumber(v);
+    Non-numeric junk renders exactly as typed — never destroy or hide data.
+
+    Since SUB-834 the format may name any units.ts code, and a CELL may carry
+    its own unit: `25 USD` in a EUR column renders converted (`21,80 €`) while
+    the YAML scalar stays exactly `25 USD` — display-only shaping, the file is
+    never rewritten. Conversion needs the `fx` resolver; without one, or when
+    the units don't convert (foreign dimension, unknown unit, no rate), the
+    cell renders as typed rather than as a wrong number. `conversionNote`
+    supplies the marker's hover text for the cells that did convert. */
+export function formatNumber(
+  v: string,
+  format: NumberFormat | undefined,
+  fx?: FxResolver,
+  style: "de" | "intl" = "de"
+): string {
+  const unit = formatUnit(format);
+  if (unit === null) return v;
+  const { n } = cellInUnit(v, unit, fx ?? NO_FX);
   if (n === null) return v;
-  // euro and percent (SUB-196): pre-round like formatAgg (float noise, -0),
-  // then German grouping — maximumFractionDigits alone keeps integers
-  // decimal-free ("1.234 €", "12 %")
-  const r = Math.round(n * 100) / 100 || 0;
-  const s = r.toLocaleString("de-DE", { maximumFractionDigits: 2 });
-  return format === "percent" ? `${s} %` : `${s} €`;
+  // euro and percent (SUB-196) and every other unit (SUB-834): pre-round like
+  // formatAgg (float noise, -0), then the dialect's grouping —
+  // maximumFractionDigits alone keeps integers decimal-free ("1.234 €",
+  // "12 %", "5 kg")
+  return formatQuantity(n, unit, style);
+}
+
+/** No rates at all — what a cell sees when its caller has no resolver yet.
+    Currency then can't convert (the cell renders as typed), while linear
+    units, which need no rates, still do. */
+const NO_FX: FxResolver = () => null;
+
+/** The hover note for a converted cell (SUB-834): what was actually stored
+    and the rate's as-of date, so a converted figure never passes for a typed
+    one. null when the cell converted nothing — the cell then carries no
+    marker at all. `asOf` empty or absent drops the date clause rather than
+    claiming a rate we can't date. */
+export function conversionNote(
+  v: string,
+  format: NumberFormat | undefined,
+  fx?: FxResolver,
+  asOf?: string
+): string | null {
+  const unit = formatUnit(format);
+  if (unit === null) return null;
+  // `from` is set only when a conversion actually happened, and `n` only when
+  // it succeeded — so the marker appears on exactly the cells whose rendered
+  // figure isn't the stored one
+  const { n, from } = cellInUnit(v, unit, fx ?? NO_FX);
+  if (n === null || from === null) return null;
+  const stored = `Stored as ${v.trim()}`;
+  return asOf && asOf.trim() ? `${stored} · converted at ${asOf.trim()} rates` : `${stored} · converted`;
 }
 
 /** File-size humanizer (SUB-284): the app's de-DE dialect like formatNumber —
@@ -108,20 +150,26 @@ export function formatDateTimeHuman(v: string): string {
     embed shows the target, never the raw `![[…]]`; a wrapped target or an
     absolute/`~/` path shows its basename like the file kind. Prose with a
     slash ("AC/DC") is not a path and passes through untouched. */
-export function displayValue(v: string, kind: PropKind | undefined, format?: NumberFormat): string {
+export function displayValue(
+  v: string,
+  kind: PropKind | undefined,
+  format?: NumberFormat,
+  fx?: FxResolver,
+  style: "de" | "intl" = "de"
+): string {
   if (kind === "date") return formatDateTimeHuman(v);
   // checkbox (SUB-173): checked reads "✓", unchecked blank (never "false") —
   // v arrives via propStr, so the YAML bool true surfaces as "true"
   if (kind === "checkbox") return v === "true" ? "✓" : "";
   // number (SUB-188): formatted from the raw stored string — junk passes
   // through exactly as typed, wrapper and all
-  if (kind === "number") return formatNumber(v, format);
+  if (kind === "number") return formatNumber(v, format, fx, style);
   // rollup (SUB-678): a derived number, never typed — render it in the app's
   // display dialect through the footer's own formatAgg, so cell and
   // calculation never disagree; a hand-authored junk value passes through
   if (kind === "rollup") {
     const n = parseCellNumber(v);
-    return n === null ? v : formatAgg(n, "sum", format);
+    return n === null ? v : formatAgg(n, "sum", format, style);
   }
   const u = unwrapEmbed(v);
   if (kind === "file") return basename(u);

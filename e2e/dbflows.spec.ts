@@ -2,8 +2,8 @@ import { expect, test } from "@playwright/test";
 
 // SUB-403: the sidebar's two database-into-tree flows. The Folders "+" is an
 // add menu — plain inline folder create, a database that lands in the tree
-// on an eponymous root folder, or "Map a folder…" backing a database with a
-// real folder on disk (SUB-672) — and All-databases manager rows
+// on an eponymous root folder, or "Mount a folder…" showing a real folder on
+// disk as a database (SUB-888) — and All-databases manager rows
 // drag onto sidebar folders to set their home (SUB-85 IPC, toast confirms).
 // SUB-411 adds the inverse: the tree row's "Stop opening as database" un-homes
 // in place. Runs against the deterministic mock backend (fresh page =
@@ -19,7 +19,7 @@ test("Folders '+' opens the add menu; New folder keeps the inline flow", async (
   await expect(items).toHaveCount(4);
   await expect(items.filter({ hasText: "New folder" })).toHaveCount(1);
   await expect(items.filter({ hasText: "New database…" })).toHaveCount(1);
-  await expect(items.filter({ hasText: "Map a folder…" })).toHaveCount(1);
+  await expect(items.filter({ hasText: "Mount a folder…" })).toHaveCount(1);
   await expect(items.filter({ hasText: "New tag folder…" })).toHaveCount(1);
 
   // the plain new-folder flow is unchanged: inline edit row, Enter creates

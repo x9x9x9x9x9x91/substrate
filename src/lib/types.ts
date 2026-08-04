@@ -104,6 +104,28 @@ export interface AssetInfo {
   mtime_ms: number;
 }
 
+/** One loose (non-note) file in a folder view (SUB-812) — mirrors Rust's
+    `FolderFile`. `path` is absolute: it is what streams through the asset
+    protocol, what the OS open/reveal actions take, AND the shared audio
+    player's key, so a row and a link-in-place embed of the same file drive
+    one player rather than two. */
+export interface FolderFile {
+  rel: string;
+  name: string;
+  path: string;
+  size: number;
+  mtime_ms: number;
+}
+
+/** A folder's loose files, plus how many it really has — `files` is capped
+    (Rust `FOLDER_FILES_MAX`) so one pathological directory can't ship a
+    multi-megabyte payload into the list pane; `total` stays honest so the
+    pane can say what it is not showing. */
+export interface FolderListing {
+  files: FolderFile[];
+  total: number;
+}
+
 /** What a vault-doctor finding is about (SUB-432) — mirrors `DoctorKind`. */
 export type DoctorKind =
   | "broken-link"
@@ -135,27 +157,57 @@ export interface DoctorReport {
   findings: DoctorFinding[];
 }
 
-/** Outcome of one folder mapping's sync pass (`.vault/folders.json`).
-    `missing` counts stub notes whose file vanished (flagged, never deleted). */
-export interface FolderScanStats {
-  folder: string;
-  db_type: string;
-  scanned: number;
-  created: number;
-  updated: number;
-  missing: number;
-  error?: string;
-}
-
-/** One folder→database mapping from `.vault/folders.json` (vault-format.md
-    §8): the folder's files sync in as stub notes of `type`. `watch` opts
-    into the live watcher; absent = off (the Rust side skips serializing
-    false). */
-export interface FolderMapping {
-  path: string;
-  type: string;
+/** The portable half of a mount, as `.vault/mounts.json` stores it: identity
+    that syncs between machines. Deliberately no path — see `MountInfo`. */
+export interface Mount {
+  id: string;
+  name: string;
   globs: string[];
   watch?: boolean;
+}
+
+/** One mount as `mounts_list` returns it (vault-format.md §8): the portable
+    half from `.vault/mounts.json` plus what THIS machine knows about it.
+    `path` absent = not bound here, which is an ordinary state — the board
+    still renders from the last-known index, with "Locate folder…" offered. */
+export interface MountInfo extends Mount {
+  path?: string;
+  /** bound here, but the folder is gone (unplugged drive, moved folder) */
+  missing: boolean;
+  /** RFC 3339 stamp of the last scan; empty for a mount never scanned */
+  scanned: string;
+  /** rows in the last-known index — the count the database list shows, read
+      from the index rather than the disk so it agrees on every machine */
+  files: number;
+}
+
+/** One row of a mount's board: the file as the index knows it, plus the
+    sidecar note bound to it once the user has annotated the row. */
+export interface MountRow {
+  rel: string;
+  name: string;
+  extension: string;
+  size: number;
+  modified: string;
+  created: string;
+  identity: string;
+  missing?: boolean;
+  /** vault path of the sidecar note, absent until first annotated */
+  note?: string;
+  props: Record<string, unknown>;
+}
+
+/** Outcome of one mount's scan pass. `error` set means the folder itself
+    couldn't be read — the index was left exactly as it was. */
+export interface MountScanStats {
+  id: string;
+  name: string;
+  scanned: number;
+  added: number;
+  updated: number;
+  renamed: number;
+  missing: number;
+  error?: string;
 }
 
 
@@ -174,6 +226,9 @@ export type View =
   | { kind: "changelog" }
   | { kind: "dbmanager" }
   | { kind: "db"; type: string }
+  /** a reality mount (SUB-888) — keyed by mount id, not name, so a rename
+      doesn't strand the open view */
+  | { kind: "mount"; id: string }
   | { kind: "saved"; id: string }
   | { kind: "dashboard"; path: string }
   | { kind: "folder"; path: string }
@@ -347,8 +402,17 @@ export type PropKind = "text" | "date" | "file" | "relation" | "multi" | "url" |
     thousands, comma decimals, 2 decimals only when the value has decimals);
     `percent` (SUB-196) = the same de-DE path with a ` %` suffix (`8,5 %`) —
     the stored number IS the percent, no ×100 math. Display-only: the stored
-    value never changes. */
-export type NumberFormat = "plain" | "euro" | "percent";
+    value never changes.
+
+    Since SUB-834 the same field also names the column's UNIT: any units.ts
+    code (`USD`, `kg`, `BPM`, `LUFS`…) is a valid format, and `euro`/`percent`
+    stay forever as the aliases for `EUR` and `%` that every existing vault
+    already has on disk. One field, no migration. The vocabulary is open, so
+    the type can't enumerate it — `(string & {})` keeps the three historical
+    values in autocomplete while accepting the rest; validation lives where it
+    can be exhaustive (aggregate.ts `formatUnit` for rendering, schema.rs
+    `NUMBER_FORMATS`/`UNIT_CODES` on write). */
+export type NumberFormat = "plain" | "euro" | "percent" | (string & {});
 
 export interface PropSchema {
   /** the allowed values; select and multi props only — other kinds carry [] */

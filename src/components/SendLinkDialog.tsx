@@ -12,7 +12,7 @@ import {
   sealHandoff,
   type HandoffExpiry,
 } from "../lib/handoff";
-import { SETTINGS_PATH } from "../lib/settings";
+import { netAllowed, SETTINGS_PATH } from "../lib/settings";
 
 /* "Send as link" (SUB-833): render → seal → upload, all before the relay
    sees a byte of plaintext. Rides the DbAdmin overlay/dbform idiom. The
@@ -35,6 +35,12 @@ export default function SendLinkDialog({
 }) {
   const [relay, setRelay] = useState<string | null>(null); // null = still loading settings
   const [relayToken, setRelayToken] = useState("");
+  /** SUB-834: `net-share-relay` — the switch that closes this upload. Same
+      shape as the unset-relay state below (explain, offer no send button),
+      because both are "this cannot send yet, here is where to change that"
+      rather than a failure. Enforced here, one step before the only call that
+      leaves the machine, so every surface offering the action is covered. */
+  const [allowed, setAllowed] = useState(true);
   const [expiry, setExpiry] = useState<HandoffExpiry>(EXPIRY_DEFAULT);
   const [size, setSize] = useState<number | null>(null);
   const [link, setLink] = useState<string | null>(null);
@@ -57,6 +63,7 @@ export default function SendLinkDialog({
     vaultRead(SETTINGS_PATH)
       .then((c) => {
         setRelay(parseShareRelayUrl(c.props));
+        setAllowed(netAllowed(c.props, "share-relay"));
         const t = c.props[foldedPropKey(c.props, "share-relay-token")];
         setRelayToken(typeof t === "string" ? t.trim() : "");
       })
@@ -92,7 +99,10 @@ export default function SendLinkDialog({
   }, [relay]);
 
   const send = () => {
-    if (busy || !relay || html === null) return;
+    // `allowed` is checked here too, not only in the render: this is the last
+    // line before the upload, and a gate that only hides a button is one
+    // stale render away from sending anyway
+    if (busy || !allowed || !relay || html === null) return;
     setBusy(true);
     setErr(null);
     (async () => {
@@ -126,7 +136,22 @@ export default function SendLinkDialog({
       <div className="dbform" role="dialog" aria-label="Send as link">
         <div className="dbform-title">Send “{meta.title}” as link</div>
 
-        {relay === "" && (
+        {!allowed && (
+          <>
+            <div className="dbform-note">
+              Sending as a link is switched off. It uploads the encrypted note to your share
+              relay — the only way this note leaves your machine. Turn “Send as link” back on
+              under Settings → Outbound requests (⌘,).
+            </div>
+            <div className="dbform-foot">
+              <button className="selmenu-btn" onClick={onClose}>
+                Close
+              </button>
+            </div>
+          </>
+        )}
+
+        {allowed && relay === "" && (
           <>
             <div className="dbform-note">
               Hosted sharing is off. Add https://drop.substrate.zone or your own public HTTPS
@@ -141,7 +166,7 @@ export default function SendLinkDialog({
           </>
         )}
 
-        {relay !== "" && relay !== null && link === null && (
+        {allowed && relay !== "" && relay !== null && link === null && (
           <>
             <div className="dbform-note">
               The note is rendered and encrypted on this machine; the relay stores ciphertext.

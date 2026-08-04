@@ -1,8 +1,10 @@
 import type { DbIcon, NoteMeta, PropSchema } from "../lib/types";
 import { NOTE_DRAG_MIME } from "../lib/sidebar";
+import { missingCls } from "../lib/mounts";
 import { audioPropTarget } from "../lib/display";
 import { AudioPropButton } from "./AudioPropButton";
 import { cardSubtitle, GalleryCover, type Focus } from "./DbPaneShared";
+import type { FxResolver } from "../lib/formula";
 
 /** The gallery layout (SUB-621, split out of DatabasePane): cover-led cards
     in a grid. DatabasePane still owns the state and callbacks. */
@@ -11,6 +13,9 @@ export default function DbGalleryLayout({
   dbType,
   icon,
   typeSchema,
+  fx,
+  fxAsOf,
+  numberStyle,
   openPath,
   bgMenuProps,
   head,
@@ -30,6 +35,9 @@ export default function DbGalleryLayout({
   dbType: string;
   icon?: DbIcon;
   typeSchema: Record<string, PropSchema>;
+  fx?: FxResolver;
+  fxAsOf?: string;
+  numberStyle: "de" | "intl";
   openPath: string | null;
   bgMenuProps: { onContextMenu: (e: React.MouseEvent) => void };
   head: React.ReactNode;
@@ -63,7 +71,7 @@ export default function DbGalleryLayout({
               data-fc={0}
               data-fr={r}
               data-focus-path={n.path}
-              className={`db-gcard${focusedCls(0, r)}${openPath === n.path ? " open" : ""}`}
+              className={`db-gcard${focusedCls(0, r)}${openPath === n.path ? " open" : ""}${missingCls(n)}`}
               role="button"
               aria-label={n.title}
               tabIndex={tabIndexFor(0, r)}
@@ -107,8 +115,10 @@ export default function DbGalleryLayout({
                 ) : (
                   <span className="db-gcard-title">{n.title}</span>
                 )}
-                {cardSubtitle(n, typeSchema) && (
-                  <span className="row-sub db-gsub">{cardSubtitle(n, typeSchema)}</span>
+                {cardSubtitle(n, typeSchema, undefined, undefined, fx, fxAsOf, numberStyle) && (
+                  <span className="row-sub db-gsub">
+                    {cardSubtitle(n, typeSchema, undefined, undefined, fx, fxAsOf, numberStyle)}
+                  </span>
                 )}
               </div>
             </div>

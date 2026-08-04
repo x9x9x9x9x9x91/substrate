@@ -6,7 +6,9 @@
 //! the watcher can't be built (SUB-157) — and neither touches `Engine`: they
 //! signal, and the caller runs `Engine::rescan` / `Engine::sync_folders`.
 
+use super::mounts::resolve_mount_path;
 use super::*;
+use std::collections::BTreeMap;
 
 pub enum WatchBatch {
     Paths(Vec<PathBuf>),
@@ -33,7 +35,7 @@ pub(super) fn watch_relevant(root: &Path, p: &Path) -> bool {
 }
 
 /// The live-editable config files —
-/// `.vault/{schema,views,folders,calendars,tagfolders}.json`.
+/// `.vault/{schema,views,folders,calendars,tagfolders,mounts}.json`.
 /// The watcher surfaces exactly these dot-paths so external edits apply
 /// without a restart (SUB-100); lib.rs routes them to a separate
 /// `vault:config-changed` signal instead of the note-refetch `vault:changed`.
@@ -44,6 +46,7 @@ pub fn config_path(root: &Path, p: &Path) -> bool {
         || rel == Path::new(FOLDERS_REL_PATH)
         || rel == Path::new(crate::calendarfeed::CONFIG_REL_PATH)
         || rel == Path::new(TagFolder::REL_PATH)
+        || rel == Path::new(MOUNTS_REL_PATH)
 }
 
 /// Cadence of the degraded-mode fallback (SUB-157): when the watcher can't
@@ -205,7 +208,16 @@ fn folder_watch_root(vault_root: &Path, m: &FolderMapping) -> Option<PathBuf> {
     if !m.watch {
         return None;
     }
-    let root = expand_tilde(&m.path).canonicalize().ok()?;
+    watchable_root(vault_root, Path::new(&m.path))
+}
+
+/// The same three guards for any watch target: it resolves to a real
+/// directory and doesn't overlap the vault in either direction (scans refuse
+/// those too; watching them would just fire erroring scans). Resolution goes
+/// through [`resolve_mount_path`], the one helper every mount-root site uses,
+/// so the watched path is byte-identical to the scanned one.
+fn watchable_root(vault_root: &Path, path: &Path) -> Option<PathBuf> {
+    let root = resolve_mount_path(path);
     if !root.is_dir() {
         return None;
     }
@@ -213,6 +225,32 @@ fn folder_watch_root(vault_root: &Path, m: &FolderMapping) -> Option<PathBuf> {
         return None;
     }
     Some(root)
+}
+
+/// Every folder to watch and the globs that filter its events: the mappings
+/// of `.vault/folders.json` plus the mounts of `.vault/mounts.json` that
+/// opted in AND are bound to a path on this machine (SUB-888). Mount
+/// bindings are machine-local, so the caller supplies them.
+fn watch_targets(
+    vault_root: &Path,
+    bindings: &BTreeMap<String, PathBuf>,
+) -> Vec<(PathBuf, Vec<String>)> {
+    let mut out: Vec<(PathBuf, Vec<String>)> = Vec::new();
+    for m in read_folder_mappings(vault_root) {
+        if let Some(root) = folder_watch_root(vault_root, &m) {
+            out.push((root, m.globs));
+        }
+    }
+    for mount in read_mounts(vault_root) {
+        if !mount.watch {
+            continue;
+        }
+        let Some(path) = bindings.get(&mount.id) else { continue };
+        if let Some(root) = watchable_root(vault_root, path) {
+            out.push((root, mount.globs));
+        }
+    }
+    out
 }
 
 /// Reconcile the notify watch set with the mappings file: newly resolvable
@@ -231,14 +269,10 @@ fn refresh_folder_watches(
     watcher: &mut notify::RecommendedWatcher,
     vault_root: &Path,
     watched: &mut Vec<(PathBuf, Vec<String>)>,
+    bindings: &BTreeMap<String, PathBuf>,
 ) -> Vec<(PathBuf, String)> {
     use notify::{RecursiveMode, Watcher};
-    let mut wanted: Vec<(PathBuf, Vec<String>)> = Vec::new();
-    for m in read_folder_mappings(vault_root) {
-        if let Some(root) = folder_watch_root(vault_root, &m) {
-            wanted.push((root, m.globs));
-        }
-    }
+    let wanted = watch_targets(vault_root, bindings);
     for (root, _) in watched.iter() {
         if !wanted.iter().any(|(r, _)| r == root) {
             watcher.unwatch(root).ok();
@@ -277,6 +311,7 @@ fn folders_degraded_loop(
     vault_root: &Path,
     interval: Duration,
     on_change: &impl Fn(),
+    bindings: &impl Fn() -> BTreeMap<String, PathBuf>,
     mut build: impl FnMut() -> Result<notify::RecommendedWatcher, String>,
 ) -> notify::RecommendedWatcher {
     loop {
@@ -284,7 +319,7 @@ fn folders_degraded_loop(
         match build() {
             Ok(w) => return w,
             Err(_) => {
-                if read_folder_mappings(vault_root).iter().any(|m| m.watch) {
+                if !watch_targets(vault_root, &bindings()).is_empty() {
                     on_change();
                 }
             }
@@ -327,30 +362,39 @@ fn folder_watch_relevant(watched: &[(PathBuf, Vec<String>)], p: &Path) -> bool {
 /// mapping opting in (re-checked every cycle), with a construction retry
 /// each cycle — the first success promotes back to the event loop.
 ///
-/// `folders.json` drives the watch set and is re-read after every burst, so
-/// mapping edits (new folders, `watch` flips) apply without a restart;
-/// `.vault` is watched non-recursively to see those edits (dot-paths other
-/// than the three config files are invisible to the vault watcher), with
-/// the vault root as a sentinel until `.vault` exists. One catch-up fire also happens at launch when at least
-/// one mapping opted in, covering changes made while the app was closed.
-pub fn watch_folders<F, E>(vault_root: PathBuf, on_change: F, on_error: E)
+/// `folders.json`, `mounts.json` and the machine's mount bindings drive the
+/// watch set, re-read after every burst, so edits (new folders, `watch`
+/// flips, a mount bound to a folder) apply without a restart; `.vault` is
+/// watched non-recursively to see those edits (dot-paths other than the
+/// config files are invisible to the vault watcher), with the vault root as
+/// a sentinel until `.vault` exists. One catch-up fire also happens at
+/// launch when at least one folder is watched, covering changes made while
+/// the app was closed.
+///
+/// `bindings` reads this machine's mount id → path map (SUB-888); it is a
+/// closure rather than a snapshot because the map lives outside the vault
+/// (`appcfg`) and changes when the user binds a mount while the app runs.
+pub fn watch_folders<F, E, B>(vault_root: PathBuf, bindings: B, on_change: F, on_error: E)
 where
     F: Fn() + Send + 'static,
     E: Fn(String) + Send + 'static,
+    B: Fn() -> BTreeMap<String, PathBuf> + Send + 'static,
 {
-    watch_folders_with_interval(vault_root, on_change, on_error, DEGRADED_RESCAN_INTERVAL)
+    watch_folders_with_interval(vault_root, bindings, on_change, on_error, DEGRADED_RESCAN_INTERVAL)
 }
 
 /// `watch_folders` with the degraded-mode cadence as a parameter — tests
 /// inject milliseconds so the retry/promote path is exercisable (SUB-157).
-fn watch_folders_with_interval<F, E>(
+fn watch_folders_with_interval<F, E, B>(
     vault_root: PathBuf,
+    bindings: B,
     on_change: F,
     on_error: E,
     degraded_interval: Duration,
 ) where
     F: Fn() + Send + 'static,
     E: Fn(String) + Send + 'static,
+    B: Fn() -> BTreeMap<String, PathBuf> + Send + 'static,
 {
     use notify::{RecursiveMode, Watcher};
     enum Msg {
@@ -382,14 +426,16 @@ fn watch_folders_with_interval<F, E>(
         Err(e) => {
             applog!("folder watcher: construction failed: {e} — degraded to a {degraded_interval:?} rescan poll");
             on_error(e);
-            folders_degraded_loop(&vault_root, degraded_interval, &on_change, || build(&tx))
+            folders_degraded_loop(&vault_root, degraded_interval, &on_change, &bindings, || {
+                build(&tx)
+            })
         }
     };
 
     let dot_vault = vault_root.join(".vault");
     let mut watched: Vec<(PathBuf, Vec<String>)> = Vec::new();
     report_folder_watch_failures(
-        refresh_folder_watches(&mut watcher, &vault_root, &mut watched),
+        refresh_folder_watches(&mut watcher, &vault_root, &mut watched, &bindings()),
         &on_error,
     );
     // the `.vault`/sentinel pair stays best-effort `.ok()`: losing
@@ -439,11 +485,11 @@ fn watch_folders_with_interval<F, E>(
             watcher.watch(&vault_root, RecursiveMode::NonRecursive).ok(); // sentinel re-armed
         }
 
-        // folders.json edits re-drive the watch set; a torn mid-edit read
-        // (corrupt → no mappings) self-heals on the next save
+        // folders.json / mounts.json edits re-drive the watch set; a torn
+        // mid-edit read (corrupt → no mappings) self-heals on the next save
         let before = watched.clone();
         report_folder_watch_failures(
-            refresh_folder_watches(&mut watcher, &vault_root, &mut watched),
+            refresh_folder_watches(&mut watcher, &vault_root, &mut watched, &bindings()),
             &on_error,
         );
         let set_changed = watched != before;
@@ -461,9 +507,9 @@ mod tests {
 
     #[test]
     fn watcher_surfaces_vault_config_json_only() {
-        // SUB-100/SUB-821: exactly the live-editable config files pass the
-        // dot-path rejection — app-internal state, .git and deeper .vault
-        // subtrees stay invisible to the watcher
+        // SUB-100/SUB-821/SUB-888: exactly the live-editable config files pass the dot-path
+        // rejection — app-internal state, .git and deeper .vault subtrees
+        // stay invisible to the watcher.
         let (_e, dir) = temp_vault("cfgwatch");
         for rel in [
             ".vault/schema.json",
@@ -471,6 +517,7 @@ mod tests {
             ".vault/folders.json",
             ".vault/calendars.json",
             ".vault/tagfolders.json",
+            ".vault/mounts.json",
         ] {
             assert!(watch_relevant(&dir, &dir.join(rel)), "{rel} is config-relevant");
             assert!(config_path(&dir, &dir.join(rel)));
@@ -479,6 +526,9 @@ mod tests {
         assert!(!watch_relevant(&dir, &dir.join(".git/config")));
         assert!(!watch_relevant(&dir, &dir.join(".vault/templates/event.md")));
         assert!(!watch_relevant(&dir, &dir.join(".vault/nested/schema.json")));
+        // the per-mount index is app-owned, written by our own scans — a
+        // watcher signal on it would only chase our own tail (SUB-888)
+        assert!(!watch_relevant(&dir, &dir.join(".vault/mounts/abc.json")));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -553,6 +603,54 @@ mod tests {
     }
 
     #[test]
+    fn watch_targets_covers_mappings_and_bound_mounts() {
+        // SUB-888: mounts join folder mappings in the watch set, but only
+        // when they opted in AND this machine has bound them to a folder —
+        // an unbound mount has nothing to watch.
+        let (mut e, dir) = temp_vault("wtargets");
+        let watched = temp_watched("wtargets");
+        write_folders_json(
+            &dir,
+            &format!(
+                r#"[{{"path": "{}", "type": "finance-doc", "globs": ["*.pdf"], "watch": true}}]"#,
+                watched.display()
+            ),
+        );
+        let mounted = temp_watched("wtargets-mount");
+        let on = e.add_mount("Album Pool", vec!["*.als".into()], true).unwrap();
+        let off = e.add_mount("Archive", vec![], false).unwrap();
+        let targets = |b: &BTreeMap<String, PathBuf>| watch_targets(&dir, b);
+
+        // unbound: the mapping is watched, the mount is not
+        assert_eq!(
+            targets(&BTreeMap::new()),
+            vec![(watched.clone(), vec!["*.pdf".to_string()])]
+        );
+        // bound and opted in: watched, with its own globs
+        let mut b = BTreeMap::new();
+        b.insert(on.id.clone(), mounted.clone());
+        b.insert(off.id.clone(), mounted.clone());
+        assert_eq!(
+            targets(&b),
+            vec![
+                (watched.clone(), vec!["*.pdf".to_string()]),
+                (mounted.clone(), vec!["*.als".to_string()]),
+            ],
+            "only the watch:true mount joins"
+        );
+        // bound to somewhere unwatchable: the vault itself, and a folder
+        // that doesn't exist
+        let mut b = BTreeMap::new();
+        b.insert(on.id.clone(), dir.clone());
+        assert_eq!(targets(&b).len(), 1, "a mount overlapping the vault is skipped");
+        b.insert(on.id.clone(), PathBuf::from("/no/such/folder/anywhere"));
+        assert_eq!(targets(&b).len(), 1, "a missing folder is skipped");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+        let _ = fs::remove_dir_all(&mounted);
+    }
+
+    #[test]
     fn folder_watch_relevance() {
         let dir = temp_watched("fwatch-rel");
         fs::write(dir.join("invoice.pdf"), b"x").unwrap();
@@ -589,6 +687,7 @@ mod tests {
         std::thread::spawn(move || {
             watch_folders(
                 root,
+                BTreeMap::new,
                 move || {
                     tx.send(()).ok();
                 },
@@ -630,6 +729,7 @@ mod tests {
         std::thread::spawn(move || {
             watch_folders(
                 root,
+                BTreeMap::new,
                 move || {
                     tx.send(()).ok();
                 },
@@ -811,6 +911,7 @@ mod tests {
                 &|| {
                     tx.send(()).ok();
                 },
+                &BTreeMap::new,
                 move || {
                     builds_t.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     if heal_t.load(std::sync::atomic::Ordering::SeqCst) {
@@ -880,7 +981,7 @@ mod tests {
         let mut watcher =
             notify::recommended_watcher(|_: notify::Result<notify::Event>| {}).unwrap();
         let mut watched: Vec<(PathBuf, Vec<String>)> = Vec::new();
-        let failures = refresh_folder_watches(&mut watcher, &dir, &mut watched);
+        let failures = refresh_folder_watches(&mut watcher, &dir, &mut watched, &BTreeMap::new());
         assert!(failures.is_empty(), "watchable mappings report nothing: {failures:?}");
         assert_eq!(watched.len(), 1, "the mapping's folder got watched");
         let _ = fs::remove_dir_all(&dir);

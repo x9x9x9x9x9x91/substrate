@@ -15,6 +15,8 @@ import { missingEmbedKind, missingEmbedLabel } from "./embedstate.ts";
 import { isTauri } from "./tauri.ts";
 import { TASK_RE } from "./markdown.ts";
 import { normalizeNumberInput } from "./aggregate.ts";
+import type { NumberStyle } from "./calc.ts";
+import type { FxResolver } from "./formula.ts";
 import { cellModel, cellOpensEditor, type CellModel } from "./cellmodel.ts";
 import { foldedPropKey, foldedPropStr, type PropValue } from "./types.ts";
 import { chipCommitValue, propListValue, type RelationCandidate } from "./relation.ts";
@@ -86,6 +88,53 @@ export class CheckboxWidget extends WidgetType {
       });
     });
     return box;
+  }
+}
+
+/** A calc line's answer, rendered after the expression (SUB-834). Purely
+ * additive: the widget sits at the end of the line and never replaces text, so
+ * the raw `= 5 kg + 500 g` stays readable and the document itself never gains
+ * the result — a plain markdown reader sees only what the user typed.
+ *
+ * That also means there is no reveal-on-cursor case to special-case: the
+ * expression is always visible, active line or not, and the answer rides along
+ * beside it either way.
+ *
+ * A failure shows a dim dash with the reason as a hover title, never an error
+ * banner: a half-typed formula is the normal state of a line being written. */
+export class CalcResultWidget extends WidgetType {
+  readonly display: string;
+  readonly err: string | undefined;
+
+  constructor(display: string, err?: string) {
+    super();
+    this.display = display;
+    this.err = err;
+  }
+
+  eq(other: CalcResultWidget) {
+    return other.display === this.display && other.err === this.err;
+  }
+
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = this.err ? "cm-calc-result cm-calc-error" : "cm-calc-result";
+    el.textContent = this.display;
+    if (this.err) el.title = this.err;
+    // The source line states the expression, not its answer. Name the live
+    // result explicitly so assistive tech receives the same calculation as
+    // the visual chip without re-reading the expression.
+    el.setAttribute("role", "status");
+    el.setAttribute(
+      "aria-label",
+      this.err ? `Calculation unavailable: ${this.err}` : `Result: ${this.display}`
+    );
+    return el;
+  }
+
+  // the answer is not text — clicks fall through to the line beneath it
+  ignoreEvent() {
+    return false;
   }
 }
 
@@ -266,6 +315,21 @@ export interface EmbedHandlers {
 
 export const embedHandlers = Facet.define<EmbedHandlers, EmbedHandlers>({
   combine: (values) => values[0] ?? {},
+});
+
+/** What calc lines need from the app (SUB-834): the number dialect results are
+ * formatted in, and a live FX resolver for currency conversion. Both come in
+ * as one facet so the editor takes a single reconfiguration when either
+ * changes. The defaults are the honest inert ones — the app's own dialect, and
+ * a resolver that quotes nothing, which makes a currency conversion say "no FX
+ * rate" instead of showing a made-up figure. */
+export interface CalcConfig {
+  style: NumberStyle;
+  fx: FxResolver;
+}
+
+export const calcConfig = Facet.define<CalcConfig, CalcConfig>({
+  combine: (values) => values[0] ?? { style: "de", fx: () => null },
 });
 
 /** Per-widget state the DOM carries, so an `updateDOM` repaint can find it
@@ -850,6 +914,82 @@ export function togglePlayer(name: string): SharedPlayer {
   return player;
 }
 
+/** Play a file, never pausing it (SUB-812) — what the mini-player's
+ * prev/next and its auto-advance need. Toggle semantics are wrong for a
+ * queue step: stepping onto a track whose element happens to be playing
+ * (the same file twice in a folder) would stop the music instead of moving
+ * to it. Everything else matches `togglePlayer`, peaks included: a step
+ * decodes nothing by itself, `requestPeaks` is the one door. */
+export function startPlayer(name: string): SharedPlayer {
+  const player = getPlayer(name);
+  void player.ready.then(() => {
+    if (player.failed) return;
+    player.audio.currentTime = 0;
+    player.audio.play().catch(() => {});
+  });
+  return player;
+}
+
+/** Ask for this player's waveform (SUB-812) — the mini-player's strip.
+ *
+ * Deliberately NOT forced, so the SUB-115 size gate still holds: a file over
+ * PEAKS_AUTO_MAX_BYTES shows the flat track rather than buffering hundreds of
+ * megabytes to draw it. Master-sized WAVs stay instant to play and the bar
+ * renders an empty instrument, not a missing one. When an embed of the same
+ * file already forced the decode, the strip picks those peaks up for free —
+ * one player, one waveform. */
+export function requestPeaks(player: SharedPlayer): void {
+  startPeaks(player);
+}
+
+/** Paint a waveform into a canvas at its CSS size: lit-slab bars, same family
+ * as the dashboard chart — light from above, played span bright, remainder
+ * embers, a hairline playhead. Peaks may be null (not decoded, or past the
+ * size gate), in which case every bar renders at a constant height: an empty
+ * instrument, never a missing one.
+ *
+ * Shared by the note embed and the mini-player's strip (SUB-812) so the two
+ * waveforms in the app cannot drift apart. */
+export function paintWaveform(
+  canvas: HTMLCanvasElement,
+  peaks: number[] | null,
+  frac: number
+): void {
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  if (w === 0 || h === 0) return;
+  const dpr = window.devicePixelRatio || 1;
+  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+  }
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const lit = ctx.createLinearGradient(0, 0, 0, h);
+  lit.addColorStop(0, "rgba(255, 255, 255, 0.55)");
+  lit.addColorStop(1, "rgba(255, 255, 255, 0.26)");
+  const dim = ctx.createLinearGradient(0, 0, 0, h);
+  dim.addColorStop(0, "rgba(255, 255, 255, 0.17)");
+  dim.addColorStop(1, "rgba(255, 255, 255, 0.09)");
+  const barW = 2;
+  const gap = 1;
+  const n = Math.max(1, Math.floor((w + gap) / (barW + gap)));
+  const playedX = frac * w;
+  for (let i = 0; i < n; i++) {
+    const p = peaks ? peaks[Math.floor((i * peaks.length) / n)] : 0.4;
+    const bh = Math.max(2, p * (h - 2));
+    const x = i * (barW + gap);
+    ctx.fillStyle = x + barW / 2 <= playedX ? lit : dim;
+    ctx.fillRect(x, (h - bh) / 2, barW, bh);
+  }
+  if (frac > 0) {
+    ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+    ctx.fillRect(Math.min(playedX, w - 1), 1, 1, h - 2);
+  }
+}
+
 /** Start the peak decode once per bound file version (SUB-115). The default
  * trigger (embed scrolled into view) skips files over PEAKS_AUTO_MAX_BYTES —
  * those compute on first play (`force`). Waits for the stat when called
@@ -965,6 +1105,7 @@ export class AudioWidget extends WidgetType {
     main.append(canvas, metaRow);
     wrap.append(btn, main);
 
+
     const embedName = this.name;
     const showMissing = () => {
       this.failed = true;
@@ -984,43 +1125,8 @@ export class AudioWidget extends WidgetType {
     };
 
     const draw = () => {
-      const w = canvas.clientWidth;
-      const h = canvas.clientHeight;
-      if (w === 0 || h === 0) return;
-      const dpr = window.devicePixelRatio || 1;
-      if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
-        canvas.width = Math.round(w * dpr);
-        canvas.height = Math.round(h * dpr);
-      }
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, w, h);
-      // lit-slab bars, same family as the dashboard chart: light from above,
-      // played span bright, remainder embers
-      const lit = ctx.createLinearGradient(0, 0, 0, h);
-      lit.addColorStop(0, "rgba(255, 255, 255, 0.55)");
-      lit.addColorStop(1, "rgba(255, 255, 255, 0.26)");
-      const dim = ctx.createLinearGradient(0, 0, 0, h);
-      dim.addColorStop(0, "rgba(255, 255, 255, 0.17)");
-      dim.addColorStop(1, "rgba(255, 255, 255, 0.09)");
-      const barW = 2;
-      const gap = 1;
-      const n = Math.max(1, Math.floor((w + gap) / (barW + gap)));
-      const peaks = player.peaks;
       const frac = a.duration > 0 ? a.currentTime / a.duration : 0;
-      const playedX = frac * w;
-      for (let i = 0; i < n; i++) {
-        const p = peaks ? peaks[Math.floor((i * peaks.length) / n)] : 0.4;
-        const bh = Math.max(2, p * (h - 2));
-        const x = i * (barW + gap);
-        ctx.fillStyle = x + barW / 2 <= playedX ? lit : dim;
-        ctx.fillRect(x, (h - bh) / 2, barW, bh);
-      }
-      if (frac > 0) {
-        ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
-        ctx.fillRect(Math.min(playedX, w - 1), 1, 1, h - 2);
-      }
+      paintWaveform(canvas, player.peaks, frac);
     };
 
     let raf = 0;

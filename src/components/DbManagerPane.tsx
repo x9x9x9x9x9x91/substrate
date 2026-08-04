@@ -1,16 +1,19 @@
-import type { DbIcon, SchemaConfig } from "../lib/types";
+import type { DbIcon, MountInfo, SchemaConfig } from "../lib/types";
 import { typeHome } from "../lib/types";
 import { DB_DRAG_MIME } from "../lib/sidebar";
 import { iconForType } from "../lib/dbicons";
 import { typeSchemaFor } from "../lib/schemalookup";
+import { mountSubtitle } from "../lib/mounts";
 import TypeIcon from "./TypeIcon";
-import { DbIcon as DbGlyphIcon, DotsIcon, PlusIcon } from "./Icons";
+import { DbIcon as DbGlyphIcon, DotsIcon, MountIcon, PlusIcon } from "./Icons";
 import { useEdgeFade } from "../hooks/useEdgeFade";
 
 interface DbManagerPaneProps {
   /** every database in the schema, homed and homeless, zero-note ones
-      included (SUB-152/SUB-43) — App's `databases` derivation */
-  databases: { type: string; count: number }[];
+      included (SUB-152/SUB-43) — App's `databases` derivation. A row with a
+      `mount` is a mounted folder (SUB-888): same list, same menu, a glyph and
+      its folder instead of a home. */
+  databases: { type: string; count: number; mount?: MountInfo }[];
   /** per-type database icons (SUB-27), keyed by type name */
   icons: Record<string, DbIcon>;
   /** the raw schema — each row's home folder reads its reserved `home` key
@@ -88,10 +91,25 @@ export default function DbManagerPane({
               >
                 <TypeIcon type={d.type} icon={iconForType(icons, d.type)} />
                 <div className="dbmgr-row-main">
-                  <span className="dbmgr-row-title">{name}</span>
+                  <span className="dbmgr-row-title">
+                    {name}
+                    {d.mount && (
+                      // the glyph is the whole "this one is a real folder"
+                      // signal in the list; the folder itself is in the sub
+                      <span className="dbmgr-mount" title="Mounted folder">
+                        <MountIcon />
+                      </span>
+                    )}
+                  </span>
                   <span className="dbmgr-row-sub">
-                    {d.count} {d.count === 1 ? "entry" : "entries"}
-                    {home != null && <> · {home}</>}
+                    {d.mount ? (
+                      mountSubtitle(d.mount)
+                    ) : (
+                      <>
+                        {d.count} {d.count === 1 ? "entry" : "entries"}
+                        {home != null && <> · {home}</>}
+                      </>
+                    )}
                   </span>
                 </div>
                 <button

@@ -69,3 +69,16 @@ pub(crate) fn file_read_text(path: String) -> Result<String, String> {
     }
     std::fs::read_to_string(&p).map_err(|e| format!("couldn't read {path}: {e}"))
 }
+
+/// Loose (non-note) files directly inside one vault folder (SUB-812) — the
+/// folder view's file rows. Deliberately its own lazy call rather than part
+/// of the vault index: the scan stays `.md`-only, and a folder full of
+/// masters costs one `read_dir` when you open it and nothing when you don't.
+/// Read-only, so it takes no `SnapDirty`.
+#[tauri::command]
+pub(crate) fn vault_folder_files(
+    state: tauri::State<crate::AppState>,
+    path: String,
+) -> Result<vault::FolderListing, String> {
+    state.0.lock().unwrap().folder_files(&path)
+}

@@ -15,9 +15,12 @@ import type {
   DiffLine,
   DoctorReport,
   FmState,
+  FolderListing,
   FolderMetaMap,
-  FolderMapping,
-  FolderScanStats,
+  Mount,
+  MountInfo,
+  MountRow,
+  MountScanStats,
   FullSearchResult,
   HiddenPerLayout,
   HistoryEntry,
@@ -199,11 +202,20 @@ export const kindsEnable = (id: string, hash: string) =>
 /** Withdraw consent. Never fails on an unknown id — a bundle deleted from the
     vault still has to be revocable. */
 export const kindsDisable = (id: string) => invoke<void>("kinds_disable", { id });
-export const urlCapture = (url: string) => invoke<NoteMeta>("url_capture", { url });
+/** Capture a pasted link as a reference note. `enrich` (SUB-834) decides
+    whether the engine then asks that site for its page title — the caller
+    reads `net-link-titles` from Settings.md; the note is created either way,
+    keeping the bare URL as its title when the fetch is off. */
+export const urlCapture = (url: string, enrich = true) =>
+  invoke<NoteMeta>("url_capture", { url, enrich });
 /** Today's USD→EUR reference rate (SUB-667). Engine-side because the shipped
     CSP allows no remote origin — a browser fetch here only ever worked in the
     browser lane. Rejects rather than reporting a rate it isn't sure of. */
 export const fxUsdEur = () => invoke<{ usdEur: number; asOf: string }>("fx_usd_eur");
+/** The whole majors table (SUB-834) — one call, every pair the app converts.
+    Same engine-side reasoning as fxUsdEur. */
+export const fxRates = () =>
+  invoke<{ base: string; rates: Record<string, number>; asOf: string }>("fx_rates");
 /** Cached read-only external calendar events. This call never waits on a URL
     or local `.ics` file; the backend refresh loop updates the cache separately. */
 export const calendarFeedsRead = (start: string, end: string) =>
@@ -367,6 +379,12 @@ export const vaultLinkAsset = (path: string) =>
     modifiers, so the handler asks the OS. Always false off macOS. */
 export const dropShiftDown = () => invoke<boolean>("drop_shift_down");
 export const vaultAssetInfo = (name: string) => invoke<AssetInfo>("vault_asset_info", { name });
+/** Loose (non-note) files directly inside one folder (SUB-812) — the folder
+    view's file rows. Lazy per folder on purpose: the vault index stays
+    `.md`-only, so a folder of masters costs one `read_dir` when you open it
+    and nothing when you don't. `path` may be `""` for the vault root. */
+export const vaultFolderFiles = (path: string) =>
+  invoke<FolderListing>("vault_folder_files", { path });
 export const vaultAssetsOrphaned = () => invoke<AssetInfo[]>("vault_assets_orphaned");
 /** Move `.assets/` files to the trash (SUB-479) — recoverable, not unlinked.
     Resolves to one result per input name, in order (SUB-669): `Ok` carries the
@@ -563,14 +581,34 @@ export const vaultTagFoldersWrite = (folders: TagFolder[]) =>
     `tags:` prop; the note never moves on disk. */
 export const vaultNoteAddTags = (path: string, tags: string[]) =>
   invoke<NoteMeta>("vault_note_add_tags", { path, tags });
-export const folderDbsRescan = () => invoke<FolderScanStats[]>("folder_dbs_rescan");
-/** The folder→database mappings from `.vault/folders.json` (SUB-672). */
-export const folderDbsList = () => invoke<FolderMapping[]>("folder_dbs_list");
-/** "Map a folder…" (SUB-672): append one mapping to `.vault/folders.json`.
-    Resolves to the full list as written; run `folderDbsRescan` right after
-    for the first sync. */
-export const folderDbsAdd = (path: string, dbType: string, globs: string[], watch: boolean) =>
-  invoke<FolderMapping[]>("folder_dbs_add", { path, dbType, globs, watch });
+/** Reality mounts (SUB-888): a real folder rendered as a database, no import
+    and no copies. `mounts.json` holds the portable half; the folder each mount
+    points at is machine-local, which is why binding is its own call. */
+export const mountsList = () => invoke<MountInfo[]>("mounts_list");
+/** "Mount a folder…": register the mount, bind it to `path` on this machine,
+    and scan it once so the board has rows immediately. The first scan's stats
+    come back for the dialog to report; their `id` is the new mount's. */
+export const mountAdd = (name: string, path: string, globs: string[], watch: boolean) =>
+  invoke<MountScanStats>("mount_add", { name, path, globs, watch });
+/** "Locate folder…": point an existing mount at a folder on THIS machine.
+    `null` unbinds it here — the mount, its index and its sidecars all stay. */
+export const mountBind = (id: string, path: string | null) =>
+  invoke<MountScanStats>("mount_bind", { id, path });
+/** Rescan mounts bound here — one when `id` is given, all of them otherwise.
+    Unbound mounts are skipped, never errored. */
+export const mountRescan = (id?: string) =>
+  invoke<MountScanStats[]>("mount_rescan", { id: id ?? null });
+/** A mount's rows: last-known index merged with the sidecars bound to it.
+    Renders the same whether or not the folder is on this machine. */
+export const mountRows = (id: string) => invoke<MountRow[]>("mount_rows", { id });
+/** Set one prop on one row, creating its sidecar note on first annotation —
+    the only write path a mount has. `null` clears the prop. */
+export const mountAnnotate = (id: string, rel: string, prop: string, value: PropValue) =>
+  invoke<NoteMeta>("mount_annotate", { id, rel, prop, value });
+/** Unmount. `cleanup` false keeps every sidecar as an ordinary note; true
+    trashes them (recoverable from Trash, never hard-deleted). */
+export const mountRemove = (id: string, cleanup: boolean) =>
+  invoke<Mount[]>("mount_remove", { id, cleanup });
 // Tray agenda popover (SUB-30): window management lives Rust-side
 export const agendaOpenNote = (path: string) => invoke<void>("agenda_open_note", { path });
 export const agendaOpenCapture = () => invoke<void>("agenda_open_capture");

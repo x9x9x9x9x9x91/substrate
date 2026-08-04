@@ -108,6 +108,7 @@ pub(crate) fn url_capture(
     state: State<AppState>,
     dirty: State<SnapDirty>,
     url: String,
+    enrich: Option<bool>,
 ) -> Result<NoteMeta, String> {
     dirty.mark();
     // strip `user:pass@` once, up front: the note must not carry credentials
@@ -115,7 +116,13 @@ pub(crate) fn url_capture(
     // both halves work from the same cleaned URL
     let url = crate::net::strip_userinfo(&url);
     let meta = state.0.lock().unwrap().create_reference(&url)?;
-    spawn_url_enrichment(app, url, meta.clone());
+    // SUB-834: the capture itself is local and always happens — `enrich` only
+    // decides whether we then ask that site for its title. The caller reads
+    // `net-link-titles` from Settings.md; absent means yes, so any caller that
+    // doesn't know about the switch keeps the documented behavior.
+    if enrich.unwrap_or(true) {
+        spawn_url_enrichment(app, url, meta.clone());
+    }
     Ok(meta)
 }
 

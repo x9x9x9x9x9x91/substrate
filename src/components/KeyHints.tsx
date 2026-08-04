@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { KeyboardIcon } from "./Icons";
 import { comboLabel, hintEntries, type ShortcutCtx } from "../lib/shortcuts";
+import { getQueue } from "../lib/playqueue";
 import { isTypingNow } from "../lib/dom";
 import type { NoteMeta, View } from "../lib/types";
 
@@ -126,6 +127,11 @@ export default function KeyHints({
     dashCanRedo: false,
     canUndo,
     canRedo,
+    // SUB-812: the transport chords are live whenever a folder is queued,
+    // and the panel describes the surface underneath it — the bar is chrome
+    // above every surface, so read the queue directly rather than threading
+    // one more prop through App
+    playing: getQueue() !== null,
   };
   // context rows first — the panel is about THIS surface; the always-live
   // globals fill what remains of the 12 rows

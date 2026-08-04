@@ -9,7 +9,7 @@ import { fmtCard, parseBind, type MetricCard } from "../lib/metriccards";
 import { dashboardSheets, type DashboardSheetState } from "../lib/dashboardSheets";
 import { findSummary } from "../lib/sheet";
 import { isErr } from "../lib/formula";
-import type { FxState } from "../lib/fx";
+import type { FxRatesState } from "../lib/fx";
 
 export interface CardValue {
   text: string;
@@ -31,7 +31,9 @@ export function useCardValues(
       re-reads its cards; identical sheet roots at one vault epoch and FX rate
       still resolve to the same cached evaluation */
   scope: string,
-  fx: FxState | null,
+  /** the whole quoted rate table (SUB-834) — a card's sheet may convert any
+      pair, not only USD→EUR */
+  rates: FxRatesState | null,
 ): (i: number) => CardValue {
   const [sheets, setSheets] = useState<Map<string, DashboardSheetState>>(new Map());
   const binds = useMemo(() => cards.map((c) => parseBind(c.bind)), [cards]);
@@ -45,7 +47,7 @@ export function useCardValues(
 
   useEffect(() => {
     let gone = false;
-    dashboardSheets(sheetNames, vaultEpoch, fx?.usdEur ?? null)
+    dashboardSheets(sheetNames, vaultEpoch, rates)
       .then((next) => {
         if (!gone) setSheets(next);
       })
@@ -62,7 +64,7 @@ export function useCardValues(
       gone = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope, vaultEpoch, sheetNames.join("|"), fx]);
+  }, [scope, vaultEpoch, sheetNames.join("|"), rates]);
 
   // A bound summary that doesn't exist is the same class of miss the charts
   // name (SUB-749): renaming it left the card reading "—" with the reason

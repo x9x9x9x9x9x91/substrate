@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { NoteMeta, SchemaConfig, SelectOption } from "../lib/types";
 import { fmtFx } from "../lib/dashboard";
-import { useUsdEur } from "./useFx";
+import { usdEurFrom } from "../lib/fx";
+import { useFxRates } from "./useFx";
 import { useEdgeFade } from "../hooks/useEdgeFade";
 import { dashboardSheets, type DashboardSheetState } from "../lib/dashboardSheets";
 import {
@@ -616,7 +617,9 @@ export default function ChartsDashboard({
   embed,
   configOverride,
 }: ChartsDashboardProps) {
-  const { fx } = useUsdEur();
+  // one table, one resolver (SUB-834); the footer's single pair is derived
+  const { fx: rates } = useFxRates();
+  const fx = useMemo(() => usdEurFrom(rates), [rates]);
   const [sheets, setSheets] = useState<Map<string, DashboardSheetState>>(new Map());
   // SUB-1001: the last chart's title used to cut in half against the pane's
   // bottom edge with nothing marking the overflow. Declared above the `embed`
@@ -643,7 +646,7 @@ export default function ChartsDashboard({
   // epoch/rate cache shares the same work across composed dashboard tiles.
   useEffect(() => {
     let gone = false;
-    dashboardSheets(sheetNames, vaultEpoch, fx?.usdEur ?? null)
+    dashboardSheets(sheetNames, vaultEpoch, rates)
       .then((next) => {
         if (!gone) setSheets(next);
       })
@@ -662,7 +665,7 @@ export default function ChartsDashboard({
       gone = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meta.path, vaultEpoch, sheetNames.join("|"), fx]);
+  }, [meta.path, vaultEpoch, sheetNames.join("|"), rates]);
 
   const seriesFor = (
     block: ChartBlock,

@@ -2,6 +2,8 @@ import { useLayoutEffect } from "react";
 import { isTyping } from "../lib/dom";
 import { menuUp } from "../lib/menusurfaces";
 import { matchShortcut, pinIndexForKey, type ShortcutCtx } from "../lib/shortcuts";
+import { playerStep } from "../components/MiniPlayer";
+import { getQueue } from "../lib/playqueue";
 import { stepZoom } from "../lib/zoom";
 import { targetForCombo, targetView } from "../lib/keyassign";
 import { dailyDateOf } from "../lib/journal";
@@ -227,6 +229,12 @@ export function useShortcutRouter(opts: {
         if (menuUp()) return;
         goBack();
       },
+      // SUB-812: the mini-player's transport. The queue is module state (it
+      // has to outlive every view), so these route straight to it rather than
+      // through App — the same two functions the bar's own buttons call, so
+      // key and click can't drift.
+      "audio-prev": () => playerStep(-1),
+      "audio-next": () => playerStep(1),
     };
     const onKey = (e: KeyboardEvent) => {
       // Let focused native controls own their activation keys. Without this
@@ -274,6 +282,9 @@ export function useShortcutRouter(opts: {
         dashCanRedo,
         canUndo: undoStack.peekUndo(undoStateRef.current) !== null,
         canRedo: undoStack.peekRedo(undoStateRef.current) !== null,
+        // read at event time, not from this effect's render: the queue is
+        // module state and a row's play click does not re-run this effect
+        playing: getQueue() !== null,
       };
       const hit = matchShortcut(e, ctx);
       if (!hit) return;

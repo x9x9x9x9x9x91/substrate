@@ -53,15 +53,15 @@
      axes and page footers only. */
   --hair: rgba(255, 255, 255, 0.1);
   --hair-soft: rgba(255, 255, 255, 0.055);
-  /* SUB-943: the page's one strong hairline (.list-head / .dash-head) reads as
-     a sky gradient dissolving to nothing toward the right. The single spot of
-     colour in the chrome — every other rule stays neutral. */
+  /* SUB-943's strong page rule, routed through SUB-955's tone family. The
+     default is the chosen sky fade; preset and fine-tune changes move every
+     stop with the dashboard ink instead of leaving literal sky behind. */
   --hairline-accent: linear-gradient(
     90deg,
-    #4f86d8,
-    #6cc0ec 40%,
-    rgba(155, 224, 245, 0.85) 70%,
-    rgba(155, 224, 245, 0)
+    var(--tone-series-2),
+    var(--tone-accent) 40%,
+    color-mix(in srgb, var(--tone-accent-text) 85%, transparent) 70%,
+    transparent
   );
   --text-4: #54565a;
   --bg-input: #0d0d0e;
@@ -1955,6 +1955,32 @@ button.empty-hint-fix:hover {
   padding: 0 3px;
 }
 
+/* SUB-834: a calc line's answer, rendered after the expression and never
+   written to the document. Muted on purpose — the expression is the content,
+   this is the app answering it. Unselectable so a ⌘A copy of the note yields
+   the markdown the file actually holds. */
+.cm-calc-result {
+  color: var(--text-3);
+  margin-left: 0.9em;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  cursor: default;
+}
+
+.cm-calc-result::before {
+  content: "=";
+  margin-right: 0.35em;
+  opacity: 0.55;
+}
+
+/* a half-typed formula is the normal state of a line being written, so a
+   failure is the same dim dash, one shade quieter — the reason lives in the
+   title attribute */
+.cm-calc-error {
+  opacity: 0.65;
+  cursor: help;
+}
+
 .cm-wikilink {
   color: var(--link);
   cursor: pointer;
@@ -3660,6 +3686,127 @@ body.agenda-window .palette:focus-visible {
    boxed cards, round state dots, --r radii. Inter speaks only in the
    title and in sentences. */
 
+/* ————— accent tone table (SUB-955) —————
+   Four curated tones for the accent family above, plus a bounded hue nudge.
+   The owner's call (03.08): presets as the base, a fine-tune slider around
+   them —
+   a free hue wheel makes ugly easy, a curated set does not.
+
+   Every value is written as hsl() with its hue inside a calc, so ONE
+   variable — --tone-nudge, in degrees, written by the Settings slider —
+   rotates the whole family coherently. Sky is the :root default and carries
+   the exact HSL of the shipped SUB-932 hexes (hsl(200.6 77.1% 67.5%) IS
+   #6cc0ec, asserted in lib/appearance.test.ts), so a default vault renders
+   the shipped look with no attribute set and no arithmetic that can drift.
+
+   The other three were derived by rotating sky in OKLCH — perceptually
+   uniform, so lightness and chroma survive the rotation — and converting
+   back to sRGB. They read as siblings of sky rather than as a second design.
+   Each keeps the family's two rules: series-5 stays the FIXED warm neutral
+   counterweight (the ramp's only warm slot; rotating or nudging it crosses
+   the reserved state band), and every moving slot clears 3:1 as a shape on
+   BOTH grounds across the whole nudge range — which bounds the nudge at ±12°
+   (lib/appearance.ts carries the sweep that fixes that number).
+
+   --tone-paper-* is the same family at print weight; the @media print block
+   maps them onto the same tokens, so a toned dashboard prints in its own ink
+   rather than reverting to sky's. */
+
+/* sky — the shipped SUB-932 family: its numbers ARE the V1 hexes */
+:root {
+  /* degrees of hue offset around the chosen tone, ±12 (SUB-955) */
+  --tone-nudge: 0;
+
+  --tone-accent: hsl(calc((200.6 + var(--tone-nudge)) * 1deg) 77.1% 67.5%);
+  --tone-accent-soft: hsl(calc((200.6 + var(--tone-nudge)) * 1deg) 77.1% 67.5% / 0.22);
+  --tone-accent-text: hsl(calc((199.2 + var(--tone-nudge)) * 1deg) 71.4% 79.4%);
+  --tone-series-1: hsl(calc((200.6 + var(--tone-nudge)) * 1deg) 77.1% 67.5%);
+  --tone-series-2: hsl(calc((215.9 + var(--tone-nudge)) * 1deg) 63.7% 57.8%);
+  --tone-series-3: hsl(calc((169.2 + var(--tone-nudge)) * 1deg) 53.3% 67.3%);
+  --tone-series-4: hsl(calc((211.3 + var(--tone-nudge)) * 1deg) 29.9% 69.8%);
+  --tone-series-5: #c9b98f;
+}
+
+:root {
+  --tone-paper-accent: hsl(calc((200.5 + var(--tone-nudge)) * 1deg) 77.2% 37.8%);
+  --tone-paper-accent-soft: hsl(calc((200.5 + var(--tone-nudge)) * 1deg) 77.2% 37.8% / 0.22);
+  --tone-paper-accent-text: hsl(calc((199.4 + var(--tone-nudge)) * 1deg) 71.8% 27.8%);
+  --tone-paper-series-1: hsl(calc((200.9 + var(--tone-nudge)) * 1deg) 78.1% 41.2%);
+  --tone-paper-series-2: hsl(calc((216.7 + var(--tone-nudge)) * 1deg) 51.4% 49.2%);
+  --tone-paper-series-3: hsl(calc((169.5 + var(--tone-nudge)) * 1deg) 53.6% 35.5%);
+  --tone-paper-series-4: hsl(calc((210.9 + var(--tone-nudge)) * 1deg) 26.6% 48.6%);
+  --tone-paper-series-5: #8f7a3f;
+}
+
+/* teal — cooler and greener than sky, still clear of the --ok band */
+:root[data-tone="teal"] {
+  --tone-accent: hsl(calc((183.0 + var(--tone-nudge)) * 1deg) 55.8% 57.5%);
+  --tone-accent-soft: hsl(calc((183.0 + var(--tone-nudge)) * 1deg) 55.8% 57.5% / 0.22);
+  --tone-accent-text: hsl(calc((179.0 + var(--tone-nudge)) * 1deg) 47.7% 74.5%);
+  --tone-series-1: hsl(calc((183.0 + var(--tone-nudge)) * 1deg) 55.8% 57.5%);
+  --tone-series-2: hsl(calc((192.6 + var(--tone-nudge)) * 1deg) 98.9% 36.9%);
+  --tone-series-3: hsl(calc((221.2 + var(--tone-nudge)) * 1deg) 100.0% 83.1%);
+  --tone-series-4: hsl(calc((192.8 + var(--tone-nudge)) * 1deg) 27.2% 66.1%);
+  --tone-series-5: #c9b98f;
+}
+
+:root[data-tone="teal"] {
+  --tone-paper-accent: hsl(calc((184.8 + var(--tone-nudge)) * 1deg) 100.0% 27.1%);
+  --tone-paper-accent-soft: hsl(calc((184.8 + var(--tone-nudge)) * 1deg) 100.0% 27.1% / 0.22);
+  --tone-paper-accent-text: hsl(calc((183.6 + var(--tone-nudge)) * 1deg) 100.0% 19.6%);
+  --tone-paper-series-1: hsl(calc((185.2 + var(--tone-nudge)) * 1deg) 100.0% 29.6%);
+  --tone-paper-series-2: hsl(calc((193.2 + var(--tone-nudge)) * 1deg) 100.0% 31.2%);
+  --tone-paper-series-3: hsl(calc((221.0 + var(--tone-nudge)) * 1deg) 34.2% 52.9%);
+  --tone-paper-series-4: hsl(calc((193.3 + var(--tone-nudge)) * 1deg) 33.0% 42.7%);
+  --tone-paper-series-5: #8f7a3f;
+}
+
+/* indigo — the app's own interactive hue, lifted to dashboard weight */
+:root[data-tone="indigo"] {
+  --tone-accent: hsl(calc((229.5 + var(--tone-nudge)) * 1deg) 84.3% 80.0%);
+  --tone-accent-soft: hsl(calc((229.5 + var(--tone-nudge)) * 1deg) 84.3% 80.0% / 0.22);
+  --tone-accent-text: hsl(calc((224.5 + var(--tone-nudge)) * 1deg) 82.9% 86.3%);
+  --tone-series-1: hsl(calc((229.5 + var(--tone-nudge)) * 1deg) 84.3% 80.0%);
+  --tone-series-2: hsl(calc((263.1 + var(--tone-nudge)) * 1deg) 47.2% 62.2%);
+  --tone-series-3: hsl(calc((195.8 + var(--tone-nudge)) * 1deg) 77.5% 72.2%);
+  --tone-series-4: hsl(calc((250.0 + var(--tone-nudge)) * 1deg) 21.4% 72.5%);
+  --tone-series-5: #c9b98f;
+}
+
+:root[data-tone="indigo"] {
+  --tone-paper-accent: hsl(calc((237.7 + var(--tone-nudge)) * 1deg) 33.0% 54.3%);
+  --tone-paper-accent-soft: hsl(calc((237.7 + var(--tone-nudge)) * 1deg) 33.0% 54.3% / 0.22);
+  --tone-paper-accent-text: hsl(calc((233.7 + var(--tone-nudge)) * 1deg) 28.6% 39.0%);
+  --tone-paper-series-1: hsl(calc((239.3 + var(--tone-nudge)) * 1deg) 40.1% 59.4%);
+  --tone-paper-series-2: hsl(calc((264.8 + var(--tone-nudge)) * 1deg) 36.1% 52.7%);
+  --tone-paper-series-3: hsl(calc((192.7 + var(--tone-nudge)) * 1deg) 59.0% 39.2%);
+  --tone-paper-series-4: hsl(calc((251.4 + var(--tone-nudge)) * 1deg) 17.4% 52.5%);
+  --tone-paper-series-5: #8f7a3f;
+}
+
+/* violet — the warm end of the safe arc — orchid, never pink-red */
+:root[data-tone="violet"] {
+  --tone-accent: hsl(calc((274.4 + var(--tone-nudge)) * 1deg) 57.6% 76.9%);
+  --tone-accent-soft: hsl(calc((274.4 + var(--tone-nudge)) * 1deg) 57.6% 76.9% / 0.22);
+  --tone-accent-text: hsl(calc((266.5 + var(--tone-nudge)) * 1deg) 60.6% 86.1%);
+  --tone-series-1: hsl(calc((274.4 + var(--tone-nudge)) * 1deg) 57.6% 76.9%);
+  --tone-series-2: hsl(calc((312.0 + var(--tone-nudge)) * 1deg) 37.4% 55.5%);
+  --tone-series-3: hsl(calc((215.7 + var(--tone-nudge)) * 1deg) 100.0% 81.6%);
+  --tone-series-4: hsl(calc((304.8 + var(--tone-nudge)) * 1deg) 16.1% 69.6%);
+  --tone-series-5: #c9b98f;
+}
+
+:root[data-tone="violet"] {
+  --tone-paper-accent: hsl(calc((282.1 + var(--tone-nudge)) * 1deg) 27.1% 48.4%);
+  --tone-paper-accent-soft: hsl(calc((282.1 + var(--tone-nudge)) * 1deg) 27.1% 48.4% / 0.22);
+  --tone-paper-accent-text: hsl(calc((277.5 + var(--tone-nudge)) * 1deg) 26.1% 36.1%);
+  --tone-paper-series-1: hsl(calc((283.0 + var(--tone-nudge)) * 1deg) 30.6% 52.5%);
+  --tone-paper-series-2: hsl(calc((313.2 + var(--tone-nudge)) * 1deg) 34.5% 46.7%);
+  --tone-paper-series-3: hsl(calc((214.3 + var(--tone-nudge)) * 1deg) 36.3% 50.8%);
+  --tone-paper-series-4: hsl(calc((301.8 + var(--tone-nudge)) * 1deg) 13.7% 48.6%);
+  --tone-paper-series-5: #8f7a3f;
+}
+
 /* The dashboard accent family (SUB-932, owner's call: pure b/w reads flat;
    V1 "sky" picked from the 03.08 contact sheet). One family, never per-widget
    hues, and SCOPED to the dashboard surfaces — a :root swap would repaint
@@ -3678,24 +3825,29 @@ body.agenda-window .palette:focus-visible {
 
    .wb-tabs is in the scope because a workbook's tab strip is chrome for the
    dashboard it pages through — it sits outside .dash-inner in the DOM, so
-   without this its active rule would stay app-indigo under a sky body. */
+   without this its active rule would stay app-indigo under a sky body.
+
+   SUB-955 splits the VALUES out into the tone table below: this block now
+   only says which family slot each token is, so a tone change moves the
+   whole family at once and this scope list stays the one place that decides
+   WHERE the family applies. */
 .dash-inner,
 .metrics-cards,
 .wb-tabs,
 #print-surface {
-  --accent: #6cc0ec;
+  --accent: var(--tone-accent);
   /* --accent-soft rides along: it is the halo half of the focus ring whose
      border is --accent (.dash-form-row input:focus), and a sky border with
      an indigo halo would read as two colours on one control. Same alpha as
-     the app-wide token, sky hue. NOT a glow — this is the existing focus
+     the app-wide token, tone hue. NOT a glow — this is the existing focus
      affordance keeping one colour, not a new bloom. */
-  --accent-soft: rgba(108, 192, 236, 0.22);
-  --accent-text: #a5d8f0;
-  --series-1: #6cc0ec;
-  --series-2: #4f86d8;
-  --series-3: #7fd8c8;
-  --series-4: #9bb1c9;
-  --series-5: #c9b98f;
+  --accent-soft: var(--tone-accent-soft);
+  --accent-text: var(--tone-accent-text);
+  --series-1: var(--tone-series-1);
+  --series-2: var(--tone-series-2);
+  --series-3: var(--tone-series-3);
+  --series-4: var(--tone-series-4);
+  --series-5: var(--tone-series-5);
 }
 
 .dash-inner {
@@ -3718,9 +3870,9 @@ body.agenda-window .palette:focus-visible {
   border-bottom: 1px solid var(--hair);
 }
 
-/* SUB-943: the two strong hairlines carry the sky fade. The border stays in
-   the box model (transparent) so nothing reflows; the gradient paints as a
-   1.5px strip along the bottom of the padding box, where the rule sat. */
+/* SUB-943: the two strong page hairlines carry the accent fade. Keep the
+   transparent border in the box model so the 1.5px paint never reflows the
+   list or dashboard; the variable above makes the full gradient tone-aware. */
 .list-head,
 .dash-head {
   border-bottom-color: transparent;
@@ -4194,6 +4346,45 @@ body.agenda-window .palette:focus-visible {
 
 .chart-dot:hover {
   background: var(--accent-text);
+}
+
+/* ————— glow (SUB-955) —————
+   The bloom the owner dialled back to zero in the SUB-932 round-2 sheet, kept
+   as a
+   dial instead of a decision. --glow and --glow-bars are 0–1 scalars written
+   from the Settings slider; every rule below multiplies one of them, and the
+   full-strength numbers here are the reference overrides verbatim — 6px/0.55
+   on the line language, 12px/0.4 on the emphasised values, 8px/0.35 on the
+   bars. The line scalar saturates where the bar scalar starts, so slider 70
+   renders V2 and slider 100 renders V3, both pixel-identical to the variants
+   that round put up.
+
+   The [data-glow] gate is the whole point of the default costing nothing:
+   at glow 0 the attribute is ABSENT, so these selectors never match and the
+   compositor sees no filter and no text-shadow — not a 0px shadow it still
+   has to rasterise. Bars have their own gate one stage up, because a glowing
+   bar is the loudest mark the page can make and it should be the last thing
+   to light up.
+
+   The bloom colour is mixed from --accent, so it follows the tone table
+   above without a second palette to keep in sync. */
+[data-glow] .chart-line-path,
+[data-glow] .chart-dot {
+  filter: drop-shadow(
+    0 0 calc(6px * var(--glow)) color-mix(in srgb, var(--accent) calc(55% * var(--glow)), transparent)
+  );
+}
+
+[data-glow] .metrics-cards .dash-card:not(.sunk) .dash-card-eur {
+  text-shadow: 0 0 calc(12px * var(--glow))
+    color-mix(in srgb, var(--accent) calc(40% * var(--glow)), transparent);
+}
+
+[data-glow-bars] .dash-bar {
+  filter: drop-shadow(
+    0 0 calc(8px * var(--glow-bars))
+      color-mix(in srgb, var(--accent) calc(35% * var(--glow-bars)), transparent)
+  );
 }
 
 .chart-line-hint {
@@ -7852,6 +8043,76 @@ span.asset-thumb svg {
   flex: none;
 }
 
+/* ----- reality mounts (SUB-888) ----- */
+
+/* the glyph that marks a database as a real folder on disk, in the manager
+   list and in the sidebar — quiet, it rides beside the name */
+.dbmgr-mount,
+.side-mount {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 5px;
+  color: var(--text-3);
+  vertical-align: -1px;
+}
+
+.dbmgr-mount svg,
+.side-mount svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* the mount board and its banner: shown when the folder isn't reachable from
+   this machine, so the rows below it are the last known contents */
+.db-mount {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.mount-banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.mount-banner > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.mount-locate {
+  flex: none;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--text-1);
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.mount-locate:hover {
+  background: var(--bg-3);
+}
+
+/* a row whose file isn't in the folder any more — still listed, because what
+   was written about it is still true, but visibly not there */
+.db-table tbody tr.is-missing td,
+.db-card.is-missing,
+.db-gcard.is-missing,
+.db-list .row.is-missing {
+  opacity: 0.55;
+}
+
 .trash-restore,
 .trash-danger {
   flex: none;
@@ -8665,6 +8926,7 @@ span.asset-thumb svg {
   vertical-align: middle;
 }
 
+
 .cm-audio:hover {
   border-color: var(--border);
 }
@@ -8703,12 +8965,14 @@ span.asset-thumb svg {
   min-width: 0;
 }
 
+
 .cm-audio-wave {
   display: block;
   width: 100%;
   height: 38px;
   cursor: pointer;
 }
+
 
 .cm-audio-meta {
   display: flex;
@@ -8731,6 +8995,7 @@ span.asset-thumb svg {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
+
 
 .cm-audio-missing {
   display: inline-block;
@@ -8926,18 +9191,35 @@ span.asset-thumb svg {
      This block sits after the scoped .dash-inner/.metrics-cards/#print-surface
      declaration and re-declares on the same three selectors, so it wins for
      the cloned pane too: the print surface contains a .dash-inner, and a
-     dark-ground value declared there would otherwise shadow the paper one. */
+     dark-ground value declared there would otherwise shadow the paper one.
+
+     SUB-955: the values now come from the tone table's --tone-paper-* slots,
+     so a dashboard prints in the tone it is wearing. Sky's paper slots hold
+     the exact hexes this block used to name. */
   #print-surface,
   #print-surface .dash-inner,
   #print-surface .metrics-cards {
-    --accent: #1678ab;
-    --accent-soft: rgba(22, 120, 171, 0.22);
-    --accent-text: #14597a;
-    --series-1: #1782bb;
-    --series-2: #3d6fbe;
-    --series-3: #2a8b7a;
-    --series-4: #5b7b9d;
-    --series-5: #8f7a3f;
+    --accent: var(--tone-paper-accent);
+    --accent-soft: var(--tone-paper-accent-soft);
+    --accent-text: var(--tone-paper-accent-text);
+    --series-1: var(--tone-paper-series-1);
+    --series-2: var(--tone-paper-series-2);
+    --series-3: var(--tone-paper-series-3);
+    --series-4: var(--tone-paper-series-4);
+    --series-5: var(--tone-paper-series-5);
+  }
+
+  /* Glow is a screen affordance: a drop-shadow on ink prints as a grey
+     smear, so the bloom rules are switched off wholesale for paper (SUB-955)
+     rather than each being re-scoped to exclude the print surface. */
+  [data-glow] .chart-line-path,
+  [data-glow] .chart-dot,
+  [data-glow-bars] .dash-bar {
+    filter: none;
+  }
+
+  [data-glow] .metrics-cards .dash-card:not(.sunk) .dash-card-eur {
+    text-shadow: none;
   }
 
   #print-surface .dash-actions {
@@ -10999,6 +11281,23 @@ body.col-resizing * {
   color: var(--text-1);
 }
 
+/* mixed-unit marker (SUB-834): a footer figure that folded foreign units in,
+   or had to leave some out, carries a dim asterisk whose title says which.
+   Superscripted so it reads as an annotation on the number, not a digit. */
+.db-agg-mark,
+.prop-conv {
+  color: var(--text-3);
+  font-size: 0.85em;
+  vertical-align: super;
+  line-height: 0;
+  margin-left: 1px;
+  cursor: help;
+}
+
+.db-agg-btn:hover .db-agg-mark {
+  color: var(--text-2);
+}
+
 /* SUB-945: the resting footer's only offer. Hidden until the footer is
    hovered or keyboard-focused, but it holds its space, so setting the first
    aggregation moves nothing (design-principles.md 5) */
@@ -13006,6 +13305,138 @@ body.termhud-resizing-ew .termhud {
   color: var(--text-1);
 }
 
+/* SUB-955: the appearance dials. A hairline track with a small round handle —
+   the same restraint as the switch, no filled progress bar, because the value
+   is a taste dial and not a measurement. The number rides to its right in the
+   mono data voice, tabular so the handle doesn't jitter the row while it
+   moves. */
+.settings-slider {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-range {
+  width: 130px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  appearance: none;
+  cursor: pointer;
+}
+
+.settings-range::-webkit-slider-runnable-track {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--border-strong);
+}
+
+.settings-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -5px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--text-2);
+  transition: background 120ms ease-out;
+}
+
+.settings-range:hover::-webkit-slider-thumb {
+  background: var(--text-1);
+}
+
+.settings-range:focus-visible::-webkit-slider-thumb {
+  outline: 1.5px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.settings-slider-val {
+  width: 30px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  text-align: right;
+}
+
+/* the tone picker: a chip per curated tone, each showing the accent it would
+   install. The dots read the same table the dashboard does (the tone blocks
+   near the accent family), so the swatch and the result can't drift apart. */
+.settings-chips {
+  flex: none;
+  display: flex;
+  gap: 4px;
+}
+
+.settings-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--text-3);
+  font-size: 12px;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: background 120ms ease-out, color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.settings-chip:hover {
+  color: var(--text-1);
+}
+
+.settings-chip.on {
+  color: var(--text-1);
+  border-color: var(--tone-accent);
+  background: var(--tone-accent-soft);
+}
+
+.settings-chip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--chip-tone);
+}
+
+/* Each chip names its own swatch at the preset's BASE hue — unnudged on
+   purpose: the chip identifies the preset, and letting the fine-tune slider
+   drag all four dots at once would say the presets themselves had moved. */
+.settings-chip[data-tone-swatch="sky"] {
+  --chip-tone: hsl(200.6deg 77.1% 67.5%);
+}
+
+.settings-chip[data-tone-swatch="teal"] {
+  --chip-tone: hsl(183deg 55.8% 57.5%);
+}
+
+.settings-chip[data-tone-swatch="indigo"] {
+  --chip-tone: hsl(229.5deg 84.3% 80%);
+}
+
+.settings-chip[data-tone-swatch="violet"] {
+  --chip-tone: hsl(274.4deg 57.6% 76.9%);
+}
+
+/* SUB-834: a two-option row (number format) — the send-link expiry picker's
+   latched-button idiom rather than a <select>, so both options stay readable
+   without opening anything */
+.settings-choice {
+  flex: none;
+  display: flex;
+  gap: 6px;
+}
+
+/* the sheet's section headings reuse the palette's label voice; they need
+   room above them because a settings row is taller than a palette row */
+.settings-sheet .palette-section {
+  margin-top: 10px;
+}
+
 .settings-missing {
   padding: 12px;
   font-size: 12.5px;
@@ -13358,6 +13789,101 @@ body.termhud-resizing-ew .termhud {
   color: var(--text-3);
 }
 
+/* ----- folder = playlist: file rows + the mini-player (SUB-812) ----------
+
+   A folder view's third list grammar (database blocks, notes, then loose
+   files) and the persistent transport bar the audio ones drive. Structure is
+   hairlines, geometry is constant, and the only colour is the existing
+   --accent on the playing state — no new tokens, no chrome backgrounds. */
+
+.row-file {
+  cursor: default;
+}
+
+.row-file .row-top {
+  align-items: center;
+  gap: 7px;
+}
+
+.row-file .row-title {
+  color: var(--text-2);
+  font-weight: 450;
+}
+
+.row-file-audio .row-title {
+  color: var(--text-1);
+}
+
+.row-file-glyph {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--text-3);
+}
+
+.row-file-glyph svg {
+  display: block;
+}
+
+/* one fact, right-aligned like every other list row's meta; the extension
+   mark is a data label, so it takes the mono voice */
+.row-file-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.row-file-ext {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  opacity: 0.75;
+}
+
+/* row action: quiet until hover or focus, and it keeps its grid cell so
+   nothing shifts when it appears */
+.row-file-reveal {
+  flex: none;
+  margin-left: auto;
+  padding: 1px 6px;
+  border: none;
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.row-file:hover .row-file-reveal,
+.row-file:focus-within .row-file-reveal {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.row-file-reveal:hover {
+  color: var(--text-1);
+  background: var(--hover);
+}
+
+/* the reveal button takes the auto margin when it is live, so the meta stops
+   claiming it — otherwise the size jumps left on hover */
+.row-file:hover .row-file-meta,
+.row-file:focus-within .row-file-meta {
+  margin-left: 0;
+}
+
+.list-files-more {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
 .tagfolder-chips {
   display: flex;
   flex-wrap: wrap;
@@ -13430,6 +13956,75 @@ body.termhud-resizing-ew .termhud {
   color: var(--text-1);
 }
 
+/* ----- the mini-player ---------------------------------------------------
+
+   Fixed to the bottom of the window and given real height by the shell
+   (.app.has-player), so it never covers a pane — the move the time-travel
+   banner makes at the top. It mounts only while a folder is queued. */
+
+.app.has-player {
+  box-sizing: border-box;
+  padding-bottom: 46px;
+}
+
+.miniplayer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 150;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 12px 0 10px;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
+
+.mp-transport {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.mp-step,
+.mp-play,
+.mp-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  transition:
+    background 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.mp-step,
+.mp-close {
+  width: 24px;
+  height: 24px;
+}
+
+.mp-play {
+  width: 26px;
+  height: 26px;
+  color: var(--text-1);
+}
+
+.mp-step:hover,
+.mp-play:hover,
+.mp-close:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
 /* an inline #tag in prose: a link's affordance without a link's colour —
    tags are navigation, but a paragraph full of them must stay readable */
 .cm-tag {
@@ -13440,4 +14035,96 @@ body.termhud-resizing-ew .termhud {
 .cm-tag:hover {
   color: var(--link);
   text-decoration: underline;
+}
+
+.mp-play.playing {
+  color: var(--accent);
+}
+
+.mp-step:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.mp-step:disabled:hover {
+  background: transparent;
+  color: var(--text-3);
+}
+
+.mp-step svg,
+.mp-play svg,
+.mp-close svg {
+  display: block;
+}
+
+/* name over source: two lines, one baseline each, fixed width so the
+   waveform beside it does not resize as track names change */
+.mp-id {
+  flex: none;
+  width: 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.mp-name {
+  font-size: 12px;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mp-where {
+  font-size: 10.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the strip is the seek control; it renders at full fixed size whether or
+   not peaks exist — an empty instrument, never a missing one */
+.mp-wave {
+  flex: 1;
+  min-width: 60px;
+  height: 26px;
+  cursor: pointer;
+  border-radius: var(--r);
+}
+
+.mp-wave:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.mp-wave-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.mp-time {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.mp-time-sep {
+  opacity: 0.5;
+}
+
+/* phones lose the fixed-width identity column and the clock — the strip and
+   the transport are what a thumb actually uses */
+.app.mobile .mp-id {
+  width: auto;
+  flex: 1;
+}
+
+.app.mobile .mp-wave,
+.app.mobile .mp-time {
+  display: none;
 }

@@ -9,12 +9,27 @@
    changed the prop since, the undo is refused instead of clobbering it. */
 
 import { vaultSetProp } from "./ipc.ts";
-import type { NoteMeta, PropValue } from "./types.ts";
+import type { NoteMeta, PropValue, SetPropResult } from "./types.ts";
 import type { UndoEntry, UndoScope } from "./undo.ts";
 
 /** A recorder accepts a pre-minted id so a surface that shows its own "Undo"
     button can point that button at the very entry ⌘Z would run. */
 export type UndoRecorder = (entry: Omit<UndoEntry, "id"> & { id?: number }) => void;
+
+/** How a surface actually lands a property write. Everything ordinary uses
+    `vaultSetProp`; a mount's rows (SUB-888) route through `mount_annotate`
+    instead, because a row's note may not exist until this very write creates
+    it. Undo/redo go back through the same writer, so ⌘Z behaves the same on
+    a mounted folder as anywhere else. */
+export type PropWriter = (
+  path: string,
+  key: string,
+  value: PropValue,
+  guard?: { value: PropValue }
+) => Promise<SetPropResult>;
+
+const defaultWrite: PropWriter = (path, key, value, guard) =>
+  vaultSetProp(path, key, value, guard);
 
 /** Human phrasing for the toast and the shortcut hint: "Status → in review". */
 function propLabel(key: string, value: PropValue): string {
@@ -42,8 +57,11 @@ export async function setPropUndoable(opts: {
       still the caller's promise to follow; this hook belongs to undo/redo,
       whose closures otherwise have no route back to the originating UI. */
   onApplied?: () => void | Promise<void>;
+  /** non-default write path (a mount's rows, SUB-888) */
+  write?: PropWriter;
 }): Promise<NoteMeta> {
   const { path, key, value, record } = opts;
+  const vaultSetProp = opts.write ?? defaultWrite;
   const { meta, prior } = await vaultSetProp(path, key, value);
   record({
     id: opts.id,
@@ -138,8 +156,11 @@ export async function setPropUndoableBulk(opts: {
   /** just the property's display name, when the surface renames columns */
   keyLabel?: string;
   scope?: UndoScope;
+  /** non-default write path (a mount's rows, SUB-888) */
+  write?: PropWriter;
 }): Promise<BulkPropResult> {
   const { paths, key, value, record } = opts;
+  const vaultSetProp = opts.write ?? defaultWrite;
   const out: BulkPropResult = { ok: [], failed: [] };
   const priors: { path: string; key: string; prior: PropValue }[] = [];
   for (const path of paths) {
