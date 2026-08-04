@@ -52,6 +52,20 @@ const MOUNTS_MIGRATION_BACKUP_NOTES: &str = "notes";
 /// Bounded buffer used while streaming a file into its identity hash.
 const IDENTITY_CHUNK: usize = 64 * 1024;
 
+/// Most files one mount's scan offers the extraction queue (SUB-887). A
+/// 40 000-file sample library fills in over several scans rather than
+/// flooding the queue in one go; the remainder is picked up next time,
+/// because "not extracted yet" is a durable state in the index.
+///
+/// Derived from the queue's own capacity, and deliberately below it: this is a
+/// PER-MOUNT limit, so N bound mounts scanning at once still offer N times
+/// this many, and the queue's cap — not this one — is what actually bounds
+/// memory. Half of capacity means a single mount can never monopolise the
+/// queue on one pass while remaining large enough that the common case (one
+/// mount, one scan) is a single trip. Everything past the cap is refused at
+/// `enqueue` and logged there.
+const EXTRACT_JOBS_PER_SCAN: usize = super::extractq::CAPACITY / 2;
+
 /// Frontmatter keys a sidecar carries for the engine's benefit, not the
 /// user's: they bind the note to a file and are hidden from the row's props.
 pub(super) const BINDING_PROPS: [&str; 3] = ["mount", "mount_file", "mount_identity"];
@@ -110,6 +124,22 @@ pub struct MountFile {
     pub identity: String,
     #[serde(default, skip_serializing_if = "is_false")]
     pub missing: bool,
+    /// What the file said about itself when it was last opened (SUB-887):
+    /// duration, page count, tags. Cached against [`Self::identity`] — a file
+    /// whose content is unchanged is never opened again, across launches.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extracted: serde_json::Map<String, serde_json::Value>,
+    /// Why the last extraction attempt failed, if it did. Stored so a file
+    /// that cannot be read is attempted ONCE per content change rather than
+    /// once per scan — an empty `extracted` alone can't tell "not tried yet"
+    /// from "tried, nothing there".
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub extract_error: String,
+    /// Set once this file's content has been through the extractor, whatever
+    /// came back. Together with `identity` this is the cache key: unset means
+    /// "never opened", and it is cleared whenever the content changes.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub extract_tried: bool,
 }
 
 /// The last-known index of one mount: what renders when the folder isn't
@@ -313,6 +343,12 @@ fn row_of(f: &MountFile, note: Option<(&String, &NoteMeta)>) -> MountRow {
             props.insert(k.clone(), v.clone());
         }
     }
+    // extracted values last: they describe the file, and the file is the
+    // source of truth. `mount_annotate` refuses these names, so a collision
+    // only exists for a sidecar written before the column did.
+    for (k, v) in &f.extracted {
+        props.insert(k.clone(), v.clone());
+    }
     MountRow {
         rel: f.rel.clone(),
         name,
@@ -350,6 +386,105 @@ impl Engine {
     /// The last-known index of one mount — what the board renders from.
     pub fn mount_index(&self, id: &str) -> MountIndex {
         read_index(&self.root, id)
+    }
+
+    /// Files in this mount whose own metadata we have never read (SUB-887).
+    ///
+    /// Called right after a scan, with the folder's binding on this machine.
+    /// A file is offered once per content change: [`scan_mount`] carries
+    /// `extract_tried` forward while the identity holds and drops it when the
+    /// bytes change, so an unchanged folder produces no jobs at all — which is
+    /// the whole cache, and it survives a restart because it lives in the
+    /// index rather than in memory.
+    ///
+    /// Files past their kind's size cap are skipped here rather than refused
+    /// on arrival: the size is already in the row being iterated, and a job
+    /// that can only end in an error is cheapest never queued. The cap itself
+    /// and the reasoning behind each number live with the readers
+    /// (`extract::size_limit`), which enforce it a second time against the
+    /// bytes on disk in case this index row is a rescan out of date.
+    ///
+    /// [`scan_mount`]: Self::scan_mount
+    pub fn mount_extract_jobs(&self, id: &str, path: &Path) -> Vec<ExtractJob> {
+        let root = resolve_mount_path(path);
+        let mut out = Vec::new();
+        for f in self.mount_index(id).files {
+            if out.len() >= EXTRACT_JOBS_PER_SCAN {
+                // the rest ride the next scan: an un-extracted file is
+                // indistinguishable from one never offered, so nothing is lost
+                break;
+            }
+            if f.missing || f.extract_tried || f.identity.is_empty() {
+                continue;
+            }
+            let extension = Path::new(&f.rel)
+                .extension()
+                .map(|s| s.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            if !super::extract::extractable(&extension) {
+                continue;
+            }
+            if f.size > super::extract::size_limit(&extension) {
+                continue;
+            }
+            out.push(ExtractJob {
+                mount: id.to_string(),
+                path: root.join(&f.rel),
+                rel: f.rel,
+                extension,
+                identity: f.identity,
+            });
+        }
+        out
+    }
+
+    /// Write finished extractions into the indexes they belong to, and report
+    /// which mounts actually changed (so a batch that changed nothing does not
+    /// trigger a refresh).
+    ///
+    /// A result whose identity no longer matches the indexed file is dropped:
+    /// the file was edited while it sat in the queue, and the values describe
+    /// bytes that are gone. The scan that noticed the edit already re-offered
+    /// it, so nothing is lost by discarding the stale answer.
+    pub fn apply_extracted(&mut self, results: Vec<ExtractDone>) -> Vec<String> {
+        let mut by_mount: BTreeMap<String, Vec<ExtractDone>> = BTreeMap::new();
+        for done in results {
+            by_mount.entry(done.mount.clone()).or_default().push(done);
+        }
+        let mut changed = Vec::new();
+        for (id, batch) in by_mount {
+            let mut index = read_index(&self.root, &id);
+            let mut touched = false;
+            // rel → position, built once per mount rather than scanned once
+            // per result: this runs under the engine lock, and a batch of 64
+            // against a 40 000-file sample library is 2.5 M comparisons the
+            // whole UI would be queued behind
+            let at: std::collections::HashMap<String, usize> =
+                index.files.iter().enumerate().map(|(i, f)| (f.rel.clone(), i)).collect();
+            for done in batch {
+                let Some(&i) = at.get(&done.rel) else { continue };
+                let f = &mut index.files[i];
+                if f.identity != done.identity {
+                    continue;
+                }
+                f.extract_tried = true;
+                match done.result {
+                    Ok(values) => {
+                        f.extracted = values.into_iter().collect();
+                        f.extract_error.clear();
+                    }
+                    Err(e) => {
+                        f.extracted.clear();
+                        f.extract_error = e;
+                    }
+                }
+                touched = true;
+            }
+            if touched && write_index(&self.root, &id, &index).is_ok() {
+                changed.push(id);
+            }
+        }
+        changed
     }
 
     /// Register a new mount and return it. The caller binds its path on this
@@ -604,6 +739,11 @@ impl Engine {
         if BINDING_PROPS.iter().any(|b| folded_eq(b, prop)) {
             return Err(format!("“{prop}” is how a note binds to its file"));
         }
+        // an extracted column is the file talking; a value typed over it would
+        // be silently replaced by the next extraction anyway (SUB-887)
+        if super::extract::EXTRACTED_COLUMNS.iter().any(|c| folded_eq(c, prop)) {
+            return Err(format!("“{prop}” is read from the file itself"));
+        }
         let Some(mount) = self.mount(id) else { return Err(format!("no such mount: {id}")) };
         let file = self.mount_index(id).files.into_iter().find(|f| f.rel == rel);
 
@@ -758,6 +898,11 @@ impl Engine {
                 .filter(|i| !identity.is_empty() && !claimed.contains(*i))
                 .or_else(|| by_rel.get(&rel).filter(|i| !claimed.contains(*i)))
                 .copied();
+            // What the file already told us about itself, kept only while the
+            // bytes it describes are the same bytes (SUB-887). A renamed file
+            // keeps its values; a file edited in place drops them and is
+            // offered to the queue again.
+            let mut carried = MountFile::default();
             if let Some(i) = matched {
                 claimed.insert(i);
                 let was = &prior.files[i];
@@ -770,6 +915,11 @@ impl Engine {
                 {
                     stats.updated += 1;
                 }
+                if !identity.is_empty() && was.identity == identity {
+                    carried.extracted = was.extracted.clone();
+                    carried.extract_error = was.extract_error.clone();
+                    carried.extract_tried = was.extract_tried;
+                }
             } else {
                 stats.added += 1;
             }
@@ -780,6 +930,7 @@ impl Engine {
                 created: created_stamp(&md),
                 identity,
                 missing: false,
+                ..carried
             });
         }
 
@@ -1120,6 +1271,21 @@ impl Engine {
             let Some(path) = bindings.get(&m.id) else { continue };
             let path = path.clone();
             out.push(self.scan_mount(&m.id, &path));
+        }
+        out
+    }
+
+    /// The extraction work every mount bound on this machine is owed
+    /// (SUB-887) — the companion to [`sync_mounts`], for the callers that
+    /// scan everything at once. Unbound mounts contribute nothing: the files
+    /// are not here to open.
+    ///
+    /// [`sync_mounts`]: Self::sync_mounts
+    pub fn extract_jobs(&self, bindings: &BTreeMap<String, PathBuf>) -> Vec<ExtractJob> {
+        let mut out = Vec::new();
+        for m in self.mounts() {
+            let Some(path) = bindings.get(&m.id) else { continue };
+            out.extend(self.mount_extract_jobs(&m.id, path));
         }
         out
     }
@@ -2249,6 +2415,175 @@ mod tests {
         let rows = e.mount_rows(&m.id);
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().all(|r| r.note.is_some()), "both rows have sidecars");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    // ---- extraction (SUB-887) ----------------------------------------------
+
+    /// Run every job a scan produced, the way the app's queue eventually
+    /// does — synchronously, so the test asserts about the index rather than
+    /// about timing (the queue's own concurrency has its own tests).
+    fn drain(e: &mut Engine, id: &str, watched: &Path) -> usize {
+        let jobs = e.mount_extract_jobs(id, watched);
+        let n = jobs.len();
+        let done: Vec<ExtractDone> = jobs
+            .into_iter()
+            .map(|j| ExtractDone {
+                result: super::super::extract::extract(&j.path, &j.extension),
+                mount: j.mount,
+                rel: j.rel,
+                identity: j.identity,
+            })
+            .collect();
+        e.apply_extracted(done);
+        n
+    }
+
+    #[test]
+    fn extracted_values_reach_the_index_and_survive_a_rescan() {
+        let (mut e, dir) = temp_vault("mextract");
+        let watched = temp_watched("mextract");
+        fs::write(watched.join("tone.wav"), super::super::extract::test_wav(44_100, 2, 88_200))
+            .unwrap();
+        // a file nothing can be read out of shares the folder: it must not
+        // change anything about the row that can
+        fs::write(watched.join("notes.txt"), b"just text").unwrap();
+        let m = e.add_mount("Samples", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+
+        assert_eq!(drain(&mut e, &m.id, &watched), 1, "only the audio file is offered");
+        let row = e.mount_rows(&m.id).into_iter().find(|r| r.rel == "tone.wav").unwrap();
+        assert_eq!(row.props.get("duration").and_then(|v| v.as_u64()), Some(2));
+        assert_eq!(row.props.get("sample_rate").and_then(|v| v.as_u64()), Some(44_100));
+        assert_eq!(row.props.get("channels").and_then(|v| v.as_u64()), Some(2));
+
+        // a rescan rewrites the index wholesale — the values have to be
+        // carried into it, or every scan would blank the board
+        e.scan_mount(&m.id, &watched);
+        let row = e.mount_rows(&m.id).into_iter().find(|r| r.rel == "tone.wav").unwrap();
+        assert_eq!(row.props.get("duration").and_then(|v| v.as_u64()), Some(2));
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    #[test]
+    fn an_unchanged_file_is_never_opened_twice() {
+        let (mut e, dir) = temp_vault("mcache");
+        let watched = temp_watched("mcache");
+        let path = watched.join("tone.wav");
+        fs::write(&path, super::super::extract::test_wav(44_100, 1, 44_100)).unwrap();
+        let m = e.add_mount("Samples", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        assert_eq!(drain(&mut e, &m.id, &watched), 1);
+
+        // rescans over untouched bytes: nothing is offered again, ever
+        e.scan_mount(&m.id, &watched);
+        assert_eq!(e.mount_extract_jobs(&m.id, &watched).len(), 0, "cache hit");
+        e.scan_mount(&m.id, &watched);
+        assert_eq!(e.mount_extract_jobs(&m.id, &watched).len(), 0, "still a cache hit");
+
+        // renamed, same bytes: the row moves and keeps its values, unopened
+        fs::rename(&path, watched.join("renamed.wav")).unwrap();
+        e.scan_mount(&m.id, &watched);
+        assert_eq!(e.mount_extract_jobs(&m.id, &watched).len(), 0, "a rename is not a change");
+        let row = e.mount_rows(&m.id).into_iter().find(|r| r.rel == "renamed.wav").unwrap();
+        assert_eq!(row.props.get("duration").and_then(|v| v.as_u64()), Some(1));
+
+        // different content at the same path: stale values are dropped and
+        // the file is offered again
+        fs::write(watched.join("renamed.wav"), super::super::extract::test_wav(44_100, 2, 132_300))
+            .unwrap();
+        e.scan_mount(&m.id, &watched);
+        let row = e.mount_rows(&m.id).into_iter().find(|r| r.rel == "renamed.wav").unwrap();
+        assert!(!row.props.contains_key("duration"), "stale values are not shown: {row:?}");
+        assert_eq!(drain(&mut e, &m.id, &watched), 1, "changed content is re-extracted");
+        let row = e.mount_rows(&m.id).into_iter().find(|r| r.rel == "renamed.wav").unwrap();
+        assert_eq!(row.props.get("duration").and_then(|v| v.as_u64()), Some(3));
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_keeps_its_row_and_is_not_retried() {
+        let (mut e, dir) = temp_vault("mbadfile");
+        let watched = temp_watched("mbadfile");
+        // extensions we open, over bytes that are not those formats at all
+        fs::write(watched.join("broken.wav"), b"not a wav at all").unwrap();
+        fs::write(watched.join("broken.pdf"), vec![0u8; 4096]).unwrap();
+        fs::write(watched.join("good.wav"), super::super::extract::test_wav(48_000, 1, 48_000))
+            .unwrap();
+        let m = e.add_mount("Samples", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        assert_eq!(drain(&mut e, &m.id, &watched), 3);
+
+        let rows = e.mount_rows(&m.id);
+        assert_eq!(rows.len(), 3, "a failed extraction never costs a row");
+        for rel in ["broken.wav", "broken.pdf"] {
+            let row = rows.iter().find(|r| r.rel == rel).unwrap();
+            assert!(!row.props.contains_key("duration"), "{rel}: a missing value, not junk");
+            assert_eq!(row.size, fs::metadata(watched.join(rel)).unwrap().len());
+        }
+        let good = rows.iter().find(|r| r.rel == "good.wav").unwrap();
+        assert_eq!(good.props.get("duration").and_then(|v| v.as_u64()), Some(1));
+
+        // the failure is recorded, so a broken file costs one open per content
+        // change rather than one per scan forever
+        let index = e.mount_index(&m.id);
+        let broken = index.files.iter().find(|f| f.rel == "broken.wav").unwrap();
+        assert!(!broken.extract_error.is_empty(), "the failure explains itself");
+        e.scan_mount(&m.id, &watched);
+        assert_eq!(e.mount_extract_jobs(&m.id, &watched).len(), 0, "not retried every scan");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    #[test]
+    fn a_result_for_content_that_moved_on_is_discarded() {
+        let (mut e, dir) = temp_vault("mstale");
+        let watched = temp_watched("mstale");
+        fs::write(watched.join("tone.wav"), super::super::extract::test_wav(44_100, 2, 88_200))
+            .unwrap();
+        let m = e.add_mount("Samples", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let jobs = e.mount_extract_jobs(&m.id, &watched);
+
+        // the file is edited while the job sits in the queue: the answer that
+        // comes back describes bytes that are gone
+        fs::write(watched.join("tone.wav"), super::super::extract::test_wav(8_000, 1, 8_000))
+            .unwrap();
+        e.scan_mount(&m.id, &watched);
+        let changed = e.apply_extracted(
+            jobs.into_iter()
+                .map(|j| ExtractDone {
+                    result: Ok([("duration".to_string(), 2.into())].into_iter().collect()),
+                    mount: j.mount,
+                    rel: j.rel,
+                    identity: j.identity,
+                })
+                .collect(),
+        );
+        assert!(changed.is_empty(), "a stale result changes no index");
+        let row = e.mount_rows(&m.id).into_iter().find(|r| r.rel == "tone.wav").unwrap();
+        assert!(!row.props.contains_key("duration"), "no value from the wrong bytes");
+        // and the file is still owed an extraction
+        assert_eq!(e.mount_extract_jobs(&m.id, &watched).len(), 1);
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    #[test]
+    fn extracted_columns_are_not_the_users_to_write() {
+        let (mut e, dir) = temp_vault("mextrw");
+        let watched = temp_watched("mextrw");
+        fs::write(watched.join("tone.wav"), super::super::extract::test_wav(44_100, 1, 44_100))
+            .unwrap();
+        let m = e.add_mount("Samples", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let err = e.mount_annotate(&m.id, "tone.wav", "duration", Some(99.into())).unwrap_err();
+        assert!(err.contains("read from the file"), "explained: {err}");
+        // an ordinary column still works on the same row
+        e.mount_annotate(&m.id, "tone.wav", "status", Some("keep".into())).unwrap();
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&watched);
     }

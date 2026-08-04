@@ -572,6 +572,24 @@ pub fn run() {
             app.manage(SnapDirty(Mutex::new(None)));
             app.manage(notify::NotifyShared(Mutex::new(notify::NotifyState::load(&notify_root))));
 
+            // Mount extraction (SUB-887): files are opened on background
+            // workers, never on a scan. The sink is the only place the engine
+            // lock is taken — once per batch of finished files — and it ends
+            // the way every other background writer ends, by telling the
+            // frontend the vault changed so the open board refills itself.
+            let extract_handle = app.handle().clone();
+            app.manage(vault::ExtractQueue::new(std::sync::Arc::new(move |batch| {
+                let changed = {
+                    let state: State<AppState> = extract_handle.state();
+                    let mut engine = state.0.lock().unwrap();
+                    engine.apply_extracted(batch)
+                };
+                if !changed.is_empty() {
+                    extract_handle.state::<SnapDirty>().mark();
+                    extract_handle.emit("vault:changed", Vec::<String>::new()).ok();
+                }
+            })));
+
             // Auto-snapshot loop: one baseline commit at launch (captures
             // edits made while the app was closed), then batched snapshots
             // whenever the vault has been active.
@@ -832,7 +850,7 @@ pub fn run() {
                     move || {
                         let state: State<AppState> = folders_handle.state();
                         let mounts = appcfg::read_config(&folders_cfg_dir).mounts;
-                        let changed = match state.0.lock() {
+                        let (changed, jobs) = match state.0.lock() {
                             Ok(mut engine) => {
                                 let folders = engine
                                     .sync_folders()
@@ -842,10 +860,16 @@ pub fn run() {
                                     .sync_mounts(&mounts)
                                     .iter()
                                     .any(|s| s.added + s.updated + s.renamed + s.missing > 0);
-                                folders || mounted
+                                // edits made to a mounted folder while the app
+                                // runs are the main way new files appear at
+                                // all — read them here too, off the lock
+                                (folders || mounted, engine.extract_jobs(&mounts))
                             }
-                            Err(_) => false,
+                            Err(_) => (false, Vec::new()),
                         };
+                        if !jobs.is_empty() {
+                            folders_handle.state::<vault::ExtractQueue>().enqueue(jobs);
+                        }
                         if changed {
                             folders_handle.state::<SnapDirty>().mark();
                             folders_handle.emit("vault:changed", Vec::<String>::new()).ok();

@@ -321,6 +321,24 @@ AVG(days_held)`.
   sheet errors the chart by name rather than dropping a point. Details in
   `docs/dashboards.md` → `charts`.
 
+## Prose reading sheets — live values (SUB-825)
+
+An inline code span of the exact form `` `= expr` `` (`=`, one space, then the
+expression) in any note body is a sheet formula, evaluated against the sheets it
+names and rendered in the span's place:
+`` The label has `= Masters.count` releases. `` Anything else — no space, extra
+space, or text that doesn't parse as a formula — stays the literal code span it
+is, so prose about spreadsheets is never swallowed. The engine is this one,
+unchanged — `parseFormula`/`evaluate` over a scope holding the expression's own
+cross-sheet references, loaded through the same `dashboardSheets` cache and
+invalidated by the same vault epoch the dashboards use, so a note and a
+dashboard reading one sheet share a single evaluation pass. Formatting is
+`formatValue`, so a number reads in a sentence exactly as it does in the grid.
+
+Read-only and volatile: an expression never writes, and no answer is ever
+persisted. Module: `src/lib/livevalues.ts`; editor decoration in
+`src/components/Editor.tsx`. On-disk contract: `docs/vault-format.md` §5.10.
+
 ## Build order
 
 1. Formula parser + evaluator (pure TS, tested against a spreadsheet portfolio tracker's semantics).

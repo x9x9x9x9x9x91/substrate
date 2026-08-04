@@ -23,7 +23,9 @@ import { useUndo } from "../lib/undoContext";
 import { isTauri } from "../lib/tauri";
 import { makeFxResolver } from "../lib/fx";
 import { hasExecutableCalcLine } from "../lib/calc";
+import { liveExprMatches } from "../lib/livevalues";
 import { ensureFxRates, useFxRates } from "./useFx";
+import { useLiveValues } from "./useLiveValues";
 import { exportNoteMarkdown, exportNoteOneSheet, exportNotePdf } from "../lib/export";
 import { buildNoteActions } from "../lib/noteactions";
 import { formatDateHuman, shiftDate } from "../lib/dates";
@@ -267,13 +269,29 @@ function NotePane({
   const [loaded, setLoaded] = useState<{ path: string; docPath: string; body: string } | null>(
     null
   );
+  const liveBody = loaded?.path === meta.path ? loaded.body : null;
+  // A live value (SUB-825) may convert currency too, so an inline `= expr`
+  // span earns the rate table on the same terms a calc line does. Memoised
+  // because the match now parses each candidate: it is a body-sized scan, not
+  // a render-sized one.
+  const hasLiveExpr = useMemo(
+    () => liveBody !== null && liveExprMatches(liveBody).length > 0,
+    [liveBody]
+  );
   const calcNeeded =
-    loaded?.path === meta.path && hasExecutableCalcLine(loaded.body);
+    (loaded?.path === meta.path && hasExecutableCalcLine(loaded.body)) || hasLiveExpr;
   // calc lines (SUB-834): live rates for `= 25 USD in EUR`; the resolver is
   // null-safe (no table yet → the quiet per-line dash, never a wrong number).
-  // Ordinary notes keep this disabled, so opening prose cannot phone out.
+  // Ordinary prose keeps this disabled, so opening a note cannot phone out:
+  // both triggers require executable syntax the writer opted into — a calc
+  // line, or a `` `= expr` `` span in the one documented form that also
+  // parses as a formula. Prose that merely mentions a spreadsheet
+  // (`` `=SUM(A1:A2)` ``) is not a match and fetches no rates.
   const { fx: fxRatesState } = useFxRates(calcNeeded);
   const calcFx = useMemo(() => makeFxResolver(fxRatesState), [fxRatesState]);
+  // the sheets this note's inline `= expr` spans read (SUB-825) — same loader
+  // and same vault-epoch invalidation the dashboard bindings use
+  const liveSheets = useLiveValues(liveBody, vaultEpoch, meta.path, fxRatesState);
   const [props, setProps] = useState<Record<string, unknown>>({});
   const [backlinks, setBacklinks] = useState<NoteMeta[]>([]);
   const [related, setRelated] = useState<RelatedEntry[]>([]);
@@ -825,7 +843,7 @@ function NotePane({
     (b: string) => {
       // a programmatic doc swap (external reload) is not an edit
       if (applyingExternal.current) return;
-      if (hasExecutableCalcLine(b)) ensureFxRates();
+      if (hasExecutableCalcLine(b) || liveExprMatches(b).length > 0) ensureFxRates();
       pending.current = { path: meta.path, body: b };
       // the file is gone: keep the text, never schedule a write (SUB-94)
       if (missingRef.current || fileGoneRef.current) return;
@@ -1918,6 +1936,7 @@ function NotePane({
               tagUniverse={tagUniverse}
               numberStyle={numberStyle}
               calcFx={calcFx}
+              liveSheets={liveSheets}
               noteTitles={noteTitles}
               dbTypes={dbTypes}
               embedQuery={embedQuery}

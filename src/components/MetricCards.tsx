@@ -7,6 +7,9 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { metricsColumns } from "../lib/dashboard";
 import { fmtCard, parseBind, type MetricCard } from "../lib/metriccards";
 import { dashboardSheets, type DashboardSheetState } from "../lib/dashboardSheets";
+import { dashboardMounts, type DashboardMountState } from "../lib/dashboardMounts";
+import { MOUNT_AGGREGATES, isMountAggregate, mountCardText, mountAggregate } from "../lib/mountdash";
+import { mountStatus } from "../lib/mounts";
 import { findSummary } from "../lib/sheet";
 import { isErr } from "../lib/formula";
 import type { FxRatesState } from "../lib/fx";
@@ -15,6 +18,41 @@ export interface CardValue {
   text: string;
   miss?: string;
   title?: string;
+}
+
+/** One card's value off a mount's index (SUB-982). A mount that isn't bound on
+    this machine — or whose folder has gone away — still answers from the
+    last-known index rather than blanking: the card keeps its number and says
+    underneath why it may be stale, which is the mount board's own contract.
+    An unknown aggregate names itself and lists what a mount does carry. */
+function mountCard(
+  state: DashboardMountState,
+  name: string,
+  card: MetricCard,
+  /** a note of the same name that this mount is standing in front of — a mount
+      name and a note title live in different registries and nothing stops them
+      colliding, so a miss on the mount has to say the sheet is there */
+  shadowedSheet: boolean,
+): CardValue {
+  if ("error" in state) return { text: "—", miss: "folder unreadable", title: state.error };
+  const v = isMountAggregate(name) ? mountAggregate(state.rows, name) : null;
+  if (v === null) {
+    // Precedence is mount-wins (docs/vault-format.md §8): a typo'd aggregate
+    // must not silently fall through and read a different surface. But a
+    // shadowed sheet is invisible from the card, so the miss names it.
+    const shadow = shadowedSheet ? `; a note named “${state.mount.name}” is shadowed by this mount` : "";
+    return {
+      text: "—",
+      miss: `no aggregate “${name}” on ${state.mount.name}`,
+      title: `no aggregate “${name}” on ${state.mount.name} (has: ${MOUNT_AGGREGATES.join(", ")})${shadow}`,
+    };
+  }
+  const status = mountStatus(state.mount);
+  return {
+    text: mountCardText(name, v, card.format, card.digits),
+    miss: status ? (state.mount.path ? "folder not found" : "not on this machine") : undefined,
+    title: status ?? undefined,
+  };
 }
 
 /** Load every bound sheet — and transitively any sheet its formulas reference
@@ -36,6 +74,13 @@ export function useCardValues(
   rates: FxRatesState | null,
 ): (i: number) => CardValue {
   const [sheets, setSheets] = useState<Map<string, DashboardSheetState>>(new Map());
+  // mounts resolve alongside sheets, not instead of them: `{{Album Pool.count}}`
+  // and `{{Holdings.total}}` are the same binding grammar (SUB-982), and only
+  // the vault knows which of the two a name is.
+  const [mounts, setMounts] = useState<Map<string, DashboardMountState> | null>(null);
+  // why the mount pass failed, when it did — a name that resolves as neither
+  // sheet nor mount then says so instead of blaming the vault's notes alone
+  const [mountsError, setMountsError] = useState<string | null>(null);
   const binds = useMemo(() => cards.map((c) => parseBind(c.bind)), [cards]);
   const sheetNames = useMemo(() => {
     const seen = new Map<string, string>();
@@ -44,6 +89,32 @@ export function useCardValues(
     }
     return [...seen.values()];
   }, [binds]);
+
+  useEffect(() => {
+    let gone = false;
+    dashboardMounts(sheetNames, vaultEpoch)
+      .then((next) => {
+        if (gone) return;
+        setMounts(next);
+        setMountsError(null);
+      })
+      // A rejected pass must not strand every card on "…". It must also not
+      // silently read as "no name here is a mount": a card bound to a mount
+      // would then fall through to the sheet path and report “no note named …”,
+      // which names the wrong failure. The pass can't say WHICH names were
+      // mounts, so the map stays empty (sheet cards keep working) and the
+      // reason is carried alongside — a name that is neither a live sheet nor
+      // a readable mount says both halves.
+      .catch((error) => {
+        if (gone) return;
+        setMounts(new Map());
+        setMountsError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      gone = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope, vaultEpoch, sheetNames.join("|")]);
 
   useEffect(() => {
     let gone = false;
@@ -76,9 +147,22 @@ export function useCardValues(
   return (i: number): CardValue => {
     const b = binds[i];
     if (!b) return { text: "—", title: `bad binding “${cards[i].bind}” — want {{Sheet.summary}}` };
+    // a name that is a mount reads its index; anything else is a sheet. The
+    // lookup has to wait for the mount pass, or a card bound to a mount would
+    // flash "no note named …" before the answer arrives (SUB-982).
+    if (mounts === null) return { text: "…" };
+    const mstate = mounts.get(b.sheet.toLowerCase());
     const state = sheets.get(b.sheet.toLowerCase());
+    if (mstate) {
+      // a real note of the same name exists behind this mount: mount-wins
+      // precedence hides it, so a miss on the mount has to say it is there
+      return mountCard(mstate, b.name, cards[i], !!state && !("error" in state));
+    }
     if (!state) return { text: "…" };
-    if ("error" in state) return { text: "—", title: state.error };
+    if ("error" in state) {
+      // the mount half of the lookup may be why this name resolved to nothing
+      return { text: "—", title: mountsError ? `${state.error}; mounts: ${mountsError}` : state.error };
+    }
     const hit = state.ev.summaries.find((s) => s.name.toLowerCase() === b.name.toLowerCase());
     if (!hit) {
       const has = state.ev.summaries.map((s) => s.name).join(", ");

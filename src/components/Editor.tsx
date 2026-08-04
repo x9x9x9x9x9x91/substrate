@@ -78,14 +78,18 @@ import {
   FOLLOW_EVENT,
   FileWidget,
   ImageWidget,
+  LiveValueWidget,
   TableWidget,
   ViewWidget,
   calcConfig,
   embedHandlers,
   isAudioEmbed,
   isImageEmbed,
+  liveValuesConfig,
 } from "../lib/editor-widgets";
 import { evalCalcDoc, fencedLines, isCalcLine, type NumberStyle } from "../lib/calc";
+import { evalLiveExpr, liveExprMatches, type LiveExprMatch } from "../lib/livevalues";
+import type { DashboardSheetState } from "../lib/dashboardSheets";
 import type { FxResolver } from "../lib/formula";
 import type { EmbedResult, ViewSpecResult } from "../lib/embeds";
 import type { NoteMeta, PropValue, TagCount } from "../lib/types";
@@ -950,6 +954,66 @@ function addCalcDecorations(
   }
 }
 
+/** Live values in prose (SUB-825): an inline `` `= expr` `` span renders as the
+ * value it computes to.
+ *
+ * Whole-document scan, viewport-scoped widgets, same reasoning as calc lines —
+ * the span grammar needs to know which fences a span sits inside, and that is
+ * a document fact, not a viewport one.
+ *
+ * `inCode` is deliberately NOT the veto here: every one of these spans IS an
+ * inline code node, which is exactly why the other regex decorators skip it
+ * and this one doesn't. The veto that matters is a rendered block covering the
+ * span, and a fence — which liveExprMatches already resolves.
+ *
+ * Cursor inside the span reveals the raw source, like every other inline
+ * decoration in this file.
+ *
+ * Where the spans ARE is needed before the syntax-tree pass (the backtick
+ * marks inside one must not be hidden separately), so finding them and
+ * rendering them are two steps. */
+function liveMatchesIn(state: EditorState): LiveExprMatch[] {
+  const body = state.doc.toString();
+  // Most notes have none — one cheap scan spares them the regex entirely. The
+  // test must be provably WEAKER than the matcher, or the editor renders
+  // nothing for a span NotePane/useLiveValues still load sheets for. Every
+  // match is an inline code span, so a body with no backtick has none; that is
+  // the whole implication, and it needs no updating when the grammar tightens.
+  if (!body.includes("`")) return [];
+  return liveExprMatches(body);
+}
+
+function addLiveValueDecorations(
+  view: EditorView,
+  matches: LiveExprMatch[],
+  deco: Range<Decoration>[],
+  active: Set<number>,
+  focused: boolean,
+  inCovered: (from: number, to: number) => boolean
+): void {
+  const { state } = view;
+  if (matches.length === 0) return;
+  const { sheets, fx } = state.facet(liveValuesConfig);
+
+  for (const m of matches) {
+    if (!view.visibleRanges.some(({ from, to }) => m.from < to && m.to > from)) continue;
+    if (inCovered(m.from, m.to)) continue;
+    const line = state.doc.lineAt(m.from).number;
+    if (focused && active.has(line)) continue;
+    const value = evalLiveExpr(m.expr, sheets, fx);
+    // Not an expression after all (only reachable if evaluation itself blows
+    // the stack — the parse filter runs in liveExprMatches). No widget: the
+    // span keeps rendering as the literal code it is, backticks and all,
+    // because a dash here would replace text the user actually wrote.
+    if (value.literal) continue;
+    deco.push(
+      Decoration.replace({
+        widget: new LiveValueWidget(value.display, m.expr, value.err),
+      }).range(m.from, m.to)
+    );
+  }
+}
+
 function buildDecorations(view: EditorView): DecorationSet {
   const { state } = view;
   const active = activeLines(state);
@@ -976,6 +1040,12 @@ function buildDecorations(view: EditorView): DecorationSet {
   // code spans/blocks render verbatim — the regex decorators must skip them
   const codeRanges: [number, number][] = [];
   const inCode = (from: number, to: number) => codeRanges.some(([a, b]) => from < b && to > a);
+  /* A live-value span is replaced whole, backticks and all, by one widget. The
+     CodeMark hiding below would otherwise replace those same backticks a second
+     time, and two overlapping replacements render as neither. */
+  const liveMatches = liveMatchesIn(state);
+  const inLiveSpan = (from: number, to: number) =>
+    liveMatches.some(({ from: a, to: b }) => from >= a && to <= b);
 
   let calloutsThrough = 0;
 
@@ -1072,6 +1142,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         if (!HIDDEN_MARKS.has(node.name)) return;
         const line = state.doc.lineAt(node.from).number;
         if (focused && active.has(line)) return;
+        if (inLiveSpan(node.from, node.to) && !inCovered(node.from, node.to)) return;
         let end = node.to;
         if (node.name === "HeaderMark" && state.sliceDoc(end, end + 1) === " ") end++;
         deco.push(Decoration.replace({}).range(node.from, end));
@@ -1138,6 +1209,7 @@ function buildDecorations(view: EditorView): DecorationSet {
     }
   }
   addCalcDecorations(view, deco, inCovered);
+  addLiveValueDecorations(view, liveMatches, deco, active, focused, inCovered);
   deco.sort((a, b) => a.from - b.from || a.value.startSide - b.value.startSide);
   return Decoration.set(deco, true);
 }
@@ -1157,7 +1229,11 @@ const livePreview = ViewPlugin.fromClass(
         u.selectionSet ||
         u.viewportChanged ||
         u.focusChanged ||
-        u.startState.field(vaultEpochField) !== u.state.field(vaultEpochField)
+        u.startState.field(vaultEpochField) !== u.state.field(vaultEpochField) ||
+        // sheets arrive asynchronously and land by reconfiguring their facet —
+        // a transaction that changes neither doc, selection nor viewport, so it
+        // needs saying explicitly or a re-read sheet never reaches the prose
+        u.startState.facet(liveValuesConfig) !== u.state.facet(liveValuesConfig)
       ) {
         this.decorations = buildDecorations(u.view);
       }
@@ -1494,6 +1570,11 @@ interface EditorProps {
   /** calc lines (SUB-834): live FX for `25 USD in EUR`. Absent → currency
       conversions report a missing rate rather than inventing one. */
   calcFx?: FxResolver;
+  /** live values in prose (SUB-825): the sheets this note's `` `= expr` ``
+      spans reach, loaded and evaluated by the dashboard sheet bindings.
+      Absent → cross-sheet expressions report a missing sheet rather than
+      rendering a value nothing backs. */
+  liveSheets?: Map<string, DashboardSheetState>;
 }
 
 export default function Editor({
@@ -1526,6 +1607,7 @@ export default function Editor({
   readOnly = false,
   numberStyle,
   calcFx,
+  liveSheets,
 }: EditorProps) {
   const shell = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -1546,6 +1628,10 @@ export default function Editor({
   // dialect and the FX table change while the editor stays mounted, and the
   // results already on screen have to re-render when they do
   const calcCompartment = useRef(new Compartment());
+  // live values (SUB-825) ride their own compartment for the same reason: the
+  // sheets they read land asynchronously and change again whenever the vault
+  // does, and the values already on screen have to follow
+  const liveCompartment = useRef(new Compartment());
   const onChangeRef = useRef(onChange);
   const onFollowRef = useRef(onFollowLink);
   const onRevealedRef = useRef(onRevealed);
@@ -1566,6 +1652,7 @@ export default function Editor({
   // read once at mount; the effect below keeps the live editor in step
   const numberStyleRef = useRef(numberStyle);
   const calcFxRef = useRef(calcFx);
+  const liveSheetsRef = useRef(liveSheets);
   // the [[ completion source is provided once at mount — titles live behind
   // a ref so vault changes reach it without recreating the editor (SUB-269)
   const noteTitlesRef = useRef(noteTitles);
@@ -1593,6 +1680,7 @@ export default function Editor({
   vaultEpochRef.current = vaultEpoch;
   numberStyleRef.current = numberStyle;
   calcFxRef.current = calcFx;
+  liveSheetsRef.current = liveSheets;
   noteTitlesRef.current = noteTitles;
   dbTypesRef.current = dbTypes;
 
@@ -1872,6 +1960,12 @@ export default function Editor({
         calcCompartment.current.of(
           calcConfig.of({ style: numberStyleRef.current ?? "de", fx: calcFxRef.current ?? (() => null) })
         ),
+        liveCompartment.current.of(
+          liveValuesConfig.of({
+            sheets: liveSheetsRef.current ?? new Map(),
+            fx: calcFxRef.current ?? (() => null),
+          })
+        ),
         vaultEpochField.init(() => vaultEpochRef.current ?? 0),
         viewRender,
         audioAnnotationRender,
@@ -2121,6 +2215,19 @@ export default function Editor({
       ),
     });
   }, [numberStyle, calcFx, docKey]);
+
+  // Live values follow the same path (SUB-825): a fresh sheet map — the first
+  // load landing, or a vault change re-evaluating the sheets a note reads —
+  // arrives as a reconfiguration, and the values on screen recompute with it.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: liveCompartment.current.reconfigure(
+        liveValuesConfig.of({ sheets: liveSheets ?? new Map(), fx: calcFx ?? (() => null) })
+      ),
+    });
+  }, [liveSheets, calcFx, docKey]);
 
   // Finder drops arrive as Tauri events with real paths — files copy into
   // .assets/ in Rust, so master-sized audio never crosses the IPC bridge.

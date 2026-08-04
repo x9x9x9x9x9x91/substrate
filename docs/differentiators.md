@@ -89,6 +89,14 @@ Capacities, Affine).*
   want the file inside their own store first.
 - **Sheets** — plain-text formula tables: LOOKUP across sheets, SUMIF/COUNTIF
   with wildcards, SUMPRODUCT, date arithmetic, identifiers in any language.
+- **Live values in prose** — an inline code span of the form `` `= expr` ``
+  computes from your sheets and renders as the number, inside the sentence:
+  "the label has `` `= Masters.count` `` releases". Read-only and volatile —
+  the file keeps the expression, never the answer, so any other markdown
+  reader shows readable code and nothing rots. Notion needs a formula property
+  on a database row; Obsidian needs Dataview inline queries (a plugin, and a
+  different query language than its tables use). Here it's the same engine the
+  sheets run, reaching into ordinary prose.
 - **Units & inline math** — any note line starting with `=` computes live
   (`= 3.9M * 0.04`, per-note variables, `= sum` over the lines above), with
   real units: `= 25 USD in EUR`, `= 5 kg + 500 g`. Number columns carry units
@@ -201,7 +209,7 @@ Tracked in the issue tracker; headline shapes: extracted columns on
 mounted files (audio/PDF/.als analysis feeding a mount's rows — the mount
 itself has shipped), time-travel queries over
 git history, iOS home-screen widgets, per-fact provenance
-receipts, live values in prose, deterministic file-event reflexes, voice
+receipts, deterministic file-event reflexes, voice
 capture with on-device transcript, cross-type joins.
 
 ## Maintenance

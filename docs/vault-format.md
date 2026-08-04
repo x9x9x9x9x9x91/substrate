@@ -862,6 +862,31 @@ cards:
   order if more are flagged; with none flagged the first card is sharp.
   Unflagged cards render in the quiet voice (design principle 11).
 
+A bind whose name is a **mount** (§8) reads that mount's live index instead of
+a sheet — `bind: "{{Album pool.count}}"` — with no change to the grammar: the
+first half is the sheet or mount name, the second an aggregate on it. A mount
+carries `count`, `present`, `missing` (rows the index remembers but the folder
+no longer has), `bytes` (total size of the present files, shown in the size
+column's own units — `11,8 MB`, not a raw byte count, unless the card asks for
+a `format:`), and `newest` / `oldest` (the extreme `modified` stamp). An
+unknown aggregate names itself on the card and lists what a mount does carry,
+the way a missing summary does.
+
+**A mount wins over a note of the same name.** Mount names and note titles live
+in different registries and nothing prevents a collision, so `{{Album pool.…}}`
+reads the mount whenever one is named `Album pool`, and any note of that title
+is shadowed for binding purposes — creating a mount can therefore repoint an
+existing card. Mount-wins is deliberate: falling back to the note on an
+unrecognised aggregate would make a typo silently read a different surface. The
+shadowing is never silent — a card whose aggregate the mount doesn't have says
+in its tooltip that a same-named note is shadowed by this mount, so a card that
+stopped reading its sheet says why. To bind the note instead, rename one of the
+two.
+
+Mount bindings are per machine (§8): on a machine where the mount isn't bound,
+or its folder is away, the card still shows the last-known number and says
+"not on this machine" / "folder not found" underneath — never a blank board.
+
 
 ### 5.5 Chart blocks — ` ```chart ` fences
 
@@ -896,7 +921,16 @@ binding) or `series` (summary binding)):
 - `source` — a database type (`release`), or `{{Sheet Name}}` for a sheet. A
   database source reads every note of that type (case-insensitive type match);
   a sheet source reads its data rows **plus computed columns** (summaries are
-  not rows — to plot those, use `series` below).
+  not rows — to plot those, use `series` below). Because **a mount IS a schema
+  type** (§8), naming a mount here charts its folder's live index — one row per
+  file, columns `name`, `extension`, `size`, `created`, `modified` plus whatever
+  its sidecars annotate — so `source: Album pool` / `x: modified:month` /
+  `y: count` plots files touched per month with no importer. A mount wins over
+  a database of the same name, the same way it does for cards (§5.4) — and
+  charts it exactly as it would that database, schema'd option colours and
+  order included. Mount bindings are per machine: an unbound or away folder
+  still charts from the last-known index and says so in a quiet line under the
+  chart title, rather than plotting empty.
 - `x` — the bucket axis: `<prop>` for a categorical axis (scalar values, or a
   string list joined with `, `), or `<date prop>:<bucket>` with bucket `day` |
   `week` | `month` for a date axis. Date axes accept scalar dates only; lists
@@ -1292,6 +1326,16 @@ built-in or vault-resident — has one header.
 card naming the kind and the file.** Never a blank pane, and never the
 charts-or-yield fallback.
 
+That covers what the host is on the stack for: the import, the module shape,
+and the synchronous body of `mount`. A throw from code the kind scheduled and
+the host never awaited — a timer callback, a rejected promise nobody handles,
+a listener firing later — reaches no card; it lands in the console like any
+other page error, and whatever the kind already drew stays on screen. Catching
+those would take a global error handler, which would blame every page-wide
+error on whichever kind happened to be mounted. A kind that does async work
+should therefore handle its own rejections and say so through `ctx.setState`
+or `ctx.toast`.
+
 `ctx` members, api 1:
 
 | Member | Shape | What it is |
@@ -1387,6 +1431,61 @@ the expression the user typed, nothing else. `===` setext underlines and a lone
 Agent note: calc lines are *read-time* sugar — an external writer never needs
 to compute or update anything. Write the expression, the app renders the
 answer.
+
+### 5.10 Live values in prose — `` `= expression` ``
+
+An **inline code span holding `=`, exactly one space, then an expression**
+computes, and the answer renders in the span's place, mid-sentence:
+
+```markdown
+The label has `= Masters.count` releases, worth `= Holdings.total`.
+```
+
+The syntax is deliberately nothing new — it is an ordinary markdown code span,
+so any other reader shows `= Masters.count` as code and the sentence still
+reads. There is no fence grammar and no new delimiter to learn.
+
+- **The form is exact, and narrow on purpose.** Backtick, `=`, one space,
+  expression. `` `=1+1` ``, `` `=  1+1` `` and `` ` = 1+1` `` are ordinary code
+  spans. The single space is what separates running a formula from writing
+  about one: `` `=SUM(A1:A2)` `` in a sentence about Excel is prose, and a
+  renderer that swallowed it would have destroyed the author's text.
+- **Non-expressions render literally.** A span in the documented form whose
+  text doesn't parse as a formula (`` `= SUM(A1:A2)` ``) is not a live value at
+  all — it keeps rendering as the code span it already is. The dim `–` is
+  reserved for expressions that **parse and then fail to evaluate**. No input,
+  pathological ones included, can turn visible text into a dash.
+- **Engine**: the same one sheets use (`src/lib/formula.ts`). An expression is
+  a sheet formula, and cross-sheet names resolve the way a sheet's own
+  `formulas` fence resolves them — `Sheet.name` reaches a summary first, then a
+  computed column, then a data column. Numbers format exactly as they do in the
+  grid, units included (§5.9 vocabulary, `src/lib/units.ts`). Unit *conversion*
+  (`25 USD in EUR`) is calc-line grammar (§5.9), not formula grammar: such a
+  span doesn't parse, so it renders literally. Conversions belong in the sheet.
+- **Read-only**: an expression never writes anything. It cannot add rows,
+  set properties, or change the sheet it reads.
+- **Volatile**: the computed value is **never** written to the file. The `.md`
+  holds the expression text and nothing else — same contract as a calc line.
+  Recomputation happens when the note renders and when the underlying sheets
+  change; nothing is cached in the vault.
+- **Whole columns don't render**: `` `= Holdings.value_eur` `` is a column, not
+  an answer — wrap it in `SUM`, `COUNT` or `AVG`.
+- **Errors are quiet**: an expression that can't compute shows a dim `–` with
+  the reason on hover. A missing sheet, a typo'd name, or a sheet that failed
+  to parse never puts an error wall inside a sentence.
+- **Escape hatch**: a **double-backtick** span (``` ``= Masters.count`` ```)
+  never computes — the grammar is single-backtick only, so doubling is how a
+  note writes the syntax while explaining it.
+- **Scope**: spans inside ``` / ~~~ fences and inside four-space- or
+  tab-indented code blocks never compute — code someone is *showing* stays
+  shown. Frontmatter is not body text and is never scanned. HTML comments are,
+  so a span inside one computes (invisibly) — harmless, since the result is
+  never written back. Spans inside a **rendered markdown table** do not
+  compute: the table widget replaces the region before the span decoration is
+  reached. An empty `` `= ` `` is someone mid-keystroke, not an expression.
+
+Agent note: read-time sugar, like calc lines. Writing the expression is the
+whole job; never write a computed number back next to it.
 
 ## 5b. `.vault/format.json` — config format versions (covers §6–§8b)
 
@@ -2241,7 +2340,10 @@ seen the folder still shows the rows, and every annotation on them.
   "files": [
     { "rel": "2026/kick take 3.als", "size": 481920,
       "modified": "2026-07-31 18:22", "created": "2026-07-31",
-      "identity": "b1e0…", "missing": false }
+      "identity": "b1e0…", "missing": false,
+      "extract_tried": true,
+      "extracted": { "duration": 214, "sample_rate": 44100, "channels": 2,
+                     "artist": "aya", "media_title": "Emley Lights Us Moor" } }
   ]
 }
 ```
@@ -2252,6 +2354,40 @@ seen the folder still shows the rows, and every annotation on them.
 - `identity` — the file's **content identity** (below); what sidecars bind to.
 - `missing` — the index remembers the file and the last scan didn't find it.
   Such a row is kept and greyed, never dropped, and keeps its sidecar.
+- `extracted` / `extract_error` / `extract_tried` — what was read out of the
+  file itself (below). All three default and are omitted when empty, so an
+  index written before extraction existed reads back unchanged.
+
+**Extracted columns** (`vault/extract.rs`, `vault/extractq.rs`): opening files
+is slow, so a scan never does it. The scan writes the index and returns;
+un-read files are handed to a bounded background queue, and each finished file
+is merged back into the index, which is how the board fills in behind a scan.
+
+- `extracted` — a flat object of column name → value, merged into the row's
+  props **last**, so they behave as ordinary sortable/filterable columns.
+  Audio (`lofty`): `duration` (seconds), `sample_rate`, `channels`, plus
+  `artist` / `album` / `media_title` where the file carries tags. PDF
+  (`lopdf`): `pages`, plus `media_title` / `artist` from the Info dictionary.
+  Text values are clamped; a file that carries none of them contributes no
+  keys at all. The file's own title is `media_title`, never `title` — `title`
+  is the row's heading throughout the note pipeline and is dropped as a column
+  name, so extracting into it would store a value nothing ever shows.
+- `extract_error` — why that one file couldn't be read. The row survives with
+  the value simply absent; a malformed file never fails the scan.
+- **Size caps.** Both parsers size buffers from numbers the file declares, and
+  an allocation that large aborts the process rather than raising an error, so
+  a file is refused *unopened* past a per-kind cap (`extract::size_limit` — 64
+  MiB for PDF, 1 GiB for audio) and a single PDF stream may not inflate past
+  16 MiB. A file over the cap is skipped at scan time: it keeps its row and
+  its intrinsic columns, contributes no extracted values, and is skipped again
+  on every later scan rather than being marked tried.
+- `extract_tried` — set once the file has been through the queue, however it
+  went. It is what stops a file being re-opened on every scan, and it is
+  **the cache**: a rescan carries all three forward whenever the content
+  identity still matches, so an unchanged file is never read twice, across
+  launches included. Content changing gives the row a new identity, which
+  drops the carry-forward and re-offers the file. These columns are read-only
+  the same way the intrinsics are — annotating one is refused.
 
 **Content identity** (`vault/mounts.rs` `file_identity`): hex SHA-256 over the
 file's complete byte stream, read through a bounded buffer. It is stable

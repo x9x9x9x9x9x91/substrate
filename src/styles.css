@@ -2037,6 +2037,29 @@ button.empty-hint-fix:hover {
   cursor: help;
 }
 
+/* SUB-825: a live value in prose, rendered in place of its `= expr` span.
+   Reads as the sentence's own text — no chip chrome, no second grey — with
+   only the faint tint and the tabular figures marking it as computed rather
+   than typed. Unselectable for the same reason the calc answer is: a ⌘A copy
+   must yield the markdown the file actually holds. */
+.cm-live-value {
+  color: var(--text-1);
+  background: var(--bg-2);
+  border-radius: 3px;
+  padding: 0 0.2em;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+  cursor: default;
+}
+
+/* an expression pointing at a sheet mid-rename is a normal state, not an
+   error banner — same dim dash a calc line shows, reason in the title */
+.cm-live-error {
+  color: var(--text-3);
+  opacity: 0.65;
+  cursor: help;
+}
+
 .cm-wikilink {
   color: var(--link);
   cursor: pointer;
@@ -4696,6 +4719,15 @@ body.agenda-window .palette:focus-visible {
 .chart-err {
   font-size: 12.5px;
   color: var(--danger);
+}
+
+/* a chart still plotting, with something worth saying about its source — a
+   mount reading its last-known index (SUB-982). Quiet by design: the data is
+   real, only possibly stale, so this is not an error voice. */
+.chart-note {
+  font-size: 12.5px;
+  color: var(--text-4);
+  margin: 2px 0 6px;
 }
 
 /* the form is a section, not a box — its section label carries the frame */

@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { dbColumns } from "./dbcolumns.ts";
 import {
+  MOUNT_EXTRACTED,
   MOUNT_SCHEME,
   isIntrinsic,
   mountStatus,
@@ -116,7 +118,31 @@ test("intrinsic columns are the read-only ones", () => {
   for (const p of ["name", "extension", "size", "created", "modified", "missing"]) {
     assert.equal(isIntrinsic(p), true, p);
   }
+  // read out of the file itself (SUB-887) — same read-only rule
+  for (const p of ["duration", "sample_rate", "channels", "artist", "album", "media_title", "pages"]) {
+    assert.equal(isIntrinsic(p), true, p);
+  }
   assert.equal(isIntrinsic("status"), false);
+});
+
+test("extracted column names survive dbColumns", () => {
+  // `title` is dropped by name there, which is why a file's own title is
+  // `media_title` — a column the board never renders is worse than no column
+  const meta = rowMeta(mount(), row({ props: Object.fromEntries(MOUNT_EXTRACTED.map((c) => [c, 1])) }));
+  const cols = dbColumns([meta], {});
+  for (const c of MOUNT_EXTRACTED) assert.ok(cols.includes(c), `${c} missing from ${cols.join(", ")}`);
+});
+
+test("extracted values reach the board as ordinary columns", () => {
+  const meta = rowMeta(
+    mount(),
+    row({ props: { duration: 183, sample_rate: 44100, artist: "aya", status: "keep" } })
+  );
+  assert.equal(meta.props.duration, 183);
+  assert.equal(meta.props.sample_rate, 44100);
+  assert.equal(meta.props.artist, "aya");
+  // a user's own prop on the same row is untouched by any of this
+  assert.equal(meta.props.status, "keep");
 });
 
 test("mountStatus explains an unbound or absent folder, and stays quiet otherwise", () => {

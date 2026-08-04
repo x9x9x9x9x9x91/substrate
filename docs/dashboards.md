@@ -75,6 +75,14 @@ of the board's anchors — at most two stay sharp, everything else sinks to the
 quiet voice (design principle 11). `FX("USD","EUR")` in formulas uses a
 live rate cached on the sheet's own `fx_rate`/`fx_date` props.
 
+A bind can also name a [mount](vault-format.md#8-vaultmountsjson--mounted-folders-reality-mounts) instead of a sheet, and read the
+mounted folder's live index: `{{Ableton projects.count}}` for how many project
+files there are, `{{Ableton projects.newest}}` for the last one you touched.
+The aggregates are `count`, `present`, `missing`, `bytes`, `newest`, `oldest`.
+Since a folder is only mounted on the machine it lives on, a card over a mount
+that isn't bound here keeps showing the last-known number and says why
+underneath rather than blanking the board.
+
 ### `charts` — bar/line charts over a database or sheet
 
 One ` ```chart ` fence per chart; the body can hold several. `source` is a database
@@ -105,6 +113,26 @@ kind: bar
 `x` is a prop, or `prop:day|week|month` for date bucketing; `y` is `count`,
 `sum:<prop>`, or `avg:<prop>`. A malformed fence renders its parse error in place
 and never breaks the others.
+
+**Charting a mounted folder.** A mount is a database, so `source` can name one
+and the chart plots the folder's live index — one row per file, with `name`,
+`extension`, `size`, `created`, `modified`, plus anything its sidecar notes
+annotate. Point a mount at your Ableton projects folder and this is the whole
+setup for "projects touched per month" — no import step, no stub notes:
+
+````markdown
+```chart
+source: Ableton projects
+x: modified:month
+y: count
+title: Projects touched per month
+```
+````
+
+`by:` splits it like any other chart (`by: stage` over a sidecar prop). Since a
+folder is only mounted where it lives, a chart over a mount that isn't bound on
+this machine — or whose folder is away — plots the last-known index and says so
+in a quiet line under the title.
 
 Hovering or focusing a bar or a point shows the exact value, the x label, and —
 on a split chart — every series at that x. Each chart is one tab stop: arrow

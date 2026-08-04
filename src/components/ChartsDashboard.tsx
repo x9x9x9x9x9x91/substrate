@@ -6,6 +6,9 @@ import { usdEurFrom } from "../lib/fx";
 import { useFxRates } from "./useFx";
 import { useEdgeFade } from "../hooks/useEdgeFade";
 import { dashboardSheets, type DashboardSheetState } from "../lib/dashboardSheets";
+import { dashboardMounts, type DashboardMountState } from "../lib/dashboardMounts";
+import { mountChartRows } from "../lib/mountdash";
+import { mountStatus } from "../lib/mounts";
 import {
   aggregate,
   chartSourceDesc,
@@ -542,12 +545,21 @@ function ChartSection({
   series,
   loadError,
   xOptions,
+  sourceDesc,
+  notice,
 }: {
   block: ChartBlock;
   series: ChartSeries | null;
   loadError: string | null;
   /** schema options of a db-sourced categorical x prop — bars wear their hues */
   xOptions?: SelectOption[];
+  /** provenance line when the source isn't a database or a sheet — a mount
+      says which folder it is reading (SUB-982) */
+  sourceDesc?: string;
+  /** quiet line above the plot: a mount that isn't bound here, or whose folder
+      has gone away, still charts its last-known index and says so rather than
+      breaking the dashboard */
+  notice?: string | null;
 }) {
   if (block.error || !block.config) {
     return (
@@ -567,6 +579,7 @@ function ChartSection({
   return (
     <div>
       <div className="dash-section-label">{chartTitle(c)}</div>
+      {notice ? <div className="chart-note">{notice}</div> : null}
       {loadError ? (
         <div className="chart-err">{loadError}</div>
       ) : series === null ? (
@@ -603,7 +616,7 @@ function ChartSection({
         </>
       )}
       <div className="dash-foot" style={{ margin: "10px 0 0" }}>
-        {chartSourceDesc(c)} · {series?.points.length ?? 0}{" "}
+        {sourceDesc ?? chartSourceDesc(c)} · {series?.points.length ?? 0}{" "}
         {series && series.points.length === 1 ? "point" : "points"}
         {series && series.skipped > 0 ? ` · ${series.skipped} rows skipped` : ""}
       </div>
@@ -642,6 +655,46 @@ export default function ChartsDashboard({
     }
     return [...seen.values()];
   }, [blocks]);
+  // Every `source:` that reads as a database is ALSO a candidate mount name: a
+  // mount registers its name as a type (SUB-982), so one grammar covers both
+  // and only the vault knows which a given name is.
+  const dbNames = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const b of blocks) {
+      const s = b.config?.source;
+      if (s?.kind === "db") seen.set(s.type.toLowerCase(), s.type);
+    }
+    return [...seen.values()];
+  }, [blocks]);
+  const [mounts, setMounts] = useState<Map<string, DashboardMountState> | null>(null);
+  // why the mount pass failed, when it did — an empty db plot then says the
+  // mount lookup is the reason it may be empty
+  const [mountsError, setMountsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let gone = false;
+    dashboardMounts(dbNames, vaultEpoch)
+      .then((next) => {
+        if (gone) return;
+        setMounts(next);
+        setMountsError(null);
+      })
+      // A failed mount pass must not hang every chart on "…", so the db path
+      // still plots. But it also must not read as "no source here is a mount":
+      // a mount-bound chart would then plot an empty database with no reason
+      // shown. The pass can't say WHICH names were mounts, so the map stays
+      // empty and the reason is carried alongside — a db source that plots
+      // nothing says the mount lookup failed too.
+      .catch((error) => {
+        if (gone) return;
+        setMounts(new Map());
+        setMountsError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      gone = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meta.path, vaultEpoch, dbNames.join("|")]);
 
   // Load every charted sheet — and transitively any sheet its formulas
   // reference — then evaluate each with the cross-sheet loader (SUB-671).
@@ -673,7 +726,13 @@ export default function ChartsDashboard({
 
   const seriesFor = (
     block: ChartBlock,
-  ): { series: ChartSeries | null; loadError: string | null; xOptions?: SelectOption[] } => {
+  ): {
+    series: ChartSeries | null;
+    loadError: string | null;
+    xOptions?: SelectOption[];
+    sourceDesc?: string;
+    notice?: string | null;
+  } => {
     const c = block.config;
     if (!c) return { series: null, loadError: null };
     if (c.bind === "summaries") {
@@ -688,14 +747,40 @@ export default function ChartsDashboard({
       return { series, loadError: error };
     }
     if (c.source.kind === "db") {
+      // A mount IS a schema type (SUB-982), so its x prop carries the same
+      // schema'd options a database's does — resolved once, above the split,
+      // or a mount chart would wear default hues and first-appearance order
+      // while the mount's own board wears its configured colours.
       const opts = xSchemaOptions(schema, c.source.type, c.x.prop);
-      return {
-        series: aggregate(dbRows(notes, c.source.type), c, opts),
-        loadError: null,
-        // hues only where color already means something: a select-kind x prop
-        // with schema'd options (date axes and unschema'd props carry none)
-        xOptions: opts?.length ? opts : undefined,
-      };
+      // hues only where color already means something: a select-kind x prop
+      // with schema'd options (date axes and unschema'd props carry none)
+      const xOptions = opts?.length ? opts : undefined;
+      // a mount named by `source:` charts its index; the same name with no
+      // mount behind it is an ordinary database type. Waiting for the mount
+      // pass keeps a mount chart from flashing an empty db plot first.
+      if (mounts === null) return { series: null, loadError: null };
+      const mstate = mounts.get(c.source.type.toLowerCase());
+      if (mstate) {
+        if ("error" in mstate) return { series: null, loadError: mstate.error };
+        return {
+          series: aggregate(mountChartRows(mstate.mount, mstate.rows), c, opts),
+          loadError: null,
+          xOptions,
+          sourceDesc: `mount: ${mstate.mount.name}`,
+          notice: mountStatus(mstate.mount),
+        };
+      }
+      const rows = dbRows(notes, c.source.type);
+      // no notes of this type AND the mount pass failed: the name may well be
+      // a mount this render couldn't reach, so say that rather than drawing a
+      // silent empty plot that looks like an empty database
+      if (rows.length === 0 && mountsError) {
+        return {
+          series: null,
+          loadError: `no notes of type “${c.source.type}”, and mounted folders could not be read: ${mountsError}`,
+        };
+      }
+      return { series: aggregate(rows, c, opts), loadError: null, xOptions };
     }
     const state = sheets.get(c.source.name.toLowerCase());
     if (!state) return { series: null, loadError: null };
@@ -707,9 +792,17 @@ export default function ChartsDashboard({
     return (
       <>
         {blocks.map((b, i) => {
-          const { series, loadError, xOptions } = seriesFor(b);
+          const r = seriesFor(b);
           return (
-            <ChartSection key={i} block={b} series={series} loadError={loadError} xOptions={xOptions} />
+            <ChartSection
+              key={i}
+              block={b}
+              series={r.series}
+              loadError={r.loadError}
+              xOptions={r.xOptions}
+              sourceDesc={r.sourceDesc}
+              notice={r.notice}
+            />
           );
         })}
       </>
@@ -734,9 +827,17 @@ export default function ChartsDashboard({
         />
 
         {blocks.map((b, i) => {
-          const { series, loadError, xOptions } = seriesFor(b);
+          const r = seriesFor(b);
           return (
-            <ChartSection key={i} block={b} series={series} loadError={loadError} xOptions={xOptions} />
+            <ChartSection
+              key={i}
+              block={b}
+              series={r.series}
+              loadError={r.loadError}
+              xOptions={r.xOptions}
+              sourceDesc={r.sourceDesc}
+              notice={r.notice}
+            />
           );
         })}
 

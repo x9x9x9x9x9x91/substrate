@@ -75,8 +75,33 @@ export function missingCls(n: { props: Record<string, unknown> }): string {
     they describe the file, and the file is the source of truth. */
 export const MOUNT_INTRINSICS = ["name", "extension", "size", "created", "modified"] as const;
 
+/** Columns read out of the files themselves (SUB-887) — duration for audio,
+    page count for PDFs, tags where a file carries them. They appear on a row
+    only once that file has been read, so a board fills these in behind a
+    scan rather than with it. Read-only for the same reason the intrinsics
+    are: the file says what it says, and the next extraction would overwrite
+    anything typed over it. Mirrors `EXTRACTED_COLUMNS` in
+    `src-tauri/src/vault/extract.rs`.
+
+    A file's internal title is `media_title`: `title` is the row's own heading
+    everywhere in the note pipeline, and `dbColumns` drops that name outright,
+    so a column called `title` would be extracted and then never shown. */
+export const MOUNT_EXTRACTED = [
+  "duration",
+  "sample_rate",
+  "channels",
+  "artist",
+  "album",
+  "media_title",
+  "pages",
+] as const;
+
 export function isIntrinsic(prop: string): boolean {
-  return (MOUNT_INTRINSICS as readonly string[]).includes(prop) || prop === "missing";
+  return (
+    (MOUNT_INTRINSICS as readonly string[]).includes(prop) ||
+    (MOUNT_EXTRACTED as readonly string[]).includes(prop) ||
+    prop === "missing"
+  );
 }
 
 /** How a mount's state reads in the board banner. `null` = nothing to say,

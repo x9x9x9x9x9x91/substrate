@@ -21,6 +21,8 @@
  */
 import { listen } from "./tauri";
 import {
+  kindsEnable,
+  kindsList,
   smokeExit,
   smokeSignal,
   vaultDelete,
@@ -32,6 +34,7 @@ import {
   vaultTrashRestore,
   vaultWriteBody,
 } from "./ipc";
+import { kindFileUrl, kindSchemeOrigin } from "./kindpane";
 
 /** Tokens the outside script greps for on disk — keep in sync with the script. */
 export const SMOKE_TOKENS = {
@@ -43,6 +46,9 @@ export const SMOKE_TOKENS = {
 
 /** The note every phase operates on — ships in `examples/vault`. */
 const TARGET = "Welcome.md";
+/** The custom kind bundle the script seeds into the scratch vault's
+    `.vault/kinds/` (SUB-960). Not part of `examples/vault`. */
+const KIND_ID = "smoke-kind";
 /** Trashed and restored — a second note keeps the edit assertions isolated. */
 const TRASH_TARGET = "Releases/Fern Static.md";
 
@@ -71,7 +77,7 @@ async function step(name: string, fn: () => Promise<string>): Promise<void> {
   }
 }
 
-function assert(cond: unknown, msg: string): void {
+function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
@@ -145,6 +151,69 @@ async function flow(): Promise<void> {
       probe.remove();
       tag.remove();
     }
+  });
+
+  // 1.6 custom kinds — the two operations CustomKindPane does that only the
+  //     real app can prove (SUB-960). The mock e2e lane has no CSP and no
+  //     scheme: it imports bundle code from a blob: URL. The shipped app
+  //     fetches and imports over `substrate-kind:`, which script-src and
+  //     connect-src both gate — the SUB-610/612 class of bug, where a policy
+  //     that only exists in the bundled build blocks something dev never saw.
+  //     In dev mode this step rides devCsp and is the weaker check; under
+  //     SMOKE_BUNDLE=1 it is the real one.
+  await step("kinds: a bundle's code loads over the substrate-kind: scheme", async () => {
+    const listed = await kindsList();
+    const bundle = listed.find((b) => b.id === KIND_ID);
+    assert(bundle, `${KIND_ID} missing from kinds_list (${listed.map((b) => b.id).join(",") || "empty"})`);
+    assert(!bundle.record, `${KIND_ID} arrived already enabled — consent must start empty`);
+    // consent is pinned to the exact bytes, so this is also the hash check
+    await kindsEnable(KIND_ID, bundle.hash);
+    const again = (await kindsList()).find((b) => b.id === KIND_ID);
+    assert(again?.record?.hash === bundle.hash, "kinds_enable did not record consent at that hash");
+
+    const origin = kindSchemeOrigin(navigator.userAgent);
+    // (a) connect-src: the pane fetches the stylesheet this way
+    const cssUrl = kindFileUrl(origin, KIND_ID, "kind.css", bundle.hash);
+    let res: Response;
+    try {
+      res = await fetch(cssUrl);
+    } catch (e) {
+      throw new Error(
+        `fetch over ${origin} was blocked (${e instanceof Error ? e.message : String(e)}) — ` +
+          `connect-src does not allow the scheme. url: ${cssUrl}`
+      );
+    }
+    assert(res.ok, `the scheme answered ${res.status} for kind.css`);
+    const css = await res.text();
+    assert(css.includes("smoke-kind-probe"), `kind.css came back wrong: ${css.slice(0, 60)}`);
+
+    // (b) script-src: the pane imports the entry as an ES module
+    const jsUrl = kindFileUrl(origin, KIND_ID, "index.js", bundle.hash);
+    let mod: { default?: { mount?: unknown } };
+    try {
+      mod = (await import(/* @vite-ignore */ jsUrl)) as { default?: { mount?: unknown } };
+    } catch (e) {
+      throw new Error(
+        `import over ${origin} was blocked (${e instanceof Error ? e.message : String(e)}) — ` +
+          `script-src does not allow the scheme. url: ${jsUrl}`
+      );
+    }
+    assert(typeof mod?.default?.mount === "function", "the imported module has no mount()");
+
+    // a file the manifest does not name is refused — the scheme is not a
+    // general vault reader. The refusal is a bare 404 carrying no
+    // Access-Control-Allow-Origin, so cross-origin fetch rejects outright
+    // rather than resolving with ok=false; both shapes count as refused, a
+    // readable 200 does not.
+    let servedJson = "";
+    try {
+      const sneaky = await fetch(kindFileUrl(origin, KIND_ID, "kind.json", bundle.hash));
+      if (sneaky.ok) servedJson = `${sneaky.status} ${(await sneaky.text()).slice(0, 40)}`;
+    } catch {
+      // rejected at the CORS/404 boundary — refused, which is the point
+    }
+    assert(!servedJson, `the scheme served kind.json (${servedJson}); only entry and style are served`);
+    return `fetched kind.css (${css.length}b) and imported index.js over ${origin}`;
   });
 
   // 2. list — the real index over real files

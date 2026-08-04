@@ -2397,6 +2397,12 @@ mod mounts;
 pub use mounts::{Mount, MountRow, MountScanStats, MOUNTS_REL_PATH};
 use mounts::read_mounts;
 
+// What a mounted file says about itself (SUB-887). Split out of `mounts`
+// because it is pure per-file parsing: no engine, no lock, no vault.
+mod extract;
+mod extractq;
+pub use extractq::{ExtractDone, ExtractJob, ExtractQueue};
+
 mod seed;
 pub use seed::seed_new_vault;
 // `AGENTS_REL_PATH` is consumed through the façade by the property tests.

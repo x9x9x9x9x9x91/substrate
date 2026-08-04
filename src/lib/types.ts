@@ -195,6 +195,9 @@ export interface MountRow {
   missing?: boolean;
   /** vault path of the sidecar note, absent until first annotated */
   note?: string;
+  /** The sidecar's user props, plus whatever was read out of the file itself
+      (SUB-887: duration, pages, tags…). Extraction happens behind a scan, so
+      a row can arrive without them and gain them on the next refresh. */
   props: Record<string, unknown>;
 }
 

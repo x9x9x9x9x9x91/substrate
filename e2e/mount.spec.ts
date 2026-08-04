@@ -83,6 +83,55 @@ test("the mount board: file rows, a missing one, a sidecar's props on its row", 
   await expect(rows.filter({ hasText: "2025-11 Invoice Old Vendor" })).toContainText("booked");
 });
 
+test("extracted columns: what the files said about themselves, sortable (SUB-887)", async ({
+  page,
+}) => {
+  await page.locator(".side-item", { hasText: "All databases" }).click();
+  await page.locator(".dbmgr-row", { hasText: "Finance-doc" }).click();
+
+  // `pages` is read out of the PDFs themselves — no sidecar, no schema, it is
+  // simply a column the board has because the files have it
+  const pagesHead = page.locator(".db-th-label", { hasText: "pages" });
+  await expect(pagesHead).toBeVisible();
+
+  const col = await page
+    .locator(".db-table thead th")
+    .evaluateAll((ths) => ths.findIndex((th) => /pages/i.test(th.textContent ?? "")));
+  expect(col).toBeGreaterThan(-1);
+  const pagesCells = () =>
+    page
+      .locator(".db-table tbody tr")
+      .evaluateAll(
+        (rows, i: number) =>
+          rows.map((r) => r.querySelectorAll("td")[i]?.textContent?.trim() ?? ""),
+        col
+      );
+
+  // sorting is the point of a column: click sorts ascending, and the two
+  // files that carry no page count (a PNG and a CSV) sort as blanks. Assert
+  // on the unfiltered cells — filtering the blanks out first is how a sort
+  // that scattered them through the numbers would still have passed.
+  await pagesHead.click();
+  await expect(pagesHead.locator(".db-sort")).toHaveText("↑");
+  const ascCells = await pagesCells();
+  const blanks = ascCells.filter((c) => !c).length;
+  expect(blanks).toBe(2);
+  // every blank is at one end, never interleaved
+  const ascNumbers = ascCells.filter(Boolean);
+  expect(ascCells.slice(0, ascNumbers.length)).toEqual(ascNumbers);
+  const asc = ascNumbers.map(Number);
+  expect(asc).toEqual([...asc].sort((a, b) => a - b));
+  expect(asc).toContain(34);
+
+  await pagesHead.click();
+  await expect(pagesHead.locator(".db-sort")).toHaveText("↓");
+  const descCells = await pagesCells();
+  expect(descCells.filter((c) => !c).length).toBe(blanks);
+  const descNumbers = descCells.filter(Boolean);
+  expect(descCells.slice(0, descNumbers.length)).toEqual(descNumbers);
+  expect(descNumbers.map(Number)).toEqual([...asc].reverse());
+});
+
 test("unmount from the manager row menu keeps the notes", async ({ page }) => {
   await page.locator(".side-item", { hasText: "All databases" }).click();
   const row = page.locator(".dbmgr-row", { hasText: "Finance-doc" });

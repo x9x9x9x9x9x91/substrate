@@ -33,10 +33,12 @@ import type {
 import { stripMachineFences } from "./fences.ts";
 import { noteTags, propTags, tagUniverse } from "./tags.ts";
 import { MOCK_FX, MOCK_FX_RATES } from "./fx.ts";
+import { MOUNT_EXTRACTED } from "./mounts.ts";
 import { noteOwnWrite } from "./ownwrites.ts";
 import { remapSavedQueryProperty } from "./query.ts";
 import { isSystemPropName } from "./schemalookup.ts";
 import { isAppFile } from "./settings.ts";
+import { hashKindBundle, parseKindManifest, KIND_API, type KindBundleInfo } from "./kinds.ts";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -225,10 +227,36 @@ declare global {
     /** the agent command onboarding wrote (SUB-804) — null = never called,
         "" = called as skip */
     __mockAgentCommand?: () => string | null;
+    /** seed a custom kind bundle into the mock lane (SUB-960). The real ones
+        are files in `.vault/kinds/<id>/` served over a Tauri scheme, neither
+        of which a browser spec has; this stages the same `kinds_list` row and
+        keeps the file text where the pane's mock loader can find it. Omit
+        `enabled` to stage a bundle awaiting review; pass a `hash` to stage
+        drift against whatever was enabled. */
+    __mockWriteKind?: (bundle: {
+      id: string;
+      /** raw kind.json text — a string so a spec can stage a broken manifest */
+      manifest: string;
+      files: Record<string, string>;
+      enabled?: boolean;
+      /** override the recorded consent hash — the hash-drift lane */
+      enabledHash?: string;
+      /** override the manifest api recorded at enable time */
+      enabledApi?: number;
+    }) => Promise<void>;
+    /** drop every seeded bundle — specs that assert the no-kinds path */
+    __mockClearKinds?: () => void;
+    /** one seeded bundle file's text, as the pane's loader reads it */
+    __mockKindFile?: (id: string, file: string) => string | undefined;
     /** park a conflicted merge in the mock "repository" WITHOUT a pull having
         happened in this session — the state a restart leaves behind, where
         the engine still has the merge but no last result to report (SUB-572) */
     __mockParkConflicts?: () => void;
+    /** unbind a mount on "this machine" without touching its index — the
+        other-machine board a dashboard has to keep charting from (SUB-982).
+        Pass a folder path to bind it somewhere instead; a path containing
+        "missing" is the folder-went-away case. */
+    __mockUnbindMount?: (name: string, path?: string) => void;
   }
 }
 
@@ -2224,21 +2252,37 @@ interface MockMountFile {
   created: string;
   identity: string;
   missing: boolean;
+  /** What the file said about itself (SUB-887). The engine fills this behind a
+      scan; the mock has no bytes, so a PDF's page count is simply part of the
+      fake file — enough for the board to prove extracted columns render. */
+  extracted?: Record<string, unknown>;
 }
 let mockMounts: MockMount[] = [{ id: "mount-finance", name: "finance-doc", globs: [] }];
 const mockMountBindings: Record<string, string> = { "mount-finance": "~/Personal/Finance" };
 const mockMountIndex: Record<string, { scanned: string; files: MockMountFile[] }> = {};
-const mockFolderFiles = [
-  { name: "2026-01 Invoice Acme Mastering.pdf", size: 184211, modified: "2026-01-31 10:02" },
-  { name: "2026-02 Invoice Acme Mastering.pdf", size: 186004, modified: "2026-02-27 09:41" },
-  { name: "2026-03 Invoice Acme Mastering.pdf", size: 183557, modified: "2026-03-31 11:15" },
-  { name: "2026-07 Rechnung Umbra.pdf", size: 92814, modified: "2026-07-02 14:48" },
-  { name: "2025 Steuererklärung.pdf", size: 1204551, modified: "2026-05-11 16:22" },
-  { name: "2026-05 Kontoauszug.pdf", size: 88109, modified: "2026-06-03 08:30" },
-  { name: "2026-06 Kontoauszug.pdf", size: 89012, modified: "2026-07-03 08:31" },
-  { name: "Mietvertrag 2025.pdf", size: 245880, modified: "2025-11-20 13:05" },
-  { name: "Versicherung Haftpflicht 2026.pdf", size: 154302, modified: "2026-01-04 12:00" },
-  { name: "Depot Jahresabrechnung 2025.pdf", size: 301455, modified: "2026-02-14 09:12" },
+const mockFolderFiles: {
+  name: string;
+  size: number;
+  modified: string;
+  extracted?: Record<string, unknown>;
+}[] = [
+  { name: "2026-01 Invoice Acme Mastering.pdf", size: 184211, modified: "2026-01-31 10:02", extracted: { pages: 2 } },
+  { name: "2026-02 Invoice Acme Mastering.pdf", size: 186004, modified: "2026-02-27 09:41", extracted: { pages: 2 } },
+  { name: "2026-03 Invoice Acme Mastering.pdf", size: 183557, modified: "2026-03-31 11:15", extracted: { pages: 2 } },
+  { name: "2026-07 Rechnung Umbra.pdf", size: 92814, modified: "2026-07-02 14:48", extracted: { pages: 1 } },
+  {
+    name: "2025 Steuererklärung.pdf",
+    size: 1204551,
+    modified: "2026-05-11 16:22",
+    extracted: { pages: 34, media_title: "Einkommensteuererklärung 2025" },
+  },
+  { name: "2026-05 Kontoauszug.pdf", size: 88109, modified: "2026-06-03 08:30", extracted: { pages: 4 } },
+  { name: "2026-06 Kontoauszug.pdf", size: 89012, modified: "2026-07-03 08:31", extracted: { pages: 4 } },
+  { name: "Mietvertrag 2025.pdf", size: 245880, modified: "2025-11-20 13:05", extracted: { pages: 11 } },
+  { name: "Versicherung Haftpflicht 2026.pdf", size: 154302, modified: "2026-01-04 12:00", extracted: { pages: 6 } },
+  { name: "Depot Jahresabrechnung 2025.pdf", size: 301455, modified: "2026-02-14 09:12", extracted: { pages: 18 } },
+  // not extractable: an image and a spreadsheet carry no columns, and their
+  // rows stay blank in the extracted columns rather than dropping out
   { name: "Quittung Rondo Service.png", size: 488203, modified: "2026-04-19 17:40" },
   { name: "Ausgaben 2026.csv", size: 4210, modified: "2026-07-15 21:03" },
 ];
@@ -2258,6 +2302,7 @@ function mockDiskFiles(globs: string[]): MockMountFile[] {
       created: f.modified.slice(0, 10),
       identity: mockIdentity(f.name),
       missing: false,
+      ...(f.extracted ? { extracted: f.extracted } : {}),
     }));
 }
 /** Mirrors Engine::scan_mount: match the prior index by identity first, then
@@ -2310,6 +2355,9 @@ mockMountIndex["mount-finance"] = {
       created: "2026-06-01",
       identity: mockIdentity("2025-11 Invoice Old Vendor.pdf"),
       missing: true,
+      // last-known extraction survives the file going away, the same way the
+      // rest of its row does — the index is what remembers
+      extracted: { pages: 3 },
     },
   ].sort((a, b) => a.rel.localeCompare(b.rel)),
 };
@@ -2334,9 +2382,12 @@ function mockMountRows(id: string): MountRow[] {
     identity: f.identity,
     ...(f.missing ? { missing: true } : {}),
     ...(note ? { note: note.path } : {}),
-    props: note
-      ? Object.fromEntries(Object.entries(note.props).filter(([k]) => !owned.has(k)))
-      : {},
+    props: {
+      ...(note ? Object.fromEntries(Object.entries(note.props).filter(([k]) => !owned.has(k))) : {}),
+      // extracted last, exactly as Engine::row_of merges them: the file is the
+      // source of truth for what it says about itself
+      ...(f.extracted ?? {}),
+    },
   });
   const rows = index.map((f) => {
     const note =
@@ -2391,6 +2442,13 @@ const mockTemplates = mockRecord<{ props: Record<string, unknown>; body: string 
     body: "## Agenda\n\n- [ ] {{title}} prep\n",
   },
 });
+
+/* Mock `.vault/kinds/` (SUB-960): custom kind bundles a spec staged. Empty
+   until __mockWriteKind runs — a lane that never seeds one sees exactly the
+   pre-kinds app. `files` holds the bundle text (kind.json included, since the
+   hash covers it) because the mock pane loader reads source from here instead
+   of the `substrate-kind:` scheme the browser doesn't have. */
+const mockKinds: { row: KindBundleInfo; files: Record<string, string> }[] = [];
 
 /* Mock Settings.md (SUB-398): the ⌘, sheet reads/writes the root settings
    note by path. In the real engine it's a normal indexed note; here it lives
@@ -3307,15 +3365,27 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     case "vault_template_list":
       return Object.keys(mockTemplates).sort();
     // Custom kinds (SUB-959) are vault-resident code served through a real
-    // Tauri scheme; the mock lane has no vault and no scheme, so it answers
-    // "none installed" rather than pretending a bundle exists. Enable/disable
-    // are accepted and dropped: the e2e lane must be able to walk the pane
-    // without a consent file appearing anywhere.
+    // Tauri scheme; the mock lane has neither, so bundles exist only when a
+    // spec stages them through __mockWriteKind (SUB-960) — an unseeded lane
+    // still answers "none installed". Enable/disable move the in-memory
+    // consent record only: no consent file appears anywhere.
     case "kinds_list":
-      return [];
-    case "kinds_enable":
-    case "kinds_disable":
+      return mockKinds.map((k) => JSON.parse(JSON.stringify(k.row)) as KindBundleInfo);
+    case "kinds_enable": {
+      const k = mockKinds.find((b) => b.row.id === args?.id);
+      if (!k) throw new Error(`no kind bundle "${String(args?.id)}"`);
+      k.row.record = {
+        hash: String(args?.hash ?? k.row.hash),
+        api: KIND_API,
+        enabledAt: new Date().toISOString(),
+      };
       return null;
+    }
+    case "kinds_disable": {
+      const k = mockKinds.find((b) => b.row.id === args?.id);
+      if (k) delete k.row.record;
+      return null;
+    }
     // the mock lane never reaches the network: it answers with the same
     // historical rate the fixtures carry, so e2e baselines stay stable
     case "fx_usd_eur":
@@ -4934,6 +5004,11 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       if (["mount", "mount_file", "mount_identity"].includes(prop)) {
         throw new Error(`“${prop}” is set by the mount`);
       }
+      // SUB-887: the file owns these, and the next extraction would overwrite
+      // anything typed over them — mirrors Engine::mount_annotate
+      if ((MOUNT_EXTRACTED as readonly string[]).some((c) => c.toLowerCase() === prop.toLowerCase())) {
+        throw new Error(`“${prop}” is read from the file itself`);
+      }
       const file = (mockMountIndex[id]?.files ?? []).find((f) => f.rel === rel);
       const sidecars = mockSidecarsOf(id);
       const existing =
@@ -5367,7 +5442,38 @@ if (!isTauri) {
   // SUB-572: stage a merge that was parked before the app restarted. The
   // engine keeps it in git refs, so status still reports it; only the
   // session's last-result record is gone, which is exactly what this leaves.
+  window.__mockWriteKind = async ({ id, manifest, files, enabled, enabledHash, enabledApi }) => {
+    const all = { "kind.json": manifest, ...files };
+    // hashed over the same bytes the real loader hashes, so a spec that edits
+    // one file and re-seeds reproduces real drift rather than a staged flag
+    const hash = await hashKindBundle(all);
+    const row: KindBundleInfo = { id, hash, manifest: parseKindManifest(id, manifest) };
+    if (enabled || enabledHash) {
+      row.record = {
+        hash: enabledHash ?? hash,
+        api: enabledApi ?? KIND_API,
+        enabledAt: "2026-08-01T09:00:00Z",
+      };
+    }
+    const at = mockKinds.findIndex((k) => k.row.id === id);
+    const entry = { row, files: all };
+    if (at < 0) mockKinds.push(entry);
+    else mockKinds[at] = entry;
+  };
+  window.__mockClearKinds = () => {
+    mockKinds.length = 0;
+  };
+  window.__mockKindFile = (id, file) => mockKinds.find((k) => k.row.id === id)?.files[file];
   window.__mockParkConflicts = () => {
     mockConflicts = mockConflictSeed();
+  };
+  // SUB-982: the other-machine board. The index stays exactly as the machine
+  // holding the folder left it — only this machine's binding goes — so a
+  // dashboard over the mount still has rows to chart.
+  window.__mockUnbindMount = (name, path) => {
+    const m = mockMounts.find((x) => x.name.toLowerCase() === name.toLowerCase());
+    if (!m) throw new Error(`no such mount: ${name}`);
+    if (path == null) delete mockMountBindings[m.id];
+    else mockMountBindings[m.id] = path;
   };
 }

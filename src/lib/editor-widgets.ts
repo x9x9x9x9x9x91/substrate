@@ -24,6 +24,7 @@ import { TASK_RE } from "./markdown.ts";
 import { normalizeNumberInput } from "./aggregate.ts";
 import type { NumberStyle } from "./calc.ts";
 import type { FxResolver } from "./formula.ts";
+import type { DashboardSheetState } from "./dashboardSheets.ts";
 import { cellModel, cellOpensEditor, type CellModel } from "./cellmodel.ts";
 import { foldedPropKey, foldedPropStr, type PropValue } from "./types.ts";
 import { chipCommitValue, propListValue, type RelationCandidate } from "./relation.ts";
@@ -338,6 +339,76 @@ export interface CalcConfig {
 export const calcConfig = Facet.define<CalcConfig, CalcConfig>({
   combine: (values) => values[0] ?? { style: "de", fx: () => null },
 });
+
+/** What live values in prose need from the app (SUB-825): the sheets a note's
+ * `= expr` spans reach, already loaded and evaluated by the dashboard sheet
+ * bindings, plus the same FX resolver calc lines use. One facet, one
+ * reconfiguration when either moves.
+ *
+ * The default is an empty sheet map: before the load lands (or in a surface
+ * that binds nothing), a cross-sheet expression fails quietly with "no sheet
+ * named …" rather than rendering a value that isn't backed by anything. */
+export interface LiveValuesConfig {
+  sheets: Map<string, DashboardSheetState>;
+  fx: FxResolver;
+}
+
+export const liveValuesConfig = Facet.define<LiveValuesConfig, LiveValuesConfig>({
+  combine: (values) => values[0] ?? { sheets: new Map(), fx: () => null },
+});
+
+/** A live value in prose (SUB-825), rendered in place of the `` `= expr` ``
+ * span it was computed from.
+ *
+ * Unlike a calc line's answer this one REPLACES its source, because the value
+ * belongs mid-sentence: "the label has 47 releases" reads as prose, "the label
+ * has `= Masters.count` 47 releases" does not. The document itself is
+ * untouched either way — the widget is view-only, the `.md` keeps the
+ * expression and never the number.
+ *
+ * Putting the cursor in the span reveals the raw source again (Editor.tsx),
+ * which is how every other inline decoration here behaves.
+ *
+ * A failure is the same dim dash a calc line shows, reason on hover — an
+ * expression pointing at a sheet mid-rename must not turn a paragraph into an
+ * error banner. */
+export class LiveValueWidget extends WidgetType {
+  readonly display: string;
+  readonly err: string | undefined;
+  readonly expr: string;
+
+  constructor(display: string, expr: string, err?: string) {
+    super();
+    this.display = display;
+    this.expr = expr;
+    this.err = err;
+  }
+
+  eq(other: LiveValueWidget) {
+    return other.display === this.display && other.err === this.err && other.expr === this.expr;
+  }
+
+  toDOM() {
+    const el = document.createElement("span");
+    el.className = this.err ? "cm-live-value cm-live-error" : "cm-live-value";
+    el.textContent = this.display;
+    el.title = this.err ? `${this.expr} — ${this.err}` : this.expr;
+    // The source text says `= expr`; the rendered text says the answer. Name
+    // both to assistive tech, so a screen reader hears what a sighted reader
+    // gets on hover rather than a bare number with no provenance.
+    el.setAttribute("role", "status");
+    el.setAttribute(
+      "aria-label",
+      this.err ? `Value unavailable for ${this.expr}: ${this.err}` : `${this.expr} is ${this.display}`
+    );
+    return el;
+  }
+
+  // the value is not text — a click lands in the line and reveals the source
+  ignoreEvent() {
+    return false;
+  }
+}
 
 /** Per-widget state the DOM carries, so an `updateDOM` repaint can find it
  * again. Hung off the widget's own root node under a symbol: the widget

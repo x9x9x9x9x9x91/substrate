@@ -6,9 +6,20 @@
 //! command here that touches a path also touches `appcfg`, and the ones that
 //! only touch identity do not.
 
-use crate::vault::{Mount, MountRow, MountScanStats};
+use crate::vault::{ExtractQueue, Mount, MountRow, MountScanStats};
 use crate::{appcfg, blocking, AppState, OnboardingState, SnapDirty};
 use tauri::{Emitter, Manager, State};
+
+/// Hand a freshly scanned mount's unread files to the background queue
+/// (SUB-887). Called with the engine lock already released: enqueueing is a
+/// push onto a bounded deque, and everything slow happens on the queue's own
+/// threads. Files past the queue's capacity are simply not taken — the next
+/// scan offers them again.
+fn queue_extraction(app: &tauri::AppHandle, jobs: Vec<crate::vault::ExtractJob>) {
+    if !jobs.is_empty() {
+        app.state::<ExtractQueue>().enqueue(jobs);
+    }
+}
 
 fn bind_mount_on_machine(
     engine: &mut crate::vault::Engine,
@@ -108,7 +119,9 @@ pub(crate) async fn mount_add(
         let mount = engine.add_mount(&name, globs, watch)?;
         appcfg::write_mount_binding(&onboarding.config_dir, &mount.id, Some(path.as_ref()))?;
         let stats = engine.scan_mount(&mount.id, path.as_ref());
+        let jobs = engine.mount_extract_jobs(&mount.id, path.as_ref());
         drop(engine);
+        queue_extraction(&app, jobs);
         app.state::<SnapDirty>().mark();
         app.emit("vault:changed", Vec::<String>::new()).ok();
         Ok(stats)
@@ -135,7 +148,12 @@ pub(crate) async fn mount_bind(
             &id,
             path.as_deref().map(std::path::Path::new),
         )?;
+        let jobs = match path.as_deref() {
+            Some(p) => engine.mount_extract_jobs(&id, std::path::Path::new(p)),
+            None => Vec::new(),
+        };
         drop(engine);
+        queue_extraction(&app, jobs);
         app.state::<SnapDirty>().mark();
         app.emit("vault:changed", Vec::<String>::new()).ok();
         Ok(stats)
@@ -159,7 +177,13 @@ pub(crate) async fn mount_rescan(
         if let Some(id) = &id {
             bindings.retain(|k, _| k == id);
         }
-        let stats = state.0.lock().unwrap().sync_mounts(&bindings);
+        let (stats, jobs) = {
+            let mut engine = state.0.lock().unwrap();
+            let stats = engine.sync_mounts(&bindings);
+            let jobs = engine.extract_jobs(&bindings);
+            (stats, jobs)
+        };
+        queue_extraction(&app, jobs);
         if stats.iter().any(|s| s.added + s.updated + s.renamed + s.missing > 0) {
             app.state::<SnapDirty>().mark();
             // a rescan touches an unbounded set of rows: empty vec = the

@@ -84,6 +84,7 @@ Notion and Ableton project folders: see
 
 [Bring your data in](docs/user/import.md) ·
 [troubleshooting](docs/user/troubleshooting.md) ·
+[live values in prose](docs/user/live-values.md) ·
 [files, settings, and views](docs/user/files-and-settings.md) ·
 [sync and security](docs/user/sync-and-security.md) ·
 [upgrades, backup, and restore](docs/user/upgrades-and-backups.md) ·

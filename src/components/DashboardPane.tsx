@@ -17,8 +17,11 @@ import {
   readClaimedUsd,
 } from "../lib/dashboard";
 import { parseChartBlocks } from "../lib/chart";
-import { resolveDashboardKind, resolveDispatchTail } from "../lib/kinds";
+import { resolveDashboardKind, resolveDispatchTail, type KindBundleInfo } from "../lib/kinds";
+import { resolveKindPane } from "../lib/kindpane";
+import { kindsList } from "../lib/ipc";
 import { DashHead } from "./DashHead";
+import CustomKindPane from "./CustomKindPane";
 import MetricsDashboard from "./MetricsDashboard";
 import ChartsDashboard from "./ChartsDashboard";
 import HubDashboard from "./HubDashboard";
@@ -546,14 +549,85 @@ function ChartOrYield(props: DashboardPaneProps) {
   return <YieldDashboard {...props} />;
 }
 
+/* The installed bundles, shared per vault epoch. A workbook of custom pages
+   would otherwise ask the backend once per page for an answer that cannot
+   differ between them. */
+let bundleCache: { epoch: number; p: Promise<KindBundleInfo[]> } | null = null;
+
+/** `kinds_list`, or null while it is still in flight (SUB-960). Fetched only
+    when a note actually names a non-built-in kind, so the overwhelmingly
+    common dashboard costs no round trip. */
+function useKindBundles(needed: boolean, vaultEpoch: number): KindBundleInfo[] | null {
+  const [bundles, setBundles] = useState<KindBundleInfo[] | null>(null);
+  useEffect(() => {
+    if (!needed) return;
+    let gone = false;
+    if (!bundleCache || bundleCache.epoch !== vaultEpoch) {
+      bundleCache = { epoch: vaultEpoch, p: kindsList() };
+    }
+    const mine = bundleCache;
+    mine.p
+      .then((rows) => {
+        if (!gone) setBundles(rows);
+      })
+      .catch((e) => {
+        // A backend that can't list bundles is not a reason to fall back to a
+        // yield tracker: an empty list keeps the named kind on the
+        // unknown-kind card, which is what the user can act on.
+        console.error("kinds_list failed", e);
+        if (bundleCache === mine) bundleCache = null;
+        if (!gone) setBundles([]);
+      });
+    return () => {
+      gone = true;
+    };
+  }, [needed, vaultEpoch]);
+  return needed ? bundles : null;
+}
+
 /** One dashboard note rendered by its dashboard: kind — the single dispatch
     both the plain pane and workbook pages (SUB-464) go through. */
 function DashboardBody(props: DashboardPaneProps) {
-  const resolved = resolveDashboardKind(propStr(props.meta.props, "dashboard"));
+  const named = propStr(props.meta.props, "dashboard");
+  const resolved = resolveDashboardKind(named);
+  // only a name the app doesn't render itself can be a vault-resident bundle
+  const custom = resolved.dispatch === "unknown";
+  const bundles = useKindBundles(custom, props.vaultEpoch);
+
   // no `dashboard:` prop at all — the legacy body scan (SUB-33)
   if (resolved.dispatch === "body-scan") return <ChartOrYield {...props} />;
-  if (resolved.dispatch === "unknown") {
-    return <UnknownKindDashboard {...props} message={resolved.message} />;
+  if (custom) {
+    // Still asking the backend — never the fallback, and never a "no such
+    // kind" card for a kind that may well be installed. The head renders
+    // anyway (SUB-960 review): "the pane never blanks" has to hold for this
+    // beat too, and the title and source button are known before the bundle
+    // list is. No state label: nothing is wrong yet, it just isn't answered.
+    if (bundles === null) {
+      return (
+        <div className="note">
+          <div className="dash-inner">
+            <DashHead
+              title={props.meta.title}
+              sourcePath={props.meta.path}
+              onOpenSource={props.onOpenSource}
+            />
+          </div>
+        </div>
+      );
+    }
+    const pane = resolveKindPane(named, bundles);
+    // pane.pane is "custom" or "unknown" here — a built-in name never reaches
+    // this branch — but the switch is exhaustive so a future dispatch value
+    // can't silently land on the fallback.
+    if (pane.pane === "custom") {
+      return <CustomKindPane {...props} id={pane.id} hash={pane.hash} state={pane.state} />;
+    }
+    return (
+      <UnknownKindDashboard
+        {...props}
+        message={pane.pane === "unknown" ? pane.message : resolved.message}
+      />
+    );
   }
   const kind = resolved.kind;
   if (kind === "metrics") return <MetricsDashboard {...props} />;
