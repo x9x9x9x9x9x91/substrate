@@ -402,6 +402,99 @@ cycle pages. The demo vault's `Label Accounting` workbook is the reference:
 metrics cards over a statements sheet, with the statement and splits sheets
 plus the release database one tab away. Full contract: `vault-format.md` §5.6a.
 
+## Writing your own kind
+
+When none of the kinds above fits, you can put the renderer in the vault
+itself: a folder under `.vault/kinds/<id>/` holding a manifest and a small
+script. The note then names it like any other kind — `dashboard: gear-log` —
+and the app mounts your code in the pane. This exists so "make me a board that
+shows X" is a file someone (or an agent) writes in an afternoon, rather than a
+change to the app.
+
+**Reach for it last.** A chart over a sheet is a ` ```chart ` fence; a row of
+numbers is `metrics`; a landing page is `hub`. Those are configuration, they
+survive upgrades untouched, and they need no trust decision. Write a kind when
+the thing you want is a genuinely different rendering or interaction — a
+floor-plan view of your gear, a board with its own editing gesture — not to
+restyle something a built-in already does.
+
+A minimal bundle is two files:
+
+```
+.vault/kinds/gear-log/
+  kind.json
+  index.js
+```
+
+```json
+{
+  "id": "gear-log",
+  "title": "Gear log",
+  "api": 1,
+  "entry": "index.js",
+  "description": "What is plugged into what, by room."
+}
+```
+
+The folder name **is** the kind id and must equal `id` — lowercase letters,
+digits and dashes. `api` is the contract version you wrote against (1 today).
+`entry` is a bare filename inside the folder. Optional: `style` (a CSS file in
+the bundle), `icon` (a curated glyph name) and `author`.
+
+`index.js` is a plain ES module — no build step, no imports, no React. It
+default-exports an object with a `mount(el, ctx)`:
+
+```js
+export default {
+  mount(el, ctx) {
+    const draw = async () => {
+      const notes = await ctx.notes();
+      const gear = notes.filter((n) => n.props.type === "gear");
+      el.innerHTML = `
+        <div class="${ctx.css["dash-metrics"]}">
+          <div class="${ctx.css["dash-metric"]}">
+            <div class="${ctx.css["dash-label"]}">Pieces</div>
+            <div class="${ctx.css["dash-value"]}">${gear.length}</div>
+          </div>
+        </div>`;
+      ctx.setState({ label: `${gear.length} logged` });
+    };
+
+    draw();
+    const off = ctx.onChange(draw);
+    return () => off();
+  },
+};
+```
+
+`el` is yours to fill; the app draws the header above it. `ctx.css` hands you
+the app's own class names, so a kind that renders through them picks up the
+current theme instead of inventing a second look. `ctx.onChange` is the redraw
+signal — `mount` runs once, and the returned function is your cleanup on
+unmount. `ctx.setState({ color, label })` lights the dot in the header;
+`null` keeps it quiet.
+
+Beyond `notes()`, ctx gives you `read(path)`, `sheet(title)` (a parsed,
+evaluated sheet fence), `create(…)`, `openNote(path)`, `toast(msg, action?)`
+and the two writes. **Writes take a compare-and-swap guard and it isn't
+optional** — `setProp(path, key, value, expected)` and
+`writeBody(path, body, expectedBody)` refuse rather than overwrite when the
+note changed since you read it. Check before calling anything you're not sure
+this build has (`if (ctx.sheet) …`): ctx gains members without bumping `api`.
+
+**Enabling it is a deliberate act.** A kind runs with the same access as
+Substrate itself — there is no sandbox — so a bundle does nothing until you
+enable it for this vault on this device, after reading its title, description
+and author. Consent is pinned to a hash of the bundle's bytes: if the code
+changes, the kind stops and asks again, which is what keeps a synced folder
+from delivering new code into an already-trusted slot. A second device asks
+you again on purpose. A bundle that can't run — broken manifest, wrong api,
+not enabled yet — shows a card saying which and why; it never silently falls
+back to another renderer.
+
+Full contract, including the manifest grammar, the hash layout and every ctx
+member: [vault-format.md §5.8](vault-format.md).
+
 ## Creating one in-app
 
 New note (⌘N or the palette), then add the props — set “Database” to `dashboard`

@@ -157,6 +157,12 @@ run_gate() { # name, command...
   fi
 }
 
+# The shared compile cache lives under the CURRENT user's home. The repo's
+# .cargo/config.toml has to hardcode one machine's absolute path (cargo config
+# expands neither ~ nor env vars), so the gate pins the env override, which
+# beats the config on every machine — dev Mac and QA rigs alike (SUB-1014).
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$HOME/.cache/substrate-cargo-target}"
+
 for g in ${ONLY//,/ }; do
   case "$g" in
     tsc)   run_gate tsc   npx tsc --noEmit ;;

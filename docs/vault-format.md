@@ -962,12 +962,17 @@ stays legal on disk and every non-calendar surface still reads it as a range.
 
 ### 5.8 Custom kind bundles — `.vault/kinds/<id>/`
 
-> **Contract, not yet live.** This section is the on-disk format the
-> custom-kinds arc (SUB-957) lands across several units; the loading
-> mechanism, the enable pane and the dispatch branch ship after the format
-> does. Until the arc completes, a `dashboard:` value naming a bundle still
-> falls through to charts-or-yield (§5.2). The format is documented here first
-> so bundles written against it stay valid.
+> **Contract, not yet live.** This section is the on-disk format and the
+> runtime contract the custom-kinds arc lands across several units; the
+> loading mechanism, the enable pane and the dispatch branch ship after the
+> format does. Until the arc completes, a `dashboard:` value naming a bundle
+> is simply an unrecognized key and behaves as §5.2 says. **Once dispatch
+> lands, a `dashboard:` value naming a bundle never falls through to
+> charts-or-yield**: a kind that can't be resolved — broken manifest, unknown
+> id, api out of range, not enabled, bytes changed since — renders a card
+> naming the kind and the reason. That fallback is for typos; using it here
+> would answer "show me `gear-log`" with a yield tracker. The format is
+> documented here first so bundles written against it stay valid.
 
 A **custom kind** is dashboard renderer code that lives in the vault. It
 exists so that a dashboard nobody but its owner wants is a file, not a merge
@@ -1065,6 +1070,92 @@ delivering new code into an already-trusted folder does not get to run it.
 Custom kinds run with the **same access as Substrate itself**: they can read
 and change anything in the vault. There is no sandbox; the enable decision is
 the boundary. Nothing auto-enables from any install path.
+
+#### The kind API — `mount(el, ctx)`
+
+The manifest's `api` names a version of this contract. This build speaks
+**api 1** and mounts nothing below it (`KIND_API` / `KIND_API_MIN`,
+`src/lib/kinds.ts`); a manifest above it gets "needs a newer Substrate", one
+below gets "written for a contract this build has dropped" — neither mounts,
+both say so on a card.
+
+The entry file is a **plain ES module with a default export**, no import
+statements and no framework:
+
+```js
+export default {
+  mount(el, ctx) {
+    const draw = () => {
+      el.innerHTML = `<div class="${ctx.css["dash-metrics"]}">…</div>`;
+    };
+    draw();
+    const off = ctx.onChange(draw);
+    return () => off();          // optional cleanup
+  },
+};
+```
+
+`mount(el, ctx)` is called **once per pane mount**, with `el` an empty element
+the kind owns outright. Its return value, when it returns one, is a cleanup
+function run on unmount — detach listeners and cancel timers there. The kind
+does **not** re-mount on every vault change: it subscribes with `ctx.onChange`
+and redraws itself.
+
+The **host renders the head**. A kind draws its body only; the title bar, the
+source-note button and the state dot are the app's, so every dashboard —
+built-in or vault-resident — has one header.
+
+**If `mount` throws, or the module fails to import, the pane renders an error
+card naming the kind and the file.** Never a blank pane, and never the
+charts-or-yield fallback.
+
+`ctx` members, api 1:
+
+| Member | Shape | What it is |
+| --- | --- | --- |
+| `ctx.api` | `number` | The contract version actually handed over — what the kind got, not what it asked for. |
+| `ctx.el` | `Element` | The same element passed as the first argument, for convenience. |
+| `ctx.note` | `{ path, title, props, body }` | The dashboard note the kind is mounted in: its vault path, title, frontmatter props and raw body. |
+| `ctx.css` | `Record<string, string>` | Sanctioned class names — `dash-metrics`, `dash-metric`, `dash-label`, `dash-value`, `dash-table`, `dash-card`, `dash-section-label` and friends. Rendering through these is how a kind speaks in the app's voice and follows its theme; a kind may also ship its own `style.css`. |
+| `ctx.notes(filter?)` | `⇒ Promise<NoteMeta[]>` | The note index — path, stem, title, folder, props, `updated_ms`, excerpt. The optional filter narrows it. |
+| `ctx.read(path)` | `⇒ Promise<…>` | One note's frontmatter and body. |
+| `ctx.sheet(title)` | `⇒ Promise<…>` | A sheet fence, parsed and evaluated — headers, typed rows, computed columns — so a kind doesn't reimplement the sheet grammar (§5.6). |
+| `ctx.setProp(path, key, value, expected)` | `⇒ Promise<…>` | Write one frontmatter property. |
+| `ctx.writeBody(path, body, expectedBody)` | `⇒ Promise<…>` | Replace a note's body. |
+| `ctx.create(…)` | `⇒ Promise<NoteMeta>` | Create a note — title, folder, type, props, body. |
+| `ctx.onChange(cb)` | `⇒ unsub` | Subscribe to vault changes; call the returned function to unsubscribe. This is the redraw signal. |
+| `ctx.openNote(path)` | `⇒ void` | Open a note in the app, the way a row click does. |
+| `ctx.toast(msg, action?)` | `⇒ void` | The app's single toast slot; the optional action is a `{ label, run }` button. |
+| `ctx.setState(s \| null)` | `⇒ void` | Feed the head's state dot — `{ color, label }` shows it, `null` keeps it quiet. |
+
+**`expected` and `expectedBody` are required on writes.** Both are
+compare-and-swap guards: the write is refused with a conflict rather than
+applied when the value on disk has changed since the kind read it
+(`expected: { value }`, `{ value: null }` = "expected absent"; `expectedBody`
+is the body the kind believes is there). The app itself may write
+unconditionally in places where it knows it holds the only copy; a kind never
+does — an unconditional write from vault-resident code is a clobber of
+whatever the user or another surface did in between. Reads and writes ride the
+app's own IPC wrappers (`vault_write_body`'s `expected_body` CAS, §13.1;
+`vaultSetProp`'s `expected`, `src/lib/ipc.ts`), so a kind inherits the
+existing conflict guards and undo semantics for free rather than growing a
+second, weaker set.
+
+**ctx grows additively inside an api version**, so kinds **feature-check**
+rather than bump:
+
+```js
+if (ctx.sheet) { /* use it */ } else { /* parse the fence yourself */ }
+```
+
+A member added in a later build appears on `ctx` without changing `api`; a
+kind that checks before calling keeps running on both. `api` only moves when
+something existing changes shape or leaves.
+
+`ctx` is **ergonomics, not a boundary.** It exists so the common things are
+one call instead of twenty lines, not to constrain what a kind can reach — a
+kind runs with the app's own access either way, and the enable decision is the
+only boundary there is.
 
 External writers: `.vault/kinds/` is app-owned. Write a bundle there only
 deliberately, and never touch the consent record — it is not in the vault by
