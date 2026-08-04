@@ -17,6 +17,7 @@ import {
   readClaimedUsd,
 } from "../lib/dashboard";
 import { parseChartBlocks } from "../lib/chart";
+import { resolveDashboardKind } from "../lib/kinds";
 import { DashHead } from "./DashHead";
 import MetricsDashboard from "./MetricsDashboard";
 import ChartsDashboard from "./ChartsDashboard";
@@ -467,19 +468,56 @@ function YieldDashboard({
   );
 }
 
-/** Default dashboards: a ```chart fence declares chart blocks (SUB-33);
-    without one the note is a yield tracker (the original dashboard). */
-function ChartOrYield(props: DashboardPaneProps) {
+/** `dashboard: charts` (SUB-993) — the chart-fence renderer by name, fences
+    or not. Reads the body the same way `ChartOrYield` does; an empty body
+    renders the charts shell with no sections rather than a wrong tracker. */
+function ChartsByKind(props: DashboardPaneProps) {
+  const body = useNoteBody(props.meta.path, props.vaultEpoch);
+  if (body === null) return <div className="note" />;
+  return <ChartsDashboard {...props} body={body} />;
+}
+
+/** An unrecognized `dashboard:` value (SUB-993): a quiet inline card naming
+    the reason, in the `.chart-err` idiom the view fences already use for an
+    unknown database. Never the yield tracker — that fallback belongs to
+    notes that name no kind at all. */
+function UnknownKindDashboard({ message, ...props }: DashboardPaneProps & { message: string }) {
+  return (
+    <div className="note">
+      <div className="dash-inner">
+        <DashHead
+          title={props.meta.title}
+          state={{ label: "unknown kind" }}
+          sourcePath={props.meta.path}
+          onOpenSource={props.onOpenSource}
+        />
+        <div className="chart-err">{message}</div>
+      </div>
+    </div>
+  );
+}
+
+/** This note's body, reloaded when the vault changes under it. */
+function useNoteBody(path: string, vaultEpoch: number): string | null {
   const [body, setBody] = useState<string | null>(null);
   useEffect(() => {
     let gone = false;
-    vaultRead(props.meta.path).then((c) => {
+    vaultRead(path).then((c) => {
       if (!gone) setBody(c.body);
     });
     return () => {
       gone = true;
     };
-  }, [props.meta.path, props.vaultEpoch]);
+  }, [path, vaultEpoch]);
+  return body;
+}
+
+/** Default dashboards: a ```chart fence declares chart blocks (SUB-33);
+    without one the note is a yield tracker (the original dashboard). Reached
+    only by a note with NO `dashboard:` prop (SUB-993) — a named-but-unknown
+    kind gets the error card instead. */
+function ChartOrYield(props: DashboardPaneProps) {
+  const body = useNoteBody(props.meta.path, props.vaultEpoch);
   if (body === null) return <div className="note" />;
   if (parseChartBlocks(body).length > 0) return <ChartsDashboard {...props} body={body} />;
   return <YieldDashboard {...props} />;
@@ -488,7 +526,13 @@ function ChartOrYield(props: DashboardPaneProps) {
 /** One dashboard note rendered by its dashboard: kind — the single dispatch
     both the plain pane and workbook pages (SUB-464) go through. */
 function DashboardBody(props: DashboardPaneProps) {
-  const kind = propStr(props.meta.props, "dashboard");
+  const resolved = resolveDashboardKind(propStr(props.meta.props, "dashboard"));
+  // no `dashboard:` prop at all — the legacy body scan (SUB-33)
+  if (resolved.dispatch === "body-scan") return <ChartOrYield {...props} />;
+  if (resolved.dispatch === "unknown") {
+    return <UnknownKindDashboard {...props} message={resolved.message} />;
+  }
+  const kind = resolved.kind;
   if (kind === "metrics") return <MetricsDashboard {...props} />;
   if (kind === "yield-apr") return <YieldDashboard {...props} />;
   if (kind === "hub") return <HubDashboard {...props} />;
@@ -496,7 +540,9 @@ function DashboardBody(props: DashboardPaneProps) {
   if (kind === "feed") return <FeedDashboard {...props} />;
   if (kind === "music-work") return <MusicWorkDashboard {...props} />;
   if (kind === "tasks") return <TasksDashboard {...props} />;
-  return <ChartOrYield {...props} />;
+  // `charts`, and the backstop if a name lands in BUILT_IN_KINDS before its
+  // renderer does: the chart-fence dashboard, never the yield tracker
+  return <ChartsByKind {...props} />;
 }
 
 export default function DashboardPane(props: DashboardPaneProps) {

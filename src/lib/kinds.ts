@@ -25,9 +25,9 @@
 
     SUB-960 wires `DashboardBody` (`src/components/DashboardPane.tsx`) to
     dispatch off this constant, so the collision check and the dispatch chain
-    cannot drift apart. `charts` is reserved rather than dispatched: it names
-    the ` ```chart `-fence fallback (§5.5), which is what an unrecognized
-    `dashboard:` value already falls through to. */
+    cannot drift apart. Every name here is dispatched, `charts` included
+    (SUB-993): it renders the ` ```chart `-fence dashboard (§5.5) whether or
+    not the body actually holds a fence. */
 export const BUILT_IN_KINDS: ReadonlySet<string> = new Set([
   "metrics",
   "yield-apr",
@@ -36,7 +36,7 @@ export const BUILT_IN_KINDS: ReadonlySet<string> = new Set([
   "feed",
   "music-work",
   "tasks",
-  // reserved, never dispatched: the chart-fence fallback renderer
+  // the chart-fence renderer, dispatched by name since SUB-993
   "charts",
 ]);
 
@@ -56,6 +56,43 @@ export const KIND_ID_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
 export function isValidKindId(id: string): boolean {
   return KIND_ID_RE.test(id);
+}
+
+/** What a `dashboard:` prop resolves to (SUB-993). `body-scan` is the legacy
+    path and belongs to notes that name no kind at all — one or more
+    ` ```chart ` fences make it a charts dashboard, none leaves it the yield
+    tracker (§5.5). A value that IS named but isn't a built-in resolves to
+    `unknown`, never to that fallback: answering "show me gear-log" with a
+    yield tracker — a financial instrument, its snapshot form included —
+    is the same wrong answer `KindState` refuses to give for bundles. */
+export type DashboardDispatch =
+  | { dispatch: "built-in"; kind: string }
+  | { dispatch: "body-scan" }
+  | { dispatch: "unknown"; kind: string; message: string };
+
+/** Resolve one note's `dashboard:` prop to its renderer. Absent or blank is
+    body-scan; anything else is a built-in or an honest error card.
+
+    Custom kinds (SUB-960) are resolved by the caller BEFORE this — a bundle
+    that exists and is enabled never reaches here, and one that doesn't
+    carries its own `KindState` reason, which is more specific than the
+    unknown-kind message below. */
+export function resolveDashboardKind(kind: string | undefined): DashboardDispatch {
+  const name = kind?.trim() ?? "";
+  if (!name) return { dispatch: "body-scan" };
+  if (BUILT_IN_KINDS.has(name)) return { dispatch: "built-in", kind: name };
+  return {
+    dispatch: "unknown",
+    kind: name,
+    message: `unknown dashboard kind “${name}” — known kinds: ${knownKindList()}`,
+  };
+}
+
+/** The built-in names, sorted, for the unknown-kind card. Derived from the
+    set rather than hand-listed so a build without the machine-specific kinds
+    doesn't offer names it can't render. */
+export function knownKindList(): string {
+  return [...BUILT_IN_KINDS].sort().join(", ");
 }
 
 /** `kind.json`. `title` + `description` are what the enable card shows a

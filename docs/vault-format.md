@@ -441,12 +441,19 @@ and only these are dispatched: `metrics` → the metrics cards renderer (§5.4);
 `yield-apr` → the yield tracker (§5.3); `hub` → the hub renderer (below);
 `food` → the food log tracker (below); `feed` → the curated newsfeed (below);
 `music-work` → the work-index board (below); `tasks` → the read-only task
-attention board (below).
-**Any other key, or a missing `dashboard` prop, looks at the
-body** — one or more ` ```chart ` fences makes it a charts dashboard (§5.5),
-none falls back to the yield tracker. So a charts dashboard needs no specific
-key, just the fences; `dashboard: charts` is the conventional label, not a
-dispatched value.
+attention board (below); `charts` → the chart-fence dashboard (§5.5), whether
+or not the body actually holds a fence.
+**A missing `dashboard` prop looks at the body** — one or more ` ```chart `
+fences makes it a charts dashboard (§5.5), none falls back to the yield
+tracker. So a charts dashboard needs no specific key, just the fences;
+`dashboard: charts` says the same thing by name.
+
+**Any other value renders an error card** naming the value and listing the
+kinds this build does dispatch (SUB-993) — the quiet inline posture a ` ```view `
+fence over an unknown database takes. A typo is never answered with a different
+dashboard: falling through to the yield tracker meant `dashboard: yeild-apr`
+silently rendered a financial tracker, snapshot form included, with no hint
+that the key was wrong.
 
 `tasks` (SUB-732; actions SUB-786; board v3 SUB-870) is a task interface over
 task notes, led by due dates. Row clicks open the source note; the board also

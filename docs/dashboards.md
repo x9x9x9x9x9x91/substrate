@@ -387,8 +387,14 @@ at,yield_usd,principal_usd
 ```
 ````
 
-A note with `type: dashboard` and no recognized `dashboard:` key falls back by
-body content: ` ```chart ` fences → charts, otherwise the yield tracker.
+`dashboard: charts` names this renderer outright, so a note keeps it even
+before the first fence is written.
+
+A note with `type: dashboard` and **no `dashboard:` key at all** falls back by
+body content: ` ```chart ` fences → charts, otherwise the yield tracker. A key
+that *is* written but isn't a kind this build knows renders a small card naming
+it and listing the kinds that exist (SUB-993) — a typo shows you the typo,
+rather than quietly handing you a different dashboard.
 
 
 ## Workbook pages — tabs at the bottom (SUB-464)

@@ -43,6 +43,35 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
+test("dashboard accent stays scoped and cannot replace reserved state tokens (SUB-932)", async ({
+  page,
+}) => {
+  await openDash(page, "Overview");
+
+  const token = (selector: string, name: string) =>
+    page.locator(selector).first().evaluate((el, property) =>
+      getComputedStyle(el).getPropertyValue(property).trim(), name
+    );
+
+  // Outside a dashboard, the app keeps its interactive indigo. The dashboard
+  // inherits the chosen V1 sky without moving the app-wide root token.
+  await expect.poll(() => token(".side-item", "--accent")).toBe("#5e6ad2");
+  await expect.poll(() => token(".dash-inner", "--accent")).toBe("#6cc0ec");
+
+  // State remains a separate semantic band. Dashboard scoping may replace
+  // accent/series tokens, never the state or schema-option tokens.
+  for (const [stateToken, value] of [
+    ["--danger", "#eb5757"],
+    ["--ok", "#4cb782"],
+    ["--opt-orange", "#e8965a"],
+    ["--opt-yellow", "#d9b850"],
+  ] as const) {
+    await expect.poll(() => token(".side-item", stateToken)).toBe(value);
+    await expect.poll(() => token(".dash-inner", stateToken)).toBe(value);
+  }
+  await expect.poll(() => token(".dash-inner", "--series-5")).toBe("#c9b98f");
+});
+
 test("metrics: Print clones the live cards into #print-surface and hands off", async ({
   page,
 }) => {
@@ -87,8 +116,31 @@ test("charts: bars and the line chart clone with their geometry", async ({ page 
   // real geometry on paper, not a re-render placeholder
   const bar = surface.locator(".dash-bar").first();
   expect((await bar.boundingBox())!.height).toBeGreaterThan(0);
-  // the chart language's hard-coded white alphas join the print palette
-  await expect(surface.locator(".chart-line-path")).toHaveCSS("stroke", "rgb(113, 118, 126)");
+  // the chart language draws in the accent family (SUB-932); on paper the
+  // surface remaps --accent to its darker print weight, so the stroke prints
+  // as deep sky-on-white rather than the dark ground's value
+  await expect(surface.locator(".chart-line-path")).toHaveCSS("stroke", "rgb(22, 120, 171)");
+  const printTokens = await surface.locator(".dash-inner").evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      accent: style.getPropertyValue("--accent").trim(),
+      accentText: style.getPropertyValue("--accent-text").trim(),
+      series5: style.getPropertyValue("--series-5").trim(),
+      danger: style.getPropertyValue("--danger").trim(),
+      ok: style.getPropertyValue("--ok").trim(),
+      orange: style.getPropertyValue("--opt-orange").trim(),
+      yellow: style.getPropertyValue("--opt-yellow").trim(),
+    };
+  });
+  expect(printTokens).toEqual({
+    accent: "#1678ab",
+    accentText: "#14597a",
+    series5: "#8f7a3f",
+    danger: "#eb5757",
+    ok: "#4cb782",
+    orange: "#e8965a",
+    yellow: "#d9b850",
+  });
 });
 
 test("hub: cards, table and link text clone — links stay on paper as content", async ({

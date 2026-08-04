@@ -3565,6 +3565,44 @@ body.agenda-window .palette:focus-visible {
    boxed cards, round state dots, --r radii. Inter speaks only in the
    title and in sentences. */
 
+/* The dashboard accent family (SUB-932, owner's call: pure b/w reads flat;
+   V1 "sky" picked from the 03.08 contact sheet). One family, never per-widget
+   hues, and SCOPED to the dashboard surfaces — a :root swap would repaint
+   sidebar selection, every focus ring and the whole app's interactive indigo,
+   and sidebar recolours were rejected in the same colour round. The app-wide
+   --accent (#5e6ad2) is untouched; inside a dashboard it becomes the sky.
+
+   --accent is the fill/mark weight (bars, line stroke, dots, the workbook
+   tab's active rule); --accent-text is the same family lifted to text weight
+   so an emphasised value clears its ground (#a5d8f0 is 13.0:1 on #090909;
+   its paper remap #14597a is 7.1:1 on white). The series ramp is fixed at
+   five, each entry clearing 3:1 as a shape on BOTH grounds. The chosen warm
+   khaki fifth series sits close to reserved yellow, so the boundary is
+   semantic rather than a false hue-distance invariant: series-5 is only
+   categorical, state keeps its reserved token and a non-colour carrier.
+
+   .wb-tabs is in the scope because a workbook's tab strip is chrome for the
+   dashboard it pages through — it sits outside .dash-inner in the DOM, so
+   without this its active rule would stay app-indigo under a sky body. */
+.dash-inner,
+.metrics-cards,
+.wb-tabs,
+#print-surface {
+  --accent: #6cc0ec;
+  /* --accent-soft rides along: it is the halo half of the focus ring whose
+     border is --accent (.dash-form-row input:focus), and a sky border with
+     an indigo halo would read as two colours on one control. Same alpha as
+     the app-wide token, sky hue. NOT a glow — this is the existing focus
+     affordance keeping one colour, not a new bloom. */
+  --accent-soft: rgba(108, 192, 236, 0.22);
+  --accent-text: #a5d8f0;
+  --series-1: #6cc0ec;
+  --series-2: #4f86d8;
+  --series-3: #7fd8c8;
+  --series-4: #9bb1c9;
+  --series-5: #c9b98f;
+}
+
 .dash-inner {
   /* 760 left oceans of side space on wide windows and squeezed table grids
      into truncation (2026-07-23: "they don't need to be this
@@ -3969,15 +4007,18 @@ body.agenda-window .palette:focus-visible {
   width: 100%;
   max-width: 28px;
   border-radius: 0;
-  /* flat fill; --bar/--bar-hover carry the schema hue when the x axis is a
-     colored select prop (ChartsDashboard sets both per bar, pill idiom) */
-  background: var(--bar, rgba(255, 255, 255, 0.38));
+  /* flat fill; --bar/--bar-hover carry the per-bar hue when the renderer has
+     one — the schema hue on a colored select axis (pill idiom), or the
+     accent series ramp on an uncolored categorical axis (SUB-932). The
+     fallback is the accent itself: a single-series chart is one series, so
+     it wears the family's first colour rather than reading as grey. */
+  background: var(--bar, var(--accent));
   min-height: 3px;
   transition: background 120ms ease-out;
 }
 
 .dash-bar-col:hover .dash-bar {
-  background: var(--bar-hover, rgba(255, 255, 255, 0.5));
+  background: var(--bar-hover, var(--accent-text));
 }
 
 .dash-bar-val {
@@ -4018,7 +4059,7 @@ body.agenda-window .palette:focus-visible {
 }
 
 .chart-line-path {
-  stroke: rgba(255, 255, 255, 0.4);
+  stroke: var(--accent);
   stroke-width: 1.5px;
   stroke-linejoin: round;
   stroke-linecap: round;
@@ -4030,12 +4071,12 @@ body.agenda-window .palette:focus-visible {
   height: 5px;
   margin: -2.5px 0 0 -2.5px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.46);
+  background: var(--accent);
   transition: background 120ms ease-out;
 }
 
 .chart-dot:hover {
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--accent-text);
 }
 
 .chart-line-hint {
@@ -4287,7 +4328,11 @@ body.agenda-window .palette:focus-visible {
   border: none;
   border-radius: var(--r);
   background: var(--accent);
-  color: #fff;
+  /* the filled button's ink follows the accent's lightness (SUB-932): white
+     on the app's indigo was 4.7:1, but white on the dashboard's sky #6cc0ec
+     is 2.0:1 — unreadable. A light fill takes a dark ink; this is the deep
+     end of the same family, 7.4:1 on the fill. */
+  color: #062a3a;
   font: var(--dash-sentence);
   font-weight: 550;
   transition: filter 120ms ease-out;
@@ -6474,6 +6519,14 @@ th.sheet-computed:hover {
    dashboard; mid-importance sinks toward dust. Which cards stay sharp is
    data — `emph: true` in the note's frontmatter — so the rule keys on the
    .sunk class the renderer assigns, never on card position. */
+/* the emphasised value is where the accent family earns its keep (SUB-932):
+   the one or two cards the owner flagged read in accent, the rest stay in
+   the neutral ramp. Hue marks importance here, not state — the two never
+   collide because a state value (over/under/failed) carries its own class. */
+.metrics-cards .dash-card:not(.sunk) .dash-card-eur {
+  color: var(--accent-text);
+}
+
 .metrics-cards .dash-card.sunk .dash-card-eur {
   color: var(--text-3);
 }
@@ -8481,10 +8534,40 @@ span.asset-thumb svg {
     --bg-input: #f6f7f8;
   }
 
+  /* the accent family's paper weights (SUB-932). The sky family is tuned for
+     a near-black ground and washes out on white — #6cc0ec is 9.9:1 on #090909
+     but only 1.9:1 on the print panel, i.e. invisible as text and barely a
+     shape as a bar. So the WHOLE family is remapped here, not just the two
+     text weights: each entry moves to a darker paper-safe variant while
+     keeping the same visual role and broad family. The remap does not claim
+     exact HSL preservation; the printed chart remains recognisably the same
+     palette without pretending the coordinates are identical.
+
+     This block sits after the scoped .dash-inner/.metrics-cards/#print-surface
+     declaration and re-declares on the same three selectors, so it wins for
+     the cloned pane too: the print surface contains a .dash-inner, and a
+     dark-ground value declared there would otherwise shadow the paper one. */
+  #print-surface,
+  #print-surface .dash-inner,
+  #print-surface .metrics-cards {
+    --accent: #1678ab;
+    --accent-soft: rgba(22, 120, 171, 0.22);
+    --accent-text: #14597a;
+    --series-1: #1782bb;
+    --series-2: #3d6fbe;
+    --series-3: #2a8b7a;
+    --series-4: #5b7b9d;
+    --series-5: #8f7a3f;
+  }
+
   #print-surface .dash-actions {
     display: none;
   }
 
+  /* the chart language now draws in accent tokens, which the block above
+     remaps to their paper weights. Tinted bars keep their schema or series hue
+     via the inline --bar; the stack and pointer-only affordances still need
+     explicit print handling. */
   /* tinted bars keep their schema hue via the inline --bar */
   #print-surface .dash-bar {
     background: var(--bar, #9198a1);
@@ -8502,17 +8585,8 @@ span.asset-thumb svg {
   #print-surface .chart-line-slot {
     display: none;
   }
-
   #print-surface .chart-line {
     border-bottom-color: #e2e4e8;
-  }
-
-  #print-surface .chart-line-path {
-    stroke: #71767e;
-  }
-
-  #print-surface .chart-dot {
-    background: #71767e;
   }
 
   #print-surface .hub-pre {
@@ -12804,7 +12878,10 @@ body.termhud-resizing-ew .termhud {
 }
 
 /* active marker rides the TOP edge — the strip hangs below the page,
-   mirroring .db-tab.active::after which underlines from above */
+   mirroring .db-tab.active::after which underlines from above. The marker
+   wears the accent (SUB-932): it is a where-am-I mark, and hue on a 2px
+   rule is the cheapest legible one — the tab's own label keeps carrying the
+   selection in --text-1 for anyone who can't see the hue. */
 .wb-tab.active::after {
   content: "";
   position: absolute;
@@ -12812,7 +12889,7 @@ body.termhud-resizing-ew .termhud {
   right: 8px;
   top: 0;
   height: 2px;
-  background: var(--text-2);
+  background: var(--accent);
 }
 
 .wb-tab-err {

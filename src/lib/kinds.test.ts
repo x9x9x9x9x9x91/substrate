@@ -7,7 +7,9 @@ import {
   hashKindBundle,
   isValidKindId,
   kindApiFit,
+  knownKindList,
   parseKindManifest,
+  resolveDashboardKind,
   resolveKindState,
   type KindBundle,
   type KindFiles,
@@ -373,9 +375,58 @@ test("state: colliding with a built-in is invalid, and the reason names it", asy
   }
 });
 
-test("state: the reserved charts name collides too", async () => {
+test("state: the charts name collides too", async () => {
   const b = await bundle({}, "charts");
   const s = resolveKindState(b, undefined);
   assert.equal(s.state, "invalid");
   assert.match(s.state === "invalid" ? s.reason : "", /built-in/);
+});
+
+// ---------- dashboard: dispatch (SUB-993) ----------
+
+test("dispatch: no dashboard prop at all keeps the body scan", () => {
+  for (const v of [undefined, "", "   "]) {
+    assert.equal(resolveDashboardKind(v).dispatch, "body-scan", `${JSON.stringify(v)}`);
+  }
+});
+
+test("dispatch: every built-in resolves to itself", () => {
+  for (const k of BUILT_IN_KINDS) {
+    const d = resolveDashboardKind(k);
+    assert.equal(d.dispatch, "built-in", k);
+    assert.equal(d.dispatch === "built-in" ? d.kind : "", k);
+  }
+  // surrounding whitespace is a hand-edit, not a different kind
+  assert.equal(resolveDashboardKind("  tasks  ").dispatch, "built-in");
+});
+
+test("dispatch: charts is dispatched by name, not left to the fallback", () => {
+  const d = resolveDashboardKind("charts");
+  assert.equal(d.dispatch, "built-in");
+  assert.equal(d.dispatch === "built-in" ? d.kind : "", "charts");
+});
+
+test("dispatch: an unknown kind is an error card, never the yield fallback", () => {
+  const d = resolveDashboardKind("gear-log");
+  assert.equal(d.dispatch, "unknown");
+  if (d.dispatch !== "unknown") return;
+  assert.equal(d.kind, "gear-log");
+  assert.match(d.message, /unknown dashboard kind/);
+  assert.match(d.message, /gear-log/);
+  // the card names what IS available, so a typo is one glance from fixed
+  assert.match(d.message, /known kinds:/);
+  assert.match(d.message, /tasks/);
+});
+
+test("dispatch: a near-miss typo of a real kind still resolves to unknown", () => {
+  // the exact regression: `yeild-apr` used to render the yield tracker's
+  // snapshot form, silently — a financial instrument nobody asked for
+  for (const typo of ["yeild-apr", "Tasks", "metric", "chart"]) {
+    assert.equal(resolveDashboardKind(typo).dispatch, "unknown", typo);
+  }
+});
+
+test("dispatch: the known-kinds list is derived from the built-in set", () => {
+  const listed = knownKindList().split(", ");
+  assert.deepEqual(listed, [...BUILT_IN_KINDS].sort());
 });

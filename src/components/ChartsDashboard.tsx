@@ -198,20 +198,37 @@ function useRoving(n: number) {
   return { slots, onKeyDown, tabIndexOf };
 }
 
+/** The dashboard accent family's series ramp (SUB-932, design principle 3):
+    the sky blues, #6cc0ec first. Fixed order, five entries, each
+    contrast-checked on both the dark ground and the print white — a
+    categorical chart cycles it so its buckets read as distinct without
+    inventing a hue per widget. A time axis is ONE series and never touches
+    this: it wears the plain accent. */
+const SERIES_RAMP = [
+  "var(--series-1)",
+  "var(--series-2)",
+  "var(--series-3)",
+  "var(--series-4)",
+  "var(--series-5)",
+];
+
 /** Bar chart in the dashboard idiom: flat columns, value on top, label below,
-    tooltip on hover. When the categorical x axis is a select prop with schema
-    colors (xOptions), each bar wears its option's hue at the pill's color-mix
-    dose; uncolored values stay neutral. Values and labels thin out when
-    crowded. */
+    tooltip on hover. For an unsplit chart, colour precedence is: a select x
+    axis keeps its schema hues; another categorical axis cycles the V1 series
+    ramp; a time axis stays one series in the plain accent. Split charts keep
+    their own band treatments. Values and labels thin out when crowded. */
 function BarChart({
   points,
   bands,
   xOptions,
+  categorical,
 }: {
   points: ChartPoint[];
   /** `by:` split — each column stacks its bands bottom-up in band order */
   bands?: ChartBand[] | null;
   xOptions?: SelectOption[];
+  /** buckets are categories, not time — colour an unsplit axis with the ramp */
+  categorical?: boolean;
 }) {
   const { wrapRef, tip, show, hide } = useChartTip();
   const { slots, onKeyDown, tabIndexOf } = useRoving(points.length);
@@ -236,15 +253,28 @@ function BarChart({
           const rows = rowsAt(i);
           const total = totals[i];
           const h = max > 0 ? Math.max(3, (total / max) * 120) : 3;
-          const tint =
-            !bands && xOptions?.length ? optionColorVar(optionColor(xOptions, p.label)) : undefined;
+          const tint = !bands
+            ? xOptions?.length
+              ? optionColorVar(optionColor(xOptions, p.label))
+              : categorical
+                ? SERIES_RAMP[i % SERIES_RAMP.length]
+                : undefined
+            : undefined;
+          // schema hues are saturated dot colours and get the pill's dose; the
+          // series ramp is already tuned to bar weight on both grounds.
           const style = (
             tint
+              ? xOptions?.length
               ? {
                   height: h,
                   "--bar": `color-mix(in srgb, ${tint} 55%, transparent)`,
                   "--bar-hover": `color-mix(in srgb, ${tint} 72%, transparent)`,
                 }
+                : {
+                    height: h,
+                    "--bar": tint,
+                    "--bar-hover": `color-mix(in srgb, ${tint} 78%, #fff)`,
+                  }
               : { height: h }
           ) as CSSProperties;
           const onEnter = (e: { currentTarget: Element }) =>
@@ -508,7 +538,12 @@ function ChartSection({
           {c.kind === "line" ? (
             <LineChart points={series.points} bands={series.bands} />
           ) : (
-            <BarChart points={series.points} bands={series.bands} xOptions={xOptions} />
+            <BarChart
+              points={series.points}
+              bands={series.bands}
+              xOptions={xOptions}
+              categorical={c.bind === "summaries" || c.x.bucket === null}
+            />
           )}
         </>
       )}
