@@ -1,6 +1,8 @@
 /* Settings.md is the app's settings surface (a plain root note, hot-reloaded
-   by the backend watcher). The backend consumes `capture-hotkey` and
-   `close-to-tray`; the terminal HUD keys (SUB-398) are frontend-owned — the
+   by the backend watcher). The backend consumes `capture-hotkey`,
+   `close-to-tray` and `window-opacity` (which both sides read — the backend
+   for the OS material, this side for the ground alpha); the terminal HUD
+   keys (SUB-398) are frontend-owned — the
    PTY spawn call passes them down, so the Rust side never parses them. */
 
 import { foldedPropKey } from "./types.ts";
@@ -322,6 +324,27 @@ export type NumberFormat = "de" | "intl";
 export function numberFormatSetting(props: Record<string, unknown>): NumberFormat {
   const v = props["number-format"];
   return typeof v === "string" && v.trim().toLowerCase() === "intl" ? "intl" : "de";
+}
+
+/** `window-opacity` — how solid the app's own surfaces are over the desktop,
+    in percent (SUB-951, macOS). The backend reads the same key to install or
+    remove the OS vibrancy material; this side paints the ground at the matching
+    alpha. Clamping is deliberately NOT done: an out-of-range or unreadable
+    value falls back to the default, because "150" is a mistake, not a wish for
+    the maximum, and a silent clamp would hide it. */
+/** Keep in step with `Settings::OPACITY_MIN` (src-tauri/src/vault/mod.rs),
+    which carries the contrast measurement behind the 80. */
+export const WINDOW_OPACITY_MIN = 80;
+export const WINDOW_OPACITY_MAX = 100;
+export const WINDOW_OPACITY_DEFAULT = 90;
+
+export function parseWindowOpacity(props: Record<string, unknown>): number {
+  const v = props[foldedPropKey(props, "window-opacity")];
+  const n =
+    typeof v === "number" ? v : typeof v === "string" ? Number(v.trim()) : Number.NaN;
+  if (!Number.isFinite(n)) return WINDOW_OPACITY_DEFAULT;
+  const r = Math.round(n);
+  return r >= WINDOW_OPACITY_MIN && r <= WINDOW_OPACITY_MAX ? r : WINDOW_OPACITY_DEFAULT;
 }
 
 export function parseTerminalSettings(props: Record<string, unknown>): TerminalSettings {

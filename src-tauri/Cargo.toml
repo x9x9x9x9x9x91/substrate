@@ -78,6 +78,14 @@ mac-notification-sys = "0.6"
 # SUB-614: hand internal drags back to WebKit (src/dragfix.rs) — same objc2
 # the wry/tauri stack already builds with
 objc2 = "0.6"
+# SUB-951: NSVisualEffectView behind the window so the desktop shines through
+# at the user's chosen opacity. The blur is the OS material's, never a CSS
+# backdrop-filter over our own content (which would blur the notes too).
+# Pinned to the 0.6 line tauri 2.11 already depends on: a looser "0.8" resolves
+# to a SECOND copy of the crate in the lockfile (and so a second row in
+# THIRD-PARTY-LICENSES.md and a second AppKit binding set in the bundle) for an
+# API this uses identically either way.
+window-vibrancy = "0.6"
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 security-framework = "3"

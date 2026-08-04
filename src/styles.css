@@ -946,6 +946,42 @@ button.side-item {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
+/* SUB-951 — the desktop shining through, at `window-opacity` percent.
+
+   Only two surfaces take the alpha: the window ground and `.main`. `--bg` and
+   `--bg-panel` themselves stay OPAQUE, because ~20 other rules use them as a
+   KNOCKOUT (the CodeMirror search field over text, the calendar week gutter,
+   the onboarding card) where translucency would leak whatever sits behind;
+   and because the panel hierarchy has to survive — every layer above `.main`
+   keeps its solid token, so an elevated surface still reads as elevated.
+
+   Stacking two translucent layers means `.main` composites to
+   1-(1-a)² — at the 80% floor the note pane still lands at 96% solid, and
+   the sidebar's bare ground carries most of the effect. That is the intent:
+   the chrome breathes, the writing surface stays readable.
+
+   The class is added only on macOS-in-Tauri with a dial below 100, so the
+   plain webview, iOS and the e2e mock never take this path — their window is
+   opaque exactly as before, and `color-mix` rather than an rgba() literal so
+   both surfaces keep reading their existing tokens — no new grey enters the
+   ramp (SUB-89). */
+/* index.html paints the canvas `#08090a` inline so the window can't flash
+   white before React mounts. That ground sits BEHIND body, so leaving it
+   opaque would have the translucent surfaces composite against it and the OS
+   material would be installed but invisible. Cleared for this class only —
+   everywhere else the anti-flash paint is untouched. */
+html.vibrancy {
+  background: transparent;
+}
+
+html.vibrancy body {
+  background: color-mix(in srgb, var(--bg) var(--window-opacity, 100%), transparent);
+}
+
+html.vibrancy .main {
+  background: color-mix(in srgb, var(--bg-panel) var(--window-opacity, 100%), transparent);
+}
+
 .list {
   flex: none;
   width: clamp(170px, 28%, 284px);
@@ -13309,7 +13345,7 @@ body.termhud-resizing-ew .termhud {
    the same restraint as the switch, no filled progress bar, because the value
    is a taste dial and not a measurement. The number rides to its right in the
    mono data voice, tabular so the handle doesn't jitter the row while it
-   moves. */
+   moves. The window-opacity dial (SUB-951) rides the same chrome. */
 .settings-slider {
   flex: none;
   display: flex;

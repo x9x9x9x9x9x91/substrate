@@ -16,7 +16,11 @@ import {
   SETTINGS_PATH,
   terminalActionsToText,
   textToTerminalActions,
+  WINDOW_OPACITY_DEFAULT,
+  WINDOW_OPACITY_MAX,
+  WINDOW_OPACITY_MIN,
 } from "../lib/settings";
+import { applyWindowOpacity, vibrancyCapable } from "../lib/vibrancy";
 import type { TerminalFontProblems } from "../lib/settings";
 import { foldedPropKey } from "../lib/types";
 import { isTauri } from "../lib/tauri";
@@ -57,6 +61,9 @@ interface Field {
   hint: string;
   placeholder?: string;
   kind: "text" | "bool" | "multiline" | "select" | "slider" | "chips" | "choice";
+  /** fields that only exist on one platform; hidden elsewhere rather than
+      shown inert, so the sheet never offers a control that does nothing */
+  only?: "macos";
   /** bool fields only: an unset key reads as ON (e.g. `drop-hint`) */
   defaultOn?: boolean;
   /** select and chips fields: the choices. For a select the FIRST option is
@@ -235,6 +242,23 @@ const FIELDS: Field[] = [
     slider: { min: -NUDGE_MAX, max: NUDGE_MAX, step: 1, default: DEFAULT_NUDGE },
     format: (n) => (n === 0 ? "0°" : `${n > 0 ? "+" : ""}${n}°`),
   },
+  /* SUB-951: the third look dial, and the only one that reaches outside the
+     window — so it rides the same slider chrome but is hidden where the OS
+     can't do it, rather than shown inert. */
+  {
+    key: "window-opacity",
+    label: "Window opacity",
+    hint: "how solid the window is over your desktop — the wallpaper shows through, blurred by macOS; 100% is fully solid",
+    kind: "slider",
+    slider: {
+      min: WINDOW_OPACITY_MIN,
+      max: WINDOW_OPACITY_MAX,
+      step: 1,
+      default: WINDOW_OPACITY_DEFAULT,
+    },
+    format: (n) => `${n}%`,
+    only: "macos",
+  },
   {
     key: "show-agent-files",
     label: "Show app files",
@@ -350,6 +374,7 @@ const field = (key: string): Field => FIELDS.find((f) => f.key === key)!;
 const GLOW_FIELD = field("glow");
 const TONE_FIELD = field("accent-tone");
 const NUDGE_FIELD = field("accent-tone-nudge");
+const WINDOW_OPACITY_FIELD = field("window-opacity");
 
 /** What the three appearance keys currently in the form add up to. The pane
     previews through this rather than through the saved note, so dragging a
@@ -591,6 +616,11 @@ export default function SettingsPane({
       if (!v) return v;
       const next = { ...v, [f.key]: String(n) };
       applyAppearance(document.documentElement, appearanceOf(next));
+      // SUB-951: opacity is the one dial you judge by looking THROUGH the
+      // window at your desktop, so it has to preview on the drag too — and
+      // it is only a class plus a custom property, so an abandoned drag
+      // needs no undo: the next settings read repaints from the note.
+      if (f.key === WINDOW_OPACITY_FIELD.key) applyWindowOpacity(n);
       return next;
     });
   }, []);
@@ -605,6 +635,9 @@ export default function SettingsPane({
         if (!current) return current;
         const next = { ...current, [key]: saved[key] ?? "" };
         applyAppearance(document.documentElement, appearanceOf(next));
+        if (key === WINDOW_OPACITY_FIELD.key) {
+          applyWindowOpacity(sliderValue(WINDOW_OPACITY_FIELD, next[key]));
+        }
         return next;
       });
     },
@@ -722,7 +755,7 @@ export default function SettingsPane({
             </div>
           )}
           {values &&
-            FIELDS.map((f) => (
+            FIELDS.filter((f) => f.only !== "macos" || vibrancyCapable).map((f) => (
               <Fragment key={f.key}>
                 {f.section && <div className="palette-section">{f.section}</div>}
                 <div className="settings-row">

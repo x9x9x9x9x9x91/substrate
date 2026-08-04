@@ -2542,7 +2542,15 @@ Plain notes the app treats specially — all optional, all just files:
   `drop-hint` (default `true`; `false` hides the drag-over copy-vs-⇧-link
   hint), `db-grid` (SUB-607, default `true`; `false` turns off the
   vertical grid lines in database tables globally — a database's own
-  views.json `grid` override, §7, wins either way), `show-agent-files`
+  views.json `grid` override, §7, wins either way), `window-opacity`
+  (SUB-951, macOS desktop only, default `90`; how solid the window is over the
+  desktop in percent, `80`–`100` — the wallpaper shows through, blurred by
+  macOS's own material rather than by a CSS filter over the notes, and `100`
+  removes the material for exactly the old fully-solid window. Only the window
+  ground and the note column take the alpha; panels, popovers and menus stay
+  opaque so the depth hierarchy survives. An out-of-range or unparseable value
+  falls back to `90` rather than clamping, and on every other platform the key
+  is inert and the ⌘, sheet hides the slider), `show-agent-files`
   (SUB-831, default `false`; only an explicit `true` lists the root
   `AGENTS.md`/`CLAUDE.md` — and, since SUB-878, `Settings.md` itself — in the
   app's note surfaces; the key keeps its original name for existing vaults,

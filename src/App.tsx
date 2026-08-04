@@ -71,9 +71,11 @@ import {
   parseModHud,
   parseShowAppFiles,
   parseTerminalActions,
+  parseWindowOpacity,
   SETTINGS_PATH,
 } from "./lib/settings";
 import { applyAppearance, DEFAULT_APPEARANCE, parseAppearance } from "./lib/appearance";
+import { applyWindowOpacity } from "./lib/vibrancy";
 import {
   historyEnter,
   historyLeave,
@@ -509,6 +511,7 @@ export default function App() {
         // them. This is also the write that CORRECTS the settings pane's
         // optimistic preview once the note has actually taken the value.
         applyAppearance(document.documentElement, parseAppearance(c.props));
+        applyWindowOpacity(parseWindowOpacity(c.props));
         setNetLinkTitles(netAllowed(c.props, "link-titles"));
         setNumberStyle(numberFormatSetting(c.props));
       })

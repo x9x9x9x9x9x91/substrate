@@ -13,6 +13,7 @@ import {
   parseShowAppFiles,
   parseTerminalActions,
   parseTerminalSettings,
+  parseWindowOpacity,
   terminalActionsToText,
   terminalFontFamily,
   textToTerminalActions,
@@ -385,6 +386,24 @@ test("parseShowAppFiles: only an explicit true reveals the app files (SUB-831)",
   assert.equal(parseShowAppFiles({ "show-agent-files": "false" }), false);
   assert.equal(parseShowAppFiles({ "show-agent-files": "yes" }), false);
   assert.equal(parseShowAppFiles({ "show-agent-files": 1 }), false);
+});
+
+test("parseWindowOpacity: 80–100, anything else falls back to 90 (SUB-951)", () => {
+  assert.equal(parseWindowOpacity({}), 90);
+  assert.equal(parseWindowOpacity({ "window-opacity": 80 }), 80);
+  assert.equal(parseWindowOpacity({ "window-opacity": "100" }), 100);
+  assert.equal(parseWindowOpacity({ "Window-Opacity": " 85 " }), 85);
+  // YAML hands a bare number through as a number; a quoted one as a string
+  assert.equal(parseWindowOpacity({ "window-opacity": 82.4 }), 82);
+  // out of range or unreadable is a mistake, not a wish for the extreme
+  assert.equal(parseWindowOpacity({ "window-opacity": 0 }), 90);
+  // the floor is 80 for contrast reasons, so the old 70 proposal now falls back
+  assert.equal(parseWindowOpacity({ "window-opacity": 79 }), 90);
+  assert.equal(parseWindowOpacity({ "window-opacity": 70 }), 90);
+  assert.equal(parseWindowOpacity({ "window-opacity": 150 }), 90);
+  assert.equal(parseWindowOpacity({ "window-opacity": "ninety" }), 90);
+  assert.equal(parseWindowOpacity({ "window-opacity": "" }), 90);
+  assert.equal(parseWindowOpacity({ "window-opacity": true }), 90);
 });
 
 test("isAppFile: exact root names only (SUB-831, SUB-878)", () => {

@@ -897,11 +897,27 @@ pub fn contract_tilde(path: &Path) -> String {
 pub struct Settings {
     pub capture_hotkey: String,
     pub close_to_tray: bool,
+    /// `window-opacity` (SUB-951) — how solid the app's own surfaces are over
+    /// the desktop, in percent. Range 80–100; 100 = the opaque window.
+    pub window_opacity: u8,
 }
 
 impl Settings {
     pub const REL_PATH: &'static str = "Settings.md";
     pub const DEFAULT_HOTKEY: &'static str = "alt+space";
+    /// The floor exists for legibility, not taste: below it the app's text
+    /// starts losing to a bright desktop behind the window (SUB-951).
+    ///
+    /// 80, not the 70 first proposed. Composited against a pure-white desktop
+    /// — the worst case, and the one that decides a floor — the thinnest
+    /// surface (the sidebar's bare ground, no `.main` over it) puts `--text-2`
+    /// at 3.35:1 at 70%, under the 4.5:1 AA line it clears everywhere today;
+    /// at 80% it is back to 4.93:1. `--text-1` never drops below 7:1 either
+    /// way, so the failure is exactly in the secondary text a floor is meant
+    /// to protect.
+    pub const OPACITY_MIN: u8 = 80;
+    pub const OPACITY_MAX: u8 = 100;
+    pub const OPACITY_DEFAULT: u8 = 90;
 
     pub fn load(root: &Path) -> Self {
         let raw = read_lossy(&root.join(Self::REL_PATH)).unwrap_or_default();
@@ -915,7 +931,16 @@ impl Settings {
         let close_to_tray = folded_prop_str(&props, "close-to-tray")
             .map(|s| s.trim().eq_ignore_ascii_case("true"))
             .unwrap_or(false);
-        Settings { capture_hotkey, close_to_tray }
+        // An unreadable value (typo, out of range, a word) falls back to the
+        // default rather than clamping — same rule the terminal sizes follow,
+        // and the only honest read of "90" when the note says "ninety".
+        let window_opacity = folded_prop_str(&props, "window-opacity")
+            .and_then(|s| s.trim().parse::<f64>().ok())
+            .map(|n| n.round())
+            .filter(|n| *n >= Self::OPACITY_MIN as f64 && *n <= Self::OPACITY_MAX as f64)
+            .map(|n| n as u8)
+            .unwrap_or(Self::OPACITY_DEFAULT);
+        Settings { capture_hotkey, close_to_tray, window_opacity }
     }
 }
 
@@ -4028,6 +4053,43 @@ mod tests {
         let s = Settings::load(&dir);
         assert_eq!(s.capture_hotkey, Settings::DEFAULT_HOTKEY);
         assert!(!s.close_to_tray);
+
+        // SUB-951: window-opacity is range-filtered, never clamped — an
+        // out-of-range number is a mistake, and snapping 150 to 100 or 70 to the
+        // floor would hide it behind a window that looks deliberate. The 79/70
+        // rows pin the floor itself: 70 was the first proposal and now falls
+        // back, so a floor lowered by accident fails here rather than shipping
+        // secondary text at 3.35:1 over a bright desktop.
+        for (raw, want) in [
+            ("80", 80u8),
+            ("90", 90),
+            ("100", 100),
+            ("85.4", 85),
+            ("79", Settings::OPACITY_DEFAULT),
+            ("70", Settings::OPACITY_DEFAULT),
+            ("101", Settings::OPACITY_DEFAULT),
+            ("0", Settings::OPACITY_DEFAULT),
+            ("-90", Settings::OPACITY_DEFAULT),
+            ("\"  \"", Settings::OPACITY_DEFAULT),
+            ("mostly", Settings::OPACITY_DEFAULT),
+        ] {
+            fs::write(
+                dir.join(Settings::REL_PATH),
+                format!("---\nwindow-opacity: {raw}\n---\n"),
+            )
+            .unwrap();
+            assert_eq!(
+                Settings::load(&dir).window_opacity,
+                want,
+                "window-opacity: {raw}"
+            );
+        }
+        // …and the key is optional: an unset one is the 90 default, not 0
+        fs::write(dir.join(Settings::REL_PATH), "---\nclose-to-tray: true\n---\n").unwrap();
+        assert_eq!(
+            Settings::load(&dir).window_opacity,
+            Settings::OPACITY_DEFAULT
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

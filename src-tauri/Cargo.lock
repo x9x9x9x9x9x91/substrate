@@ -4042,6 +4042,7 @@ dependencies = [
  "url",
  "uuid",
  "walkdir",
+ "window-vibrancy",
 ]
 
 [[package]]

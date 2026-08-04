@@ -19,6 +19,8 @@ mod term;
 mod testenv;
 mod vault;
 mod vaultfmt;
+#[cfg(target_os = "macos")]
+mod vibrancy;
 mod viewexport;
 
 use gitsync::SyncReport;
@@ -125,6 +127,11 @@ fn mounts_migration_restore_point(snapshot: Option<Result<bool, String>>) -> Res
 struct RuntimeState {
     settings: Settings,
     active_hotkey: String,
+    /// SUB-951: the opacity the window material was last installed for. `None`
+    /// until the first apply, so a vault whose note already says 100 still
+    /// takes the (no-op, material-free) path once rather than never running.
+    #[cfg(target_os = "macos")]
+    applied_opacity: Option<u8>,
 }
 
 struct SharedRuntime(Mutex<RuntimeState>);
@@ -337,6 +344,14 @@ fn apply_settings(app: &tauri::AppHandle, root: &std::path::Path) {
             }
         }
     }
+    // SUB-951: the window material follows the dial, so it rides the same
+    // hot-reload as the hotkey — no IPC command, and an edit to the note
+    // (or a ⌘, drag) shows through within the watcher's second.
+    #[cfg(target_os = "macos")]
+    if rt.applied_opacity != Some(settings.window_opacity) {
+        rt.applied_opacity = Some(settings.window_opacity);
+        vibrancy::apply(app, settings.window_opacity);
+    }
     rt.settings = settings;
 }
 
@@ -538,6 +553,8 @@ pub fn run() {
             app.manage(SharedRuntime(Mutex::new(RuntimeState {
                 settings: Settings::load(&settings_root),
                 active_hotkey: String::new(),
+                #[cfg(target_os = "macos")]
+                applied_opacity: None,
             })));
             #[cfg(desktop)]
             app.manage(term::TermState::default());
