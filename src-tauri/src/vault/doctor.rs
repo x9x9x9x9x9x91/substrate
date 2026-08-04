@@ -23,6 +23,12 @@ pub enum DoctorKind {
     /// Two or more notes answering to the same link target — the winner is
     /// unspecified (vault-format §3), so every link to it is a coin flip.
     AmbiguousTarget,
+    /// A `.vault/*.json` file whose bytes aren't JSON at all. Every reader
+    /// falls back to empty (vault-format §6–§8b), which is what keeps a
+    /// mangled sidecar from bricking the app — but silently, so the doctor
+    /// is where "your tag folders are gone because the file is garbage"
+    /// gets said out loud (SUB-1025).
+    CorruptConfig,
     /// A `.vault/*.json` entry pointing at a type or folder that no longer exists.
     StaleConfig,
     /// A prop value that doesn't parse as its schema kind (date, number).
@@ -337,6 +343,54 @@ impl Engine {
                         _ => {}
                     }
                 }
+            }
+        }
+
+        // ---- corrupt .vault/*.json --------------------------------------
+        // Nearly every config reader ends in `unwrap_or_default()`: a file
+        // that isn't JSON reads as empty rather than erroring, which is the
+        // documented contract (§6–§8b) and the reason a mangled sidecar
+        // can't lock anyone out of their notes. The cost is that the loss is
+        // invisible — tag folders, saved views, folder settings and schemas
+        // just aren't there any more. Report it in ONE place for ALL of
+        // them (SUB-1025): the readers stay silent and unchanged, the doctor
+        // names the file. The consequence clause comes from the registry
+        // (`reads_empty_on_corrupt`) because one reader — calendars, §5c —
+        // refuses loudly instead of reading empty, and the doctor must never
+        // tell a user a file is already ignored when deleting it would lose
+        // real state. An unparseable file is an error, not a warning: it is
+        // definitively not doing its job.
+        for f in crate::vaultfmt::VaultFile::ALL {
+            let abs = self.root.join(f.rel_path());
+            let Ok(bytes) = fs::read(&abs) else {
+                continue; // missing — the normal state of a fresh vault
+            };
+            let problem = match String::from_utf8(bytes) {
+                // an empty or whitespace-only file is how several of these
+                // start life; it reads as empty because it IS empty, not
+                // because it was mangled
+                Ok(raw) if raw.trim().is_empty() => None,
+                Ok(raw) => serde_json::from_str::<serde_json::Value>(&raw)
+                    .err()
+                    .map(|e| e.to_string()),
+                // a half-synced or truncated restore can leave bytes that
+                // aren't even text — the most corrupt case must not be the
+                // one case that stays quiet
+                Err(_) => Some("the bytes aren't UTF-8 text".to_string()),
+            };
+            if let Some(e) = problem {
+                let consequence = if f.reads_empty_on_corrupt() {
+                    format!("your {} are being read as empty until it is fixed or replaced", f.label())
+                } else {
+                    format!("your {} are showing a config error until it is fixed", f.label())
+                };
+                findings.push(DoctorFinding {
+                    kind: DoctorKind::CorruptConfig,
+                    severity: DoctorSeverity::Error,
+                    paths: vec![f.rel_path().to_string()],
+                    subject: f.rel_path().to_string(),
+                    detail: format!("{} isn’t valid JSON ({e}) — {consequence}", f.rel_path()),
+                });
             }
         }
 
@@ -810,6 +864,91 @@ mod tests {
 
         let _ = fs::remove_dir_all(&dir);
         let _ = unbound;
+    }
+
+    /// Nearly every config reader swallows a corrupt file and returns empty
+    /// (§6–§8b); calendars refuses loudly instead (§5c). Both fallbacks are
+    /// deliberate and stay — but the doctor now names the file, once, for
+    /// all of them (SUB-1025), with a consequence clause that matches what
+    /// the file's reader actually does. Iterates the registry itself so a
+    /// new `VaultFile` is covered the day it exists.
+    #[test]
+    fn doctor_names_every_corrupt_config_file() {
+        let (mut engine, dir) = temp_vault("doctor-corrupt");
+        fs::create_dir_all(dir.join(".vault")).unwrap();
+        // every registry file gets garbage; mounts gets bytes that aren't
+        // even UTF-8 — a truncated restore's shape, and the case that used
+        // to slip past `read_to_string`
+        for f in crate::vaultfmt::VaultFile::ALL {
+            if f == crate::vaultfmt::VaultFile::Mounts {
+                fs::write(dir.join(f.rel_path()), [0xFF, 0xFE, 0x00, 0x7B]).unwrap();
+            } else {
+                fs::write(dir.join(f.rel_path()), "{ not json <<<").unwrap();
+            }
+        }
+        engine.rescan();
+
+        let report = engine.doctor(&Default::default()).unwrap();
+        let corrupt = findings_of(&report, DoctorKind::CorruptConfig);
+        assert_eq!(
+            corrupt.len(),
+            crate::vaultfmt::VaultFile::ALL.len(),
+            "one finding per unreadable file: {corrupt:?}"
+        );
+        for f in crate::vaultfmt::VaultFile::ALL {
+            let rel = f.rel_path();
+            let found = corrupt
+                .iter()
+                .find(|c| c.paths == vec![rel.to_string()])
+                .unwrap_or_else(|| panic!("no finding names {rel}: {corrupt:?}"));
+            assert_eq!(found.severity, DoctorSeverity::Error);
+            assert!(found.detail.contains(rel), "the detail names the file: {}", found.detail);
+            // the consequence clause must match the reader's real contract:
+            // claiming "read as empty" about calendars would coach deleting
+            // a file whose contents are still recoverable
+            if f.reads_empty_on_corrupt() {
+                assert!(
+                    found.detail.contains("read as empty"),
+                    "{rel} reads empty, detail says: {}",
+                    found.detail
+                );
+            } else {
+                assert!(
+                    found.detail.contains("config error"),
+                    "{rel} refuses loudly, detail says: {}",
+                    found.detail
+                );
+            }
+        }
+
+        // …and the documented fallback is untouched: every reader still
+        // answers empty rather than erroring
+        assert!(engine.tag_folders().is_empty());
+        assert!(engine.saved_views().is_empty());
+        assert!(engine.folder_meta().is_empty());
+        assert!(engine.views().is_empty());
+        assert!(engine.folder_mappings().is_empty());
+        assert!(engine.schema().is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// An empty or absent config file is the normal state of a fresh vault —
+    /// it must never read as corruption, or every new vault opens red.
+    #[test]
+    fn doctor_does_not_call_an_empty_config_file_corrupt() {
+        let (mut engine, dir) = temp_vault("doctor-corrupt-empty");
+        fs::create_dir_all(dir.join(".vault")).unwrap();
+        fs::write(dir.join(TagFolder::REL_PATH), "").unwrap();
+        fs::write(dir.join(ViewPref::REL_PATH), "  \n").unwrap();
+        fs::write(dir.join(FOLDERS_REL_PATH), "[]").unwrap();
+        engine.rescan();
+        let report = engine.doctor(&Default::default()).unwrap();
+        assert!(
+            findings_of(&report, DoctorKind::CorruptConfig).is_empty(),
+            "{:?}",
+            report.findings
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

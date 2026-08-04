@@ -13,12 +13,23 @@ const uid = () => `tf-${Math.random().toString(36).slice(2, 10)}`;
 
 /** Chips carry the author's spelling but never duplicate case-insensitively —
     the same rule the matcher uses, applied at authoring time so the folder
-    can't hold `#Demo` and `#demo` as two separate requirements. */
-function addTag(list: string[], raw: string): string[] {
+    can't hold `#Demo` and `#demo` as two separate requirements.
+
+    A rejection says WHY (SUB-1025): the field used to just clear itself, so
+    `#2024` and `#a/b` looked accepted until the chip never appeared. */
+type AddResult =
+  | { list: string[]; reject?: undefined }
+  | { list?: undefined; reject: string | null };
+
+function addTag(list: string[], raw: string): AddResult {
   const tag = raw.trim().replace(/^#+/, "");
-  if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(tag)) return list;
-  if (list.some((t) => t.toLowerCase() === tag.toLowerCase())) return list;
-  return [...list, tag];
+  // nothing typed — a stray space or Enter, not a rejection worth flagging
+  if (!tag) return { reject: null };
+  if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(tag))
+    return { reject: "Tags start with a letter, then letters, numbers, - or _" };
+  if (list.some((t) => t.toLowerCase() === tag.toLowerCase()))
+    return { reject: `#${tag} is already here` };
+  return { list: [...list, tag] };
 }
 
 function ChipRow({
@@ -35,6 +46,8 @@ function ChipRow({
   onChange: (next: string[]) => void;
 }) {
   const [draft, setDraft] = useState("");
+  const [reject, setReject] = useState<string | null>(null);
+  const [shake, setShake] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   // the same completion source the editor's `#` uses, minus what this row
@@ -48,16 +61,34 @@ function ChipRow({
   }, [draft, tags, universe]);
 
   const commit = (raw: string) => {
-    const next = addTag(tags, raw);
-    if (next !== tags) onChange(next);
-    setDraft("");
+    const res = addTag(tags, raw);
+    if (res.list) {
+      onChange(res.list);
+      setReject(null);
+      setDraft("");
+    } else if (res.reject) {
+      // keep what was typed — the user can fix `#a/b` into `#a-b` rather than
+      // retype it — and say why, with a nudge so it reads as a refusal
+      setReject(res.reject);
+      setShake((n) => n + 1);
+    } else {
+      setReject(null);
+      setDraft("");
+    }
     inputRef.current?.focus();
   };
 
   return (
     <div className="tagfolder-row">
       <div className="tagfolder-row-label">{label}</div>
-      <div className="tagfolder-chips">
+      <div
+        // two identical classes, alternated: swapping restarts the nudge so a
+        // second bad tag moves again. Re-keying the element would remount the
+        // input and drop focus mid-typing.
+        className={`tagfolder-chips${
+          reject ? (shake % 2 ? " tagfolder-chips-reject-a" : " tagfolder-chips-reject-b") : ""
+        }`}
+      >
         {tags.map((t) => (
           <span key={t} className="tagfolder-chip">
             #{t}
@@ -77,7 +108,12 @@ function ChipRow({
           value={draft}
           placeholder={hint}
           aria-label={label}
-          onChange={(e) => setDraft(e.target.value)}
+          aria-invalid={reject ? true : undefined}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            // typing is the user answering the hint — drop it as they go
+            if (reject) setReject(null);
+          }}
           onKeyDown={(e) => {
             e.stopPropagation();
             if (e.key === "Enter" || e.key === "," || e.key === " ") {
@@ -91,6 +127,11 @@ function ChipRow({
           }}
         />
       </div>
+      {reject && (
+        <div className="tagfolder-reject" role="status">
+          {reject}
+        </div>
+      )}
       {options.length > 0 && (
         <div className="tagfolder-opts">
           {options.map((t) => (

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 // SUB-410: a plain note (no database, no `type: dashboard`) can hold a sidebar
 // row. SUB-585: that row lives UNDER the note's home folder in the Folders
@@ -9,6 +9,36 @@ import { expect, test } from "@playwright/test";
 const NOTE = "Capture anything"; // lives in Inbox — pins nested under the Inbox row
 const ROOT_NOTE = "Welcome"; // lives at the vault root — pins into the flat section
 const pinnedSection = "Pinned";
+
+/**
+ * Drag `from` onto `to` with a real pointer sequence (SUB-1023). Chromium only
+ * enters a native HTML5 drag after at least one move following the mousedown,
+ * and only fires `drop` when the target's dragover accepted the gesture with a
+ * dropEffect the source's effectAllowed permits — the negotiation that
+ * `dispatchEvent` with a handmade DataTransfer skips entirely.
+ */
+async function dragMouse(page: Page, from: Locator, to: Locator) {
+  // a real gesture needs real coordinates: both ends must sit inside the
+  // viewport, or the pointer walks over empty page and no drag event fires at
+  // all (Locator.boundingBox happily reports off-screen boxes)
+  await to.scrollIntoViewIfNeeded();
+  await from.scrollIntoViewIfNeeded();
+  const src = await from.boundingBox();
+  const dst = await to.boundingBox();
+  if (!src || !dst) throw new Error("drag source or target has no box");
+  const sx = src.x + src.width / 2;
+  const sy = src.y + src.height / 2;
+  const tx = dst.x + dst.width / 2;
+  const ty = dst.y + dst.height / 2;
+  await page.mouse.move(sx, sy);
+  await page.mouse.down();
+  // the first move is what starts the drag; the rest walk the pointer across
+  // so the target sees dragenter and repeated dragover before the release
+  await page.mouse.move(sx + 12, sy + 12, { steps: 4 });
+  await page.mouse.move(tx, ty, { steps: 12 });
+  await page.mouse.move(tx, ty + 1, { steps: 4 });
+  await page.mouse.up();
+}
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
@@ -102,30 +132,28 @@ test("dragging a note onto the Pinned section adds a pin", async ({ page }) => {
   await page.locator(".ctx-item", { hasText: "Pin to sidebar" }).click();
   await expect(page.locator(".side-item", { hasText: ROOT_NOTE })).toBeVisible();
 
-  // synthetic-mouse drags slip the source row in Chromium (see
-  // folderorder.spec.ts) — dispatch with a real DataTransfer instead. The
-  // row is picked by data-path: hasText also matches EXCERPTS, and two other
-  // fixtures mention "Holdings" in theirs.
-  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+  // SUB-1023: this drag runs as a REAL pointer gesture, not dispatched events
+  // with a handmade DataTransfer. The synthetic path skips the browser's
+  // effect negotiation — the very step that swallowed the drop in the app
+  // (a `copy` dropEffect against the source's `effectAllowed = "move"`), so
+  // the old dispatch-based version of this test passed on broken code.
+  // The row is picked by data-path: hasText also matches EXCERPTS, and two
+  // other fixtures mention "Holdings" in theirs.
   const other = page.locator('.row[data-path="Holdings.md"]');
   await expect(other).toBeVisible();
-  await other.dispatchEvent("dragstart", { dataTransfer });
   const header = page.locator(".side-label-row", { hasText: pinnedSection });
-  await header.dispatchEvent("dragover", { dataTransfer });
-  await header.dispatchEvent("drop", { dataTransfer });
+  await dragMouse(page, other, header);
 
   await expect(page.locator(".side-item", { hasText: "Holdings" })).toBeVisible();
 });
 
 test("dropping a note on its own folder row pins it there (SUB-585)", async ({ page }) => {
   // the note already lives in Inbox, so this drop can't be a move — the
-  // gesture reads "give it a sidebar row under Inbox"
-  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+  // gesture reads "give it a sidebar row under Inbox". SUB-1023: the other
+  // pin lane, so it runs as a real gesture too.
   const note = page.locator(".row", { hasText: NOTE }).first();
-  await note.dispatchEvent("dragstart", { dataTransfer });
   const inboxRow = page.locator(".side-folder", { hasText: "Inbox" });
-  await inboxRow.dispatchEvent("dragover", { dataTransfer });
-  await inboxRow.dispatchEvent("drop", { dataTransfer });
+  await dragMouse(page, note, inboxRow);
 
   const row = page.locator(".side-item", { hasText: NOTE });
   await expect(row).toBeVisible();

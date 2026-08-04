@@ -1516,7 +1516,9 @@ feeds. The app never creates it by default. Each entry has exactly this shape:
   network.
 - A malformed `calendars.json` is shown as a config error and is never silently
   overwritten. Unknown entry keys are rejected so misspelled subscription
-  settings cannot appear to work.
+  settings cannot appear to work. The doctor also reports it as
+  `corrupt-config` (§15) — with this loud-refusal consequence, not the
+  read-as-empty clause the other config files get.
 
 ## 6. `.vault/schema.json` — database schema
 
@@ -1524,6 +1526,8 @@ Per-type property schemas. Notes keep plain YAML values; this file only drives
 pickers, option order, dot colors, and database icons in the UI — deleting it
 loses no data. Missing or corrupt JSON reads as empty; the next write recreates
 it (pretty-printed, 2-space indent; key order unspecified — it's a hash map).
+A corrupt file is additionally reported by `vault_doctor` as `corrupt-config`
+(§15) — the fallback is silent to the reader, not to the user.
 
 Exact shape — `{ "<type>": { "icon"?: <DbIcon>, "home"?: <folder path>, "<prop>": <PropSchema> } }`:
 
@@ -1827,7 +1831,8 @@ only the wiring; the VALUE is computed on read (in the frontend,
 Fired/snoozed state for §6's `notify: true` / `notifyBefore` date props (`src-tauri/src/notify.rs`),
 persisted so a due date never refires across restarts. App-owned — external
 writers should leave it alone (a missing or corrupt file just reads as empty
-state, so deleting it means today's already-fired dues fire again).
+state, so deleting it means today's already-fired dues fire again; a corrupt
+one also shows up as `corrupt-config` in the doctor, §15).
 
 ```json
 {
@@ -2173,7 +2178,8 @@ A mount is split across two places on purpose:
   local absolute path. NOT synced, because the same folder lives at a
   different path on every machine, and on some machines it isn't there at all.
 
-Missing or corrupt reads as no mounts, same file discipline as schema.json.
+Missing or corrupt reads as no mounts, same file discipline as schema.json —
+including the `corrupt-config` doctor finding (§15) when the file is unparseable.
 Mounts are added in-app — "Mount a folder…" from the sidebar Folders "+" menu
 or the All-databases manager's row menu, which also runs the first scan — or
 edited by hand (JSON array):
@@ -2319,7 +2325,9 @@ folders with a tag icon, and opens the notes matching its rule. **No note
 moves on disk for a tag folder** — the folder is a query, not a location. The
 app never creates the file by default; folders are built in-app (Folders "+"
 → "New tag folder…") or edited by hand. Same file discipline as the rest of
-§6–§8: missing or corrupt reads as no folders.
+§6–§8: missing or corrupt reads as no folders — and a corrupt one is reported
+by `vault_doctor` as `corrupt-config` (§15), so the folders vanishing is never
+silent even though nothing errors.
 
 ```json
 [
@@ -3013,11 +3021,14 @@ order, so two scans of an unchanged vault produce byte-identical JSON.
 | `broken-embed` | `![[file]]` with no file behind it — under `.assets/` (error) or linked in place (warn: the volume may just be unmounted, §3) | error / warn |
 | `broken-view-ref` | a ` ```view ` fence (§5.6) naming a `saved:` view that was deleted, or a `type:` that is not a database | error |
 | `ambiguous-target` | two or more notes share a title or filename stem, so a wikilink to that name resolves to whichever the index reached first — create-dedupe is per-folder, so this is how cross-folder collisions surface (§3) | warn |
+| `corrupt-config` | a `.vault/*.json` file whose bytes are not JSON (including bytes that aren't UTF-8 text at all). Reader fallbacks are unchanged — most read as empty, so a mangled file can never lock anyone out (§5b, §6–§8b), while `calendars.json` surfaces a config error instead (§5c) — but the loss is no longer silent: one finding per unreadable file, naming the file and the consequence the file's own reader actually has. An absent or empty file is the normal state of a fresh vault and is never reported | error |
 | `stale-config` | `.vault/*.json` pointing at something gone: a schema type with zero notes, a `home`/folder-mapping path that no longer exists, a views or saved-view entry for an unknown type. A mount that is unbound on this machine, or whose bound folder is gone, is a **warn** and never an error: its board still renders from the last-known index and "Locate folder…" fixes it (§8) | warn / error |
 | `invalid-prop` | a `date` or `number` prop whose value does not parse under the schema's kind — the value is reported, never rewritten | error |
 
 `paths` holds every note involved: one entry for most findings, one per
-colliding note for `ambiguous-target`, and the config file (`.vault/schema.json`,
-`.vault/views.json`, `.vault/mounts.json`, `.vault/folders.json`) for
-`stale-config`.
+colliding note for `ambiguous-target`, and the config file for `stale-config`
+(`.vault/schema.json`, `.vault/views.json`, `.vault/mounts.json`,
+`.vault/folders.json`) and `corrupt-config` (any versioned config file: those
+four plus `.vault/notifications.json`, `.vault/calendars.json`,
+`.vault/tagfolders.json`).
 

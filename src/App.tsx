@@ -40,7 +40,7 @@ import {
   unassignKey,
 } from "./lib/keyassign";
 import { pinKeyLabels } from "./lib/shortcuts";
-import { setPropUndoable, type PropWriter } from "./lib/undoprops";
+import { addTagsUndoable, setPropUndoable, type PropWriter } from "./lib/undoprops";
 import {
   isIntrinsic,
   MOUNT_SCHEME,
@@ -3269,11 +3269,14 @@ export default function App() {
       if (!folder) return;
       const tags = tagFolderApplyTags(folder);
       if (tags.length === 0) return;
-      vaultNoteAddTags(path, tags)
+      // undoable like every other prop edit (SUB-1025): the inverse restores
+      // the note's prior `tags:` list, not "remove what we just asked for" —
+      // the add is a union, so a tag the note already had must survive undo
+      addTagsUndoable({ path, tags, record: undoApi.record, onApplied: () => refresh() })
         .then(() => showToast(`Tagged ${tags.map((t) => `#${t}`).join(" ")}`))
         .catch((e) => showToast(String(e)));
     },
-    [tagFolders, showToast]
+    [tagFolders, showToast, undoApi, refresh]
   );
 
   const folderAddMenu = useCallback(

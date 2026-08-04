@@ -11,6 +11,7 @@ const KIND_LABELS: [DoctorKind, string][] = [
   ["broken-embed", "Missing embeds"],
   ["broken-view-ref", "Dangling view references"],
   ["ambiguous-target", "Ambiguous link targets"],
+  ["corrupt-config", "Unreadable vault config"],
   ["stale-config", "Stale vault config"],
   ["invalid-prop", "Invalid property values"],
 ];

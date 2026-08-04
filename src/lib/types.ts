@@ -133,6 +133,7 @@ export type DoctorKind =
   | "broken-embed"
   | "broken-view-ref"
   | "ambiguous-target"
+  | "corrupt-config"
   | "stale-config"
   | "invalid-prop";
 

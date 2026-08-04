@@ -74,9 +74,16 @@ it if needed.
 
 `npm run tauri build` produces a distributable `Substrate.app` bundle.
 
+Already keep notes as markdown? Point the first-run picker at your existing
+folder and it opens in place — nothing is moved or rewritten. CSV imports in
+the app (⌘K → "Import CSV as database…"), and scripted importers exist for
+Notion and Ableton project folders: see
+[bringing your data in](docs/user/import.md).
+
 ## Help
 
-[Troubleshooting](docs/user/troubleshooting.md) ·
+[Bring your data in](docs/user/import.md) ·
+[troubleshooting](docs/user/troubleshooting.md) ·
 [sync and security](docs/user/sync-and-security.md) ·
 [upgrades, backup, and restore](docs/user/upgrades-and-backups.md) ·
 [export and uninstall](docs/user/export-and-uninstall.md)
@@ -105,7 +112,8 @@ npm run e2e                  # Playwright smoke over the mock backend
 
 Developer docs: [dashboards](docs/dashboards.md) · [sheets](docs/sheets-spec.md) ·
 [vault format on disk](docs/vault-format.md) ·
-[integrating external tools](docs/integrations.md).
+[integrating external tools](docs/integrations.md) ·
+[doors — every way in and out](docs/doors.md).
 
 ## Status
 

@@ -1317,7 +1317,15 @@ function Sidebar({
             onDragOver={(e) => {
               if (!isPinPayload(e)) return;
               e.preventDefault();
-              e.dataTransfer.dropEffect = "copy";
+              // "move" to match what note drags allow (effectAllowed = "move"
+              // at every source, SUB-1023): a dropEffect outside effectAllowed
+              // is reset to "none" by the browser, and no drop event fires at
+              // all — the section silently refused every real gesture while
+              // the spec's dispatched events, which skip that negotiation,
+              // kept passing. Nothing is copied or moved on disk either way;
+              // the drop only adds a sidebar row (same note as the tag-folder
+              // target above).
+              e.dataTransfer.dropEffect = "move";
               if (!pinDrop) setPinDrop(true);
             }}
             onDragLeave={() => setPinDrop(false)}

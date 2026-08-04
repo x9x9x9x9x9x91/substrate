@@ -127,6 +127,24 @@ impl VaultFile {
         }
     }
 
+    /// What the file's reader does with bytes that don't parse. `true` =
+    /// reads as empty (vault-format §6–§8b); `false` = refuses loudly, the
+    /// way `calendarfeed::read_config` surfaces a config error (§5c). The
+    /// doctor's `corrupt-config` detail derives its consequence clause from
+    /// this, so the text can never claim a fallback a reader doesn't have.
+    /// Deliberately exhaustive — a new file must state its contract here.
+    pub fn reads_empty_on_corrupt(self) -> bool {
+        match self {
+            VaultFile::Schema => true,
+            VaultFile::Views => true,
+            VaultFile::Folders => true,
+            VaultFile::Notifications => true,
+            VaultFile::Calendars => false,
+            VaultFile::TagFolders => true,
+            VaultFile::Mounts => true,
+        }
+    }
+
     /// `.vault/backup/<name>.v<N>.json` — where the pre-migration copy goes.
     /// Overwrite-safe by design: one slot per file per source version.
     pub fn backup_path(self, root: &Path, version: u32) -> PathBuf {

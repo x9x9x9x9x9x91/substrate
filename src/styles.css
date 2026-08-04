@@ -14126,6 +14126,61 @@ body.termhud-resizing-ew .termhud {
   padding: 2px;
 }
 
+/* a refused chip (SUB-1025): a short nudge and a hint naming the grammar.
+   No red, no icon — the field's own border firms up for the moment the hint
+   is showing, the same "quiet refusal" the rest of the app uses. Two
+   identical animations so a second refusal restarts the motion. */
+.tagfolder-chips-reject-a,
+.tagfolder-chips-reject-b {
+  border-color: var(--text-3);
+}
+
+.tagfolder-chips-reject-a {
+  animation: tagfolder-nudge 160ms ease-out;
+}
+
+.tagfolder-chips-reject-b {
+  animation: tagfolder-nudge-b 160ms ease-out;
+}
+
+@keyframes tagfolder-nudge {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+
+@keyframes tagfolder-nudge-b {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+
+.tagfolder-reject {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tagfolder-chips-reject-a,
+  .tagfolder-chips-reject-b {
+    animation: none;
+  }
+}
+
 .tagfolder-opts {
   display: flex;
   flex-wrap: wrap;

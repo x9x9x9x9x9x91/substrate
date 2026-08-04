@@ -161,3 +161,61 @@ test("dropping a note on a tag folder tags it in place (SUB-818)", async ({ page
   await page.locator("[data-tagfolder] .side-destination").click();
   await expect(page.locator(".head-kind")).toHaveText("Tag folder");
 });
+
+test("undo takes back a drag-in tagging and keeps the tags it didn't add (SUB-1025)", async ({
+  page,
+}) => {
+  await seed(page, [{ path: "Glass Havens.md", body: "Second pressing.\n" }]);
+  await buildTagFolder(page, { name: "Demos", tags: ["demo", "queued"] });
+
+  await page.locator(".side-folder", { hasText: "Ideas" }).first().click();
+  await expect(page.locator(".list-title")).toHaveText("Ideas");
+  const dragged = page.locator(".list-body .row:not(.row-dbblock)").first();
+  const path = await dragged.getAttribute("data-path");
+  expect(path).toBeTruthy();
+  // the note already carries one of the folder's tags — undo must leave it
+  await seed(page, [{ path: path!, tags: ["demo", "keep"] }]);
+
+  await dragged.dragTo(page.locator("[data-tagfolder]"));
+  await expect
+    .poll(() => page.evaluate((p) => window.__mockPropOf!(p!, "tags"), path))
+    .toEqual(["demo", "keep", "queued"]);
+
+  await page.keyboard.press("Meta+z");
+  await expect
+    .poll(() => page.evaluate((p) => window.__mockPropOf!(p!, "tags"), path))
+    .toEqual(["demo", "keep"]);
+});
+
+test("the builder says why a chip was refused instead of just clearing (SUB-1025)", async ({
+  page,
+}) => {
+  await page.locator(".side-add").click();
+  await page.locator(".ctx-item", { hasText: "New tag folder…" }).click();
+  const dialog = page.getByRole("dialog", { name: "New tag folder" });
+
+  const tagged = dialog.getByLabel("Tagged");
+  await tagged.fill("#2024");
+  await tagged.press("Enter");
+
+  // the hint names the grammar, the draft survives so it can be fixed, and
+  // no chip appeared
+  await expect(dialog.locator(".tagfolder-reject")).toContainText("start with a letter");
+  await expect(tagged).toHaveValue("#2024");
+  await expect(dialog.locator(".tagfolder-chip")).toHaveCount(0);
+
+  // a duplicate is refused in its own words
+  await tagged.fill("demo");
+  await tagged.press("Enter");
+  await expect(dialog.locator(".tagfolder-chip")).toHaveCount(1);
+  await expect(dialog.locator(".tagfolder-reject")).toHaveCount(0);
+  await tagged.fill("DEMO");
+  await tagged.press("Enter");
+  await expect(dialog.locator(".tagfolder-reject")).toContainText("already here");
+
+  // valid input still adds, and the hint clears
+  await tagged.fill("live");
+  await tagged.press("Enter");
+  await expect(dialog.locator(".tagfolder-chip")).toHaveCount(2);
+  await expect(dialog.locator(".tagfolder-reject")).toHaveCount(0);
+});

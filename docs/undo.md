@@ -65,6 +65,15 @@ have undo:
 path with no batching and no undo. It is the single most destructive everyday
 action in the app.
 
+`vault_note_add_tags` is the one other frontmatter writer — a case-folded
+union on `tags:`, reached by dropping a note on a tag folder
+(`App.tsx` `onDropNoteTagFolder`). ✅ undo via `addTagsUndoable`
+(`undoprops.ts`, SUB-1025): the inverse restores the pre-write `tags:` list
+(never "remove what was added" — the drop may have added nothing), guarded
+like §6.2 so it refuses rather than clobbers if the tags moved since. A
+`tags:` value with no writable inverse (a nested map) records nothing — the
+drop still lands, but that one action is not undoable.
+
 ### 1.3 Structural — notes and folders
 
 | Command | lib.rs | Engine | What changes | Invertible | Covered |

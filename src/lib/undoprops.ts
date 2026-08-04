@@ -8,7 +8,8 @@
    being what's on disk. That guard is the whole safety story: if anything
    changed the prop since, the undo is refused instead of clobbering it. */
 
-import { vaultSetProp } from "./ipc.ts";
+import { vaultNoteAddTags, vaultRead, vaultSetProp } from "./ipc.ts";
+import { foldedPropKey } from "./types.ts";
 import type { NoteMeta, PropValue, SetPropResult } from "./types.ts";
 import type { UndoEntry, UndoScope } from "./undo.ts";
 
@@ -77,6 +78,66 @@ export async function setPropUndoable(opts: {
     },
     redo: async () => {
       await vaultSetProp(path, key, value, { value: prior });
+      await opts.onApplied?.();
+    },
+  });
+  return meta;
+}
+
+/** The `tags:` value in a shape the write domain accepts. Anything else (a
+    nested map under `tags:`) has no inverse we could write back, so the
+    caller declines to record rather than risk clobbering it. */
+function tagsPropValue(raw: unknown): PropValue | undefined {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean") return raw;
+  if (Array.isArray(raw) && raw.every((v) => typeof v === "string")) return raw as string[];
+  return undefined;
+}
+
+/** Drop a note on a tag folder (SUB-818): add tags, record the inverse.
+
+    `vault_note_add_tags` is a union — additive and de-duped — so the inverse
+    is "put the prior `tags:` back", never "remove the tags we asked for": the
+    note may already have carried one of them, and removing it would take away
+    something the drop never added.
+
+    The engine returns no prior (unlike vaultSetProp), so the pre-write value
+    is read here and the post-write value is read back for the guard. Undo is
+    then an ordinary guarded prop write — refused, not forced, if the tags
+    moved since (docs/undo.md §6.2). */
+export async function addTagsUndoable(opts: {
+  path: string;
+  tags: string[];
+  record: UndoRecorder;
+  label?: string;
+  scope?: UndoScope;
+  id?: number;
+  onApplied?: () => void | Promise<void>;
+}): Promise<NoteMeta> {
+  const { path, tags, record } = opts;
+  const before = await vaultRead(path);
+  const key = foldedPropKey(before.props, "tags");
+  const prior = tagsPropValue(before.props[key]);
+  const meta = await vaultNoteAddTags(path, tags);
+  const after = await vaultRead(path);
+  const writtenKey = foldedPropKey(after.props, "tags");
+  const written = tagsPropValue(after.props[writtenKey]);
+  // nothing changed (every tag was already on the note, inline or in the
+  // prop): there is no edit to take back
+  const same = JSON.stringify(prior ?? null) === JSON.stringify(written ?? null);
+  if (prior === undefined || written === undefined || same) return meta;
+  record({
+    id: opts.id,
+    label: opts.label ?? `Tagged ${tags.map((t) => `#${t}`).join(" ")}`,
+    scope: opts.scope ?? "vault",
+    at: Date.now(),
+    paths: [path],
+    undo: async () => {
+      await vaultSetProp(path, writtenKey, prior, { value: written });
+      await opts.onApplied?.();
+    },
+    redo: async () => {
+      await vaultSetProp(path, writtenKey, written, { value: prior });
       await opts.onApplied?.();
     },
   });
