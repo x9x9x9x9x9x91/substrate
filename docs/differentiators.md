@@ -75,8 +75,10 @@ Capacities, Affine).*
 
 ### The distinctive surface set (each a screenshot candidate)
 
-- **Audio in databases** — waveform embeds, play buttons on database rows
-  (0.18), deferred peak decode. Careful claim: Obsidian has waveform
+- **Audio as annotatable content** — waveform embeds, play buttons on database
+  rows (0.18), deferred peak decode, and timestamped comments authored by
+  clicking the waveform. Markers seek on click; their file binding, timestamps,
+  and text remain grep-readable markdown. Careful claim: Obsidian has waveform
   *plugins*; ours is native, zero-config, and lives inside database views.
 - **A folder of audio is a playlist** — a folder view lists the loose files
   sitting next to its notes, plays the audio ones in place (nothing imported,
@@ -198,7 +200,7 @@ Capacities, Affine).*
 Tracked in the issue tracker; headline shapes: extracted columns on
 mounted files (audio/PDF/.als analysis feeding a mount's rows — the mount
 itself has shipped), time-travel queries over
-git history, timestamped audio annotations, iOS home-screen widgets, per-fact provenance
+git history, iOS home-screen widgets, per-fact provenance
 receipts, live values in prose, deterministic file-event reflexes, voice
 capture with on-device transcript, cross-type joins.
 

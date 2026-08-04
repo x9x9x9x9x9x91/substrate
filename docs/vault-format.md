@@ -275,6 +275,38 @@ brackets, **no `[[target|alias]]` form** (the pipe becomes part of the name).
   <name>` / `missing file · <name>` — a display state, not an error; the file
   content is untouched.
 
+#### Timestamped audio annotations
+
+A standalone audio embed may be followed immediately (with at most one blank
+line) by an `annotations` fence bound to that exact embed target:
+
+````markdown
+![[bounce.wav]]
+
+```annotations
+audio: bounce.wav
+01:23 — bass too woody
+02:10 — fixed the build
+```
+````
+
+- `audio:` is required and must exactly equal the preceding embed target. This
+  keeps comments pinned to the named file instead of drifting onto a nearby
+  player; replacing that file with a new bounce does not retime old comments.
+- Annotation lines are `mm:ss — text`; minutes may exceed 59. The reader also
+  accepts `h:mm:ss`, an optional list dash, and an ASCII `-` separator, while
+  app-authored lines use the canonical form above. Blank lines are ignored.
+- A fully valid block renders as markers over the waveform plus a chronological
+  list beneath it. Clicking either seeks; clicking an un-dragged waveform point
+  opens a composer at that time. The composer appends one line and never
+  rewrites earlier annotations. On disk, new lines therefore stay in creation
+  order; the rendered list sorts them chronologically. “Edit source” reveals
+  the ordinary markdown.
+- A mismatched, malformed, or unclosed block stays visible as raw source. This
+  fail-open rule prevents the UI from hiding data it cannot round-trip. While
+  such a fence follows an audio embed, that player remains seekable but does not
+  offer the composer; repair or remove the raw fence before adding annotations,
+  so existing comments can never be stranded behind a newly inserted fence.
 
 ## 3b. Tags
 
@@ -1414,17 +1446,32 @@ the migration used to defer on every launch forever. Such a vault instead gets
 ├── folders.json          # the mappings the migration removes
 ├── mounts.json           # the registry as it stood (absent on a first run)
 ├── mounts/               # the per-mount index dir, if any
+├── views.json            # sidebar pins/keys, retargeted when sidecars move
+├── format.json           # the version stamps the writes above bump
 └── notes/<rel>.md        # every note of every mapped type, at its vault path
 ```
 
+- The copy set is the migration's **write set**, file for file: everything it
+  rewrites is in there, so a hand-restore puts the vault back where it started.
+  `views.json` is in the set because moving a sidecar into `Mounts/<name>/`
+  retargets that note's sidebar pin and its assigned key (§7).
 - It is a **plain file copy**, restorable by hand — no app command reads it
   back. History-enabled vaults get the snapshot and no duplicate backup.
-- It is staged under a dot-prefixed sibling and renamed into place last, so a
-  directory under the real name is always a complete backup.
+- It is staged under a dot-prefixed sibling, fsynced, and renamed into place
+  last, so a directory under the real name is always a complete backup. The
+  copies are durable before the rename, so the artifact survives a power loss
+  as well as a process crash; the rename itself is best-effort durable (the
+  parent dir is fsynced after it, failure there is not data loss).
 - If the backup cannot be written, the migration **defers** exactly as it did
   before and the vault is left untouched — no rewrite without a recovery point.
-- Nothing prunes these; a vault that migrated once has one, and it is safe to
-  delete after the mounts look right.
+- One backup **per migrating launch**. A launch with nothing migratable — no
+  mappings left, or only mappings the migration cannot convert (a mapping with
+  no `type` is left in place) — writes nothing, so a vault does not accumulate
+  a backup dir per launch. A vault that reaches the terminal state in one run
+  therefore ends with exactly one; an interrupted run retried on the next
+  launch leaves one per attempt. An existing backup is never overwritten: a
+  same-millisecond collision bumps the stamp instead.
+- Nothing prunes these; they are safe to delete once the mounts look right.
 
 ## 5c. `.vault/calendars.json` — read-only external calendars
 
@@ -2253,7 +2300,8 @@ NOT watched: the app writes them itself.
 Mounts replace the old folder-backed databases, which materialized one stub
 note per file. On engine load, every mapping left in `.vault/folders.json` is
 migrated (`migrate_folder_mappings`), behind a `before mounts migration`
-history snapshot: a mount is created carrying the mapping's type name, globs
+history snapshot — or, where history is unavailable, the file backup of §5b:
+a mount is created carrying the mapping's type name, globs
 and watch flag; its folder is bound on this machine; the existing stub notes
 of that type are **adopted as sidecars** (their `file`/`modified`/`size`/
 `missing` props dropped, since the index carries them now — user props and

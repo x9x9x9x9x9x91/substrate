@@ -3,6 +3,13 @@ import { EditorView, WidgetType } from "@codemirror/view";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { assetBlobUrl, audioSource, loadPeaks, PEAKS_AUTO_MAX_BYTES, type AudioSource } from "./assets.ts";
 import { isImageName } from "./artwork.ts";
+import {
+  formatAnnotationTime,
+  formatAudioAnnotation,
+  newAudioAnnotationFence,
+  resolveAudioAnnotationTarget,
+  type AudioAnnotation,
+} from "./audio-annotations.ts";
 import { formatFileSize } from "./display.ts";
 import { fileOpen, vaultAssetInfo, vaultRoot } from "./ipc.ts";
 import {
@@ -1066,13 +1073,27 @@ export class AudioWidget extends WidgetType {
 
   constructor(
     readonly name: string,
-    readonly epoch: number
+    readonly epoch: number,
+    /** null means no bound fence; an empty array is a valid empty fence. */
+    readonly annotations: readonly AudioAnnotation[] | null = null,
+    /** Inline embeds and embeds guarding malformed fences remain seek-only. */
+    readonly canAnnotate = false
   ) {
     super();
   }
 
   eq(other: AudioWidget) {
     if (other.name !== this.name) return false;
+    if (other.canAnnotate !== this.canAnnotate) return false;
+    if ((other.annotations === null) !== (this.annotations === null)) return false;
+    const ours = this.annotations ?? [];
+    const theirs = other.annotations ?? [];
+    if (
+      ours.length !== theirs.length ||
+      ours.some((note, i) => note.seconds !== theirs[i].seconds || note.text !== theirs[i].text)
+    ) {
+      return false;
+    }
     return !(this.failed || other.failed) || this.epoch === other.epoch;
   }
 
@@ -1105,6 +1126,164 @@ export class AudioWidget extends WidgetType {
     main.append(canvas, metaRow);
     wrap.append(btn, main);
 
+    const controls = document.createElement("div");
+    controls.className = "cm-audio-controls";
+    const waveWrap = document.createElement("div");
+    waveWrap.className = "cm-audio-wave-wrap";
+    waveWrap.append(canvas);
+    main.replaceChildren(waveWrap, metaRow);
+    controls.append(btn, main);
+    wrap.replaceChildren(controls);
+
+    const hasAnnotationBlock = this.annotations !== null;
+    const annotations = [...(this.annotations ?? [])].sort(
+      (left, right) => left.seconds - right.seconds
+    );
+    const markerButtons: { note: AudioAnnotation; button: HTMLButtonElement }[] = [];
+    for (const note of annotations) {
+      const marker = document.createElement("button");
+      marker.type = "button";
+      marker.className = "cm-audio-marker";
+      marker.setAttribute(
+        "aria-label",
+        `Seek to ${formatAnnotationTime(note.seconds)}: ${note.text}`
+      );
+      marker.title = `${formatAnnotationTime(note.seconds)} — ${note.text}`;
+      marker.addEventListener("click", () => {
+        if (!isFinite(a.duration) || a.duration <= 0) return;
+        a.currentTime = Math.max(0, Math.min(a.duration, note.seconds));
+      });
+      waveWrap.append(marker);
+      markerButtons.push({ note, button: marker });
+    }
+
+    const annotationArea = document.createElement("div");
+    annotationArea.className = "cm-audio-annotations";
+    annotationArea.hidden = annotations.length === 0 && !hasAnnotationBlock;
+    if (annotations.length) {
+      const list = document.createElement("div");
+      list.className = "cm-audio-annotation-list";
+      for (const note of annotations) {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "cm-audio-annotation";
+        row.setAttribute("aria-label", `Seek to ${formatAnnotationTime(note.seconds)}`);
+        const stamp = document.createElement("span");
+        stamp.className = "cm-audio-annotation-time";
+        stamp.textContent = formatAnnotationTime(note.seconds);
+        const copy = document.createElement("span");
+        copy.className = "cm-audio-annotation-text";
+        copy.textContent = note.text;
+        row.append(stamp, copy);
+        row.addEventListener("click", () => {
+          if (!isFinite(a.duration) || a.duration <= 0) return;
+          a.currentTime = Math.max(0, Math.min(a.duration, note.seconds));
+        });
+        list.append(row);
+      }
+      annotationArea.append(list);
+    }
+
+    let draftSeconds = 0;
+    let composer: HTMLFormElement | null = null;
+    let composerInput: HTMLInputElement | null = null;
+    if (this.canAnnotate) {
+      composer = document.createElement("form");
+      composer.className = "cm-audio-annotation-compose";
+      composer.hidden = true;
+      const draftTime = document.createElement("span");
+      draftTime.className = "cm-audio-annotation-time";
+      composerInput = document.createElement("input");
+      composerInput.type = "text";
+      composerInput.maxLength = 500;
+      composerInput.placeholder = "Add a note at this moment…";
+      composerInput.setAttribute("aria-label", "Audio annotation");
+      const add = document.createElement("button");
+      add.type = "submit";
+      add.textContent = "Add";
+      composer.append(draftTime, composerInput, add);
+      const closeComposer = () => {
+        if (!composer || !composerInput) return;
+        composer.hidden = true;
+        composerInput.value = "";
+        annotationArea.hidden = annotations.length === 0 && !hasAnnotationBlock;
+      };
+      const openComposer = (seconds: number) => {
+        if (!composer || !composerInput) return;
+        draftSeconds = seconds;
+        draftTime.textContent = formatAnnotationTime(seconds);
+        annotationArea.hidden = false;
+        composer.hidden = false;
+        composerInput.focus({ preventScroll: true });
+      };
+      composer.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const text = composerInput?.value.replace(/\s+/g, " ").trim() ?? "";
+        if (!text) return;
+        const target = resolveAudioAnnotationTarget(
+          view.state.doc,
+          view.posAtDOM(wrap),
+          this.name
+        );
+        if (!target) return;
+        const change = hasAnnotationBlock
+          ? target.block
+            ? {
+                from: target.block.closeFrom,
+                to: target.block.closeFrom,
+                insert: `${formatAudioAnnotation(draftSeconds, text)}\n`,
+              }
+            : null
+          : !target.annotationFenceFollows
+            ? {
+                from: target.embedLineTo,
+                to: target.embedLineTo,
+                insert: newAudioAnnotationFence(this.name, draftSeconds, text),
+              }
+            : null;
+        if (!change) return;
+        view.dispatch({ changes: change });
+      });
+      composerInput.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        closeComposer();
+        wrap.focus({ preventScroll: true });
+      });
+      annotationArea.append(composer);
+
+      // Stored on the canvas for the pointer-up handler below. Keeping the
+      // closure local means every remount carries current document positions.
+      (canvas as HTMLCanvasElement & { openAnnotation?: (seconds: number) => void }).openAnnotation =
+        openComposer;
+    }
+
+    if (hasAnnotationBlock) {
+      const scope = document.createElement("div");
+      scope.className = "cm-audio-annotation-scope";
+      const label = document.createElement("span");
+      label.textContent = "Timestamps are pinned to this file";
+      const edit = document.createElement("button");
+      edit.type = "button";
+      edit.textContent = "Edit source";
+      edit.addEventListener("click", () => {
+        const target = resolveAudioAnnotationTarget(
+          view.state.doc,
+          view.posAtDOM(wrap),
+          this.name
+        );
+        if (!target) return;
+        view.dispatch({
+          selection: { anchor: target.embedFrom },
+          scrollIntoView: true,
+        });
+        view.focus();
+      });
+      scope.append(label, edit);
+      annotationArea.append(scope);
+    }
+    if (annotations.length || this.canAnnotate) wrap.append(annotationArea);
 
     const embedName = this.name;
     const showMissing = () => {
@@ -1122,6 +1301,15 @@ export class AudioWidget extends WidgetType {
     };
     const updateTime = () => {
       timeEl.textContent = `${fmtTime(a.currentTime)} / ${fmtTime(a.duration)}`;
+    };
+    const positionMarkers = () => {
+      const duration = a.duration;
+      for (const { note, button } of markerButtons) {
+        button.hidden = !isFinite(duration) || duration <= 0;
+        if (!button.hidden) {
+          button.style.left = `${Math.max(0, Math.min(1, note.seconds / duration)) * 100}%`;
+        }
+      }
     };
 
     const draw = () => {
@@ -1151,6 +1339,7 @@ export class AudioWidget extends WidgetType {
     };
     const onMeta = () => {
       updateTime();
+      positionMarkers();
       draw();
     };
     const onError = () => showMissing();
@@ -1164,12 +1353,19 @@ export class AudioWidget extends WidgetType {
     };
 
     btn.addEventListener("click", toggle);
+    const isAnnotationControl = (target: EventTarget | null) =>
+      target instanceof HTMLElement &&
+      !!target.closest(
+        ".cm-audio-marker, .cm-audio-annotations button, .cm-audio-annotations input"
+      );
     wrap.addEventListener("mousedown", (e) => {
+      if (isAnnotationControl(e.target)) return;
       // keep the caret where it is; the player takes focus explicitly
       e.preventDefault();
       wrap.focus({ preventScroll: true });
     });
     wrap.addEventListener("keydown", (e) => {
+      if (isAnnotationControl(e.target)) return;
       if (e.key === " ") {
         e.preventDefault();
         e.stopPropagation();
@@ -1188,7 +1384,9 @@ export class AudioWidget extends WidgetType {
       a.currentTime = Math.max(0, Math.min(1, (clientX - r.left) / r.width)) * a.duration;
       onMeta();
     };
+    let pointerStart: { id: number; x: number } | null = null;
     canvas.addEventListener("pointerdown", (e) => {
+      pointerStart = { id: e.pointerId, x: e.clientX };
       try {
         canvas.setPointerCapture(e.pointerId);
       } catch {
@@ -1198,6 +1396,20 @@ export class AudioWidget extends WidgetType {
     });
     canvas.addEventListener("pointermove", (e) => {
       if (e.buttons & 1) seekTo(e.clientX);
+    });
+    canvas.addEventListener("pointerup", (e) => {
+      if (!pointerStart || pointerStart.id !== e.pointerId) return;
+      const moved = Math.abs(e.clientX - pointerStart.x);
+      pointerStart = null;
+      if (moved <= 4 && isFinite(a.duration) && a.duration > 0) {
+        const annotatedCanvas = canvas as HTMLCanvasElement & {
+          openAnnotation?: (seconds: number) => void;
+        };
+        annotatedCanvas.openAnnotation?.(a.currentTime);
+      }
+    });
+    canvas.addEventListener("pointercancel", () => {
+      pointerStart = null;
     });
 
     a.addEventListener("play", onPlay);
@@ -1214,6 +1426,7 @@ export class AudioWidget extends WidgetType {
 
     setIcon();
     updateTime();
+    positionMarkers();
     player.ready.then(() => {
       if (player.failed) {
         showMissing();

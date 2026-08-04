@@ -513,8 +513,12 @@ pub fn run() {
             // where history is on, an explicit file backup where it is not
             // (SUB-1011) — and the run is idempotent, so a crash mid-migration
             // is retried on the next launch.
+            // `has_migratable_folder_mappings`, not `folder_mappings()`: a
+            // mapping with no type is left in place by design, so gating on
+            // "any mapping at all" would re-enter this on every launch and
+            // write a fresh backup dir each time (SUB-1011 review).
             let mut engine = engine;
-            if !engine.folder_mappings().is_empty() {
+            if engine.has_migratable_folder_mappings() {
                 let protected = mounts_migration_restore_point(
                     hist.as_ref()
                         .map(|h| h.snapshot_restore_point("before mounts migration")),

@@ -8946,8 +8946,9 @@ span.asset-thumb svg {
 
 .cm-audio {
   display: inline-flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   width: 100%;
   max-width: 560px;
   padding: 10px 12px;
@@ -8962,6 +8963,12 @@ span.asset-thumb svg {
   vertical-align: middle;
 }
 
+.cm-audio-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
 
 .cm-audio:hover {
   border-color: var(--border);
@@ -9001,6 +9008,9 @@ span.asset-thumb svg {
   min-width: 0;
 }
 
+.cm-audio-wave-wrap {
+  position: relative;
+}
 
 .cm-audio-wave {
   display: block;
@@ -9009,6 +9019,26 @@ span.asset-thumb svg {
   cursor: pointer;
 }
 
+.cm-audio-marker {
+  position: absolute;
+  top: 2px;
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: 1px solid var(--bg-panel);
+  border-radius: 50%;
+  background: var(--text-1);
+  box-shadow: 0 0 0 1px var(--border-strong);
+  transform: translateX(-50%);
+  cursor: pointer;
+}
+
+.cm-audio-marker:hover,
+.cm-audio-marker:focus-visible {
+  width: 9px;
+  height: 9px;
+  outline: none;
+}
 
 .cm-audio-meta {
   display: flex;
@@ -9032,6 +9062,112 @@ span.asset-thumb svg {
   font-variant-numeric: tabular-nums;
 }
 
+.cm-audio-annotations {
+  width: 100%;
+  padding-top: 7px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.cm-audio-annotations[hidden] {
+  display: none;
+}
+
+.cm-audio-annotation-list {
+  display: grid;
+  gap: 2px;
+}
+
+.cm-audio-annotation {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 8px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-2);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cm-audio-annotation:hover,
+.cm-audio-annotation:focus-visible {
+  background: var(--active);
+  color: var(--text-1);
+  outline: none;
+}
+
+.cm-audio-annotation-time {
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cm-audio-annotation-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.cm-audio-annotation-compose {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.cm-audio-annotation-compose[hidden] {
+  display: none;
+}
+
+.cm-audio-annotation-compose input {
+  min-width: 0;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  outline: none;
+  background: var(--bg-elevated);
+  color: var(--text-1);
+  font: inherit;
+}
+
+.cm-audio-annotation-compose input:focus {
+  border-color: var(--border-strong);
+}
+
+.cm-audio-annotation-compose button,
+.cm-audio-annotation-scope button {
+  padding: 3px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.cm-audio-annotation-compose button:hover,
+.cm-audio-annotation-scope button:hover {
+  background: var(--active);
+  color: var(--text-1);
+}
+
+.cm-audio-annotation-scope {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 5px;
+  padding: 0 6px;
+  color: var(--text-4);
+  font-size: 10px;
+}
 
 .cm-audio-missing {
   display: inline-block;

@@ -91,6 +91,7 @@ import type { EmbedResult, ViewSpecResult } from "../lib/embeds";
 import type { NoteMeta, PropValue, TagCount } from "../lib/types";
 import type { RelationCandidate } from "../lib/relation";
 import { markdownLinkLabel, TASK_PREFIX_RE } from "../lib/markdown";
+import { scanAudioAnnotationFences } from "../lib/audio-annotations";
 import { extractLink, extractTitle } from "../lib/extractnote";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 
@@ -689,6 +690,51 @@ const viewRender = StateField.define<BlockRender>({
   provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
 });
 
+/** A standalone audio embed and its adjacent `annotations` fence render as
+ * one block. The whole region reveals as source when the cursor enters it,
+ * preserving the editor's existing markdown-first editing discipline. */
+type AudioAnnotationRender = BlockRender & { guardedEmbeds: [number, number][] };
+
+function computeAudioAnnotationDecorations(state: EditorState): AudioAnnotationRender {
+  const focused = state.field(editorHasFocus);
+  const active = activeLines(state);
+  const epoch = state.field(vaultEpochField);
+  const deco: Range<Decoration>[] = [];
+  const regions: [number, number][] = [];
+  const fenceRanges: [number, number][] = [];
+  syntaxTree(state).iterate({
+    enter(node) {
+      if (node.name !== "FencedCode") return;
+      const info = node.node.getChild("CodeInfo");
+      if (!info || state.sliceDoc(info.from, info.to).trim().toLowerCase() !== "annotations") {
+        return false;
+      }
+      fenceRanges.push([node.from, node.to]);
+      return false;
+    },
+  });
+  const scan = scanAudioAnnotationFences(state.doc, fenceRanges);
+  for (const block of scan.blocks) {
+    regions.push([block.from, block.to]);
+    const first = state.doc.lineAt(block.from);
+    const last = state.doc.lineAt(block.to);
+    if (tableIsEditing(focused, active, first.number, last.number)) continue;
+    deco.push(
+      Decoration.replace({
+        widget: new AudioWidget(block.name, epoch, block.annotations, true),
+        block: true,
+      }).range(block.from, block.to)
+    );
+  }
+  return { deco: Decoration.set(deco, true), regions, guardedEmbeds: scan.guardedEmbeds };
+}
+
+const audioAnnotationRender = StateField.define<AudioAnnotationRender>({
+  create: computeAudioAnnotationDecorations,
+  update: (prev, tr) =>
+    blockFieldUpdate(prev, tr, true, computeAudioAnnotationDecorations),
+  provide: (field) => EditorView.decorations.from(field, (value) => value.deco),
+});
 
 /** SUB-472: the line span of every block widget currently rendered (tables and
  * ```view embeds). A `Decoration.replace({block:true})` hides the positions it
@@ -705,6 +751,7 @@ function blockWidgetLines(state: EditorState): { first: number; last: number }[]
   const fields = [
     tableRender,
     viewRender,
+    audioAnnotationRender,
   ];
   for (const field of fields) {
     const rendered = state.field(field, false);
@@ -913,6 +960,19 @@ function buildDecorations(view: EditorView): DecorationSet {
   // Spans actually replaced by rendered blocks — raw source still gets its
   // normal code-fence styling while a cursor reveals an annotation block.
   const covered: [number, number][] = [];
+  const audioBlocks = state.field(audioAnnotationRender, false);
+  if (audioBlocks) {
+    const iter = audioBlocks.deco.iter();
+    for (; iter.value; iter.next()) {
+      if (iter.to > iter.from && iter.value.spec?.widget) covered.push([iter.from, iter.to]);
+    }
+  }
+  const inCovered = (from: number, to: number) =>
+    covered.some(([a, b]) => from >= a && to <= b);
+  const inAudioRegion = (from: number, to: number) =>
+    audioBlocks?.regions.some(([a, b]) => from >= a && to <= b) ?? false;
+  const annotationBlocked = (from: number, to: number) =>
+    audioBlocks?.guardedEmbeds.some(([a, b]) => from >= a && to <= b) ?? false;
   // code spans/blocks render verbatim — the regex decorators must skip them
   const codeRanges: [number, number][] = [];
   const inCode = (from: number, to: number) => codeRanges.some(([a, b]) => from < b && to > a);
@@ -939,6 +999,9 @@ function buildDecorations(view: EditorView): DecorationSet {
           node.name === "CodeBlock"
         ) {
           codeRanges.push([node.from, node.to]);
+        }
+        if (node.name === "FencedCode" && inCovered(node.from, node.to)) {
+          return false;
         }
         if (node.name === "Table") {
           const first = state.doc.lineAt(node.from);
@@ -1021,6 +1084,7 @@ function buildDecorations(view: EditorView): DecorationSet {
       const start = from + m.index;
       const end = start + m[0].length;
       let audioRegionCovered = false;
+      audioRegionCovered = inAudioRegion(start, end);
       if (inCovered(start, end) || audioRegionCovered || inCode(start, end)) continue;
       const line = state.doc.lineAt(start).number;
       if (focused && active.has(line)) continue;
@@ -1030,6 +1094,11 @@ function buildDecorations(view: EditorView): DecorationSet {
         : isImageEmbed(target)
           ? new ImageWidget(target, epoch)
           : new FileWidget(target, epoch);
+      const sourceLine = state.doc.lineAt(start);
+      const standalone = sourceLine.text.trim() === m[0];
+      if (isAudioEmbed(target)) {
+        widget = new AudioWidget(target, epoch, null, standalone && !annotationBlocked(start, end));
+      }
       deco.push(
         Decoration.replace({
           widget,
@@ -1805,6 +1874,7 @@ export default function Editor({
         ),
         vaultEpochField.init(() => vaultEpochRef.current ?? 0),
         viewRender,
+        audioAnnotationRender,
         flashLine,
         EditorView.contentAttributes.of({ "aria-label": "Note body" }),
         EditorView.lineWrapping,
