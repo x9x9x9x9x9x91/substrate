@@ -2897,7 +2897,7 @@ mod tests {
         e.rescan();
         e.write_body("Note.md", "v2\n", None).unwrap();
         e.set_prop("Note.md", "status", Some("live")).unwrap();
-        e.set_view_pref("release", "board", None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref("release", "board", None, None, None, None, None, None, None, None, None, None).unwrap();
         let raw = fs::read_to_string(dir.join("Note.md")).unwrap();
         assert!(raw.contains("v2") && raw.contains("status: live"), "write round-trips: {raw}");
         assert!(dir.join(ViewPref::REL_PATH).is_file(), "views.json written");
@@ -4106,6 +4106,7 @@ mod tests {
             None,
             None,
             Some(vec![SavedViewSort { key: "status".into(), dir: -1 }]),
+            None,
             Some(vec!["status".to_string(), "cat#".to_string()]),
             Some(std::collections::BTreeMap::from([
                 ("status".to_string(), 120u32),
@@ -4670,7 +4671,7 @@ mod tests {
             assert_eq!(crate::vaultfmt::on_disk_version(&dir, f), 1, "{}", f.key());
         }
         e.create_type("books", Vec::new()).unwrap();
-        e.set_view_pref("books", "table", None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref("books", "table", None, None, None, None, None, None, None, None, None, None).unwrap();
         let side = crate::vaultfmt::read_sidecar(&dir);
         assert_eq!(side["schema"], serde_json::json!(1), "schema write stamped");
         assert_eq!(side["views"], serde_json::json!(1), "views write stamped");

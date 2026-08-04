@@ -80,6 +80,7 @@ export function canonicalViewPref(pref: ViewPref, columns: string[]): ViewPref {
       ...sort,
       key: sort.key === "title" ? "title" : (canonicalColumn(columns, sort.key) ?? sort.key),
     })),
+    col_order: lists(pref.col_order),
     hidden: lists(pref.hidden),
     hidden_per_layout:
       pref.hidden_per_layout === undefined
@@ -167,6 +168,26 @@ export function effectiveColumns(
     }
   }
   return kept.length > 0 ? kept : dbCols;
+}
+
+/** Apply a persisted table column order (SUB-949) to a column list. Keys the
+    order names lead, in its order; every other column follows in its default
+    `dbColumns` position — so a prop added after the drag joins the table
+    instead of vanishing, and a renamed/removed one drops out quietly. An
+    absent or fully stale order leaves the default untouched. */
+export function orderedColumns(columns: string[], order: string[] | undefined): string[] {
+  if (!order || order.length === 0) return columns;
+  const lead: string[] = [];
+  const taken = new Set<string>();
+  for (const key of order) {
+    const canonical = canonicalColumn(columns, key);
+    if (canonical !== undefined && !taken.has(canonical)) {
+      lead.push(canonical);
+      taken.add(canonical);
+    }
+  }
+  if (lead.length === 0) return columns;
+  return [...lead, ...columns.filter((c) => !taken.has(c))];
 }
 
 /** The prop a board groups by: the saved pref when it still names a groupable

@@ -128,6 +128,12 @@ export const GLYPHS: Record<string, readonly string[]> = {
   ],
   database: ["M8 6c-2.8 0-5-.9-5-2s2.2-2 5-2 5 .9 5 2-2.2 2-5 2Z", "M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4", "M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"],
   chart: ["M3 13.5h10", "M4.5 13.5V8.8", "M8 13.5V4.5", "M11.5 13.5V6.8"],
+  grid: [
+    "M3.5 2.5h2.5a1 1 0 0 1 1 1v2.5a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Z",
+    "M10 2.5h2.5a1 1 0 0 1 1 1v2.5a1 1 0 0 1-1 1H10a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Z",
+    "M3.5 9h2.5a1 1 0 0 1 1 1v2.5a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1Z",
+    "M10 9h2.5a1 1 0 0 1 1 1v2.5a1 1 0 0 1-1 1H10a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1Z",
+  ],
   shirt: [
     "M10.7 2.5a2.7 2.7 0 0 1-5.4 0L3.6 3.3a1.3 1.3 0 0 0-.9 1.5l.5 2a.9.9 0 0 0 .9.7h.6V13a1.3 1.3 0 0 0 1.3 1.3h4A1.3 1.3 0 0 0 11.3 13V7.5h.6a.9.9 0 0 0 .9-.7l.5-2a1.3 1.3 0 0 0-.9-1.5L10.7 2.5Z",
   ],
@@ -301,6 +307,8 @@ const DASHBOARD_ICONS: Record<string, DbIcon> = {
   hub: { glyph: "home" },
   feed: { glyph: "inbox" },
   "music-work": { glyph: "folder" },
+  // the same check-square the task databases carry, untinted like its row
+  tasks: { glyph: "check-square" },
 };
 
 /** A dashboard note's icon, from its frontmatter props: an `icon:` value

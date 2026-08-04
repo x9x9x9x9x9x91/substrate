@@ -26,7 +26,8 @@ import {
 import { rollupColumns, rollupProps, withRollups } from "../lib/rollup";
 import { byFoldedKey, isBuiltinDateName, typeSchemaFor } from "../lib/schemalookup";
 import { buildEntryBody, buildEntryProps, homeFolderFor, mergeEntryProp } from "../lib/templates";
-import { boardGroupBy, canonicalViewPref, dbColumns, effectiveColumns, hiddenForLayout } from "../lib/dbcolumns";
+import { boardGroupBy, canonicalViewPref, dbColumns, effectiveColumns, hiddenForLayout, orderedColumns } from "../lib/dbcolumns";
+import { reorderIds } from "../lib/sidebar";
 import {
   bucketByProp,
   distinctNotes,
@@ -263,6 +264,7 @@ export default function DatabasePane({
       table_group_by: normalizedPref?.table_group_by,
       aggregations: normalizedPref?.aggregations,
       sorts: normalizedPref?.sorts,
+      col_order: normalizedPref?.col_order,
       hidden: normalizedPref?.hidden,
       hidden_per_layout: normalizedPref?.hidden_per_layout,
       widths: normalizedPref?.widths,
@@ -289,11 +291,19 @@ export default function DatabasePane({
     initialColumns?.length ? effectiveColumns({ columns: initialColumns }, columns) : null
   );
   // what actually renders in table/list: the pin's curated order (stale keys
-  // dropped quietly by the helper), or the union minus the db's hidden set
+  // dropped quietly by the helper), or the union minus the db's hidden set —
+  // then the drag order (SUB-949) over whichever set that produced. Ordering
+  // rides the pref in BOTH channels, so a pin reorders session-locally (its
+  // svPref) and lands the order in the pin's own `columns` on re-save, while
+  // a database persists it through views.json.
   const shown = useMemo(() => {
-    if (pinMode) return colSel ? effectiveColumns({ columns: colSel }, columns) : columns;
-    return columns.filter((c) => !hidden.has(c));
-  }, [pinMode, colSel, columns, hidden]);
+    const base = pinMode
+      ? colSel
+        ? effectiveColumns({ columns: colSel }, columns)
+        : columns
+      : columns.filter((c) => !hidden.has(c));
+    return orderedColumns(base, normalizedPref?.col_order);
+  }, [pinMode, colSel, columns, hidden, normalizedPref?.col_order]);
   // SUB-642: persist one layout's hidden set. The write materializes BOTH
   // layouts — a layout with no set of its own seeds from the flat `hidden`,
   // which the write then drops (the read-side migration made durable: once
@@ -436,16 +446,34 @@ export default function DatabasePane({
     window.addEventListener("mouseup", onUp);
   };
 
-  // Save-view capture: the curation, only when it differs from the default
-  // union — a plain save-with-all-columns writes no `columns` field. A pin
-  // saved off a database with hidden props inherits them as a shown-list.
-  const colCapture = pinMode
-    ? colSel && !(colSel.length === columns.length && colSel.every((c, i) => c === columns[i]))
-      ? colSel
-      : undefined
-    : hidden.size > 0
-      ? shown
-      : undefined;
+  /** SUB-949: header drag-reorder. The gesture starts on the header LABEL
+      (the 8px resize strip keeps its own mousedown, so the two never fight)
+      and the live drop target is a column key + a side — the 2px accent line
+      the thead paints between headers. Committed to the pref's `col_order`
+      on drop, which is the full rendered order INCLUDING columns the drag
+      didn't touch: a later-added prop then appends instead of jumping. */
+  const [colDrag, setColDrag] = useState<string | null>(null);
+  const [colDropAt, setColDropAt] = useState<{ key: string; after: boolean } | null>(null);
+  const endColDrag = () => {
+    setColDrag(null);
+    setColDropAt(null);
+  };
+  const dropColumn = (target: string, after: boolean) => {
+    const dragged = colDrag;
+    endColDrag();
+    if (!dragged || dragged === target) return;
+    const next = reorderIds(shown, dragged, target, after);
+    if (next.every((c, i) => c === shown[i])) return;
+    patchPref({ col_order: next });
+  };
+
+  // Save-view capture: the rendered column list, only when it differs from
+  // the default union — a plain save-with-all-columns-in-default-order writes
+  // no `columns` field. A pin saved off a database with hidden props inherits
+  // them as a shown-list; since SUB-949 a drag ORDER is a difference too, so
+  // the same one comparison captures both curation and order.
+  const colCapture =
+    shown.length === columns.length && shown.every((c, i) => c === columns[i]) ? undefined : shown;
   // the active curation for checkmarks and list subtitles; undefined = the
   // default union in both channels
   const curated = pinMode ? (colSel ? shown : undefined) : hidden.size > 0 ? shown : undefined;
@@ -2139,6 +2167,12 @@ export default function DatabasePane({
       cycleSort={cycleSort}
       startResize={startResize}
       resetWidth={resetWidth}
+      colDrag={colDrag}
+      setColDrag={setColDrag}
+      colDropAt={colDropAt}
+      setColDropAt={setColDropAt}
+      dropColumn={dropColumn}
+      endColDrag={endColDrag}
       colMenu={colMenu}
       setColMenu={setColMenu}
       setPropVisAt={setPropVisAt}

@@ -8,6 +8,7 @@ import {
   dbColumns,
   effectiveColumns,
   hiddenForLayout,
+  orderedColumns,
 } from "./dbcolumns.ts";
 import { foldedPropKey, foldedPropStr } from "./types.ts";
 import type { NoteMeta } from "./types.ts";
@@ -190,5 +191,41 @@ test("effectiveColumns: the view's order wins, unknown keys drop out quietly", (
     effectiveColumns({ columns: ["mood", "staus"] }, union),
     union,
     "nothing valid left → the default union, never a column-less table"
+  );
+});
+
+test("orderedColumns: a drag order leads, later props keep their default slot (SUB-949)", () => {
+  const union = ["status", "cat#", "artist", "released"];
+  assert.equal(orderedColumns(union, undefined), union, "no order → untouched");
+  assert.equal(orderedColumns(union, []), union, "empty order → untouched");
+  assert.deepEqual(
+    orderedColumns(union, ["artist", "status", "cat#", "released"]),
+    ["artist", "status", "cat#", "released"],
+    "a full order is applied verbatim"
+  );
+  assert.deepEqual(
+    orderedColumns(union, ["released", "artist"]),
+    ["released", "artist", "status", "cat#"],
+    "a prop added after the drag appends in its default position, never vanishes"
+  );
+  assert.deepEqual(
+    orderedColumns(union, ["Artist", "STATUS"]),
+    ["artist", "status", "cat#", "released"],
+    "persisted casing resolves to the column's canonical spelling"
+  );
+  assert.deepEqual(
+    orderedColumns(union, ["artist", "artist", "status"]),
+    ["artist", "status", "cat#", "released"],
+    "a duplicated key is taken once"
+  );
+  assert.deepEqual(
+    orderedColumns(union, ["mood", "artist", "staus"]),
+    ["artist", "status", "cat#", "released"],
+    "renamed/typo'd keys drop out quietly"
+  );
+  assert.equal(
+    orderedColumns(union, ["mood", "staus"]),
+    union,
+    "a fully stale order leaves the default untouched"
   );
 });

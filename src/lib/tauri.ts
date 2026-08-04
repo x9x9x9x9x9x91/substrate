@@ -4472,6 +4472,9 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // SUB-326: the remembered sort and hidden entries follow the rename too
       if (rnPref?.sorts) rnPref.sorts = rnPref.sorts.map((s) => (s.key.toLowerCase() === oldName.toLowerCase() ? { ...s, key: newName } : s));
       if (rnPref?.hidden) rnPref.hidden = rnPref.hidden.map((h) => (h.toLowerCase() === oldName.toLowerCase() ? newName : h));
+      // SUB-949: the table drag order follows the rename too
+      if (rnPref?.col_order)
+        rnPref.col_order = rnPref.col_order.map((c) => (c.toLowerCase() === oldName.toLowerCase() ? newName : c));
       // SUB-642: per-layout hidden entries follow the rename too
       if (rnPref?.hidden_per_layout?.table)
         rnPref.hidden_per_layout.table = rnPref.hidden_per_layout.table.map((h) =>
@@ -4515,6 +4518,11 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       if (clPref?.hidden) {
         clPref.hidden = clPref.hidden.filter((h) => h.toLowerCase() !== prop.toLowerCase());
         if (clPref.hidden.length === 0) delete clPref.hidden;
+      }
+      // SUB-949: the prop drops out of the table drag order too
+      if (clPref?.col_order) {
+        clPref.col_order = clPref.col_order.filter((c) => c.toLowerCase() !== prop.toLowerCase());
+        if (clPref.col_order.length === 0) delete clPref.col_order;
       }
       // SUB-642: per-layout sets lose the prop too — emptied sets collapse to
       // absent, and a sets object with nothing left leaves the pref entirely
@@ -4602,6 +4610,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const hidden = ((args?.hidden as string[] | null) ?? undefined)
         ?.map((h) => h.trim())
         .filter(Boolean);
+      // SUB-949: the drag order sanitizes like the hidden list
+      const colOrder = (((args?.colOrder ?? args?.col_order) as string[] | null) ?? undefined)
+        ?.map((c) => c.trim())
+        .filter(Boolean);
       // SUB-642: per-layout hidden sets sanitize like the flat list — entries
       // trim, empties drop, an empty set collapses to absent, and a sets
       // object with nothing left leaves the pref entirely
@@ -4632,6 +4644,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         aggregations:
           (args?.aggregations as ViewsConfig[string]["aggregations"] | null) ?? undefined,
         sorts: sorts?.length ? sorts : undefined,
+        col_order: colOrder?.length ? colOrder : undefined,
         hidden: hidden?.length ? hidden : undefined,
         widths: Object.keys(widths).length ? widths : undefined,
         wrap: wrap?.length ? wrap : undefined,

@@ -508,11 +508,11 @@ hidden surfaces (`Journal/`, `Dashboards/`) have no tree row to nest under, so
 those always stay section rows.
 
 Sidebar icon (SUB-391): each dashboard row renders a curated per-kind glyph
-(`src/lib/dbicons.ts` DASHBOARD_ICONS — food/metrics/yield-apr/hub/feed/
-music-work, plus
-any machine-specific kinds this build carries); an `icon:` prop overrides it (a
-curated glyph id, anything else treated as an emoji), and kinds without a mark
-keep the generic chart glyph.
+(`src/lib/dbicons.ts` DASHBOARD_ICONS — `food`, `metrics`, `yield-apr`, `hub`,
+`feed`, `music-work`, `tasks`,
+plus any machine-specific kinds this build carries); an `icon:` prop overrides
+it (a curated glyph id, anything else treated as an emoji), and kinds without a
+mark keep the generic chart glyph.
 
 Dispatch (`src/components/DashboardPane.tsx` `DashboardBody`) — a fixed key set.
 These public kinds are dispatched: `metrics` → the metrics cards renderer (§5.4);

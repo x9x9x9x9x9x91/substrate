@@ -241,6 +241,7 @@ test("dashboardIcon: icon prop wins, then the per-kind mark, else undefined (SUB
     "hub",
     "feed",
     "music-work",
+    "tasks",
   ]) {
     const d = dashboardIcon({ dashboard: kind });
     assert.ok(d?.glyph && GLYPHS[d.glyph], `${kind} glyph exists`);

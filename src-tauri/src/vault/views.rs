@@ -68,6 +68,13 @@ pub struct ViewPref {
     /// unsorted; a saved-view pin's own sort still wins inside the pin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sorts: Option<Vec<SavedViewSort>>,
+    /// Table column order (SUB-949): the ordered prop keys a header drag
+    /// built. Keys naming no current column are ignored on read, and a prop
+    /// added after the drag appends in its default position — so the list is
+    /// a preference, not the column set. The Name column is frozen first and
+    /// never appears here. Absent = the default order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub col_order: Option<Vec<String>>,
     /// Props hidden from the database's table/list columns (SUB-326). Absent =
     /// everything shows. Since SUB-642 this flat list is only the SEED a
     /// layout without its own `hidden_per_layout` set falls back to on read —
@@ -557,6 +564,7 @@ impl Engine {
         table_group_by: Option<&str>,
         aggregations: Option<std::collections::BTreeMap<String, String>>,
         sorts: Option<Vec<SavedViewSort>>,
+        col_order: Option<Vec<String>>,
         hidden: Option<Vec<String>>,
         widths: Option<std::collections::BTreeMap<String, u32>>,
         wrap: Option<Vec<String>>,
@@ -580,6 +588,16 @@ impl Engine {
         }
         // empty lists collapse to absent so views.json never carries `[]` keys
         let sorts = sorts.filter(|l| !l.is_empty());
+        // the drag order (SUB-949) sanitizes like the hidden list: entries
+        // trim, empties drop, an emptied order collapses to absent
+        let col_order = col_order
+            .map(|l| {
+                l.into_iter()
+                    .map(|c| c.trim().to_string())
+                    .filter(|c| !c.is_empty())
+                    .collect::<Vec<_>>()
+            })
+            .filter(|l: &Vec<String>| !l.is_empty());
         let hidden = hidden
             .map(|l| {
                 l.into_iter()
@@ -642,6 +660,7 @@ impl Engine {
             table_group_by: table_group_by.map(String::from),
             aggregations,
             sorts,
+            col_order,
             hidden,
             widths,
             wrap,
@@ -1159,38 +1178,38 @@ mod tests {
         assert!(e.views().is_empty(), "no views file yet");
 
         let map =
-            e.set_view_pref("release", "table", None, None, None, None, None, None, None, None, None).unwrap();
+            e.set_view_pref("release", "table", None, None, None, None, None, None, None, None, None, None).unwrap();
         assert_eq!(map["release"].view, "table");
         assert_eq!(map["release"].group_by, None);
         assert!(dir.join(ViewPref::REL_PATH).is_file(), ".vault/views.json created");
 
         let map = e
-            .set_view_pref("release", "board", Some("status"), None, None, None, None, None, None, None, None)
+            .set_view_pref("release", "board", Some("status"), None, None, None, None, None, None, None, None, None)
             .unwrap();
         assert_eq!(map["release"].view, "board");
         assert_eq!(map["release"].group_by.as_deref(), Some("status"));
 
         let map = e
-            .set_view_pref("release", "gallery", None, None, None, None, None, None, None, None, None)
+            .set_view_pref("release", "gallery", None, None, None, None, None, None, None, None, None, None)
             .unwrap();
         assert_eq!(map["release"].view, "gallery");
 
         // a second database merges in without clobbering the first
         let map =
-            e.set_view_pref("gear", "list", None, None, None, None, None, None, None, None, None).unwrap();
+            e.set_view_pref("gear", "list", None, None, None, None, None, None, None, None, None, None).unwrap();
         assert_eq!(map["gear"].view, "list");
         assert_eq!(map["release"].view, "gallery");
         assert_eq!(e.views().len(), 2, "persisted across reads");
 
         assert!(
-            e.set_view_pref("gear", "grid", None, None, None, None, None, None, None, None, None).is_err(),
+            e.set_view_pref("gear", "grid", None, None, None, None, None, None, None, None, None, None).is_err(),
             "unknown layout rejected"
         );
 
         // SUB-184: the table's grouping key is its own field, independent of
         // the board's, and lands in the file
         let map = e
-            .set_view_pref("release", "table", None, Some("category"), None, None, None, None, None, None, None)
+            .set_view_pref("release", "table", None, Some("category"), None, None, None, None, None, None, None, None)
             .unwrap();
         assert_eq!(map["release"].table_group_by.as_deref(), Some("category"));
         assert_eq!(map["release"].group_by, None, "independent of the board key");
@@ -1213,7 +1232,7 @@ mod tests {
             ("artist".to_string(), "count".to_string()),
         ]);
         let map = e
-            .set_view_pref("release", "table", None, None, Some(aggs), None, None, None, None, None, None)
+            .set_view_pref("release", "table", None, None, Some(aggs), None, None, None, None, None, None, None)
             .unwrap();
         assert_eq!(map["release"].aggregations.as_ref().unwrap()["tracks"], "sum");
         // on-disk JSON carries the key, and a re-read sees it too
@@ -1222,7 +1241,7 @@ mod tests {
         assert_eq!(e.views()["release"].aggregations.as_ref().unwrap()["artist"], "count");
         // cleared by passing None (key omitted from the file again)
         let map =
-            e.set_view_pref("release", "table", None, None, None, None, None, None, None, None, None).unwrap();
+            e.set_view_pref("release", "table", None, None, None, None, None, None, None, None, None, None).unwrap();
         assert_eq!(map["release"].aggregations, None);
         let raw = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
         assert!(!raw.contains("aggregations"), "{}", raw);
@@ -1246,6 +1265,7 @@ mod tests {
                 None,
                 None,
                 Some(sorts),
+                None,
                 Some(hidden),
                 None,
                 None,
@@ -1280,6 +1300,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 None
             )
             .is_err(),
@@ -1295,6 +1316,7 @@ mod tests {
                 None,
                 None,
                 Some(vec![]),
+                None,
                 Some(vec![]),
                 None,
                 None,
@@ -1320,7 +1342,7 @@ mod tests {
             list: Some(vec!["artist".to_string()]),
         };
         let map = e
-            .set_view_pref("release", "table", None, None, None, None, None, None, None, None, Some(hpl))
+            .set_view_pref("release", "table", None, None, None, None, None, None, None, None, None, Some(hpl))
             .unwrap();
         let got = map["release"].hidden_per_layout.as_ref().unwrap();
         assert_eq!(
@@ -1353,6 +1375,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 Some(HiddenPerLayout { table: Some(vec!["artist".to_string()]), list: None }),
             )
             .unwrap();
@@ -1365,6 +1388,7 @@ mod tests {
             .set_view_pref(
                 "release",
                 "table",
+                None,
                 None,
                 None,
                 None,
@@ -1391,6 +1415,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 Some(vec!["cat#".to_string()]),
                 None,
                 None,
@@ -1400,6 +1425,64 @@ mod tests {
             .unwrap();
         assert_eq!(map["release"].hidden.as_ref().unwrap(), &vec!["cat#".to_string()]);
         assert_eq!(map["release"].hidden_per_layout, None, "no sets written, no key");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// SUB-949: the table drag order rides views.json like the hidden list —
+    /// entries trim, empties drop, an emptied order leaves the file entirely.
+    #[test]
+    fn views_col_order_roundtrip() {
+        let (e, dir) = temp_vault("viewscolorder");
+        let map = e
+            .set_view_pref(
+                "release",
+                "table",
+                None,
+                None,
+                None,
+                None,
+                Some(vec!["artist".to_string(), " cat# ".to_string(), "  ".to_string()]),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            map["release"].col_order.as_ref().unwrap(),
+            &vec!["artist".to_string(), "cat#".to_string()],
+            "entries trimmed, empties dropped"
+        );
+        // on-disk JSON carries the key; a re-read sees the same order
+        let raw = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
+        assert!(raw.contains("\"col_order\""), "{}", raw);
+        assert_eq!(
+            e.views()["release"].col_order.as_ref().unwrap(),
+            &vec!["artist".to_string(), "cat#".to_string()],
+            "re-read sees the order"
+        );
+
+        // an order that sanitizes to nothing collapses to absent — no key
+        let map = e
+            .set_view_pref(
+                "release",
+                "table",
+                None,
+                None,
+                None,
+                None,
+                Some(vec!["  ".to_string()]),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(map["release"].col_order, None, "emptied order — no key written");
+        let raw = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
+        assert!(!raw.contains("col_order"), "{}", raw);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1419,6 +1502,7 @@ mod tests {
             .set_view_pref(
                 "release",
                 "table",
+                None,
                 None,
                 None,
                 None,
@@ -1454,6 +1538,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 Some(std::collections::BTreeMap::new()),
                 Some(vec![]),
                 None,
@@ -1473,20 +1558,20 @@ mod tests {
     fn view_pref_grid_override_persists_and_absents() {
         let (e, dir) = temp_vault("viewsgrid");
         let map = e
-            .set_view_pref("release", "table", None, None, None, None, None, None, None, Some(false), None)
+            .set_view_pref("release", "table", None, None, None, None, None, None, None, None, Some(false), None)
             .unwrap();
         assert_eq!(map["release"].grid, Some(false));
         let raw = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
         assert!(raw.contains("\"grid\": false"), "{}", raw);
 
         let map = e
-            .set_view_pref("release", "table", None, None, None, None, None, None, None, Some(true), None)
+            .set_view_pref("release", "table", None, None, None, None, None, None, None, None, Some(true), None)
             .unwrap();
         assert_eq!(map["release"].grid, Some(true));
 
         // back to follow-the-global: the key leaves the file
         let map = e
-            .set_view_pref("release", "table", None, None, None, None, None, None, None, None, None)
+            .set_view_pref("release", "table", None, None, None, None, None, None, None, None, None, None)
             .unwrap();
         assert_eq!(map["release"].grid, None);
         let raw = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
@@ -1502,7 +1587,7 @@ mod tests {
         assert!(e.views().is_empty());
         // …and a fresh set recovers by overwriting the garbage
         let map =
-            e.set_view_pref("release", "table", None, None, None, None, None, None, None, None, None).unwrap();
+            e.set_view_pref("release", "table", None, None, None, None, None, None, None, None, None, None).unwrap();
         assert_eq!(map["release"].view, "table");
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1574,7 +1659,7 @@ mod tests {
         assert_eq!(back.keys["mod+5"], "folder:Projects");
         assert_eq!(e.sidebar_order().keys["mod+5"], "folder:Projects");
         // view prefs written afterwards keep the sidebar key, and vice versa
-        e.set_view_pref("release", "board", Some("status"), None, None, None, None, None, None, None, None)
+        e.set_view_pref("release", "board", Some("status"), None, None, None, None, None, None, None, None, None)
             .unwrap();
         assert_eq!(e.sidebar_order().databases, vec!["gear", "release"]);
         assert_eq!(e.sidebar_order().collapsed, vec!["folders", "dbpins:release"]);
@@ -1884,7 +1969,7 @@ mod tests {
         assert_eq!(views[1].name, "In review");
 
         // survives a fresh read, alongside db prefs and the sidebar order
-        e.set_view_pref("release", "board", Some("status"), None, None, None, None, None, None, None, None)
+        e.set_view_pref("release", "board", Some("status"), None, None, None, None, None, None, None, None, None)
             .unwrap();
         e.set_sidebar_order(&SidebarOrder {
             databases: vec!["release".into()],
@@ -2014,7 +2099,7 @@ mod tests {
         assert!(e.saved_views().is_empty(), "rejected writes never landed");
 
         // garbage under $views reads as empty instead of poisoning the file
-        e.set_view_pref("release", "table", None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref("release", "table", None, None, None, None, None, None, None, None, None, None).unwrap();
         let raw = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
         let mut map: serde_json::Map<String, serde_json::Value> =
             serde_json::from_str(&raw).unwrap();
@@ -2067,7 +2152,7 @@ mod tests {
         assert_eq!(icon.tint.as_deref(), Some("pink"));
 
         // persisted across reads; db prefs ride along untouched
-        e.set_view_pref("release", "table", None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref("release", "table", None, None, None, None, None, None, None, None, None, None).unwrap();
         assert_eq!(e.folder_meta().len(), 2);
         assert_eq!(e.views()["release"].view, "table");
 
@@ -2113,7 +2198,7 @@ mod tests {
             Some(DbIcon { glyph: None, emoji: Some("🌱".into()), tint: None }),
         )
         .unwrap();
-        e.set_view_pref("release", "board", None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref("release", "board", None, None, None, None, None, None, None, None, None, None).unwrap();
         let views = e.views();
         assert!(views.contains_key("release"));
         assert!(!views.contains_key(FolderMeta::KEY), "reserved key never reads as a db pref");
@@ -2177,7 +2262,7 @@ mod tests {
             r#"{"books": {"view": "table", "futureThing": {"a": 1}}, "$futureTop": [2]}"#,
         )
         .unwrap();
-        e.set_view_pref("books", "board", None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref("books", "board", None, None, None, None, None, None, None, None, None, None).unwrap();
         let after: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap())
                 .unwrap();

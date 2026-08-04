@@ -11188,6 +11188,26 @@ button.cal-ag-day {
   background: var(--border-strong);
 }
 
+/* SUB-949: header drag-reorder. The label is the grab area (the resize strip
+   above keeps its own 8px edge), the dragged header fades, and the drop slot
+   paints the sidebar's insertion line — a 2px accent rule on the side the
+   pointer is over, inset so a sticky header's own background can't cover it. */
+.db-th-label {
+  cursor: grab;
+}
+
+.db-th-dragging {
+  opacity: 0.5;
+}
+
+.db-th-drop-before {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.db-th-drop-after {
+  box-shadow: inset -2px 0 0 var(--accent);
+}
+
 /* while a drag is live the whole app keeps the resize cursor and stops
    selecting text — the handle is thin, the pointer drifts off it instantly */
 body.col-resizing,

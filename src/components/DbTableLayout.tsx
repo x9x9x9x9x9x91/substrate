@@ -6,7 +6,7 @@ import { audioFileTarget, conversionNote, displayColLabel, displayValue } from "
 import type { FxResolver } from "../lib/formula";
 import { contactHref } from "../lib/url";
 import { propList, propListValue, toggleValue, type RelationCandidate } from "../lib/relation";
-import { NOTE_DRAG_MIME } from "../lib/sidebar";
+import { COL_DRAG_MIME, NOTE_DRAG_MIME } from "../lib/sidebar";
 import { missingCls } from "../lib/mounts";
 import { AudioPropButton } from "./AudioPropButton";
 import DateMenu from "./DateMenu";
@@ -60,6 +60,12 @@ export default function DbTableLayout({
   cycleSort,
   startResize,
   resetWidth,
+  colDrag,
+  setColDrag,
+  colDropAt,
+  setColDropAt,
+  dropColumn,
+  endColDrag,
   colMenu,
   setColMenu,
   setPropVisAt,
@@ -151,6 +157,14 @@ export default function DbTableLayout({
   cycleSort: (key: string, additive: boolean) => void;
   startResize: (key: string, e: React.MouseEvent) => void;
   resetWidth: (key: string) => void;
+  /** SUB-949 column drag-reorder: the key being dragged, the live drop slot
+      (the 2px accent line), and the three transitions the headers drive. */
+  colDrag: string | null;
+  setColDrag: (v: string | null) => void;
+  colDropAt: { key: string; after: boolean } | null;
+  setColDropAt: (v: { key: string; after: boolean } | null) => void;
+  dropColumn: (target: string, after: boolean) => void;
+  endColDrag: () => void;
   colMenu: { col: string; anchor: AnchorRect } | null;
   setColMenu: (v: { col: string; anchor: AnchorRect } | null) => void;
   setPropVisAt: (v: AnchorRect | null) => void;
@@ -315,6 +329,52 @@ export default function DbTableLayout({
     </tr>;
   };
 
+  /* SUB-949: header drag-reorder. Only the LABEL button is draggable — the
+     8px resize strip keeps its own mousedown, so a grab near the edge still
+     resizes and never starts a reorder. The whole th is the drop zone (the
+     pointer lands anywhere across a wide header), and the side is decided by
+     the pointer's half, matching the sidebar's reorder gesture. The Name
+     column is frozen first: no drag source, no drop target. */
+  const colDragProps = (c: string) => ({
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      e.dataTransfer.setData(COL_DRAG_MIME, c);
+      e.dataTransfer.effectAllowed = "move";
+      setColDrag(c);
+    },
+    onDragEnd: endColDrag,
+  });
+  const sideOf = (e: React.DragEvent) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return e.clientX > r.left + r.width / 2;
+  };
+  const colDropProps = (c: string) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (!colDrag || !e.dataTransfer.types.includes(COL_DRAG_MIME)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      const after = sideOf(e);
+      if (colDropAt?.key !== c || colDropAt.after !== after) setColDropAt({ key: c, after });
+    },
+    onDrop: (e: React.DragEvent) => {
+      if (!colDrag || !e.dataTransfer.types.includes(COL_DRAG_MIME)) return;
+      e.preventDefault();
+      dropColumn(c, sideOf(e));
+    },
+  });
+  // the 2px accent insertion line, painted on the header the pointer is over.
+  // A drop that would land the column back where it started paints nothing —
+  // the line would promise a move that the commit correctly refuses.
+  const colDropCls = (c: string) => {
+    if (!colDrag || colDropAt?.key !== c) return "";
+    const i = shown.indexOf(colDrag);
+    const j = shown.indexOf(c);
+    if (c === colDrag) return "";
+    if (colDropAt.after && j === i - 1) return "";
+    if (!colDropAt.after && j === i + 1) return "";
+    return colDropAt.after ? " db-th-drop-after" : " db-th-drop-before";
+  };
+
   // SUB-272: the bulk bar's column editor reuses the single-cell machinery
   // (SelectMenu/DateMenu/RelationMenu/FileMenu), anchored at the bar button
   // it was opened from — near the bottom edge every menu flips up on its own.
@@ -391,12 +451,18 @@ export default function DbTableLayout({
                 />
               </th>
               {shown.map((c) => (
-                <th key={c}>
+                <th
+                  key={c}
+                  className={`${colDrag === c ? "db-th-dragging" : ""}${colDropCls(c)}`.trim() || undefined}
+                  {...colDropProps(c)}
+                >
                   <button
                     type="button"
                     className="db-th-label"
                     aria-label={`Sort by ${displayColLabel(c)}`}
+                    title={`${displayColLabel(c)} — click to sort, drag to reorder`}
                     onClick={(e) => cycleSort(c, e.shiftKey)}
+                    {...colDragProps(c)}
                   >
                     {displayColLabel(c)} {sortArrow(c)}
                   </button>

@@ -48,22 +48,14 @@ function fail(folder: string, text: string): string {
 
 // ---------- built-ins ----------
 
-test("built-ins: every kind DashboardBody dispatches, plus reserved charts", () => {
-  // the machine-specific kinds only exist in builds that carry them, so this
-  // list strips exactly where the constant does — set equality then holds on
-  // both sides of the mirror.
-  const expected = [
-    "metrics",
-    "yield-apr",
-    "hub",
-    "food",
-    "feed",
-    "music-work",
-    "tasks",
-    "charts",
-  ];
-  for (const k of expected) assert.ok(BUILT_IN_KINDS.has(k), `${k} should be a built-in`);
-  assert.equal(BUILT_IN_KINDS.size, expected.length);
+test("built-ins: the set is non-empty and shadows nothing a vault could name", () => {
+  // The contents used to be a second hand-typed list here, kept in sync by
+  // hand with the constant, the dispatch chain, the icon map and two docs.
+  // `scripts/check-kinds.ts` (SUB-995) re-derives all of those from source
+  // and fails `npm test` on any divergence, so the copy is gone: this test
+  // keeps only what the drift gate cannot know — that a plausible vault
+  // folder name is NOT reserved, so bundles are still installable.
+  assert.ok(BUILT_IN_KINDS.size > 0);
   assert.equal(BUILT_IN_KINDS.has("gear-log"), false);
 });
 

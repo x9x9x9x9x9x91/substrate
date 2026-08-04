@@ -289,6 +289,12 @@ export interface ViewPref {
       strips the table. Board/gallery have no curation UI and never carry a
       set. */
   hidden_per_layout?: HiddenPerLayout;
+  /** table column order (SUB-949) — the ordered prop keys a header drag
+      builds. Keys naming no column are ignored; a prop added after the drag
+      appends after the ordered ones in its default `dbColumns` position.
+      The Name column is frozen first and never appears here. Absent = the
+      default order. */
+  col_order?: string[];
   /** table column widths in px (SUB-404), prop → width; the reserved `title`
       key sizes the Name column. Absent = every column auto-sizes. */
   widths?: Record<string, number>;

@@ -1099,6 +1099,16 @@ impl Engine {
                         }
                     }
                 }
+                // the table drag order follows the rename too (SUB-949) — a
+                // stale key would only drop the column back to its default slot
+                if let Some(order) = pref.col_order.as_mut() {
+                    for c in order.iter_mut() {
+                        if folded_eq(c, old) {
+                            *c = new.to_string();
+                            views_dirty = true;
+                        }
+                    }
+                }
                 if let Some(hidden) = pref.hidden.as_mut() {
                     for h in hidden.iter_mut() {
                         if folded_eq(h, old) {
@@ -1236,6 +1246,19 @@ impl Engine {
                         views_dirty = true;
                     }
                     pref.sorts = if kept.is_empty() { None } else { Some(kept) };
+                }
+                // the prop drops out of the table drag order too (SUB-949);
+                // an emptied order collapses to None like the lists above
+                if let Some(order) = pref.col_order.take() {
+                    let before = order.len();
+                    let kept: Vec<String> = order
+                        .into_iter()
+                        .filter(|c| !folded_eq(c, prop))
+                        .collect();
+                    if kept.len() != before {
+                        views_dirty = true;
+                    }
+                    pref.col_order = if kept.is_empty() { None } else { Some(kept) };
                 }
                 if let Some(hidden) = pref.hidden.take() {
                     let before = hidden.len();
@@ -1484,6 +1507,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert_eq!(views.keys().collect::<Vec<_>>(), [&"Ledger"]);
@@ -1634,7 +1658,7 @@ mod tests {
             None,
         )
         .unwrap();
-        e.set_view_pref("books", "table", None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref("books", "table", None, None, None, None, None, None, None, None, None, None).unwrap();
         e.set_sidebar_order(&SidebarOrder {
             dashboards: vec![],
             databases: vec!["books".into(), "films".into()],
@@ -1912,6 +1936,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -1996,6 +2021,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -2041,7 +2067,7 @@ mod tests {
             ("price".to_string(), "sum".to_string()),
             ("manual".to_string(), "count".to_string()),
         ]);
-        e.set_view_pref("books", "table", None, None, Some(aggs), None, None, None, None, None, None).unwrap();
+        e.set_view_pref("books", "table", None, None, Some(aggs), None, None, None, None, None, None, None).unwrap();
 
         // the key moves with the rename and keeps its kind; unrelated entries stay
         e.rename_prop("books", "price", "cost").unwrap();
@@ -2490,7 +2516,7 @@ mod tests {
     #[test]
     fn clear_prop_reports_partial_count_when_a_note_fails() {
         let (mut e, dir) = vault_with_poisoned_note("cp-partial");
-        e.set_view_pref("books", "board", Some("author"), None, None, None, None, None, None, None, None)
+        e.set_view_pref("books", "board", Some("author"), None, None, None, None, None, None, None, None, None)
             .unwrap();
 
         let sweep = e.clear_prop("books", "author", false, true).unwrap();
@@ -2602,7 +2628,7 @@ mod tests {
             ("price".to_string(), "sum".to_string()),
             ("manual".to_string(), "count".to_string()),
         ]);
-        e.set_view_pref("books", "table", None, None, Some(aggs), None, None, None, None, None, None).unwrap();
+        e.set_view_pref("books", "table", None, None, Some(aggs), None, None, None, None, None, None, None).unwrap();
 
         // clearing the prop drops its entry; unrelated entries stay
         e.clear_prop("books", "price", false, true).unwrap();
@@ -3701,7 +3727,7 @@ mod tests {
         );
 
         // the rest of the vault is unaffected
-        e.set_view_pref("books", "board", None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref("books", "board", None, None, None, None, None, None, None, None, None, None).unwrap();
         assert_eq!(e.views()["books"].view, "board");
         e.create("Dune", "Inbox", Some("books")).unwrap();
         let _ = fs::remove_dir_all(&dir);
@@ -4206,6 +4232,7 @@ mod tests {
             "board",
             Some("author"),
             Some("author"),
+            None,
             None,
             None,
             None,

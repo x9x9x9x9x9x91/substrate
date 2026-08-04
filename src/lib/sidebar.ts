@@ -10,6 +10,12 @@ export const DB_DRAG_MIME = "application/x-substrate-db";
 /** dataTransfer MIME carrying {section,id} while dragging a sidebar item to reorder. */
 export const SIDE_DRAG_MIME = "application/x-substrate-side";
 
+/** dataTransfer MIME carrying a prop key while dragging a database table header
+    to reorder its column (SUB-949). Its own MIME so a header only ever accepts
+    another header — a note or key chip dragged across the table finds no drop
+    target there. */
+export const COL_DRAG_MIME = "application/x-substrate-col";
+
 /** dataTransfer MIME carrying a key token ("mod+5") while dragging a key chip
     between the key HUD and a sidebar destination row (SUB-467). Its own MIME so
     a destination row can host it alongside the note/db drop and the reorder

@@ -763,6 +763,23 @@ mod tests {
         }
     }
 
+    /// The day and time a timed event carrying `instant` (UTC) is shown at.
+    ///
+    /// A timed event renders in the VIEWER's zone, not the feed's: a Berlin
+    /// meeting read on a New York machine reads as its New York wall time,
+    /// like every other calendar. So the expectation has to be the same
+    /// function of the host zone the renderer is — spelling "09:30" into the
+    /// test only passes on a Berlin host (SUB-1022). Anchoring on the UTC
+    /// instant keeps the assertion real: the feed's TZID and the recurrence
+    /// still have to land on exactly this moment.
+    fn shown_at(instant: chrono::DateTime<chrono::Utc>) -> (String, String) {
+        let local = instant.with_timezone(&Local);
+        (
+            local.format("%Y-%m-%d").to_string(),
+            format!("{:02}:{:02}", local.hour(), local.minute()),
+        )
+    }
+
     #[test]
     fn parses_all_day_timed_spans_and_recurrence_in_window() {
         let raw = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nX-WR-TIMEZONE:Europe/Berlin\r\nBEGIN:VEVENT\r\nUID:all\r\nDTSTART;VALUE=DATE:20260803\r\nDTEND;VALUE=DATE:20260805\r\nSUMMARY:Festival\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:weekly\r\nDTSTART;TZID=Europe/Berlin:20260803T093000\r\nDTEND;TZID=Europe/Berlin:20260803T103000\r\nRRULE:FREQ=WEEKLY;COUNT=3\r\nSUMMARY:Standup\r\nLOCATION:Studio\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
@@ -779,8 +796,12 @@ mod tests {
         assert!(all.all_day);
         let weekly: Vec<_> = events.iter().filter(|e| e.title == "Standup").collect();
         assert_eq!(weekly.len(), 3);
-        assert_eq!(weekly[0].start_time.as_deref(), Some("09:30"));
-        assert_eq!(weekly[0].end_time.as_deref(), Some("10:30"));
+        // 09:30–10:30 Berlin on 2026-08-03 is CEST (UTC+2), so 07:30–08:30Z.
+        let (day, start) = shown_at(chrono::Utc.with_ymd_and_hms(2026, 8, 3, 7, 30, 0).unwrap());
+        let (_, end) = shown_at(chrono::Utc.with_ymd_and_hms(2026, 8, 3, 8, 30, 0).unwrap());
+        assert_eq!(weekly[0].start_day, day);
+        assert_eq!(weekly[0].start_time.as_deref(), Some(start.as_str()));
+        assert_eq!(weekly[0].end_time.as_deref(), Some(end.as_str()));
         assert_eq!(weekly[0].location.as_deref(), Some("Studio"));
     }
 
