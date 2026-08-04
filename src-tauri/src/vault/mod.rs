@@ -17,6 +17,11 @@ pub struct NoteMeta {
     pub props: serde_json::Map<String, serde_json::Value>,
     pub updated_ms: u64,
     pub excerpt: String,
+    /// The note's tag set (SUB-818): inline `#hashtags` from the body unioned
+    /// with the `tags:` prop, deduplicated case-insensitively. Computed at
+    /// index time so collections, autocomplete and the sidebar's tag folders
+    /// are watcher-live and cost nothing at query time.
+    pub tags: Vec<String>,
 }
 
 /// What a guarded property write returns (SUB-477): the post-write meta every
@@ -73,6 +78,7 @@ pub(crate) fn note_from_history(
         props: props.clone(),
         updated_ms: snapshot_ms,
         excerpt: make_excerpt(body),
+        tags: tags::note_tags(&props, body),
     };
     Some((meta, NoteContent { body: body.to_string(), props }))
 }
@@ -695,7 +701,7 @@ fn is_false(b: &bool) -> bool {
 /// colors). Glyph ids name glyphs in the app's built-in set; an unknown id
 /// falls back to the auto-glyph. Stored on the type's entry in
 /// `.vault/schema.json` under the reserved `icon` key.
-#[derive(Clone, Debug, Default, Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, serde::Deserialize)]
 pub struct DbIcon {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub glyph: Option<String>,
@@ -1119,6 +1125,7 @@ impl Engine {
                 stmt.execute(rusqlite::params![rel, title, strip_machine_fences(body)]).ok();
             }
         }
+        let tags = tags::note_tags(&props, body);
         let meta = NoteMeta {
             path: rel.clone(),
             stem,
@@ -1127,6 +1134,7 @@ impl Engine {
             props,
             updated_ms,
             excerpt: make_excerpt(body),
+            tags,
         };
         self.notes.insert(rel, meta);
     }
@@ -1311,6 +1319,7 @@ impl Engine {
         let folder =
             Path::new(rel).parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
         let updated_ms = fs::metadata(&abs).and_then(|m| m.modified()).map(now_ms).unwrap_or(0);
+        let tags = tags::note_tags(&props, body);
         Ok(NoteMeta {
             path: rel.to_string(),
             stem,
@@ -1319,6 +1328,7 @@ impl Engine {
             props,
             updated_ms,
             excerpt: make_excerpt(body),
+            tags,
         })
     }
 
@@ -2216,6 +2226,10 @@ mod views;
 pub use views::{FolderMeta, HiddenPerLayout, SavedView, SavedViewSort, SidebarOrder, ViewPref};
 use views::parse_view_fence;
 
+mod tags;
+#[allow(unused_imports)]
+pub use tags::{TagCount, TagFolder, TagMatch};
+
 mod schema;
 // `PROP_KINDS` / `NUMBER_FORMATS` are consumed by the schema code itself; the
 // re-exports keep `vault::<T>` resolving as it did before the split.
@@ -2257,7 +2271,7 @@ mod seed;
 pub use seed::seed_new_vault;
 // `AGENTS_REL_PATH` is consumed through the façade by the property tests.
 #[cfg_attr(not(test), allow(unused_imports))]
-pub(crate) use seed::{set_terminal_command, AGENTS_REL_PATH};
+pub(crate) use seed::{seed_hash, set_terminal_command, AGENTS_REL_PATH};
 use seed::{seed_agent_files, seed_settings};
 
 mod watch;

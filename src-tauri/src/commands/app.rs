@@ -157,12 +157,13 @@ pub(crate) enum DemoPrep {
 /// user added (SUB-645). The pre-SUB-645 "delete the destination, re-copy"
 /// reset threw away demo assets on every re-click of "Try the demo vault".
 ///
-/// - `dest` exists at all → `Existing`, left exactly as found. This arm needs
-///   no bundled source, so an already-made demo opens even from a build
-///   without one.
+/// - `dest` exists at all → `Existing`. When a bundle is available, unchanged
+///   example files refresh in place; edits, additions and deletions are kept.
+///   With no bundle, the already-made demo still opens as-is.
 /// - only the legacy app-data copy exists → `Migrated`, moved once with its
-///   added assets. Recognized by its `.vault/` marker: a marker-less leftover
-///   is junk a fresh copy replaces, not content to preserve.
+///   added assets, then refreshed by the same conservative rule. Recognized by
+///   its `.vault/` marker: a marker-less leftover is junk a fresh copy
+///   replaces, not content to preserve.
 /// - neither → `Fresh`, copied from the bundled source. A copy that does not
 ///   come out usable is removed and reported, as before (SUB-436 review #3).
 pub(crate) fn prepare_demo_vault(
@@ -171,10 +172,16 @@ pub(crate) fn prepare_demo_vault(
     dest: &std::path::Path,
 ) -> Result<DemoPrep, String> {
     if dest.exists() {
+        if let Some(src) = src {
+            refresh_demo_vault(src, dest).ok();
+        }
         return Ok(DemoPrep::Existing);
     }
     if let Some(legacy) = legacy.filter(|l| l.join(".vault").is_dir()) {
         move_dir(legacy, dest)?;
+        if let Some(src) = src {
+            refresh_demo_vault(src, dest).ok();
+        }
         return Ok(DemoPrep::Migrated);
     }
     let src = src.ok_or(
@@ -190,11 +197,199 @@ pub(crate) fn prepare_demo_vault(
         );
     }
     restamp_demo_feed(dest);
+    refresh_demo_vault(src, dest).ok();
     Ok(DemoPrep::Fresh)
 }
 
 /// The demo feed note, whose `curated:` stamp is rewritten to copy time.
 const DEMO_FEED_NOTE: &str = "Dashboards/News.md";
+
+/// App-owned baseline for conservative demo refreshes. The values are hashes
+/// of the bundled revision last seen, not hashes of user content.
+const DEMO_SEED_STATE: &str = ".vault/demo-seed.json";
+const DEMO_SEED_STATE_VERSION: u8 = 1;
+const DEMO_FEED_CANONICAL_STAMP: &str = "<bundled-curated-stamp>";
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct DemoSeedState {
+    version: u8,
+    files: std::collections::BTreeMap<String, u64>,
+}
+
+struct DemoSourceFile {
+    rel: String,
+    body: String,
+    hash: u64,
+}
+
+/// Revisions shipped before demo baselines existed. They let the first launch
+/// after this feature distinguish an untouched example from a user edit, and
+/// distinguish a deleted example from a newly bundled one.
+const DEMO_BOOTSTRAP_REVISIONS: &[(&str, &[u64])] = &[
+    (".claude/skills/setup/SKILL.md", &[0xfc2a_3b78_9d1d_a0e0]),
+    (".vault/schema.json", &[0x7927_f522_be0d_9ba6]),
+    ("AGENTS.md", &[0x2cd9_d592_bbc7_e57d, 0xfbb7_5ef7_9a4a_27ff, 0x119d_fbe3_16f6_8a64]),
+    ("CLAUDE.md", &[0xa5e2_3bfd_dbde_1340]),
+    ("Contacts/Ada Voss.md", &[0x34dc_9ad9_741f_5567]),
+    ("Contacts/Juno Marek.md", &[0x9ab9_d5e3_71ef_bed1]),
+    ("Dashboards/Food.md", &[0x09b8_0ea6_6310_d242, 0x4ffa_4d43_9c17_25b4]),
+    ("Dashboards/Home.md", &[0x6e59_bf71_ef31_8a1c]),
+    ("Dashboards/Label Accounting.md", &[0x59ca_46bc_2041_3966]),
+    ("Dashboards/Music Work.md", &[0x727c_6d24_871c_3894]),
+    ("Dashboards/News.md", &[0x379c_f6b1_52cd_0f63]),
+    ("Dashboards/Portfolio.md", &[0x4e7c_7cc9_bc4a_f49a]),
+    ("Dashboards/Release Charts.md", &[0x334c_a178_021c_08fd]),
+    ("Dashboards/Yield.md", &[0xd94e_c2a7_7c7e_7bfd]),
+    ("Food DB.md", &[0x9edf_5869_d155_5c3a]),
+    ("Food Log.md", &[0x7ab6_1681_ae00_f26b]),
+    ("Holdings.md", &[0xf5e7_e5e9_b082_a446]),
+    ("Label Splits.md", &[0x4128_dbae_916d_7e39]),
+    ("Label Statements.md", &[0x69b3_6e65_15c2_a686]),
+    ("News Items.md", &[0xfe99_e883_3752_267f, 0x7702_0eb7_51f5_2c2b, 0x508f_fbba_39e6_5323]),
+    ("Releases/Fern Static.md", &[0x2531_5377_ed13_8ff6]),
+    ("Releases/Night Circuit.md", &[0x7e7d_da70_36ff_fe44]),
+    ("Releases/Slow Bloom EP.md", &[0x8b63_c2e0_75d8_75ad]),
+    ("Welcome.md", &[0xfd1c_e5ea_9e5a_b4d9]),
+    ("Work Index.md", &[0xf246_ef74_558c_16e5]),
+];
+
+/// Refresh only files whose current contents prove they are still a bundled
+/// revision. A missing previously bundled path is a tombstone; a missing new
+/// path is added. The state is app-owned and never asks the user to reset.
+fn refresh_demo_vault(src: &std::path::Path, dest: &std::path::Path) -> Result<(), String> {
+    refresh_demo_vault_from(src, dest, DEMO_BOOTSTRAP_REVISIONS)
+}
+
+fn refresh_demo_vault_from(
+    src: &std::path::Path,
+    dest: &std::path::Path,
+    bootstrap: &[(&str, &[u64])],
+) -> Result<(), String> {
+    let source_files = demo_source_files(src)?;
+    let state_path = dest.join(DEMO_SEED_STATE);
+    let previous = if state_path.exists() {
+        let body = std::fs::read_to_string(&state_path).map_err(|e| e.to_string())?;
+        let state: DemoSeedState = serde_json::from_str(&body).map_err(|e| e.to_string())?;
+        if state.version != DEMO_SEED_STATE_VERSION {
+            return Err(format!("unsupported demo seed state version {}", state.version));
+        }
+        Some(state)
+    } else {
+        None
+    };
+
+    let mut next_files = previous
+        .as_ref()
+        .map(|s| s.files.clone())
+        .unwrap_or_default();
+
+    for source in source_files {
+        let target = dest.join(&source.rel);
+        let known_hashes: &[u64] = previous
+            .as_ref()
+            .and_then(|s| s.files.get(&source.rel))
+            .map(std::slice::from_ref)
+            .or_else(|| {
+                if previous.is_none() {
+                    bootstrap.iter().find(|(rel, _)| *rel == source.rel).map(|(_, hashes)| *hashes)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(&[]);
+
+        // `symlink_metadata`, not `exists()`: a user who moved an example out
+        // and symlinked it back owns that arrangement — replacing the link
+        // with a regular file (write_atomic renames over it) would break it.
+        // Same rule as the agent-file refresh (SUB-973).
+        let target_meta = std::fs::symlink_metadata(&target);
+        if let Ok(meta) = &target_meta {
+            if !meta.file_type().is_file() {
+                continue;
+            }
+            let current = std::fs::read_to_string(&target).map_err(|e| e.to_string())?;
+            if known_hashes.contains(&demo_file_hash(&source.rel, &current)) {
+                let next = demo_refreshed_body(&source.rel, &source.body, &current);
+                crate::vault::write_atomic(&target, next)?;
+            }
+        } else if known_hashes.is_empty() {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+            crate::vault::write_atomic(&target, &source.body)?;
+        }
+        next_files.insert(source.rel, source.hash);
+    }
+
+    let next = DemoSeedState { version: DEMO_SEED_STATE_VERSION, files: next_files };
+    let body = serde_json::to_vec_pretty(&next).map_err(|e| e.to_string())?;
+    crate::vault::write_atomic(&state_path, body)
+}
+
+fn demo_source_files(src: &std::path::Path) -> Result<Vec<DemoSourceFile>, String> {
+    fn visit(
+        root: &std::path::Path,
+        dir: &std::path::Path,
+        out: &mut Vec<DemoSourceFile>,
+    ) -> Result<(), String> {
+        let entries = std::fs::read_dir(dir).map_err(|e| e.to_string())?;
+        for entry in entries {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let path = entry.path();
+            if path.is_dir() {
+                visit(root, &path, out)?;
+            } else if path.is_file() {
+                let rel = path
+                    .strip_prefix(root)
+                    .map_err(|e| e.to_string())?
+                    .components()
+                    .map(|part| part.as_os_str().to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                if rel == DEMO_SEED_STATE {
+                    continue;
+                }
+                let body = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+                let hash = demo_file_hash(&rel, &body);
+                out.push(DemoSourceFile { rel, body, hash });
+            }
+        }
+        Ok(())
+    }
+
+    let mut files = Vec::new();
+    visit(src, src, &mut files)?;
+    files.sort_by(|a, b| a.rel.cmp(&b.rel));
+    Ok(files)
+}
+
+fn demo_file_hash(rel: &str, body: &str) -> u64 {
+    if rel == DEMO_FEED_NOTE {
+        if let Some(canonical) = with_curated_stamp(body, DEMO_FEED_CANONICAL_STAMP) {
+            return crate::vault::seed_hash(&canonical);
+        }
+    }
+    crate::vault::seed_hash(body)
+}
+
+fn demo_refreshed_body(rel: &str, bundled: &str, current: &str) -> String {
+    if rel == DEMO_FEED_NOTE {
+        if let Some(stamp) = curated_stamp_value(current) {
+            if let Some(next) = with_curated_stamp(bundled, &stamp) {
+                return next;
+            }
+        }
+    }
+    bundled.to_string()
+}
+
+fn curated_stamp_value(body: &str) -> Option<String> {
+    let canonical = with_curated_stamp(body, DEMO_FEED_CANONICAL_STAMP)?;
+    let before = canonical.find(DEMO_FEED_CANONICAL_STAMP)?;
+    let replaced = &body[before..];
+    let end = replaced.find(|c| c == '\r' || c == '\n').unwrap_or(replaced.len());
+    Some(replaced[..end].to_string())
+}
 
 /// Rewrite the demo feed's `curated:` stamp to now, so the first thing a beta
 /// tester opens is a freshly curated feed (SUB-720). The bundled note ships a
@@ -202,9 +397,10 @@ const DEMO_FEED_NOTE: &str = "Dashboards/News.md";
 /// yellow "stale · Nd" warning that ages every day the build sits on a shelf —
 /// honest for a real vault, wrong for a demo nobody curates.
 ///
-/// FRESH copies only: `Existing` and `Migrated` vaults are the user's content
-/// and are never rewritten. Best-effort by design — a missing note, missing
-/// stamp or unwritable file is a silent no-op, never a failed demo copy.
+/// FRESH copies only: refreshes of `Existing` and `Migrated` vaults preserve
+/// the stamp already in the user's copy. Best-effort by design — a missing
+/// note, missing stamp or unwritable file is a silent no-op, never a failed
+/// demo copy.
 ///
 /// The stamp is local wall time in the `%Y-%m-%d %H:%M` shape both readers
 /// accept (jobs.rs `parse_stamp_ms`, feed.ts `parseCuratedStamp`); everything
@@ -512,6 +708,127 @@ mod tests {
         std::fs::create_dir_all(dir.join("Dashboards")).unwrap();
         std::fs::write(dir.join(super::DEMO_FEED_NOTE), FEED_NOTE).unwrap();
         dir.to_path_buf()
+    }
+
+    #[test]
+    fn demo_refresh_updates_an_untouched_revision_and_adds_a_new_example() {
+        let t = tempfile::TempDir::new().unwrap();
+        let src = demo_tree(&t.path().join("src"));
+        std::fs::write(src.join("Welcome.md"), "new bundled welcome\n").unwrap();
+        std::fs::write(src.join("New example.md"), "new bundled example\n").unwrap();
+        let dest = demo_tree(&t.path().join("dest"));
+        std::fs::write(dest.join("Welcome.md"), "old bundled welcome\n").unwrap();
+        let old_hashes = [crate::vault::seed_hash("old bundled welcome\n")];
+        let bootstrap = [("Welcome.md", old_hashes.as_slice())];
+
+        super::refresh_demo_vault_from(&src, &dest, &bootstrap).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(dest.join("Welcome.md")).unwrap(),
+            "new bundled welcome\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dest.join("New example.md")).unwrap(),
+            "new bundled example\n"
+        );
+        assert!(dest.join(super::DEMO_SEED_STATE).is_file(), "the next refresh has a baseline");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn demo_refresh_leaves_symlinked_examples_alone_live_or_dangling() {
+        let t = tempfile::TempDir::new().unwrap();
+        let src = demo_tree(&t.path().join("src"));
+        std::fs::write(src.join("Welcome.md"), "new bundled welcome\n").unwrap();
+        let dest = demo_tree(&t.path().join("dest"));
+        // live link whose content byte-matches a known revision — still owned
+        // by the user the moment it is a link, never rewritten in place
+        let moved = t.path().join("moved-out.md");
+        std::fs::write(&moved, "old bundled welcome\n").unwrap();
+        std::fs::remove_file(dest.join("Welcome.md")).unwrap();
+        std::os::unix::fs::symlink(&moved, dest.join("Welcome.md")).unwrap();
+        // dangling link at a path the bundle would otherwise refresh
+        std::os::unix::fs::symlink(t.path().join("gone.md"), dest.join("Dangling.md")).unwrap();
+        std::fs::write(src.join("Dangling.md"), "new bundled dangling\n").unwrap();
+        let old_hashes = [crate::vault::seed_hash("old bundled welcome\n")];
+        let bootstrap = [
+            ("Welcome.md", old_hashes.as_slice()),
+            ("Dangling.md", old_hashes.as_slice()),
+        ];
+
+        super::refresh_demo_vault_from(&src, &dest, &bootstrap).unwrap();
+
+        assert!(
+            std::fs::symlink_metadata(dest.join("Welcome.md")).unwrap().file_type().is_symlink(),
+            "a live symlink survives the refresh as a symlink"
+        );
+        assert_eq!(std::fs::read_to_string(&moved).unwrap(), "old bundled welcome\n");
+        assert!(
+            std::fs::symlink_metadata(dest.join("Dangling.md")).unwrap().file_type().is_symlink(),
+            "a dangling symlink is not replaced by a bundled file"
+        );
+    }
+
+    #[test]
+    fn demo_refresh_preserves_edits_additions_and_deleted_example_tombstones() {
+        let t = tempfile::TempDir::new().unwrap();
+        let src = demo_tree(&t.path().join("src"));
+        std::fs::write(src.join("Welcome.md"), "new bundled welcome\n").unwrap();
+        std::fs::write(src.join("Removed by user.md"), "new bundled removed note\n").unwrap();
+        let dest = demo_tree(&t.path().join("dest"));
+        std::fs::write(dest.join("Welcome.md"), "my edited welcome\n").unwrap();
+        std::fs::write(dest.join("Mine.md"), "my own note\n").unwrap();
+        let welcome_hashes = [crate::vault::seed_hash("old bundled welcome\n")];
+        let removed_hashes = [crate::vault::seed_hash("old bundled removed note\n")];
+        let bootstrap = [
+            ("Welcome.md", welcome_hashes.as_slice()),
+            ("Removed by user.md", removed_hashes.as_slice()),
+        ];
+
+        super::refresh_demo_vault_from(&src, &dest, &bootstrap).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(dest.join("Welcome.md")).unwrap(),
+            "my edited welcome\n"
+        );
+        assert_eq!(std::fs::read_to_string(dest.join("Mine.md")).unwrap(), "my own note\n");
+        assert!(!dest.join("Removed by user.md").exists(), "a deletion is not resurrected");
+    }
+
+    #[test]
+    fn demo_refresh_state_tracks_new_files_for_later_safe_updates() {
+        let t = tempfile::TempDir::new().unwrap();
+        let src = demo_tree(&t.path().join("src"));
+        std::fs::write(src.join("New example.md"), "first bundled revision\n").unwrap();
+        let dest = demo_tree(&t.path().join("dest"));
+
+        super::refresh_demo_vault_from(&src, &dest, &[]).unwrap();
+        std::fs::write(src.join("New example.md"), "second bundled revision\n").unwrap();
+        super::refresh_demo_vault_from(&src, &dest, &[]).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(dest.join("New example.md")).unwrap(),
+            "second bundled revision\n"
+        );
+    }
+
+    #[test]
+    fn demo_refresh_updates_feed_content_without_changing_its_live_stamp() {
+        let t = tempfile::TempDir::new().unwrap();
+        let src = demo_tree_with_feed(&t.path().join("src"));
+        let bundled = FEED_NOTE.replace("A curated newsfeed", "A newer bundled newsfeed");
+        std::fs::write(src.join(super::DEMO_FEED_NOTE), &bundled).unwrap();
+        let dest = demo_tree_with_feed(&t.path().join("dest"));
+        let live = FEED_NOTE.replace("2026-07-26 09:10", "2026-08-03 12:34");
+        std::fs::write(dest.join(super::DEMO_FEED_NOTE), &live).unwrap();
+        let old_hashes = [super::demo_file_hash(super::DEMO_FEED_NOTE, FEED_NOTE)];
+        let bootstrap = [(super::DEMO_FEED_NOTE, old_hashes.as_slice())];
+
+        super::refresh_demo_vault_from(&src, &dest, &bootstrap).unwrap();
+
+        let refreshed = std::fs::read_to_string(dest.join(super::DEMO_FEED_NOTE)).unwrap();
+        assert!(refreshed.contains("A newer bundled newsfeed"));
+        assert!(refreshed.contains("curated: 2026-08-03 12:34"));
     }
 
     fn curated_stamp(vault: &std::path::Path) -> String {

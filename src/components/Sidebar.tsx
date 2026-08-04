@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import type { DbIcon, FolderMetaMap, NoteMeta, SavedView, View } from "../lib/types";
+import type { DbIcon, FolderMetaMap, NoteMeta, SavedView, TagFolder, View } from "../lib/types";
 import { viewKey } from "../lib/types";
 import { vaultRoot } from "../lib/ipc";
 import {
@@ -17,6 +17,7 @@ import {
   type FolderNode,
 } from "../lib/sidebar";
 import { keyForTarget, keyLabel } from "../lib/keyassign";
+import { tagFolderSummary } from "../lib/tags";
 import InlineEdit from "./InlineEdit";
 import InfoView from "./InfoView";
 import TypeIcon from "./TypeIcon";
@@ -68,6 +69,8 @@ export type MenuTarget =
   | { kind: "savedview"; id: string }
   /** a plain note pinned to the sidebar (SUB-410) */
   | { kind: "pin"; path: string }
+  /** a tag-query folder (SUB-818) — Edit/Delete, and the key-assign lane */
+  | { kind: "tagfolder"; id: string }
   /** SUB-492: a fixed destination row (Today/Notes/Calendar/Journal/…). It has
       no actions of its own — its menu exists purely so the key-assign lane is
       reachable without a drag; `token` is already the target token. */
@@ -118,6 +121,15 @@ interface SidebarProps {
   onMoveFolder: (path: string, target: string) => void;
   /** per-folder icons (SUB-84), keyed by vault-relative folder path */
   folderMeta: FolderMetaMap;
+  /** tag-query folders (SUB-818), rendered inline with the real folders and
+      told apart by the tag glyph. They hold no notes on disk, so they never
+      nest and never carry children. */
+  tagFolders: TagFolder[];
+  /** the tag-folder builder — App owns the sheet; the sidebar only asks for
+      it, either blank (new) or seeded with an existing folder to edit */
+  onTagFolderEdit: (folder: TagFolder | null) => void;
+  /** a note dragged onto a tag folder is TAGGED, never moved (SUB-818) */
+  onDropNoteTagFolder: (path: string, id: string) => void;
   /** path of the sidebar note (dashboard) currently being renamed inline */
   renaming: string | null;
   onRenameNote: (path: string, title: string) => void | Promise<unknown>;
@@ -212,6 +224,9 @@ function Sidebar({
   dashGroupOrder,
   onMoveFolder,
   folderMeta,
+  tagFolders,
+  onTagFolderEdit,
+  onDropNoteTagFolder,
   renaming,
   onRenameNote,
   onRenameCancel,
@@ -279,6 +294,10 @@ function Sidebar({
   const [moreBelow, setMoreBelow] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [dropFolder, setDropFolder] = useState<string | null>(null);
+  // the tag folder a dragged note is hovering (SUB-818) — its own state, not
+  // dropFolder's, because the two lanes mean different things: one moves the
+  // file, the other tags it in place
+  const [dropTagFolder, setDropTagFolder] = useState<string | null>(null);
   const [dropAt, setDropAt] = useState<{ section: Section; id: string; after: boolean } | null>(
     null
   );
@@ -839,6 +858,74 @@ function Sidebar({
     );
   };
 
+  /* ----- tag folders (SUB-818) ----- */
+
+  // Rendered inline with the real folders, above the tree: they are the same
+  // KIND of destination, so they sit in the same list, and the tag glyph is
+  // what says "this one gathers, it doesn't contain". A note dropped here is
+  // tagged in place — hence the "copy" drop effect, not the tree's "move".
+  const tagFolderRow = (f: TagFolder) => {
+    const target = `tagfolder:${f.id}`;
+    const active = key === target;
+    return (
+      <div
+        key={f.id}
+        className={`side-item side-folder${active ? " active" : ""}${
+          dropTagFolder === f.id ? " drop-target" : ""
+        }${keyDropClass(target)}`}
+        style={{ paddingLeft: rowPad(0) }}
+        data-tagfolder={f.id}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onContextMenu({ kind: "tagfolder", id: f.id }, e.clientX, e.clientY);
+        }}
+        {...keyDropProps(target)}
+        onDragOver={(e) => {
+          if (e.dataTransfer.types.includes(NOTE_DRAG_MIME)) {
+            e.preventDefault();
+            // "move" to match what note drags allow (effectAllowed = "move" at
+            // every source); a mismatched pair makes the browser swallow the
+            // drop outright. The drop still only TAGS — nothing moves on disk.
+            e.dataTransfer.dropEffect = "move";
+            if (dropTagFolder !== f.id) setDropTagFolder(f.id);
+            return;
+          }
+          keyDropProps(target).onDragOver(e);
+        }}
+        onDragLeave={() => {
+          if (dropTagFolder === f.id) setDropTagFolder(null);
+          keyDropProps(target).onDragLeave();
+        }}
+        onDrop={(e) => {
+          if (e.dataTransfer.types.includes(NOTE_DRAG_MIME)) {
+            e.preventDefault();
+            e.stopPropagation();
+            setDropTagFolder(null);
+            const path = e.dataTransfer.getData(NOTE_DRAG_MIME);
+            if (path) onDropNoteTagFolder(path, f.id);
+            return;
+          }
+          keyDropProps(target).onDrop(e);
+        }}
+      >
+        <span className="side-chevron-spacer" />
+        <button
+          type="button"
+          className="side-destination"
+          onClick={() => setView({ kind: "tagfolder", id: f.id })}
+          onDoubleClick={() => onTagFolderEdit(f)}
+          aria-label={f.name}
+          aria-current={active ? "page" : undefined}
+          title={tagFolderSummary(f)}
+        >
+          <TypeIcon type={f.name} icon={f.icon ?? { glyph: "tag" }} />
+          <span className="side-label-text">{f.name}</span>
+          {keyChip(target)}
+        </button>
+      </div>
+    );
+  };
+
   /* ----- folder tree ----- */
 
   const createRow = (parent: string, depth: number) => (
@@ -1275,6 +1362,11 @@ function Sidebar({
         {foldersOpen && (
           <>
             {tree.map((n) => renderNode(n, 0))}
+            {/* tag folders close the same section (SUB-818) — same row shape,
+                same depth, told apart by the glyph. They sit after the real
+                folders because the tree carries a persisted drag order and
+                these follow their definition file instead. */}
+            {tagFolders.map(tagFolderRow)}
             {folderEdit?.kind === "create" && folderEdit.parent === "" ? createRow("", 0) : null}
           </>
         )}

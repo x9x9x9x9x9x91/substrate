@@ -12,6 +12,10 @@ export interface NoteMeta {
   props: Record<string, unknown>;
   updated_ms: number;
   excerpt: string;
+  /** The note's tag set (SUB-818): inline `#hashtags` unioned with the
+      `tags:` prop, deduplicated case-insensitively, computed at index time.
+      Optional so older projections (history snapshots) still typecheck. */
+  tags?: string[];
 }
 
 /** Everything a single property can hold across the IPC boundary. `null` is
@@ -173,6 +177,8 @@ export type View =
   | { kind: "saved"; id: string }
   | { kind: "dashboard"; path: string }
   | { kind: "folder"; path: string }
+  | { kind: "tagfolder"; id: string }
+  | { kind: "tag"; tag: string }
   ;
 
 /** One recoverable item in `.trash/` — `id` addresses it, `path` is where restore puts it back. */
@@ -441,6 +447,29 @@ export interface FolderMeta {
 /** `$folders` map: vault-relative folder path → metadata. */
 export type FolderMetaMap = Record<string, FolderMeta>;
 
+/** How a tag folder's positive tags combine (SUB-818). */
+export type TagMatch = "any" | "all";
+
+/** One tag folder, as persisted in `.vault/tagfolders.json` (SUB-818).
+
+    A tag folder is a saved query, not a place: it lists notes carrying its
+    tags, and acting inside it (create, drag-in) tags the note rather than
+    moving any file. `exclude` always vetoes. */
+export interface TagFolder {
+  id: string;
+  name: string;
+  tags: string[];
+  match: TagMatch;
+  exclude: string[];
+  icon?: DbIcon;
+}
+
+/** One tag in the vault's tag universe: display spelling plus note count. */
+export interface TagCount {
+  tag: string;
+  count: number;
+}
+
 /** Per-type property schemas, persisted in `.vault/schema.json`.
     Notes keep plain YAML values — this only drives pickers and option order.
     A type entry also carries the reserved `icon` key (DbIcon, not a
@@ -600,6 +629,10 @@ export function viewKey(v: View): string {
   if (v.kind === "saved") return `sv:${v.id}`;
   if (v.kind === "dashboard") return `dash:${v.path}`;
   if (v.kind === "folder") return `folder:${v.path}`;
+  if (v.kind === "tagfolder") return `tagfolder:${v.id}`;
+  // folded, so #Demo and #demo are one destination — the same rule matching
+  // uses (SUB-818)
+  if (v.kind === "tag") return `tag:${v.tag.toLowerCase()}`;
   return v.kind;
 }
 

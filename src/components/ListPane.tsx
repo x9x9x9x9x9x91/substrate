@@ -1,11 +1,12 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRightIcon, NotesIcon, PlusIcon } from "./Icons";
-import type { DbIcon, NoteMeta, View } from "../lib/types";
+import type { DbIcon, NoteMeta, TagFolder, View } from "../lib/types";
 import { propStr } from "../lib/types";
 import type { DbBlock } from "../lib/views";
 import { NOTE_DRAG_MIME } from "../lib/sidebar";
 import { isTyping, isTypingNow } from "../lib/dom";
 import { displayTitle, JOURNAL_DIR } from "../lib/journal";
+import { tagFolderSummary } from "../lib/tags";
 import InlineEdit from "./InlineEdit";
 import TypeIcon from "./TypeIcon";
 
@@ -21,8 +22,15 @@ export function relDate(ms: number, now = Date.now()): string {
   return new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
-export function viewLabel(view: View): string {
+/** The pane header's name for a view. `tagFolders` is only needed by the
+    tagfolder kind — its name lives in the folder definition, not the view, so
+    a rename retitles the open pane without rewriting view state (SUB-818). */
+export function viewLabel(view: View, tagFolders: TagFolder[] = []): string {
   switch (view.kind) {
+    case "tagfolder":
+      return tagFolders.find((f) => f.id === view.id)?.name ?? "Tag folder";
+    case "tag":
+      return `#${view.tag}`;
     case "today":
       return "Today";
     case "notes":
@@ -187,6 +195,9 @@ interface ListPaneProps {
       Same fork ⌘N takes; the button is the only visible path on touch, where
       ⌘N doesn't exist. */
   onNewHere?: () => void;
+  /** SUB-818: tag folder definitions — the header needs them to name a
+      `tagfolder` view, which carries only an id. */
+  tagFolders?: TagFolder[];
   /** Phone copy avoids advertising keyboard-only chrome. */
   mobile?: boolean;
 }
@@ -207,9 +218,25 @@ function ListPane({
   icons,
   onOpenDb,
   onNewHere,
+  tagFolders = [],
   mobile = false,
 }: ListPaneProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
+
+  /* SUB-818: the open tag folder, when one is. Its rule (not a path) is what
+     the header's tooltip has to spell out — a tag folder has no location. */
+  const openTagFolder = useMemo(
+    () => (view.kind === "tagfolder" ? tagFolders.find((f) => f.id === view.id) : undefined),
+    [view, tagFolders]
+  );
+  const headTitle =
+    view.kind === "folder"
+      ? view.path
+      : openTagFolder
+        ? tagFolderSummary(openTagFolder)
+        : view.kind === "tag"
+          ? `Every note tagged #${view.tag}`
+          : undefined;
 
   /* SUB-461: long lists paint lazily. The subtitle line is what makes a row
      tall, so it is computed once per note here and reused by both the offset
@@ -445,13 +472,25 @@ function ListPane({
         {view.kind === "folder" && folderIcon && (
           <TypeIcon type={viewLabel(view)} icon={folderIcon} size={16} />
         )}
-        <span className="list-title" title={view.kind === "folder" ? view.path : undefined}>
-          {viewLabel(view)}
+        {/* SUB-818: a tag folder and a bare tag collection both wear the tag
+            glyph — the same mark the sidebar row carries, so the header
+            confirms what was clicked */}
+        {(view.kind === "tagfolder" || view.kind === "tag") && (
+          <TypeIcon
+            type={viewLabel(view, tagFolders)}
+            icon={openTagFolder?.icon ?? { glyph: "tag" }}
+            size={16}
+          />
+        )}
+        <span className="list-title" title={headTitle}>
+          {viewLabel(view, tagFolders)}
         </span>
         <span className="list-count">{notes.length + blocks.length}</span>
         {/* SUB-400: name the kind of thing that's open — a folder of 2 notes
             and a database of 1424 entries otherwise wear the same header */}
         {view.kind === "folder" && <span className="head-kind">Folder</span>}
+        {view.kind === "tagfolder" && <span className="head-kind">Tag folder</span>}
+        {view.kind === "tag" && <span className="head-kind">Tag</span>}
         {/* SUB-584: births in this folder — a typed entry when the folder is a
             database's home, today's daily in the Journal (SUB-593); the ⌘N
             fork made clickable, and the only path on touch */}
@@ -461,6 +500,20 @@ function ListPane({
             onClick={onNewHere}
             title={`${view.path === JOURNAL_DIR ? "Today’s entry" : "New note"}${mobile ? "" : " (⌘N)"}`}
             aria-label={view.path === JOURNAL_DIR ? "Open today’s entry" : "New note in this folder"}
+          >
+            <PlusIcon />
+          </button>
+        )}
+        {/* SUB-818: creating inside a tag folder tags the new note instead of
+            moving it — same button, the acting-tags rule behind it */}
+        {view.kind === "tagfolder" && onNewHere && openTagFolder && (
+          <button
+            className="list-new"
+            onClick={onNewHere}
+            title={`New note${mobile ? "" : " (⌘N)"} — tagged ${openTagFolder.tags
+              .map((t) => `#${t}`)
+              .join(" ")}`}
+            aria-label="New note tagged for this folder"
           >
             <PlusIcon />
           </button>

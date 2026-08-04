@@ -12988,3 +12988,101 @@ body.termhud-resizing-ew .termhud {
   color: var(--text-3);
   font-weight: 500;
 }
+
+/* SUB-818 tag-folder builder: the rule as chips. No colour of its own — a tag
+   chip is the same hairline-and-grey vocabulary as every other pill in the
+   app, so a folder full of them still reads as chrome, not decoration. */
+.tagfolder-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tagfolder-row-label {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.tagfolder-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+}
+
+.tagfolder-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 4px 2px 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.tagfolder-chip-x {
+  border: 0;
+  background: none;
+  padding: 0 2px;
+  cursor: pointer;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.tagfolder-chip-x:hover {
+  color: var(--text-1);
+}
+
+/* the field grows with the row rather than sitting in a box of its own —
+   typing continues the chip line */
+.tagfolder-input {
+  flex: 1;
+  min-width: 90px;
+  border: 0;
+  background: none;
+  outline: none;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 12px;
+  padding: 2px;
+}
+
+.tagfolder-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.tagfolder-opt {
+  border: 1px solid var(--border-soft);
+  border-radius: 4px;
+  background: none;
+  padding: 2px 6px;
+  cursor: pointer;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+}
+
+.tagfolder-opt:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+/* an inline #tag in prose: a link's affordance without a link's colour —
+   tags are navigation, but a paragraph full of them must stay readable */
+.cm-tag {
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.cm-tag:hover {
+  color: var(--link);
+  text-decoration: underline;
+}

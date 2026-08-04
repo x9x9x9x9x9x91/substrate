@@ -39,6 +39,8 @@ import type {
   SetPropResult,
   SidebarOrder,
   SyncReport,
+  TagCount,
+  TagFolder,
   TrashEntry,
   VaultSyncStatus,
   ViewsConfig,
@@ -520,6 +522,19 @@ export const vaultFolderIconSet = (path: string, icon: DbIcon | null) =>
     emoji: icon?.emoji ?? null,
     tint: icon?.tint ?? null,
   });
+/** Every tag in the vault with its note count, most-used first (SUB-818) —
+    the source for `#` autocomplete and the tag folder builder's chip picker. */
+export const vaultTags = () => invoke<TagCount[]>("vault_tags");
+/** Tag folder definitions from `.vault/tagfolders.json` (SUB-818). */
+export const vaultTagFoldersRead = () => invoke<TagFolder[]>("vault_tag_folders_read");
+/** Replace the whole tag folder list — ordering is the frontend's, as with
+    saved views and the sidebar order. Resolves to the list as written. */
+export const vaultTagFoldersWrite = (folders: TagFolder[]) =>
+  invoke<TagFolder[]>("vault_tag_folders_write", { folders });
+/** Add tags to a note — what acting inside a tag folder does. Writes only the
+    `tags:` prop; the note never moves on disk. */
+export const vaultNoteAddTags = (path: string, tags: string[]) =>
+  invoke<NoteMeta>("vault_note_add_tags", { path, tags });
 export const folderDbsRescan = () => invoke<FolderScanStats[]>("folder_dbs_rescan");
 /** The folder→database mappings from `.vault/folders.json` (SUB-672). */
 export const folderDbsList = () => invoke<FolderMapping[]>("folder_dbs_list");

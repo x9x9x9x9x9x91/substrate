@@ -44,11 +44,15 @@ to `~/Documents/Substrate Demo` — a user-visible folder outside the
 asset-protocol deny list (app-data is denied, so assets a user added to a demo
 vault there could never load; SUB-645). A copy from before that move
 (`<app-data>/Demo Vault`) is migrated to the new location at launch, a stored
-vault choice pointing at it follows, and a demo vault that already exists at
-the destination is reused untouched rather than reset. A source counts only if
-it carries `.vault/` *and* at least one note — if nothing usable is found the
-command fails and says so, because opening an empty folder while promising
-sample content is worse than not opening at all.
+vault choice pointing at it follows. A demo vault that already exists at the
+destination is refreshed conservatively rather than reset: `.vault/demo-seed.json`
+records the last bundled hash of each example file, so only a file still equal
+to a known bundled revision is replaced. User edits and additions are preserved;
+a missing previously bundled path is treated as a user deletion and is not
+resurrected; a newly bundled path is added. A source counts only if it carries
+`.vault/` *and* at least one note — if nothing usable is found the command fails
+and says so, because opening an empty folder while promising sample content is
+worse than not opening at all.
 
 All note paths in this doc and in the API are vault-relative, `/`-separated,
 and include the `.md` suffix (`Inbox/Capture anything.md`). A `..` path
@@ -196,6 +200,7 @@ type: release
 | `index`, `scanned` | music-work dashboard config: work-index sheet name, and the scanner's own last-run stamp, rendered verbatim (§5.2) |
 | `areas`, `stale_days` | tasks dashboard area allowlist and stale-age threshold (§5.2) |
 | `now`, `snoozed_until` | tasks board: pinned to the focus section / parked until a wake day, both board-scoped (§5.2) |
+| `tags` | tag list, unioned with the body's inline `#tags` (§3b) |
 
 Everything else is yours. Unknown props are preserved and shown as chips.
 
@@ -255,6 +260,65 @@ brackets, **no `[[target|alias]]` form** (the pipe becomes part of the name).
 - Missing or moved targets render `missing image · <name>` / `missing audio ·
   <name>` / `missing file · <name>` — a display state, not an error; the file
   content is untouched.
+
+## 3b. Tags
+
+A note's tags come from **two sources, unioned** — an inline `#tag` in the
+body and an entry in the `tags:` frontmatter prop are the same statement, so
+neither wins:
+
+```markdown
+---
+tags: [live, demo]
+---
+
+Bounced the #demo and filed it under #live-set.
+```
+
+That note's tags are `demo`, `live-set`, `live`. Extraction runs inside
+indexing (`vault/tags.rs`, mirrored by `src/lib/tags.ts` — the two are
+lockstep twins with mirrored tests), so tags are watcher-live: edit the body,
+the collections update.
+
+### Inline grammar
+
+`#` then a **letter**, then any run of letters, digits, `-` and `_`
+(`#[A-Za-z][A-Za-z0-9_-]*`). Trailing `-`/`_` are trimmed — `#demo-` in prose
+is the tag `demo` followed by a dash.
+
+The character **before** the `#` must be whitespace or punctuation, and must
+not be one of `&`, `#`, `/`, `_`. That rule plus the leading-letter rule is
+what keeps these out:
+
+| not a tag | why |
+| --- | --- |
+| `# Heading`, `### Notes` | space after `#`; `###` fails the preceding-`#` rule |
+| `#1`, `#404` | no leading letter |
+| `#ff00aa` | **is** a tag (`ff00aa`) — a CSS hex colour in prose reads as one. Put it in `code` if you mean the colour |
+| `&#x27;` | preceded by `&` (HTML entity) |
+| `foo#bar`, `a_#b` | preceded by an alphanumeric / `_` |
+| `[[Note#heading]]`, `![[a#b]]` | wikilink and embed targets |
+| `](/path#frag)`, `https://x.test/#top`, `www.x.test/#top` | link destinations and bare URLs |
+| ` ```…#demo…``` `, `` `#demo` `` | fenced blocks and inline code — literal code is not tag syntax, the same rule links follow (§3, SUB-495). An unclosed fence swallows the rest of the body |
+
+**Case**: matching, grouping and dedupe are case-insensitive — `#Demo` and
+`#demo` are one tag. Display keeps the author's casing; where a tag appears in
+several spellings, the most common one is shown (ties go to the
+alphabetically first).
+
+### The `tags:` prop
+
+A YAML string list is the canonical shape; a bare scalar is accepted and split
+on commas. A leading `#` is stripped, so `tags: ["#demo"]` and `tags: [demo]`
+are the same tag. Values that couldn't be written inline (spaces, punctuation)
+are kept verbatim — the prop is the author's, and the app never rejects a tag
+it merely couldn't have parsed from prose. Tags written **into** a note by the
+app (see §8b) always go to this prop, never into the body.
+
+### Where tags do not apply
+
+Nested tags (`#a/b`), tag colours, tag renaming and tags in pulse/fences are
+not part of this format. `#a/b` reads as the tag `a` followed by `/b`.
 
 ## 4. Databases and prop values
 
@@ -1168,7 +1232,7 @@ External writers: `.vault/kinds/` is app-owned. Write a bundle there only
 deliberately, and never touch the consent record — it is not in the vault by
 design.
 
-## 5b. `.vault/format.json` — config format versions (covers §6–§8)
+## 5b. `.vault/format.json` — config format versions (covers §6–§8b)
 
 One sidecar records which format version each hidden config file is in
 (`src-tauri/src/vaultfmt.rs`). It exists because two app versions can share a
@@ -1177,12 +1241,12 @@ an older app rewriting a newer file used to silently drop what it didn't
 understand.
 
 ```json
-{ "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1, "kinds": 1 }
+{ "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1, "kinds": 1, "tagfolders": 1 }
 ```
 
-- Keys are `schema`, `views`, `folders`, `notifications`, `calendars`, `kinds`
-  (§5c, §6, §7, the notification sub-section, §8, §5.8). Current version
-  for all six: **1**.
+- Keys are `schema`, `views`, `folders`, `notifications`, `calendars`,
+  `kinds`, `tagfolders` (§5c, §6, §7, the notification sub-section, §8, §5.8,
+  §8b). Current version for all seven: **1**.
 - `kinds` versions the **bundle format** of §5.8, not any one file: it says
   which shape of `kind.json` and which bundle layout the vault's
   `.vault/kinds/` folders are written in. **RESERVED** — the key is defined
@@ -1883,6 +1947,53 @@ restart, and one catch-up sync runs at app launch when at least one mapping
 opted in. The opt-in exists so big archive folders don't churn — opted-out
 mappings sync on demand only. The watcher never writes to the watched folder.
 
+## 8b. `.vault/tagfolders.json` — tag folders
+
+A JSON array of saved tag queries. Each one shows in the sidebar next to real
+folders with a tag icon, and opens the notes matching its rule. **No note
+moves on disk for a tag folder** — the folder is a query, not a location. The
+app never creates the file by default; folders are built in-app (Folders "+"
+→ "New tag folder…") or edited by hand. Same file discipline as the rest of
+§6–§8: missing or corrupt reads as no folders.
+
+```json
+[
+  {
+    "id": "tf-7k2m9x4a",
+    "name": "Live set",
+    "tags": ["demo", "live"],
+    "match": "any",
+    "exclude": ["archived"],
+    "icon": { "glyph": "tag" }
+  }
+]
+```
+
+- `id` — stable, opaque, unique within the file. It's what the app's view
+  state and sidebar order reference; renaming a folder never changes it.
+- `name` — the sidebar label (required, non-empty).
+- `tags` — the positive tags, without `#`, matched case-insensitively. **An
+  empty list matches nothing**, so a half-built folder can never sweep the
+  whole vault into view.
+- `match` — `"any"` (default) or `"all"`. `any`: the note carries at least one
+  of `tags`. `all`: it carries every one.
+- `exclude` — the NOT rules. A note carrying any excluded tag is out, however
+  well it matched. Optional; default empty.
+- `icon` — optional sidebar glyph override, same shape as a database icon
+  (§6). Absent = the tag glyph.
+- Any other key is preserved verbatim across app writes (SUB-433), and the
+  file's format version lives in `.vault/format.json` (§5b) — a version newer
+  than the app knows makes this one file read-only.
+
+**Acting on a tag folder tags the note.** Creating a note inside one, or
+dragging a note onto it, writes the folder's `tags` to that note's `tags:`
+prop (§3b) and nothing else: the file stays exactly where it is, and a
+created note is born where loose notes are born. `exclude` is **never**
+applied — a NOT rule is a filter, not something the app stamps on a note — so
+a folder that says "tagged `demo`, but not `archived`" applies only `demo`. An
+ANY folder still applies all of its positive tags: the author picked them as
+the folder's meaning.
+
 ## 9. `.assets/` — embedded binaries
 
 Flat store for pasted/imported files. Dot-prefixed → never indexed, never watched,
@@ -2293,7 +2404,8 @@ external write races an open editor.
    rescan. No restart, no manual refresh. Writes under dot-paths (`.git`,
    `.assets/`, …) are deliberately invisible to it — with one exception:
    edits to `.vault/schema.json`, `.vault/views.json`,
-   `.vault/folders.json`, and `.vault/calendars.json` are picked up live and
+   `.vault/folders.json`, `.vault/calendars.json`, and
+   `.vault/tagfolders.json` are picked up live and
    surface as a separate `vault:config-changed` event (the app's config
    listeners re-read the
    files from disk; no note refetch fires). Everything else under `.vault/`
@@ -2324,7 +2436,7 @@ external write races an open editor.
    a format the app doesn't know yet — a version above the app's makes that
    one config file read-only in Substrate until it updates. Leaving the
    sidecar alone is always right for an external writer, including one adding
-   its own keys: unknown keys in the four older config files ride along
+   its own keys: unknown keys in the older config files ride along
    untouched at v1; `calendars.json` deliberately rejects unknown entry keys (§5c).
    `.vault/backup/` is the app's pre-migration copies — read it, don't
    depend on it.
@@ -2444,6 +2556,9 @@ prefer (`src-tauri/src/lib.rs`, grouped):
   take `history_snapshot` immediately before any of them rewrites notes
 - Folder sync: `vault_folders` `vault_create_folder` `vault_rename_folder`
   `folder_dbs_rescan` (§8)
+- Tags: `vault_tags` (the vault's tag universe with counts)
+  `vault_tag_folders_read` `vault_tag_folders_write` (§8b)
+  `vault_note_add_tags` (adds tags to a note's `tags:` prop; never moves it)
 - Files: `path_exists` `file_open` `file_reveal` `file_pick` `file_read_text`
 - History: `history_status` `history_list` `history_diff` `history_restore`
   `history_snapshot` `history_purge_note` `history_purge_notes` `history_trim`

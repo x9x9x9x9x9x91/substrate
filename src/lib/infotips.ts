@@ -23,6 +23,14 @@ const STATIC_VIEW_TIPS: Record<View["kind"], InfoTip> = {
     title: "Folder",
     body: "Notes stored in this vault folder. Notes can be dragged here from another list.",
   },
+  tagfolder: {
+    title: "Tag folder",
+    body: "Every note carrying these tags, gathered live. Notes created or dragged here are tagged rather than moved — nothing changes place on disk.",
+  },
+  tag: {
+    title: "Tag",
+    body: "Every note carrying this tag, whether it was written inline in the text or set as a property.",
+  },
   today: {
     title: "Today",
     body: "A working view of scheduled, due, overdue, and intentionally picked items for today.",

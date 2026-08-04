@@ -33,7 +33,7 @@ pub(super) fn watch_relevant(root: &Path, p: &Path) -> bool {
 }
 
 /// The live-editable config files —
-/// `.vault/{schema,views,folders,calendars}.json`.
+/// `.vault/{schema,views,folders,calendars,tagfolders}.json`.
 /// The watcher surfaces exactly these dot-paths so external edits apply
 /// without a restart (SUB-100); lib.rs routes them to a separate
 /// `vault:config-changed` signal instead of the note-refetch `vault:changed`.
@@ -43,6 +43,7 @@ pub fn config_path(root: &Path, p: &Path) -> bool {
         || rel == Path::new(ViewPref::REL_PATH)
         || rel == Path::new(FOLDERS_REL_PATH)
         || rel == Path::new(crate::calendarfeed::CONFIG_REL_PATH)
+        || rel == Path::new(TagFolder::REL_PATH)
 }
 
 /// Cadence of the degraded-mode fallback (SUB-157): when the watcher can't
@@ -437,6 +438,7 @@ mod tests {
             ".vault/views.json",
             ".vault/folders.json",
             ".vault/calendars.json",
+            ".vault/tagfolders.json",
         ] {
             assert!(watch_relevant(&dir, &dir.join(rel)), "{rel} is config-relevant");
             assert!(config_path(&dir, &dir.join(rel)));

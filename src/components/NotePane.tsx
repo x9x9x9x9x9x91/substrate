@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { NoteMeta, FmState, NumberFormat, PropKind, PropSchema, PropValue, RelatedEntry, RollupConfig, SchemaConfig, SelectOption } from "../lib/types";
+import type { NoteMeta, FmState, NumberFormat, PropKind, PropSchema, PropValue, RelatedEntry, RollupConfig, SchemaConfig, SelectOption, TagCount } from "../lib/types";
 import { foldedPropKey, foldedPropStr, propStr } from "../lib/types";
 import type { EmbedResult, EmbedSpec } from "../lib/embeds";
 import {
@@ -136,6 +136,10 @@ interface NotePaneProps {
   onFollowLink: (name: string) => void;
   /** all note titles — [[ wikilink completion in the body editor (SUB-269) */
   noteTitles: string[];
+  /** SUB-818: an inline `#tag` was clicked — open its collection */
+  onOpenTag?: (tag: string) => void;
+  /** SUB-818: the vault's tags with counts — `#` completion in the editor */
+  tagUniverse?: TagCount[];
   onOpenNote: (path: string) => void;
   /** ```view embeds (SUB-86): resolve a fence spec to its table model */
   embedQuery?: (spec: EmbedSpec) => EmbedResult;
@@ -217,6 +221,8 @@ function NotePane({
   dbTypes,
   onFollowLink,
   noteTitles,
+  onOpenTag,
+  tagUniverse,
   onOpenNote,
   embedQuery,
   onOpenView,
@@ -1893,6 +1899,8 @@ function NotePane({
               initial={loaded.body}
               onChange={onBodyChange}
               onFollowLink={onFollowLink}
+              onOpenTag={onOpenTag}
+              tagUniverse={tagUniverse}
               noteTitles={noteTitles}
               dbTypes={dbTypes}
               embedQuery={embedQuery}

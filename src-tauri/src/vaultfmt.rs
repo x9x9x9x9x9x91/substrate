@@ -19,7 +19,7 @@
 //!
 //! ```json
 //! // .vault/format.json
-//! { "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1 }
+//! { "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1, "tagfolders": 1 }
 //! ```
 //!
 //! An older app doesn't know the sidecar exists and ignores it — its config
@@ -57,15 +57,17 @@ pub enum VaultFile {
     Folders,
     Notifications,
     Calendars,
+    TagFolders,
 }
 
 impl VaultFile {
-    pub const ALL: [VaultFile; 5] = [
+    pub const ALL: [VaultFile; 6] = [
         VaultFile::Schema,
         VaultFile::Views,
         VaultFile::Folders,
         VaultFile::Notifications,
         VaultFile::Calendars,
+        VaultFile::TagFolders,
     ];
 
     /// This file's key in the sidecar.
@@ -76,6 +78,7 @@ impl VaultFile {
             VaultFile::Folders => "folders",
             VaultFile::Notifications => "notifications",
             VaultFile::Calendars => "calendars",
+            VaultFile::TagFolders => "tagfolders",
         }
     }
 
@@ -86,6 +89,7 @@ impl VaultFile {
             VaultFile::Folders => crate::vault::FOLDERS_REL_PATH,
             VaultFile::Notifications => crate::notify::STATE_REL_PATH,
             VaultFile::Calendars => crate::calendarfeed::CONFIG_REL_PATH,
+            VaultFile::TagFolders => crate::vault::TagFolder::REL_PATH,
         }
     }
 
@@ -97,6 +101,7 @@ impl VaultFile {
             VaultFile::Folders => 1,
             VaultFile::Notifications => 1,
             VaultFile::Calendars => 1,
+            VaultFile::TagFolders => 1,
         }
     }
 
@@ -109,6 +114,7 @@ impl VaultFile {
             VaultFile::Folders => "folder databases",
             VaultFile::Notifications => "notification state",
             VaultFile::Calendars => "calendar subscriptions",
+            VaultFile::TagFolders => "tag folders",
         }
     }
 
@@ -127,6 +133,7 @@ impl VaultFile {
             VaultFile::Folders => &[],
             VaultFile::Notifications => &[],
             VaultFile::Calendars => &[],
+            VaultFile::TagFolders => &[],
         }
     }
 }

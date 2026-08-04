@@ -16,10 +16,11 @@ test.beforeEach(async ({ page }) => {
 test("Folders '+' opens the add menu; New folder keeps the inline flow", async ({ page }) => {
   await page.locator(".side-add").click();
   const items = page.locator(".ctx-item");
-  await expect(items).toHaveCount(3);
+  await expect(items).toHaveCount(4);
   await expect(items.filter({ hasText: "New folder" })).toHaveCount(1);
   await expect(items.filter({ hasText: "New database…" })).toHaveCount(1);
   await expect(items.filter({ hasText: "Map a folder…" })).toHaveCount(1);
+  await expect(items.filter({ hasText: "New tag folder…" })).toHaveCount(1);
 
   // the plain new-folder flow is unchanged: inline edit row, Enter creates
   await items.filter({ hasText: "New folder" }).click();

@@ -4,6 +4,7 @@ import {
   vaultSavedViewsRead,
   vaultSchemaRead,
   vaultSidebarOrder,
+  vaultTagFoldersRead,
   vaultViewsRead,
 } from "../lib/ipc";
 import type {
@@ -11,6 +12,7 @@ import type {
   SavedView,
   SchemaConfig,
   SidebarOrder,
+  TagFolder,
   ViewsConfig,
 } from "../lib/types";
 import { createWriteQueue } from "../lib/writequeue";
@@ -41,6 +43,10 @@ export function useVaultConfigs(showToast: (msg: string) => void) {
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
   /** per-folder icons (SUB-84), keyed by vault-relative folder path */
   const [folderMeta, setFolderMeta] = useState<FolderMetaMap>({});
+  /* tag-query folders (SUB-818). Their own file, not views.json — the queue
+     above serializes views.json writers only, and tagfolders.json has a
+     single writer (the builder), so it needs no queue of its own. */
+  const [tagFolders, setTagFolders] = useState<TagFolder[]>([]);
   const [schema, setSchema] = useState<SchemaConfig>({});
 
   // SUB-410: the engine rewrites `$sidebar.pins` behind our back — a rename or
@@ -58,6 +64,7 @@ export function useVaultConfigs(showToast: (msg: string) => void) {
     vaultSchemaRead().then(setSchema).catch(console.error);
     vaultSavedViewsRead().then(setSavedViews).catch(console.error);
     vaultFolderMetaRead().then(setFolderMeta).catch(console.error);
+    vaultTagFoldersRead().then(setTagFolders).catch(console.error);
   }, []);
 
   /* SUB-241: every optimistic views.json write goes through the file's
@@ -91,6 +98,8 @@ export function useVaultConfigs(showToast: (msg: string) => void) {
     setSavedViews,
     folderMeta,
     setFolderMeta,
+    tagFolders,
+    setTagFolders,
     schema,
     setSchema,
     reloadSidebarOrder,

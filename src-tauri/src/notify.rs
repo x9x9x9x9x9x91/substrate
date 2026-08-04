@@ -878,6 +878,7 @@ mod tests {
             props,
             updated_ms: 0,
             excerpt: String::new(),
+            tags: Vec::new(),
         }
     }
 

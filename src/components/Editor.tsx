@@ -61,6 +61,7 @@ import { claimDrop, dropClientPoint, dropHintText } from "../lib/dragdrop";
 import { shortcutCmKey } from "../lib/shortcuts";
 import { type PosTracker, trackPos, trackedPositions } from "../lib/trackpos";
 import { wikiLinkInsert, wikiLinkOptions, wikiLinkQuery } from "../lib/wikilinks";
+import { inlineTagMatches, tagOptions, tagQuery } from "../lib/tags";
 import {
   fenceExit,
   fenceLang,
@@ -83,7 +84,7 @@ import {
   isImageEmbed,
 } from "../lib/editor-widgets";
 import type { EmbedResult, EmbedSpec } from "../lib/embeds";
-import type { NoteMeta, PropValue } from "../lib/types";
+import type { NoteMeta, PropValue, TagCount } from "../lib/types";
 import type { RelationCandidate } from "../lib/relation";
 import { markdownLinkLabel, TASK_PREFIX_RE } from "../lib/markdown";
 import { extractLink, extractTitle } from "../lib/extractnote";
@@ -1000,6 +1001,18 @@ function buildDecorations(view: EditorView): DecorationSet {
         deco.push(Decoration.replace({}).range(end - 2, end));
       }
     }
+    // SUB-818: inline `#tags` become clickable chips. Nothing is replaced —
+    // the text you typed stays the text you see, so editing a tag is just
+    // editing. The grammar is the shared one (lib/tags.ts); `inCode` is the
+    // editor's own authority on fences and stays the veto.
+    for (const t of inlineTagMatches(text)) {
+      const start = from + t.from;
+      const end = from + t.to;
+      if (inCovered(start, end) || inCode(start, end)) continue;
+      deco.push(
+        Decoration.mark({ class: "cm-tag", attributes: { "data-tag": t.tag } }).range(start, end)
+      );
+    }
   }
   deco.sort((a, b) => a.from - b.from || a.value.startSide - b.value.startSide);
   return Decoration.set(deco, true);
@@ -1164,6 +1177,30 @@ function wikiLinkCompletions(titlesRef: React.MutableRefObject<string[] | undefi
   };
 }
 
+/** `#` tag completion (SUB-818): typing `#` offers the vault's existing tags,
+    most-used first. Same code-context gate as the `[[` popup — inside a fence
+    a `#` is a comment or a heading, never a tag. Accepting inserts the tag
+    text alone; there is no closer to balance.
+
+    A brand-new tag needs no completion: the popup is a list of what exists,
+    and typing straight past it is how a new one is made. */
+function tagCompletions(universeRef: React.MutableRefObject<TagCount[] | undefined>) {
+  return (context: CompletionContext): CompletionResult | null => {
+    const before = context.state.sliceDoc(Math.max(0, context.pos - 250), context.pos);
+    const query = tagQuery(before);
+    if (query === null) return null;
+    if (inCodeContext(syntaxTree(context.state).resolveInner(context.pos, -1))) return null;
+    const options = tagOptions(query.query, universeRef.current ?? []);
+    if (options.length === 0) return null;
+    return {
+      // the `#` stays put — replace only what was typed after it
+      from: context.pos - query.query.length,
+      options: options.map((tag) => ({ label: tag, type: "keyword" })),
+      validFor: /^[A-Za-z0-9_-]*$/,
+    };
+  };
+}
+
 /** `/` slash menu (SUB-469): a line-initial `/` opens the insertion palette —
     /view, /date, /task, /asset. Same autocompletion extension as the [[ popup,
     so Esc, arrows and Enter behave identically and there's no custom widget.
@@ -1264,6 +1301,11 @@ interface EditorProps {
   initial: string;
   onChange: (body: string) => void;
   onFollowLink: (name: string) => void;
+  /** SUB-818: an inline `#tag` was clicked — open that tag's collection. */
+  onOpenTag?: (tag: string) => void;
+  /** every tag in the vault with its count — the `#` completion source
+      (SUB-818), same list the tag-folder builder offers */
+  tagUniverse?: TagCount[];
   /** all note titles — the [[ wikilink completion source (SUB-269) */
   noteTitles?: string[];
   /** all database types — the ```view fence's `type:` completion (SUB-469) */
@@ -1330,6 +1372,8 @@ export default function Editor({
   initial,
   onChange,
   onFollowLink,
+  onOpenTag,
+  tagUniverse,
   noteTitles,
   dbTypes,
   embedQuery,
@@ -1388,8 +1432,13 @@ export default function Editor({
   const noteTitlesRef = useRef(noteTitles);
   // same shape for the view fence's `type:` completion (SUB-469)
   const dbTypesRef = useRef(dbTypes);
+  // and for `#` completion + tag clicks (SUB-818)
+  const tagUniverseRef = useRef(tagUniverse);
+  const onOpenTagRef = useRef(onOpenTag);
   onChangeRef.current = onChange;
   onFollowRef.current = onFollowLink;
+  tagUniverseRef.current = tagUniverse;
+  onOpenTagRef.current = onOpenTag;
   onRevealedRef.current = onRevealed;
   onEscapeRef.current = onEscape;
   onToastRef.current = onToast;
@@ -1646,14 +1695,16 @@ export default function Editor({
         ...(emptyHint ? [cmPlaceholder(emptyHint)] : []),
         // [[ pops fuzzy-ranked note titles (SUB-269); `/` at line start pops
         // the insertion palette and a view fence's `type:` pops live database
-        // names (SUB-469). override owns the popup — the three triggers are
-        // mutually exclusive, so each returns null outside its own context
+        // names (SUB-469); `#` pops the vault's tags (SUB-818). override owns
+        // the popup — the triggers are mutually exclusive, so each returns
+        // null outside its own context
         autocompletion({
           icons: false,
           override: [
             wikiLinkCompletions(noteTitlesRef),
             slashCompletions(),
             viewTypeCompletions(dbTypesRef),
+            tagCompletions(tagUniverseRef),
           ],
         }),
         markdown({ base: markdownLanguage, codeLanguages: languages }),
@@ -1737,6 +1788,19 @@ export default function Editor({
               if (name) {
                 e.preventDefault();
                 onFollowRef.current(name);
+                return true;
+              }
+            }
+            // SUB-818: a tag opens its collection on the same terms as a
+            // wikilink — plain click when the editor isn't focused, ⌘-click
+            // when it is, so clicking into text you're writing still means
+            // "put the caret here"
+            const tagEl = (e.target as HTMLElement).closest?.(".cm-tag");
+            if (tagEl && (e.metaKey || !view.hasFocus)) {
+              const tag = tagEl.getAttribute("data-tag");
+              if (tag && onOpenTagRef.current) {
+                e.preventDefault();
+                onOpenTagRef.current(tag);
                 return true;
               }
             }

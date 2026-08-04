@@ -4,8 +4,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTyping, isTypingNow } from "./lib/dom";
 import { MENU_SURFACES } from "./lib/menusurfaces";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { DbIcon, DbLayout, NewTypeProp, NoteMeta, NumberFormat, PropKind, PropValue, RollupConfig, SavedView, SavedViewSort, SelectOption, SidebarOrder, VaultHistoryPoint, View, ViewPref } from "./lib/types";
+import type { DbIcon, DbLayout, NewTypeProp, NoteMeta, NumberFormat, PropKind, PropValue, RollupConfig, SavedView, SavedViewSort, SelectOption, SidebarOrder, TagFolder, VaultHistoryPoint, View, ViewPref } from "./lib/types";
 import { foldedPropKey, foldedPropStr, FUNCTIONAL_TYPES, propStr, typeHome, viewKey } from "./lib/types";
+import { tagFolderApplyTags, tagFolderMatches, tagUniverse } from "./lib/tags";
 import { byFoldedKey, foldedObjectKey, isTypePropName, typeSchemaFor } from "./lib/schemalookup";
 import { folderDefaultIcon, iconForType, iconsByType } from "./lib/dbicons";
 import { looksLikeUrl } from "./lib/url";
@@ -95,8 +96,11 @@ import {
   vaultSchemaRead,
   vaultSchemaSet,
   vaultSchemaSetIcon,
+  vaultNoteAddTags,
   vaultSetSidebarOrder,
   vaultSidebarOrder,
+  vaultTagFoldersRead,
+  vaultTagFoldersWrite,
   vaultTemplateList,
   vaultTemplateRead,
   vaultTrashRestore,
@@ -142,6 +146,8 @@ import {
 import { pickCsvFile } from "./lib/csvpick";
 import type { CsvEntry } from "./lib/csvimport";
 import SendLinkDialog from "./components/SendLinkDialog";
+import TagFolderDialog from "./components/TagFolderDialog";
+import TypeIcon from "./components/TypeIcon";
 import Sidebar, { type FolderEdit, type MenuTarget, type Section } from "./components/Sidebar";
 import ListPane from "./components/ListPane";
 import NotePane from "./components/NotePane";
@@ -197,7 +203,10 @@ import { useVaultIndex } from "./hooks/useVaultIndex";
 import { queueViewsWrite, useVaultConfigs } from "./hooks/useVaultConfigs";
 import { useSidebarOrderModel } from "./hooks/useSidebarOrderModel";
 
-function inView(n: NoteMeta, view: View): boolean {
+/** Membership. `tagFolders` is only consulted by the tagfolder kind — a view
+    naming a folder that no longer exists matches nothing, which is what keeps
+    a deleted tag folder from showing the whole vault (SUB-818). */
+function inView(n: NoteMeta, view: View, tagFolders: TagFolder[] = []): boolean {
   switch (view.kind) {
     case "notes":
       return isScratchNote(n);
@@ -207,6 +216,12 @@ function inView(n: NoteMeta, view: View): boolean {
       return foldedPropStr(n.props, "type")?.toLowerCase() === view.type.toLowerCase();
     case "folder":
       return n.folder === view.path || n.folder.startsWith(`${view.path}/`);
+    case "tagfolder": {
+      const folder = tagFolders.find((f) => f.id === view.id);
+      return folder ? tagFolderMatches(folder, n.tags ?? []) : false;
+    }
+    case "tag":
+      return (n.tags ?? []).some((t) => t.toLowerCase() === view.tag.toLowerCase());
     case "search":
     case "saved":
     case "dashboard":
@@ -383,6 +398,8 @@ export default function App() {
     setSavedViews,
     folderMeta,
     setFolderMeta,
+    tagFolders,
+    setTagFolders,
     schema,
     setSchema,
     reloadSidebarOrder,
@@ -584,14 +601,14 @@ export default function App() {
 
   const viewNotes = useMemo(() => {
     if (view.kind === "notes") return scratchNotes(notes);
-    const filtered = notes.filter((n) => inView(n, view));
+    const filtered = notes.filter((n) => inView(n, view, tagFolders));
     if (view.kind === "all") {
       filtered.sort((a, b) => a.title.localeCompare(b.title));
     }
     // the Journal folder lists its dailies newest-first (SUB-176)
     if (view.kind === "folder" && view.path === JOURNAL_DIR) return journalOrder(filtered);
     return filtered;
-  }, [notes, view]);
+  }, [notes, view, tagFolders]);
 
   // SUB-87: in folder and All notes views the database entries collapse into
   // per-database blocks above the loose rows; every other view lists its
@@ -875,7 +892,7 @@ export default function App() {
         showMobileDetail();
         return;
       }
-      if (note && !inView(note, view)) setView({ kind: "all" });
+      if (note && !inView(note, view, tagFolders)) setView({ kind: "all" });
       // SUB-558: a daily note with no file behind it has to re-open as a ghost
       // (SUB-210) — selecting the bare path would synthesize no meta and render
       // an empty pane. This is the path SUB-549's "Reopen" toast takes when the
@@ -888,7 +905,7 @@ export default function App() {
       setSelected(path);
       showMobileDetail();
     },
-    [indexedNotes, view, activeSaved, showMobileDetail]
+    [indexedNotes, view, activeSaved, showMobileDetail, tagFolders]
   );
   useEffect(() => {
     openNoteRef.current = openNote;
@@ -1525,8 +1542,12 @@ export default function App() {
   // is seeded synchronously so the selection effect doesn't snap back before
   // the async refresh lands (same trick as openJournal).
   const createScratch = useCallback(
-    (folder = "Inbox") => {
+    // SUB-818: `tags` is what "create inside a tag folder" means — the note is
+    // born wherever loose notes are born and the folder's tags are written
+    // onto it, because a tag folder is a rule, not a place.
+    (folder = "Inbox", tags: string[] = []) => {
       vaultCreate("Untitled", folder)
+        .then((meta) => (tags.length > 0 ? vaultNoteAddTags(meta.path, tags) : meta))
         .then((meta) => {
           scratchPaths.current.add(meta.path); // SUB-264: abandons if left pristine
           setNotes((ns) => [...ns.filter((n) => n.path !== meta.path), meta]);
@@ -1607,9 +1628,9 @@ export default function App() {
           // seed the fresh meta synchronously (like openJournal) — openNote
           // would look it up in the pre-refresh notes and miss
           setNotes((ns) => [...ns.filter((n) => n.path !== meta.path), meta]);
-          if (view.kind === "db" && inView(meta, view)) setDbNote(meta.path);
+          if (view.kind === "db" && inView(meta, view, tagFolders)) setDbNote(meta.path);
           else {
-            if (!inView(meta, view)) setView({ kind: "all" });
+            if (!inView(meta, view, tagFolders)) setView({ kind: "all" });
             setSelected(meta.path);
           }
           showMobileDetail();
@@ -1618,7 +1639,7 @@ export default function App() {
         })
         .catch(reportCreateFailure(`create “${title}”`, title));
     },
-    [notes, schema, templateTypes, view, refresh, showMobileDetail, undoApi, reportCreateFailure]
+    [notes, schema, templateTypes, view, refresh, showMobileDetail, undoApi, reportCreateFailure, setNotes, tagFolders]
   );
 
   // SUB-796 — a cell edited inside an inline ```view fence. Deliberately the
@@ -1711,7 +1732,7 @@ export default function App() {
         .then((meta) => {
           recordCreate({ meta, record: undoApi.record });
           setNotes((ns) => [...ns.filter((n) => n.path !== meta.path), meta]);
-          if (!inView(meta, view)) setView(folder ? { kind: "folder", path: folder } : { kind: "all" });
+          if (!inView(meta, view, tagFolders)) setView(folder ? { kind: "folder", path: folder } : { kind: "all" });
           setSelected(meta.path);
           showMobileDetail();
           refresh();
@@ -1719,7 +1740,7 @@ export default function App() {
         })
         .catch(reportCreateFailure(`create sheet “${title}”`, title));
     },
-    [view, refresh, showMobileDetail, undoApi, reportCreateFailure]
+    [view, refresh, showMobileDetail, undoApi, reportCreateFailure, setNotes, tagFolders]
   );
 
   // a `type` chip commit re-homed an existing note into a database (SUB-208):
@@ -1768,14 +1789,14 @@ export default function App() {
               .catch((e) => showToast(String(e)));
           },
         });
-      } else if (view.kind === "db" && inView(meta, view)) setDbNote(meta.path);
+      } else if (view.kind === "db" && inView(meta, view, tagFolders)) setDbNote(meta.path);
       else {
-        if (!inView(meta, view)) setView({ kind: "all" });
+        if (!inView(meta, view, tagFolders)) setView({ kind: "all" });
         setSelected(meta.path);
       }
       showMobileDetail();
     },
-    [view, databases, folders, refresh, setDbHome, showToast, showMobileDetail]
+    [view, databases, folders, refresh, setDbHome, showToast, showMobileDetail, setNotes, tagFolders]
   );
 
   // open a type's template as an ordinary note (SUB-59): the file lives
@@ -1880,14 +1901,14 @@ export default function App() {
       vaultTrashRestore(id)
         .then((m) => {
           setNotes((ns) => [...ns.filter((n) => n.path !== m.path), m]);
-          if (!inView(m, view)) setView({ kind: "all" });
+          if (!inView(m, view, tagFolders)) setView({ kind: "all" });
           setSelected(m.path);
           showMobileDetail();
           refresh();
         })
         .catch((e) => showToast(String(e instanceof Error ? e.message : e)));
     },
-    [view, refresh, showToast, showMobileDetail]
+    [view, refresh, showToast, showMobileDetail, setNotes, tagFolders]
   );
 
   // SUB-515: the folder counterpart — undo of "Move folder to Trash" brings
@@ -1944,9 +1965,9 @@ export default function App() {
         duplicateNoteInVault(n)
           .then((m) => {
             setNotes((ns) => [...ns.filter((x) => x.path !== m.path), m]);
-            if (view.kind === "db" && inView(m, view)) setDbNote(m.path);
+            if (view.kind === "db" && inView(m, view, tagFolders)) setDbNote(m.path);
             else {
-              if (!inView(m, view)) setView({ kind: "all" });
+              if (!inView(m, view, tagFolders)) setView({ kind: "all" });
               setSelected(m.path);
             }
             showMobileDetail();
@@ -1956,7 +1977,7 @@ export default function App() {
           .catch((e) => showToast(String(e instanceof Error ? e.message : e)));
       });
     },
-    [afterOpenFlush, view, refresh, showToast, showMobileDetail]
+    [afterOpenFlush, view, refresh, showToast, showMobileDetail, setNotes, tagFolders]
   );
 
   // "Move to folder…" from any surface: the palette opens straight into its
@@ -2809,6 +2830,85 @@ export default function App() {
   // a database born straight into the tree — the create dialog flagged
   // fromSidebar so createDatabase homes it on an eponymous root folder.
   // SUB-672's "Map a folder…" backs a database with a real folder on disk.
+  /* ----- tag folders (SUB-818) ----- */
+
+  // the builder sheet: null = closed, { folder: null } = building a new one
+  const [tagFolderEdit, setTagFolderEdit] = useState<{ folder: TagFolder | null } | null>(null);
+
+  // every tag in the vault with its note count — the completion source for
+  // both the builder's chip fields and the editor's `#`. Derived from the
+  // index rather than fetched: the notes are already here and already fresh,
+  // and vault_tags exists for callers that aren't holding the index.
+  const tagCounts = useMemo(() => tagUniverse(notes), [notes]);
+
+  // the sidebar asks for the sheet with the folder itself (or null for new);
+  // the wrapper object is App's own "is it open" state
+  const onTagFolderEdit = useCallback((folder: TagFolder | null) => setTagFolderEdit({ folder }), []);
+
+  // clicking an inline `#tag` — the collection exists whether or not anyone
+  // ever built a folder for that tag, which is the point: the tag is the
+  // grouping, a folder is only a saved one
+  const openTag = useCallback((tag: string) => {
+    setView({ kind: "tag", tag });
+    setDbNote(null);
+  }, []);
+
+  const saveTagFolder = useCallback(
+    (folder: TagFolder) => {
+      // one writer, so the read-modify-write needs no queue (the views.json
+      // lane's reason for one doesn't apply — see useVaultConfigs)
+      const next = tagFolders.some((f) => f.id === folder.id)
+        ? tagFolders.map((f) => (f.id === folder.id ? folder : f))
+        : [...tagFolders, folder];
+      setTagFolders(next);
+      setTagFolderEdit(null);
+      // a refused write (newer format.json, disk error) must not leave the
+      // sidebar showing a folder disk never got — re-read to converge, the
+      // persistViewsConfig pattern
+      vaultTagFoldersWrite(next)
+        .then(setTagFolders)
+        .catch((e) => {
+          showToast(String(e));
+          vaultTagFoldersRead().then(setTagFolders).catch(() => {});
+        });
+      setView({ kind: "tagfolder", id: folder.id });
+    },
+    [tagFolders, setTagFolders, showToast]
+  );
+
+  const deleteTagFolder = useCallback(
+    (id: string) => {
+      const next = tagFolders.filter((f) => f.id !== id);
+      setTagFolders(next);
+      setTagFolderEdit(null);
+      vaultTagFoldersWrite(next)
+        .then(setTagFolders)
+        .catch((e) => {
+          showToast(String(e));
+          vaultTagFoldersRead().then(setTagFolders).catch(() => {});
+        });
+      // standing on the folder that just went away — the deletion removed a
+      // lens, not any notes, so fall back to the widest one
+      setView((v) => (v.kind === "tagfolder" && v.id === id ? { kind: "all" } : v));
+    },
+    [tagFolders, setTagFolders, showToast]
+  );
+
+  // a note dropped on a tag folder is TAGGED, not moved — its path never
+  // changes. Exclusions are not applied (that would file it straight back out).
+  const onDropNoteTagFolder = useCallback(
+    (path: string, id: string) => {
+      const folder = tagFolders.find((f) => f.id === id);
+      if (!folder) return;
+      const tags = tagFolderApplyTags(folder);
+      if (tags.length === 0) return;
+      vaultNoteAddTags(path, tags)
+        .then(() => showToast(`Tagged ${tags.map((t) => `#${t}`).join(" ")}`))
+        .catch((e) => showToast(String(e)));
+    },
+    [tagFolders, showToast]
+  );
+
   const folderAddMenu = useCallback(
     (x: number, y: number) =>
       setMenu({
@@ -2829,6 +2929,13 @@ export default function App() {
             label: "Map a folder…",
             icon: <FolderIcon />,
             onSelect: () => setMapFolder({}),
+          },
+          {
+            // SUB-818: born in the same menu as the real folders, because it
+            // is the same kind of thing to the user — a place notes show up
+            label: "New tag folder…",
+            icon: <TypeIcon type="tag" icon={{ glyph: "tag" }} />,
+            onSelect: () => setTagFolderEdit({ folder: null }),
           },
         ],
       }),
@@ -2927,7 +3034,9 @@ export default function App() {
                 ? `note:${target.path}`
                 : target.kind === "fixed"
                   ? target.token
-                  : `dash:${target.path}`;
+                  : target.kind === "tagfolder"
+                    ? `tagfolder:${target.id}`
+                    : `dash:${target.path}`;
       const keyLane = keyMenuItems(keyTarget, x, y);
       if (target.kind === "fixed") {
         // nothing to act on but the key lane — no separator, it's the whole menu
@@ -2960,6 +3069,31 @@ export default function App() {
         });
       } else if (target.kind === "savedview") {
         setMenu({ x, y, items: [...savedViewMenuItems(target.id), ...keyLane] });
+      } else if (target.kind === "tagfolder") {
+        // SUB-818: no Rename lane of its own — the rule and the name are one
+        // thing here, and both live in the builder
+        const f = tagFolders.find((f) => f.id === target.id);
+        setMenu({
+          x,
+          y,
+          items: [
+            { label: "Open", icon: <PinIcon />, onSelect: () => setView({ kind: "tagfolder", id: target.id }) },
+            ...(f
+              ? [{ label: "Edit tags…", icon: <PenIcon />, onSelect: () => setTagFolderEdit({ folder: f }) }]
+              : []),
+            {
+              label: "Delete folder",
+              icon: <TrashIcon />,
+              danger: true,
+              separatorAbove: true,
+              // says what it does NOT do: the notes keep their tags and their
+              // place — only this lens goes away
+              hint: "notes keep their tags",
+              onSelect: () => deleteTagFolder(target.id),
+            },
+            ...keyLane,
+          ],
+        });
       } else if (target.kind === "pin") {
         // a pinned plain note (SUB-410) — the canonical note actions, whose
         // pin entry reads "Remove pin" here; unpinning never touches the file.
@@ -3007,6 +3141,8 @@ export default function App() {
       keyMenuItems,
       dashPaths,
       dashSplit,
+      tagFolders,
+      deleteTagFolder,
     ]
   );
 
@@ -3072,12 +3208,20 @@ export default function App() {
   // today's daily (SUB-593, product call): one entry per day is the folder's
   // whole metaphor, so a loose Untitled beside the dailies is never the wish.
   const newInFolder = useCallback(() => {
+    // SUB-818: inside a tag folder there is no folder to be born into — the
+    // note lands in Inbox like any scratch and wears the folder's tags, which
+    // is what puts it in view
+    if (view.kind === "tagfolder") {
+      const folder = tagFolders.find((f) => f.id === view.id);
+      if (!folder) return;
+      return createScratch("Inbox", tagFolderApplyTags(folder));
+    }
     if (view.kind !== "folder") return;
     if (view.path === JOURNAL_DIR) return openJournal(todayIso());
     const homeDb = homeDbByFolder[view.path];
     if (homeDb) createTyped("Untitled", homeDb, "title");
     else createScratch(view.path);
-  }, [view, homeDbByFolder, createTyped, createScratch, openJournal]);
+  }, [view, tagFolders, homeDbByFolder, createTyped, createScratch, openJournal]);
 
   // ⌘N's contextual dispatch, shared with the SUB-590 background menus:
   // inside a database, calendar, or folder view, "new" means a new entry
@@ -3086,7 +3230,7 @@ export default function App() {
     if ((view.kind === "db" || view.kind === "saved") && !overlay) setDbNewSeq((s) => s + 1);
     else if (view.kind === "calendar" && !overlay) setCalNewSeq((s) => s + 1);
     else if (view.kind === "notes" && !overlay) createScratch();
-    else if (view.kind === "folder" && !overlay) newInFolder();
+    else if ((view.kind === "folder" || view.kind === "tagfolder") && !overlay) newInFolder();
     else setOverlay("capture");
   }, [view, overlay, createScratch, newInFolder]);
 
@@ -3103,7 +3247,9 @@ export default function App() {
           icon: <NoteIcon />,
           hint: "⌘N",
           onSelect: () => {
-            if (folder) newInFolder();
+            // a tag folder has no path, but it does have a create rule
+            // (SUB-818) — newInFolder owns both forks
+            if (folder || view.kind === "tagfolder") newInFolder();
             else createScratch();
           },
         },
@@ -3547,6 +3693,9 @@ export default function App() {
         folderOrder={sidebarFolderOrder}
         dashGroupOrder={sidebarDashGroupOrder}
         folderMeta={folderMeta}
+        tagFolders={tagFolders}
+        onTagFolderEdit={onTagFolderEdit}
+        onDropNoteTagFolder={onDropNoteTagFolder}
         renaming={renaming}
         onRenameNote={renameNote}
         onRenameCancel={onSidebarRenameCancel}
@@ -3825,6 +3974,8 @@ export default function App() {
                 dbTypes={dbTypes}
                 onFollowLink={followLink}
                 noteTitles={noteTitles}
+                onOpenTag={openTag}
+                tagUniverse={tagCounts}
                 onOpenNote={openNote}
                 embedQuery={embedQuery}
                 onOpenView={openEmbedView}
@@ -3872,6 +4023,7 @@ export default function App() {
           onActivate={onListActivate}
           folderIcon={listFolderIcon}
           onNewHere={newInFolder}
+          tagFolders={tagFolders}
           mobile={mobile}
         />
         )}
@@ -3888,6 +4040,8 @@ export default function App() {
             dbTypes={dbTypes}
             onFollowLink={followLink}
             noteTitles={noteTitles}
+            onOpenTag={openTag}
+            tagUniverse={tagCounts}
             onOpenNote={openNote}
             embedQuery={embedQuery}
             onOpenView={openEmbedView}
@@ -4048,6 +4202,16 @@ export default function App() {
         />
       )}
       {sendLink && <SendLinkDialog meta={sendLink} onClose={() => setSendLink(null)} />}
+      {tagFolderEdit && (
+        <TagFolderDialog
+          folder={tagFolderEdit.folder}
+          universe={tagCounts}
+          matchCount={(d) => notes.filter((n) => tagFolderMatches(d, n.tags ?? [])).length}
+          onSave={saveTagFolder}
+          onDelete={deleteTagFolder}
+          onClose={() => setTagFolderEdit(null)}
+        />
+      )}
       {mapFolder && (
         <MapFolderDialog
           dbTypes={dbTypes}

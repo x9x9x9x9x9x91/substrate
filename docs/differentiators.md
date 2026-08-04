@@ -106,6 +106,13 @@ Capacities, Affine).*
   burn-after-open or 1/7/30-day expiry. No competitor has an E2E ephemeral
   share. Requires a configured relay — lead with the self-host story until a
   hosted relay exists.
+- **Tag folders that act** — `#tags` in prose and a `tags:` prop are one
+  set, and a saved tag query sits in the sidebar as a folder (chips +
+  any/all + "but not …", no query language anywhere). The twist is that it
+  accepts work: make a note inside one, or drag a note onto it, and the
+  folder's tags are written onto the note — **nothing moves on disk**, so the
+  same note can live in as many of these as it earns. Filing without a
+  filing cabinet.
 - **Recurring dates in human-readable frontmatter** — `repeat: every 3
   weeks`, no RRULE anywhere; occurrences are virtual (one file, many
   instances); delete offers this-one / following / all.

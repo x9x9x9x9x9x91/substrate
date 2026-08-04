@@ -23,11 +23,14 @@ import type {
   SelectOption,
   SidebarOrder,
   SyncReport,
+  TagCount,
+  TagFolder,
   TrashEntry,
   VaultSyncStatus,
   ViewsConfig,
 } from "./types.ts";
 import { stripMachineFences } from "./fences.ts";
+import { noteTags, propTags, tagUniverse } from "./tags.ts";
 import { MOCK_FX } from "./fx.ts";
 import { noteOwnWrite } from "./ownwrites.ts";
 import { remapSavedQueryProperty } from "./query.ts";
@@ -85,6 +88,8 @@ const HISTORY_MODE_COMMANDS = new Set([
   "vault_saved_views_read",
   "vault_sidebar_order",
   "vault_folder_meta_read",
+  "vault_tags",
+  "vault_tag_folders_read",
   "vault_sync_status",
   "vault_sync_conflicts",
   "vault_trash_list",
@@ -1444,7 +1449,9 @@ for (const r of LEDGER_ROWS) {
 
 function meta(n: MockNote): NoteMeta {
   const { body: _body, unreadable: _unreadable, fm: _fm, ...m } = n;
-  return m;
+  // mirrors Engine::index_file (SUB-818): a note's tags are computed at index
+  // time from body + props, never stored on the fixture
+  return { ...m, tags: noteTags(n.props, n.body) };
 }
 
 /* Frontmatter health for the fm lanes (SUB-430), mirroring vault.rs's
@@ -1594,6 +1601,12 @@ const mockViews = mockRecord<ViewsConfig[string]>() as ViewsConfig;
 const mockFolderMeta: FolderMetaMap = {
   Projects: { icon: { emoji: "🌱" } },
 };
+
+/* Mock tag folders (SUB-818), mirroring `.vault/tagfolders.json`. Empty on
+   boot: a vault's first tag folder is built, never seeded, so specs exercise
+   the builder from the same empty state a new vault has. Specs that need
+   tagged notes write them with __mockEditNote/__mockEditProp. */
+let mockTagFolders: TagFolder[] = [];
 
 /* Folder registry mirrors the real dirs on disk: seeded from note locations
    plus one empty nested branch so the tree has something collapsible, and
@@ -2532,6 +2545,9 @@ const WATCHED_WRITE_COMMANDS = new Set([
   "vault_write_body",
   "vault_fm_write",
   "vault_set_prop",
+  // acting inside a tag folder writes the note's `tags:` prop like any other
+  // prop edit, so the watcher sees it (SUB-818)
+  "vault_note_add_tags",
   "vault_create",
   "url_capture",
   "vault_rename",
@@ -2595,6 +2611,7 @@ function writtenPathsFor(
     case "vault_write_body":
     case "vault_fm_write":
     case "vault_set_prop":
+    case "vault_note_add_tags":
       // set_prop returns { meta, prior }; the others return the meta itself
       return [path ?? metaPath((result as { meta?: unknown })?.meta ?? result)].filter(
         (p): p is string => !!p
@@ -4376,6 +4393,48 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     }
     case "vault_folder_meta_read":
       return JSON.parse(JSON.stringify(mockFolderMeta));
+    case "vault_tags":
+      // mirrors Engine::tag_universe: count per folded tag over every indexed
+      // note, most-used first
+      return tagUniverse(mockNotes.map(meta)) as TagCount[];
+    case "vault_tag_folders_read":
+      return JSON.parse(JSON.stringify(mockTagFolders));
+    case "vault_tag_folders_write": {
+      // mirrors Engine::write_tag_folders: blank id or name refuses, ids
+      // dedupe last-wins, the written list is what comes back
+      const incoming = (args?.folders as TagFolder[]) ?? [];
+      for (const f of incoming) {
+        if (!f.id?.trim()) throw new Error("tag folder id cannot be empty");
+        if (!f.name?.trim()) throw new Error("tag folder name cannot be empty");
+      }
+      const byId = new Map<string, TagFolder>();
+      for (const f of incoming) byId.set(f.id.trim(), { ...f, id: f.id.trim(), name: f.name.trim() });
+      mockTagFolders = [...byId.values()];
+      return JSON.parse(JSON.stringify(mockTagFolders));
+    }
+    case "vault_note_add_tags": {
+      // mirrors Engine::add_tags: only the `tags:` prop is written, tags the
+      // note already carries inline are skipped, and the file never moves
+      const n = mockNotes.find((m) => m.path === (args?.path as string));
+      if (!n) throw new Error("not found");
+      const wanted = ((args?.tags as string[]) ?? []).map((t) => t.trim()).filter(Boolean);
+      const have = noteTags(n.props, n.body);
+      const missing = wanted.filter((t) => !have.some((h) => h.toLowerCase() === t.toLowerCase()));
+      if (missing.length === 0) return meta(n);
+      const key = Object.keys(n.props).find((k) => k.toLowerCase() === "tags") ?? "tags";
+      const list = propTags(n.props);
+      for (const tag of missing) {
+        if (!list.some((h) => h.toLowerCase() === tag.toLowerCase())) list.push(tag);
+      }
+      n.props[key] = list;
+      if (n.fm !== undefined) {
+        const ser = mockFmSerialize(n.props);
+        if (ser === undefined) delete n.fm;
+        else n.fm = ser;
+      }
+      n.updated_ms = Date.now();
+      return meta(n);
+    }
     case "vault_folder_icon_set": {
       // mirrors Engine::set_folder_icon: trim, emoji wins over glyph, tint
       // only with a mark, no mark removes the entry — whole icon each write
