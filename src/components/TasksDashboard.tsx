@@ -1,18 +1,22 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { NoteMeta, SchemaConfig } from "../lib/types";
 import {
   buildTasksDashboard,
   dueChipLabel,
+  parseTasksSort,
+  parseTasksView,
   priorityFallbackColor,
   taskDueDays,
   type TasksDashboardRow,
   type TasksDashboardSection,
+  type TasksSort,
+  type TasksView,
 } from "../lib/tasksDashboard";
 import { setPropUndoable } from "../lib/undoprops";
 import { nextUndoId } from "../lib/undo";
 import { useUndo } from "../lib/undoContext";
 import { isComplete, statusSchemaFor } from "../lib/calendar";
-import { propSchemaFor } from "../lib/schemalookup";
+import { byFoldedKey, foldedObjectKey, propSchemaFor } from "../lib/schemalookup";
 import { optionColorVar } from "../lib/dbicons";
 import { shiftDate, todayIso } from "../lib/dates";
 import { vaultSetProp } from "../lib/ipc";
@@ -118,7 +122,27 @@ export default function TasksDashboard({
     return () => window.clearInterval(timer);
   }, []);
   const now = useMemo(() => new Date(nowMs), [nowMs]);
-  const model = useMemo(() => buildTasksDashboard(notes, meta.props, now), [notes, meta.props, now]);
+
+  // View and sort (SUB-933) live as frontmatter props on the dashboard note —
+  // the same config surface `areas`/`stale_days` use, so the choice survives
+  // restarts and syncs with the vault. Read them case-folded, exactly as the
+  // model does (the SUB-921 contract): a hand-written `View: board` configures
+  // the pane instead of being silently ignored by it. Local state answers the
+  // click instantly; the effect re-syncs when the note itself changes (an
+  // external edit, or another window).
+  const [view, setView] = useState<TasksView>(() =>
+    parseTasksView(byFoldedKey(meta.props, "view"))
+  );
+  const [sort, setSort] = useState<TasksSort>(() =>
+    parseTasksSort(byFoldedKey(meta.props, "sort"))
+  );
+  useEffect(() => setView(parseTasksView(byFoldedKey(meta.props, "view"))), [meta.props]);
+  useEffect(() => setSort(parseTasksSort(byFoldedKey(meta.props, "sort"))), [meta.props]);
+
+  const model = useMemo(
+    () => buildTasksDashboard(notes, { ...meta.props, view, sort }, now),
+    [notes, meta.props, view, sort, now]
+  );
 
   const undo = useUndo();
   const [snoozeMenu, setSnoozeMenu] = useState<{
@@ -152,6 +176,57 @@ export default function TasksDashboard({
   // the just-created row: scrolled to and flashed, because urgency ranking
   // can land a new undated task far below the fold (SUB-870 review)
   const [added, setAdded] = useState<string | null>(null);
+  // board drag (SUB-933): the card in flight and the column under it
+  const [dragPath, setDragPath] = useState<string | null>(null);
+  const [dropArea, setDropArea] = useState<string | null>(null);
+
+  /** The frontmatter key to write for a config prop: the note's existing
+      spelling when it has one, else lowercase. `set_prop` matches keys exactly
+      (vault/mod.rs), so writing the hardcoded lowercase name onto a note that
+      spells it `View:` would mint a duplicate key beside it. */
+  const propKey = (want: string) => foldedObjectKey(meta.props, want) ?? want;
+
+  /** Prop writes from this pane run one at a time. `set_prop` is a whole-
+      frontmatter read-modify-write, so two clicks inside one round-trip would
+      each read the pre-click file and the second would drop the first's prop. */
+  const writeChain = useRef<Promise<unknown>>(Promise.resolve());
+  const queueWrite = (key: string, value: string | null) => {
+    const next = writeChain.current
+      .catch(() => {})
+      .then(() => vaultSetProp(meta.path, propKey(key), value));
+    writeChain.current = next.catch(() => {});
+    return next;
+  };
+
+  /** Flip view/sort: state answers the click, then the choice persists as a
+      frontmatter prop on the dashboard note. A default value clears the prop
+      instead of writing it, so untouched boards keep clean frontmatter. A
+      failed write puts the switch back where it was — an optimistic flip that
+      outlives the write it stood for is the pane lying about disk. Not
+      undoable on purpose — ⌘Z is for content, and popping a view flip off
+      the stack between two prop edits would read as data loss. */
+  const pickView = (v: TasksView) => {
+    if (v === view) return;
+    const prior = view;
+    setView(v);
+    queueWrite("view", v === "list" ? null : v)
+      .then(onMutated)
+      .catch((err) => {
+        setView(prior);
+        reportFailure(err);
+      });
+  };
+  const pickSort = (s: TasksSort) => {
+    if (s === sort) return;
+    const prior = sort;
+    setSort(s);
+    queueWrite("sort", s === "urgency" ? null : s)
+      .then(onMutated)
+      .catch((err) => {
+        setSort(prior);
+        reportFailure(err);
+      });
+  };
 
   const statusOptions = statusSchemaFor(schema, "task")?.options ?? [];
   /** The type's own done-like status option (the CalendarPane.tsx:874 lookup),
@@ -212,6 +287,24 @@ export default function TasksDashboard({
 
   const setNow = (row: TasksDashboardRow, on: boolean) =>
     write(row.path, "now", on ? true : null, `${on ? "Now" : "Later"} — ${row.title}`);
+
+  /** A board drop re-areas the card through the same undoable path (the
+      DatabasePane board convention: name the target on the toast, offer
+      Undo). "Unassigned" is the display name of a missing prop, so dropping
+      there clears `area` rather than writing the label as a value. The dragged
+      path comes off the drop event itself (set at dragStart) — that is the
+      payload the browser guarantees for THIS drop; the state is the fallback
+      for platforms that hand back an empty `text/plain`. */
+  const dropOn = (area: string, payload?: string) => {
+    const path = payload || dragPath;
+    setDragPath(null);
+    setDropArea(null);
+    if (!path) return;
+    const all = [...model.columns.flatMap((c) => c.rows)];
+    const row = all.find((r) => r.path === path);
+    if (!row || row.area === area) return;
+    write(path, "area", area === "Unassigned" ? null : area, `${row.title} → ${area}`);
+  };
 
   const wake = (row: TasksDashboardRow) =>
     write(row.path, "snoozed_until", null, `Awake — ${row.title}`);
@@ -421,6 +514,105 @@ export default function TasksDashboard({
     );
   };
 
+  /** A kanban card (SUB-933): the row's content restacked for a 240px
+      column — checkbox and title up top, the same due/priority edit chips
+      below, the quiet verbs on hover. Urgency stays readable through the
+      chips' own hues; the card never moves columns for being late. */
+  const renderCard = (row: TasksDashboardRow) => {
+    const done = completing.includes(row.path);
+    const tint = priorityTint(row.priority);
+    return (
+      <div
+        key={row.path}
+        className={`tasks-card${done ? " done" : ""}${dragPath === row.path ? " dragging" : ""}${added === row.path ? " added" : ""}`}
+        data-task-path={row.path}
+        title={rowTitle(row, now)}
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/plain", row.path);
+          e.dataTransfer.effectAllowed = "move";
+          setDragPath(row.path);
+        }}
+        onDragEnd={() => {
+          setDragPath(null);
+          setDropArea(null);
+        }}
+      >
+        <div className="tasks-card-top">
+          <button
+            type="button"
+            className="tasks-check"
+            style={{ "--check": optionColorVar(tint) ?? "var(--text-4)" } as CSSProperties}
+            title="Mark done"
+            role="checkbox"
+            aria-label={`Mark ${row.title} done`}
+            aria-checked={done}
+            onClick={() => complete(row)}
+          >
+            <i />
+          </button>
+          <button type="button" className="tasks-open" onClick={() => onOpenSource(row.path)}>
+            <span className="tasks-title">{row.title}</span>
+          </button>
+        </div>
+        <div className="tasks-card-meta">
+          <button
+            type="button"
+            className={`tasks-due${row.dueBucket ? ` ${row.dueBucket}` : " unset"}`}
+            title={row.due ? "Change the due date" : "Set a due date"}
+            aria-label={`${row.due ? "Change" : "Set"} due date for ${row.title}`}
+            onClick={(e) =>
+              setDuePick({
+                path: row.path,
+                title: row.title,
+                due: row.due,
+                anchor: anchorFrom(e.currentTarget),
+              })
+            }
+          >
+            {row.due !== null && row.dueBucket !== null
+              ? dueChipLabel(row.due, row.dueDays, now)
+              : "＋ due"}
+          </button>
+          <button
+            type="button"
+            className={`tasks-prio${row.priority ? "" : " unset"}`}
+            title={row.priority ? "Change the priority" : "Set a priority"}
+            aria-label={`${row.priority ? "Change" : "Set"} priority for ${row.title}`}
+            onClick={(e) =>
+              setPriorityPick({
+                path: row.path,
+                title: row.title,
+                priority: row.priority,
+                anchor: anchorFrom(e.currentTarget),
+              })
+            }
+          >
+            {row.priority ? <OptionPill color={tint}>{row.priority}</OptionPill> : "＋ priority"}
+          </button>
+          <span className="tasks-card-acts">
+            <button type="button" className="tasks-act" onClick={() => setNow(row, !row.now)}>
+              {row.now ? "Later" : "Now"}
+            </button>
+            <button
+              type="button"
+              className="tasks-act"
+              onClick={(e) =>
+                setSnoozeMenu({
+                  path: row.path,
+                  title: row.title,
+                  anchor: anchorFrom(e.currentTarget),
+                })
+              }
+            >
+              Snooze
+            </button>
+          </span>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="note">
       <div className="dash-inner tasks-compact">
@@ -430,6 +622,50 @@ export default function TasksDashboard({
             color: stateColor(model.overdue, model.dueToday, model.total),
             label: stateLabel(model.overdue, model.dueToday, model.nowCount, model.total),
           }}
+          actions={
+            <>
+              {/* sort first, view second: reading order matches the cascade —
+                  the ordering feeds whichever layout renders it */}
+              <span className="db-switch tasks-sort" title="Order rows by">
+                {(
+                  [
+                    ["urgency", "Urgency"],
+                    ["priority", "Priority"],
+                    ["due", "Due"],
+                    ["age", "Age"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    type="button"
+                    key={value}
+                    className={sort === value ? "active" : ""}
+                    aria-pressed={sort === value}
+                    onClick={() => pickSort(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </span>
+              <span className="db-switch tasks-view" title="Layout">
+                {(
+                  [
+                    ["list", "List"],
+                    ["board", "Board"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    type="button"
+                    key={value}
+                    className={view === value ? "active" : ""}
+                    aria-pressed={view === value}
+                    onClick={() => pickView(value)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </span>
+            </>
+          }
           sourcePath={meta.path}
           onOpenSource={onOpenSource}
         />
@@ -474,7 +710,46 @@ export default function TasksDashboard({
           </form>
         )}
 
-        {model.total === 0 ? (
+        {/* An emptied board keeps its rail: with an allowlist every listed area
+            holds a column even at zero tasks (docs/vault-format.md), and those
+            columns are the drop targets you re-file work into — replacing them
+            with the empty line would strand the board with nowhere to drop.
+            The empty line still speaks for the list view, and for a board that
+            genuinely has no columns to show. */}
+        {view === "board" && model.columns.length > 0 ? (
+          <div className="tasks-cols">
+            {model.columns.map((col) => (
+              <div
+                key={col.area}
+                className={`tasks-col${dropArea === col.area ? " drop" : ""}`}
+                style={{ "--sec": "var(--opt-blue)" } as CSSProperties}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  if (dropArea !== col.area) setDropArea(col.area);
+                }}
+                onDragLeave={() => setDropArea((cur) => (cur === col.area ? null : cur))}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  dropOn(col.area, e.dataTransfer.getData("text/plain"));
+                }}
+              >
+                <div className="tasks-col-head">
+                  <span
+                    className={`tasks-col-name${col.area === "Unassigned" ? " none" : ""}`}
+                  >
+                    {col.area}
+                  </span>
+                  <span className="tasks-group-count">{col.rows.length}</span>
+                </div>
+                <div className="tasks-col-body">
+                  {col.rows.length === 0 && <div className="tasks-col-empty" aria-hidden="true" />}
+                  {col.rows.map(renderCard)}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : model.total === 0 ? (
           <div className="tasks-empty">
             {model.config.areas
               ? "Nothing open in these areas — the next one starts above."

@@ -99,7 +99,9 @@ Capacities, Affine).*
   pages (prose + live embedded views), food/kcal tracking (quantity grammar —
   "200g oats" logs itself, weight-curve overlay), tasks (an urgency-led board:
   Overdue/Due today sections, quick-add, checkoff with a real undo, Now/Later,
-  snooze round trip), news feed with agent curator, plus **workbook pages** —
+  snooze round trip, a kanban view by area with drag-to-recategorize, and a
+  sort switch — urgency/priority/due/age), news feed with agent curator, plus
+  **workbook pages** —
   any dashboard grows spreadsheet-style bottom tabs (sheet grid / dashboard /
   database cut).
   Machine-specific dashboard kinds exist in the author's private build and

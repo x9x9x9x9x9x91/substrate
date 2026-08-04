@@ -212,6 +212,7 @@ type: release
 | `items`, `curated` | feed dashboard config: items-sheet name, and the curator's own last-run stamp, rendered verbatim (§5.2) |
 | `index`, `scanned` | music-work dashboard config: work-index sheet name, and the scanner's own last-run stamp, rendered verbatim (§5.2) |
 | `areas`, `stale_days` | tasks dashboard area allowlist and stale-age threshold (§5.2) |
+| `view`, `sort` | tasks dashboard layout (`list`/`board`) and ordering (`urgency`/`priority`/`due`/`age`) (§5.2) |
 | `now`, `snoozed_until` | tasks board: pinned to the focus section / parked until a wake day, both board-scoped (§5.2) |
 | `tags` | tag list, unioned with the body's inline `#tags` (§3b) |
 
@@ -547,6 +548,8 @@ type: dashboard
 dashboard: tasks
 areas: [Label, Studio] # YAML string list, or comma-separated scalar
 stale_days: 30         # positive whole number; default 30
+view: board            # `board` for the kanban view; default (or `list`) = the list
+sort: due              # `priority` | `due` | `age`; default (or `urgency`) = urgency
 ---
 ```
 
@@ -565,14 +568,34 @@ stale_days: 30         # positive whole number; default 30
   in Now. Everything else — upcoming and undated alike — stays in its area
   group. A missing or malformed `due` is simply no due date: never a finding,
   never a reason to move or hide the row.
-- **Ranking (SUB-870)**: within every section the order is due bucket
-  (overdue → today → upcoming → none), then priority, then age, then title,
-  then path — so input order never changes the board
+- **Ranking (SUB-870; sort switch SUB-933)**: the default order within every
+  section is due bucket (overdue → today → upcoming → none), then priority,
+  then age, then title, then path — so input order never changes the board
   (`src/lib/tasksDashboard.ts`). Trimmed, case-insensitive `high` / `medium` /
   `low` weigh 3 / 2 / 1; missing or unknown priority weighs 1. Age is the
   tiebreaker only; the `age × priority` rot score that ordered v2 is gone.
   `priority` renders as a pill in the schema's own option color, falling back
   to red / yellow / gray when the vault never schema'd the prop.
+- **Sort switch (SUB-933)**: the header's sort control re-ranks rows within
+  list sections and board columns alike. `urgency` is the default above;
+  `priority`, `due` (soonest first, undated rows last), and `age` (oldest
+  first) each lead with their dimension and keep the others as tiebreakers,
+  ending on the same title/path tail so every ordering stays deterministic.
+  The choice persists as a `sort` frontmatter prop on the dashboard note; the
+  default clears the prop, and an unknown value falls back to `urgency`
+  rather than blanking the board.
+- **Kanban view (SUB-933)**: the header's List | Board control flips the pane
+  to one column per area, persisted as `view: board` on the dashboard note
+  (the default `list` clears the prop). Columns follow the area allowlist's
+  order — every listed area keeps a column even when empty, as a drop
+  target — or, without an allowlist, populated areas alphabetically with
+  `Unassigned` last. Urgency never relocates a card: the Overdue/Today/Now
+  sections are a list-view reading, and on the board each card stays in its
+  area column with due/priority chips carrying the urgency signal. Cards keep
+  the row's verbs (checkoff, due/priority edit, Now, Snooze); dragging a card
+  to another column rewrites its `area` through the same undoable path, and
+  dropping on `Unassigned` clears the prop. The snoozed section, composer,
+  and header tallies are view-independent.
 - Age is whole local-calendar days from a strict `created: YYYY-MM-DD` value;
   future dates clamp to zero. Missing/invalid dates render an `undated`
   finding and no age. A dated task is stale at `age >= stale_days`; an

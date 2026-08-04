@@ -2510,8 +2510,14 @@ export default function App() {
 
   const moveNote = useCallback(
     (path: string, folder: string): Promise<void> =>
-      afterOpenFlush(() =>
-        moveUndoable({ path, folder, record: undoApi.record }).then((m) => {
+      afterOpenFlush(() => {
+        // SUB-768: whether the view has to FOLLOW is decided against the
+        // pre-move meta — a note the current view never listed (a dashboard
+        // or search scope, where the guard clears instead of snapping) must
+        // not yank the view, and neither must moving a background note.
+        const prev = notesRef.current.find((n) => n.path === path);
+        const wasShown = selected === path && !!prev && inView(prev, view, tagFolders);
+        return moveUndoable({ path, folder, record: undoApi.record }).then((m) => {
           // the file's rel path changed — follow it everywhere it's referenced
           setSelected((sel) => (sel === path ? m.path : sel));
           setDbNote((cur) => (cur === path ? m.path : cur));
@@ -2520,11 +2526,40 @@ export default function App() {
           // SUB-605 dragging one between folders is a normal gesture, and a
           // view left on the old path finds no meta and falls back to the list
           setView((v) => (v.kind === "dashboard" && v.path === path ? { ...v, path: m.path } : v));
+          // SUB-768: the OPEN note left this view's scope — left alone, the
+          // selection-guard snaps the editor to a different note and the
+          // next keystroke lands in it (the wrong-note editing trap). Follow
+          // the note to where it now lives, exactly like followTyped does:
+          // untyped Inbox/root captures belong to Notes (the createNote
+          // idiom), anything else to its destination folder.
+          if (wasShown && !inView(m, view, tagFolders)) {
+            // seed the moved meta synchronously (SUB-72 trick): app state is
+            // pre-refresh stale at this instant, so the destination view has
+            // no row for the note yet and the guard would snap right back
+            setNotes((ns) => ns.map((n) => (n.path === path ? m : n)));
+            setView(
+              isScratchNote(m)
+                ? { kind: "notes" }
+                : m.folder
+                  ? { kind: "folder", path: m.folder }
+                  : { kind: "all" }
+            );
+          }
           refresh();
           migrateSidebarOrderPath(path, m.path);
-        })
-      ),
-    [afterOpenFlush, refresh, migrateSidebarOrderPath, undoApi]
+        });
+      }),
+    [
+      afterOpenFlush,
+      refresh,
+      migrateSidebarOrderPath,
+      undoApi,
+      selected,
+      view,
+      tagFolders,
+      notesRef,
+      setNotes,
+    ]
   );
 
   const createFolder = useCallback(

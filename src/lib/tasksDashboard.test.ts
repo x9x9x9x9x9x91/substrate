@@ -12,6 +12,8 @@ import {
   taskIsSnoozed,
   taskPriorityWeight,
   tasksDashboardConfig,
+  parseTasksSort,
+  parseTasksView,
 } from "./tasksDashboard.ts";
 import type { NoteMeta } from "./types.ts";
 
@@ -102,6 +104,8 @@ test("stale threshold is inclusive; invalid settings use the documented default"
   assert.deepEqual(tasksDashboardConfig({ stale_days: "14", areas: "A" }), {
     staleDays: 14,
     areas: ["A"],
+    view: "list",
+    sort: "urgency",
   });
   for (const invalid of [0, -1, 1.5, "0", "2.5", "nope", undefined]) {
     assert.equal(tasksDashboardConfig({ stale_days: invalid }).staleDays, DEFAULT_TASK_STALE_DAYS);
@@ -397,5 +401,117 @@ test("cased Areas/Stale_Days keys still configure (SUB-921)", () => {
   assert.deepEqual(tasksDashboardConfig({ Areas: "A", Stale_Days: "14" }), {
     areas: ["A"],
     staleDays: 14,
+    view: "list",
+    sort: "urgency",
   });
+});
+
+test("view and sort props fold case/whitespace and fall back on unknowns (SUB-933)", () => {
+  assert.equal(parseTasksView(" Board "), "board");
+  assert.equal(parseTasksView("list"), "list");
+  assert.equal(parseTasksView("kanban"), "list");
+  assert.equal(parseTasksView(undefined), "list");
+  assert.equal(parseTasksSort(" Priority "), "priority");
+  assert.equal(parseTasksSort("DUE"), "due");
+  assert.equal(parseTasksSort("age"), "age");
+  assert.equal(parseTasksSort("rot"), "urgency");
+  assert.equal(parseTasksSort(undefined), "urgency");
+});
+
+test("sort=priority leads with weight; due bucket and age stay as tiebreakers (SUB-933)", () => {
+  const model = buildTasksDashboard(
+    [
+      note("late low", { type: "task", area: "A", priority: "low", due: "2026-07-30", created: "2026-07-01" }),
+      note("upcoming high", { type: "task", area: "A", priority: "high", due: "2026-08-09", created: "2026-07-20" }),
+      note("late high", { type: "task", area: "A", priority: "high", due: "2026-07-25", created: "2026-07-20" }),
+    ],
+    { sort: "priority" },
+    NOW
+  );
+  // the spine still sections by urgency; inside Overdue priority now leads
+  const overdue = sectionNamed(model, "Overdue");
+  assert.deepEqual(overdue?.rows.map((r) => r.title), ["late high", "late low"]);
+  // the board column shows the full re-ranking: both highs above the low
+  assert.deepEqual(model.columns[0]?.rows.map((r) => r.title), [
+    "late high",
+    "upcoming high",
+    "late low",
+  ]);
+});
+
+test("sort=due orders soonest-first with undated rows last (SUB-933)", () => {
+  const model = buildTasksDashboard(
+    [
+      note("undated high", { type: "task", area: "A", priority: "high", created: "2026-07-01" }),
+      note("next week", { type: "task", area: "A", priority: "low", due: "2026-08-06", created: "2026-07-01" }),
+      note("yesterday", { type: "task", area: "A", priority: "low", due: "2026-07-31", created: "2026-07-01" }),
+      // same upcoming bucket as "next week", sooner but lower-ranked: urgency
+      // would put "later high" first on priority, so this pair is what proves
+      // the due comparator actually ran rather than falling through to it
+      note("later high", { type: "task", area: "A", priority: "high", due: "2026-08-20", created: "2026-07-01" }),
+    ],
+    { sort: "due" },
+    NOW
+  );
+  assert.deepEqual(model.columns[0]?.rows.map((r) => r.title), [
+    "yesterday",
+    "next week",
+    "later high",
+    "undated high",
+  ]);
+});
+
+test("sort=age leads with the oldest created date (SUB-933)", () => {
+  const model = buildTasksDashboard(
+    [
+      note("young urgent", { type: "task", area: "A", priority: "high", due: "2026-07-30", created: "2026-07-30" }),
+      note("ancient", { type: "task", area: "A", priority: "low", created: "2026-02-01" }),
+    ],
+    { sort: "age" },
+    NOW
+  );
+  assert.deepEqual(model.columns[0]?.rows.map((r) => r.title), ["young urgent", "ancient"].reverse());
+});
+
+test("board columns regroup every visible row by area — urgency claims nothing (SUB-933)", () => {
+  const model = buildTasksDashboard(
+    [
+      note("late", { type: "task", area: "Label", due: "2026-07-25", created: "2026-07-01" }),
+      note("pinned", { type: "task", area: "Studio", now: true, created: "2026-07-01" }),
+      note("plain", { type: "task", area: "Label", created: "2026-07-01" }),
+      note("parked", { type: "task", area: "Label", snoozed_until: "2026-09-01", created: "2026-07-01" }),
+    ],
+    {},
+    NOW
+  );
+  // the list spine pulled `late` into Overdue and `pinned` into Now…
+  assert.equal(sectionNamed(model, "Overdue")?.rows.length, 1);
+  assert.equal(sectionNamed(model, "Now")?.rows.length, 1);
+  // …but the columns keep them home; the snoozed row stays off both views
+  assert.deepEqual(model.columns.map((c) => c.area), ["Label", "Studio"]);
+  assert.deepEqual(model.columns[0]?.rows.map((r) => r.title), ["late", "plain"]);
+  assert.deepEqual(model.columns[1]?.rows.map((r) => r.title), ["pinned"]);
+});
+
+test("an allowlist keeps empty columns as drop targets, in the list's order (SUB-933)", () => {
+  const model = buildTasksDashboard(
+    [note("one", { type: "task", area: "Studio", created: "2026-07-01" })],
+    { areas: ["Label", "Studio", "Admin"] },
+    NOW
+  );
+  assert.deepEqual(model.columns.map((c) => c.area), ["Label", "Studio", "Admin"]);
+  assert.deepEqual(model.columns.map((c) => c.rows.length), [0, 1, 0]);
+});
+
+test("without an allowlist only populated areas hold columns, Unassigned last (SUB-933)", () => {
+  const model = buildTasksDashboard(
+    [
+      note("none", { type: "task", created: "2026-07-01" }),
+      note("z", { type: "task", area: "Zulu", created: "2026-07-01" }),
+      note("a", { type: "task", area: "alpha", created: "2026-07-01" }),
+    ],
+    {},
+    NOW
+  );
+  assert.deepEqual(model.columns.map((c) => c.area), ["alpha", "Zulu", "Unassigned"]);
 });

@@ -278,3 +278,124 @@ test("tasks: the snooze menu offers a date picker anchored to its verb (SUB-870)
     ).toBeLessThan(1);
   }).toPass({ timeout: 2000 });
 });
+
+test("tasks: the Board view groups every open row by area, urgency claiming nothing (SUB-933)", async ({
+  page,
+}) => {
+  await openTasks(page);
+
+  await page.locator(".tasks-view button", { hasText: /^Board$/ }).click();
+  // one column per allowlisted area, in the allowlist's order; the snoozed
+  // promo row stays off the board here too
+  await expect(page.locator(".tasks-col-name")).toHaveText(["Label", "Studio", "Admin"]);
+  await expect(page.locator(".tasks-cols")).toBeVisible();
+  await expect(page.locator(".tasks-board")).toHaveCount(0);
+
+  // the overdue and pinned rows sit in their home columns as cards — the
+  // list's Overdue/Now sections never relocate a card on the board
+  const label = page.locator(".tasks-col", { has: page.locator(".tasks-col-name", { hasText: /^Label$/ }) });
+  await expect(label.locator(".tasks-card .tasks-title")).toHaveText([
+    "Chase the test pressing approvals",
+    "Approve SMP-030 artwork",
+  ]);
+  const admin = page.locator(".tasks-col", { has: page.locator(".tasks-col-name", { hasText: /^Admin$/ }) });
+  await expect(admin.locator(".tasks-card .tasks-title")).toHaveText([
+    "Renew Bandcamp plan",
+    "Renew the webshop shipping rates",
+  ]);
+
+  // cards keep the row's verbs: checkoff works from the board
+  const bandcamp = page.locator(".tasks-card", { hasText: "Renew Bandcamp plan" });
+  await bandcamp.locator(".tasks-check").click();
+  await expect(page.locator(".tasks-card", { hasText: "Renew Bandcamp plan" })).toHaveCount(0);
+  await expect(page.locator(".toast")).toContainText("Done — Renew Bandcamp plan");
+
+  // the choice persists to the dashboard note's frontmatter and survives a
+  // reopen; List clears it again
+  await page.locator(".side-item", { hasText: /^Today/ }).first().click();
+  await expect(page.locator(".today-head .today-eyebrow")).toHaveText("Today");
+  await page
+    .locator(".side-item", { has: page.locator(".side-label-text", { hasText: /^Tasks$/ }) })
+    .filter({ hasNot: page.locator(".side-db-chip") })
+    .first()
+    .click();
+  await expect(page.locator(".dash-title")).toHaveText("Tasks");
+  await expect(page.locator(".tasks-cols")).toBeVisible();
+  await page.locator(".tasks-view button", { hasText: /^List$/ }).click();
+  await expect(page.locator(".tasks-board")).toBeVisible();
+});
+
+test("tasks: the sort switch re-ranks sections and columns and persists (SUB-933)", async ({
+  page,
+}) => {
+  await openTasks(page);
+
+  // urgency default inside Overdue: high priority leads (SUB-870 assertion)
+  const overdue = page.locator(".tasks-overdue .tasks-row");
+  await expect(overdue.locator(".tasks-title")).toHaveText([
+    "Chase the test pressing approvals",
+    "Renew Bandcamp plan",
+  ]);
+
+  // Age leads with the oldest row: the 74-day Bandcamp renewal now tops it
+  await page.locator(".tasks-sort button", { hasText: /^Age$/ }).click();
+  await expect(overdue.locator(".tasks-title")).toHaveText([
+    "Renew Bandcamp plan",
+    "Chase the test pressing approvals",
+  ]);
+
+  // the same ordering feeds the board's columns
+  await page.locator(".tasks-view button", { hasText: /^Board$/ }).click();
+  const studio = page.locator(".tasks-col", { has: page.locator(".tasks-col-name", { hasText: /^Studio$/ }) });
+  await expect(studio.locator(".tasks-card .tasks-title")).toHaveText([
+    "Master Vessel Songs v3",
+    "Send the live-room recording quote",
+  ]);
+
+  // Due on the board, asserted where it actually disagrees with its
+  // neighbours: Admin's two cards run Medium-but-later against Low-but-overdue,
+  // so Priority and Due invert the column against each other. Studio and Label
+  // would order the same under either, which is no evidence the click landed.
+  const admin = page.locator(".tasks-col", { has: page.locator(".tasks-col-name", { hasText: /^Admin$/ }) });
+  await page.locator(".tasks-sort button", { hasText: /^Priority$/ }).click();
+  await expect(admin.locator(".tasks-card .tasks-title")).toHaveText([
+    "Renew the webshop shipping rates",
+    "Renew Bandcamp plan",
+  ]);
+  await page.locator(".tasks-sort button", { hasText: /^Due$/ }).click();
+  await expect(admin.locator(".tasks-card .tasks-title")).toHaveText([
+    "Renew Bandcamp plan",
+    "Renew the webshop shipping rates",
+  ]);
+
+  // both prefs survive a reopen together
+  await page.locator(".side-item", { hasText: /^Today/ }).first().click();
+  await expect(page.locator(".today-head .today-eyebrow")).toHaveText("Today");
+  await page
+    .locator(".side-item", { has: page.locator(".side-label-text", { hasText: /^Tasks$/ }) })
+    .filter({ hasNot: page.locator(".side-db-chip") })
+    .first()
+    .click();
+  await expect(page.locator(".dash-title")).toHaveText("Tasks");
+  await expect(page.locator(".tasks-sort button", { hasText: /^Due$/ })).toHaveClass(/active/);
+  await expect(page.locator(".tasks-cols")).toBeVisible();
+});
+
+test("tasks: dragging a card to another column rewrites its area with Undo (SUB-933)", async ({
+  page,
+}) => {
+  await openTasks(page);
+  await page.locator(".tasks-view button", { hasText: /^Board$/ }).click();
+
+  const card = page.locator(".tasks-card", { hasText: "Renew the webshop shipping rates" });
+  const studio = page.locator(".tasks-col", { has: page.locator(".tasks-col-name", { hasText: /^Studio$/ }) });
+  await card.dragTo(studio);
+
+  // the card moved columns; the toast names the target and offers Undo
+  await expect(studio.locator(".tasks-card", { hasText: "Renew the webshop shipping rates" })).toHaveCount(1);
+  const toast = page.locator(".toast");
+  await expect(toast).toContainText("Renew the webshop shipping rates → Studio");
+  await toast.locator("button", { hasText: "Undo" }).click();
+  const admin = page.locator(".tasks-col", { has: page.locator(".tasks-col-name", { hasText: /^Admin$/ }) });
+  await expect(admin.locator(".tasks-card", { hasText: "Renew the webshop shipping rates" })).toHaveCount(1);
+});

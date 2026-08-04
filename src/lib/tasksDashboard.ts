@@ -11,7 +11,18 @@ export interface TasksDashboardConfig {
   /** null means every area; an empty supplied list means no areas */
   areas: string[] | null;
   staleDays: number;
+  view: TasksView;
+  sort: TasksSort;
 }
+
+/** How the board renders: the sectioned urgency list (SUB-870), or a kanban
+    board with one column per area. */
+export type TasksView = "list" | "board";
+
+/** The within-section (and within-column) ordering. `urgency` is the SUB-870
+    default: due bucket, then priority, then age. The others lead with one
+    dimension and keep the rest as tiebreakers. */
+export type TasksSort = "urgency" | "priority" | "due" | "age";
 
 /** Where a task's `due` puts it relative to today's local calendar day.
     `null` = no usable due date, which is an ordinary state, not a finding. */
@@ -49,11 +60,23 @@ export interface TasksDashboardSection {
   rows: TasksDashboardRow[];
 }
 
+/** One kanban column: an area and every visible row in it. Unlike the list's
+    sections, urgency never pulls a row out of its column — the column IS the
+    category, and Overdue/Now live on as chip state inside the cards. */
+export interface TasksBoardColumn {
+  area: string;
+  rows: TasksDashboardRow[];
+}
+
 export interface TasksDashboardModel {
   config: TasksDashboardConfig;
-  /** The board's spine, in render order: Overdue, Due today, Now, then the
-      area groups. Empty sections are omitted entirely. */
+  /** The list view's spine, in render order: Overdue, Due today, Now, then
+      the area groups. Empty sections are omitted entirely. */
   sections: TasksDashboardSection[];
+  /** The board view: one column per area, in the same order the area groups
+      take. With an allowlist every listed area gets a column even when empty
+      (a drop target); without one, only areas that hold rows appear. */
+  columns: TasksBoardColumn[];
   /** Parked rows, soonest wake first — the collapsed Snoozed section. */
   snoozedRows: TasksDashboardRow[];
   /** Visible open tasks across every section (snoozed rows excluded). */
@@ -94,10 +117,32 @@ function parseStaleDays(value: unknown): number {
   return DEFAULT_TASK_STALE_DAYS;
 }
 
+/** The persisted view/sort props, folded like every other config value; an
+    unknown or missing value falls back to the default rather than erroring —
+    a hand-typed frontmatter typo must never blank the board. */
+export function parseTasksView(value: unknown): TasksView {
+  return clean(value)?.toLowerCase() === "board" ? "board" : "list";
+}
+
+export function parseTasksSort(value: unknown): TasksSort {
+  switch (clean(value)?.toLowerCase()) {
+    case "priority":
+      return "priority";
+    case "due":
+      return "due";
+    case "age":
+      return "age";
+    default:
+      return "urgency";
+  }
+}
+
 export function tasksDashboardConfig(props: Record<string, unknown>): TasksDashboardConfig {
   return {
     areas: parseAreas(byFoldedKey(props, "areas")),
     staleDays: parseStaleDays(byFoldedKey(props, "stale_days")),
+    view: parseTasksView(byFoldedKey(props, "view")),
+    sort: parseTasksSort(byFoldedKey(props, "sort")),
   };
 }
 
@@ -232,17 +277,47 @@ const BUCKET_RANK: Record<TaskDueBucket, number> = { overdue: 0, today: 1, upcom
 const bucketRank = (row: TasksDashboardRow): number =>
   row.dueBucket === null ? 3 : BUCKET_RANK[row.dueBucket];
 
-/** Urgency first (SUB-870): due bucket, then priority, then age. Rot — which
-    used to be the whole ordering — is now only the tiebreaker between two
-    equally urgent, equally important tasks. */
-function compareRows(a: TasksDashboardRow, b: TasksDashboardRow): number {
-  return (
-    bucketRank(a) - bucketRank(b) ||
-    b.priorityWeight - a.priorityWeight ||
-    (b.ageDays ?? -1) - (a.ageDays ?? -1) ||
-    compareText(a.title, b.title) ||
-    compareText(a.path, b.path)
-  );
+/** Soonest due first; undated rows sort after every dated one — a row with
+    no deadline can't outrank one that has one on a due-led ordering. */
+const dueRank = (row: TasksDashboardRow): number =>
+  row.dueDays === null ? Number.MAX_SAFE_INTEGER : row.dueDays;
+
+/** The stable tail every ordering ends on, so input order never changes the
+    board (the SUB-870 determinism rule, kept across all four sorts). */
+const compareTail = (a: TasksDashboardRow, b: TasksDashboardRow): number =>
+  compareText(a.title, b.title) || compareText(a.path, b.path);
+
+/** The four orderings behind the sort switch. `urgency` is SUB-870's
+    default — due bucket, then priority, then age. The others promote one
+    dimension to the front and keep the remaining ones as tiebreakers, so
+    switching sorts re-ranks rather than shuffles. */
+function rowComparator(sort: TasksSort): (a: TasksDashboardRow, b: TasksDashboardRow) => number {
+  switch (sort) {
+    case "priority":
+      return (a, b) =>
+        b.priorityWeight - a.priorityWeight ||
+        bucketRank(a) - bucketRank(b) ||
+        (b.ageDays ?? -1) - (a.ageDays ?? -1) ||
+        compareTail(a, b);
+    case "due":
+      return (a, b) =>
+        dueRank(a) - dueRank(b) ||
+        b.priorityWeight - a.priorityWeight ||
+        (b.ageDays ?? -1) - (a.ageDays ?? -1) ||
+        compareTail(a, b);
+    case "age":
+      return (a, b) =>
+        (b.ageDays ?? -1) - (a.ageDays ?? -1) ||
+        bucketRank(a) - bucketRank(b) ||
+        b.priorityWeight - a.priorityWeight ||
+        compareTail(a, b);
+    case "urgency":
+      return (a, b) =>
+        bucketRank(a) - bucketRank(b) ||
+        b.priorityWeight - a.priorityWeight ||
+        (b.ageDays ?? -1) - (a.ageDays ?? -1) ||
+        compareTail(a, b);
+  }
 }
 
 /** Soonest wake first, so the collapsed Snoozed section reads as a queue. */
@@ -308,6 +383,8 @@ export function buildTasksDashboard(
     rows.push(row);
   }
 
+  const compareRows = rowComparator(config.sort);
+
   // Urgency outranks the pin: a task that is late is late whether or not the
   // user pinned it, and the board's promise is that its top is what's due. A
   // pinned row reaches Now only while it isn't overdue or due today.
@@ -346,9 +423,32 @@ export function buildTasksDashboard(
       rows: [...(grouped.get(area) ?? [])].sort(compareRows),
     });
 
+  // The kanban columns regroup EVERY visible row by area — urgency never
+  // relocates a card the way it claims a list row for Overdue/Today/Now.
+  // With an allowlist each listed area keeps a column even when empty (it is
+  // a drop target); without one only populated areas appear.
+  const byArea = new Map<string, TasksDashboardRow[]>();
+  for (const row of rows) {
+    const col = byArea.get(row.area) ?? [];
+    col.push(row);
+    byArea.set(row.area, col);
+  }
+  const columnOrder = config.areas
+    ? config.areas
+    : [...byArea.keys()].sort((a, b) => {
+        if (a === "Unassigned") return 1;
+        if (b === "Unassigned") return -1;
+        return compareText(a, b);
+      });
+  const columns: TasksBoardColumn[] = columnOrder.map((area) => ({
+    area,
+    rows: [...(byArea.get(area) ?? [])].sort(compareRows),
+  }));
+
   return {
     config,
     sections,
+    columns,
     snoozedRows: snoozedRows.sort(compareSnoozed),
     total: rows.length,
     overdue: overdueRows.length,
