@@ -142,9 +142,24 @@ Capacities, Affine).*
   **workbook pages** —
   any dashboard grows spreadsheet-style bottom tabs (sheet grid / dashboard /
   database cut).
-  Machine-specific dashboard kinds exist in the author's private build and
-  are deliberately not product features — the platform is the claim, and the
-  cookbook (`cookbook/`) is the evidence.
+  Machine-specific dashboard kinds built for one vault are deliberately not
+  product features — the platform is the claim, and the cookbook (`cookbook/`)
+  is the evidence.
+- **Dashboards you (or your agent) can write, without a plugin store** — a
+  `dashboard:` value can name a folder of code living in the vault itself
+  (`.vault/kinds/<id>/`: a manifest plus an ES module with one `mount(el, ctx)`
+  entry point). It syncs with the vault like any other file, so a kind written
+  on one machine is there on the next one, and an agent can author one by
+  writing two files. Consent is the whole design: nothing in the vault runs
+  until you read a review of it — what it is, who wrote it, which files, what
+  it can reach — and press enable, and that consent is pinned to those exact
+  bytes, per vault and per device. Change a byte and it stops and asks again;
+  a standing "trust updates to this kind" rider can only ever be granted after
+  the first yes, never as part of it. Settings → Kinds lists everything this
+  vault has been told to run and takes it back without deleting anything.
+  Obsidian plugins are global to the app, installed from a store, and
+  unsandboxed with no per-file consent; Notion and Anytype have no local code
+  path at all.
 - **Global capture** — ⌥Space from any app, menu-bar tray, zero-decision
   Inbox.
 - **Real notifications** — date+time props fire real notifications with

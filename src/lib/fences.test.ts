@@ -29,7 +29,7 @@ test("stripMachineFences blanks a heatmap body too (SUB-966)", () => {
   assert.equal(out.split("\n").length, body.split("\n").length, "line count preserved");
 });
 
-test("stripMachineFences blanks view/chart/progress/csv/formulas bodies (SUB-261)", () => {
+test("stripMachineFences blanks view/chart/progress/timeline/csv/formulas bodies (SUB-261)", () => {
   const body = [
     "Label hub prose.",
     "",
@@ -37,6 +37,12 @@ test("stripMachineFences blanks view/chart/progress/csv/formulas bodies (SUB-261
     "type: release",
     "query: status:mastering",
     "view: table",
+    "```",
+    "",
+    "```timeline",
+    "source: release",
+    "start: created",
+    "label: title",
     "```",
     "",
     "```chart",
@@ -67,6 +73,7 @@ test("stripMachineFences blanks view/chart/progress/csv/formulas bodies (SUB-261
     "query",
     "source",
     "thermotarget",
+    "start",
     "yield_usd",
     "SUM",
     "```view",
@@ -142,9 +149,14 @@ test("stripMachineFences: an info-string tail strips for live-dispatch langs (SU
     "a\n```heatmap year\nsecret: session\n```\nb",
     "a\n```calendar month\nsecret: 1\n```\nb",
     "a\n```python foo\nsecret = 1\n```\nb",
+    // SUB-968: the timeline parser is strict bare-form too.
+    "a\n```timeline compact\nsource: release\n```\nb",
   ]) {
     assert.equal(stripMachineFences(prose), prose, "tailed bare-form fence stays prose");
   }
+  // …and the BARE timeline opener is machine content that strips.
+  const timeline = "a\n```timeline\nsource: release\nstart: created\nlabel: title\n```\nb";
+  assert.ok(!stripMachineFences(timeline).includes("source: release"), "bare timeline strips");
 });
 
 test("stripMachineFences: bare heatmap strips, tailed heatmap stays prose (SUB-966)", () => {

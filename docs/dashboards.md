@@ -273,6 +273,7 @@ sort: released:desc
 limit: 5
 columns: status, artist
 ```
+
 ````
 
 A fence's `sort:`, `limit:` and `columns:` keys are all optional.
@@ -639,6 +640,34 @@ from delivering new code into an already-trusted slot. A second device asks
 you again on purpose. A bundle that can't run — broken manifest, wrong api,
 not enabled yet — shows a card saying which and why; it never silently falls
 back to another renderer.
+
+**Where you say yes, and how you take it back.** The question is asked where
+it comes up: a dashboard naming a kind you haven't enabled renders a review
+*in place of the dashboard body*, inside the normal head — not a modal, so
+there is nothing to dismiss with Escape and nothing arriving on top of what
+you were doing. The review names the kind, its author and description, the
+entry file, the api it asks for, how many files the consent covers and how
+big they are, plus the terms in plain words (your whole vault, read and
+write; this vault on this device only; pinned to these exact files). *Open
+the code* reveals the folder in Finder rather than opening the entry file, so
+looking at it never runs it. Not deciding is a decision: the kind stays off.
+
+When the bytes change under an enabled kind, the same pane comes back worded
+for the second decision, and only there is a **trust updates to this kind**
+rider offered — a standing yes for future changes to a kind this vault has
+already approved once. It is never offered on a first enable, because one
+interaction must not be able to both admit code nobody has read and
+pre-approve every later version of it. Ticking it writes nothing on its own;
+it rides the enable press next to it, so the change in front of you is still
+consented to by hand.
+
+**Settings → Kinds** is the standing view: every bundle this vault has,
+what state it is in here, the rider (editable for a kind that is currently
+running), and *disable*. Disabling withdraws consent only — the folder, its
+files and its history stay exactly where they were, and re-enabling is the
+same review again. The button is there whenever this device holds a consent
+record, including for a kind that has since become unrunnable, which is
+precisely when you most want to withdraw it.
 
 **Your code is vault content, so version history covers it.** A bundle under
 `.vault/kinds/` is snapshotted exactly like a note: history excludes only

@@ -18,11 +18,11 @@ import {
   readClaimedUsd,
 } from "../lib/dashboard";
 import { parseChartBlocks } from "../lib/chart";
-import { resolveDashboardKind, resolveDispatchTail, type KindBundleInfo } from "../lib/kinds";
+import { resolveDashboardKind, resolveDispatchTail } from "../lib/kinds";
 import { parseHeatmapBlocks } from "../lib/heatmap";
 import { parseCalendarBlocks } from "../lib/calendarfence";
 import { resolveKindPane } from "../lib/kindpane";
-import { kindsList } from "../lib/ipc";
+import { useKindBundles } from "../hooks/useKindBundles";
 import { DashHead } from "./DashHead";
 import CustomKindPane from "./CustomKindPane";
 import MetricsDashboard from "./MetricsDashboard";
@@ -577,42 +577,6 @@ function ChartOrYield(props: DashboardPaneProps) {
   return <YieldDashboard {...props} />;
 }
 
-/* The installed bundles, shared per vault epoch. A workbook of custom pages
-   would otherwise ask the backend once per page for an answer that cannot
-   differ between them. */
-let bundleCache: { epoch: number; p: Promise<KindBundleInfo[]> } | null = null;
-
-/** `kinds_list`, or null while it is still in flight (SUB-960). Fetched only
-    when a note actually names a non-built-in kind, so the overwhelmingly
-    common dashboard costs no round trip. */
-function useKindBundles(needed: boolean, vaultEpoch: number): KindBundleInfo[] | null {
-  const [bundles, setBundles] = useState<KindBundleInfo[] | null>(null);
-  useEffect(() => {
-    if (!needed) return;
-    let gone = false;
-    if (!bundleCache || bundleCache.epoch !== vaultEpoch) {
-      bundleCache = { epoch: vaultEpoch, p: kindsList() };
-    }
-    const mine = bundleCache;
-    mine.p
-      .then((rows) => {
-        if (!gone) setBundles(rows);
-      })
-      .catch((e) => {
-        // A backend that can't list bundles is not a reason to fall back to a
-        // yield tracker: an empty list keeps the named kind on the
-        // unknown-kind card, which is what the user can act on.
-        console.error("kinds_list failed", e);
-        if (bundleCache === mine) bundleCache = null;
-        if (!gone) setBundles([]);
-      });
-    return () => {
-      gone = true;
-    };
-  }, [needed, vaultEpoch]);
-  return needed ? bundles : null;
-}
-
 /** One dashboard note rendered by its dashboard: kind — the single dispatch
     both the plain pane and workbook pages (SUB-464) go through. */
 function DashboardBody(props: DashboardPaneProps) {
@@ -648,7 +612,16 @@ function DashboardBody(props: DashboardPaneProps) {
     // this branch — but the switch is exhaustive so a future dispatch value
     // can't silently land on the fallback.
     if (pane.pane === "custom") {
-      return <CustomKindPane {...props} id={pane.id} hash={pane.hash} state={pane.state} />;
+      return (
+        <CustomKindPane
+          {...props}
+          id={pane.id}
+          hash={pane.hash}
+          state={pane.state}
+          record={pane.record}
+          files={pane.files}
+        />
+      );
     }
     return (
       <UnknownKindDashboard

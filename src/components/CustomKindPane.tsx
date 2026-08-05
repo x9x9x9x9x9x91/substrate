@@ -11,15 +11,20 @@ import { isTauri } from "../lib/tauri";
 import { dashboardSheets } from "../lib/dashboardSheets";
 import { useFxRates } from "./useFx";
 import { DashHead, DashPrintButton } from "./DashHead";
-import { KIND_API, type KindState } from "../lib/kinds";
+import { KIND_API, type KindEnableRecord, type KindFileMeta, type KindState } from "../lib/kinds";
 import { ACCENT_NAMES } from "../lib/styletokens";
 import {
   kindFileUrl,
+  kindReview,
   kindRuntimeCard,
   kindSchemeOrigin,
   kindStateCard,
+  shouldTrustReenable,
   type KindCard,
 } from "../lib/kindpane";
+import KindReviewCard from "./KindReviewCard";
+import { kindsEnable } from "../lib/ipc";
+import { invalidateKindBundles } from "../hooks/useKindBundles";
 
 /* The host for a vault-resident dashboard kind (SUB-960, vault-format §5.8).
 
@@ -59,6 +64,12 @@ export interface CustomKindPaneProps {
   hash: string;
   /** what `resolveKindState` made of this bundle plus its consent record */
   state: KindState;
+  /** the consent record itself, when there is one. The state says whether the
+      kind runs; only the record carries the standing "trust updates" rider. */
+  record?: KindEnableRecord;
+  /** the files the hash covers, for the review's file list. Absent on rows
+      from a build older than SUB-961. */
+  files?: KindFileMeta[];
 }
 
 /** The class names a kind may render through — the app's voice, so a kind
@@ -281,8 +292,46 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
     };
   }, [props.vaultEpoch, props.meta.path, runnable, id]);
 
+  /* The agent-iteration loop: a kind the user marked "trust updates" re-enables
+     itself when its bytes change here, because a person editing their own kind
+     should not re-consent on every save. Nothing else takes this path — a first
+     consent never can (`shouldTrustReenable` refuses it), and the rider only
+     exists because the user ticked it on this kind in this vault.
+
+     The attempted hash is remembered so a refusal can't loop: `kinds_enable`
+     failing leaves the drift card up, and the next render finds this hash
+     already tried. */
+  const trusted = shouldTrustReenable(state, props.record);
+  const triedHash = useRef<string | null>(null);
+  const [trustedEnableFailed, setTrustedEnableFailed] = useState(false);
+  useEffect(() => {
+    if (!trusted || triedHash.current === hash) return;
+    triedHash.current = hash;
+    setTrustedEnableFailed(false);
+    kindsEnable(id, hash)
+      .then(() => invalidateKindBundles())
+      .catch((e) => {
+        console.warn(`custom kind “${id}”: trusted re-enable failed`, e);
+        setTrustedEnableFailed(true);
+      });
+  }, [trusted, id, hash]);
+
   const card = runtime ?? kindStateCard(id, state);
   const head = card ? { label: card.label } : kindState;
+  /* The review replaces the card rather than joining it: the review carries the
+     same headline sentence, and showing both would say it twice. A state with
+     no review — too-new api, broken manifest, a runtime failure — keeps the
+     card, which is the whole message it has. */
+  /* A trusted drift is not a question, so it is not asked: computing the
+     review on the same pass that schedules the auto-enable would paint the
+     full consent card — terms, file list, a live enable button — for the frame
+     it takes the IPC round trip to land. The card comes back only if that
+     re-enable FAILED, because then there is a decision again and the pane is
+     the only place to make it. */
+  const review =
+    runtime || (trusted && !trustedEnableFailed)
+      ? null
+      : kindReview(id, state, props.files, props.record);
 
   return (
     <div className="note">
@@ -294,17 +343,13 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
           sourcePath={props.meta.path}
           onOpenSource={props.onOpenSource}
         />
-        {card && (
-          <div className="chart-err">
-            {card.message}
-            {card.stub && (
-              /* STUB — the review flow itself is SUB-961 (unit 4). This card
-                 is the placeholder it replaces: it explains the state and
-                 says so out loud rather than offering a button that does
-                 nothing. */
-              <div className="dash-sub">Placeholder card — the review and enable flow ships with SUB-961.</div>
-            )}
-          </div>
+        {review ? (
+          /* No onChanged: `invalidateKindBundles` already re-reads the list
+             everywhere it is on screen, and this pane's own props come from
+             that list. */
+          <KindReviewCard review={review} hash={hash} />
+        ) : (
+          card && <div className="chart-err">{card.message}</div>
         )}
         {/* The host renders unconditionally, as the card's sibling rather than
             its alternative. Two reasons, both lifecycle: `host.current` stays

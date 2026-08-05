@@ -26,6 +26,7 @@ import HeatmapDashboard from "./HeatmapDashboard";
 import ProgressDashboard from "./ProgressDashboard";
 import CalendarFenceDashboard from "./CalendarFenceDashboard";
 import { MetricCardStrip, useCardValues, type CardValue } from "./MetricCards";
+import TimelineFence from "./TimelineFence";
 import { optionColor, OptionPill } from "./SelectMenu";
 
 interface HubDashboardProps {
@@ -84,6 +85,12 @@ interface Ctx {
   /** the ```progress fence's inputs (SUB-967) — same shape the chart fence
       needs, since both hand the fence back to their own dashboard */
   progress?: NonNullable<Ctx["chart"]>;
+  /** database-backed horizontal time view; omitted inside callout bodies */
+  timeline?: {
+    notes: NoteMeta[];
+    schema: SchemaConfig;
+    onOpenSource: (path: string) => void;
+  };
 }
 
 interface CardsSlot {
@@ -392,12 +399,13 @@ function HubCardsFence({ slot }: { slot: CardsSlot }) {
 
 /** The ctx for markdown nested inside a callout body or a plain quote (§5.2):
     that markdown is quoted TEXT, not a second dashboard surface, so a
-    ```chart, ```cards, ```heatmap, ```progress or ```calendar fence written
+    ```chart, ```cards, ```heatmap, ```progress, ```calendar or ```timeline
+    fence written
     there falls through to a code box.
     Dropping them all from the recursion's ctx is what does it — and it also
     keeps a nested cards fence from consuming a page slot that belongs to a
     real one. ```view keeps working, because an embedded table inside a card is
-    still one table. */
+    still one table. (SUB-968 adds timeline to the same rule.) */
 function nestedMarkdownCtx(ctx: Ctx): Ctx {
   return {
     ...ctx,
@@ -406,6 +414,7 @@ function nestedMarkdownCtx(ctx: Ctx): Ctx {
     heatmap: undefined,
     progress: undefined,
     calendar: undefined,
+    timeline: undefined,
   };
 }
 
@@ -479,6 +488,16 @@ function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
               <code>{inner}</code>
             </pre>
           )
+        );
+      } else if (lang === "timeline" && ctx.timeline !== undefined) {
+        out.push(
+          <TimelineFence
+            key={k++}
+            inner={inner}
+            notes={ctx.timeline.notes}
+            schema={ctx.timeline.schema}
+            onOpenSource={ctx.timeline.onOpenSource}
+          />
         );
       } else {
         out.push(
@@ -750,7 +769,11 @@ export default function HubDashboard({
               );
             // each chunk resolves its own fences against the page-wide list
             const off = fencesBefore[i];
-            const ctx: Ctx = { ...base, cards: { slot: (n) => slotAt(off + n) } };
+            const ctx: Ctx = {
+              ...base,
+              cards: { slot: (n) => slotAt(off + n) },
+              timeline: { notes, schema, onOpenSource },
+            };
             return <MarkdownChunk key={i} text={b.text} ctx={ctx} />;
           })}
         </div>

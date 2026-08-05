@@ -1,7 +1,7 @@
 // Machine fences (```view / ```chart / ```progress / ```cards / ```heatmap /
-// ```calendar / ```csv / ```formulas) hold
-// app-parsed config/data, not prose (vault-format §5) — their bodies stay out
-// of search indexing (SUB-261). Mirrors strip_machine_fences in
+// ```calendar / ```timeline / ```csv / ```formulas) hold app-parsed
+// config/data, not prose (vault-format §5) — their bodies stay out of search
+// indexing (SUB-261). Mirrors strip_machine_fences in
 // src-tauri/src/vault/mod.rs; keep the fence set and semantics in lockstep
 // with it.
 
@@ -23,10 +23,17 @@
 export const TAILED_MACHINE_FENCE_LANGS = ["view", "chart", "progress", "cards"] as const;
 
 /** Fence languages whose parsers are strict bare-form (the sheet csv/formulas
-    parsers, the hub's heatmap, the calendar parser of SUB-965): a TAILED one
-    renders as plain code — someone's prose — and stays searchable. Only the
-    bare opener is machine content. */
-export const BARE_MACHINE_FENCE_LANGS = ["csv", "formulas", "heatmap", "calendar"] as const;
+    parsers, the hub's heatmap and timeline, the calendar parser of SUB-965):
+    a TAILED one renders as plain code — someone's prose — and stays
+    searchable. Only the bare opener is machine content. (SUB-968 for
+    timeline.) */
+export const BARE_MACHINE_FENCE_LANGS = [
+  "csv",
+  "formulas",
+  "heatmap",
+  "calendar",
+  "timeline",
+] as const;
 
 /** The case rule is a SEPARATE axis from the tail rule above, and it follows
     each lang's own dispatcher — whatever spelling dispatch accepts, the
@@ -52,8 +59,17 @@ export const BARE_MACHINE_FENCE_LANGS = ["csv", "formulas", "heatmap", "calendar
     for machine config anyway. heatmap stays bare-form for the tail rule; it
     only folds case. If a bare-form parser
     ever starts or stops folding case, move the lang across this set — both
-    sides. */
-const CASE_FOLDING_BARE_LANGS: ReadonlySet<string> = new Set(["heatmap", "calendar"]);
+    sides.
+
+    timeline (SUB-968) folds case for the simpler version of the same reason:
+    its ONE dispatcher is the hub, which lowercases the first word before
+    matching, so a bare ```TimeLine draws the live band and its source/start/
+    label config must leave the index with it. */
+const CASE_FOLDING_BARE_LANGS: ReadonlySet<string> = new Set([
+  "heatmap",
+  "calendar",
+  "timeline",
+]);
 
 /** A language id spelled so it matches in any case: `view` → `[Vv][Ii][Ee][Ww]`.
     Digits and hyphens (legal in a lang id) have no case and pass through.
@@ -125,7 +141,13 @@ export const MACHINE_FENCE_RE = new RegExp(
 
 /** `body` with every machine-fence block blanked newline-for-newline, so
     search-result line numbers still map to the raw body (the editor's reveal
-    jumps to them). */
+    jumps to them).
+
+    Must keep DELEGATING to `MACHINE_FENCE_RE` — an inline regex here would be
+    the pattern the app actually runs while the lockstep checker went on
+    comparing the constant, and both sides would read as in step. Enforced by
+    checkUseSites in scripts/check-fence-langs.ts (SUB-1130); same rule on the
+    Rust twin. */
 export function stripMachineFences(body: string): string {
   return body.replace(MACHINE_FENCE_RE, (m) => "\n".repeat((m.match(/\n/g) ?? []).length));
 }

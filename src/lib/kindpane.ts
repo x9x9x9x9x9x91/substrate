@@ -18,6 +18,8 @@ import {
   resolveDashboardKind,
   resolveKindState,
   type KindBundleInfo,
+  type KindEnableRecord,
+  type KindFileMeta,
   type KindManifest,
   type KindState,
 } from "./kinds.ts";
@@ -31,7 +33,17 @@ import {
 export type KindPaneDispatch =
   | { pane: "body-scan" }
   | { pane: "built-in"; kind: string }
-  | { pane: "custom"; id: string; hash: string; state: KindState }
+  | {
+      pane: "custom";
+      id: string;
+      hash: string;
+      state: KindState;
+      /** the consent record, when there is one — the review pane needs the
+          standing "trust updates" rider, which the state alone doesn't carry */
+      record?: KindEnableRecord;
+      /** what the hash covers, for the review pane's file list */
+      files?: KindFileMeta[];
+    }
   | { pane: "unknown"; kind: string; message: string };
 
 /** Resolve one note's `dashboard:` prop against the installed bundles.
@@ -56,6 +68,8 @@ export function resolveKindPane(
     id: bundle.id,
     hash: bundle.hash,
     state: resolveKindState(bundle, bundle.record),
+    ...(bundle.record ? { record: bundle.record } : {}),
+    ...(bundle.files ? { files: bundle.files } : {}),
   };
 }
 
@@ -88,11 +102,11 @@ export interface KindCard {
   /** the DashHead state label — short, lowercase, no colour */
   label: string;
   message: string;
-  /** true while unit 4's review flow is still a stub (SUB-961) */
-  stub?: boolean;
 }
 
-/** The card for a resolved-but-not-running bundle, or null when it runs. */
+/** The card for a resolved-but-not-running bundle, or null when it runs.
+    `review-pending` is the headline only: the pane draws the review itself
+    from `kindReview`, which carries what a person needs in order to decide. */
 export function kindStateCard(id: string, state: KindState): KindCard | null {
   switch (state.state) {
     case "enabled":
@@ -102,14 +116,12 @@ export function kindStateCard(id: string, state: KindState): KindCard | null {
         card: "review-pending",
         label: "review pending",
         message: reviewPending(id, state.manifest, false),
-        stub: true,
       };
     case "hash-drift":
       return {
         card: "review-pending",
-        label: "review pending",
+        label: "code changed",
         message: reviewPending(id, state.manifest, true),
-        stub: true,
       };
     case "api-too-new":
       return {
@@ -151,10 +163,120 @@ function apiWindow(): string {
 }
 
 function reviewPending(id: string, manifest: KindManifest, drifted: boolean): string {
-  const what = drifted
-    ? `the code in “${id}” changed since you enabled it`
-    : `“${id}” has not been enabled on this device`;
-  return `${what}. Custom kinds run with the app's own access to your vault, so ${manifest.entry} only runs after you review it. (Review flow lands with SUB-961 — until then, enable it from a build that has it.)`;
+  return drifted
+    ? `The code in “${id}” changed since you enabled it, so ${manifest.entry} stopped running. Look at what changed before enabling it again.`
+    : `“${id}” has not been enabled on this device. ${manifest.entry} runs only after you review it.`;
+}
+
+// ---------- the review ----------
+
+/** Everything the review pane shows about a bundle awaiting consent.
+    Assembled here rather than in the component so the sentences a person
+    decides on are covered by `node --test` — the component owns the buttons,
+    this owns what they are agreeing to. */
+export interface KindReview {
+  id: string;
+  /** `first` — never enabled here. `changed` — enabled once, bytes drifted. */
+  moment: "first" | "changed";
+  title: string;
+  /** the manifest's own words, empty when it had none */
+  description: string;
+  author?: string;
+  api: number;
+  entry: string;
+  /** the files the hash covers, in the order they were hashed */
+  files: readonly KindFileMeta[];
+  /** "3 files · 4.1 kB", or "" when the build handed over no file metadata */
+  fileSummary: string;
+  /** the state's headline sentence — same one `kindStateCard` shows */
+  headline: string;
+  /** what enabling means, in plain words. Rendered as separate lines. */
+  terms: readonly string[];
+  /** the enable button's words */
+  enableLabel: string;
+  /** the standing-permission checkbox, and whether it is currently on */
+  trustLabel: string;
+  trustHint: string;
+  trustUpdates: boolean;
+}
+
+/** The plain-words terms. Deliberately three short sentences and no link to
+    a longer policy: the whole grant is "this code runs as the app does, here,
+    until you disable it", and a person who has to click through to find that
+    out has already been asked to trust something they can't see. */
+const TERMS: readonly string[] = [
+  "Custom kinds run with the same access as Substrate itself — your whole vault, read and write.",
+  "Enabling applies to this vault on this device only. Other devices ask again, even after a sync.",
+  "Consent is pinned to these exact files. If the code changes, it stops running until you look again.",
+];
+
+/** The review for a bundle awaiting consent, or null when there is nothing to
+    decide.
+
+    Null covers both ends: an enabled kind (already decided) and a kind this
+    build cannot run at all — a too-new api, a too-old one, a broken manifest.
+    Those show their card and no enable affordance, because consent to code
+    that cannot execute buys nothing and trains the click. */
+export function kindReview(
+  id: string,
+  state: KindState,
+  files: readonly KindFileMeta[] | undefined,
+  record: KindEnableRecord | undefined,
+): KindReview | null {
+  if (state.state !== "disabled" && state.state !== "hash-drift") return null;
+  const m = state.manifest;
+  const drifted = state.state === "hash-drift";
+  const list = files ?? [];
+  return {
+    id,
+    moment: drifted ? "changed" : "first",
+    title: m.title,
+    description: m.description,
+    ...(m.author ? { author: m.author } : {}),
+    api: m.api,
+    entry: m.entry,
+    files: list,
+    fileSummary: fileSummary(list),
+    headline: reviewPending(id, m, drifted),
+    terms: TERMS,
+    enableLabel: drifted ? "Enable the new code" : "Enable for this vault",
+    trustLabel: "Trust updates to this kind in this vault",
+    trustHint:
+      "Re-enables it automatically when its files change here. For a kind you are editing yourself — leave it off for one you were given.",
+    trustUpdates: record?.trustUpdates === true,
+  };
+}
+
+/** True when the state offers an enable button at all. The same predicate the
+    settings list and the pane use, so "no affordance" can't mean two things. */
+export function canEnableKind(state: KindState): boolean {
+  return state.state === "disabled" || state.state === "hash-drift";
+}
+
+/** Whether a drift should clear itself without asking.
+    Only ever true for a kind that was enabled, whose record carries the
+    standing permission, and whose bytes are the thing that moved. Every other
+    path — including a first enable — goes through the card. */
+export function shouldTrustReenable(state: KindState, record: KindEnableRecord | undefined): boolean {
+  return state.state === "hash-drift" && record?.trustUpdates === true;
+}
+
+/** "3 files · 4.1 kB". Empty when the build handed over no file metadata, so
+    the pane can drop the line rather than claim "0 files" about a bundle it
+    just hashed. */
+export function fileSummary(files: readonly KindFileMeta[]): string {
+  if (files.length === 0) return "";
+  const bytes = files.reduce((n, f) => n + f.bytes, 0);
+  return `${files.length} file${files.length === 1 ? "" : "s"} · ${formatBytes(bytes)}`;
+}
+
+/** Sizes as a person reads them: whole bytes up to a kB, one decimal above.
+    Decimal kB/MB rather than KiB — the number next to a filename should match
+    what the OS file manager says about the same file. */
+export function formatBytes(n: number): string {
+  if (n < 1000) return `${n} B`;
+  if (n < 1000 * 1000) return `${(n / 1000).toFixed(1)} kB`;
+  return `${(n / (1000 * 1000)).toFixed(1)} MB`;
 }
 
 // ---------- bundle URLs ----------

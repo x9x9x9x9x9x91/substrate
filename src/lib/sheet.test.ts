@@ -563,6 +563,30 @@ test("summary chips: a summary built on an earlier summary inherits through it (
   assert.deepEqual(chips(body), { total: "45.080", half: "22.540", doubled: "90.160" });
 });
 
+test("summary chips: LOOKUP inherits its value column, SUMPRODUCT abstains (SUB-1112)", () => {
+  // LOOKUP picks a row and returns that row's value_usd cell, exactly as LAST
+  // returns a cell — so the chip must read as money like the column does.
+  // SUMPRODUCT abstains on purpose: no single column names its result.
+  const body =
+    "```csv\nasset,value_usd,units\nBTC,37680,1\nHEDGE,-30280,1\nGLOW,7400,0\n```\n\n" +
+    "```formulas\n" +
+    "picked = LOOKUP(\"GLOW\", asset, value_usd)\n" +
+    "keyed = LOOKUP(\"GLOW\", asset, asset)\n" +
+    "weighted = SUMPRODUCT(value_usd, units)\n```\n";
+  const ev = evaluateSheet(parseSheet(body), fx);
+  const fmts = sheetColumnFormats(ev);
+  assert.deepEqual(
+    ev.rows.map((r) => formatValue(r[1], "value_usd", fmts.data[1])),
+    ["37.680", "-30.280", "7.400"]
+  );
+  assert.equal(formatValue(7400), "7400"); // what the chip used to say
+  const out = chips(body);
+  assert.equal(out.picked, "7.400");
+  assert.equal(out.keyed, "GLOW"); // a text column's claim still renders as text
+  // same 7400, no claim: SUMPRODUCT keeps the legacy per-value rendering
+  assert.equal(out.weighted, "7400");
+});
+
 test("formatSummary: no format is byte-identical to formatValue (SUB-1084)", () => {
   for (const v of [7400, 37680, 2026, 4.1, 0, -9500, "text", true, null, ferr("boom")]) {
     assert.equal(formatSummary(v as never), formatValue(v as never));

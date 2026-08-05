@@ -33,14 +33,26 @@
  * only be a third opinion about it. The Rust literal has no such route and is
  * lifted out of the source.
  *
- * Comparison runs at two depths. The lang SETS are compared tailed-vs-tailed
+ * Comparison runs at three depths. The lang SETS are compared tailed-vs-tailed
  * and bare-vs-bare, because the distinction is load-bearing: the live-dispatch
  * languages accept an info-string tail (```view table), the strict bare-form
  * parsers do not, so a language that moved between the two groups on one side
- * only is drift even though the union matches. Then the whole PATTERNS are
- * compared, which catches the grammar drifting even while the lists agree —
- * SUB-983's backtick guard and SUB-913's CRLF opener were each added to both
- * sides by hand, and either could have missed.
+ * only is drift even though the union matches. Each language present on both
+ * sides then has its SPELLING compared, because a case-folded id and a plain
+ * one are the same id and different matchers (SUB-1128: ```HeatMap strips on
+ * one side only). Then the whole PATTERNS are compared, which catches the
+ * grammar drifting even while the lists agree — SUB-983's backtick guard and
+ * SUB-913's CRLF opener were each added to both sides by hand, and either
+ * could have missed.
+ *
+ * All three run INDEPENDENTLY (SUB-1130): a merge that both adds a language on
+ * one side and unfolds another's case would otherwise need one fix-and-re-run
+ * per finding, because each depth was gated on the one above coming back clean.
+ *
+ * `checkUseSites` closes the last structural hole (SUB-1130): everything above
+ * compares two DECLARED patterns, and said nothing about whether either side's
+ * strip function still runs the pattern that was compared. Both do, by
+ * delegation, and that is now asserted rather than assumed.
  */
 
 import { readFileSync } from "node:fs";
@@ -51,6 +63,7 @@ import { MACHINE_FENCE_RE } from "../src/lib/fences.ts";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const RUST_REL = "src-tauri/src/vault/mod.rs";
+const TS_REL = "src/lib/fences.ts";
 
 /* ── the shape both sides must have ─────────────────────────────────────── */
 
@@ -107,6 +120,12 @@ export type FenceInventory = {
   tailed: string[];
   /** language ids, case pairs decoded */
   bare: string[];
+  /**
+   * The same two groups as the pattern SPELLS them — `[Vv][Ii][Ee][Ww]`, `csv`
+   * — keyed by decoded id. Same ids with different spellings are two different
+   * matchers, and that difference is invisible in the decoded lists (SUB-1128).
+   */
+  spelling: Record<"tailed" | "bare", Map<string, string>>;
   /** the pattern with the end-of-input alternative normalized to `END` */
   pattern: string;
 };
@@ -145,7 +164,21 @@ export function parseFencePattern(raw: string, label: string): FenceInventory {
         "    If the grammar genuinely changed, change it on BOTH sides and update TEMPLATE here."
     );
   }
-  return { tailed: m[1].split("|").map(decode), bare: m[2].split("|").map(decode), pattern };
+  const groups = { tailed: m[1].split("|"), bare: m[2].split("|") };
+  // First spelling wins on a duplicate — a repeated language is already
+  // reported as a list difference, and picking one keeps that from also
+  // reading as a spelling disagreement with the other side.
+  const spell = (raw: string[]) => {
+    const out = new Map<string, string>();
+    for (const token of raw) if (!out.has(decode(token))) out.set(decode(token), token);
+    return out;
+  };
+  return {
+    tailed: groups.tailed.map(decode),
+    bare: groups.bare.map(decode),
+    spelling: { tailed: spell(groups.tailed), bare: spell(groups.bare) },
+    pattern,
+  };
 }
 
 /**
@@ -201,6 +234,89 @@ export function parseRustPattern(src: string, label = RUST_REL): string {
   return literals[0].text;
 }
 
+/* ── use sites ──────────────────────────────────────────────────────────── */
+
+/**
+ * The strip function on each side, and the pattern it must delegate to.
+ *
+ * Everything else in this file compares two DECLARED patterns. Neither
+ * comparison says anything about whether the function that actually blanks
+ * fence bodies still RUNS the pattern that was compared — and both patterns are
+ * declared away from their use site (`MACHINE_FENCE_RE` is a module constant,
+ * `machine_fence_re()` a memoized accessor), so a strip function that grew its
+ * own inline regex would leave this checker comparing two ornaments and
+ * reporting lockstep (verified: both sides stayed green under exactly that edit,
+ * SUB-1130).
+ *
+ * The rule is delegation, not equality of behavior — a mechanical check cannot
+ * decide whether two regexes mean the same thing, but it can insist the strip
+ * function does not carry a second one. So: the body must NAME the shared
+ * pattern, and must not build a regex of its own. Written against the
+ * comment-and-literal-blanked source, so a doc comment mentioning either token
+ * neither satisfies nor trips the check.
+ */
+const USE_SITES = [
+  {
+    file: TS_REL,
+    mode: "ts" as const,
+    fn: /function\s+stripMachineFences\s*\(/,
+    uses: "MACHINE_FENCE_RE",
+    // `/\n/g` counting newlines in a match is fine and must stay fine; what may
+    // not appear is a second FENCE grammar. `RegExp` covers `new RegExp(…)` and
+    // `RegExp(…)` alike; a bare literal is caught by `uses` going missing,
+    // since replacing MACHINE_FENCE_RE with one is what removes the name.
+    builds: /\bRegExp\s*\(/,
+    what: "the app's own strip pass",
+  },
+  {
+    file: RUST_REL,
+    mode: "rust" as const,
+    fn: /fn\s+strip_machine_fences\s*(?:<[^>]*>\s*)?\(/,
+    uses: "machine_fence_re()",
+    builds: /\bRegex(?:Builder)?::/,
+    what: "the indexer's strip pass",
+  },
+];
+
+/**
+ * Drift between each side's compared pattern and the strip function that is
+ * supposed to run it. Empty means both still delegate.
+ *
+ * Throws rather than returning a problem when the function cannot be found at
+ * all: that is this file's parser being wrong about the tree, not the tree
+ * being wrong, and the two want different fixes (same contract as
+ * `parseRustPattern`).
+ */
+export function checkUseSites(sources: Record<string, string>): string[] {
+  const problems: string[] = [];
+  for (const site of USE_SITES) {
+    const code = blankNonCode(sources[site.file], site.mode);
+    const fn = site.fn.exec(code);
+    if (!fn) {
+      throw new Error(
+        `${site.file}: the strip function ${site.fn.source} was not found — it moved or was renamed`
+      );
+    }
+    const open = code.indexOf("{", fn.index + fn[0].length);
+    if (open === -1) throw new Error(`${site.file}: the strip function has no body`);
+    const body = code.slice(open, matchDelim(code, open) + 1);
+
+    if (!body.includes(site.uses)) {
+      problems.push(
+        `${site.file}: the strip function no longer runs ${site.uses} — ` +
+          `this checker compares that pattern, so ${site.what} is now unchecked`
+      );
+    }
+    if (site.builds.test(body)) {
+      problems.push(
+        `${site.file}: the strip function builds a regex of its own — ` +
+          `${site.what} must delegate to ${site.uses}, the pattern this checker compares`
+      );
+    }
+  }
+  return problems;
+}
+
 /* ── cross-check ────────────────────────────────────────────────────────── */
 
 const list = (xs: readonly string[]) => (xs.length ? xs.join(", ") : "(none)");
@@ -253,6 +369,26 @@ export function crossCheck(ts: FenceInventory, rust: FenceInventory): string[] {
           "the indexer drops its body from search but nothing on the TS side calls it a fence"
       );
     }
+    // Spelling, for the languages BOTH sides carry. Independent of the set
+    // findings above (SUB-1130) — a merge that adds a language to one side and
+    // unfolds another's case on the other has two problems, and reporting the
+    // second only after the first is fixed costs a whole extra round trip.
+    // `[Hh][Ee][Aa][Tt][Mm][Aa][Pp]` and `heatmap` decode to the same id, so
+    // the set diff cannot see this: it is the SUB-1128 leak exactly — one side
+    // strips ```HeatMap, the other indexes its config as prose.
+    for (const lang of ts[group].filter((l) => b.has(l))) {
+      const tsSpelling = ts.spelling[group].get(lang)!;
+      const rustSpelling = rust.spelling[group].get(lang)!;
+      if (tsSpelling === rustSpelling) continue;
+      const folded = (s: string) => (s.includes("[") ? "case-folded" : "plain");
+      problems.push(
+        `${group}: "${lang}" is spelled differently on the two sides — ` +
+          `src/lib/fences.ts ${folded(tsSpelling)} (${tsSpelling}), ` +
+          `${RUST_REL} ${folded(rustSpelling)} (${rustSpelling}); ` +
+          "a fold on one side only means a mixed-case opener strips there and stays in " +
+          "the search index here"
+      );
+    }
   }
   // Grammar is compared on the skeletons, so it is INDEPENDENT of the list
   // findings above and runs whether or not they fired: a merge that both added
@@ -268,17 +404,15 @@ export function crossCheck(ts: FenceInventory, rust: FenceInventory): string[] {
   } else if (a !== b) {
     problems.push(grammarProblem(ts, rust));
   } else if (problems.length === 0 && ts.pattern !== rust.pattern) {
-    // Same grammar, same language SETS, different pattern text: the runs are
-    // written in a different order, one side repeats a language, or one side
-    // spells a language with case pairs and the other does not. The first two
-    // are harmless to the matcher; the third is not — a one-sided fold means
-    // ```HeatMap strips on one side only — but all three read the same here,
-    // because the ids agree and the grammar agrees, so the patterns themselves
-    // are the evidence to look at.
+    // Same grammar, same language SETS, same spelling per language, different
+    // pattern text: the runs are written in a different order, or one side
+    // repeats a language. Both are harmless to the matcher — the third cause
+    // that used to land here, a case-fold spelled on one side only, is not, and
+    // now has its own named finding above (SUB-1130). What is left is cosmetic,
+    // so the patterns themselves are the evidence to look at.
     problems.push(
-      "the two sides carry the same languages but not the same LIST — a reorder, a " +
-        "duplicate entry, or a case-fold spelled on one side only, not a grammar or " +
-        "coverage change:\n" +
+      "the two sides carry the same languages but not the same LIST — a reorder or a " +
+        "duplicate entry, not a coverage, spelling or grammar change:\n" +
         `      TS:   tailed [${list(ts.tailed)}], bare [${list(ts.bare)}]\n` +
         `      Rust: tailed [${list(rust.tailed)}], bare [${list(rust.bare)}]`
     );
@@ -299,8 +433,16 @@ export function crossCheck(ts: FenceInventory, rust: FenceInventory): string[] {
  */
 const TS_FLAGS = "g";
 
+/** Both files this checker reads, keyed the way `checkUseSites` wants them. */
+export function readSources(): Record<string, string> {
+  return {
+    [TS_REL]: readFileSync(resolve(ROOT, TS_REL), "utf8"),
+    [RUST_REL]: readFileSync(resolve(ROOT, RUST_REL), "utf8"),
+  };
+}
+
 export function collect(): { ts: FenceInventory; rust: FenceInventory } {
-  const rustSrc = readFileSync(resolve(ROOT, RUST_REL), "utf8");
+  const rustSrc = readSources()[RUST_REL];
   if (MACHINE_FENCE_RE.flags !== TS_FLAGS) {
     throw new Error(
       `src/lib/fences.ts MACHINE_FENCE_RE: expected flags "${TS_FLAGS}", got ` +
@@ -316,15 +458,17 @@ export function collect(): { ts: FenceInventory; rust: FenceInventory } {
 
 function main(): void {
   let inv: { ts: FenceInventory; rust: FenceInventory };
+  let useSite: string[];
   try {
     inv = collect();
+    useSite = checkUseSites(readSources());
   } catch (e) {
     console.error(`check-fence-langs: could not build the inventories — ${(e as Error).message}`);
     console.error("This is a parse failure, not a clean tree. Fix the parser or the source.");
     process.exit(2);
   }
 
-  const problems = crossCheck(inv.ts, inv.rust);
+  const problems = [...crossCheck(inv.ts, inv.rust), ...useSite];
   console.log(
     `check-fence-langs: tailed [${list(inv.ts.tailed)}], bare [${list(inv.ts.bare)}]`
   );

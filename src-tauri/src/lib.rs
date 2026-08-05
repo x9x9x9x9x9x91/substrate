@@ -1204,6 +1204,7 @@ pub fn run() {
             reflexes_set_paused,
             reflexes_disable,
             reflexes_receipts,
+            kinds_set_trust,
             url_capture,
             vault_rename,
             vault_delete,

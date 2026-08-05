@@ -1275,6 +1275,7 @@ with arrow/Home/End navigation along the axis; tooltips never print.
 
 
 
+
 ### 5.6 View embeds — ` ```view ` fences
 
 A ` ```view ` fence renders a live, editable inline database table inside the
@@ -1553,17 +1554,12 @@ stays legal on disk and every non-calendar surface still reads it as a range.
 
 ### 5.8 Custom kind bundles — `.vault/kinds/<id>/`
 
-> **Contract, not yet live.** This section is the on-disk format and the
-> runtime contract the custom-kinds arc lands across several units; the
-> loading mechanism, the enable pane and the dispatch branch ship after the
-> format does. Until the arc completes, a `dashboard:` value naming a bundle
-> is simply an unrecognized key and behaves as §5.2 says. **Once dispatch
-> lands, a `dashboard:` value naming a bundle never falls through to
+> **Live.** The loader, the dispatch branch and the enable flow all ship. A
+> `dashboard:` value naming a bundle **never falls through to
 > charts-or-yield**: a kind that can't be resolved — broken manifest, unknown
 > id, api out of range, not enabled, bytes changed since — renders a card
 > naming the kind and the reason. That fallback is for typos; using it here
-> would answer "show me `gear-log`" with a yield tracker. The format is
-> documented here first so bundles written against it stay valid.
+> would answer "show me `gear-log`" with a yield tracker.
 
 A **custom kind** is dashboard renderer code that lives in the vault. It
 exists so that a dashboard nobody but its owner wants is a file, not a merge
@@ -1661,6 +1657,45 @@ delivering new code into an already-trusted folder does not get to run it.
 Custom kinds run with the **same access as Substrate itself**: they can read
 and change anything in the vault. There is no sandbox; the enable decision is
 the boundary. Nothing auto-enables from any install path.
+
+The record itself, keyed by kind id inside `kinds.json`:
+
+```json
+{
+  "hash": "sha256:1f0c…",
+  "api": 1,
+  "enabledAt": "2026-08-04T11:02:00Z",
+  "trustUpdates": false
+}
+```
+
+`api` is the contract version consented to, so a bundle that later rewrites
+its manifest to a different api is a new decision. `trustUpdates` is absent
+or `false` unless the user turned it on by hand — see below.
+
+**The review pane** (SUB-961). A kind that isn't enabled renders, in the
+dashboard frame rather than a modal, what it is: title, description, author,
+api, the entry file, and the files the hash covers with their sizes. Three
+sentences say what enabling means — full vault access, this vault on this
+device only, pinned to these exact bytes. Nothing is pre-checked, and
+*Open the code* **reveals** the folder rather than opening the entry file, so
+looking at a kind never runs it.
+
+When the bytes drift the same pane returns worded for the second decision,
+and one click re-consents. The per-kind **trust-updates rider** — off by
+default, settable only on a kind already enabled once — makes that automatic
+for a kind the user is editing themselves, which is the agent-iteration loop.
+It re-enables at the new hash; it is not a standing exemption from hashing,
+and it never covers a first enable.
+
+Consent is also reviewable after the fact, in **Settings → Kinds**: what this
+vault has, each one's state, the rider, and a disable verb. **Disabling never
+deletes** — the record goes, the folder stays.
+
+Because the record lives outside the vault, no vault change reports a consent
+change; the app invalidates its bundle list explicitly on every consent write,
+which is what makes enabling mount the kind in place instead of on the next
+reload.
 
 #### The kind API — `mount(el, ctx)`
 
@@ -1881,10 +1916,11 @@ understand.
   which shape of `kind.json` and which bundle layout the vault's
   `.vault/kinds/` folders are written in. **RESERVED** — the key is defined
   by the format unit that documents §5.8, and nothing reads or enforces it
-  yet. Refuse-newer for `kinds` (a version above what the app knows means
-  this build does not understand the bundles well enough to enable them) and
-  the surface that says so land with the loader units of the custom-kinds
-  arc, alongside §5.8's own "contract, not yet live" status.
+  yet. §5.8's loader and enable flow ship without it: an out-of-range `api`
+  in a manifest is already refused per bundle, on a card. Refuse-newer for
+  the sidecar key — a version above what the app knows means this build does
+  not understand the vault's bundles well enough to enable any of them — and
+  the surface that says so are still to come.
 - **A missing sidecar, or a missing/non-positive-integer entry, reads as
   version 1** — the current format, which is what every existing vault is
   already in. Nothing migrates on upgrade; the sidecar just appears on the

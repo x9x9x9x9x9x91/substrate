@@ -1,7 +1,7 @@
 //! Custom dashboard kinds: list what is installed, record consent, withdraw
-//! it (SUB-959).
+//! it (SUB-959), and carry the standing "trust updates" rider (SUB-961).
 //!
-//! Three commands and no fourth: nothing here installs, edits or removes a
+//! Four commands and no fifth: nothing here installs, edits or removes a
 //! bundle. A kind arrives in the vault the way any other file does — the user
 //! puts it there — and these commands only decide whether its bytes are ever
 //! served. Keeping install out of the app is what makes the enable card the
@@ -92,6 +92,13 @@ pub(crate) fn kinds_enable(
         ));
     }
 
+    // A re-enable after a drift carries the standing permission forward. The
+    // record is overwritten wholesale, so reading the old one first is what
+    // keeps "trust updates to this kind" from silently switching itself off
+    // the first time the code it was granted for actually changed — which is
+    // the only situation it exists for.
+    let trust_updates = bundle.record.as_ref().is_some_and(|r| r.trust_updates);
+
     kinds::set_enabled(
         &onboarding.config_dir,
         &root,
@@ -100,8 +107,29 @@ pub(crate) fn kinds_enable(
             hash,
             api: manifest.api,
             enabled_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            trust_updates,
         },
     )
+}
+
+/// Turn the standing "trust updates to this kind in this vault" permission on
+/// or off. Only ever edits a record that already exists: this is a rider on a
+/// consent someone gave by reading the code, never a way to grant one. Turning
+/// it on for a kind that isn't enabled is a silent no-op for the same reason
+/// `kinds_disable` doesn't mind an unknown id — the resulting state ("nothing
+/// runs unreviewed") is identical either way.
+#[tauri::command]
+pub(crate) fn kinds_set_trust(
+    state: State<AppState>,
+    onboarding: State<OnboardingState>,
+    id: String,
+    trust: bool,
+) -> Result<(), String> {
+    if cfg!(target_os = "ios") {
+        return Err("custom dashboard kinds are not available on iOS yet".into());
+    }
+    let root = state.0.lock().unwrap().root.clone();
+    kinds::set_trust_updates(&onboarding.config_dir, &root, &id, trust).map(|_| ())
 }
 
 /// Withdraw consent. Never fails on an unknown id — "this must not run" is

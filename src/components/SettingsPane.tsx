@@ -12,6 +12,7 @@ import { normalizeNumberInput } from "../lib/aggregate";
 import { NUMBER_LOCALES, numberLocaleSample, numberLocaleSetting } from "../lib/numberLocale";
 import { setPropUndoable } from "../lib/undoprops";
 import { useEdgeFade } from "../hooks/useEdgeFade";
+import KindsSettings from "./KindsSettings";
 import { useUndo } from "../lib/undoContext";
 import {
   missingTerminalFonts,
@@ -1101,6 +1102,10 @@ export default function SettingsPane({
               consequential one, and it should not be the first thing someone
               scrolling for a font size trips over (SUB-826) */}
           <ReflexesSettings onToast={onToast} />
+          {/* last, and only when the vault has any: consent is a per-vault
+              answer, not a preference, and it renders itself away in the
+              overwhelming majority of vaults that install no kinds */}
+          <KindsSettings />
         </div>
         <div className="palette-foot">
           <span>

@@ -465,11 +465,14 @@ export default function SelectMenu({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // SUB-1132: filtering replaces the rows and resets the selection to the top,
+  // which is a no-op whenever it already was 0 — depend on the rows too, or a
+  // list the user had scrolled keeps its offset and hides the selection
   useEffect(() => {
     listRef.current
       ?.querySelector(`[data-row="${sel}"]`)
       ?.scrollIntoView({ block: "nearest" });
-  }, [sel]);
+  }, [sel, rows]);
 
   const pick = (row: Row | undefined) => {
     if (!row) {

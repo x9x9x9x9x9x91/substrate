@@ -4821,6 +4821,116 @@ body.agenda-window .palette:focus-visible {
   color: var(--danger);
 }
 
+/* The consent review a custom kind waits behind (SUB-961). A pane in the
+   dashboard frame, so it takes the page's own measure rather than a dialog's:
+   full-width prose, the facts as a definition list, the decision at the
+   bottom. Nothing here is styled to be dismissed. */
+.kind-review {
+  max-width: 560px;
+  margin: 4px 0 8px;
+}
+
+.kind-review-title {
+  font: var(--dash-label);
+  font-size: 15px;
+  color: var(--text-1);
+}
+
+.kind-review-desc {
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.kind-review-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 14px;
+  margin: 14px 0 0;
+  font-size: 12.5px;
+}
+
+.kind-review-facts > div {
+  display: contents;
+}
+
+.kind-review-facts dt {
+  color: var(--text-4);
+}
+
+.kind-review-facts dd {
+  margin: 0;
+  color: var(--text-2);
+  font-family: var(--mono);
+}
+
+/* what the user is agreeing to — the one block on the pane that gets a rule
+   and the body's full contrast, because it is the part worth reading twice */
+.kind-review-terms {
+  margin: 16px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
+  list-style: none;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.kind-review-terms li + li {
+  margin-top: 6px;
+}
+
+.kind-review-trust {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.kind-review-trust .dash-sub {
+  display: block;
+  margin-top: 2px;
+}
+
+.kind-review-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.kind-review-actions button {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+/* "Open the code" is the alternative to deciding, not a second decision */
+.kind-review-actions button.ghost {
+  background: var(--bg);
+  border-color: var(--border);
+  color: var(--text-2);
+}
+
+.kind-review-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.kind-review-error {
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--danger);
+}
+
 /* a chart still plotting, with something worth saying about its source — a
    mount reading its last-known index (SUB-982). Quiet by design: the data is
    real, only possibly stale, so this is not an error voice. */
@@ -5514,6 +5624,172 @@ body.agenda-window .palette:focus-visible {
   margin: 0 0 12px;
   font-size: 12.5px;
   color: var(--danger);
+}
+
+/* A timeline fence is one open instrument, not a nested dashboard card. The
+   authored groups stack vertically; overlap packing adds quiet subtracks.
+   Horizontal overflow preserves readable labels instead of compressing a
+   long production arc into decorative noise. */
+.hub-timeline {
+  margin: 0 0 18px;
+}
+
+.hub-timeline-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 8px;
+  font: var(--dash-label);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.hub-timeline-head span:last-child {
+  color: var(--text-4);
+  letter-spacing: 0.03em;
+}
+
+.hub-timeline-scroll {
+  overflow-x: auto;
+  padding-bottom: 5px;
+}
+
+.hub-timeline-canvas {
+  position: relative;
+  min-width: 680px;
+}
+
+.hub-timeline-axis {
+  position: relative;
+  height: 26px;
+  border-bottom: 1px solid var(--hair);
+  font: var(--dash-label);
+  color: var(--text-4);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.hub-timeline-axis span {
+  position: absolute;
+  bottom: 7px;
+  transform: translateX(-50%);
+}
+
+/* A centred label at either extreme would hang past the canvas — anchor it. */
+.hub-timeline-axis span.at-end {
+  transform: translateX(-100%);
+}
+
+.hub-timeline-axis span.at-start {
+  transform: none;
+}
+
+.hub-timeline-grid {
+  position: absolute;
+  inset: 26px 0 0;
+  pointer-events: none;
+}
+
+.hub-timeline-grid i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--hair-soft);
+}
+
+.hub-timeline-grid i.today {
+  z-index: 2;
+  background: var(--accent);
+  opacity: 0.72;
+}
+
+.hub-timeline-lanes {
+  position: relative;
+}
+
+.hub-timeline-lane {
+  position: relative;
+  border-bottom: 1px solid var(--hair-soft);
+}
+
+.hub-timeline-lane-label {
+  position: absolute;
+  top: 7px;
+  left: 0;
+  font: var(--dash-label);
+  color: var(--text-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hub-timeline-bar,
+.hub-timeline-milestone {
+  position: absolute;
+  z-index: 3;
+  height: 22px;
+  border: 0;
+  font: var(--dash-data);
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.hub-timeline-bar {
+  min-width: 7px;
+  padding: 2px 7px;
+  overflow: hidden;
+  border-left: 2px solid var(--accent);
+  border-radius: var(--r);
+  background: var(--accent-soft);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hub-timeline-bar:hover {
+  color: var(--text-1);
+  background: var(--active);
+}
+
+.hub-timeline-milestone {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: max-content;
+  padding: 0;
+  background: transparent;
+  transform: translateX(-5px);
+  white-space: nowrap;
+}
+
+.hub-timeline-milestone i {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border: 2px solid var(--accent);
+  background: var(--bg);
+  transform: rotate(45deg);
+}
+
+.hub-timeline-milestone:hover span {
+  color: var(--text-1);
+}
+
+.hub-timeline-foot {
+  margin-top: 7px;
+}
+
+.hub-timeline-err,
+.hub-timeline-empty {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  color: var(--danger);
+}
+
+.hub-timeline-empty {
+  color: var(--text-3);
 }
 
 .hub-pre {
@@ -10292,10 +10568,18 @@ span.asset-thumb svg {
   }
 
   #print-surface .hub-view-err,
-  #print-surface .hub-cards-err {
+  #print-surface .hub-cards-err,
+  #print-surface .hub-timeline-err {
     color: #a33636;
   }
 
+  #print-surface .hub-timeline-scroll {
+    overflow: visible;
+  }
+
+  #print-surface .hub-timeline-canvas {
+    min-width: 0;
+  }
 
   #print-surface .print-title {
     font-size: 23px;
@@ -14317,6 +14601,34 @@ body.termhud-resizing-ew .termhud {
 .settings-hint-warn {
   margin-top: 3px;
   color: var(--text-2);
+}
+
+/* Settings → Kinds (SUB-961): the consent list. A section of rows rather than
+   a control per key — each line is a thing the vault contains, not a
+   preference — so the list carries no bullets and leans on the row idiom. */
+.settings-kinds-lead {
+  margin: 2px 0 8px;
+  max-width: 460px;
+}
+
+.settings-kinds {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.settings-kind-row {
+  align-items: flex-start;
+}
+
+/* the standing rider sits under the state line, at hint weight: it is a
+   qualifier on a consent already given, never the consent itself */
+.settings-kind-trust {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 5px;
+  cursor: pointer;
 }
 
 .settings-input {

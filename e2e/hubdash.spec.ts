@@ -10,8 +10,9 @@ import { expect, test, type Page } from "@playwright/test";
 // one that resolves to a live table, and a broken one that must fail in
 // place. SUB-964 adds a ```cards fence, a QUOTED cards fence and a chart+cards
 // pair inside a callout body (all three must stay code boxes) and two ```chart
-// fences (one sound, one with a broken `y:`) to the same fixture. Runs against
-// the deterministic mock backend.
+// fences (one sound, one with a broken `y:`) to the same fixture. SUB-968 adds
+// one sound and one malformed ```timeline fence. Runs against the
+// deterministic mock backend.
 
 async function openHub(page: Page) {
   await page.goto("/");
@@ -116,7 +117,7 @@ test("a fence naming an unknown database fails in place, siblings unaffected", a
   await expect(page.locator(".hub-body .hub-view .embed-view-table")).toHaveCount(1);
 });
 
-test("one hub body renders markdown, a cards fence, a chart fence and a view fence together (SUB-964)", async ({
+test("one hub body renders markdown, cards, chart, view and timeline fences together", async ({
   page,
 }) => {
   await openHub(page);
@@ -150,7 +151,12 @@ test("one hub body renders markdown, a cards fence, a chart fence and a view fen
   // ```view: the live database table
   await expect(page.locator(".hub-body .hub-view .embed-view-table tbody tr")).toHaveCount(4);
 
-  // and none of the four fell through to a top-level code box; the four code
+  // ```timeline: the grouped horizontal time view (SUB-968); the malformed
+  // one renders its parse error in place, never a code box
+  await expect(page.locator(".hub-body .hub-timeline")).toHaveCount(1);
+  await expect(page.locator(".hub-body .hub-timeline-err")).toHaveCount(1);
+
+  // and none of them fell through to a top-level code box; the four code
   // boxes are deliberately nested in a quote/callout, never live fences
   await expect(page.locator(".hub-body .hub-pre")).toHaveCount(4);
   await expect(page.locator(".hub-body > .hub-pre")).toHaveCount(0);
@@ -209,6 +215,33 @@ test("a malformed chart fence errors in place while its siblings render (SUB-964
   await expect(page.locator(".hub-body .hub-chart .dash-bar-col").first()).toBeVisible();
   await expect(page.locator(".hub-body .hub-view .embed-view-table")).toHaveCount(1);
   await expect(page.locator(".hub-body .dash-table")).toHaveCount(1);
+});
+
+test("a timeline fence draws grouped bars, opens notes, and isolates malformed siblings (SUB-968)", async ({
+  page,
+}) => {
+  await openHub(page);
+
+  const timeline = page.locator(".hub-timeline");
+  await expect(timeline).toHaveCount(1);
+  await expect(timeline.locator(".hub-timeline-lane-label")).toContainText([
+    "in review",
+    "mastering",
+  ]);
+  await expect(timeline.locator(".hub-timeline-bar")).toHaveCount(2);
+  await expect(timeline.locator(".hub-timeline-grid .today")).toHaveCount(1);
+
+  const slowBloom = timeline.getByRole("button", { name: /Slow Bloom EP/ });
+  await expect(slowBloom).toHaveAttribute("aria-label", /Jul 17, 2026.*Aug 1, 2026/);
+  await slowBloom.click();
+  await expect(page.locator(".note-title")).toHaveValue("Slow Bloom EP");
+
+  await openHub(page);
+  const err = page.locator(".hub-timeline-err");
+  await expect(err).toHaveCount(1);
+  await expect(err).toHaveText(/missing required key "label"/);
+  await expect(page.locator(".hub-view .embed-view-table")).toHaveCount(1);
+  await expect(page.locator(".hub-chart .dash-bar-col").first()).toBeVisible();
 });
 
 test("Open source note lands in the editor on the hub note's plain markdown", async ({

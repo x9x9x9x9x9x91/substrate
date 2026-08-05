@@ -155,9 +155,9 @@ pub struct FmState {
 }
 
 /// Fenced blocks holding app-parsed config/data (vault-format §5) — view
-/// embeds, charts, heatmaps, goal thermometers, sheet csv + formulas — are
-/// machine content, not prose:
-/// their bodies stay out of the search index (SUB-261). The regex follows
+/// embeds, charts, heatmaps, goal thermometers, timelines, sheet csv +
+/// formulas — are machine content, not prose: their bodies stay out of the
+/// search index (SUB-261). The regex follows
 /// the app parsers' semantics (```<lang>\n anywhere … next ``` or EOF);
 /// user code fences (```ts, ```python foo, …) stay searchable, tail and all.
 /// The LIVE-DISPATCH languages (view, chart, progress, cards) also take an info-string
@@ -167,10 +167,11 @@ pub struct FmState {
 /// (SUB-899 for view, SUB-983 for chart/cards; cards renders once the hub
 /// canvas lands, SUB-964 — stripping it now is contract, not yet render;
 /// progress is the goal thermometer, SUB-967).
-/// csv/formulas/heatmap/calendar parsers are strict bare-form — a tailed one renders as plain
-/// code and stays searchable prose. A tail may not contain a backtick: an
-/// inline prose mention of an opener must never swallow its line and blank
-/// prose to the next fence (SUB-983 review finding). CRLF openers
+/// csv/formulas/heatmap/calendar/timeline parsers are strict bare-form — a
+/// tailed one renders as plain code and stays searchable prose (SUB-968 for
+/// timeline). A tail may not contain a backtick: an inline prose mention of an
+/// opener must never swallow its line and blank prose to the next fence
+/// (SUB-983 review finding). CRLF openers
 /// (```view\r\n) strip too (SUB-913).
 /// The live-dispatch group is spelled per letter ([Vv][Ii][Ee][Ww]) because
 /// every frontend reader lowercases the info string's first word before
@@ -186,6 +187,9 @@ pub struct FmState {
 /// dispatchers disagree the strip follows the WIDEST, since stripping closes a
 /// real leak while the cost the other way is only that machine config stays
 /// out of search.
+/// timeline folds case for the simpler version of the same reason: its one
+/// dispatcher is the hub, which lowercases the first word, so a bare
+/// ```TimeLine renders live and its config must leave the index too (SUB-968).
 /// The fold lives IN the pattern rather than on a RegexBuilder so
 /// the two sides stay comparable character for character. The obvious
 /// spelling `(?i:…)` — which this crate does support — is deliberately NOT
@@ -199,7 +203,7 @@ fn machine_fence_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
         Regex::new(
-            r"```(?:(?:[Vv][Ii][Ee][Ww]|[Cc][Hh][Aa][Rr][Tt]|[Pp][Rr][Oo][Gg][Rr][Ee][Ss][Ss]|[Cc][Aa][Rr][Dd][Ss])(?:[ \t][^`\n]*)?|csv|formulas|[Hh][Ee][Aa][Tt][Mm][Aa][Pp]|[Cc][Aa][Ll][Ee][Nn][Dd][Aa][Rr])\r?\n[\s\S]*?(?:```|\z)",
+            r"```(?:(?:[Vv][Ii][Ee][Ww]|[Cc][Hh][Aa][Rr][Tt]|[Pp][Rr][Oo][Gg][Rr][Ee][Ss][Ss]|[Cc][Aa][Rr][Dd][Ss])(?:[ \t][^`\n]*)?|csv|formulas|[Hh][Ee][Aa][Tt][Mm][Aa][Pp]|[Cc][Aa][Ll][Ee][Nn][Dd][Aa][Rr]|[Tt][Ii][Mm][Ee][Ll][Ii][Nn][Ee])\r?\n[\s\S]*?(?:```|\z)",
         )
             .unwrap()
     })
@@ -339,6 +343,12 @@ fn link_key(inner: &str) -> String {
 /// `body` with every machine-fence block blanked newline-for-newline, so
 /// search line numbers keep mapping to the raw body (the editor's reveal
 /// jumps to them).
+///
+/// Must keep DELEGATING to `machine_fence_re()` — a `Regex` built here would be
+/// what the indexer actually runs while the lockstep checker went on comparing
+/// the memoized one, and both sides would read as in step. Enforced by
+/// `checkUseSites` in scripts/check-fence-langs.ts (SUB-1130); same rule on the
+/// TS twin.
 fn strip_machine_fences(body: &str) -> String {
     machine_fence_re()
         .replace_all(body, |caps: &regex::Captures<'_>| "\n".repeat(caps[0].matches('\n').count()))
@@ -3158,6 +3168,8 @@ mod tests {
             "a\n```formulas x\nsecret = A1\n```\nb",
             "a\n```calendar month\nsecret: 1\n```\nb",
             "a\n```python foo\nsecret = 1\n```\nb",
+            // SUB-968: the timeline parser is strict bare-form too.
+            "a\n```timeline compact\nsource: release\n```\nb",
         ] {
             assert_eq!(strip_machine_fences(prose), prose, "tailed bare-form fence stays prose");
         }
@@ -3166,6 +3178,10 @@ mod tests {
         let out = strip_machine_fences(cal);
         assert!(!out.contains("released"), "calendar config stripped: {out:?}");
         assert_eq!(out.matches('\n').count(), cal.matches('\n').count(), "line map kept");
+
+        // …and the BARE timeline opener is machine content that strips.
+        let timeline = "a\n```timeline\nsource: release\nstart: created\nlabel: title\n```\nb";
+        assert!(!strip_machine_fences(timeline).contains("source: release"), "bare timeline strips");
     }
 
     #[test]

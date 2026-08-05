@@ -1032,11 +1032,14 @@ impl Engine {
         }
 
         let prior = read_index(&self.root, id);
-        let mut by_identity: HashMap<String, usize> = HashMap::new();
+        // Every row of an identity, not just the first: byte-identical copies
+        // are ordinary in a sample library, and a rename inside such a group
+        // still has to find a row that no other copy has taken (SUB-1135).
+        let mut by_identity: HashMap<String, Vec<usize>> = HashMap::new();
         let mut by_rel: HashMap<String, usize> = HashMap::new();
         for (i, f) in prior.files.iter().enumerate() {
             if !f.identity.is_empty() {
-                by_identity.entry(f.identity.clone()).or_insert(i);
+                by_identity.entry(f.identity.clone()).or_default().push(i);
             }
             by_rel.entry(f.rel.clone()).or_insert(i);
         }
@@ -1052,11 +1055,20 @@ impl Engine {
             let (modified, _) = file_stamp(&md);
             let identity = file_identity(&file).unwrap_or_default();
 
-            // identity first: a renamed file keeps its row. Then rel path: a
-            // file edited in place has a new identity but is the same row.
-            let matched = by_identity
-                .get(&identity)
-                .filter(|i| !identity.is_empty() && !claimed.contains(*i))
+            // A file's own row first, while its bytes are unchanged — otherwise
+            // a byte-identical twin can take it, and this file reads as brand
+            // new every scan (SUB-1135). Then any free row of the same identity:
+            // a renamed file keeps its row. Then rel path: a file edited in
+            // place has a new identity but is the same row.
+            let rows = (!identity.is_empty())
+                .then(|| by_identity.get(&identity))
+                .flatten();
+            let matched = rows
+                .and_then(|rows| {
+                    rows.iter()
+                        .find(|i| !claimed.contains(*i) && prior.files[**i].rel == rel)
+                        .or_else(|| rows.iter().find(|i| !claimed.contains(*i)))
+                })
                 .or_else(|| by_rel.get(&rel).filter(|i| !claimed.contains(*i)))
                 .copied();
             // What the file already told us about itself, kept only while the
@@ -2921,6 +2933,59 @@ mod tests {
         assert_eq!(e.mount_text(&m.id, "scan.pdf", &f.identity), None, "nothing to show");
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&local);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    #[test]
+    fn byte_identical_files_settle_after_one_reading_each() {
+        // SUB-1135: a sample library is full of byte-identical copies, and
+        // every one of them shares an identity with its twins. Matching a
+        // scanned file to its prior row by identity FIRST let one copy claim
+        // a twin's row, which left the twin's own row unclaimed — read as a
+        // brand-new file (values dropped, offered again) while the row it
+        // lost was kept as `missing`. Every scan then paid for an extraction
+        // pass over files nothing about had changed.
+        let (mut e, dir) = temp_vault("mdupes");
+        let watched = temp_watched("mdupes");
+        let bytes = super::super::extract::test_wav(44_100, 1, 44_100);
+        for n in 0..3 {
+            fs::write(watched.join(format!("h-{n}.wav")), &bytes).unwrap();
+        }
+        let m = e.add_mount("Samples", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        assert_eq!(drain(&mut e, &m.id, &watched), 3, "each copy is read once");
+
+        // Row order in an index is not part of the format — one synced in
+        // from another machine arrives in whatever order it was written. It
+        // must not decide which row a file matches.
+        let at = e.root.join(index_rel_path(&m.id));
+        let mut index: MountIndex = serde_json::from_str(&fs::read_to_string(&at).unwrap()).unwrap();
+        index.files.reverse();
+        fs::write(&at, serde_json::to_string(&index).unwrap()).unwrap();
+
+        for round in 1..=3 {
+            e.scan_mount(&m.id, &watched);
+            assert_eq!(
+                e.mount_extract_jobs(&m.id, &watched)
+                    .into_iter()
+                    .map(|j| j.rel)
+                    .collect::<Vec<_>>(),
+                Vec::<String>::new(),
+                "round {round}: nothing changed on disk, so nothing is re-offered"
+            );
+            let files = e.mount_index(&m.id).files;
+            assert_eq!(
+                files.iter().map(|f| f.rel.as_str()).collect::<Vec<_>>(),
+                vec!["h-0.wav", "h-1.wav", "h-2.wav"],
+                "round {round}: three files, three rows, none duplicated or lost"
+            );
+            assert!(files.iter().all(|f| !f.missing), "round {round}: none went missing");
+            assert!(
+                files.iter().all(|f| f.extracted.contains_key("duration")),
+                "round {round}: every copy keeps the values read out of it"
+            );
+        }
+        let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&watched);
     }
 

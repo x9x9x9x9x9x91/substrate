@@ -130,7 +130,9 @@ function AgendaApp() {
     // outside `.agenda-list` (inside the `.agenda-rows` listbox, but pinned
     // below the scroller) and still has to be reachable by index
     card.current?.querySelector(`[data-idx="${sel}"]`)?.scrollIntoView({ block: "nearest" });
-  }, [sel]);
+    // SUB-1132: a reload can move the selected row to a different offset while
+    // its index stays put, and the scroller keeps whatever the user scrolled to
+  }, [sel, payload]);
 
   const openItem = (path: string) => {
     // Rust surfaces the main window with the note open and hides the popover

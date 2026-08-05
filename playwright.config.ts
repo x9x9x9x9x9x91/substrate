@@ -38,5 +38,14 @@ export default defineConfig({
     // old code mid-suite (SUB-57); --strictPort makes the collision fail loudly
     reuseExistingServer: false,
     timeout: 30_000,
+    // SUB-1132: run every spec with scroll anchoring off. Chrome silently holds
+    // the content under the viewport still when rows move above it, so a pane
+    // whose "the selection stays painted" is really the browser's doing passes
+    // its spec anyway — until an unrelated change to the row set shifts the
+    // delta (SUB-461/SUB-970). Anchoring is also absent from the WKWebView the
+    // app actually ships in (WebKit only added it in Safari 27), so anchor-free
+    // is the truthful configuration, not a stricter one. SUBSTRATE_NO_SCROLL_
+    // ANCHOR=0 restores Chrome's default for a one-off comparison.
+    env: { SUBSTRATE_NO_SCROLL_ANCHOR: process.env.SUBSTRATE_NO_SCROLL_ANCHOR ?? "1" },
   },
 });

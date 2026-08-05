@@ -244,6 +244,12 @@ export const kindsList = () => invoke<KindBundleInfo[]>("kinds_list");
     applied to bytes nobody read. */
 export const kindsEnable = (id: string, hash: string) =>
   invoke<void>("kinds_enable", { id, hash });
+/** Turn the standing "trust updates to this kind in this vault" rider on or
+    off (SUB-961). Only ever edits a consent that already exists: a no-op for a
+    kind nobody enabled, because it carries a decision forward and never makes
+    one. */
+export const kindsSetTrust = (id: string, trust: boolean) =>
+  invoke<void>("kinds_set_trust", { id, trust });
 /** Withdraw consent. Never fails on an unknown id — a bundle deleted from the
     vault still has to be revocable. */
 export const kindsDisable = (id: string) => invoke<void>("kinds_disable", { id });

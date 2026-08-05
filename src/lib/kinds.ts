@@ -366,12 +366,25 @@ export async function hashKindBundle(files: KindFiles): Promise<string> {
 
 // ---------- enable state ----------
 
+/** One file the bundle hash covers, as the review pane shows it: the name and
+    its size on disk. Metadata only — the bytes never cross IPC — but "3 files,
+    4.1 kB" is part of what a person is agreeing to, and a bundle whose "small
+    helper" is 400 kB of minified something should look like that before it is
+    trusted. Derived from the same read the hash was taken over, so the list
+    describes the bytes consent is being asked for. */
+export interface KindFileMeta {
+  name: string;
+  bytes: number;
+}
+
 /** A bundle as the loader found it: the folder name, the hash over its files,
     and whatever the manifest turned out to be. */
 export interface KindBundle {
   id: string;
   hash: string;
   manifest: KindManifestResult;
+  /** what the hash covers. Absent on rows from a build older than SUB-961. */
+  files?: KindFileMeta[];
 }
 
 /** Consent, as recorded outside the vault (`kinds.json` in the OS app-config
@@ -383,6 +396,14 @@ export interface KindEnableRecord {
   hash: string;
   api: number;
   enabledAt: string;
+  /** standing permission to re-enable this kind in this vault when its bytes
+      change, without another review. Off unless explicitly asked for, and
+      absent on every record written before it existed — which is why the
+      optional field reads as false rather than as "unknown". Exists for the
+      loop where the person editing the kind IS the person trusting it (an
+      agent iterating on a bundle in the vault); it never grants a first
+      consent, only carries one forward. */
+  trustUpdates?: boolean;
 }
 
 /** One `kinds_list` row (SUB-959): the bundle as Rust found it on disk, plus

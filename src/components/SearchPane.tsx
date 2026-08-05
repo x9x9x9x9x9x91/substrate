@@ -220,11 +220,15 @@ export default function SearchPane({
     onRestoredSel?.();
   }, [rows, restoreSel, onRestoredSel]);
 
+  // SUB-1132: a new result set moves every row while `sel` can stay the same
+  // number — refining a query resets it to 0, which is a no-op when it already
+  // was 0. The scroller keeps whatever offset the user had scrolled to, so
+  // without `rows` here the selected hit is simply left off-screen.
   useEffect(() => {
     listRef.current
       ?.querySelector(`[data-idx="${sel}"]`)
       ?.scrollIntoView({ block: "nearest" });
-  }, [sel]);
+  }, [sel, rows]);
 
   const totalMatches = groups.reduce((s, g) => s + g.h.total, 0);
   // SUB-566: on a truncated page the match sum counts only the notes we were

@@ -268,6 +268,8 @@ declare global {
       enabledHash?: string;
       /** override the manifest api recorded at enable time */
       enabledApi?: number;
+      /** seed the standing "trust updates to this kind" rider (SUB-961) */
+      trustUpdates?: boolean;
     }) => Promise<void>;
     /** drop every seeded bundle — specs that assert the no-kinds path */
     __mockClearKinds?: () => void;
@@ -738,7 +740,7 @@ const mockNotes: MockNote[] = [
     body:
       "Label home — the pipeline at a glance.\n\n## Releases\n\n> [!note] In review\n> [[Slow Bloom EP]] is with the label for sequencing notes.\n> [!warn] Waiting on masters\n> [[Vessel Songs]] masters v2 are due back this week.\n> [!idea] Next up\n> [[Static Bouquet]] blue-series follow-up — pitch the live session.\n> ```chart\n> source: release\n> x: status\n> y: count\n> ```\n> ```cards\n> - label: Nested\n>   bind: {{Holdings.total}}\n> ```\n> ```progress\n> label: Nested goal\n> value: count\n> source: contact\n> target: 8\n> ```\n\nEverything below the cards renders in linear flow.\n\n| release | status |\n| --- | --- |\n| [[Slow Bloom EP]] | in review |\n| [[Vessel Songs]] | mastering |\n\n## Money\n\n> A quoted cards fence is quoted text, not a board:\n> ```cards\n> - label: Quoted\n>   bind: {{Holdings.total}}\n> ```\n\n```cards\n- label: Total value\n  bind: \"{{Holdings.total}}\"\n  format: eur\n  emph: true\n- label: Crypto\n  bind: \"{{Holdings.crypto}}\"\n  format: eur\n- label: Positions\n  bind: \"{{Holdings.positions}}\"\n  format: number\n```\n\n```chart\nsource: {{Holdings}}\nx: bucket\ny: sum:value_usd\nkind: bar\ntitle: Holdings by bucket\n```\n\n```progress\nlabel: Portfolio target\nvalue: {{Holdings.total}}\ntarget: 500000\nformat: eur\n" +
       `deadline: ${isoDay(45)}\n` +
-      "```\n\n## People\n\n```view\ntype: contact\nview: table\n```\n\n## Broken\n\n```view\ntype: nosuchtype\n```\n\n```chart\nsource: release\nx: status\ny: nonsense\n```\n\n```progress\nlabel: Broken goal\nvalue: count\ntarget: 5\n```\n",
+      "```\n\n## People\n\n```view\ntype: contact\nview: table\n```\n\n## Release arc\n\n```timeline\nsource: release\nstart: created\nend: released\nlabel: title\ngroup: status\n```\n\n## Broken\n\n```view\ntype: nosuchtype\n```\n\n```chart\nsource: release\nx: status\ny: nonsense\n```\n\n```progress\nlabel: Broken goal\nvalue: count\ntarget: 5\n```\n\n```timeline\nsource: release\nstart: created\n```\n",
   },
   {
     // progress fence seed (SUB-967): a hub body can be only progress fences,
@@ -3723,11 +3725,30 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     case "kinds_enable": {
       const k = mockKinds.find((b) => b.row.id === args?.id);
       if (!k) throw new Error(`no kind bundle "${String(args?.id)}"`);
+      if (String(args?.hash) !== k.row.hash) {
+        throw new Error(
+          "this kind's files changed since you looked at them — review it again before enabling",
+        );
+      }
+      // the standing rider survives the overwrite, exactly as it does in Rust:
+      // it exists for the case where the code DID change.
+      const trustUpdates = k.row.record?.trustUpdates === true;
       k.row.record = {
         hash: String(args?.hash ?? k.row.hash),
         api: KIND_API,
         enabledAt: new Date().toISOString(),
+        ...(trustUpdates ? { trustUpdates: true } : {}),
       };
+      return null;
+    }
+    case "kinds_set_trust": {
+      // a rider on an existing consent, never a way to grant one — no record,
+      // nothing to write, and the resulting state is the same either way
+      const k = mockKinds.find((b) => b.row.id === args?.id);
+      if (k?.row.record) {
+        if (args?.trust) k.row.record.trustUpdates = true;
+        else delete k.row.record.trustUpdates;
+      }
       return null;
     }
     case "kinds_disable": {
@@ -5963,17 +5984,35 @@ if (!isTauri) {
   // SUB-572: stage a merge that was parked before the app restarted. The
   // engine keeps it in git refs, so status still reports it; only the
   // session's last-result record is gone, which is exactly what this leaves.
-  window.__mockWriteKind = async ({ id, manifest, files, enabled, enabledHash, enabledApi }) => {
-    const all = { "kind.json": manifest, ...files };
+  window.__mockWriteKind = async ({
+    id,
+    manifest,
+    files,
+    enabled,
+    enabledHash,
+    enabledApi,
+    trustUpdates,
+  }) => {
+    const all: Record<string, string> = { "kind.json": manifest, ...files };
     // hashed over the same bytes the real loader hashes, so a spec that edits
     // one file and re-seeds reproduces real drift rather than a staged flag
     const hash = await hashKindBundle(all);
-    const row: KindBundleInfo = { id, hash, manifest: parseKindManifest(id, manifest) };
+    const row: KindBundleInfo = {
+      id,
+      hash,
+      manifest: parseKindManifest(id, manifest),
+      // the same metadata the loader derives from the bytes it hashed, so the
+      // review pane's file list is real in the mock lane too
+      files: Object.keys(all)
+        .sort()
+        .map((name) => ({ name, bytes: new TextEncoder().encode(all[name]).length })),
+    };
     if (enabled || enabledHash) {
       row.record = {
         hash: enabledHash ?? hash,
         api: enabledApi ?? KIND_API,
         enabledAt: "2026-08-01T09:00:00Z",
+        ...(trustUpdates ? { trustUpdates: true } : {}),
       };
     }
     const at = mockKinds.findIndex((k) => k.row.id === id);

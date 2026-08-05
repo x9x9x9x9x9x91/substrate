@@ -143,25 +143,54 @@ test("an enabled bundle mounts and renders behind the standard head", async ({ p
   await expect(page.locator(".note-title")).toHaveValue("Overview");
 });
 
-test("a bundle that has not been enabled shows its card, not the fallback", async ({ page }) => {
+test("a bundle that has not been enabled shows the review, not the fallback", async ({ page }) => {
   await openKind(page, { enabled: false });
 
-  const err = page.locator(".chart-err");
-  await expect(err).toHaveCount(1);
-  await expect(err).toContainText("gear-log");
-  await expect(err).toContainText("has not been enabled");
-  await expect(err).toContainText("index.js");
-  // the card says out loud that it is standing in for SUB-961's review flow
-  await expect(err.locator(".dash-sub")).toContainText("Placeholder card");
+  // SUB-961: the review is a pane inside the frame, not a modal — it replaces
+  // the body while the head stays exactly where it was.
+  const review = page.locator("[data-testid=kind-review]");
+  await expect(review).toHaveCount(1);
+  await expect(review).toContainText("Gear log");
+  await expect(review).toContainText("What is plugged into what.");
+  await expect(review).toContainText("has not been enabled");
+  await expect(review.locator("[data-testid=kind-review-id]")).toHaveText("gear-log");
+  await expect(review).toContainText("index.js");
+  // the terms, in the plain words the decision needs
+  await expect(review).toContainText("your whole vault, read and write");
+  await expect(review).toContainText("this vault on this device only");
+  await expect(review).toContainText("pinned to these exact files");
+  // the files the consent covers, counted and sized
+  await expect(review.locator("[data-testid=kind-review-files]")).toContainText("2 files");
 
-  // head intact, and the kind's code never ran
+  // no standing rider on a first decision: one interaction must not be able to
+  // both admit code nobody has read and pre-approve every future version of it
+  await expect(review.locator("[data-testid=kind-trust]")).toHaveCount(0);
+  // and the kind's code has not run
+  await expect(review.locator("[data-testid=kind-enable]")).toHaveText("Enable for this vault");
   await expect(page.locator(".dash-title")).toHaveText("Overview");
   await expect(page.locator(".dash-state")).toHaveText("review pending");
   await expect(page.locator(".kind-body")).toHaveCount(0);
   await noFallback(page);
 });
 
-test("a bundle whose bytes changed since it was enabled shows drift, not the fallback", async ({
+test("enabling from the review mounts the kind immediately, with no reload", async ({ page }) => {
+  // The reason this needs its own spec: consent is written OUTSIDE the vault
+  // (app-config dir, keyed by vault path), so no vault epoch moves when it
+  // changes. Without the explicit invalidation the pane would keep serving
+  // "not enabled" from the cached bundle list until something unrelated
+  // happened to bump the epoch — enable, then reload.
+  await openKind(page, { enabled: false });
+  await page.locator("[data-testid=kind-enable]").click();
+
+  const body = page.locator(".kind-host .kind-body");
+  await expect(body.locator(".dash-hero")).toHaveText("gear rack: Overview");
+  await expect(page.locator("[data-testid=kind-review]")).toHaveCount(0);
+  await expect(page.locator(".dash-state")).toHaveText("3 racks");
+  await expect(page.locator(".chart-err")).toHaveCount(0);
+  await noFallback(page);
+});
+
+test("a bundle whose bytes changed drops back to review and re-enables in place", async ({
   page,
 }) => {
   await openKind(page, {
@@ -169,19 +198,100 @@ test("a bundle whose bytes changed since it was enabled shows drift, not the fal
     enabledHash: "sha256:" + "f".repeat(64),
   });
 
-  const err = page.locator(".chart-err");
-  await expect(err).toContainText("changed since you enabled it");
-  await expect(page.locator(".dash-state")).toHaveText("review pending");
+  const review = page.locator("[data-testid=kind-review]");
+  await expect(review).toContainText("changed since you enabled it");
+  // the same pane, worded for the second decision rather than the first
+  await expect(review.locator("[data-testid=kind-enable]")).toHaveText("Enable the new code");
+  await expect(review.locator("[data-testid=kind-trust]")).not.toBeChecked();
+  // the head distinguishes the two review moments: a kind nobody has answered
+  // for yet is "review pending", one that ran until its bytes moved is not
+  await expect(page.locator(".dash-state")).toHaveText("code changed");
   await expect(page.locator(".kind-body")).toHaveCount(0);
+  await noFallback(page);
+
+  // one click, in the pane, and the new code runs
+  await review.locator("[data-testid=kind-enable]").click();
+  await expect(page.locator(".kind-host .kind-body .dash-hero")).toHaveText("gear rack: Overview");
+  await expect(page.locator("[data-testid=kind-review]")).toHaveCount(0);
+});
+
+test("the trust rider re-enables a drifted kind on its own, and only then", async ({ page }) => {
+  // The agent-iteration loop: a kind the user is editing themselves would
+  // otherwise demand a click on every save. The rider is off by default, and
+  // can only ever be set on a kind that was already consented to once — a
+  // first enable is never automatic, and the first review offers no rider at
+  // all.
+  await openKind(page, { enabled: false });
+  await expect(page.locator("[data-testid=kind-review]")).toHaveCount(1);
+  await expect(page.locator("[data-testid=kind-trust]")).toHaveCount(0);
+
+  await page.locator("[data-testid=kind-enable]").click();
+  await expect(page.locator(".kind-host .kind-body .dash-hero")).toHaveText("gear rack: Overview");
+
+  // the rider is granted by hand, from the surface that owns standing consent
+  await page.keyboard.press("Meta+,");
+  await page.locator("[data-testid=kind-trust-gear-log]").check();
+  await expect(page.locator("[data-testid=kind-trust-gear-log]")).toBeChecked();
+  await page.keyboard.press("Escape");
+
+  // now the bytes change under it, leaving the record pinned to the old ones —
+  // the drift a save produces, with the rider standing. (Re-seeding rebuilds
+  // the mock row wholesale, so the rider the tick above wrote is restated here
+  // rather than carried.) It comes back without asking, because the answer was
+  // given in advance and by hand.
+  await page.evaluate(async ([e, m]) => {
+    await window.__mockWriteKind?.({
+      id: "gear-log",
+      manifest: m as string,
+      files: { "index.js": e as string },
+      enabledHash: "sha256:" + "f".repeat(64),
+      trustUpdates: true,
+    });
+    window.__mockEmit?.("vault:changed", [".vault/kinds/gear-log/index.js"]);
+  }, [COUNTS_CLEANUP, kindJson()] as const);
+
+  await expect(page.locator(".kind-host .kind-body .dash-hero")).toHaveText("rewritten: Overview");
+  await expect(page.locator("[data-testid=kind-review]")).toHaveCount(0);
   await noFallback(page);
 });
 
-test("a bundle written for a newer api names both versions", async ({ page }) => {
-  await openKind(page, { manifest: kindJson({ api: 9 }) });
+test("ticking the rider on a drift review does not enable the changed code", async ({ page }) => {
+  // The rider covers FUTURE drift; consenting to the drift on screen is the
+  // button's job. If the tick wrote `trustUpdates` straight onto the pinned
+  // record, `shouldTrustReenable` would fire on the very drift being reviewed
+  // and the unread code would mount off the back of a checkbox.
+  await openKind(page, { enabled: true, enabledHash: "sha256:" + "f".repeat(64) });
+
+  const review = page.locator("[data-testid=kind-review]");
+  await expect(review).toContainText("changed since you enabled it");
+  await review.locator("[data-testid=kind-trust]").check();
+
+  // the review is still the review, and the changed code has not run
+  await expect(review).toHaveCount(1);
+  await expect(review).toContainText("changed since you enabled it");
+  await expect(page.locator(".kind-body")).toHaveCount(0);
+  await expect(page.locator(".dash-state")).toHaveText("code changed");
+  await noFallback(page);
+
+  // pressing the button is what admits it — and carries the rider with it
+  await review.locator("[data-testid=kind-enable]").click();
+  await expect(page.locator(".kind-host .kind-body .dash-hero")).toHaveText("gear rack: Overview");
+  await page.keyboard.press("Meta+,");
+  await expect(page.locator("[data-testid=kind-trust-gear-log]")).toBeChecked();
+});
+
+test("a bundle written for a newer api offers no way to enable it", async ({ page }) => {
+  // Consent cannot rescue an api mismatch: enabling would mount a module this
+  // build has no contract with. The state card explains it and the review pane
+  // — with its enable button — must not appear at all.
+  await openKind(page, { manifest: kindJson({ api: 99 }), enabled: false });
+
+  await expect(page.locator("[data-testid=kind-review]")).toHaveCount(0);
+  await expect(page.locator("[data-testid=kind-enable]")).toHaveCount(0);
+  await expect(page.locator("[data-testid=kind-trust]")).toHaveCount(0);
 
   const err = page.locator(".chart-err");
-  await expect(err).toContainText("gear-log");
-  await expect(err).toContainText("api 9");
+  await expect(err).toContainText("api 99");
   await expect(err).toContainText("api 1");
   await expect(page.locator(".dash-state")).toHaveText("needs a newer Substrate");
   await expect(page.locator(".kind-body")).toHaveCount(0);
@@ -349,7 +459,7 @@ test("a custom kind renders as a workbook page too", async ({ page }) => {
   await expect(page.locator(".chart-err")).toHaveCount(0);
 });
 
-test("a disabled kind on a workbook page shows its card, not the fallback", async ({ page }) => {
+test("a disabled kind on a workbook page shows its review, not the fallback", async ({ page }) => {
   await page.goto("/");
   await page.evaluate(async ([entry, manifest]) => {
     await window.__mockWriteKind?.({
@@ -366,7 +476,56 @@ test("a disabled kind on a workbook page shows its card, not the fallback", asyn
   await page.locator(".side-item", { hasText: "Label Books" }).click();
   await page.locator(".wb-tab", { hasText: "Gear" }).click();
 
-  await expect(page.locator(".chart-err")).toContainText("has not been enabled");
+  await expect(page.locator("[data-testid=kind-review]")).toContainText("has not been enabled");
   await expect(page.locator(".kind-body")).toHaveCount(0);
   await noFallback(page);
+});
+
+test("Settings lists the vault's kinds, disables one, and keeps the folder", async ({ page }) => {
+  // The review pane answers "should this run?" at the moment a dashboard asks.
+  // Settings answers the question with no moment: what did I already say yes to
+  // in this vault, and how do I take it back. Consent granted once from a note
+  // would otherwise only ever be visible from that note.
+  await openKind(page);
+  await expect(page.locator(".kind-host .kind-body .dash-hero")).toHaveText("gear rack: Overview");
+
+  await page.keyboard.press("Meta+,");
+  const section = page.locator("[data-testid=settings-kinds]");
+  await expect(section).toBeVisible();
+  await expect(section).toContainText("Gear log");
+  await expect(page.locator("[data-testid=kind-state-gear-log]")).toHaveText("enabled");
+  // the promise the section makes about its own verb
+  await expect(page.locator(".settings-kinds-lead")).toContainText("never deletes anything");
+
+  // the rider is editable here too, and starts off
+  const trust = page.locator("[data-testid=kind-trust-gear-log]");
+  await expect(trust).not.toBeChecked();
+  await trust.check();
+  await expect(trust).toBeChecked();
+
+  await page.locator("[data-testid=kind-disable-gear-log]").click();
+  await expect(page.locator("[data-testid=kind-state-gear-log]")).toHaveText("not enabled");
+  // withdrawing consent is not uninstalling: the bundle is still listed, and
+  // its files are still in the vault
+  await expect(section).toContainText("Gear log");
+  expect(
+    await page.evaluate(() => window.__mockKindFile?.("gear-log", "index.js")),
+  ).toContain("mount");
+
+  // and the dashboard behind it stopped running the code, in place
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".settings-sheet")).toHaveCount(0);
+  await expect(page.locator(".kind-body")).toHaveCount(0);
+  await expect(page.locator("[data-testid=kind-review]")).toHaveCount(1);
+  await noFallback(page);
+});
+
+test("Settings shows no Kinds section in a vault with no kinds", async ({ page }) => {
+  // A vault with no .vault/kinds folder has never met this feature; a section
+  // explaining what it would say is noise in everyone else's settings.
+  await page.goto("/");
+  await page.evaluate(() => window.__mockClearKinds?.());
+  await page.keyboard.press("Meta+,");
+  await expect(page.locator(".settings-sheet")).toHaveCount(1);
+  await expect(page.locator("[data-testid=settings-kinds]")).toHaveCount(0);
 });

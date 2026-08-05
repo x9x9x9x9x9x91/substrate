@@ -1,15 +1,26 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  canEnableKind,
+  fileSummary,
+  formatBytes,
   hashTag,
   kindFileUrl,
+  kindReview,
   kindRuntimeCard,
   kindSchemeOrigin,
   kindStateCard,
   resolveKindPane,
+  shouldTrustReenable,
   type KindPaneDispatch,
 } from "./kindpane.ts";
-import { KIND_API, type KindBundleInfo, type KindManifest } from "./kinds.ts";
+import {
+  KIND_API,
+  type KindBundleInfo,
+  type KindEnableRecord,
+  type KindFileMeta,
+  type KindManifest,
+} from "./kinds.ts";
 
 const HASH = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const OTHER = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
@@ -112,24 +123,25 @@ test("card: an enabled bundle has no card", () => {
   assert.equal(kindStateCard("gear-log", { state: "enabled", manifest: manifest() }), null);
 });
 
-test("card: disabled is review-pending, marked as a stub, names the entry", () => {
+test("card: disabled is review-pending, names the entry, promises no other build", () => {
   const c = kindStateCard("gear-log", { state: "disabled", manifest: manifest() });
   assert.ok(c);
   assert.equal(c.card, "review-pending");
-  assert.equal(c.stub, true);
   assert.match(c.message, /gear-log/);
   assert.match(c.message, /index\.js/);
   assert.match(c.message, /not been enabled/);
+  // the stub era told people to go find a build that had the flow. It ships here.
+  assert.doesNotMatch(c.message, /SUB-961|another build|a build that has it/i);
 });
 
-test("card: hash-drift is review-pending with a different sentence", () => {
+test("card: hash-drift is its own sentence and its own head label", () => {
   const c = kindStateCard("gear-log", { state: "hash-drift", manifest: manifest() });
   assert.ok(c);
   assert.equal(c.card, "review-pending");
-  assert.equal(c.stub, true);
   assert.match(c.message, /changed since you enabled it/);
   const off = kindStateCard("gear-log", { state: "disabled", manifest: manifest() });
   assert.notEqual(c.message, off?.message);
+  assert.notEqual(c.label, off?.label);
 });
 
 test("card: api-too-new names both the kind's api and the build's", () => {
@@ -163,7 +175,130 @@ test("card: runtime errors name the kind, the file and the error", () => {
   assert.match(c.message, /gear-log/);
   assert.match(c.message, /index\.js/);
   assert.match(c.message, /not a function/);
-  assert.notEqual(c.stub, true);
+});
+
+test("dispatch: the custom pane carries the record and the file list along", () => {
+  const rec: KindEnableRecord = {
+    hash: OTHER,
+    api: KIND_API,
+    enabledAt: "2026-08-04T10:00:00Z",
+    trustUpdates: true,
+  };
+  const d = resolveKindPane("gear-log", [bundle({ record: rec, files: FILES })]);
+  assert.equal(d.pane, "custom");
+  const c = custom(d);
+  // the state alone can't answer "may this re-enable itself" — the rider is
+  // on the record, and the review pane needs both.
+  assert.equal(c.record?.trustUpdates, true);
+  assert.equal(c.files?.length, 3);
+});
+
+// ---------- the review ----------
+
+const FILES: KindFileMeta[] = [
+  { name: "index.js", bytes: 2048 },
+  { name: "kind.json", bytes: 180 },
+  { name: "style.css", bytes: 640 },
+];
+
+function record(over: Partial<KindEnableRecord> = {}): KindEnableRecord {
+  return { hash: HASH, api: KIND_API, enabledAt: "2026-08-04T10:00:00Z", ...over };
+}
+
+test("review: a first enable shows the manifest, the files and the terms", () => {
+  const r = kindReview(
+    "gear-log",
+    { state: "disabled", manifest: manifest({ author: "rack-tools" }) },
+    FILES,
+    undefined,
+  );
+  assert.ok(r);
+  assert.equal(r.moment, "first");
+  assert.equal(r.title, "Gear log");
+  assert.equal(r.description, "What is plugged into what.");
+  assert.equal(r.author, "rack-tools");
+  assert.equal(r.api, KIND_API);
+  assert.equal(r.entry, "index.js");
+  assert.equal(r.files.length, 3);
+  assert.equal(r.fileSummary, "3 files · 2.9 kB");
+  assert.equal(r.trustUpdates, false);
+  const terms = r.terms.join(" ");
+  assert.match(terms, /same access as Substrate itself/);
+  assert.match(terms, /this vault on this device only/);
+});
+
+test("review: a drift is a different moment with a different button", () => {
+  const first = kindReview("gear-log", { state: "disabled", manifest: manifest() }, FILES, undefined);
+  const again = kindReview("gear-log", { state: "hash-drift", manifest: manifest() }, FILES, record({ hash: OTHER }));
+  assert.ok(first);
+  assert.ok(again);
+  assert.equal(again.moment, "changed");
+  assert.notEqual(again.enableLabel, first.enableLabel);
+  assert.notEqual(again.headline, first.headline);
+});
+
+test("review: nothing to review for enabled, or for a kind this build can't run", () => {
+  const none = [
+    kindReview("gear-log", { state: "enabled", manifest: manifest() }, FILES, record()),
+    kindReview("gear-log", { state: "api-too-new", manifest: manifest({ api: 99 }) }, FILES, undefined),
+    kindReview("gear-log", { state: "api-too-old", manifest: manifest({ api: 0 }) }, FILES, undefined),
+    kindReview("gear-log", { state: "invalid", reason: "broken" }, FILES, undefined),
+  ];
+  for (const r of none) assert.equal(r, null);
+});
+
+test("review: an api this build can't speak offers no enable affordance", () => {
+  assert.equal(canEnableKind({ state: "api-too-new", manifest: manifest({ api: 99 }) }), false);
+  assert.equal(canEnableKind({ state: "api-too-old", manifest: manifest({ api: 0 }) }), false);
+  assert.equal(canEnableKind({ state: "invalid", reason: "broken" }), false);
+  assert.equal(canEnableKind({ state: "enabled", manifest: manifest() }), false);
+  assert.equal(canEnableKind({ state: "disabled", manifest: manifest() }), true);
+  assert.equal(canEnableKind({ state: "hash-drift", manifest: manifest() }), true);
+});
+
+test("review: file metadata is optional — no line rather than a wrong one", () => {
+  const r = kindReview("gear-log", { state: "disabled", manifest: manifest() }, undefined, undefined);
+  assert.ok(r);
+  assert.deepEqual([...r.files], []);
+  assert.equal(r.fileSummary, "");
+});
+
+test("review: the trust rider reads off the record and defaults to off", () => {
+  const off = kindReview("gear-log", { state: "hash-drift", manifest: manifest() }, FILES, record());
+  const legacy = kindReview("gear-log", { state: "hash-drift", manifest: manifest() }, FILES, record({ trustUpdates: undefined }));
+  const on = kindReview("gear-log", { state: "hash-drift", manifest: manifest() }, FILES, record({ trustUpdates: true }));
+  assert.equal(off?.trustUpdates, false);
+  assert.equal(legacy?.trustUpdates, false);
+  assert.equal(on?.trustUpdates, true);
+});
+
+test("review: only a trusted drift re-enables itself — never a first consent", () => {
+  assert.equal(
+    shouldTrustReenable({ state: "hash-drift", manifest: manifest() }, record({ trustUpdates: true })),
+    true,
+  );
+  assert.equal(
+    shouldTrustReenable({ state: "hash-drift", manifest: manifest() }, record()),
+    false,
+  );
+  // the case that must never be automatic: never enabled here, trust cannot
+  // exist yet, and a stray record must not conjure one.
+  assert.equal(
+    shouldTrustReenable({ state: "disabled", manifest: manifest() }, record({ trustUpdates: true })),
+    false,
+  );
+  assert.equal(shouldTrustReenable({ state: "disabled", manifest: manifest() }, undefined), false);
+});
+
+test("review: sizes read the way a file manager says them", () => {
+  assert.equal(formatBytes(0), "0 B");
+  assert.equal(formatBytes(999), "999 B");
+  assert.equal(formatBytes(1000), "1.0 kB");
+  assert.equal(formatBytes(2048), "2.0 kB");
+  assert.equal(formatBytes(400_000), "400.0 kB");
+  assert.equal(formatBytes(1_500_000), "1.5 MB");
+  assert.equal(fileSummary([{ name: "index.js", bytes: 12 }]), "1 file · 12 B");
+  assert.equal(fileSummary([]), "");
 });
 
 test("card: every card has a head label and names the kind", () => {

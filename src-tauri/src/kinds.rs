@@ -293,11 +293,31 @@ pub struct KindBundle {
     /// Consent as recorded for THIS vault on THIS device, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub record: Option<KindEnableRecord>,
+    /// What the hash covers, as names and sizes. Metadata only, and derived
+    /// from the same read the hash was taken over, so the review pane (SUB-961)
+    /// says "3 files, 4.1 kB" about the bytes it is asking consent for rather
+    /// than about a second, later look at the folder.
+    pub files: Vec<KindFileMeta>,
     /// The hashed bytes, in the order they were read. Never crosses IPC: the
     /// scheme serves from here so the bytes that were hashed are the bytes
     /// that run, with no second read in between to swap them.
     #[serde(skip)]
-    pub files: Vec<(String, Vec<u8>)>,
+    pub blobs: Vec<(String, Vec<u8>)>,
+}
+
+/// One bundle file as a person reviewing the bundle sees it: the name the hash
+/// covers and how big it is. `bytes` is the on-disk length — the review card
+/// turns it into a human size, and a kind whose "small helper" is 400 kB of
+/// minified something should look like what it is before it is trusted.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct KindFileMeta {
+    pub name: String,
+    pub bytes: u64,
+}
+
+/// Names and sizes for the bytes the hash was taken over.
+fn file_meta(blobs: &[(String, Vec<u8>)]) -> Vec<KindFileMeta> {
+    blobs.iter().map(|(n, b)| KindFileMeta { name: n.clone(), bytes: b.len() as u64 }).collect()
 }
 
 impl KindBundle {
@@ -305,7 +325,7 @@ impl KindBundle {
         self.manifest.manifest.as_ref()
     }
     fn file(&self, name: &str) -> Option<&[u8]> {
-        self.files.iter().find(|(n, _)| n == name).map(|(_, b)| b.as_slice())
+        self.blobs.iter().find(|(n, _)| n == name).map(|(_, b)| b.as_slice())
     }
 }
 
@@ -359,6 +379,7 @@ pub fn load_bundle(kinds_dir_canon: &Path, id: &str) -> Option<KindBundle> {
             manifest: parse_manifest(id, "{}"),
             record: None,
             files: Vec::new(),
+            blobs: Vec::new(),
         });
     }
     let dir = kinds_dir_canon.join(id);
@@ -368,27 +389,28 @@ pub fn load_bundle(kinds_dir_canon: &Path, id: &str) -> Option<KindBundle> {
         return None;
     }
 
-    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut blobs: Vec<(String, Vec<u8>)> = Vec::new();
     let manifest_bytes = match read_bundle_file(&dir_canon, MANIFEST_NAME) {
         Ok(b) => b,
         Err(e) => {
             return Some(KindBundle {
                 id: id.to_string(),
-                hash: hash_bundle(&files),
+                hash: hash_bundle(&blobs),
                 manifest: ManifestResult::bad(format!("kind.json {e}")),
                 record: None,
-                files,
+                files: file_meta(&blobs),
+                blobs,
             })
         }
     };
     let text = String::from_utf8_lossy(&manifest_bytes).to_string();
-    files.push((MANIFEST_NAME.to_string(), manifest_bytes));
+    blobs.push((MANIFEST_NAME.to_string(), manifest_bytes));
 
     let mut manifest = parse_manifest(id, &text);
     if let Some(m) = manifest.manifest.clone() {
         for name in [Some(m.entry.clone()), m.style.clone()].into_iter().flatten() {
             match read_bundle_file(&dir_canon, &name) {
-                Ok(b) => files.push((name, b)),
+                Ok(b) => blobs.push((name, b)),
                 Err(e) => {
                     manifest = ManifestResult::bad(format!("kind.json names a file that {e}"));
                     break;
@@ -399,10 +421,11 @@ pub fn load_bundle(kinds_dir_canon: &Path, id: &str) -> Option<KindBundle> {
 
     Some(KindBundle {
         id: id.to_string(),
-        hash: hash_bundle(&files),
+        hash: hash_bundle(&blobs),
         manifest,
         record: None,
-        files,
+        files: file_meta(&blobs),
+        blobs,
     })
 }
 
@@ -429,12 +452,23 @@ pub fn list_bundles(vault_root: &Path, cfg_dir: &Path, ids: &[String]) -> Vec<Ki
 /// One enable decision, as stored in `kinds.json`. The hash pins consent to
 /// exact bytes; `api` is what was consented to, kept so a record reads back
 /// without the bundle; `enabledAt` is when, so a stale decision is visible.
+///
+/// `trustUpdates` is the one standing permission in the whole arrangement, and
+/// it is off until someone turns it on per kind per vault (SUB-961): with it
+/// set, a hash drift re-records consent at the new bytes instead of dropping to
+/// the review card. It exists for the loop the arc is FOR — an agent iterating
+/// on a kind the user already read and owns — and it is deliberately not a
+/// global setting, not a default, and not something the first enable can grant
+/// on its own. A record missing the key reads as false, so every consent
+/// written before this shipped stays a per-version decision.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KindEnableRecord {
     pub hash: String,
     pub api: u32,
     pub enabled_at: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub trust_updates: bool,
 }
 
 /// `kinds.json`: vault path → id → record. Two levels because one install
@@ -491,6 +525,28 @@ pub fn set_enabled(
     let mut store = read_store(cfg_dir);
     store.vaults.entry(vault_key(vault)).or_default().insert(id.to_string(), record);
     write_store(cfg_dir, &store)
+}
+
+/// Turn the standing "trust updates to this kind" permission on or off for a
+/// kind that is already enabled in this vault.
+///
+/// A kind with no record is a no-op rather than an error: the flag is a rider
+/// on consent, and there is nothing to ride on. Turning it ON never enables
+/// anything by itself — the record it edits already exists because someone
+/// read the code and enabled it.
+pub fn set_trust_updates(
+    cfg_dir: &Path,
+    vault: &Path,
+    id: &str,
+    trust: bool,
+) -> Result<bool, String> {
+    let mut store = read_store(cfg_dir);
+    let Some(rec) = store.vaults.get_mut(&vault_key(vault)).and_then(|v| v.get_mut(id)) else {
+        return Ok(false);
+    };
+    rec.trust_updates = trust;
+    write_store(cfg_dir, &store)?;
+    Ok(true)
 }
 
 /// Withdraw consent. Removing the last record for a vault drops its key too,
@@ -714,6 +770,7 @@ mod tests {
             hash: hash.to_string(),
             api: 1,
             enabled_at: "2026-08-03T00:00:00Z".into(),
+            trust_updates: false,
         }
     }
 
@@ -940,6 +997,60 @@ mod tests {
 
         clear_enabled(cfg.path(), vault_a.path(), "gear-log").unwrap();
         assert_eq!(record_for(cfg.path(), vault_a.path(), "gear-log"), None);
+    }
+
+    #[test]
+    fn trust_updates_is_off_unless_asked_for_and_rides_an_existing_record() {
+        let (vault, cfg) = vault_with_bundle("gear-log");
+
+        // a kind that was never enabled has nothing to hang the flag on
+        assert!(!set_trust_updates(cfg.path(), vault.path(), "gear-log", true).unwrap());
+        assert_eq!(record_for(cfg.path(), vault.path(), "gear-log"), None);
+
+        set_enabled(cfg.path(), vault.path(), "gear-log", record("sha256:aa")).unwrap();
+        assert!(!record_for(cfg.path(), vault.path(), "gear-log").unwrap().trust_updates);
+
+        assert!(set_trust_updates(cfg.path(), vault.path(), "gear-log", true).unwrap());
+        assert!(record_for(cfg.path(), vault.path(), "gear-log").unwrap().trust_updates);
+        assert!(set_trust_updates(cfg.path(), vault.path(), "gear-log", false).unwrap());
+        assert!(!record_for(cfg.path(), vault.path(), "gear-log").unwrap().trust_updates);
+    }
+
+    #[test]
+    fn a_record_written_before_trust_updates_existed_reads_as_untrusted() {
+        let cfg = TempDir::new().unwrap();
+        let vault = TempDir::new().unwrap();
+        let key = vault_key(vault.path());
+        fs::write(
+            cfg.path().join(KINDS_FILE),
+            serde_json::json!({
+                "vaults": { key: { "gear-log": {
+                    "hash": "sha256:aa", "api": 1, "enabledAt": "2026-08-01T09:00:00Z"
+                } } }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let rec = record_for(cfg.path(), vault.path(), "gear-log").unwrap();
+        assert!(!rec.trust_updates, "consent given before the flag existed is not standing consent");
+    }
+
+    #[test]
+    fn listed_bundle_carries_the_names_and_sizes_the_hash_covers() {
+        let (vault, cfg) = vault_with_bundle("gear-log");
+        let bundle =
+            list_bundles(vault.path(), cfg.path(), &["gear-log".to_string()]).pop().unwrap();
+
+        // metadata for exactly the hashed files — manifest, entry, style — and
+        // the bytes themselves stay behind (`blobs` is #[serde(skip)])
+        let names: Vec<&str> = bundle.files.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, vec![MANIFEST_NAME, "index.js", "style.css"]);
+        for f in &bundle.files {
+            assert_eq!(f.bytes, bundle.file(&f.name).unwrap().len() as u64);
+        }
+        let json = serde_json::to_value(&bundle).unwrap();
+        assert!(json.get("blobs").is_none());
+        assert_eq!(json["files"][0]["name"], MANIFEST_NAME);
     }
 
     #[test]

@@ -1,11 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  checkUseSites,
   collect,
   crossCheck,
   normalizeEnd,
   parseFencePattern,
   parseRustPattern,
+  readSources,
   type FenceInventory,
 } from "./check-fence-langs.ts";
 import {
@@ -98,19 +100,41 @@ test("a one-sided case-folded language is named by its id, not by its case pairs
   assert.match(tailed[0], /^tailed: src-tauri\/src\/vault\/mod\.rs has "chart"/);
 });
 
-test("a case-fold spelled on one side only reads as a LIST difference", () => {
+test("a case-fold spelled on one side only names the language (SUB-1128)", () => {
   // Same ids, same grammar: the two sides disagree only about whether ```HeatMap
-  // strips. Not grammar drift (the skeleton is identical) and not a coverage
-  // gap (both carry heatmap), so it lands in the list bucket — whose message
-  // names case-folding as a cause and prints both patterns to compare.
+  // strips. Not grammar drift (the skeleton is identical) and not a coverage gap
+  // (both carry heatmap) — the decoded lists cannot see it at all, which is why
+  // it gets its own finding rather than falling through to the generic "not the
+  // same LIST" bucket it used to share with harmless reorders.
   const problems = crossCheck(
     inv("[Vv][Ii][Ee][Ww]", "csv|[Hh][Ee][Aa][Tt][Mm][Aa][Pp]"),
     inv("[Vv][Ii][Ee][Ww]", "csv|heatmap", RUST_END)
   );
   assert.equal(problems.length, 1);
-  assert.match(problems[0], /same languages but not the same LIST/);
-  assert.match(problems[0], /case-fold spelled on one side only/);
+  assert.match(problems[0], /^bare: "heatmap" is spelled differently/);
+  assert.match(problems[0], /fences\.ts case-folded .*mod\.rs plain/);
   assert.doesNotMatch(problems[0], /GRAMMAR/);
+});
+
+test("spelling drift is reported alongside list drift, not behind it (SUB-1130)", () => {
+  // The three depths are independent. A merge that adds a language to one side
+  // AND unfolds another's case has two problems; reporting the second only once
+  // the first is fixed costs a whole extra fix-gate-push round trip.
+  const problems = crossCheck(
+    inv("[Vv][Ii][Ee][Ww]|kanban", "csv|[Hh][Ee][Aa][Tt][Mm][Aa][Pp]"),
+    inv("[Vv][Ii][Ee][Ww]", "csv|heatmap", RUST_END)
+  );
+  assert.equal(problems.length, 2);
+  assert.ok(problems.some((p) => p.includes('has "kanban"')));
+  assert.ok(problems.some((p) => /"heatmap" is spelled differently/.test(p)));
+});
+
+test("a duplicate language does not also read as spelling drift", () => {
+  // First spelling wins per id, so `view|view` against `view` is one finding
+  // (the list difference) rather than a second, bogus, spelling disagreement.
+  const problems = crossCheck(inv("view|view", "csv"), inv("view", "csv", RUST_END));
+  assert.equal(problems.length, 1);
+  assert.match(problems[0], /not the same LIST/);
 });
 
 test("crossCheck reports a language that changed groups on one side only", () => {
@@ -158,6 +182,7 @@ test("a reorder or duplicate reads as a LIST difference, not grammar drift", () 
   assert.equal(reordered.length, 1);
   assert.match(reordered[0], /same languages but not the same LIST/);
   assert.doesNotMatch(reordered[0], /GRAMMAR/);
+  assert.doesNotMatch(reordered[0], /spelled differently/);
 
   const duplicated = crossCheck(inv("view|view|chart|cards", "csv|formulas"), rust);
   assert.equal(duplicated.length, 1);
@@ -166,6 +191,168 @@ test("a reorder or duplicate reads as a LIST difference, not grammar drift", () 
 
 test("crossCheck is quiet when both sides match", () => {
   assert.deepEqual(crossCheck(inv("view|chart", "csv"), inv("view|chart", "csv", RUST_END)), []);
+});
+
+/* ── the compared pattern is the one that runs ──────────────────────────── */
+
+const TS_REL = "src/lib/fences.ts";
+const RUST_REL = "src-tauri/src/vault/mod.rs";
+
+test("both strip functions still run the pattern this checker compares (SUB-1130)", () => {
+  // Without this, everything above compares two patterns that nothing has to
+  // use: replacing either strip function's regex with an inline one of its own
+  // left the whole suite green while the app and the indexer diverged.
+  assert.deepEqual(checkUseSites(readSources()), []);
+});
+
+test("a strip function that stops delegating is reported, per side (SUB-1130)", () => {
+  const src = readSources();
+  const tsOnly = {
+    ...src,
+    [TS_REL]: src[TS_REL].replace(
+      "body.replace(MACHINE_FENCE_RE,",
+      "body.replace(/```view\\r?\\n[\\s\\S]*?(?:```|$)/g,"
+    ),
+  };
+  assert.notEqual(tsOnly[TS_REL], src[TS_REL], "the TS mutation anchor still exists");
+  const tsProblems = checkUseSites(tsOnly);
+  assert.equal(tsProblems.length, 1);
+  assert.match(tsProblems[0], /^src\/lib\/fences\.ts: the strip function no longer runs/);
+
+  const rustOnly = {
+    ...src,
+    [RUST_REL]: src[RUST_REL].replace(
+      "fn strip_machine_fences(body: &str) -> String {\n    machine_fence_re()",
+      'fn strip_machine_fences(body: &str) -> String {\n    Regex::new(r"```view").unwrap()'
+    ),
+  };
+  assert.notEqual(rustOnly[RUST_REL], src[RUST_REL], "the Rust mutation anchor still exists");
+  const rustProblems = checkUseSites(rustOnly);
+  assert.equal(rustProblems.length, 2, "no longer delegates, and builds its own");
+  assert.ok(rustProblems.some((p) => /no longer runs machine_fence_re\(\)/.test(p)));
+  assert.ok(rustProblems.some((p) => /builds a regex of its own/.test(p)));
+});
+
+test("a doc comment naming the pattern does not stand in for using it", () => {
+  // The check runs on the comment-blanked source, so prose about
+  // MACHINE_FENCE_RE neither satisfies the delegation rule nor trips the
+  // no-second-regex one.
+  const src = readSources();
+  const commented = {
+    ...src,
+    [TS_REL]: src[TS_REL].replace(
+      "body.replace(MACHINE_FENCE_RE,",
+      "body.replace(/x/g, /* MACHINE_FENCE_RE lives here */"
+    ),
+  };
+  assert.notEqual(commented[TS_REL], src[TS_REL], "anchor still exists");
+  assert.match(checkUseSites(commented)[0] ?? "", /no longer runs MACHINE_FENCE_RE/);
+});
+
+test("checkUseSites throws when a strip function cannot be found", () => {
+  // A renamed function is this checker being wrong about the tree, not the tree
+  // being wrong — different fix, so it must not read as clean OR as drift.
+  const src = readSources();
+  assert.throws(
+    () =>
+      checkUseSites({
+        ...src,
+        [RUST_REL]: src[RUST_REL].replace("fn strip_machine_fences(", "fn strip_fences_v2("),
+      }),
+    /was not found — it moved or was renamed/
+  );
+});
+
+/* ── the guard bites: one-sided edits to the real patterns ──────────────── */
+
+/**
+ * Every mutation is a single one-sided edit to the CHECKED-IN Rust pattern, run
+ * through the same parse-and-compare path the checker uses. The tests above all
+ * feed hand-built inventories, so a refactor that made `collect()` compare a
+ * side against itself — or widened SHAPE until it matched anything — would leave
+ * every one of them green (SUB-1130). These fail if the guard stops biting.
+ *
+ * `throws` is the honest expectation for a grammar edit: the pattern stops being
+ * the known shape, and the checker refuses to read past it rather than compare
+ * two things it no longer understands (exit 2, not exit 1 — both are red).
+ */
+const ONE_SIDED_EDITS: { name: string; from: string; to: string; expect: RegExp | "throws" }[] = [
+  {
+    name: "a language added to the tailed group",
+    from: "|[Cc][Aa][Rr][Dd][Ss])",
+    to: "|[Cc][Aa][Rr][Dd][Ss]|[Tt][Aa][Bb][Ll][Ee])",
+    expect: /tailed: src-tauri\/src\/vault\/mod\.rs has "table"/,
+  },
+  {
+    name: "a language moved from the tailed group to the bare one",
+    from: "|[Cc][Aa][Rr][Dd][Ss])(?:[ \\t][^`\\n]*)?|csv",
+    to: ")(?:[ \\t][^`\\n]*)?|[Cc][Aa][Rr][Dd][Ss]|csv",
+    expect: /tailed: src\/lib\/fences\.ts has "cards"/,
+  },
+  {
+    name: "a case fold added to a bare-form language",
+    from: "|csv|",
+    to: "|[Cc][Ss][Vv]|",
+    expect: /bare: "csv" is spelled differently/,
+  },
+  {
+    name: "a case fold removed from heatmap",
+    from: "[Hh][Ee][Aa][Tt][Mm][Aa][Pp]",
+    to: "heatmap",
+    expect: /bare: "heatmap" is spelled differently/,
+  },
+  {
+    name: "the lang run reordered",
+    from: "[Vv][Ii][Ee][Ww]|[Cc][Hh][Aa][Rr][Tt]|",
+    to: "[Cc][Hh][Aa][Rr][Tt]|[Vv][Ii][Ee][Ww]|",
+    expect: /not the same LIST/,
+  },
+  { name: "the CRLF opener dropped (SUB-913)", from: ")\\r?\\n", to: ")\\n", expect: "throws" },
+  {
+    name: "the backtick guard dropped from the tail (SUB-983)",
+    from: "[ \\t][^`\\n]*",
+    to: "[ \\t][^\\n]*",
+    expect: "throws",
+  },
+  {
+    name: "the body made greedy",
+    from: "[\\s\\S]*?(?:```|\\z)",
+    to: "[\\s\\S]*(?:```|\\z)",
+    expect: "throws",
+  },
+];
+
+for (const edit of ONE_SIDED_EDITS) {
+  test(`the guard bites: ${edit.name}`, () => {
+    const { ts, rust } = collect();
+    // parseFencePattern is fed the raw dialect spelling back, so the mutated
+    // pattern goes through exactly the path collect() puts the real one on.
+    const raw = rust.pattern.replace("(?:```|<END-OF-INPUT>)", "(?:```|\\z)");
+    assert.equal(
+      raw.split(edit.from).length - 1,
+      1,
+      `the mutation anchor "${edit.from}" appears exactly once in the Rust pattern`
+    );
+    const mutate = () => parseFencePattern(raw.replace(edit.from, edit.to), "mutated");
+    if (edit.expect === "throws") {
+      assert.throws(mutate, /does not match the known machine-fence shape/);
+      return;
+    }
+    const problems = crossCheck(ts, mutate());
+    assert.ok(problems.length > 0, "one-sided edit is reported");
+    assert.ok(
+      problems.some((p) => (edit.expect as RegExp).test(p)),
+      `expected ${edit.expect} in:\n${problems.join("\n")}`
+    );
+  });
+}
+
+test("the mutation table is comparing against a clean tree", () => {
+  // Every case above asserts a MUTATED pattern goes red; without this they
+  // would all still pass if the checked-in tree were red to begin with.
+  const { ts, rust } = collect();
+  assert.deepEqual(crossCheck(ts, rust), []);
+  assert.equal(ts.pattern, rust.pattern, "the two sides are character-identical once normalized");
 });
 
 /* ── parsers refuse what they cannot read ───────────────────────────────── */

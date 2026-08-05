@@ -1,4 +1,4 @@
-import { defineConfig, searchForWorkspaceRoot } from "vite";
+import { defineConfig, searchForWorkspaceRoot, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
@@ -6,6 +6,29 @@ import { dirname } from "node:path";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+
+/* Scroll-anchoring canary (SUB-1132). Chrome silently keeps the content under
+   the viewport still when rows are inserted or removed above it — which means
+   a pane whose "the selected row stays painted across a view switch" is really
+   the browser's doing can pass its spec anyway, until an unrelated change to
+   the row set moves the delta and the guarantee evaporates (SUB-461/SUB-970).
+   Turning anchoring off makes every reveal the pane's own responsibility: a
+   deterministic reveal survives it, an accidental one fails. playwright.config
+   sets this for the whole e2e suite, so the gate is anchor-free by default —
+   which also matches the WKWebView the app ships in, where anchoring does not
+   exist. `SUBSTRATE_NO_SCROLL_ANCHOR=0 npm run e2e` restores Chrome's default
+   for a comparison run. Dev server only — it never touches a build. */
+// @ts-expect-error process is a nodejs global
+const noScrollAnchor = process.env.SUBSTRATE_NO_SCROLL_ANCHOR === "1";
+const noScrollAnchorPlugin = (): Plugin => ({
+  name: "substrate-no-scroll-anchor",
+  apply: "serve",
+  transformIndexHtml: (html) =>
+    html.replace(
+      "</head>",
+      "<style>*, *::before, *::after { overflow-anchor: none !important; }</style></head>",
+    ),
+});
 
 const input = (page: string) => fileURLToPath(new URL(page, import.meta.url));
 
@@ -33,7 +56,7 @@ const port = Number(process.env.SUBSTRATE_DEV_PORT || 1420);
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react()],
+  plugins: [react(), ...(noScrollAnchor ? [noScrollAnchorPlugin()] : [])],
 
   // Multi-page: main window + the floating quick-capture and tray-agenda windows.
   build: {

@@ -958,6 +958,11 @@ function claimOf(e: Expr, formats: Map<string, FormatClaim>): FormatClaim {
       // (formula.ts evalAggregate) — the criteria columns are not summed.
       if (e.name === "SUMIF" && e.args.length > 0)
         return claimOf(e.args[e.args.length >= 3 ? 2 : 0], formats);
+      // LOOKUP returns a cell of its value column exactly as LAST returns a
+      // cell of its argument (formula.ts LOOKUP) — the key and key column
+      // decide WHICH row, never what the result is (SUB-1112). SUMPRODUCT
+      // stays absent on purpose: it has no single nameable source column.
+      if (e.name === "LOOKUP" && e.args.length >= 3) return claimOf(e.args[2], formats);
       // IF picks one of its branches, so it is whatever they agree on.
       if (e.name === "IF" && e.args.length >= 3)
         return unifyClaims(claimOf(e.args[1], formats), claimOf(e.args[2], formats));
