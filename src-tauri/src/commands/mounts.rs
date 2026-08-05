@@ -35,10 +35,16 @@ fn bind_mount_on_machine(
     appcfg::write_mount_binding(cfg_dir, id, path)?;
     Ok(match path {
         Some(path) => engine.scan_mount(id, path),
-        None => MountScanStats {
-            id: id.to_string(),
-            ..Default::default()
-        },
+        None => {
+            // Unbinding leaves the mount and its index alone, but this
+            // machine's document text describes files it can no longer open
+            // and nothing will read it again (SUB-1134).
+            engine.forget_mount_text(id);
+            MountScanStats {
+                id: id.to_string(),
+                ..Default::default()
+            }
+        }
     })
 }
 
@@ -241,6 +247,33 @@ pub(crate) fn mount_remove(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// SUB-1134: "Locate folder… → none" is the one unbind path in the app,
+    /// and it used to leave the text store behind with nothing to read it.
+    #[test]
+    fn unbinding_here_takes_this_machines_text_with_it() {
+        let vault = tempfile::TempDir::new().unwrap();
+        let cfg = tempfile::TempDir::new().unwrap();
+        let folder = tempfile::TempDir::new().unwrap();
+        std::fs::write(folder.path().join("paper.txt"), b"a document").unwrap();
+        let mut engine = crate::vault::Engine::new(vault.path().to_path_buf())
+            .with_local_dir(cfg.path().to_path_buf());
+        let mount = engine.add_mount("Papers", Vec::new(), true).unwrap();
+        bind_mount_on_machine(&mut engine, cfg.path(), &mount.id, Some(folder.path())).unwrap();
+        let store = cfg.path().join(crate::vault::MOUNT_TEXT_DIR).join(format!("{}.json", mount.id));
+        std::fs::create_dir_all(store.parent().unwrap()).unwrap();
+        std::fs::write(&store, r#"{"version":1,"files":{}}"#).unwrap();
+
+        bind_mount_on_machine(&mut engine, cfg.path(), &mount.id, None).unwrap();
+
+        assert!(!store.exists(), "the text store outlived the binding");
+        assert_eq!(engine.mounts().len(), 1, "unbinding removed the mount itself");
+        assert_eq!(
+            appcfg::read_config(cfg.path()).mounts.get(&mount.id),
+            None,
+            "the binding is gone from this machine's config"
+        );
+    }
 
     #[test]
     fn refused_bind_does_not_replace_the_machine_local_path() {

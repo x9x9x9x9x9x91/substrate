@@ -182,7 +182,7 @@ pub struct FmState {
 /// code box and stays searchable — while heatmap folds case despite being
 /// bare-form, because the hub lowercases before dispatching and so renders a
 /// bare ```HeatMap live with its config still indexed (SUB-1128). heatmap's
-/// second reader (the dashboard pane) matches the literal opener; where two
+/// second reader (the dashboard pane) folds case too since SUB-1129; where two
 /// dispatchers disagree the strip follows the WIDEST, since stripping closes a
 /// real leak while the cost the other way is only that machine config stays
 /// out of search.
@@ -2923,6 +2923,10 @@ pub use extractq::{ExtractDone, ExtractJob, ExtractQueue};
 // Where a mounted document's text goes: this machine, never the vault
 // (SUB-1093).
 mod mounttext;
+// Named by the command layer's unbind test, which checks this machine's text
+// goes when the binding does (SUB-1134).
+#[cfg_attr(not(test), allow(unused_imports))]
+pub(crate) use mounttext::MOUNT_TEXT_DIR;
 
 mod seed;
 pub use seed::seed_new_vault;

@@ -271,7 +271,7 @@ column (same value on every row), not a dashboard-bindable summary. Derive
 summaries from rows or other summaries instead, e.g. `avg_held =
 AVG(days_held)`.
 
-## Time travel — PROP() and AT() (SUB-832)
+## Time travel — reading other notes, and reading them as of a past day
 
 Two functions read the vault outside this sheet, one of them outside today.
 Full design in the time-travel query spec.

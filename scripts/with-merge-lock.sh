@@ -128,6 +128,7 @@ LOCK_DIR="$GITDIR/substrate-merge.lock"
 on_exit() {
   local rc=$?
   release
+  clear_own_scratch
 }
 
 # Signals are routed through EXIT rather than handled separately: bash dying to
@@ -180,190 +181,241 @@ warn_unpushed_main() {
   } >&2
 }
 
-STEAL_LOCK_DIR="$LOCK_DIR.steal"
+# ---------------------------------------------------------------------------
+# Atomic claim (SUB-1137)
+#
+# A lock is CLAIMED by building it complete in a private scratch dir and then
+# renaming that dir onto the lock path. rename(2) is atomic, so the lock path
+# only ever goes absent -> fully-formed; it is never observable half-built the
+# way an `mkdir` followed by a separate pid write is. That single property is
+# what retires the machinery this file used to carry: there is no nameless
+# window to grant grace for, no inode identity to track across a handover, and
+# no post-write ownership verify to catch a rival that overwrote us mid-claim.
+# A rival cannot get inside a rename.
+#
+# The one wrinkle is that the tool is mv(1) rather than rename(2) directly:
+# given an EXISTING directory as its destination, mv moves the source INSIDE it
+# instead of failing (rename(2) itself would return ENOTEMPTY, since a built
+# lock always holds a pid file). So a claim is confirmed by reading the pid
+# back: ours means the rename landed on a free name and the lock is ours,
+# anything else means we nested into somebody's lock and lost. That read is not
+# the old ownership verify wearing a new hat — it cannot be raced, because the
+# nested path carries our own pid and no other session ever writes it.
+#
+# Removal is the same trick backwards: rename the lock out of the way first,
+# then take the renamed copy apart at leisure. An in-place teardown would leave
+# the lock path briefly EMPTY, and empty is the one state a claim can never
+# produce — keeping it impossible is what lets everything below treat a
+# pid-less lock as unambiguous garbage instead of a possible live claimant.
+#
+# DESTRUCTIVE-PATH DISCIPLINE. Nothing here removes a path directly, and
+# nothing here uses `rm -rf`. Every removal goes through
+# remove_lock_shaped_dir, which takes a `pid` file out by name and then rmdir's
+# the directory — rmdir refuses a directory that holds anything unexpected, so
+# the worst a wrong path can do is delete a stray `pid` and then fail loudly,
+# rather than flatten a tree. Composed paths are guarded on BOTH halves with
+# `${var:?}`, which aborts the run on an empty or unset component instead of
+# expanding it into a root-shaped argument. This is structural on purpose: a
+# lock script is exactly where a path variable ends up empty (SUB-1051 F1 — a
+# release path deleting a stealer's fresh lock), and the guard has to hold on
+# the day nobody is reading the diff.
 
-# Stealing a dead holder's lock is a read ("is pid X alive?") followed by a
-# write ("then this lock is mine"), and nothing in the filesystem makes that
-# pair atomic. Serialize the stealers instead: while this mutex is held, the
-# judgement cannot be invalidated, because the only things that remove a lock
-# dir are its own (here: dead) holder and another stealer.
-# Consecutive polls that have found the steal mutex nameless. The mutex has the
-# same mkdir→pid-write window as the merge lock, so it gets the same rule: one
-# nameless reading is almost always a winner mid-write, and only a mutex still
-# nameless a poll later is treated as a corpse.
-STEAL_EMPTY_SEEN=0
-# Which dir those consecutive readings were OF. A grace counted across a
-# handover is a grace granted to the wrong dir: corpse cleared, rival's fresh
-# mkdir lands, and the newcomer inherits a count it never served, so a lock
-# microseconds old is judged abandoned. Inode is the identity — it changes on
-# every mkdir, and `ls -di` reads it identically on macOS and Linux, where
-# stat(1)'s flags do not. Residual: a filesystem free to recycle an inode
-# number immediately can still hand the new dir the old identity, so this
-# narrows the window rather than closing it.
-STEAL_EMPTY_IDENT=""
-
-dir_inode() {
-  local out
-  out="$(ls -di "$1" 2>/dev/null || true)"
-  printf '%s' "$out" | awk '{print $1}'
+# Takes apart one of our lock-shaped dirs: a `pid` file, plus at most one level
+# of nested scrap left by claimants that lost a race into it. Returns 0 when
+# the directory is gone, 1 when it held something unexpected and was left
+# standing. Refuses an empty or unset path loudly (parameter-expansion abort).
+remove_lock_shaped_dir() {
+  local dir="${1:?remove_lock_shaped_dir: refusing an empty path}" child
+  [[ -d "$dir" ]] || return 0
+  rm -f "${dir:?}/pid"
+  for child in "${dir:?}"/*; do
+    [[ -d "$child" ]] || continue
+    rm -f "${child:?}/pid"
+    rmdir "${child:?}" 2>/dev/null || true
+  done
+  rmdir "${dir:?}" 2>/dev/null || return 1
+  return 0
 }
 
+# Test hook for the guard above. It only ever runs on the day something has
+# already gone wrong, so it gets a directed test rather than a hope. Not a
+# user-facing flag.
+case "${WITH_MERGE_LOCK_SELFTEST_REMOVE:-}" in
+  '') ;;
+  empty) remove_lock_shaped_dir ""; exit 0 ;;
+  unset) remove_lock_shaped_dir; exit 0 ;;
+  *) die "unknown WITH_MERGE_LOCK_SELFTEST_REMOVE: ${WITH_MERGE_LOCK_SELFTEST_REMOVE}" ;;
+esac
+
+# Builds $1 in a private scratch dir and installs it atomically.
+# Returns 0 holding it, 1 having left nothing behind that outlives the call.
+claim_dir() {
+  local target="${1:?claim_dir: refusing an empty target}" parent base build
+  case "$target" in
+    */?*) ;;
+    *) die "claim_dir: refusing a target with no parent directory: $target" ;;
+  esac
+  parent="${target%/*}"
+  base="${target##*/}.build.$$"
+  build="${parent:?}/${base:?}"
+  remove_lock_shaped_dir "$build" || true
+  mkdir "$build" 2>/dev/null || return 1
+  # The contents are complete BEFORE the name exists — that is the whole point.
+  # (set -e does not help in here: these helpers are called as `if claim_dir`,
+  # which suppresses it inside the body, so every step is checked by hand.)
+  if ! printf '%s\n' "$$" >"$build/pid" 2>/dev/null; then
+    remove_lock_shaped_dir "$build" || true
+    return 1
+  fi
+  if ! mv "${build:?}" "${target:?}" 2>/dev/null; then
+    remove_lock_shaped_dir "$build" || true
+    return 1
+  fi
+  if [[ "$(cat "$target/pid" 2>/dev/null || true)" == "$$" ]]; then
+    return 0
+  fi
+  # Nested: the target already existed, so mv put our scratch dir inside it.
+  # (Or it was ours for an instant and the holder released it out from under
+  # the read — either way we do not hold it, and must not act as if we do.)
+  remove_lock_shaped_dir "${target:?}/${base:?}" || true
+  return 1
+}
+
+# Removes $1 without ever exposing it half-removed: rename first, take apart
+# second. 0 = gone, 1 = still standing and left alone.
+evict_dir() {
+  local target="${1:?evict_dir: refusing an empty target}" gone
+  gone="${target:?}.gone.$$"
+  remove_lock_shaped_dir "$gone" || true
+  mv "${target:?}" "${gone:?}" 2>/dev/null || return 1
+  remove_lock_shaped_dir "$gone" || true
+  return 0
+}
+
+# Sweeps `.gone.<pid>` scraps left by sessions killed between the rename and
+# the teardown. Only DEAD owners' scraps: a live session's scrap may still be
+# on its way back (see the restore in take_steal_lock), and removing that would
+# destroy a lock rather than tidy up after one.
+sweep_gone() {
+  local prefix="${1:?sweep_gone: refusing an empty prefix}" scrap owner
+  for scrap in "${prefix:?}".gone.*; do
+    [[ -d "$scrap" ]] || continue
+    owner="${scrap##*.}"
+    if ! [[ "$owner" =~ ^[1-9][0-9]*$ ]]; then continue; fi
+    if kill -0 "$owner" 2>/dev/null; then continue; fi
+    remove_lock_shaped_dir "$scrap" || true
+  done
+}
+
+STEAL_LOCK_DIR="$LOCK_DIR.steal"
+
+# Judging a holder dead is a read ("is pid X alive?"); clearing its lock is a
+# write; nothing in the filesystem makes the pair atomic. Between the two,
+# another session can clear the same corpse and claim it, and our write would
+# then evict a LIVE holder. Serialize the stealers so that cannot interleave:
+# while this mutex is held, the only sessions that may remove a lock dir are
+# its own holder (dead, here) and another stealer (excluded, here).
+#
+# The mutex is claimed with the same atomic primitive as the lock itself, so it
+# needs nothing beyond the claim: no nameless grace, no inode identity, no
+# post-write verify, and no recheck before the destructive step — nobody evicts
+# a mutex whose owner is alive, and its owner is us.
 steal_lock_is_ours() {
   [[ "$(cat "$STEAL_LOCK_DIR/pid" 2>/dev/null || true)" == "$$" ]]
 }
 
-# Returns 0 having taken it, 1 if someone else is mid-steal.
+# Returns 0 having taken it, 1 if someone else is mid-steal — or if we just
+# cleared a dead stealer's mutex and the caller should come back around.
 take_steal_lock() {
-  local sp gone
-  if mkdir "$STEAL_LOCK_DIR" 2>/dev/null; then
-    # mkdir only reserves the name; the pid write is what claims it, and a rival
-    # that looked in between can rename the dir out from under us. Neither half
-    # may be assumed: this function is called as `if take_steal_lock`, which
-    # suppresses set -e inside the body, so a failed printf would otherwise fall
-    # straight through to `return 0` and hand the caller a mutex it never held.
-    if ! printf '%s\n' "$$" >"$STEAL_LOCK_DIR/pid" 2>/dev/null; then
-      return 1
-    fi
-    # Verify after write: the dir on disk must still carry OUR pid.
-    steal_lock_is_ours || return 1
-    STEAL_EMPTY_SEEN=0
-    return 0
-  fi
+  local sp gone moved
+  claim_dir "$STEAL_LOCK_DIR" && return 0
   sp="$(cat "$STEAL_LOCK_DIR/pid" 2>/dev/null || true)"
-  if [[ -z "$sp" ]]; then
-    sleep 1  # same grace as holder_pid: let a winner's pid write land
-    sp="$(cat "$STEAL_LOCK_DIR/pid" 2>/dev/null || true)"
+  if [[ -n "$sp" ]] && kill -0 "$sp" 2>/dev/null; then
+    return 1
   fi
-  if [[ -n "$sp" ]]; then
-    STEAL_EMPTY_SEEN=0
-    STEAL_EMPTY_IDENT=""
-    if kill -0 "$sp" 2>/dev/null; then
-      return 1
-    fi
-  else
-    local ident
-    ident="$(dir_inode "$STEAL_LOCK_DIR")"
-    if [[ "$ident" != "$STEAL_EMPTY_IDENT" ]]; then
-      STEAL_EMPTY_SEEN=0            # different dir than last poll — its grace starts now
-      STEAL_EMPTY_IDENT="$ident"
-    fi
-    STEAL_EMPTY_SEEN=$(( STEAL_EMPTY_SEEN + 1 ))
-    if [[ "$STEAL_EMPTY_SEEN" -lt 2 ]]; then
-      return 1  # nameless, but not yet nameless for long enough to judge
-    fi
+  if [[ ! -e "$STEAL_LOCK_DIR" ]]; then
+    return 1  # released while we looked; race for it next time around
   fi
   # Held by nobody: a steal takes microseconds, so a mutex whose owner is gone
-  # was left by a session killed mid-steal. Clear it by RENAME and go back
-  # around rather than stealing on the spot. A rename can still evict a live
-  # stealer; the post-write pid verify NARROWS that window rather than closing
-  # it — an evicted stealer that stalls between its own mkdir and its pid write
-  # for the two nameless polls this arm needs can still be judged gone and
-  # co-enter with its evictor. Closing it properly means retiring the
-  # rename dance for an atomic claim (write pid into a private build dir, then
-  # `mv` the whole dir into place, so a mutex is never observable nameless),
-  # which would delete most of this machinery — a rewrite, not a patch.
-  gone="$STEAL_LOCK_DIR.gone.$$"
-  rm -rf "$gone"
-  if mv "$STEAL_LOCK_DIR" "$gone" 2>/dev/null; then
-    rm -rf "$gone"
+  # was left by a session killed mid-steal. Clear it and go back around rather
+  # than stealing on the spot.
+  #
+  # Residual, stated plainly: THIS read-then-evict is the one that is not
+  # serialized — it is the bottom of the recursion. A mutex whose corpse
+  # another session clears and re-claims in the gap can still be renamed away
+  # while live. The check after the rename is a compensator, not a fix: if what
+  # we moved turns out not to be the corpse we judged, it goes straight back.
+  gone="${STEAL_LOCK_DIR:?}.gone.$$"
+  remove_lock_shaped_dir "$gone" || true
+  if mv "${STEAL_LOCK_DIR:?}" "${gone:?}" 2>/dev/null; then
+    moved="$(cat "$gone/pid" 2>/dev/null || true)"
+    if [[ -n "$moved" && "$moved" != "$sp" ]] && kill -0 "$moved" 2>/dev/null; then
+      mv "${gone:?}" "${STEAL_LOCK_DIR:?}" 2>/dev/null || remove_lock_shaped_dir "$gone" || true
+    else
+      remove_lock_shaped_dir "$gone" || true
+    fi
   fi
-  # Sweep any .gone.* a session died in the middle of removing. The pair is
-  # microseconds, and a dir already renamed out of the way is destined for
-  # deletion whoever gets to it, so clearing another evictor's copy is harmless.
-  rm -rf "$STEAL_LOCK_DIR".gone.* 2>/dev/null || true
-  STEAL_EMPTY_SEEN=0
+  sweep_gone "$STEAL_LOCK_DIR"
   return 1
 }
 
 drop_steal_lock() {
-  # Same ownership guard as release(): never remove a mutex that is no longer
-  # ours (we were judged dead and someone else took it).
   if steal_lock_is_ours; then
-    rm -rf "$STEAL_LOCK_DIR"
+    evict_dir "$STEAL_LOCK_DIR" || true
   fi
 }
 
-# Set the moment our own mkdir wins, so release() can tell "a nameless lock we
-# created and never got to sign" from "a nameless lock belonging to someone
-# else mid-write".
-LOCK_CREATED=0
+# Did this run ever hold the lock? Only a holder owes the unpushed-main warning
+# — a run that was refused on sight never merged anything, so blaming it for
+# commits an earlier session stranded would send the operator to the wrong log.
+HELD=0
+PRE_AHEAD=0
 
 release() {
+  [[ "$HELD" -eq 1 ]] || return 0
   warn_unpushed_main || true
   local owner
   owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
   # Only ever remove a lock we still own. A session whose lock was stolen out
-  # from under it (a dead-looking pid, an empty pid-file window) would
-  # otherwise delete the CURRENT holder's lock on its way out and admit a
-  # third session mid-merge — one collision cascading into an open lock.
-  if [[ "$owner" == "$$" ]]; then
-    rm -rf "$LOCK_DIR"
-  elif [[ -z "$owner" && "$LOCK_CREATED" -eq 1 && -e "$LOCK_DIR" ]]; then
-    # Killed between our mkdir and our pid write: the dir is ours, it just never
-    # got our name on it, and leaving it would wedge the train until a waiter
-    # times it out and steals. This arm cannot tell our unsigned dir from a
-    # stealer's brand-new one — the claim path IS mkdir, so a rival's fresh
-    # nameless dir looks identical. What makes it safe is the WINDOW, not the
-    # reading: LOCK_CREATED is cleared the moment our pid write verifies, so by
-    # construction this arm only ever runs inside the microseconds between our
-    # own mkdir and that verify, before any steal of ours can have happened.
-    rm -rf "$LOCK_DIR"
-  fi
+  # from under it would otherwise delete the CURRENT holder's lock on its way
+  # out and admit a third session mid-merge.
+  [[ "$owner" == "$$" ]] || return 0
+  # Leaving the lock standing on a failed evict is the safe failure: it still
+  # carries our pid, and the next session steals it once we are gone. Tearing
+  # it down in place instead would expose the empty state nothing else here has
+  # to reason about.
+  evict_dir "$LOCK_DIR" || true
 }
 
-# Returns 0 having taken the lock (and armed the release), 1 if the mkdir
-# was lost to someone else.
+# Removes the scratch names that carry our pid. Nothing else ever touches them,
+# so this needs no ownership check and cannot race.
+clear_own_scratch() {
+  local scrap
+  for scrap in "${LOCK_DIR:?}.build.$$" "${LOCK_DIR:?}.gone.$$" \
+               "${STEAL_LOCK_DIR:?}.build.$$" "${STEAL_LOCK_DIR:?}.gone.$$"; do
+    remove_lock_shaped_dir "$scrap" || true
+  done
+}
+
+# Returns 0 having taken the lock, 1 if the claim was lost.
 take_lock() {
-  mkdir "$LOCK_DIR" 2>/dev/null || return 1
-  # Arm the release on the mkdir, not on the pid write: from here a lock dir
-  # exists in our name, and a signal landing in the gap below would otherwise
-  # skip EXIT entirely and leave it behind.
-  LOCK_CREATED=1
-  trap on_exit EXIT
-  # Unchecked, a failed pid write leaves a NAMELESS lock: release() refuses to
-  # clean a lock that is not ours by pid, so it would outlive this run and every
-  # waiter would have to time out on it. (set -e does not help here — the
-  # function is called as `if take_lock`, which suppresses it inside the body.)
-  if ! printf '%s\n' "$$" >"$LOCK_DIR/pid" 2>/dev/null; then
-    rm -rf "$LOCK_DIR"
-    LOCK_CREATED=0
-    trap - EXIT
-    return 1
-  fi
-  # Verify after write, same as the steal mutex: if a stealer got here first we
-  # do not own this lock, and must not arm a release for it.
-  if [[ "$(cat "$LOCK_DIR/pid" 2>/dev/null || true)" != "$$" ]]; then
-    LOCK_CREATED=0
-    trap - EXIT
-    return 1
-  fi
-  # The nameless window is over: the dir on disk carries our pid, so release()'s
-  # first arm (owner == "$$") is what covers us from here. Leaving the flag set
-  # would keep release()'s second arm armed for the whole run — and a nameless
-  # lock found at exit is then far more likely to be a STEALER's brand-new dir,
-  # mid-write, than our own unsigned one. Clearing it here bounds that arm to
-  # the microseconds it documents.
-  LOCK_CREATED=0
+  claim_dir "$LOCK_DIR" || return 1
+  HELD=1
   PRE_AHEAD="$(main_ahead_count)"
   return 0
 }
 
 holder_pid() {
-  local owner
-  owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
-  if [[ -z "$owner" ]]; then
-    sleep 1  # the other mkdir may have just won; let its pid write land
-    owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
-  fi
-  printf '%s' "$owner"
+  # No grace, no sleep: the pid file and the lock path arrive in the same
+  # rename, so a lock that exists always carries its holder's name. A pid-less
+  # lock is NOT a session mid-claim — that state is unreachable now — it is the
+  # residue of a teardown that was interrupted, and is garbage.
+  cat "$LOCK_DIR/pid" 2>/dev/null || true
 }
-
-PRE_AHEAD=0
 
 # Shared tail for every "not ours, not a steal" path.
 #   $1 = the deadline, empty for a flagless run
-#   $2 = what a flagless run dies with; empty means "look once more instead",
-#        for the paths where refusing outright would strand a wedged lock
+#   $2 = what a flagless run dies with; empty means "look once more instead"
 # A waiting run owes its deadline the same 75 the live-holder path exits with.
 requeue_or_die() {
   local deadline="$1" reason="${2:-}"
@@ -378,7 +430,7 @@ requeue_or_die() {
 }
 
 acquire() {
-  local deadline="" owner announced=0 stolen empty_seen=0 empty_ident="" refusal
+  local deadline="" owner announced=0 stolen refusal
   # `if`, not `[[ ... ]] && ...`: a false test as a bare statement is a nonzero
   # command under set -e, which would abort the run before the loop.
   if [[ -n "$WAIT_SECONDS" ]]; then
@@ -404,85 +456,62 @@ acquire() {
       sleep "$POLL_SECONDS"
       continue
     fi
-    if [[ -z "$owner" ]]; then
-      # A lock with no pid is either a session that died between its mkdir and
-      # its pid write, or one that is mid-write right now — one look cannot
-      # tell them apart, and stealing from the second puts two sessions inside
-      # the mutex. Only a lock still nameless a poll later is called abandoned;
-      # a real holder announces itself in microseconds.
-      #
-      # "Still nameless" has to mean the SAME dir, not merely a nameless one:
-      # a corpse cleared and instantly replaced by a rival's fresh mkdir would
-      # otherwise hand the newcomer a grace it never served, and a lock
-      # microseconds old would be judged abandoned. See dir_inode for what
-      # identity means here, and for the inode-reuse residual it leaves.
-      local ident
-      ident="$(dir_inode "$LOCK_DIR")"
-      if [[ "$ident" != "$empty_ident" ]]; then
-        empty_seen=0
-        empty_ident="$ident"
-      fi
-      empty_seen=$(( empty_seen + 1 ))
-      if [[ "$empty_seen" -lt 2 ]]; then
-        # No refusal here even without --wait: refusing would leave a genuinely
-        # wedged lock unrecoverable, which is what the steal exists to prevent.
-        # One extra poll, then it is judged abandoned.
-        requeue_or_die "$deadline" ""
-        continue
-      fi
-    else
-      empty_seen=0
-      empty_ident=""
-    fi
 
-    # A crashed session's leftover. The readings above are stale by the time
-    # they are acted on — between judging that pid dead and clearing the lock,
-    # another waiter can steal it and create a LIVE lock in its place, and
-    # wiping THAT puts two sessions inside the mutex. So do the whole
-    # judge-then-clear under the steal mutex: while it is held, the lock dir
-    # cannot change hands, because the only things that remove one are its own
-    # holder (dead here) and another stealer (excluded here).
+    # Either a dead holder's corpse, or a pid-less dir left by an interrupted
+    # teardown. Both are garbage, and both are cleared under the steal mutex —
+    # the readings above are stale by the time they are acted on, and clearing
+    # a lock another waiter has just replaced with a LIVE one would put two
+    # sessions inside the mutex.
     refusal="could not take the merge lock at $LOCK_DIR"
     if take_steal_lock; then
-      stolen="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+      # Test seam. The two branches below turn on what the lock looks like in
+      # the instant AFTER the mutex is in hand — a sub-millisecond window that
+      # no test can aim at from outside. Setting this to a whole number of
+      # seconds holds the run still there so a test can move the lock
+      # underneath it deliberately. Never set in normal use; ignored unless it
+      # parses as a positive integer.
+      if [[ "${WITH_MERGE_LOCK_TEST_PAUSE_AFTER_MUTEX:-}" =~ ^[1-9][0-9]*$ ]]; then
+        sleep "$WITH_MERGE_LOCK_TEST_PAUSE_AFTER_MUTEX"
+      fi
       if [[ ! -e "$LOCK_DIR" ]]; then
-        # Released while we queued. Go back around and race the plain mkdir —
-        # falling through to the refusal would make a flagless run EXIT on
-        # finding the lock free, which is the one case it should win outright.
+        # Freed while we queued. Go back around and race the claim — falling
+        # through to the refusal would make a flagless run EXIT on finding the
+        # lock free, which is the one case it should win outright.
         drop_steal_lock
         continue
-      elif [[ -n "$stolen" ]] && kill -0 "$stolen" 2>/dev/null; then
+      fi
+      stolen="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
+      if [[ -n "$stolen" ]] && kill -0 "$stolen" 2>/dev/null; then
         # A live session owns it after all — leave it completely alone, and
         # refuse with the same informative text the live-holder path uses.
         refusal="another session holds the merge lock (pid $stolen, $LOCK_DIR) — merges are serial across sessions; wait and re-run, or pass --wait to block"
-      elif [[ -z "$stolen" && "$empty_seen" -lt 2 ]]; then
-        : # still nameless, but not yet nameless for long enough to judge
-      elif ! steal_lock_is_ours; then
-        # Our mutex was evicted while we were judging, so another stealer may
-        # already be acting on the same lock. Touch nothing and go back around.
-        :
       else
-        # Last check before the destructive step: the whole judgement above is
-        # only safe while the steal mutex is still ours. The WARNING prints
-        # inside it, not before — announcing a steal that the recheck then
-        # cancels leaves an operator reading a log of steals that never
-        # happened, hunting a lock nobody took.
-        if steal_lock_is_ours; then
-          printf 'with-merge-lock: WARNING: stealing stale lock left by dead pid %s\n' "${stolen:-<unknown>}" >&2
-          rm -rf "$LOCK_DIR"
-          if take_lock; then
-            drop_steal_lock
-            return 0
-          fi
+        # The WARNING prints here rather than earlier: under the mutex the
+        # judgement can no longer be cancelled, so an operator never reads a
+        # log of steals that did not happen.
+        printf 'with-merge-lock: WARNING: stealing stale lock left by dead pid %s\n' "${stolen:-<unknown>}" >&2
+        evict_dir "$LOCK_DIR" || true
+        sweep_gone "$LOCK_DIR"
+        if take_lock; then
+          drop_steal_lock
+          return 0
         fi
       fi
       drop_steal_lock
     fi
-    # Lost the steal mutex, found a live owner behind it, or lost the mkdir to
+    # Lost the steal mutex, found a live owner behind it, or lost the claim to
     # a plain contender. Someone else owns the lock now.
     requeue_or_die "$deadline" "$refusal"
   done
 }
+
+# Armed BEFORE the claim, not after it. The claim installs the lock with a
+# rename, so there is no instant where the lock exists and the trap does not —
+# arming it afterwards would leave exactly that window, and a run killed inside
+# it would strand the lock for the next session to steal. Arming it early is
+# free: release is a no-op unless HELD says this run got in, and the scratch
+# sweep only ever touches names carrying our own pid.
+trap on_exit EXIT
 
 acquire
 
@@ -492,7 +521,7 @@ acquire
 # MERGE_HEAD, leaving a repo-wide stash (SUB-293). Ask again now that the lock
 # is actually in hand, and refuse the same way rather than merge on a reading
 # taken half an hour ago. Unconditional, not --wait-gated: a flagless run can
-# also wait — a nameless lock costs it two polls, a steal costs it more — and
+# also wait — losing a claim race costs it a poll, a steal costs it more — and
 # the re-check is two local git commands.
 PREFLIGHT="$(preflight_reason)"
 if [[ -n "$PREFLIGHT" ]]; then

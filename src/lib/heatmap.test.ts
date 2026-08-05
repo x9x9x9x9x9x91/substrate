@@ -151,6 +151,15 @@ test("CRLF fences parse", () => {
   assert.equal(blocks[0].config?.date, "d");
 });
 
+test("a mixed-case opener parses, like the hub's dispatcher (SUB-1129)", () => {
+  const blocks = parseHeatmapBlocks("```HeatMap\nsource: session\ndate: logged\nvalue: count\n```");
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].error, null);
+  assert.equal(blocks[0].config?.date, "logged");
+  // still bare-form: a tail is prose here as it is on the hub (SUB-966)
+  assert.equal(parseHeatmapBlocks("```HeatMap tail\nsource: s\ndate: d\nvalue: count\n```").length, 0);
+});
+
 test("other fences are not heatmap fences", () => {
   assert.equal(parseHeatmapBlocks("```chart\nsource: s\nx: d\ny: count\n```").length, 0);
 });

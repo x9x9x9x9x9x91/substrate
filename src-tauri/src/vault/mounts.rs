@@ -24,7 +24,7 @@
 
 use super::*;
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 
 /// The mount registry: portable, synced, no paths in it.
@@ -430,6 +430,30 @@ impl Engine {
         let store = mounttext::read(dir, id);
         let e = store.get(rel, identity)?;
         (!e.text.is_empty()).then(|| (e.text.clone(), e.truncated))
+    }
+
+    /// Drop this machine's text for a mount it can no longer read (SUB-1134).
+    ///
+    /// Unbinding is not unmounting: the mount, its index and its sidecars all
+    /// stay, and every other machine is untouched. What goes is the text this
+    /// machine read out of files it can no longer open — nothing left here
+    /// will ever ask for it again, and a later re-bind reads it back off the
+    /// folder, which is the whole contract the store is under.
+    pub fn forget_mount_text(&self, id: &str) {
+        if let Some(dir) = &self.local_dir {
+            mounttext::forget(dir, id);
+        }
+    }
+
+    /// Collect stores no mount in this vault can name, and answer how many
+    /// went (SUB-1134). Called on vault load, which is the one moment the
+    /// worst case is visible: the store dir belongs to the app, not to the
+    /// vault, so pointing the app at a different vault strands every mount id
+    /// of the previous one there with nothing to enumerate it.
+    pub fn collect_mount_text(&self) -> usize {
+        let Some(dir) = self.text_dir() else { return 0 };
+        let live: BTreeSet<String> = self.mounts().into_iter().map(|m| m.id).collect();
+        mounttext::collect(dir, &|id| live.contains(id))
     }
 
     /// Files in this mount whose own metadata we have never read (SUB-887).
@@ -2719,6 +2743,63 @@ mod tests {
                 })
                 .collect(),
         )
+    }
+
+    /// SUB-1134. Unbinding keeps the mount and every machine's index; what it
+    /// cannot keep is this machine's text, which is about files it can no
+    /// longer open.
+    #[test]
+    fn unbinding_a_mount_here_drops_this_machines_text_but_nothing_else() {
+        let (mut e, dir, local) = vault_with_local("mforget");
+        let watched = temp_watched("mforget");
+        fs::write(watched.join("paper.pdf"), b"stand-in bytes").unwrap();
+        let m = e.add_mount("Papers", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let jobs = e.mount_extract_jobs(&m.id, &watched);
+        apply_reading(&mut e, jobs, &reading("a sentence this machine read", false));
+        let f = e.mount_index(&m.id).files.into_iter().find(|f| f.rel == "paper.pdf").unwrap();
+        assert!(e.mount_text(&m.id, "paper.pdf", &f.identity).is_some());
+
+        e.forget_mount_text(&m.id);
+
+        assert_eq!(e.mount_text(&m.id, "paper.pdf", &f.identity), None, "the text stayed behind");
+        assert_eq!(e.mounts().len(), 1, "the mount itself is untouched");
+        assert_eq!(e.mount_index(&m.id).files.len(), 1, "and so is the index every machine reads");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&local);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// SUB-1134. The config dir is per app, not per vault, so a store whose
+    /// mount belongs to a vault the app has moved away from has nothing left
+    /// to name it. Load is where that gets noticed.
+    #[test]
+    fn loading_a_vault_collects_text_no_mount_of_it_can_name() {
+        let (mut e, dir, local) = vault_with_local("mcollect");
+        let watched = temp_watched("mcollect");
+        fs::write(watched.join("paper.pdf"), b"stand-in bytes").unwrap();
+        let m = e.add_mount("Papers", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let jobs = e.mount_extract_jobs(&m.id, &watched);
+        apply_reading(&mut e, jobs, &reading("a sentence this machine read", false));
+        let f = e.mount_index(&m.id).files.into_iter().find(|f| f.rel == "paper.pdf").unwrap();
+        // what another vault, opened in this same app, left behind
+        let mut theirs = mounttext::TextStore::default();
+        theirs.put("their.pdf", "id", "somebody else's vault".into(), false);
+        mounttext::write(&local, "a-vault-we-left", &theirs).unwrap();
+
+        assert_eq!(e.collect_mount_text(), 1, "the stranded store was not collected");
+
+        assert!(mounttext::read(&local, "a-vault-we-left").files.is_empty());
+        assert_eq!(
+            e.mount_text(&m.id, "paper.pdf", &f.identity).map(|(t, _)| t),
+            Some("a sentence this machine read".to_string()),
+            "a live mount lost its text to the sweep"
+        );
+        assert_eq!(e.collect_mount_text(), 0, "a second load found work to redo");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&local);
+        let _ = fs::remove_dir_all(&watched);
     }
 
     #[test]

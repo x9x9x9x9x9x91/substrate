@@ -2808,6 +2808,16 @@ them, next to the path binding that says where they are.
 - **It is a cache.** Deleting the file, or losing the whole config dir, loses
   nothing a rescan cannot rebuild; a machine that has never bound the mount
   simply never has it.
+- **When it goes.** Unmounting drops it, and so does unbinding — the mount and
+  its index stay, but this machine can no longer open the files the text came
+  out of, and a later re-bind reads them again. Beyond that, the app sweeps
+  this dir on vault load and drops every `<id>.json` no mount of the loaded
+  vault can name (`mounttext::collect`). That sweep is what covers the case
+  neither of the others sees: the dir belongs to the **app**, not to the
+  vault, so pointing the app at a different vault would otherwise strand the
+  previous one's mount ids here forever, at up to 2 MiB each, with nothing
+  left that enumerates them. Only files this format could have written are
+  candidates — a name no valid mount id could produce is left alone.
 - **Migration.** The store starts empty — on a new machine, and on this one
   after an upgrade from a version that had no text at all. Rows indexed before
   it existed already carry `extract_tried`, and that flag keeps its old

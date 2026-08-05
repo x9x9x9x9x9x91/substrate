@@ -181,6 +181,36 @@ pub fn forget(dir: &Path, id: &str) {
     }
 }
 
+/// Drop every store in this dir that no live mount can name, and answer how
+/// many went (SUB-1134).
+///
+/// `forget` covers the mount that is removed. What it cannot see is the store
+/// that outlives the *vault*: this dir belongs to the app, not to the vault,
+/// so pointing the app at a different vault leaves the previous one's mount
+/// ids sitting here with nothing that will ever enumerate them again. Nothing
+/// escapes the machine either way — the dir is outside every sync leg
+/// (SUB-1093) — so what is at stake is disk and hygiene, [`MOUNT_TEXT_MAX`]
+/// per stranded mount, held forever.
+///
+/// Only files this module could have written are candidates: `<id>.json` for
+/// an id [`store_path`] would accept. Anything else in the dir was put there
+/// by something else and is left exactly where it is.
+pub fn collect(dir: &Path, live: &dyn Fn(&str) -> bool) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir.join(MOUNT_TEXT_DIR)) else { return 0 };
+    let mut dropped = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(id) = name.to_str().and_then(|n| n.strip_suffix(".json")) else { continue };
+        if store_path(dir, id).is_none() || live(id) {
+            continue;
+        }
+        if std::fs::remove_file(entry.path()).is_ok() {
+            dropped += 1;
+        }
+    }
+    dropped
+}
+
 /// Config dirs this process has failed to write a store into.
 ///
 /// A read-only or full config dir does not just lose the cache: without this,
@@ -322,6 +352,42 @@ mod tests {
         assert!(is_available(&tmp("latch-other")));
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::remove_dir_all(tmp("latch-other"));
+    }
+
+    #[test]
+    fn stores_no_live_mount_can_name_are_collected() {
+        let dir = tmp("collect");
+        let _ = std::fs::remove_dir_all(dir.join(MOUNT_TEXT_DIR));
+        let mut s = TextStore::default();
+        s.put("a.pdf", "id", "text".into(), false);
+        for id in ["live", "stranded", "also-stranded"] {
+            write(&dir, id, &s).unwrap();
+        }
+        // not ours: a stem no id this module accepts could have produced, and
+        // a file that is not a store at all
+        std::fs::write(dir.join(MOUNT_TEXT_DIR).join("not an id!.json"), "{}").unwrap();
+        std::fs::write(dir.join(MOUNT_TEXT_DIR).join("readme.txt"), "hi").unwrap();
+
+        assert_eq!(collect(&dir, &|id| id == "live"), 2);
+        assert_eq!(read(&dir, "live").files.len(), 1, "a live mount kept its text");
+        assert!(read(&dir, "stranded").files.is_empty());
+        assert!(read(&dir, "also-stranded").files.is_empty());
+        assert!(dir.join(MOUNT_TEXT_DIR).join("readme.txt").exists(), "collected a foreign file");
+        assert!(
+            dir.join(MOUNT_TEXT_DIR).join("not an id!.json").exists(),
+            "collected a file no id of ours could name"
+        );
+        // and it is idempotent: a second pass finds nothing left to drop
+        assert_eq!(collect(&dir, &|id| id == "live"), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn collecting_a_dir_that_has_no_stores_is_quiet() {
+        let dir = tmp("collect-empty");
+        let _ = std::fs::remove_dir_all(dir.join(MOUNT_TEXT_DIR));
+        assert_eq!(collect(&dir, &|_| true), 0, "a dir with no store subdir is not an error");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

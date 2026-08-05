@@ -689,6 +689,19 @@ pub fn run() {
                     }
                 }
             }
+            // Machine-local mount text for mounts this vault no longer has —
+            // above all, the mounts of a DIFFERENT vault the app used to be
+            // pointed at, since the config dir is per app (SUB-1134). Runs
+            // after the migration so the mounts it just created count as
+            // live, and only for a real vault: the first-run placeholder has
+            // no mounts, and sweeping against it would throw away text the
+            // vault picked on the next launch still wants.
+            if !first_run {
+                let collected = engine.collect_mount_text();
+                if collected > 0 {
+                    applog!("mount text: collected {collected} store(s) no mount can name");
+                }
+            }
             // Engine::new's first rescan may adopt plaintext under an already
             // active marker (a file created while the app was closed), and so
             // may the mounts migration's rescan just above — which is why this

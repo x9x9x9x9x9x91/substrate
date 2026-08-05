@@ -102,9 +102,19 @@ export function parseHeatmapConfig(inner: string): HeatmapConfig {
   return { source, date: kv.get("date")!, value: parseValue(kv.get("value")!), query };
 }
 
-/** All ```heatmap fences in a note body, in order. Never throws. */
+/** All ```heatmap fences in a note body, in order. Never throws.
+
+    The opener folds case (```HeatMap opens a fence) because the hub's
+    renderMarkdown does — it lowercases the lang before dispatching, so a
+    mixed-case opener renders the live year grid there. Matching the literal
+    lowercase spelling here made the SAME note render a grid on the hub and
+    nothing in the dashboard pane (SUB-1129), and the strip pass already
+    follows the wider spelling (CASE_FOLDING_BARE_LANGS in fences.ts), so a
+    mixed-case fence's config is out of the search index either way. Still
+    bare-form: the `\r?\n` right after the lang rejects a tailed opener, which
+    is prose for every bare-form language (SUB-966). */
 export function parseHeatmapBlocks(body: string): HeatmapBlock[] {
-  const re = /```heatmap\r?\n([\s\S]*?)```/g;
+  const re = /```heatmap\r?\n([\s\S]*?)```/gi;
   const out: HeatmapBlock[] = [];
   let m;
   while ((m = re.exec(body)) !== null) {

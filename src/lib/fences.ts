@@ -38,17 +38,19 @@ export const BARE_MACHINE_FENCE_LANGS = ["csv", "formulas", "heatmap", "calendar
     would silently drop a user's own content out of search without closing any
     leak.
 
-    heatmap has TWO dispatchers and they disagree: the hub lowercases
-    (`renderMarkdown` in HubDashboard.tsx, which re-wraps the inner in a
-    canonical opener before parsing), so a bare ```HeatMap renders the live year
-    grid there, while the dashboard pane's `parseHeatmapBlocks` (heatmap.ts)
-    matches the literal opener and renders nothing. A strip pass matching the
-    literal opener left the hub-rendered fence's config in the search index
-    (SUB-1128). Where dispatchers disagree the strip follows the WIDEST one:
-    stripping a fence some reader renders live closes a real leak, and the cost
-    if the other reader is the one a note uses is that a machine-config block
-    stays out of search — which is the rule for machine config anyway. heatmap
-    stays bare-form for the tail rule; it only folds case. If a bare-form parser
+    heatmap dispatches case-INSENSITIVELY, from BOTH its readers: the hub
+    lowercases (`renderMarkdown` in HubDashboard.tsx, which re-wraps the inner
+    in a canonical opener before parsing) and the dashboard pane's
+    `parseHeatmapBlocks` (heatmap.ts) folds case in its opener. They disagreed
+    once — the pane matched the literal opener, so a bare ```HeatMap drew the
+    year grid on the hub and nothing in the pane, with its config left in the
+    search index (SUB-1128 widened the strip to the hub's spelling, SUB-1129
+    widened the pane's parser to match). Where dispatchers ever disagree again
+    the strip follows the WIDEST one: stripping a fence some reader renders
+    live closes a real leak, and the cost if the other reader is the one a note
+    uses is that a machine-config block stays out of search — which is the rule
+    for machine config anyway. heatmap stays bare-form for the tail rule; it
+    only folds case. If a bare-form parser
     ever starts or stops folding case, move the lang across this set — both
     sides. */
 const CASE_FOLDING_BARE_LANGS: ReadonlySet<string> = new Set(["heatmap", "calendar"]);
