@@ -455,10 +455,7 @@ impl Engine {
                 Some((k.clone(), kind.to_string()))
             })
             .collect();
-        TrashedNoteConfig {
-            pin_index: order.pins.iter().position(|p| p == rel),
-            sidebar_keys,
-        }
+        TrashedNoteConfig { pin_index: order.pins.iter().position(|p| p == rel), sidebar_keys }
     }
 
     /// Reapply a parked note config after a restore, pointing everything at

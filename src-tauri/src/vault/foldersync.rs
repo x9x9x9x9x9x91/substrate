@@ -77,7 +77,8 @@ pub(crate) fn glob_match(pattern: &str, name: &str) -> bool {
 
 /// Prop names the folder sync owns on stub notes — never seeded empty from
 /// the schema, and user edits to them are refreshed away on the next scan.
-pub(super) const SYNC_PROPS: [&str; 7] = ["type", "title", "file", "modified", "size", "missing", "created"];
+pub(super) const SYNC_PROPS: [&str; 7] =
+    ["type", "title", "file", "modified", "size", "missing", "created"];
 
 /// The key a sync-owned prop must be written under: the spelling already in
 /// the note wins (so `Modified:` is refreshed in place rather than gaining a
@@ -203,8 +204,7 @@ impl Engine {
                         folded_prop_str(&note.props, "missing").as_deref() == Some("true");
                     let stale = folded_prop_str(&note.props, "modified").as_deref()
                         != Some(modified.as_str())
-                        || folded_prop_str(&note.props, "size").as_deref()
-                            != Some(size.as_str());
+                        || folded_prop_str(&note.props, "size").as_deref() != Some(size.as_str());
                     if flagged || stale {
                         // one write per file: stamp refresh and missing-flag
                         // clear land in a single re-serialize (SUB-61). Each

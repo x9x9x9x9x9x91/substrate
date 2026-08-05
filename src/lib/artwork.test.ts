@@ -44,3 +44,12 @@ test("firstImageEmbed finds the first image, skipping audio embeds", () => {
 test("a cased Artwork: key still names the cover (SUB-921)", () => {
   assert.equal(artworkTarget({ Artwork: "cover.png" }), "cover.png");
 });
+
+test("a sized embed still names its cover (SUB-1102)", () => {
+  // `![[cover.png|300]]` is a 300px-wide cover.png, not a file with a pipe in
+  // its name — the gallery used to fall back to no cover at all
+  assert.equal(firstImageEmbed("intro ![[cover.png|300]] outro"), "cover.png");
+  assert.equal(firstImageEmbed("![[sleeve.webp|left]]"), "sleeve.webp");
+  assert.equal(unwrapEmbed("![[cover.png|300x200]]"), "cover.png");
+  assert.equal(artworkTarget({ artwork: "![[art.jpg|400]]" }), "art.jpg");
+});

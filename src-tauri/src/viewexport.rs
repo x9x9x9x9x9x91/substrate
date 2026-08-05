@@ -347,11 +347,7 @@ fn write_targets(cfg_dir: &Path, targets: &Targets) -> Result<(), String> {
 /// Where this view exports to on this machine, if it has ever exported from
 /// this vault.
 pub fn target_for(cfg_dir: &Path, vault: &Path, view_id: &str) -> Option<PathBuf> {
-    read_targets(cfg_dir)
-        .targets
-        .get(view_id)
-        .filter(|t| t.vault == vault)
-        .map(|t| t.path.clone())
+    read_targets(cfg_dir).targets.get(view_id).filter(|t| t.vault == vault).map(|t| t.path.clone())
 }
 
 /// Remember where this view exported to, so Regenerate never asks again.
@@ -396,8 +392,7 @@ mod tests {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static SEQ: AtomicUsize = AtomicUsize::new(0);
         let n = SEQ.fetch_add(1, Ordering::Relaxed);
-        let dir =
-            std::env::temp_dir().join(format!("sub810-{name}-{}-{n}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("sub810-{name}-{}-{n}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
@@ -431,14 +426,18 @@ mod tests {
         );
         // row order must not change the result — the folder is a function of
         // the view's contents, not of how they arrived
-        let shuffled =
-            vec!["Zed/Ideas.md".to_string(), "Notes/Ideas.md".to_string(), "Archive/Ideas.md".to_string()];
+        let shuffled = vec![
+            "Zed/Ideas.md".to_string(),
+            "Notes/Ideas.md".to_string(),
+            "Archive/Ideas.md".to_string(),
+        ];
         assert_eq!(plan_links(&shuffled), plan);
     }
 
     #[test]
     fn plan_links_suffixes_before_the_extension_and_collapses_duplicates() {
-        let rels = vec!["a/Track.wav".to_string(), "b/Track.wav".to_string(), "a/Track.wav".to_string()];
+        let rels =
+            vec!["a/Track.wav".to_string(), "b/Track.wav".to_string(), "a/Track.wav".to_string()];
         let plan = plan_links(&rels);
         assert_eq!(plan.len(), 2);
         assert_eq!(plan[0].0, "Track.wav");
@@ -482,11 +481,17 @@ mod tests {
     fn regenerate_rebuilds_the_folder_and_drops_stale_links() {
         let root = vault_with(&["Notes/One.md", "Notes/Two.md"]);
         let dest = tmp("regen").join("out");
-        export_links(&root, &dest, "V", "v1", &["Notes/One.md".into(), "Notes/Two.md".into()], "t1")
-            .unwrap();
+        export_links(
+            &root,
+            &dest,
+            "V",
+            "v1",
+            &["Notes/One.md".into(), "Notes/Two.md".into()],
+            "t1",
+        )
+        .unwrap();
         // the view now matches only one row
-        let rep =
-            export_links(&root, &dest, "V", "v1", &["Notes/Two.md".into()], "t2").unwrap();
+        let rep = export_links(&root, &dest, "V", "v1", &["Notes/Two.md".into()], "t2").unwrap();
         assert_eq!(rep.links, 1);
         assert!(!dest.join("One.md").exists());
         assert!(dest.join("Two.md").exists());
@@ -498,8 +503,7 @@ mod tests {
         let root = vault_with(&["Notes/One.md"]);
         let dest = tmp("real");
         fs::write(dest.join("family-photo.jpg"), "not yours").unwrap();
-        let err = export_links(&root, &dest, "V", "v1", &["Notes/One.md".into()], "t")
-            .unwrap_err();
+        let err = export_links(&root, &dest, "V", "v1", &["Notes/One.md".into()], "t").unwrap_err();
         assert!(err.contains("not a Substrate link folder"), "{err}");
         // and nothing was written
         assert!(!is_marked(&dest));
@@ -511,8 +515,8 @@ mod tests {
         let root = vault_with(&["Notes/One.md"]);
         let dest = tmp("shared").join("out");
         export_links(&root, &dest, "First", "v1", &["Notes/One.md".into()], "t1").unwrap();
-        let err = export_links(&root, &dest, "Second", "v2", &["Notes/One.md".into()], "t2")
-            .unwrap_err();
+        let err =
+            export_links(&root, &dest, "Second", "v2", &["Notes/One.md".into()], "t2").unwrap_err();
         assert!(err.contains("another saved view's link folder"), "{err}");
         // the first view's folder is untouched and still its own
         assert!(fs::read_to_string(dest.join(MARKER)).unwrap().contains("view-id: v1"));
@@ -538,22 +542,21 @@ mod tests {
         let root = vault_with(&["Notes/One.md"]);
         // the folder does not exist yet — the case the save dialog produces
         let inside = root.join("Views").join("Live Set");
-        let err = export_links(&root, &inside, "V", "v1", &["Notes/One.md".into()], "t")
-            .unwrap_err();
+        let err =
+            export_links(&root, &inside, "V", "v1", &["Notes/One.md".into()], "t").unwrap_err();
         assert!(err.contains("inside the vault"), "{err}");
         assert!(!inside.exists(), "refusal must not create the folder");
 
         // an existing folder in the vault is refused too, and left alone
         let existing = root.join("Notes");
-        let err = export_links(&root, &existing, "V", "v1", &["Notes/One.md".into()], "t")
-            .unwrap_err();
+        let err =
+            export_links(&root, &existing, "V", "v1", &["Notes/One.md".into()], "t").unwrap_err();
         assert!(err.contains("inside the vault"), "{err}");
         assert!(!is_marked(&existing));
         assert!(existing.join("One.md").exists());
 
         // the vault root itself is inside the vault
-        let err =
-            export_links(&root, &root, "V", "v1", &["Notes/One.md".into()], "t").unwrap_err();
+        let err = export_links(&root, &root, "V", "v1", &["Notes/One.md".into()], "t").unwrap_err();
         assert!(err.contains("inside the vault"), "{err}");
     }
 
@@ -566,8 +569,7 @@ mod tests {
         let door = outside.join("vault-door");
         std::os::unix::fs::symlink(&root, &door).unwrap();
         let dest = door.join("Exports");
-        let err = export_links(&root, &dest, "V", "v1", &["Notes/One.md".into()], "t")
-            .unwrap_err();
+        let err = export_links(&root, &dest, "V", "v1", &["Notes/One.md".into()], "t").unwrap_err();
         assert!(err.contains("inside the vault"), "{err}");
         assert!(!root.join("Exports").exists());
     }
@@ -577,12 +579,9 @@ mod tests {
         // guard against an over-broad prefix test: "…/vault-exports" starts
         // with "…/vault" as a string but is not inside it
         let root = vault_with(&["Notes/One.md"]);
-        let sibling = root.with_file_name(format!(
-            "{}-exports",
-            root.file_name().unwrap().to_string_lossy()
-        ));
-        let rep =
-            export_links(&root, &sibling, "V", "v1", &["Notes/One.md".into()], "t").unwrap();
+        let sibling =
+            root.with_file_name(format!("{}-exports", root.file_name().unwrap().to_string_lossy()));
+        let rep = export_links(&root, &sibling, "V", "v1", &["Notes/One.md".into()], "t").unwrap();
         assert_eq!(rep.links, 1);
         let _ = fs::remove_dir_all(&sibling);
     }

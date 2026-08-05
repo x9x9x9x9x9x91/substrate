@@ -306,6 +306,30 @@ pub fn split_wikilink(inner: &str) -> (&str, Option<&str>, Option<&str>) {
     (target.trim(), anchor, alias)
 }
 
+/// The file an `![[…]]` embed names, with any display modifier dropped
+/// (SUB-1102). The modifier is everything past the **first** `|` — a size or
+/// layout hint (`|300`, `|300x200`, `|left`) in the Obsidian dialect these
+/// vaults are written in. `![[cover.png|300]]` names `cover.png`; without this
+/// split, resolution looks for a file literally called `cover.png|300` and
+/// every reader reports a perfectly present image as missing.
+///
+/// Substrate **accepts the modifier and currently ignores it** — nothing here
+/// commits to what a width or a float should mean; it only stops the hint from
+/// corrupting the name.
+///
+/// Unlike [`split_wikilink`] this does NOT split on `#`: an embed target is a
+/// filename or a path, both of which may legally contain `#`, and an embed has
+/// no anchor semantics to spend it on.
+///
+/// Twin of `embedTarget` in `src/lib/wikilinks.ts` — the two must agree, or a
+/// frontend renders an asset the engine reports orphaned.
+pub fn embed_target(inner: &str) -> &str {
+    match inner.find('|') {
+        Some(i) => inner[..i].trim(),
+        None => inner.trim(),
+    }
+}
+
 /// The note name a wikilink addresses, normalized for matching: the target
 /// alone (no anchor, no alias), lowercased. Empty for a same-note anchor.
 fn link_key(inner: &str) -> String {
@@ -358,17 +382,89 @@ fn unit_aliases() -> &'static std::collections::HashSet<String> {
         let mut s: std::collections::HashSet<String> =
             schema::UNIT_CODES.iter().map(|c| c.to_lowercase()).collect();
         for alias in [
-            "€", "euro", "euros", "$", "dollar", "dollars", "£", "pound", "pounds", "franken",
-            "franc", "francs", "¥", "yen", "zł", "milligram", "milligrams", "gram", "grams",
-            "gramm", "kilo", "kilos", "kilogram", "kilograms", "kilogramm", "ton", "tons", "tonne",
-            "tonnes", "ounce", "ounces", "lbs", "millimeter", "millimeters", "millimetre",
-            "millimetres", "centimeter", "centimeters", "centimetre", "centimetres", "meter",
-            "meters", "metre", "metres", "kilometer", "kilometers", "kilometre", "kilometres",
-            "mile", "miles", "foot", "feet", "inches", "millisecond", "milliseconds", "sec",
-            "secs", "second", "seconds", "mins", "minute", "minutes", "hr", "hrs", "hour", "hours",
-            "day", "days", "byte", "bytes", "kilobyte", "kilobytes", "megabyte", "megabytes",
-            "gigabyte", "gigabytes", "terabyte", "terabytes", "decibel", "decibels", "percent",
-            "pct", "prozent",
+            "€",
+            "euro",
+            "euros",
+            "$",
+            "dollar",
+            "dollars",
+            "£",
+            "pound",
+            "pounds",
+            "franken",
+            "franc",
+            "francs",
+            "¥",
+            "yen",
+            "zł",
+            "milligram",
+            "milligrams",
+            "gram",
+            "grams",
+            "gramm",
+            "kilo",
+            "kilos",
+            "kilogram",
+            "kilograms",
+            "kilogramm",
+            "ton",
+            "tons",
+            "tonne",
+            "tonnes",
+            "ounce",
+            "ounces",
+            "lbs",
+            "millimeter",
+            "millimeters",
+            "millimetre",
+            "millimetres",
+            "centimeter",
+            "centimeters",
+            "centimetre",
+            "centimetres",
+            "meter",
+            "meters",
+            "metre",
+            "metres",
+            "kilometer",
+            "kilometers",
+            "kilometre",
+            "kilometres",
+            "mile",
+            "miles",
+            "foot",
+            "feet",
+            "inches",
+            "millisecond",
+            "milliseconds",
+            "sec",
+            "secs",
+            "second",
+            "seconds",
+            "mins",
+            "minute",
+            "minutes",
+            "hr",
+            "hrs",
+            "hour",
+            "hours",
+            "day",
+            "days",
+            "byte",
+            "bytes",
+            "kilobyte",
+            "kilobytes",
+            "megabyte",
+            "megabytes",
+            "gigabyte",
+            "gigabytes",
+            "terabyte",
+            "terabytes",
+            "decibel",
+            "decibels",
+            "percent",
+            "pct",
+            "prozent",
         ] {
             s.insert(alias.to_string());
         }
@@ -1275,8 +1371,9 @@ impl Engine {
                 // gone from disk — could have been a file or a whole folder
                 self.remove_note(&rel);
                 touched.push((rel.clone(), NoteChange::Removed));
-                touched
-                    .extend(self.remove_subtree(&rel).into_iter().map(|r| (r, NoteChange::Removed)));
+                touched.extend(
+                    self.remove_subtree(&rel).into_iter().map(|r| (r, NoteChange::Removed)),
+                );
             }
         }
         touched.sort();
@@ -1902,6 +1999,32 @@ impl Engine {
         value: Option<serde_json::Value>,
         expected: Option<Option<serde_json::Value>>,
     ) -> Result<SetPropResult, String> {
+        let (prior, meta) = self.edit_props_meta(rel, |props| {
+            let prior = props.get(key).cloned();
+            if let Some(want) = expected {
+                if prior != want {
+                    return Err("conflict: property changed on disk".into());
+                }
+            }
+            apply_prop_write(props, key, value)?;
+            Ok(prior)
+        })?;
+        Ok(SetPropResult { meta, prior })
+    }
+
+    /// Read a note's frontmatter, let `edit` change the parsed props, write it
+    /// back — the round-trip behind the user-facing property writes. Kept
+    /// separate from `set_prop_guarded` because structured metadata (a sheet's
+    /// `columns:` map, SUB-876) needs the same round-trip but not that
+    /// method's scalar-only validation.
+    ///
+    /// Not the same helper as `edit_props`, which mounts use: this one refuses
+    /// hidden paths, lets the edit fail, and returns the note's fresh meta.
+    fn edit_props_meta<T>(
+        &mut self,
+        rel: &str,
+        edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> Result<T, String>,
+    ) -> Result<(T, NoteMeta), String> {
         if hidden_rel(rel) && !template_rel(rel) {
             return Err("hidden paths are not notes".into());
         }
@@ -1913,57 +2036,109 @@ impl Engine {
         let (fm, body) = split_frontmatter(&raw);
         // refuse rather than re-serialize a block that didn't parse (SUB-215)
         let mut props = parse_props_for_write(fm, &raw, rel)?;
-        let prior = props.get(key).cloned();
-        if let Some(want) = expected {
-            if prior != want {
-                return Err("conflict: property changed on disk".into());
-            }
-        }
-        match value {
-            // numbers are accepted for symmetry with the read side (SUB-477):
-            // `prior` is the raw parsed YAML, so a documented numeric scalar
-            // (`rating: 4`, `price: 1299.50` — docs/vault-format.md §6) comes
-            // back as a Number and undo writes it straight back. The UI still
-            // only authors strings, bools and string lists.
-            Some(v @ serde_json::Value::String(_))
-            | Some(v @ serde_json::Value::Bool(_))
-            | Some(v @ serde_json::Value::Number(_)) => {
-                props.insert(key.to_string(), v);
-            }
-            Some(serde_json::Value::Array(items)) => {
-                if items.is_empty() {
-                    props.remove(key);
-                } else if items.iter().all(|v| v.is_string()) {
-                    props.insert(key.to_string(), serde_json::Value::Array(items));
-                } else {
-                    return Err("list values must be strings".into());
-                }
-            }
-            Some(_) => {
-                return Err(
-                    "property values must be strings, numbers, bools, or string lists".into()
-                )
-            }
-            None => {
-                props.remove(key);
-            }
-        }
-        let out = if props.is_empty() {
+        let out = edit(&mut props)?;
+        let text = if props.is_empty() {
             body.to_string()
         } else {
             let yaml = serde_yaml::to_string(&props).map_err(|e| e.to_string())?;
             format!("---\n{}---\n{}", yaml, body)
         };
-        self.write_note_atomic(rel, &abs, out)?;
+        self.write_note_atomic(rel, &abs, text)?;
         #[cfg(test)]
         {
             self.note_writes += 1;
         }
         self.reindex_one(rel);
-        let meta = self.meta_after_write(rel)?;
-        Ok(SetPropResult { meta, prior })
+        Ok((out, self.meta_after_write(rel)?))
     }
 
+    /// Set a sheet column's notification settings (SUB-876), stored in the
+    /// note's `columns:` map. Clearing both settings drops the column's entry,
+    /// and the last entry drops the map — the metadata never outlives its
+    /// reason to exist. Existing spellings win, both for the map key and the
+    /// column name, so a toggle never rewrites how the file already reads.
+    pub fn set_sheet_column_notify(
+        &mut self,
+        rel: &str,
+        column: &str,
+        notify: bool,
+        notify_before: Option<u32>,
+    ) -> Result<NoteMeta, String> {
+        if column.trim().is_empty() {
+            return Err("column name is required".into());
+        }
+        // same clamp the schema path applies: frontmatter is hand-editable,
+        // and the scheduler's date math must never see an absurd lead
+        let lead = notify_before.filter(|n| *n > 0).map(|n| n.min(365));
+        let (_, meta) = self.edit_props_meta(rel, |props| {
+            let map_key =
+                folded_prop_key(props, "columns").map(str::to_string).unwrap_or("columns".into());
+            let mut columns = match props.get(&map_key) {
+                Some(serde_json::Value::Object(m)) => m.clone(),
+                _ => serde_json::Map::new(),
+            };
+            let col_key =
+                folded_prop_key(&columns, column).map(str::to_string).unwrap_or(column.into());
+            if !notify && lead.is_none() {
+                columns.remove(&col_key);
+            } else {
+                let mut cfg = serde_json::Map::new();
+                if notify {
+                    cfg.insert("notify".into(), serde_json::Value::Bool(true));
+                }
+                if let Some(n) = lead {
+                    cfg.insert("notifyBefore".into(), serde_json::Value::from(n));
+                }
+                columns.insert(col_key, serde_json::Value::Object(cfg));
+            }
+            if columns.is_empty() {
+                props.remove(&map_key);
+            } else {
+                props.insert(map_key, serde_json::Value::Object(columns));
+            }
+            Ok(())
+        })?;
+        Ok(meta)
+    }
+}
+
+/// The scalar-or-string-list rule every generic property write obeys.
+fn apply_prop_write(
+    props: &mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+    value: Option<serde_json::Value>,
+) -> Result<(), String> {
+    match value {
+        // numbers are accepted for symmetry with the read side (SUB-477):
+        // `prior` is the raw parsed YAML, so a documented numeric scalar
+        // (`rating: 4`, `price: 1299.50` — docs/vault-format.md §6) comes
+        // back as a Number and undo writes it straight back. The UI still
+        // only authors strings, bools and string lists.
+        Some(v @ serde_json::Value::String(_))
+        | Some(v @ serde_json::Value::Bool(_))
+        | Some(v @ serde_json::Value::Number(_)) => {
+            props.insert(key.to_string(), v);
+        }
+        Some(serde_json::Value::Array(items)) => {
+            if items.is_empty() {
+                props.remove(key);
+            } else if items.iter().all(|v| v.is_string()) {
+                props.insert(key.to_string(), serde_json::Value::Array(items));
+            } else {
+                return Err("list values must be strings".into());
+            }
+        }
+        Some(_) => {
+            return Err("property values must be strings, numbers, bools, or string lists".into())
+        }
+        None => {
+            props.remove(key);
+        }
+    }
+    Ok(())
+}
+
+impl Engine {
     // exercised only by this file's tests; the IPC layer builds notes through
     // create_with_body, so a non-test build sees no caller
     #[allow(dead_code)]
@@ -2704,10 +2879,7 @@ impl Engine {
     /// may pick one arbitrarily.
     pub(super) fn template_names_for_identity(&self, note_type: &str) -> Vec<String> {
         let identity = template_identity(note_type);
-        self.template_list()
-            .into_iter()
-            .filter(|name| name.to_lowercase() == identity)
-            .collect()
+        self.template_list().into_iter().filter(|name| name.to_lowercase() == identity).collect()
     }
 
     pub(super) fn template_listing_ambiguous(&self, note_type: &str) -> bool {
@@ -2859,31 +3031,37 @@ impl Engine {
         rels.sort();
         rels
     }
-
 }
 
 mod views;
-pub use views::{FolderMeta, HiddenPerLayout, SavedView, SavedViewSort, SidebarOrder, ViewPref};
 use views::parse_view_fence;
+pub use views::{FolderMeta, HiddenPerLayout, SavedView, SavedViewSort, SidebarOrder, ViewPref};
 
 mod tags;
 #[allow(unused_imports)]
 pub use tags::{TagCount, TagFolder, TagMatch};
+
+mod sheetcsv;
+// the scheduler reads sheet grids to find date cells (SUB-876); the rest of
+// the sheet engine stays in TypeScript
+pub(crate) use sheetcsv::sheet_grid;
 
 mod schema;
 // `PROP_KINDS` / `NUMBER_FORMATS` are consumed by the schema code itself; the
 // re-exports keep `vault::<T>` resolving as it did before the split.
 #[allow(unused_imports)]
 pub use schema::{
-    BulkSweep, NewTypeProp, PropSchema, RollupSet, SchemaConfig, SelectOption, TypeSchema, AGG_KINDS,
-    NUMBER_FORMATS, PROP_KINDS, SCHEMA_REL_PATH,
+    BulkSweep, NewTypeProp, PropSchema, RollupSet, SchemaConfig, SelectOption, TypeSchema,
+    AGG_KINDS, NUMBER_FORMATS, PROP_KINDS, SCHEMA_REL_PATH,
 };
 
 mod search;
 // `FullSearchHit` / `SearchMatch` / `SnippetPart` are only named through the
 // result types today; the re-exports keep `vault::<T>` resolving as before.
 #[allow(unused_imports)]
-pub use search::{FullSearchHit, FullSearchResult, RelatedEntry, SearchHit, SearchMatch, SnippetPart};
+pub use search::{
+    FullSearchHit, FullSearchResult, RelatedEntry, SearchHit, SearchMatch, SnippetPart,
+};
 
 mod doctor;
 // `DoctorSeverity` is only named through `DoctorFinding`'s field today; the
@@ -2899,9 +3077,9 @@ pub use folderfiles::FolderListing;
 
 mod trash;
 // `TrashKind` is consumed through the façade by sibling-module tests.
+use trash::{trash_asset_name, TRASH_ASSETS_DIR, TRASH_DIR};
 #[cfg_attr(not(test), allow(unused_imports))]
 pub use trash::{TrashEntry, TrashKind};
-use trash::{trash_asset_name, TRASH_ASSETS_DIR, TRASH_DIR};
 
 mod foldersync;
 pub use foldersync::{FolderMapping, FOLDERS_REL_PATH};
@@ -2911,8 +3089,8 @@ pub(crate) use foldersync::glob_match;
 use foldersync::{read_folder_mappings, write_folder_mappings};
 
 mod mounts;
-pub use mounts::{Mount, MountRow, MountScanStats, MOUNTS_REL_PATH};
 use mounts::read_mounts;
+pub use mounts::{Mount, MountRow, MountScanStats, MOUNTS_REL_PATH};
 
 // What a mounted file says about itself (SUB-887). Split out of `mounts`
 // because it is pure per-file parsing: no engine, no lock, no vault.
@@ -3274,6 +3452,57 @@ mod tests {
     }
 
     #[test]
+    fn sheet_column_notify_writes_reads_and_clears_the_columns_map() {
+        // SUB-876: the metadata a sheet's date notifications live in. It is a
+        // nested map, which `set_prop` refuses by design — hence its own path.
+        let (mut e, dir) = temp_vault("shcol1");
+        let meta = e.set_sheet_column_notify("Welcome.md", "renewal", true, Some(7)).unwrap();
+        assert_eq!(
+            meta.props.get("columns"),
+            Some(&json!({"renewal": {"notify": true, "notifyBefore": 7}}))
+        );
+        // the file itself carries a real nested block, not a stringified one
+        let raw = fs::read_to_string(dir.join("Welcome.md")).unwrap();
+        assert!(raw.contains("columns:"), "{raw}");
+        assert!(raw.contains("  renewal:"), "nested, not inline: {raw}");
+
+        // a second column joins the map; the first is untouched
+        let meta = e.set_sheet_column_notify("Welcome.md", "ends", true, None).unwrap();
+        assert_eq!(
+            meta.props.get("columns"),
+            Some(&json!({
+                "ends": {"notify": true},
+                "renewal": {"notify": true, "notifyBefore": 7},
+            }))
+        );
+
+        // clearing both settings drops the entry…
+        let meta = e.set_sheet_column_notify("Welcome.md", "renewal", false, None).unwrap();
+        assert_eq!(meta.props.get("columns"), Some(&json!({"ends": {"notify": true}})));
+        // …and the last entry drops the map, leaving no residue behind
+        let meta = e.set_sheet_column_notify("Welcome.md", "ends", false, Some(0)).unwrap();
+        assert!(!meta.props.contains_key("columns"), "{:?}", meta.props);
+        assert!(!fs::read_to_string(dir.join("Welcome.md")).unwrap().contains("columns"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sheet_column_notify_keeps_existing_spellings_and_clamps_the_lead() {
+        let (mut e, dir) = temp_vault("shcol2");
+        e.set_sheet_column_notify("Welcome.md", "Renewal", true, None).unwrap();
+        // a later toggle spelled differently must not rewrite how the file
+        // reads — the column binds case-insensitively, like every other name
+        let meta = e.set_sheet_column_notify("Welcome.md", "renewal", true, Some(9000)).unwrap();
+        assert_eq!(
+            meta.props.get("columns"),
+            Some(&json!({"Renewal": {"notify": true, "notifyBefore": 365}})),
+            "existing key kept, lead clamped to a year"
+        );
+        assert!(e.set_sheet_column_notify("Welcome.md", "  ", true, None).is_err(), "needs a name");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn set_prop_guarded_matching_expected_writes() {
         // SUB-477 test 10: the guard passes when `expected` matches what's on
         // disk, both for a present key and for the absent-key sentinel.
@@ -3499,7 +3728,10 @@ mod tests {
         e.rescan();
         e.write_body("Note.md", "v2\n", None).unwrap();
         e.set_prop("Note.md", "status", Some("live")).unwrap();
-        e.set_view_pref("release", "board", None, None, None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref(
+            "release", "board", None, None, None, None, None, None, None, None, None, None, None,
+        )
+        .unwrap();
         let raw = fs::read_to_string(dir.join("Note.md")).unwrap();
         assert!(raw.contains("v2") && raw.contains("status: live"), "write round-trips: {raw}");
         assert!(dir.join(ViewPref::REL_PATH).is_file(), "views.json written");
@@ -3732,8 +3964,7 @@ mod tests {
         // SUB-215: rename proceeds (move + link rewrites) but must NOT
         // re-serialize a broken block — the note's bytes stay verbatim.
         let (mut e, dir) = temp_vault("rnguard");
-        let content =
-            "---\ntype: trip\n\tstatus: booked\n---\nBody links [[Kyoto]].\n";
+        let content = "---\ntype: trip\n\tstatus: booked\n---\nBody links [[Kyoto]].\n";
         fs::write(dir.join("Broken.md"), content).unwrap();
         fs::write(dir.join("Referrer.md"), "See [[Broken]].\n").unwrap();
         e.rescan();
@@ -3980,10 +4211,7 @@ mod tests {
                 "Duplicate props",
                 "New Folder",
                 Some("release"),
-                Some(vec![
-                    ("Status".into(), "first".into()),
-                    ("status".into(), "second".into()),
-                ]),
+                Some(vec![("Status".into(), "first".into()), ("status".into(), "second".into())]),
                 None,
             )
             .unwrap_err();
@@ -4077,8 +4305,11 @@ mod tests {
         let before = e.list().len();
 
         // external edit → only that path reindexed
-        fs::write(dir.join("Weeknight Ramen.md"), "---\ntype: recipe\n---\nSwapped in a miso broth\n")
-            .unwrap();
+        fs::write(
+            dir.join("Weeknight Ramen.md"),
+            "---\ntype: recipe\n---\nSwapped in a miso broth\n",
+        )
+        .unwrap();
         e.apply_changes(&[dir.join("Weeknight Ramen.md")]);
         assert!(e.search("miso broth", None, false).iter().any(|h| h.path == "Weeknight Ramen.md"));
         assert_eq!(e.list().len(), before);
@@ -4291,13 +4522,35 @@ mod tests {
             ("Piranesi", Some("Notes"), Some("the book"))
         );
         // whitespace around every piece, and a same-note anchor
-        assert_eq!(split_wikilink("  Piranesi # Notes | the book "), ("Piranesi", Some("Notes"), Some("the book")));
+        assert_eq!(
+            split_wikilink("  Piranesi # Notes | the book "),
+            ("Piranesi", Some("Notes"), Some("the book"))
+        );
         assert_eq!(split_wikilink("#Notes"), ("", Some("Notes"), None));
         // block ref, and a `#` inside the display text stays display text
         assert_eq!(split_wikilink("Piranesi#^a1b2"), ("Piranesi", Some("^a1b2"), None));
         assert_eq!(split_wikilink("Piranesi|see #Notes"), ("Piranesi", None, Some("see #Notes")));
         // only the FIRST pipe splits — the rest belongs to the display text
         assert_eq!(split_wikilink("Piranesi|a|b"), ("Piranesi", None, Some("a|b")));
+    }
+
+    #[test]
+    fn embed_target_drops_the_display_modifier_but_never_a_hash() {
+        // SUB-1102: `![[cover.png|300]]` names cover.png. Twin: embedTarget in
+        // src/lib/wikilinks.ts — keep the cases in step.
+        assert_eq!(embed_target("cover.png"), "cover.png");
+        assert_eq!(embed_target("cover.png|300"), "cover.png");
+        assert_eq!(embed_target("cover.png|300x200"), "cover.png");
+        assert_eq!(embed_target("  cover.png | left "), "cover.png");
+        // only the FIRST pipe splits
+        assert_eq!(embed_target("cover.png|300|left"), "cover.png");
+        // a `#` belongs to the filename — an embed has no anchor
+        assert_eq!(embed_target("track #3.wav"), "track #3.wav");
+        assert_eq!(embed_target("track #3.wav|200"), "track #3.wav");
+        // link-in-place paths survive whole
+        assert_eq!(embed_target("~/Music/mixdown.flac|300"), "~/Music/mixdown.flac");
+        // a modifier with nothing in front names nothing
+        assert_eq!(embed_target("|300"), "");
     }
 
     #[test]
@@ -4354,7 +4607,9 @@ mod tests {
         e.rename("Lisbon.md", "Porto").unwrap();
         let body = e.read("Reader.md").unwrap().body;
         assert!(
-            body.contains("[[Porto]], [[Porto|the city]], [[Porto#Notes]], [[Porto#Notes|the city]]"),
+            body.contains(
+                "[[Porto]], [[Porto|the city]], [[Porto#Notes]], [[Porto#Notes|the city]]"
+            ),
             "rewrite lost a part: {body}"
         );
         let _ = fs::remove_dir_all(&dir);
@@ -4795,23 +5050,13 @@ mod tests {
             ("\"  \"", Settings::OPACITY_DEFAULT),
             ("mostly", Settings::OPACITY_DEFAULT),
         ] {
-            fs::write(
-                dir.join(Settings::REL_PATH),
-                format!("---\nwindow-opacity: {raw}\n---\n"),
-            )
-            .unwrap();
-            assert_eq!(
-                Settings::load(&dir).window_opacity,
-                want,
-                "window-opacity: {raw}"
-            );
+            fs::write(dir.join(Settings::REL_PATH), format!("---\nwindow-opacity: {raw}\n---\n"))
+                .unwrap();
+            assert_eq!(Settings::load(&dir).window_opacity, want, "window-opacity: {raw}");
         }
         // …and the key is optional: an unset one is the 90 default, not 0
         fs::write(dir.join(Settings::REL_PATH), "---\nclose-to-tray: true\n---\n").unwrap();
-        assert_eq!(
-            Settings::load(&dir).window_opacity,
-            Settings::OPACITY_DEFAULT
-        );
+        assert_eq!(Settings::load(&dir).window_opacity, Settings::OPACITY_DEFAULT);
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -4858,7 +5103,11 @@ mod tests {
             &vec!["state".to_string(), "artist".to_string()],
             "table set follows rename"
         );
-        assert_eq!(hpl.list.as_ref().unwrap(), &vec!["state".to_string()], "list set follows rename");
+        assert_eq!(
+            hpl.list.as_ref().unwrap(),
+            &vec!["state".to_string()],
+            "list set follows rename"
+        );
 
         // clear: the prop's entries drop; emptied lists collapse to absent
         e.clear_prop("release", "state", false, true).unwrap();
@@ -4882,7 +5131,8 @@ mod tests {
         // and emptying the last per-layout entry drops the key entirely
         e.clear_prop("release", "artist", false, true).unwrap();
         assert_eq!(
-            e.views()["release"].hidden_per_layout, None,
+            e.views()["release"].hidden_per_layout,
+            None,
             "both sets emptied — hidden_per_layout leaves the file"
         );
         let _ = fs::remove_dir_all(&dir);
@@ -4901,9 +5151,7 @@ mod tests {
         assert!(e.list().iter().all(|n| n.path != "Lisbon.md"));
         assert!(e.resolve_link("Lisbon").is_some(), "stem resolve survives");
         assert!(
-            e.backlinks("Trips/2026/Lisbon.md")
-                .iter()
-                .any(|n| n.path == "Kyoto.md"),
+            e.backlinks("Trips/2026/Lisbon.md").iter().any(|n| n.path == "Kyoto.md"),
             "backlink follows the move"
         );
         assert!(e
@@ -4985,14 +5233,11 @@ mod tests {
         // a single value stays a plain scalar; an empty list removes the prop
         let meta = e.set_prop("Lisbon.md", "contact", Some("Gero")).unwrap();
         assert_eq!(meta.props.get("contact"), Some(&serde_json::json!("Gero")));
-        let meta =
-            e.set_prop_value("Lisbon.md", "contact", Some(serde_json::json!([]))).unwrap();
+        let meta = e.set_prop_value("Lisbon.md", "contact", Some(serde_json::json!([]))).unwrap();
         assert!(!meta.props.contains_key("contact"));
 
         // non-string lists are refused
-        assert!(e
-            .set_prop_value("Lisbon.md", "contact", Some(serde_json::json!([1, 2])))
-            .is_err());
+        assert!(e.set_prop_value("Lisbon.md", "contact", Some(serde_json::json!([1, 2]))).is_err());
         // a bare number is accepted since SUB-477 — it is a scalar the vault
         // already stores and hands back as `prior`, so undo must be able to
         // write it. Structured values stay refused.
@@ -5015,9 +5260,8 @@ mod tests {
         // YAML bool — it must survive the serde_yaml round-trip unquoted and
         // read back as a bool, not the string "false"
         let (mut e, dir) = temp_vault("spbool");
-        let meta = e
-            .set_prop_value("Lisbon.md", "calendar", Some(serde_json::json!(false)))
-            .unwrap();
+        let meta =
+            e.set_prop_value("Lisbon.md", "calendar", Some(serde_json::json!(false))).unwrap();
         assert_eq!(meta.props.get("calendar"), Some(&serde_json::json!(false)));
         let raw = fs::read_to_string(dir.join("Lisbon.md")).unwrap();
         assert!(raw.contains("calendar: false"), "bare yaml bool on disk: {raw}");
@@ -5048,8 +5292,7 @@ mod tests {
         )
         .unwrap();
         e.set_prop("Lisbon.md", "contact", Some("Gero")).unwrap();
-        e.set_prop_value("Kyoto.md", "contact", Some(serde_json::json!(["Gero", "Noa"])))
-            .unwrap();
+        e.set_prop_value("Kyoto.md", "contact", Some(serde_json::json!(["Gero", "Noa"]))).unwrap();
         // same name in a free-text prop and on an undeclared type: untouched
         e.set_prop("Dolomites.md", "billing", Some("Gero")).unwrap();
         e.set_prop("Weeknight Ramen.md", "contact", Some("Gero")).unwrap();
@@ -5111,8 +5354,7 @@ mod tests {
         e.set_prop("Lisbon.md", "label", Some("X")).unwrap();
         e.set_prop("Lisbon.md", "type", None).unwrap();
         e.set_prop("Lisbon.md", "Type", Some("TRIP")).unwrap();
-        e.set_prop_value("Kyoto.md", "label", Some(serde_json::json!(["X", "Other"])))
-            .unwrap();
+        e.set_prop_value("Kyoto.md", "label", Some(serde_json::json!(["X", "Other"]))).unwrap();
         // a hand-edited schema may carry a relation with no target — no
         // declared scope, so it still follows any rename
         let schema_file = dir.join(SCHEMA_REL_PATH);
@@ -5224,7 +5466,10 @@ mod tests {
         assert!(paths.contains(&"Projects/Current/Draft B.md".to_string()));
         assert!(!paths.iter().any(|p| p.contains("Active")), "old paths gone: {:?}", paths);
         assert!(e.resolve_link("Draft A").is_some(), "stem links survive folder rename");
-        assert!(e.search("Draft", None, false).iter().any(|h| h.path.starts_with("Projects/Current/")));
+        assert!(e
+            .search("Draft", None, false)
+            .iter()
+            .any(|h| h.path.starts_with("Projects/Current/")));
         // rename-to-same-name is a no-op; collisions and bad input error
         assert_eq!(e.rename_folder("Projects/Current", "Current").unwrap(), "Projects/Current");
         assert!(e.rename_folder("Projects/Current", "").is_err());
@@ -5373,8 +5618,19 @@ mod tests {
         e.create_folder("Elsewhere").unwrap();
         e.set_schema_home("task", Some("Area".into())).unwrap();
         e.set_schema_home("project", Some("Area/Projects".into())).unwrap();
-        e.set_schema_prop("contact", "email", vec![], Some("text".into()), None, None, None, None, None, None)
-            .unwrap();
+        e.set_schema_prop(
+            "contact",
+            "email",
+            vec![],
+            Some("text".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         e.set_schema_home("contact", Some("Elsewhere".into())).unwrap();
 
         e.trash_folder("Area").unwrap();
@@ -5394,7 +5650,10 @@ mod tests {
             assert_eq!(crate::vaultfmt::on_disk_version(&dir, f), 1, "{}", f.key());
         }
         e.create_type("books", Vec::new()).unwrap();
-        e.set_view_pref("books", "table", None, None, None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref(
+            "books", "table", None, None, None, None, None, None, None, None, None, None, None,
+        )
+        .unwrap();
         let side = crate::vaultfmt::read_sidecar(&dir);
         assert_eq!(side["schema"], serde_json::json!(1), "schema write stamped");
         assert_eq!(side["views"], serde_json::json!(1), "views write stamped");

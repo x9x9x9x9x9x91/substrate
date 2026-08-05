@@ -19,8 +19,7 @@ pub(crate) fn view_export_target(
     view_id: String,
 ) -> Option<String> {
     let root = state.0.lock().unwrap().root.clone();
-    viewexport::target_for(&onboarding.config_dir, &root, &view_id)
-        .map(|p| p.display().to_string())
+    viewexport::target_for(&onboarding.config_dir, &root, &view_id).map(|p| p.display().to_string())
 }
 
 /// Rebuild `dest` as this view's link folder and remember it as the view's
@@ -38,8 +37,7 @@ pub(crate) fn view_export_run(
     let root = state.0.lock().unwrap().root.clone();
     let dest = std::path::PathBuf::from(dest);
     let generated = chrono::Local::now().to_rfc3339();
-    let report =
-        viewexport::export_links(&root, &dest, &view_name, &view_id, &paths, &generated)?;
+    let report = viewexport::export_links(&root, &dest, &view_name, &view_id, &paths, &generated)?;
     // remember only after a successful build: a refused folder must not
     // become the target Regenerate silently retries forever
     viewexport::remember_target(&onboarding.config_dir, &root, &view_id, &dest)?;

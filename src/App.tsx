@@ -231,7 +231,7 @@ import { useTerminalHud } from "./hooks/useTerminalHud";
 import { useMobileLayout } from "./hooks/useMobileLayout";
 import { useUndoStack } from "./hooks/useUndoStack";
 import { useViewHistory } from "./hooks/useViewHistory";
-import { useVaultEvents } from "./hooks/useVaultEvents";
+import { useVaultEvents, type SheetRowTarget } from "./hooks/useVaultEvents";
 import { useShortcutRouter } from "./hooks/useShortcutRouter";
 import { useToast } from "./hooks/useToast";
 import { useUpdater } from "./hooks/useUpdater";
@@ -576,8 +576,13 @@ export default function App() {
         // than in React state — they are CSS inputs, nothing renders off
         // them. This is also the write that CORRECTS the settings pane's
         // optimistic preview once the note has actually taken the value.
-        if (!overtaken()) applyAppearance(document.documentElement, parseAppearance(c.props));
-        applyWindowOpacity(parseWindowOpacity(c.props));
+        // SUB-1126: the window ground is previewed by the same drag and lost
+        // the same race, so it rides the same claim — outside one, this is
+        // still the write that corrects the pane's optimistic preview.
+        if (!overtaken()) {
+          applyAppearance(document.documentElement, parseAppearance(c.props));
+          applyWindowOpacity(parseWindowOpacity(c.props));
+        }
         setNetLinkTitles(netAllowed(c.props, "link-titles"));
         // both seams from the one read: the binding for the module-scope
         // formatters (sheet cells, file sizes, dashboards), the state for the
@@ -645,7 +650,7 @@ export default function App() {
     }
   }, [viewKeyNow]);
 
-  const { openNoteRef } = useVaultEvents({
+  const { openNoteRef, openSheetRowRef } = useVaultEvents({
     refresh,
     refreshConfigs,
     refreshSealScopes: reloadSealScopes,
@@ -1118,6 +1123,18 @@ export default function App() {
   useEffect(() => {
     openNoteRef.current = openNote;
   }, [openNote]);
+
+  /* A sheet notification's click (SUB-876): open the note and hand the pane
+     the row to reveal. The nonce makes a second click on the same row a new
+     target — the grid clears each one as it lands. */
+  const [sheetReveal, setSheetReveal] = useState<(SheetRowTarget & { nonce: number }) | null>(null);
+  const clearSheetReveal = useCallback(() => setSheetReveal(null), []);
+  useEffect(() => {
+    openSheetRowRef.current = (t) => {
+      setSheetReveal((r) => ({ ...t, nonce: (r?.nonce ?? 0) + 1 }));
+      openNote(t.path);
+    };
+  }, [openNote, openSheetRowRef]);
 
   const dbNoteMeta = useMemo(
     () =>
@@ -4799,6 +4816,8 @@ export default function App() {
                 onEscape={onNoteEscape}
                 reveal={reveal}
                 onRevealed={clearReveal}
+                revealRow={sheetReveal}
+                onRowRevealed={clearSheetReveal}
                 onToast={showToast}
                 readOnly={timePoint !== null}
               />
@@ -4874,6 +4893,8 @@ export default function App() {
             onEscape={onNoteEscape}
             reveal={reveal}
             onRevealed={clearReveal}
+            revealRow={sheetReveal}
+            onRowRevealed={clearSheetReveal}
             onToast={showToast}
             readOnly={timePoint !== null}
           />

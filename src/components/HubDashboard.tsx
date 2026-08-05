@@ -12,7 +12,7 @@ import { vaultRead } from "../lib/ipc";
 import { isTauri } from "../lib/tauri";
 import { imageSource } from "../lib/assets";
 import { isImageName } from "../lib/artwork";
-import { wikiLinkDisplay } from "../lib/wikilinks";
+import { embedTarget, wikiLinkDisplay } from "../lib/wikilinks";
 import { parseHub, type HubCallout } from "../lib/hub";
 import { isTailedBareFence } from "../lib/fences";
 import { embedQueryFor, parseViewSpec } from "../lib/embeds";
@@ -140,7 +140,9 @@ function Inline({ text, ctx }: { text: string; ctx: Ctx }): ReactNode {
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));
     if (m[1] !== undefined) {
-      out.push(<DashEmbed key={k++} name={m[1].trim()} />);
+      // the name alone — a `|300`-style display modifier is a hint, not
+      // part of the filename (SUB-1102)
+      out.push(<DashEmbed key={k++} name={embedTarget(m[1])} />);
     } else if (m[2] !== undefined) {
       // the link still FOLLOWS the whole inner text (the follower parses the
       // anchor off it); what it SHOWS is the author's display text (SUB-1095)

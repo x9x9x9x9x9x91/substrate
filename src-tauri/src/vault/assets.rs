@@ -165,7 +165,7 @@ impl Engine {
         let re = Regex::new(r"!\[\[([^\[\]]+)\]\]").unwrap();
         let mut copied = 0;
         for cap in re.captures_iter(&raw) {
-            let name = cap[1].trim();
+            let name = embed_target(&cap[1]);
             if name.contains('/') || name.contains('\\') || name.contains("..") {
                 continue;
             }
@@ -224,7 +224,10 @@ impl Engine {
                 if in_code(&code, at.start(), at.end()) {
                     continue;
                 }
-                referenced.insert(m[1].trim().to_lowercase());
+                // a display modifier is a hint, not part of the name — an
+                // asset embedded as `![[cover.png|300]]` is still in use
+                // (SUB-1102)
+                referenced.insert(embed_target(&m[1]).to_lowercase());
             }
         }
         let mut out = Vec::new();
@@ -525,12 +528,8 @@ mod tests {
         let used = e.save_asset("used.png", &b64).unwrap();
         e.save_asset("stale.png", &b64).unwrap();
         e.save_asset("stale.wav", &b64).unwrap();
-        e.write_body(
-            "Welcome.md",
-            &format!("embed ![[{used}]] and a [[Kyoto]] link\n"),
-            None,
-        )
-        .unwrap();
+        e.write_body("Welcome.md", &format!("embed ![[{used}]] and a [[Kyoto]] link\n"), None)
+            .unwrap();
         let orphans: Vec<String> =
             e.assets_orphaned().unwrap().into_iter().map(|a| a.path).collect();
         assert_eq!(orphans, vec!["stale.png", "stale.wav"]);
@@ -539,6 +538,31 @@ mod tests {
         let orphans: Vec<String> =
             e.assets_orphaned().unwrap().into_iter().map(|a| a.path).collect();
         assert_eq!(orphans, vec!["stale.wav"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn embed_display_modifiers_keep_their_asset_alive_and_travel_in_bundles() {
+        use base64::Engine as _;
+        // SUB-1102: `![[cover.png|300]]` is a sized cover.png. The sweep used
+        // to see a reference to `cover.png|300`, match no file, and offer the
+        // live cover for deletion; the export bundle left it behind.
+        let (mut e, dir) = temp_vault("orphan-modifier");
+        let b64 = base64::engine::general_purpose::STANDARD.encode([1u8, 2, 3]);
+        let used = e.save_asset("cover.png", &b64).unwrap();
+        e.save_asset("stale.png", &b64).unwrap();
+        e.create("Sized", "", None).unwrap();
+        e.write_body("Sized.md", &format!("![[{used}|300x200]] sized\n"), None).unwrap();
+        let orphans: Vec<String> =
+            e.assets_orphaned().unwrap().into_iter().map(|a| a.path).collect();
+        assert_eq!(orphans, vec!["stale.png"], "the sized cover is still in use");
+
+        let dest = std::env::temp_dir().join("substrate-export-modifier-test");
+        let _ = fs::remove_dir_all(&dest);
+        let copied = e.export_note_bundle("Sized.md", dest.to_str().unwrap()).unwrap();
+        assert_eq!(copied, 1, "the sized embed's file comes along");
+        assert!(dest.join(".assets/cover.png").is_file());
+        let _ = fs::remove_dir_all(&dest);
         let _ = fs::remove_dir_all(&dir);
     }
 

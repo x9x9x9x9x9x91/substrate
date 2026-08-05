@@ -40,7 +40,7 @@ import { remapSavedQueryProperty } from "./query.ts";
 import { isSystemPropName } from "./schemalookup.ts";
 import { isAppFile } from "./settings.ts";
 import { hashKindBundle, parseKindManifest, KIND_API, type KindBundleInfo } from "./kinds.ts";
-import { parseWikiLink } from "./wikilinks.ts";
+import { embedTarget, parseWikiLink } from "./wikilinks.ts";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -2963,6 +2963,9 @@ const WATCHED_WRITE_COMMANDS = new Set([
   "vault_write_body",
   "vault_fm_write",
   "vault_set_prop",
+  // a sheet column's notification setting is a frontmatter write like any
+  // other prop edit (SUB-876)
+  "sheet_set_column_notify",
   // acting inside a tag folder writes the note's `tags:` prop like any other
   // prop edit, so the watcher sees it (SUB-818)
   "vault_note_add_tags",
@@ -3036,6 +3039,7 @@ function writtenPathsFor(
     case "vault_fm_write":
     case "vault_set_prop":
     case "vault_note_add_tags":
+    case "sheet_set_column_notify":
       // set_prop returns { meta, prior }; the others return the meta itself
       return [path ?? metaPath((result as { meta?: unknown })?.meta ?? result)].filter(
         (p): p is string => !!p
@@ -3618,6 +3622,39 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       }
       n.updated_ms = Date.now();
       return { meta: meta(n), prior };
+    }
+    case "sheet_set_column_notify": {
+      // mirrors Engine::set_sheet_column_notify (SUB-876): a nested `columns:`
+      // map, both the map key and the column name keeping whatever spelling is
+      // already on disk, the lead clamped to 1..365, and an entry that says
+      // nothing removed — as is the map once its last entry goes.
+      const column = ((args?.column as string) ?? "").trim();
+      if (!column) throw new Error("column name is required");
+      const notify = args?.notify === true;
+      const rawLead = args?.notifyBefore as number | null | undefined;
+      const lead =
+        typeof rawLead === "number" && rawLead > 0
+          ? Math.min(365, Math.max(1, Math.trunc(rawLead)))
+          : null;
+      const n = find();
+      if (!n) throw new Error("not found");
+      const mapKey =
+        Object.keys(n.props).find((k) => k.toLowerCase() === "columns") ?? "columns";
+      const map = { ...((n.props[mapKey] as Record<string, unknown> | undefined) ?? {}) };
+      const colKey = Object.keys(map).find((k) => k.toLowerCase() === column.toLowerCase()) ?? column;
+      if (!notify && lead === null) delete map[colKey];
+      else {
+        const entry: Record<string, unknown> = {};
+        if (notify) entry.notify = true;
+        if (lead !== null) entry.notifyBefore = lead;
+        map[colKey] = entry;
+      }
+      // `n.fm` is deliberately left alone: the mock's serializer only writes
+      // scalars and lists, so re-emitting it here would flatten the map
+      if (Object.keys(map).length === 0) delete n.props[mapKey];
+      else n.props[mapKey] = map;
+      n.updated_ms = Date.now();
+      return meta(n);
     }
     case "vault_create": {
       // mirrors Engine::create_full: the title is filename-sanitized first,
@@ -4367,7 +4404,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const referenced = new Set<string>();
       const re = /!\[\[([^[\]]+)\]\]/g;
       for (const n of mockNotes) {
-        for (const m of n.body.matchAll(re)) referenced.add(m[1].trim().toLowerCase());
+        for (const m of n.body.matchAll(re)) referenced.add(embedTarget(m[1]).toLowerCase());
       }
       return [...mockAssets.keys()]
         .filter((name) => !referenced.has(name.toLowerCase()))

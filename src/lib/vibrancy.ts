@@ -13,6 +13,7 @@
    solid `background: var(--bg)` rule applies bit-for-bit as it did before the
    setting existed. */
 
+import { claimAppearancePreview } from "./appearance.ts";
 import { isTauri } from "./tauri.ts";
 import { WINDOW_OPACITY_MAX } from "./settings.ts";
 
@@ -32,4 +33,28 @@ export function applyWindowOpacity(pct: number): void {
   root.classList.toggle("vibrancy", on);
   if (on) root.style.setProperty("--window-opacity", `${pct}%`);
   else root.style.removeProperty("--window-opacity");
+}
+
+/** The settings pane's repaint: `applyWindowOpacity`, plus the appearance
+    claim (SUB-1126).
+
+    A drag previews a value the note does not hold yet, so the very next
+    Settings.md read — the watcher echo of the PREVIOUS commit, which lands
+    mid-drag — would repaint the old opacity over it and leave it there:
+    nothing writes again until the dial moves. Same race the appearance dials
+    lost in SUB-1122, and the same claim answers it; see lib/appearance.ts for
+    why one counter covers both. Nothing here is undoable, so an abandoned
+    drag still needs no undo: the release hands the claim back and the next
+    read repaints from the note (the SUB-951 shape, unchanged).
+
+    The claim here is belt-and-braces as the pane stands today: `slide` paints
+    the appearance for every dial it drives, opacity included, so the drag is
+    already inside a claim by the time this runs and the extra bump only moves
+    a counter the release hands back wholesale. It is taken anyway because
+    that appearance paint is a no-op on an opacity drag — the kind of line a
+    later reader deletes as dead weight, which would silently reopen this bug.
+    Claiming in the painter keeps the rule local to the thing it protects. */
+export function previewWindowOpacity(pct: number): void {
+  claimAppearancePreview();
+  applyWindowOpacity(pct);
 }

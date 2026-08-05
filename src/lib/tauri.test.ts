@@ -875,3 +875,38 @@ test("mock delete_type trashes the template and restore round-trips (SUB-781)", 
   const finalTrash = await invoke<TrashEntry[]>("vault_trash_list");
   assert.ok(!finalTrash.some((t) => t.kind === "template" && t.title === "Template Trash 781 2"));
 });
+
+test("sheet_set_column_notify keeps a sheet's columns map like the engine (SUB-876)", async () => {
+  const note = await invoke<NoteMeta>("vault_create", {
+    title: "Subs 876",
+    folder: "",
+    body: "```csv\nService,Renewal\nNetflix,2026-08-10\n```\n",
+    props: [["type", "sheet"]],
+  });
+  const set = (column: string, notify: boolean, notifyBefore: number | null) =>
+    invoke<NoteMeta>("sheet_set_column_notify", { path: note.path, column, notify, notifyBefore });
+  const cols = (m: NoteMeta) => m.props["columns"] as Record<string, Record<string, unknown>> | undefined;
+
+  // day-of alone, then a lead time that stands on its own
+  let meta = await set("Renewal", true, null);
+  assert.deepEqual(cols(meta)?.["Renewal"], { notify: true });
+  meta = await set("Renewal", false, 7);
+  assert.deepEqual(cols(meta)?.["Renewal"], { notifyBefore: 7 });
+
+  // the stored spelling wins over the one the caller typed
+  meta = await set("renewal", true, 7);
+  assert.deepEqual(Object.keys(cols(meta) ?? {}), ["Renewal"], "no second entry for the same column");
+  assert.deepEqual(cols(meta)?.["Renewal"], { notify: true, notifyBefore: 7 });
+
+  // longer than a year clamps
+  meta = await set("Renewal", true, 4000);
+  assert.equal(cols(meta)?.["Renewal"]?.notifyBefore, 365);
+
+  // both off removes the entry, and the last entry removes the map
+  meta = await set("Renewal", false, null);
+  assert.equal(cols(meta), undefined, "an empty columns map is not left behind");
+
+  // the engine's own wording (vault/mod.rs set_sheet_column_notify) — asserting
+  // the mock's private phrasing would let the two drift unnoticed (SUB-876 review)
+  await assert.rejects(set("  ", true, null), /column name is required/);
+});

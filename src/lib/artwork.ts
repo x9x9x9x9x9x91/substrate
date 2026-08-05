@@ -3,6 +3,7 @@
  * lives in `assets.ts`. */
 
 import { byFoldedKey } from "./schemalookup.ts";
+import { embedTarget } from "./wikilinks.ts";
 
 // the canonical inline-image set — editor embeds, gallery covers, hub
 // dashboards, print, and PDF export all route through isImageName, so a
@@ -30,7 +31,9 @@ export function isAudioEmbed(name: string): boolean {
 export function unwrapEmbed(v: string): string {
   const t = v.trim();
   const m = /^!?\[\[([^[\]]+)\]\]$/.exec(t);
-  return m ? m[1].trim() : t;
+  // an embed's `|300`-style display modifier is a hint, not part of the
+  // cover's filename (SUB-1102)
+  return m ? embedTarget(m[1]) : t;
 }
 
 /** The `artwork` prop names a cover as a bare asset name, an absolute path,
@@ -48,7 +51,7 @@ export function firstImageEmbed(body: string): string | null {
   const re = /!\[\[([^[\]]+)\]\]/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(body))) {
-    const name = m[1].trim();
+    const name = embedTarget(m[1]);
     if (isImageName(name)) return name;
   }
   return null;

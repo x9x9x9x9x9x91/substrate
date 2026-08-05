@@ -185,9 +185,7 @@ fn has_nested_markdown(p: &Path) -> bool {
                 if depth + 1 < NESTED_MD_MAX_DEPTH {
                     queue.push((path, depth + 1));
                 }
-            } else if depth > 0
-                && path.extension().is_some_and(|x| x.eq_ignore_ascii_case("md"))
-            {
+            } else if depth > 0 && path.extension().is_some_and(|x| x.eq_ignore_ascii_case("md")) {
                 return true;
             }
         }
@@ -323,17 +321,26 @@ mod tests {
 
         // binding a mount kept the vault choice
         assert_eq!(read_config(&cfg).vault.as_deref(), Some(Path::new("/tmp/v")));
-        assert_eq!(read_config(&cfg).mounts.get("m1").cloned().as_deref(), Some(Path::new("/tmp/pool")));
+        assert_eq!(
+            read_config(&cfg).mounts.get("m1").cloned().as_deref(),
+            Some(Path::new("/tmp/pool"))
+        );
 
         // and re-picking a vault keeps the bindings
         write_vault_choice(&cfg, Path::new("/tmp/v2")).unwrap();
-        assert_eq!(read_config(&cfg).mounts.get("m1").cloned().as_deref(), Some(Path::new("/tmp/pool")));
+        assert_eq!(
+            read_config(&cfg).mounts.get("m1").cloned().as_deref(),
+            Some(Path::new("/tmp/pool"))
+        );
 
         // unbinding removes just that mount
         write_mount_binding(&cfg, "m2", Some(Path::new("/tmp/other"))).unwrap();
         write_mount_binding(&cfg, "m1", None).unwrap();
         assert_eq!(read_config(&cfg).mounts.get("m1").cloned(), None);
-        assert_eq!(read_config(&cfg).mounts.get("m2").cloned().as_deref(), Some(Path::new("/tmp/other")));
+        assert_eq!(
+            read_config(&cfg).mounts.get("m2").cloned().as_deref(),
+            Some(Path::new("/tmp/other"))
+        );
         assert_eq!(read_config(&cfg).vault.as_deref(), Some(Path::new("/tmp/v2")));
     }
 

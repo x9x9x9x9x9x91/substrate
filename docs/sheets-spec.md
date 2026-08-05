@@ -327,6 +327,30 @@ walk per day.
 Charts plot a fact's whole history with a `history:` fence rather than a chain
 of `AT()` cells — `docs/dashboards.md` → `charts`.
 
+## Notifications — date columns that fire (SUB-876)
+
+A sheet's date column can raise the same notification a database date prop
+does. A sheet has no schema, so the setting lives in the note's own
+frontmatter, under a `columns:` map keyed by header name — the on-disk shape,
+folding rules and notification-state key grammar are specified in
+`docs/vault-format.md` §5.1 and `.vault/notifications.json`; don't duplicate
+them here. What matters at sheet level:
+
+- **Per column, not per cell.** Turning `Renewal` on means every dated cell in
+  that column fires; cells that aren't dates are ignored, so a mixed column is
+  fine. `notify: true` fires on the day, `notifyBefore: n` fires `n` days ahead
+  as well, and the two are independent alerts of one date.
+- **A row is its first cell.** The alert names the row by its label (the
+  leftmost column's value) and the notification state keys on it, so sorting,
+  inserting and deleting rows never mis-fires; renaming a label reads as a new
+  row. A row with a blank label stays quiet — it has nothing to be called.
+- **The column menu** (header ▾ → Notify…) writes the setting: off, on the day,
+  N days before, or both. It only offers the drill-in when the column looks
+  dated or is already firing, so the menu stays short on a sheet of text.
+- **Clicking the notification opens the sheet at that cell** — the app resolves
+  the row by its label at click time and scrolls the cell into view; if the row
+  or column is gone by then, the note still opens and nothing is selected.
+
 ## UI
 
 - Sheet notes open as a grid (like the DB list pane but real columns): editable data

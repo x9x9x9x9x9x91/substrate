@@ -774,10 +774,7 @@ mod tests {
     /// still have to land on exactly this moment.
     fn shown_at(instant: chrono::DateTime<chrono::Utc>) -> (String, String) {
         let local = instant.with_timezone(&Local);
-        (
-            local.format("%Y-%m-%d").to_string(),
-            format!("{:02}:{:02}", local.hour(), local.minute()),
-        )
+        (local.format("%Y-%m-%d").to_string(), format!("{:02}:{:02}", local.hour(), local.minute()))
     }
 
     #[test]

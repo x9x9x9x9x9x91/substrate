@@ -6,7 +6,7 @@
     embeds. Fidelity target is a clean printed page, not a spec parser. */
 
 import { isImageName } from "./artwork.ts";
-import { wikiLinkDisplay } from "./wikilinks.ts";
+import { embedTarget, wikiLinkDisplay } from "./wikilinks.ts";
 
 const ESC: Record<string, string> = {
   "&": "&amp;",
@@ -47,7 +47,7 @@ function inline(raw: string, assetSrc: AssetSrc): string {
       s = s.replace(/!\[\[([^[\]]+)\]\]/g, (_m, name: string) => {
         // the segment is escaped by now, so the captured name is too: resolve
         // against the raw filename, keep the escaped form for the output
-        const n = name.trim();
+        const n = embedTarget(name);
         const raw = unescapeHtml(n);
         if (!isImageName(raw)) {
           // audio and other file embeds print as a named placeholder

@@ -185,7 +185,18 @@ export function applyAppearance(root: HTMLElement, a: Appearance): void {
    read is still the truth. The claim is a pair of counters rather than a
    boolean because dials move independently: reconciling the field whose write
    just landed must not hand back a preview another field made in the
-   meantime. */
+   meantime.
+
+   SUB-1126: what the claim covers is the previewed LOOK, not the `Appearance`
+   struct. Window opacity (lib/vibrancy.ts) is painted by the same drag, from
+   the same sheet, released at the same seams — and it lost the same race, for
+   the same reason. It rides this claim rather than a sibling counter of its
+   own: two counters would have to be taken and released together at every one
+   of those seams to mean anything, which is one counter with twice the places
+   to forget it. The cost is that a glow drag also holds opacity's paint, and
+   that costs nothing — during it the note's opacity is what the pane is
+   already showing, so the read it suppresses would have painted the value
+   that is on screen. */
 let previewSeq = 0;
 let reconciledSeq = 0;
 
@@ -193,6 +204,13 @@ let reconciledSeq = 0;
 export function previewAppearance(root: HTMLElement, a: Appearance): void {
   previewSeq += 1;
   applyAppearance(root, a);
+}
+
+/** take the claim without painting anything — for a look the pane previews
+    through its own writer rather than through `applyAppearance` (SUB-1126:
+    window opacity, which is a window material and a class, not a token) */
+export function claimAppearancePreview(): void {
+  previewSeq += 1;
 }
 
 /** where the claim stands — take this before a write, hand it to
@@ -208,7 +226,8 @@ export function reconcileAppearance(seq: number): void {
 }
 
 /** true while the document element shows something the note does not yet
-    hold — Settings.md reads must leave the appearance alone */
+    hold — Settings.md reads must leave the appearance AND the window ground
+    (SUB-1126) alone */
 export function appearancePreviewPending(): boolean {
   return previewSeq > reconciledSeq;
 }

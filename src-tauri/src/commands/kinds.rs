@@ -68,9 +68,9 @@ pub(crate) fn kinds_enable(
         .into_iter()
         .next()
         .ok_or_else(|| format!("no kind \"{id}\" in this vault"))?;
-    let manifest = bundle
-        .manifest_ok()
-        .ok_or_else(|| bundle.manifest.reason.clone().unwrap_or_else(|| "kind.json is invalid".into()))?;
+    let manifest = bundle.manifest_ok().ok_or_else(|| {
+        bundle.manifest.reason.clone().unwrap_or_else(|| "kind.json is invalid".into())
+    })?;
 
     if bundle.hash != hash {
         return Err(

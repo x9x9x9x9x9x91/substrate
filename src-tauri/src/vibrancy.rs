@@ -11,7 +11,9 @@ hierarchy means no per-frame blur work and rendering that is bit-for-bit the
 opaque app we shipped before this setting existed. */
 
 use tauri::{AppHandle, Manager};
-use window_vibrancy::{apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState};
+use window_vibrancy::{
+    apply_vibrancy, clear_vibrancy, NSVisualEffectMaterial, NSVisualEffectState,
+};
 
 /// Re-apply the window material for `opacity` (80–100, see [`crate::vault::Settings`]).
 ///

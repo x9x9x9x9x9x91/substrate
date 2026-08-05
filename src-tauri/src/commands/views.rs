@@ -5,7 +5,9 @@ use crate::{AppState, HistoryState, SnapDirty};
 use tauri::State;
 
 #[tauri::command]
-pub(crate) fn vault_views_read(state: State<AppState>) -> std::collections::HashMap<String, ViewPref> {
+pub(crate) fn vault_views_read(
+    state: State<AppState>,
+) -> std::collections::HashMap<String, ViewPref> {
     state.0.lock().unwrap().views()
 }
 

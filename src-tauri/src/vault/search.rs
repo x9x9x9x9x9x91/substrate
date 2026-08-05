@@ -224,7 +224,12 @@ impl Engine {
     /// with the toggle off, AGENTS.md/CLAUDE.md/Settings.md never surface, so
     /// they must fall out here — before the cap — or they silently eat page
     /// slots the client then filters into nothing (SUB-907).
-    pub fn search(&self, q: &str, scope: Option<&[String]>, exclude_app_files: bool) -> Vec<SearchHit> {
+    pub fn search(
+        &self,
+        q: &str,
+        scope: Option<&[String]>,
+        exclude_app_files: bool,
+    ) -> Vec<SearchHit> {
         let q = q.trim();
         if q.is_empty() {
             return Vec::new();
@@ -523,11 +528,8 @@ mod tests {
         let (mut e, dir) = temp_vault("appx");
         // "substrate" appears in the seeded AGENTS.md, CLAUDE.md body text and
         // Settings.md — plus this one user note
-        fs::write(
-            dir.join("Mine.md"),
-            "---\ntype: note\n---\nsubstrate keeps my notes plain\n",
-        )
-        .unwrap();
+        fs::write(dir.join("Mine.md"), "---\ntype: note\n---\nsubstrate keeps my notes plain\n")
+            .unwrap();
         // a NESTED copy is normal content (exact root paths only)
         fs::create_dir_all(dir.join("Old")).unwrap();
         fs::write(dir.join("Old/AGENTS.md"), "---\ntype: note\n---\nsubstrate archive copy\n")
@@ -694,15 +696,12 @@ mod tests {
         e.set_prop("Lisbon.md", "type", None).unwrap();
         e.set_prop("Lisbon.md", "Type", Some("TRIP")).unwrap();
         e.set_prop("Lisbon.md", "contact", Some("Gero")).unwrap();
-        e.set_prop_value("Kyoto.md", "contact", Some(serde_json::json!(["Gero", "Noa"])))
-            .unwrap();
+        e.set_prop_value("Kyoto.md", "contact", Some(serde_json::json!(["Gero", "Noa"]))).unwrap();
         e.set_prop("Dolomites.md", "label", Some("Gero")).unwrap();
 
         let rel = e.related("Gero.md");
         assert_eq!(rel.len(), 2, "two trips point here, multi counts once");
-        assert!(rel
-            .iter()
-            .all(|r| folded_eq(&r.db_type, "trip") && r.prop == "contact"));
+        assert!(rel.iter().all(|r| folded_eq(&r.db_type, "trip") && r.prop == "contact"));
         assert!(rel.iter().any(|r| r.path == "Lisbon.md"));
         assert!(rel.iter().any(|r| r.path == "Kyoto.md"));
 

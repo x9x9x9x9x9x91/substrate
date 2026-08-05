@@ -210,9 +210,9 @@ impl Condition {
 
 /// Case-insensitive prop lookup — frontmatter keys are user-typed.
 fn prop_lookup<'a>(props: &'a Map<String, Value>, key: &str) -> Option<&'a Value> {
-    props.get(key).or_else(|| {
-        props.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v)
-    })
+    props
+        .get(key)
+        .or_else(|| props.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v))
 }
 
 /// A present-but-empty prop counts as absent: `status:` with nothing after it
@@ -462,10 +462,7 @@ fn check_placeholders(template: &str, event: Event) -> Result<(), String> {
             _ => false,
         };
         if !ok {
-            return Err(format!(
-                "`{{{{{name}}}}}` is not available on `{}`",
-                event.as_str()
-            ));
+            return Err(format!("`{{{{{name}}}}}` is not available on `{}`", event.as_str()));
         }
     }
     Ok(())
@@ -520,7 +517,9 @@ fn fill(name: &str, s: &Subject) -> String {
         "file" => s.file.clone().unwrap_or_default(),
         "mount" => s.mount.clone().unwrap_or_default(),
         other => match other.strip_prefix("prop.") {
-            Some(key) => prop_lookup(&s.props, key).map(|v| atoms(v).join(", ")).unwrap_or_default(),
+            Some(key) => {
+                prop_lookup(&s.props, key).map(|v| atoms(v).join(", ")).unwrap_or_default()
+            }
             None => String::new(),
         },
     }
@@ -781,9 +780,7 @@ fn validate_id(id: &str) -> Result<(), String> {
     }
     for c in chars {
         if !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '-' {
-            return Err(format!(
-                "rule id `{id}` may only use lowercase letters, digits and `-`"
-            ));
+            return Err(format!("rule id `{id}` may only use lowercase letters, digits and `-`"));
         }
     }
     Ok(())
@@ -1295,10 +1292,7 @@ mod tests {
 
     #[test]
     fn a_newer_file_version_refuses_the_whole_file() {
-        let err = parse(
-            &json!({ "version": 2, "rules": [] }).to_string(),
-        )
-        .unwrap_err();
+        let err = parse(&json!({ "version": 2, "rules": [] }).to_string()).unwrap_err();
         assert!(err.contains("Update the app"), "{err}");
     }
 

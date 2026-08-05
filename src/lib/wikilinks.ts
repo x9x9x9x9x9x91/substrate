@@ -73,6 +73,27 @@ export function parseWikiLink(inner: string): WikiLinkParts {
   return { target, anchor, alias };
 }
 
+/** The file an `![[…]]` embed names, with any display modifier dropped
+    (SUB-1102). The modifier is everything past the FIRST `|` — a size or
+    layout hint (`|300`, `|300x200`, `|left`) in the Obsidian dialect these
+    vaults are written in. `![[cover.png|300]]` names `cover.png`; without this
+    split every reader looks for a file literally called `cover.png|300` and
+    renders a present image as missing.
+
+    Substrate ACCEPTS the modifier and currently IGNORES it — no width, no
+    float, nothing committed about what the hint should mean.
+
+    Unlike `parseWikiLink` this does NOT split on `#`: an embed target is a
+    filename or a path, both of which may legally contain `#`, and an embed has
+    no anchor semantics to spend it on.
+
+    Twin of `embed_target` in `src-tauri/src/vault/mod.rs` — the two must
+    agree, or the app renders an asset the engine reports orphaned. */
+export function embedTarget(inner: string): string {
+  const pipe = inner.indexOf("|");
+  return (pipe < 0 ? inner : inner.slice(0, pipe)).trim();
+}
+
 /** What a wikilink SHOWS: the alias when the author wrote one, else the
     target with its anchor (`Piranesi#Notes` reads as one label). Never the
     raw inner text — the pipe is syntax, not prose. */

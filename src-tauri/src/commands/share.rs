@@ -54,16 +54,16 @@ pub fn share_store(
     if let Some(t) = token {
         req = req.set("Authorization", &format!("Bearer {t}"));
     }
-    let resp = req
-        .send_bytes(&payload)
-        .map_err(|e| net::redact_message(&e.to_string()))?;
+    let resp = req.send_bytes(&payload).map_err(|e| net::redact_message(&e.to_string()))?;
     if resp.status() != 201 {
         return Err(format!("relay refused the upload ({})", resp.status()));
     }
     let body = resp.into_string().map_err(|e| e.to_string())?;
     let reply: StoreReply =
         serde_json::from_str(&body).map_err(|e| format!("bad relay reply: {e}"))?;
-    if reply.id.is_empty() || !reply.id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+    if reply.id.is_empty()
+        || !reply.id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    {
         return Err("bad relay reply: unusable id".into());
     }
     Ok(reply.id)
@@ -107,8 +107,13 @@ mod tests {
 
     #[test]
     fn refuses_unsealed_payloads() {
-        let e = share_store("https://relay.example", &b64(b"PK not sealed but long enough"), "7d", None)
-            .unwrap_err();
+        let e = share_store(
+            "https://relay.example",
+            &b64(b"PK not sealed but long enough"),
+            "7d",
+            None,
+        )
+        .unwrap_err();
         assert!(e.contains("not a sealed handoff payload"), "{e}");
     }
 

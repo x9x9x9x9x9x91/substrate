@@ -1,7 +1,7 @@
 //! Trash: note and folder deletes, restores and permanent purges.
 
-use crate::{AppState, HistoryState, SnapDirty};
 use crate::vault::{NoteMeta, TrashEntry};
+use crate::{AppState, HistoryState, SnapDirty};
 use tauri::State;
 
 /// "Delete" from the UI is a move into `.trash/` — recoverable until the

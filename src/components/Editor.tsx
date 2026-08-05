@@ -60,7 +60,7 @@ import { isTauri } from "../lib/tauri";
 import { claimDrop, dropClientPoint, dropHintText } from "../lib/dragdrop";
 import { shortcutCmKey } from "../lib/shortcuts";
 import { type PosTracker, trackPos, trackedPositions } from "../lib/trackpos";
-import { wikiLinkInsert, wikiLinkOptions, wikiLinkQuery } from "../lib/wikilinks";
+import { embedTarget, wikiLinkInsert, wikiLinkOptions, wikiLinkQuery } from "../lib/wikilinks";
 import { inlineTagMatches, tagOptions, tagQuery } from "../lib/tags";
 import {
   fenceExit,
@@ -1174,7 +1174,9 @@ function buildDecorations(view: EditorView): DecorationSet {
       if (inCovered(start, end) || audioRegionCovered || inCode(start, end)) continue;
       const line = state.doc.lineAt(start).number;
       if (focused && active.has(line)) continue;
-      const target = m[1].trim();
+      // the file alone — a `|300`-style display modifier is a size hint,
+      // accepted and (for now) ignored, never part of the name (SUB-1102)
+      const target = embedTarget(m[1]);
       let widget = isAudioEmbed(target)
         ? new AudioWidget(target, epoch)
         : isImageEmbed(target)

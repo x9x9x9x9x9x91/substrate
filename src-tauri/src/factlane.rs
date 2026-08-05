@@ -102,10 +102,7 @@ pub fn collapse(readings: Vec<FactPoint>) -> Vec<FactPoint> {
 /// non-numeric value is returned as-is, §2.3); every other scalar renders as
 /// its JSON form so `72.4` and `true` round-trip unambiguously. An explicit
 /// null is the same as absent — the key is there but holds nothing.
-pub fn fact_value(
-    props: &serde_json::Map<String, serde_json::Value>,
-    key: &str,
-) -> Option<String> {
+pub fn fact_value(props: &serde_json::Map<String, serde_json::Value>, key: &str) -> Option<String> {
     let text = match props.get(key) {
         None | Some(serde_json::Value::Null) => return None,
         Some(serde_json::Value::String(s)) => s.clone(),
@@ -135,11 +132,7 @@ mod tests {
     use super::*;
 
     fn pt(ts_ms: u64, value: Option<&str>) -> FactPoint {
-        FactPoint {
-            commit: format!("c{ts_ms}"),
-            ts_ms,
-            value: value.map(str::to_string),
-        }
+        FactPoint { commit: format!("c{ts_ms}"), ts_ms, value: value.map(str::to_string) }
     }
 
     fn lane(points: Vec<FactPoint>, oldest: Option<u64>) -> FactLane {
@@ -200,11 +193,7 @@ mod tests {
         let points = collapse(raw);
         assert_eq!(
             points.iter().map(|p| (p.ts_ms, p.value.clone())).collect::<Vec<_>>(),
-            vec![
-                (20, Some("70".into())),
-                (40, Some("71".into())),
-                (50, None),
-            ]
+            vec![(20, Some("70".into())), (40, Some("71".into())), (50, None),]
         );
     }
 

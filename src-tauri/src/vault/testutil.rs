@@ -24,11 +24,7 @@ pub(crate) fn refuse_config_writes(root: &Path) {
         .iter()
         .map(|f| (f.key().to_string(), serde_json::json!(99)))
         .collect();
-    fs::write(
-        root.join(".vault/format.json"),
-        serde_json::to_string(&refused).unwrap(),
-    )
-    .unwrap();
+    fs::write(root.join(".vault/format.json"), serde_json::to_string(&refused).unwrap()).unwrap();
 }
 
 pub(crate) fn opt(value: &str, color: Option<&str>) -> SelectOption {
@@ -53,15 +49,23 @@ pub(crate) fn vault_with_poisoned_note(name: &str) -> (Engine, PathBuf) {
         e.create(stem, "Inbox", Some("books")).unwrap();
         e.set_prop(&format!("Inbox/{stem}.md"), "author", Some("Herbert")).unwrap();
     }
-    e.set_schema_prop("books", "author", vec![], Some("text".into()), None, None, None, None, None, None)
-        .unwrap();
-    // B sorts between A and C, so the sweep rewrites A, dies on B, never
-    // reaches C — the poison lands after the index already read the type
-    fs::write(
-        dir.join("Inbox/B.md"),
-        "---\ntype: books\nauthor: Herbert\n\tbad: x\n---\nBody.\n",
+    e.set_schema_prop(
+        "books",
+        "author",
+        vec![],
+        Some("text".into()),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
     )
     .unwrap();
+    // B sorts between A and C, so the sweep rewrites A, dies on B, never
+    // reaches C — the poison lands after the index already read the type
+    fs::write(dir.join("Inbox/B.md"), "---\ntype: books\nauthor: Herbert\n\tbad: x\n---\nBody.\n")
+        .unwrap();
     (e, dir)
 }
 
@@ -82,21 +86,28 @@ pub(crate) fn vault_with_stale_indexed_broken_note(name: &str) -> (Engine, PathB
     // keeps the pre-corruption picture the sweep's pre-filter trusted
     e.create("B", "Inbox", Some("books")).unwrap();
     assert!(!e.meta("Inbox/B.md").unwrap().props.contains_key("author"), "index has no key");
-    fs::write(
-        dir.join("Inbox/B.md"),
-        "---\ntype: books\nauthor: Tolkien\n\tbad: x\n---\nBody.\n",
+    fs::write(dir.join("Inbox/B.md"), "---\ntype: books\nauthor: Tolkien\n\tbad: x\n---\nBody.\n")
+        .unwrap();
+    e.set_schema_prop(
+        "books",
+        "author",
+        vec![],
+        Some("text".into()),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
     )
     .unwrap();
-    e.set_schema_prop("books", "author", vec![], Some("text".into()), None, None, None, None, None, None)
-        .unwrap();
     (e, dir)
 }
 
 /// A scratch folder OUTSIDE the vault, canonicalized like the engine
 /// root so path comparisons line up on macOS (/var → /private/var).
 pub(crate) fn temp_watched(name: &str) -> PathBuf {
-    let dir =
-        std::env::temp_dir().join(format!("watched-test-{}-{}", std::process::id(), name));
+    let dir = std::env::temp_dir().join(format!("watched-test-{}-{}", std::process::id(), name));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     dir.canonicalize().unwrap()

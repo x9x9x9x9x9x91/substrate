@@ -1,7 +1,7 @@
 //! Vault root, first-run onboarding and app relaunch (SUB-436).
 
-use crate::{AppState, OnboardingState};
 use crate::appcfg;
+use crate::{AppState, OnboardingState};
 use tauri::{Manager, State};
 
 #[tauri::command]
@@ -206,7 +206,7 @@ pub(crate) fn prepare_demo_vault(
         // produced the promised content or this door does not open
         std::fs::remove_dir_all(dest).ok();
         return Err(
-            "The demo vault could not be copied — its content is missing or unreadable.".into(),
+            "The demo vault could not be copied — its content is missing or unreadable.".into()
         );
     }
     restamp_demo_feed(dest);
@@ -291,10 +291,7 @@ fn refresh_demo_vault_from(
         None
     };
 
-    let mut next_files = previous
-        .as_ref()
-        .map(|s| s.files.clone())
-        .unwrap_or_default();
+    let mut next_files = previous.as_ref().map(|s| s.files.clone()).unwrap_or_default();
 
     for source in source_files {
         let target = dest.join(&source.rel);
@@ -506,7 +503,10 @@ pub(crate) fn migrate_legacy_demo_vault(
 /// an empty `.vault/` and reported success, so the door promising "sample
 /// notes, databases and dashboards" opened onto nothing (SUB-436 review #3).
 #[tauri::command]
-pub(crate) fn vault_demo(app: tauri::AppHandle, onboarding: State<OnboardingState>) -> Result<String, String> {
+pub(crate) fn vault_demo(
+    app: tauri::AppHandle,
+    onboarding: State<OnboardingState>,
+) -> Result<String, String> {
     let dest = demo_vault_dir(&app)
         .ok_or("The demo vault has nowhere to go — no home folder could be resolved.")?;
     let src = demo_vault_source(&app);
@@ -662,10 +662,7 @@ mod tests {
             "Books/Piranesi.md",
             "---\ntype: book\nauthor: Susanna Clarke\nrating: 5\n---\n\nHouse of statues. Logged in [[Reading log]].\n",
         );
-        w(
-            "Books/Pachinko.md",
-            "---\ntype: book\nauthor: Min Jin Lee\n---\n\nGenerations.\n",
-        );
+        w("Books/Pachinko.md", "---\ntype: book\nauthor: Min Jin Lee\n---\n\nGenerations.\n");
         w(
             "Journal/2026-01-02.md",
             // `![[Pachinko]]` is an embed of a NOTE, so it exercises the
@@ -793,7 +790,13 @@ mod tests {
 
         // 3. the corpus is usable: nested notes indexed, .obsidian/ ignored
         let paths: Vec<String> = engine.list().iter().map(|n| n.path.clone()).collect();
-        for want in ["README.md", "Reading log.md", "Books/Piranesi.md", "Books/Pachinko.md", "Journal/2026-01-02.md"] {
+        for want in [
+            "README.md",
+            "Reading log.md",
+            "Books/Piranesi.md",
+            "Books/Pachinko.md",
+            "Journal/2026-01-02.md",
+        ] {
             assert!(paths.iter().any(|p| p == want), "{want} not indexed: {paths:?}");
         }
         assert!(
@@ -925,7 +928,10 @@ mod tests {
         let config_dir = t.path().join("config");
         std::fs::write(&config_dir, "not a directory").unwrap();
 
-        assert!(super::select_demo_vault(&config_dir, &dest, true).is_err(), "the choice cannot persist");
+        assert!(
+            super::select_demo_vault(&config_dir, &dest, true).is_err(),
+            "the choice cannot persist"
+        );
         assert!(!dest.exists(), "so the fresh copy it was for is gone too");
     }
 
@@ -1005,10 +1011,8 @@ mod tests {
         std::os::unix::fs::symlink(t.path().join("gone.md"), dest.join("Dangling.md")).unwrap();
         std::fs::write(src.join("Dangling.md"), "new bundled dangling\n").unwrap();
         let old_hashes = [crate::vault::seed_hash("old bundled welcome\n")];
-        let bootstrap = [
-            ("Welcome.md", old_hashes.as_slice()),
-            ("Dangling.md", old_hashes.as_slice()),
-        ];
+        let bootstrap =
+            [("Welcome.md", old_hashes.as_slice()), ("Dangling.md", old_hashes.as_slice())];
 
         super::refresh_demo_vault_from(&src, &dest, &bootstrap).unwrap();
 

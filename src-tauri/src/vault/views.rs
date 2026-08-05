@@ -395,8 +395,7 @@ fn comparison_operand_is_valid(raw: &str, number_kind: bool) -> bool {
 fn is_cased(ch: char) -> bool {
     static RE: OnceLock<Regex> = OnceLock::new();
     let mut encoded = [0; 4];
-    RE.get_or_init(|| Regex::new(r"^\p{Cased}$").unwrap())
-        .is_match(ch.encode_utf8(&mut encoded))
+    RE.get_or_init(|| Regex::new(r"^\p{Cased}$").unwrap()).is_match(ch.encode_utf8(&mut encoded))
 }
 
 fn is_case_ignorable(ch: char) -> bool {
@@ -617,11 +616,7 @@ impl Engine {
         // paths keep their exact spelling — a file may legally be named with a
         // leading or trailing space, and a trimmed entry would name nothing
         let card_order = card_order
-            .map(|l| {
-                l.into_iter()
-                    .filter(|c| !c.trim().is_empty())
-                    .collect::<Vec<_>>()
-            })
+            .map(|l| l.into_iter().filter(|c| !c.trim().is_empty()).collect::<Vec<_>>())
             .filter(|l: &Vec<String>| !l.is_empty());
         let hidden = hidden
             .map(|l| {
@@ -660,7 +655,11 @@ impl Engine {
                 .filter(|l: &Vec<String>| !l.is_empty())
             };
             let h = HiddenPerLayout { table: clean(h.table), list: clean(h.list) };
-            if h.table.is_none() && h.list.is_none() { None } else { Some(h) }
+            if h.table.is_none() && h.list.is_none() {
+                None
+            } else {
+                Some(h)
+            }
         });
         let mut map = self.views_file();
         // A hand-edited views/schema file may spell the database differently
@@ -800,7 +799,10 @@ impl Engine {
 
     /// Persist the `$folders` map, dropping the key when it empties and
     /// leaving every other key (db prefs, `$sidebar`, `$views`) untouched.
-    pub(super) fn write_folder_meta(&self, meta: &HashMap<String, FolderMeta>) -> Result<(), String> {
+    pub(super) fn write_folder_meta(
+        &self,
+        meta: &HashMap<String, FolderMeta>,
+    ) -> Result<(), String> {
         let mut map = self.views_file();
         if meta.is_empty() {
             map.remove(FolderMeta::KEY);
@@ -816,7 +818,11 @@ impl Engine {
     /// Folder meta follows the folder: a rename retargets its keys (subtree
     /// included, `new_rel` = Some), trashing drops them (None). No file
     /// write when nothing is stored for the affected subtree.
-    pub(super) fn move_folder_meta(&self, old_rel: &str, new_rel: Option<&str>) -> Result<(), String> {
+    pub(super) fn move_folder_meta(
+        &self,
+        old_rel: &str,
+        new_rel: Option<&str>,
+    ) -> Result<(), String> {
         let mut meta = self.folder_meta();
         let prefix = format!("{old_rel}/");
         let keys: Vec<String> = meta
@@ -847,7 +853,11 @@ impl Engine {
     /// So do dashboard GROUP headers (SUB-698): the group is its folder, so
     /// renaming or trashing that folder must carry (or drop) its manual
     /// position exactly like a tree folder's.
-    pub(super) fn move_sidebar_folders(&self, old_rel: &str, new_rel: Option<&str>) -> Result<(), String> {
+    pub(super) fn move_sidebar_folders(
+        &self,
+        old_rel: &str,
+        new_rel: Option<&str>,
+    ) -> Result<(), String> {
         let mut order = self.sidebar_order();
         let prefix = format!("{old_rel}/");
         let mut touched = false;
@@ -957,7 +967,11 @@ impl Engine {
     /// it (None) — the same discipline as `move_sidebar_folders`. No file
     /// write when the note isn't pinned; the read side already drops unknown
     /// paths, so this is hygiene that keeps the pin alive across renames.
-    pub(super) fn move_sidebar_pin(&self, old_rel: &str, new_rel: Option<&str>) -> Result<(), String> {
+    pub(super) fn move_sidebar_pin(
+        &self,
+        old_rel: &str,
+        new_rel: Option<&str>,
+    ) -> Result<(), String> {
         let mut order = self.sidebar_order();
         if !order.pins.iter().any(|p| p == old_rel) {
             return Ok(());
@@ -1016,7 +1030,11 @@ impl Engine {
     /// retargets, trashing drops. Both note-shaped targets ride along — a plain
     /// pinned note (`note:<path>`) and a dashboard (`dash:<path>`), since a
     /// dashboard is a note too and renaming one must not orphan its key.
-    pub(super) fn move_sidebar_keys(&self, old_rel: &str, new_rel: Option<&str>) -> Result<(), String> {
+    pub(super) fn move_sidebar_keys(
+        &self,
+        old_rel: &str,
+        new_rel: Option<&str>,
+    ) -> Result<(), String> {
         let note_old = format!("note:{old_rel}");
         let dash_old = format!("dash:{old_rel}");
         self.retarget_sidebar_keys(|target| {
@@ -1034,7 +1052,11 @@ impl Engine {
     /// Folder-scoped counterpart: a renamed folder carries its own key
     /// (`folder:<path>`) and every key assigned to something INSIDE it
     /// (nested folders, notes, dashboards); trashing the folder drops them all.
-    pub(super) fn move_sidebar_keys_folder(&self, old_rel: &str, new_rel: Option<&str>) -> Result<(), String> {
+    pub(super) fn move_sidebar_keys_folder(
+        &self,
+        old_rel: &str,
+        new_rel: Option<&str>,
+    ) -> Result<(), String> {
         let prefix = format!("{old_rel}/");
         self.retarget_sidebar_keys(|target| {
             let (kind, path) = target.split_once(':')?;
@@ -1178,10 +1200,7 @@ impl Engine {
                             s
                         })
                         .collect(),
-                    None => sorts
-                        .into_iter()
-                        .filter(|s| !folded_eq(&s.key, old))
-                        .collect(),
+                    None => sorts.into_iter().filter(|s| !folded_eq(&s.key, old)).collect(),
                 };
                 touched |= kept.len() != before;
                 // `sort` is the compatibility mirror for older readers. A
@@ -1214,10 +1233,7 @@ impl Engine {
                             })
                             .collect()
                     }
-                    None => cols
-                        .into_iter()
-                        .filter(|c| !folded_eq(c, old))
-                        .collect(),
+                    None => cols.into_iter().filter(|c| !folded_eq(c, old)).collect(),
                 };
                 touched |= had_old;
                 // an emptied curation collapses to None — the frontend reads
@@ -1245,39 +1261,80 @@ mod tests {
         let (e, dir) = temp_vault("views");
         assert!(e.views().is_empty(), "no views file yet");
 
-        let map =
-            e.set_view_pref("release", "table", None, None, None, None, None, None, None, None, None, None, None).unwrap();
+        let map = e
+            .set_view_pref(
+                "release", "table", None, None, None, None, None, None, None, None, None, None,
+                None,
+            )
+            .unwrap();
         assert_eq!(map["release"].view, "table");
         assert_eq!(map["release"].group_by, None);
         assert!(dir.join(ViewPref::REL_PATH).is_file(), ".vault/views.json created");
 
         let map = e
-            .set_view_pref("release", "board", Some("status"), None, None, None, None, None, None, None, None, None, None)
+            .set_view_pref(
+                "release",
+                "board",
+                Some("status"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .unwrap();
         assert_eq!(map["release"].view, "board");
         assert_eq!(map["release"].group_by.as_deref(), Some("status"));
 
         let map = e
-            .set_view_pref("release", "gallery", None, None, None, None, None, None, None, None, None, None, None)
+            .set_view_pref(
+                "release", "gallery", None, None, None, None, None, None, None, None, None, None,
+                None,
+            )
             .unwrap();
         assert_eq!(map["release"].view, "gallery");
 
         // a second database merges in without clobbering the first
-        let map =
-            e.set_view_pref("gear", "list", None, None, None, None, None, None, None, None, None, None, None).unwrap();
+        let map = e
+            .set_view_pref(
+                "gear", "list", None, None, None, None, None, None, None, None, None, None, None,
+            )
+            .unwrap();
         assert_eq!(map["gear"].view, "list");
         assert_eq!(map["release"].view, "gallery");
         assert_eq!(e.views().len(), 2, "persisted across reads");
 
         assert!(
-            e.set_view_pref("gear", "grid", None, None, None, None, None, None, None, None, None, None, None).is_err(),
+            e.set_view_pref(
+                "gear", "grid", None, None, None, None, None, None, None, None, None, None, None
+            )
+            .is_err(),
             "unknown layout rejected"
         );
 
         // SUB-184: the table's grouping key is its own field, independent of
         // the board's, and lands in the file
         let map = e
-            .set_view_pref("release", "table", None, Some("category"), None, None, None, None, None, None, None, None, None)
+            .set_view_pref(
+                "release",
+                "table",
+                None,
+                Some("category"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .unwrap();
         assert_eq!(map["release"].table_group_by.as_deref(), Some("category"));
         assert_eq!(map["release"].group_by, None, "independent of the board key");
@@ -1300,7 +1357,21 @@ mod tests {
             ("artist".to_string(), "count".to_string()),
         ]);
         let map = e
-            .set_view_pref("release", "table", None, None, Some(aggs), None, None, None, None, None, None, None, None)
+            .set_view_pref(
+                "release",
+                "table",
+                None,
+                None,
+                Some(aggs),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .unwrap();
         assert_eq!(map["release"].aggregations.as_ref().unwrap()["tracks"], "sum");
         // on-disk JSON carries the key, and a re-read sees it too
@@ -1308,8 +1379,12 @@ mod tests {
         assert!(raw.contains("\"aggregations\""), "{}", raw);
         assert_eq!(e.views()["release"].aggregations.as_ref().unwrap()["artist"], "count");
         // cleared by passing None (key omitted from the file again)
-        let map =
-            e.set_view_pref("release", "table", None, None, None, None, None, None, None, None, None, None, None).unwrap();
+        let map = e
+            .set_view_pref(
+                "release", "table", None, None, None, None, None, None, None, None, None, None,
+                None,
+            )
+            .unwrap();
         assert_eq!(map["release"].aggregations, None);
         let raw = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
         assert!(!raw.contains("aggregations"), "{}", raw);
@@ -1413,7 +1488,21 @@ mod tests {
             list: Some(vec!["artist".to_string()]),
         };
         let map = e
-            .set_view_pref("release", "table", None, None, None, None, None, None, None, None, None, Some(hpl), None)
+            .set_view_pref(
+                "release",
+                "table",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(hpl),
+                None,
+            )
             .unwrap();
         let got = map["release"].hidden_per_layout.as_ref().unwrap();
         assert_eq!(
@@ -1768,20 +1857,51 @@ mod tests {
     fn view_pref_grid_override_persists_and_absents() {
         let (e, dir) = temp_vault("viewsgrid");
         let map = e
-            .set_view_pref("release", "table", None, None, None, None, None, None, None, None, Some(false), None, None)
+            .set_view_pref(
+                "release",
+                "table",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(false),
+                None,
+                None,
+            )
             .unwrap();
         assert_eq!(map["release"].grid, Some(false));
         let raw = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
         assert!(raw.contains("\"grid\": false"), "{}", raw);
 
         let map = e
-            .set_view_pref("release", "table", None, None, None, None, None, None, None, None, Some(true), None, None)
+            .set_view_pref(
+                "release",
+                "table",
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some(true),
+                None,
+                None,
+            )
             .unwrap();
         assert_eq!(map["release"].grid, Some(true));
 
         // back to follow-the-global: the key leaves the file
         let map = e
-            .set_view_pref("release", "table", None, None, None, None, None, None, None, None, None, None, None)
+            .set_view_pref(
+                "release", "table", None, None, None, None, None, None, None, None, None, None,
+                None,
+            )
             .unwrap();
         assert_eq!(map["release"].grid, None);
         let raw = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
@@ -1796,8 +1916,12 @@ mod tests {
         fs::write(dir.join(ViewPref::REL_PATH), "not json {{").unwrap();
         assert!(e.views().is_empty());
         // …and a fresh set recovers by overwriting the garbage
-        let map =
-            e.set_view_pref("release", "table", None, None, None, None, None, None, None, None, None, None, None).unwrap();
+        let map = e
+            .set_view_pref(
+                "release", "table", None, None, None, None, None, None, None, None, None, None,
+                None,
+            )
+            .unwrap();
         assert_eq!(map["release"].view, "table");
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1869,8 +1993,22 @@ mod tests {
         assert_eq!(back.keys["mod+5"], "folder:Projects");
         assert_eq!(e.sidebar_order().keys["mod+5"], "folder:Projects");
         // view prefs written afterwards keep the sidebar key, and vice versa
-        e.set_view_pref("release", "board", Some("status"), None, None, None, None, None, None, None, None, None, None)
-            .unwrap();
+        e.set_view_pref(
+            "release",
+            "board",
+            Some("status"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(e.sidebar_order().databases, vec!["gear", "release"]);
         assert_eq!(e.sidebar_order().collapsed, vec!["folders", "dbpins:release"]);
         assert_eq!(e.sidebar_order().folders, vec!["Projects", "Inbox"]);
@@ -2179,8 +2317,22 @@ mod tests {
         assert_eq!(views[1].name, "In review");
 
         // survives a fresh read, alongside db prefs and the sidebar order
-        e.set_view_pref("release", "board", Some("status"), None, None, None, None, None, None, None, None, None, None)
-            .unwrap();
+        e.set_view_pref(
+            "release",
+            "board",
+            Some("status"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         e.set_sidebar_order(&SidebarOrder {
             databases: vec!["release".into()],
             ..Default::default()
@@ -2309,7 +2461,10 @@ mod tests {
         assert!(e.saved_views().is_empty(), "rejected writes never landed");
 
         // garbage under $views reads as empty instead of poisoning the file
-        e.set_view_pref("release", "table", None, None, None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref(
+            "release", "table", None, None, None, None, None, None, None, None, None, None, None,
+        )
+        .unwrap();
         let raw = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
         let mut map: serde_json::Map<String, serde_json::Value> =
             serde_json::from_str(&raw).unwrap();
@@ -2362,7 +2517,10 @@ mod tests {
         assert_eq!(icon.tint.as_deref(), Some("pink"));
 
         // persisted across reads; db prefs ride along untouched
-        e.set_view_pref("release", "table", None, None, None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref(
+            "release", "table", None, None, None, None, None, None, None, None, None, None, None,
+        )
+        .unwrap();
         assert_eq!(e.folder_meta().len(), 2);
         assert_eq!(e.views()["release"].view, "table");
 
@@ -2408,7 +2566,10 @@ mod tests {
             Some(DbIcon { glyph: None, emoji: Some("🌱".into()), tint: None }),
         )
         .unwrap();
-        e.set_view_pref("release", "board", None, None, None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref(
+            "release", "board", None, None, None, None, None, None, None, None, None, None, None,
+        )
+        .unwrap();
         let views = e.views();
         assert!(views.contains_key("release"));
         assert!(!views.contains_key(FolderMeta::KEY), "reserved key never reads as a db pref");
@@ -2472,7 +2633,10 @@ mod tests {
             r#"{"books": {"view": "table", "futureThing": {"a": 1}}, "$futureTop": [2]}"#,
         )
         .unwrap();
-        e.set_view_pref("books", "board", None, None, None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref(
+            "books", "board", None, None, None, None, None, None, None, None, None, None, None,
+        )
+        .unwrap();
         let after: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap())
                 .unwrap();

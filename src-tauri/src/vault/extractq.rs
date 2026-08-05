@@ -628,11 +628,7 @@ mod tests {
 
         let t = Instant::now();
         drop(q);
-        assert!(
-            t.elapsed() < SHUTDOWN_GRACE * 4,
-            "drop blocked on the decode: {:?}",
-            t.elapsed()
-        );
+        assert!(t.elapsed() < SHUTDOWN_GRACE * 4, "drop blocked on the decode: {:?}", t.elapsed());
     }
 
     #[test]
@@ -652,7 +648,7 @@ mod tests {
         until("the workers to be busy", || q.depth() == WORKERS && !q.idle());
 
         drop(q); // gives up on them and detaches
-        // let every detached decode finish and try to report
+                 // let every detached decode finish and try to report
         std::thread::sleep(SHUTDOWN_GRACE * 8);
         assert!(seen.lock().unwrap().is_empty(), "a detached decode reached the sink");
     }

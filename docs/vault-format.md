@@ -482,6 +482,19 @@ brackets. The inner text is `target#anchor|alias`, all three parts optional
 ![[~/Music/mixdown.flac]]       ← home-relative, linked in place
 ```
 
+- The target may carry a **display modifier** past the first `|` —
+  `![[cover.png|300]]`, `![[cover.png|300x200]]`, `![[cover.png|left]]` — the
+  size/layout hint of the Obsidian dialect these vaults are written in.
+  Substrate **accepts the modifier and currently ignores it**: nothing renders
+  at a width or floats, and no width is stored. It is stripped before
+  resolution, so the target is `cover.png` everywhere — rendering, the doctor,
+  export bundles and the `.assets/` orphan sweep alike. One parser, two copies:
+  `embed_target` (`vault/mod.rs`) and `embedTarget` (`src/lib/wikilinks.ts`).
+  Unlike a wikilink, an embed does **not** split on `#`: filenames and paths may
+  contain one, and an embed has no anchor. A file whose name genuinely contains
+  `|` is therefore unreachable by an embed — the grammar spends that character
+  on the modifier.
+
 - Rendering is by extension: audio (`.wav .aif .aiff .mp3 .flac .m4a .ogg
   .opus .weba .webm`) renders an audio player (streams from disk); images
   (`.png .jpg .jpeg .gif .webp .svg .avif .heic .heif`) render inline; **any
@@ -514,7 +527,9 @@ audio: bounce.wav
 ```
 ````
 
-- `audio:` is required and must exactly equal the preceding embed target. This
+- `audio:` is required and must exactly equal the preceding embed target — the
+  target after any display modifier is stripped, so `![[bounce.wav|left]]` still
+  binds to `audio: bounce.wav`. This
   keeps comments pinned to the named file instead of drifting onto a nearby
   player; replacing that file with a new bounce does not retime old comments.
 - Annotation lines are `mm:ss — text`; minutes may exceed 59. The reader also
@@ -746,6 +761,35 @@ crypto = SUMIF(bucket, "crypto", value_eur)
   `docs/sheets-spec.md` — don't duplicate it here.
 - `FX("USD","EUR")` uses the frankfurter.dev rate, cached app-side
   and refreshed live — the app never writes fx props into notes.
+
+**Per-column notifications — the `columns:` prop (SUB-876).** A sheet has no
+schema (`type: sheet` is functional, §6), so a date column that should fire a
+notification says so in the note's own frontmatter, under a `columns:` map keyed
+by header name:
+
+```yaml
+---
+type: sheet
+title: Subscriptions
+columns:
+  Renewal: { notify: true, notifyBefore: 7 }
+---
+```
+
+- The two words are §6's: `notify: true` fires on the day the cell's date lands,
+  `notifyBefore: n` (1..365, clamped) fires `n` days ahead as well. An entry
+  carrying neither is removed, and the map with it when it was the last one.
+- Header names bind **case-insensitively** on both sides — a column headed
+  `Renewal` answers to a `renewal:` key — and a write keeps whichever spelling
+  is already on disk rather than restamping it.
+- Only cells that parse as a date fire; everything else in the column is
+  ignored, so one date column in a sheet of text is fine.
+- The app writes this map through its own command (`sheet_set_column_notify`),
+  not the scalar prop write — the value is nested, which `vault_set_prop`
+  refuses. Hand-editing works the same; entries that don't parse are dropped
+  without hiding the rest.
+- What fires, and how a click gets back to the row, is the notification key
+  grammar under `.vault/notifications.json` below.
 
 ### 5.2 Dashboards — `dashboard:` key
 
@@ -2286,6 +2330,18 @@ one also shows up as `corrupt-config` in the doctor, §15).
   parses as a date, so a prop literally named `lead` still keys and parses
   normally. Lead alerts fire at the value's own `HH:MM`, else 09:00, on
   `due − n` days; they snooze exactly like day-of alerts.
+- A **sheet cell** alert (SUB-876, §5.1's `columns:` map) keys as
+  `<note path>|<column>#<row>|<YYYY-MM-DD>[|lead]` — the same shape with the
+  prop segment split by `#` into the column header and the row. **The row is
+  identified by its first-column label cell, never by index**, so a sheet that
+  is sorted or has rows inserted keeps firing the same keys, and a renamed row
+  reads as a new one. A row whose label cell is empty has no identity and stays
+  quiet. Column and row are matched case-insensitively, and both are
+  percent-escaped in the key (`%` `|` `#` CR LF → `%25 %7C %23 %0D %0A`) so
+  arbitrary header and cell text can't split the key in the wrong place. A
+  database property is resolved first, so a property whose name literally
+  contains `#` still reads as itself. Sheets carry no `repeat:` — a cell is due
+  on its own date and no other.
 - A scheduler in the main process (alive as long as the tray, no window
   needed) scans every 60s and fires a macOS notification when a notify-flagged
   date prop is due: at the time the value carries (`YYYY-MM-DD HH:MM`), else
@@ -2319,7 +2375,10 @@ one also shows up as `corrupt-config` in the doctor, §15).
   note deleted or moved, prop gone, the `notify` flag (or, for a lead key,
   `notifyBefore`) gone, note completed or
   `calendar: false`, or a `due`/`repeat`/`repeat_until`/`repeat_skip` edit
-  that means the key's day is no longer an occurrence. (The entry itself
+  that means the key's day is no longer an occurrence. For a sheet key
+  (SUB-876) the same test reads on the grid: the column left the `columns:`
+  map or the header row, the labelled row was renamed or deleted, or the
+  cell's date changed. (The entry itself
   stays in the map until the 14-day prune — if the vault changes back
   within that window, the snooze fires then.)
 - Entries whose due date is >14 days past are pruned on scan, keeping the

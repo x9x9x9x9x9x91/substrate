@@ -102,11 +102,7 @@ fn debug() -> bool {
     *ON.get_or_init(|| std::env::var("SUBSTRATE_DRAGFIX_DEBUG").is_ok())
 }
 
-unsafe extern "C-unwind" fn entered(
-    this: *mut AnyObject,
-    sel: Sel,
-    info: *mut AnyObject,
-) -> usize {
+unsafe extern "C-unwind" fn entered(this: *mut AnyObject, sel: Sel, info: *mut AnyObject) -> usize {
     let t = table();
     if unsafe { internal(this, info) } {
         if debug() {
@@ -121,11 +117,7 @@ unsafe extern "C-unwind" fn entered(
     }
 }
 
-unsafe extern "C-unwind" fn updated(
-    this: *mut AnyObject,
-    sel: Sel,
-    info: *mut AnyObject,
-) -> usize {
+unsafe extern "C-unwind" fn updated(this: *mut AnyObject, sel: Sel, info: *mut AnyObject) -> usize {
     let t = table();
     if unsafe { internal(this, info) } {
         unsafe { (t.wk_updated)(this, sel, info) }
@@ -225,9 +217,7 @@ pub unsafe fn install(webview: *mut std::ffi::c_void) {
         ) = found
         else {
             if debug() {
-                eprintln!(
-                    "dragfix: drag methods missing or no longer overridden — not swizzling"
-                );
+                eprintln!("dragfix: drag methods missing or no longer overridden — not swizzling");
             }
             return;
         };
@@ -252,22 +242,10 @@ pub unsafe fn install(webview: *mut std::ffi::c_void) {
                     m.set_implementation(f);
                 }
             };
-            set(
-                sels.0,
-                std::mem::transmute::<EnterImp, Imp>(entered as EnterImp),
-            );
-            set(
-                sels.1,
-                std::mem::transmute::<EnterImp, Imp>(updated as EnterImp),
-            );
-            set(
-                sels.2,
-                std::mem::transmute::<PerformImp, Imp>(perform as PerformImp),
-            );
-            set(
-                sels.3,
-                std::mem::transmute::<ExitImp, Imp>(exited as ExitImp),
-            );
+            set(sels.0, std::mem::transmute::<EnterImp, Imp>(entered as EnterImp));
+            set(sels.1, std::mem::transmute::<EnterImp, Imp>(updated as EnterImp));
+            set(sels.2, std::mem::transmute::<PerformImp, Imp>(perform as PerformImp));
+            set(sels.3, std::mem::transmute::<ExitImp, Imp>(exited as ExitImp));
         }
     });
 }

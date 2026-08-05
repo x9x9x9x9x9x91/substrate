@@ -68,11 +68,9 @@ impl Status {
 pub fn status(cfg_dir: &Path, vault: &Path) -> Status {
     match crate::appcfg::read_config(cfg_dir).reflexes.get(&crate::kinds::vault_key(vault)) {
         None => Status { enabled: false, paused: false, enabled_at: None },
-        Some(c) => Status {
-            enabled: true,
-            paused: c.paused,
-            enabled_at: Some(c.enabled_at.clone()),
-        },
+        Some(c) => {
+            Status { enabled: true, paused: c.paused, enabled_at: Some(c.enabled_at.clone()) }
+        }
     }
 }
 
@@ -119,11 +117,8 @@ mod tests {
     use std::path::PathBuf;
 
     fn dirs(name: &str) -> (PathBuf, PathBuf) {
-        let base = std::env::temp_dir().join(format!(
-            "reflex-consent-{}-{}",
-            std::process::id(),
-            name
-        ));
+        let base =
+            std::env::temp_dir().join(format!("reflex-consent-{}-{}", std::process::id(), name));
         let _ = std::fs::remove_dir_all(&base);
         let cfg = base.join("cfg");
         let vault = base.join("vault");

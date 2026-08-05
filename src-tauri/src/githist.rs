@@ -549,7 +549,8 @@ pub(crate) fn history_sheets_at(root: &Path, instants: &[u64]) -> Result<Vec<She
     let oldest_ts_ms = history_oldest_ts_ms(&repo)?;
     let mut commits: Vec<(u64, Oid)> = Vec::new();
     if head_commit(&repo)?.is_some() {
-        let mut walk = repo.revwalk().map_err(|e| format!("could not walk version history: {e}"))?;
+        let mut walk =
+            repo.revwalk().map_err(|e| format!("could not walk version history: {e}"))?;
         walk.push_head().map_err(|e| format!("could not walk version history: {e}"))?;
         for oid in walk {
             let oid = oid.map_err(|e| format!("could not walk version history: {e}"))?;
@@ -1069,9 +1070,8 @@ pub(crate) fn history_purge_files(root: &Path, rels: &[&str]) -> Result<(), Stri
         return Err(crate::history::retained_refs_error(&blocked));
     }
     require_loose_objects(&repo)?;
-    let (new_tip, rewritten) = replay(&repo, &commits, |repo, commit| {
-        purge_tree(repo, commit, &paths)
-    })?;
+    let (new_tip, rewritten) =
+        replay(&repo, &commits, |repo, commit| purge_tree(repo, commit, &paths))?;
     // Move the user's branches and lightweight tags across before the sweep,
     // which prunes exactly what no ref reaches any more.
     for (name, oid) in &carried {
@@ -2033,10 +2033,7 @@ mod tests {
         let lane = history.fact_lane("Weight.md", "weight").unwrap();
         assert_eq!(
             lane.points.iter().map(|p| (p.ts_ms, p.value.clone())).collect::<Vec<_>>(),
-            vec![
-                (noon_ms("2026-02-01"), Some("70".into())),
-                (noon_ms("2026-03-01"), None),
-            ]
+            vec![(noon_ms("2026-02-01"), Some("70".into())), (noon_ms("2026-03-01"), None),]
         );
 
         use crate::factlane::{value_at, FactAnswer};

@@ -213,11 +213,7 @@ fn canonical_number_format(f: &str) -> Option<&'static str> {
     if f.eq_ignore_ascii_case("plain") {
         return None;
     }
-    NUMBER_FORMATS
-        .iter()
-        .chain(UNIT_CODES.iter())
-        .find(|c| c.eq_ignore_ascii_case(f))
-        .copied()
+    NUMBER_FORMATS.iter().chain(UNIT_CODES.iter()).find(|c| c.eq_ignore_ascii_case(f)).copied()
 }
 
 /// One type's entry in `.vault/schema.json`: the flat prop → schema map plus
@@ -385,9 +381,8 @@ impl Engine {
             .and_then(|ts| folded_hash_key(&ts.props, prop))
             .unwrap_or(prop)
             .to_string();
-        let target = target.map(|target| {
-            folded_hash_key(&map, &target).unwrap_or(&target).to_string()
-        });
+        let target =
+            target.map(|target| folded_hash_key(&map, &target).unwrap_or(&target).to_string());
         if options.is_empty() && kind.is_none() {
             if let Some(ts) = map.get_mut(&db_type) {
                 ts.props.remove(&prop);
@@ -516,10 +511,9 @@ impl Engine {
                 // one home folder, one database: the sidebar tree renders a
                 // folder as at most one database (SUB-407), so a second
                 // claimant would silently vanish from it
-                if let Some((other, _)) = map
-                    .iter()
-                    .find(|(t, ts)| !folded_eq(t, &db_type) && ts.home.as_deref() == Some(h.as_str()))
-                {
+                if let Some((other, _)) = map.iter().find(|(t, ts)| {
+                    !folded_eq(t, &db_type) && ts.home.as_deref() == Some(h.as_str())
+                }) {
                     return Err(format!("\"{h}\" is already the home folder of \"{other}\""));
                 }
                 map.entry(db_type).or_default().home = Some(h);
@@ -541,7 +535,11 @@ impl Engine {
     /// rename retargets them (subtree included, `new_rel` = Some), trashing
     /// clears them (None — the database goes homeless). schema.json is
     /// written only when something changed.
-    pub(super) fn move_schema_homes(&self, old_rel: &str, new_rel: Option<&str>) -> Result<(), String> {
+    pub(super) fn move_schema_homes(
+        &self,
+        old_rel: &str,
+        new_rel: Option<&str>,
+    ) -> Result<(), String> {
         let prefix = format!("{old_rel}/");
         let mut map = self.schema();
         let mut touched = false;
@@ -602,10 +600,7 @@ impl Engine {
             }
         }
         if self.template_listing_ambiguous(name) {
-            return Err(format!(
-                "template identity “{}.md” is ambiguous",
-                sanitize_filename(name)
-            ));
+            return Err(format!("template identity “{}.md” is ambiguous", sanitize_filename(name)));
         }
         Ok(())
     }
@@ -697,17 +692,13 @@ impl Engine {
         // rewriting notes or moving any config entry.
         let schema = self.schema();
         let schema_source = folded_hash_key(&schema, old);
-        if let Some(collision) = schema
-            .keys()
-            .find(|key| schema_source.is_none_or(|source| key.as_str() != source) && folded_eq(key, new))
-        {
+        if let Some(collision) = schema.keys().find(|key| {
+            schema_source.is_none_or(|source| key.as_str() != source) && folded_eq(key, new)
+        }) {
             return Err(format!("a database named “{collision}” already exists"));
         }
         if self.template_listing_ambiguous(old) {
-            return Err(format!(
-                "template identity “{}.md” is ambiguous",
-                sanitize_filename(old)
-            ));
+            return Err(format!("template identity “{}.md” is ambiguous", sanitize_filename(old)));
         }
         let tpl_old_name = self.existing_template_name(old);
         let tpl_old = tpl_old_name
@@ -875,9 +866,10 @@ impl Engine {
         // content (SUB-781) — it is hand-written (frontmatter defaults + body
         // skeleton), and this was the last delete in the vault that destroyed
         // such a file outright. Recoverable from the Trash pane until emptied.
-        if let Some(stem) = tpl.filter(|path| path.is_file()).and_then(|path| {
-            path.file_stem().map(|s| s.to_string_lossy().to_string())
-        }) {
+        if let Some(stem) = tpl
+            .filter(|path| path.is_file())
+            .and_then(|path| path.file_stem().map(|s| s.to_string_lossy().to_string()))
+        {
             if let Err(e) = self.trash_template(&stem) {
                 sweep.failed = Some(e);
                 return Ok(sweep);
@@ -887,11 +879,8 @@ impl Engine {
         // folder-sync mappings targeting the deleted type go with it
         // (SUB-71) — otherwise the next rescan feeds a ghost type
         let mappings = read_folder_mappings(&self.root);
-        let kept: Vec<FolderMapping> = mappings
-            .iter()
-            .filter(|m| !folded_eq(m.db_type.trim(), db_type))
-            .cloned()
-            .collect();
+        let kept: Vec<FolderMapping> =
+            mappings.iter().filter(|m| !folded_eq(m.db_type.trim(), db_type)).cloned().collect();
         if kept.len() != mappings.len() {
             if let Err(e) = write_folder_mappings(&self.root, &kept) {
                 sweep.failed = Some(e);
@@ -957,10 +946,7 @@ impl Engine {
             // carry both `Status` and `status`; exempting every folded `old`
             // key would let a case-only rename overwrite the other entry.
             let source = folded_hash_key(props, old);
-            if props
-                .keys()
-                .any(|k| source.is_none_or(|source| k != source) && folded_eq(k, new))
-            {
+            if props.keys().any(|k| source.is_none_or(|source| k != source) && folded_eq(k, new)) {
                 return Err(format!("“{db_type}” already has a property named “{new}”"));
             }
             old_is_number
@@ -1044,10 +1030,9 @@ impl Engine {
                     // database whose prop just moved — resolved by canonical
                     // key first, then case-folded, exactly like the evaluator
                     let rel = ps.relation.as_deref()?;
-                    let rel_schema = ts
-                        .props
-                        .get(rel)
-                        .or_else(|| ts.props.iter().find(|(k, _)| k.eq_ignore_ascii_case(rel)).map(|(_, v)| v))?;
+                    let rel_schema = ts.props.get(rel).or_else(|| {
+                        ts.props.iter().find(|(k, _)| k.eq_ignore_ascii_case(rel)).map(|(_, v)| v)
+                    })?;
                     if rel_schema.kind.as_deref() != Some("relation") {
                         return None;
                     }
@@ -1238,10 +1223,8 @@ impl Engine {
                 // (SUB-326); emptied lists collapse to None like the map above
                 if let Some(sorts) = pref.sorts.take() {
                     let before = sorts.len();
-                    let kept: Vec<SavedViewSort> = sorts
-                        .into_iter()
-                        .filter(|s| !folded_eq(&s.key, prop))
-                        .collect();
+                    let kept: Vec<SavedViewSort> =
+                        sorts.into_iter().filter(|s| !folded_eq(&s.key, prop)).collect();
                     if kept.len() != before {
                         views_dirty = true;
                     }
@@ -1251,10 +1234,8 @@ impl Engine {
                 // an emptied order collapses to None like the lists above
                 if let Some(order) = pref.col_order.take() {
                     let before = order.len();
-                    let kept: Vec<String> = order
-                        .into_iter()
-                        .filter(|c| !folded_eq(c, prop))
-                        .collect();
+                    let kept: Vec<String> =
+                        order.into_iter().filter(|c| !folded_eq(c, prop)).collect();
                     if kept.len() != before {
                         views_dirty = true;
                     }
@@ -1262,10 +1243,8 @@ impl Engine {
                 }
                 if let Some(hidden) = pref.hidden.take() {
                     let before = hidden.len();
-                    let kept: Vec<String> = hidden
-                        .into_iter()
-                        .filter(|h| !folded_eq(h, prop))
-                        .collect();
+                    let kept: Vec<String> =
+                        hidden.into_iter().filter(|h| !folded_eq(h, prop)).collect();
                     if kept.len() != before {
                         views_dirty = true;
                     }
@@ -1277,10 +1256,8 @@ impl Engine {
                     for set in [&mut hpl.table, &mut hpl.list] {
                         if let Some(list) = set.take() {
                             let before = list.len();
-                            let kept: Vec<String> = list
-                                .into_iter()
-                                .filter(|h| !folded_eq(h, prop))
-                                .collect();
+                            let kept: Vec<String> =
+                                list.into_iter().filter(|h| !folded_eq(h, prop)).collect();
                             if kept.len() != before {
                                 views_dirty = true;
                             }
@@ -1300,10 +1277,8 @@ impl Engine {
                 }
                 if let Some(wrap) = pref.wrap.take() {
                     let before = wrap.len();
-                    let kept: Vec<String> = wrap
-                        .into_iter()
-                        .filter(|w| !folded_eq(w, prop))
-                        .collect();
+                    let kept: Vec<String> =
+                        wrap.into_iter().filter(|w| !folded_eq(w, prop)).collect();
                     if kept.len() != before {
                         views_dirty = true;
                     }
@@ -1520,9 +1495,7 @@ mod tests {
         let (mut e, dir) = temp_vault("template-alias");
         e.create_type("Probe:A728", vec![]).unwrap();
         assert!(
-            e.create_type("Probe?A728", vec![])
-                .unwrap_err()
-                .contains("share template file"),
+            e.create_type("Probe?A728", vec![]).unwrap_err().contains("share template file"),
             "distinct database identities cannot claim one sanitized template stem"
         );
         e.create_type("Probe Rename Source 728", vec![]).unwrap();
@@ -1562,8 +1535,7 @@ mod tests {
     #[test]
     fn rename_type_refuses_a_distinct_case_only_schema_destination_before_mutation() {
         let (mut e, dir) = temp_vault("type-case-duplicate");
-        e.create_type("LegacyCase728", vec![new_prop("UpperOnly", Some("text"), None)])
-            .unwrap();
+        e.create_type("LegacyCase728", vec![new_prop("UpperOnly", Some("text"), None)]).unwrap();
         e.create("Legacy Type Note 728", "Inbox", Some("legacycase728")).unwrap();
 
         // Public writes reject this, but schema.json may be hand-edited with
@@ -1659,7 +1631,10 @@ mod tests {
             None,
         )
         .unwrap();
-        e.set_view_pref("books", "table", None, None, None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref(
+            "books", "table", None, None, None, None, None, None, None, None, None, None, None,
+        )
+        .unwrap();
         e.set_sidebar_order(&SidebarOrder {
             dashboards: vec![],
             databases: vec!["books".into(), "films".into()],
@@ -1771,7 +1746,8 @@ mod tests {
         e.create_type("books", vec![]).unwrap();
         let tpl_dir = dir.join(TEMPLATES_REL_DIR);
         fs::create_dir_all(&tpl_dir).unwrap();
-        fs::write(tpl_dir.join("BOOKS.md"), "---\nrating: 5\n---\nhand-written skeleton\n").unwrap();
+        fs::write(tpl_dir.join("BOOKS.md"), "---\nrating: 5\n---\nhand-written skeleton\n")
+            .unwrap();
 
         let sweep = e.delete_type("books", true).unwrap();
         assert_eq!(sweep.failed, None);
@@ -2070,7 +2046,22 @@ mod tests {
             ("price".to_string(), "sum".to_string()),
             ("manual".to_string(), "count".to_string()),
         ]);
-        e.set_view_pref("books", "table", None, None, Some(aggs), None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref(
+            "books",
+            "table",
+            None,
+            None,
+            Some(aggs),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
         // the key moves with the rename and keeps its kind; unrelated entries stay
         e.rename_prop("books", "price", "cost").unwrap();
@@ -2131,10 +2122,32 @@ mod tests {
         e.create("A", "Inbox", Some("books")).unwrap();
         e.set_prop("Inbox/A.md", "price", Some("12")).unwrap();
         e.set_prop("Inbox/A.md", "Gebühr", Some("high")).unwrap();
-        e.set_schema_prop("books", "price", vec![], Some("number".into()), None, None, None, None, None, None)
-            .unwrap();
-        e.set_schema_prop("books", "Gebühr", vec![], Some("text".into()), None, None, None, None, None, None)
-            .unwrap();
+        e.set_schema_prop(
+            "books",
+            "price",
+            vec![],
+            Some("number".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        e.set_schema_prop(
+            "books",
+            "Gebühr",
+            vec![],
+            Some("text".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
         let query = r#"Price:500 -PRICE:100 price: 250 price<500 price <500 price< 500 price <= 500 -price >= 2 status:live price "price:500" https://example.test/price:500 C:\price:500 Gebühr:high"#;
         e.set_saved_view(&saved_query("mine", "books", query)).unwrap();
@@ -2166,8 +2179,19 @@ mod tests {
         let (mut e, dir) = temp_vault("cpquery");
         e.create("A", "Inbox", Some("books")).unwrap();
         e.set_prop("Inbox/A.md", "price", Some("12")).unwrap();
-        e.set_schema_prop("books", "price", vec![], Some("number".into()), None, None, None, None, None, None)
-            .unwrap();
+        e.set_schema_prop(
+            "books",
+            "price",
+            vec![],
+            Some("number".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
         let referenced = r#"status:live PRICE >= 500 "price:500""#;
         let plain = r#"status:live price "price:500" https://example.test/price:500 C:\price:500"#;
@@ -2203,8 +2227,19 @@ mod tests {
             [("price", "12", "number"), ("score", "12", "text"), ("due", "2026-08-01", "date")]
         {
             e.set_prop("Inbox/A.md", key, Some(value)).unwrap();
-            e.set_schema_prop("books", key, vec![], Some(kind.into()), None, None, None, None, None, None)
-                .unwrap();
+            e.set_schema_prop(
+                "books",
+                key,
+                vec![],
+                Some(kind.into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
         }
         let cases = [
             ("number", "status:live price > 500 drift"),
@@ -2219,7 +2254,8 @@ mod tests {
         // Production is a two-step flow: preserve the old kind, demote the
         // schema entry, then pass that bit to the confirmed value sweep.
         for (key, was_number) in [("price", true), ("score", false), ("due", false)] {
-            e.set_schema_prop("books", key, vec![], None, None, None, None, None, None, None).unwrap();
+            e.set_schema_prop("books", key, vec![], None, None, None, None, None, None, None)
+                .unwrap();
             e.clear_prop("books", key, was_number, true).unwrap();
         }
 
@@ -2267,12 +2303,45 @@ mod tests {
         for (key, value) in [("price", "12"), ("score", "12"), ("due", "2026-08-01")] {
             e.set_prop("Inbox/A.md", key, Some(value)).unwrap();
         }
-        e.set_schema_prop("books", "price", vec![], Some("number".into()), None, None, None, None, None, None)
-            .unwrap();
-        e.set_schema_prop("books", "score", vec![], Some("text".into()), None, None, None, None, None, None)
-            .unwrap();
-        e.set_schema_prop("books", "due", vec![], Some("date".into()), None, None, None, None, None, None)
-            .unwrap();
+        e.set_schema_prop(
+            "books",
+            "price",
+            vec![],
+            Some("number".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        e.set_schema_prop(
+            "books",
+            "score",
+            vec![],
+            Some("text".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        e.set_schema_prop(
+            "books",
+            "due",
+            vec![],
+            Some("date".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
         let query = r#"price:10,,20 price:,, price:"" price: "kept" price > 500 score > 500 drift due < 7d"#;
         e.set_saved_view(&saved_query("mine", "books", query)).unwrap();
@@ -2328,8 +2397,19 @@ mod tests {
         e.create("A", "Inbox", Some("books")).unwrap();
         for key in ["price", "ΟΣ", "ǅΣ", "AΣʰ", "Ⅰ"] {
             e.set_prop("Inbox/A.md", key, Some("yes")).unwrap();
-            e.set_schema_prop("books", key, vec![], Some("text".into()), None, None, None, None, None, None)
-                .unwrap();
+            e.set_schema_prop(
+                "books",
+                key,
+                vec![],
+                Some("text".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
         }
         e.set_saved_view(&saved_query("quote", "books", r#""slow price:500 drift"#)).unwrap();
         e.set_saved_view(&saved_query("sigma", "books", "ος:yes drift")).unwrap();
@@ -2376,8 +2456,19 @@ mod tests {
         let (mut e, dir) = temp_vault("querydbexact");
         e.create("A", "Inbox", Some("books")).unwrap();
         e.set_prop("Inbox/A.md", "price", Some("12")).unwrap();
-        e.set_schema_prop("books", "price", vec![], Some("number".into()), None, None, None, None, None, None)
-            .unwrap();
+        e.set_schema_prop(
+            "books",
+            "price",
+            vec![],
+            Some("number".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         e.set_saved_view(&saved_query("canonical", "books", "price:12")).unwrap();
         e.set_saved_view(&saved_query("spaced", " books ", "price:12")).unwrap();
 
@@ -2519,8 +2610,22 @@ mod tests {
     #[test]
     fn clear_prop_reports_partial_count_when_a_note_fails() {
         let (mut e, dir) = vault_with_poisoned_note("cp-partial");
-        e.set_view_pref("books", "board", Some("author"), None, None, None, None, None, None, None, None, None, None)
-            .unwrap();
+        e.set_view_pref(
+            "books",
+            "board",
+            Some("author"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
         let sweep = e.clear_prop("books", "author", false, true).unwrap();
         assert_eq!(sweep.notes, 1, "A was stripped before B failed");
@@ -2631,7 +2736,22 @@ mod tests {
             ("price".to_string(), "sum".to_string()),
             ("manual".to_string(), "count".to_string()),
         ]);
-        e.set_view_pref("books", "table", None, None, Some(aggs), None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref(
+            "books",
+            "table",
+            None,
+            None,
+            Some(aggs),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
         // clearing the prop drops its entry; unrelated entries stay
         e.clear_prop("books", "price", false, true).unwrap();
@@ -3095,8 +3215,14 @@ mod tests {
         assert_eq!(e.schema()["gear"].props["price"].format.as_deref(), Some("USD"));
         // BACK-COMPAT: the two historical spellings are stored verbatim, so a
         // vault written before units still reads and writes exactly as before
-        assert_eq!(set(&e, "cost", "euro").unwrap()["gear"].props["cost"].format.as_deref(), Some("euro"));
-        assert_eq!(set(&e, "vat", "percent").unwrap()["gear"].props["vat"].format.as_deref(), Some("percent"));
+        assert_eq!(
+            set(&e, "cost", "euro").unwrap()["gear"].props["cost"].format.as_deref(),
+            Some("euro")
+        );
+        assert_eq!(
+            set(&e, "vat", "percent").unwrap()["gear"].props["vat"].format.as_deref(),
+            Some("percent")
+        );
         assert_eq!(set(&e, "qty", "plain").unwrap()["gear"].props["qty"].format, None);
         // a unit nothing can render is still refused
         assert!(set(&e, "dist", "furlongs").is_err());
@@ -3286,7 +3412,11 @@ mod tests {
         );
         let raw: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(dir.join(SCHEMA_REL_PATH)).unwrap()).unwrap();
-        assert_eq!(raw["release"]["due"]["notifyBefore"], serde_json::json!(3), "camelCase on disk");
+        assert_eq!(
+            raw["release"]["due"]["notifyBefore"],
+            serde_json::json!(3),
+            "camelCase on disk"
+        );
 
         // an unspecified arg keeps the stored value
         let map = e
@@ -3385,8 +3515,16 @@ mod tests {
         .unwrap();
         let after: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(dir.join(SCHEMA_REL_PATH)).unwrap()).unwrap();
-        assert_eq!(after["release"]["due"]["description"], serde_json::json!("ship day"), "the edit landed");
-        assert_eq!(after["release"]["due"]["notifyBefore"], serde_json::json!(7), "the lead time rode along");
+        assert_eq!(
+            after["release"]["due"]["description"],
+            serde_json::json!("ship day"),
+            "the edit landed"
+        );
+        assert_eq!(
+            after["release"]["due"]["notifyBefore"],
+            serde_json::json!(7),
+            "the lead time rode along"
+        );
         assert_eq!(after["release"]["due"]["notify"], serde_json::json!(true));
         assert_eq!(
             after["release"]["due"]["futureNudge"],
@@ -3574,7 +3712,8 @@ mod tests {
         .unwrap();
         assert!(e.schema()["release"].icon.is_some());
         // … and demoting every prop keeps the entry while an icon remains
-        e.set_schema_prop("release", "status", vec![], None, None, None, None, None, None, None).unwrap();
+        e.set_schema_prop("release", "status", vec![], None, None, None, None, None, None, None)
+            .unwrap();
         let map = e
             .set_schema_prop("release", "artist", vec![], None, None, None, None, None, None, None)
             .unwrap();
@@ -3730,7 +3869,10 @@ mod tests {
         );
 
         // the rest of the vault is unaffected
-        e.set_view_pref("books", "board", None, None, None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref(
+            "books", "board", None, None, None, None, None, None, None, None, None, None, None,
+        )
+        .unwrap();
         assert_eq!(e.views()["books"].view, "board");
         e.create("Dune", "Inbox", Some("books")).unwrap();
         let _ = fs::remove_dir_all(&dir);
@@ -4075,8 +4217,19 @@ mod tests {
             }),
         )
         .unwrap();
-        e.set_schema_prop("ledger", "amount", vec![], Some("number".into()), None, None, None, None, None, None)
-            .unwrap();
+        e.set_schema_prop(
+            "ledger",
+            "amount",
+            vec![],
+            Some("number".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
         e.rename_prop("ledger", "amount", "value").unwrap();
         let schema = e.schema();
@@ -4119,8 +4272,19 @@ mod tests {
             None,
         )
         .unwrap();
-        e.set_schema_prop("task", "hours", vec![], Some("number".into()), None, None, None, None, None, None)
-            .unwrap();
+        e.set_schema_prop(
+            "task",
+            "hours",
+            vec![],
+            Some("number".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         e.set_schema_prop(
             "task",
             "total",
@@ -4202,8 +4366,19 @@ mod tests {
         e.create("B", "Inbox", Some("books")).unwrap();
         e.set_prop("Inbox/A.md", "author", Some("Herbert")).unwrap();
         e.set_prop("Inbox/B.md", "author", Some("Tolkien")).unwrap();
-        e.set_schema_prop("books", "author", vec![], Some("text".into()), None, None, None, None, None, None)
-            .unwrap();
+        e.set_schema_prop(
+            "books",
+            "author",
+            vec![],
+            Some("text".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
         refuse_config_writes(&dir);
         let sweep = e

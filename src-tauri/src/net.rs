@@ -173,15 +173,9 @@ pub fn parse_fx_quote(body: &str, symbol: &str) -> Result<FxQuote, String> {
 pub fn parse_fx_rates(body: &str) -> Result<FxRates, String> {
     let v: serde_json::Value =
         serde_json::from_str(body).map_err(|e| format!("bad json from frankfurter: {e}"))?;
-    let base = v
-        .get("base")
-        .and_then(|b| b.as_str())
-        .ok_or("no base in response")?
-        .to_ascii_uppercase();
-    let obj = v
-        .get("rates")
-        .and_then(|r| r.as_object())
-        .ok_or("no rates in response")?;
+    let base =
+        v.get("base").and_then(|b| b.as_str()).ok_or("no base in response")?.to_ascii_uppercase();
+    let obj = v.get("rates").and_then(|r| r.as_object()).ok_or("no rates in response")?;
     let mut rates = std::collections::BTreeMap::new();
     for (code, val) in obj {
         let Some(rate) = val.as_f64() else { continue };
@@ -284,8 +278,8 @@ pub(crate) fn strip_userinfo(raw: &str) -> String {
 /// caller holds still leaks the credentials back through `{e}`.
 pub fn redact_message(msg: &str) -> String {
     static CREDS: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
-    let creds = CREDS
-        .get_or_init(|| Regex::new(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/?#\s@]*@").unwrap());
+    let creds =
+        CREDS.get_or_init(|| Regex::new(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/?#\s@]*@").unwrap());
     creds.replace_all(msg, "$1").into_owned()
 }
 
@@ -540,7 +534,8 @@ mod tests {
     /* ---- FX quote (SUB-667) ----------------------------------------- */
 
     /// A real `/v1/latest?base=USD&symbols=EUR` body, captured 2026-07-30.
-    const FX_PAYLOAD: &str = r#"{"amount":1.0,"base":"USD","date":"2026-07-29","rates":{"EUR":0.85911}}"#;
+    const FX_PAYLOAD: &str =
+        r#"{"amount":1.0,"base":"USD","date":"2026-07-29","rates":{"EUR":0.85911}}"#;
 
     #[test]
     fn parses_a_captured_frankfurter_payload() {
@@ -564,7 +559,7 @@ mod tests {
             "not json",
             "{}",
             r#"{"rates":{}}"#,
-            r#"{"rates":{"GBP":0.78}}"#,   // asked for EUR, got something else
+            r#"{"rates":{"GBP":0.78}}"#, // asked for EUR, got something else
             r#"{"rates":{"EUR":"0.86"}}"#, // string, not a number
             r#"{"rates":{"EUR":0}}"#,
             r#"{"rates":{"EUR":-0.86}}"#,
@@ -636,9 +631,9 @@ mod tests {
         for body in [
             "not json",
             "{}",
-            r#"{"rates":{"USD":1.1}}"#,          // no base
-            r#"{"base":"EUR"}"#,                 // no rates
-            r#"{"base":"EUR","rates":{}}"#,      // empty table
+            r#"{"rates":{"USD":1.1}}"#,                // no base
+            r#"{"base":"EUR"}"#,                       // no rates
+            r#"{"base":"EUR","rates":{}}"#,            // empty table
             r#"{"base":"EUR","rates":{"USD":"1.1"}}"#, // nothing usable left
         ] {
             assert!(parse_fx_rates(body).is_err(), "{body} should be rejected");
@@ -837,7 +832,9 @@ mod tests {
     }
 
     fn redirect(location: &str) -> String {
-        format!("HTTP/1.1 301 Moved Permanently\r\nLocation: {location}\r\nContent-Length: 0\r\n\r\n")
+        format!(
+            "HTTP/1.1 301 Moved Permanently\r\nLocation: {location}\r\nContent-Length: 0\r\n\r\n"
+        )
     }
 
     fn page(title: &str) -> String {
@@ -868,11 +865,8 @@ mod tests {
 
     #[test]
     fn redirect_chain_within_the_limit_reaches_the_page() {
-        let (origin, srv) = scripted_server(vec![
-            redirect("/one"),
-            redirect("/two"),
-            page("Destination"),
-        ]);
+        let (origin, srv) =
+            scripted_server(vec![redirect("/one"), redirect("/two"), page("Destination")]);
         let m = fetch_with_guard(&test_agent(), guard_allowing(&origin), &origin).unwrap();
         assert_eq!(m.title.as_deref(), Some("Destination"));
         assert_eq!(srv.join().unwrap(), 3, "should have walked both hops");
@@ -924,9 +918,8 @@ mod tests {
 
     #[test]
     fn a_3xx_without_location_is_an_error() {
-        let (origin, srv) = scripted_server(vec![
-            "HTTP/1.1 302 Found\r\nContent-Length: 0\r\n\r\n".to_string(),
-        ]);
+        let (origin, srv) =
+            scripted_server(vec!["HTTP/1.1 302 Found\r\nContent-Length: 0\r\n\r\n".to_string()]);
         let err = fetch_with_guard(&test_agent(), guard_allowing(&origin), &origin).unwrap_err();
         assert_eq!(err, "redirect without location");
         srv.join().unwrap();
@@ -935,7 +928,8 @@ mod tests {
     #[test]
     fn a_guarded_entry_url_never_opens_a_socket() {
         // the loop's first act is the guard, before any request
-        let err = fetch_with_guard(&test_agent(), guard_url, "http://169.254.169.254/").unwrap_err();
+        let err =
+            fetch_with_guard(&test_agent(), guard_url, "http://169.254.169.254/").unwrap_err();
         assert!(err.contains("non-public address"), "guard message: {err}");
     }
 

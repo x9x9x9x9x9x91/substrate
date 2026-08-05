@@ -85,8 +85,25 @@ pub fn extractable(extension: &str) -> bool {
         // lofty's own formats: everything it can read a tag or a properties
         // block out of. Kept explicit rather than "try it and see" so an
         // un-openable file is not opened once per scan forever.
-        "mp3" | "m4a" | "m4b" | "mp4" | "aac" | "flac" | "wav" | "wave" | "aiff" | "aif"
-            | "aifc" | "ogg" | "oga" | "opus" | "spx" | "wv" | "ape" | "mpc" | "wma"
+        "mp3"
+            | "m4a"
+            | "m4b"
+            | "mp4"
+            | "aac"
+            | "flac"
+            | "wav"
+            | "wave"
+            | "aiff"
+            | "aif"
+            | "aifc"
+            | "ogg"
+            | "oga"
+            | "opus"
+            | "spx"
+            | "wv"
+            | "ape"
+            | "mpc"
+            | "wma"
             | "pdf"
     )
 }
@@ -215,10 +232,7 @@ pub fn extract(path: &Path, extension: &str) -> Result<Reading, String> {
     let limit = size_limit(extension);
     match std::fs::metadata(path) {
         Ok(meta) if meta.len() > limit => {
-            return Err(format!(
-                "too large to read safely: {} bytes, cap is {limit}",
-                meta.len()
-            ));
+            return Err(format!("too large to read safely: {} bytes, cap is {limit}", meta.len()));
         }
         Ok(_) => {}
         Err(e) => return Err(e.to_string()),
@@ -498,10 +512,7 @@ mod tests {
                 let mut page = dict(&[
                     ("Type", "Page".into()),
                     ("Parent", pages_id.into()),
-                    (
-                        "MediaBox",
-                        vec![0.into(), 0.into(), 595.into(), 842.into()].into(),
-                    ),
+                    ("MediaBox", vec![0.into(), 0.into(), 595.into(), 842.into()].into()),
                 ]);
                 let body = text(i);
                 if !body.is_empty() {
@@ -511,10 +522,7 @@ mod tests {
                         content.into_bytes(),
                     ));
                     page.set("Contents", stream);
-                    page.set(
-                        "Resources",
-                        dict(&[("Font", dict(&[("F1", font.into())]).into())]),
-                    );
+                    page.set("Resources", dict(&[("Font", dict(&[("F1", font.into())]).into())]));
                 }
                 doc.add_object(page).into()
             })
@@ -527,10 +535,8 @@ mod tests {
                 ("Kids", kids.into()),
             ])),
         );
-        let catalog = doc.add_object(dict(&[
-            ("Type", "Catalog".into()),
-            ("Pages", pages_id.into()),
-        ]));
+        let catalog =
+            doc.add_object(dict(&[("Type", "Catalog".into()), ("Pages", pages_id.into())]));
         let info = doc.add_object(dict(&[
             ("Title", lopdf::Object::string_literal("Field Notes")),
             ("Author", lopdf::Object::string_literal("A Writer")),
@@ -590,10 +596,7 @@ mod tests {
 
     #[test]
     fn pdf_text_is_read_whole_when_it_fits_and_is_never_a_column() {
-        let path = scratch(
-            "paper.pdf",
-            &pdf_with_text(3, |i| format!("page {i} of the argument")),
-        );
+        let path = scratch("paper.pdf", &pdf_with_text(3, |i| format!("page {i} of the argument")));
         let got = extract(&path, "pdf").unwrap();
         assert!(got.text.contains("page 0 of the argument"), "text: {:?}", got.text);
         assert!(got.text.contains("page 2 of the argument"), "text: {:?}", got.text);
@@ -814,7 +817,10 @@ mod tests {
         // the cap must not be so eager that ordinary files lose their columns
         let path = scratch("ordinary.wav", &wav(44_100, 2, 44_100));
         assert!(std::fs::metadata(&path).unwrap().len() < size_limit("wav"));
-        assert_eq!(extract(&path, "wav").unwrap().columns.get("duration").and_then(|v| v.as_u64()), Some(1));
+        assert_eq!(
+            extract(&path, "wav").unwrap().columns.get("duration").and_then(|v| v.as_u64()),
+            Some(1)
+        );
         let _ = std::fs::remove_file(&path);
 
         // and the two kinds have their own caps, PDFs being the tighter one

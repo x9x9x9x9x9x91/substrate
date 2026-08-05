@@ -2,9 +2,9 @@
 //! (`show_main`, `toggle_capture`) stay in lib.rs with the tray/menu setup
 //! that also uses them.
 
+use crate::show_main;
 #[cfg(desktop)]
 use crate::toggle_capture;
-use crate::show_main;
 use tauri::{Emitter, Manager};
 
 /// Tray agenda item click: surface the note in the main window — the same
@@ -35,17 +35,10 @@ pub(crate) fn agenda_resize(app: tauri::AppHandle, height: f64) {
         return;
     }
     let height = height.clamp(crate::AGENDA_MIN_HEIGHT, crate::AGENDA_MAX_HEIGHT);
-    if w.set_size(tauri::LogicalSize::new(crate::AGENDA_WIDTH, height))
-        .is_err()
-    {
+    if w.set_size(tauri::LogicalSize::new(crate::AGENDA_WIDTH, height)).is_err() {
         return;
     }
-    let spot = app
-        .state::<crate::AgendaAnchor>()
-        .0
-        .lock()
-        .ok()
-        .and_then(|a| *a);
+    let spot = app.state::<crate::AgendaAnchor>().0.lock().ok().and_then(|a| *a);
     if let Some(spot) = spot {
         let scale = w.scale_factor().unwrap_or(1.0);
         crate::place_agenda(&app, &w, spot, (crate::AGENDA_WIDTH * scale).round() as u32);
@@ -73,4 +66,3 @@ pub(crate) fn agenda_open_capture(app: tauri::AppHandle) {
     #[cfg(mobile)]
     let _ = app;
 }
-

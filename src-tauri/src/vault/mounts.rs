@@ -673,8 +673,7 @@ impl Engine {
             }
         }
         if cleanup {
-            let sidecars: Vec<String> =
-                self.sidecars_of(id).into_keys().collect();
+            let sidecars: Vec<String> = self.sidecars_of(id).into_keys().collect();
             for rel in sidecars {
                 self.trash(&rel).ok();
             }
@@ -950,12 +949,9 @@ impl Engine {
         let sidecars = self.sidecars_of(id);
         let identity = file.map(|f| f.identity.as_str()).filter(|i| !i.is_empty());
         if let Some(identity) = identity {
-            if let Some((r, _)) = sidecars
-                .iter()
-                .find(|(_, m)| {
-                    folded_prop_str(&m.props, "mount_identity").as_deref() == Some(identity)
-                })
-            {
+            if let Some((r, _)) = sidecars.iter().find(|(_, m)| {
+                folded_prop_str(&m.props, "mount_identity").as_deref() == Some(identity)
+            }) {
                 return Some(r.clone());
             }
         }
@@ -1172,8 +1168,9 @@ impl Engine {
                 // by a second key the folded reads above would then race
                 let file_key =
                     folded_prop_key(props, "mount_file").unwrap_or("mount_file").to_string();
-                let id_key =
-                    folded_prop_key(props, "mount_identity").unwrap_or("mount_identity").to_string();
+                let id_key = folded_prop_key(props, "mount_identity")
+                    .unwrap_or("mount_identity")
+                    .to_string();
                 props.insert(file_key, serde_json::Value::String(rel_new));
                 props.insert(id_key, serde_json::Value::String(identity_new));
             }) {
@@ -1323,9 +1320,7 @@ impl Engine {
                     let left: Vec<FolderMapping> = self
                         .folder_mappings()
                         .into_iter()
-                        .filter(|other| {
-                            !(other.path == m.path && folded_eq(&other.db_type, &name))
-                        })
+                        .filter(|other| !(other.path == m.path && folded_eq(&other.db_type, &name)))
                         .collect();
                     if let Err(e) = write_folder_mappings(&self.root, &left) {
                         report.errors.push(format!("{name}: folders.json: {e}"));
@@ -1541,10 +1536,7 @@ mod tests {
         // an unknown key from a newer build survives a read→write cycle
         fs::write(
             dir.join(MOUNTS_REL_PATH),
-            format!(
-                r#"[{{"id": "{}", "name": "Album Pool", "globs": [], "future": 1}}]"#,
-                m.id
-            ),
+            format!(r#"[{{"id": "{}", "name": "Album Pool", "globs": [], "future": 1}}]"#, m.id),
         )
         .unwrap();
         e.add_mount("Samples", vec![], false).unwrap();
@@ -1814,14 +1806,18 @@ mod tests {
         fs::write(watched.join("track.als"), b"take one").unwrap();
         let m = e.add_mount("Album Pool", vec![], false).unwrap();
         e.scan_mount(&m.id, &watched);
-        let sidecar = e.mount_annotate(&m.id, "track.als", "status", Some("mixing".into())).unwrap();
+        let sidecar =
+            e.mount_annotate(&m.id, "track.als", "status", Some("mixing".into())).unwrap();
         assert_eq!(sidecar.path, "Mounts/Album Pool/track.md");
 
         // a persistent seal over the mount's folder makes its props unreadable
         e.prepare_seal_scope("Mounts/Album Pool", Some("correct horse")).unwrap();
         e.finish_seal_scope().unwrap();
         assert!(e.meta(&sidecar.path).unwrap().sealed);
-        assert!(e.mount_rows(&m.id).iter().all(|row| row.note.is_none()), "sealed props are unreadable");
+        assert!(
+            e.mount_rows(&m.id).iter().all(|row| row.note.is_none()),
+            "sealed props are unreadable"
+        );
 
         let error = e.mount_annotate(&m.id, "track.als", "bpm", Some("140".into())).unwrap_err();
         assert!(error.contains("sealed"), "the refusal names the cause: {error}");
@@ -2127,7 +2123,13 @@ mod tests {
                         .and_then(|n| e.read(n).ok())
                         .map(|c| c.body)
                         .unwrap_or_default();
-                    (r.rel, r.missing, r.note, prop_str(&r.props, "status").unwrap_or_default(), body)
+                    (
+                        r.rel,
+                        r.missing,
+                        r.note,
+                        prop_str(&r.props, "status").unwrap_or_default(),
+                        body,
+                    )
                 })
                 .collect()
         };
@@ -2480,19 +2482,13 @@ mod tests {
         fs::write(watched.join("a.als"), b"aaa").unwrap();
         write_folders_json(
             &dir,
-            &format!(
-                r#"[{{"path": "{}", "type": "Album Pool"}}]"#,
-                watched.display()
-            ),
+            &format!(r#"[{{"path": "{}", "type": "Album Pool"}}]"#, watched.display()),
         );
         e.sync_folders();
         // a crash after the mount was registered but before folders.json was
         // rewritten leaves the mapping in place; the retry must not fork
-        let first = Mount {
-            id: "half-made".into(),
-            name: "Album Pool".into(),
-            ..Default::default()
-        };
+        let first =
+            Mount { id: "half-made".into(), name: "Album Pool".into(), ..Default::default() };
         write_mounts(&dir, std::slice::from_ref(&first)).unwrap();
 
         let report = e.migrate_folder_mappings();
@@ -2573,9 +2569,10 @@ mod tests {
         assert_eq!(report.adopted, 1, "the stub is adopted, not left behind");
         let id = report.mounts[0].id.clone();
         // the binding the caller stores is the resolved form
-        assert_eq!(report.bindings, vec![(id.clone(), contract_tilde(&real.join(
-            linked.file_name().unwrap()
-        )))]);
+        assert_eq!(
+            report.bindings,
+            vec![(id.clone(), contract_tilde(&real.join(linked.file_name().unwrap())))]
+        );
 
         // and rescanning through the symlinked spelling still lands on the
         // same rows — one file, one row, bound to its sidecar
@@ -2927,7 +2924,6 @@ mod tests {
         let _ = fs::remove_dir_all(&watched);
     }
 
-
     #[test]
     fn a_folder_of_files_that_carry_no_text_leaves_the_store_empty() {
         // the sample library, which is the shape that broke this: 200 files
@@ -3112,7 +3108,9 @@ mod tests {
             jobs.into_iter()
                 .map(|j| ExtractDone {
                     result: Ok(super::super::extract::Reading::from(
-                        [("duration".to_string(), 2.into())].into_iter().collect::<super::super::extract::Extracted>(),
+                        [("duration".to_string(), 2.into())]
+                            .into_iter()
+                            .collect::<super::super::extract::Extracted>(),
                     )),
                     mount: j.mount,
                     rel: j.rel,

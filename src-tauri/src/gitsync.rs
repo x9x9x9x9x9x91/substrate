@@ -1687,8 +1687,9 @@ fn commit_backfill(repo: &Repository, paths: &[&str]) -> Result<(), String> {
     }
     let tree_oid =
         index.write_tree().map_err(|e| format!("vault sync backfill tree failed: {e}"))?;
-    let tree =
-        repo.find_tree(tree_oid).map_err(|e| format!("vault sync backfill tree unavailable: {e}"))?;
+    let tree = repo
+        .find_tree(tree_oid)
+        .map_err(|e| format!("vault sync backfill tree unavailable: {e}"))?;
     let parent = repo
         .head()
         .and_then(|h| h.peel_to_commit())
@@ -4177,10 +4178,7 @@ mod tests {
 
         assert!(report.conflicted.is_empty(), "join conflicted: {:?}", report.conflicted);
         assert!(!b.join("Settings.md").exists(), "a deleted Settings.md came back");
-        assert!(
-            !b.join(crate::vault::AGENTS_REL_PATH).exists(),
-            "a deleted AGENTS.md came back"
-        );
+        assert!(!b.join(crate::vault::AGENTS_REL_PATH).exists(), "a deleted AGENTS.md came back");
         // the files the remote never carried are still backfilled — the rule is
         // per path, not per vault
         assert!(b.join("CLAUDE.md").is_file());
@@ -4326,11 +4324,7 @@ mod tests {
     fn a_vault_a_newer_app_has_written_is_not_backfilled() {
         let pair = paired_vaults(&[("Note.md", "base\n")]);
         fs::create_dir_all(pair.a.join(".vault")).unwrap();
-        fs::write(
-            pair.a.join(crate::vaultfmt::FORMAT_REL_PATH),
-            r#"{"schema": 99}"#,
-        )
-        .unwrap();
+        fs::write(pair.a.join(crate::vaultfmt::FORMAT_REL_PATH), r#"{"schema": 99}"#).unwrap();
         pair.history_a.snapshot("snapshot").unwrap();
         let repo = Repository::open(&pair.a).unwrap();
 
@@ -4364,10 +4358,17 @@ mod tests {
 
         let repo = Repository::open(&root).unwrap();
         assert!(sync_history_ever_carried_within(&repo, "Kept.md", HISTORY_WALK_LIMIT));
-        assert!(sync_history_ever_carried_within(&repo, "Gone.md", HISTORY_WALK_LIMIT), "a deleted path is still history");
+        assert!(
+            sync_history_ever_carried_within(&repo, "Gone.md", HISTORY_WALK_LIMIT),
+            "a deleted path is still history"
+        );
         assert!(!sync_history_ever_carried_within(&repo, "Never.md", HISTORY_WALK_LIMIT));
         // nested paths resolve through their tree, not just the root listing
-        assert!(!sync_history_ever_carried_within(&repo, ".claude/skills/setup/SKILL.md", HISTORY_WALK_LIMIT));
+        assert!(!sync_history_ever_carried_within(
+            &repo,
+            ".claude/skills/setup/SKILL.md",
+            HISTORY_WALK_LIMIT
+        ));
     }
 
     #[test]

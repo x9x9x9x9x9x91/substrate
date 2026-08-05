@@ -284,13 +284,8 @@ mod tests {
         let mount = engine.add_mount("Pool", Vec::new(), true).unwrap();
 
         appcfg::write_mount_binding(cfg.path(), &mount.id, Some(valid.path())).unwrap();
-        let err = bind_mount_on_machine(
-            &mut engine,
-            cfg.path(),
-            &mount.id,
-            Some(vault.path()),
-        )
-        .unwrap_err();
+        let err = bind_mount_on_machine(&mut engine, cfg.path(), &mount.id, Some(vault.path()))
+            .unwrap_err();
 
         assert!(err.contains("vault"), "overlap is explained: {err}");
         assert_eq!(

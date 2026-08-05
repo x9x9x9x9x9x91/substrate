@@ -163,7 +163,9 @@ pub(crate) fn build_vault_snapshot(
 }
 
 #[tauri::command]
-pub(crate) async fn history_points(app: tauri::AppHandle) -> Result<Vec<VaultHistoryPoint>, String> {
+pub(crate) async fn history_points(
+    app: tauri::AppHandle,
+) -> Result<Vec<VaultHistoryPoint>, String> {
     blocking(move || {
         let h: State<HistoryState> = app.state();
         with_history(&h, History::points)
@@ -187,7 +189,10 @@ pub(crate) async fn history_vault_snapshot(
 // The state is fetched INSIDE the blocking closure: a std MutexGuard is not
 // Send, so it must never be held across an await.
 #[tauri::command]
-pub(crate) async fn history_list(app: tauri::AppHandle, path: String) -> Result<Vec<HistoryEntry>, String> {
+pub(crate) async fn history_list(
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<Vec<HistoryEntry>, String> {
     blocking(move || {
         let h: State<HistoryState> = app.state();
         with_history(&h, |hist| hist.list(&path))
@@ -213,8 +218,7 @@ pub(crate) async fn history_facts(
     refs: Vec<FactRef>,
 ) -> Result<Vec<crate::factlane::FactLane>, String> {
     blocking(move || {
-        let pairs: Vec<(String, String)> =
-            refs.into_iter().map(|r| (r.path, r.key)).collect();
+        let pairs: Vec<(String, String)> = refs.into_iter().map(|r| (r.path, r.key)).collect();
         let h: State<HistoryState> = app.state();
         with_history(&h, |hist| hist.fact_lanes(&pairs))
     })
@@ -292,7 +296,11 @@ pub(crate) async fn history_sheets(
 }
 
 #[tauri::command]
-pub(crate) fn history_diff(h: State<HistoryState>, id: String, file: String) -> Result<Vec<DiffLine>, String> {
+pub(crate) fn history_diff(
+    h: State<HistoryState>,
+    id: String,
+    file: String,
+) -> Result<Vec<DiffLine>, String> {
     with_history(&h, |hist| hist.diff(&id, &file))
 }
 
@@ -332,12 +340,14 @@ pub(crate) fn restore_note(
     // (unreadable forever) or, for pre-seal leftovers, write plaintext into a
     // sealed file. Both are corruption; remove the seal first.
     if engine.meta(path).is_some_and(|m| m.sealed) {
-        return Err("history restore is unavailable for a sealed note — remove the seal first".into());
+        return Err(
+            "history restore is unavailable for a sealed note — remove the seal first".into()
+        );
     }
     let content = hist.show(id, file)?;
     // read before the write — afterwards the mtime is our own
-    let overwrote_external = baseline_ms > 0
-        && engine.disk_mtime_ms(path).is_some_and(|disk| disk > baseline_ms);
+    let overwrote_external =
+        baseline_ms > 0 && engine.disk_mtime_ms(path).is_some_and(|disk| disk > baseline_ms);
     if overwrote_external {
         hist.snapshot(&format!("external edit to {} before restore", path)).ok();
     }
@@ -413,10 +423,7 @@ pub(crate) fn purge_notes(hist: &History, rels: &[&str]) -> Result<(), String> {
 /// Permanently purge one note from all snapshots, then re-snapshot so its
 /// current state becomes a fresh version 1.
 #[tauri::command]
-pub(crate) async fn history_purge_note(
-    app: tauri::AppHandle,
-    path: String,
-) -> Result<(), String> {
+pub(crate) async fn history_purge_note(app: tauri::AppHandle, path: String) -> Result<(), String> {
     blocking(move || {
         let state: State<AppState> = app.state();
         let h: State<HistoryState> = app.state();
@@ -560,12 +567,12 @@ mod tests {
         .unwrap();
         let v1 = hist.list(&meta.path).unwrap()[0].clone();
         // locked AND unlocked both refuse — the seal, not the lock, is the gate
-        let err = super::restore_note(&mut engine, &hist, &meta.path, &v1.id, &v1.file, 0)
-            .unwrap_err();
+        let err =
+            super::restore_note(&mut engine, &hist, &meta.path, &v1.id, &v1.file, 0).unwrap_err();
         assert!(err.contains("sealed"), "{err}");
         engine.unlock_sealed_note(&meta.path, Some("correct horse")).unwrap();
-        let err = super::restore_note(&mut engine, &hist, &meta.path, &v1.id, &v1.file, 0)
-            .unwrap_err();
+        let err =
+            super::restore_note(&mut engine, &hist, &meta.path, &v1.id, &v1.file, 0).unwrap_err();
         assert!(err.contains("sealed"), "{err}");
     }
 
@@ -599,8 +606,9 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(1100));
         std::fs::write(root.join(&meta.path), "typed elsewhere\n").unwrap();
 
-        let loud = super::restore_note(&mut engine, &hist, &meta.path, &old.id, &old.file, baseline)
-            .unwrap();
+        let loud =
+            super::restore_note(&mut engine, &hist, &meta.path, &old.id, &old.file, baseline)
+                .unwrap();
         assert!(loud.overwrote_external, "a newer on-disk file is reported, not swallowed");
         assert!(
             !std::fs::read_to_string(root.join(&meta.path)).unwrap().contains("typed elsewhere"),
@@ -610,9 +618,10 @@ mod tests {
         // committed it, not just the restored content over it. Without that
         // snapshot the toast's recovery promise is false for any edit younger
         // than the auto-snapshot quiet window.
-        let buried_in_history = hist.list(&meta.path).unwrap().iter().any(|e| {
-            hist.show(&e.id, &e.file).is_ok_and(|body| body.contains("typed elsewhere"))
-        });
+        let buried_in_history =
+            hist.list(&meta.path).unwrap().iter().any(|e| {
+                hist.show(&e.id, &e.file).is_ok_and(|body| body.contains("typed elsewhere"))
+            });
         assert!(buried_in_history, "the buried edit must be recoverable from history");
 
         // a caller with no baseline (0) never trips it, even over the same edit
@@ -749,8 +758,7 @@ mod tests {
             r#"{"release":{"status":{"options":[{"value":"live"}]}}}"#,
         )
         .unwrap();
-        std::fs::write(root.join(".vault/views.json"), r#"{"release":{"view":"table"}}"#)
-            .unwrap();
+        std::fs::write(root.join(".vault/views.json"), r#"{"release":{"view":"table"}}"#).unwrap();
         hist.snapshot("current vault").unwrap();
         assert_eq!(
             crate::githist::history_points(&root).unwrap(),
@@ -770,10 +778,7 @@ mod tests {
         assert_eq!(snapshot.sidebar_order.databases, vec!["release"]);
         assert_eq!(snapshot.saved_views[0].id, "drafts");
         assert!(
-            hist.snapshot_files(&old.id)
-                .unwrap()
-                .iter()
-                .all(|(path, _)| path != "archive.bin"),
+            hist.snapshot_files(&old.id).unwrap().iter().all(|(path, _)| path != "archive.bin"),
             "unrelated tracked blobs are not loaded into the time projection"
         );
         assert_eq!(
@@ -810,4 +815,5 @@ mod tests {
         let hook = hooks.join("pre-commit");
         std::fs::write(&hook, "#!/bin/sh\nexit 1\n").unwrap();
         std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }}
+    }
+}

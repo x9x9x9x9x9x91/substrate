@@ -185,6 +185,23 @@ export const vaultSetProp = (
   value: PropValue,
   expected?: { value: PropValue }
 ) => invoke<SetPropResult>("vault_set_prop", { path, key, value, expected: expected ?? null });
+/** Turn a sheet column's date notifications on or off (SUB-876). Separate from
+    `vaultSetProp` because the settings live in a nested `columns:` map and that
+    command only writes scalars. `notifyBefore` is the lead-time in days
+    (1..365, clamped); null/undefined leaves only the day-of alert. Clearing
+    both removes the column's entry, and the last entry removes the map. */
+export const sheetSetColumnNotify = (
+  path: string,
+  column: string,
+  notify: boolean,
+  notifyBefore?: number | null
+) =>
+  invoke<NoteMeta>("sheet_set_column_notify", {
+    path,
+    column,
+    notify,
+    notifyBefore: notifyBefore ?? null,
+  });
 /** Raw frontmatter block + health (SUB-430); null = the note has no block. */
 export const vaultFmRaw = (path: string) =>
   historyProjection

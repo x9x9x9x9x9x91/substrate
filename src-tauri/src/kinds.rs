@@ -180,7 +180,9 @@ fn opt_str(
 
 fn check_filename(key: &str, name: &str) -> Result<(), String> {
     if name.contains('/') || name.contains('\\') {
-        return Err(format!("kind.json \"{key}\" must be a filename inside the bundle, not a path"));
+        return Err(format!(
+            "kind.json \"{key}\" must be a filename inside the bundle, not a path"
+        ));
     }
     if name == "." || name.starts_with("..") {
         return Err(format!("kind.json \"{key}\" must not reach outside the bundle"));
@@ -395,7 +397,13 @@ pub fn load_bundle(kinds_dir_canon: &Path, id: &str) -> Option<KindBundle> {
         }
     }
 
-    Some(KindBundle { id: id.to_string(), hash: hash_bundle(&files), manifest, record: None, files })
+    Some(KindBundle {
+        id: id.to_string(),
+        hash: hash_bundle(&files),
+        manifest,
+        record: None,
+        files,
+    })
 }
 
 /// Load the named bundles, each with the consent record recorded for THIS
@@ -702,7 +710,11 @@ mod tests {
     }
 
     fn record(hash: &str) -> KindEnableRecord {
-        KindEnableRecord { hash: hash.to_string(), api: 1, enabled_at: "2026-08-03T00:00:00Z".into() }
+        KindEnableRecord {
+            hash: hash.to_string(),
+            api: 1,
+            enabled_at: "2026-08-03T00:00:00Z".into(),
+        }
     }
 
     fn bundle_hash(vault: &Path, id: &str) -> String {
@@ -733,10 +745,9 @@ mod tests {
         // and enableable on the other — which is a way to capture a built-in's
         // vault writes. Read out of the source rather than restated here so
         // adding a built-in in TS fails HERE until it is added in Rust too.
-        let src = fs::read_to_string(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib/kinds.ts"),
-        )
-        .expect("src/lib/kinds.ts is readable");
+        let src =
+            fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/lib/kinds.ts"))
+                .expect("src/lib/kinds.ts is readable");
         let body = src
             .split_once("BUILT_IN_KINDS: ReadonlySet<string> = new Set([")
             .expect("BUILT_IN_KINDS literal")

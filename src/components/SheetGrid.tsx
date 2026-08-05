@@ -2,6 +2,14 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import type { NoteMeta } from "../lib/types";
 import { propStr } from "../lib/types";
 import { vaultRead, vaultResolve } from "../lib/ipc";
+import {
+  columnNotifyOf,
+  findRevealCell,
+  LEAD_CHOICES,
+  looksDated,
+  notifyHint,
+  type ColumnNotify,
+} from "../lib/sheetnotify";
 import { fmtFx } from "../lib/dashboard";
 import { normalizeNumberInput } from "../lib/aggregate";
 import { useFxRates } from "./useFx";
@@ -59,10 +67,11 @@ interface CellPos {
 
 /** Right-click target in the grid (SUB-395): a data row, a data column
     header, a computed column header, or a named summary — in the totals row
-    or in the footer (SUB-937). */
+    or in the footer (SUB-937). `notify` on the column arm is the drill-in
+    page (SUB-876) — same menu, swapped item list. */
 type GridMenu =
   | { kind: "row"; r: number; x: number; y: number }
-  | { kind: "col"; name: string; c: number; x: number; y: number }
+  | { kind: "col"; name: string; c: number; x: number; y: number; notify?: boolean }
   | { kind: "computed"; name: string; x: number; y: number }
   | { kind: "summary"; name: string; col: number | null; x: number; y: number };
 
@@ -109,6 +118,18 @@ interface SheetGridProps {
    * keymap commands bypass the app-root beforeinput guard, so it needs the
    * same EditorState.readOnly the plain editor gets. */
   readOnly?: boolean;
+  /** per-column notification settings (SUB-876), read from the pane's live
+   * `props.columns` rather than `meta.props` — the pane's copy is the one a
+   * just-landed write updates. */
+  columnNotify?: Record<string, ColumnNotify>;
+  /** persist one column's settings; absent hides the menu entry. The pane
+   * owns the write so a failure lands on its usual property-error pill. */
+  onSetColumnNotify?: (column: string, notify: boolean, notifyBefore: number | null) => void;
+  /** a notification click asking for one row (SUB-876): focus the cell whose
+   * label matches, then call `onRevealed`. No match (the row was edited away
+   * between firing and clicking) → the note is simply open, nothing focused. */
+  reveal?: { column: string; row: string } | null;
+  onRevealed?: () => void;
 }
 
 export default function SheetGrid({
@@ -122,6 +143,10 @@ export default function SheetGrid({
   focusRef,
   docRef,
   readOnly = false,
+  columnNotify,
+  onSetColumnNotify,
+  reveal,
+  onRevealed,
 }: SheetGridProps) {
   const [body, setBody] = useState(initial);
   const { fx: rates } = useFxRates();
@@ -352,13 +377,19 @@ export default function SheetGrid({
     [model]
   );
 
+  /* Every grid mutation funnels through here, so past mode stops at this one
+     line as well as at each affordance (SUB-1140). The gates on the affordances
+     are what the reader sees — no cell opens, no + button renders; this is the
+     belt behind them, so a write path added later can't quietly send the
+     historical body back out through onChange onto the live file. */
   const applyBody = useCallback(
     (next: string) => {
+      if (readOnly) return;
       if (next === body) return;
       setBody(next);
       onChange(next);
     },
-    [body, onChange]
+    [body, onChange, readOnly]
   );
 
   const move = useCallback(
@@ -407,6 +438,24 @@ export default function SheetGrid({
     };
   }, [focusRef]);
 
+  /* A notification click naming one row (SUB-876). Identity is the label
+     cell, folded — the same rule the scheduler keyed the alert with, so a
+     row that moved or was sorted still resolves and a renamed one quietly
+     doesn't. Scrolls the cell into view because the grid is long, and
+     reports back so the target clears (a second click on the same row must
+     reveal again). */
+  useEffect(() => {
+    if (!reveal) return;
+    const hit = findRevealCell(model.headers, model.rows, reveal);
+    if (hit) {
+      pendingFocus.current = true;
+      setFocus(hit);
+      cellRefs.current.get(`${hit.r}-${hit.c}`)?.scrollIntoView({ block: "center" });
+    }
+    onRevealed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reveal, model]);
+
   /* External body adoption (SUB-288): swap the data under an open cell edit —
      the input keeps its DOM node, focus and draft, and commitEdit lands the
      draft on the adopted body. A draft whose row or column vanished in the
@@ -428,6 +477,7 @@ export default function SheetGrid({
   }, [docRef, source]);
 
   const startEdit = (r: number, c: number) => {
+    if (readOnly) return; // a sheet read at an old commit opens no cell
     if (c >= dataCols) return; // computed columns are read-only
     setAnchor(null);
     pendingFocus.current = true;
@@ -465,12 +515,20 @@ export default function SheetGrid({
   };
 
   const onAddRow = () => {
+    if (readOnly) return;
     applyBody(addSheetRow(body));
     pendingFocus.current = true;
     setFocus({ r: model.rows.length, c: 0 });
   };
 
+  const beginAddColumn = () => {
+    if (readOnly) return;
+    setAddingCol(true);
+    setColDraft("");
+  };
+
   const commitAddColumn = () => {
+    if (readOnly) return;
     const name = colDraft.trim();
     setAddingCol(false);
     setColDraft("");
@@ -485,9 +543,15 @@ export default function SheetGrid({
   // Computed column header edit: one line in fence form, `name = formula`.
   // Enter applies (validation errors keep the editor open), blur discards
   // invalid drafts, Esc cancels. A rename rewrites references on other lines.
+  const beginEditCol = (name: string) => {
+    if (readOnly) return;
+    if (editColRef.current?.name === name) return;
+    setEditCol({ name, draft: `${name} = ${formulaSrc(name)}`, err: null });
+  };
+
   const commitEditCol = (discardOnErr: boolean) => {
     const ed = editColRef.current;
-    if (!ed) return;
+    if (!ed || readOnly) return;
     const fail = (err: string) => {
       if (discardOnErr) setEditCol(null);
       else setEditCol({ ...ed, err });
@@ -638,6 +702,50 @@ export default function SheetGrid({
       ];
     }
     if (m.kind === "col") {
+      const settings = columnNotifyOf(columnNotify, m.name);
+      // the drill-in page: one flat list of what this column can do, the
+      // current setting marked. Off clears both alerts at once.
+      if (m.notify) {
+        const set = (notify: boolean, before: number | null) => () =>
+          onSetColumnNotify?.(m.name, notify, before);
+        const mark = (on: boolean) => (on ? "✓" : undefined);
+        return [
+          {
+            label: "Back",
+            hint: "‹",
+            keepOpen: true,
+            onSelect: () => setGridMenu({ ...m, notify: false }),
+          },
+          {
+            label: "Off",
+            separatorAbove: true,
+            hint: mark(!settings?.notify && !settings?.notifyBefore),
+            onSelect: set(false, null),
+          },
+          {
+            label: "On the day",
+            hint: mark(!!settings?.notify && !settings?.notifyBefore),
+            onSelect: set(true, null),
+          },
+          ...LEAD_CHOICES.map((d) => ({
+            label: `${d} day${d === 1 ? "" : "s"} before`,
+            hint: mark(settings?.notifyBefore === d && !settings?.notify),
+            onSelect: set(false, d),
+          })),
+          {
+            label: "Both (day + 7 days before)",
+            separatorAbove: true,
+            hint: mark(!!settings?.notify && !!settings?.notifyBefore),
+            onSelect: set(true, 7),
+          },
+        ];
+      }
+      // only date columns can fire — but a column already set stays
+      // reachable even if its dates were since edited away
+      const dated =
+        !!settings?.notify ||
+        !!settings?.notifyBefore ||
+        model.rows.some((r) => looksDated(r[m.c] ?? ""));
       return [
         {
           label: "Move left",
@@ -649,6 +757,17 @@ export default function SheetGrid({
           disabled: m.c >= dataCols - 1,
           onSelect: () => apply(moveSheetColumn(body, m.name, 1)),
         },
+        ...(onSetColumnNotify && dated
+          ? [
+              {
+                label: "Notify…",
+                hint: notifyHint(settings) || "›",
+                separatorAbove: true,
+                keepOpen: true,
+                onSelect: () => setGridMenu({ ...m, notify: true }),
+              },
+            ]
+          : []),
         {
           label: "Delete column",
           danger: true,
@@ -675,12 +794,7 @@ export default function SheetGrid({
     return [
       {
         label: "Edit formula",
-        onSelect: () =>
-          setEditCol({
-            name: m.name,
-            draft: `${m.name} = ${formulaSrc(m.name)}`,
-            err: null,
-          }),
+        onSelect: () => beginEditCol(m.name),
       },
       {
         label: "Delete column",
@@ -814,6 +928,8 @@ export default function SheetGrid({
             onMouseDown={onCellMouseDown(r, c)}
             onDoubleClick={() => startEdit(r, c)}
             onContextMenu={(e) => {
+              // every row action writes — past mode leaves the native menu
+              if (readOnly) return;
               e.preventDefault();
               setFocus({ r, c });
               setGridMenu({ kind: "row", r, x: e.clientX, y: e.clientY });
@@ -977,13 +1093,7 @@ export default function SheetGrid({
           <button className="sheet-tool" onClick={onAddRow}>
             + row
           </button>
-          <button
-            className="sheet-tool"
-            onClick={() => {
-              setAddingCol(true);
-              setColDraft("");
-            }}
-          >
+          <button className="sheet-tool" onClick={beginAddColumn}>
             + column
           </button>
         </>
@@ -1048,7 +1158,7 @@ export default function SheetGrid({
               }}
             />
           ) : !readOnly ? (
-            <button className="sheet-tool" onClick={() => setAddingCol(true)}>
+            <button className="sheet-tool" onClick={beginAddColumn}>
               + column
             </button>
           ) : null}
@@ -1069,6 +1179,7 @@ export default function SheetGrid({
                   key={`h${c}`}
                   className={numericCol(ev.rows.map((r) => r[c])) ? "sheet-num" : undefined}
                   onContextMenu={(e) => {
+                    if (readOnly) return;
                     e.preventDefault();
                     setGridMenu({ kind: "col", name: h, c, x: e.clientX, y: e.clientY });
                   }}
@@ -1083,18 +1194,13 @@ export default function SheetGrid({
                   title={
                     editCol?.name === cc.name
                       ? (editCol.err ?? "name = formula — Enter applies, Esc cancels")
-                      : `${cc.name} = ${formulaSrc(cc.name)} — double-click to edit`
+                      : `${cc.name} = ${formulaSrc(cc.name)}${
+                          readOnly ? "" : " — double-click to edit"
+                        }`
                   }
-                  onDoubleClick={() => {
-                    if (editColRef.current?.name !== cc.name) {
-                      setEditCol({
-                        name: cc.name,
-                        draft: `${cc.name} = ${formulaSrc(cc.name)}`,
-                        err: null,
-                      });
-                    }
-                  }}
+                  onDoubleClick={() => beginEditCol(cc.name)}
                   onContextMenu={(e) => {
+                    if (readOnly) return;
                     e.preventDefault();
                     setGridMenu({ kind: "computed", name: cc.name, x: e.clientX, y: e.clientY });
                   }}
@@ -1124,8 +1230,10 @@ export default function SheetGrid({
                   )}
                 </th>
               ))}
+              {/* the cell itself stays — it is the header of the spacer
+                  column every body row ends with; past mode empties it */}
               <th className="sheet-addcol">
-                {addingCol ? (
+                {readOnly ? null : addingCol ? (
                   <input
                     className="sheet-addcol-input"
                     autoFocus
@@ -1142,14 +1250,7 @@ export default function SheetGrid({
                     }}
                   />
                 ) : (
-                  <button
-                    className="sheet-addcol-btn"
-                    title="Add column"
-                    onClick={() => {
-                      setAddingCol(true);
-                      setColDraft("");
-                    }}
-                  >
+                  <button className="sheet-addcol-btn" title="Add column" onClick={beginAddColumn}>
                     +
                   </button>
                 )}
@@ -1164,11 +1265,13 @@ export default function SheetGrid({
                 <td className="sheet-spacer" />
               </tr>
             ))}
-            <tr className="sheet-addrow">
-              <td colSpan={cols + 1}>
-                <button onClick={onAddRow}>+ row</button>
-              </td>
-            </tr>
+            {!readOnly && (
+              <tr className="sheet-addrow">
+                <td colSpan={cols + 1}>
+                  <button onClick={onAddRow}>+ row</button>
+                </td>
+              </tr>
+            )}
             {/* Totals row (SUB-937): pinned to the bottom of the scroll area,
                 one cell per column, holding the summaries that describe that
                 column. An empty cell writes a new one. */}

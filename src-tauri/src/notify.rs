@@ -74,6 +74,14 @@ pub struct DueItem {
     /// SUB-842: `Some(n)` marks this firing as the lead-time alert that runs
     /// `n` days ahead of `date`. `None` is the day-of alert.
     pub lead: Option<u32>,
+    /// SUB-876: for a date cell in a sheet's csv grid, the row's label — its
+    /// first-column value. `None` is a plain note/database prop.
+    ///
+    /// The label, not the row index, is the row's identity: inserting,
+    /// moving or deleting a row above shifts every index below it, and a
+    /// key built on an index would then name a different row and re-fire.
+    /// It is also the string the notification and the deep-link need.
+    pub row: Option<String>,
 }
 
 /// Marker appended to a lead-time alert's state key (SUB-842). Day-of keys
@@ -81,12 +89,74 @@ pub struct DueItem {
 /// written by older builds keep working.
 const LEAD_MARK: &str = "lead";
 
+/// Separator between a sheet key's column and row label (SUB-876).
+const ROW_MARK: char = '#';
+
+/// Percent-escape the characters that carry meaning in a state key. Sheet
+/// headers and cells are arbitrary text, so a raw `|` in either would make
+/// `split_key`'s right-split read the wrong segments, and a raw `#` would
+/// split the column from the wrong place. `%` goes first — it is the escape
+/// character, so escaping it last would double-encode the others.
+fn esc(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '%' => out.push_str("%25"),
+            '|' => out.push_str("%7C"),
+            ROW_MARK => out.push_str("%23"),
+            '\n' => out.push_str("%0A"),
+            '\r' => out.push_str("%0D"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Inverse of `esc`. An unrecognized `%xx` is left verbatim — this only ever
+/// runs on the sheet branch of a key we wrote ourselves, and mangling a
+/// hand-edited key is worse than reading it literally.
+///
+/// Escapes are decoded as BYTES, not chars: `esc` only ever emits ASCII
+/// (`%25 %7C %23 %0D %0A`), but a hand-edited key may carry a percent-encoded
+/// multi-byte character, and decoding each `%xx` as a `char` would read
+/// `%C3%A9` as Latin-1 `Ã©` instead of `é`. A run that isn't valid UTF-8 in
+/// the end (a lone `%C3`) yields the replacement character for that byte.
+fn unesc(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(s.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let hex = (bytes[i] == b'%').then(|| s.get(i + 1..i + 3)).flatten();
+        match hex.and_then(|h| u8::from_str_radix(h, 16).ok()) {
+            Some(b) => {
+                out.push(b);
+                i += 3;
+            }
+            None => {
+                let c = s[i..].chars().next().unwrap_or('%');
+                out.extend_from_slice(c.encode_utf8(&mut [0u8; 4]).as_bytes());
+                i += c.len_utf8();
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 impl DueItem {
     /// Identity of a firing: same note, same prop, same due date — plus the
     /// `|lead` marker for a lead-time alert, so the two alerts of one due
     /// date fire (and snooze) independently.
+    ///
+    /// A sheet cell (SUB-876) puts BOTH coordinates in the prop segment:
+    /// `<path>|<column>#<row label>|<date>`, each part percent-escaped. Note
+    /// and database keys keep their exact historical bytes, so existing
+    /// `.vault/notifications.json` files keep working.
     pub fn key(&self) -> String {
-        let base = format!("{}|{}|{}", self.path, self.prop, self.date.format("%Y-%m-%d"));
+        let prop = match &self.row {
+            Some(row) => format!("{}{ROW_MARK}{}", esc(&self.prop), esc(row)),
+            None => self.prop.clone(),
+        };
+        let base = format!("{}|{}|{}", self.path, prop, self.date.format("%Y-%m-%d"));
         match self.lead {
             Some(_) => format!("{base}|{LEAD_MARK}"),
             None => base,
@@ -121,9 +191,20 @@ impl DueItem {
         match self.lead {
             Some(n) => {
                 let days = if n == 1 { "1 day".to_string() } else { format!("{n} days") };
-                format!("{} — {when} · in {days}", self.prop)
+                format!("{} — {when} · in {days}", self.subject())
             }
-            None => format!("{} — {when}", self.prop),
+            None => format!("{} — {when}", self.subject()),
+        }
+    }
+
+    /// What the alert is about. A note's own deadline is named by its prop
+    /// ("due"); a sheet row's is named by the row first and the column second
+    /// ("Netflix · renewal") — the title already says which sheet, and the
+    /// row label is the part a reader recognizes.
+    fn subject(&self) -> String {
+        match &self.row {
+            Some(row) => format!("{row} · {}", self.prop),
+            None => self.prop.clone(),
         }
     }
 }
@@ -326,8 +407,7 @@ fn occurrence_day(anchor: NaiveDate, r: Repeat, today: NaiveDate) -> Option<Naiv
         RepeatUnit::Month | RepeatUnit::Year => {
             let per = i64::from(r.n) * if r.unit == RepeatUnit::Year { 12 } else { 1 };
             // non-negative: today >= anchor means its (year, month) isn't behind
-            let months = i64::from(today.year() - anchor.year()) * 12
-                + i64::from(today.month())
+            let months = i64::from(today.year() - anchor.year()) * 12 + i64::from(today.month())
                 - i64::from(anchor.month());
             if months % per != 0 {
                 return None;
@@ -394,6 +474,89 @@ fn note_notifies(note: &NoteMeta) -> bool {
     true
 }
 
+/// A sheet column's notification settings (SUB-876), read from the note's
+/// `columns:` frontmatter map. Deliberately the same vocabulary as a database
+/// property's schema: `notify` is the day-of alert, `notifyBefore` the
+/// lead-time one, and either may be set without the other.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct ColumnNotify {
+    notify: bool,
+    notify_before: Option<u32>,
+}
+
+impl ColumnNotify {
+    fn silent(&self) -> bool {
+        !self.notify && self.notify_before.is_none()
+    }
+}
+
+/// A frontmatter flag read truthily: YAML `true`, or the string "true" that
+/// hand-written and imported frontmatter produces (same tolerance as the
+/// `calendar:` check above).
+fn flag_true(value: Option<&serde_json::Value>) -> bool {
+    match value {
+        Some(serde_json::Value::Bool(b)) => *b,
+        Some(serde_json::Value::String(s)) => s.trim().eq_ignore_ascii_case("true"),
+        _ => false,
+    }
+}
+
+/// A lead time in days, clamped to 1..=365 like `set_schema_prop` does for
+/// databases — frontmatter is hand-editable, and an unclamped value would
+/// panic chrono's date math past `NaiveDate::MAX`, silently killing the
+/// scheduler thread for the rest of the session.
+fn lead_days(value: Option<&serde_json::Value>) -> Option<u32> {
+    let days = match value? {
+        serde_json::Value::Number(n) => n.as_u64()?,
+        serde_json::Value::String(s) => s.trim().parse().ok()?,
+        _ => return None,
+    };
+    (days > 0).then(|| days.min(365) as u32)
+}
+
+/// The columns of a sheet note that ask for notifications, `(name, settings)`.
+///
+/// Empty for every note without a `columns:` map — which is the whole reason
+/// the metadata lives in frontmatter rather than in a fence: `NoteMeta` is
+/// already indexed, so a scan that runs every 60 seconds can rule a sheet out
+/// without opening its file.
+fn notifying_columns(
+    props: &serde_json::Map<String, serde_json::Value>,
+) -> Vec<(String, ColumnNotify)> {
+    let columns = folded_prop_key(props, "columns").and_then(|k| props.get(k));
+    let Some(serde_json::Value::Object(columns)) = columns else {
+        return Vec::new();
+    };
+    columns
+        .iter()
+        .filter_map(|(name, cfg)| {
+            let serde_json::Value::Object(cfg) = cfg else { return None };
+            let get = |key: &str| folded_prop_key(cfg, key).and_then(|k| cfg.get(k));
+            let settings = ColumnNotify {
+                notify: flag_true(get("notify")),
+                notify_before: lead_days(get("notifyBefore")),
+            };
+            (!settings.silent()).then(|| (name.clone(), settings))
+        })
+        .collect()
+}
+
+/// Whether this note has any notifying sheet column — the filter deciding
+/// whose body the scan reads.
+pub fn watches_sheet(props: &serde_json::Map<String, serde_json::Value>) -> bool {
+    !notifying_columns(props).is_empty()
+}
+
+/// Note bodies for the sheets the scan opened, keyed by note path. Notes
+/// absent from the map simply produce no sheet alerts.
+pub type SheetBodies = HashMap<String, String>;
+
+/// Case-folded name equality, matching the vault's identity rule everywhere
+/// else (SUB-920): exact spelling first, then lowercase.
+fn fold_eq(left: &str, right: &str) -> bool {
+    left == right || left.to_lowercase() == right.to_lowercase()
+}
+
 /// The due date this prop yields for `day`: `day` itself when the note
 /// repeats and `day` is a live occurrence of the series (`repeat_until`
 /// inclusive, never hiding the anchor; `repeat_skip` dropping occurrences,
@@ -450,6 +613,7 @@ fn split_key(key: &str) -> Option<(&str, &str, NaiveDate, bool)> {
 fn item_for_key(
     notes: &[NoteMeta],
     schema: &SchemaConfig,
+    sheets: &SheetBodies,
     key: &str,
     today: NaiveDate,
 ) -> Option<DueItem> {
@@ -458,6 +622,21 @@ fn item_for_key(
     if !note_notifies(note) {
         return None;
     }
+    // A database property is tried FIRST, so a property whose name literally
+    // contains the row marker still resolves as itself; only a segment no
+    // property claims is read as a sheet cell (SUB-876).
+    db_item_for_key(note, schema, prop, date, is_lead, today)
+        .or_else(|| sheet_item_for_key(note, sheets, prop, date, is_lead, today))
+}
+
+fn db_item_for_key(
+    note: &NoteMeta,
+    schema: &SchemaConfig,
+    prop: &str,
+    date: NaiveDate,
+    is_lead: bool,
+    today: NaiveDate,
+) -> Option<DueItem> {
     let note_type = folded_prop_str(&note.props, "type")?;
     let type_schema = &schema.get(folded_hash_key(schema, note_type.trim())?)?.props;
     let ps = type_schema.get(folded_hash_key(type_schema, prop)?)?;
@@ -498,7 +677,64 @@ fn item_for_key(
         date,
         time,
         lead,
+        row: None,
     })
+}
+
+/// The sheet-cell twin of `db_item_for_key` (SUB-876): `seg` is
+/// `<column>#<row label>`, both escaped. Stale for the same reasons — the
+/// column stopped notifying, the row was renamed or deleted, its date cell
+/// changed — and stale means the snooze is dropped, never fired blind.
+fn sheet_item_for_key(
+    note: &NoteMeta,
+    sheets: &SheetBodies,
+    seg: &str,
+    date: NaiveDate,
+    is_lead: bool,
+    today: NaiveDate,
+) -> Option<DueItem> {
+    let (column, label) = seg.split_once(ROW_MARK)?;
+    let (column, label) = (unesc(column), unesc(label));
+    let (_, settings) =
+        notifying_columns(&note.props).into_iter().find(|(name, _)| fold_eq(name, &column))?;
+    let lead = match is_lead {
+        true => Some(settings.notify_before?),
+        false if settings.notify => None,
+        false => return None,
+    };
+    // same early-vs-late guard as the database branch
+    let alert_date = match lead {
+        Some(n) => date - Duration::days(n as i64),
+        None => date,
+    };
+    if alert_date > today {
+        return None;
+    }
+    let grid = crate::vault::sheet_grid(sheets.get(&note.path)?)?;
+    let index = grid.column(&column)?;
+    let row = grid.rows.iter().find(|r| fold_eq(row_label(r), &label))?;
+    let (anchor, time) = parse_due(row.get(index)?.trim())?;
+    // sheets carry no `repeat:` — a cell is due on its own date and no other
+    if anchor != date {
+        return None;
+    }
+    Some(DueItem {
+        path: note.path.clone(),
+        title: note.title.clone(),
+        // the header's own spelling, so the key round-trips through the grid
+        prop: grid.headers[index].clone(),
+        date,
+        time,
+        lead,
+        row: Some(row_label(row).to_string()),
+    })
+}
+
+/// A row's identity: its first cell, trimmed. Not its index — an index shifts
+/// when a row above is inserted, moved, or deleted, and every fired/snoozed
+/// key below it would then point at the wrong deadline (SUB-876).
+fn row_label(row: &[String]) -> &str {
+    row.first().map(|c| c.trim()).unwrap_or_default()
 }
 
 fn ts(t: NaiveDateTime) -> i64 {
@@ -580,9 +816,27 @@ fn gap_end<Tz: TimeZone>(t: NaiveDateTime, tz: &Tz) -> i64 {
 /// narrow exception to "no late fires", because an explicit snooze is a user
 /// request, not a missed fire. The series is untouched: the next regular
 /// occurrence carries its own key and fires normally.
+/// The no-sheets spelling, which is what every database test asserts against:
+/// with an empty `sheets` map the pass below is a no-op, so these cases stay
+/// byte-identical to the pre-SUB-876 behaviour they were written for.
+#[cfg(test)]
 pub fn due_now(
     notes: &[NoteMeta],
     schema: &SchemaConfig,
+    state: &NotifyState,
+    now: NaiveDateTime,
+) -> Vec<DueItem> {
+    due_now_with_sheets(notes, schema, &SheetBodies::new(), state, now)
+}
+
+/// `due_now` plus the sheet pass (SUB-876). `sheets` holds the bodies of the
+/// notes with notifying columns — only the scheduler has them (it reads them
+/// under the engine lock), so every other caller goes through `due_now` and
+/// gets the database behaviour unchanged.
+pub fn due_now_with_sheets(
+    notes: &[NoteMeta],
+    schema: &SchemaConfig,
+    sheets: &SheetBodies,
     state: &NotifyState,
     now: NaiveDateTime,
 ) -> Vec<DueItem> {
@@ -590,6 +844,11 @@ pub fn due_now(
     for note in notes {
         if !note_notifies(note) {
             continue;
+        }
+        // before the database pass, because a sheet's `type: sheet` has no
+        // schema entry and the lookups below would `continue` past it
+        if let Some(body) = sheets.get(&note.path) {
+            sheet_due(note, body, state, now, &mut out);
         }
         let Some(note_type) = folded_prop_str(&note.props, "type") else { continue };
         let Some(type_key) = folded_hash_key(schema, note_type.trim()) else { continue };
@@ -625,29 +884,20 @@ pub fn due_now(
                 }
             }
             for (date, lead) in candidates {
-                let item = DueItem {
-                    path: note.path.clone(),
-                    title: note.title.clone(),
-                    prop: prop.clone(),
-                    date,
-                    time,
-                    lead,
-                };
-                let key = item.key();
-                if state.is_fired(&key) {
-                    continue;
-                }
-                match state.snoozed_until(&key) {
-                    Some(until) if until > ts(now) => continue, // snooze still running
-                    Some(_) => {
-                        out.push(item); // snooze expired — the user asked for this one
-                        continue;
-                    }
-                    None => {}
-                }
-                if item.alert_date() == now.date() && now.time() >= item.fire_time() {
-                    out.push(item);
-                }
+                push_if_due(
+                    DueItem {
+                        path: note.path.clone(),
+                        title: note.title.clone(),
+                        prop: prop.clone(),
+                        date,
+                        time,
+                        lead,
+                        row: None,
+                    },
+                    state,
+                    now,
+                    &mut out,
+                );
             }
         }
     }
@@ -664,11 +914,92 @@ pub fn due_now(
         }
         // a snooze targeting the future of today's clock isn't late yet only
         // by `until`; the key's own day is irrelevant to when it fires.
-        if let Some(item) = item_for_key(notes, schema, key, now.date()) {
+        if let Some(item) = item_for_key(notes, schema, sheets, key, now.date()) {
             out.push(item);
         }
     }
     out
+}
+
+/// The tail both passes share: skip what already fired, hold a live snooze,
+/// release an expired one, otherwise fire once the alert day has arrived and
+/// its time has passed.
+///
+/// Deduplicates by key, which is what makes two sheet rows sharing a label
+/// and a date one deadline rather than two identical notifications — they are
+/// one key, and firing it twice would also mark it fired twice.
+fn push_if_due(item: DueItem, state: &NotifyState, now: NaiveDateTime, out: &mut Vec<DueItem>) {
+    let key = item.key();
+    if state.is_fired(&key) || out.iter().any(|i| i.key() == key) {
+        return;
+    }
+    match state.snoozed_until(&key) {
+        Some(until) if until > ts(now) => return, // snooze still running
+        Some(_) => {
+            out.push(item); // snooze expired — the user asked for this one
+            return;
+        }
+        None => {}
+    }
+    if item.alert_date() == now.date() && now.time() >= item.fire_time() {
+        out.push(item);
+    }
+}
+
+/// The sheet pass (SUB-876): every date cell of every notifying column,
+/// checked exactly like a database property. Sheets carry no `repeat:` and no
+/// per-row schema, so a cell is due on its own date and nowhere else — the
+/// candidate list is just the day-of alert, the lead-time alert, or both.
+fn sheet_due(
+    note: &NoteMeta,
+    body: &str,
+    state: &NotifyState,
+    now: NaiveDateTime,
+    out: &mut Vec<DueItem>,
+) {
+    let columns = notifying_columns(&note.props);
+    if columns.is_empty() {
+        return;
+    }
+    let Some(grid) = crate::vault::sheet_grid(body) else { return };
+    for (name, settings) in columns {
+        let Some(index) = grid.column(&name) else { continue };
+        for row in &grid.rows {
+            let label = row_label(row);
+            // a row with no label has no stable identity — nothing to key a
+            // firing on, and nothing to name in the alert — so it stays quiet
+            if label.is_empty() {
+                continue;
+            }
+            let Some(value) = row.get(index) else { continue };
+            let Some((date, time)) = parse_due(value.trim()) else { continue };
+            let mut candidates: Vec<Option<u32>> = Vec::new();
+            if settings.notify {
+                candidates.push(None);
+            }
+            if let Some(n) = settings.notify_before {
+                candidates.push(Some(n));
+            }
+            for lead in candidates {
+                push_if_due(
+                    DueItem {
+                        path: note.path.clone(),
+                        title: note.title.clone(),
+                        // the header's own spelling, not the metadata key's:
+                        // the key must round-trip through `Grid::column`
+                        prop: grid.headers[index].clone(),
+                        date,
+                        time,
+                        lead,
+                        row: Some(label.to_string()),
+                    },
+                    state,
+                    now,
+                    out,
+                );
+            }
+        }
+    }
 }
 
 /// Fired and snoozed keys, persisted in the vault so restarts don't refire.
@@ -782,17 +1113,26 @@ pub fn run(_app: tauri::AppHandle) {}
 #[cfg(target_os = "macos")]
 fn scan(app: &tauri::AppHandle) {
     use tauri::Manager;
-    let (notes, schema, root) = {
+    let (notes, schema, root, sheets) = {
         let state = app.state::<crate::AppState>();
         let engine = state.0.lock().unwrap();
-        (engine.list(), engine.schema(), engine.root.clone())
+        let notes = engine.list();
+        // Only the sheets that opted a column in are opened (SUB-876). The
+        // index carries props but no body, and this runs every 60 seconds —
+        // the frontmatter flag is what keeps the scan off every other file.
+        let sheets: SheetBodies = notes
+            .iter()
+            .filter(|n| watches_sheet(&n.props))
+            .filter_map(|n| engine.read(&n.path).ok().map(|c| (n.path.clone(), c.body)))
+            .collect();
+        (notes, engine.schema(), engine.root.clone(), sheets)
     };
     let now = Local::now().naive_local();
     let due = {
         let shared = app.state::<NotifyShared>();
         let mut st = shared.0.lock().unwrap();
         st.prune(now.date());
-        let due = due_now(&notes, &schema, &st, now);
+        let due = due_now_with_sheets(&notes, &schema, &sheets, &st, now);
         if !due.is_empty() {
             for item in &due {
                 st.mark_fired(&item.key(), ts(now));
@@ -827,7 +1167,25 @@ fn fire_and_handle(app: tauri::AppHandle, item: DueItem) {
     match n.send() {
         Ok(NotificationResponse::Click) => {
             crate::show_main(&app);
-            app.emit("app:open-note", item.path.clone()).ok();
+            match &item.row {
+                // a sheet cell opens the note AND reveals its row (SUB-876);
+                // `app:open-note` keeps its bare-path payload, which the tray
+                // agenda shares
+                Some(row) => {
+                    app.emit(
+                        "app:open-sheet-row",
+                        serde_json::json!({
+                            "path": item.path,
+                            "column": item.prop,
+                            "row": row,
+                        }),
+                    )
+                    .ok();
+                }
+                None => {
+                    app.emit("app:open-note", item.path.clone()).ok();
+                }
+            }
         }
         Ok(NotificationResponse::ActionButton(label)) => {
             let now = Local::now().naive_local();
@@ -1195,7 +1553,8 @@ mod tests {
         assert_eq!(due[0].lead, Some(365));
         // the snooze-rebuild path clamps the same way instead of panicking
         let key = "Tasks/Ship it.md|due|2026-07-17|lead";
-        let rebuilt = item_for_key(&notes, &schema, key, dt(2025, 7, 17, 9, 0).date());
+        let rebuilt =
+            item_for_key(&notes, &schema, &SheetBodies::new(), key, dt(2025, 7, 17, 9, 0).date());
         assert_eq!(rebuilt.map(|i| i.lead), Some(Some(365)));
     }
 
@@ -1322,17 +1681,23 @@ mod tests {
 
         // item_for_key validates the schema still carries a lead time
         let today = NaiveDate::from_ymd_opt(2026, 7, 4).unwrap();
-        assert!(item_for_key(&notes, &schema, key, today).is_some());
+        assert!(item_for_key(&notes, &schema, &SheetBodies::new(), key, today).is_some());
         let no_lead = schema_of(&[("due", date_prop(true, None))]);
-        assert!(item_for_key(&notes, &no_lead, key, today).is_none(), "lead key went stale");
+        assert!(
+            item_for_key(&notes, &no_lead, &SheetBodies::new(), key, today).is_none(),
+            "lead key went stale"
+        );
         // …and the day-of key stays valid on that same schema, from its own
         // day (on the 4th it is still in the future — early, not late)
         let day_of = "Tasks/Standup.md|due|2026-07-06";
         let occurrence = NaiveDate::from_ymd_opt(2026, 7, 6).unwrap();
-        assert!(item_for_key(&notes, &no_lead, day_of, today).is_none(), "day-of fired early");
-        assert!(item_for_key(&notes, &no_lead, day_of, occurrence).is_some());
+        assert!(
+            item_for_key(&notes, &no_lead, &SheetBodies::new(), day_of, today).is_none(),
+            "day-of fired early"
+        );
+        assert!(item_for_key(&notes, &no_lead, &SheetBodies::new(), day_of, occurrence).is_some());
         // a lead-only schema leaves the day-of key stale in turn
-        assert!(item_for_key(&notes, &schema, day_of, occurrence).is_none());
+        assert!(item_for_key(&notes, &schema, &SheetBodies::new(), day_of, occurrence).is_none());
     }
 
     /// SUB-842: a lead day missed while the app was closed does NOT fire late
@@ -1429,7 +1794,10 @@ mod tests {
     fn recurring_monthly_and_yearly_clamp_like_the_calendar() {
         let schema = notify_schema();
         let notes = vec![
-            note("Tasks/Rent.md", &[("type", "task"), ("due", "2026-01-31"), ("repeat", "monthly")]),
+            note(
+                "Tasks/Rent.md",
+                &[("type", "task"), ("due", "2026-01-31"), ("repeat", "monthly")],
+            ),
             note("Tasks/Leap.md", &[("type", "task"), ("due", "2024-02-29"), ("repeat", "yearly")]),
             note(
                 "Tasks/Bimonthly.md",
@@ -1678,8 +2046,10 @@ mod tests {
 
         let mut boolean = note("Tasks/Bool.md", &[("type", "task"), ("due", "2026-07-17")]);
         boolean.props.insert("calendar".into(), Value::Bool(false));
-        let stringy =
-            note("Tasks/String.md", &[("type", "task"), ("due", "2026-07-17"), ("calendar", "false")]);
+        let stringy = note(
+            "Tasks/String.md",
+            &[("type", "task"), ("due", "2026-07-17"), ("calendar", "false")],
+        );
         let notes = vec![boolean, stringy];
         assert!(due_now(&notes, &schema, &state, now).is_empty(), "bool and string opt-outs");
 
@@ -1687,8 +2057,10 @@ mod tests {
         let mut truthy = note("Tasks/Bool.md", &[("type", "task"), ("due", "2026-07-17")]);
         truthy.props.insert("calendar".into(), Value::Bool(true));
         let absent = note("Tasks/Plain.md", &[("type", "task"), ("due", "2026-07-17")]);
-        let stringtrue =
-            note("Tasks/StrTrue.md", &[("type", "task"), ("due", "2026-07-17"), ("calendar", "true")]);
+        let stringtrue = note(
+            "Tasks/StrTrue.md",
+            &[("type", "task"), ("due", "2026-07-17"), ("calendar", "true")],
+        );
         let notes = vec![truthy, absent, stringtrue];
         assert_eq!(due_now(&notes, &schema, &state, now).len(), 3);
     }
@@ -1702,8 +2074,10 @@ mod tests {
         let state = NotifyState::default();
         let now = dt(2026, 7, 17, 9, 0);
         for status in ["done", "Done", "cancelled", "Cancelled", "  done  ", "\tcancelled\n"] {
-            let notes =
-                vec![note("Tasks/T.md", &[("type", "task"), ("due", "2026-07-17"), ("status", status)])];
+            let notes = vec![note(
+                "Tasks/T.md",
+                &[("type", "task"), ("due", "2026-07-17"), ("status", status)],
+            )];
             assert!(
                 due_now(&notes, &schema, &state, now).is_empty(),
                 "status {status:?} marks the note complete"
@@ -1711,8 +2085,10 @@ mod tests {
         }
         // any other status — or none — still fires
         for status in ["in progress", "donee", ""] {
-            let notes =
-                vec![note("Tasks/T.md", &[("type", "task"), ("due", "2026-07-17"), ("status", status)])];
+            let notes = vec![note(
+                "Tasks/T.md",
+                &[("type", "task"), ("due", "2026-07-17"), ("status", status)],
+            )];
             assert_eq!(due_now(&notes, &schema, &state, now).len(), 1, "status {status:?} fires");
         }
         let notes = vec![note("Tasks/T.md", &[("type", "task"), ("due", "2026-07-17")])];
@@ -1887,8 +2263,10 @@ mod tests {
     #[test]
     fn daily_series_snooze_behaviour_unchanged() {
         let schema = notify_schema();
-        let notes =
-            vec![note("Tasks/Daily.md", &[("type", "task"), ("due", "2026-07-01"), ("repeat", "daily")])];
+        let notes = vec![note(
+            "Tasks/Daily.md",
+            &[("type", "task"), ("due", "2026-07-01"), ("repeat", "daily")],
+        )];
         let mut state = NotifyState::default();
 
         // Jul 8's occurrence snoozed to Jul 9 09:00, itself an occurrence day
@@ -2115,5 +2493,296 @@ mod tests {
         // reads keep working, so the scheduler still honours what's on disk
         assert!(NotifyState::load(&dir).is_fired("A.md|due|2026-07-17"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- sheets (SUB-876) ----
+
+    /// A sheet note: `type: sheet` plus a `columns:` map opting columns in.
+    fn sheet_note(path: &str, columns: &[(&str, bool, Option<u32>)]) -> NoteMeta {
+        let mut map = Map::new();
+        for (name, notify, before) in columns {
+            let mut cfg = Map::new();
+            if *notify {
+                cfg.insert("notify".into(), Value::Bool(true));
+            }
+            if let Some(n) = before {
+                cfg.insert("notifyBefore".into(), Value::Number((*n).into()));
+            }
+            map.insert((*name).to_string(), Value::Object(cfg));
+        }
+        note_v(path, &[("type", Value::String("sheet".into())), ("columns", Value::Object(map))])
+    }
+
+    const SUBS: &str =
+        "```csv\nname,renewal,cost\nNetflix,2026-08-12,12\nSpotify,2026-08-20,10\n```\n";
+
+    fn sheets(path: &str, body: &str) -> SheetBodies {
+        let mut m = SheetBodies::new();
+        m.insert(path.to_string(), body.to_string());
+        m
+    }
+
+    fn sheet_due_now(
+        notes: &[NoteMeta],
+        bodies: &SheetBodies,
+        state: &NotifyState,
+        now: NaiveDateTime,
+    ) -> Vec<DueItem> {
+        due_now_with_sheets(notes, &SchemaConfig::new(), bodies, state, now)
+    }
+
+    #[test]
+    fn sheet_date_cell_fires_on_its_day() {
+        let n = sheet_note("Sheets/Subs.md", &[("renewal", true, None)]);
+        let due = sheet_due_now(
+            std::slice::from_ref(&n),
+            &sheets("Sheets/Subs.md", SUBS),
+            &NotifyState::default(),
+            dt(2026, 8, 12, 9, 0),
+        );
+        assert_eq!(due.len(), 1, "only the row whose date is today: {due:?}");
+        assert_eq!(due[0].row.as_deref(), Some("Netflix"));
+        assert_eq!(due[0].prop, "renewal");
+        assert_eq!(due[0].date, NaiveDate::from_ymd_opt(2026, 8, 12).unwrap());
+        assert_eq!(due[0].key(), "Sheets/Subs.md|renewal#Netflix|2026-08-12");
+        assert!(due[0].describe().contains("Netflix · renewal"), "{}", due[0].describe());
+    }
+
+    #[test]
+    fn sheet_column_without_notify_stays_quiet() {
+        // the grid has a date in `renewal`, but no column opted in
+        let n = note_v("Sheets/Subs.md", &[("type", Value::String("sheet".into()))]);
+        assert!(!watches_sheet(&n.props), "no columns map — the scan skips the body entirely");
+        let due = sheet_due_now(
+            std::slice::from_ref(&n),
+            &sheets("Sheets/Subs.md", SUBS),
+            &NotifyState::default(),
+            dt(2026, 8, 12, 9, 0),
+        );
+        assert!(due.is_empty(), "{due:?}");
+    }
+
+    #[test]
+    fn sheet_lead_alert_fires_ahead_and_is_independent() {
+        // notifyBefore only: the lead alert fires, the day-of one never does
+        let n = sheet_note("Sheets/Subs.md", &[("renewal", false, Some(7))]);
+        let bodies = sheets("Sheets/Subs.md", SUBS);
+        let lead = sheet_due_now(
+            std::slice::from_ref(&n),
+            &bodies,
+            &NotifyState::default(),
+            dt(2026, 8, 5, 9, 0),
+        );
+        assert_eq!(lead.len(), 1, "{lead:?}");
+        assert_eq!(lead[0].lead, Some(7));
+        assert_eq!(lead[0].key(), "Sheets/Subs.md|renewal#Netflix|2026-08-12|lead");
+        assert!(lead[0].describe().ends_with("in 7 days"), "{}", lead[0].describe());
+        let day_of = sheet_due_now(
+            std::slice::from_ref(&n),
+            &bodies,
+            &NotifyState::default(),
+            dt(2026, 8, 12, 9, 0),
+        );
+        assert!(day_of.is_empty(), "day-of needs its own flag: {day_of:?}");
+    }
+
+    #[test]
+    fn sheet_alert_does_not_fire_early_late_or_twice() {
+        let n = sheet_note("Sheets/Subs.md", &[("renewal", true, None)]);
+        let bodies = sheets("Sheets/Subs.md", SUBS);
+        let one = std::slice::from_ref(&n);
+        let st = NotifyState::default();
+        assert!(
+            sheet_due_now(one, &bodies, &st, dt(2026, 8, 12, 8, 59)).is_empty(),
+            "before 09:00"
+        );
+        assert!(
+            sheet_due_now(one, &bodies, &st, dt(2026, 8, 11, 23, 59)).is_empty(),
+            "the day before"
+        );
+        assert!(sheet_due_now(one, &bodies, &st, dt(2026, 8, 13, 9, 0)).is_empty(), "no late fire");
+        let mut fired = NotifyState::default();
+        fired.mark_fired("Sheets/Subs.md|renewal#Netflix|2026-08-12", 1);
+        assert!(
+            sheet_due_now(one, &bodies, &fired, dt(2026, 8, 12, 10, 0)).is_empty(),
+            "fired once"
+        );
+    }
+
+    #[test]
+    fn sheet_cell_time_sets_the_fire_time() {
+        let body = "```csv\nname,renewal\nNetflix,2026-08-12 14:30\n```\n";
+        let n = sheet_note("Sheets/Subs.md", &[("renewal", true, None)]);
+        let one = std::slice::from_ref(&n);
+        let bodies = sheets("Sheets/Subs.md", body);
+        let st = NotifyState::default();
+        assert!(
+            sheet_due_now(one, &bodies, &st, dt(2026, 8, 12, 9, 0)).is_empty(),
+            "not yet 14:30"
+        );
+        let due = sheet_due_now(one, &bodies, &st, dt(2026, 8, 12, 14, 30));
+        assert_eq!(due.len(), 1, "{due:?}");
+        assert_eq!(due[0].time, NaiveTime::from_hms_opt(14, 30, 0));
+    }
+
+    #[test]
+    fn sheet_rows_without_a_label_or_a_date_stay_quiet() {
+        // blank first cell = no stable identity; a non-date cell is not a deadline
+        let body = "```csv\nname,renewal\n,2026-08-12\nSpotify,soon\nNetflix,2026-08-12\n```\n";
+        let n = sheet_note("Sheets/Subs.md", &[("renewal", true, None)]);
+        let due = sheet_due_now(
+            std::slice::from_ref(&n),
+            &sheets("Sheets/Subs.md", body),
+            &NotifyState::default(),
+            dt(2026, 8, 12, 9, 0),
+        );
+        assert_eq!(due.len(), 1, "{due:?}");
+        assert_eq!(due[0].row.as_deref(), Some("Netflix"));
+    }
+
+    #[test]
+    fn sheet_duplicate_labels_fire_once() {
+        // two rows share an identity, so they share a key — one firing, and a
+        // snooze on it quiets both
+        let body = "```csv\nname,renewal\nNetflix,2026-08-12\nNetflix,2026-08-12\n```\n";
+        let n = sheet_note("Sheets/Subs.md", &[("renewal", true, None)]);
+        let due = sheet_due_now(
+            std::slice::from_ref(&n),
+            &sheets("Sheets/Subs.md", body),
+            &NotifyState::default(),
+            dt(2026, 8, 12, 9, 0),
+        );
+        assert_eq!(due.len(), 1, "{due:?}");
+    }
+
+    #[test]
+    fn sheet_column_and_row_names_bind_case_insensitively() {
+        let body = "```csv\nName,Renewal\nNetflix,2026-08-12\n```\n";
+        let n = sheet_note("Sheets/Subs.md", &[("RENEWAL", true, None)]);
+        let due = sheet_due_now(
+            std::slice::from_ref(&n),
+            &sheets("Sheets/Subs.md", body),
+            &NotifyState::default(),
+            dt(2026, 8, 12, 9, 0),
+        );
+        assert_eq!(due.len(), 1, "{due:?}");
+        assert_eq!(due[0].prop, "Renewal", "the header's own spelling, not the metadata key's");
+    }
+
+    #[test]
+    fn sheet_keys_escape_the_separators_and_round_trip() {
+        // a header or label containing `|`, `#` or `%` must not fake a key boundary
+        let body = "```csv\nname,due|when#x\n50%|off#1,2026-08-12\n```\n";
+        let n = sheet_note("Sheets/Subs.md", &[("due|when#x", true, None)]);
+        let one = std::slice::from_ref(&n);
+        let bodies = sheets("Sheets/Subs.md", body);
+        let due = sheet_due_now(one, &bodies, &NotifyState::default(), dt(2026, 8, 12, 9, 0));
+        assert_eq!(due.len(), 1, "{due:?}");
+        let key = due[0].key();
+        assert_eq!(
+            split_key(&key).map(|(p, _, d, l)| (p, d, l)),
+            Some(("Sheets/Subs.md", NaiveDate::from_ymd_opt(2026, 8, 12).unwrap(), false,))
+        );
+        let rebuilt = item_for_key(
+            one,
+            &SchemaConfig::new(),
+            &bodies,
+            &key,
+            NaiveDate::from_ymd_opt(2026, 8, 12).unwrap(),
+        );
+        assert_eq!(rebuilt.as_ref(), Some(&due[0]), "the key rebuilds its own item");
+    }
+
+    #[test]
+    fn unesc_reads_a_hand_written_multibyte_escape_as_utf8() {
+        // esc only ever emits ASCII, so this only bites a hand-edited
+        // notifications.json — decoding per byte keeps `é` from reading as `Ã©`
+        assert_eq!(unesc("caf%C3%A9"), "café");
+        assert_eq!(esc("café"), "café", "nothing to escape, nothing escaped");
+        assert_eq!(unesc(&esc("50%|off#1")), "50%|off#1", "our own keys round-trip");
+        assert_eq!(unesc("100% sure"), "100% sure", "an unrecognized escape stays verbatim");
+    }
+
+    #[test]
+    fn sheet_snooze_rebuilds_and_goes_stale_with_the_grid() {
+        let n = sheet_note("Sheets/Subs.md", &[("renewal", true, None)]);
+        let one = std::slice::from_ref(&n);
+        let bodies = sheets("Sheets/Subs.md", SUBS);
+        let key = "Sheets/Subs.md|renewal#Netflix|2026-08-12";
+        let today = NaiveDate::from_ymd_opt(2026, 8, 12).unwrap();
+        assert!(item_for_key(one, &SchemaConfig::new(), &bodies, key, today).is_some());
+
+        // renamed row: the snooze names a deadline that no longer exists
+        let renamed = sheets("Sheets/Subs.md", &SUBS.replace("Netflix", "Netflix DE"));
+        assert!(item_for_key(one, &SchemaConfig::new(), &renamed, key, today).is_none());
+        // date moved off the key's day
+        let moved = sheets("Sheets/Subs.md", &SUBS.replace("2026-08-12", "2026-09-01"));
+        assert!(item_for_key(one, &SchemaConfig::new(), &moved, key, today).is_none());
+        // column switched off
+        let quiet = sheet_note("Sheets/Subs.md", &[("cost", true, None)]);
+        assert!(item_for_key(
+            std::slice::from_ref(&quiet),
+            &SchemaConfig::new(),
+            &bodies,
+            key,
+            today
+        )
+        .is_none());
+        // and an alert day still ahead is early, not late
+        assert!(item_for_key(
+            one,
+            &SchemaConfig::new(),
+            &bodies,
+            key,
+            NaiveDate::from_ymd_opt(2026, 8, 11).unwrap()
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn an_expired_sheet_snooze_fires_once() {
+        let n = sheet_note("Sheets/Subs.md", &[("renewal", true, None)]);
+        let mut st = NotifyState::default();
+        let key = "Sheets/Subs.md|renewal#Netflix|2026-08-12";
+        st.snooze(key, ts(dt(2026, 8, 12, 8, 0)));
+        let due = sheet_due_now(
+            std::slice::from_ref(&n),
+            &sheets("Sheets/Subs.md", SUBS),
+            &st,
+            dt(2026, 8, 12, 9, 30),
+        );
+        assert_eq!(due.len(), 1, "{due:?}");
+        assert_eq!(due[0].key(), key);
+    }
+
+    #[test]
+    fn a_database_prop_named_like_a_row_key_still_resolves_as_itself() {
+        // a `#` inside a property name is legal; the database reading wins
+        let n = note("Task.md", &[("type", "task"), ("due#1", "2026-08-12")]);
+        let schema = schema_of(&[("due#1", date_prop(true, None))]);
+        let key = "Task.md|due#1|2026-08-12";
+        let item = item_for_key(
+            std::slice::from_ref(&n),
+            &schema,
+            &SheetBodies::new(),
+            key,
+            NaiveDate::from_ymd_opt(2026, 8, 12).unwrap(),
+        )
+        .expect("database prop wins");
+        assert_eq!(item.row, None);
+        assert_eq!(item.prop, "due#1");
+    }
+
+    #[test]
+    fn database_keys_are_unchanged_by_the_row_marker() {
+        let n = note("Task.md", &[("type", "task"), ("due", "2026-08-12")]);
+        let due = due_now(
+            std::slice::from_ref(&n),
+            &notify_schema(),
+            &NotifyState::default(),
+            dt(2026, 8, 12, 9, 0),
+        );
+        assert_eq!(due[0].key(), "Task.md|due|2026-08-12", "byte-identical to pre-SUB-876");
+        assert_eq!(due[0].row, None);
     }
 }

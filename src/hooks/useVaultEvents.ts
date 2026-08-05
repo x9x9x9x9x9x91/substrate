@@ -11,6 +11,15 @@ import { refreshAudioPlayers } from "../lib/editor-widgets";
 import type { UndoAction } from "./useUndoStack";
 import type { ToastAction } from "./useToast";
 
+/** payload of `app:open-sheet-row` (SUB-876): the sheet, the column that
+    fired, and the row's label cell — the row identity the alert was keyed
+    with. Backend spelling: `notify.rs`'s fire_and_handle. */
+export interface SheetRowTarget {
+  path: string;
+  column: string;
+  row: string;
+}
+
 /**
  * every backend-originated event the shell listens to: the file watcher
  * (vault:changed), sync pulls (vault:pulled), external config edits
@@ -18,7 +27,7 @@ import type { ToastAction } from "./useToast";
  * (vault:seal-degraded), a dead watcher (vault:watch-degraded), a refused
  * capture hotkey (capture:hotkey-rejected), a restore that buried a newer
  * external edit (history:restored-over-external), unclaimed Finder drops, and
- * notification/tray note opens (app:open-note).
+ * notification/tray note opens (app:open-note, app:open-sheet-row).
  *
  * `lastOwnRefreshRef` is shared with App's `refresh` (it tags app-initiated
  * refreshes), so it stays in App and is passed in; `openNoteRef` is created
@@ -333,7 +342,7 @@ export function useVaultEvents(opts: {
     };
   }, []);
 
-  // `substrate://note/…` links the OS handed the app (SUB-1075). The first
+// `substrate://note/…` links the OS handed the app (SUB-1075). The first
   // drain is what tells Rust this window is ready, so it also collects
   // anything that arrived during a cold start; after that every warm link
   // announces itself with `deeplink:pending` and drains the same way.
@@ -366,5 +375,24 @@ export function useVaultEvents(opts: {
     };
   }, [showToast]);
 
-  return { openNoteRef };
+  // a sheet cell's notification click opens the note AND asks for the row
+  // (SUB-876). Its own event rather than a widened `app:open-note` payload:
+  // that one is a bare path string and the tray agenda emits it too.
+  const openSheetRowRef = useRef<(target: SheetRowTarget) => void>(() => {});
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    listen<SheetRowTarget>("app:open-sheet-row", (e) => openSheetRowRef.current(e.payload)).then(
+      (un) => {
+        if (cancelled) un();
+        else unlisten = un;
+      }
+    );
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  return { openNoteRef, openSheetRowRef };
 }

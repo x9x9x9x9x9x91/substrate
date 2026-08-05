@@ -8,6 +8,7 @@ import { renderPrintBody, escapeHtml, type AssetSrc } from "./print";
 import { buildHandoffDocument } from "./handoff";
 import { buildOneSheet, buildTableSheet } from "./onesheet";
 import { isImageName } from "./artwork";
+import { embedTarget } from "./wikilinks";
 
 const EMBED_RE = /!\[\[([^[\]]+)\]\]/g;
 
@@ -110,9 +111,9 @@ async function runPrintDialog(surface: HTMLElement) {
     (possibly master-sized) bytes are never read. */
 async function readNoteInlined(meta: NoteMeta) {
   const c = await vaultRead(meta.path);
-  const names = [...new Set([...c.body.matchAll(EMBED_RE)].map((m) => m[1].trim()))].filter((n) =>
-    isImageName(n)
-  );
+  const names = [
+    ...new Set([...c.body.matchAll(EMBED_RE)].map((m) => embedTarget(m[1]))),
+  ].filter((n) => isImageName(n));
   const assets = new Map<string, string>();
   await Promise.all(
     names.map((n) =>

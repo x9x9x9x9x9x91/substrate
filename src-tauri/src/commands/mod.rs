@@ -60,9 +60,9 @@ pub(crate) fn finish_inherited_seal<T>(
                     hist.snapshot("seal inherited plaintext").ok();
                 })
             }
-            Some(_) => Err(
-                "the vault uses user-owned Git history, which Substrate cannot rewrite".into(),
-            ),
+            Some(_) => {
+                Err("the vault uses user-owned Git history, which Substrate cannot rewrite".into())
+            }
             None if engine.root.join(".git").exists() => {
                 Err("version history could not be opened for plaintext cleanup".into())
             }
@@ -101,7 +101,8 @@ pub(crate) fn matching_prior_paths(
             .iter()
             .filter_map(|old| {
                 let suffix = old.strip_prefix(&prefix).unwrap_or(old);
-                (new == suffix || new.ends_with(&format!("/{suffix}"))).then_some((old, suffix.len()))
+                (new == suffix || new.ends_with(&format!("/{suffix}")))
+                    .then_some((old, suffix.len()))
             })
             .max_by_key(|(_, len)| *len);
         if let Some((old, _)) = best {
@@ -192,7 +193,15 @@ mod tests {
         history.purge_files(&rels).unwrap();
 
         let found = std::process::Command::new("git")
-            .args(["-C", root.to_str().unwrap(), "log", "--all", "-S", "keeper needle", "--format=%H"])
+            .args([
+                "-C",
+                root.to_str().unwrap(),
+                "log",
+                "--all",
+                "-S",
+                "keeper needle",
+                "--format=%H",
+            ])
             .output()
             .unwrap();
         assert!(found.status.success());

@@ -1,5 +1,6 @@
 import { Text, type Line } from "@codemirror/state";
 import { isAudioEmbed } from "./artwork.ts";
+import { embedTarget } from "./wikilinks.ts";
 
 /** One timestamped note stored in an adjacent `annotations` fence. */
 export interface AudioAnnotation {
@@ -95,7 +96,9 @@ function standaloneAudio(line: SourceLine): {
   embedTo: number;
 } | null {
   const embed = STANDALONE_EMBED_RE.exec(line.text);
-  const name = embed?.[1].trim();
+  // the file alone — a `|300`-style display modifier never names the
+  // player's audio, and the `audio:` fence binds to the file (SUB-1102)
+  const name = embed && embedTarget(embed[1]);
   if (!embed || !name || name.includes("[") || name.includes("]") || !isAudioEmbed(name)) {
     return null;
   }

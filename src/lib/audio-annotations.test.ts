@@ -105,3 +105,11 @@ test("write positions resolve from the current shifted document", () => {
   assert.equal(target?.embedFrom, embedFrom);
   assert.equal(target?.block?.closeFrom, source.lastIndexOf("```"));
 });
+
+test("a sized audio embed still binds to its annotation fence (SUB-1102)", () => {
+  const blocks = findAudioAnnotationBlocks(
+    "![[mix v3.wav|left]]\n```annotations\naudio: mix v3.wav\n01:23 — bass too woody\n```"
+  );
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].name, "mix v3.wav");
+});

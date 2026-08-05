@@ -5,7 +5,11 @@ use crate::{AppState, SnapDirty};
 use tauri::State;
 
 #[tauri::command]
-pub(crate) fn vault_save_asset(state: State<AppState>, name: String, data: String) -> Result<String, String> {
+pub(crate) fn vault_save_asset(
+    state: State<AppState>,
+    name: String,
+    data: String,
+) -> Result<String, String> {
     state.0.lock().unwrap().save_asset(&name, &data)
 }
 
@@ -79,12 +83,17 @@ pub(crate) fn drop_shift_down() -> bool {
 }
 
 #[tauri::command]
-pub(crate) fn vault_asset_info(state: State<AppState>, name: String) -> Result<vault::AssetInfo, String> {
+pub(crate) fn vault_asset_info(
+    state: State<AppState>,
+    name: String,
+) -> Result<vault::AssetInfo, String> {
     state.0.lock().unwrap().asset_info(&name)
 }
 
 #[tauri::command]
-pub(crate) fn vault_assets_orphaned(state: State<AppState>) -> Result<Vec<vault::AssetInfo>, String> {
+pub(crate) fn vault_assets_orphaned(
+    state: State<AppState>,
+) -> Result<Vec<vault::AssetInfo>, String> {
     state.0.lock().unwrap().assets_orphaned()
 }
 

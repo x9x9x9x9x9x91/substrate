@@ -256,8 +256,7 @@ impl Engine {
 
     /// The tag folders on disk. Missing or corrupt reads as none.
     pub fn tag_folders(&self) -> Vec<TagFolder> {
-        let raw =
-            fs::read_to_string(self.root.join(TagFolder::REL_PATH)).unwrap_or_default();
+        let raw = fs::read_to_string(self.root.join(TagFolder::REL_PATH)).unwrap_or_default();
         serde_json::from_str::<Vec<TagFolder>>(&raw).unwrap_or_default()
     }
 
@@ -325,7 +324,8 @@ impl Engine {
             }
         }
         let key = folded_prop_key(&content.props, "tags").unwrap_or("tags").to_string();
-        let value = serde_json::Value::Array(list.into_iter().map(serde_json::Value::from).collect());
+        let value =
+            serde_json::Value::Array(list.into_iter().map(serde_json::Value::from).collect());
         self.set_prop_value(rel, &key, Some(value))
     }
 }

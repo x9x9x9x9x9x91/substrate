@@ -204,10 +204,7 @@ impl Engine {
 
     /// Has this device confirmed this exact marker (path *and* key)?
     fn marker_confirmed(trust: &ScopeTrustFile, scope: &str, recipient: &str) -> bool {
-        trust
-            .confirmed
-            .iter()
-            .any(|entry| entry.scope == scope && entry.recipient == recipient)
+        trust.confirmed.iter().any(|entry| entry.scope == scope && entry.recipient == recipient)
     }
 
     /// Record a confirmation. Idempotent; the caller has already established
@@ -769,7 +766,9 @@ impl Engine {
         } else {
             changed
                 .iter()
-                .filter(|path| Path::new(path).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("md")))
+                .filter(|path| {
+                    Path::new(path).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+                })
                 .cloned()
                 .collect()
         };
@@ -890,9 +889,7 @@ mod tests {
         fs::write(root.join(&created.path), "plaintext from an old sync client").unwrap();
         let adopted = engine.reconcile_sealed_changes(&[created.path.clone()]).unwrap();
         assert_eq!(adopted, vec![created.path]);
-        assert!(sealed::is_sealed(
-            &fs::read(root.join("Private/Born private.md")).unwrap()
-        ));
+        assert!(sealed::is_sealed(&fs::read(root.join("Private/Born private.md")).unwrap()));
     }
 
     #[test]
@@ -1038,7 +1035,8 @@ mod tests {
         let marker = fs::read(root.join("Private").join(SCOPE_MARKER)).unwrap();
         fs::write(root.join("Copied").join(SCOPE_MARKER), &marker).unwrap();
 
-        let note = engine.create_full("Target", "Copied", None, None, Some("own-key needle")).unwrap();
+        let note =
+            engine.create_full("Target", "Copied", None, None, Some("own-key needle")).unwrap();
         assert!(!note.sealed);
         assert!(engine.reconcile_sealed_changes(&[note.path.clone()]).unwrap().is_empty());
         assert!(!sealed::is_sealed(&fs::read(root.join(&note.path)).unwrap()));

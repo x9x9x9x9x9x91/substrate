@@ -6,6 +6,7 @@ import {
   appearancePreviewPending,
   appearancePreviewSeq,
   applyAppearance,
+  claimAppearancePreview,
   barScalar,
   DEFAULT_APPEARANCE,
   previewAppearance,
@@ -181,6 +182,44 @@ test("a rollback keeps another dial's uncommitted preview claimed", () => {
 
   // releasing the current seq instead — what the pane used to do — would hand
   // the drag back to the next Settings.md read
+  reconcileAppearance(appearancePreviewSeq());
+  assert.equal(appearancePreviewPending(), false);
+});
+
+test("a paint-free claim covers a dial outside the Appearance struct (SUB-1126)", () => {
+  const root = fakeRoot();
+  reconcileAppearance(appearancePreviewSeq());
+  assert.equal(appearancePreviewPending(), false);
+
+  // the window-opacity drag: painted by lib/vibrancy onto <html>'s class, so
+  // it claims without going through applyAppearance. The claim is what makes
+  // App drop the opacity half of a Settings.md read that lands mid-drag.
+  claimAppearancePreview();
+  assert.equal(appearancePreviewPending(), true, "a read must not repaint mid-drag");
+  // and it claims ONLY the claim — the appearance on screen is untouched
+  assert.equal(root.dataset.glow, undefined);
+
+  // release: the same seam as every other dial, so an abandoned drag still
+  // self-heals — the next read repaints the ground from the note (SUB-951)
+  reconcileAppearance(appearancePreviewSeq());
+  assert.equal(appearancePreviewPending(), false);
+});
+
+test("an opacity drag during an appearance write is not handed back by it", () => {
+  const root = fakeRoot();
+  reconcileAppearance(appearancePreviewSeq());
+
+  // the glow write goes out…
+  previewAppearance(root, { glow: 80, tone: "sky", nudge: 0 });
+  const inFlight = appearancePreviewSeq();
+  // …and the opacity dial moves while it is still in flight
+  claimAppearancePreview();
+
+  // the glow write lands. One counter pair covers both dials, so this must
+  // still not hand back the opacity preview the user is holding.
+  reconcileAppearance(inFlight);
+  assert.equal(appearancePreviewPending(), true);
+
   reconcileAppearance(appearancePreviewSeq());
   assert.equal(appearancePreviewPending(), false);
 });

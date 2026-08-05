@@ -267,10 +267,7 @@ impl Runtime {
     }
 
     fn mark_fired(&mut self, rule: &str, subject: &str, now: u64) {
-        self.cooldowns
-            .entry(fold(subject))
-            .or_default()
-            .insert(rule.to_string(), now);
+        self.cooldowns.entry(fold(subject)).or_default().insert(rule.to_string(), now);
     }
 
     fn mark_written(&mut self, path: &str, depth: usize, chain: &[String], now: u64) {
@@ -426,8 +423,7 @@ pub(super) fn run_batch<A: EngineAccess, N: Notifier>(
                     st.failures = 0;
                     st.last_error = None;
                     st.last_fired = Some(stamp());
-                    let outcome =
-                        if fire.changed { OUTCOME_OK } else { OUTCOME_NOOP }.to_string();
+                    let outcome = if fire.changed { OUTCOME_OK } else { OUTCOME_NOOP }.to_string();
                     report.receipts.push(receipt(rule, trigger, &subject, fire.log, outcome));
                 }
             }
@@ -485,10 +481,10 @@ fn receipt(
 // ---------------------------------------------------------------- subjects
 
 fn build_subject<A: EngineAccess>(access: &A, trigger: &Trigger) -> Option<Subject> {
-    let filename =
-        trigger.path.rsplit('/').next().unwrap_or(&trigger.path).to_string();
+    let filename = trigger.path.rsplit('/').next().unwrap_or(&trigger.path).to_string();
     if trigger.event.is_mount() {
-        let stem = filename.rsplit_once('.').map(|(s, _)| s.to_string()).unwrap_or(filename.clone());
+        let stem =
+            filename.rsplit_once('.').map(|(s, _)| s.to_string()).unwrap_or(filename.clone());
         return Some(Subject {
             path: trigger.path.clone(),
             title: stem,
@@ -540,12 +536,7 @@ struct Fire {
 /// Run one rule's actions against one subject. `dry_run` shares this path
 /// exactly: each verb resolves and validates, then either calls the engine or
 /// records what it would have called.
-fn execute<A: EngineAccess>(
-    access: &A,
-    rule: &Rule,
-    subject: &Subject,
-    trigger: &Trigger,
-) -> Fire {
+fn execute<A: EngineAccess>(access: &A, rule: &Rule, subject: &Subject, trigger: &Trigger) -> Fire {
     let mut fire = Fire::default();
     // the subject path moves under us when `move` runs, and later actions in
     // the same rule must follow the note, not its old path
@@ -558,14 +549,9 @@ fn execute<A: EngineAccess>(
                 do_set_prop(access, rule, &current, subject, &a.prop, &a.value, a.overwrite)
             }
             Action::Tag(a) => do_tag(access, rule, &current, subject, &a.tags),
-            Action::Create(a) => do_create(
-                access,
-                rule,
-                subject,
-                &a.title,
-                &a.folder,
-                a.template.as_deref(),
-            ),
+            Action::Create(a) => {
+                do_create(access, rule, subject, &a.title, &a.folder, a.template.as_deref())
+            }
             Action::Notify(a) => {
                 let message = expand(&a.message, subject);
                 if rule.dry_run {
@@ -614,12 +600,7 @@ impl Step {
         Step { log: log.into(), written: None, changed: false, notification: None }
     }
     fn wrote(log: impl Into<String>, path: impl Into<String>) -> Self {
-        Step {
-            log: log.into(),
-            written: Some(path.into()),
-            changed: true,
-            notification: None,
-        }
+        Step { log: log.into(), written: Some(path.into()), changed: true, notification: None }
     }
 }
 
@@ -729,20 +710,15 @@ fn do_set_prop<A: EngineAccess>(
     // guarded write: the expected-prior check makes a concurrent human edit
     // lose the race loudly instead of being overwritten
     access.with(move |e| {
-        e.set_prop_guarded(
-            &path,
-            &key_owned,
-            Some(Value::String(want_owned)),
-            Some(prior),
-        )
+        e.set_prop_guarded(&path, &key_owned, Some(Value::String(want_owned)), Some(prior))
     })??;
     Ok(Step::wrote(format!("set {key} = {want}"), current))
 }
 
 fn lookup<'a>(props: &'a Map<String, Value>, key: &str) -> Option<&'a Value> {
-    props.get(key).or_else(|| {
-        props.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v)
-    })
+    props
+        .get(key)
+        .or_else(|| props.iter().find(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v))
 }
 
 /// Present-but-empty counts as empty: `status: ""` is not a value a human put
@@ -813,9 +789,9 @@ fn do_create<A: EngineAccess>(
     // skip-if-exists: by title in that folder, so it survives whatever
     // filename sanitisation did to it
     let exists = access.with(|e| {
-        e.list().into_iter().any(|m| {
-            m.folder.eq_ignore_ascii_case(&folder) && m.title.eq_ignore_ascii_case(&title)
-        })
+        e.list()
+            .into_iter()
+            .any(|m| m.folder.eq_ignore_ascii_case(&folder) && m.title.eq_ignore_ascii_case(&title))
     })?;
     if exists {
         let where_ = if folder.is_empty() { "the vault root".into() } else { folder.clone() };
@@ -836,9 +812,8 @@ fn do_create<A: EngineAccess>(
     let t = title.clone();
     let f = folder.clone();
     let ty = template.map(str::to_string);
-    let meta = access.with(move |e| {
-        e.create_full(&t, &f, ty.as_deref(), Some(props), body.as_deref())
-    })??;
+    let meta = access
+        .with(move |e| e.create_full(&t, &f, ty.as_deref(), Some(props), body.as_deref()))??;
     Ok(Step::wrote(format!("created {}", meta.path), meta.path))
 }
 
@@ -1284,11 +1259,7 @@ mod tests {
         while !pending.is_empty() && rounds < 20 {
             let report = v.run(&rx, &pending);
             all.extend(report.receipts.clone());
-            pending = report
-                .written
-                .iter()
-                .map(|p| Trigger::note(Event::NoteChanged, p))
-                .collect();
+            pending = report.written.iter().map(|p| Trigger::note(Event::NoteChanged, p)).collect();
             rounds += 1;
         }
         assert!(rounds < 20, "the cascade never stopped");
@@ -1321,11 +1292,7 @@ mod tests {
         while !pending.is_empty() && rounds < 20 {
             let report = v.run(&rx, &pending);
             all.extend(report.receipts.clone());
-            pending = report
-                .written
-                .iter()
-                .map(|p| Trigger::note(Event::NoteCreated, p))
-                .collect();
+            pending = report.written.iter().map(|p| Trigger::note(Event::NoteCreated, p)).collect();
             rounds += 1;
         }
         assert!(rounds < 20, "the chain never stopped");
@@ -1483,28 +1450,14 @@ mod tests {
         let vault_path = v.root.clone();
 
         // never enabled on this device
-        let report = run_if_enabled(
-            &cfg,
-            &vault_path,
-            &v.access,
-            &mut v.rt,
-            &rx,
-            &triggers,
-            &v.notes,
-        );
+        let report =
+            run_if_enabled(&cfg, &vault_path, &v.access, &mut v.rt, &rx, &triggers, &v.notes);
         assert!(report.receipts.is_empty(), "no consent, no run");
         assert!(v.tags(&rel).is_empty());
 
         super::super::consent::enable(&cfg, &vault_path).unwrap();
-        let report = run_if_enabled(
-            &cfg,
-            &vault_path,
-            &v.access,
-            &mut v.rt,
-            &rx,
-            &triggers,
-            &v.notes,
-        );
+        let report =
+            run_if_enabled(&cfg, &vault_path, &v.access, &mut v.rt, &rx, &triggers, &v.notes);
         assert_eq!(report.receipts.len(), 1, "enabled, so it runs");
 
         // and the file's own pause is a second, independent switch
@@ -1513,25 +1466,11 @@ mod tests {
                  "do": [{ "tag": { "tags": ["more"] } }] } ] }"#,
         );
         paused.paused = true;
-        let report = run_if_enabled(
-            &cfg,
-            &vault_path,
-            &v.access,
-            &mut v.rt,
-            &rx,
-            &triggers,
-            &v.notes,
-        );
+        let report =
+            run_if_enabled(&cfg, &vault_path, &v.access, &mut v.rt, &rx, &triggers, &v.notes);
         let _ = report;
-        let report = run_if_enabled(
-            &cfg,
-            &vault_path,
-            &v.access,
-            &mut v.rt,
-            &paused,
-            &triggers,
-            &v.notes,
-        );
+        let report =
+            run_if_enabled(&cfg, &vault_path, &v.access, &mut v.rt, &paused, &triggers, &v.notes);
         assert!(report.receipts.is_empty(), "a paused file runs nothing");
     }
 

@@ -22,7 +22,7 @@ import {
   WINDOW_OPACITY_MAX,
   WINDOW_OPACITY_MIN,
 } from "../lib/settings";
-import { applyWindowOpacity, vibrancyCapable } from "../lib/vibrancy";
+import { previewWindowOpacity, vibrancyCapable } from "../lib/vibrancy";
 import type { TerminalFontProblems } from "../lib/settings";
 import { foldedPropKey } from "../lib/types";
 import { isTauri } from "../lib/tauri";
@@ -679,7 +679,9 @@ export default function SettingsPane({
     // window at your desktop, so it has to preview on the drag too — and
     // it is only a class plus a custom property, so an abandoned drag
     // needs no undo: the next settings read repaints from the note.
-    if (f.key === WINDOW_OPACITY_FIELD.key) applyWindowOpacity(n);
+    // SUB-1126: which is exactly why it needs the claim as well — that next
+    // read must not arrive DURING the drag, or the old value is what sticks.
+    if (f.key === WINDOW_OPACITY_FIELD.key) previewWindowOpacity(n);
   }, []);
 
   /** A live appearance preview is only optimistic. If Settings.md rejects
@@ -703,10 +705,12 @@ export default function SettingsPane({
       const previewed = appearancePreviewSeq();
       setValues(next);
       previewAppearance(document.documentElement, appearanceOf(next));
-      reconcileAppearance(previewed);
+      // both repaints happen before the release, so both stay claimed — the
+      // opacity one for the same reason as the appearance one (SUB-1126)
       if (key === WINDOW_OPACITY_FIELD.key) {
-        applyWindowOpacity(sliderValue(WINDOW_OPACITY_FIELD, next[key]));
+        previewWindowOpacity(sliderValue(WINDOW_OPACITY_FIELD, next[key]));
       }
+      reconcileAppearance(previewed);
     },
     [saved]
   );

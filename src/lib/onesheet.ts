@@ -58,9 +58,15 @@ export function oneSheetHero(
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /** Remove the first `![[name]]` embed — the hero was hoisted out of the flow,
-    printing it again inline would double it. */
+    printing it again inline would double it. The hero's name is the target
+    alone, so the embed that carries a display modifier (`![[cover.png|300]]`)
+    has to be matched too — otherwise the press sheet shows the cover twice
+    (SUB-1102). */
 export function dropEmbedOnce(body: string, name: string): string {
-  return body.replace(new RegExp(`!\\[\\[\\s*${escapeRe(name)}\\s*\\]\\]\\n?`), "");
+  return body.replace(
+    new RegExp(`!\\[\\[\\s*${escapeRe(name)}\\s*(\\|[^\\[\\]]*)?\\]\\]\\n?`),
+    ""
+  );
 }
 
 /** One note → the one-sheet's inner HTML. Byline is the artist (the natural

@@ -104,3 +104,11 @@ test("a spaced info string still opens a fence — content below stays prose (SU
   assert.match(html, /<p>after paragraph<\/p>/, "text after the closer is prose again");
   assert.match(html, /<h1>Real heading<\/h1>/, "headings below the fence still render");
 });
+
+test("a sized embed prints its image, not a missing placeholder (SUB-1102)", () => {
+  const src = (n: string) => (n === "shot.png" ? "data:image/png;base64,AA" : undefined);
+  const html = renderPrintBody("![[shot.png|300]] and ![[bounce.wav|left]]", src);
+  assert.match(html, /<img src="data:image\/png;base64,AA" alt="shot.png">/);
+  assert.doesNotMatch(html, /missing image/);
+  assert.match(html, /<span class="print-embed">embedded file · bounce.wav<\/span>/);
+});

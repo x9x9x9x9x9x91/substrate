@@ -72,16 +72,15 @@ pub(crate) const EXCLUDE_CONTENT: &str =
 /// marker when the sentinel is gone (`exclude_is_ours`), so it must stay a
 /// superset of the current constant (asserted in `exclude_vocabulary_covers_the_constant`).
 /// Anything else in `.git/info/exclude` means a human wrote it.
-pub(crate) const EXCLUDE_LINES_EVER_OURS: &[&str] =
-    &[
-        ".assets/",
-        ".trash/",
-        ".DS_Store",
-        ".vault/notifications.json",
-        ".vault/jobs-exit.json",
-        ".vault/seal-conversion.json",
-        ".vault/seal-trust.json",
-    ];
+pub(crate) const EXCLUDE_LINES_EVER_OURS: &[&str] = &[
+    ".assets/",
+    ".trash/",
+    ".DS_Store",
+    ".vault/notifications.json",
+    ".vault/jobs-exit.json",
+    ".vault/seal-conversion.json",
+    ".vault/seal-trust.json",
+];
 
 /// Secondary ownership marker for `.git/info/exclude` (SUB-1018).
 ///
@@ -617,7 +616,8 @@ impl History {
             "version history rewrite requires HEAD to point to a local branch".to_string()
         })?;
         let current = current.trim().to_string();
-        let listed = self.git(&["for-each-ref", "--format=%(refname)%1f%(objecttype)%1f%(objectname)"])?;
+        let listed =
+            self.git(&["for-each-ref", "--format=%(refname)%1f%(objecttype)%1f%(objectname)"])?;
         let (mut carried, mut blocked) = (Vec::new(), Vec::new());
         for line in listed.lines() {
             let mut fields = line.split('\u{1f}');

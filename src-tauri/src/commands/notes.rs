@@ -267,9 +267,7 @@ mod sealed_history_tests {
             .unwrap();
         history.snapshot("plaintext scope").unwrap();
 
-        let prepared = engine
-            .prepare_seal_scope("Private", Some("correct horse"))
-            .unwrap();
+        let prepared = engine.prepare_seal_scope("Private", Some("correct horse")).unwrap();
         let rels: Vec<&str> = prepared.purge_paths.iter().map(String::as_str).collect();
         assert_eq!(rels.len(), 2);
         history.purge_files(&rels).unwrap();
@@ -314,8 +312,7 @@ mod sealed_history_tests {
 
         // The vault_sync_pull / vault_sync_resolve_finish body, in shape:
         // reconcile, and purge only what actually converted.
-        let changed =
-            vec![format!("Private/{}", crate::vault::SCOPE_MARKER), note.path.clone()];
+        let changed = vec![format!("Private/{}", crate::vault::SCOPE_MARKER), note.path.clone()];
         let converted = engine.reconcile_sealed_changes(&changed).unwrap();
         assert!(converted.is_empty(), "an unconfirmed marker converted files: {converted:?}");
         if !converted.is_empty() {
@@ -411,7 +408,10 @@ pub(crate) fn vault_unseal_note(
 }
 
 #[tauri::command]
-pub(crate) fn vault_fm_raw(state: State<AppState>, path: String) -> Result<Option<FmState>, String> {
+pub(crate) fn vault_fm_raw(
+    state: State<AppState>,
+    path: String,
+) -> Result<Option<FmState>, String> {
     state.0.lock().unwrap().fm_raw(&path)
 }
 
@@ -462,6 +462,22 @@ pub(crate) fn vault_set_prop(
     state.0.lock().unwrap().set_prop_guarded(&path, &key, value, expected.map(|e| e.value))
 }
 
+/// Turn a sheet column's date notifications on or off (SUB-876). Its own
+/// command because the settings live in a nested `columns:` map, and
+/// `vault_set_prop` deliberately refuses non-scalar values.
+#[tauri::command]
+pub(crate) fn sheet_set_column_notify(
+    state: State<AppState>,
+    dirty: State<SnapDirty>,
+    path: String,
+    column: String,
+    notify: bool,
+    notify_before: Option<u32>,
+) -> Result<NoteMeta, String> {
+    dirty.mark();
+    state.0.lock().unwrap().set_sheet_column_notify(&path, &column, notify, notify_before)
+}
+
 #[tauri::command]
 pub(crate) fn vault_create(
     state: State<AppState>,
@@ -485,7 +501,10 @@ pub(crate) fn vault_create(
 /// A type's template note (frontmatter defaults + body skeleton), null when
 /// the type has none — see Engine::template_read.
 #[tauri::command]
-pub(crate) fn vault_template_read(state: State<AppState>, note_type: String) -> Option<NoteContent> {
+pub(crate) fn vault_template_read(
+    state: State<AppState>,
+    note_type: String,
+) -> Option<NoteContent> {
     state.0.lock().unwrap().template_read(&note_type)
 }
 

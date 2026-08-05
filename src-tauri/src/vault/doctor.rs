@@ -206,7 +206,10 @@ impl Engine {
             let code = code_ranges(body);
             let mut seen_embed: HashSet<String> = HashSet::new();
             for cap in embed_re.captures_iter(body) {
-                let target = cap[1].trim().to_string();
+                // the name alone — a `|300`-style display modifier is a hint,
+                // not part of the filename, and reporting it as missing was a
+                // false alarm on a file that is right there (SUB-1102)
+                let target = embed_target(&cap[1]).to_string();
                 if target.is_empty() || !seen_embed.insert(target.to_lowercase()) {
                     continue;
                 }
@@ -405,9 +408,9 @@ impl Engine {
                 // start life; it reads as empty because it IS empty, not
                 // because it was mangled
                 Ok(raw) if raw.trim().is_empty() => None,
-                Ok(raw) => serde_json::from_str::<serde_json::Value>(&raw)
-                    .err()
-                    .map(|e| e.to_string()),
+                Ok(raw) => {
+                    serde_json::from_str::<serde_json::Value>(&raw).err().map(|e| e.to_string())
+                }
                 // a half-synced or truncated restore can leave bytes that
                 // aren't even text — the most corrupt case must not be the
                 // one case that stays quiet
@@ -415,7 +418,10 @@ impl Engine {
             };
             if let Some(e) = problem {
                 let consequence = if f.reads_empty_on_corrupt() {
-                    format!("your {} are being read as empty until it is fixed or replaced", f.label())
+                    format!(
+                        "your {} are being read as empty until it is fixed or replaced",
+                        f.label()
+                    )
                 } else {
                     format!("your {} are showing a config error until it is fixed", f.label())
                 };
@@ -667,6 +673,27 @@ mod tests {
     }
 
     #[test]
+    fn doctor_ignores_the_embed_display_modifier() {
+        // SUB-1102: `![[cover.png|300]]` is a 300px-wide cover.png, not a file
+        // called `cover.png|300` — the doctor used to call a present image
+        // missing, and the missing one it reported under the wrong name.
+        let (mut engine, dir) = temp_vault("doctor-embed-modifier");
+        fs::create_dir_all(dir.join(".assets")).unwrap();
+        fs::write(dir.join(".assets/cover.png"), b"png").unwrap();
+        fs::write(
+            dir.join("Art.md"),
+            "---\n---\n![[cover.png|300]] and ![[cover.png|left]] are fine, ![[gone.wav|200]] is not.\n",
+        )
+        .unwrap();
+        engine.rescan();
+        let report = engine.doctor(&Default::default()).unwrap();
+        let embeds = findings_of(&report, DoctorKind::BrokenEmbed);
+        assert_eq!(embeds.len(), 1, "only the genuinely missing one: {embeds:?}");
+        assert_eq!(embeds[0].subject, "gone.wav", "reported under its real name");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn doctor_reports_stale_view_refs() {
         let (mut engine, dir) = temp_vault("doctor-views");
         fs::create_dir_all(dir.join(".vault")).unwrap();
@@ -807,11 +834,8 @@ mod tests {
         // …and the junk that must still be flagged: prose, and a number
         // carrying a unit nothing knows
         fs::write(dir.join("Junk.md"), "---\ntype: gear\nprice: ask\n---\nbody\n").unwrap();
-        fs::write(
-            dir.join("Unknown.md"),
-            "---\ntype: gear\nweight: 25 furlongs\n---\nbody\n",
-        )
-        .unwrap();
+        fs::write(dir.join("Unknown.md"), "---\ntype: gear\nweight: 25 furlongs\n---\nbody\n")
+            .unwrap();
         engine.rescan();
         let report = engine.doctor(&Default::default()).unwrap();
         let invalid = findings_of(&report, DoctorKind::InvalidProp);

@@ -99,8 +99,7 @@ fn watch_with_interval<F, E>(
     on_error: E,
     degraded_interval: Duration,
     poll_only: bool,
-)
-where
+) where
     F: Fn(WatchBatch) + Send + 'static,
     E: Fn(String) + Send + 'static,
 {
@@ -634,10 +633,7 @@ mod tests {
         let targets = |b: &BTreeMap<String, PathBuf>| watch_targets(&dir, b);
 
         // unbound: the mapping is watched, the mount is not
-        assert_eq!(
-            targets(&BTreeMap::new()),
-            vec![(watched.clone(), vec!["*.pdf".to_string()])]
-        );
+        assert_eq!(targets(&BTreeMap::new()), vec![(watched.clone(), vec!["*.pdf".to_string()])]);
         // bound and opted in: watched, with its own globs
         let mut b = BTreeMap::new();
         b.insert(on.id.clone(), mounted.clone());

@@ -8,6 +8,7 @@ import {
   fileOpen,
   onHistoryLeave,
   pathExists,
+  sheetSetColumnNotify,
   vaultBacklinks,
   vaultCreate,
   vaultFmRaw,
@@ -55,6 +56,8 @@ import FmRepairDialog from "./FmRepairDialog";
 import SealedNoteDialog, { type SealedNoteMode } from "./SealedNoteDialog";
 import TypeIcon from "./TypeIcon";
 import SheetGrid from "./SheetGrid";
+import { parseColumnNotify } from "../lib/sheetnotify";
+import type { SheetRowTarget } from "../hooks/useVaultEvents";
 import DateMenu from "./DateMenu";
 import FileMenu from "./FileMenu";
 import RelationMenu from "./RelationMenu";
@@ -210,6 +213,10 @@ interface NotePaneProps {
   /** scroll-to + flash a body line after opening from search */
   reveal?: { path: string; line: number; nonce: number } | null;
   onRevealed?: () => void;
+  /** the row a sheet notification's click named (SUB-876) — same shape of
+      target as `reveal`, but a grid cell rather than a body line */
+  revealRow?: (SheetRowTarget & { nonce: number }) | null;
+  onRowRevealed?: () => void;
   /** transient user-facing errors (e.g. oversized paste) ride the app toast.
       SUB-549 also uses the action form for a save that failed on a note the
       user has already left — the only surface left for it */
@@ -260,6 +267,8 @@ function NotePane({
   onEscape,
   reveal,
   onRevealed,
+  revealRow,
+  onRowRevealed,
   onToast,
   readOnly = false,
 }: NotePaneProps) {
@@ -337,6 +346,9 @@ function NotePane({
   const saveTimer = useRef<number | undefined>(undefined);
   // the prop write that failed (SUB-240) — the error pill IS its retry
   const failedProp = useRef<{ key: string; value: string | string[] | boolean | null } | null>(null);
+  // same, for the sheet column's notification write (SUB-876) — a different
+  // shape of write, so the pill needs to know which one to replay
+  const failedColumn = useRef<{ column: string; notify: boolean; notifyBefore: number | null } | null>(null);
   // disk-known body of the open note — the expected-body the flush guard passes
   const baseRef = useRef<{ path: string; body: string } | null>(null);
   // in-flight writes count as dirty for the external-reload lane (SUB-93)
@@ -704,6 +716,7 @@ function NotePane({
     setFmState(null);
     setFmRepair(false);
     failedProp.current = null;
+    failedColumn.current = null;
     baseRef.current = null;
     let gone = false;
     const path = meta.path;
@@ -1105,6 +1118,7 @@ function NotePane({
       .then((m) => {
         if (pathRef.current === path) {
           failedProp.current = null;
+          failedColumn.current = null;
           setPropError(null);
           setProps(m.props);
         }
@@ -1114,8 +1128,38 @@ function NotePane({
       .catch((err) => {
         if (pathRef.current !== path) return;
         failedProp.current = { key: actualKey, value };
+        failedColumn.current = null;
         setPropError(err instanceof Error ? err.message : String(err));
         // re-sync so nothing implies the write landed
+        onMutated();
+      });
+  };
+
+  /** SUB-876: a sheet column's notification setting. Not `writeProp` — the
+      value is a nested map, which `vault_set_prop` refuses — but it lands on
+      the same inline pill when it fails, and the same local-props refresh when
+      it lands, so the menu reads its own write back. Not undoable either: the
+      command rewrites one nested entry, and the undo stack's property inverse
+      only knows how to restore a scalar. */
+  const setColumnNotify = (column: string, notify: boolean, notifyBefore: number | null) => {
+    const path = meta.path;
+    sheetSetColumnNotify(path, column, notify, notifyBefore)
+      .then((m) => {
+        if (pathRef.current === path) {
+          failedProp.current = null;
+          failedColumn.current = null;
+          setPropError(null);
+          setProps(m.props);
+        }
+        onMutated();
+      })
+      .catch((err) => {
+        if (pathRef.current !== path) return;
+        // hold this write, not a scalar one — the pill retries whichever
+        // property write actually failed last
+        failedProp.current = null;
+        failedColumn.current = { column, notify, notifyBefore };
+        setPropError(err instanceof Error ? err.message : String(err));
         onMutated();
       });
   };
@@ -1214,6 +1258,21 @@ function NotePane({
   };
 
   const isSheet = foldedPropStr(isSealed ? props : meta.props, "type")?.toLowerCase() === "sheet";
+  /* SUB-876: the sheet's per-column notification settings, read from the
+     pane's own props copy so the menu sees its own write land. */
+  const columnNotify = useMemo(
+    () => parseColumnNotify(props[foldedPropKey(props, "columns")]),
+    [props]
+  );
+  /* stable identity per notification click — the grid's reveal effect keys on
+     it, and a new object every render would re-scroll on every keystroke */
+  const sheetReveal = useMemo(
+    () =>
+      revealRow && revealRow.path === meta.path
+        ? { column: revealRow.column, row: revealRow.row }
+        : null,
+    [revealRow, meta.path]
+  );
   const noteType = foldedPropStr(props, "type");
   const noteTypeSchema = noteType ? typeSchemaFor(schema, noteType) : undefined;
   // the rollup schema editor's pickers (SUB-678): the note's type's relation
@@ -1509,6 +1568,8 @@ function NotePane({
                 onClick={() => {
                   const f = failedProp.current;
                   if (f) writeProp(f.key, f.value);
+                  const c = failedColumn.current;
+                  if (c) setColumnNotify(c.column, c.notify, c.notifyBefore);
                 }}
               >
                 <span className="err-dot" />
@@ -2003,6 +2064,10 @@ function NotePane({
               focusRef={editorFocusRef}
               docRef={docReplaceRef}
               readOnly={readOnly}
+              columnNotify={columnNotify}
+              onSetColumnNotify={readOnly ? undefined : setColumnNotify}
+              reveal={sheetReveal}
+              onRevealed={onRowRevealed}
             />
           ) : (
             <Editor

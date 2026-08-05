@@ -109,10 +109,7 @@ impl TextStore {
     /// Returns whether the text was kept.
     pub fn put(&mut self, rel: &str, identity: &str, text: String, truncated: bool) -> bool {
         let held = self.bytes()
-            - self
-                .files
-                .get(rel)
-                .map_or(0, |e| entry_bytes(rel, &e.identity, e.text.len()));
+            - self.files.get(rel).map_or(0, |e| entry_bytes(rel, &e.identity, e.text.len()));
         let room = MOUNT_TEXT_MAX.saturating_sub(held);
         let keep = entry_bytes(rel, identity, text.len()) <= room;
         self.files.insert(

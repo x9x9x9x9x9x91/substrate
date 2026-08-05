@@ -335,8 +335,7 @@ fn place_agenda(app: &tauri::AppHandle, w: &tauri::WebviewWindow, spot: AgendaSp
         let ms = monitor.size();
         x = x.clamp(mp.x + 8, mp.x + ms.width as i32 - width as i32 - 8);
     }
-    w.set_position(tauri::PhysicalPosition::new(x, spot.top_y))
-        .ok();
+    w.set_position(tauri::PhysicalPosition::new(x, spot.top_y)).ok();
 }
 
 /// Tray mini-agenda popover (SUB-30): left-clicking the tray icon toggles a
@@ -1193,6 +1192,7 @@ pub fn run() {
             vault_fm_write,
             vault_write_body,
             vault_set_prop,
+            sheet_set_column_notify,
             vault_create,
             vault_template_read,
             vault_template_list,

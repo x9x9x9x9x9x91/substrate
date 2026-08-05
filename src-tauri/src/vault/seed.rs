@@ -161,10 +161,7 @@ const RETIRED_STARTER_NOTES: &[RetiredStarterNote] = &[
     RetiredStarterNote { rel: "Rondo MX180.md", revisions: &[0xc411_bf87_4b6e_6ffd] },
     RetiredStarterNote { rel: "Catalogue.md", revisions: &[0x309e_a147_b0e0_43e4] },
     RetiredStarterNote { rel: "Dashboards/Yield APR.md", revisions: &[0x3aa8_e9cf_f293_9ded] },
-    RetiredStarterNote {
-        rel: "Dashboards/Label Overview.md",
-        revisions: &[0xc71d_05ca_d827_0078],
-    },
+    RetiredStarterNote { rel: "Dashboards/Label Overview.md", revisions: &[0xc71d_05ca_d827_0078] },
 ];
 
 /// One retired starter path: where it lived, and the [`seed_hash`] of every

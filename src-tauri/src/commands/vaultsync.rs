@@ -37,7 +37,10 @@ pub(crate) fn record_sync(state: &State<VaultSyncState>, result: &Result<SyncRep
 }
 
 #[tauri::command]
-pub(crate) fn vault_sync_status(state: State<AppState>, sync: State<VaultSyncState>) -> VaultSyncStatus {
+pub(crate) fn vault_sync_status(
+    state: State<AppState>,
+    sync: State<VaultSyncState>,
+) -> VaultSyncStatus {
     let root = sync_root(&state);
     let configured = gitsync::sync_configured(&root);
     let conflicted = if configured { gitsync::sync_pending_conflicts(&root) } else { Vec::new() };
@@ -169,7 +172,9 @@ pub(crate) fn announce_pull(app: &tauri::AppHandle, result: &Result<SyncReport, 
 /// The parked conflicted pull, rebuilt from git on every call — there is no
 /// in-process resolution session to lose.
 #[tauri::command]
-pub(crate) fn vault_sync_conflicts(state: State<AppState>) -> Result<gitsync::ConflictState, String> {
+pub(crate) fn vault_sync_conflicts(
+    state: State<AppState>,
+) -> Result<gitsync::ConflictState, String> {
     gitsync::sync_conflicts(&sync_root(&state))
 }
 
@@ -215,9 +220,8 @@ pub(crate) fn vault_sync_resolve_finish(
         if !report.changed.is_empty() {
             let cleanup: Result<Vec<String>, String> = (|| {
                 let hist_guard = history.0.lock().unwrap();
-                let hist = hist_guard
-                    .as_ref()
-                    .ok_or_else(|| "version history unavailable".to_string())?;
+                let hist =
+                    hist_guard.as_ref().ok_or_else(|| "version history unavailable".to_string())?;
                 let mut engine = state.0.lock().unwrap();
                 let converted = engine.reconcile_sealed_changes(&report.changed)?;
                 if converted.is_empty() {

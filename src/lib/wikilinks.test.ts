@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   anchorLine,
+  embedTarget,
   parseWikiLink,
   wikiLinkDisplay,
   wikiLinkInsert,
@@ -118,4 +119,20 @@ test("anchorLine: ^id finds the block that carries the ref", () => {
   const text = ["first", "the claim ^a1b2", "later"].join("\n");
   assert.equal(anchorLine(text, "^a1b2"), 2);
   assert.equal(anchorLine(text, "^nope"), null);
+});
+
+test("embedTarget: the display modifier is dropped, a # never is", () => {
+  // SUB-1102 — twin of embed_target in src-tauri/src/vault/mod.rs
+  assert.equal(embedTarget("cover.png"), "cover.png");
+  assert.equal(embedTarget("cover.png|300"), "cover.png");
+  assert.equal(embedTarget("cover.png|300x200"), "cover.png");
+  assert.equal(embedTarget("  cover.png | left "), "cover.png");
+  // only the FIRST pipe splits
+  assert.equal(embedTarget("cover.png|300|left"), "cover.png");
+  // a `#` belongs to the filename — an embed has no anchor
+  assert.equal(embedTarget("track #3.wav"), "track #3.wav");
+  assert.equal(embedTarget("track #3.wav|200"), "track #3.wav");
+  // link-in-place paths survive whole
+  assert.equal(embedTarget("~/Music/mixdown.flac|300"), "~/Music/mixdown.flac");
+  assert.equal(embedTarget("|300"), "");
 });
