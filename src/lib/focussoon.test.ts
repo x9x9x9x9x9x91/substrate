@@ -133,7 +133,7 @@ test("a printable key while a text field is focused still cancels (SUB-765)", as
   }
 });
 
-test("non-printable and modified keys still cancel with no text target (SUB-765)", async () => {
+test("non-printable and command-chorded keys still cancel with no text target (SUB-765)", async () => {
   for (const key of [
     { key: "ArrowDown" },
     { key: "Enter" },
@@ -141,7 +141,9 @@ test("non-printable and modified keys still cancel with no text target (SUB-765)
     { key: "Escape" },
     { key: "a", metaKey: true },
     { key: "a", ctrlKey: true },
-    { key: "a", altKey: true },
+    // ⌘⌥/⌃⌥ are still command chords, Option or not (SUB-1123)
+    { key: "@", metaKey: true, altKey: true },
+    { key: "@", ctrlKey: true, altKey: true },
   ]) {
     const w = fakeWindow();
     await withDocument(body, async () => {
@@ -154,6 +156,97 @@ test("non-printable and modified keys still cancel with no text target (SUB-765)
       });
     });
   }
+});
+
+test("an Option-produced character fires the pending focus (SUB-1123)", async () => {
+  // German Mac layout: `@` is ⌥L, `[` is ⌥5, `~` is ⌥N, `€` is ⌥E — the chord
+  // reports the produced character, so it is a character, not a shortcut
+  for (const key of [
+    { key: "@", altKey: true },
+    { key: "[", altKey: true },
+    { key: "~", altKey: true },
+    { key: "€", altKey: true },
+  ]) {
+    const w = fakeWindow();
+    await withDocument(body, async () => {
+      await withWindow(w, async () => {
+        let ran = 0;
+        focusSoon(() => ran++, 30);
+        w.dispatch("keydown", key);
+        assert.equal(ran, 1, `${key.key} is a character with nowhere to land`);
+        assert.equal(w.count(), 0, "listeners cleaned up");
+      });
+    });
+  }
+});
+
+test("an Option chord over a named key still cancels (SUB-1123)", async () => {
+  // ⌥←/⌥→ are the mini-player transport (SUB-812); ⌥ArrowDown/⌥Backspace are
+  // Cocoa motion — none of them are a character heading for the pending field
+  for (const key of [
+    { key: "ArrowLeft", altKey: true },
+    { key: "ArrowRight", altKey: true },
+    { key: "ArrowDown", altKey: true },
+    { key: "Enter", altKey: true },
+    { key: "Backspace", altKey: true },
+  ]) {
+    const w = fakeWindow();
+    await withDocument(body, async () => {
+      await withWindow(w, async () => {
+        let ran = 0;
+        focusSoon(() => ran++, 30);
+        w.dispatch("keydown", key);
+        await tick(60);
+        assert.equal(ran, 0, `${key.key} keeps the SUB-455 cancel`);
+      });
+    });
+  }
+});
+
+test("a dead key fires the pending focus so its accent can compose (SUB-1123)", async () => {
+  // ´ + e → é: the dead key carries no character, but it is on its way to one,
+  // and that composition can only finish inside a real text field. Cancelling
+  // here left the note unfocused (SUB-765) AND lost the accent.
+  const w = fakeWindow();
+  await withDocument(body, async () => {
+    await withWindow(w, async () => {
+      let ran = 0;
+      focusSoon(() => ran++, 30);
+      w.dispatch("keydown", { key: "Dead" });
+      assert.equal(ran, 1, "the field is focused in time for the composition");
+    });
+  });
+  // …but not when a text field already owns it, and not as a command chord
+  for (const [active, key] of [
+    [el("INPUT"), { key: "Dead" }],
+    [body, { key: "Dead", metaKey: true }],
+    [body, { key: "Dead", ctrlKey: true }],
+    [body, { key: "Dead", isComposing: true }],
+  ] as const) {
+    const w2 = fakeWindow();
+    await withDocument(active, async () => {
+      await withWindow(w2, async () => {
+        let ran = 0;
+        focusSoon(() => ran++, 30);
+        w2.dispatch("keydown", key);
+        await tick(60);
+        assert.equal(ran, 0, `${JSON.stringify(key)} on ${active.tagName} cancels`);
+      });
+    });
+  }
+});
+
+test("a keystroke mid-composition belongs to the IME (SUB-1123)", async () => {
+  const w = fakeWindow();
+  await withDocument(body, async () => {
+    await withWindow(w, async () => {
+      let ran = 0;
+      focusSoon(() => ran++, 30);
+      w.dispatch("keydown", { key: "e", isComposing: true });
+      await tick(60);
+      assert.equal(ran, 0, "the IME owns the keystroke, not the pending focus");
+    });
+  });
 });
 
 test("input after the focus landed does not re-run or throw (SUB-455)", async () => {

@@ -610,6 +610,14 @@ export function xFractions(keys: string[]): number[] {
   return days.map((d) => (d - days[0]) / span);
 }
 
+/** True when every key is a calendar key (ISO day, or YYYY-MM month). A text
+    column carrying pre-bucketed dates — the Spending importer emits exactly
+    this shape — is a time axis even though its bucket is null, so it must not
+    get categorical treatment (series ramp, unthinned labels). */
+export function timelikeKeys(keys: string[]): boolean {
+  return keys.length > 0 && keys.every((k) => dayNumber(k) !== null);
+}
+
 function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }

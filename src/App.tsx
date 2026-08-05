@@ -74,7 +74,12 @@ import {
   parseWindowOpacity,
   SETTINGS_PATH,
 } from "./lib/settings";
-import { applyAppearance, DEFAULT_APPEARANCE, parseAppearance } from "./lib/appearance";
+import {
+  appearancePreviewPending,
+  applyAppearance,
+  DEFAULT_APPEARANCE,
+  parseAppearance,
+} from "./lib/appearance";
 import { applyWindowOpacity } from "./lib/vibrancy";
 import {
   historyEnter,
@@ -500,6 +505,9 @@ export default function App() {
   // SUB-490: the hold-⌘ HUD's off switch rides the same read, re-run on
   // vaultEpoch so toggling it in the settings pane takes effect immediately.
   useEffect(() => {
+    // SUB-1122: a dial the user is still holding has not reached the note, so
+    // this read would repaint the old value over it — see lib/appearance.ts
+    const overtaken = () => appearancePreviewPending();
     vaultRead(SETTINGS_PATH)
       .then((c) => {
         setTerminalActions(parseTerminalActions(c.props));
@@ -510,16 +518,19 @@ export default function App() {
         // than in React state — they are CSS inputs, nothing renders off
         // them. This is also the write that CORRECTS the settings pane's
         // optimistic preview once the note has actually taken the value.
-        applyAppearance(document.documentElement, parseAppearance(c.props));
+        if (!overtaken()) applyAppearance(document.documentElement, parseAppearance(c.props));
         applyWindowOpacity(parseWindowOpacity(c.props));
         setNetLinkTitles(netAllowed(c.props, "link-titles"));
         setNumberStyle(numberFormatSetting(c.props));
       })
       .catch(() => {
         setTerminalActions([]);
-        // an unreadable Settings.md must not leave a half-applied look from
-        // whatever the pane previewed before the read failed
-        applyAppearance(document.documentElement, DEFAULT_APPEARANCE);
+        // an unreadable Settings.md falls back to the shipped look rather than
+        // leaving whatever happened to be applied last — unless a dial is
+        // mid-drag, in which case the live preview outranks the fallback
+        // (SUB-1122): the pane, not a failed read, is what the user is
+        // holding, and the release repaints from the note either way.
+        if (!overtaken()) applyAppearance(document.documentElement, DEFAULT_APPEARANCE);
       });
   }, [vaultEpoch]);
 

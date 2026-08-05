@@ -3,9 +3,13 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import {
+  appearancePreviewPending,
+  appearancePreviewSeq,
   applyAppearance,
   barScalar,
   DEFAULT_APPEARANCE,
+  previewAppearance,
+  reconcileAppearance,
   GLOW_BARS_FROM,
   lineScalar,
   NUDGE_MAX,
@@ -110,6 +114,75 @@ test("glow 0 writes NO attribute and NO scalar — the default costs nothing", (
   assert.equal(root.dataset.glowBars, undefined);
   assert.equal(root.props.has("--glow"), false);
   assert.equal(root.props.has("--glow-bars"), false);
+});
+
+/* ————— the preview claim (SUB-1122) ————— */
+
+test("a preview holds the appearance until the note has caught up", () => {
+  const root = fakeRoot();
+  reconcileAppearance(appearancePreviewSeq());
+  assert.equal(appearancePreviewPending(), false);
+
+  // the drag: painted here, not yet in Settings.md
+  previewAppearance(root, { glow: 100, tone: "sky", nudge: 0 });
+  assert.equal(root.dataset.glow, "on");
+  assert.equal(appearancePreviewPending(), true, "a read must not repaint mid-drag");
+
+  // the write for that drag lands
+  const written = appearancePreviewSeq();
+  reconcileAppearance(written);
+  assert.equal(appearancePreviewPending(), false);
+
+  // a second dial moves while the FIRST field's write is still in flight:
+  // reconciling that older write must not hand back the newer preview
+  const inFlight = appearancePreviewSeq();
+  previewAppearance(root, { glow: 0, tone: "sky", nudge: 0 });
+  reconcileAppearance(inFlight);
+  assert.equal(appearancePreviewPending(), true);
+  assert.equal(root.dataset.glow, undefined);
+
+  reconcileAppearance(appearancePreviewSeq());
+  assert.equal(appearancePreviewPending(), false);
+});
+
+test("a release that writes nothing still hands the appearance back", () => {
+  const root = fakeRoot();
+  reconcileAppearance(appearancePreviewSeq());
+
+  // the drag the pane never writes: glow 30 → 80 → back to its saved 30, so
+  // the release finds nothing to persist. Every step still claimed.
+  for (const glow of [30, 80, 30]) previewAppearance(root, { glow, tone: "sky", nudge: 0 });
+  assert.equal(appearancePreviewPending(), true);
+
+  // commitSlider's no-op branch: no write, but the sheet is level with the
+  // note again, so the claim goes back — otherwise every appearance apply
+  // stays suppressed for the life of the open sheet, and nothing replays it
+  reconcileAppearance(appearancePreviewSeq());
+  assert.equal(appearancePreviewPending(), false, "a no-op release must not leak the claim");
+});
+
+test("a rollback keeps another dial's uncommitted preview claimed", () => {
+  const root = fakeRoot();
+  reconcileAppearance(appearancePreviewSeq());
+
+  // a chip write goes out, then a slider drags while it is still in flight
+  previewAppearance(root, { glow: 0, tone: "teal", nudge: 0 });
+  previewAppearance(root, { glow: 60, tone: "teal", nudge: 0 });
+
+  // the chip write fails. The rollback restores the chip from the persisted
+  // snapshot and repaints — carrying the slider's uncommitted 60 with it —
+  // then releases only what was claimed BEFORE that repaint. Its own repaint
+  // stays claimed, which is what keeps the drag safe from the next read.
+  const previewed = appearancePreviewSeq();
+  previewAppearance(root, { glow: 60, tone: "sky", nudge: 0 });
+  reconcileAppearance(previewed);
+  assert.equal(appearancePreviewPending(), true, "the slider's drag is still ahead of the note");
+  assert.equal(root.dataset.glow, "on");
+
+  // releasing the current seq instead — what the pane used to do — would hand
+  // the drag back to the next Settings.md read
+  reconcileAppearance(appearancePreviewSeq());
+  assert.equal(appearancePreviewPending(), false);
 });
 
 test("sky writes no tone attribute — the shipped look needs no state", () => {

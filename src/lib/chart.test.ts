@@ -11,6 +11,7 @@ import {
   parseChartBlocks,
   parseChartConfig,
   sheetRows,
+  timelikeKeys,
   xFractions,
   xSchemaOptions,
   summarySeries,
@@ -174,6 +175,18 @@ test("xFractions: duplicate dates share an x, order kept", () => {
   assert.deepEqual(xFractions(["2026-06-01", "2026-06-01", "2026-06-15"]), [0, 0, 1]);
   // all one instant → all centered, like a single point
   assert.deepEqual(xFractions(["2026-06-01", "2026-06-01"]), [0.5, 0.5]);
+});
+
+test("timelikeKeys: pre-bucketed month or day columns read as time", () => {
+  assert.equal(timelikeKeys(["2025-01", "2025-02", "2026-08"]), true);
+  assert.equal(timelikeKeys(["2026-07-01", "2026-07-15"]), true);
+});
+
+test("timelikeKeys: categories, mixed keys, bad months, empty stay categorical", () => {
+  assert.equal(timelikeKeys(["food", "gear"]), false);
+  assert.equal(timelikeKeys(["2025-01", "banana"]), false);
+  assert.equal(timelikeKeys(["2025-13"]), false);
+  assert.equal(timelikeKeys([]), false);
 });
 
 test("xFractions: unsorted date keys fall back to even spacing — never silently re-sorted", () => {

@@ -17,6 +17,7 @@ import {
   parseChartBlocks,
   sheetRows,
   summarySeries,
+  timelikeKeys,
   xFractions,
   xSchemaOptions,
   type ChartBand,
@@ -248,11 +249,20 @@ function BarChart({
   const [labelEvery, setLabelEvery] = useState(1);
   useEffect(() => {
     const chart = chartRef.current;
-    if (!chart) return;
+    // A category label is a name, not a tick on a continuum — hiding it makes
+    // its bar anonymous (SUB-1087). Categorical axes keep every label
+    // (showLabel short-circuits), so only time axes measure and thin.
+    if (!chart || categorical) return;
     const measure = () => {
       const labels = Array.from(chart.querySelectorAll<HTMLElement>(".dash-bar-time"));
+      // Measure the token against its COLUMN, never against the label box: a
+      // kept label is sized to its own text (`is-roomy` → width: max-content),
+      // so dividing by the label's own width would read 1 for every label and
+      // collapse thinning to "keep everything" — a feedback loop through the
+      // class this very measurement decides (SUB-1087 review).
       const widestRatio = labels.reduce(
-        (ratio, label) => Math.max(ratio, label.scrollWidth / Math.max(1, label.clientWidth)),
+        (ratio, label) =>
+          Math.max(ratio, label.scrollWidth / Math.max(1, label.parentElement?.clientWidth ?? 1)),
         1
       );
       const next = Math.max(1, Math.ceil(widestRatio));
@@ -262,7 +272,7 @@ function BarChart({
     ro.observe(chart);
     measure();
     return () => ro.disconnect();
-  }, [points]);
+  }, [points, categorical]);
   // a stacked column is as tall as its own total, so the axis has to measure
   // totals — otherwise the tallest stack overflows the plot
   const totals = bands
@@ -271,7 +281,10 @@ function BarChart({
   const max = Math.max(0, ...totals);
   const showVals = points.length <= 12;
   const showLabel = (i: number) =>
-    i === 0 || i === points.length - 1 || (i % labelEvery === 0 && points.length - 1 - i >= labelEvery);
+    categorical ||
+    i === 0 ||
+    i === points.length - 1 ||
+    (i % labelEvery === 0 && points.length - 1 - i >= labelEvery);
   /** One empty-bucket reading for both shapes (SUB-954): a bucket with no rows
       behind it — a zero-filled gap in a date axis, split or not — carries no
       tooltip rows, so it says "no rows" and wears the empty treatment. A
@@ -297,7 +310,9 @@ function BarChart({
           // stack itself carries the same honest zero mark as a plain bar.
           const zero = !empty && total === 0;
           const h = max > 0 ? Math.max(3, (total / max) * 120) : 3;
-          const valueLabel = showVals && total !== 0 && h >= 18 ? fmtVal(total) : "";
+          // SUB-979's collision was position, not existence — the fixed label
+          // bands hold a short bar's value above the axis fine, so it stays
+          const valueLabel = showVals && total !== 0 ? fmtVal(total) : "";
           const tint = !bands && !empty
             ? xOptions?.length
               ? optionColorVar(optionColor(xOptions, p.label))
@@ -368,7 +383,11 @@ function BarChart({
                 <div className={`dash-bar${empty ? " is-empty" : ""}`} style={style} />
               )}
               <span
-                className={`dash-bar-time${showLabel(i) ? "" : " is-hidden"}`}
+                className={`dash-bar-time${showLabel(i) ? "" : " is-hidden"}${
+                  !categorical
+                    ? ` is-roomy${i === 0 ? " is-first" : i === points.length - 1 ? " is-last" : ""}`
+                    : ""
+                }`}
                 title={p.label}
                 aria-hidden="true"
               >
@@ -613,7 +632,12 @@ function ChartSection({
               points={series.points}
               bands={series.bands}
               xOptions={xOptions}
-              categorical={c.bind === "summaries" || c.x.bucket === null}
+              categorical={
+                // a text column of pre-bucketed calendar keys (the Spending
+                // importer's shape) is a time axis despite its null bucket
+                c.bind === "summaries" ||
+                (c.x.bucket === null && !timelikeKeys(series.points.map((p) => p.key)))
+              }
             />
           )}
         </>

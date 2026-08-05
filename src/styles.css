@@ -4381,6 +4381,28 @@ body.agenda-window .palette:focus-visible {
   visibility: hidden;
 }
 
+/* A kept time label owns its hidden neighbours' room — thinning already
+   guarantees the widest token fits in labelEvery columns, so render it whole
+   instead of ellipsizing to one column ("2025-…" ×9 says nothing, SUB-1087).
+   The box itself is sized to the token (width: max-content) and placed by the
+   column's own flex cross-alignment, so the PAINTED text — not just the box —
+   is centred on the bar: text-align cannot do this, since inline content that
+   overflows its box always spills to the inline end regardless (SUB-1087
+   review). The edge columns swap centring for an inward anchor, which bounds
+   the painted rect at the plot's edges (first column's left and last column's
+   right are the plot's own edges — .dash-chart has no horizontal padding). */
+.dash-bar-time.is-roomy {
+  width: max-content;
+  overflow: visible;
+  text-overflow: clip;
+}
+.dash-bar-time.is-roomy.is-first {
+  align-self: flex-start;
+}
+.dash-bar-time.is-roomy.is-last {
+  align-self: flex-end;
+}
+
 /* Chart blocks (```chart fences) — line kind in the bar idiom's greys. The
    plot insets right of a fixed 40px value gutter (hi/lo labels live there,
    never floating over the line); one baseline under the whole chart. */

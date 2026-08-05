@@ -168,3 +168,47 @@ export function applyAppearance(root: HTMLElement, a: Appearance): void {
   if (nudge !== 0) root.style.setProperty("--tone-nudge", String(nudge));
   else root.style.removeProperty("--tone-nudge");
 }
+
+/* SUB-1122: two writers repaint the appearance — the settings pane's
+   optimistic preview, which is instant and local, and App's re-read of
+   Settings.md after a vault event, which is a round trip. A drag is a preview
+   that has NOT reached the note yet (a range input writes on release, not on
+   every step), so for the length of that drag the note honestly still holds
+   the old value — and any re-read repaints it over what the user is looking
+   at. The echo of the PREVIOUS commit is exactly such a re-read, and it lands
+   mid-drag: the look snaps back to the old value and stays there, because
+   nothing writes again until the dial moves once more.
+
+   So the pane CLAIMS the appearance when it previews and hands it back once
+   the note has caught up (or the sheet is gone), and a read that resolves
+   inside a claim drops its appearance — only its appearance; the rest of that
+   read is still the truth. The claim is a pair of counters rather than a
+   boolean because dials move independently: reconciling the field whose write
+   just landed must not hand back a preview another field made in the
+   meantime. */
+let previewSeq = 0;
+let reconciledSeq = 0;
+
+/** the settings pane's repaint: `applyAppearance`, plus the claim */
+export function previewAppearance(root: HTMLElement, a: Appearance): void {
+  previewSeq += 1;
+  applyAppearance(root, a);
+}
+
+/** where the claim stands — take this before a write, hand it to
+    `reconcileAppearance` once that write has landed */
+export function appearancePreviewSeq(): number {
+  return previewSeq;
+}
+
+/** the note has caught up with everything previewed as of `seq` (or the pane
+    is unmounting and claims nothing) */
+export function reconcileAppearance(seq: number): void {
+  if (seq > reconciledSeq) reconciledSeq = seq;
+}
+
+/** true while the document element shows something the note does not yet
+    hold — Settings.md reads must leave the appearance alone */
+export function appearancePreviewPending(): boolean {
+  return previewSeq > reconciledSeq;
+}

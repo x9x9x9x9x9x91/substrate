@@ -31,7 +31,9 @@ import {
   TERMINAL_WIDTH_MIN,
 } from "../lib/termdock";
 import {
-  applyAppearance,
+  appearancePreviewSeq,
+  previewAppearance,
+  reconcileAppearance,
   DEFAULT_GLOW,
   DEFAULT_NUDGE,
   DEFAULT_TONE,
@@ -396,6 +398,12 @@ export default function SettingsPane({
 }: SettingsPaneProps) {
   const undo = useUndo();
   const [values, setValues] = useState<Record<string, string> | null>(null);
+  /** what `values` holds right now, readable from a handler that must not be
+      re-created on every drag step. The appearance dials repaint OUTSIDE their
+      state updater (SUB-1122) — see `slide` — and still need the current
+      sheet, including fields the user edited while a write was in flight. */
+  const valuesRef = useRef(values);
+  valuesRef.current = values;
   const [saved, setSaved] = useState<Record<string, string>>({});
   const [closing, setClosing] = useState(false);
   const [missing, setMissing] = useState(false);
@@ -425,6 +433,10 @@ export default function SettingsPane({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      // SUB-1122: with the sheet gone there is nobody to hold an uncommitted
+      // preview, so hand the appearance back to Settings.md — the next read
+      // repaints from the note, as an abandoned drag already did.
+      reconcileAppearance(appearancePreviewSeq());
     };
   }, []);
 
@@ -612,17 +624,20 @@ export default function SettingsPane({
       onChange for every step of a drag, and each write is an IPC round trip
       plus its own undo entry — so the note learns about it on release. */
   const slide = useCallback((f: Field, n: number) => {
-    setValues((v) => {
-      if (!v) return v;
-      const next = { ...v, [f.key]: String(n) };
-      applyAppearance(document.documentElement, appearanceOf(next));
-      // SUB-951: opacity is the one dial you judge by looking THROUGH the
-      // window at your desktop, so it has to preview on the drag too — and
-      // it is only a class plus a custom property, so an abandoned drag
-      // needs no undo: the next settings read repaints from the note.
-      if (f.key === WINDOW_OPACITY_FIELD.key) applyWindowOpacity(n);
-      return next;
-    });
+    const v = valuesRef.current;
+    if (!v) return;
+    const next = { ...v, [f.key]: String(n) };
+    setValues(next);
+    // the claim is taken HERE and not inside a setValues updater: React may
+    // run an updater more than once per user action (StrictMode double-invoke,
+    // render replay), and a counter bumped from a render-phase function is a
+    // shape that stops being harmless the day reconcile learns to subtract.
+    previewAppearance(document.documentElement, appearanceOf(next));
+    // SUB-951: opacity is the one dial you judge by looking THROUGH the
+    // window at your desktop, so it has to preview on the drag too — and
+    // it is only a class plus a custom property, so an abandoned drag
+    // needs no undo: the next settings read repaints from the note.
+    if (f.key === WINDOW_OPACITY_FIELD.key) applyWindowOpacity(n);
   }, []);
 
   /** A live appearance preview is only optimistic. If Settings.md rejects
@@ -631,15 +646,25 @@ export default function SettingsPane({
       sheet and the next launch disagree. */
   const rollbackAppearance = useCallback(
     (key: string) => {
-      setValues((current) => {
-        if (!current) return current;
-        const next = { ...current, [key]: saved[key] ?? "" };
-        applyAppearance(document.documentElement, appearanceOf(next));
-        if (key === WINDOW_OPACITY_FIELD.key) {
-          applyWindowOpacity(sliderValue(WINDOW_OPACITY_FIELD, next[key]));
-        }
-        return next;
-      });
+      const current = valuesRef.current;
+      if (!current) return;
+      const next = { ...current, [key]: saved[key] ?? "" };
+      // back on the persisted snapshot, so this field is no longer ahead of
+      // the note — stop holding the appearance for it (SUB-1122). Only up to
+      // the seq claimed BEFORE this rollback's own repaint, though: a monotone
+      // counter cannot say "release mine, keep the older one", and releasing
+      // the current seq would hand back a preview another dial made while
+      // this write was in flight — the interleaving the counter pair exists to
+      // prevent, in the failure path. What stays claimed is this rollback's
+      // own repaint, which is harmless: it already matches the note, and the
+      // next commit or the unmount releases it.
+      const previewed = appearancePreviewSeq();
+      setValues(next);
+      previewAppearance(document.documentElement, appearanceOf(next));
+      reconcileAppearance(previewed);
+      if (key === WINDOW_OPACITY_FIELD.key) {
+        applyWindowOpacity(sliderValue(WINDOW_OPACITY_FIELD, next[key]));
+      }
     },
     [saved]
   );
@@ -647,11 +672,29 @@ export default function SettingsPane({
   /** release (pointer up, key up, or losing focus): persist if it moved */
   const commitSlider = useCallback(
     (f: Field) => {
-      if (!values) return;
+      // a release that writes NOTHING must still hand the appearance back
+      // (SUB-1122). Dragging glow 30 → 80 → 30 and letting go bumps the claim
+      // on every step and then issues no write, so returning early here used
+      // to leave the claim standing for the life of the open sheet: every
+      // later Settings.md read dropped its appearance apply, and nothing
+      // replays a suppressed read — an external edit to the look (other
+      // window, editor, sync) was silently lost. Same bound as the unmount
+      // release: everything previewed so far goes back, since the sheet is
+      // now level with the note.
+      if (!values) {
+        reconcileAppearance(appearancePreviewSeq());
+        return;
+      }
       const n = sliderValue(f, values[f.key]);
-      if (n === sliderValue(f, saved[f.key] ?? "")) return;
+      if (n === sliderValue(f, saved[f.key] ?? "")) {
+        reconcileAppearance(appearancePreviewSeq());
+        return;
+      }
       const isDefault = n === f.slider!.default;
       setValues((v) => (v ? { ...v, [f.key]: String(n) } : v));
+      // everything previewed up to here is what this write puts in the note
+      // (SUB-1122); a preview made while it is in flight stays claimed
+      const previewed = appearancePreviewSeq();
       setPropUndoable({
         path: SETTINGS_PATH,
         key: f.key,
@@ -662,6 +705,7 @@ export default function SettingsPane({
         onApplied: reconcileSettings,
       })
         .then(() => {
+          reconcileAppearance(previewed);
           setSaved((s) => ({ ...s, [f.key]: String(n) }));
           void onSettingsChanged();
         })
@@ -688,7 +732,8 @@ export default function SettingsPane({
       if (value === chipValue(f, saved[f.key] ?? "")) return;
       const next = { ...values, [f.key]: value };
       setValues(next);
-      applyAppearance(document.documentElement, appearanceOf(next));
+      previewAppearance(document.documentElement, appearanceOf(next));
+      const previewed = appearancePreviewSeq();
       setPropUndoable({
         path: SETTINGS_PATH,
         key: f.key,
@@ -697,6 +742,7 @@ export default function SettingsPane({
         onApplied: reconcileSettings,
       })
         .then(() => {
+          reconcileAppearance(previewed);
           setSaved((s) => ({ ...s, [f.key]: value }));
           void onSettingsChanged();
         })

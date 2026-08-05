@@ -19,15 +19,17 @@
  * the note stuck unfocused and "Untitled" forever.
  *
  * The tell is whether the character had anywhere to land. A *printable* key
- * (single-char key, no ctrl/meta/alt) pressed while focus sits on something
- * that does not take text — the body, a sidebar button, a list row — is a
+ * (single-char key, no ctrl/meta) pressed while focus sits on something that
+ * does not take text — the body, a sidebar button, a list row — is a
  * character that is about to be dropped on the floor, so it is read as intent
  * AT the pending target: fire the pending focus synchronously inside the
  * keydown rather than cancel it. The focus lands before the browser inserts
  * the character, so that same char is typed into the newly focused field.
+ * SUB-1123 counts an Option-produced character (⌥L is `@` on a German layout)
+ * and a pending dead key as exactly that kind of keystroke; see below.
  *
- * Everything else keeps the old semantics exactly: non-printable and modified
- * keys always cancel (that is SUB-455's arrow-key-aimed-at-the-list case), and
+ * Everything else keeps the old semantics exactly: non-printable and
+ * command-chorded keys always cancel (SUB-455's arrow-key-at-the-list case), and
  * so does any key pressed while a real text field or editor already has focus
  * (the scratch-body-split-into-title case). pointerdown cancels
  * unconditionally — a click elsewhere is never ambiguous.
@@ -61,8 +63,27 @@ export function focusSoon(run: () => void, delay = 80): () => void {
   const typingIntoTheVoid = (e: unknown): boolean => {
     const ev = e as Partial<KeyboardEvent> | null;
     if (!ev || typeof ev.key !== "string") return false;
-    if (ev.key.length !== 1) return false;
-    if (ev.ctrlKey || ev.metaKey || ev.altKey) return false;
+    // SUB-1123: ⌘/⌃ are command modifiers; Option is NOT one on macOS — it is
+    // how international layouts type ordinary characters (German: `@` is ⌥L,
+    // `[` is ⌥5, `~` is ⌥N). Rejecting altKey outright cancelled the handoff on
+    // an ordinary German character, i.e. the SUB-765 bug reached by typing. No
+    // character list is needed: an Option chord that produces a character
+    // reports THAT character in `key`, so the length test below separates ⌥L
+    // ("@") from ⌥ArrowDown on its own. The app's only bare-⌥ chords are ⌥←/⌥→
+    // (mini-player transport) — named keys, so they still cancel. Same fix as
+    // the database cell surface (SUB-1120, cellhop.ts).
+    if (ev.ctrlKey || ev.metaKey) return false;
+    // a composition in progress belongs to the IME, not to a pending focus
+    if (ev.isComposing) return false;
+    // `key` is the produced character for printable keys and a name ("Enter",
+    // "F2", "ArrowDown") for everything else — length is the whole test.
+    // A dead key (`´` `` ` `` `^` bare on German/intl layouts, ⌥e/⌥i on US)
+    // reports "Dead" and carries no character of its own: the browser holds it
+    // and composes it with the NEXT keystroke, which can only complete inside a
+    // real text field. Cancelling on it stranded the note unfocused AND lost the
+    // accent; firing hands the user the field the accent is headed for. Nothing
+    // here calls preventDefault, so the browser keeps the pending dead key.
+    if (ev.key.length !== 1 && ev.key !== "Dead") return false;
     if (typeof document === "undefined") return false;
     return !takesText(document.activeElement);
   };
