@@ -200,12 +200,23 @@ test("tasks: Now/Later verbs move a row between the focus card and its group (SU
   await expect(nowGroup.locator(".tasks-row")).toHaveCount(2);
   await expect(page.locator(".tasks-group-name", { hasText: /^Studio$/ })).toHaveCount(0);
 
+  // the pin glyph follows the pin (SUB-1109): both Now rows carry it, the
+  // overdue rows below carry none
+  await expect(nowGroup.locator(".tasks-row .tasks-pin")).toHaveCount(2);
+  await expect(page.locator(".tasks-overdue .tasks-row .tasks-pin")).toHaveCount(0);
+
   // unpin the original pin: Master Vessel returns to Studio, group reappears
   const vessel = nowGroup.locator(".tasks-row", { hasText: "Master Vessel Songs v3" });
   await vessel.hover();
   await vessel.locator(".tasks-act", { hasText: /^Later$/ }).click();
   await expect(nowGroup.locator(".tasks-row")).toHaveCount(1);
   await expect(page.locator(".tasks-group-name", { hasText: /^Studio$/ })).toHaveCount(1);
+  // unpinned, it drops the glyph with the pin rather than keeping a stale mark
+  await expect(
+    page
+      .locator(".tasks-group.tasks-area .tasks-row", { hasText: "Master Vessel Songs v3" })
+      .locator(".tasks-pin")
+  ).toHaveCount(0);
 });
 
 test("tasks: snooze parks a row into the Snoozed section and Wake brings it back (SUB-870)", async ({
@@ -303,6 +314,20 @@ test("tasks: the Board view groups every open row by area, urgency claiming noth
     "Renew Bandcamp plan",
     "Renew the webshop shipping rates",
   ]);
+
+  // the pinned card wears the pin glyph (SUB-1109): on the board there is no
+  // Now heading, so the mark is the only thing saying the missing stale chip
+  // is an exemption. An unpinned card carries none — including the 74-day
+  // Bandcamp row, which is chipped `stale` precisely because it isn't pinned.
+  const studio = page.locator(".tasks-col", {
+    has: page.locator(".tasks-col-name", { hasText: /^Studio$/ }),
+  });
+  await expect(
+    studio.locator(".tasks-card", { hasText: "Master Vessel Songs v3" }).locator(".tasks-pin")
+  ).toHaveCount(1);
+  await expect(
+    admin.locator(".tasks-card", { hasText: "Renew Bandcamp plan" }).locator(".tasks-pin")
+  ).toHaveCount(0);
 
   // cards keep the row's verbs: checkoff works from the board
   const bandcamp = page.locator(".tasks-card", { hasText: "Renew Bandcamp plan" });

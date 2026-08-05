@@ -2,7 +2,7 @@
 //! own snapshots; this module only moves committed snapshots through the
 //! configured `substrate` remote.
 
-use crate::history::{DiffLine, EXCLUDE_CONTENT, FOREIGN_MSG, SENTINEL};
+use crate::history::{exclude_is_ours, DiffLine, EXCLUDE_CONTENT, FOREIGN_MSG, SENTINEL};
 use git2::build::CheckoutBuilder;
 use git2::{
     Cred, FetchOptions, IndexAddOption, IndexEntry, Oid, PushOptions, RemoteCallbacks, Repository,
@@ -337,7 +337,9 @@ fn owned_repo(root: &Path) -> Result<Repository, String> {
 }
 
 /// Mobile half of History initialization. A missing repository is ours to
-/// create; any pre-existing unstamped repository remains strictly foreign.
+/// create; a pre-existing one is ours only if it is stamped, or if it lost the
+/// stamp but still carries our exclusions (SUB-1018) — anything else remains
+/// strictly foreign.
 /// Desktop never calls this and keeps its established git CLI behavior.
 // dead on desktop by design — see the `#![allow(dead_code)]` note in githist.rs
 #[allow(dead_code)]
@@ -352,8 +354,14 @@ pub(crate) fn history_prepare(root: &Path) -> Result<bool, String> {
         fs::write(root.join(SENTINEL), "1\n")
             .map_err(|e| format!("could not stamp vault history ownership: {e}"))?;
         repo
-    } else if git_dir.is_dir() && root.join(SENTINEL).is_file() {
-        Repository::open(root).map_err(|e| format!("could not open vault history: {e}"))?
+    } else if git_dir.is_dir() && (root.join(SENTINEL).is_file() || exclude_is_ours(root)) {
+        let repo =
+            Repository::open(root).map_err(|e| format!("could not open vault history: {e}"))?;
+        // re-stamp: an unstamped repo that is provably ours gets its sentinel
+        // back, so the next boot takes the cheap path
+        fs::write(root.join(SENTINEL), "1\n")
+            .map_err(|e| format!("could not stamp vault history ownership: {e}"))?;
+        repo
     } else {
         return Ok(false);
     };
@@ -2915,6 +2923,32 @@ mod tests {
         let mut walk = repo.revwalk().unwrap();
         walk.push_head().unwrap();
         assert_eq!(walk.count(), 2);
+    }
+
+    #[test]
+    fn history_prepare_readopts_a_vault_that_lost_its_sentinel() {
+        // SUB-1018, mobile half: losing the stamp alone must not turn our own
+        // vault foreign — the exclusions we wrote still identify it, and the
+        // stamp is restored so the next boot takes the cheap path.
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("mobile-vault");
+        assert!(history_prepare(&root).unwrap());
+        fs::write(root.join("Note.md"), "one\n").unwrap();
+        assert!(history_snapshot(&root, "snapshot").unwrap());
+        fs::remove_file(root.join(SENTINEL)).unwrap();
+
+        assert!(history_prepare(&root).unwrap(), "still ours");
+        assert!(root.join(SENTINEL).is_file(), "re-stamped");
+        fs::write(root.join("Note.md"), "two\n").unwrap();
+        assert!(history_snapshot(&root, "snapshot").unwrap(), "history keeps recording");
+
+        // a user's own repo is still refused — no stamp, no exclusions of ours
+        let foreign = scratch.path().join("their-repo");
+        fs::create_dir_all(&foreign).unwrap();
+        Repository::init(&foreign).unwrap();
+        fs::write(foreign.join(".git/info/exclude"), "*.tmp\n").unwrap();
+        assert!(!history_prepare(&foreign).unwrap());
+        assert!(!foreign.join(SENTINEL).exists());
     }
 
     #[test]

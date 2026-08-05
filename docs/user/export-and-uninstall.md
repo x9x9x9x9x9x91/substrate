@@ -12,7 +12,11 @@ For smaller exports:
   folder containing the note and the embedded assets it uses, and **Export
   PDF…**, which opens the macOS print flow.
 - A database's **⋯** menu offers **Export CSV…** for the columns, filters, sort,
-  and row order currently shown.
+  and row order currently shown. A value that starts with `=`, `+`, `-` or `@`
+  is written with a leading apostrophe, the marker spreadsheets use for "this is
+  text, not a formula" — without it, Excel, Numbers and LibreOffice would run
+  such a cell as a live formula on open. The apostrophe exists only in the
+  exported file; your notes are unchanged.
 - A saved view's menu (right-click its tab or its sidebar row) offers **Export
   as link folder…**, which builds a folder outside the vault whose items are
   links to the notes the view matches — so Finder, a file dialog, or another

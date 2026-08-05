@@ -10,7 +10,8 @@
 //! repository — History then runs disabled: no config/exclude writes, every
 //! mutating op a no-op, read ops refused. Pre-stamp Substrate repos (every
 //! commit authored by `Substrate <substrate@local>`, or no commits yet) are
-//! adopted on first boot.
+//! adopted on first boot, as is a repo that lost its stamp but still carries
+//! our `.git/info/exclude` vocabulary (`exclude_is_ours`, SUB-1018).
 
 use serde::Serialize;
 #[cfg(not(mobile))]
@@ -60,6 +61,41 @@ pub(crate) const SENTINEL: &str = ".git/substrate-owned";
 /// run history, written from the `jobs_read` poll outside the engine lock.
 pub(crate) const EXCLUDE_CONTENT: &str =
     ".assets/\n.trash/\n.DS_Store\n.vault/notifications.json\n.vault/jobs-exit.json\n";
+
+/// Every line `EXCLUDE_CONTENT` has ever carried, across versions — the
+/// vocabulary of an exclude file Substrate wrote. Used as a fallback ownership
+/// marker when the sentinel is gone (`exclude_is_ours`), so it must stay a
+/// superset of the current constant (asserted in `exclude_vocabulary_covers_the_constant`).
+/// Anything else in `.git/info/exclude` means a human wrote it.
+pub(crate) const EXCLUDE_LINES_EVER_OURS: &[&str] =
+    &[".assets/", ".trash/", ".DS_Store", ".vault/notifications.json", ".vault/jobs-exit.json"];
+
+/// Secondary ownership marker for `.git/info/exclude` (SUB-1018).
+///
+/// The sentinel is one file inside `.git`, and losing it used to be terminal:
+/// a vault whose `.git/config` and sentinel were both lost (partial restore,
+/// a `.git` copied by a tool that skips unknown files) commits its next
+/// snapshot under git's implicit machine identity, and that one non-Substrate
+/// root commit then fails `all_commits_substrate_authored` on every later
+/// boot — version history off forever, on a repo that was always ours.
+///
+/// So a second marker: an exclude file whose every line is one Substrate has
+/// written, anchored on `.assets/` + `.trash/` (present in every version).
+/// A user's own repo would have to hold exactly that vocabulary and nothing
+/// else — no `*.tmp`, no `node_modules/`, no comment — to be mistaken for
+/// ours, while `.trash/`-style entries are meaningless outside a vault.
+/// Deliberately NOT part of the marker: the local `user.name`/`user.email`,
+/// which a user can set to anything (the hijack shape in
+/// `mixed_authorship_repo_stays_foreign` sets them to Substrate's own).
+pub(crate) fn exclude_is_ours(root: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(root.join(".git/info/exclude")) else {
+        return false;
+    };
+    let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    lines.contains(&".assets/")
+        && lines.contains(&".trash/")
+        && lines.iter().all(|l| EXCLUDE_LINES_EVER_OURS.contains(l))
+}
 
 /// Read-op error in foreign mode — the log belongs to the user, not to us.
 pub(crate) const FOREIGN_MSG: &str =
@@ -114,8 +150,11 @@ impl History {
         } else {
             // migration: vaults Substrate initialized before the sentinel
             // carry no stamp — adopt when every commit on every ref is a
-            // Substrate snapshot (or nothing was ever committed)
-            Self::all_commits_substrate_authored(&root)?
+            // Substrate snapshot (or nothing was ever committed), or when the
+            // repo still carries our exclusions (SUB-1018: a lost sentinel
+            // plus one commit made under git's implicit identity must not
+            // disable version history forever)
+            exclude_is_ours(&root) || Self::all_commits_substrate_authored(&root)?
         };
         let h = History { root, enabled: owned };
         if owned {
@@ -1167,6 +1206,90 @@ mod tests {
         assert!(h.snapshot("snapshot").unwrap());
         assert_eq!(h.list("a.md").unwrap().len(), 2);
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn lost_sentinel_plus_a_pre_config_root_commit_keeps_time_travel() {
+        // SUB-1018: the vault is ours, but its `.git/config` and sentinel were
+        // both lost (partial restore / a copy tool that skipped them), so the
+        // next snapshot committed under git's implicit machine identity. That
+        // one non-Substrate ROOT commit failed the all-authors heuristic, and
+        // with no sentinel to short-circuit it the repo read as the user's own
+        // — version history off forever on a repo Substrate created.
+        let dir = user_repo("lost-sentinel");
+        user_git(&dir, &["init", "-q", "-b", "main"]);
+        // our exclusions are still there — the marker that survives
+        fs::write(dir.join(".git/info/exclude"), EXCLUDE_CONTENT).unwrap();
+        // the pre-config root commit: git's implicit identity, not ours
+        user_git(&dir, &["config", "user.name", "owner"]);
+        user_git(&dir, &["config", "user.email", "owner@laptop.local"]);
+        fs::write(dir.join("a.md"), "one\n").unwrap();
+        user_git(&dir, &["add", "-A", "."]);
+        user_git(&dir, &["commit", "-q", "-m", "snapshot"]);
+        // and the later snapshots, once the identity was configured again
+        user_git(&dir, &["config", "user.name", "Substrate"]);
+        user_git(&dir, &["config", "user.email", "substrate@local"]);
+        fs::write(dir.join("a.md"), "two\n").unwrap();
+        user_git(&dir, &["add", "-A", "."]);
+        user_git(&dir, &["commit", "-q", "-m", "snapshot"]);
+        assert!(!dir.join(SENTINEL).exists());
+        assert!(
+            !History::all_commits_substrate_authored(&dir).unwrap(),
+            "precondition: the old heuristic rejects this repo"
+        );
+
+        let h = History::new(dir.clone()).unwrap();
+        assert!(h.is_enabled(), "our own vault is re-adopted, not disowned");
+        assert_eq!(fs::read_to_string(dir.join(SENTINEL)).unwrap(), "1\n", "and re-stamped");
+
+        // time travel survives: the whole log reads, and new snapshots land
+        assert_eq!(h.list("a.md").unwrap().len(), 2);
+        assert_eq!(h.points().unwrap().len(), 2);
+        assert!(h.show("HEAD", "a.md").is_ok());
+        fs::write(dir.join("a.md"), "three\n").unwrap();
+        assert!(h.snapshot("snapshot").unwrap());
+        assert_eq!(h.list("a.md").unwrap().len(), 3);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_users_own_exclude_is_not_an_ownership_marker() {
+        // the marker is the exclude VOCABULARY, so anything a human would
+        // plausibly add — a pattern of their own, or git's default comments —
+        // keeps the repo foreign
+        let dir = user_repo("excludes");
+        user_git(&dir, &["init", "-q", "-b", "main"]);
+        let exclude = dir.join(".git/info/exclude");
+
+        assert!(!exclude_is_ours(&dir), "git's own default exclude comments are not ours");
+        fs::write(&exclude, "*.tmp\n").unwrap();
+        assert!(!exclude_is_ours(&dir));
+        fs::write(&exclude, format!("{EXCLUDE_CONTENT}node_modules/\n")).unwrap();
+        assert!(!exclude_is_ours(&dir), "ours plus one foreign line is not ours");
+        fs::write(&exclude, ".DS_Store\n").unwrap();
+        assert!(!exclude_is_ours(&dir), "a line we happen to share is not enough");
+        fs::remove_file(&exclude).unwrap();
+        assert!(!exclude_is_ours(&dir), "no exclude file at all is not ours");
+
+        // and the shapes we do write — current, and every older version
+        fs::write(&exclude, EXCLUDE_CONTENT).unwrap();
+        assert!(exclude_is_ours(&dir));
+        fs::write(&exclude, ".assets/\n.trash/\n.DS_Store\n").unwrap();
+        assert!(exclude_is_ours(&dir), "a pre-SUB-568 exclude is still ours");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn exclude_vocabulary_covers_the_constant() {
+        // EXCLUDE_LINES_EVER_OURS is what `exclude_is_ours` matches against;
+        // if a new exclusion lands in EXCLUDE_CONTENT without being added
+        // there, every vault carrying it stops looking like ours
+        for line in EXCLUDE_CONTENT.lines().filter(|l| !l.trim().is_empty()) {
+            assert!(
+                EXCLUDE_LINES_EVER_OURS.contains(&line),
+                "{line:?} is written by us but missing from EXCLUDE_LINES_EVER_OURS"
+            );
+        }
     }
 
     #[test]

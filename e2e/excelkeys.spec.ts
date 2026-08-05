@@ -301,3 +301,66 @@ test("the hop keeps its target row painted in a windowed table (SUB-947)", async
   }
   await expect(page.locator(".db-win-spacer")).not.toHaveCount(0);
 });
+
+test("an Option chord that produces a character types it (SUB-1120)", async ({ page }) => {
+  // On a German Mac layout Option is how you type ordinary characters — `@` is
+  // ⌥L, `[` is ⌥5, `~` is ⌥N — but the handler used to drop every altKey chord
+  // on the floor, so those keys were dead on a focused cell.
+  const notes = await colIndex(page, "notes");
+  await focusCell(page, notes, 0);
+  await page.keyboard.press("Alt+l");
+  await expectEditingAt(page, notes, 0);
+  const input = page.locator(".selmenu-input");
+  await expect(input).toHaveValue("l");
+});
+
+test("an Option chord over a named key still navigates (SUB-1120)", async ({ page }) => {
+  // the gate is narrow: only openers ride an Option chord through. ⌥↓ carries
+  // no character and must not open an editor.
+  const notes = await colIndex(page, "notes");
+  await focusCell(page, notes, 0);
+  await page.keyboard.press("Alt+ArrowDown");
+  await expect(editing(page)).toHaveCount(0);
+});
+
+/** what a real international layout puts on the wire, which Playwright cannot
+    synthesize from a key descriptor: the chord reports the PRODUCED character,
+    and a dead key reports "Dead" with no character at all */
+async function layoutKey(page: Page, init: Record<string, unknown>) {
+  await page.evaluate((i) => {
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent("keydown", { bubbles: true, cancelable: true, ...i })
+    );
+  }, init);
+}
+
+test("the character an Option chord produces is what seeds the editor (SUB-1120)", async ({
+  page,
+}) => {
+  const notes = await colIndex(page, "notes");
+  await focusCell(page, notes, 0);
+  // ⌥L on a German layout: key is "@", not "l"
+  await layoutKey(page, { key: "@", altKey: true });
+  await expectEditingAt(page, notes, 0);
+  const input = page.locator(".selmenu-input");
+  await expect(input).toHaveValue("@");
+  // and the rest of the address lands after it, as with any other character
+  await page.keyboard.type("home");
+  await expect(input).toHaveValue("@home");
+});
+
+test("a dead key opens the editor so its accent can compose (SUB-1120)", async ({ page }) => {
+  const notes = await colIndex(page, "notes");
+  await focusCell(page, notes, 0);
+  // ´ then e → é. The dead key itself carries no character, so the editor
+  // opens EMPTY and the composition finishes inside the input — where the
+  // browser can actually complete it. (The composition itself needs a real OS
+  // layout; what is asserted here is that the keystroke is no longer swallowed
+  // and the following characters land in the cell.)
+  await layoutKey(page, { key: "Dead" });
+  await expectEditingAt(page, notes, 0);
+  const input = page.locator(".selmenu-input");
+  await expect(input).toHaveValue("");
+  await page.keyboard.type("é");
+  await expect(input).toHaveValue("é");
+});

@@ -471,6 +471,14 @@ truth; every UI over it is a view. Fences are matched by ```` ```<lang>\n … ``
 anywhere in the body (first match wins); everything outside the fence is
 preserved byte-for-byte by the app's edits.
 
+Language matching follows what each parser reads. The live-dispatch languages
+(` ```view `, ` ```chart `, ` ```cards `) match on the info string's FIRST WORD,
+case-insensitively — ` ```View ` and ` ```CHART compact ` render as widgets like
+their bare lowercase forms, and their contents stay out of the search index the
+same way. The strict bare-form languages (` ```csv `, ` ```formulas `) match the
+exact lowercase opener with no tail: ` ```CSV ` parses as nothing, renders as an
+ordinary code box, and stays searchable prose.
+
 ### 5.1 Sheets — ` ```csv ` + ` ```formulas `
 
 A sheet is `type: sheet` with a csv fence (data) and an optional formulas fence
@@ -2042,7 +2050,7 @@ Per-database layout choice, same file discipline as schema.json:
 ```json
 {
   "release": { "view": "board", "group_by": "status", "sorts": [{ "key": "released", "dir": -1 }], "hidden": ["notion_id"] },
-  "gear": { "view": "table", "table_group_by": "category", "aggregations": { "price": "sum", "manual": "count" } },
+  "gear": { "view": "table", "table_group_by": "category", "aggregations": { "price": "sum", "manual": "count" }, "col_order": ["category", "price"] },
   "$sidebar": { "dashboards": ["Dashboards/Portfolio.md"], "databases": ["gear", "release"], "collapsed": ["folders", "dbpins:release"], "folders": ["Projects", "Inbox"], "dashgroups": ["Dashboards/Money"], "pins": ["Inbox/Studio setup.md"], "keys": { "ctrl+1": "today", "mod+2": "dash:Dashboards/Portfolio.md", "mod+3": "db:gear" } },
   "$folders": { "Life": { "icon": { "emoji": "🌱" } }, "Life/Admin": { "icon": { "glyph": "folder", "tint": "teal" } } },
   "$views": [
@@ -2079,6 +2087,21 @@ Per-database layout choice, same file discipline as schema.json:
   (validation matches: `dir` other than ±1 is rejected; an empty list stores
   as absent). Header clicks write it, so a sort survives navigating away.
   A saved view's own sort still overrides inside that pin.
+- `col_order` (SUB-949): optional; the TABLE's column order — the ordered prop
+  keys a header label drag left behind (a board's own column order is the
+  group prop's option order, not this key). The Name column is frozen first
+  and never appears here. On read the list is a preference, not the column
+  set: entries naming no current column are ignored, duplicates collapse, and
+  every column the list doesn't mention keeps its default position after the
+  listed ones — so a prop added after the drag appends instead of jumping.
+  A drop writes the full rendered order, including columns the drag didn't
+  touch. Entries trim on write, empties drop, an emptied order stores as
+  absent, and names are canonicalized to the column's actual casing. Ordering
+  rides both channels: a database persists it here, while a saved-view pin
+  reorders session-locally and captures the order into its own `columns`
+  shown-list on re-save. `vault_rename_prop` / `vault_clear_prop` (§4) keep
+  these entries in sync like `sorts`/`hidden` — renamed in place, dropped with
+  the prop (an emptied list leaves the file).
 - `hidden` (SUB-326): optional; prop names hidden from the database's
   table/list columns (the header right-click checklist / a column caret's
   "Hide property"). Absent or empty = everything shows. Names are stored
@@ -2669,6 +2692,22 @@ first boot they're adopted (stamped) when every commit on every ref is
 authored by `Substrate <substrate@local>`, or when nothing was committed yet;
 any other authorship leaves the repo foreign forever. A `.git` FILE (worktree
 pointer) is always foreign.
+
+**Second ownership marker (SUB-1018).** The sentinel is one file inside
+`.git`, and losing it used to be terminal. A vault that lost both its
+sentinel and its `.git/config` (partial restore, a copy tool that skipped
+them) commits its next snapshot under git's *implicit* machine identity —
+and that single non-Substrate commit then fails the all-authors heuristic on
+every later boot, so version history stayed off forever on a repo Substrate
+itself created. So an unstamped repo is also adopted (and re-stamped) when
+`.git/info/exclude` holds nothing but lines Substrate has ever written
+(`EXCLUDE_LINES_EVER_OURS` in `src-tauri/src/history.rs`), anchored on
+`.assets/` + `.trash/`. A user's own repo would have to carry exactly that
+vocabulary and nothing else — no pattern of their own, not even git's
+default comment header — to be mistaken for ours. Deliberately NOT part of
+the marker: the local `user.name`/`user.email`, which anyone can set to
+Substrate's own. The mobile half (`gitsync::history_prepare`) applies the
+same rule.
 
 - **Snapshots** land as commits: one baseline at app launch, then after activity
   (the vault quiet for 120s, or a 600s continuous editing stretch, checked every

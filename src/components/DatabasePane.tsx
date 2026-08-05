@@ -2,7 +2,13 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import type { AggKind, DbIcon, DbLayout, NoteMeta, NumberFormat, PropKind, PropSchema, PropValue, RollupConfig, SavedView, SavedViewSort, SchemaConfig, SelectOption, ViewPref } from "../lib/types";
 import { foldedPropKey, foldedPropStr, typeHome } from "../lib/types";
 import { isTyping, isTypingNow } from "../lib/dom";
-import { isPrintableKey, nextEditableCell, type HopDir, type HopGrid } from "../lib/cellhop";
+import {
+  isDeadKey,
+  isPrintableKey,
+  nextEditableCell,
+  type HopDir,
+  type HopGrid,
+} from "../lib/cellhop";
 import { cycleSortKeys, restingCmp, sortCmpFor } from "../lib/dbsort";
 import { rangePaths, togglePath } from "../lib/bulkselect";
 import { aggregationKind, aggregateColumnsUnits, formatUnit, normalizeNumberInput, updateAggregation } from "../lib/aggregate";
@@ -1622,8 +1628,15 @@ export default function DatabasePane({
   // table cell); App hands database views this keyboard surface wholesale
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.metaKey || e.ctrlKey) return;
       if (isTyping(e.target) || editCell) return;
+      // SUB-1120: Option is a character modifier on macOS, not a command one —
+      // a German layout types `@` as ⌥L and `[` as ⌥5, and those have to open a
+      // cell editor like any other character. So an Option chord is let through
+      // ONLY to the openers at the bottom of this handler; nav, Enter and
+      // Escape stay bare-key, exactly as before.
+      const onDataCell = layout === "table" && !!focus && focus.c > 0;
+      if (e.altKey && !(onDataCell && (isPrintableKey(e) || isDeadKey(e)))) return;
       // Header buttons, external links, and the named card/list controls own
       // native activation. Never apply Enter to a stale composite coordinate.
       const target = e.target instanceof HTMLElement ? e.target : null;
@@ -1746,6 +1759,15 @@ export default function DatabasePane({
       if (e.key === "F2") {
         e.preventDefault();
         startEdit(n.path, key, cellEl(), { caretAtEnd: true });
+        return;
+      }
+      // SUB-1120: a dead key (`´`, `` ` ``, `^` — bare on German/intl layouts,
+      // ⌥e/⌥i on US) produces no character here, so `é` used to cost the accent.
+      // Open the editor empty and let the composition finish inside the input.
+      // Deliberately NOT preventDefault: the browser has to keep the pending
+      // dead key for the next keystroke.
+      if (isDeadKey(e)) {
+        startEdit(n.path, key, cellEl(), { seed: "" });
         return;
       }
       // type-to-replace: a printable key opens the editor already carrying it.

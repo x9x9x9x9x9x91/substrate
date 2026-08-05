@@ -399,7 +399,10 @@ whole-day age from `created:`. Rot is the tiebreaker, not the headline. Age
 still drives the secondary chips: a task past the stale threshold reads
 `stale`, one with no `created:` at all reads `undated`. Those are diagnostics,
 never a row's reason for being on the board — and pinned Now rows carry none,
-since they're already chosen.
+since they're already chosen. A pinned task wears a small pin glyph in that
+same chip slot instead (SUB-1109), on rows and on board cards: in the Board
+view there is no **Now** heading to explain the missing chip, so the pin says
+"exempt, not overlooked" on the card face itself.
 
 Config is the dashboard note's own frontmatter, all optional:
 

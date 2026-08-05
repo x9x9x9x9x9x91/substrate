@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { stripMachineFences } from "./fences.ts";
+import { collectCardsFences } from "./metriccards.ts";
+import { findFence } from "./sheet.ts";
 
 test("stripMachineFences blanks a heatmap body too (SUB-966)", () => {
   const body = [
@@ -139,6 +141,48 @@ test("stripMachineFences: an inline prose mention of an opener never blanks pros
   assert.ok(out.includes("prose continues"), "inline mention line survives");
   assert.ok(out.includes("more prose"), "following prose survives");
   assert.ok(!out.includes("source: r"), "the real fence still strips");
+});
+
+test("stripMachineFences folds case exactly where dispatch does (SUB-1104)", () => {
+  // Every live-dispatch reader lowercases the info string's first word before
+  // matching, so ```View renders a widget just like ```view. The strip pass
+  // used to compare case-sensitively, which left a rendering fence's config
+  // in the search index — a leak across all live-dispatch languages.
+  // Lockstep twin: machine_fence_strip_folds_case_like_dispatch in
+  // src-tauri/src/vault/mod.rs asserts this same corpus.
+  for (const open of [
+    "```View",
+    "```VIEW",
+    "```vIeW table",
+    "```Chart",
+    "```CHART compact",
+    "```Cards",
+    "```CaRdS two-up",
+  ]) {
+    const out = stripMachineFences(`a\n${open}\nquery: secret\n\`\`\`\nb`);
+    assert.ok(!out.includes("secret"), `config stripped for "${open}"`);
+    assert.equal(out.split("\n").length, 5, "line count preserved");
+  }
+
+  // Coupled to a real dispatch reader rather than to a copy of the lang list:
+  // collectCardsFences is what the hub uses to find its ```cards strips, and
+  // it lowercases. Whatever IT accepts, the stripper must strip — if dispatch
+  // ever stops folding case, this half fails and the contract gets re-decided
+  // rather than silently drifting.
+  const mixed = "a\n```Cards\nlabel: secret\n```\nb";
+  assert.deepEqual(collectCardsFences(mixed), ["label: secret"], "dispatch accepts mixed case");
+  assert.ok(!stripMachineFences(mixed).includes("secret"), "so the strip pass must too");
+
+  // The bare-form group is the other half of the same rule: findFence matches
+  // the literal opener, so ```CSV dispatches as NOTHING — it renders as a
+  // plain code box, i.e. someone's prose, and must stay searchable. Stripping
+  // it would drop a user's own content out of search while closing no leak.
+  const upperCsv = "a\n```CSV\nat,yield_usd\n```\nb";
+  assert.equal(findFence(upperCsv, "csv"), null, "dispatch ignores mixed-case csv");
+  assert.equal(stripMachineFences(upperCsv), upperCsv, "so it stays searchable prose");
+  const upperFormulas = "a\n```Formulas\ntotal = SUM(a)\n```\nb";
+  assert.equal(findFence(upperFormulas, "formulas"), null, "dispatch ignores mixed-case formulas");
+  assert.equal(stripMachineFences(upperFormulas), upperFormulas, "so it stays searchable prose");
 });
 
 test("stripMachineFences handles CRLF fences (SUB-913)", () => {

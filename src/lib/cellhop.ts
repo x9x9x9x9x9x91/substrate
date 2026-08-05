@@ -72,17 +72,44 @@ export function nextEditableCell(from: Cell, dir: HopDir, grid: HopGrid): Cell |
 }
 
 /** Does this keystroke start a type-to-replace edit? One printable character,
-    no command/control/alt chord — the keys that would otherwise land nowhere
+    no command/control chord — the keys that would otherwise land nowhere
     on a focused cell. Space is excluded: it activates, like Enter. */
 export function isPrintableKey(e: {
   key: string;
   metaKey?: boolean;
   ctrlKey?: boolean;
   altKey?: boolean;
+  isComposing?: boolean;
 }): boolean {
-  if (e.metaKey || e.ctrlKey || e.altKey) return false;
+  if (e.metaKey || e.ctrlKey) return false;
+  // SUB-1120: Option is NOT a command modifier on macOS — it is how
+  // international layouts type ordinary characters (German: `@` is ⌥L, `[` is
+  // ⌥5, `~` is ⌥N). Rejecting altKey outright made those keys dead on a
+  // focused cell. No character list is needed: an Option chord that produces
+  // a character reports THAT character in `key`, so the length test below
+  // separates ⌥L ("@") from ⌥ArrowDown ("ArrowDown") on its own. ⌘/⌃ stay out.
+  //
+  // Mid-composition keystrokes belong to the IME, not to a new edit (`key` is
+  // "Process" in most engines but the produced character in some).
+  if (e.isComposing) return false;
   // `key` is the produced character for printable keys and a name ("Enter",
   // "F2", "ArrowDown") for everything else — length is the whole test, once
   // the space bar is spoken for
   return [...e.key].length === 1 && e.key !== " ";
+}
+
+/** A dead key — `´` `` ` `` `^` on German/intl layouts, ⌥e/⌥i on US — carries
+    no character of its own: the browser holds it and composes it with the
+    NEXT keystroke, and it can only finish that composition inside a real text
+    field. On a focused (non-editable) cell it reports `key: "Dead"` and would
+    otherwise be swallowed, so the accented character the user is typing lands
+    nowhere. Treated as an opener (SUB-1120): the editor opens empty, and the
+    composition finishes in the input where it can. */
+export function isDeadKey(e: {
+  key: string;
+  metaKey?: boolean;
+  ctrlKey?: boolean;
+}): boolean {
+  if (e.metaKey || e.ctrlKey) return false;
+  return e.key === "Dead";
 }

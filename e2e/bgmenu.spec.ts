@@ -112,7 +112,17 @@ test("week canvas: right-click composes at the clicked slot", async ({ page }) =
   await page.locator(".cal .db-switch button", { hasText: "Week" }).click();
   await expect(page.locator(".cal-grid.week")).toBeVisible();
 
-  const col = page.locator(".cal-wk-col").nth(2);
+  // EMPTY canvas, picked by content — a block's own menu wins over the
+  // column's by design (canvasBlock preventDefaults, same contract the chip
+  // case above asserts), so the click must miss every block. A fixed column
+  // index does not guarantee that: the seeded timed entries all land on
+  // `day(0)`, and today's column index moves with the weekday, so nth(2) was
+  // empty canvas on a Tuesday and the 09:00–17:00 workshop block on the
+  // Wednesday after (SUB-1127 — red on main overnight with no code change).
+  const col = page
+    .locator(".cal-wk-col")
+    .filter({ hasNot: page.locator(".cal-wk-block") })
+    .first();
   // mid-column ≈ midday; the menu names the snapped slot and the draft
   // composes timed, like the double-click path on the same surface
   const box = (await col.boundingBox())!;

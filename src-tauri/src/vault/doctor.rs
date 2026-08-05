@@ -155,12 +155,15 @@ impl Engine {
         let embed_re = Regex::new(r"!\[\[([^\[\]]+)\]\]").unwrap();
         // opener matches the live-widget grammar for view fences (SUB-899:
         // info-string tail, first word decides; SUB-913: CRLF; SUB-983:
-        // backtick-guarded tail so an inline prose mention never matches).
+        // backtick-guarded tail so an inline prose mention never matches;
+        // SUB-1104: case folded per letter, because every frontend reader
+        // lowercases the first word — ```View renders a live widget, so a
+        // broken ref inside one is just as broken and the doctor must see it).
         // The strip twins (machine_fence_re in vault/mod.rs, MACHINE_FENCE_RE
         // in src/lib/fences.ts) cover MORE languages; this one is view-only
         // by design — the doctor scans view fences alone.
         let view_fence_re =
-            Regex::new(r"```view(?:[ \t][^`\n]*)?\r?\n([\s\S]*?)(?:```|\z)").unwrap();
+            Regex::new(r"```[Vv][Ii][Ee][Ww](?:[ \t][^`\n]*)?\r?\n([\s\S]*?)(?:```|\z)").unwrap();
         let saved = self.saved_views();
         let mut md_paths = walk_md_files(&self.root);
         md_paths.sort();
@@ -635,18 +638,21 @@ mod tests {
 
     #[test]
     fn doctor_view_fence_scan_covers_tails_and_crlf() {
-        // both openers render live widgets (SUB-899 first-word rule; CRLF per
-        // SUB-913), so their dead saved-refs must surface like the bare form
+        // all three openers render live widgets (SUB-899 first-word rule; CRLF
+        // per SUB-913; mixed case per SUB-1104 — every reader lowercases the
+        // first word), so their dead saved-refs must surface like the bare form
         let (mut engine, dir) = temp_vault("doctor-view-openers");
         fs::write(dir.join("Tail.md"), "---\n---\n```view table\nsaved: ghost-a\n```\n").unwrap();
         fs::write(dir.join("Crlf.md"), "---\r\n---\r\n```view\r\nsaved: ghost-b\r\n```\r\n")
             .unwrap();
+        fs::write(dir.join("Case.md"), "---\n---\n```VieW table\nsaved: ghost-c\n```\n").unwrap();
         engine.rescan();
         let report = engine.doctor(&Default::default()).unwrap();
         let refs = findings_of(&report, DoctorKind::BrokenViewRef);
         let subjects: Vec<&str> = refs.iter().map(|f| f.subject.as_str()).collect();
         assert!(subjects.contains(&"ghost-a"), "tailed fence scanned: {refs:?}");
         assert!(subjects.contains(&"ghost-b"), "CRLF fence scanned: {refs:?}");
+        assert!(subjects.contains(&"ghost-c"), "mixed-case fence scanned: {refs:?}");
         let _ = fs::remove_dir_all(&dir);
     }
 

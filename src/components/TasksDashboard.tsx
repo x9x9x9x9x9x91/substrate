@@ -23,7 +23,7 @@ import { vaultSetProp } from "../lib/ipc";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import DateMenu from "./DateMenu";
 import SelectMenu, { anchorFrom, optionColor, OptionPill, type AnchorRect } from "./SelectMenu";
-import { ChevronRightIcon } from "./Icons";
+import { ChevronRightIcon, PinIcon } from "./Icons";
 import { DashHead } from "./DashHead";
 
 interface TasksDashboardProps {
@@ -104,6 +104,28 @@ const SECTION_TINT: Record<TasksDashboardSection["kind"], string> = {
   now: "var(--accent)",
   area: "var(--opt-blue)",
 };
+
+/** The pin mark (SUB-1109): a pinned task carries no `stale`/`undated` chip —
+    Now is the chosen list, so rot isn't a diagnostic for it
+    (tasksDashboard.ts). In the list that reads off the **Now** heading, but a
+    pinned card on the board sits in its area column with no heading to explain
+    the gap, so the absent chip looks like a missing chip rather than an
+    exemption. This glyph is the anchor, and it rides the meta row in the very
+    slot the finding chip would occupy — one quiet mark, always visible (a
+    tooltip-only cue would be no anchor at all), never a second verb: the
+    Now/Later button next to it stays the way to change the pin. */
+function PinMark() {
+  return (
+    <span
+      className="tasks-pin"
+      role="img"
+      aria-label="Pinned to Now"
+      title="Pinned to Now — stale and undated chips don’t apply to a task you’ve already chosen"
+    >
+      <PinIcon />
+    </span>
+  );
+}
 
 export default function TasksDashboard({
   meta,
@@ -503,6 +525,7 @@ export default function TasksDashboard({
                   "＋ priority"
                 )}
               </button>
+              {row.now && <PinMark />}
               {row.finding && (
                 <span className="tasks-finding">
                   {row.finding === "stale" ? "stale" : "undated"}
@@ -653,6 +676,7 @@ export default function TasksDashboard({
           >
             {row.priority ? <OptionPill color={tint}>{row.priority}</OptionPill> : "＋ priority"}
           </button>
+          {row.now && <PinMark />}
           <span className="tasks-card-acts">
             <button type="button" className="tasks-act" onClick={() => setNow(row, !row.now)}>
               {row.now ? "Later" : "Now"}
