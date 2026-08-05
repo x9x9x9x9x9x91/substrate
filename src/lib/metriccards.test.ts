@@ -5,11 +5,14 @@ import {
   clampCardDigits,
   collectCardsFences,
   fmtCard,
+  parseCardDigits,
   parseCards,
   parseCardsBlock,
   parseCardsConfig,
   type MetricCard,
 } from "./metriccards.ts";
+import { evaluateSheet, findSummary, formatValue, parseSheet } from "./sheet.ts";
+import type { Value } from "./formula.ts";
 
 const one = (inner: string): MetricCard => {
   const cards = parseCardsConfig(inner);
@@ -92,13 +95,26 @@ test("names a non-integer digits", () => {
 
 // SUB-1030: toLocaleString throws a hard RangeError past 20 fraction digits,
 // so no card may reach the formatter carrying more than the shared bound.
-test("clamps fence digits into the shared bound instead of throwing", () => {
-  assert.equal(one("- label: A\n  bind: S.a\n  digits: 30").digits, MAX_CARD_DIGITS);
-  assert.equal(one("- label: A\n  bind: S.a\n  digits: 99999999999999999999999").digits, MAX_CARD_DIGITS);
+// SUB-1060: the fence is hand-authored text, so it NAMES the bound the way the
+// grid tile card line does rather than silently clamping — same words, same
+// shared reader (parseCardDigits).
+test("names out-of-range fence digits with the shared bound", () => {
+  rejects("- label: A\n  bind: S.a\n  digits: 9", /card digits must be between 0 and 8/);
+  rejects("- label: A\n  bind: S.a\n  digits: 30", /card digits must be between 0 and 8/);
+  rejects("- label: A\n  bind: S.a\n  digits: 99999999999999999999999", /card digits must be between 0 and 8/);
   // in-range values are untouched
   assert.equal(one("- label: A\n  bind: S.a\n  digits: 0").digits, 0);
   assert.equal(one("- label: A\n  bind: S.a\n  digits: 2").digits, 2);
   assert.equal(one("- label: A\n  bind: S.a\n  digits: 8").digits, 8);
+});
+
+test("parseCardDigits: the strict read both authoring surfaces share", () => {
+  assert.equal(parseCardDigits("0"), 0);
+  assert.equal(parseCardDigits("8"), 8);
+  assert.throws(() => parseCardDigits("9"), /card digits must be between 0 and 8/);
+  assert.throws(() => parseCardDigits("1.5"), /digits must be a whole number — got "1.5"/);
+  assert.throws(() => parseCardDigits("-2"), /digits must be a whole number — got "-2"/);
+  assert.throws(() => parseCardDigits("two"), /digits must be a whole number — got "two"/);
 });
 
 test("clampCardDigits keeps whole 0..8 and drops anything that isn't a number", () => {
@@ -113,7 +129,10 @@ test("clampCardDigits keeps whole 0..8 and drops anything that isn't a number", 
   assert.equal(clampCardDigits("2"), undefined);
 });
 
-test("frontmatter cards clamp digits the same way the fence does", () => {
+// The lenient half of the SUB-1060 split: frontmatter is machine-written as
+// often as hand-written, so it clamps where the authoring surfaces refuse —
+// the same posture that drops an incomplete card instead of failing the board.
+test("frontmatter cards clamp digits where the fence refuses them", () => {
   const digitsOf = (digits: unknown) => parseCards({ cards: [{ label: "A", bind: "S.a", digits }] })[0].digits;
   assert.equal(digitsOf(30), MAX_CARD_DIGITS);
   assert.equal(digitsOf(-2), 0);
@@ -214,4 +233,72 @@ test("collectCardsFences reads a spaced info string and an unterminated fence", 
 test("collectCardsFences ignores cards text inside another fence", () => {
   const body = ["```text", "```cards", "- label: A", "```"].join("\n");
   assert.deepEqual(collectCardsFences(body), []);
+});
+
+// ---------- the two surfaces one summary renders through (SUB-1060) ----------
+
+/** A named summary reaches a reader twice: as a chip under its own sheet
+    (`formatValue`, which reads the value) and as a card on a dashboard
+    (`fmtCard`, which reads what the card author declared). SUB-944 (a
+    value-aware Count quick-pick), SUB-1084 (chips inheriting their column's
+    format) and this issue each rewrite what a value-carrying number means on
+    one of those surfaces, and each is tested only on its own. These two tests
+    pin where the surfaces agree and where they deliberately part. */
+
+const SHEET = `\`\`\`csv
+asset,units,value_usd
+BTC,4.1,37680
+HEDGE,80,-30280
+LONG,1200,10600
+\`\`\`
+
+\`\`\`formulas
+total = SUM(value_usd)
+rows = COUNT(value_usd)
+avg_units = AVG(units)
+share = MAX(units) / SUM(units)
+\`\`\`
+`;
+
+const summary = (name: string): Value => {
+  const v = findSummary(evaluateSheet(parseSheet(SHEET), () => null), name);
+  assert.ok(!(v && typeof v === "object" && "err" in v), `summary ${name} errored`);
+  return v as Value;
+};
+
+test("a count renders dimensionless on both surfaces until a card says otherwise", () => {
+  const rows = summary("rows");
+  assert.equal(rows, 3);
+  // the chip: a count is a plain row tally, never money
+  assert.equal(formatValue(rows), "3");
+  // the card, undeclared: same reading, so a Count quick-pick (SUB-944, which
+  // spells a text column's count `COUNTIF(col, "*")`) is safe to bind to a card
+  assert.equal(fmtCard(rows), "3");
+  assert.equal(fmtCard(rows, "number"), "3");
+  // ...and a card that *declares* a currency wins: `format: eur, digits: 2` is
+  // the author saying this number is money, which the sheet can't overrule
+  assert.equal(fmtCard(rows, "eur", 2), "3,00 €");
+
+  // a quantity, by contrast, reads the same on both surfaces
+  assert.equal(formatValue(summary("total")), "18.000");
+  assert.equal(fmtCard(summary("total")), "18.000");
+});
+
+test("no sheet-derived decimal count can exceed the card bound", () => {
+  // the card side is bounded because toLocaleString throws past the engine's
+  // digit cap (SUB-1030); the sheet side is bounded by formatNum's own rules.
+  // This asserts the two agree, so a summary can never carry a decimal count
+  // into fmtCard that clampCardDigits would have to rescue.
+  for (const name of ["total", "rows", "avg_units", "share"]) {
+    const v = summary(name);
+    const decimals = (formatValue(v).split(",")[1] ?? "").length;
+    assert.ok(
+      decimals <= MAX_CARD_DIGITS,
+      `${name} renders ${decimals} decimals, past the card bound of ${MAX_CARD_DIGITS}`
+    );
+    assert.equal(clampCardDigits(decimals), decimals);
+    // and the same count is a legal card declaration — no throw, no clamp
+    assert.equal(parseCardDigits(String(decimals)), decimals);
+    assert.doesNotThrow(() => fmtCard(v, "number", decimals));
+  }
 });

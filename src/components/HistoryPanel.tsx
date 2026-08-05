@@ -31,11 +31,23 @@ interface HistoryPanelProps {
   meta: NoteMeta;
   onClose: () => void;
   onRestored: (m: NoteMeta) => void;
+  /** A purge or trim rewrote the repository's history (SUB-832). No file in the
+      working tree changed, so no `vault:changed` fires and nothing else in the
+      app would learn about it — while the time-travel caches (the prefetch
+      store in `useHistory`, the dashboard sheet cache) are keyed by vault epoch
+      and would keep answering with the values that were just destroyed. Bumping
+      the epoch is what makes a purge actually purge everywhere. */
+  onHistoryRewritten: () => void;
 }
 
 type Mode = "browse" | "purge-note" | "purge-path" | "trim";
 
-export default function HistoryPanel({ meta, onClose, onRestored }: HistoryPanelProps) {
+export default function HistoryPanel({
+  meta,
+  onClose,
+  onRestored,
+  onHistoryRewritten,
+}: HistoryPanelProps) {
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
   const [status, setStatus] = useState<HistoryStatus | null>(null);
   const [selId, setSelId] = useState<string | null>(null);
@@ -162,6 +174,10 @@ export default function HistoryPanel({ meta, onClose, onRestored }: HistoryPanel
       setConfirmDraft("");
       setPathDraft("");
       load();
+      // all three modes rewrite history: purge-note, purge-path and trim. A
+      // trim also moves the oldest surviving snapshot, so the "no history
+      // before <day>" boundary has to be re-read too, not just the values.
+      onHistoryRewritten();
     }).catch((e) => {
       setBusy(false);
       setError(String(e));

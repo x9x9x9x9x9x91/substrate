@@ -5,6 +5,7 @@ import { vaultRead, vaultResolve } from "../lib/ipc";
 import { fmtFx } from "../lib/dashboard";
 import { normalizeNumberInput } from "../lib/aggregate";
 import { useFxRates } from "./useFx";
+import { useHistoryResolver } from "./useHistory";
 import { makeFxResolver, usdEurFrom } from "../lib/fx";
 import {
   addSheetColumn,
@@ -15,13 +16,18 @@ import {
   deleteSheetRow,
   errMessage,
   evaluateSheet,
+  formatSummary,
   formatValue,
   moveSheetColumn,
   moveSheetRow,
   parseSheet,
   setSheetCell,
   sheetColumnFormats,
+  sheetHistoryRefs,
+  sheetHistorySheetDates,
+  sheetSummaryFormats,
   sheetUsesFx,
+  sheetUsesHistory,
   summaryBar,
   updateSheetFormula,
   type BarSummary,
@@ -161,14 +167,29 @@ export default function SheetGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [crossKey, vaultEpoch]);
 
+  // Past facts this sheet reads (SUB-832), prefetched before evaluation: the
+  // engine is synchronous, so history has to be in hand by the time a cell
+  // asks. Until it is, those cells say so rather than showing a number.
+  const usesHistory = useMemo(() => sheetUsesHistory(model), [model]);
+  const histRefs = useMemo(() => (usesHistory ? sheetHistoryRefs(model) : []), [model, usesHistory]);
+  // `AT(date, Other.total)` needs the whole sheet as it stood, not a fact lane
+  // (§3.2), so the days those reads name are prefetched too; `fxResolver` goes
+  // along because re-evaluating a historical sheet converts money at today's
+  // rate, off the same table the present-tense sheet uses (§2.4).
+  const histDates = useMemo(
+    () => (usesHistory ? sheetHistorySheetDates(model) : []),
+    [model, usesHistory]
+  );
+  const hist = useHistoryResolver(usesHistory, histRefs, vaultEpoch, histDates, fxResolver);
+
   const ev = useMemo(() => {
     // Referenced sheets still loading: evaluate locally, cross refs read as
     // unknown columns until the map for this exact name-set lands.
-    if (cross.key !== crossKey) return evaluateSheet(model, fxResolver);
+    if (cross.key !== crossKey) return evaluateSheet(model, fxResolver, undefined, undefined, hist);
     const load = (name: string) =>
       cross.map.get(name.toLowerCase()) ?? ferr(`no sheet named “${name}”`);
-    return evaluateSheet(model, fxResolver, { self: meta.title, load });
-  }, [model, fxResolver, cross, crossKey, meta.title]);
+    return evaluateSheet(model, fxResolver, { self: meta.title, load }, undefined, hist);
+  }, [model, fxResolver, cross, crossKey, meta.title, hist]);
 
   /* Per-column number format (SUB-1000): decided once for the whole column
      and applied to typed and computed cells alike, so a money column can
@@ -183,6 +204,10 @@ export default function SheetGrid({
      headline, later groups sit behind one toggle, and summaries that broke
      for one shared reason are spoken for by a single rollup chip. */
   const bar = useMemo(() => summaryBar(ev.summaries), [ev]);
+  /* Each chip in the grammar of the column it aggregates (SUB-1084) — a
+     headerless chip fell back to the per-value rules SUB-1000 removed from
+     the grid, so a total could render 7400 under a column showing 7.400. */
+  const sumFmts = useMemo(() => sheetSummaryFormats(model, ev), [model, ev]);
   const usesFx = useMemo(() => sheetUsesFx(model), [model]);
   const sumChip = (s: BarSummary, i: number, quiet: boolean) => {
     const err = errMessage(s.value);
@@ -193,7 +218,9 @@ export default function SheetGrid({
         title={err ?? undefined}
       >
         <span className="sheet-sum-name">{s.name}</span>
-        <span className={"sheet-sum-val" + (err ? " sheet-err" : "")}>{formatValue(s.value)}</span>
+        <span className={"sheet-sum-val" + (err ? " sheet-err" : "")}>
+          {formatSummary(s.value, sumFmts.get(s.name.toLowerCase()))}
+        </span>
       </span>
     );
   };

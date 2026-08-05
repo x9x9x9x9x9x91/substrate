@@ -8,18 +8,106 @@ script-based.
 ## Already have a folder of Markdown files?
 
 Point Substrate at it. On first run (or whenever no vault is configured) the
-app shows a picker — choose your existing folder and it opens in place. Your
-notes are read where they are, never moved, renamed, or rewritten. Substrate
-adds its hidden support folders (`.vault/`, version history) next to them,
-plus two visible helper files when you don't already have them: `Settings.md`
-(app settings) and `AGENTS.md` (a format guide for any AI tool you point at
-the folder). Notes whose frontmatter carries a `type:` line already form
-databases; plain notes are just notes. `[[Wikilinks]]` resolve the way you'd
-expect.
+app shows a picker — under **Open an existing folder**, browse to your folder
+and confirm. The choice is stored per machine and takes effect after a
+restart; the app tells you so and offers the restart button.
 
-The folder needs at least two `.md` files to be offered as a vault — a guard
-against accidentally opening `~/Documents` — and adopting an existing folder
-never seeds sample content into it.
+Your notes are read where they are: **nothing is moved, renamed, or
+rewritten**. Folder structure is kept as-is — nested folders stay nested, and
+notes are never reorganized into the app's own layout.
+
+### What Substrate adds to your folder
+
+Adoption is not inert. It adds its own files alongside your notes — it never
+moves, renames or rewrites the notes themselves:
+
+| Path | What it is |
+| --- | --- |
+| `.vault/` | Substrate's own state for this folder: database schemas, saved views, templates, folder and tag-folder definitions, mounted external folders, calendar subscriptions. **Not** a cache — deleting it destroys that work, and it cannot be rebuilt from your notes. |
+| `.git/` | A git repository, created here if the folder isn't one already, holding your version history. See below. |
+| `Inbox/` | Empty folder where new scratch notes land. |
+| `Settings.md` | App settings as an ordinary note you can edit. |
+| `AGENTS.md` | A format guide for any AI tool you point at the folder. |
+| `CLAUDE.md` | A one-line pointer at `AGENTS.md`, for agents that only auto-load that filename. |
+| `.claude/skills/setup/SKILL.md` | A `/setup` skill for the built-in terminal's agent. |
+
+The search index is not on disk at all — it is built in memory at startup
+from the notes themselves, so nothing here is a search cache.
+
+`Settings.md`, `AGENTS.md`, `CLAUDE.md` and the `/setup` skill are written
+only when a file of that name isn't already there — your own `AGENTS.md` or
+`Settings.md` is never overwritten. (A file that still byte-matches a version
+Substrate itself shipped is refreshed to the current text; anything you've
+edited is yours and is left alone.) No sample or starter notes are ever
+seeded into a folder you adopt — that only happens for a brand-new, empty
+vault.
+
+#### Version history and `git`
+
+Version history is git, in the adopted folder itself. Which way that goes
+depends on what you point at:
+
+- **Folder that isn't a git repository** — Substrate runs `git init` in it
+  and marks the repository as its own. History is on: you get a snapshot per
+  change, and the timeline in the app.
+- **Folder that is already your git repository** — Substrate leaves it
+  completely alone and **history stays off**. It will not commit into a
+  repository you own, so an adopted checkout keeps whatever branch, remote
+  and working tree it had.
+
+So adopting an ordinary Obsidian vault does create a `.git/` directory inside
+it. If you'd rather not have one, keep the folder under your own git
+repository before adopting it.
+
+### What carries over from Obsidian (and what doesn't)
+
+Substrate reads plain Markdown, so an Obsidian vault mostly just works — but
+it is a different app, not a compatibility layer.
+
+Carries over:
+
+- **`[[Wikilinks]]`** — resolved by note title or filename, case-insensitively,
+  wherever the note lives in the tree. Backlinks work off the same index.
+- **Embeds** — `![[image.png]]` shows the asset instead of the link text, and
+  is not counted as a link.
+- **YAML frontmatter** — every key is kept. A `type:` line is the one with
+  special meaning: notes sharing a type form a database (table, board, chart)
+  automatically. Other props become that database's columns.
+- **Tags** — inline `#hashtags` and a `tags:` prop are merged into one tag set.
+- **Nested folders**, and any file extension other than `.md` (attachments
+  stay where they are and are served as assets).
+- **Callouts** in the `> [!note]`, `> [!warn]` and `> [!idea]` shapes.
+  Other callout types render as ordinary blockquotes.
+
+Does not carry over:
+
+- **Obsidian's own config.** `.obsidian/` is skipped entirely: not indexed,
+  not shown, not modified — and so is every other dot-folder that isn't
+  Substrate's (it writes only the `.vault/`, `.git/` and `.claude/` entries
+  listed above). Your Obsidian setup survives untouched, so you can keep
+  using both apps on the same folder.
+- **Community plugins.** Nothing in `.obsidian/plugins/` runs.
+- **Dataview queries.** A ```` ```dataview ```` block is displayed as a code
+  block, not executed. Substrate's equivalent is a database view or a
+  dashboard, built against the same `type:` frontmatter the notes already
+  have.
+- **Link aliases and heading anchors.** `[[Note|shown text]]` and
+  `[[Note#Heading]]` are not resolved today — they render as-is and produce
+  no backlink. Plain `[[Note]]` links are the supported form.
+- **Canvas files.** `.canvas` files are left alone but not rendered.
+
+### The two-file guard
+
+A folder is offered with **Open vault** when it has a `.vault/` marker or at
+least two Markdown files at its top level. That guard is what stops a stray
+pick of `~/Documents`, or a code checkout with one `README.md`, from becoming
+a vault by accident.
+
+A vault whose notes all live in subfolders can therefore fall short of it —
+you'll get **Initialize anyway** with a warning that the folder holds other
+files. Confirming is safe: it means the same adoption as above, the warning
+is about Substrate listing those files as notes, and nothing is moved,
+rewritten, or seeded.
 
 ## Import CSV as a database
 

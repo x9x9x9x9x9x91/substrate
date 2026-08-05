@@ -6,6 +6,7 @@
     embeds. Fidelity target is a clean printed page, not a spec parser. */
 
 import { isImageName } from "./artwork.ts";
+import { wikiLinkDisplay } from "./wikilinks.ts";
 
 const ESC: Record<string, string> = {
   "&": "&amp;",
@@ -57,7 +58,14 @@ function inline(raw: string, assetSrc: AssetSrc): string {
           ? `<img src="${src}" alt="${n}">`
           : `<span class="print-missing">missing image · ${n}</span>`;
       });
-      s = s.replace(/\[\[([^[\]]+)\]\]/g, '<span class="print-link">$1</span>');
+      // a link prints what it MEANS, not its syntax (SUB-1095): the author's
+      // display text when they wrote one, else the target with its anchor.
+      // The segment is escaped by now, but `|` and `#` survive escaping, so
+      // splitting the escaped text finds the same parts.
+      s = s.replace(
+        /\[\[([^[\]]+)\]\]/g,
+        (_m, inner: string) => `<span class="print-link">${wikiLinkDisplay(inner)}</span>`,
+      );
       // one level of balanced parens in the destination (SUB-902): Wikipedia
       // -style URLs (…/A_(b)) would otherwise truncate at the first ")"
       s = s.replace(

@@ -5,6 +5,7 @@ import { vaultRead, vaultResolve } from "../lib/ipc";
 import { filterWorkJobs, fmtSizeMb, groupWork, parseWorkJobs, WORK_VIEWS } from "../lib/musicwork";
 import type { WorkView } from "../lib/musicwork";
 import { DashHead } from "./DashHead";
+import SwitchGroup from "./SwitchGroup";
 
 interface MusicWorkDashboardProps {
   meta: NoteMeta;
@@ -111,7 +112,7 @@ export default function MusicWorkDashboard({
           }}
           actions={
             <>
-              <span className="db-switch mw-views">
+              <SwitchGroup className="mw-views" label="View">
                 {WORK_VIEWS.map((v) => (
                   <button
                     type="button"
@@ -124,7 +125,7 @@ export default function MusicWorkDashboard({
                     {VIEW_LABEL[v]}
                   </button>
                 ))}
-              </span>
+              </SwitchGroup>
               <input
                 className="mw-filter"
                 type="text"

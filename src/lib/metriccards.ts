@@ -40,16 +40,38 @@ export interface MetricCard {
 /** Fraction digits a card may ask for. `Number.toLocaleString` rejects digits
     past its engine's cap with a hard RangeError — 100 on current V8/JSC, 20 on
     engines predating Intl.NumberFormat v3 — and no board value reads past 8,
-    so one bound holds for every card surface: the grid tile parser refuses
-    outside it (src/lib/grid.ts), both card parsers clamp into it, and fmtCard
-    clamps once more so a hand-built card can't crash formatting either. */
+    so one bound holds for every card surface (SUB-1030). What differs is the
+    REACTION, and it follows the surface's existing posture rather than the
+    card's (SUB-1060): hand-authored text — the ```cards fence and a ```tile
+    card line — is read strictly and names the mistake to the person editing
+    it (`parseCardDigits`), while frontmatter stays lenient and clamps
+    (`clampCardDigits`), the same split that already governs unknown keys and
+    formats. fmtCard clamps once more so a hand-built card object from any
+    other path can't crash formatting either. */
 export const MAX_CARD_DIGITS = 8;
 
 /** A card's `digits` as the formatter can actually use it: whole, 0..8, or
-    absent for anything that isn't a finite number. */
+    absent for anything that isn't a finite number. The lenient read — used by
+    frontmatter cards and as fmtCard's last-resort guard. */
 export function clampCardDigits(digits: unknown): number | undefined {
   if (typeof digits !== "number" || !Number.isFinite(digits)) return undefined;
   return Math.min(MAX_CARD_DIGITS, Math.max(0, Math.trunc(digits)));
+}
+
+/** A card's `digits` as hand-authored text declares it: whole, 0..8, or a
+    named error. The strict read, shared by the ```cards fence and the ```tile
+    card line so the two authoring surfaces refuse the same values with the
+    same words (SUB-1060). Both callers render a parse error in place, so a bad
+    digit is told, never fatal. */
+export function parseCardDigits(raw: string): number {
+  const n = Number(raw);
+  if (!/^\d+$/.test(raw) || !Number.isFinite(n)) {
+    throw new Error(`digits must be a whole number — got "${raw}"`);
+  }
+  if (n > MAX_CARD_DIGITS) {
+    throw new Error(`card digits must be between 0 and ${MAX_CARD_DIGITS}`);
+  }
+  return n;
 }
 
 /** Cards from a dashboard note's frontmatter. Lenient by design: a malformed
@@ -156,9 +178,7 @@ function assign(card: Partial<MetricCard>, rawKey: string, rawValue: string) {
     return;
   }
   if (key === "digits") {
-    const n = Number(v);
-    if (!/^\d+$/.test(v) || !isFinite(n)) throw new Error(`digits must be a whole number — got "${v}"`);
-    card.digits = clampCardDigits(n);
+    card.digits = parseCardDigits(v);
     return;
   }
   const b = v.toLowerCase();

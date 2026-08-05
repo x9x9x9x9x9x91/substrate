@@ -13,6 +13,7 @@ import {
 import { dailyDateOf, displayTitle } from "../lib/journal";
 import { displayType } from "../lib/display";
 import { FilterIcon, NoteIcon, SearchIcon } from "./Icons";
+import SwitchGroup from "./SwitchGroup";
 
 type SortMode = "relevance" | "updated";
 
@@ -295,7 +296,7 @@ export default function SearchPane({
           onKeyDown={onKey}
         />
         {groups.length > 0 && stats && <span className="search-stats">{stats}</span>}
-        <div className="db-switch search-sort">
+        <SwitchGroup className="search-sort" label="Sort results by">
           <button
             className={sort === "relevance" ? "active" : ""}
             aria-pressed={sort === "relevance"}
@@ -316,7 +317,7 @@ export default function SearchPane({
           >
             Updated
           </button>
-        </div>
+        </SwitchGroup>
       </div>
       {completions.length > 0 && parsed.trailing && (
         <div className="search-completions">

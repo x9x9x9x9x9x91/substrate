@@ -246,6 +246,39 @@ impl History {
         crate::githist::history_snapshot_files(&self.root, id)
     }
 
+    /// Every change of one frontmatter fact, oldest first, with the boundary
+    /// before which this vault can say nothing (docs/time-travel-spec.md §5).
+    /// Like `snapshot_files`, libgit2 serves this on desktop and mobile alike:
+    /// a lane reads one object per snapshot that touched the note, where a
+    /// `git show` per commit would spawn a process per snapshot.
+    pub fn fact_lane(&self, rel: &str, key: &str) -> Result<crate::factlane::FactLane, String> {
+        if !self.enabled {
+            return Err(FOREIGN_MSG.into());
+        }
+        crate::githist::history_fact_lane(&self.root, rel, key)
+    }
+
+    /// Several lanes in one repository open — what a dashboard asking about a
+    /// handful of facts at once costs.
+    pub fn fact_lanes(
+        &self,
+        refs: &[(String, String)],
+    ) -> Result<Vec<crate::factlane::FactLane>, String> {
+        if !self.enabled {
+            return Err(FOREIGN_MSG.into());
+        }
+        crate::githist::history_fact_lanes(&self.root, refs)
+    }
+
+    /// The sheet notes as they stood at each of a set of instants — what
+    /// `AT(date, Sheet.member)` re-evaluates (docs/time-travel-spec.md §3.2).
+    pub fn sheets_at(&self, instants: &[u64]) -> Result<Vec<crate::githist::SheetsAt>, String> {
+        if !self.enabled {
+            return Err(FOREIGN_MSG.into());
+        }
+        crate::githist::history_sheets_at(&self.root, instants)
+    }
+
     #[cfg(not(mobile))]
     fn git_env(&self, args: &[&str], envs: &[(&str, &str)]) -> Result<String, String> {
         let mut c = Command::new("git");

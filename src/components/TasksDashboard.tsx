@@ -25,6 +25,7 @@ import DateMenu from "./DateMenu";
 import SelectMenu, { anchorFrom, optionColor, OptionPill, type AnchorRect } from "./SelectMenu";
 import { ChevronRightIcon, PinIcon } from "./Icons";
 import { DashHead } from "./DashHead";
+import SwitchGroup from "./SwitchGroup";
 
 interface TasksDashboardProps {
   meta: NoteMeta;
@@ -717,7 +718,7 @@ export default function TasksDashboard({
             <>
               {/* sort first, view second: reading order matches the cascade —
                   the ordering feeds whichever layout renders it */}
-              <span className="db-switch tasks-sort" title="Order rows by">
+              <SwitchGroup className="tasks-sort" label="Order rows by" title="Order rows by">
                 {(
                   [
                     ["urgency", "Urgency"],
@@ -736,8 +737,8 @@ export default function TasksDashboard({
                     {label}
                   </button>
                 ))}
-              </span>
-              <span className="db-switch tasks-view" title="Layout">
+              </SwitchGroup>
+              <SwitchGroup className="tasks-view" label="Layout" title="Layout">
                 {(
                   [
                     ["list", "List"],
@@ -754,7 +755,7 @@ export default function TasksDashboard({
                     {label}
                   </button>
                 ))}
-              </span>
+              </SwitchGroup>
             </>
           }
           sourcePath={meta.path}

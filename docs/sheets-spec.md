@@ -271,6 +271,62 @@ column (same value on every row), not a dashboard-bindable summary. Derive
 summaries from rows or other summaries instead, e.g. `avg_held =
 AVG(days_held)`.
 
+## Time travel — PROP() and AT() (SUB-832)
+
+Two functions read the vault outside this sheet, one of them outside today.
+Full design in `docs/time-travel-spec.md`.
+
+- `PROP(<note path>, <key>)` → one frontmatter value on another note, as a
+  scalar, in the present tense: `PROP("Assets/BTC.md", "price")`.
+- `AT(<date>, <value>)` → that value as it stood at the **end of** that local
+  day: `AT("2026-01-31", PROP("Assets/BTC.md", "price"))`. The date is an ISO
+  day or `TODAY()`, and is itself read in the present tense.
+
+`AT` binds by wrapping the resolver its body reads facts through, so nothing
+inside the body needs to know which tense it is in, and a nested `AT` just
+wraps again — the innermost one wins, the way reading it aloud suggests. What
+can be read in the past tense is `PROP()` and another sheet's member
+(`AT("2026-01-31", Holdings.total)`, which re-evaluates that sheet as it stood
+that day); reading a *column of this sheet* at a past date is not a thing this
+slice does, and says so rather than quietly answering with today's number.
+
+Three answers are deliberately distinct, because rendering the third as blank
+would be a lie:
+
+- **a value** — the fact was written and had this value at that instant;
+- **blank** — the vault had history covering that day, but the key wasn't
+  written yet (or was empty), which is the same blank the present tense gives;
+- **`no history before <day>`** — the day is older than the oldest surviving
+  snapshot, so the value is *unknowable*. Snapshots get trimmed; the answer
+  never falls back to the oldest surviving value, which would silently invent a
+  flat line reaching back forever.
+
+The past is reached **through today's note**: a path is resolved against the
+vault as it stands now, so `PROP()` follows a note that has been *renamed*
+(the lane follows the rename through git) but reports a note that has been
+*deleted* as no such note, even though its lane survives in history. That is
+this slice's boundary, not a claim that the value is unknowable — asking about
+a deleted note's past means restoring it first.
+
+Money converts at **today's** rate, not that day's: `AT()` re-reads the past
+values, and `FX()` stamps them with the rate the sheet is being read at. A
+sheet's FX stamp therefore says what it always says — the rate used now.
+
+Cost: the repository is opened once per prefetch batch and the oldest-snapshot
+boundary walked once, but each fact then costs its own path walk back through
+the commit graph — N facts, N walks, including two keys on the same note. Only
+the snapshots that actually touched a note are read, so a lane never reads a
+blob per commit. Answers are cached per (note, key) for as long as the vault
+doesn't change; two sheets on one pane share that cache. A dashboard mixing a
+chart and an embedded sheet currently prefetches through two separate paths
+(the pane's history store and the dashboard's own sheet cache), so those two
+do *not* share a batch — same answers, fetched twice.
+`AT(date, Sheet.member)` walks whole sheet trees at those days instead, one
+walk per day.
+
+Charts plot a fact's whole history with a `history:` fence rather than a chain
+of `AT()` cells — `docs/dashboards.md` → `charts`.
+
 ## UI
 
 - Sheet notes open as a grid (like the DB list pane but real columns): editable data

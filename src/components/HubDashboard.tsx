@@ -12,6 +12,7 @@ import { vaultRead } from "../lib/ipc";
 import { isTauri } from "../lib/tauri";
 import { imageSource } from "../lib/assets";
 import { isImageName } from "../lib/artwork";
+import { wikiLinkDisplay } from "../lib/wikilinks";
 import { parseHub, type HubCallout } from "../lib/hub";
 import { embedQueryFor, parseViewSpec } from "../lib/embeds";
 import { collectCardsFences, parseCardsBlock, type CardsBlock } from "../lib/metriccards";
@@ -131,6 +132,8 @@ function Inline({ text, ctx }: { text: string; ctx: Ctx }): ReactNode {
     if (m[1] !== undefined) {
       out.push(<DashEmbed key={k++} name={m[1].trim()} />);
     } else if (m[2] !== undefined) {
+      // the link still FOLLOWS the whole inner text (the follower parses the
+      // anchor off it); what it SHOWS is the author's display text (SUB-1095)
       const name = m[2].trim();
       out.push(
         <button
@@ -139,7 +142,7 @@ function Inline({ text, ctx }: { text: string; ctx: Ctx }): ReactNode {
           className="dash-link"
           onClick={() => ctx.onFollowLink?.(name)}
         >
-          {name}
+          {wikiLinkDisplay(name)}
         </button>
       );
     } else if (m[3] !== undefined) {

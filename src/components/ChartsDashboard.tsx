@@ -14,6 +14,7 @@ import {
   chartSourceDesc,
   chartTitle,
   dbRows,
+  historySeries,
   parseChartBlocks,
   sheetRows,
   summarySeries,
@@ -27,6 +28,7 @@ import {
   type ChartSeries,
 } from "../lib/chart";
 import { optionColorVar } from "../lib/dbicons";
+import { useHistoryLanes } from "./useHistory";
 import { DashHead, DashPrintButton } from "./DashHead";
 import { optionColor } from "./SelectMenu";
 
@@ -618,7 +620,13 @@ function ChartSection({
         <div className="chart-err">{splitError}</div>
       ) : series.points.length === 0 ? (
         <div className="dash-foot" style={{ margin: "4px 0 0" }}>
-          No rows matched — check the source and property names.
+          {c.bind === "history"
+            ? // historySeries always says WHY it drew nothing — no snapshots at
+              // all, no value ever recorded for this key, or a window that ends
+              // before the fact begins. A generic fallback here would only ever
+              // mask one of those (SUB-832).
+              series.note
+            : "No rows matched — check the source and property names."}
         </div>
       ) : (
         <>
@@ -634,18 +642,29 @@ function ChartSection({
               xOptions={xOptions}
               categorical={
                 // a text column of pre-bucketed calendar keys (the Spending
-                // importer's shape) is a time axis despite its null bucket
+                // importer's shape) is a time axis despite its null bucket;
+                // a history lane (SUB-832) is always a time axis
                 c.bind === "summaries" ||
-                (c.x.bucket === null && !timelikeKeys(series.points.map((p) => p.key)))
+                (c.bind === "rows" &&
+                  c.x.bucket === null &&
+                  !timelikeKeys(series.points.map((p) => p.key)))
               }
             />
           )}
+          {/* the trim boundary is said in place, next to the plot it shortened,
+              rather than left for the reader to infer from a chart that just
+              starts late (SUB-832 §3.3) */}
+          {series.note ? (
+            <div className="dash-foot" style={{ margin: "4px 0 0" }}>{series.note}</div>
+          ) : null}
         </>
       )}
       <div className="dash-foot" style={{ margin: "10px 0 0" }}>
         {sourceDesc ?? chartSourceDesc(c)} · {series?.points.length ?? 0}{" "}
         {series && series.points.length === 1 ? "point" : "points"}
-        {series && series.skipped > 0 ? ` · ${series.skipped} rows skipped` : ""}
+        {series && series.skipped > 0
+          ? ` · ${series.skipped} ${c.bind === "history" ? "non-numeric values" : "rows"} skipped`
+          : ""}
       </div>
     </div>
   );
@@ -678,8 +697,10 @@ export default function ChartsDashboard({
   const sheetNames = useMemo(() => {
     const seen = new Map<string, string>();
     for (const b of blocks) {
-      const s = b.config?.source;
-      if (s?.kind === "sheet") seen.set(s.name.toLowerCase(), s.name);
+      // a history fence reads a note's own past — no sheet to load (SUB-832)
+      if (!b.config || b.config.bind === "history") continue;
+      const s = b.config.source;
+      if (s.kind === "sheet") seen.set(s.name.toLowerCase(), s.name);
     }
     return [...seen.values()];
   }, [blocks]);
@@ -689,8 +710,10 @@ export default function ChartsDashboard({
   const dbNames = useMemo(() => {
     const seen = new Map<string, string>();
     for (const b of blocks) {
-      const s = b.config?.source;
-      if (s?.kind === "db") seen.set(s.type.toLowerCase(), s.type);
+      // a history fence has no source at all (SUB-832) — same guard as above
+      if (!b.config || b.config.bind === "history") continue;
+      const s = b.config.source;
+      if (s.kind === "db") seen.set(s.type.toLowerCase(), s.type);
     }
     return [...seen.values()];
   }, [blocks]);
@@ -723,6 +746,17 @@ export default function ChartsDashboard({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meta.path, vaultEpoch, dbNames.join("|")]);
+
+  // the facts any `history:` fence plots, prefetched through the same store the
+  // sheets' PROP()/AT() reads use — one revwalk per fact, chart or cell
+  const histRefs = useMemo(() => {
+    const out: { path: string; key: string }[] = [];
+    for (const b of blocks) {
+      if (b.config?.bind === "history") out.push({ path: b.config.fact.path, key: b.config.fact.key });
+    }
+    return out;
+  }, [blocks]);
+  const hist = useHistoryLanes(histRefs, vaultEpoch);
 
   // Load every charted sheet — and transitively any sheet its formulas
   // reference — then evaluate each with the cross-sheet loader (SUB-671).
@@ -763,6 +797,17 @@ export default function ChartsDashboard({
   } => {
     const c = block.config;
     if (!c) return { series: null, loadError: null };
+    if (c.bind === "history") {
+      // until the vault listing lands, an unknown path is not yet knowable —
+      // claiming "no such note" in between would be a confident lie
+      if (!hist.ready) return { series: null, loadError: null };
+      if (!hist.notes.some((n) => n.path === c.fact.path)) {
+        return { series: null, loadError: `no note “${c.fact.path}” in the vault` };
+      }
+      const lane = hist.lanes.find((l) => l.path === c.fact.path && l.key === c.fact.key);
+      if (!lane) return { series: null, loadError: null };
+      return { series: historySeries(lane, c.x, c.y), loadError: null };
+    }
     if (c.bind === "summaries") {
       // parsing rejects a non-sheet source for `series`, so this always reads a
       // sheet

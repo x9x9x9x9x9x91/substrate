@@ -3,6 +3,7 @@ import { EditorView, WidgetType } from "@codemirror/view";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { assetBlobUrl, audioSource, loadPeaks, PEAKS_AUTO_MAX_BYTES, type AudioSource } from "./assets.ts";
 import { isImageName } from "./artwork.ts";
+import { wikiLinkDisplay } from "./wikilinks.ts";
 import {
   formatAnnotationTime,
   formatAudioAnnotation,
@@ -188,8 +189,10 @@ function renderCell(el: HTMLElement, text: string) {
     if (m[1] !== undefined) {
       const link = document.createElement("span");
       link.className = "cm-wikilink";
+      // follows the whole inner text (the follower parses the anchor off
+      // it), shows the author's display text (SUB-1095)
       link.setAttribute("data-link", m[1].trim());
-      link.textContent = m[1].trim();
+      link.textContent = wikiLinkDisplay(m[1]);
       el.appendChild(link);
     } else if (m[2] !== undefined) {
       const link = document.createElement("span");

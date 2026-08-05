@@ -23,6 +23,47 @@ export function isErr(v: unknown): v is FErr {
 // FX rate resolver: ("USD","EUR") → rate, or null when unavailable.
 export type FxResolver = (from: string, to: string) => number | null;
 
+/** What one fact lookup can come back as (docs/time-travel-spec.md §2.3).
+    The five cases are distinct on purpose: a value the vault genuinely cannot
+    know must never render as a blank or a zero, and a mistyped path must never
+    read as "did not exist yet". */
+export type HistoryLookup =
+  /** the fact had this value — raw text; the engine coerces numbers */
+  | { kind: "value"; value: string }
+  /** the note or the key did not exist then (or has since been deleted): blank */
+  | { kind: "absent" }
+  /** before the oldest surviving snapshot — trimmed or purged, unanswerable.
+      `oldest` is that snapshot's ISO day, or null when the vault has none. */
+  | { kind: "unknowable"; oldest: string | null }
+  /** no note at that path *today* — a typo, not a "not yet" */
+  | { kind: "unknown-note" }
+  /** the fact wasn't in the prefetch, or history is still loading */
+  | { kind: "pending" };
+
+/** Reads one frontmatter fact, optionally as of a past day.
+    `date` null = present tense (`PROP`); an ISO day = as of the last instant of
+    that local day (`AT`, §2.1). Synchronous like `fx`: whatever it needs was
+    prefetched before evaluation began (§3.1). */
+export interface HistoryResolver {
+  (path: string, key: string, date: string | null): HistoryLookup;
+  /** Set by `AT()` on the resolver it hands its own body: the day being read as
+      of. It is what tells everything inside that body it is in the past tense —
+      anything that can only speak for today refuses rather than quietly
+      answering with today's number, which is the one failure a time-travel
+      query must never have. */
+  asOfDate?: string;
+  /** The resolver this one was bound from, so a nested `AT()` binds its day
+      against the original rather than on top of an outer day. */
+  unbound?: HistoryResolver;
+  /** Reads a member off another sheet as of a past day (§3.2). Supplied by the
+      surface that prefetched the historical sheets, because re-evaluating one
+      is a *sheet* operation and this file knows nothing about sheets — the same
+      division as `load`, which hands cross-sheet values in through scope.
+      Absent when nothing prefetched them, which reads as "not loaded yet"
+      rather than as today's number. */
+  sheetValue?: (sheet: string, member: string, date: string) => ScopedValue | ScopedValue[];
+}
+
 // A scope value may itself be an error (e.g. a computed column feeding a
 // summary) — errors then propagate through dependent formulas, Excel-style.
 export type ScopedValue = Cell | FErr;
@@ -65,7 +106,7 @@ const AGGREGATES = new Set([
   "LAST",
   "LOOKUP",
 ]);
-const SCALAR_FNS = new Set(["IF", "ROUND", "FX", "TODAY"]);
+const SCALAR_FNS = new Set(["IF", "ROUND", "FX", "TODAY", "PROP", "AT"]);
 
 // Does the expression read a row value — a column of the current sheet, used
 // outside any aggregate? `rowShaped` answers that for one bare (non-dotted)
@@ -177,6 +218,111 @@ export function collectCrossRefs(e: Expr, out: CrossRef[] = []): CrossRef[] {
       break;
     case "neg":
       collectCrossRefs(e.e, out);
+      break;
+  }
+  return out;
+}
+
+/** One fact a formula will ask history for: a note path, a frontmatter key, and
+    the day to read them as of. */
+export interface HistoryRef {
+  path: string;
+  key: string;
+  date: string;
+}
+
+/** Statically evaluate an expression that must not depend on any row, sheet or
+    fact: literals, `TODAY()`, and date arithmetic over them (§3.1). Anything
+    that reaches for a column or a fact errors against the empty scope and comes
+    back null — which is exactly the "not statically resolvable" answer the
+    prefetch needs. */
+function staticValue(e: Expr, today: () => string): string | null {
+  const v = evaluate(e, new Map(), () => null, today);
+  return typeof v === "string" ? v : typeof v === "number" ? String(v) : null;
+}
+
+/** Every (fact, day) pair an expression will look up, found without evaluating
+    it (docs/time-travel-spec.md §3.1). This is the prefetch list: the engine is
+    synchronous, so whatever `AT()` will ask for has to be fetched before
+    evaluation starts, the same way `FX` rates are.
+
+    The static-resolvability rule lives here and nowhere else: an `AT()` whose
+    date, path or key can only be known per row contributes nothing to the list,
+    and the cell reports "history not loaded yet" when it runs. That is the
+    honest shape of the limit — `AT(bought, PROP(...))` is a later slice, not a
+    silently wrong answer now. */
+export function collectHistoryRefs(
+  e: Expr,
+  today: () => string = todayIso,
+  out: HistoryRef[] = [],
+  asOf: string | null = null
+): HistoryRef[] {
+  switch (e.k) {
+    case "call": {
+      if (e.name === "AT" && e.args.length === 2) {
+        const date = staticValue(e.args[0], today);
+        // nested AT: the inner date wins for its own body, matching evaluation
+        collectHistoryRefs(e.args[1], today, out, isIsoDate(date ?? "") ? date : null);
+        return out;
+      }
+      if (e.name === "PROP" && e.args.length === 2 && asOf !== null) {
+        const path = staticValue(e.args[0], today)?.trim();
+        const key = staticValue(e.args[1], today)?.trim();
+        if (path && key) out.push({ path, key, date: asOf });
+        return out;
+      }
+      for (const a of e.args) collectHistoryRefs(a, today, out, asOf);
+      break;
+    }
+    case "bin":
+      collectHistoryRefs(e.l, today, out, asOf);
+      collectHistoryRefs(e.r, today, out, asOf);
+      break;
+    case "neg":
+      collectHistoryRefs(e.e, today, out, asOf);
+      break;
+  }
+  return out;
+}
+
+/** One sheet a formula will read a member off in the past tense. The member
+    name is deliberately NOT part of it: reading `Holdings.total` as of a day
+    means re-evaluating that whole sheet as it stood, so the unit the prefetch
+    deals in is (sheet, day), and every member of it comes free. */
+export interface HistorySheetRef {
+  sheet: string;
+  date: string;
+}
+
+/** Every (sheet, day) an expression will read a member off, found without
+    evaluating it — the cross-sheet half of the prefetch list (§3.1, §3.2).
+    Same static-resolvability rule as `collectHistoryRefs`: a date only a row
+    knows collects nothing, and that cell reports history isn't loaded. */
+export function collectHistorySheetRefs(
+  e: Expr,
+  today: () => string = todayIso,
+  out: HistorySheetRef[] = [],
+  asOf: string | null = null
+): HistorySheetRef[] {
+  switch (e.k) {
+    case "ref":
+      if (e.sheet !== undefined && asOf !== null) out.push({ sheet: e.sheet, date: asOf });
+      break;
+    case "call": {
+      if (e.name === "AT" && e.args.length === 2) {
+        const date = staticValue(e.args[0], today);
+        collectHistorySheetRefs(e.args[1], today, out, isIsoDate(date ?? "") ? date : null);
+        return out;
+      }
+      for (const a of e.args) collectHistorySheetRefs(a, today, out, asOf);
+      break;
+    }
+    case "bin":
+      collectHistorySheetRefs(e.l, today, out, asOf);
+      collectHistorySheetRefs(e.r, today, out, asOf);
+      break;
+    case "neg":
+      collectHistorySheetRefs(e.e, today, out, asOf);
       break;
   }
   return out;
@@ -625,7 +771,8 @@ function evalAggregate(
   args: Expr[],
   scope: Scope,
   fx: FxResolver,
-  today: () => string
+  today: () => string,
+  hist?: HistoryResolver
 ): Value {
   const colArg = (e: Expr | undefined, what: string): ScopedValue[] | FErr => {
     if (!e) return ferr(`${name}: missing ${what}`);
@@ -634,11 +781,15 @@ function evalAggregate(
     // would see scalars where it needs columns. The whole-column view bound
     // under ROW_COLUMNS_PREFIX supplies them; it is absent in summary scope
     // (where names already resolve to columns), so nothing else changes.
-    if (e.k === "ref" && e.sheet === undefined) {
+    // That view holds TODAY's column, so inside `AT()` it must not answer at
+    // all: `AT(2026-01-01, SUM(amount))` would otherwise hand back the current
+    // total with a past date on it — the exact quiet wrong answer the bare-ref
+    // branch of `evaluate` refuses (SUB-832). Fall through to that refusal.
+    if (e.k === "ref" && e.sheet === undefined && hist?.asOfDate === undefined) {
       const col = scope.get(ROW_COLUMNS_PREFIX + e.name);
       if (Array.isArray(col)) return col;
     }
-    const v = evaluate(e, scope, fx, today);
+    const v = evaluate(e, scope, fx, today, hist);
     if (isErr(v)) return v;
     if (!Array.isArray(v)) return ferr(`${name}: ${what} must be a column`);
     return v;
@@ -749,7 +900,7 @@ function evalAggregate(
       const readPair = (colExpr: Expr | undefined, matchExpr: Expr, what: string): FErr | null => {
         const c = colArg(colExpr, what);
         if (isErr(c)) return c;
-        const m = evaluate(matchExpr, scope, fx, today);
+        const m = evaluate(matchExpr, scope, fx, today, hist);
         if (isErr(m)) return m;
         if (Array.isArray(m)) return ferr(`${name}: match must be a single value`);
         // Criteria columns are ANDed row by row, so a length mismatch has no
@@ -834,7 +985,7 @@ function evalAggregate(
       // sheet (`LOOKUP("USD", Rates.code, Rates.rate)`) — cross-sheet refs
       // resolve to columns in scope, so nothing here is sheet-aware.
       if (args.length < 3) return ferr(`${name}: needs a key, a key column and a value column`);
-      const key = evaluate(args[0], scope, fx, today);
+      const key = evaluate(args[0], scope, fx, today, hist);
       if (isErr(key)) return key;
       if (Array.isArray(key)) return ferr(`${name}: key must be a single value`);
       const keys = colArg(args[1], "key column");
@@ -867,6 +1018,37 @@ function evalAggregate(
   }
 }
 
+/** Turn one resolver answer into a cell or an error (docs/time-travel-spec.md
+    §2.3). A fact that did not exist yet is blank — the language's skip value —
+    while a date the vault genuinely cannot speak for says so in the cell rather
+    than reading as a blank or a zero, and a path with no note behind it today
+    is an error naming the path so a typo can't pass for "not yet". */
+function historyCell(
+  fn: string,
+  path: string,
+  date: string | null,
+  got: HistoryLookup
+): ScopedValue {
+  switch (got.kind) {
+    case "value": {
+      // value-typed, not number-typed: text comes back as text and arithmetic
+      // over it errors exactly like arithmetic over any other text cell
+      const n = parseStrictNumber(got.value);
+      return n === null ? got.value : n;
+    }
+    case "absent":
+      return null;
+    case "unknowable":
+      return ferr(
+        got.oldest ? `no history before ${got.oldest}` : "no history in this vault yet"
+      );
+    case "unknown-note":
+      return ferr(`${fn}: no note at “${path}”`);
+    case "pending":
+      return ferr(date ? `${fn}: history not loaded yet` : `${fn}: note not loaded yet`);
+  }
+}
+
 // `today` is the clock seam for volatile TODAY(): a () → ISO-day provider,
 // defaulting to the app's local-day clock. One evaluation network shares one
 // clock; tests inject their own.
@@ -874,7 +1056,8 @@ export function evaluate(
   e: Expr,
   scope: Scope,
   fx: FxResolver,
-  today: () => string = todayIso
+  today: () => string = todayIso,
+  hist?: HistoryResolver
 ): ScopedValue | ScopedValue[] {
   switch (e.k) {
     case "num":
@@ -883,14 +1066,29 @@ export function evaluate(
       return e.v;
     case "ref": {
       const key = e.sheet ? `${e.sheet}.${e.name}` : e.name;
+      // Inside `AT()` a scope value is still today's number — the sheet was
+      // computed from today's tables. A member off ANOTHER sheet can be carried
+      // back, by re-evaluating that sheet as it stood (§3.2); the current
+      // sheet's own rows and summaries cannot, so they refuse and say which
+      // name it is. Answering those from today's scope would be the quiet wrong
+      // answer a time-travel query exists to avoid. The cross-sheet case is
+      // decided before the scope lookup because the historical read does not
+      // need today's binding to exist at all.
+      if (hist?.asOfDate !== undefined && e.sheet !== undefined) {
+        if (!hist.sheetValue) return ferr(`AT: “${key}” — sheet history is not loaded yet`);
+        return hist.sheetValue(e.sheet, e.name, hist.asOfDate);
+      }
       const v = scope.get(key);
       if (v === undefined) {
         return ferr(e.sheet ? `unknown sheet value “${key}”` : `unknown column “${e.name}”`);
       }
+      if (hist?.asOfDate !== undefined) {
+        return ferr(`AT: “${key}” is today's value — only PROP() can be read as of a past date`);
+      }
       return v;
     }
     case "neg": {
-      const v = evaluate(e.e, scope, fx, today);
+      const v = evaluate(e.e, scope, fx, today, hist);
       if (isErr(v)) return v;
       if (Array.isArray(v)) return ferr("cannot negate a column");
       const n = asNum(v, "value");
@@ -898,9 +1096,9 @@ export function evaluate(
       return -n;
     }
     case "bin": {
-      const l = evaluate(e.l, scope, fx, today);
+      const l = evaluate(e.l, scope, fx, today, hist);
       if (isErr(l)) return l;
-      const r = evaluate(e.r, scope, fx, today);
+      const r = evaluate(e.r, scope, fx, today, hist);
       if (isErr(r)) return r;
       if (Array.isArray(l) || Array.isArray(r)) {
         return ferr("a whole column can't be used as a single value");
@@ -929,12 +1127,12 @@ export function evaluate(
       }
     }
     case "call": {
-      if (AGGREGATES.has(e.name)) return evalAggregate(e.name, e.args, scope, fx, today);
+      if (AGGREGATES.has(e.name)) return evalAggregate(e.name, e.args, scope, fx, today, hist);
       if (!SCALAR_FNS.has(e.name)) return ferr(`unknown function ${e.name}`);
       const arg = (i: number): Cell | FErr => {
         const a = e.args[i];
         if (!a) return ferr(`${e.name}: missing argument ${i + 1}`);
-        const v = evaluate(a, scope, fx, today);
+        const v = evaluate(a, scope, fx, today, hist);
         if (isErr(v)) return v;
         if (Array.isArray(v)) return ferr(`${e.name}: argument ${i + 1} must be a single value`);
         return v;
@@ -942,7 +1140,7 @@ export function evaluate(
       switch (e.name) {
         case "IF": {
           if (e.args.length < 2) return ferr("IF: needs condition and value");
-          const cond = evaluate(e.args[0], scope, fx, today);
+          const cond = evaluate(e.args[0], scope, fx, today, hist);
           if (isErr(cond)) return cond;
           if (Array.isArray(cond)) return ferr("IF: condition must be a single value");
           const b = asBool(cond);
@@ -950,7 +1148,7 @@ export function evaluate(
           // lazy: only the taken branch is evaluated
           const branch = b ? e.args[1] : e.args[2];
           if (!branch) return false;
-          const v = evaluate(branch, scope, fx, today);
+          const v = evaluate(branch, scope, fx, today, hist);
           if (Array.isArray(v)) return ferr("IF: branch must be a single value");
           return v;
         }
@@ -994,6 +1192,51 @@ export function evaluate(
           // — the rule docs/sheets-spec.md documents.
           if (e.args.length > 0) return ferr("TODAY: takes no arguments");
           return today();
+        }
+        case "PROP": {
+          // A frontmatter key on another note, as a scalar
+          // (docs/time-travel-spec.md §3.2). Present tense on its own; inside
+          // `AT()` the injected resolver is the one that carries the as-of day,
+          // so nothing here needs to know which tense it is being read in.
+          if (e.args.length !== 2) return ferr("PROP: needs a note path and a key");
+          const p = arg(0);
+          if (isErr(p)) return p;
+          const k = arg(1);
+          if (isErr(k)) return k;
+          const path = String(p ?? "").trim();
+          const key = String(k ?? "").trim();
+          if (!path) return ferr("PROP: needs a note path");
+          if (!key) return ferr("PROP: needs a frontmatter key");
+          if (!hist) return ferr("PROP: note data is not available here");
+          return historyCell("PROP", path, null, hist(path, key, null));
+        }
+        case "AT": {
+          // Reads its body as of the end of one past day (§3.2). The date binds
+          // by *wrapping the resolver*, not by a parameter every function would
+          // have to carry: everything inside the body keeps reading facts the
+          // way it always does, and the resolver it reads through is the one
+          // that knows which day it is. Nested `AT()` therefore just wraps
+          // again — the innermost one wins, which is what reading it aloud
+          // suggests.
+          if (e.args.length !== 2) return ferr("AT: needs a date and a value");
+          const d = arg(0); // the date is read in the present tense, deliberately
+          if (isErr(d)) return d;
+          const date = String(d ?? "").trim();
+          if (!isIsoDate(date)) {
+            return ferr(`AT: “${date}” is not a date — use YYYY-MM-DD or TODAY()`);
+          }
+          if (!hist) return ferr("AT: history is not available here");
+          // Bind from the *unwrapped* resolver: wrapping a wrapper would leave
+          // the outer day in charge of the inner body, and a nested `AT()`
+          // would silently read the wrong year.
+          const base = hist.unbound ?? hist;
+          const asOf: HistoryResolver = (p, k) => base(p, k, date);
+          asOf.asOfDate = date;
+          asOf.unbound = base;
+          asOf.sheetValue = base.sheetValue;
+          const v = evaluate(e.args[1], scope, fx, today, asOf);
+          if (Array.isArray(v)) return ferr("AT: value must be a single value");
+          return v;
         }
       }
       return ferr(`unknown function ${e.name}`);

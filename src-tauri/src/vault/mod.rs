@@ -83,6 +83,16 @@ pub(crate) fn note_from_history(
     Some((meta, NoteContent { body: body.to_string(), props }))
 }
 
+/// The frontmatter props of one raw markdown blob, with no path rules and no
+/// note model around it — what a fact lane reads out of a historical tree
+/// (docs/time-travel-spec.md §5). `note_from_history` refuses anything that is
+/// not a visible `.md` note; a lane is asked about one specific path and has
+/// already resolved it through the history walk, so it needs the parse alone.
+pub(crate) fn fact_props(raw: &str) -> serde_json::Map<String, serde_json::Value> {
+    let (fm, _) = split_frontmatter(raw);
+    parse_props(fm)
+}
+
 /// A note's raw frontmatter block (no fences) plus its health (SUB-430).
 /// `read()` strips the block from the body, so without this a malformed
 /// block is invisible in-app while every prop edit refuses on it (SUB-215).
@@ -227,6 +237,32 @@ fn code_ranges(body: &str) -> Vec<(usize, usize)> {
 /// skips the ones that do (SUB-495).
 fn in_code(ranges: &[(usize, usize)], from: usize, to: usize) -> bool {
     ranges.iter().any(|(a, b)| from < *b && to > *a)
+}
+
+/// The three parts of a wikilink's inner text, `[[target#anchor|alias]]`
+/// (SUB-1095). The alias is everything past the FIRST `|` — the display text,
+/// which belongs to the renderer; the anchor is a `#` tail on what's left — a
+/// heading (or `#^block` ref) inside the target note. Every piece is trimmed;
+/// an absent one is `None`, and an empty target (`[[#Notes]]`) means the link
+/// points inside the note it sits in.
+///
+/// Twin of `parseWikiLink` in `src/lib/wikilinks.ts` — the two must agree.
+pub fn split_wikilink(inner: &str) -> (&str, Option<&str>, Option<&str>) {
+    let (head, alias) = match inner.find('|') {
+        Some(i) => (&inner[..i], Some(inner[i + 1..].trim())),
+        None => (inner, None),
+    };
+    let (target, anchor) = match head.find('#') {
+        Some(i) => (&head[..i], Some(head[i + 1..].trim())),
+        None => (head, None),
+    };
+    (target.trim(), anchor, alias)
+}
+
+/// The note name a wikilink addresses, normalized for matching: the target
+/// alone (no anchor, no alias), lowercased. Empty for a same-note anchor.
+fn link_key(inner: &str) -> String {
+    split_wikilink(inner).0.to_lowercase()
 }
 
 /// `body` with every machine-fence block blanked newline-for-newline, so
@@ -1237,7 +1273,14 @@ impl Engine {
             if in_code(&code, m.start(), m.end()) {
                 continue;
             }
-            self.links.push((rel.clone(), cap[1].trim().to_lowercase()));
+            // `[[Note#Heading|display]]` links the NOTE — the anchor and the
+            // display text are not part of the name (SUB-1095). A bare
+            // `[[#Heading]]` addresses this note, so it is no edge at all.
+            let target = link_key(&cap[1]);
+            if target.is_empty() {
+                continue;
+            }
+            self.links.push((rel.clone(), target));
         }
         if self.fts {
             if let Ok(mut stmt) = self
@@ -1813,8 +1856,20 @@ impl Engine {
                     if in_code(&code, m.start(), m.end()) {
                         return caps[0].to_string();
                     }
-                    if old_names.contains(&caps[1].trim().to_lowercase()) {
-                        format!("[[{}]]", new_title)
+                    // only the target moves: the heading anchor and the
+                    // author's display text ride along untouched (SUB-1095)
+                    let (target, anchor, alias) = split_wikilink(&caps[1]);
+                    if old_names.contains(&target.to_lowercase()) {
+                        let mut inner = new_title.to_string();
+                        if let Some(a) = anchor {
+                            inner.push('#');
+                            inner.push_str(a);
+                        }
+                        if let Some(a) = alias {
+                            inner.push('|');
+                            inner.push_str(a);
+                        }
+                        format!("[[{inner}]]")
                     } else {
                         caps[0].to_string()
                     }
@@ -1923,8 +1978,14 @@ impl Engine {
         ))
     }
 
+    /// The note a `[[target]]` addresses. `name` may carry a heading anchor
+    /// and/or display alias (`Piranesi#Notes|the book`) — both are stripped
+    /// before matching (SUB-1095); a bare `#anchor` names no note.
     pub fn resolve_link(&self, name: &str) -> Option<NoteMeta> {
-        let needle = name.trim().to_lowercase();
+        let needle = link_key(name);
+        if needle.is_empty() {
+            return None;
+        }
         self.notes
             .values()
             .find(|n| n.title.to_lowercase() == needle || n.stem.to_lowercase() == needle)
@@ -3738,6 +3799,87 @@ mod tests {
         assert!(e.backlinks("Porto.md").iter().any(|n| n.path == "Kyoto.md"));
         // other frontmatter survives the rename
         assert_eq!(m.props.get("status").and_then(|v| v.as_str()), Some("done"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn wikilink_splits_into_target_anchor_alias() {
+        // SUB-1095: the shared parse rule. Twin: parseWikiLink in
+        // src/lib/wikilinks.ts — keep the cases in step.
+        assert_eq!(split_wikilink("Piranesi"), ("Piranesi", None, None));
+        assert_eq!(split_wikilink("Piranesi|the book"), ("Piranesi", None, Some("the book")));
+        assert_eq!(split_wikilink("Piranesi#Notes"), ("Piranesi", Some("Notes"), None));
+        assert_eq!(
+            split_wikilink("Piranesi#Notes|the book"),
+            ("Piranesi", Some("Notes"), Some("the book"))
+        );
+        // whitespace around every piece, and a same-note anchor
+        assert_eq!(split_wikilink("  Piranesi # Notes | the book "), ("Piranesi", Some("Notes"), Some("the book")));
+        assert_eq!(split_wikilink("#Notes"), ("", Some("Notes"), None));
+        // block ref, and a `#` inside the display text stays display text
+        assert_eq!(split_wikilink("Piranesi#^a1b2"), ("Piranesi", Some("^a1b2"), None));
+        assert_eq!(split_wikilink("Piranesi|see #Notes"), ("Piranesi", None, Some("see #Notes")));
+        // only the FIRST pipe splits — the rest belongs to the display text
+        assert_eq!(split_wikilink("Piranesi|a|b"), ("Piranesi", None, Some("a|b")));
+    }
+
+    #[test]
+    fn resolve_link_ignores_anchor_and_alias() {
+        // SUB-1095: `[[Lisbon|the city]]` and `[[Lisbon#Notes]]` used to
+        // resolve to nothing — the pipe and the anchor were read as part of
+        // the note's name.
+        let (e, dir) = temp_vault("linkparts");
+        let p = |name: &str| e.resolve_link(name).map(|n| n.path);
+        assert_eq!(p("Lisbon"), Some("Lisbon.md".into()));
+        assert_eq!(p("Lisbon|the city"), Some("Lisbon.md".into()));
+        assert_eq!(p("Lisbon#Notes"), Some("Lisbon.md".into()));
+        assert_eq!(p("Lisbon#Notes|the city"), Some("Lisbon.md".into()));
+        // a bare anchor names no note at all
+        assert_eq!(p("#Notes"), None);
+        assert_eq!(p(""), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn backlinks_see_alias_and_anchor_links() {
+        // SUB-1095: a note whose only outbound links carry an alias or an
+        // anchor produced no backlink edges at all.
+        let (mut e, dir) = temp_vault("linkedges");
+        e.create("Reader", "", None).unwrap();
+        e.write_body(
+            "Reader.md",
+            "Read [[Lisbon|the city]] and [[Kyoto#Notes]] and [[#Local]].\n",
+            None,
+        )
+        .unwrap();
+        assert!(e.backlinks("Lisbon.md").iter().any(|n| n.path == "Reader.md"), "alias link");
+        assert!(e.backlinks("Kyoto.md").iter().any(|n| n.path == "Reader.md"), "anchor link");
+        // the same-note anchor is no edge — it points inside Reader itself
+        assert!(
+            !e.links.iter().any(|(src, tgt)| src == "Reader.md" && tgt.is_empty()),
+            "a bare #anchor must not become a link edge"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rename_rewrites_target_and_keeps_anchor_and_alias() {
+        // SUB-1095: only the note name moves — the heading anchor still
+        // points at the heading, the display text is the author's words.
+        let (mut e, dir) = temp_vault("rnparts");
+        e.create("Reader", "", None).unwrap();
+        e.write_body(
+            "Reader.md",
+            "[[Lisbon]], [[Lisbon|the city]], [[Lisbon#Notes]], [[Lisbon#Notes|the city]].\n",
+            None,
+        )
+        .unwrap();
+        e.rename("Lisbon.md", "Porto").unwrap();
+        let body = e.read("Reader.md").unwrap().body;
+        assert!(
+            body.contains("[[Porto]], [[Porto|the city]], [[Porto#Notes]], [[Porto#Notes|the city]]"),
+            "rewrite lost a part: {body}"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

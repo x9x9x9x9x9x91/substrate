@@ -5,6 +5,7 @@ mod calendarfeed;
 mod denyscope;
 #[cfg(target_os = "macos")]
 mod dragfix;
+mod factlane;
 mod githist;
 mod gitsync;
 mod history;
@@ -1000,6 +1001,8 @@ pub fn run() {
             share_upload,
             history_list,
             history_points,
+            history_facts,
+            history_sheets,
             history_vault_snapshot,
             history_diff,
             history_restore,

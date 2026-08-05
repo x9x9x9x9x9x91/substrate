@@ -47,7 +47,7 @@ const rowsConfig = (inner: string): RowChartConfig => {
 // ---------- source resolution ----------
 
 test("a mount name parses as a database source — no new fence grammar", () => {
-  const c = parseChartConfig("source: Album Pool\nx: modified:month\ny: count\n");
+  const c = rowsConfig("source: Album Pool\nx: modified:month\ny: count\n");
   assert.deepEqual(c.source, { kind: "db", type: "Album Pool" });
 });
 

@@ -195,6 +195,102 @@ pub(crate) async fn history_list(app: tauri::AppHandle, path: String) -> Result<
     .await?
 }
 
+/// One fact a caller wants the history of: a note path and a frontmatter key.
+#[derive(serde::Deserialize)]
+pub(crate) struct FactRef {
+    pub path: String,
+    pub key: String,
+}
+
+/// The lanes behind `AT()`, `PROP()` and the chart `history:` source
+/// (docs/time-travel-spec.md §7.2). Batched because a dashboard asks about
+/// several facts at once and each round trip otherwise re-opens the repository
+/// and re-walks it for the oldest-snapshot boundary. Async for the same reason
+/// `history_list` is: the walk is git work, not UI work.
+#[tauri::command]
+pub(crate) async fn history_facts(
+    app: tauri::AppHandle,
+    refs: Vec<FactRef>,
+) -> Result<Vec<crate::factlane::FactLane>, String> {
+    blocking(move || {
+        let pairs: Vec<(String, String)> =
+            refs.into_iter().map(|r| (r.path, r.key)).collect();
+        let h: State<HistoryState> = app.state();
+        with_history(&h, |hist| hist.fact_lanes(&pairs))
+    })
+    .await?
+}
+
+/// One instant's sheet world: the sheets that existed then, with the bodies
+/// the formula fence is parsed out of. `oldest_ts_ms` travels with it so a
+/// caller can tell "the vault had no snapshot yet" (answerable: nothing
+/// existed) from "this is before the vault's history begins" (unknowable) —
+/// the trim trap, which must never render as a zero (§2.3).
+#[derive(serde::Serialize)]
+pub(crate) struct HistorySheets {
+    instant_ms: u64,
+    commit: Option<String>,
+    oldest_ts_ms: Option<u64>,
+    sheets: Vec<HistorySheetNote>,
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct HistorySheetNote {
+    path: String,
+    title: String,
+    stem: String,
+    body: String,
+}
+
+/// The historical sheets behind `AT(date, Sheet.member)` (§3.2). Instants, not
+/// dates: "the last moment of that day" is the reader's own calendar, and the
+/// front end already computes it for fact lanes — sending the resolved instant
+/// keeps one definition of the boundary instead of two that can drift.
+/// Batched and async for the same reasons `history_facts` is.
+#[tauri::command]
+pub(crate) async fn history_sheets(
+    app: tauri::AppHandle,
+    instants: Vec<u64>,
+) -> Result<Vec<HistorySheets>, String> {
+    blocking(move || {
+        let h: State<HistoryState> = app.state();
+        with_history(&h, |hist| {
+            Ok(hist
+                .sheets_at(&instants)?
+                .into_iter()
+                .map(|at| {
+                    // the snapshot's OWN time, not the instant that was asked
+                    // for: the answering commit is the newest one at or before
+                    // that instant, and a note stamped with the question rather
+                    // than the answer is a lie the moment anything reads it as
+                    // provenance (SUB-832)
+                    let ts = at.commit_ts_ms.unwrap_or(0);
+                    let sheets = at
+                        .files
+                        .iter()
+                        .filter_map(|(path, raw)| {
+                            let (meta, content) = note_from_history(path, raw, ts)?;
+                            Some(HistorySheetNote {
+                                path: meta.path,
+                                title: meta.title,
+                                stem: meta.stem,
+                                body: content.body,
+                            })
+                        })
+                        .collect();
+                    HistorySheets {
+                        instant_ms: at.instant_ms,
+                        commit: at.commit,
+                        oldest_ts_ms: at.oldest_ts_ms,
+                        sheets,
+                    }
+                })
+                .collect())
+        })
+    })
+    .await?
+}
+
 #[tauri::command]
 pub(crate) fn history_diff(h: State<HistoryState>, id: String, file: String) -> Result<Vec<DiffLine>, String> {
     with_history(&h, |hist| hist.diff(&id, &file))

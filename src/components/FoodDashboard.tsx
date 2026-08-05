@@ -24,6 +24,7 @@ import type { FoodDrift } from "../lib/foodsuggest";
 import { useTodayIso } from "./useTodayIso";
 import { ChevronLeftIcon, ChevronRightIcon, NoteIcon } from "./Icons";
 import { DashHead } from "./DashHead";
+import SwitchGroup from "./SwitchGroup";
 import { useDashUndo, type DashUndoStore } from "./useDashUndo";
 
 interface FoodDashboardProps {
@@ -1099,7 +1100,7 @@ export default function FoodDashboard({
                           </label>
                           <div className="food-db-per-wrap">
                             <span className="dash-label">per</span>
-                            <div className="db-switch food-db-per">
+                            <SwitchGroup className="food-db-per" label="Nutrition values per">
                               <button
                                 type="button"
                                 className={dbPer === "100g" ? "active" : ""}
@@ -1124,7 +1125,7 @@ export default function FoodDashboard({
                               >
                                 unit
                               </button>
-                            </div>
+                            </SwitchGroup>
                           </div>
                           <label>
                             <span className="dash-label">Protein</span>

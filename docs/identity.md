@@ -565,9 +565,11 @@ every edit (§1.1).
 Stated explicitly, because the value of this design is as much in what it
 leaves alone.
 
-- **Wikilink grammar.** `[[Target]]`, exactly `\[\[([^\[\]]+)\]\]`, no
-  `[[target|alias]]` form (`vault-format.md:155-158`). **There is no
-  `[[id]]` form and never will be.**
+- **Wikilink grammar.** `[[Target]]`, exactly `\[\[([^\[\]]+)\]\]`; the inner
+  text may carry a heading anchor and a display alias, `[[target#anchor|alias]]`,
+  and resolution still matches the target alone (SUB-1095, `vault-format.md` §3).
+  **There is no `[[id]]` form and never will be** — a link names a note by its
+  name, and an alias changes what you read, not what it points at.
 - **Wikilink resolution.** Case-insensitive title-or-stem, one test not two
   phases (`vault/mod.rs:1712-1718`, `vault-format.md:160-163`). Unchanged.
 - **Wikilink rewriting on rename.** Still happens, still a hard error on

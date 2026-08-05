@@ -1968,6 +1968,9 @@ function NotePane({
               setReloadNonce((n) => n + 1);
               onMutated();
             }}
+            // a purge/trim changes no file, so this is the only signal the rest
+            // of the app gets that the history caches must drop (SUB-832)
+            onHistoryRewritten={onMutated}
           />
         )}
         {fmRepair && fmState && (

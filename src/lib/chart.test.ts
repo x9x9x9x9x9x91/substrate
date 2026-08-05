@@ -15,6 +15,8 @@ import {
   xFractions,
   xSchemaOptions,
   summarySeries,
+  historySeries,
+  MAX_HISTORY_POINTS,
   type RowChartConfig,
 } from "./chart.ts";
 import { evaluateSheet, parseSheet } from "./sheet.ts";
@@ -94,7 +96,9 @@ test("parseChartBlocks: finds all fences in order, keeps errors per block", () =
   const blocks = parseChartBlocks(body);
   assert.equal(blocks.length, 2);
   assert.equal(blocks[0].error, null);
-  assert.deepEqual(blocks[0].config?.source, { kind: "db", type: "release" });
+  const first = blocks[0].config;
+  assert.ok(first?.bind === "rows");
+  assert.deepEqual(first.source, { kind: "db", type: "release" });
   assert.equal(blocks[1].config, null);
   assert.match(blocks[1].error ?? "", /missing required key "source"/);
   assert.equal(parseChartBlocks("no fences here").length, 0);
@@ -106,8 +110,9 @@ test("parseChartBlocks: parses CRLF chart fences (SUB-930)", () => {
   const blocks = parseChartBlocks(body);
   assert.equal(blocks.length, 1);
   assert.equal(blocks[0].error, null);
-  assert.deepEqual(blocks[0].config?.source, { kind: "db", type: "release" });
-  assert.equal(blocks[0].config?.bind, "rows");
+  const cfg = blocks[0].config;
+  assert.ok(cfg?.bind === "rows");
+  assert.deepEqual(cfg.source, { kind: "db", type: "release" });
 });
 
 // ---------- date bucketing ----------
@@ -1122,4 +1127,153 @@ test("chartTitle: a by split is spoken in the derived title (SUB-941)", () => {
     chartTitle(parseChartConfig("source: e\nx: a\ny: count\nby: g\ntitle: Spend")),
     "Spend"
   );
+});
+
+// ---------- history fences (SUB-832 §3.3) ----------
+
+const at = (day: string) => new Date(`${day}T12:00:00`).getTime();
+
+/** A lane whose points are given as [day, value] pairs, oldest first. */
+function lane(oldest: string | null, pts: [string, string | null][] = []) {
+  return {
+    path: "Assets/BTC.md",
+    key: "price",
+    points: pts.map(([d, value]) => ({ ts_ms: at(d), value, commit: d })),
+    oldest_ts_ms: oldest === null ? null : at(oldest),
+  };
+}
+
+test("history fence: parses with day/last defaults", () => {
+  const c = parseChartConfig("history: Assets/BTC.md#price\nkind: line");
+  assert.ok(c.bind === "history");
+  assert.deepEqual(c.fact, { path: "Assets/BTC.md", key: "price" });
+  assert.equal(c.x, "day");
+  assert.equal(c.y, "last");
+  assert.equal(c.kind, "line");
+});
+
+test("history fence: x and y are honoured, and bad ones say what is allowed", () => {
+  const c = parseChartConfig("history: n.md#w\nx: month\ny: avg");
+  assert.ok(c.bind === "history");
+  assert.equal(c.x, "month");
+  assert.equal(c.y, "avg");
+  assert.throws(() => parseChartConfig("history: n.md#w\nx: quarter"), /want day, week or month/);
+  assert.throws(() => parseChartConfig("history: n.md#w\ny: sum"), /last, avg, min or max/);
+});
+
+test("history fence: exclusive with source, series and by", () => {
+  assert.throws(() => parseChartConfig("history: n.md#w\nsource: release"), /drop source/);
+  assert.throws(() => parseChartConfig("history: n.md#w\nseries: total"), /drop series/);
+  assert.throws(() => parseChartConfig("history: n.md#w\nby: owner"), /drop by/);
+});
+
+test("history fence: a malformed fact ref says how to write one", () => {
+  assert.throws(() => parseChartConfig("history: Assets/BTC.md"), /must be <note path>#<key>/);
+  assert.throws(() => parseChartConfig("history: #price"), /note path before the #/);
+  assert.throws(() => parseChartConfig("history: n.md#"), /frontmatter key after the #/);
+  assert.throws(() => parseChartConfig("history: a.md#x, b.md#y"), /own chart fences/);
+  assert.throws(() => parseChartConfig("history: {{Budget.total}}"), /name a note path#key/);
+  // a key may not contain a #, but a path may — the last # splits
+  const c = parseChartConfig("history: Notes/C#1.md#price");
+  assert.ok(c.bind === "history");
+  assert.deepEqual(c.fact, { path: "Notes/C#1.md", key: "price" });
+});
+
+test("historySeries: last takes the value standing at the bucket's close", () => {
+  const s = historySeries(
+    lane("2026-01-01", [["2026-01-02", "10"], ["2026-01-20", "30"], ["2026-02-10", "50"]]),
+    "month",
+    "last",
+    "2026-03-05"
+  );
+  assert.deepEqual(s.points.map((p) => [p.key, p.value]), [
+    ["2026-01", 30],
+    ["2026-02", 50],
+    ["2026-03", 50], // unchanged in March: the fact still holds its value
+  ]);
+});
+
+test("historySeries: avg/min/max include the value carried into the bucket", () => {
+  const l = lane("2026-01-01", [["2026-01-02", "10"], ["2026-02-10", "20"], ["2026-02-20", "60"]]);
+  const avg = historySeries(l, "month", "avg", "2026-02-28");
+  assert.deepEqual(avg.points.map((p) => [p.key, p.value]), [["2026-01", 10], ["2026-02", 30]]);
+  assert.deepEqual(
+    historySeries(l, "month", "min", "2026-02-28").points.map((p) => p.value),
+    [10, 10]
+  );
+  assert.deepEqual(
+    historySeries(l, "month", "max", "2026-02-28").points.map((p) => p.value),
+    [10, 60]
+  );
+});
+
+test("historySeries: the trim boundary is stated, never drawn flat (§2.3)", () => {
+  const s = historySeries(lane("2026-01-05", [["2026-01-06", "7"]]), "day", "last", "2026-01-07");
+  assert.equal(s.note, "no history before 2026-01-05");
+  assert.deepEqual(s.points.map((p) => p.key), ["2026-01-06", "2026-01-07"]);
+});
+
+test("historySeries: a vault with no snapshots says so instead of plotting nothing", () => {
+  const s = historySeries(lane(null), "day", "last", "2026-01-07");
+  assert.deepEqual(s.points, []);
+  assert.equal(s.note, "this vault has no version history yet");
+});
+
+test("historySeries: a key that was never recorded is not blamed on the trim (SUB-832)", () => {
+  // the vault HAS history — it just never held this key
+  const s = historySeries(lane("2026-01-05", []), "day", "last", "2026-01-07");
+  assert.deepEqual(s.points, []);
+  assert.equal(s.note, "no value has been recorded for this key");
+});
+
+test("historySeries: a long lane keeps the window that ends TODAY, not the oldest one", () => {
+  // a daily fact running well past the cap: the chart must still show today
+  const s = historySeries(
+    lane("2023-09-01", [["2023-09-02", "1"], ["2026-08-03", "99"]]),
+    "day",
+    "last",
+    "2026-08-04"
+  );
+  assert.equal(s.points.length, MAX_HISTORY_POINTS);
+  assert.equal(s.points[s.points.length - 1].key, "2026-08-04");
+  assert.equal(s.points[s.points.length - 1].value, 99);
+  assert.equal(s.points[0].key, "2025-07-01"); // 400 days back, inclusive
+  assert.equal(s.note, "no history before 2023-09-01 · showing from Jul 1 2025");
+  // a window spanning two years says which year every label belongs to
+  assert.equal(s.points[0].label, "Jul 1 2025");
+});
+
+test("historySeries: a lane shorter than the cap is not truncated and keeps short labels", () => {
+  const s = historySeries(
+    lane("2026-01-01", [["2026-01-02", "10"], ["2026-01-04", "20"]]),
+    "day",
+    "last",
+    "2026-01-05"
+  );
+  assert.deepEqual(s.points.map((p) => p.key), [
+    "2026-01-02",
+    "2026-01-03",
+    "2026-01-04",
+    "2026-01-05",
+  ]);
+  assert.equal(s.note, "no history before 2026-01-01"); // no "showing from"
+  assert.equal(s.points[0].label, "Jan 2");
+});
+
+test("historySeries: non-numeric values are skipped and counted, not plotted as 0", () => {
+  const s = historySeries(
+    lane("2026-01-01", [["2026-01-02", "unknown"], ["2026-01-03", "5"]]),
+    "day",
+    "last",
+    "2026-01-03"
+  );
+  assert.equal(s.skipped, 1);
+  assert.deepEqual(s.points.map((p) => [p.key, p.value]), [["2026-01-03", 5]]);
+});
+
+test("history fence: title and footer speak the fact, not a source", () => {
+  const c = parseChartConfig("history: Assets/BTC.md#price\nx: month");
+  assert.equal(chartTitle(c), "Price per month");
+  assert.equal(chartTitle(parseChartConfig("history: a.md#price\ny: avg")), "Avg price per day");
+  assert.equal(chartSourceDesc(c), "history: Assets/BTC.md#price");
 });

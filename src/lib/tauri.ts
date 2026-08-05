@@ -40,6 +40,7 @@ import { remapSavedQueryProperty } from "./query.ts";
 import { isSystemPropName } from "./schemalookup.ts";
 import { isAppFile } from "./settings.ts";
 import { hashKindBundle, parseKindManifest, KIND_API, type KindBundleInfo } from "./kinds.ts";
+import { parseWikiLink } from "./wikilinks.ts";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -70,6 +71,10 @@ const HISTORY_MODE_COMMANDS = new Set([
   "history_points",
   "history_vault_snapshot",
   "history_restore",
+  /* the time-travel query reads (SUB-832): pure git revwalks, no working-tree
+     touch — a sheet scrubbed into the past may still ask what a fact was */
+  "history_facts",
+  "history_sheets",
   /* vault reads — served either from the projection (ipc.ts) or live */
   "vault_root",
   "vault_list",
@@ -3158,6 +3163,9 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         exists,
         is_vault: isVault,
         empty: !exists || /empty/i.test(path),
+        // SUB-1097: a folder-organised notes vault — markdown only in
+        // subfolders — still needs consent but earns the friendlier wording
+        nested_markdown: exists && /obsidian|nested/i.test(path),
       };
     }
     case "vault_choose": {
@@ -3563,11 +3571,14 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       for (const m of mockNotes) {
         // mirrors Engine::rename — ![[…]] embeds name assets, stay untouched
         const before = m.body;
-        m.body = m.body.replace(/!?\[\[([^[\]]+)\]\]/g, (whole, inner) =>
-          !whole.startsWith("!") && oldNames.includes(String(inner).trim().toLowerCase())
-            ? `[[${title}]]`
-            : whole
-        );
+        m.body = m.body.replace(/!?\[\[([^[\]]+)\]\]/g, (whole, inner) => {
+          if (whole.startsWith("!")) return whole;
+          // only the target moves; the anchor and the author's display text
+          // ride along untouched (SUB-1095)
+          const { target, anchor, alias } = parseWikiLink(String(inner));
+          if (!oldNames.includes(target.toLowerCase())) return whole;
+          return `[[${title}${anchor ? `#${anchor}` : ""}${alias ? `|${alias}` : ""}]]`;
+        });
         if (m.body !== before) rewritten.add(m);
       }
       // mirrors Engine::relation_rewrites: schema'd relation props follow too
@@ -3886,7 +3897,9 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
             m.path !== n.path &&
             [...m.body.matchAll(/!?\[\[([^[\]]+)\]\]/g)].some(
               (match) =>
-                !match[0].startsWith("!") && names.includes(match[1].trim().toLowerCase())
+                !match[0].startsWith("!") &&
+                // …and the edge is the TARGET alone (SUB-1095)
+                names.includes(parseWikiLink(match[1]).target.toLowerCase())
             )
         )
         .map(meta)
@@ -3929,7 +3942,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       return out;
     }
     case "vault_resolve": {
-      const needle = ((args?.name as string) ?? "").toLowerCase();
+      // engine parity (SUB-1095): the anchor and the display alias are not
+      // part of the name — `Piranesi#Notes|the book` resolves Piranesi
+      const needle = parseWikiLink((args?.name as string) ?? "").target.toLowerCase();
+      if (!needle) return null;
       const n = mockNotes.find(
         (m) => m.title.toLowerCase() === needle || m.stem.toLowerCase() === needle
       );
@@ -5160,6 +5176,56 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // off-disk paths (trashed/deleted notes) keep their snapshots, like the engine
       const path = args?.path as string;
       return mockEntries(path, mockHistory.get(path) ?? []);
+    }
+    case "history_facts": {
+      // the mock vault's three snapshot levels (now, -3h, -27h) as fact lanes
+      // (SUB-832): one point per *change*, oldest first, so `valueAt` binary
+      // searches the same shape the real revwalk produces. Numeric facts are
+      // walked back so a history chart has a slope to draw; everything else
+      // simply held its present value for as long as history goes back.
+      const refs = (args?.refs ?? []) as { path: string; key: string }[];
+      return refs.map((r) => {
+        const n = mockNotes.find((m) => m.path === r.path);
+        const raw = n?.props?.[r.key];
+        const value =
+          raw === null || raw === undefined
+            ? null
+            : Array.isArray(raw)
+              ? raw.map((x) => String(x)).join(", ")
+              : String(raw);
+        const num = value === null ? null : Number(value);
+        const older = num !== null && Number.isFinite(num) ? String(Math.round(num * 0.8)) : value;
+        const points =
+          value === null
+            ? []
+            : [
+                { ts_ms: now - 27 * 3_600_000, value: older, commit: "vault-snap-2" },
+                { ts_ms: now - 3 * 3_600_000, value, commit: "vault-snap-1" },
+              ];
+        return { path: r.path, key: r.key, points, oldest_ts_ms: now - 27 * 3_600_000 };
+      });
+    }
+    case "history_sheets": {
+      // every mock note as it stood at each instant. The mock has no per-day
+      // divergence, so a past sheet reads like today's — enough for a spec to
+      // prove AT() routed through the historical tree at all; an instant below
+      // the trim boundary correctly answers with no snapshot.
+      const instants = (args?.instants ?? []) as number[];
+      const oldest = now - 27 * 3_600_000;
+      return instants.map((instant_ms) => ({
+        instant_ms,
+        commit: instant_ms < oldest ? null : "vault-snap-0",
+        oldest_ts_ms: oldest,
+        sheets:
+          instant_ms < oldest
+            ? []
+            : mockNotes.map((n) => ({
+                path: n.path,
+                title: meta(n).title,
+                stem: meta(n).stem,
+                body: n.body,
+              })),
+      }));
     }
     case "history_points":
       return [

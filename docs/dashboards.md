@@ -68,8 +68,9 @@ cards:
 ---
 ```
 
-`format`: `eur` | `usd` | `number` | `pct`; optional `digits` (0–8; more is
-clamped to 8). A bind must name a **summary** (an aggregate line), not a
+`format`: `eur` | `usd` | `number` | `pct`; optional `digits` (0–8; in
+frontmatter more is clamped to 8, while the ` ```cards ` fence and a ` ```tile `
+card line say so as an error). A bind must name a **summary** (an aggregate line), not a
 column. `emph: true` marks a card as one
 of the board's anchors — at most two stay sharp, everything else sinks to the
 quiet voice (design principle 11). `FX("USD","EUR")` in formulas uses a
@@ -188,6 +189,52 @@ A name that isn't a summary on that sheet — a row column, a typo, a summary
 that errored or isn't a number — fails the whole chart with a message naming
 it, rather than quietly dropping the bar; a chart whose points are named by
 hand should never lie about a missing one.
+
+**Plotting a fact's own past (`history`).** `x`/`y` plot rows and `series` plots
+summaries; both read the vault *as it is now*. `history` plots one frontmatter
+fact's history instead — the chart half of time-travel queries (SUB-832,
+`docs/time-travel-spec.md` §3.3):
+
+````markdown
+```chart
+history: Assets/BTC.md#price
+x: month
+y: last
+kind: line
+title: BTC through the year
+```
+````
+
+`history` names one `<note path>#<frontmatter key>` — the last `#` splits, so a
+path may contain one. `x` buckets by `day` (default), `week` or `month`; `y`
+reduces each bucket by `last` (default), `avg`, `min` or `max`. `last` is the
+value standing at the bucket's close, the same rule `AT()` uses, so a monthly
+point and an `AT(<that month's last day>, PROP(…))` cell can never disagree.
+`avg`, `min` and `max` also fold in the value carried *into* the bucket, so a
+fact that didn't change in March still has a March average.
+
+`history` replaces `source` + `x`/`y` and `series` rather than joining them: a
+fence carrying either alongside is a parse error naming the key to drop, as is
+`by` (there are no rows to split). One fact per fence — chart two by writing two
+fences.
+
+Values from before the vault's oldest surviving snapshot are unknowable, not
+zero. The chart omits those buckets and says `no history before <day>` beside
+the plot rather than drawing a flat line back to the beginning of time. A vault
+with no version history at all says so instead of rendering an empty frame, a
+key that was never recorded says *that* rather than blaming the trim boundary,
+and a value that isn't a number is counted in the footer's skipped tally rather
+than plotted as 0.
+
+A long fact is plotted from the **recent** end: at most 400 buckets, the last
+of them today, with `· showing from <label>` in the footer when older buckets
+were left off — and labels carry the year once the window spans more than one.
+
+The note path is resolved against the vault as it stands now, so a `history`
+fence follows a renamed note but cannot plot one that has been deleted; and
+this slice takes a note path only — a sheet summary's past (`{{Sheet}}#member`)
+is not a chart address yet, so plot it by reading it into a fact or charting
+the sheet in the present tense.
 
 
 

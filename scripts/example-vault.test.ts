@@ -213,6 +213,7 @@ test("Vault 2025 evaluates; Annual Report's binds resolve and fences parse", () 
   for (const b of blocks) {
     assert.equal(b.error, null, `chart fence error: ${b.error}`);
     assert.ok(b.config, "chart fence produced no config");
+    assert.ok(b.config.bind !== "history", "chart fence should name a source");
     const src = b.config.source;
     assert.ok(src.kind === "sheet" && loadSheet(src.name), "chart should read the bundled sheet");
   }
@@ -226,6 +227,7 @@ test("Release Charts fences parse clean and name real sources", () => {
   for (const b of blocks) {
     assert.equal(b.error, null, `chart fence error: ${b.error}`);
     assert.ok(b.config, "chart fence produced no config");
+    assert.ok(b.config.bind !== "history", "chart fence should name a source");
     const src = b.config.source;
     if (src.kind === "db") assert.ok(dbTypes.has(src.type), `chart over unknown database "${src.type}"`);
     else assert.ok(loadSheet(src.name), `chart over unknown sheet "${src.name}"`);

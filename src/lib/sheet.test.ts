@@ -1,6 +1,12 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { ferr, isErr, type FErr, type FxResolver } from "./formula.ts";
+import {
+  ferr,
+  isErr,
+  type FErr,
+  type FxResolver,
+  type HistoryResolver,
+} from "./formula.ts";
 import {
   addSheetColumn,
   addSheetRow,
@@ -14,18 +20,26 @@ import {
   columnFormat,
   formatNum,
   formatNumIn,
+  formatSummary,
   formatValue,
   parseCsv,
   parseSheet,
   serializeCsv,
   setSheetCell,
   sheetColumnFormats,
+  sheetHistoryRefs,
+  sheetHistorySheetDates,
+  makeHistorySheetValue,
+  sheetSummaryFormats,
   sheetUsesFx,
+  sheetUsesHistory,
   summaryBar,
   updateSheetFormula,
   columnTakesNumberInput,
   type SheetModel,
 } from "./sheet.ts";
+import { makeHistoryResolver, type HistorySheetSnapshot } from "./history-facts.ts";
+import type { FactLane } from "./types.ts";
 
 const fx: FxResolver = (from, to) => (from === "USD" && to === "EUR" ? 0.8721 : null);
 
@@ -432,6 +446,124 @@ test("Work Index sheet: the year column renders ungrouped (SUB-633)", () => {
     "",
   ]);
   assert.equal(render(1)[3], "2024");
+});
+
+// ── summary chips inherit their column's format (SUB-1084) ───────────────────
+
+/** Every chip of a sheet, rendered the way the summary bar renders them. */
+const chips = (body: string): Record<string, string> => {
+  const model = parseSheet(body);
+  const ev = evaluateSheet(model, fx);
+  const fmts = sheetSummaryFormats(model, ev);
+  const out: Record<string, string> = {};
+  for (const s of ev.summaries) out[s.name] = formatSummary(s.value, fmts.get(s.name.toLowerCase()));
+  return out;
+};
+
+test("summary chip renders in the grammar of the column it sums (SUB-1084)", () => {
+  // the reported case: value_usd renders 7.400 / 37.680 after SUB-1000, but a
+  // total landing under 10000 and integral rendered "7400" one row below it
+  const body =
+    "```csv\nasset,value_usd\nBTC,37680\nHEDGE,-30280\n```\n\n" +
+    "```formulas\ntotal = SUM(value_usd)\n```\n";
+  const ev = evaluateSheet(parseSheet(body), fx);
+  const fmts = sheetColumnFormats(ev);
+  // the column groups: it carries a five-digit value, so SUB-1000 renders it money-shaped
+  assert.deepEqual(
+    ev.rows.map((r) => formatValue(r[1], "value_usd", fmts.data[1])),
+    ["37.680", "-30.280"]
+  );
+  // the sum lands under 10000 and integral — legacy per-value rules rendered it "7400"
+  assert.equal(formatValue(7400), "7400");
+  // the chip now agrees with its column
+  assert.deepEqual(chips(body), { total: "7.400" });
+});
+
+test("summary chips: unit-preserving aggregates inherit, counts do not (SUB-1084)", () => {
+  const body =
+    "```csv\nasset,value_usd\nGLOW,7400\nBTC,37680\nCASH,2010\n```\n\n" +
+    "```formulas\n" +
+    "total = SUM(value_usd)\nsmallest = MIN(value_usd)\nlargest = MAX(value_usd)\n" +
+    "rows = COUNT(value_usd)\nmean = AVG(value_usd)\n```\n";
+  assert.deepEqual(chips(body), {
+    total: "47.090",
+    smallest: "2.010", // four digits, but the column is money — it groups
+    largest: "37.680",
+    rows: "3", // a count is dimensionless: no money grammar, no "3,00"
+    mean: "15.696,67", // fractional under a whole-number column keeps 2 decimals
+  });
+});
+
+test("summary chips: identifier columns keep their bare grammar (SUB-1084/SUB-633)", () => {
+  const body =
+    "```csv\nyear,port\n2024,8080\n2026,9000\n```\n\n" +
+    "```formulas\nlatest = MAX(year)\nport_max = MAX(port)\n```\n";
+  // a year is a name, not a quantity: the chip must not render "2.026"
+  assert.deepEqual(chips(body), { latest: "2026", port_max: "9000" });
+});
+
+test("summary chips: a claimless summary keeps the legacy rendering (SUB-1084)", () => {
+  const body =
+    "```csv\nasset,value_usd\nGLOW,7400\nBTC,37680\n```\n\n" +
+    "```formulas\n" +
+    "flat = 7400\nrounded = ROUND(SUM(value_usd), 0)\nlabelled = LAST(asset)\n```\n";
+  // flat is a bare literal and rounded states its own decimals: no column
+  // claim → formatValue's per-value rules, byte-identical to before.
+  // labelled DOES claim asset's format (LAST is unit-preserving); it renders
+  // legacy because formatSummary short-circuits on a non-number.
+  assert.deepEqual(chips(body), { flat: "7400", rounded: "45.080", labelled: "BTC" });
+});
+
+test("summary chips: a count scales a quantity instead of erasing it (SUB-1084)", () => {
+  // the review's repro: COUNT abstained, and abstention propagated through the
+  // division, so the mean fell back to the per-value rules — 3700 rendered bare
+  // beneath a column rendering 37.680 / -30.280, the exact 1000x ambiguity
+  const body =
+    "```csv\nasset,value_usd\nBTC,37680\nHEDGE,-30280\n```\n\n" +
+    "```formulas\n" +
+    "rows = COUNT(value_usd)\nmean = SUM(value_usd) / COUNT(value_usd)\n" +
+    "scaled = COUNT(value_usd) * SUM(value_usd)\nvia_ref = SUM(value_usd) / rows\n```\n";
+  assert.equal(formatValue(3700), "3700"); // what the chip used to say
+  assert.deepEqual(chips(body), {
+    rows: "2", // the count itself stays dimensionless
+    mean: "3.700",
+    scaled: "14.800", // a count multiplies a quantity too
+    via_ref: "3.700", // and carries its claim through an earlier summary
+  });
+});
+
+test("summary chips: a count added to a quantity claims neither (SUB-1084)", () => {
+  // `*` and `/` scale; `+` and `-` mix dimensions, so the result is not the
+  // money column's to name and the chip abstains to the legacy rendering
+  const body =
+    "```csv\nasset,value_usd\nBTC,37680\nHEDGE,-30280\n```\n\n" +
+    "```formulas\nodd = SUM(value_usd) + COUNT(value_usd)\n```\n";
+  assert.deepEqual(chips(body), { odd: "7402" });
+});
+
+test("summary chips: several columns merge toward the explicit grammar (SUB-1084)", () => {
+  // value_usd groups (7400 beside 37680); fees is all-integer under 10000 and
+  // reads identifier-shaped on its own — but their difference is money, and
+  // the ungrouped reading is the dangerous one
+  const body =
+    "```csv\nasset,value_usd,fees\nGLOW,7400,120\nBTC,37680,80.5\n```\n\n" +
+    "```formulas\nnet = SUM(value_usd) - SUM(fees)\n```\n";
+  assert.deepEqual(chips(body), { net: "44.879,50" });
+});
+
+test("summary chips: a summary built on an earlier summary inherits through it (SUB-1084)", () => {
+  const body =
+    "```csv\nasset,value_usd\nGLOW,7400\nBTC,37680\n```\n\n" +
+    "```formulas\ntotal = SUM(value_usd)\nhalf = total / 2\ndoubled = total * 2\n```\n";
+  assert.deepEqual(chips(body), { total: "45.080", half: "22.540", doubled: "90.160" });
+});
+
+test("formatSummary: no format is byte-identical to formatValue (SUB-1084)", () => {
+  for (const v of [7400, 37680, 2026, 4.1, 0, -9500, "text", true, null, ferr("boom")]) {
+    assert.equal(formatSummary(v as never), formatValue(v as never));
+  }
+  // and a non-finite number can't be dressed in a column's grammar
+  assert.equal(formatSummary(Number.NaN, { decimals: 2, group: true }), formatValue(Number.NaN));
 });
 
 // ---------- v2: cross-sheet references + formula fence editing ----------
@@ -1377,5 +1509,234 @@ describe("SUB-939 — summary bar hierarchy, error rollup, FX stamp", () => {
     assert.equal(sheetUsesFx(sheet("total = SUM(units)\nbig = MAX(price_usd)")), false);
     // an unparsable line can't claim a rate either
     assert.equal(sheetUsesFx(sheet("total = SUM(")), false);
+  });
+});
+
+describe("SUB-832 — the history seam through a sheet", () => {
+  const sheet = (formulas: string, csv = "asset,units\nGLOW,1200\nBTC,4.1") =>
+    parseSheet("```csv\n" + csv + "\n```\n\n```formulas\n" + formulas + "\n```\n");
+  const today = () => "2026-03-01";
+  const at = (iso: string) => {
+    const [y, m, d] = iso.split("-").map(Number);
+    return new Date(y, m - 1, d, 12).getTime();
+  };
+
+  // One vault, one lane: 84 kg from mid-January, 82 from mid-February, 81 now.
+  // The oldest surviving snapshot is 2026-01-05 — before that is unknowable.
+  const NOTES = [{ path: "Health/Weight.md", props: { weight: "81" } }];
+  const LANE: FactLane = {
+    path: "Health/Weight.md",
+    key: "weight",
+    points: [
+      { commit: "aaa", ts_ms: at("2026-01-10"), value: "84" },
+      { commit: "bbb", ts_ms: at("2026-02-10"), value: "82" },
+      { commit: "ccc", ts_ms: at("2026-02-28"), value: "81" },
+    ],
+    oldest_ts_ms: at("2026-01-05"),
+  };
+
+  /** What a pane does, in three lines: collect the sheet's past reads, fetch
+      exactly those facts, hand the engine a resolver over what came back. A
+      lane nobody asked for is NOT in it — which is how an unprefetchable read
+      ends up reporting "not loaded" instead of quietly answering. */
+  const paneResolver = (m: SheetModel): HistoryResolver => {
+    const want = new Set(sheetHistoryRefs(m, today).map((r) => `${r.path}\u0000${r.key}`));
+    return makeHistoryResolver(
+      NOTES,
+      [LANE].filter((l) => want.has(`${l.path}\u0000${l.key}`))
+    );
+  };
+  const run = (m: SheetModel) => evaluateSheet(m, fx, undefined, today, paneResolver(m));
+
+  test("the history stamp asks whether this sheet reads facts at all", () => {
+    assert.equal(sheetUsesHistory(sheet('now = PROP("Health/Weight.md", "weight")')), true);
+    assert.equal(
+      sheetUsesHistory(sheet('then = AT("2026-02-15", PROP("Health/Weight.md", "weight"))')),
+      true
+    );
+    assert.equal(sheetUsesHistory(sheet("total = SUM(units)")), false);
+    // an unparsable line can't claim a lane either
+    assert.equal(sheetUsesHistory(sheet("total = PROP(")), false);
+  });
+
+  test("the present tense collects no refs — it costs no revwalk", () => {
+    assert.deepEqual(sheetHistoryRefs(sheet('now = PROP("Health/Weight.md", "weight")'), today), []);
+  });
+
+  test("past reads are collected as (path, key, date), deduped across lines", () => {
+    const refs = sheetHistoryRefs(
+      sheet(
+        'a = AT("2026-02-15", PROP("Health/Weight.md", "weight"))\n' +
+          'b = AT("2026-02-15", PROP("Health/Weight.md", "weight")) * 2\n' +
+          'c = AT(TODAY(), PROP("Health/Weight.md", "weight"))'
+      ),
+      today
+    );
+    assert.deepEqual(refs, [
+      { path: "Health/Weight.md", key: "weight", date: "2026-02-15" },
+      { path: "Health/Weight.md", key: "weight", date: "2026-03-01" },
+    ]);
+  });
+
+  test("the resolver reaches per-row cells and summaries alike", () => {
+    const m = sheet(
+      'gain = units + AT("2026-01-15", PROP("Health/Weight.md", "weight"))\n' +
+        '\nnow = PROP("Health/Weight.md", "weight")\n' +
+        'lost = AT("2026-01-15", PROP("Health/Weight.md", "weight")) - PROP("Health/Weight.md", "weight")'
+    );
+    const ev = run(m);
+    assert.deepEqual(ev.computed[0].cells, [1284, 88.1]);
+    assert.equal(findSummary(ev, "now"), 81);
+    assert.equal(findSummary(ev, "lost"), 3);
+  });
+
+  test("today's PROP and AT(TODAY(), PROP) agree — same fact, same rendering", () => {
+    const ev = run(
+      sheet(
+        'now = PROP("Health/Weight.md", "weight")\nthen = AT(TODAY(), PROP("Health/Weight.md", "weight"))'
+      )
+    );
+    assert.equal(findSummary(ev, "now"), findSummary(ev, "then"));
+  });
+
+  test("a date before the oldest snapshot says so — never a blank, never a zero", () => {
+    const ev = run(sheet('gone = AT("2025-06-01", PROP("Health/Weight.md", "weight"))'));
+    const cell = findSummary(ev, "gone");
+    assert.ok(isErr(cell));
+    assert.match((cell as FErr).err, /no history before 2026-01-05/);
+  });
+
+  test("a row-dependent date can't be prefetched — the cell says so, it doesn't guess", () => {
+    const m = sheet(
+      'w = units + AT(bought, PROP("Health/Weight.md", "weight"))',
+      "asset,units,bought\nGLOW,1200,2026-02-15"
+    );
+    assert.deepEqual(sheetHistoryRefs(m, today), []);
+    const cell = run(m).computed[0].cells[0];
+    assert.ok(isErr(cell));
+    assert.match((cell as FErr).err, /not loaded/);
+  });
+
+  test("no resolver: the sheet still evaluates, those cells say history isn't loaded", () => {
+    const ev = evaluateSheet(
+      sheet('total = SUM(units)\n\nnow = PROP("Health/Weight.md", "weight")'),
+      fx,
+      undefined,
+      today
+    );
+    assert.equal(findSummary(ev, "total"), 1204.1);
+    assert.ok(isErr(findSummary(ev, "now")));
+  });
+});
+
+describe("SUB-832 — AT(date, Sheet.member) re-evaluates the historical sheet", () => {
+  const today = () => "2026-03-01";
+  const sheet = (formulas: string, csv = "asset,units\nGLOW,1200") =>
+    parseSheet("```csv\n" + csv + "\n```\n\n```formulas\n" + formulas + "\n```\n");
+
+  // Holdings as it stood on 2026-02-15: fewer units, and a summary that is
+  // COMPUTED, never a stored number — that is the point of re-evaluating.
+  const HOLDINGS_THEN = [
+    "---",
+    "type: sheet",
+    "title: Holdings",
+    "---",
+    "",
+    "```csv",
+    "asset,units,price",
+    "GLOW,100,2",
+    "BTC,1,50",
+    "```",
+    "",
+    "```formulas",
+    "value = units * price",
+    "total = SUM(value)",
+    "```",
+    "",
+  ].join("\n");
+
+  const snap = (over: Partial<HistorySheetSnapshot> = {}): HistorySheetSnapshot => ({
+    date: "2026-02-15",
+    commit: "abc123",
+    oldest: "2026-01-05",
+    notes: [
+      { path: "Money/Holdings.md", title: "Holdings", stem: "Holdings", body: HOLDINGS_THEN },
+    ],
+    ...over,
+  });
+
+  const run = (m: SheetModel, snaps: HistorySheetSnapshot[] = [snap()]) => {
+    const hist = makeHistoryResolver([{ path: "Health/Weight.md", props: { weight: "81" } }], []);
+    hist.sheetValue = makeHistorySheetValue(snaps, hist, fx, today);
+    return evaluateSheet(m, fx, undefined, today, hist);
+  };
+
+  test("the days whole sheets are needed for are collected statically, deduped", () => {
+    const m = sheet(
+      'a = AT("2026-02-15", Holdings.total)\n' +
+        'b = AT("2026-02-15", Holdings.total) * 2\n' +
+        'c = AT(TODAY(), Holdings.total)\n' +
+        'd = AT("2026-02-15", PROP("Health/Weight.md", "weight"))'
+    );
+    // the PROP-only line rides the fact lane, so it names no sheet day
+    assert.deepEqual(sheetHistorySheetDates(m, today), ["2026-02-15", "2026-03-01"]);
+  });
+
+  test("a sheet with no AT collects no sheet days", () => {
+    assert.deepEqual(sheetHistorySheetDates(sheet("total = SUM(units)"), today), []);
+    assert.deepEqual(
+      sheetHistorySheetDates(sheet('now = PROP("Health/Weight.md", "weight")'), today),
+      []
+    );
+  });
+
+  test("a summary off a past sheet is recomputed from that day's rows", () => {
+    // 100*2 + 1*50 = 250 — a number that exists nowhere but in the recomputation
+    const ev = run(sheet('then = AT("2026-02-15", Holdings.total)'));
+    assert.equal(findSummary(ev, "then"), 250);
+  });
+
+  test("arithmetic composes past and present without either leaking into the other", () => {
+    const ev = run(
+      sheet('then = AT("2026-02-15", Holdings.total)\nnow = 300\ngrowth = now - then')
+    );
+    assert.equal(findSummary(ev, "growth"), 50);
+  });
+
+  test("a day below the trim boundary says so, and never reads as zero", () => {
+    const ev = run(sheet('old = AT("2026-01-01", Holdings.total)'), [
+      snap({ date: "2026-01-01", commit: null }),
+    ]);
+    const v = findSummary(ev, "old");
+    assert.ok(isErr(v));
+    assert.match((v as FErr).err, /no history before 2026-01-05/);
+  });
+
+  test("a day nobody prefetched reports that, rather than answering", () => {
+    const ev = run(sheet('x = AT("2026-02-15", Holdings.total)'), []);
+    const v = findSummary(ev, "x");
+    assert.ok(isErr(v));
+    assert.match((v as FErr).err, /not loaded yet/);
+  });
+
+  test("a sheet that did not exist on that day is named, not blank", () => {
+    const ev = run(sheet('x = AT("2026-02-15", Ghost.total)'));
+    const v = findSummary(ev, "x");
+    assert.ok(isErr(v));
+    assert.match((v as FErr).err, /no sheet .*ghost.* on 2026-02-15/);
+  });
+
+  test("this sheet's own values still refuse to be read in the past tense", () => {
+    const m = sheet("total = SUM(units)\nx = AT(\"2026-02-15\", total)");
+    const v = findSummary(run(m), "x");
+    assert.ok(isErr(v));
+    assert.match((v as FErr).err, /only PROP\(\) can be read as of a past date/);
+  });
+
+  test("a per-row date collects nothing and the cell says history is not loaded", () => {
+    const m = sheet('x = AT(day, Holdings.total)', "asset,day\nGLOW,2026-02-15");
+    assert.deepEqual(sheetHistorySheetDates(m, today), []);
+    const v = findSummary(run(m, []), "x");
+    assert.ok(isErr(v));
   });
 });

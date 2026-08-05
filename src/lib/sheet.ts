@@ -5,9 +5,12 @@
 
 import { parseStrictNumber } from "./aggregate.ts";
 import { todayIso } from "./dates.ts";
+import type { HistorySheetSnapshot } from "./history-facts.ts";
 import {
   callsFunction,
   collectCrossRefs,
+  collectHistoryRefs,
+  collectHistorySheetRefs,
   collectRefs,
   evaluate,
   ferr,
@@ -21,6 +24,8 @@ import {
   type Expr,
   type FErr,
   type FxResolver,
+  type HistoryRef,
+  type HistoryResolver,
   type Scope,
   type ScopedValue,
   type Value,
@@ -369,7 +374,8 @@ function resolveSheet(
   ctx: CrossCtx,
   fx: FxResolver,
   sheet: string,
-  today: () => string
+  today: () => string,
+  hist?: HistoryResolver
 ): SheetEval | FErr {
   const l = sheet.toLowerCase();
   const hit = ctx.cache.get(l);
@@ -382,7 +388,7 @@ function resolveSheet(
     if (isErr(m)) out = m;
     else {
       ctx.stack.push(l);
-      out = evalSheetInner(m, fx, ctx, today);
+      out = evalSheetInner(m, fx, ctx, today, hist);
       ctx.stack.pop();
     }
   }
@@ -408,23 +414,29 @@ function memberValue(ev: SheetEval, sheet: string, name: string): ScopedValue | 
   return ferr(`no column or summary “${name}” on sheet “${sheet}”`);
 }
 
+/** `hist` is the time-travel seam (SUB-832): the synchronous resolver `PROP()`
+    and `AT()` read facts through, prefetched by the pane exactly the way FX
+    rates are. Omitted, those functions report that history isn't loaded rather
+    than answering — the sheet still evaluates. */
 export function evaluateSheet(
   model: SheetModel,
   fx: FxResolver,
   cross?: { self: string; load: SheetLoader },
-  today: () => string = todayIso
+  today: () => string = todayIso,
+  hist?: HistoryResolver
 ): SheetEval {
   const ctx: CrossCtx | null = cross
     ? { stack: [cross.self.toLowerCase()], cache: new Map(), load: cross.load }
     : null;
-  return evalSheetInner(model, fx, ctx, today);
+  return evalSheetInner(model, fx, ctx, today, hist);
 }
 
 function evalSheetInner(
   model: SheetModel,
   fxResolver: FxResolver,
   ctx: CrossCtx | null,
-  today: () => string
+  today: () => string,
+  hist?: HistoryResolver
 ): SheetEval {
   const rows: Cell[][] = model.rows.map((r) => r.map(typedCell));
   const computed: { name: string; cells: Value[] }[] = [];
@@ -467,7 +479,7 @@ function evalSheetInner(
         const key = `${cr.sheet}.${cr.name}`;
         if (seen.has(key)) continue;
         seen.add(key);
-        const ev = resolveSheet(ctx, fxResolver, cr.sheet, today);
+        const ev = resolveSheet(ctx, fxResolver, cr.sheet, today, hist);
         crossBindings.push([key, isErr(ev) ? ev : memberValue(ev, cr.sheet, cr.name)]);
       }
     }
@@ -511,7 +523,7 @@ function evalSheetInner(
       for (const [k, col] of rowColumns) scope.set(k, col);
       bindCross(scope);
       bindCollisions(scope);
-      const v = evaluate(f.expr, scope, fxResolver, today);
+      const v = evaluate(f.expr, scope, fxResolver, today, hist);
       cells.push(Array.isArray(v) ? ferr(COL_AS_VALUE) : (v as Value));
     }
     computed.push({ name: f.name, cells });
@@ -535,7 +547,7 @@ function evalSheetInner(
       summaries.push({ name: f.name, value: own ?? (f.expr as FErr), group: f.group });
       continue;
     }
-    const v = evaluate(f.expr, summaryScope, fxResolver, today);
+    const v = evaluate(f.expr, summaryScope, fxResolver, today, hist);
     const value = Array.isArray(v) ? ferr(COL_AS_VALUE) : (v as Value);
     summaries.push({ name: f.name, value, group: f.group });
     // A colliding name keeps its collision error in scope — a later summary
@@ -730,6 +742,145 @@ export function formatNumIn(v: number, fmt: ColumnFormat): string {
   });
 }
 
+/** Aggregates whose result is still a quantity of its argument column
+ * (SUB-1084): a SUM of euros is euros, so is a MIN, MAX, AVG or LAST. COUNT
+ * and COUNTIF are deliberately absent — they are dimensionless (see COUNTING). */
+const UNIT_PRESERVING = new Set(["SUM", "AVG", "MIN", "MAX", "LAST"]);
+
+/** Aggregates whose result is a plain count of rows (SUB-1084): dimensionless,
+ * so they carry no column grammar of their own — a money column's two decimals
+ * would render 4 rows as "4,00". `COUNTIF` is here too, which is what keeps
+ * this compatible with SUB-944's value-aware Count quick-pick: it swaps
+ * `COUNT(col)` for `COUNTIF(col, "*")` on a text column, and both stay
+ * dimensionless. */
+const COUNTING = new Set(["COUNT", "COUNTIF"]);
+
+/** What a summary expression claims about its shape: a column's format, or
+ * `"neutral"` for a bare literal (compatible with anything), or `"count"` for
+ * a dimensionless row count, or `null` for "no claim" — a string, a cross-sheet
+ * reference, a function whose output shape we can't name. */
+type FormatClaim = ColumnFormat | "neutral" | "count" | null;
+
+/** Two claims meeting where both sides must be the same kind of thing — `+`,
+ * `-`, and `IF`'s two branches. Neutrals defer; two real formats merge toward
+ * the MORE explicit grammar (max decimals, grouping if either side groups)
+ * rather than abstaining. `total = SUM(value_usd) - SUM(fees)` over a grouped
+ * column and an identifier-shaped one is still money, and the whole point of
+ * SUB-1000 is that the ungrouped reading is the dangerous one.
+ *
+ * A count added to a quantity is neither, so it abstains. */
+function unifyClaims(a: FormatClaim, b: FormatClaim): FormatClaim {
+  if (a === null || b === null) return null;
+  if (a === "neutral") return b;
+  if (b === "neutral") return a;
+  if (a === "count" || b === "count") return a === b ? "count" : null;
+  return {
+    decimals: a.decimals >= b.decimals ? a.decimals : b.decimals,
+    group: a.group || b.group,
+  };
+}
+
+/** Two claims meeting under `*` or `/`, where a count scales rather than
+ * disagrees (SUB-1084 review): a quantity divided by a count is still that
+ * quantity, so `mean = SUM(value_usd) / COUNT(value_usd)` keeps value_usd's
+ * grammar instead of abstaining back into the per-value rules this issue
+ * closed. A count behaves exactly like a bare literal here. */
+function unifyScaled(a: FormatClaim, b: FormatClaim): FormatClaim {
+  return unifyClaims(a === "count" ? "neutral" : a, b === "count" ? "neutral" : b);
+}
+
+/** The format a summary expression inherits from the columns it reads
+ * (SUB-1084). `formats` maps folded column and earlier-summary names to the
+ * grammar they render in. */
+function claimOf(e: Expr, formats: Map<string, FormatClaim>): FormatClaim {
+  switch (e.k) {
+    case "num":
+      return "neutral";
+    case "str":
+      return null;
+    case "ref":
+      // A cross-sheet reference reads a column this grid never renders, so
+      // there is nothing here to agree with.
+      return e.sheet !== undefined ? null : (formats.get(e.name) ?? null);
+    case "neg":
+      return claimOf(e.e, formats);
+    case "bin":
+      // Arithmetic carries shape through; a comparison renders a boolean.
+      // `*` and `/` let a count scale a quantity without erasing its grammar.
+      if (e.op === "*" || e.op === "/")
+        return unifyScaled(claimOf(e.l, formats), claimOf(e.r, formats));
+      return e.op === "+" || e.op === "-"
+        ? unifyClaims(claimOf(e.l, formats), claimOf(e.r, formats))
+        : null;
+    case "call": {
+      if (UNIT_PRESERVING.has(e.name) && e.args.length > 0)
+        return claimOf(e.args[0], formats);
+      // A count is dimensionless, not claimless: it renders bare, but it still
+      // scales a quantity through `*` and `/` (see unifyScaled).
+      if (COUNTING.has(e.name)) return "count";
+      // SUMIF sums its third argument when it spells one, else the first
+      // (formula.ts evalAggregate) — the criteria columns are not summed.
+      if (e.name === "SUMIF" && e.args.length > 0)
+        return claimOf(e.args[e.args.length >= 3 ? 2 : 0], formats);
+      // IF picks one of its branches, so it is whatever they agree on.
+      if (e.name === "IF" && e.args.length >= 3)
+        return unifyClaims(claimOf(e.args[1], formats), claimOf(e.args[2], formats));
+      // ROUND abstains on purpose: the author already stated a decimal
+      // intent, and inheriting a 0-decimal column's grammar would erase it.
+      return null;
+    }
+  }
+}
+
+/** Each summary's number format, folded name → format (SUB-1084).
+ *
+ * The summary bar rendered `formatValue(s.value)` with no column around it,
+ * so a chip fell back to the per-value legacy rules that SUB-1000 removed
+ * from the grid — and a `total = SUM(value_usd)` landing under 10000 and
+ * integral rendered `7400` directly beneath a column rendering `7.400` and
+ * `37.680`. A summary reads known columns, so it can inherit their grammar.
+ *
+ * Only summaries claiming a column format get an entry; the rest are absent and
+ * keep the legacy rendering. Summaries resolve in fence order, so a summary
+ * built on an earlier one inherits through it — including through a count,
+ * which carries its dimensionless claim forward so `mean = total / rows` still
+ * reads as money. */
+export function sheetSummaryFormats(
+  model: SheetModel,
+  ev: SheetEval
+): Map<string, ColumnFormat> {
+  const cols = sheetColumnFormats(ev);
+  const claims = new Map<string, FormatClaim>();
+  ev.headers.forEach((h, c) => claims.set(h.toLowerCase(), cols.data[c]));
+  ev.computed.forEach((col, c) => claims.set(col.name.toLowerCase(), cols.computed[c]));
+
+  const out = new Map<string, ColumnFormat>();
+  for (const f of model.formulas) {
+    if (!f.aggregate || isErr(f.expr)) continue;
+    const claim = claimOf(f.expr, claims);
+    const key = f.name.toLowerCase();
+    claims.set(key, claim);
+    if (claim === null || claim === "neutral" || claim === "count") continue;
+    out.set(key, claim);
+  }
+  return out;
+}
+
+/** One summary chip, in the grammar of the columns it aggregates (SUB-1084).
+ *
+ * `fmt` absent (a summary that claims no column) keeps the legacy per-value
+ * rendering. The one place a chip departs from its column: a fractional
+ * result under a whole-number column keeps 2 decimals instead of rounding to
+ * the column's 0 — `AVG(units)` over 1200/4 is 602 vs 602,17, and the digits
+ * a derived value carries are not the column's to drop. */
+export function formatSummary(v: Value | Cell, fmt?: ColumnFormat): string {
+  if (fmt && typeof v === "number" && Number.isFinite(v)) {
+    const decimals = fmt.decimals === 0 && !Number.isInteger(v) ? 2 : fmt.decimals;
+    return formatNumIn(v, { decimals, group: fmt.group });
+  }
+  return formatValue(v);
+}
+
 /** `header` is the column the value renders under, when there is one — the
  * grid passes it so id columns skip thousands grouping past four digits.
  * Headerless callers (summary cards, metrics tiles) still get the four-digit
@@ -841,6 +992,146 @@ export function summaryBar(summaries: SheetEval["summaries"]): SummaryBar {
     the sheet that did the converting, where the reader can see the line. */
 export function sheetUsesFx(model: SheetModel): boolean {
   return model.formulas.some((f) => !isErr(f.expr) && callsFunction(f.expr, "FX"));
+}
+
+/** Does this sheet read frontmatter facts at all (SUB-832)? The gate on the
+    history prefetch, the way `sheetUsesFx` gates the rates fetch: a sheet with
+    no `PROP()`/`AT()` never lists the vault. Present-tense `PROP()` collects no
+    refs but still needs the resolver, so this asks the broader question. */
+export function sheetUsesHistory(model: SheetModel): boolean {
+  return model.formulas.some(
+    (f) => !isErr(f.expr) && (callsFunction(f.expr, "PROP") || callsFunction(f.expr, "AT"))
+  );
+}
+
+/** Which past facts this sheet needs before it can be evaluated (SUB-832).
+    The formula engine is synchronous and history lives in git, so the reads
+    have to be known *before* evaluation: the pane asks this, fetches the lanes,
+    and hands back a resolver. Empty means no past reads — a sheet that only
+    uses `PROP()` in the present tense costs nothing, and neither does one with
+    no history at all, so the fetch stays gated the way the FX one is.
+
+    Dates that depend on a row (`AT(bought, …)`) collect nothing by design: they
+    can't be known without evaluating first, and those cells report that history
+    isn't loaded rather than silently answering. */
+export function sheetHistoryRefs(model: SheetModel, today: () => string = todayIso): HistoryRef[] {
+  const out: HistoryRef[] = [];
+  const seen = new Set<string>();
+  for (const f of model.formulas) {
+    if (isErr(f.expr)) continue;
+    for (const r of collectHistoryRefs(f.expr, today)) {
+      const k = `${r.path}\u0000${r.key}\u0000${r.date}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(r);
+    }
+  }
+  return out;
+}
+
+/** Which past days this sheet needs whole *sheets* for (SUB-832, §3.2).
+    `AT(date, Other.total)` re-evaluates `Other` as it stood, so the prefetch
+    needs the tree at that instant, not just a fact lane. Same static-collection
+    rule as `sheetHistoryRefs`: a per-row date collects nothing and reports that
+    history isn't loaded. Returns ISO days, deduped — one fetch per day covers
+    every sheet read at it, including the ones reached transitively. */
+export function sheetHistorySheetDates(
+  model: SheetModel,
+  today: () => string = todayIso
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const f of model.formulas) {
+    if (isErr(f.expr)) continue;
+    for (const r of collectHistorySheetRefs(f.expr, today)) {
+      if (seen.has(r.date)) continue;
+      seen.add(r.date);
+      out.push(r.date);
+    }
+  }
+  return out;
+}
+
+/** Builds the `sheetValue` delegate that `AT(date, Sheet.member)` reads through
+    (§3.2): resolves the sheet name against *that day's* tree, parses its body,
+    and re-evaluates it — that commit's CSV fence through that commit's formula
+    fence, cross-sheet references resolving against the historical tree too, the
+    way `build_vault_snapshot` renders an old projection against its old config.
+    Nothing is read from a cache of stored numbers.
+
+    `facts` is the present-tense fact resolver. The one handed *into* a
+    historical evaluation is bound to the day (so a `PROP()` in there reads the
+    past) but deliberately carries no `asOfDate`: inside a historical sheet its
+    own values legitimately ARE historical, and marking it would make every
+    reference to them refuse. */
+export function makeHistorySheetValue(
+  snapshots: readonly HistorySheetSnapshot[],
+  facts: HistoryResolver | undefined,
+  fx: FxResolver,
+  today: () => string = todayIso
+): (sheet: string, member: string, date: string) => ScopedValue | ScopedValue[] {
+  const byDate = new Map(snapshots.map((s) => [s.date, s]));
+  // One parse + one evaluation per (day, sheet), shared across every cell that
+  // asks — a dashboard reading three members off one historical sheet must not
+  // rebuild it three times.
+  const models = new Map<string, SheetModel | FErr>();
+  const ctxs = new Map<string, CrossCtx>();
+
+  const self = (sheet: string, member: string, date: string): ScopedValue | ScopedValue[] => {
+    const snap = byDate.get(date);
+    if (!snap) return ferr(`AT: history for ${date} is not loaded yet`);
+    if (!snap.commit) {
+      return ferr(
+        snap.oldest ? `no history before ${snap.oldest}` : "this vault has no version history yet"
+      );
+    }
+
+    const loadModel = (name: string): SheetModel | FErr => {
+      const k = `${date} ${name.toLowerCase()}`;
+      const hit = models.get(k);
+      if (hit) return hit;
+      const n = matchHistoryNote(snap.notes, name);
+      const out: SheetModel | FErr = n
+        ? parseSheet(n.body)
+        : ferr(`no sheet “${name}” in the vault on ${date}`);
+      models.set(k, out);
+      return out;
+    };
+
+    let ctx = ctxs.get(date);
+    if (!ctx) {
+      ctx = { stack: [], cache: new Map(), load: loadModel };
+      ctxs.set(date, ctx);
+    }
+
+    let bound: HistoryResolver | undefined;
+    if (facts) {
+      const base = facts.unbound ?? facts;
+      const b: HistoryResolver = (p, k) => base(p, k, date);
+      b.unbound = base;
+      b.sheetValue = self;
+      bound = b;
+    }
+
+    const ev = resolveSheet(ctx, fx, sheet, today, bound);
+    return isErr(ev) ? ev : memberValue(ev, sheet, member.toLowerCase());
+  };
+  return self;
+}
+
+// Sheet names address a note by title or stem, case-insensitively — the same
+// rule the live loader uses, applied to the day's tree. Path is accepted last
+// so a dashboard that spells one out still resolves.
+function matchHistoryNote(
+  notes: HistorySheetSnapshot["notes"],
+  name: string
+): HistorySheetSnapshot["notes"][number] | undefined {
+  const l = name.trim().toLowerCase();
+  return (
+    notes.find((n) => n.title.toLowerCase() === l) ??
+    notes.find((n) => n.stem.toLowerCase() === l) ??
+    notes.find((n) => n.path.toLowerCase() === l)
+  );
 }
 
 // ---------- body edit ops (preserve everything outside the csv fence) ----------

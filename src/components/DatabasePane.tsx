@@ -63,6 +63,7 @@ import DbBoardLayout from "./DbBoardLayout";
 import DbGalleryLayout from "./DbGalleryLayout";
 import DbListLayout from "./DbListLayout";
 import DbTableLayout from "./DbTableLayout";
+import SwitchGroup from "./SwitchGroup";
 import {
   AGG_OPTIONS,
   cardSubtitle,
@@ -1882,7 +1883,7 @@ export default function DatabasePane({
         </button>
       </div>
       <div className="db-tools">
-        <div className="db-switch db-layouts">
+        <SwitchGroup className="db-layouts" label="Layout">
           {(["list", "table", "board", "gallery"] as const).map((l) => (
             <button
               key={l}
@@ -1894,7 +1895,7 @@ export default function DatabasePane({
               {LAYOUT_ICON[l]}
             </button>
           ))}
-        </div>
+        </SwitchGroup>
         {(layout === "board" || layout === "table") && groupable.length > 0 && (
           <label className="db-group">
             Group by

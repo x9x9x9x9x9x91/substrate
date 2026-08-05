@@ -46,3 +46,76 @@ export function wikiLinkOptions(query: string, titles: string[]): WikiOption[] {
 export function wikiLinkInsert(title: string, following: string): string {
   return following.startsWith("]]") ? title : `${title}]]`;
 }
+
+export interface WikiLinkParts {
+  /** the note name — what resolution matches on ("" for a same-note anchor) */
+  target: string;
+  /** heading (or `^block`) inside the target note, without the `#` */
+  anchor: string | null;
+  /** the author's display text, without the `|` */
+  alias: string | null;
+}
+
+/** The three parts of a wikilink's inner text, `[[target#anchor|alias]]`
+    (SUB-1095). The alias is everything past the FIRST `|`; the anchor is a
+    `#` tail on what's left. Every piece is trimmed; an absent one is null,
+    and an empty target (`[[#Notes]]`) points inside the note it sits in.
+
+    Twin of `split_wikilink` in `src-tauri/src/vault/mod.rs` — the two must
+    agree, or the frontend follows a link the engine never indexed. */
+export function parseWikiLink(inner: string): WikiLinkParts {
+  const pipe = inner.indexOf("|");
+  const head = pipe < 0 ? inner : inner.slice(0, pipe);
+  const alias = pipe < 0 ? null : inner.slice(pipe + 1).trim();
+  const hash = head.indexOf("#");
+  const target = (hash < 0 ? head : head.slice(0, hash)).trim();
+  const anchor = hash < 0 ? null : head.slice(hash + 1).trim();
+  return { target, anchor, alias };
+}
+
+/** What a wikilink SHOWS: the alias when the author wrote one, else the
+    target with its anchor (`Piranesi#Notes` reads as one label). Never the
+    raw inner text — the pipe is syntax, not prose. */
+export function wikiLinkDisplay(inner: string): string {
+  const { target, anchor, alias } = parseWikiLink(inner);
+  if (alias) return alias;
+  return anchor ? `${target}#${anchor}` : target;
+}
+
+/** Where a `#anchor` lands inside a note's text: the 1-based line of the
+    heading it names, or of the block carrying a `^id` ref when the anchor
+    starts with `^`. Heading text matches literally, case-insensitively —
+    the same rule the wikilink autocomplete offers. Null when nothing in the
+    note answers to that name, which is a broken link, not a scroll to the
+    top (SUB-1095). Fences are skipped: a `# comment` inside a code block is
+    code, not a heading. */
+export function anchorLine(text: string, anchor: string): number | null {
+  const want = anchor.trim().toLowerCase();
+  if (!want) return null;
+  const lines = text.split("\n");
+  if (want.startsWith("^")) {
+    const id = want.slice(1);
+    for (let i = 0; i < lines.length; i++) {
+      // a block ref sits at the end of the block's last line
+      if (new RegExp(`\\^${escapeRe(id)}\\s*$`, "i").test(lines[i])) return i + 1;
+    }
+    return null;
+  }
+  let fenced = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^\s*(```|~~~)/.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced) continue;
+    const m = /^\s{0,3}#{1,6}\s+(.*)$/.exec(line);
+    // a trailing run of #'s is closing punctuation, not part of the text
+    if (m && m[1].replace(/\s*#*\s*$/, "").trim().toLowerCase() === want) return i + 1;
+  }
+  return null;
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}

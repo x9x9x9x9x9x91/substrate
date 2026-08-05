@@ -594,6 +594,47 @@ export interface HistoryEntry {
   dels: number;
 }
 
+/** One moment a fact took a new value. `value` is null where the note or the
+    key did not exist then — a deletion is a real point on the lane, not a gap
+    the previous value carries across. */
+export interface FactPoint {
+  commit: string;
+  ts_ms: number;
+  value: string | null;
+}
+
+/** Every change of one frontmatter fact across vault history, oldest first
+    (SUB-832). `oldest_ts_ms` is the commit time of the oldest snapshot still
+    in the vault: anything before it was trimmed or purged and is UNKNOWABLE,
+    which surfaces as "no history before …" rather than as a blank or a zero.
+    Null when the vault has no snapshots at all. */
+export interface FactLane {
+  path: string;
+  key: string;
+  points: FactPoint[];
+  oldest_ts_ms: number | null;
+}
+
+/** One sheet note as it stood at a past instant — the raw material
+    `AT(date, Sheet.member)` re-evaluates (docs/time-travel-spec.md §3.2). */
+export interface HistorySheetNote {
+  path: string;
+  title: string;
+  stem: string;
+  body: string;
+}
+
+/** Every sheet note in the vault as of one instant. `commit` is null when no
+    snapshot exists at or before it; `oldest_ts_ms` is the same trim boundary
+    `FactLane` carries, so a date below it reads as "no history before …"
+    rather than as an empty vault. */
+export interface HistorySheetsAt {
+  instant_ms: number;
+  commit: string | null;
+  oldest_ts_ms: number | null;
+  sheets: HistorySheetNote[];
+}
+
 /** One whole-vault commit on the time scrubber, newest first. */
 export interface VaultHistoryPoint {
   id: string;

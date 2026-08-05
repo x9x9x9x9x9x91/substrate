@@ -224,12 +224,31 @@ Everything else is yours. Unknown props are preserved and shown as chips.
 ### Wikilinks
 
 `[[Target]]` in the body. The grammar is exactly `\[\[([^\[\]]+)\]\]` — no nested
-brackets, **no `[[target|alias]]` form** (the pipe becomes part of the name).
+brackets. The inner text is `target#anchor|alias`, all three parts optional
+(SUB-1095):
 
-- Resolution (`vault/mod.rs` `resolve_link`): the trimmed target, matched
-  **case-insensitively** against each note's `title` **or** stem. Title-vs-stem is
-  one test, not two phases; if two different notes could claim a target (one by
-  title, one by stem) the winner is unspecified — keep titles and stems unique.
+- The **alias** is everything past the **first** `|` — the display text. It is
+  prose, not a name: a later `|` or `#` inside it is just more prose.
+- The **anchor** is a `#` tail on what's left — a heading inside the target note,
+  or `#^id` for a block ref. `[[#Heading]]` (empty target) points inside the note
+  that carries it and is **no link edge at all**.
+- Every part is trimmed. One parser, two copies: `split_wikilink`
+  (`vault/mod.rs`) and `parseWikiLink` (`src/lib/wikilinks.ts`) — **keep them in
+  step**, or the app follows a link the engine never indexed.
+
+- Resolution (`vault/mod.rs` `resolve_link`): the **target alone** — anchor and
+  alias stripped first — trimmed and matched **case-insensitively** against each
+  note's `title` **or** stem. Title-vs-stem is one test, not two phases; if two
+  different notes could claim a target (one by title, one by stem) the winner is
+  unspecified — keep titles and stems unique.
+- What a link **shows** is the renderer's business, never the index's: the alias
+  when the author wrote one, else `target#anchor` as one label. Editor, dashboard
+  cards, table cells and print all go through `wikiLinkDisplay`.
+- Following a link with an anchor scrolls to that heading (literal match,
+  case-insensitive, fences skipped); an anchor no heading answers to leaves the
+  note at the top rather than jumping somewhere arbitrary.
+- **Rename moves the target only.** The anchor and the author's display text ride
+  along untouched: `[[Old#Notes|the book]]` becomes `[[New#Notes|the book]]`.
 - An unresolved target that matches a **database name** (case-insensitive)
   opens that database view instead — hub pages link to databases with plain
   wikilinks. This is app-side navigation only; the engine still reports the
@@ -877,9 +896,10 @@ cards:
   (§5.1), not a column.
 - `format`: `eur` | `usd` | `number` | `pct` (anything else → raw value);
   `digits`: decimal places, optional, **0–8** — the same bound the grid tile
-  syntax takes (§5.6b). A card asking for more is clamped to 8 rather than
-  refused, here and in the ` ```cards ` fence; anything that isn't a whole
-  number reads as absent.
+  syntax takes (§5.6b). In frontmatter a card asking for more is clamped to 8
+  rather than refused, and anything that isn't a whole number reads as absent;
+  the hand-written forms (the ` ```cards ` fence, a ` ```tile ` card line) name
+  the bound as an error instead (SUB-1060, and see the strictness note below).
 - `emph`: optional, `true` only (anything else reads as absent). Marks the
   card as one of the board's sharp anchors — at most two, first two in card
   order if more are flagged; with none flagged the first card is sharp.

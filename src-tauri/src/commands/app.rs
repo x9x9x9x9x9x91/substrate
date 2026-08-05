@@ -638,6 +638,247 @@ mod tests {
         );
     }
 
+    /// An Obsidian-flavoured corpus: notes in folders, wikilinks, `type:`
+    /// frontmatter, an asset embed, an `.obsidian/` config dir, attachments.
+    /// Two top-level `.md` files so a picked folder reads as a vault under
+    /// the strict `Confidence::Picked` rule.
+    fn obsidian_corpus(root: &std::path::Path) {
+        let w = |rel: &str, body: &str| {
+            let abs = root.join(rel);
+            std::fs::create_dir_all(abs.parent().unwrap()).unwrap();
+            std::fs::write(abs, body).unwrap();
+        };
+        w(".obsidian/app.json", "{\"promptDelete\":false}");
+        w(".obsidian/workspace.json", "{\"main\":{}}");
+        w(".obsidian/plugins/dataview/main.js", "// plugin");
+        // a MARKDOWN file under a dot-folder: without it the "`.obsidian/` is
+        // never indexed" assertion below passes for the wrong reason — the
+        // scan only ever considers `.md`, so a config-only fixture never
+        // reaches the dot-directory filter at all (SUB-1078 review #5)
+        w(".obsidian/plugins/dataview/README.md", "# Dataview\n\nPlugin docs.\n");
+        w("README.md", "My notes. See [[Piranesi]].\n");
+        w("Reading log.md", "Currently: [[Piranesi]] and [[Pachinko]].\n");
+        w(
+            "Books/Piranesi.md",
+            "---\ntype: book\nauthor: Susanna Clarke\nrating: 5\n---\n\nHouse of statues. Logged in [[Reading log]].\n",
+        );
+        w(
+            "Books/Pachinko.md",
+            "---\ntype: book\nauthor: Min Jin Lee\n---\n\nGenerations.\n",
+        );
+        w(
+            "Journal/2026-01-02.md",
+            // `![[Pachinko]]` is an embed of a NOTE, so it exercises the
+            // embed rule where it can actually fail: an asset embed can never
+            // produce a backlink (the target isn't indexed at all), a note
+            // embed can (SUB-1078 review #4).
+            "---\ntags: [daily]\n---\n\nRead [[Piranesi]] all evening; also ![[Pachinko]]. ![[attachments/cover.png]]\n\n```dataview\nTABLE author FROM \"Books\"\n```\n",
+        );
+        w("attachments/cover.png", "not really a png");
+    }
+
+    /// Every entry under `root`, relative path → contents (`None` for a
+    /// directory), so a before/after pair proves what adoption did and did
+    /// not touch. Directories are entries in their own right: adoption
+    /// creates empty ones (`Inbox/`), and a files-only walk would report the
+    /// added set as smaller than it is (SUB-1078 review, low #2).
+    fn tree(root: &std::path::Path) -> std::collections::BTreeMap<String, Option<Vec<u8>>> {
+        let mut out = std::collections::BTreeMap::new();
+        let mut stack = vec![root.to_path_buf()];
+        while let Some(dir) = stack.pop() {
+            for e in std::fs::read_dir(&dir).unwrap().flatten() {
+                let p = e.path();
+                let rel = p.strip_prefix(root).unwrap().to_string_lossy().into_owned();
+                if p.is_dir() {
+                    out.insert(rel, None);
+                    stack.push(p);
+                } else {
+                    out.insert(rel, Some(std::fs::read(&p).unwrap()));
+                }
+            }
+        }
+        out
+    }
+
+    /// `rel` is `dir` itself or lives under it — the added-set filter works
+    /// in whole subtrees, because `.git/` and `.vault/` are directories whose
+    /// entire contents belong to the app.
+    fn under(rel: &str, dir: &str) -> bool {
+        rel == dir || rel.starts_with(&format!("{dir}/"))
+    }
+
+    /// SUB-1078 — the adopt-in-place arrival, end to end: the sequence "Open
+    /// an existing folder" actually runs over a folder the user already had.
+    /// That is `init_chosen_vault`, then — on the next launch, in `lib.rs`
+    /// order — the `Engine` and `History::new` (lib.rs, the setup closure).
+    /// History is in scope deliberately: it git-inits the adopted folder, so
+    /// a test that stopped at the Engine would certify an added-set that the
+    /// shipped path exceeds, and `docs/user/import.md` documents what this
+    /// test measures (SUB-1078 review #3).
+    ///
+    /// Nothing of the user's may be moved, renamed or rewritten; what the app
+    /// adds is a closed, named set; and the corpus has to be usable — nested
+    /// notes indexed, wikilinks resolving both ways, `type:` frontmatter
+    /// intact so the databases form.
+    #[test]
+    fn adopting_an_existing_markdown_folder_touches_nothing_and_indexes_everything() {
+        let t = tempfile::TempDir::new().unwrap();
+        let root = t.path().join("Obsidian Vault");
+        std::fs::create_dir_all(&root).unwrap();
+        obsidian_corpus(&root);
+        let before = tree(&root);
+
+        // the folder reads as a vault to the picker, so its verb is "Open
+        // vault" — no consent screen, no seeding
+        let candidate = crate::appcfg::inspect(&root);
+        assert!(candidate.is_vault, "a folder of markdown reads as a vault");
+        assert_eq!(super::init_chosen_vault(&root, false), Ok(false), "adopted, not initialized");
+        let engine = crate::vault::Engine::new(root.clone());
+        let hist = crate::history::History::new(engine.root.clone())
+            .expect("version history initializes on an adopted folder");
+        // the third arrival step, asserted rather than run: the mounts
+        // migration is gated on folder-backed database mappings, which a
+        // folder adopted from outside Substrate cannot have — so it is a
+        // no-op here, and this pins that reason instead of assuming it.
+        assert!(
+            !engine.has_migratable_folder_mappings(),
+            "an adopted folder has no legacy folder mappings to migrate"
+        );
+
+        // 1. nothing of the user's moved, renamed or rewritten
+        let after = tree(&root);
+        for (rel, body) in &before {
+            assert_eq!(
+                after.get(rel),
+                Some(body),
+                "{rel} was moved, renamed or rewritten by adoption"
+            );
+        }
+
+        // 2. what adoption adds is a closed set: the vault config folder, an
+        //    Inbox, the git repo version history lives in, and the settings +
+        //    agent doors backfilled into an existing vault by `Engine::build`
+        let added: Vec<&String> = after.keys().filter(|k| !before.contains_key(*k)).collect();
+        let allowed = |rel: &str| {
+            under(rel, ".vault")
+                || under(rel, "Inbox")
+                || under(rel, ".git")
+                || under(rel, ".claude")
+                || rel == "Settings.md"
+                || rel == "AGENTS.md"
+                || rel == "CLAUDE.md"
+        };
+        for rel in &added {
+            assert!(allowed(rel), "adoption added an unexpected entry: {rel}");
+        }
+        assert!(root.join("Inbox").is_dir(), "Inbox/ exists for scratch notes");
+        assert!(!root.join("Welcome.md").exists(), "no starter notes in an adopted vault");
+        // version history means a git repo INSIDE the adopted folder, stamped
+        // as Substrate's own — the single biggest thing adoption adds, and
+        // the one the docs have to name (SUB-1078 review #2)
+        assert!(hist.is_enabled(), "history is on for a folder that was not already a git repo");
+        assert!(root.join(".git/substrate-owned").is_file(), "the repo is stamped as ours");
+        // stated positively too, because these are what a user actually
+        // finds in their folder afterwards and what the arrival docs promise.
+        // Desktop-only: `Engine::build` skips the backfill on mobile, and
+        // skips it on any vault with gitsync configured (vault/mod.rs) — a
+        // freshly adopted tempdir has no remote, so the guard holds here.
+        #[cfg(desktop)]
+        {
+            assert!(!crate::gitsync::sync_configured(&root), "no remote, so the backfill runs");
+            for rel in ["Settings.md", "AGENTS.md", "CLAUDE.md", ".claude/skills/setup/SKILL.md"] {
+                assert!(root.join(rel).is_file(), "adoption backfills {rel}");
+            }
+        }
+
+        // 3. the corpus is usable: nested notes indexed, .obsidian/ ignored
+        let paths: Vec<String> = engine.list().iter().map(|n| n.path.clone()).collect();
+        for want in ["README.md", "Reading log.md", "Books/Piranesi.md", "Books/Pachinko.md", "Journal/2026-01-02.md"] {
+            assert!(paths.iter().any(|p| p == want), "{want} not indexed: {paths:?}");
+        }
+        assert!(
+            !paths.iter().any(|p| p.starts_with(".obsidian")),
+            "Obsidian's own config must stay invisible: {paths:?}"
+        );
+
+        // 4. wikilinks resolve, and resolve back (the embed is not a link)
+        let target = engine.resolve_link("Piranesi").expect("[[Piranesi]] resolves");
+        assert_eq!(target.path, "Books/Piranesi.md");
+        let back: Vec<String> =
+            engine.backlinks("Books/Piranesi.md").iter().map(|n| n.path.clone()).collect();
+        for want in ["README.md", "Reading log.md", "Journal/2026-01-02.md"] {
+            assert!(back.iter().any(|p| p == want), "{want} should link to Piranesi: {back:?}");
+        }
+        // the embed rule, probed where it can fail: the journal embeds
+        // Pachinko (`![[Pachinko]]`) and the reading log links it, and only
+        // the link counts. Asserting this on the asset embed instead would
+        // pass for any path at all — `backlinks` returns early for anything
+        // that is not an indexed note (SUB-1078 review #4).
+        let pach: Vec<String> =
+            engine.backlinks("Books/Pachinko.md").iter().map(|n| n.path.clone()).collect();
+        assert!(
+            pach.iter().any(|p| p == "Reading log.md"),
+            "the plain [[Pachinko]] link is a backlink: {pach:?}"
+        );
+        assert!(
+            !pach.iter().any(|p| p == "Journal/2026-01-02.md"),
+            "an ![[embed]] shows the note, it does not link it: {pach:?}"
+        );
+
+        // 5. `type:` frontmatter survives, so the Books database forms from
+        //    the user's own front matter (the used-types set the sidebar and
+        //    `partitionDbEntries` share)
+        let books = engine
+            .list()
+            .iter()
+            .filter(|n| crate::vault::prop_str(&n.props, "type").as_deref() == Some("book"))
+            .count();
+        assert_eq!(books, 2, "both typed notes join the Books database");
+        assert_eq!(
+            crate::vault::prop_str(&target.props, "author").as_deref(),
+            Some("Susanna Clarke"),
+            "unknown props are carried, not dropped"
+        );
+    }
+
+    /// SUB-1078 — the shape a folder-organised Obsidian vault actually hits:
+    /// everything lives in subfolders, so there are fewer than two top-level
+    /// `.md` files and the strict picked-folder rule (SUB-436 review #4, the
+    /// one that keeps a checkout with a single README from opening silently)
+    /// sends it to the consent branch instead of "Open vault". Pinned here
+    /// because it is real behaviour a user meets on the flagship path — the
+    /// copy call is filed, not silently changed.
+    #[test]
+    fn a_folder_organised_vault_arrives_through_consent_and_is_still_untouched() {
+        let t = tempfile::TempDir::new().unwrap();
+        let root = t.path().join("Notes");
+        std::fs::create_dir_all(root.join("Books")).unwrap();
+        std::fs::write(root.join("Books/Piranesi.md"), "---\ntype: book\n---\n\nHouse.\n").unwrap();
+        std::fs::write(root.join("index.md"), "Start at [[Piranesi]].\n").unwrap();
+        let before = tree(&root);
+
+        let candidate = crate::appcfg::inspect(&root);
+        assert!(!candidate.is_vault, "one top-level note is not enough to open silently");
+        assert!(!candidate.empty, "and it is not empty either — so: consent");
+        assert!(
+            super::init_chosen_vault(&root, false).is_err(),
+            "without consent the pick is refused rather than written into"
+        );
+
+        // with consent, adoption still writes none of the user's files
+        assert_eq!(super::init_chosen_vault(&root, true), Ok(false));
+        let engine = crate::vault::Engine::new(root.clone());
+        let after = tree(&root);
+        for (rel, body) in &before {
+            assert_eq!(after.get(rel), Some(body), "{rel} was rewritten by a consented adoption");
+        }
+        assert!(!root.join("Welcome.md").exists(), "consent is not a licence to seed");
+        assert!(
+            engine.list().iter().any(|n| n.path == "Books/Piranesi.md"),
+            "the nested note is indexed"
+        );
+    }
+
     /// Adopting an existing vault must NOT sprinkle starter notes into it.
     #[test]
     fn adopting_an_existing_vault_does_not_seed() {

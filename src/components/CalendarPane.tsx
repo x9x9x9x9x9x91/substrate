@@ -60,6 +60,7 @@ import CalPeek from "./CalPeek";
 import { cardSubtitle } from "./DatabasePane";
 import { useTodayIso } from "./useTodayIso";
 import CalendarFeedsMenu from "./CalendarFeedsMenu";
+import SwitchGroup from "./SwitchGroup";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 /** month cells show this many entries before collapsing into "+N more" —
@@ -1946,7 +1947,7 @@ export default function CalendarPane({
               <ChevronRightIcon />
             </button>
           </div>
-          <div className="db-switch cal-layouts">
+          <SwitchGroup className="cal-layouts" label="Calendar layout">
             {(["month", "week"] as const).map((l) => (
               <button
                 key={l}
@@ -1956,7 +1957,7 @@ export default function CalendarPane({
                 {l === "month" ? "Month" : "Week"}
               </button>
             ))}
-          </div>
+          </SwitchGroup>
         </div>
       </div>
       {feedsOpen && (

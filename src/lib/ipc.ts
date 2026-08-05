@@ -22,6 +22,8 @@ import type {
   MountRow,
   MountScanStats,
   FullSearchResult,
+  FactLane,
+  HistorySheetsAt,
   HiddenPerLayout,
   HistoryEntry,
   HistoryStatus,
@@ -419,6 +421,19 @@ export const vaultSyncResolveClear = (path: string) =>
 export const vaultSyncResolveFinish = () => invoke<SyncReport>("vault_sync_resolve_finish");
 export const historyList = (path: string) => invoke<HistoryEntry[]>("history_list", { path });
 export const historyPoints = () => invoke<VaultHistoryPoint[]>("history_points");
+/** The history of specific frontmatter facts, for `AT()` / `PROP()` and the
+    chart `history:` source (SUB-832). Batched: one call opens the repository
+    once and walks the oldest-snapshot boundary once, however many facts a
+    dashboard is asking about. */
+export const historyFacts = (refs: { path: string; key: string }[]) =>
+  invoke<FactLane[]>("history_facts", { refs });
+/** Every sheet note as it stood at each instant, for `AT(date, Sheet.member)`
+    (SUB-832). Instants rather than dates because "the last moment of that day"
+    is the reader's own calendar, already resolved front-end for fact lanes —
+    sending the instant keeps one definition of the boundary. Batched for the
+    same reason as `historyFacts`: one repository walk per dashboard. */
+export const historySheets = (instants: number[]) =>
+  invoke<HistorySheetsAt[]>("history_sheets", { instants });
 export const historyDiff = (id: string, file: string) =>
   invoke<DiffLine[]>("history_diff", { id, file });
 /** `baselineMs` is the `updated_ms` the caller is rendering. When the file on

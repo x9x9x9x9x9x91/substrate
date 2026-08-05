@@ -23,6 +23,9 @@ export interface VaultCandidate {
   exists: boolean;
   is_vault: boolean;
   empty: boolean;
+  /** markdown lives in subfolders rather than at the root (SUB-1097) — never
+      changes what's allowed, only which consent wording is honest */
+  nested_markdown: boolean;
 }
 
 /** What the app shows at boot. `unknown` covers the pre-status frame so the
@@ -51,10 +54,30 @@ export type ChoiceAction =
     top-level `.md`), which is what keeps a checkout with one `README.md` on
     the consent branch below instead of opening silently (SUB-436 review #4).
     The looser one-note rule survives only where it is meant to — adopting an
-    existing `~/Vault` at boot, which never reaches this function. */
+    existing `~/Vault` at boot, which never reaches this function.
+
+    The consent branch has two wordings for the same guard (SUB-1097). A
+    folder-organised vault — `Daily/`, `Projects/`, nothing loose at the root —
+    is notes, and telling its owner the folder "already holds other files" is
+    both wrong and alarming. It still needs consent, so the gate is unchanged;
+    only the sentence differs.
+
+    That sentence has to stay true next to the disclosure line under the button
+    (SUB-1098: "Substrate will add Settings.md, AGENTS.md and CLAUDE.md…").
+    Adoption does write — `.vault/`, the three visible files, a setup skill — so
+    the promise is about the user's OWN files being left alone, never about the
+    folder being untouched. Read the two as one paragraph before editing either. */
 export function actionFor(c: VaultCandidate): ChoiceAction {
   if (c.is_vault) return { kind: "open", label: "Open vault" };
   if (!c.exists || c.empty) return { kind: "init", label: "Create vault here" };
+  if (c.nested_markdown) {
+    return {
+      kind: "consent",
+      label: "Open it anyway",
+      warning:
+        "Your notes all live in subfolders, so Substrate can't be sure this is a vault. Opening it won't move, rename or delete anything — your files stay exactly where they are.",
+    };
+  }
   return {
     kind: "consent",
     label: "Initialize anyway",

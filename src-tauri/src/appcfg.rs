@@ -145,6 +145,49 @@ pub fn looks_like_vault_at(p: &Path, confidence: Confidence) -> bool {
     top_level_md_count(p, need) >= need
 }
 
+/// Is there markdown in a SUBFOLDER of `p`? Purely descriptive — it changes
+/// no verdict, only which consent wording the picker uses (SUB-1097): a
+/// folder-organised Obsidian vault (`Daily/`, `Projects/`, nothing loose at
+/// the root) fails the strict top-level test and must not be greeted as
+/// "this folder already holds other files".
+///
+/// Bounded on purpose: hidden folders are skipped (a `.git/` full of
+/// markdown says nothing about notes), depth stops at
+/// [`NESTED_MD_MAX_DEPTH`], and the walk visits at most
+/// [`NESTED_MD_MAX_DIRS`] directories, so picking `~` costs a blink rather
+/// than a full-disk crawl.
+fn has_nested_markdown(p: &Path) -> bool {
+    const NESTED_MD_MAX_DEPTH: usize = 3;
+    const NESTED_MD_MAX_DIRS: usize = 200;
+
+    let mut queue: Vec<(PathBuf, usize)> = vec![(p.to_path_buf(), 0)];
+    let mut visited = 0usize;
+    while let Some((dir, depth)) = queue.pop() {
+        visited += 1;
+        if visited > NESTED_MD_MAX_DIRS {
+            return false;
+        }
+        let Ok(rd) = fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name();
+            if name.to_string_lossy().starts_with('.') {
+                continue;
+            }
+            let path = e.path();
+            if path.is_dir() {
+                if depth + 1 < NESTED_MD_MAX_DEPTH {
+                    queue.push((path, depth + 1));
+                }
+            } else if depth > 0
+                && path.extension().is_some_and(|x| x.eq_ignore_ascii_case("md"))
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// The loose test, kept for the boot-time adoption path. See
 /// [`looks_like_vault_at`] for why picking uses the stricter one.
 pub fn looks_like_vault(p: &Path) -> bool {
@@ -191,16 +234,23 @@ pub struct VaultCandidate {
     pub is_vault: bool,
     /// Non-empty and not a vault: initializing here needs explicit consent.
     pub empty: bool,
+    /// Markdown lives in subfolders (SUB-1097). Never changes what is
+    /// allowed — only which consent wording the picker shows, so a
+    /// folder-organised notes vault isn't greeted as a stranger's folder.
+    #[serde(default)]
+    pub nested_markdown: bool,
 }
 
 pub fn inspect(p: &Path) -> VaultCandidate {
+    let is_dir = p.is_dir();
     VaultCandidate {
         path: p.to_string_lossy().into_owned(),
-        exists: p.is_dir(),
+        exists: is_dir,
         // a picked folder is judged strictly: one stray README.md must reach
         // the consent screen, not open silently as a vault
-        is_vault: p.is_dir() && looks_like_vault_at(p, Confidence::Picked),
+        is_vault: is_dir && looks_like_vault_at(p, Confidence::Picked),
         empty: is_effectively_empty(p),
+        nested_markdown: is_dir && has_nested_markdown(p),
     }
 }
 
@@ -499,5 +549,52 @@ mod tests {
 
         let i = inspect(&t.path().join("nope"));
         assert!(!i.exists && !i.is_vault && i.empty);
+    }
+
+    /// SUB-1097: a folder-organised Obsidian vault — every note in a
+    /// subfolder, nothing loose at the root — still needs consent (the
+    /// SUB-436 invariant is untouched), but `inspect` now says WHY it looks
+    /// note-ish so the UI can pick the friendlier wording.
+    #[test]
+    fn a_folder_organised_vault_is_flagged_as_nested_markdown_but_still_needs_consent() {
+        let t = TempDir::new().unwrap();
+        let v = t.path().join("Obsidian");
+        fs::create_dir_all(v.join("Daily")).unwrap();
+        fs::create_dir_all(v.join("Projects")).unwrap();
+        fs::write(v.join("Daily/2026-08-04.md"), "today").unwrap();
+        fs::write(v.join("Projects/Album.md"), "notes").unwrap();
+
+        let i = inspect(&v);
+        assert!(i.exists && !i.is_vault && !i.empty, "the guard still holds: {i:?}");
+        assert!(i.nested_markdown, "notes in subfolders must be visible to the UI: {i:?}");
+        // and nothing is written without consent
+        assert!(open_or_init(&v, false).is_err());
+        assert!(!v.join(VAULT_MARKER).exists(), "refusal must not write anything");
+    }
+
+    /// The flag is about SUBfolders, not the root: a checkout with one stray
+    /// `README.md` and no markdown below it keeps the plain warning.
+    #[test]
+    fn a_checkout_with_only_a_top_level_readme_is_not_nested_markdown() {
+        let t = TempDir::new().unwrap();
+        let repo = t.path().join("checkout");
+        fs::create_dir_all(repo.join("src")).unwrap();
+        fs::write(repo.join("README.md"), "# project").unwrap();
+        fs::write(repo.join("src/main.rs"), "fn main() {}").unwrap();
+
+        assert!(!inspect(&repo).nested_markdown);
+    }
+
+    /// Hidden folders never count — a `.git/` or `.obsidian/` full of
+    /// markdown says nothing about the user's notes.
+    #[test]
+    fn hidden_folders_do_not_count_as_nested_markdown() {
+        let t = TempDir::new().unwrap();
+        let repo = t.path().join("hidden-md");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+        fs::write(repo.join(".git/COMMIT_EDITMSG.md"), "x").unwrap();
+        fs::write(repo.join("code.rs"), "fn main() {}").unwrap();
+
+        assert!(!inspect(&repo).nested_markdown);
     }
 }

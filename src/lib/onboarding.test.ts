@@ -21,6 +21,7 @@ const cand = (o: Partial<VaultCandidate>): VaultCandidate => ({
   exists: true,
   is_vault: false,
   empty: false,
+  nested_markdown: false,
   ...o,
 });
 
@@ -50,6 +51,25 @@ test("a folder with unrelated files demands explicit consent", () => {
   const a = actionFor(cand({ exists: true, empty: false, is_vault: false }));
   assert.equal(a.kind, "consent");
   assert.match(a.kind === "consent" ? a.warning : "", /already holds other files/);
+});
+
+test("a folder-organised vault gets the friendlier consent copy, not the stranger's-folder warning", () => {
+  // SUB-1097: every note lives in `Daily/`, `Projects/` — nothing loose at the
+  // root, so the strict picked-folder test says not-a-vault. The gate stays
+  // (still consent), but the sentence must not accuse the user's own notes of
+  // being "other files".
+  const a = actionFor(cand({ path: "/home/me/Obsidian", nested_markdown: true }));
+  assert.equal(a.kind, "consent", "the SUB-436 guard is unchanged");
+  assert.equal(a.kind === "consent" ? a.label : "", "Open it anyway");
+  const warning = a.kind === "consent" ? a.warning : "";
+  assert.match(warning, /notes all live in subfolders/);
+  assert.match(warning, /won't move, rename or delete anything/);
+  assert.doesNotMatch(warning, /already holds other files/);
+  // …and it must not overclaim: adoption DOES write (.vault/, Settings.md,
+  // AGENTS.md, CLAUDE.md), and the disclosure line under this button says so.
+  // A blanket "nothing is written / changes nothing on disk" here would
+  // contradict the very next sentence on screen (SUB-1098).
+  assert.doesNotMatch(warning, /changes nothing on disk|nothing is written/);
 });
 
 test("a folder that only looks vault-ish still demands consent", () => {

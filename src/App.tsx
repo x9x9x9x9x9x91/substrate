@@ -10,6 +10,7 @@ import { tagFolderApplyTags, tagFolderMatches, tagUniverse } from "./lib/tags";
 import { byFoldedKey, foldedObjectKey, isTypePropName, typeSchemaFor } from "./lib/schemalookup";
 import { folderDefaultIcon, iconForType, iconsByType } from "./lib/dbicons";
 import { looksLikeUrl } from "./lib/url";
+import { anchorLine, parseWikiLink } from "./lib/wikilinks";
 import { displayColLabel } from "./lib/display";
 import {
   filterByQuery,
@@ -294,6 +295,10 @@ export default function App() {
   // a destination (sidebar, palette, ⌘1), never the front door
   const [view, setView] = useState<View>({ kind: "notes" });
   const [selected, setSelected] = useState<string | null>(null);
+  // the open note, readable from callbacks that must not re-bind on every
+  // selection change (SUB-1095: same-note `[[#Heading]]` links)
+  const selectedRef = useRef<string | null>(null);
+  selectedRef.current = selected;
   const {
     mobile,
     mobilePane,
@@ -2395,18 +2400,34 @@ export default function App() {
     [afterOpenFlush, dbNote, refresh, restoreTrashed, showToast, undoApi]
   );
 
+  // SUB-1095: a `[[Note#Heading]]` click knows where it wants to land, but
+  // the line only exists once the note's text is in hand — the anchor waits
+  // here until the effect below can read the note and aim the reveal.
+  const [pendingAnchor, setPendingAnchor] = useState<{ path: string; anchor: string } | null>(null);
+
   const followLink = useCallback(
     (name: string) => {
-      vaultResolve(name).then((meta) => {
+      // the link's NAME is the target alone: the heading anchor says where to
+      // land, the display alias is prose (SUB-1095)
+      const { target, anchor } = parseWikiLink(name);
+      if (!target) {
+        // `[[#Heading]]` points inside the note that carries it
+        if (anchor && selectedRef.current) {
+          setPendingAnchor({ path: selectedRef.current, anchor });
+        }
+        return;
+      }
+      vaultResolve(target).then((meta) => {
         if (meta) {
           openNote(meta.path);
+          if (anchor) setPendingAnchor({ path: meta.path, anchor });
           return;
         }
         // unresolved: a database name opens that view (hub-page links,
         // SUB-203) — only a genuine miss creates the note
-        const db = databases.find((d) => d.type.toLowerCase() === name.trim().toLowerCase());
+        const db = databases.find((d) => d.type.toLowerCase() === target.toLowerCase());
         if (db) openDatabase(db.type);
-        else createNote(name, "");
+        else createNote(target, "");
       });
     },
     [openNote, createNote, databases, openDatabase]
@@ -3799,6 +3820,31 @@ export default function App() {
     showMobileDetail,
     abandonScratch,
   });
+
+  // SUB-1095: land a followed `#anchor` on its heading. The note is open by
+  // now, so reading it is cheap and gives us the line the reveal channel
+  // wants — the same channel a search hit uses, so the heading flashes the
+  // way a hit does. An anchor no heading answers to leaves the note at the
+  // top rather than jumping somewhere arbitrary.
+  useEffect(() => {
+    if (!pendingAnchor) return;
+    const { path, anchor } = pendingAnchor;
+    let live = true;
+    vaultRead(path)
+      .then((note) => {
+        if (!live) return;
+        // body only — reveal lines are editor coordinates, frontmatter excluded
+        const line = anchorLine(note.body, anchor);
+        if (line) setReveal((r) => ({ path, line, nonce: (r?.nonce ?? 0) + 1 }));
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        if (live) setPendingAnchor(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [pendingAnchor, setReveal]);
 
   const moveSelection = useCallback(
     (dir: 1 | -1) => {

@@ -307,6 +307,31 @@ export default function Onboarding({
               >
                 {candidate.action.label}
               </button>
+              {/* SUB-1098: adoption adds files of its own — three visible ones
+                  at the root, an Inbox/, and hidden .vault/, .claude/ and .git/
+                  folders. For an app whose pitch is "your files, untouched",
+                  finding unfamiliar notes after the restart is the wrong way to
+                  learn that. Said once, before the user commits, and it stops
+                  being a surprise.
+
+                  The list must match docs/user/import.md's add-set table
+                  (SUB-1078) — an earlier version of this line named the three
+                  root files and promised "nothing else", while the doc named
+                  seven entries including a whole git repository. A user who
+                  diffs the folder afterwards is the one who finds out.
+
+                  Adoption verbs only. `init` (empty or missing folder) runs the
+                  starter seed instead — Welcome.md, the example notes, the
+                  dashboards — so this list would be wrong there too. */}
+              {candidate.action.kind !== "init" && (
+                <p className="onboarding-hint" data-testid="onboarding-adds">
+                  Substrate will add its own files here: <code>Settings.md</code>,{" "}
+                  <code>AGENTS.md</code> and <code>CLAUDE.md</code>, an empty <code>Inbox/</code>,
+                  and the hidden <code>.vault/</code> and <code>.claude/</code> folders. It also
+                  starts version history in a <code>.git/</code> folder, unless the folder is
+                  already a git repository. Your own notes are never moved or changed.
+                </p>
+              )}
             </div>
           )}
         </section>

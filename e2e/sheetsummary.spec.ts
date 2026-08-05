@@ -78,6 +78,27 @@ total = SUM(eur)
 \`\`\`
 `;
 
+// SUB-1084: a chip used to render headerless, so a total could contradict the
+// column it sums. value_usd groups (it carries a five-digit value), and the
+// mean is a quantity divided by a count — still money.
+const CHIP_FORMAT = `---
+type: sheet
+title: Holdings
+---
+
+\`\`\`csv
+asset,value_usd
+BTC,37680
+HEDGE,-30280
+\`\`\`
+
+\`\`\`formulas
+total = SUM(value_usd)
+rows = COUNT(value_usd)
+mean = SUM(value_usd) / COUNT(value_usd)
+\`\`\`
+`;
+
 async function openSheet(page: Page, body: string) {
   await page.goto("/");
   await expect(page.locator(".side-item").first()).toBeVisible();
@@ -109,6 +130,25 @@ test("the first group is the headline; the rest sit behind one toggle", async ({
 
   await more.click();
   await expect(page.locator(".sheet-sum-rest")).toHaveCount(0);
+});
+
+test("a chip renders in the grammar of the column it aggregates (SUB-1084)", async ({ page }) => {
+  await openSheet(page, CHIP_FORMAT);
+  const val = (name: string) =>
+    page.locator(".sheet-sum", { hasText: name }).locator(".sheet-sum-val");
+  // the column groups, so the total does too — headerless it rendered "7400"
+  await expect(val("total")).toHaveText("7.400");
+  // a count is dimensionless: no money grammar
+  await expect(val("rows")).toHaveText("2");
+  // ...but it scales rather than erases, so the mean stays money
+  await expect(val("mean")).toHaveText("3.700");
+
+  // and a four-digit column keeps its bare grammar all the way up into the
+  // chip: net_eur renders 4200/3100/… ungrouped (SUB-633), so its sum does too
+  await openSheet(page, FINANCE);
+  await expect(
+    page.locator(".sheet-summary .sheet-sum", { hasText: "net_total" }).locator(".sheet-sum-val")
+  ).toHaveText("15450");
 });
 
 test("summaries broken by one cause collapse into a single chip that expands", async ({ page }) => {

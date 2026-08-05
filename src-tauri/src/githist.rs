@@ -10,6 +10,7 @@
 // cfg-gating it away would let mobile-only code rot untested on desktop.
 #![allow(dead_code)]
 
+use crate::factlane::{FactLane, FactPoint};
 use crate::history::{DiffLine, HistoryEntry, VaultHistoryPoint, FOREIGN_MSG, SENTINEL};
 use git2::{
     Commit, Delta, Diff, DiffFindOptions, DiffOptions, Index, ObjectType, Oid, Patch, Repository,
@@ -152,7 +153,14 @@ fn enqueue_path(paths: &mut HashMap<Oid, Vec<PathBuf>>, commit: Oid, path: PathB
 /// Mobile implementation behind `History::list`.
 pub(crate) fn history_list(root: &Path, rel: &str) -> Result<Vec<HistoryEntry>, String> {
     let repo = owned_repo(root)?;
-    let Some(head) = head_commit(&repo)? else {
+    history_list_in(&repo, rel)
+}
+
+/// The same walk against an already-open repository, for callers that ask
+/// about several paths in a row and should not pay a repository open each
+/// time. Skips the sentinel check, which opening the repository already did.
+pub(crate) fn history_list_in(repo: &Repository, rel: &str) -> Result<Vec<HistoryEntry>, String> {
+    let Some(head) = head_commit(repo)? else {
         return Ok(Vec::new());
     };
     let mut paths = HashMap::new();
@@ -209,7 +217,7 @@ pub(crate) fn history_list(root: &Path, rel: &str) -> Result<Vec<HistoryEntry>, 
 
             let parent = parents.first();
             if let Some((diff, index, previous)) =
-                path_delta(&repo, parent.map(|(_, tree)| tree), &tree, &path, 0)?
+                path_delta(repo, parent.map(|(_, tree)| tree), &tree, &path, 0)?
             {
                 let (adds, dels) = line_counts(&diff, index)?;
                 let ts_ms = u64::try_from(commit.time().seconds()).unwrap_or(0) * 1000;
@@ -336,6 +344,246 @@ pub(crate) fn history_points(root: &Path) -> Result<Vec<VaultHistoryPoint>, Stri
         })
     })
     .collect()
+}
+
+/// Commit time of the oldest snapshot still in the repository — the boundary
+/// before which this vault can say nothing (docs/time-travel-spec.md §2.3).
+/// Taken as the minimum over every reachable commit rather than the last of a
+/// time-sorted walk: a merged history can carry a commit whose date is older
+/// than its topological ancestors, and answering from thin air on one date
+/// older than the true root is exactly the failure this boundary prevents.
+/// None when the vault has no snapshots at all.
+pub(crate) fn history_oldest_ts_ms(repo: &Repository) -> Result<Option<u64>, String> {
+    if head_commit(repo)?.is_none() {
+        return Ok(None);
+    }
+    let mut walk = repo.revwalk().map_err(|e| format!("could not walk version history: {e}"))?;
+    walk.push_head().map_err(|e| format!("could not walk version history: {e}"))?;
+    let mut oldest: Option<u64> = None;
+    for oid in walk {
+        let oid = oid.map_err(|e| format!("could not walk version history: {e}"))?;
+        let commit = repo
+            .find_commit(oid)
+            .map_err(|e| format!("version history snapshot unavailable: {e}"))?;
+        let ts = (commit.time().seconds().max(0) as u64).saturating_mul(1000);
+        oldest = Some(oldest.map_or(ts, |o: u64| o.min(ts)));
+    }
+    Ok(oldest)
+}
+
+/// Build several fact lanes in one pass. The repository is opened once and the
+/// oldest-snapshot boundary walked once, however many facts a dashboard asks
+/// about. Each fact still costs its own path walk — `history_list_in` follows
+/// one path back through the commit graph, so N facts on a dashboard walk the
+/// graph N times; what a lane does NOT do is read a blob per commit (only the
+/// snapshots that actually touched the note are opened) or shell out per
+/// snapshot. Two facts on the same note pay that walk twice: dashboards ask
+/// for a handful of facts, so the honest bound is N walks, not one.
+pub(crate) fn history_fact_lanes(
+    root: &Path,
+    refs: &[(String, String)],
+) -> Result<Vec<FactLane>, String> {
+    let repo = owned_repo(root)?;
+    let oldest_ts_ms = history_oldest_ts_ms(&repo)?;
+    refs.iter().map(|(path, key)| fact_lane_in(&repo, path, key, oldest_ts_ms)).collect()
+}
+
+/// Build one fact's lane: one path walk gives every snapshot that touched the
+/// note (renames followed, so the lane survives a moved note), and each of
+/// those commits is read straight out of the already-open repository — one
+/// object lookup per changed snapshot, never one `git show` process per commit.
+/// Snapshots that did not touch the note cannot have changed the fact, so they
+/// are not read at all.
+pub(crate) fn history_fact_lane(root: &Path, rel: &str, key: &str) -> Result<FactLane, String> {
+    let repo = owned_repo(root)?;
+    let oldest = history_oldest_ts_ms(&repo)?;
+    fact_lane_in(&repo, rel, key, oldest)
+}
+
+fn fact_lane_in(
+    repo: &Repository,
+    rel: &str,
+    key: &str,
+    oldest_ts_ms: Option<u64>,
+) -> Result<FactLane, String> {
+    let entries = history_list_in(repo, rel)?;
+    let mut readings = Vec::with_capacity(entries.len());
+    // history_list is newest-first; a lane reads oldest-first so `value_at`
+    // can binary-search it.
+    for entry in entries.iter().rev() {
+        let commit = commit_from_spec(repo, &entry.id)?;
+        let tree =
+            commit.tree().map_err(|e| format!("version history snapshot tree unavailable: {e}"))?;
+        // a snapshot that DELETED the note has no blob at that path: the fact
+        // stopped having a value there, which is a real point on the lane
+        let value = match tree.get_path(Path::new(&entry.file)) {
+            Ok(found) => {
+                let blob = repo
+                    .find_blob(found.id())
+                    .map_err(|e| format!("version history file {} unavailable: {e}", entry.file))?;
+                let raw = String::from_utf8_lossy(blob.content()).into_owned();
+                crate::factlane::fact_value(&crate::vault::fact_props(&raw), key)
+            }
+            Err(_) => None,
+        };
+        readings.push(FactPoint { commit: entry.id.clone(), ts_ms: entry.ts_ms, value });
+    }
+    // A topological walk is not a chronological one: a merged or imported
+    // history can hand back a commit dated before its own ancestors. `collapse`
+    // and `value_at` both read the lane as a timeline, so put it in time order
+    // rather than trusting the walk's (SUB-832).
+    readings.sort_by_key(|p| p.ts_ms);
+    Ok(FactLane {
+        path: rel.to_string(),
+        key: key.to_string(),
+        points: crate::factlane::collapse(readings),
+        oldest_ts_ms,
+    })
+}
+
+/// Every sheet note as it stood at one instant — what `AT(date, Sheet.member)`
+/// re-evaluates against (docs/time-travel-spec.md §3.2). `commit` is the
+/// snapshot answering for that instant, None when the vault had none yet.
+pub(crate) struct SheetsAt {
+    pub instant_ms: u64,
+    pub commit: Option<String>,
+    /// When that snapshot was actually taken. Not the same number as
+    /// `instant_ms`, which is only what was ASKED for: the answering snapshot
+    /// is the newest one at or before it, so anything treating this as
+    /// provenance must read the commit's own time (SUB-832).
+    pub commit_ts_ms: Option<u64>,
+    pub oldest_ts_ms: Option<u64>,
+    /// (path, raw markdown) for the notes that were sheets *then* — a note that
+    /// has since become one, or stopped being one, is judged by its own tree.
+    pub files: Vec<(String, String)>,
+}
+
+/// A blob's frontmatter block, opening and closing fence included, decoded on
+/// its own — or None when the blob cannot carry one at all. Cutting at the
+/// closing fence is what keeps the filter below honest: without it, testing
+/// `type: sheet` means decoding every markdown blob in the vault whole, at
+/// every answering snapshot, only to drop the prose ones (SUB-832). The cut is
+/// on a line boundary, so it never splits a character.
+fn frontmatter_prefix(content: &[u8]) -> Option<String> {
+    let start = if content.starts_with(b"---\n") {
+        4
+    } else if content.starts_with(b"---\r\n") {
+        5
+    } else {
+        // no opening fence, so no props — `split_frontmatter`'s own rule
+        return None;
+    };
+    let mut offset = start;
+    for line in content[start..].split_inclusive(|&b| b == b'\n') {
+        offset += line.len();
+        let trimmed: &[u8] = {
+            let mut t = line;
+            while let [rest @ .., last] = t {
+                if last.is_ascii_whitespace() {
+                    t = rest;
+                } else {
+                    break;
+                }
+            }
+            t
+        };
+        if trimmed == b"---" {
+            return Some(String::from_utf8_lossy(&content[..offset]).into_owned());
+        }
+    }
+    // unterminated block: there is no frontmatter to read, and the whole file
+    // is body — the same answer `split_frontmatter` gives (SUB-552)
+    None
+}
+
+/// The sheet notes in one tree. Filtered here rather than in the caller so a
+/// vault full of prose never has its bodies read out of git just to be dropped:
+/// only a blob whose own frontmatter says `type: sheet` is loaded whole — the
+/// rest are decoded no further than their frontmatter block.
+fn sheet_files_in(repo: &Repository, commit: Oid) -> Result<Vec<(String, String)>, String> {
+    let commit = repo
+        .find_commit(commit)
+        .map_err(|e| format!("version history snapshot unavailable: {e}"))?;
+    let tree =
+        commit.tree().map_err(|e| format!("version history snapshot tree unavailable: {e}"))?;
+    let mut entries = Vec::new();
+    tree.walk(git2::TreeWalkMode::PreOrder, |directory, entry| {
+        if entry.kind() == Some(git2::ObjectType::Blob) {
+            if let Some(name) = entry.name() {
+                let path = format!("{directory}{name}");
+                if Path::new(&path).extension().is_some_and(|e| e.eq_ignore_ascii_case("md")) {
+                    entries.push((path, entry.id()));
+                }
+            }
+        }
+        git2::TreeWalkResult::Ok
+    })
+    .map_err(|e| format!("could not walk version history snapshot: {e}"))?;
+    let mut files = Vec::new();
+    for (path, oid) in entries {
+        let blob = repo
+            .find_blob(oid)
+            .map_err(|e| format!("version history file {path} unavailable: {e}"))?;
+        let Some(fm) = frontmatter_prefix(blob.content()) else { continue };
+        let is_sheet = crate::vault::folded_prop_str(&crate::vault::fact_props(&fm), "type")
+            .is_some_and(|t| t.trim().eq_ignore_ascii_case("sheet"));
+        if is_sheet {
+            files.push((path, String::from_utf8_lossy(blob.content()).into_owned()));
+        }
+    }
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(files)
+}
+
+/// The sheet trees behind `AT(date, Sheet.member)`, one per instant, in one
+/// pass: the repository is opened once and the commit list walked once however
+/// many days a dashboard asks about, and two dates answered by the SAME
+/// snapshot read that tree once.
+///
+/// The snapshot answering for an instant is the newest commit at or before it,
+/// taken as a max over every reachable commit rather than the first hit of a
+/// time-ordered walk — the same rule `history_oldest_ts_ms` documents, for the
+/// same reason: a merged history need not be monotonic in commit time.
+pub(crate) fn history_sheets_at(root: &Path, instants: &[u64]) -> Result<Vec<SheetsAt>, String> {
+    let repo = owned_repo(root)?;
+    let oldest_ts_ms = history_oldest_ts_ms(&repo)?;
+    let mut commits: Vec<(u64, Oid)> = Vec::new();
+    if head_commit(&repo)?.is_some() {
+        let mut walk = repo.revwalk().map_err(|e| format!("could not walk version history: {e}"))?;
+        walk.push_head().map_err(|e| format!("could not walk version history: {e}"))?;
+        for oid in walk {
+            let oid = oid.map_err(|e| format!("could not walk version history: {e}"))?;
+            let commit = repo
+                .find_commit(oid)
+                .map_err(|e| format!("version history snapshot unavailable: {e}"))?;
+            commits.push(((commit.time().seconds().max(0) as u64).saturating_mul(1000), oid));
+        }
+    }
+    let mut cache: HashMap<Oid, Vec<(String, String)>> = HashMap::new();
+    let mut out = Vec::with_capacity(instants.len());
+    for &instant_ms in instants {
+        let picked =
+            commits.iter().filter(|(ts, _)| *ts <= instant_ms).max_by_key(|(ts, _)| *ts).copied();
+        let pick = picked.map(|(_, oid)| oid);
+        let files = match pick {
+            Some(oid) => {
+                if !cache.contains_key(&oid) {
+                    let files = sheet_files_in(&repo, oid)?;
+                    cache.insert(oid, files);
+                }
+                cache[&oid].clone()
+            }
+            None => Vec::new(),
+        };
+        out.push(SheetsAt {
+            instant_ms,
+            commit: pick.map(|oid| oid.to_string()),
+            commit_ts_ms: picked.map(|(ts, _)| ts),
+            oldest_ts_ms,
+            files,
+        });
+    }
+    Ok(out)
 }
 
 /// Read the markdown and config blobs used by the historical projection
@@ -809,6 +1057,30 @@ mod tests {
 
     fn git(root: &Path, args: &[&str]) {
         git_with_env(root, args, &[]);
+    }
+
+    #[test]
+    fn frontmatter_prefix_stops_at_the_closing_fence() {
+        // the body is what must NOT be decoded to decide whether this is a sheet
+        let raw = b"---\ntype: sheet\n---\nan enormous body\n";
+        assert_eq!(frontmatter_prefix(raw).unwrap(), "---\ntype: sheet\n---\n");
+        assert_eq!(
+            frontmatter_prefix(b"---\r\ntype: sheet\r\n---  \r\nbody\r\n").unwrap(),
+            "---\r\ntype: sheet\r\n---  \r\n"
+        );
+        // prose and unterminated blocks carry no props, so they are never read
+        assert!(frontmatter_prefix(b"just prose\n").is_none());
+        assert!(frontmatter_prefix(b"---\ntype: sheet\nnever closed\n").is_none());
+        // and what it does return parses to the same props as the whole file
+        let props = crate::vault::fact_props(&frontmatter_prefix(raw).unwrap());
+        assert_eq!(
+            crate::vault::folded_prop_str(&props, "type").as_deref(),
+            crate::vault::folded_prop_str(
+                &crate::vault::fact_props(std::str::from_utf8(raw).unwrap()),
+                "type"
+            )
+            .as_deref()
+        );
     }
 
     fn git_with_env(root: &Path, args: &[&str], envs: &[(&str, &str)]) -> String {
@@ -1526,5 +1798,136 @@ mod tests {
         assert_eq!(history_list(&root, "Note.md").err().unwrap(), FOREIGN_MSG);
         assert_eq!(history_diff(&root, "HEAD", "Note.md").err().unwrap(), FOREIGN_MSG);
         assert_eq!(history_show(&root, "HEAD", "Note.md").unwrap_err(), FOREIGN_MSG);
+        assert_eq!(history_fact_lane(&root, "Note.md", "weight").unwrap_err(), FOREIGN_MSG);
+    }
+
+    fn weight_note(weight: &str, body: &str) -> String {
+        format!("---\nweight: {weight}\n---\n\n{body}\n")
+    }
+
+    /// Epoch ms of noon UTC on an ISO day — the instant the dated snapshots
+    /// below are committed at, so a test can address them without hardcoding
+    /// arithmetic in every assertion.
+    fn noon_ms(iso_day: &str) -> u64 {
+        let parts: Vec<i64> = iso_day.split('-').map(|p| p.parse().unwrap()).collect();
+        let (y, m, d) = (parts[0], parts[1], parts[2]);
+        // days since epoch by the civil-from-days algorithm (proleptic Gregorian)
+        let y = if m <= 2 { y - 1 } else { y };
+        let era = if y >= 0 { y } else { y - 399 } / 400;
+        let yoe = y - era * 400;
+        let mp = (m + 9) % 12;
+        let doy = (153 * mp + 2) / 5 + d - 1;
+        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        let days = era * 146097 + doe - 719468;
+        ((days * 86400 + 12 * 3600) * 1000) as u64
+    }
+
+    #[test]
+    fn fact_lane_keeps_one_point_per_change_and_follows_renames() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        let history = history_vault(&root);
+
+        fs::write(root.join("Weight.md"), weight_note("70", "start")).unwrap();
+        dated_snapshot(&root, "first", "2026-01-01T12:00:00+00:00");
+        // body-only edit: the FACT did not change, so the lane must not grow
+        fs::write(root.join("Weight.md"), weight_note("70", "felt fine")).unwrap();
+        dated_snapshot(&root, "body only", "2026-01-05T12:00:00+00:00");
+        fs::write(root.join("Weight.md"), weight_note("72", "after holidays")).unwrap();
+        dated_snapshot(&root, "changed", "2026-02-01T12:00:00+00:00");
+        // a move carries the lane with it — the fact is the same fact
+        fs::create_dir_all(root.join("Health")).unwrap();
+        fs::rename(root.join("Weight.md"), root.join("Health/Weight.md")).unwrap();
+        fs::write(root.join("Health/Weight.md"), weight_note("73", "after holidays")).unwrap();
+        dated_snapshot(&root, "moved and changed", "2026-03-01T12:00:00+00:00");
+
+        let lane = history.fact_lane("Health/Weight.md", "weight").unwrap();
+        assert_eq!(
+            lane.points.iter().map(|p| (p.ts_ms, p.value.clone())).collect::<Vec<_>>(),
+            vec![
+                (noon_ms("2026-01-01"), Some("70".into())),
+                (noon_ms("2026-02-01"), Some("72".into())),
+                (noon_ms("2026-03-01"), Some("73".into())),
+            ]
+        );
+        assert_eq!(lane.oldest_ts_ms, Some(noon_ms("2026-01-01")));
+
+        // and the lane answers dates, including the ones nothing happened on
+        use crate::factlane::{value_at, FactAnswer};
+        assert_eq!(value_at(&lane, noon_ms("2026-01-20")), FactAnswer::Value("70".into()));
+        assert_eq!(value_at(&lane, noon_ms("2026-02-15")), FactAnswer::Value("72".into()));
+        assert_eq!(value_at(&lane, noon_ms("2025-12-31")), FactAnswer::Unknowable);
+    }
+
+    #[test]
+    fn fact_lane_records_a_deletion_and_a_key_appearing_late() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        let history = history_vault(&root);
+
+        // the note exists before the key does
+        fs::write(root.join("Weight.md"), "---\ntitle: Weight\n---\n\nnothing yet\n").unwrap();
+        dated_snapshot(&root, "no key yet", "2026-01-01T12:00:00+00:00");
+        fs::write(root.join("Weight.md"), weight_note("70", "started")).unwrap();
+        dated_snapshot(&root, "key appears", "2026-02-01T12:00:00+00:00");
+        fs::remove_file(root.join("Weight.md")).unwrap();
+        dated_snapshot(&root, "note deleted", "2026-03-01T12:00:00+00:00");
+
+        let lane = history.fact_lane("Weight.md", "weight").unwrap();
+        assert_eq!(
+            lane.points.iter().map(|p| (p.ts_ms, p.value.clone())).collect::<Vec<_>>(),
+            vec![
+                (noon_ms("2026-02-01"), Some("70".into())),
+                (noon_ms("2026-03-01"), None),
+            ]
+        );
+
+        use crate::factlane::{value_at, FactAnswer};
+        // covered by history, key not there yet — blank, not "no history"
+        assert_eq!(value_at(&lane, noon_ms("2026-01-15")), FactAnswer::Absent);
+        assert_eq!(value_at(&lane, noon_ms("2026-02-15")), FactAnswer::Value("70".into()));
+        // after the delete the fact has no value — and does not carry forward
+        assert_eq!(value_at(&lane, noon_ms("2026-04-01")), FactAnswer::Absent);
+    }
+
+    #[test]
+    fn fact_lanes_batch_answers_several_facts_at_once() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        let history = history_vault(&root);
+
+        fs::write(root.join("Weight.md"), weight_note("70", "start")).unwrap();
+        fs::write(root.join("Money.md"), "---\ntotal: 1200\n---\n\nstart\n").unwrap();
+        dated_snapshot(&root, "first", "2026-01-01T12:00:00+00:00");
+        fs::write(root.join("Money.md"), "---\ntotal: 1500\n---\n\nup\n").unwrap();
+        dated_snapshot(&root, "money moved", "2026-02-01T12:00:00+00:00");
+
+        let lanes = history
+            .fact_lanes(&[
+                ("Weight.md".to_string(), "weight".to_string()),
+                ("Money.md".to_string(), "total".to_string()),
+            ])
+            .unwrap();
+        assert_eq!(lanes.len(), 2);
+        assert_eq!(lanes[0].key, "weight");
+        assert_eq!(lanes[0].points.len(), 1);
+        assert_eq!(lanes[1].key, "total");
+        assert_eq!(lanes[1].points.len(), 2);
+        // one walk, one boundary — every lane in a batch agrees about it
+        assert_eq!(lanes[0].oldest_ts_ms, lanes[1].oldest_ts_ms);
+        assert_eq!(lanes[0].oldest_ts_ms, Some(noon_ms("2026-01-01")));
+    }
+
+    #[test]
+    fn fact_lane_of_an_unknown_note_is_empty_but_still_carries_the_boundary() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        let history = history_vault(&root);
+        fs::write(root.join("Weight.md"), weight_note("70", "start")).unwrap();
+        dated_snapshot(&root, "first", "2026-01-01T12:00:00+00:00");
+
+        let lane = history.fact_lane("Nope.md", "weight").unwrap();
+        assert!(lane.points.is_empty());
+        assert_eq!(lane.oldest_ts_ms, Some(noon_ms("2026-01-01")));
     }
 }

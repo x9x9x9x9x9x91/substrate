@@ -107,6 +107,44 @@ test("opening an existing vault offers open, not initialize", async ({ page }) =
   await expect(cand.locator(".onboarding-warning")).toHaveCount(0);
 });
 
+test("the picker says which files it will add before you commit", async ({ page }) => {
+  // SUB-1098: adoption writes files of its own into the folder. Learning that
+  // from unfamiliar files appearing after the restart is the wrong way to
+  // learn it. The list here has to be the whole add-set from
+  // docs/user/import.md (SUB-1078), not just the visible root files.
+  await bootFirstRun(page);
+  await page.getByLabel("Existing folder").fill("/home/me/Vault");
+  await page.getByLabel("Existing folder").press("Enter");
+
+  const adds = page.getByTestId("onboarding-adds");
+  await expect(adds).toContainText("Settings.md");
+  await expect(adds).toContainText("AGENTS.md");
+  await expect(adds).toContainText("CLAUDE.md");
+  await expect(adds).toContainText("Inbox/");
+  await expect(adds).toContainText(".vault/");
+  await expect(adds).toContainText(".claude/");
+  await expect(adds).toContainText(".git/");
+  await expect(adds).toContainText("Your own notes are never moved or changed");
+  // the line this replaced promised three files and nothing else — the exact
+  // surprise the disclosure exists to prevent
+  await expect(adds).not.toContainText("Nothing else is moved or changed");
+});
+
+test("creating a fresh vault does not make the three-file promise", async ({ page }) => {
+  // SUB-1098 review #1: a missing or empty folder is the `init` verb, which
+  // runs the starter seed — Welcome.md, the example notes, the dashboards —
+  // roughly a dozen files. Saying "Settings.md, AGENTS.md and CLAUDE.md…
+  // nothing else" there would be exactly the surprise this line prevents on
+  // the adoption path.
+  await bootFirstRun(page);
+  await page.getByLabel("Existing folder").fill("/home/me/fresh");
+  await page.getByLabel("Existing folder").press("Enter");
+
+  const cand = page.getByTestId("onboarding-candidate");
+  await expect(cand.getByRole("button")).toHaveText("Create vault here");
+  await expect(page.getByTestId("onboarding-adds")).toHaveCount(0);
+});
+
 test("a folder holding other files demands consent before initializing", async ({ page }) => {
   await bootFirstRun(page);
   await page.getByLabel("Existing folder").fill("/home/me/Downloads");
@@ -131,6 +169,24 @@ test("a checkout with one stray note is not silently opened as a vault", async (
   const cand = page.getByTestId("onboarding-candidate");
   await expect(cand.getByRole("button")).toHaveText("Initialize anyway");
   await expect(cand.locator(".onboarding-warning")).toContainText("already holds other files");
+});
+
+test("a folder-organised notes vault is asked politely, not warned about", async ({ page }) => {
+  // SUB-1097: notes only in subfolders (Daily/, Projects/) fail the strict
+  // top-level test, so consent is still required — but the copy must not tell
+  // the owner their own notes are "other files"
+  await bootFirstRun(page);
+  await page.getByLabel("Existing folder").fill("/home/me/Obsidian");
+  await page.getByLabel("Existing folder").press("Enter");
+
+  const cand = page.getByTestId("onboarding-candidate");
+  await expect(cand.getByRole("button")).toHaveText("Open it anyway");
+  const warning = cand.locator(".onboarding-warning");
+  await expect(warning).toContainText("notes all live in subfolders");
+  await expect(warning).not.toContainText("already holds other files");
+  // and it still goes through the consent path
+  await cand.getByRole("button").click();
+  await expect(page.getByTestId("onboarding-done")).toContainText("/home/me/Obsidian");
 });
 
 test("the demo vault is a one-click way in", async ({ page }) => {

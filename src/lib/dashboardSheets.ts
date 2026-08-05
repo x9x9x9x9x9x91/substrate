@@ -1,7 +1,24 @@
-import { vaultRead, vaultResolve } from "./ipc";
+import { historyFacts, historySheets, vaultList, vaultRead, vaultResolve } from "./ipc";
 import { foldedPropStr } from "./types";
-import { evaluateSheet, parseSheet, type SheetEval, type SheetModel } from "./sheet";
-import { collectCrossRefs, ferr, isErr, type FErr, type FxResolver } from "./formula";
+import {
+  evaluateSheet,
+  makeHistorySheetValue,
+  parseSheet,
+  sheetHistoryRefs,
+  sheetHistorySheetDates,
+  sheetUsesHistory,
+  type SheetEval,
+  type SheetModel,
+} from "./sheet";
+import {
+  collectCrossRefs,
+  ferr,
+  isErr,
+  type FErr,
+  type FxResolver,
+  type HistoryResolver,
+} from "./formula";
+import { endOfLocalDay, historySheetSnapshots, makeHistoryResolver } from "./history-facts";
 import { makeFxResolver, type FxRatesState } from "./fx";
 
 export type DashboardSheetState =
@@ -24,6 +41,55 @@ function ratesKey(rates: FxRatesState | null): string {
 function cacheKey(sheetNames: string[], vaultEpoch: number, rates: FxRatesState | null): string {
   const names = [...new Set(sheetNames.map((name) => name.toLowerCase()))].sort();
   return `${vaultEpoch}\u0000${ratesKey(rates)}\u0000${names.join("\u0000")}`;
+}
+
+/** The history resolver for a loaded set of sheets, or undefined when none of
+    them reads a frontmatter fact. One `history_facts` call for the whole set:
+    a dashboard showing five views of the same weight lane builds it once —
+    though a chart on the same dashboard prefetches through `useHistory`
+    instead, so the two paths fetch the same lanes separately (SUB-832; the
+    cost is stated in docs/sheets-spec.md). A failed fetch does not fail the
+    pass: it yields a resolver that reports every fact as not loaded yet, which
+    is what a transient IPC failure means — dropping the resolver entirely
+    would instead tell the reader history is not available here, i.e. that the
+    dashboard cannot do time travel at all.
+
+    `AT(date, Sheet.member)` needs whole sheets rather than a fact lane (§3.2),
+    so the days those reads name are collected in the same pass and fetched
+    alongside — one `history_sheets` call, one repository walk, however many
+    sheets read a given day. */
+async function loadHistory(
+  models: Map<string, SheetModel | FErr>,
+  fx: FxResolver
+): Promise<HistoryResolver | undefined> {
+  const sheets = [...models.values()].filter(
+    (m): m is SheetModel => !isErr(m) && sheetUsesHistory(m)
+  );
+  if (sheets.length === 0) return undefined;
+  const refs = new Map<string, { path: string; key: string }>();
+  const days = new Set<string>();
+  for (const m of sheets) {
+    for (const r of sheetHistoryRefs(m)) refs.set(`${r.path}\t${r.key}`, { path: r.path, key: r.key });
+    for (const d of sheetHistorySheetDates(m)) days.add(d);
+  }
+  const dates = [...days];
+  const instants = dates.map(endOfLocalDay).filter((i): i is number => i !== null);
+  try {
+    const [notes, lanes, ats] = await Promise.all([
+      vaultList(),
+      refs.size ? historyFacts([...refs.values()]) : Promise.resolve([]),
+      instants.length ? historySheets(instants) : Promise.resolve([]),
+    ]);
+    const hist = makeHistoryResolver(notes, lanes);
+    if (ats.length) {
+      hist.sheetValue = makeHistorySheetValue(historySheetSnapshots(dates, ats), hist, fx);
+    }
+    return hist;
+  } catch {
+    // undefined would mean "this surface has no history at all"; the truthful
+    // answer to a failed fetch is "not loaded yet", for present-tense reads too
+    return () => ({ kind: "pending" });
+  }
 }
 
 /** Load and evaluate a set of sheet roots plus their transitive cross-sheet
@@ -83,6 +149,12 @@ export function dashboardSheets(
     // one sheets, cards and charts use, so a GBP column converts here exactly
     // as it does in the grid.
     const fxResolver: FxResolver = makeFxResolver(rates);
+    // Past facts, prefetched before evaluation (SUB-832): here the load is
+    // already async, so the sheets' history rides the same pass as their
+    // cross-sheet BFS rather than needing a store. Gated on a sheet actually
+    // asking — a dashboard of plain sheets never lists the vault. The cache
+    // key already carries the vault epoch, which is what moves a lane.
+    const histResolver = await loadHistory(models, fxResolver);
     const load = (name: string) =>
       models.get(name.toLowerCase()) ?? ferr(`no sheet named “${name}”`);
     const result = new Map<string, DashboardSheetState>();
@@ -94,7 +166,7 @@ export function dashboardSheets(
       }
       result.set(name.toLowerCase(), {
         model,
-        ev: evaluateSheet(model, fxResolver, { self: name, load }),
+        ev: evaluateSheet(model, fxResolver, { self: name, load }, undefined, histResolver),
       });
     }
     return result;

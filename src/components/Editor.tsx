@@ -1190,8 +1190,19 @@ function buildDecorations(view: EditorView): DecorationSet {
       if (focused && active.has(line)) {
         deco.push(mark.range(start, end));
       } else {
-        deco.push(Decoration.replace({}).range(start, start + 2));
-        deco.push(mark.range(start + 2, end - 2));
+        // SUB-1095: off the cursor's line a link shows what it MEANS — the
+        // author's display text when they wrote one (`[[Note|text]]` reads
+        // as "text"), so the target and the pipe hide with the brackets.
+        // Only a non-empty alias hides anything; `[[Note|]]` would leave an
+        // empty link to click.
+        const pipe = m[1].indexOf("|");
+        const alias = pipe < 0 ? "" : m[1].slice(pipe + 1);
+        const hideTo =
+          alias.trim() === ""
+            ? start + 2
+            : start + 2 + pipe + 1 + (alias.length - alias.trimStart().length);
+        deco.push(Decoration.replace({}).range(start, hideTo));
+        deco.push(mark.range(hideTo, end - 2));
         deco.push(Decoration.replace({}).range(end - 2, end));
       }
     }

@@ -28,14 +28,25 @@
 //   by: category        # one series per category
 //   ```
 //
+// A `history:` fence plots one frontmatter fact's own past instead of rows
+// (SUB-832, docs/time-travel-spec.md §3.3) — the chart half of time travel:
+//
+//   ```chart
+//   history: Assets/BTC.md#price   # <note path>#<frontmatter key>
+//   x: month                       # day | week | month (default day)
+//   y: last                        # last | avg | min | max (default last)
+//   kind: line
+//   ```
+//
 // Pure TS, no DOM/node imports: runs in the app and under `node --test`.
 
 import { parseStrictNumber } from "./aggregate.ts";
-import { isIsoDate, MONTHS, toIso } from "./dates.ts";
+import { isIsoDate, MONTHS, todayIso, toIso } from "./dates.ts";
 import { isErr } from "./formula.ts";
+import { endOfLocalDay, isoDayOf, valueAt } from "./history-facts.ts";
 import { propSchemaFor } from "./schemalookup.ts";
 import type { SheetEval, SheetModel } from "./sheet.ts";
-import type { NoteMeta, SchemaConfig, SelectOption } from "./types.ts";
+import type { FactLane, NoteMeta, SchemaConfig, SelectOption } from "./types.ts";
 import { foldedPropStr } from "./types.ts";
 
 export type ChartBucket = "day" | "week" | "month";
@@ -50,16 +61,30 @@ export interface ChartAxis {
   bucket: ChartBucket | null; // null = categorical axis (select prop / text column)
 }
 
+/** How a bucket of a fact's history reduces to one point (§3.3). `last` is the
+    default because §2.1 already answers "what was it on day D" with the day's
+    closing value — the chart says the same thing per bucket. */
+export type HistoryReduce = "last" | "avg" | "min" | "max";
+
+/** The fact a `history:` chart plots: one frontmatter key on one note. */
+export interface HistoryFactRef {
+  path: string;
+  key: string;
+}
+
 /** How a chart gets its points. `rows` is the original binding: bucket the
     source's rows by `x`, reduce with `y`. `summaries` (SUB-745) names sheet
     summaries instead — one point per named summary, no rows involved — so a
-    per-bucket COUNTIF/SUMIF set charts without materializing bucket rows. */
+    per-bucket COUNTIF/SUMIF set charts without materializing bucket rows.
+    `history` (SUB-832) plots one fact's past: the x axis IS time, so it takes
+    a bare bucket rather than a property, and there is no source to bind — the
+    fact names its own note. */
 export type ChartBind =
-  | { bind: "rows"; x: ChartAxis; y: ChartAgg; by: string | null }
-  | { bind: "summaries"; series: string[] };
+  | { bind: "rows"; source: ChartSource; x: ChartAxis; y: ChartAgg; by: string | null }
+  | { bind: "summaries"; source: ChartSource; series: string[] }
+  | { bind: "history"; fact: HistoryFactRef; x: ChartBucket; y: HistoryReduce };
 
 export type ChartConfig = {
-  source: ChartSource;
   kind: ChartKind;
   title: string | null;
 } & ChartBind;
@@ -92,6 +117,12 @@ export interface ChartSeries {
       the x axis: every band lists the SAME keys in the same order, so a bar
       stacks and a line reads point-for-point against its neighbours. */
   bands: ChartBand[] | null;
+  /** An in-place note the chart prints beside the plot rather than in place of
+      it — "no history before 2026-01-05" (§3.3, Open call 1): the points that
+      predate the oldest surviving snapshot are omitted, and saying so is the
+      difference between a short chart and a wrong one. Null when there is
+      nothing to disclose. */
+  note?: string | null;
 }
 
 /** One series of a `by:`-split chart — the distinct value plus its points. */
@@ -102,8 +133,9 @@ export interface ChartBand {
 
 // ---------- config parsing ----------
 
-const KNOWN_KEYS = new Set(["source", "x", "y", "kind", "title", "series", "by"]);
+const KNOWN_KEYS = new Set(["source", "x", "y", "kind", "title", "series", "by", "history"]);
 const BUCKETS = new Set(["day", "week", "month"]);
+const REDUCERS = new Set(["last", "avg", "min", "max"]);
 
 /** The shared fence source grammar: a bare word is a database type, `{{Name}}`
     is a sheet. Exported because every fence that reads rows (```chart,
@@ -126,6 +158,27 @@ function parseAxis(v: string): ChartAxis {
   return { prop: v, bucket: null };
 }
 
+/** `history: <note path>#<frontmatter key>` — the fact whose past to plot.
+    The `{{Sheet}}#member` form is in the spec but not in this slice, so it
+    says so by name instead of failing as an unfindable path. Slice 1 is one
+    fact per fence (§3.3), so a comma list is named too rather than plotting
+    only the first. */
+function parseHistoryFact(v: string): HistoryFactRef {
+  if (v.includes(",")) {
+    throw new Error("history plots one fact — split the rest into their own chart fences");
+  }
+  if (/^\{\{/.test(v.trim())) {
+    throw new Error("history of a sheet summary isn't supported yet — name a note path#key");
+  }
+  const at = v.lastIndexOf("#");
+  if (at < 0) throw new Error(`history must be <note path>#<key> — got "${v}"`);
+  const path = v.slice(0, at).trim();
+  const key = v.slice(at + 1).trim();
+  if (!path) throw new Error("history must name a note path before the #");
+  if (!key) throw new Error("history must name a frontmatter key after the #");
+  return { path, key };
+}
+
 function parseAgg(v: string): ChartAgg {
   if (v.toLowerCase() === "count") return { fn: "count" };
   const m = /^(sum|avg):([\s\S]+)$/i.exec(v);
@@ -145,13 +198,44 @@ export function parseChartConfig(inner: string): ChartConfig {
     if (!KNOWN_KEYS.has(key)) throw new Error(`unknown key "${m[1]}"`);
     kv.set(key, m[2].trim());
   }
-  if (!kv.has("source")) throw new Error(`missing required key "source"`);
   const kindRaw = (kv.get("kind") ?? "bar").toLowerCase();
   if (kindRaw !== "bar" && kindRaw !== "line") {
     throw new Error(`kind must be bar or line — got "${kv.get("kind")}"`);
   }
+  const head = { kind: kindRaw as ChartKind, title: kv.get("title") ?? null };
+
+  // `history` is the time binding (SUB-832 §3.3): the fact IS the source and
+  // the x axis IS time, so a fence carrying `source:` or `series:` too has
+  // named its data twice — say which to drop rather than letting one win.
+  if (kv.has("history")) {
+    if (kv.has("source")) {
+      throw new Error("history charts plot one fact's past — drop source, or drop history");
+    }
+    if (kv.has("series")) {
+      throw new Error("history charts plot one fact's past — drop series, or drop history");
+    }
+    if (kv.has("by")) {
+      throw new Error("by splits a row measure — drop by, or drop history");
+    }
+    const bucketRaw = (kv.get("x") ?? "day").toLowerCase();
+    if (!BUCKETS.has(bucketRaw)) {
+      throw new Error(`unknown x bucket "${kv.get("x")}" — want day, week or month`);
+    }
+    const reduceRaw = (kv.get("y") ?? "last").toLowerCase();
+    if (!REDUCERS.has(reduceRaw)) {
+      throw new Error(`y must be last, avg, min or max — got "${kv.get("y")}"`);
+    }
+    return {
+      ...head,
+      bind: "history",
+      fact: parseHistoryFact(kv.get("history")!),
+      x: bucketRaw as ChartBucket,
+      y: reduceRaw as HistoryReduce,
+    };
+  }
+
+  if (!kv.has("source")) throw new Error(`missing required key "source"`);
   const source = parseSource(kv.get("source")!);
-  const head = { source, kind: kindRaw as ChartKind, title: kv.get("title") ?? null };
 
   // `series` is the summary binding; it replaces x/y rather than joining them,
   // so a fence that carries both is a mistake worth naming rather than one of
@@ -175,7 +259,7 @@ export function parseChartConfig(inner: string): ChartConfig {
       .map((s) => s.trim())
       .filter((s) => s.length > 0);
     if (series.length === 0) throw new Error("series must name at least one summary");
-    return { ...head, bind: "summaries", series };
+    return { ...head, source, bind: "summaries", series };
   }
 
   for (const req of ["x", "y"]) {
@@ -190,6 +274,7 @@ export function parseChartConfig(inner: string): ChartConfig {
   }
   return {
     ...head,
+    source,
     bind: "rows",
     x: parseAxis(kv.get("x")!),
     y,
@@ -233,12 +318,30 @@ export function bucketLabel(key: string, bucket: ChartBucket): string {
   return `${MONTHS[m - 1]} ${d}`;
 }
 
+/** Same label with the year spelled out, for a window that spans more than one
+    of them — "Jul 17" alone reads as this year (SUB-832). */
+function bucketLabelWithYear(key: string, bucket: ChartBucket): string {
+  if (bucket === "month") return bucketLabel(key, bucket);
+  const [y, m, d] = key.split("-").map(Number);
+  return `${MONTHS[m - 1]} ${d} ${y}`;
+}
+
 /** The bucket key that follows `key` on the time axis. */
 function nextBucketKey(key: string, bucket: ChartBucket): string {
   const [y, m, d] = key.split("-").map(Number);
   if (bucket === "month") return toIso(m === 12 ? y + 1 : y, m === 12 ? 1 : m + 1, 1).slice(0, 7);
   const dt = new Date(y, m - 1, d);
   dt.setDate(dt.getDate() + (bucket === "week" ? 7 : 1));
+  return toIso(dt.getFullYear(), dt.getMonth() + 1, dt.getDate());
+}
+
+/** The bucket key before `key` — the axis walked backwards, which is how the
+    history window is cut: from today, not from the oldest snapshot. */
+function prevBucketKey(key: string, bucket: ChartBucket): string {
+  const [y, m, d] = key.split("-").map(Number);
+  if (bucket === "month") return toIso(m === 1 ? y - 1 : y, m === 1 ? 12 : m - 1, 1).slice(0, 7);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() - (bucket === "week" ? 7 : 1));
   return toIso(dt.getFullYear(), dt.getMonth() + 1, dt.getDate());
 }
 
@@ -268,6 +371,125 @@ const DATE_PREFIX = /^(\d{4}-\d{2}-\d{2})/;
 export function dateOf(raw: string): string | null {
   const m = DATE_PREFIX.exec(raw.trim());
   return m && isIsoDate(m[1]) ? m[1] : null;
+}
+
+// ---------- history series (SUB-832 §3.3) ----------
+
+/** First instant of a bucket, in the reader's timezone — the same calendar
+    `endOfLocalDay` uses, so a chart and an `AT()` cell agree about where a day
+    ends. */
+function bucketStartMs(key: string, bucket: ChartBucket): number {
+  const [y, m, d] = key.split("-").map(Number);
+  return new Date(y, m - 1, bucket === "month" ? 1 : d).getTime();
+}
+
+// A `day` chart of a years-old fact would plot a point per day forever. Keep
+// the most recent stretch — the window is cut backwards from TODAY, so the
+// current value is always on the chart — and say the axis was cut, rather than
+// thinning points silently or refusing to draw.
+export const MAX_HISTORY_POINTS = 400;
+
+/** One fact's past as chart points (§3.3): buckets from its first recorded
+    change to today, each reduced by `y`.
+
+    `last` is the bucket's closing value — the same answer `AT(<last day>, …)`
+    gives, so the chart and a cell never disagree. `avg`/`min`/`max` range over
+    the values the fact actually HELD during the bucket, which includes the one
+    carried in from before it: a price that never changed in March still has a
+    March average.
+
+    Buckets before the oldest surviving snapshot are omitted rather than drawn
+    flat back to the beginning of time, and `note` says so — the charting half
+    of Open call 1. Non-numeric values (a status word, a date) are counted in
+    `skipped`, because a chart can only plot numbers. */
+export function historySeries(
+  lane: FactLane,
+  bucket: ChartBucket,
+  reduce: HistoryReduce,
+  today: string = todayIso()
+): ChartSeries {
+  const empty = (note: string | null): ChartSeries => ({
+    points: [],
+    skipped: 0,
+    missing: null,
+    bands: null,
+    note,
+  });
+  if (lane.oldest_ts_ms === null) return empty("this vault has no version history yet");
+  const note = `no history before ${isoDayOf(lane.oldest_ts_ms)}`;
+  // The vault HAS history and this key never appears in it — a typo'd key, or
+  // one that was only ever written outside the covered stretch. Reporting the
+  // trim boundary here would blame the trim for a key that was never recorded
+  // (SUB-832).
+  if (lane.points.length === 0) return empty("no value has been recorded for this key");
+
+  const ceiling = endOfLocalDay(today);
+  if (ceiling === null) return empty(note);
+  const endKey = bucketKey(today, bucket);
+  const oldestKey = bucketKey(isoDayOf(lane.points[0].ts_ms), bucket);
+  if (oldestKey > endKey) return empty(note);
+
+  // Walk the window backwards from today first, so the stretch that gets
+  // plotted is the most recent one and the loop below is bounded by the cap
+  // rather than by the age of the fact. Collecting oldest-first and slicing
+  // afterwards would drop today off the right edge of a long lane.
+  let startKey = endKey;
+  for (let i = 1; i < MAX_HISTORY_POINTS && startKey > oldestKey; i += 1) {
+    startKey = prevBucketKey(startKey, bucket);
+  }
+  if (startKey < oldestKey) startKey = oldestKey;
+  const truncated = startKey > oldestKey;
+  // "Jul 17" reads as this year; a window that crosses a year boundary says
+  // which one it means.
+  const spansYears = startKey.slice(0, 4) !== endKey.slice(0, 4);
+  const labelOf = (k: string) =>
+    spansYears ? bucketLabelWithYear(k, bucket) : bucketLabel(k, bucket);
+
+  const points: ChartPoint[] = [];
+  let skipped = 0;
+  for (let k = startKey; k <= endKey; k = nextBucketKey(k, bucket)) {
+    const start = bucketStartMs(k, bucket);
+    const end = Math.min(bucketStartMs(nextBucketKey(k, bucket), bucket) - 1, ceiling);
+    if (end < start) break;
+    const samples: number[] = [];
+    const take = (raw: string) => {
+      const n = parseStrictNumber(raw);
+      if (n === null) skipped += 1;
+      else samples.push(n);
+    };
+    if (reduce === "last") {
+      const at = valueAt(lane, end);
+      if (at.kind === "value") take(at.value);
+    } else {
+      // the value carried into the bucket counts: a fact that did not change
+      // this month still held a value all month
+      const carried = valueAt(lane, start - 1);
+      if (carried.kind === "value") take(carried.value);
+      for (const p of lane.points) {
+        if (p.ts_ms >= start && p.ts_ms <= end && p.value !== null) take(p.value);
+      }
+    }
+    if (samples.length === 0) continue;
+    const value =
+      reduce === "min"
+        ? Math.min(...samples)
+        : reduce === "max"
+          ? Math.max(...samples)
+          : reduce === "avg"
+            ? samples.reduce((a, b) => a + b, 0) / samples.length
+            : samples[samples.length - 1];
+    points.push({ key: k, label: labelOf(k), value, n: samples.length });
+  }
+
+  return {
+    points,
+    skipped,
+    missing: null,
+    bands: null,
+    note: truncated
+      ? `${note} · showing from ${bucketLabelWithYear(startKey, bucket)}`
+      : note,
+  };
 }
 
 // ---------- aggregation ----------
@@ -630,6 +852,12 @@ export function chartTitle(c: ChartConfig): string {
   if (c.bind === "summaries") {
     return `${cap(c.source.kind === "db" ? c.source.type : c.source.name)} summaries`;
   }
+  // a history chart's subject is the fact itself, and its x axis is always
+  // time — "Price per month" reads the way the fence does (SUB-832)
+  if (c.bind === "history") {
+    const reduced = c.y === "last" ? cap(c.fact.key) : `${cap(c.y)} ${c.fact.key}`;
+    return `${reduced} per ${c.x}`;
+  }
   const per = c.x.bucket ? `per ${c.x.bucket}` : `by ${c.x.prop}`;
   // a `by:` split is the second half of the sentence the title already speaks
   // ("Sum of amount per month, split by category") — the legend names the
@@ -644,5 +872,8 @@ export function chartTitle(c: ChartConfig): string {
 
 /** Provenance line for the chart foot. */
 export function chartSourceDesc(c: ChartConfig): string {
+  // history reads its own note, not a database or a sheet — the provenance
+  // line names the fact so the foot still answers "where is this from"
+  if (c.bind === "history") return `history: ${c.fact.path}#${c.fact.key}`;
   return c.source.kind === "db" ? `database: ${c.source.type}` : `sheet: ${c.source.name}`;
 }

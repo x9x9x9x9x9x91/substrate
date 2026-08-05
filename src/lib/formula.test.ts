@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { todayIso } from "./dates.ts";
 import {
   collectCrossRefs,
+  collectHistoryRefs,
+  collectHistorySheetRefs,
   collectRefs,
   evaluate,
   ferr,
@@ -11,7 +13,11 @@ import {
   looseEq,
   parseFormula,
   renameRefs,
+  ROW_COLUMNS_PREFIX,
+  type Expr,
+  type FErr,
   type FxResolver,
+  type HistoryResolver,
   type Scope,
   type ScopedValue,
   type Value,
@@ -784,5 +790,301 @@ describe("SUB-753 unicode identifiers", () => {
     const e = parseFormula("2024 * 2");
     assert.ok(!isErr(e));
     assert.equal(evaluate(e, scope({}), fx), 4048);
+  });
+});
+
+// ---------- PROP: a frontmatter key on another note (SUB-832) ----------
+
+// present-tense only in this slice: `date` is null on every call below
+const hist: HistoryResolver = (path, key) => {
+  if (path !== "Health/Weight.md") return { kind: "unknown-note" };
+  if (key === "weight") return { kind: "value", value: "72.4" };
+  if (key === "unit") return { kind: "value", value: "kg" };
+  if (key === "stale") return { kind: "unknowable", oldest: "2026-01-01" };
+  if (key === "slow") return { kind: "pending" };
+  return { kind: "absent" };
+};
+
+function runProp(src: string): Value | unknown[] {
+  const expr = parseFormula(src);
+  if (isErr(expr)) return expr;
+  return evaluate(expr, new Map(), fx, undefined, hist) as Value;
+}
+
+describe("PROP", () => {
+  test("reads a numeric key as a number and text as text", () => {
+    assert.equal(runProp('PROP("Health/Weight.md", "weight")'), 72.4);
+    assert.equal(runProp('PROP("Health/Weight.md", "unit")'), "kg");
+    // value-typed, so it composes with arithmetic when the value is numeric
+    assert.equal(runProp('PROP("Health/Weight.md", "weight") * 2'), 144.8);
+  });
+
+  test("a key that isn't there is blank, so aggregates skip it", () => {
+    assert.equal(runProp('PROP("Health/Weight.md", "height")'), null);
+  });
+
+  test("a path with no note behind it is an error naming the path", () => {
+    const v = runProp('PROP("Helth/Wieght.md", "weight")');
+    assert.ok(isErr(v));
+    assert.match((v as { err: string }).err, /no note at .Helth\/Wieght\.md./);
+  });
+
+  test("a date the vault cannot speak for says so, rather than reading blank", () => {
+    const v = runProp('PROP("Health/Weight.md", "stale")');
+    assert.deepEqual(v, ferr("no history before 2026-01-01"));
+  });
+
+  test("a fact still loading is an error, not a silent zero", () => {
+    const v = runProp('PROP("Health/Weight.md", "slow")');
+    assert.ok(isErr(v));
+    assert.match((v as { err: string }).err, /not loaded yet/);
+  });
+
+  test("argument shape is checked", () => {
+    assert.deepEqual(runProp('PROP("Health/Weight.md")'), ferr("PROP: needs a note path and a key"));
+    assert.deepEqual(runProp('PROP("", "weight")'), ferr("PROP: needs a note path"));
+    assert.deepEqual(runProp('PROP("Health/Weight.md", "")'), ferr("PROP: needs a frontmatter key"));
+  });
+
+  test("without a resolver the engine says so instead of guessing", () => {
+    const expr = parseFormula('PROP("Health/Weight.md", "weight")');
+    assert.ok(!isErr(expr));
+    const v = evaluate(expr as Parameters<typeof evaluate>[0], new Map(), fx);
+    assert.deepEqual(v, ferr("PROP: note data is not available here"));
+  });
+});
+
+// ---------- AT: the same fact, as of a past day (SUB-832) ----------
+
+// A resolver that answers with the date it was asked for, so a test can see
+// which tense reached it. `weight` is 80 in the past, 72.4 today.
+const timeHist: HistoryResolver = (path, key, date) => {
+  if (path !== "Health/Weight.md") return { kind: "unknown-note" };
+  if (key === "asked") return { kind: "value", value: date ?? "today" };
+  if (key === "stale" && date) return { kind: "unknowable", oldest: "2026-01-01" };
+  if (key !== "weight") return { kind: "absent" };
+  return { kind: "value", value: date === null ? "72.4" : "80" };
+};
+
+// a fixed clock, so TODAY() and date arithmetic inside AT() are testable
+const clock = () => "2026-03-01";
+
+function runAt(src: string, sc: Scope = new Map()): Value | unknown[] {
+  const expr = parseFormula(src);
+  if (isErr(expr)) return expr;
+  return evaluate(expr, sc, fx, clock, timeHist) as Value;
+}
+
+describe("AT", () => {
+  test("reads its body as of the given day, leaving the present tense alone", () => {
+    assert.equal(runAt('AT("2026-02-01", PROP("Health/Weight.md", "weight"))'), 80);
+    assert.equal(runAt('PROP("Health/Weight.md", "weight")'), 72.4);
+    // the day reaches the resolver exactly as written
+    assert.equal(runAt('AT("2026-02-01", PROP("Health/Weight.md", "asked"))'), "2026-02-01");
+    // …and the present tense outside it is genuinely present
+    assert.equal(runAt('PROP("Health/Weight.md", "asked")'), "today");
+  });
+
+  test("takes TODAY() and date arithmetic as its day", () => {
+    assert.equal(runAt('AT(TODAY(), PROP("Health/Weight.md", "asked"))'), "2026-03-01");
+    assert.equal(runAt('AT(TODAY() - 30, PROP("Health/Weight.md", "asked"))'), "2026-01-30");
+  });
+
+  test("composes: past and present in one expression", () => {
+    // the shape the spec is for — how much has this changed since then?
+    assert.equal(
+      runAt(
+        'PROP("Health/Weight.md", "weight") - AT("2026-02-01", PROP("Health/Weight.md", "weight"))'
+      ),
+      72.4 - 80
+    );
+  });
+
+  test("the innermost AT wins for its own body", () => {
+    assert.equal(
+      runAt('AT("2026-02-01", AT("2026-01-15", PROP("Health/Weight.md", "asked")))'),
+      "2026-01-15"
+    );
+  });
+
+  test("a day the vault cannot speak for says so inside AT too", () => {
+    assert.deepEqual(
+      runAt('AT("2025-06-01", PROP("Health/Weight.md", "stale"))'),
+      ferr("no history before 2026-01-01")
+    );
+  });
+
+  test("refuses today's numbers rather than passing them off as the past", () => {
+    // this sheet's own column or summary is computed from today's tables;
+    // inside AT it is not the past, and answering with it would be the silent
+    // wrong answer. (A member off ANOTHER sheet CAN be carried back — see
+    // "AT(date, Sheet.member)" below, where the historical sheet is re-evaluated.)
+    const sc: Scope = new Map([["total", 1000]]);
+    const v = runAt('AT("2026-02-01", total)', sc);
+    assert.ok(isErr(v));
+    assert.match((v as { err: string }).err, /total.*today's value/);
+    // outside AT the same reference is fine
+    assert.equal(runAt("total", sc), 1000);
+  });
+
+  test("row scope does not smuggle today's column into an AT aggregate (SUB-832)", () => {
+    // in a row cell a bare name is this row's scalar, so aggregates read the
+    // whole-column view bound alongside it — which holds TODAY's numbers.
+    // Inside AT that view must refuse exactly like the bare reference does,
+    // or `AT(then, SUM(amount))` answers with the present-day total.
+    const sc: Scope = new Map<string, ScopedValue | ScopedValue[]>([
+      ["amount", 5],
+      [ROW_COLUMNS_PREFIX + "amount", [5, 10, 20]],
+    ]) as Scope;
+    const v = runAt('AT("2026-02-01", SUM(amount))', sc);
+    assert.ok(isErr(v));
+    assert.match((v as { err: string }).err, /amount.*today's value/);
+    // outside AT the same aggregate still sees the column
+    assert.equal(runAt("SUM(amount)", sc), 35);
+  });
+
+  test("a cross-sheet member with no history delegate says so, never a number", () => {
+    // the resolver in this block predates the sheet delegate: the honest answer
+    // is that the past sheet is not loaded, not today's number
+    const sc: Scope = new Map([["holdings.total", 1000]]);
+    const v = runAt('AT("2026-02-01", Holdings.total)', sc);
+    assert.ok(isErr(v));
+    assert.match((v as { err: string }).err, /holdings\.total.*not loaded yet/);
+  });
+
+  test("argument shape is checked, and a non-date says what a date looks like", () => {
+    assert.deepEqual(runAt('AT("2026-02-01")'), ferr("AT: needs a date and a value"));
+    const v = runAt('AT("last tuesday", PROP("Health/Weight.md", "weight"))');
+    assert.ok(isErr(v));
+    assert.match((v as { err: string }).err, /not a date — use YYYY-MM-DD or TODAY\(\)/);
+  });
+
+  test("without a resolver the engine says so instead of guessing", () => {
+    const expr = parseFormula('AT("2026-02-01", PROP("Health/Weight.md", "weight"))');
+    assert.ok(!isErr(expr));
+    const v = evaluate(expr as Parameters<typeof evaluate>[0], new Map(), fx, clock);
+    assert.deepEqual(v, ferr("AT: history is not available here"));
+  });
+});
+
+describe("collectHistoryRefs", () => {
+  const refs = (src: string) => {
+    const e = parseFormula(src);
+    assert.ok(!isErr(e));
+    return collectHistoryRefs(e as Parameters<typeof collectHistoryRefs>[0], clock);
+  };
+
+  test("collects the fact and the day, without evaluating anything", () => {
+    assert.deepEqual(refs('AT("2026-02-01", PROP("Health/Weight.md", "weight"))'), [
+      { path: "Health/Weight.md", key: "weight", date: "2026-02-01" },
+    ]);
+  });
+
+  test("resolves TODAY() and date arithmetic the same way evaluation will", () => {
+    assert.deepEqual(refs('AT(TODAY() - 30, PROP("A.md", "x"))'), [
+      { path: "A.md", key: "x", date: "2026-01-30" },
+    ]);
+  });
+
+  test("a present-tense PROP needs no prefetch", () => {
+    assert.deepEqual(refs('PROP("A.md", "x")'), []);
+  });
+
+  test("finds facts nested in arithmetic and other calls, innermost day winning", () => {
+    assert.deepEqual(
+      refs('ROUND(AT("2026-02-01", PROP("A.md", "x") + AT("2026-01-01", PROP("B.md", "y"))), 2)'),
+      [
+        { path: "A.md", key: "x", date: "2026-02-01" },
+        { path: "B.md", key: "y", date: "2026-01-01" },
+      ]
+    );
+  });
+
+  test("a day that can only be known per row collects nothing", () => {
+    // AT(bought, …) is a later slice; the cell says "not loaded yet" rather
+    // than answering from a prefetch that never happened
+    assert.deepEqual(refs('AT(bought, PROP("A.md", "x"))'), []);
+    assert.deepEqual(refs('AT("2026-02-01", PROP(path, "x"))'), []);
+  });
+});
+
+// ---------- AT over a cross-sheet member (SUB-832, spec §3.2) ----------
+
+describe("AT(date, Sheet.member)", () => {
+  // the delegate the prefetching surface supplies: it knows what a sheet is,
+  // the engine never does
+  const withSheets = (
+    sheetValue?: (sheet: string, member: string, date: string) => Value
+  ): HistoryResolver => {
+    const h: HistoryResolver = (path, key, date) =>
+      path === "Health/Weight.md" && key === "weight"
+        ? { kind: "value", value: date === null ? "72.4" : "80" }
+        : { kind: "unknown-note" };
+    if (sheetValue) h.sheetValue = sheetValue;
+    return h;
+  };
+  const run = (src: string, hist: HistoryResolver, scope = new Map<string, Value>()) => {
+    const expr = parseFormula(src);
+    if (isErr(expr)) return expr;
+    return evaluate(expr, scope, fx, clock, hist) as Value;
+  };
+
+  test("a member with no binding in today's scope is still read as of the date", () => {
+    // the historical read must not need a present-tense binding to exist —
+    // a sheet this one never references today is exactly the interesting case
+    const seen: string[] = [];
+    const hist = withSheets((sheet, member, date) => {
+      seen.push(`${sheet}.${member}@${date}`);
+      return 250;
+    });
+    assert.equal(run('AT("2026-02-15", Holdings.total)', hist), 250);
+    assert.deepEqual(seen, ["holdings.total@2026-02-15"]);
+  });
+
+  test("without a delegate the cell says history is not loaded, never a number", () => {
+    const v = run('AT("2026-02-15", Holdings.total)', withSheets());
+    assert.ok(isErr(v));
+    assert.match((v as FErr).err, /not loaded yet/);
+  });
+
+  test("this sheet's own names still refuse the past tense", () => {
+    const v = run('AT("2026-02-15", total)', withSheets(() => 250), new Map([["total", 300]]));
+    assert.ok(isErr(v));
+    assert.match((v as FErr).err, /only PROP\(\) can be read as of a past date/);
+  });
+
+  test("present tense reads the scope, delegate untouched", () => {
+    let calls = 0;
+    const hist = withSheets(() => {
+      calls += 1;
+      return 250;
+    });
+    assert.equal(run("Holdings.total", hist, new Map([["holdings.total", 300]])), 300);
+    assert.equal(calls, 0);
+  });
+
+  test("a nested AT binds each side to its own date", () => {
+    const seen: string[] = [];
+    const hist = withSheets((_sheet, _member, date) => {
+      seen.push(date);
+      return date === "2026-02-15" ? 250 : 100;
+    });
+    assert.equal(
+      run('AT("2026-02-15", Holdings.total - AT("2026-01-15", Holdings.total))', hist),
+      150
+    );
+    assert.deepEqual(seen, ["2026-02-15", "2026-01-15"]);
+  });
+
+  test("the days are collectable statically, so the prefetch knows what to fetch", () => {
+    const e = parseFormula('AT("2026-02-15", Holdings.total) + AT(TODAY(), Other.x)');
+    assert.ok(!isErr(e));
+    assert.deepEqual(collectHistorySheetRefs(e as Expr, clock), [
+      { sheet: "holdings", date: "2026-02-15" },
+      { sheet: "other", date: "2026-03-01" },
+    ]);
+    // present tense collects nothing — no AT, no revwalk
+    const p = parseFormula("Holdings.total");
+    assert.deepEqual(collectHistorySheetRefs(p as Expr, clock), []);
   });
 });
