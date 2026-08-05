@@ -19,6 +19,7 @@ pub(crate) mod kinds;
 // `commands::mounts` (SUB-1050).
 pub(crate) mod mounts;
 pub(crate) mod notes;
+pub(crate) mod reflexes;
 pub(crate) mod schema;
 pub(crate) mod search;
 pub(crate) mod share;

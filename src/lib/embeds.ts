@@ -39,6 +39,14 @@ import {
   typeSchemaFor,
 } from "./schemalookup.ts";
 import { filterByQuery } from "./views.ts";
+import {
+  isJoinName,
+  joinResolverFor,
+  joinSortKeyFor,
+  joinSortSchema,
+  type JoinResolver,
+  type ResolvedJoin,
+} from "./viewjoin.ts";
 import { foldedPropStr } from "./types.ts";
 import type {
   NoteMeta,
@@ -109,6 +117,12 @@ export type EmbedResult =
           seeds a row from it, and a pinned embed must seed from the pin's own
           filter, not from the fence's (absent) `query:` line */
       query: string;
+      /** The join columns among `columns` (SUB-829), by their canonical
+          dotted name. A joined cell is a stored value read off ANOTHER row,
+          so it is read-only wherever cells are editable — the widget asks
+          this set, exactly as it asks the schema for a rollup. Absent when
+          the fence declares no joins. */
+      joins?: string[];
       /** Why `rows` is shorter than `total`, when it is (SUB-942). The two
           reasons are not the same fact and must not read the same way: a
           `limit:` is the author SAYING "top 5", a cap is the surface refusing
@@ -324,15 +338,42 @@ export function embedQueryFor(
   // list is persisted state that outlives prop renames, so a key falling out
   // of it stays a quiet drop; a fence's list is text the author is looking at
   // right now, and a silently-missing column there is just a wrong table.
+  //
+  // A dotted name MAY be a join (SUB-829) — a lookup through the relation it
+  // names rather than one of this database's own columns. A stored column of
+  // that exact name wins first (`isJoinName`): frontmatter keys are allowed
+  // to carry dots, and a vault already storing `v1.2` must keep rendering it.
+  let resolver: JoinResolver | undefined;
+  const resolveJoin = (name: string): ResolvedJoin | { error: string } => {
+    resolver ??= joinResolverFor(notes, schema);
+    return resolver.resolve(name, dbType as string, typeSchema);
+  };
   let columns: string[];
+  // Which columns are joins is decided HERE, as they're picked — never by
+  // name-matching a resolved-joins map against the final column list. A
+  // `sort:`-only join can share a name with a real column (`release.date`
+  // stored on the base row while `release` is also a relation), and matching
+  // by name would silently swap that stored column's value for the looked-up
+  // one and mark the author's own prop read-only.
+  let colJoins: (ResolvedJoin | undefined)[];
   if (spec.columns) {
     const picked: string[] = [];
+    const pickedJoins: (ResolvedJoin | undefined)[] = [];
     const seen = new Set<string>();
     for (const name of spec.columns) {
       // Title is the table's fixed leading column, not a vault property. Let
       // authors include it in the natural left-to-right list without either
       // duplicating it or spending one of the optional-property slots.
       if (name.trim().toLowerCase() === "title") continue;
+      if (isJoinName(name, dbCols)) {
+        const join = resolveJoin(name);
+        if ("error" in join) return { error: join.error };
+        if (seen.has(join.name)) continue;
+        seen.add(join.name);
+        picked.push(join.name);
+        pickedJoins.push(join);
+        continue;
+      }
       const canonical = canonicalColumn(dbCols, name);
       if (canonical === undefined) {
         return { error: `Unknown column “${name}” in “${dbType}”` };
@@ -341,29 +382,64 @@ export function embedQueryFor(
       if (seen.has(canonical)) continue;
       seen.add(canonical);
       picked.push(canonical);
+      pickedJoins.push(undefined);
     }
     columns = picked;
+    colJoins = pickedJoins;
   } else {
+    // a pin's curated list and the default union are both made of this
+    // database's own columns — nothing dotted is resolved through a relation
     columns = effectiveColumns(pin, dbCols);
+    colJoins = columns.map(() => undefined);
   }
   // the cap is the surface's, not the author's — an explicit `columns:` list
   // is still bounded by what the surface can paint
   columns = columns.slice(0, caps.cols);
+  colJoins = colJoins.slice(0, caps.cols);
 
   // Ordering: the fence's `sort:` runs through the table's own comparator
   // (dbsort), so a select column orders by its declared option order, a number
   // column numerically and a date column chronologically — exactly as clicking
   // that header in the database pane does. `title` is sortable without being a
   // column, same as there.
+  //
+  // A dotted `sort:` (SUB-829) orders by the looked-up value under the TARGET
+  // property's own kind. The joined values are materialized onto a shallow
+  // props copy for every MATCHED row — before the cut, like every other sort
+  // here, which is the only reading that makes `sort: release.date:desc` +
+  // `limit: 5` mean "the five newest".
   let ordered = matched;
   if (spec.sort) {
-    const canonical =
-      spec.sort.key.toLowerCase() === "title" ? "title" : canonicalColumn(dbCols, spec.sort.key);
-    if (canonical === undefined) {
-      return { error: `Unknown sort property “${spec.sort.key}” in “${dbType}”` };
+    if (isJoinName(spec.sort.key, dbCols)) {
+      const join = resolveJoin(spec.sort.key);
+      if ("error" in join) return { error: join.error };
+      const r = resolver as JoinResolver;
+      // The looked-up value rides a THROWAWAY props copy used only for the
+      // comparison — the rows handed back keep their own props, so a joined
+      // column can never be mistaken for a stored one downstream, and sorting
+      // by a lookup never adds it as a column. A row with nothing to look up
+      // has the key absent, which sorts last in both directions (withRollups'
+      // convention).
+      const sortKey = joinSortKeyFor(r, join, spec.sort.dir);
+      const keyed = matched.map((n) => {
+        const v = sortKey(n);
+        const props = { ...n.props };
+        if (v === undefined) delete props[join.name];
+        else props[join.name] = v;
+        return { n, sortable: { ...n, props } };
+      });
+      const cmp = sortCmpFor([{ key: join.name, dir: spec.sort.dir }], joinSortSchema(join));
+      if (cmp) keyed.sort((a, b) => cmp(a.sortable, b.sortable));
+      ordered = keyed.map((k) => k.n);
+    } else {
+      const canonical =
+        spec.sort.key.toLowerCase() === "title" ? "title" : canonicalColumn(dbCols, spec.sort.key);
+      if (canonical === undefined) {
+        return { error: `Unknown sort property “${spec.sort.key}” in “${dbType}”` };
+      }
+      const cmp = sortCmpFor([{ key: canonical, dir: spec.sort.dir }], typeSchema);
+      if (cmp) ordered = [...matched].sort(cmp);
     }
-    const cmp = sortCmpFor([{ key: canonical, dir: spec.sort.dir }], typeSchema);
-    if (cmp) ordered = [...matched].sort(cmp);
   } else if (pin) {
     // A saved embed is the saved view in miniature. Preserve its persisted
     // multi-key order unless this fence/page supplies an explicit override.
@@ -389,15 +465,20 @@ export function embedQueryFor(
   // cells go through the same displayValue pipeline as the database table
   // (SUB-179): dates human, files/embeds by basename — created/updated are
   // date-kind unless the schema overrides, matching the table (SUB-167)
-  const kinds = columns.map(
-    (c) =>
-      byFoldedKey(typeSchema, c)?.kind ??
-      (isBuiltinDateName(c) ? "date" : undefined)
+  const kinds = columns.map((c, i) =>
+    colJoins[i]
+      ? undefined
+      : byFoldedKey(typeSchema, c)?.kind ?? (isBuiltinDateName(c) ? "date" : undefined)
   );
+  // a joined column's cells come from the target row, not this one (SUB-829),
+  // and it is a join because it was PICKED as one — not because its name
+  // happens to match one that resolved
+  const joinNames = columns.filter((_, i) => colJoins[i] !== undefined);
   return {
     dbType,
     ...(savedId !== undefined ? { savedId, savedName } : {}),
     columns,
+    ...(joinNames.length > 0 ? { joins: joinNames } : {}),
     total: matched.length,
     ...(cut !== undefined ? { cut } : {}),
     typeSchema,
@@ -407,6 +488,8 @@ export function embedQueryFor(
       title: n.title,
       props: n.props,
       cells: columns.map((c, i) => {
+        const join = colJoins[i];
+        if (join) return (resolver as JoinResolver).cellText(n, join);
         const v = foldedPropStr(n.props, c) ?? "";
         return v ? displayValue(v, kinds[i], byFoldedKey(typeSchema, c)?.format) : "";
       }),

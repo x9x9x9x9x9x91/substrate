@@ -26,7 +26,13 @@ import { normalizeNumberInput } from "./aggregate.ts";
 import type { NumberStyle } from "./calc.ts";
 import type { FxResolver } from "./formula.ts";
 import type { DashboardSheetState } from "./dashboardSheets.ts";
-import { cellModel, cellOpensEditor, type CellModel } from "./cellmodel.ts";
+import { type CellModel } from "./cellmodel.ts";
+import {
+  isJoinedColumn,
+  viewCellEditable,
+  viewCellModel,
+  viewCellWritable,
+} from "./viewcell.ts";
 import { foldedPropKey, foldedPropStr, type PropValue } from "./types.ts";
 import { chipCommitValue, propListValue, type RelationCandidate } from "./relation.ts";
 // the cell pickers are React; this is the one seam a widget mounts them
@@ -596,7 +602,7 @@ function paintViewWidget(wrap: HTMLElement, view: EditorView, inner: string): bo
       const td = document.createElement("td");
       td.className = "embed-view-cell";
       td.dataset.column = column;
-      const model = cellModel(row.props, column, result.typeSchema);
+      const model = viewCellModel(result, row.props, column);
       if (model.kind === "checkbox") {
         // the whole cell is the affordance, same as the database table
         // (SUB-173) — a box, not the string "true"
@@ -607,7 +613,7 @@ function paintViewWidget(wrap: HTMLElement, view: EditorView, inner: string): bo
       } else {
         td.textContent = row.cells[i];
       }
-      if (!cellOpensEditor(model.kind)) td.classList.add("embed-view-cell-inert");
+      if (!viewCellEditable(result, column, model)) td.classList.add("embed-view-cell-inert");
       if (
         state.editing &&
         state.editing.path === row.path &&
@@ -695,7 +701,7 @@ function viewHit(
     // the title cell keeps navigating — the row's name is its link (SUB-86)
     if (!td || !column || "error" in result) return { kind: "open", path };
     const props = result.rows.find((r) => r.path === path)?.props ?? {};
-    return { kind: "cell", path, column, td, model: cellModel(props, column, result.typeSchema) };
+    return { kind: "cell", path, column, td, model: viewCellModel(result, props, column) };
   }
   if (!("error" in result) && target.closest?.(".embed-view-head")) return { kind: "head" };
   return { kind: "source" };
@@ -725,6 +731,11 @@ function viewMouseDown(wrap: HTMLElement, view: EditorView, e: MouseEvent) {
     // toggle also lands under a dismissing click: in the pane the open menu
     // closes on window mousedown and the checkbox still takes the click, so
     // needing a second click here would break parity with the same gesture.
+    //
+    // The read-only check belongs HERE, on the write itself, not only on the
+    // paint and the editor-opening click: this toggle writes without ever
+    // opening an editor, so those two guards don't cover it (SUB-829).
+    if (!viewCellWritable(result, hit.column)) return;
     handlers.setProp?.(hit.path, hit.model.actualKey, hit.model.checked ? null : true);
     return;
   }
@@ -768,7 +779,7 @@ function viewClick(wrap: HTMLElement, view: EditorView, e: MouseEvent) {
   if ("error" in state.result) return;
   const hit = viewHit(e.target as HTMLElement, state.result);
   if (hit.kind !== "cell") return;
-  if (!cellOpensEditor(hit.model.kind)) return;
+  if (!viewCellEditable(state.result, hit.column, hit.model)) return;
   // clicking the cell that's already open closes it, rather than reopening a
   // menu the outside-mousedown just dismissed
   if (state.editing?.path === hit.path && state.editing.column === hit.column) return;
@@ -787,7 +798,10 @@ function openCellEditor(
   const handlers = view.state.facet(embedHandlers);
   const result = state.result;
   const props = result.rows.find((r) => r.path === path)?.props ?? {};
-  const model = cellModel(props, column, result.typeSchema);
+  // a joined column has no editor to open — the caller's guard already ruled,
+  // this keeps the entry point honest on its own terms (SUB-829)
+  if (isJoinedColumn(result, column)) return;
+  const model = viewCellModel(result, props, column);
   state.host ??= createCellEditorHost(state.hostEl);
   state.editing = { path, column };
   td.classList.add("editing");

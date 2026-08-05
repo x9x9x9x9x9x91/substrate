@@ -191,6 +191,12 @@ pub struct MountScanStats {
     pub updated: usize,
     pub renamed: usize,
     pub missing: usize,
+    /// Mount-relative paths of the files this scan saw for the first time —
+    /// the same rows `added` counts, named. Reflexes turn each one into a
+    /// `mount.file_added` event (SUB-826), which needs the paths, not a
+    /// tally. Sorted, since the index it comes from is.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub added_files: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -1026,6 +1032,7 @@ impl Engine {
                 }
             } else {
                 stats.added += 1;
+                stats.added_files.push(rel.clone());
             }
             out.push(MountFile {
                 rel,
@@ -1048,6 +1055,16 @@ impl Engine {
             out.push(MountFile { missing: true, ..was.clone() });
         }
         out.sort_by(|a, b| a.rel.cmp(&b.rel));
+        // walk order is the filesystem's; reflexes fire in this order, so it
+        // has to be the same one twice (§5 deterministic receipts)
+        stats.added_files.sort();
+        // a mount's FIRST scan meets every file it will ever have at once.
+        // Those aren't arrivals, they're the folder as it already was, and
+        // replaying them as events is exactly the catch-up SUB-826 §9 rules
+        // out. The counts still say `added` — only the event list is empty.
+        if prior.scanned.is_empty() {
+            stats.added_files.clear();
+        }
 
         let index = MountIndex { scanned: chrono::Local::now().to_rfc3339(), files: out };
         if let Err(e) = write_index(&self.root, id, &index) {
@@ -1934,6 +1951,39 @@ mod tests {
         assert!(e.mount_index(&unbound.id).scanned.is_empty(), "no index invented");
 
         assert!(e.sync_mounts(&BTreeMap::new()).is_empty());
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// SUB-826: reflexes need the paths that arrived, not the count — and the
+    /// first scan of a mount is the folder as it already was, not arrivals.
+    #[test]
+    fn a_scan_names_the_files_that_arrived_but_never_the_first_load() {
+        let (mut e, dir) = temp_vault("madded");
+        let watched = temp_watched("madded");
+        fs::write(watched.join("old.wav"), b"old").unwrap();
+        let m = e.add_mount("Masters", vec![], false).unwrap();
+
+        // adoption scan: 1 added by the counters, zero events
+        let first = e.scan_mount(&m.id, &watched);
+        assert_eq!(first.added, 1);
+        assert!(first.added_files.is_empty(), "{:?}", first.added_files);
+
+        fs::write(watched.join("b.wav"), b"b").unwrap();
+        fs::write(watched.join("a.wav"), b"a").unwrap();
+        let stats = e.sync_mounts(&bind(&m.id, &watched));
+        assert_eq!(stats[0].added, 2);
+        // sorted, so the same two arrivals fire in the same order every time
+        assert_eq!(stats[0].added_files, vec!["a.wav".to_string(), "b.wav".to_string()]);
+
+        // an unchanged rescan is not an arrival, and neither is a rename:
+        // identity matching keeps the row
+        assert!(e.sync_mounts(&bind(&m.id, &watched))[0].added_files.is_empty());
+        fs::rename(watched.join("a.wav"), watched.join("moved.wav")).unwrap();
+        let after = e.sync_mounts(&bind(&m.id, &watched));
+        assert_eq!(after[0].renamed, 1);
+        assert!(after[0].added_files.is_empty(), "a rename is not an arrival");
+
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&watched);
     }

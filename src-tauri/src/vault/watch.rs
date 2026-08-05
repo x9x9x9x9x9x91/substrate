@@ -35,10 +35,14 @@ pub(super) fn watch_relevant(root: &Path, p: &Path) -> bool {
 }
 
 /// The live-editable config files —
-/// `.vault/{schema,views,folders,calendars,tagfolders,mounts}.json`.
+/// `.vault/{schema,views,folders,calendars,tagfolders,mounts,reflexes}.json`.
 /// The watcher surfaces exactly these dot-paths so external edits apply
 /// without a restart (SUB-100); lib.rs routes them to a separate
 /// `vault:config-changed` signal instead of the note-refetch `vault:changed`.
+///
+/// `.vault/reflexes-log.json` is deliberately NOT here: the reflex receipts
+/// file is app-owned, and a watched log would make every fire re-enter the
+/// watcher that produced it (SUB-826).
 pub fn config_path(root: &Path, p: &Path) -> bool {
     let rel = p.strip_prefix(root).unwrap_or(p);
     rel == Path::new(SCHEMA_REL_PATH)
@@ -47,6 +51,7 @@ pub fn config_path(root: &Path, p: &Path) -> bool {
         || rel == Path::new(crate::calendarfeed::CONFIG_REL_PATH)
         || rel == Path::new(TagFolder::REL_PATH)
         || rel == Path::new(MOUNTS_REL_PATH)
+        || rel == Path::new(crate::reflexes::CONFIG_REL_PATH)
 }
 
 /// Cadence of the degraded-mode fallback (SUB-157): when the watcher can't
@@ -518,11 +523,15 @@ mod tests {
             ".vault/calendars.json",
             ".vault/tagfolders.json",
             ".vault/mounts.json",
+            ".vault/reflexes.json",
         ] {
             assert!(watch_relevant(&dir, &dir.join(rel)), "{rel} is config-relevant");
             assert!(config_path(&dir, &dir.join(rel)));
         }
         assert!(!watch_relevant(&dir, &dir.join(".vault/notifications.json")));
+        // the receipt log is app-owned and deliberately unwatched, or every
+        // reflex that fires would wake the watcher that fired it (SUB-826)
+        assert!(!watch_relevant(&dir, &dir.join(".vault/reflexes-log.json")));
         assert!(!watch_relevant(&dir, &dir.join(".git/config")));
         assert!(!watch_relevant(&dir, &dir.join(".vault/templates/event.md")));
         assert!(!watch_relevant(&dir, &dir.join(".vault/nested/schema.json")));

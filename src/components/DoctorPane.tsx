@@ -14,6 +14,7 @@ const KIND_LABELS: [DoctorKind, string][] = [
   ["corrupt-config", "Unreadable vault config"],
   ["stale-config", "Stale vault config"],
   ["invalid-prop", "Invalid property values"],
+  ["broken-reflex", "Reflexes that won't run"],
 ];
 
 interface DoctorPaneProps {

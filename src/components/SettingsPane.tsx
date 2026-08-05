@@ -7,6 +7,7 @@
 
 import { Fragment, lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { onboardingStatus, vaultRead } from "../lib/ipc";
+import ReflexesSettings from "./ReflexesSettings";
 import { normalizeNumberInput } from "../lib/aggregate";
 import { setPropUndoable } from "../lib/undoprops";
 import { useEdgeFade } from "../hooks/useEdgeFade";
@@ -1026,6 +1027,10 @@ export default function SettingsPane({
                 </div>
               </Fragment>
             ))}
+          {/* last, and only when this vault has rules: the enable switch is a
+              consequential one, and it should not be the first thing someone
+              scrolling for a font size trips over (SUB-826) */}
+          <ReflexesSettings onToast={onToast} />
         </div>
         <div className="palette-foot">
           <span>

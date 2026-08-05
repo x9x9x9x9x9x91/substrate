@@ -19,7 +19,8 @@
 //!
 //! ```json
 //! // .vault/format.json
-//! { "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1, "tagfolders": 1, "mounts": 1 }
+//! { "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1,
+//!   "tagfolders": 1, "mounts": 1, "reflexes": 1 }
 //! ```
 //!
 //! An older app doesn't know the sidecar exists and ignores it — its config
@@ -59,10 +60,11 @@ pub enum VaultFile {
     Calendars,
     TagFolders,
     Mounts,
+    Reflexes,
 }
 
 impl VaultFile {
-    pub const ALL: [VaultFile; 7] = [
+    pub const ALL: [VaultFile; 8] = [
         VaultFile::Schema,
         VaultFile::Views,
         VaultFile::Folders,
@@ -70,6 +72,7 @@ impl VaultFile {
         VaultFile::Calendars,
         VaultFile::TagFolders,
         VaultFile::Mounts,
+        VaultFile::Reflexes,
     ];
 
     /// This file's key in the sidecar.
@@ -82,6 +85,7 @@ impl VaultFile {
             VaultFile::Calendars => "calendars",
             VaultFile::TagFolders => "tagfolders",
             VaultFile::Mounts => "mounts",
+            VaultFile::Reflexes => "reflexes",
         }
     }
 
@@ -94,6 +98,7 @@ impl VaultFile {
             VaultFile::Calendars => crate::calendarfeed::CONFIG_REL_PATH,
             VaultFile::TagFolders => crate::vault::TagFolder::REL_PATH,
             VaultFile::Mounts => crate::vault::MOUNTS_REL_PATH,
+            VaultFile::Reflexes => crate::reflexes::CONFIG_REL_PATH,
         }
     }
 
@@ -107,6 +112,7 @@ impl VaultFile {
             VaultFile::Calendars => 1,
             VaultFile::TagFolders => 1,
             VaultFile::Mounts => 1,
+            VaultFile::Reflexes => 1,
         }
     }
 
@@ -124,6 +130,7 @@ impl VaultFile {
             // it owns under `.vault/mounts/` — those are derived caches,
             // rewritten wholesale, never migrated independently
             VaultFile::Mounts => "mounted folders",
+            VaultFile::Reflexes => "reflexes",
         }
     }
 
@@ -142,6 +149,10 @@ impl VaultFile {
             VaultFile::Calendars => false,
             VaultFile::TagFolders => true,
             VaultFile::Mounts => true,
+            // an unparseable rules file is reported and runs nothing — the
+            // alternative, reading as "no rules", would silently disarm every
+            // reflex the vault asks for
+            VaultFile::Reflexes => false,
         }
     }
 
@@ -162,6 +173,7 @@ impl VaultFile {
             VaultFile::Calendars => &[],
             VaultFile::TagFolders => &[],
             VaultFile::Mounts => &[],
+            VaultFile::Reflexes => &[],
         }
     }
 }

@@ -135,7 +135,8 @@ export type DoctorKind =
   | "ambiguous-target"
   | "corrupt-config"
   | "stale-config"
-  | "invalid-prop";
+  | "invalid-prop"
+  | "broken-reflex";
 
 /** `error` = definitively broken; `warn` = ambiguous or suspicious. */
 export type DoctorSeverity = "warn" | "error";
@@ -211,6 +212,9 @@ export interface MountScanStats {
   updated: number;
   renamed: number;
   missing: number;
+  /** mount-relative paths of the newly-seen files, absent when there are
+      none; a mount's very first scan reports none by design (SUB-826) */
+  added_files?: string[];
   error?: string;
 }
 

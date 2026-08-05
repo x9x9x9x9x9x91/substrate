@@ -14,6 +14,7 @@ mod net;
 mod notify;
 #[cfg(target_os = "macos")]
 mod panel;
+mod reflexes;
 mod smoke;
 mod term;
 #[cfg(test)]
@@ -110,6 +111,72 @@ fn snapshot_now(app: &tauri::AppHandle, label: &str) {
     }
 }
 
+/// Run the vault's reflex rules over one watcher batch (SUB-826).
+///
+/// Called from the watcher callback AFTER the UI has been told what changed,
+/// on that same thread: rules are a background consequence of an edit, never
+/// something a refetch waits on. Everything that decides whether anything runs
+/// at all — the per-vault enable switch, the file's `paused` flag — lives in
+/// `reflexes::run::run_if_enabled`, so this function stays a wiring shim.
+///
+/// Desktop only (§8): the phone's watcher is a poll-only fallback and reflexes
+/// are deliberately live-events-only.
+#[cfg(desktop)]
+fn run_reflexes(
+    app: &tauri::AppHandle,
+    cfg_dir: &std::path::Path,
+    root: &std::path::Path,
+    outcomes: &[(String, vault::NoteChange)],
+) {
+    use reflexes::run::Trigger;
+    let triggers: Vec<Trigger> = outcomes
+        .iter()
+        .map(|(rel, kind)| {
+            let event = match kind {
+                vault::NoteChange::Created => reflexes::Event::NoteCreated,
+                vault::NoteChange::Changed => reflexes::Event::NoteChanged,
+                vault::NoteChange::Removed => reflexes::Event::NoteRemoved,
+            };
+            Trigger::note(event, rel)
+        })
+        .collect();
+    run_reflex_triggers(app, cfg_dir, root, triggers);
+}
+
+/// Fire a batch of already-built triggers. Both watchers land here: the vault
+/// watcher via [`run_reflexes`], the folder watcher with `mount.file_added`
+/// triggers it built under the engine lock and fires after releasing it (§5).
+#[cfg(desktop)]
+fn run_reflex_triggers(
+    app: &tauri::AppHandle,
+    cfg_dir: &std::path::Path,
+    root: &std::path::Path,
+    triggers: Vec<reflexes::run::Trigger>,
+) {
+    let reflex_state: State<reflexes::ReflexState> = app.state();
+    let Ok(mut loaded) = reflex_state.0.lock() else { return };
+    if loaded.reflexes.rules.is_empty() {
+        return;
+    }
+    let engine: State<AppState> = app.state();
+    let reflexes::Loaded { reflexes, runtime, .. } = &mut *loaded;
+    let report = reflexes::run::run_if_enabled(
+        cfg_dir,
+        root,
+        &engine.0,
+        runtime,
+        reflexes,
+        &triggers,
+        &reflexes::run::OsNotifier,
+    );
+    // a reflex writes through the engine, so the UI has to hear about it the
+    // same way a human edit is heard about
+    if !report.written.is_empty() {
+        app.state::<SnapDirty>().mark();
+        app.emit("vault:changed", report.written).ok();
+    }
+}
+
 /// What the mounts migration got as its recovery point, for the log line.
 #[derive(Debug)]
 enum MountsRestorePoint {
@@ -176,6 +243,7 @@ use commands::history::*;
 use commands::kinds::*;
 use commands::mounts::*;
 use commands::notes::*;
+use commands::reflexes::*;
 use commands::schema::*;
 use commands::search::*;
 use commands::share::*;
@@ -478,6 +546,8 @@ pub fn run() {
             // reads them from the same app-config dir (SUB-888).
             let folders_cfg_dir = config_dir.clone();
             let migrate_cfg_dir = config_dir.clone();
+            // reflex consent is machine-local too (SUB-826 consent amendment)
+            let reflex_cfg_dir = config_dir.clone();
             app.manage(OnboardingState {
                 pending: Mutex::new(first_run),
                 config_dir: config_dir.clone(),
@@ -495,6 +565,10 @@ pub fn run() {
             let settings_root = watch_root.clone();
             let notify_root = watch_root.clone();
             let folders_root = watch_root.clone();
+            // the folder watcher's callback runs mount reflexes, which resolve
+            // paths against the VAULT root, not the watched folder (SUB-826)
+            let folders_vault_root = watch_root.clone();
+            let reflex_root = watch_root.clone();
             // No history for the placeholder root either (SUB-530): History
             // git-inits whatever it is handed, and the onboarding screen has
             // nothing to snapshot. `None` is already the supported
@@ -574,6 +648,7 @@ pub fn run() {
                 last: Mutex::new(VaultSyncLast::default()),
             });
             app.manage(SnapDirty(Mutex::new(None)));
+            app.manage(reflexes::ReflexState::load(&reflex_root));
             app.manage(notify::NotifyShared(Mutex::new(notify::NotifyState::load(&notify_root))));
 
             // Mount extraction (SUB-887): files are opened on background
@@ -801,6 +876,11 @@ pub fn run() {
                         // rel paths that actually moved; empty = "unknown, refresh
                         // everything" (SUB-460), which is what a rescan reports
                         let mut changed: Vec<String> = Vec::new();
+                        // the same paths with what happened to each, for reflexes
+                        // (SUB-826) — a rescan carries none: rules run on live
+                        // events only, never on a catch-up sweep
+                        let mut outcomes: Vec<(String, vault::NoteChange)> = Vec::new();
+                        let mut reflexes_touched = false;
                         if let Ok(mut engine) = state.0.lock() {
                             match batch {
                                 vault::WatchBatch::Rescan => engine.rescan(),
@@ -811,10 +891,21 @@ pub fn run() {
                                     let (config, notes): (Vec<_>, Vec<_>) = paths
                                         .into_iter()
                                         .partition(|p| vault::config_path(&settings_root, p));
+                                    reflexes_touched = config.iter().any(|p| {
+                                        p.strip_prefix(&settings_root)
+                                            .map(|rel| {
+                                                rel == std::path::Path::new(
+                                                    reflexes::CONFIG_REL_PATH,
+                                                )
+                                            })
+                                            .unwrap_or(false)
+                                    });
                                     config_touched = !config.is_empty();
                                     notes_touched = !notes.is_empty();
                                     if notes_touched {
-                                        changed = engine.apply_changes(&notes);
+                                        outcomes = engine.apply_changes_detailed(&notes);
+                                        changed =
+                                            outcomes.iter().map(|(rel, _)| rel.clone()).collect();
                                     }
                                 }
                             }
@@ -829,6 +920,21 @@ pub fn run() {
                         if config_touched {
                             handle.emit("vault:config-changed", ()).ok();
                         }
+                        // Reflexes run LAST: the UI has already been told what
+                        // changed, so a slow rule delays no refetch (§5). A
+                        // rules-file edit reloads first, so the batch that
+                        // carried the edit runs the rules the user just saved.
+                        #[cfg(desktop)]
+                        {
+                            if reflexes_touched {
+                                handle.state::<reflexes::ReflexState>().reload(&settings_root);
+                            }
+                            if !outcomes.is_empty() {
+                                run_reflexes(&handle, &reflex_cfg_dir, &settings_root, &outcomes);
+                            }
+                        }
+                        #[cfg(not(desktop))]
+                        let _ = (reflexes_touched, &outcomes);
                     },
                     // the thread can't report failure itself — tell the UI
                     move |_| {
@@ -854,16 +960,24 @@ pub fn run() {
                     move || {
                         let state: State<AppState> = folders_handle.state();
                         let mounts = appcfg::read_config(&folders_cfg_dir).mounts;
+                        let mut arrived: Vec<(String, String)> = Vec::new();
                         let (changed, jobs) = match state.0.lock() {
                             Ok(mut engine) => {
                                 let folders = engine
                                     .sync_folders()
                                     .iter()
                                     .any(|s| s.created + s.updated + s.missing > 0);
-                                let mounted = engine
-                                    .sync_mounts(&mounts)
+                                let stats = engine.sync_mounts(&mounts);
+                                let mounted = stats
                                     .iter()
                                     .any(|s| s.added + s.updated + s.renamed + s.missing > 0);
+                                // collected under the lock, fired after it: a
+                                // reflex takes the engine lock itself (§5)
+                                for s in &stats {
+                                    for rel in &s.added_files {
+                                        arrived.push((s.name.clone(), rel.clone()));
+                                    }
+                                }
                                 // edits made to a mounted folder while the app
                                 // runs are the main way new files appear at
                                 // all — read them here too, off the lock
@@ -877,6 +991,25 @@ pub fn run() {
                         if changed {
                             folders_handle.state::<SnapDirty>().mark();
                             folders_handle.emit("vault:changed", Vec::<String>::new()).ok();
+                        }
+                        // after the UI hears, same as the vault watcher: the
+                        // arriving WAV is the headline reflex trigger (§8)
+                        #[cfg(desktop)]
+                        if !arrived.is_empty() {
+                            let triggers: Vec<reflexes::run::Trigger> = arrived
+                                .into_iter()
+                                .map(|(mount, rel)| reflexes::run::Trigger {
+                                    event: reflexes::Event::MountFileAdded,
+                                    path: rel,
+                                    mount: Some(mount),
+                                })
+                                .collect();
+                            run_reflex_triggers(
+                                &folders_handle,
+                                &folders_cfg_dir,
+                                &folders_vault_root,
+                                triggers,
+                            );
                         }
                     },
                     move |_| {
@@ -912,6 +1045,11 @@ pub fn run() {
             kinds_list,
             kinds_enable,
             kinds_disable,
+            reflexes_status,
+            reflexes_enable,
+            reflexes_set_paused,
+            reflexes_disable,
+            reflexes_receipts,
             url_capture,
             vault_rename,
             vault_delete,

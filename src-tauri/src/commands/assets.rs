@@ -96,9 +96,17 @@ pub(crate) fn vault_assets_orphaned(state: State<AppState>) -> Result<Vec<vault:
 pub(crate) fn vault_doctor(
     state: State<AppState>,
     onboarding: State<crate::OnboardingState>,
+    reflexes: State<crate::reflexes::ReflexState>,
 ) -> Result<vault::DoctorReport, String> {
     let bindings = crate::appcfg::read_config(&onboarding.config_dir).mounts;
-    state.0.lock().unwrap().doctor(&bindings)
+    let mut report = state.0.lock().unwrap().doctor(&bindings)?;
+    // appended here, not inside `doctor()`: whether a rule runs is process
+    // state (loaded file, breaker), and the doctor only reads the vault
+    // (SUB-826 §6)
+    if let Ok(loaded) = reflexes.0.lock() {
+        report.findings.extend(loaded.doctor_findings());
+    }
+    Ok(report)
 }
 
 #[tauri::command]

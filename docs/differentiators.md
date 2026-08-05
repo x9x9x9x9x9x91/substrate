@@ -87,6 +87,14 @@ Capacities, Affine).*
   *continue-while-browsing over files the app never took ownership of* —
   Notion and Obsidian both stop the audio when you leave the page, and both
   want the file inside their own store first.
+- **Real cross-database lookup columns over plain files** — a `view` fence
+  column can be a dotted `relation.property` path: "the release date of the
+  release this mastering job points at", lined up beside the job's own
+  columns and sortable by it. One hop, computed on read, rows never multiply,
+  nothing written to disk — the join lives in the fence, not in a schema
+  migration. Notion needs a rollup property created in the database to show
+  the same value; Obsidian Bases needs a hand-written formula chain
+  (`asFile()`) to reach a linked note's properties.
 - **Sheets** — plain-text formula tables: LOOKUP across sheets, SUMIF/COUNTIF
   with wildcards, SUMPRODUCT, date arithmetic, identifiers in any language.
 - **Live values in prose** — an inline code span of the form `` `= expr` ``
@@ -164,6 +172,15 @@ Capacities, Affine).*
   exactly as the view shows. An Ableton project-pool importer ships in
   `scripts/import-ableton.ts` (folder of .als → database, source tree
   read-only).
+- **Reflexes — the vault reacts on its own** — a plain `.vault/reflexes.json`
+  turns file events into rules: a note appears, changes or leaves and the
+  vault files it, tags it, fills a missing prop, spawns a companion note from
+  a template, or notifies. Data, not code — a closed verb set, no scripting,
+  and no delete verb (there never will be one). Off until you flip one switch
+  per vault, silent when it fires, and every fire lands in a receipts log with
+  `dry_run` to rehearse. Cascades stop themselves (echo window, depth limit,
+  per-rule cooldown, a breaker that pauses a rule that keeps failing).
+  Automation you can read in a text file and audit after the fact.
 - **The long tail**: German-locale numbers, date ranges + times, board drag,
   in-place cell edit, broken-frontmatter repair dialog, URL capture with
   credential stripping + background title enrichment, tray agenda popover,
@@ -209,7 +226,7 @@ Tracked in the issue tracker; headline shapes: extracted columns on
 mounted files (audio/PDF/.als analysis feeding a mount's rows — the mount
 itself has shipped), time-travel queries over
 git history, iOS home-screen widgets, per-fact provenance
-receipts, deterministic file-event reflexes, voice
+receipts, voice
 capture with on-device transcript, cross-type joins.
 
 ## Maintenance

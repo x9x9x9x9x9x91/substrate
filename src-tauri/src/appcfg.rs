@@ -40,6 +40,13 @@ pub struct AppConfig {
     /// the last-known index, with a "Locate folder…" affordance.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub mounts: std::collections::BTreeMap<String, PathBuf>,
+    /// Which vaults may run reflexes ON THIS DEVICE: canonical vault path →
+    /// the enable decision (SUB-826). One switch for the whole feature, per
+    /// vault, per device. It lives here rather than in the vault for the same
+    /// reason custom-kind consent does (`crate::kinds`): a vault syncs
+    /// wholesale, so a marker inside it would arrive pre-approved everywhere.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub reflexes: std::collections::BTreeMap<String, crate::reflexes::consent::Consent>,
 }
 
 /// Where a resolved root came from — the caller uses this to decide whether

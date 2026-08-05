@@ -512,6 +512,17 @@ function ListPane({
   // the already-handled guard, which keeps plain scrolling from yanking the
   // view back to the selected row).
   const revealedFor = useRef<string | null>(null);
+  // A view switch that keeps the selection still MOVES it: the same note sits
+  // at a different index in the new list, so the deliberately preserved
+  // scrollTop now points at an unrelated stretch and the window paints around
+  // the wrong rows. Clearing the guard lets the reveal below re-run for the
+  // unchanged selection and scroll the window back onto it. Without this the
+  // row only stays painted when the browser's scroll anchoring happens to
+  // absorb the index shift — which it does for some list deltas and not for
+  // others, so the guarantee was never actually the pane's (SUB-461).
+  useEffect(() => {
+    revealedFor.current = null;
+  }, [view]);
   // Windowing unmounts rows the viewport has left, and unmounting the focused
   // row drops DOM focus to <body> with no event of its own. The reveal below
   // then can't tell "the list had focus a moment ago" from "focus was never

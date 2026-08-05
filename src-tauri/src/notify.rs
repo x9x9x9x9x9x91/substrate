@@ -849,6 +849,26 @@ fn fire_and_handle(app: tauri::AppHandle, item: DueItem) {
     }
 }
 
+/// Fire one plain notification, no actions and no wait — the route reflexes
+/// (SUB-826) use for their `notify` verb. Delivery is spawned because the
+/// backend can block on the window server, and a reflex runs on the watcher
+/// callback thread: a banner must never hold up the next vault refresh.
+#[cfg(target_os = "macos")]
+pub fn show(title: &str, message: &str) {
+    use mac_notification_sys::Notification;
+    let (title, message) = (title.to_string(), message.to_string());
+    std::thread::spawn(move || {
+        let mut n = Notification::new();
+        n.title(&title).message(&message).default_sound();
+        if let Err(e) = n.send() {
+            applog!("notify: reflex delivery failed: {e}");
+        }
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn show(_title: &str, _message: &str) {}
+
 #[cfg(test)]
 mod tests {
     use super::*;

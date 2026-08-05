@@ -24,6 +24,16 @@ pub struct NoteMeta {
     pub tags: Vec<String>,
 }
 
+/// What a reconcile pass did to one note path (SUB-826). Ordered so a sort of
+/// `(rel, kind)` pairs stays stable, and derived from the index rather than
+/// from platform watcher flags — see `Engine::apply_changes_detailed`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+pub enum NoteChange {
+    Created,
+    Changed,
+    Removed,
+}
+
 /// What a guarded property write returns (SUB-477): the post-write meta every
 /// caller already used, plus the value the write replaced — `None` when the
 /// key was absent, which is exactly the argument that puts it back.
@@ -1163,30 +1173,56 @@ impl Engine {
     /// moved (SUB-460). An EMPTY vec means "unknown — refresh everything": it
     /// is what a whole-vault rescan reports, and callers must not read it as
     /// "nothing changed".
+    ///
+    /// Test-only since SUB-826: the watcher path now calls
+    /// `apply_changes_detailed` directly, because reflexes need to know which
+    /// of created/changed/removed each path was.
+    #[cfg(test)]
     pub fn apply_changes(&mut self, paths: &[PathBuf]) -> Vec<String> {
+        self.apply_changes_detailed(paths).into_iter().map(|(rel, _)| rel).collect()
+    }
+
+    /// `apply_changes`, plus what happened to each path (SUB-826). The kind is
+    /// derived from the index, not from platform event flags: a path the index
+    /// did not know and now does was created, one it knew is a change, one it
+    /// knew and no longer finds was removed. Reflex rules need this
+    /// distinction, and deriving it here is the only place it is knowable —
+    /// by the time the caller sees the result, the index already agrees with
+    /// disk.
+    pub fn apply_changes_detailed(&mut self, paths: &[PathBuf]) -> Vec<(String, NoteChange)> {
         const RESCAN_THRESHOLD: usize = 500;
         if paths.len() > RESCAN_THRESHOLD {
             self.rescan();
             return Vec::new();
         }
-        let mut touched: Vec<String> = Vec::new();
+        let mut touched: Vec<(String, NoteChange)> = Vec::new();
         for path in paths {
             let rel = self.rel(path);
             if rel.is_empty() || hidden_rel(&rel) {
                 continue;
             }
             if path.is_dir() {
-                touched.extend(self.reindex_dir(path));
+                touched.extend(self.reindex_dir_detailed(path));
             } else if path.is_file() {
                 if path.extension().map(|x| x.eq_ignore_ascii_case("md")).unwrap_or(false) {
+                    let known = self.notes.contains_key(&rel);
                     self.reindex_one(&rel);
-                    touched.push(rel);
+                    // a file the index still refuses after a reindex (poisoned
+                    // frontmatter, unreadable bytes) is not a live note, so it
+                    // is reported as a change and nothing more
+                    let kind = if known || !self.notes.contains_key(&rel) {
+                        NoteChange::Changed
+                    } else {
+                        NoteChange::Created
+                    };
+                    touched.push((rel, kind));
                 }
             } else {
                 // gone from disk — could have been a file or a whole folder
                 self.remove_note(&rel);
-                touched.push(rel.clone());
-                touched.extend(self.remove_subtree(&rel));
+                touched.push((rel.clone(), NoteChange::Removed));
+                touched
+                    .extend(self.remove_subtree(&rel).into_iter().map(|r| (r, NoteChange::Removed)));
             }
         }
         touched.sort();
@@ -1195,6 +1231,10 @@ impl Engine {
     }
 
     fn reindex_dir(&mut self, dir: &Path) -> Vec<String> {
+        self.reindex_dir_detailed(dir).into_iter().map(|(rel, _)| rel).collect()
+    }
+
+    fn reindex_dir_detailed(&mut self, dir: &Path) -> Vec<(String, NoteChange)> {
         let prefix = format!("{}/", self.rel(dir));
         let stale: Vec<String> = self
             .notes
@@ -1203,14 +1243,21 @@ impl Engine {
             .filter(|rel| self.abs(rel).map(|p| !p.is_file()).unwrap_or(true))
             .cloned()
             .collect();
-        let mut touched = stale.clone();
+        let mut touched: Vec<(String, NoteChange)> =
+            stale.iter().map(|r| (r.clone(), NoteChange::Removed)).collect();
         for rel in stale {
             self.remove_note(&rel);
         }
         for file in walk_md_files(dir) {
             let rel = self.rel(&file);
+            let known = self.notes.contains_key(&rel);
             self.reindex_one(&rel);
-            touched.push(rel);
+            let kind = if known || !self.notes.contains_key(&rel) {
+                NoteChange::Changed
+            } else {
+                NoteChange::Created
+            };
+            touched.push((rel, kind));
         }
         touched
     }
@@ -2544,7 +2591,7 @@ mod watch;
 pub use watch::{config_path, watch, watch_folders, WatchBatch};
 
 #[cfg(test)]
-mod testutil;
+pub(crate) mod testutil;
 
 #[cfg(test)]
 mod tests {
@@ -3713,6 +3760,45 @@ mod tests {
         assert!(e.apply_changes(&[dir.join(".assets/pic.png")]).is_empty());
         let flood: Vec<PathBuf> = (0..501).map(|i| dir.join(format!("f{i}.md"))).collect();
         assert!(e.apply_changes(&flood).is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The per-path event kinds reflexes fire on (SUB-826). Derived from the
+    /// index, so a rename reports removed-then-created rather than whatever the
+    /// platform watcher happened to call it.
+    #[test]
+    fn apply_changes_detailed_names_created_changed_and_removed() {
+        let (mut e, dir) = temp_vault("detailed");
+        // a path the index has never seen is a creation
+        fs::write(dir.join("Field Trip.md"), "---\ntype: note\n---\nBerlin\n").unwrap();
+        assert_eq!(
+            e.apply_changes_detailed(&[dir.join("Field Trip.md")]),
+            vec![("Field Trip.md".to_string(), NoteChange::Created)]
+        );
+        // the same path again, after an edit, is a change
+        fs::write(dir.join("Field Trip.md"), "---\ntype: note\n---\nLeipzig\n").unwrap();
+        assert_eq!(
+            e.apply_changes_detailed(&[dir.join("Field Trip.md")]),
+            vec![("Field Trip.md".to_string(), NoteChange::Changed)]
+        );
+        // gone from disk is a removal
+        fs::remove_file(dir.join("Field Trip.md")).unwrap();
+        assert_eq!(
+            e.apply_changes_detailed(&[dir.join("Field Trip.md")]),
+            vec![("Field Trip.md".to_string(), NoteChange::Removed)]
+        );
+
+        // a rename is both sides, each with its own kind
+        e.create("Draft B", "Projects", None).unwrap();
+        fs::rename(dir.join("Projects"), dir.join("Archive")).unwrap();
+        let touched = e.apply_changes_detailed(&[dir.join("Projects"), dir.join("Archive")]);
+        assert!(touched.contains(&("Projects/Draft B.md".to_string(), NoteChange::Removed)));
+        assert!(touched.contains(&("Archive/Draft B.md".to_string(), NoteChange::Created)));
+
+        // a rescan-sized batch reports nothing at all: reflexes run on live
+        // events, never on a catch-up sweep
+        let flood: Vec<PathBuf> = (0..501).map(|i| dir.join(format!("g{i}.md"))).collect();
+        assert!(e.apply_changes_detailed(&flood).is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
 

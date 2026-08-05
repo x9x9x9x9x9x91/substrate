@@ -1,6 +1,7 @@
 import { invoke, setHistoryReadOnly } from "./tauri.ts";
 import { isAppFile, SETTINGS_PATH } from "./settings.ts";
 import type { KindBundleInfo } from "./kinds.ts";
+import type { ReflexReceipt, ReflexStatus } from "./reflexes.ts";
 import type { OnboardingStatus, VaultCandidate } from "./onboarding.ts";
 import type {
   AggKind,
@@ -204,6 +205,22 @@ export const kindsEnable = (id: string, hash: string) =>
 /** Withdraw consent. Never fails on an unknown id — a bundle deleted from the
     vault still has to be revocable. */
 export const kindsDisable = (id: string) => invoke<void>("kinds_disable", { id });
+/** This vault's reflex rules (SUB-826) — what the file says, what the runtime
+    remembers about each rule, and whether this device has armed the feature at
+    all. One round trip so the rule list can't be a call stale against the
+    switch that governs it. */
+export const reflexesStatus = () => invoke<ReflexStatus>("reflexes_status");
+/** Arm reflexes for this vault on this device. One switch for the whole
+    feature: after this, rule edits need no re-approval. */
+export const reflexesEnable = () => invoke<void>("reflexes_enable");
+/** Stop for now, keeping the decision — unlike `reflexesDisable`, re-arming is
+    one click and not a fresh grant of trust. */
+export const reflexesSetPaused = (paused: boolean) =>
+  invoke<void>("reflexes_set_paused", { paused });
+/** Withdraw the enable entirely: back to the first-run state. */
+export const reflexesDisable = () => invoke<void>("reflexes_disable");
+/** The receipts log, newest first. */
+export const reflexesReceipts = () => invoke<ReflexReceipt[]>("reflexes_receipts");
 /** Capture a pasted link as a reference note. `enrich` (SUB-834) decides
     whether the engine then asks that site for its page title — the caller
     reads `net-link-titles` from Settings.md; the note is created either way,

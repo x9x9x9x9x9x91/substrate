@@ -16,8 +16,12 @@
 import { stepIndex } from "./folderfiles.ts";
 
 export interface QueueTrack {
-  /** the shared player's key — the file's ABSOLUTE path (`FolderFile.path`),
-   * so a row and a link-in-place embed of the same file are one player */
+  /** the shared player's key — the same NAME the row mounts its player with,
+   * which is what `audioSource` resolves. A folder queue passes the file's
+   * ABSOLUTE path (`FolderFile.path`); a sheet-backed queue passes its own
+   * cell verbatim (absolute, `~/…`, or a bare `.assets/` name). So one file is
+   * one player exactly as far as the two surfaces spell it the same way — two
+   * spellings of one file are two seats, not a clobber. */
   key: string;
   /** vault-relative path — row identity inside the folder listing */
   rel: string;
@@ -26,7 +30,10 @@ export interface QueueTrack {
 }
 
 export interface PlayQueue {
-  /** vault-relative folder the queue was started from ("" = vault root) */
+  /** where the queue came from, as the mini-player labels it: the
+   * vault-relative folder for a folder queue ("" = vault root), or the source
+   * note's title for a sheet-backed queue, whose rows have no one folder on
+   * disk. A label, never a path to resolve against. */
   folder: string;
   tracks: QueueTrack[];
   index: number;

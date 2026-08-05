@@ -33,6 +33,11 @@ pub enum DoctorKind {
     StaleConfig,
     /// A prop value that doesn't parse as its schema kind (date, number).
     InvalidProp,
+    /// A reflex that won't run: an unloadable `reflexes.json`, a rule that
+    /// failed validation, or one the circuit breaker paused (SUB-826). Last in
+    /// the enum on purpose — the doctor sorts by kind, and these findings are
+    /// appended by the caller (only it knows the process's reflex state).
+    BrokenReflex,
 }
 
 /// How much a finding matters. `error` = something is definitively broken;

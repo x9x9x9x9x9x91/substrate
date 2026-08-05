@@ -157,6 +157,13 @@ declare global {
         state is staged; the pin is named rather than id'd because ids are
         generated inside the app. */
     __mockSetExportTarget?: (viewName: string, dest: string) => void;
+    /** put a `.vault/reflexes.json` in the mock vault (SUB-826). A rules file
+        can ARRIVE on a device the app never armed — synced vault, restored
+        backup — and that first-seen state is the one the settings section has
+        to show as paused behind a switch, so a spec has to be able to stage
+        it. `filePaused` stages the file's own kill switch, which is a
+        different switch from consent. */
+    __mockStageReflexesFile?: (opts?: { filePaused?: boolean }) => void;
     /** opt-in: completed note-mutating commands echo vault:changed, debounced
         like the engine's watcher (SUB-296) */
     __mockSetEchoOnWrites?: (on: boolean) => void;
@@ -1915,6 +1922,17 @@ let mockCalendarFeeds: CalendarFeedConfig[] = [];
     the real app (app-config dir), in-memory here. */
 const mockExportTargets = new Map<string, string>();
 
+/** SUB-826: the consent state the reflexes settings section reads and writes.
+    There is no rules file until a spec stages one — which is exactly the
+    default the section hides itself on. `enabled` is the one-time per-vault
+    arm; `paused` is the separate switch it becomes afterwards. */
+const mockReflexes: { hasFile: boolean; enabled: boolean; paused: boolean; filePaused: boolean } = {
+  hasFile: false,
+  enabled: false,
+  paused: false,
+  filePaused: false,
+};
+
 /** Keep mock pins in the same state Engine::remap_saved_view_prop writes.
     Database and property identities are case-folded; query operator keys are
     case-insensitive for the same reason through parseQuery. */
@@ -3425,6 +3443,51 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       if (k) delete k.row.record;
       return null;
     }
+    // Reflexes (SUB-826) need a real vault watcher to FIRE, which the mock
+    // lane does not have — but the consent switch is a pure frontend decision
+    // and is driven here for real. No rules file by default, which is what the
+    // settings section hides itself on; `__mockStageReflexesFile` puts one
+    // there, and the enable/pause calls move the same state the status arm
+    // reports back.
+    case "reflexes_status":
+      return {
+        enabled: mockReflexes.enabled,
+        paused: mockReflexes.paused,
+        enabledAt: mockReflexes.enabled ? "2026-01-01" : null,
+        filePaused: mockReflexes.filePaused,
+        hasFile: mockReflexes.hasFile,
+        error: null,
+        rules: mockReflexes.hasFile
+          ? [
+              {
+                id: "file-drafts",
+                event: "note.created",
+                path: "Inbox/*",
+                actions: ["move to Drafts"],
+                enabled: true,
+                dryRun: false,
+                autoPaused: false,
+                lastFired: null,
+                lastError: null,
+                suppressed: 0,
+              },
+            ]
+          : [],
+        invalid: [],
+      };
+    case "reflexes_receipts":
+      return [];
+    case "reflexes_enable":
+      mockReflexes.enabled = true;
+      mockReflexes.paused = false;
+      return null;
+    case "reflexes_set_paused":
+      mockReflexes.paused = Boolean((args as { paused?: boolean }).paused);
+      return null;
+    case "reflexes_disable":
+      mockReflexes.enabled = false;
+      mockReflexes.paused = false;
+      return null;
     // the mock lane never reaches the network: it answers with the same
     // historical rate the fixtures carry, so e2e baselines stay stable
     case "fx_usd_eur":
@@ -5448,6 +5511,10 @@ if (!isTauri) {
     const view = mockSavedViews.find((v) => v.name === viewName);
     if (!view) throw new Error(`__mockSetExportTarget: no saved view named ${viewName}`);
     mockExportTargets.set(view.id, dest);
+  };
+  window.__mockStageReflexesFile = (opts) => {
+    mockReflexes.hasFile = true;
+    mockReflexes.filePaused = Boolean(opts?.filePaused);
   };
   // SUB-296/SUB-295 opt-ins; off by default, reset by the next page load
   window.__mockSetEchoOnWrites = (on) => {

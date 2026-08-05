@@ -1074,6 +1074,85 @@ Keys (`src/lib/embeds.ts`):
   (`columns: status, artist`), matched case-insensitively against the
   database's columns and still bounded by the surface's column cap. Wins over
   a `saved:` pin's own curated list.
+- A dotted `relation.property` name in `columns:` or `sort:` is a **join**
+  (SUB-829) — a lookup column showing a stored property of the row this row's
+  relation names: "the date of the release this master points at".
+
+  ````markdown
+  ```view
+  type: master
+  columns: stage, release.date, release.catalog
+  sort: release.date:desc
+  ```
+  ````
+
+  Grammar: exactly one dot — `relation.property`. The left side must be a
+  `relation`-kind property of the fence's own database; the right side a
+  column of that relation's target database. Both sides are matched
+  case-insensitively, like every other name in the fence, and the column
+  renders under the canonical spellings (`Release.CATALOG` → `release.catalog`).
+
+  **A stored column wins over a join.** Nothing forbids a dot in a vault
+  property name — `v1.2` is a perfectly good frontmatter key — so a dotted
+  name is read as a join only when this database has no column of that name.
+  If it does, the name is that column, and the row's own stored value renders,
+  editable as ever. (The `.`-excluding character class in the query grammar
+  governs filter TOKENS, not stored keys.) The rule holds identically in
+  `sort:`: `sort: release.date` orders by a stored `release.date` prop if the
+  database has one, and only otherwise looks the value up through `release`.
+
+  **One hop only.** `release.artist.name` is an error, not a second lookup —
+  a join follows one relation and stops.
+
+  Matching is the rollup's, exactly (§ relations/rollups): the target database
+  is matched case-insensitively by `type:`, its rows by title OR stem,
+  case-insensitively and trimmed, and two rows sharing a title are
+  indistinguishable — the first wins. Joins read **stored** values only, so a
+  dotted name pointing at a rollup column reads nothing. `relation.title`
+  resolves — to the target row's display name, the way the database table can
+  already sort by `title` without it being a column. `relation.type` does not:
+  the type is the row's database membership, not a property of it.
+
+  **Blank, never an error, for every data condition**: the relation is empty,
+  the value names no row (trashed or renamed away), the target row simply has
+  no such value — and also when the target database itself can't yet say
+  whether the property exists. A database whose type declares no properties
+  in `schema.json` (including one with no rows at all) has no vocabulary to
+  contradict, so any dotted name against it blanks and starts filling as rows
+  gain the value. The unknown-property error is reserved for the case where
+  the target's schema DOES declare properties and the name is in neither the
+  schema nor any row — a typo, not a data condition.
+
+  Errors are reserved for authoring mistakes and render as the same quiet card
+  every other fence error does — "“stage” isn't a relation property on
+  “master”", "Unknown property “nope” on “release”",
+  "“release.artist.name” goes more than one hop — a join follows one
+  relation".
+
+  Rows never multiply: a join only adds a column. A relation holding several
+  values renders its looked-up values comma-joined in stored order — no
+  implicit "first one". Joined cells are **read-only**, like rollup cells:
+  the value lives on another row and is edited there.
+
+  `sort:` accepts a dotted name too, ordered under the TARGET property's own
+  kind (a date chronologically, a select by its declared option order) and
+  computed for every matched row BEFORE the row cut — so
+  `sort: release.date:desc` + `limit: 5` means "the five whose release is
+  newest". Rows with nothing to look up sort last in both directions.
+  Sorting by a lookup does not add it as a column: `sort: release.date` with
+  no `columns:` orders the table without widening it.
+
+  A lookup that produced several values sorts by whichever one ranks best in
+  the chosen direction — the newest under `:desc`, the oldest under `:asc` —
+  so a master pointing at both an old and a brand-new release sorts as the new
+  one under `release.date:desc`. Only a row with no usable value at all sorts
+  last. The DISPLAY is unaffected: still every value, comma-joined in stored
+  order.
+
+  Not in v1: `query:` filtering on a dotted key. The filter language's keys
+  cannot contain a dot, so such a term is not a filter at all — it falls
+  through to the existing bare-word behavior (a case-insensitive substring
+  match against note titles). Show-but-can't-filter is the accepted v1 cost.
 - Every ` ```view ` fence in the body renders its own table (unlike the
   single-match csv/formulas fences above).
 
@@ -1103,7 +1182,8 @@ path the pane uses, so one undo reverts an inline edit either way. A "+ New"
 row below the table creates a note of the fence's database — schema defaults,
 template applied, plus the fence query's plain `key: value` equality filters
 seeded so the new row belongs to the table it was added from (negations,
-comparisons and OR-lists seed nothing). Rollup columns stay read-only, and no
+comparisons and OR-lists seed nothing). Rollup columns and joined
+`relation.property` columns (SUB-829) stay read-only, and no
 board or aggregation footer is rendered. Clicking the embed's padding still
 drops the cursor into the fence and reveals the source for editing.
 
@@ -1541,12 +1621,12 @@ an older app rewriting a newer file used to silently drop what it didn't
 understand.
 
 ```json
-{ "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1, "kinds": 1, "tagfolders": 1, "mounts": 1 }
+{ "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1, "kinds": 1, "tagfolders": 1, "mounts": 1, "reflexes": 1 }
 ```
 
 - Keys are `schema`, `views`, `folders`, `notifications`, `calendars`,
-  `kinds`, `tagfolders`, `mounts` (§5c, §6, §7, the notification sub-section,
-  §8, §5.8, §8b). Current version for all eight: **1**.
+  `kinds`, `tagfolders`, `mounts`, `reflexes` (§5c, §6, §7, the notification
+  sub-section, §8, §5.8, §8b, §8c). Current version for all nine: **1**.
 - `kinds` versions the **bundle format** of §5.8, not any one file: it says
   which shape of `kind.json` and which bundle layout the vault's
   `.vault/kinds/` folders are written in. **RESERVED** — the key is defined
@@ -2641,6 +2721,101 @@ a folder that says "tagged `demo`, but not `archived`" applies only `demo`. An
 ANY folder still applies all of its positive tags: the author picked them as
 the folder's meaning.
 
+## 8c. `.vault/reflexes.json` — file-event rules
+
+A JSON object of rules that say "when this happens to a path that looks like
+this, and these props hold, do this" (SUB-826). **Data, not code**: no
+expressions, no scripting, no agent in the loop — a closed set of five verbs
+over a closed set of events, so the file syncs, diffs and hand-edits like any
+other config, and the worst a malformed rule can do is not run. Missing file =
+no rules, which is the normal case.
+
+```json
+{
+  "version": 1,
+  "paused": false,
+  "rules": [
+    {
+      "id": "file-new-masters",
+      "description": "drop new masters into the pool",
+      "on": { "event": "note.created", "path": "Inbox/*.md" },
+      "if": [
+        { "prop": "type", "equals": "master" },
+        { "prop": "status", "missing": true }
+      ],
+      "do": [
+        { "move": { "to": "Masters" } },
+        { "set_prop": { "prop": "status", "value": "new" } },
+        { "tag": { "tags": ["master", "{{prop.label}}"] } },
+        { "notify": { "message": "New master: {{filename}}" } }
+      ],
+      "enabled": true,
+      "dry_run": false
+    }
+  ]
+}
+```
+
+- **Nothing runs until the vault is enabled on this device.** A `reflexes.json`
+  can arrive by sync, shared folder or restored backup, so the first one a
+  device sees shows as paused behind one switch in Settings → Reflexes. The
+  consent lives outside the vault, in app config, per vault per device; one
+  enable covers the feature forever (the verb set is closed, so no later rule
+  edit reaches something the enable did not already cover). `"paused": true` at
+  the top level is a second, in-file kill switch the author controls.
+- `id` — `[a-z0-9][a-z0-9-]{0,39}`, unique in the file. Names the rule in
+  receipts, settings and doctor findings.
+- `on.event` — one of `note.created`, `note.changed`, `note.removed`,
+  `mount.file_added`. The namespace is dotted because `schedule.*` and friends
+  are future work; an unknown event invalidates its rule rather than being
+  guessed at. `mount.file_added` fires from the mount folder watcher for each
+  file a mount scan sees for the first time — its `on.path` glob and `{{file}}`
+  match the *mount-relative* path, with the mount's name in `{{mount}}`. A
+  mount's very first scan deliberately fires nothing: that scan meets the whole
+  folder at once, and replaying it as arrivals would be the catch-up sweep
+  reflexes are explicitly not.
+- `on.path` — optional glob against the vault-relative path, the same matcher
+  the rest of the vault uses. Absent = every path the event fires for.
+- `if` — an AND-list. Each clause is `{ "prop": …, "equals" | "contains" |
+  "exists" | "missing": … }`, exactly one test per clause. Comparisons are
+  case-insensitive; a present-but-empty prop counts as absent.
+- `do` — the ordered verb list. `move` (engine rename, so wikilinks follow;
+  destination folder created; collisions dedupe-rename), `set_prop`
+  (only-if-empty unless `"overwrite": true`), `tag` (additive, deduped),
+  `create` (skip-if-exists, optional `template` naming a
+  `.vault/templates/<type>.md`), `notify` (the only noisy verb, capped at 3 per
+  burst then one collapsed line). **There is no delete verb and there never
+  will be one.** `move`, `set_prop` and `tag` need a note on disk, so a rule
+  using them on `note.removed` or `mount.file_added` is invalid at load time.
+- `enabled` (default `true`) and `dry_run` (default `false`) are per rule. A
+  dry run evaluates fully and records what it *would* do, writing nothing.
+- **Placeholders**, no expressions: `{{path}}`, `{{title}}`, `{{filename}}`,
+  `{{prop.X}}`, plus `{{file}}` and `{{mount}}` on mount events. An unknown
+  name — or one not available on that event — invalidates the rule.
+- **Validation is per rule, and a rule is all-or-nothing.** An invalid rule is
+  reported (Settings → Reflexes, `vault_doctor` §15) and skipped; it never runs
+  partially and never takes the rest of the file down. The file itself only
+  fails to load when it isn't the shape of a reflexes file at all — and then
+  nothing runs, rather than degrading to "no rules".
+- **Rails.** Actions are idempotent; a reflex-written path is remembered for
+  10 s so cascades stop at depth 3 with a `cascade-stopped` receipt; each
+  rule×subject pair has a 60 s cooldown; five consecutive failures auto-pause a
+  rule (runtime only — the file's `enabled` is untouched, and any edit to the
+  file re-arms it). Failing rules are never an OS notification.
+- Rules never read or write outside the vault root, never under `.git/`,
+  `.assets/`, `.trash/` or `.vault/` (including this file), never over the
+  network and never exec anything. `..`, absolute paths and dot-components are
+  refused before any path is joined.
+- Format version lives in `.vault/format.json` (§5b) under `reflexes`, and in
+  the file's own `version` key; a version newer than the app knows means no
+  rule runs.
+- **`.vault/reflexes-log.json`** is the receipts ring — app-owned, the last 500
+  entries, deliberately **not** watched, so writing it can never trigger the
+  rules it records. Each entry carries the time, rule id, event, subject, the
+  actions taken (or, on a dry run, the ones that would have been), and an
+  outcome: `ok`, `noop`, `error: …`, `cascade-stopped: …` or
+  `cooldown-suppressed`. External writers should treat it as read-only.
+
 ## 9. `.assets/` — embedded binaries
 
 Flat store for pasted/imported files. Dot-prefixed → never indexed, never watched,
@@ -3320,6 +3495,7 @@ order, so two scans of an unchanged vault produce byte-identical JSON.
 | `corrupt-config` | a `.vault/*.json` file whose bytes are not JSON (including bytes that aren't UTF-8 text at all). Reader fallbacks are unchanged — most read as empty, so a mangled file can never lock anyone out (§5b, §6–§8b), while `calendars.json` surfaces a config error instead (§5c) — but the loss is no longer silent: one finding per unreadable file, naming the file and the consequence the file's own reader actually has. An absent or empty file is the normal state of a fresh vault and is never reported | error |
 | `stale-config` | `.vault/*.json` pointing at something gone: a schema type with zero notes, a `home`/folder-mapping path that no longer exists, a views or saved-view entry for an unknown type. A mount that is unbound on this machine, or whose bound folder is gone, is a **warn** and never an error: its board still renders from the last-known index and "Locate folder…" fixes it (§8) | warn / error |
 | `invalid-prop` | a `date` or `number` prop whose value does not parse under the schema's kind — the value is reported, never rewritten | error |
+| `broken-reflex` | a rule in `.vault/reflexes.json` (§8c) that does not run: the file failed to load (one finding for the whole file), a rule failed validation, or the circuit breaker paused a rule after repeated failures. Runtime state, so it is appended by the command rather than found by the scan — a breaker pause exists only in the running app | error |
 
 `paths` holds every note involved: one entry for most findings, one per
 colliding note for `ambiguous-target`, and the config file for `stale-config`
