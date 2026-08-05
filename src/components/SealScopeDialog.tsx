@@ -119,7 +119,9 @@ export default function SealScopeDialog({
               className="dbform-input"
               type="password"
               autoComplete={configured ? "current-password" : "new-password"}
-              placeholder={configured ? "Vault password (fallback)" : "Vault password · 8+ characters"}
+              placeholder={
+                configured ? "Vault password (fallback)" : "Vault passphrase · 12+ characters"
+              }
               aria-label="Vault password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

@@ -4,6 +4,7 @@ import { historyPurgeNote, historyPurgeNotes, vaultAssetsRestore, vaultAssetsTra
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import { FolderIcon, ImageIcon, TrashIcon } from "./Icons";
 import { dateLocale } from "../lib/dateLocale";
+import { BackButton } from "./BackButton";
 
 /** Kinds with no note history behind them: the purge-history lanes skip them.
     An asset was never tracked (SUB-479); a template is a `.vault/` file the
@@ -227,6 +228,7 @@ export default function TrashPane({ vaultEpoch, onRestored, onRestoredFolder }: 
   return (
     <div className="trash">
       <div className="list-head" data-tauri-drag-region>
+        <BackButton />
         <span className="list-title">Trash</span>
         {entries !== null && entries.length > 0 && (
           <span className="list-count">{entries.length}</span>

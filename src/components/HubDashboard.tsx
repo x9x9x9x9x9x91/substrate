@@ -8,7 +8,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { NoteMeta, SavedView, SchemaConfig } from "../lib/types";
-import { vaultRead } from "../lib/ipc";
+import { useNoteBody } from "../hooks/useNoteBody";
 import { isTauri } from "../lib/tauri";
 import { imageSource } from "../lib/assets";
 import { isImageName } from "../lib/artwork";
@@ -663,16 +663,7 @@ export default function HubDashboard({
   onOpenSource,
   onFollowLink,
 }: HubDashboardProps) {
-  const [body, setBody] = useState<string | null>(null);
-  useEffect(() => {
-    let gone = false;
-    vaultRead(meta.path).then((c) => {
-      if (!gone) setBody(c.body);
-    });
-    return () => {
-      gone = true;
-    };
-  }, [meta.path, vaultEpoch]);
+  const body = useNoteBody(meta.path, vaultEpoch, meta.sealed);
 
   const blocks = useMemo(() => (body !== null ? parseHub(body) : []), [body]);
 

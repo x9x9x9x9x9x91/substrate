@@ -33,6 +33,7 @@ test("hotkeyRejectedMessage: OS-taken names both chords", () => {
   );
 });
 
+
 test("hotkeyRejectedMessage: no live chord says so instead of quoting an empty one", () => {
   assert.equal(
     hotkeyRejectedMessage({ kind: "invalid", typed: "ctl+j", active: "" }),

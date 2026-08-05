@@ -1139,6 +1139,31 @@ html.vibrancy .main {
   flex: none;
 }
 
+/* SUB-1165: back chevron — leads the header, .list-new's shape mirrored to
+   the leading edge. Present only while there is somewhere to return to, so
+   the header's left edge is quiet in the views you start from. */
+.list-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: -6px;
+  flex: none;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-2);
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.list-back:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
 /* SUB-584: folder header "+" — births a note (or the home database's entry)
    in the open folder; sits at the header's far edge, .sidebar-new's shape */
 .list-new {
@@ -2886,6 +2911,11 @@ button.empty-hint-fix:hover {
 .bulkbar-count {
   margin-right: 4px;
   font-variant-numeric: tabular-nums;
+}
+
+/* SUB-1166: the same count, but it is now naming what went wrong */
+.bulkbar-count.is-fail {
+  color: var(--danger);
 }
 
 .bulkbar button {
@@ -9258,6 +9288,17 @@ span.asset-thumb svg {
 
 .mount-locate:hover {
   background: var(--bg-elevated);
+}
+
+/* SUB-1166: a row a bulk write was refused on. The marker sits next to the
+   title carrying that note's own reason; the row keeps its ordinary paint —
+   the value never landed, so there is nothing wrong with what it shows. */
+.db-fail {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  color: var(--danger);
+  vertical-align: -2px;
 }
 
 /* a row whose file isn't in the folder any more — still listed, because what

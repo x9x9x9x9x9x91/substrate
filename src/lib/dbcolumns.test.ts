@@ -22,6 +22,7 @@ function note(props: Record<string, unknown>): NoteMeta {
     props: props as NoteMeta["props"],
     updated_ms: 0,
     excerpt: "",
+    sealed: false,
   };
 }
 

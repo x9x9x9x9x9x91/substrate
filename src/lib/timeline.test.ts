@@ -12,7 +12,7 @@ import type { NoteMeta, SchemaConfig } from "./types.ts";
 import { shiftDate } from "./dates.ts";
 
 function note(title: string, props: Record<string, unknown>): NoteMeta {
-  return { path: `${title}.md`, stem: title, title, folder: "", props, updated_ms: 0, excerpt: "" };
+  return { path: `${title}.md`, stem: title, title, folder: "", props, updated_ms: 0, excerpt: "", sealed: false };
 }
 
 const schema: SchemaConfig = {

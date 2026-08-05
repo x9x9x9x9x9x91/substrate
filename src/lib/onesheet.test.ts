@@ -23,6 +23,7 @@ const meta = (title: string, props: Record<string, unknown>): NoteMeta => ({
   props,
   updated_ms: 0,
   excerpt: "",
+  sealed: false,
 });
 
 /* ── facts ──────────────────────────────────────────────────── */

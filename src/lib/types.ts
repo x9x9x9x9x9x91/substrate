@@ -16,7 +16,12 @@ export interface NoteMeta {
       `tags:` prop, deduplicated case-insensitively, computed at index time.
       Optional so older projections (history snapshots) still typecheck. */
   tags?: string[];
-  sealed?: boolean;
+  /** The note is whole-file encrypted on disk (SUB-889). REQUIRED, unlike
+      `tags` above: every surface that decides whether to emit a body — export,
+      duplicate, send-as-link — reads this, and an optional field lets a
+      forgotten assignment read as "not sealed", which is the one wrong answer
+      that leaks plaintext (SUB-935). The backend always sends it. */
+  sealed: boolean;
 }
 
 export interface SealResult {

@@ -113,6 +113,14 @@ export function historyLeave(unlock = true): void {
 
 export const historyProjectionActive = () => historyProjection !== null;
 
+/** The projection's own copy of a note's body, synchronously (SUB-1169), or
+    null when no projection is active or it held no such note. `vaultRead`
+    answers from the same in-memory snapshot, but only ever as a promise — so
+    a pane that waits for it paints one empty frame over data already in
+    process. Read-only: the caller gets the string, never the object. */
+export const projectedNoteBody = (path: string): string | null =>
+  historyProjection?.contents[path]?.body ?? null;
+
 export const vaultRoot = () => invoke<string>("vault_root");
 
 /* first-run onboarding (SUB-436) */

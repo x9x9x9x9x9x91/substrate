@@ -14,6 +14,9 @@ export interface HotkeyRejection {
   typed: string;
   /** the chord that actually stayed registered ("" when none ever did) */
   active: string;
+  /** which global chord this was — absent on payloads from older builds,
+      which only ever had the one */
+  which?: string;
 }
 
 /* global-hotkey's modifier spellings → macOS glyphs, emitted in comboLabel's
@@ -70,12 +73,28 @@ export function hotkeyLabel(chord: string): string {
     shows as typed when it won't parse, as a label when it reached the OS; the
     chord that actually still fires is always named — the form and the engine
     disagree until the user fixes it, and this is the only place that says so. */
+/* One event carries every global chord, so the toast has to name the one it
+   is about: a refused voice chord that says "quick capture has no working
+   hotkey" points the user at the wrong setting (SUB-827 review B-6).
+
+   A table rather than a chain of ifs, so a private chord is one strippable
+   row: the lookup itself stays in the shared path and reads `which` in every
+   build, which a stripped `if (which === "voice")` would not (TS6133). */
+const REJECTED_WORDS: Record<string, { lead: string; none: string }> = {
+  capture: { lead: "Hotkey", none: "quick capture has no working hotkey" },
+};
+
+/** An older backend sends no `which` at all, and a chord this build doesn't
+    know is not worth a wrong name — both read as quick capture's. */
+function rejectedWords(which: string | undefined): { lead: string; none: string } {
+  return REJECTED_WORDS[which ?? "capture"] ?? REJECTED_WORDS.capture;
+}
+
 export function hotkeyRejectedMessage(p: HotkeyRejection): string {
+  const words = rejectedWords(p.which);
   const still =
-    p.active.trim() === ""
-      ? "quick capture has no working hotkey"
-      : `still using “${hotkeyLabel(p.active)}”`;
+    p.active.trim() === "" ? words.none : `still using “${hotkeyLabel(p.active)}”`;
   return p.kind === "invalid"
-    ? `Hotkey “${p.typed}” isn’t valid — ${still}.`
-    : `Hotkey “${hotkeyLabel(p.typed)}” is taken by another app — ${still}.`;
+    ? `${words.lead} “${p.typed}” isn’t valid — ${still}.`
+    : `${words.lead} “${hotkeyLabel(p.typed)}” is taken by another app — ${still}.`;
 }

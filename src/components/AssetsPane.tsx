@@ -7,6 +7,7 @@ import { isImageName } from "../lib/artwork";
 import { formatFileSize } from "../lib/display";
 import { dateLocale } from "../lib/dateLocale";
 import { ImageIcon, NoteIcon } from "./Icons";
+import { BackButton } from "./BackButton";
 
 /** "Jun 12" — same locale shape the trash rows use for older dates. */
 function fmtDate(ms: number): string {
@@ -124,6 +125,7 @@ export default function AssetsPane({ vaultEpoch }: AssetsPaneProps) {
        info view, whose copy differs (deletes here move to the trash) */
     <div className="trash assets">
       <div className="list-head" data-tauri-drag-region>
+        <BackButton />
         <span className="list-title">Orphaned assets</span>
         {entries !== null && entries.length > 0 && (
           <span className="list-count">{entries.length}</span>

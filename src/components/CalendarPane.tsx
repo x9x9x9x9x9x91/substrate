@@ -84,6 +84,7 @@ import { useNumberLocale } from "../hooks/useNumberLocale";
 import { useTodayIso } from "./useTodayIso";
 import CalendarFeedsMenu from "./CalendarFeedsMenu";
 import SwitchGroup from "./SwitchGroup";
+import { BackButton } from "./BackButton";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 /** month cells show this many entries before collapsing into "+N more" —
@@ -2159,6 +2160,7 @@ export default function CalendarPane({
   return (
     <div className="cal">
       <div className="list-head" data-tauri-drag-region>
+        <BackButton />
         <span className="list-title">
           {layout === "month"
             ? monthTitle(cursor.getFullYear(), cursor.getMonth())

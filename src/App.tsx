@@ -52,6 +52,7 @@ import {
 } from "./lib/mounts";
 import * as undoStack from "./lib/undo";
 import { UndoContext } from "./lib/undoContext";
+import { NavContext } from "./lib/navContext";
 import {
   createFolderUndoable,
   moveFolderUndoable,
@@ -894,6 +895,8 @@ export default function App() {
         props: {},
         updated_ms: 0,
         excerpt: "",
+        // synthesized surfaces have no file behind them yet, so nothing to seal
+        sealed: false,
       };
     }
     // ghost daily (SUB-210): the dated surface exists on screen, not on disk
@@ -908,6 +911,7 @@ export default function App() {
           props: {},
           updated_ms: 0,
           excerpt: "",
+          sealed: false,
         };
       }
     }
@@ -923,6 +927,7 @@ export default function App() {
         props: {},
         updated_ms: 0,
         excerpt: "",
+        sealed: false,
       };
     }
     return null;
@@ -4023,6 +4028,35 @@ export default function App() {
     }
   }, [overlay]);
 
+  /* SUB-1164: one undo move and one redo move, shared by the keystrokes and
+     the palette rows below. The palette is the mouse path to ⌘Z — the toast
+     that carries an Undo button is gone after 4s, and until now the keystroke
+     was the only way back after that. Sharing the callback rather than
+     re-deriving the entry per surface keeps click and keystroke on the
+     identical operation. */
+  const runUndo = useCallback(() => {
+    const live = undoStack.peekUndo(undoStateRef.current);
+    if (live) return void runUndoEntry(live, -1);
+    // nothing live left, but a stale entry explains why: say it rather than
+    // no-op in silence (docs/undo.md §3.3)
+    const stale = undoStack.peekStale(undoStateRef.current);
+    if (stale) showToast(`Can’t undo ${stale.label} — it changed on disk`);
+  }, [runUndoEntry, showToast, undoStateRef]);
+  const runRedo = useCallback(
+    () => void runUndoEntry(undoStack.peekRedo(undoStateRef.current), 1),
+    [runUndoEntry, undoStateRef]
+  );
+  // the row's label names the move it would make ("Undo Role → booking"), so
+  // it reads the same as the toast that announced it
+  const undoCommand = useMemo(() => {
+    const e = undoStack.peekUndo(undoState);
+    return e ? { label: e.label, run: runUndo } : null;
+  }, [undoState, runUndo]);
+  const redoCommand = useMemo(() => {
+    const e = undoStack.peekRedo(undoState);
+    return e ? { label: e.label, run: runRedo } : null;
+  }, [undoState, runRedo]);
+
   useShortcutRouter({
     view,
     setView,
@@ -4060,8 +4094,8 @@ export default function App() {
     pageStepRef,
     editorFocusRef,
     undoStateRef,
-    runUndoEntry,
-    showToast,
+    runUndo,
+    runRedo,
     zoom,
     applyZoom,
   });
@@ -4078,6 +4112,20 @@ export default function App() {
      moment the hold arms, so ModKeyHud samples the live focus itself rather than
      take a value this memo would serve stale. Overlays suppress the HUD
      outright, so anything they'd add is moot. */
+  /* SUB-1165: the header chevron's supply. The availability expression is the
+     ⌫ shortcut's, verbatim including the search exclusion (SearchPane owns Esc
+     and its own close), so the key and the click can never disagree about
+     whether there is anywhere to go back to. Computed in render rather than
+     memoized: viewHistory is a ref, and a memo would serve the depth from
+     before the navigation that just happened. */
+  const navApi = {
+    canGoBack:
+      view.kind !== "search" &&
+      (viewHistory.current.length > 0 ||
+        ((view.kind === "db" || view.kind === "saved") && dbNote !== null)),
+    goBack,
+  };
+
   const hudCtx: ModKeyHudCtx = useMemo(
     () => ({
       view,
@@ -4312,6 +4360,7 @@ export default function App() {
 
   return (
     <UndoContext.Provider value={undoApi}>
+    <NavContext.Provider value={navApi}>
     <div
       className={`app${mobile ? " mobile" : ""}${timeTravelOpen ? " time-travel-open" : ""}${timePoint ? " viewing-past" : ""}${playing ? " has-player" : ""}`}
       onPointerDown={onMobilePointerDown}
@@ -4929,6 +4978,8 @@ export default function App() {
           onExportCsv={
             view.kind === "db" || view.kind === "saved" ? () => dbExportRef.current?.() : null
           }
+          undoCommand={undoCommand}
+          redoCommand={redoCommand}
           onClose={closePalette}
           onOpenNote={openNote}
           onSetView={navigateFromMobileChrome}
@@ -5226,6 +5277,7 @@ export default function App() {
         </div>
       )}
     </div>
+    </NavContext.Provider>
     </UndoContext.Provider>
   );
 }

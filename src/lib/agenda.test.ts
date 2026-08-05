@@ -13,6 +13,7 @@ function note(path: string, props: Record<string, unknown>, folder = ""): NoteMe
     props,
     updated_ms: 0,
     excerpt: "",
+    sealed: false,
   };
 }
 

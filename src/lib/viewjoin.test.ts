@@ -17,6 +17,7 @@ function note(title: string, props: Record<string, unknown>, stem = title): Note
     props: props as NoteMeta["props"],
     updated_ms: 0,
     excerpt: "",
+    sealed: false,
   };
 }
 

@@ -350,6 +350,7 @@ test("Tasks dashboard builds a board over the demo task notes (SUB-868/870)", ()
       props: n.props,
       updated_ms: 0,
       excerpt: "",
+      sealed: false,
     }));
   assert.ok(taskNotes.length >= 5, `expected the demo task set, found ${taskNotes.length}`);
 

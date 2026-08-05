@@ -39,6 +39,7 @@ import WorkbookPane from "./WorkbookPane";
 import { parsePages } from "../lib/pages";
 import { DANGER, OK, WARN } from "../lib/tokens";
 import { useDashUndo, type DashUndoStore } from "./useDashUndo";
+import { useNoteBody } from "../hooks/useNoteBody";
 
 interface DashboardPaneProps {
   meta: NoteMeta;
@@ -487,7 +488,8 @@ function YieldDashboard({
     fence the same body renders when the kind is left off (SUB-966). An empty
     body renders the charts shell with no sections rather than a wrong tracker. */
 function ChartsByKind(props: DashboardPaneProps) {
-  const body = useNoteBody(props.meta.path, props.vaultEpoch);
+  const body = useNoteBody(props.meta.path, props.vaultEpoch, props.meta.sealed);
+  // only a cold read reaches here now — a remount paints from the seed
   if (body === null) return <div className="note" />;
   return <ChartsDashboard {...props} body={body} after={heatmapAfter(props, body)} />;
 }
@@ -544,21 +546,6 @@ function MissingKindDashboard({ message, ...props }: DashboardPaneProps & { mess
   );
 }
 
-/** This note's body, reloaded when the vault changes under it. */
-function useNoteBody(path: string, vaultEpoch: number): string | null {
-  const [body, setBody] = useState<string | null>(null);
-  useEffect(() => {
-    let gone = false;
-    vaultRead(path).then((c) => {
-      if (!gone) setBody(c.body);
-    });
-    return () => {
-      gone = true;
-    };
-  }, [path, vaultEpoch]);
-  return body;
-}
-
 /** Default dashboards: a ```chart fence declares chart blocks (SUB-33), a
     ```heatmap fence a year grid (SUB-966), a ```calendar fence a month grid
     (SUB-965); without any of them the note is a yield tracker (the original
@@ -567,7 +554,8 @@ function useNoteBody(path: string, vaultEpoch: number): string | null {
     having been written second. Reached only by a note with NO `dashboard:`
     prop (SUB-993) — a named-but-unknown kind gets the error card instead. */
 function ChartOrYield(props: DashboardPaneProps) {
-  const body = useNoteBody(props.meta.path, props.vaultEpoch);
+  const body = useNoteBody(props.meta.path, props.vaultEpoch, props.meta.sealed);
+  // only a cold read reaches here now — a remount paints from the seed
   if (body === null) return <div className="note" />;
   const heat = parseHeatmapBlocks(body).length > 0;
   if (parseChartBlocks(body).length > 0)

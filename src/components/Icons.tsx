@@ -106,6 +106,16 @@ export const XIcon = () => (
   </svg>
 );
 
+/* SUB-1166: a row the vault refused to write. Sits next to the title, holding
+   that note's own reason — the toast can only carry a count. */
+export const WarnIcon = () => (
+  <svg {...base} width={12} height={12}>
+    <circle cx="8" cy="8" r="6" />
+    <path d="M8 4.9v3.7" />
+    <path d="M8 10.9v.2" />
+  </svg>
+);
+
 export const ChartIcon = () => (
   <svg {...base}>
     <path d="M3 13.5h10" />
@@ -360,6 +370,22 @@ export const RepeatIcon = () => (
   <svg {...base} width={10} height={10} className="cal-entry-repeat">
     <path d="M13.66 10a6 6 0 1 1-1.41-6.24L15.33 6.67" />
     <path d="M15.33 2.67v4h-4" />
+  </svg>
+);
+
+/* SUB-1164 — undo/redo as palette rows need a glyph each: the standard
+   curved arrow back over its own tail, mirrored for redo. */
+export const UndoIcon = () => (
+  <svg {...base}>
+    <path d="M3 8h6.5a3.5 3.5 0 0 1 0 7H6" />
+    <path d="M5.5 5 2.5 8l3 3" />
+  </svg>
+);
+
+export const RedoIcon = () => (
+  <svg {...base}>
+    <path d="M13 8H6.5a3.5 3.5 0 0 0 0 7H10" />
+    <path d="M10.5 5l3 3-3 3" />
   </svg>
 );
 

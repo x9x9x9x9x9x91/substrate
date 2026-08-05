@@ -1603,6 +1603,40 @@ mod tests {
     }
 
     #[test]
+    fn libgit2_purge_leaves_an_innocent_annotated_tag_alone_like_the_cli() {
+        // SUB-935: the twin of the desktop's
+        // `purge_leaves_refs_alone_when_their_history_never_held_the_note`.
+        // An annotated tag blocks a purge only when its history actually
+        // reaches the plaintext; one cut before the note existed must not
+        // turn a sealing on iOS into a refusal the desktop never raises.
+        let scratch = TempDir::new().unwrap();
+        let desktop_root = scratch.path().join("desktop");
+        let mobile_root = scratch.path().join("mobile");
+        let desktop = history_vault(&desktop_root);
+        fs::write(desktop_root.join("Keep.md"), "keep v1\n").unwrap();
+        desktop.snapshot("before the note existed").unwrap();
+        git(&desktop_root, &["tag", "-a", "early", "-m", "annotated, but innocent"]);
+        let tag = git_with_env(&desktop_root, &["rev-parse", "early"], &[]).trim().to_string();
+        fs::write(desktop_root.join("Secret.md"), "secret v1\n").unwrap();
+        desktop.snapshot("the note arrives").unwrap();
+        let purged_blob = head_blob(&desktop_root, "Secret.md");
+        copy_tree(&desktop_root, &mobile_root);
+
+        desktop.purge_files(&["Secret.md"]).unwrap();
+        history_purge_files(&mobile_root, &["Secret.md"]).unwrap();
+
+        assert_rewrite_parity(&desktop, &desktop_root, &mobile_root, &["Secret.md"]);
+        for root in [&desktop_root, &mobile_root] {
+            assert_eq!(
+                git_with_env(root, &["rev-parse", "early"], &[]).trim(),
+                tag,
+                "a ref whose history never held the note is not touched"
+            );
+        }
+        assert_object_pruned(&mobile_root, purged_blob);
+    }
+
+    #[test]
     fn libgit2_purge_drops_sync_refs_and_prunes_their_pinned_objects() {
         // SUB-658: vault sync owns refs in the same repository (gitsync.rs).
         // Pinned on the pre-purge tip they keep the whole pre-rewrite graph

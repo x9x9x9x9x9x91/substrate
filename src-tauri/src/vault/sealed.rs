@@ -14,6 +14,15 @@ pub(super) const MAGIC: &[u8] = b"SUBSTRATE-SEALED-1\n";
 pub(super) const KEY_REL_PATH: &str = ".vault/sealed-key.age";
 const KEY_MAGIC: &[u8] = b"SUBSTRATE-SEALED-KEY-1\n";
 
+/// Floor for the vault password (SUB-935). `.vault/sealed-key.age` is an
+/// ordinary file in the vault, so every sync remote and every backup holds a
+/// copy: the attacker is offline with the ciphertext, not online against a
+/// rate limiter. scrypt buys work per guess, not immunity — eight characters
+/// is inside reach of a wordlist run, so the floor is twelve, and the UI asks
+/// for a passphrase rather than a password. Only key CREATION is gated;
+/// loading an existing key never is, so no vault is locked out by the change.
+pub(super) const MIN_PASSWORD_CHARS: usize = 12;
+
 pub(super) fn is_sealed(bytes: &[u8]) -> bool {
     bytes.starts_with(MAGIC)
 }
@@ -71,8 +80,10 @@ pub(super) fn save_password_key(
     identity: &SecretString,
     password: &str,
 ) -> Result<(), String> {
-    if password.chars().count() < 8 {
-        return Err("password must be at least 8 characters".into());
+    if password.chars().count() < MIN_PASSWORD_CHARS {
+        return Err(format!(
+            "password must be at least {MIN_PASSWORD_CHARS} characters — this file syncs to your remotes, where an attacker can grind it offline"
+        ));
     }
     let recipient = age::scrypt::Recipient::new(SecretString::from(password.to_owned()));
     let ciphertext = age::encrypt(&recipient, identity.expose_secret().as_bytes())
@@ -137,12 +148,83 @@ fn use_protected_keychain() -> bool {
     true
 }
 
+/// Keychain service for the device copy of the vault identity. The ACCOUNT is
+/// the vault's absolute path, which is what makes the enrollment movable-away
+/// from (see `device_key_placement`).
+pub(super) const KEYCHAIN_SERVICE: &str = "app.substrate.sealed-v1";
+
+/// Where this device's Keychain copy of the vault identity sits, established
+/// WITHOUT unlocking it — attributes-only searches never trip the user-presence
+/// gate, so this can run inside a read-only sweep like the doctor.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum DeviceKeyPlacement {
+    /// Enrolled for this vault path: device unlock works here.
+    Here,
+    /// Nothing enrolled for this vault, but SOME vault on this device has a
+    /// key here. That is all this says: a moved folder looks exactly like a
+    /// second vault the user keeps alongside the first, and the Keychain
+    /// cannot tell them apart (SUB-935). Either way device unlock is not
+    /// enrolled for THIS vault and the vault password is the way in.
+    ElsewhereOnly,
+    /// Never enrolled on this device. The ordinary state, not a problem.
+    Absent,
+    /// No device keychain on this platform.
+    Unsupported,
+}
+
+/// Count matching items by ATTRIBUTES only. Asking for the data is what raises
+/// the Touch ID prompt; asking whether an item exists does not.
+#[cfg(all(not(test), any(target_os = "macos", target_os = "ios")))]
+fn enrolled_count(account: Option<&str>) -> usize {
+    use security_framework::item::{ItemClass, ItemSearchOptions, Limit};
+
+    let mut search = ItemSearchOptions::new();
+    search.class(ItemClass::generic_password());
+    search.service(KEYCHAIN_SERVICE);
+    if let Some(account) = account {
+        search.account(account);
+    }
+    search.load_attributes(true);
+    search.limit(Limit::All);
+    #[cfg(target_os = "macos")]
+    if use_protected_keychain() {
+        search.ignore_legacy_keychains();
+    }
+    // errSecItemNotFound is an Err here, and it means exactly "none".
+    search.search().map(|found| found.len()).unwrap_or(0)
+}
+
+#[cfg(all(not(test), any(target_os = "macos", target_os = "ios")))]
+pub(super) fn device_key_placement(root: &Path) -> DeviceKeyPlacement {
+    if enrolled_count(Some(&root.to_string_lossy())) > 0 {
+        DeviceKeyPlacement::Here
+    } else if enrolled_count(None) > 0 {
+        DeviceKeyPlacement::ElsewhereOnly
+    } else {
+        DeviceKeyPlacement::Absent
+    }
+}
+
+#[cfg(all(not(test), not(any(target_os = "macos", target_os = "ios"))))]
+pub(super) fn device_key_placement(_root: &Path) -> DeviceKeyPlacement {
+    DeviceKeyPlacement::Unsupported
+}
+
+/// Tests must never read the developer's or the CI rig's real Keychain: what
+/// is enrolled there is not a property of the code under test. The doctor's
+/// use of this is covered by unit-testing `device_key_finding` with each
+/// placement directly.
+#[cfg(test)]
+pub(super) fn device_key_placement(_root: &Path) -> DeviceKeyPlacement {
+    DeviceKeyPlacement::Absent
+}
+
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 fn keychain_options(root: &Path) -> security_framework::passwords::PasswordOptions {
     use security_framework::passwords::PasswordOptions;
 
     let account = root.to_string_lossy();
-    let mut options = PasswordOptions::new_generic_password("app.substrate.sealed-v1", &account);
+    let mut options = PasswordOptions::new_generic_password(KEYCHAIN_SERVICE, &account);
     options.set_access_synchronized(Some(false));
     if use_protected_keychain() {
         options.use_protected_keychain();

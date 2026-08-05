@@ -247,6 +247,12 @@ declare global {
         rename may or may not have landed), so the path-keyed readers above
         can't be used — they throw on a miss (SUB-771) */
     __mockNotesDump?: () => { path: string; body: string }[];
+    /** which sealed notes the engine still holds an authorization for
+        (SUB-935). No UI surface shows this — the lock screen is decided by the
+        pane's own state, so a hold the app forgot to release looks identical
+        to a released one on screen. This is the only way a spec can prove
+        that leaving a note actually relocked it. */
+    __mockSealedUnlocked?: () => string[];
     /** did the app ask to relaunch? a browser mock can't actually restart */
     __mockRelaunched?: () => boolean;
     /** the agent command onboarding wrote (SUB-804) — null = never called,
@@ -287,7 +293,12 @@ declare global {
   }
 }
 
-interface MockNote extends NoteMeta {
+/** `sealed` is REQUIRED on `NoteMeta` (SUB-935) but stays optional on the
+    fixture: nearly a hundred seed notes are plaintext, and `meta()` below is
+    the single boundary where a fixture becomes a `NoteMeta`, so it fills the
+    default there rather than making every literal carry `sealed: false`. */
+interface MockNote extends Omit<NoteMeta, "sealed"> {
+  sealed?: boolean;
   body: string;
   /** vault_read rejects for these — a file that vanished or became unreadable */
   unreadable?: boolean;
@@ -320,6 +331,9 @@ let mockFirstRun =
 let mockRelaunched = false;
 let mockAgentCommand: string | null = null;
 let mockSealedPassword: string | null = null;
+/// Mirrors `sealed::MIN_PASSWORD_CHARS` in the backend — the browser mock must
+/// refuse exactly what the real vault refuses (SUB-935).
+const MOCK_MIN_SEALED_PASSWORD = 12;
 const mockUnlockedSealed = new Set<string>();
 const mockSealScopes = new Set<string>();
 /** scopes whose marker is `pending` — encrypted, history cleanup unfinished */
@@ -367,6 +381,7 @@ const day = (offset: number) => {
    lane (SUB-202) — chips never decode the payload, so a stub suffices. */
 const PIXEL_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
 
 const mockAssets = new Map<string, string>([
   ["blueprint-sketch.png", PIXEL_PNG],
@@ -1652,7 +1667,7 @@ function meta(n: MockNote): NoteMeta {
   if (n.sealed) return { ...m, props: {}, excerpt: "", tags: [], sealed: true };
   // mirrors Engine::index_file (SUB-818): a note's tags are computed at index
   // time from body + props, never stored on the fixture
-  return { ...m, tags: noteTags(n.props, n.body) };
+  return { ...m, sealed: false, tags: noteTags(n.props, n.body) };
 }
 
 /* Frontmatter health for the fm lanes (SUB-430), mirroring vault.rs's
@@ -2607,6 +2622,7 @@ function mockSettingsMeta(): NoteMeta {
     props: { ...mockSettings.props },
     updated_ms: mockSettings.updated_ms,
     excerpt: mockMakeExcerpt(mockSettings.body),
+    sealed: false,
   };
 }
 
@@ -2679,6 +2695,7 @@ function templateMeta(
     props: { ...t.props },
     updated_ms: Date.now(),
     excerpt,
+    sealed: false,
   };
 }
 
@@ -3345,7 +3362,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const password = typeof args?.password === "string" ? args.password : null;
       if (mockSealedPassword === null) {
         if (!password) throw new Error("choose a vault password first");
-        if (password.length < 8) throw new Error("password must be at least 8 characters");
+        if (password.length < MOCK_MIN_SEALED_PASSWORD)
+          throw new Error(
+            `password must be at least ${MOCK_MIN_SEALED_PASSWORD} characters — this file syncs to your remotes, where an attacker can grind it offline`,
+          );
         mockSealedPassword = password;
       } else if (password && password !== mockSealedPassword) {
         throw new Error("wrong vault password");
@@ -3382,7 +3402,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const password = typeof args?.password === "string" ? args.password : null;
       if (mockSealedPassword === null) {
         if (!password) throw new Error("choose a vault password first");
-        if (password.length < 8) throw new Error("password must be at least 8 characters");
+        if (password.length < MOCK_MIN_SEALED_PASSWORD)
+          throw new Error(
+            `password must be at least ${MOCK_MIN_SEALED_PASSWORD} characters — this file syncs to your remotes, where an attacker can grind it offline`,
+          );
         mockSealedPassword = password;
       } else if (password && password !== mockSealedPassword) {
         throw new Error("wrong vault password");
@@ -3444,7 +3467,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const password = typeof args?.password === "string" ? args.password : null;
       if (mockSealedPassword === null) {
         if (!password) throw new Error("choose a vault password first");
-        if (password.length < 8) throw new Error("password must be at least 8 characters");
+        if (password.length < MOCK_MIN_SEALED_PASSWORD)
+          throw new Error(
+            `password must be at least ${MOCK_MIN_SEALED_PASSWORD} characters — this file syncs to your remotes, where an attacker can grind it offline`,
+          );
         mockSealedPassword = password;
       } else if (password && password !== mockSealedPassword) {
         throw new Error("wrong vault password");
@@ -5877,6 +5903,7 @@ if (!isTauri) {
     return n.body;
   };
   window.__mockNotesDump = () => mockNotes.map((n) => ({ path: n.path, body: n.body }));
+  window.__mockSealedUnlocked = () => [...mockUnlockedSealed].sort();
   window.__mockTouchAsset = (name) => {
     mockAssetMtimes.set(name, (mockAssetMtimes.get(name) ?? 1) + 1);
   };

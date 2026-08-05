@@ -3,15 +3,24 @@ import { foldedPropStr } from "./types.ts";
 import { matchesFilters, parseQuery, propValues, textWords } from "./query.ts";
 import { todayIso } from "./dates.ts";
 
+
+/** Unfiled = vault root or anywhere under `Inbox/` — the capture landing zone. */
+function isUnfiled(folder: string): boolean {
+  return folder === "" || folder === "Inbox" || folder.startsWith("Inbox/");
+}
+
 /** The Notes inbox predicate (SUB-70, tightened SUB-390): a scratch note is
     untyped AND unfiled — no `type:` prop, and living at the vault root or in
     `Inbox/`. Typed notes live in their databases; untyped notes filed into a
     folder (Journal dailies, Life/, …) belong to that folder's view. Giving a
-    note a type or a folder is the promotion path out of Notes. */
+    note a type or a folder is the promotion path out of Notes.
+    */
 export function isScratchNote(n: NoteMeta): boolean {
-  if (foldedPropStr(n.props, "type")) return false;
-  return n.folder === "" || n.folder === "Inbox" || n.folder.startsWith("Inbox/");
+  const type = foldedPropStr(n.props, "type");
+  if (type) return false;
+  return isUnfiled(n.folder);
 }
+
 
 /** The Notes view's row set: every scratch note, newest edit first — the
     Apple Notes model, so the daily surface needs no filing decisions. */

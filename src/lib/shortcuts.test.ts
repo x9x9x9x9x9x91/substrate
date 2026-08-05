@@ -59,6 +59,7 @@ const SOME_NOTE = {
   props: {},
   updated_ms: 0,
   excerpt: "",
+  sealed: false,
 } satisfies NoteMeta;
 
 function comboSig(c: Combo): string {

@@ -120,7 +120,7 @@ test("acting inside a folder applies its positive tags only", () => {
 });
 
 function note(path: string, tags: string[]): NoteMeta {
-  return { path, stem: path, title: path, folder: "", props: {}, updated_ms: 0, excerpt: "", tags };
+  return { path, stem: path, title: path, folder: "", props: {}, updated_ms: 0, excerpt: "", sealed: false, tags };
 }
 
 test("notesInTagFolder filters and keeps the caller's order", () => {

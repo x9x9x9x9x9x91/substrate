@@ -56,6 +56,9 @@ export function rowMeta(mount: MountInfo, row: MountRow): NoteMeta {
     // mount reflects rather than by when someone last annotated it
     updated_ms: Date.parse(row.modified.replace(" ", "T")) || 0,
     excerpt: "",
+    // a mount row projects a file living OUTSIDE the vault; sealing is a vault
+    // note's property, and nothing here has one
+    sealed: false,
   };
 }
 

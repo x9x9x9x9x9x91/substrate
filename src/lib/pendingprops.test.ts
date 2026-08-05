@@ -19,6 +19,7 @@ const note = (path: string, props: Record<string, unknown> = {}): NoteMeta => ({
   props,
   updated_ms: 0,
   excerpt: "",
+  sealed: false,
 });
 
 const notes = [note("a.md", { Status: "todo" }), note("b.md", { Status: "todo" })];

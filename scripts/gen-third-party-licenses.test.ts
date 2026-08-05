@@ -210,10 +210,10 @@ test("resolveLicenseIds prefers an alternative it can actually reproduce", () =>
   // other way. Same for a term whose better-ranked options are all text-less.
   assert.ok(!("BSD-2-Clause" in LICENSE_TEXTS), "the premise: BSD-2-Clause carries no text");
   assert.deepEqual(resolveLicenseIds("BSD-2-Clause OR Zlib"), ["Zlib"]);
-  assert.deepEqual(resolveLicenseIds("0BSD OR Unlicense OR MPL-2.0"), ["MPL-2.0"]);
+  assert.deepEqual(resolveLicenseIds("0BSD OR MIT-0 OR MPL-2.0"), ["MPL-2.0"]);
   // with nothing reproducible on offer, ranking still decides and the missing
   // text is reported by renderCrateTexts, which names the id and the fix
-  assert.deepEqual(resolveLicenseIds("Unlicense OR BSL-1.0"), ["Unlicense"]);
+  assert.deepEqual(resolveLicenseIds("MIT-0 OR BSL-1.0"), ["MIT-0"]);
   // and the ordinary case is untouched
   assert.deepEqual(resolveLicenseIds("MIT OR Apache-2.0"), ["MIT"]);
 });

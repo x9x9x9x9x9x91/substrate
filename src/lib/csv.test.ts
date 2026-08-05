@@ -5,7 +5,7 @@ import { tableGroups } from "./dbgroup.ts";
 import type { NoteMeta } from "./types.ts";
 
 function note(title: string, props: Record<string, unknown>): NoteMeta {
-  return { path: `${title}.md`, stem: title, title, folder: "", props, updated_ms: 0, excerpt: "" };
+  return { path: `${title}.md`, stem: title, title, folder: "", props, updated_ms: 0, excerpt: "", sealed: false };
 }
 
 test("buildCsv emits header, row order, and blanks for missing props", () => {

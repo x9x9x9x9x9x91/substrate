@@ -3887,6 +3887,7 @@ order, so two scans of an unchanged vault produce byte-identical JSON.
 | `invalid-prop` | a `date` or `number` prop whose value does not parse under the schema's kind — the value is reported, never rewritten | error |
 | `broken-reflex` | a rule in `.vault/reflexes.json` (§8c) that does not run: the file failed to load (one finding for the whole file), a rule failed validation, or the circuit breaker paused a rule after repeated failures. Runtime state, so it is appended by the command rather than found by the scan — a breaker pause exists only in the running app | error |
 
+
 `paths` holds every note involved: one entry for most findings, one per
 colliding note for `ambiguous-target`, and the config file for `stale-config`
 (`.vault/schema.json`, `.vault/views.json`, `.vault/mounts.json`,

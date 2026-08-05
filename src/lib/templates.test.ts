@@ -25,6 +25,7 @@ function note(props: Record<string, unknown>, folder = ""): NoteMeta {
     props,
     updated_ms: 0,
     excerpt: "",
+    sealed: false,
   };
 }
 

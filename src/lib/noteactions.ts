@@ -110,8 +110,10 @@ export interface NoteActionHandlers {
       (duplicate, exports, send as link) HERE, so no call site — row menu,
       palette, note pane — can reintroduce a leak by forgetting a ternary.
       Applies while unlocked too: "Remove seal" is the one deliberate lane
-      that writes sealed content back out as plaintext. */
-  sealed?: boolean;
+      that writes sealed content back out as plaintext.
+      REQUIRED (SUB-935): optional made "I forgot to pass it" and "this note is
+      not sealed" the same value, and the gate below fails open on it. */
+  sealed: boolean;
   /** the open note's per-note calendar opt-out (SUB-175); calendarHidden
       flips the label */
   toggleCalendar?: () => void;

@@ -52,6 +52,7 @@ import { HOSTED_HANDOFF_RELAY_URL } from "../lib/handoff";
 
 const Onboarding = lazy(() => import("./Onboarding"));
 
+
 interface SettingsPaneProps {
   onClose: () => void;
   onEditRaw: () => void;

@@ -7,6 +7,7 @@ import { mountSubtitle } from "../lib/mounts";
 import TypeIcon from "./TypeIcon";
 import { DbIcon as DbGlyphIcon, DotsIcon, MountIcon, PlusIcon } from "./Icons";
 import { useEdgeFade } from "../hooks/useEdgeFade";
+import { BackButton } from "./BackButton";
 
 interface DbManagerPaneProps {
   /** every database in the schema, homed and homeless, zero-note ones
@@ -46,6 +47,7 @@ export default function DbManagerPane({
   return (
     <div className="dbmgr">
       <div className="list-head" data-tauri-drag-region>
+        <BackButton />
         <DbGlyphIcon />
         <span className="list-title">All databases</span>
         <span className="list-count">{databases.length}</span>

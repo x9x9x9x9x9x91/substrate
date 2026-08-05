@@ -6,6 +6,20 @@ async function boot(page: import("@playwright/test").Page) {
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
 
+/* Open a note by name through the palette. Clicking a row would do for a
+   plaintext note, but a sealed one shows a lock screen instead of a title, and
+   the palette is the one lane that works either way. */
+async function openNote(page: import("@playwright/test").Page, title: string) {
+  await page.locator(".sidebar-title").click();
+  await page.keyboard.press("Meta+k");
+  const input = page.locator(".palette-input");
+  await expect(input).toBeFocused();
+  await input.fill(title);
+  await expect(page.locator(".palette-item.selected")).toContainText(title);
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".palette")).toHaveCount(0);
+}
+
 test("a note seals whole-file, unlocks for a peek, and can return to Markdown", async ({
   page,
 }) => {
@@ -247,4 +261,48 @@ test("a folder seal converts existing notes and new notes inherit until inherita
   await folder.click({ button: "right" });
   await page.locator(".ctx-item", { hasText: "New note" }).click();
   await expect(page.locator(".note-title")).toHaveValue("Untitled 2");
+});
+
+/* SUB-935: leaving an unlocked sealed note must hand its authorization back.
+   The lock screen alone proves nothing here — it is decided by the pane's own
+   state, which resets on every note switch, so a note left authorized in the
+   engine LOOKS locked while any other surface could still read it in the
+   clear. The engine's own view of who is authorized is the only honest
+   assertion, and the pane is un-keyed: switching notes reuses it, which is
+   precisely the path the release used to be lost on. */
+test("navigating away from an unlocked sealed note hands its authorization back", async ({
+  page,
+}) => {
+  await boot(page);
+  const authorized = () => page.evaluate(() => window.__mockSealedUnlocked?.() ?? []);
+
+  await page.getByRole("button", { name: "Note actions" }).click();
+  await page.locator(".dots-item", { hasText: "Seal note…" }).click();
+  const setup = page.getByRole("dialog", { name: "Seal “Welcome”" });
+  await setup.getByLabel("Vault password", { exact: true }).fill("correct horse");
+  await setup.getByLabel("Repeat vault password").fill("correct horse");
+  await setup.getByRole("button", { name: "Set password & seal" }).click();
+  await expect(page.getByText("Unlock to peek", { exact: true })).toBeVisible();
+  // sealing does not leave a hold behind: the seal command releases its own
+  // authorization once the purge is safe, so nothing is owed at this point
+  expect(await authorized()).toEqual([]);
+
+  await page.getByRole("button", { name: "Unlock to peek" }).click();
+  await page
+    .getByRole("dialog", { name: "Unlock “Welcome”" })
+    .getByRole("button", { name: "Unlock with Touch ID / Face ID" })
+    .click();
+  await expect(page.locator(".note-title")).toHaveValue("Welcome");
+  expect(await authorized()).toEqual(["Welcome.md"]);
+
+  await openNote(page, "Slow Bloom EP");
+  await expect(page.locator(".note-title")).toHaveValue("Slow Bloom EP");
+  // the release rides the departing pane's final flush, so it lands a tick
+  // after the new note paints — poll rather than assume the order
+  await expect.poll(authorized).toEqual([]);
+
+  // and coming back really is locked: the pane has to unlock again
+  await openNote(page, "Welcome");
+  await expect(page.getByText("Unlock to peek", { exact: true })).toBeVisible();
+  expect(await authorized()).toEqual([]);
 });

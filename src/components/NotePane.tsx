@@ -96,6 +96,10 @@ const isConflictErr = (e: unknown) =>
   String(e instanceof Error ? e.message : e).startsWith("conflict:");
 const isGoneErr = (e: unknown) =>
   String(e instanceof Error ? e.message : e).startsWith("note no longer exists");
+// SUB-935: the note's identity is no longer authorized in this session — the
+// only save failure a user can fix themselves, by unlocking again.
+const isSealedLockedErr = (e: unknown) =>
+  String(e instanceof Error ? e.message : e).startsWith("sealed: locked");
 
 /* SUB-549: unsaved text whose write failed for a note that is no longer open,
    by path. The pane holds exactly one `pending` buffer and the next keystroke
@@ -364,6 +368,12 @@ function NotePane({
   const [sealedOverride, setSealedOverride] = useState<boolean | null>(null);
   const [sealedDialog, setSealedDialog] = useState<SealedNoteMode | null>(null);
   const isSealed = sealedOverride ?? !!meta.sealed;
+  // Does THIS pane hold the engine's authorization for this note? The engine
+  // counts holders (SUB-935), so a pane must release exactly what it took: a
+  // pane that never unlocked — a plaintext note, or a second surface that only
+  // read — releasing on teardown would revoke the identity another open pane
+  // is still editing with.
+  const sealedHeld = useRef(false);
 
   const pending = useRef<{ path: string; body: string } | null>(null);
   const saveTimer = useRef<number | undefined>(undefined);
@@ -580,6 +590,27 @@ function NotePane({
           // the silent loss (rig captures: disk froze at the rename-moment
           // body, everything typed after was clobbered here).
           if (!pending.current) pending.current = { path: wrotePath, body: p.body };
+          if (isSealedLockedErr(err)) {
+            // SUB-935: the session lost this note's authorization mid-edit —
+            // another surface locked it, or the app was told to forget it. A
+            // save-error pill would be a dead end here (every retry fails the
+            // same way), so recover to the lock screen: park the text the way
+            // SUB-549 does and let unlocking reload it, retry armed.
+            //
+            // Park the NEWER buffer, never this write's stale snapshot: the
+            // restore just above may hold keystrokes typed while this write
+            // was in flight, and parking `p.body` over them is the same
+            // silent loss the SUB-771 guard exists to prevent (SUB-935).
+            const newer =
+              pending.current?.path === wrotePath ? pending.current.body : p.body;
+            orphanedEdits.set(wrotePath, newer);
+            pending.current = null;
+            sealedHeld.current = false;
+            setSaveError(null);
+            setSealedUnlocked(false);
+            onToastRef.current?.("This note locked again — unlock to save your changes");
+            return;
+          }
           if (isConflictErr(err)) {
             // SUB-93: the file changed under a dirty buffer — user decides
             conflictRef.current = true;
@@ -609,10 +640,24 @@ function NotePane({
   useEffect(() => {
     setSealedUnlocked(false);
     setSealedDialog(null);
+    sealedHeld.current = false;
     return () => {
       // the lock must land even when the final flush rejects — otherwise the
-      // engine keeps the identity while every surface shows "locked"
-      void flush().finally(() => vaultLockSealedNote(meta.path));
+      // engine keeps the identity while every surface shows "locked". Only
+      // this pane's own hold is released (SUB-935).
+      //
+      // The hold is read HERE, synchronously: React runs this cleanup and
+      // then the next setup body, which zeroes the ref — and that lands long
+      // before the flush's microtask. Reading the ref inside the callback
+      // therefore saw `false` on every note-to-note navigation (the pane is
+      // un-keyed), so the note stayed authorized in the engine forever.
+      const held = sealedHeld.current;
+      sealedHeld.current = false;
+      const lockPath = meta.path;
+      void flush().finally(() => {
+        if (!held) return;
+        vaultLockSealedNote(lockPath);
+      });
     };
   }, [meta.path, flush]);
 
@@ -1385,6 +1430,7 @@ function NotePane({
             onClose={() => setSealedDialog(null)}
             onDone={() => {
               setSealedDialog(null);
+              sealedHeld.current = true;
               setSealedUnlocked(true);
             }}
           />
@@ -1471,7 +1517,11 @@ function NotePane({
           // engine identity, or "Lock now" shows locked while plaintext
           // stays readable through every IPC path
           flush()
-            .finally(() => vaultLockSealedNote(meta.path))
+            .finally(() => {
+              if (!sealedHeld.current) return;
+              sealedHeld.current = false;
+              vaultLockSealedNote(meta.path);
+            })
             .finally(() => setSealedUnlocked(false));
         }
       : undefined,
@@ -2220,14 +2270,24 @@ function NotePane({
             if (mode === "seal") {
               setSealedOverride(true);
               setSealedUnlocked(false);
+              // sealing leaves the note LOCKED: the seal command releases its
+              // own authorization once the purge is safe (holders back to 0),
+              // so this pane holds nothing. Claiming a hold here would make
+              // the pane's teardown release someone else's authorization —
+              // whoever unlocks the note next (SUB-935).
+              sealedHeld.current = false;
               const quick = (result as { device_unlock?: boolean } | undefined)?.device_unlock;
               if (quick === false) onToast?.("Sealed — use the vault password to unlock on this device");
               onMutated();
             } else if (mode === "unseal") {
               setSealedOverride(false);
               setSealedUnlocked(false);
+              // the note is plaintext again: the engine dropped every hold on
+              // it, so this pane has nothing left to release
+              sealedHeld.current = false;
               onMutated();
             } else {
+              sealedHeld.current = true;
               setSealedUnlocked(true);
             }
           }}

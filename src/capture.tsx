@@ -20,6 +20,7 @@ async function dropPrefill(): Promise<void> {
   await invoke<void>("deeplink_clear_capture_prefill").catch(() => undefined);
 }
 
+
 async function hideWindow(): Promise<void> {
   // hiding is the window saying it's done: a prefill it didn't file dies here
   // rather than waiting for the next capture to inherit it
@@ -82,6 +83,7 @@ function CaptureApp() {
     };
   }, [reset]);
 
+
   const submit = async () => {
     const title = q.trim();
     if (!title) return;
@@ -99,6 +101,8 @@ function CaptureApp() {
     setQ("");
     void hideWindow(); // files the note and drops any prefill it came from
   };
+
+  const foot = { enter: looksLikeUrl(q) ? "capture link" : "file in Inbox", esc: "close" };
 
   return (
     <div
@@ -160,10 +164,10 @@ function CaptureApp() {
       </div>
       <div className="palette-foot">
         <span>
-          <span className="key">↩</span> {looksLikeUrl(q) ? "capture link" : "file in Inbox"}
+          <span className="key">↩</span> {foot.enter}
         </span>
         <span className="capture-foot-hint">
-          <span className="key">esc</span> close
+          <span className="key">esc</span> {foot.esc}
         </span>
       </div>
     </div>

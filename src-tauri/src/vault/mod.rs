@@ -63,10 +63,23 @@ pub struct RenameResult {
     pub touched: Vec<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Serialize)]
 pub struct NoteContent {
     pub body: String,
     pub props: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Note contents are the one thing a sealed note exists to keep out of the
+/// clear, and a derived `Debug` would put body AND frontmatter into any log
+/// line, panic message or `unwrap` backtrace that touches one (SUB-935). The
+/// shape is what a debugger actually needs; the content never is.
+impl std::fmt::Debug for NoteContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NoteContent")
+            .field("body", &format_args!("<{} bytes>", self.body.len()))
+            .field("props", &format_args!("<{} keys>", self.props.len()))
+            .finish()
+    }
 }
 
 /// Parse one markdown blob from a historical tree into the same read models
@@ -490,6 +503,49 @@ fn is_quantity(raw: &str) -> bool {
     unit.is_some_and(|u| unit_aliases().contains(&u))
 }
 
+/// One note's authorized identity plus the number of open holders — panes
+/// that unlocked it and have not locked it again (SUB-935).
+///
+/// Authorization used to be a single entry per note, and every holder's
+/// `lock_sealed_note` dropped it outright. Two surfaces on the same sealed
+/// note (the main pane and a database-row overlay) each unlock it, so closing
+/// the overlay revoked the main pane's authorization under it: its next save
+/// failed `sealed: locked` with an editor full of unsaved text. Counting
+/// holders keeps the identity alive until the LAST one lets go. Boundaries
+/// that must forget the identity regardless of holders — a move/rename, an
+/// unseal, a vault switch — drop the whole entry deliberately.
+struct UnlockedSeal {
+    identity: age::secrecy::SecretString,
+    holders: usize,
+}
+
+/// One unlock's work, carried out of the engine so the engine lock can be
+/// released while it runs. `open` does the two slow, lock-free parts — the
+/// identity load (a Keychain user-presence prompt when no password was
+/// given) and the decrypt — and hands back what
+/// [`Engine::finish_sealed_unlock`] needs to record the authorization.
+pub struct SealedUnlockPlan {
+    root: PathBuf,
+    ciphertext: Vec<u8>,
+}
+
+impl SealedUnlockPlan {
+    pub fn open(
+        &self,
+        password: Option<&str>,
+    ) -> Result<(age::secrecy::SecretString, NoteContent), String> {
+        let identity = match password {
+            Some(password) => sealed::load_password_key(&self.root, password),
+            None => sealed::load_device_key(&self.root),
+        }?;
+        let plaintext = sealed::decrypt_note(&identity, &self.ciphertext)?;
+        let raw = String::from_utf8(plaintext)
+            .map_err(|_| "sealed note is not valid UTF-8".to_string())?;
+        let (fm, body) = split_frontmatter(&raw);
+        Ok((identity, NoteContent { body: body.to_string(), props: parse_props(fm) }))
+    }
+}
+
 pub struct Engine {
     pub root: PathBuf,
     notes: HashMap<String, NoteMeta>,
@@ -505,7 +561,7 @@ pub struct Engine {
     local_dir: Option<PathBuf>,
     /// Identities authorized by an explicit password or Apple user-presence
     /// prompt in this app session, scoped to the note the user opened.
-    unlocked_sealed: HashMap<String, age::secrecy::SecretString>,
+    unlocked_sealed: HashMap<String, UnlockedSeal>,
     /// Watcher/index enforcement failures are drained by the app shell and
     /// surfaced to the user; inherited plaintext must never fail silently.
     seal_failures: Vec<String>,
@@ -810,6 +866,30 @@ fn read_strict(path: &Path) -> Result<String, String> {
 /// rename itself survives (Unix only; the write+fsync ordering is the part
 /// that protects content).
 static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Is this file sealed, judged by its magic prefix alone? A bounded read of
+/// the first bytes, never the body: one short read and no decrypt (SUB-935).
+///
+/// `false` means "not known to be sealed", NOT "known to be plaintext" — a
+/// file that cannot be opened or read answers `false` too. Callers must place
+/// that answer on the safe side themselves. The write path does: `false` only
+/// lets it fall through to the checks that would have run anyway, and it is
+/// the AUTHORIZED/indexed-sealed test above that decides to encrypt.
+fn sealed_on_disk(path: &Path) -> bool {
+    use std::io::Read;
+    let Ok(mut file) = fs::File::open(path) else { return false };
+    let mut head = vec![0u8; sealed::MAGIC.len()];
+    let mut filled = 0;
+    while filled < head.len() {
+        match file.read(&mut head[filled..]) {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return false,
+        }
+    }
+    sealed::is_sealed(&head[..filled])
+}
 
 pub(crate) fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) -> Result<(), String> {
     let dir = path.parent().ok_or("invalid path")?;
@@ -1169,7 +1249,11 @@ impl Settings {
             .filter(|n| *n >= Self::OPACITY_MIN as f64 && *n <= Self::OPACITY_MAX as f64)
             .map(|n| n as u8)
             .unwrap_or(Self::OPACITY_DEFAULT);
-        Settings { capture_hotkey, close_to_tray, window_opacity }
+        Settings {
+            capture_hotkey,
+            close_to_tray,
+            window_opacity,
+        }
     }
 }
 
@@ -1423,7 +1507,22 @@ impl Engine {
         touched
     }
 
+    /// The note is gone from this path — trashed, deleted, or vanished from
+    /// disk. Beyond dropping the index entry, this frees the path itself: a
+    /// sealed authorization left behind on it would silently encrypt whatever
+    /// note is created here next, under an identity its author never chose
+    /// and cannot see (SUB-935).
     fn remove_note(&mut self, rel: &str) {
+        // dropped before the index check — an authorization can outlive the
+        // index entry (a sealed note the watcher already deindexed)
+        self.unlocked_sealed.remove(rel);
+        self.deindex_note(rel);
+    }
+
+    /// Drop the index entry alone. `reindex_one` re-reads the same path a
+    /// line later, so the authorization must survive it — every write to an
+    /// unlocked sealed note goes through here.
+    fn deindex_note(&mut self, rel: &str) {
         if self.notes.remove(rel).is_none() {
             return;
         }
@@ -1586,8 +1685,36 @@ impl Engine {
         if !sealed::is_sealed(&bytes) {
             return Ok(bytes);
         }
-        let identity = self.unlocked_sealed.get(rel).ok_or_else(|| "sealed: locked".to_string())?;
+        let identity = self.authorized_identity(rel)?;
         sealed::decrypt_note(identity, &bytes)
+    }
+
+    /// The identity a caller is authorized to use for `rel`, or the locked
+    /// refusal every sealed path shares.
+    fn authorized_identity(&self, rel: &str) -> Result<&age::secrecy::SecretString, String> {
+        self.unlocked_sealed
+            .get(rel)
+            .map(|held| &held.identity)
+            .ok_or_else(|| "sealed: locked".to_string())
+    }
+
+    fn sealed_is_authorized(&self, rel: &str) -> bool {
+        self.unlocked_sealed.contains_key(rel)
+    }
+
+    /// Record one more holder of this note's authorization. Re-unlocking a
+    /// note a second surface already holds adds a holder rather than
+    /// replacing the entry, so the first surface keeps working (SUB-935).
+    fn authorize_sealed(&mut self, rel: &str, identity: age::secrecy::SecretString) {
+        match self.unlocked_sealed.get_mut(rel) {
+            Some(held) => {
+                held.identity = identity;
+                held.holders += 1;
+            }
+            None => {
+                self.unlocked_sealed.insert(rel.to_string(), UnlockedSeal { identity, holders: 1 });
+            }
+        }
     }
 
     fn read_note_strict(&self, rel: &str, abs: &Path) -> Result<String, String> {
@@ -1615,17 +1742,40 @@ impl Engine {
     /// Write plaintext through the file's current OR inherited storage mode.
     /// Encryption happens before the atomic temp file is created, so an
     /// app-owned create never leaves plaintext on disk in a sealed scope.
+    ///
+    /// Storage mode is decided from what the engine KNOWS — the note is
+    /// authorized in this session, or the index says it is sealed — not by
+    /// re-reading the file (SUB-935). The old read was both a TOCTOU (the
+    /// bytes could change between the decision and the write) and a whole-file
+    /// read on the busiest write path in the app. What survives of it is a
+    /// 19-byte magic peek in the else branch: it can only turn a would-be
+    /// plaintext write into a refusal, never authorize one, so a file sealed
+    /// out-of-band — a sync leg landing ciphertext ahead of the reindex — is
+    /// caught in the ordinary case.
+    ///
+    /// It is a backstop, not a guarantee. The peek answers "not sealed" for a
+    /// file it cannot READ, while the write only needs to create a temp file
+    /// in the directory and rename over the name — so a sealed file this
+    /// process may write but not read (an unreadable mode, an ACL, an I/O
+    /// error mid-read) would be replaced with plaintext. What actually keeps
+    /// sealed content sealed is the index and the session's authorizations
+    /// above; both must therefore be kept honest whenever a path changes
+    /// hands (SUB-935).
     fn write_note_atomic(
         &self,
         rel: &str,
         abs: &Path,
         plaintext: impl AsRef<[u8]>,
     ) -> Result<(), String> {
-        let sealed_on_disk = fs::read(abs).map(|b| sealed::is_sealed(&b)).unwrap_or(false);
-        if sealed_on_disk {
-            let identity =
-                self.unlocked_sealed.get(rel).ok_or_else(|| "sealed: locked".to_string())?;
+        let sealed_here = self.sealed_is_authorized(rel)
+            || self.notes.get(rel).is_some_and(|meta| meta.sealed);
+        if sealed_here {
+            let identity = self.authorized_identity(rel)?;
             write_atomic(abs, sealed::encrypt_note(identity, plaintext.as_ref())?)
+        } else if sealed_on_disk(abs) {
+            // known to neither the index nor this session, yet ciphertext on
+            // disk: refuse rather than replace a sealed file with plaintext
+            Err("sealed: locked".to_string())
         } else if let Some(ciphertext) =
             self.encrypt_for_inherited_scope(rel, plaintext.as_ref())?
         {
@@ -1636,7 +1786,7 @@ impl Engine {
     }
 
     fn reindex_one(&mut self, rel: &str) {
-        self.remove_note(rel);
+        self.deindex_note(rel);
         if let Ok(abs) = self.abs(rel) {
             if abs.is_file() {
                 self.index_file(&abs.clone());
@@ -1719,41 +1869,83 @@ impl Engine {
         // Keep authorization only long enough for the command layer to purge
         // plaintext git history safely (and roll the file back if that purge
         // fails). The public IPC command locks it before replying.
-        self.unlocked_sealed.insert(rel.to_string(), identity);
+        self.authorize_sealed(rel, identity);
         self.reindex_one(rel);
         Ok(SealResult { meta: self.meta_after_write(rel)?, device_unlock })
     }
 
-    /// Authorize and decrypt one sealed note into memory. The file remains
-    /// ciphertext; subsequent body/property writes re-encrypt atomically.
-    pub fn unlock_sealed_note(
-        &mut self,
-        rel: &str,
-        password: Option<&str>,
-    ) -> Result<NoteContent, String> {
+    /// Everything an unlock needs from the engine before it can ask for the
+    /// key. Handing this out lets the caller drop the engine lock for the
+    /// slow half — on macOS the identity load is a user-presence prompt that
+    /// blocks until the user touches the sensor, and every other vault
+    /// command queues behind the same mutex while it waits (SUB-935).
+    pub fn plan_sealed_unlock(&self, rel: &str) -> Result<SealedUnlockPlan, String> {
         let abs = self.abs(rel)?;
         let ciphertext = fs::read(&abs).map_err(|e| e.to_string())?;
         if !sealed::is_sealed(&ciphertext) {
             return Err("note is not sealed".into());
         }
-        let identity = self.sealed_identity(password)?;
-        let plaintext = sealed::decrypt_note(&identity, &ciphertext)?;
-        let raw = String::from_utf8(plaintext)
-            .map_err(|_| "sealed note is not valid UTF-8".to_string())?;
-        let (fm, body) = split_frontmatter(&raw);
-        let content = NoteContent { body: body.to_string(), props: parse_props(fm) };
-        if password.is_some() {
+        Ok(SealedUnlockPlan { root: self.root.clone(), ciphertext })
+    }
+
+    /// Record the authorization a completed [`SealedUnlockPlan`] earned. The
+    /// engine lock was released while the prompt was up, so the path is
+    /// re-checked: trashing or unsealing the note in the meantime frees the
+    /// path, and authorizing it now would hand this identity to whatever note
+    /// is written there next.
+    pub fn finish_sealed_unlock(
+        &mut self,
+        rel: &str,
+        identity: age::secrecy::SecretString,
+        from_password: bool,
+    ) -> Result<(), String> {
+        let abs = self.abs(rel)?;
+        if !sealed_on_disk(&abs) {
+            return Err("sealed: locked".into());
+        }
+        if from_password {
             // Successful password entry repairs a missing device convenience
             // copy without making that copy the recovery source of truth.
             #[cfg(not(test))]
             let _ = sealed::store_device_key(&self.root, &identity);
         }
-        self.unlocked_sealed.insert(rel.to_string(), identity);
+        self.authorize_sealed(rel, identity);
+        Ok(())
+    }
+
+    /// Authorize and decrypt one sealed note into memory. The file remains
+    /// ciphertext; subsequent body/property writes re-encrypt atomically.
+    /// Holding the engine throughout, which is why it is a test convenience
+    /// only: the IPC command splits the phases so the prompt runs unlocked.
+    #[cfg(test)]
+    pub fn unlock_sealed_note(
+        &mut self,
+        rel: &str,
+        password: Option<&str>,
+    ) -> Result<NoteContent, String> {
+        let plan = self.plan_sealed_unlock(rel)?;
+        let (identity, content) = plan.open(password)?;
+        self.finish_sealed_unlock(rel, identity, password.is_some())?;
         Ok(content)
     }
 
+    /// Release ONE holder's authorization (SUB-935). The identity survives
+    /// while another open surface still holds it; the last release drops it.
+    /// A caller that never unlocked this note must not call it — the frontend
+    /// locks exactly what it unlocked (NotePane's teardown).
     pub fn lock_sealed_note(&mut self, rel: &str) {
-        self.unlocked_sealed.remove(rel);
+        let Some(held) = self.unlocked_sealed.get_mut(rel) else { return };
+        held.holders = held.holders.saturating_sub(1);
+        if held.holders == 0 {
+            self.unlocked_sealed.remove(rel);
+        }
+    }
+
+    /// Forget every sealed authorization in this session. The vault the
+    /// identities belong to is going away (a vault switch), so holding them
+    /// would authorize reads against a vault the user has left (SUB-935).
+    pub fn forget_sealed_authorizations(&mut self) {
+        self.unlocked_sealed.clear();
     }
 
     /// A path change is an authorization boundary: the pane reopens the note
@@ -1763,6 +1955,18 @@ impl Engine {
     fn relock_moved_sealed_note(&mut self, old_rel: &str, new_rel: &str) {
         self.unlocked_sealed.remove(old_rel);
         self.unlocked_sealed.remove(new_rel);
+    }
+
+    /// The same boundary for a whole directory: renaming or moving a folder
+    /// changes the path of every note under it at once, so every
+    /// authorization on either side is dropped exactly as a note move drops
+    /// its two (SUB-935). Without this, an authorization stranded on a freed
+    /// path decides the storage mode of the next note created there.
+    fn relock_moved_sealed_subtree(&mut self, old_rel: &str, new_rel: &str) {
+        let old_prefix = format!("{old_rel}/");
+        let new_prefix = format!("{new_rel}/");
+        self.unlocked_sealed
+            .retain(|rel, _| !rel.starts_with(&old_prefix) && !rel.starts_with(&new_prefix));
     }
 
     /// Deliberately return an authorized note to ordinary Markdown. This is
@@ -1780,9 +1984,11 @@ impl Engine {
         if !sealed::is_sealed(&ciphertext) {
             return Err("note is not sealed".into());
         }
-        let identity = self.unlocked_sealed.get(rel).ok_or_else(|| "sealed: locked".to_string())?;
+        let identity = self.authorized_identity(rel)?;
         let plaintext = sealed::decrypt_note(identity, &ciphertext)?;
         write_atomic(&abs, plaintext)?;
+        // the note is plaintext again: every holder's authorization is void,
+        // not just this caller's
         self.unlocked_sealed.remove(rel);
         self.reindex_one(rel);
         self.meta_after_write(rel)
@@ -2333,7 +2539,7 @@ impl Engine {
     /// link-rewritten note and then clobber it.
     pub fn rename_tracked(&mut self, rel: &str, new_title: &str) -> Result<RenameResult, String> {
         let old = self.notes.get(rel).cloned().ok_or("note not found")?;
-        if old.sealed && !self.unlocked_sealed.contains_key(rel) {
+        if old.sealed && !self.sealed_is_authorized(rel) {
             return Err("unlock the sealed note before renaming it".into());
         }
         let new_title = new_title.trim();
@@ -2383,8 +2589,15 @@ impl Engine {
         for src in &sources {
             let Ok(abs) = self.abs(src) else { continue };
             // an undecodable link source rots exactly like an unwritable one:
-            // reported, never silently rewritten through a lossy decode (SUB-556)
-            let Ok(raw) = read_strict(&abs) else {
+            // reported, never silently rewritten through a lossy decode (SUB-556).
+            // No source here is ever sealed (SUB-935): `index_file` returns
+            // before the link scan for a sealed file and `deindex_note` drops
+            // the rows a note had before it was sealed, so a sealed note
+            // carries no outgoing edges and cannot be reached as one. The
+            // note-aware read stays anyway — it is the path-keyed reader the
+            // rest of the engine uses, and it fails loudly rather than
+            // rewriting ciphertext should that invariant ever break.
+            let Ok(raw) = self.read_note_strict(src, &abs) else {
                 failed.push(src.clone());
                 continue;
             };
@@ -2452,7 +2665,13 @@ impl Engine {
         // note no longer sits at its old path, so aim it at the new one.
         for (src, abs, out) in pending {
             let abs = if abs == old_abs { new_abs.clone() } else { abs };
-            if write_atomic(&abs, out).is_err() {
+            // The renamed note is addressed by where it now LIVES, not where it
+            // was found: `write_note_atomic` decides storage mode from this key,
+            // and both the index entry and any authorization moved to `new_rel`
+            // above. Only a self-link reaches this branch, and only ever from a
+            // plaintext note — sealed notes carry no outgoing edges (SUB-935).
+            let live = if src == rel { &new_rel } else { &src };
+            if self.write_note_atomic(live, &abs, out).is_err() {
                 failed.push(src);
             } else if src != rel {
                 touched.push(src);
@@ -2504,7 +2723,14 @@ impl Engine {
             }
         }
 
-        self.remove_note(rel);
+        // Only a rename that actually moved the file frees the old path; a
+        // title-only rename keeps it, and with it this session's
+        // authorization for an unlocked sealed note (SUB-935).
+        if new_rel != rel {
+            self.remove_note(rel);
+        } else {
+            self.deindex_note(rel);
+        }
         self.reindex_one(&new_rel);
         // a sidebar pin is keyed by path — follow the file (SUB-410)
         self.move_sidebar_pin(rel, Some(&new_rel))?;
@@ -2778,6 +3004,7 @@ impl Engine {
             return Err(format!("a folder named “{}” already exists here", name));
         }
         fs::rename(&old_abs, &new_abs).map_err(|e| e.to_string())?;
+        self.relock_moved_sealed_subtree(old_rel, &new_rel);
         self.remove_subtree(old_rel);
         self.reindex_dir(&new_abs);
         self.move_folder_meta(old_rel, Some(&new_rel))?;
@@ -2841,6 +3068,7 @@ impl Engine {
             fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
         fs::rename(&old_abs, &new_abs).map_err(|e| e.to_string())?;
+        self.relock_moved_sealed_subtree(old_rel, &new_rel);
         self.remove_subtree(old_rel);
         self.reindex_dir(&new_abs);
         self.move_folder_meta(old_rel, Some(&new_rel))?;
@@ -4998,6 +5226,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+
     #[test]
     fn settings_defaults_overrides_and_garbage() {
         let (_e, dir) = temp_vault("settings");
@@ -5795,6 +6024,336 @@ mod tests {
         assert!(!String::from_utf8_lossy(&disk).contains("move secret"));
         let unlocked = e.unlock_sealed_note(&moved.path, Some("correct horse")).unwrap();
         assert_eq!(unlocked.body, "move secret\n");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sealing_a_note_that_is_already_sealed_is_refused() {
+        // SUB-935: a second seal would encrypt the ciphertext under a fresh
+        // wrapping, and only the outer one would ever be unwrapped again.
+        let (mut e, dir) = testutil::temp_vault("sealed-double");
+        let note = e.create_full("Private Twice", "", None, None, Some("once only\n")).unwrap();
+        e.seal_note(&note.path, Some("correct horse")).unwrap();
+
+        assert_eq!(
+            e.seal_note(&note.path, Some("correct horse")).err().as_deref(),
+            Some("note is already sealed"),
+            "while still authorized"
+        );
+        e.lock_sealed_note(&note.path);
+        assert_eq!(
+            e.seal_note(&note.path, Some("correct horse")).err().as_deref(),
+            Some("note is already sealed"),
+            "and after it locked — the refusal reads the file, not the session"
+        );
+        let unlocked = e.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
+        assert_eq!(unlocked.body, "once only\n", "the note survived both refusals intact");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_rename_never_rewrites_a_sealed_note_into_plaintext() {
+        // SUB-935 item 3: renaming a link target rewrites every note that
+        // points at it, and that loop used to read and write its sources with
+        // the bare file helpers — which on a sealed source would have written
+        // the decrypted body straight back to disk as plaintext.
+        //
+        // A sealed note is not a link source at all under the landed seals:
+        // its links live in its ciphertext, so indexing finds none and the
+        // rewrite never reaches it. The cost is real and is the point of this
+        // test — a sealed note's [[links]] do NOT follow a rename, and this
+        // pins that the trade is silence, never a leak.
+        let (mut e, dir) = testutil::temp_vault("sealed-linkrewrite");
+        e.create_full("Target", "", None, None, Some("the target\n")).unwrap();
+        let note = e
+            .create_full("Private Links", "", None, None, Some("see [[Target]] for more\n"))
+            .unwrap();
+        assert!(e.links.iter().any(|(src, _)| src == &note.path), "indexed while plaintext");
+        e.seal_note(&note.path, Some("correct horse")).unwrap();
+        assert!(
+            !e.links.iter().any(|(src, _)| src == &note.path),
+            "sealing takes its links out of the index with the rest of its content"
+        );
+        e.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
+
+        e.rename("Target.md", "Target Renamed").unwrap();
+
+        let disk = fs::read(dir.join(&note.path)).unwrap();
+        assert!(sealed::is_sealed(&disk), "the rewrite must not decrypt the note onto disk");
+        let raw = String::from_utf8_lossy(&disk);
+        assert!(!raw.contains("Target"), "neither the old link text nor the new one leaks");
+        assert!(!raw.contains("see "));
+        assert!(
+            e.notes.get(&note.path).is_some_and(|m| m.sealed),
+            "and it stays sealed in the index"
+        );
+        let body = e.read(&note.path).unwrap().body;
+        assert_eq!(body, "see [[Target]] for more\n", "its link is stale, not rewritten");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn renaming_a_folder_carries_its_sealed_note_as_locked_ciphertext() {
+        // SUB-935 item 9: folder ops move sealed notes by path. The bytes must
+        // arrive unchanged, and the destination must not inherit the source's
+        // authorization any more than a note rename does.
+        let (mut e, dir) = testutil::temp_vault("sealed-folder-rename");
+        let note =
+            e.create_full("Private Folder", "Secrets", None, None, Some("folder secret\n")).unwrap();
+        e.seal_note(&note.path, Some("correct horse")).unwrap();
+        e.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
+
+        e.rename_folder("Secrets", "Vaulted").unwrap();
+
+        let moved = "Vaulted/Private Folder.md";
+        assert!(e.notes.get(moved).is_some_and(|m| m.sealed), "the moved note is still sealed");
+        let disk = fs::read(dir.join(moved)).unwrap();
+        assert!(sealed::is_sealed(&disk), "a folder rename keeps ciphertext on disk");
+        assert!(!String::from_utf8_lossy(&disk).contains("folder secret"));
+        assert_eq!(e.read(moved).unwrap_err(), "sealed: locked");
+        let unlocked = e.unlock_sealed_note(moved, Some("correct horse")).unwrap();
+        assert_eq!(unlocked.body, "folder secret\n");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_trashed_sealed_note_lists_by_filename_and_restores_still_sealed() {
+        // SUB-935 items 8 and 9: the trash reads each entry's title out of its
+        // frontmatter, which a sealed note does not have in the clear — the
+        // filename stem is the fallback, and it must never be the ciphertext.
+        let (mut e, dir) = testutil::temp_vault("sealed-trash");
+        let note =
+            e.create_full("Private Trash", "", Some("record"), None, Some("trash secret\n")).unwrap();
+        e.seal_note(&note.path, Some("correct horse")).unwrap();
+        e.lock_sealed_note(&note.path);
+
+        let id = e.trash(&note.path).unwrap();
+        let entries = e.trash_list();
+        let entry = entries.iter().find(|t| t.id == id).expect("the sealed note is listed");
+        assert_eq!(entry.title, "Private Trash", "the filename stem stands in for the sealed title");
+        assert_eq!(entry.path, note.path);
+
+        let restored = e.trash_restore(&id).unwrap();
+        assert_eq!(restored.path, note.path);
+        assert!(restored.sealed, "restore brings it back sealed, not readable");
+        assert_eq!(e.read(&note.path).unwrap_err(), "sealed: locked");
+        let disk = fs::read(dir.join(&note.path)).unwrap();
+        assert!(sealed::is_sealed(&disk));
+        assert!(!String::from_utf8_lossy(&disk).contains("trash secret"));
+        let unlocked = e.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
+        assert_eq!(unlocked.body, "trash secret\n");
+        assert_eq!(unlocked.props["type"], serde_json::json!("record"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn restarting_the_app_relocks_every_unlocked_sealed_note() {
+        // SUB-935 item 9: authorization lives in the session, never on disk.
+        let (mut e, dir) = testutil::temp_vault("sealed-restart");
+        let note = e.create_full("Private Restart", "", None, None, Some("restart secret\n")).unwrap();
+        e.seal_note(&note.path, Some("correct horse")).unwrap();
+        e.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
+        assert!(e.read(&note.path).is_ok(), "unlocked in this session");
+
+        let mut restarted = Engine::new(dir.clone());
+
+        assert!(
+            restarted.notes.get(&note.path).is_some_and(|m| m.sealed),
+            "a fresh scan indexes it as sealed"
+        );
+        assert_eq!(restarted.read(&note.path).unwrap_err(), "sealed: locked");
+        let unlocked = restarted.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
+        assert_eq!(unlocked.body, "restart secret\n");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_watcher_reindexes_a_note_that_became_ciphertext_on_disk_as_sealed() {
+        // SUB-935 item 9: the other machine sealed it and sync delivered the
+        // ciphertext. Nothing but the file changed, so only the reindex can
+        // notice — and if it does not, the note stays listed as readable and
+        // its stale excerpt keeps showing the plaintext.
+        let (mut e, dir) = testutil::temp_vault("sealed-watcher");
+        let sealed_note =
+            e.create_full("Private Source", "", None, None, Some("synced secret\n")).unwrap();
+        e.seal_note(&sealed_note.path, Some("correct horse")).unwrap();
+        let ciphertext = fs::read(dir.join(&sealed_note.path)).unwrap();
+
+        let plain = e.create_full("Arrived", "", None, None, Some("plain for now\n")).unwrap();
+        assert!(!e.notes[&plain.path].sealed);
+        assert!(!e.notes[&plain.path].excerpt.is_empty());
+        fs::write(dir.join(&plain.path), &ciphertext).unwrap();
+
+        let touched = e.apply_changes(&[dir.join(&plain.path)]);
+
+        assert_eq!(touched, vec![plain.path.clone()]);
+        let meta = &e.notes[&plain.path];
+        assert!(meta.sealed, "the reindex reads the magic prefix, not the old index entry");
+        assert!(meta.excerpt.is_empty(), "and drops the stale plaintext excerpt");
+        assert_eq!(e.read(&plain.path).unwrap_err(), "sealed: locked");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unlock_whose_note_was_trashed_while_the_prompt_waited_authorizes_nothing() {
+        // SUB-935: the engine lock is released around the identity load so a
+        // Keychain prompt cannot freeze every other vault command. The path
+        // can therefore change under a prompt the user is still looking at —
+        // and a hold recorded afterwards would seal whatever note is created
+        // on that freed path next.
+        let (mut e, dir) = testutil::temp_vault("sealed-unlock-race");
+        let note = e.create_full("Private Race", "", None, None, Some("race secret\n")).unwrap();
+        e.seal_note(&note.path, Some("correct horse")).unwrap();
+        e.lock_sealed_note(&note.path);
+
+        let plan = e.plan_sealed_unlock(&note.path).unwrap();
+        let (identity, content) = plan.open(Some("correct horse")).unwrap();
+        assert_eq!(content.body, "race secret\n", "the prompt did answer, correctly");
+
+        e.trash(&note.path).unwrap();
+
+        assert_eq!(
+            e.finish_sealed_unlock(&note.path, identity, true).unwrap_err(),
+            "sealed: locked"
+        );
+        assert!(!e.unlocked_sealed.contains_key(&note.path));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_second_unlock_of_one_note_survives_the_first_surfaces_release() {
+        // SUB-935: authorization is refcounted, so two open surfaces on the
+        // same sealed note do not lock each other out. One closing releases
+        // its own hold and nothing more; the last one out locks the note.
+        let (mut e, dir) = testutil::temp_vault("sealed-refcount");
+        let note = e.create_full("Private Twice", "", None, None, Some("two holders\n")).unwrap();
+        e.seal_note(&note.path, Some("correct horse")).unwrap();
+        e.lock_sealed_note(&note.path);
+        assert_eq!(e.read(&note.path).unwrap_err(), "sealed: locked");
+
+        e.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
+        e.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
+
+        e.lock_sealed_note(&note.path);
+        assert!(
+            e.read(&note.path).is_ok(),
+            "the surface that is still open keeps reading the note"
+        );
+
+        e.lock_sealed_note(&note.path);
+        assert_eq!(
+            e.read(&note.path).unwrap_err(),
+            "sealed: locked",
+            "the last holder leaving locks it"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_note_created_on_a_trashed_sealed_notes_path_is_written_in_the_clear() {
+        // SUB-935: trashing frees the path. An authorization left behind on it
+        // would make write_note_atomic encrypt the NEXT note created there
+        // under the trashed note's identity — a seal its author never chose
+        // and, with no index entry saying sealed, could not even see.
+        let (mut e, dir) = testutil::temp_vault("sealed-freed-path");
+        let note = e.create_full("Reused Name", "", None, None, Some("old secret\n")).unwrap();
+        e.seal_note(&note.path, Some("correct horse")).unwrap();
+        e.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
+        assert!(e.read(&note.path).is_ok(), "unlocked before the trash");
+
+        e.trash(&note.path).unwrap();
+        assert!(
+            !e.unlocked_sealed.contains_key(&note.path),
+            "trashing drops the authorization with the path"
+        );
+
+        let fresh = e.create_full("Reused Name", "", None, None, Some("new note\n")).unwrap();
+        assert_eq!(fresh.path, note.path, "the freed filename is taken again");
+        e.write_body(&fresh.path, "new note, saved\n", None).unwrap();
+
+        let disk = fs::read(dir.join(&fresh.path)).unwrap();
+        assert!(!sealed::is_sealed(&disk), "the new note is ordinary Markdown");
+        assert!(String::from_utf8_lossy(&disk).contains("new note, saved"));
+        assert!(!e.notes[&fresh.path].sealed);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn renaming_a_folder_relocks_the_sealed_notes_inside_it() {
+        // SUB-935: a folder rename moves every path under it, and a path
+        // change is an authorization boundary — the same one a single note's
+        // move already enforces. Neither the old rel nor the new one may stay
+        // authorized afterwards.
+        let (mut e, dir) = testutil::temp_vault("sealed-folder-relock");
+        e.create_folder("Projects/Active").unwrap();
+        let note = e
+            .create_full("Private Plan", "Projects/Active", None, None, Some("plan secret\n"))
+            .unwrap();
+        e.seal_note(&note.path, Some("correct horse")).unwrap();
+        e.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
+        assert!(e.read(&note.path).is_ok());
+
+        e.rename_folder("Projects/Active", "Current").unwrap();
+
+        let moved = note.path.replace("Projects/Active/", "Projects/Current/");
+        assert!(
+            !e.unlocked_sealed.contains_key(&note.path),
+            "the old path keeps no authorization for a note that no longer lives there"
+        );
+        assert!(
+            !e.unlocked_sealed.contains_key(&moved),
+            "and the destination reopens locked, as a note move does"
+        );
+        assert_eq!(e.read(&moved).unwrap_err(), "sealed: locked");
+        let unlocked = e.unlock_sealed_note(&moved, Some("correct horse")).unwrap();
+        assert_eq!(unlocked.body, "plan secret\n");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_sealed_note_is_never_a_link_source_a_rename_rewrites() {
+        // SUB-935: the link-rewrite loop in `rename_tracked` reads and rewrites
+        // every source that points at the renamed note. A sealed note must not
+        // be among them — rewriting one means decrypting it on a rename nobody
+        // authorized, and failing to means rotting its links silently. The
+        // engine settles it upstream: `index_file` returns before the link scan
+        // for a sealed file and `deindex_note` drops the edges a note had
+        // before it was sealed, so a sealed note has no outgoing edges at all.
+        // That is the invariant the loop's plaintext-only assumption rests on.
+        let (mut e, dir) = testutil::temp_vault("sealed-link-source");
+        let target = e.create_full("Amber Tide", "", None, None, Some("the master\n")).unwrap();
+        let private = e
+            .create_full("Private Log", "", None, None, Some("mixed [[Amber Tide]] today\n"))
+            .unwrap();
+        assert!(
+            e.links.iter().any(|(src, _)| src == &private.path),
+            "while plaintext it IS a link source — otherwise this test proves nothing"
+        );
+
+        e.seal_note(&private.path, Some("correct horse")).unwrap();
+        assert!(
+            !e.links.iter().any(|(src, _)| src == &private.path),
+            "sealing withdraws the note from the link graph"
+        );
+
+        let before = fs::read(dir.join(&private.path)).unwrap();
+        let renamed = e.rename_tracked(&target.path, "Amber Tide II").unwrap();
+
+        assert!(
+            !renamed.touched.contains(&private.path),
+            "the rename may not claim to have rewritten a note it cannot read"
+        );
+        assert_eq!(
+            fs::read(dir.join(&private.path)).unwrap(),
+            before,
+            "and it may not have touched the ciphertext either"
+        );
+        assert!(sealed::is_sealed(&before), "the sealed note stayed sealed throughout");
+        // The cost of the invariant, stated out loud: the sealed note's link
+        // still names the old title. It rots on purpose — the alternative is
+        // decrypting notes on an unrelated rename.
+        let unlocked = e.unlock_sealed_note(&private.path, Some("correct horse")).unwrap();
+        assert_eq!(unlocked.body, "mixed [[Amber Tide]] today\n");
         let _ = fs::remove_dir_all(&dir);
     }
 }

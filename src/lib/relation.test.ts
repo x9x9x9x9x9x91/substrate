@@ -22,6 +22,7 @@ function note(path: string, props: Record<string, unknown>, title?: string): Not
     props,
     updated_ms: 0,
     excerpt: "",
+    sealed: false,
   };
 }
 

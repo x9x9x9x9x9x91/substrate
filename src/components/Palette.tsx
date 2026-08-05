@@ -41,12 +41,14 @@ import {
   NotesIcon,
   PenIcon,
   PlusIcon,
+  RedoIcon,
   SearchIcon,
   SunIcon,
   TableIcon,
   TagIcon,
   TerminalIcon,
   TrashIcon,
+  UndoIcon,
 } from "./Icons";
 
 type Item = {
@@ -104,6 +106,12 @@ interface PaletteProps {
   templateTypes: string[];
   /** set while a database view is active — runs its CSV export */
   onExportCsv: (() => void) | null;
+  /** SUB-1164: the session undo/redo stack's next move, named in the user's
+      words ("Role → booking"), or null when there is nothing to undo/redo.
+      The palette is the mouse path to ⌘Z: the toast that used to carry Undo
+      dies after 4s, and the keystroke was the only way back after that. */
+  undoCommand: { label: string; run: () => void } | null;
+  redoCommand: { label: string; run: () => void } | null;
   onClose: () => void;
   onOpenNote: (path: string) => void;
   onSetView: (v: View) => void;
@@ -166,6 +174,8 @@ export default function Palette({
   startStage,
   templateTypes,
   onExportCsv,
+  undoCommand,
+  redoCommand,
   onClose,
   onOpenNote,
   onSetView,
@@ -817,6 +827,33 @@ export default function Palette({
                 section: "Commands",
                 keepOpen: true,
                 run: () => enterStage({ kind: "actions", note: current }),
+              },
+            ]
+          : []),
+        // SUB-1164: undo/redo where the mouse can reach them. The row names
+        // the move it would make, so it stays unambiguous even while a board
+        // owns ⌘Z for its own local history.
+        ...(undoCommand
+          ? [
+              {
+                id: "cmd:undo",
+                label: `Undo ${undoCommand.label}`,
+                icon: <UndoIcon />,
+                section: "Commands",
+                hint: "⌘Z",
+                run: undoCommand.run,
+              },
+            ]
+          : []),
+        ...(redoCommand
+          ? [
+              {
+                id: "cmd:redo",
+                label: `Redo ${redoCommand.label}`,
+                icon: <RedoIcon />,
+                section: "Commands",
+                hint: "⇧⌘Z",
+                run: redoCommand.run,
               },
             ]
           : []),

@@ -119,6 +119,7 @@ test("buildNoteActions: the full handler set yields the canonical order", () => 
     toggleCalendar: noop,
     togglePin: noop,
     trash: noop,
+    sealed: false,
   });
   assert.deepEqual(
     acts.map((a) => a.id),
@@ -129,7 +130,7 @@ test("buildNoteActions: the full handler set yields the canonical order", () => 
 test("buildNoteActions: sealed-note actions use the quiet lock lane", () => {
   const noop = () => {};
   assert.deepEqual(
-    buildNoteActions({ seal: noop, lockNow: noop, unseal: noop }).map((a) => [a.id, a.label, a.icon]),
+    buildNoteActions({ seal: noop, lockNow: noop, unseal: noop, sealed: false }).map((a) => [a.id, a.label, a.icon]),
     [
       ["seal", "Seal note…", "lock"],
       ["lock-now", "Lock now", "lock"],
@@ -179,7 +180,7 @@ test("buildNoteActions: sealed strips every plaintext-emitting action at the bui
 
 test("buildNoteActions: only wired handlers appear, trash always last + separated", () => {
   const noop = () => {};
-  const acts = buildNoteActions({ duplicate: noop, trash: noop, copyPath: noop });
+  const acts = buildNoteActions({ duplicate: noop, trash: noop, copyPath: noop, sealed: false });
   assert.deepEqual(
     acts.map((a) => a.id),
     ["duplicate", "copy", "trash"]
@@ -188,23 +189,24 @@ test("buildNoteActions: only wired handlers appear, trash always last + separate
   assert.equal(trash.destructive, true);
   assert.equal(trash.separatorAbove, true);
   assert.equal(trash.hint, "recoverable");
-  assert.equal(buildNoteActions({}).length, 0);
+  assert.equal(buildNoteActions({ sealed: false }).length, 0);
 });
+
 
 test("buildNoteActions: the pin label flips on pinned (SUB-410), non-destructive", () => {
   const noop = () => {};
-  const [pin] = buildNoteActions({ togglePin: noop });
+  const [pin] = buildNoteActions({ togglePin: noop, sealed: false });
   assert.equal(pin.label, "Pin to sidebar");
   assert.equal(pin.icon, "pin");
   assert.equal(pin.destructive, undefined, "unpinning never trashes the note");
-  assert.equal(buildNoteActions({ togglePin: noop, pinned: true })[0].label, "Remove pin");
+  assert.equal(buildNoteActions({ togglePin: noop, pinned: true, sealed: false })[0].label, "Remove pin");
 });
 
 test("buildNoteActions: the calendar label flips on calendarHidden", () => {
   const noop = () => {};
-  assert.equal(buildNoteActions({ toggleCalendar: noop })[0].label, "Hide from calendar");
+  assert.equal(buildNoteActions({ toggleCalendar: noop, sealed: false })[0].label, "Hide from calendar");
   assert.equal(
-    buildNoteActions({ toggleCalendar: noop, calendarHidden: true })[0].label,
+    buildNoteActions({ toggleCalendar: noop, calendarHidden: true, sealed: false })[0].label,
     "Show in calendar"
   );
 });

@@ -14,6 +14,7 @@ import { dateLocale } from "../lib/dateLocale";
 import InlineEdit from "./InlineEdit";
 import TypeIcon from "./TypeIcon";
 import { AudioPropButton } from "./AudioPropButton";
+import { BackButton } from "./BackButton";
 
 /** `now` is injectable so a memoized row can take the label as a prop and still
  *  age: pass the minute tick (see useNowMinute) and the string changes when the
@@ -610,6 +611,7 @@ function ListPane({
       }}
     >
       <div className="list-head" data-tauri-drag-region>
+        <BackButton />
         {view.kind === "folder" && folderIcon && (
           <TypeIcon type={viewLabel(view)} icon={folderIcon} size={16} />
         )}

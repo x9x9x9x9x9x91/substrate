@@ -389,7 +389,15 @@ pub(crate) fn vault_unlock_sealed_note(
     path: String,
     password: Option<String>,
 ) -> Result<NoteContent, String> {
-    state.0.lock().unwrap().unlock_sealed_note(&path, password.as_deref())
+    // Three statements, two short lock holds, on purpose (SUB-935). The middle
+    // one loads the identity — on macOS that is the Touch ID sheet, which
+    // blocks until the user answers and has been seen never to appear at all.
+    // Under the engine lock it froze every other vault command with it: no
+    // save, no search, no note switch, no way to cancel.
+    let plan = state.0.lock().unwrap().plan_sealed_unlock(&path)?;
+    let (identity, content) = plan.open(password.as_deref())?;
+    state.0.lock().unwrap().finish_sealed_unlock(&path, identity, password.is_some())?;
+    Ok(content)
 }
 
 #[tauri::command]

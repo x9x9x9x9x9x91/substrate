@@ -18,6 +18,7 @@ function note(
     props,
     updated_ms,
     excerpt: "",
+    sealed: false,
   };
 }
 

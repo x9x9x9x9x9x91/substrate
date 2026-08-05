@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { DoctorFinding, DoctorKind, DoctorReport } from "../lib/types";
 import { vaultDoctor } from "../lib/ipc";
 import { NoteIcon, PulseIcon } from "./Icons";
+import { BackButton } from "./BackButton";
 
 /** Group order and headings — the same order the engine sorts findings in,
     so the pane never reshuffles what the JSON already ordered. */
@@ -70,6 +71,7 @@ export default function DoctorPane({ vaultEpoch, onOpenNote }: DoctorPaneProps) 
        info view, whose copy differs (nothing here changes the vault) */
     <div className="trash doctor">
       <div className="list-head" data-tauri-drag-region>
+        <BackButton />
         <span className="list-title">Vault doctor</span>
         {report && report.findings.length > 0 && (
           <span className="list-count">{report.findings.length}</span>

@@ -16,8 +16,22 @@ const ROOT = fileURLToPath(new URL("../", import.meta.url));
 const pane = readFileSync(join(ROOT, "src/components/SettingsPane.tsx"), "utf8");
 const seed = readFileSync(join(ROOT, "src-tauri/src/vault/seed.rs"), "utf8");
 
+/** Fields inside share-mirror strip markers are private and unreleased, and
+    seed.rs ships to the public mirror unchanged — documenting one there would
+    hand a public reader a key their build has no field for. So a fenced field
+    is exempt from the seed body, and stops being exempt the moment it is
+    promoted and the fence comes off.
+
+    The marker name is assembled rather than written out, and this file ships
+    to the mirror, so it must not contain the marker at all: share-mirror.sh
+    matches the markers as bare substrings line by line, so one line carrying
+    both would read as a start with no end, and its denylist treats a marker
+    surviving into the mirror as a strip that silently failed. */
+const MARK = "share-mirror" + ":strip";
+const shared = pane.replace(new RegExp(`${MARK}-start[\\s\\S]*?${MARK}-end`, "g"), "");
+
 /** Every settings key the ⌘, form manages (the FIELDS array). */
-const paneKeys = [...pane.matchAll(/^\s*key: "([^"]+)"/gm)].map((m) => m[1]);
+const paneKeys = [...shared.matchAll(/^\s*key: "([^"]+)"/gm)].map((m) => m[1]);
 
 /** The seeded Settings.md body: the SETTINGS_BODY literal (SUB-973 split it
     off the frontmatter so the body can be refreshed in existing vaults). */

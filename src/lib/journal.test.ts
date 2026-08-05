@@ -6,7 +6,7 @@ import type { NoteMeta } from "./types.ts";
 
 function meta(path: string, updated_ms: number): NoteMeta {
   const stem = path.split("/").pop()!.replace(/\.md$/, "");
-  return { path, stem, title: stem, folder: JOURNAL_DIR, props: {}, updated_ms, excerpt: "" };
+  return { path, stem, title: stem, folder: JOURNAL_DIR, props: {}, updated_ms, excerpt: "", sealed: false };
 }
 
 test("dailyDateOf recognizes journal paths only", () => {

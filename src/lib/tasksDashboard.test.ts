@@ -28,6 +28,7 @@ function note(title: string, props: Record<string, unknown>, path = `Tasks/${tit
     props,
     updated_ms: 0,
     excerpt: "",
+    sealed: false,
   };
 }
 

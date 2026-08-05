@@ -80,6 +80,7 @@ pub(crate) fn picked_path(raw: &str) -> std::path::PathBuf {
 #[tauri::command]
 pub(crate) fn vault_choose(
     onboarding: State<OnboardingState>,
+    state: State<AppState>,
     path: String,
     consent: bool,
 ) -> Result<String, String> {
@@ -93,6 +94,10 @@ pub(crate) fn vault_choose(
         format!("The vault was prepared, but remembering it failed — pick the same folder again to retry. ({e})")
     })?;
     *onboarding.pending.lock().unwrap() = false;
+    // The user has left this vault, even though its Engine stays live until the
+    // relaunch. Sealed identities unlocked here must not outlive that decision
+    // (SUB-935): whatever is opened next re-prompts.
+    state.0.lock().unwrap().forget_sealed_authorizations();
     Ok(canonical.display().to_string())
 }
 

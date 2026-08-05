@@ -8,6 +8,7 @@ import {
   vaultSyncStatus,
 } from "../lib/ipc";
 import { resetSyncConfigured } from "../lib/embedstate";
+import { BackButton } from "./BackButton";
 
 type SyncAction = "push" | "pull";
 
@@ -141,6 +142,7 @@ export default function VaultSyncPane() {
   return (
     <div className="vault-sync">
       <div className="list-head" data-tauri-drag-region>
+        <BackButton />
         <span className="list-title">Vault sync</span>
       </div>
       <div className="vault-sync-body">

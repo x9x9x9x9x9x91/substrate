@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { NoteIcon } from "./Icons";
 import { printPane } from "../lib/export";
+import { BackButton } from "./BackButton";
 
 /* The one dashboard header (SUB-409): title row over hairline. Every
    dashboard renders this — per-page headers were five different hand-built
@@ -26,6 +27,7 @@ export function DashHead({
 }) {
   return (
     <div className="dash-head">
+      <BackButton />
       <span className="dash-title">{title}</span>
       {state && (
         <span className="dash-state">

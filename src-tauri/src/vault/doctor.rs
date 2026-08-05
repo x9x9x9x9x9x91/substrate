@@ -38,6 +38,15 @@ pub enum DoctorKind {
     /// out loud rather than reported as a clean note (SUB-889) — the assets
     /// sweep refuses outright for the same reason (assets.rs `assets_orphaned`).
     UnscannableSealedNote,
+    /// Device unlock is not enrolled for THIS vault, though some vault on this
+    /// device has enrolled it (SUB-935). The Keychain item is keyed on the
+    /// vault's absolute path, so this is what a moved or copied folder looks
+    /// like — and equally what a second vault kept alongside the first looks
+    /// like. The finding says only the part that is certain: Touch ID will not
+    /// unlock this vault's sealed notes until it is enrolled here. Nothing is
+    /// lost — the encrypted recovery copy travels inside the vault — but the
+    /// app would otherwise never say why Touch ID stopped working.
+    SealedDeviceKeyNotEnrolled,
     /// A reflex that won't run: an unloadable `reflexes.json`, a rule that
     /// failed validation, or one the circuit breaker paused (SUB-826). Last in
     /// the enum on purpose — the doctor sorts by kind, and these findings are
@@ -242,7 +251,12 @@ impl Engine {
                 }
                 findings.push(DoctorFinding {
                     kind: DoctorKind::BrokenEmbed,
-                    severity: if in_place { DoctorSeverity::Warn } else { DoctorSeverity::Error },
+                    severity: if in_place
+                    {
+                        DoctorSeverity::Warn
+                    } else {
+                        DoctorSeverity::Error
+                    },
                     paths: vec![rel.clone()],
                     subject: target.clone(),
                     detail: if in_place {
@@ -570,6 +584,17 @@ impl Engine {
             }
         }
 
+        // Probing the Keychain reads ATTRIBUTES only, never the key itself, so
+        // it raises no Touch ID prompt and the doctor stays read-only. Under
+        // `cfg(test)` the probe is stubbed out entirely — a unit test must not
+        // depend on what is in the running machine's Keychain — so the finding
+        // itself is tested through `device_key_finding` directly.
+        findings.extend(device_key_finding(
+            &self.root,
+            sealed::has_password_key(&self.root),
+            sealed::device_key_placement(&self.root),
+        ));
+
         findings.sort_by(|a, b| {
             a.kind
                 .cmp(&b.kind)
@@ -585,10 +610,76 @@ impl Engine {
     }
 }
 
+/// Only worth a word once the vault actually HAS a sealed-note key: never
+/// having enrolled device unlock is the ordinary state, and a vault with no
+/// sealed notes has nothing to say about Touch ID at all. What IS worth
+/// naming is Touch ID appearing to break itself — enrolled on this device,
+/// yet not for this vault (SUB-935). The wording stops there deliberately: a
+/// moved folder and a second vault on the same machine are indistinguishable
+/// from the Keychain, and telling someone their vault moved when it did not
+/// sends them looking for a problem that does not exist.
+fn device_key_finding(
+    root: &Path,
+    has_password_key: bool,
+    placement: sealed::DeviceKeyPlacement,
+) -> Option<DoctorFinding> {
+    if !has_password_key || placement != sealed::DeviceKeyPlacement::ElsewhereOnly {
+        return None;
+    }
+    Some(DoctorFinding {
+        kind: DoctorKind::SealedDeviceKeyNotEnrolled,
+        severity: DoctorSeverity::Warn,
+        paths: Vec::new(),
+        subject: root.to_string_lossy().into_owned(),
+        detail:
+            "device unlock is not enrolled for this vault, though another vault folder on this device has enrolled it — so Touch ID cannot unlock this vault's sealed notes. That is what a moved or copied vault folder looks like, and also what a second vault kept alongside the first looks like. Either way: unlock once with your vault password to enrol device unlock here."
+                .into(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::testutil::*;
     use super::*;
+
+    /// SUB-935: the Keychain item is keyed on the vault's absolute path, so
+    /// device unlock enrolled on this device can still be missing for THIS
+    /// vault. Only that case is worth a finding — not "never enrolled", and
+    /// not a vault with no sealed key.
+    #[test]
+    fn doctor_names_device_unlock_that_is_not_enrolled_for_this_vault() {
+        use sealed::DeviceKeyPlacement::*;
+        let root = Path::new("/tmp/moved-vault");
+
+        let found =
+            device_key_finding(root, true, ElsewhereOnly).expect("the unenrolled case is named");
+        assert_eq!(found.kind, DoctorKind::SealedDeviceKeyNotEnrolled);
+        assert_eq!(found.severity, DoctorSeverity::Warn);
+        assert_eq!(found.subject, "/tmp/moved-vault");
+        assert!(
+            found.detail.contains("vault password"),
+            "the user needs the way back in, not just the diagnosis: {}",
+            found.detail
+        );
+        // Two vaults on one machine produce this state with nothing wrong at
+        // all, so the finding may not assert that the vault moved.
+        assert!(
+            !found.detail.contains("this vault folder moved"),
+            "the certain part is stated; the guess is not: {}",
+            found.detail
+        );
+
+        for ordinary in [Here, Absent, Unsupported] {
+            assert!(
+                device_key_finding(root, true, ordinary).is_none(),
+                "{ordinary:?} is not a problem"
+            );
+        }
+        assert!(
+            device_key_finding(root, false, ElsewhereOnly).is_none(),
+            "a vault with no sealed-note key has nothing to say about device unlock"
+        );
+    }
 
     #[test]
     fn doctor_reports_broken_wikilinks() {
@@ -671,6 +762,7 @@ mod tests {
         assert_eq!(embeds[0].paths, vec!["Art.md".to_string()]);
         let _ = fs::remove_dir_all(&dir);
     }
+
 
     #[test]
     fn doctor_ignores_the_embed_display_modifier() {

@@ -22,6 +22,7 @@ function note(title: string, props: Record<string, unknown> = {}): NoteMeta {
     props,
     updated_ms: 0,
     excerpt: "",
+    sealed: false,
   };
 }
 
@@ -216,6 +217,7 @@ test("isScratchNote: filing into a folder promotes out of Notes (SUB-390)", () =
   assert.ok(!isScratchNote(inFolder("Inboxes")), "prefix must be a path segment");
   assert.ok(!isScratchNote(inFolder("Projects", { type: "release" })), "typed stays out either way");
 });
+
 
 test("scratchNotes: untyped only, newest edit first", () => {
   const mix = [

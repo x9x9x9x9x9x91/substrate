@@ -14,7 +14,7 @@ import DateMenu from "./DateMenu";
 import FileMenu from "./FileMenu";
 import RelationMenu from "./RelationMenu";
 import SelectMenu, { anchorFrom, MultiValues, optionColor, OptionDot, OptionPill, RelationValues, type AnchorRect } from "./SelectMenu";
-import { ChevronIcon, PlusIcon, XIcon } from "./Icons";
+import { ChevronIcon, PlusIcon, WarnIcon, XIcon } from "./Icons";
 import { AGG_OPTIONS, ColMenu, openExternalLink, WIN_INITIAL, type Focus } from "./DbPaneShared";
 import { byFoldedKey, isBuiltinDateName } from "../lib/schemalookup";
 import type { HopDir } from "../lib/cellhop";
@@ -92,6 +92,7 @@ export default function DbTableLayout({
   onNoteMenu,
   onTrashNotes,
   sel,
+  writeFailed,
   lastWritten,
   bulkClosing,
   clearSel,
@@ -192,6 +193,10 @@ export default function DbTableLayout({
   onNoteMenu: (path: string, x: number, y: number) => void;
   onTrashNotes: (paths: string[]) => void;
   sel: ReadonlySet<string>;
+  /** SUB-1166: notes a bulk write was refused on, each mapped to what the
+      vault said. These rows are also what's selected, so the bar's count and
+      the marked rows describe one thing. */
+  writeFailed: ReadonlyMap<string, string>;
   /** SUB-945: the cell a write just landed in, lit for one fade */
   lastWritten: { path: string; key: string; nonce: number } | null;
   /** SUB-945: while >0 the selection just emptied and the bar is fading out,
@@ -571,6 +576,20 @@ export default function DbTableLayout({
                   }}
                 >
                   <span className="db-cell-txt db-title-txt">{n.title}</span>
+                  {/* SUB-1166: the bulk toast counts the failures; this is
+                      where THIS note's own reason lives, on the row it
+                      happened to. Title text so the reason is readable
+                      without a pointer, and reachable by screen readers. */}
+                  {writeFailed.has(n.path) ? (
+                    <span
+                      className="db-fail"
+                      title={`Not saved — ${writeFailed.get(n.path)}`}
+                      aria-label={`Not saved — ${writeFailed.get(n.path)}`}
+                      role="img"
+                    >
+                      <WarnIcon />
+                    </span>
+                  ) : null}
                 </td>
                 {shown.map((c, i) => {
                   const isEditing = editCell?.path === n.path && editCell.key === c;
@@ -876,7 +895,12 @@ export default function DbTableLayout({
       {adminPop}
       {(sel.size > 0 || bulkClosing > 0) && (
         <div className={`bulkbar${sel.size === 0 ? " closing" : ""}`}>
-          <span className="bulkbar-count">{sel.size || bulkClosing} selected</span>
+          {/* SUB-1166: after a partial bulk failure the selection IS the
+              failures, so the bar says why it narrowed instead of leaving a
+              silently smaller "N selected" behind. */}
+          <span className={`bulkbar-count${writeFailed.size > 0 ? " is-fail" : ""}`}>
+            {sel.size || bulkClosing} {writeFailed.size > 0 ? "didn’t save" : "selected"}
+          </span>
           <button type="button" onClick={(e) => setBulkColMenu(anchorFrom(e.currentTarget))}>
             Set property…
           </button>

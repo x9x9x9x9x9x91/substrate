@@ -11,9 +11,8 @@ import { shiftDate, todayIso } from "../lib/dates";
 import { templateTypeOf } from "../lib/templates";
 import { viewKey, type NoteMeta, type View } from "../lib/types";
 import * as undoStack from "../lib/undo";
-import type { UndoEntry, UndoState } from "../lib/undo";
+import type { UndoState } from "../lib/undo";
 import type { DashUndoStore } from "../components/useDashUndo";
-import type { ToastAction } from "./useToast";
 
 type SearchReturn = {
   query: string;
@@ -65,8 +64,10 @@ export function useShortcutRouter(opts: {
   pageStepRef: React.RefObject<((dir: 1 | -1) => void) | null>;
   editorFocusRef: React.RefObject<(() => void) | null>;
   undoStateRef: React.RefObject<UndoState>;
-  runUndoEntry: (entry: UndoEntry | null, dir: -1 | 1) => void | Promise<void>;
-  showToast: (msg: string, action?: ToastAction) => void;
+  /** SUB-1164: App owns the undo/redo moves themselves — the palette's rows
+      run these same two callbacks, so click and keystroke can't drift */
+  runUndo: () => void;
+  runRedo: () => void;
   /** SUB-686: current app zoom level and its ladder-stepping setter */
   zoom: number;
   applyZoom: (next: number) => void;
@@ -108,8 +109,8 @@ export function useShortcutRouter(opts: {
     pageStepRef,
     editorFocusRef,
     undoStateRef,
-    runUndoEntry,
-    showToast,
+    runUndo,
+    runRedo,
     zoom,
     applyZoom,
   } = opts;
@@ -131,15 +132,10 @@ export function useShortcutRouter(opts: {
       // SUB-477: the registry's "surface" scope already kept us out of the
       // editor and every text input, so by the time we're here ⌘Z means the
       // vault's undo, not text undo.
-      undo: () => {
-        const live = undoStack.peekUndo(undoStateRef.current);
-        if (live) return void runUndoEntry(live, -1);
-        // nothing live left, but a stale entry explains why: say it rather
-        // than no-op in silence (§3.3)
-        const stale = undoStack.peekStale(undoStateRef.current);
-        if (stale) showToast(`Can’t undo ${stale.label} — it changed on disk`);
-      },
-      redo: () => void runUndoEntry(undoStack.peekRedo(undoStateRef.current), 1),
+      // SUB-1164: the move itself lives in App, shared with the palette's
+      // Undo/Redo rows — including the stale-entry explanation (§3.3)
+      undo: () => runUndo(),
+      redo: () => runRedo(),
       search: () => {
         setOverlay(null);
         if (view.kind === "search") closeSearch();
@@ -301,5 +297,5 @@ export function useShortcutRouter(opts: {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [overlay, shortcutsOpen, settingsOpen, moveSelection, selectedMeta, view, selected, dbNote, openSearch, closeSearch, openJournal, createHere, pinIds, searchReturn, returnToSearch, mobile, toggleSidebar, trashNote, goBack, ghostPath, sheetOpen, workbookOpen, toggleTerminal, customKeys, openNote, dashUndo, runUndoEntry, showToast, zoom, applyZoom]);
+  }, [overlay, shortcutsOpen, settingsOpen, moveSelection, selectedMeta, view, selected, dbNote, openSearch, closeSearch, openJournal, createHere, pinIds, searchReturn, returnToSearch, mobile, toggleSidebar, trashNote, goBack, ghostPath, sheetOpen, workbookOpen, toggleTerminal, customKeys, openNote, dashUndo, runUndo, runRedo, zoom, applyZoom]);
 }

@@ -296,6 +296,7 @@ fn toggle_capture(app: &tauri::AppHandle) {
     }
 }
 
+
 /// Popover geometry, logical px (SUB-746). Width is fixed; the height the
 /// window is built at is the maximum, so the first paint can only shrink.
 #[cfg(desktop)]
@@ -388,56 +389,71 @@ struct HotkeyRejected {
     typed: String,
     /// the chord that actually stayed registered ("" when none ever did)
     active: String,
+    /// which chord this was — the toast names the setting the user has to go
+    /// fix, and there is more than one now (SUB-827 review B-6)
+    which: &'static str,
 }
 
-/// Load Settings.md and (re)register the global capture hotkey when it changed.
+/// (Re)register one global chord, moving `active` to it only once the OS has
+/// actually accepted it. `desired` is what Settings.md now says; a rejection
+/// leaves the old chord registered and rides `capture:hotkey-rejected` to the
+/// UI, so the settings form can't quietly show a chord that does nothing.
+#[cfg(desktop)]
+fn apply_hotkey(app: &tauri::AppHandle, name: &'static str, desired: &str, active: &mut String) {
+    if desired == active {
+        return;
+    }
+    match desired.trim().parse::<Shortcut>() {
+        Ok(new) => match app.global_shortcut().register(new) {
+            Ok(()) => {
+                if let Ok(old) = active.trim().parse::<Shortcut>() {
+                    if old != new {
+                        app.global_shortcut().unregister(old).ok();
+                    }
+                }
+                *active = desired.to_string();
+            }
+            Err(e) => {
+                applog!("{name} hotkey {desired:?} unavailable: {e}");
+                app.emit(
+                    "capture:hotkey-rejected",
+                    HotkeyRejected {
+                        kind: "unavailable",
+                        typed: desired.to_string(),
+                        active: active.clone(),
+                        which: name,
+                    },
+                )
+                .ok();
+            }
+        },
+        Err(_) => {
+            applog!("invalid {name}-hotkey {desired:?} — keeping {active:?}");
+            app.emit(
+                "capture:hotkey-rejected",
+                HotkeyRejected {
+                    kind: "invalid",
+                    typed: desired.to_string(),
+                    active: active.clone(),
+                    which: name,
+                },
+            )
+            .ok();
+        }
+    }
+}
+
+/// Load Settings.md and (re)register the global hotkeys that changed.
 fn apply_settings(app: &tauri::AppHandle, root: &std::path::Path) {
     let settings = Settings::load(root);
     let state: State<SharedRuntime> = app.state();
     let mut rt = state.0.lock().unwrap();
     // global hotkeys don't exist on mobile — settings still load for the rest
     #[cfg(desktop)]
-    if settings.capture_hotkey != rt.active_hotkey {
-        match settings.capture_hotkey.trim().parse::<Shortcut>() {
-            Ok(new) => match app.global_shortcut().register(new) {
-                Ok(()) => {
-                    if let Ok(old) = rt.active_hotkey.trim().parse::<Shortcut>() {
-                        if old != new {
-                            app.global_shortcut().unregister(old).ok();
-                        }
-                    }
-                    rt.active_hotkey = settings.capture_hotkey.clone();
-                }
-                Err(e) => {
-                    applog!("capture hotkey {:?} unavailable: {e}", settings.capture_hotkey);
-                    app.emit(
-                        "capture:hotkey-rejected",
-                        HotkeyRejected {
-                            kind: "unavailable",
-                            typed: settings.capture_hotkey.clone(),
-                            active: rt.active_hotkey.clone(),
-                        },
-                    )
-                    .ok();
-                }
-            },
-            Err(_) => {
-                applog!(
-                    "invalid capture-hotkey {:?} — keeping {:?}",
-                    settings.capture_hotkey,
-                    rt.active_hotkey
-                );
-                app.emit(
-                    "capture:hotkey-rejected",
-                    HotkeyRejected {
-                        kind: "invalid",
-                        typed: settings.capture_hotkey.clone(),
-                        active: rt.active_hotkey.clone(),
-                    },
-                )
-                .ok();
-            }
-        }
+    {
+        let mut active = std::mem::take(&mut rt.active_hotkey);
+        apply_hotkey(app, "capture", &settings.capture_hotkey, &mut active);
+        rt.active_hotkey = active;
     }
     // SUB-951: the window material follows the dial, so it rides the same
     // hot-reload as the hotkey — no IPC command, and an edit to the note
@@ -483,9 +499,10 @@ pub fn run() {
     let builder = builder.plugin(
         tauri_plugin_global_shortcut::Builder::new()
             .with_handler(|app, _shortcut, event| {
-                if event.state == ShortcutState::Pressed {
-                    toggle_capture(app);
+                if event.state != ShortcutState::Pressed {
+                    return;
                 }
+                toggle_capture(app);
             })
             .build(),
     );
@@ -915,7 +932,9 @@ pub fn run() {
                 let capture =
                     MenuItem::with_id(app, "quick-capture", "Quick Capture", true, None::<&str>)?;
                 let quit = MenuItem::with_id(app, "quit", "Quit Substrate", true, None::<&str>)?;
-                let menu = Menu::with_items(app, &[&open, &capture, &quit])?;
+                let mut items: Vec<&dyn tauri::menu::IsMenuItem<_>> = vec![&open, &capture];
+                items.push(&quit);
+                let menu = Menu::with_items(app, &items)?;
                 let mut tray = TrayIconBuilder::with_id("tray")
                     .menu(&menu)
                     .show_menu_on_left_click(false)
@@ -1409,11 +1428,17 @@ mod tests {
             kind: "invalid",
             typed: "opt+space".to_string(),
             active: "alt+space".to_string(),
+            which: "capture",
         })
         .unwrap();
         assert_eq!(
             v,
-            serde_json::json!({"kind": "invalid", "typed": "opt+space", "active": "alt+space"})
+            serde_json::json!({
+                "kind": "invalid",
+                "typed": "opt+space",
+                "active": "alt+space",
+                "which": "capture"
+            })
         );
     }
 }

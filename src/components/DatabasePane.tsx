@@ -86,6 +86,7 @@ import {
 
 export { cardSubtitle };
 import { ColumnsIcon, DbIcon as DbGlyphIcon, ExportIcon, EyeOffIcon, FilterIcon, PenIcon, PinIcon, PlusIcon, TrashIcon, XIcon } from "./Icons";
+import { BackButton } from "./BackButton";
 
 interface DatabasePaneProps {
   dbType: string;
@@ -183,6 +184,10 @@ interface DatabasePaneProps {
     keyframe in styles.css — long enough to catch out of the corner of an eye,
     short enough that it is gone before the next edit. */
 const CELL_FLASH_MS = 700;
+
+/** SUB-1166: the empty "these notes refused the write" map, shared so a reset
+    is referentially stable (same trick as EMPTY_SEL). */
+const EMPTY_FAILED: ReadonlyMap<string, string> = new Map();
 
 export default function DatabasePane({
   dbType,
@@ -561,6 +566,11 @@ export default function DatabasePane({
   // at click time so a re-sort can't strand a numeric index
   const [sel, setSel] = useState<ReadonlySet<string>>(EMPTY_SEL);
   const [selAnchor, setSelAnchor] = useState<string | null>(null);
+  // SUB-1166: which notes a bulk write was refused on, and what the vault
+  // said about each. The toast can only carry a count — "3 failed" out of 40
+  // names nothing — so the reasons live on the rows themselves, and the
+  // refused rows become the selection (settleBulkFailures below).
+  const [writeFailed, setWriteFailed] = useState<ReadonlyMap<string, string>>(EMPTY_FAILED);
   // SUB-945: the bar slides in but used to vanish on the frame the selection
   // emptied. It stays mounted for the fade-out, and keeps the count it was
   // showing — a bar reading "0 selected" on its way out is worse than none
@@ -1232,6 +1242,11 @@ export default function DatabasePane({
         // scale of a single cell. The nonce restarts it when the same cell is
         // written twice inside one flash.
         setLastWritten({ path, key, nonce: ++writeNonce.current });
+        // SUB-1166: this note just took a write, so whatever a bulk edit
+        // couldn't put on it is no longer the honest thing to show
+        setWriteFailed((cur) =>
+          cur.has(path) ? new Map([...cur].filter(([p]) => p !== path)) : cur
+        );
         return true;
       })
       .catch((err) => {
@@ -1412,6 +1427,10 @@ export default function DatabasePane({
   const clearSel = () => {
     setSel(EMPTY_SEL);
     setSelAnchor(null);
+    // SUB-1166: the failure marks ride with the selection they narrowed, so
+    // dismissing the selection is also how the user says "seen it" — no mark
+    // can outlive the rows it was pointing at.
+    setWriteFailed(EMPTY_FAILED);
     setBulkColMenu(null);
     setBulkEdit(null);
     setBulkCheck(null);
@@ -1459,6 +1478,14 @@ export default function DatabasePane({
       const next = new Set([...cur].filter((p) => live.has(p)));
       return next.size === cur.size ? cur : next;
     });
+    // SUB-1166: same for the failure marks — a renamed or deleted note takes
+    // its reason with it rather than stranding it on a path nothing renders
+    setWriteFailed((cur) => {
+      if (cur.size === 0) return cur;
+      const live = new Set(rows.map((n) => n.path));
+      const next = new Map([...cur].filter(([p]) => live.has(p)));
+      return next.size === cur.size ? cur : next;
+    });
   }, [rows]);
 
   // Escape clears the selection FIRST — before the pane's focus-clear and
@@ -1480,6 +1507,7 @@ export default function DatabasePane({
       const paths = [...sel];
       setSel(EMPTY_SEL);
       setSelAnchor(null);
+      setWriteFailed(EMPTY_FAILED);
       if (bulkTrash) onTrashNotes(paths);
     };
     window.addEventListener("keydown", onKey, true);
@@ -1519,11 +1547,45 @@ export default function DatabasePane({
     });
   };
 
+  /* SUB-1166: what happens to the notes a bulk write was refused on.
+     `setPropUndoableBulk` has always returned the reason per path; the pane
+     used to throw all of it away and report a bare count, so on a 40-note
+     edit "3 failed" left no route at all to the three.
+
+     The refused paths BECOME the selection. That reuses the machinery the
+     pane already owns end to end — setSel/setSelAnchor for the narrowing,
+     pendingFocus → focus → scrollIntoView for the reveal (windowed rows
+     included) — and it leaves the user somewhere useful rather than merely
+     informed: the bulk bar comes back holding exactly the notes that still
+     need the edit, so the same edit retries on exactly them. Each row then
+     carries its own reason (DbTableLayout's marker).
+
+     The alternative the issue offers — an action on the toast that selects
+     them — needs this same selection code underneath anyway, and hangs the
+     only route to the failures off something that auto-dismisses in 4s. */
+  const settleBulkFailures = (res: BulkPropResult) => {
+    if (res.failed.length === 0) {
+      setWriteFailed(EMPTY_FAILED);
+      return;
+    }
+    const failed = new Map(res.failed.map((f) => [f.path, f.error]));
+    setWriteFailed(failed);
+    setSel(new Set(failed.keys()));
+    // topmost as the table shows it, not first in write order: the selection
+    // a bulk write reads is a Set, whose order is click order
+    const first = rows.find((n) => failed.has(n.path))?.path ?? res.failed[0].path;
+    setSelAnchor(first);
+    setPendingFocus(first);
+  };
+
   const bulkWriteLive = (key: string, value: string | string[] | boolean | null) => {
     const paths = [...sel];
     if (paths.length === 0) return;
     const label = displayColLabel(key);
     const optimistic = bulkPending(paths, key, value);
+    // SUB-1166: these rows are being written again — no stale "didn't save"
+    // mark may sit on a row while its retry is in flight
+    setWriteFailed(EMPTY_FAILED);
     setPending((cur) => addPending(cur, optimistic));
     setPropUndoableBulk({
       paths,
@@ -1536,6 +1598,7 @@ export default function DatabasePane({
     }).then((res) => {
       const ok = res.ok.length;
       reconcileBulk(optimistic, res);
+      settleBulkFailures(res);
       onMutated();
       onToast?.(
         ok < paths.length
@@ -1564,6 +1627,7 @@ export default function DatabasePane({
     setPropUndoableBulk({ paths, key, keysByPath: bulkKeysByPath(paths, key), value, record: undo.record, keyLabel: label, write: writeProp }).then((res) => {
       const ok = res.ok.length;
       reconcileBulk(optimistic, res);
+      settleBulkFailures(res);
       onMutated();
       onToast?.(
         ok < paths.length
@@ -1863,6 +1927,7 @@ export default function DatabasePane({
 
   const head = (
     <div className="list-head" data-tauri-drag-region>
+      <BackButton />
       <button
         className="db-icon-btn"
         title="Change icon"
@@ -2478,6 +2543,7 @@ export default function DatabasePane({
       onNoteMenu={onNoteMenu}
       onTrashNotes={onTrashNotes}
       sel={sel}
+      writeFailed={writeFailed}
       lastWritten={lastWritten}
       bulkClosing={bulkClosing}
       clearSel={clearSel}

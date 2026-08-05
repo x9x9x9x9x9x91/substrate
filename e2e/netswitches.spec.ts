@@ -43,8 +43,11 @@ test("the outbound switches default on, live under one heading, and persist", as
   await openSettings(page);
 
   // one heading answers "what does this app talk to?" — the three rows sit
-  // under it rather than scattered through the form
-  await expect(page.locator(".settings-sheet .palette-section")).toHaveText("Outbound requests");
+  // under it rather than scattered through the form. Counted, not just found:
+  // a second "Outbound requests" section would split that answer in two.
+  await expect(
+    page.locator(".settings-sheet .palette-section", { hasText: "Outbound requests" }),
+  ).toHaveCount(1);
 
   for (const key of ["net-link-titles", "net-fx-rates", "net-share-relay"]) {
     await expect(page.locator(`#set-${key}`)).toHaveAttribute("aria-checked", "true");
