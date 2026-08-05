@@ -68,6 +68,7 @@ export type NoteActionIcon =
   | "reveal"
   | "export"
   | "share"
+  | "lock"
   | "calendar"
   | "pin"
   | "trash";
@@ -100,6 +101,17 @@ export interface NoteActionHandlers {
   /** SUB-833: encrypt the rendered note client-side and park it on the
       relay as a one-shot/expiring link */
   sendAsLink?: () => void;
+  /** Whole-file at-rest encryption. Only the actions the current sealed
+      state can perform are supplied by the surface. */
+  seal?: () => void;
+  lockNow?: () => void;
+  unseal?: () => void;
+  /** The note is sealed on disk. Gates every plaintext-emitting action
+      (duplicate, exports, send as link) HERE, so no call site — row menu,
+      palette, note pane — can reintroduce a leak by forgetting a ternary.
+      Applies while unlocked too: "Remove seal" is the one deliberate lane
+      that writes sealed content back out as plaintext. */
+  sealed?: boolean;
   /** the open note's per-note calendar opt-out (SUB-175); calendarHidden
       flips the label */
   toggleCalendar?: () => void;
@@ -117,17 +129,17 @@ export function buildNoteActions(h: NoteActionHandlers): NoteAction[] {
   if (h.moveToFolder)
     out.push({ id: "move", label: "Move to folder…", icon: "move", run: h.moveToFolder });
   if (h.rename) out.push({ id: "rename", label: "Rename…", icon: "rename", run: h.rename });
-  if (h.duplicate)
+  if (h.duplicate && !h.sealed)
     out.push({ id: "duplicate", label: "Duplicate", icon: "duplicate", run: h.duplicate });
   if (h.setProperty)
     out.push({ id: "prop", label: "Set property…", icon: "prop", run: h.setProperty });
   if (h.copyPath) out.push({ id: "copy", label: "Copy path", icon: "copy", run: h.copyPath });
   if (h.reveal) out.push({ id: "reveal", label: "Reveal in Finder", icon: "reveal", run: h.reveal });
-  if (h.exportMarkdown)
+  if (h.exportMarkdown && !h.sealed)
     out.push({ id: "export-md", label: "Export Markdown…", icon: "export", run: h.exportMarkdown });
-  if (h.exportPdf)
+  if (h.exportPdf && !h.sealed)
     out.push({ id: "export-pdf", label: "Export PDF…", icon: "export", run: h.exportPdf });
-  if (h.exportOneSheet)
+  if (h.exportOneSheet && !h.sealed)
     out.push({
       id: "export-onesheet",
       label: "Export one-sheet…",
@@ -135,8 +147,12 @@ export function buildNoteActions(h: NoteActionHandlers): NoteAction[] {
       hint: "designed PDF",
       run: h.exportOneSheet,
     });
-  if (h.sendAsLink)
+  if (h.sendAsLink && !h.sealed)
     out.push({ id: "send-link", label: "Send as link…", icon: "share", run: h.sendAsLink });
+  if (h.seal) out.push({ id: "seal", label: "Seal note…", icon: "lock", run: h.seal });
+  if (h.lockNow) out.push({ id: "lock-now", label: "Lock now", icon: "lock", run: h.lockNow });
+  if (h.unseal)
+    out.push({ id: "unseal", label: "Remove seal…", icon: "lock", run: h.unseal });
   if (h.toggleCalendar)
     out.push({
       id: "calendar",

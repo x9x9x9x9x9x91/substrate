@@ -681,25 +681,32 @@ fn rewritten_message(commit: &Commit<'_>) -> String {
 
 /// Replay commits oldest-first as a linear history, matching History's
 /// filter-branch-style desktop rewrite. Empty roots and TREESAME descendants
-/// disappear from the result.
+/// disappear from the result. The second return value maps every original
+/// commit to the rewrite that now stands for it, so refs parked on the old
+/// graph can be moved across (history.rs `replay` returns the same shape).
 fn replay(
     repo: &Repository,
     commits: &[Oid],
     mut tree_of: impl FnMut(&Repository, &Commit<'_>) -> Result<Oid, String>,
-) -> Result<Option<Oid>, String> {
+) -> Result<(Option<Oid>, HashMap<Oid, Option<Oid>>), String> {
     let mut previous: Option<(Oid, Oid)> = None; // (commit, tree)
+    let mut rewritten: HashMap<Oid, Option<Oid>> = HashMap::new();
     for oid in commits {
         let original = repo
             .find_commit(*oid)
             .map_err(|e| format!("version history snapshot unavailable: {e}"))?;
         let tree_oid = tree_of(repo, &original)?;
-        if previous.as_ref().is_some_and(|(_, previous_tree)| *previous_tree == tree_oid) {
-            continue;
+        if let Some((previous_oid, previous_tree)) = previous {
+            if previous_tree == tree_oid {
+                rewritten.insert(*oid, Some(previous_oid));
+                continue;
+            }
         }
         let tree = repo
             .find_tree(tree_oid)
             .map_err(|e| format!("version history snapshot tree unavailable: {e}"))?;
         if previous.is_none() && tree.is_empty() {
+            rewritten.insert(*oid, None);
             continue;
         }
 
@@ -715,9 +722,10 @@ fn replay(
             repo.commit(None, &author, &committer, &message, &tree, &[])
         }
         .map_err(|e| format!("could not rewrite version history snapshot: {e}"))?;
+        rewritten.insert(*oid, Some(new_oid));
         previous = Some((new_oid, tree_oid));
     }
-    Ok(previous.map(|(oid, _)| oid))
+    Ok((previous.map(|(oid, _)| oid), rewritten))
 }
 
 fn historical_names(root: &Path, rels: &[&str]) -> Result<HashSet<PathBuf>, String> {
@@ -744,6 +752,51 @@ fn history_contains_any_path(
         }
     }
     Ok(false)
+}
+
+/// The libgit2 twin of History::classify_other_refs: local refs outside the
+/// rewrite's own set, split into the ones a purge can carry onto the rewritten
+/// line and the ones it must refuse over. A ref whose history never held any
+/// of `paths` appears in neither — it pins nothing the purge removes.
+fn classify_other_refs(
+    repo: &Repository,
+    current_branch: &str,
+    paths: &HashSet<PathBuf>,
+    on_branch: &HashSet<Oid>,
+) -> Result<(Vec<(String, Oid)>, Vec<String>), String> {
+    let (mut carried, mut blocked) = (Vec::new(), Vec::new());
+    let references = repo
+        .references()
+        .map_err(|e| format!("could not inspect version history references: {e}"))?;
+    for reference in references {
+        let reference =
+            reference.map_err(|e| format!("could not inspect version history reference: {e}"))?;
+        let Some(name) = reference.name().map(str::to_string) else { continue };
+        if crate::history::purge_manages_ref(&name, current_branch) {
+            continue;
+        }
+        let resolved = reference
+            .resolve()
+            .map_err(|e| format!("could not resolve version history reference {name}: {e}"))?;
+        let Some(oid) = resolved.target() else { continue };
+        let commit = resolved.peel_to_commit().map_err(|error| {
+            format!("could not check whether Git ref {name} still holds old plaintext: {error}")
+        })?;
+        if !history_contains_any_path(repo, &reachable_commits_oldest(repo, commit.id())?, paths)? {
+            continue;
+        }
+        let direct = repo
+            .find_object(oid, None)
+            .map(|object| object.kind() == Some(ObjectType::Commit))
+            .unwrap_or(false);
+        if direct && on_branch.contains(&oid) {
+            carried.push((name, oid));
+        } else {
+            blocked.push(name);
+        }
+    }
+    blocked.sort();
+    Ok((carried, blocked))
 }
 
 fn purge_tree(
@@ -994,8 +1047,45 @@ pub(crate) fn history_purge_files(root: &Path, rels: &[&str]) -> Result<(), Stri
     if !history_contains_any_path(&repo, &commits, &paths)? {
         return Ok(()); // unknown paths are an observable no-op
     }
+    // Refs outside the rewrite keep the "purged" objects reachable, so the
+    // sweep would preserve them while the caller is told the plaintext is
+    // gone. Classify BEFORE writing anything: a refusal leaves the repository
+    // exactly as it was (SUB-839). A detached HEAD refuses HERE, not in
+    // finish_rewrite — on a detached HEAD libgit2's `head()` succeeds with a
+    // direct ref named "HEAD", every real branch would classify as a user ref,
+    // and the carry loop below would move them before the late refusal.
+    let head_ref =
+        repo.head().map_err(|e| format!("version history branch name unavailable: {e}"))?;
+    if !head_ref.is_branch() {
+        return Err("version history rewrite requires HEAD to point to a local branch".into());
+    }
+    let current_branch = head_ref
+        .name()
+        .map(str::to_string)
+        .ok_or_else(|| "version history branch name unavailable".to_string())?;
+    let on_branch: HashSet<Oid> = commits.iter().copied().collect();
+    let (carried, blocked) = classify_other_refs(&repo, &current_branch, &paths, &on_branch)?;
+    if !blocked.is_empty() {
+        return Err(crate::history::retained_refs_error(&blocked));
+    }
     require_loose_objects(&repo)?;
-    let new_tip = replay(&repo, &commits, |repo, commit| purge_tree(repo, commit, &paths))?;
+    let (new_tip, rewritten) = replay(&repo, &commits, |repo, commit| {
+        purge_tree(repo, commit, &paths)
+    })?;
+    // Move the user's branches and lightweight tags across before the sweep,
+    // which prunes exactly what no ref reaches any more.
+    for (name, oid) in &carried {
+        match rewritten.get(oid) {
+            Some(Some(moved)) => {
+                repo.reference(name, *moved, true, "substrate history rewrite").map_err(|e| {
+                    format!("could not move Git ref {name} onto rewritten history: {e}")
+                })?;
+            }
+            // its snapshot was emptied out by the purge; keeping the ref means
+            // keeping the plaintext, and dropping it is the user's call
+            _ => return Err(crate::history::retained_refs_error(std::slice::from_ref(name))),
+        }
+    }
     finish_rewrite(&repo, new_tip)
 }
 
@@ -1041,7 +1131,7 @@ pub(crate) fn history_trim_before(root: &Path, cutoff_secs: u64) -> Result<(), S
             .map_err(|e| format!("could not write trimmed version history snapshot: {e}"))?,
         )
     } else {
-        replay(&repo, &kept, |_repo, commit| Ok(commit.tree_id()))?
+        replay(&repo, &kept, |_repo, commit| Ok(commit.tree_id()))?.0
     };
     finish_rewrite(&repo, new_tip)
 }
@@ -1443,6 +1533,73 @@ mod tests {
         assert_eq!(commit_count(&mobile_root), 2);
         assert_object_pruned(&mobile_root, purged_blob);
         assert!(!mobile_root.join(".git/logs").exists());
+    }
+
+    #[test]
+    fn libgit2_purge_carries_user_refs_across_and_matches_the_cli() {
+        // SUB-839: a user branch or lightweight tag on the old history keeps
+        // every purged object reachable. Both engines move it onto the rewrite
+        // rather than deleting it or leaving the plaintext alive behind it.
+        let scratch = TempDir::new().unwrap();
+        let desktop_root = scratch.path().join("desktop");
+        let mobile_root = scratch.path().join("mobile");
+        let desktop = history_vault(&desktop_root);
+        fs::write(desktop_root.join("Keep.md"), "keep v1\n").unwrap();
+        fs::write(desktop_root.join("Secret.md"), "secret v1\n").unwrap();
+        desktop.snapshot("created").unwrap();
+        let old_tip = git_with_env(&desktop_root, &["rev-parse", "HEAD"], &[]).trim().to_string();
+        git(&desktop_root, &["update-ref", "refs/heads/archive", &old_tip]);
+        git(&desktop_root, &["update-ref", "refs/tags/before-seal", &old_tip]);
+        fs::write(desktop_root.join("Keep.md"), "keep v2\n").unwrap();
+        desktop.snapshot("keep changed").unwrap();
+        let purged_blob = head_blob(&desktop_root, "Secret.md");
+        copy_tree(&desktop_root, &mobile_root);
+
+        desktop.purge_files(&["Secret.md"]).unwrap();
+        history_purge_files(&mobile_root, &["Secret.md"]).unwrap();
+
+        assert_rewrite_parity(&desktop, &desktop_root, &mobile_root, &["Secret.md"]);
+        for root in [&desktop_root, &mobile_root] {
+            for name in ["refs/heads/archive", "refs/tags/before-seal"] {
+                let moved = git_with_env(root, &["rev-parse", name], &[]).trim().to_string();
+                assert_ne!(moved, old_tip, "{name} must land on rewritten history");
+                assert_eq!(
+                    git_with_env(root, &["show", &format!("{name}:Keep.md")], &[]),
+                    "keep v1\n",
+                    "{name} still means the same snapshot"
+                );
+                assert!(
+                    git_with_env(root, &["log", "--all", "-S", "secret v1", "--format=%H"], &[])
+                        .trim()
+                        .is_empty(),
+                    "plaintext still reachable through {name}"
+                );
+            }
+        }
+        assert_object_pruned(&mobile_root, purged_blob);
+    }
+
+    #[test]
+    fn libgit2_purge_refuses_when_an_annotated_tag_holds_the_plaintext() {
+        let scratch = TempDir::new().unwrap();
+        let source_root = scratch.path().join("source");
+        let mobile_root = scratch.path().join("mobile");
+        let history = history_vault(&source_root);
+        fs::write(source_root.join("Secret.md"), "mobile plaintext guard\n").unwrap();
+        history.snapshot("created").unwrap();
+        git(&source_root, &["tag", "-a", "release", "-m", "cut here"]);
+        let tip = git_with_env(&source_root, &["rev-parse", "HEAD"], &[]).trim().to_string();
+        copy_tree(&source_root, &mobile_root);
+
+        let error = history_purge_files(&mobile_root, &["Secret.md"]).unwrap_err();
+        assert!(error.contains("refs/tags/release"), "the blocker is named: {error}");
+        assert!(error.contains("delete or rewrite them"), "and is actionable: {error}");
+        assert_eq!(git_with_env(&mobile_root, &["rev-parse", "HEAD"], &[]).trim(), tip);
+        assert_eq!(
+            git_with_env(&mobile_root, &["show", "release:Secret.md"], &[]),
+            "mobile plaintext guard\n",
+            "a refusal deletes nothing behind the user's back"
+        );
     }
 
     #[test]

@@ -124,6 +124,12 @@ export function dashboardSheets(
           models.set(name.toLowerCase(), ferr(`no note named “${name}”`));
           continue;
         }
+        // a sealed note indexes with no props, so the type check below would
+        // call it "not a sheet" when the truth is that it is locked (SUB-889)
+        if (resolved.sealed) {
+          models.set(name.toLowerCase(), ferr(`“${name}” is sealed`));
+          continue;
+        }
         if (foldedPropStr(resolved.props, "type")?.toLowerCase() !== "sheet") {
           models.set(name.toLowerCase(), ferr(`“${name}” is not a sheet`));
           continue;

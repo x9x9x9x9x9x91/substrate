@@ -56,6 +56,15 @@ interface SettingsPaneProps {
       follows this sheet instead of waiting for its next summon. */
   onSettingsChanged: () => void | Promise<void>;
   onToast: (msg: string) => void;
+  vaultSealed: boolean;
+  vaultSealPending: boolean;
+  /** A root seal marker that arrived from outside this device and seals
+      nothing until it is confirmed here (SUB-889). */
+  vaultSealUnconfirmed: boolean;
+  onSealVault: () => void;
+  onConfirmVaultSeal: () => void;
+  onRejectVaultSeal: () => void;
+  onRemoveVaultSeal: () => void;
 }
 
 interface Field {
@@ -403,6 +412,13 @@ export default function SettingsPane({
   onEditRaw,
   onSettingsChanged,
   onToast,
+  vaultSealed,
+  vaultSealPending,
+  vaultSealUnconfirmed,
+  onSealVault,
+  onConfirmVaultSeal,
+  onRejectVaultSeal,
+  onRemoveVaultSeal,
 }: SettingsPaneProps) {
   const undo = useUndo();
   const [values, setValues] = useState<Record<string, string> | null>(null);
@@ -803,6 +819,38 @@ export default function SettingsPane({
               </button>
             </div>
           )}
+          <div className="settings-row">
+            <div className="settings-row-text">
+              <div className="settings-label">Persistent vault seal</div>
+              <div className="settings-hint">
+                {vaultSealUnconfirmed
+                  ? "A seal marker for this vault arrived from outside this device. It encrypts nothing and touches no history until you confirm it here."
+                  : vaultSealPending
+                  ? "An interrupted conversion is encrypted but still waiting for local history cleanup; restart or repair history to finish it."
+                  : vaultSealed
+                  ? "New and external notes inherit whole-file encryption. Existing ciphertext stays sealed if inheritance is stopped."
+                  : "Encrypt every user note now, then automatically seal notes added by the app, sync, or external writers."}
+              </div>
+            </div>
+            {vaultSealUnconfirmed ? (
+              <>
+                <button className="settings-raw" onClick={onConfirmVaultSeal}>
+                  confirm seal…
+                </button>
+                <button className="settings-raw" onClick={onRejectVaultSeal}>
+                  reject
+                </button>
+              </>
+            ) : (
+              <button
+                className="settings-raw"
+                disabled={vaultSealPending}
+                onClick={vaultSealed ? onRemoveVaultSeal : onSealVault}
+              >
+                {vaultSealPending ? "conversion pending" : vaultSealed ? "stop inheritance" : "seal vault…"}
+              </button>
+            )}
+          </div>
           {missing && (
             <div className="settings-missing">
               No Settings.md in the vault — create it via “edit raw”.

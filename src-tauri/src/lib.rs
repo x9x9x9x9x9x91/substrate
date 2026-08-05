@@ -557,7 +557,7 @@ pub fn run() {
             // which would manufacture an unrelated root commit and conflicts.
             #[cfg(mobile)]
             std::fs::create_dir_all(&root).expect("could not create mobile vault dir");
-            let engine = if first_run { Engine::new_unconfigured(root) } else { Engine::new(root) }
+            let mut engine = if first_run { Engine::new_unconfigured(root) } else { Engine::new(root) }
                 // machine-local storage: mount document text, alongside the
                 // mount path bindings that already live here (SUB-1093)
                 .with_local_dir(config_dir.clone());
@@ -585,6 +585,39 @@ pub fn run() {
                     }
                 }
             };
+            // SUB-889: a power/process loss during a multi-file seal leaves a
+            // journal before it leaves any ciphertext. Resume encryption and
+            // the one batch history purge before IPC, watcher and snapshot
+            // threads can observe or commit a half-converted scope — and
+            // before the mounts migration below rescans, so it never indexes
+            // a half-converted scope's remaining plaintext.
+            if !first_run {
+                match engine.resume_seal_scope() {
+                    Ok(Some(paths)) => {
+                        let completed = match hist.as_ref() {
+                            Some(h) if h.is_enabled() => {
+                                let rels: Vec<&str> = paths.iter().map(String::as_str).collect();
+                                h.purge_files(&rels).is_ok()
+                            }
+                            Some(_) => false,
+                            None => !engine.root.join(".git").exists(),
+                        };
+                        if completed {
+                            if let Err(error) = engine.finish_seal_scope() {
+                                applog!("pending seal conversion could not commit its marker: {error}");
+                            } else if let Some(h) = hist.as_ref() {
+                                h.snapshot("resume seal conversion").ok();
+                            }
+                        } else {
+                            applog!(
+                                "pending seal conversion remains encrypted but uncommitted: history cleanup unavailable"
+                            );
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(error) => applog!("pending seal conversion recovery failed: {error}"),
+                }
+            }
             // Folder-backed databases became mounts (SUB-888). Migrate on
             // load, before anything reads the vault: one folder concept
             // afterwards, never two. A recovery point goes first — a snapshot
@@ -634,6 +667,34 @@ pub fn run() {
                         );
                         engine.rescan();
                     }
+                }
+            }
+            // Engine::new's first rescan may adopt plaintext under an already
+            // active marker (a file created while the app was closed), and so
+            // may the mounts migration's rescan just above — which is why this
+            // drain sits BELOW it (SUB-889): one boundary for both, while the
+            // migration's own prior paths are still the current ones. Purge
+            // before the launch snapshot can preserve their plaintext versions.
+            if !first_run {
+                let startup_converted = engine.take_seal_conversions();
+                if !startup_converted.is_empty() {
+                    let cleaned = match hist.as_ref() {
+                        Some(h) if h.is_enabled() => {
+                            let rels: Vec<&str> =
+                                startup_converted.iter().map(String::as_str).collect();
+                            h.purge_files(&rels).is_ok()
+                        }
+                        Some(_) => false,
+                        None => !engine.root.join(".git").exists(),
+                    };
+                    if !cleaned {
+                        applog!(
+                            "startup seal adoption encrypted files but could not remove old plaintext history"
+                        );
+                    }
+                }
+                for error in engine.take_seal_failures() {
+                    applog!("startup inherited sealing failed: {error}");
                 }
             }
             app.manage(AppState(Mutex::new(engine)));
@@ -870,6 +931,17 @@ pub fn run() {
                                     .unwrap_or(false)
                             }),
                         };
+                        let seal_scopes_touched = match &batch {
+                            vault::WatchBatch::Rescan => true,
+                            vault::WatchBatch::Paths(paths) => paths.iter().any(|p| {
+                                p.file_name().is_some_and(|name| name == vault::SCOPE_MARKER)
+                            }),
+                        };
+                        // History first, engine second — inherited encryption
+                        // can require an immediate graph rewrite, and this is
+                        // the same lock order as every command boundary.
+                        let history: State<HistoryState> = handle.state();
+                        let hist_guard = history.0.lock().unwrap();
                         let state: State<AppState> = handle.state();
                         let mut notes_touched = matches!(batch, vault::WatchBatch::Rescan);
                         let mut config_touched = notes_touched;
@@ -909,6 +981,14 @@ pub fn run() {
                                     }
                                 }
                             }
+                            commands::finish_inherited_seal(
+                                &handle,
+                                &mut engine,
+                                hist_guard.as_ref(),
+                                Ok(()),
+                                |_| Vec::new(),
+                            )
+                            .ok();
                         }
                         if settings_touched {
                             apply_settings(&handle, &settings_root);
@@ -916,6 +996,9 @@ pub fn run() {
                         if notes_touched {
                             handle.state::<SnapDirty>().mark();
                             handle.emit("vault:changed", changed).ok();
+                        }
+                        if seal_scopes_touched {
+                            handle.emit("vault:seal-scopes-changed", ()).ok();
                         }
                         if config_touched {
                             handle.emit("vault:config-changed", ()).ok();
@@ -1035,6 +1118,15 @@ pub fn run() {
             app_relaunch,
             vault_list,
             vault_read,
+            vault_sealed_configured,
+            vault_seal_scopes,
+            vault_seal_scope,
+            vault_confirm_seal_scope,
+            vault_remove_seal_scope,
+            vault_seal_note,
+            vault_unlock_sealed_note,
+            vault_lock_sealed_note,
+            vault_unseal_note,
             vault_fm_raw,
             vault_fm_write,
             vault_write_body,

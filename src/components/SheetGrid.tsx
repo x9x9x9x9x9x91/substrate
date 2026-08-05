@@ -149,6 +149,11 @@ export default function SheetGrid({
             map.set(name, ferr(`no note named “${name}”`));
             continue;
           }
+          // sealed notes carry no readable props — say locked, not wrong type
+          if (resolved.sealed) {
+            map.set(name, ferr(`“${name}” is sealed`));
+            continue;
+          }
           if (propStr(resolved.props, "type") !== "sheet") {
             map.set(name, ferr(`“${name}” is not a sheet`));
             continue;

@@ -72,6 +72,20 @@ Capacities, Affine).*
   push/pull against your own server, HTTPS + keychain token, self-hosted;
   the E2E-encrypted design is committed (see In flight). **Open source,
   AGPL** (0.19) — the trust argument Notion structurally can't make.
+- **Sealed notes and inherited private zones, unreadable even to local agents** —
+  any individual note, folder subtree, or the user-note portion of a whole vault
+  can become whole-file age ciphertext while neighbouring public folders stay
+  plain Markdown. New, moved, restored, synced, and externally written notes
+  inherit a persistent ancestor seal; the marker carries only the public age
+  recipient, so enforcement never needs to cache the private key.
+  Unlock is password-backed, with Touch ID/Face ID/device-presence convenience
+  on Apple platforms; edits re-encrypt before touching disk. Sealed props/body
+  deliberately vanish from search, databases, dashboards, sheets, links and
+  diffs; sealing also rewrites the note out of local version history (a sync
+  remote that already received plaintext history is a separate copy).
+  Multi-file conversion resumes after interruption and purges affected
+  app-owned Git history as one batch. No account and no reset means the
+  recovery warning is literal.
 
 ### The distinctive surface set (each a screenshot candidate)
 

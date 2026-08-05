@@ -10,6 +10,7 @@ import {
   vaultBacklinks,
   vaultCreate,
   vaultFmRaw,
+  vaultLockSealedNote,
   vaultRead,
   vaultRelated,
   vaultResolve,
@@ -50,6 +51,7 @@ import {
 import Editor from "./Editor";
 import HistoryPanel from "./HistoryPanel";
 import FmRepairDialog from "./FmRepairDialog";
+import SealedNoteDialog, { type SealedNoteMode } from "./SealedNoteDialog";
 import TypeIcon from "./TypeIcon";
 import SheetGrid from "./SheetGrid";
 import DateMenu from "./DateMenu";
@@ -57,7 +59,7 @@ import FileMenu from "./FileMenu";
 import RelationMenu from "./RelationMenu";
 import SelectMenu, { anchorFrom, MultiValues, optionColor, OptionPill, type AnchorRect } from "./SelectMenu";
 import DotsMenu from "./DotsMenu";
-import { BacklinkIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, NoteActionGlyph, XIcon } from "./Icons";
+import { BacklinkIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, LockIcon, NoteActionGlyph, XIcon } from "./Icons";
 
 /** url/email/phone-kind chips open outside the app — the OS handler (browser,
     mail, phone) in Tauri, a new tab in the browser/mock lane (Editor's SUB-88
@@ -325,6 +327,10 @@ function NotePane({
   const [fmRepair, setFmRepair] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
+  const [sealedUnlocked, setSealedUnlocked] = useState(false);
+  const [sealedOverride, setSealedOverride] = useState<boolean | null>(null);
+  const [sealedDialog, setSealedDialog] = useState<SealedNoteMode | null>(null);
+  const isSealed = sealedOverride ?? !!meta.sealed;
 
   const pending = useRef<{ path: string; body: string } | null>(null);
   const saveTimer = useRef<number | undefined>(undefined);
@@ -562,6 +568,22 @@ function NotePane({
     [onMutated]
   );
 
+  // Authorization is scoped to the open note and this mounted pane. Leaving
+  // it flushes encrypted edits first, then drops the in-memory identity.
+  useEffect(() => {
+    setSealedUnlocked(false);
+    setSealedDialog(null);
+    return () => {
+      // the lock must land even when the final flush rejects — otherwise the
+      // engine keeps the identity while every surface shows "locked"
+      void flush().finally(() => vaultLockSealedNote(meta.path));
+    };
+  }, [meta.path, flush]);
+
+  useEffect(() => {
+    setSealedOverride(null);
+  }, [meta.sealed]);
+
   useEffect(() => {
     // SUB-766/SUB-772: when this meta.path change is the pane's own title
     // rename landing — commitTitle already relabeled loaded/pending/baseRef
@@ -691,6 +713,15 @@ function NotePane({
     // exists to route stale closures / in-flight failures of the RENAMED
     // note, and those flushed above.
     renameAliases.current.delete(path);
+    if (isSealed && !sealedUnlocked) {
+      setProps({});
+      setBacklinks([]);
+      setRelated([]);
+      return () => {
+        gone = true;
+        flush();
+      };
+    }
     // SUB-210: a ghost daily has nothing to read — seed an empty buffer so
     // the editor renders; the first keystroke's flush creates the file
     if (ghost && ghostPaths.current.has(path)) {
@@ -800,7 +831,7 @@ function NotePane({
       gone = true;
       flush();
     };
-  }, [meta.path, reloadNonce]);
+  }, [meta.path, reloadNonce, isSealed, sealedUnlocked]);
 
   // One flush registration serves both App-level consumers: SUB-271's
   // Duplicate/trash actions and SUB-264's scratch-abandon lane. Both must
@@ -1181,7 +1212,7 @@ function NotePane({
     else setAddingChip(false);
   };
 
-  const isSheet = foldedPropStr(meta.props, "type")?.toLowerCase() === "sheet";
+  const isSheet = foldedPropStr(isSealed ? props : meta.props, "type")?.toLowerCase() === "sheet";
   const noteType = foldedPropStr(props, "type");
   const noteTypeSchema = noteType ? typeSchemaFor(schema, noteType) : undefined;
   // the rollup schema editor's pickers (SUB-678): the note's type's relation
@@ -1237,6 +1268,36 @@ function NotePane({
   }, [props, noteType, noteTypeSchema]);
 
   // hooks above must run unconditionally — keep this early return below them
+  if (isSealed && !sealedUnlocked) {
+    return (
+      <div className="note sealed-note">
+        <div className="sealed-locked">
+          <div className="sealed-lock-mark"><LockIcon /></div>
+          <div className="sealed-lock-title">{meta.title}</div>
+          <div className="sealed-lock-copy">
+            Encrypted on disk. Its body and properties are unavailable to search,
+            dashboards, sheets, scripts, and local agents.
+          </div>
+          <button className="selmenu-btn selmenu-btn-primary" onClick={() => setSealedDialog("unlock")}>
+            Unlock to peek
+          </button>
+          <div className="sealed-lock-hint">The filename remains visible.</div>
+        </div>
+        {sealedDialog && (
+          <SealedNoteDialog
+            meta={meta}
+            mode={sealedDialog}
+            onClose={() => setSealedDialog(null)}
+            onDone={() => {
+              setSealedDialog(null);
+              setSealedUnlocked(true);
+            }}
+          />
+        )}
+      </div>
+    );
+  }
+
   if (missing) {
     return (
       <div className="note">
@@ -1296,6 +1357,7 @@ function NotePane({
       flush();
       exportNoteOneSheet(meta).catch(console.error);
     },
+    sealed: isSealed,
     sendAsLink: onSendAsLink
       ? () => {
           // flush first — the handoff renders from the file, pending text
@@ -1303,6 +1365,22 @@ function NotePane({
           flush().then(() => onSendAsLink(meta));
         }
       : undefined,
+    seal: !isSealed
+      ? () => {
+          flush().then(() => setSealedDialog("seal"));
+        }
+      : undefined,
+    lockNow: isSealed
+      ? () => {
+          // .finally on both legs: a rejected flush must still drop the
+          // engine identity, or "Lock now" shows locked while plaintext
+          // stays readable through every IPC path
+          flush()
+            .finally(() => vaultLockSealedNote(meta.path))
+            .finally(() => setSealedUnlocked(false));
+        }
+      : undefined,
+    unseal: isSealed ? () => setSealedDialog("unseal") : undefined,
     toggleCalendar: calToggleable ? () => toggleCalendar(calHidden) : undefined,
     calendarHidden: calHidden,
     togglePin: onTogglePin ? () => onTogglePin(meta.path, !pinned) : undefined,
@@ -1322,7 +1400,7 @@ function NotePane({
           would all hit "not found", so the tools appear with the file */}
       {!ghost && (
       <div className="note-tools">
-        <button
+        {!isSealed && <button
           className="note-tool"
           title="History"
           aria-label="History"
@@ -1332,7 +1410,7 @@ function NotePane({
           }}
         >
           <ClockIcon />
-        </button>
+        </button>}
         <DotsMenu
           title="Note actions"
           buttonClass="note-tool"
@@ -2030,6 +2108,30 @@ function NotePane({
           </div>
         )}
       </div>
+      {sealedDialog && (
+        <SealedNoteDialog
+          meta={meta}
+          mode={sealedDialog}
+          onClose={() => setSealedDialog(null)}
+          onDone={(result) => {
+            const mode = sealedDialog;
+            setSealedDialog(null);
+            if (mode === "seal") {
+              setSealedOverride(true);
+              setSealedUnlocked(false);
+              const quick = (result as { device_unlock?: boolean } | undefined)?.device_unlock;
+              if (quick === false) onToast?.("Sealed — use the vault password to unlock on this device");
+              onMutated();
+            } else if (mode === "unseal") {
+              setSealedOverride(false);
+              setSealedUnlocked(false);
+              onMutated();
+            } else {
+              setSealedUnlocked(true);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

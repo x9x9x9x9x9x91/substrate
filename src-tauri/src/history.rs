@@ -15,7 +15,7 @@
 
 use serde::Serialize;
 #[cfg(not(mobile))]
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 #[cfg(not(mobile))]
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -59,8 +59,13 @@ pub(crate) const SENTINEL: &str = ".git/substrate-owned";
 /// the tree at any moment, including the middle of a sync resolve (SUB-568).
 /// `.vault/jobs-exit.json` is the same shape (SUB-706): device-local launchd
 /// run history, written from the `jobs_read` poll outside the engine lock.
+/// `.vault/seal-trust.json` is device-local *by security requirement* rather
+/// than by convenience (SUB-889): it records which seal markers this device
+/// confirmed, and a marker is only enforced — and only ever triggers a history
+/// purge — when it is confirmed here. Syncing that record would hand a remote
+/// writer the very approval the confirmation gate exists to withhold.
 pub(crate) const EXCLUDE_CONTENT: &str =
-    ".assets/\n.trash/\n.DS_Store\n.vault/notifications.json\n.vault/jobs-exit.json\n";
+    ".assets/\n.trash/\n.DS_Store\n.vault/notifications.json\n.vault/jobs-exit.json\n.vault/seal-conversion.json\n.vault/seal-trust.json\n";
 
 /// Every line `EXCLUDE_CONTENT` has ever carried, across versions — the
 /// vocabulary of an exclude file Substrate wrote. Used as a fallback ownership
@@ -68,7 +73,15 @@ pub(crate) const EXCLUDE_CONTENT: &str =
 /// superset of the current constant (asserted in `exclude_vocabulary_covers_the_constant`).
 /// Anything else in `.git/info/exclude` means a human wrote it.
 pub(crate) const EXCLUDE_LINES_EVER_OURS: &[&str] =
-    &[".assets/", ".trash/", ".DS_Store", ".vault/notifications.json", ".vault/jobs-exit.json"];
+    &[
+        ".assets/",
+        ".trash/",
+        ".DS_Store",
+        ".vault/notifications.json",
+        ".vault/jobs-exit.json",
+        ".vault/seal-conversion.json",
+        ".vault/seal-trust.json",
+    ];
 
 /// Secondary ownership marker for `.git/info/exclude` (SUB-1018).
 ///
@@ -100,6 +113,29 @@ pub(crate) fn exclude_is_ours(root: &Path) -> bool {
 /// Read-op error in foreign mode — the log belongs to the user, not to us.
 pub(crate) const FOREIGN_MSG: &str =
     "version history disabled — the vault is your own git repository";
+
+/// Refs the rewrite owns and may move or delete on its own: the branch being
+/// rewritten, plus everything vault sync parks (gitsync.rs). Every OTHER ref
+/// belongs to the user or to a tool we know nothing about — a purge either
+/// carries it onto the rewritten history or refuses, but never drops it.
+pub(crate) fn purge_manages_ref(name: &str, current_branch: &str) -> bool {
+    name == current_branch
+        || name == crate::gitsync::MERGE_REF
+        || name == crate::gitsync::RESOLUTIONS_REF
+        || name == crate::gitsync::STAGING_REF
+        || name.starts_with(&format!("refs/remotes/{}/", crate::gitsync::REMOTE))
+}
+
+/// Refusal when a ref holds the plaintext but cannot be carried across the
+/// rewrite — an annotated tag (rewriting it would forge the tagger's object)
+/// or a branch that left the rewritten line entirely. Sealing reports a
+/// privacy boundary it established; it never claims one it did not.
+pub(crate) fn retained_refs_error(refs: &[String]) -> String {
+    format!(
+        "could not remove old plaintext history because these Git refs still hold it and cannot be rewritten for you: {}; delete or rewrite them yourself, then seal again",
+        refs.join(", ")
+    )
+}
 
 pub struct History {
     root: PathBuf,
@@ -564,21 +600,80 @@ impl History {
         Ok(names)
     }
 
+    /// Every local ref outside the rewrite's own set, split into the ones a
+    /// purge can carry across (a plain commit ref sitting on the rewritten
+    /// line) and the ones it cannot. Refs whose history never held any of
+    /// `specs` are in neither list: they pin only objects the purge is not
+    /// removing, so leaving them alone is safe and lossless.
+    #[cfg(not(mobile))]
+    fn classify_other_refs(
+        &self,
+        specs: &[String],
+        on_branch: &HashSet<String>,
+    ) -> Result<(Vec<(String, String)>, Vec<String>), String> {
+        // `-q` exits non-zero on a detached HEAD, which the rewrite cannot
+        // work from anyway — say that instead of leaking git's empty stderr.
+        let current = self.git(&["symbolic-ref", "-q", "HEAD"]).map_err(|_| {
+            "version history rewrite requires HEAD to point to a local branch".to_string()
+        })?;
+        let current = current.trim().to_string();
+        let listed = self.git(&["for-each-ref", "--format=%(refname)%1f%(objecttype)%1f%(objectname)"])?;
+        let (mut carried, mut blocked) = (Vec::new(), Vec::new());
+        for line in listed.lines() {
+            let mut fields = line.split('\u{1f}');
+            let (Some(name), Some(kind), Some(oid)) = (fields.next(), fields.next(), fields.next())
+            else {
+                continue;
+            };
+            if purge_manages_ref(name, &current) {
+                continue;
+            }
+            let mut args = vec!["rev-list", "-1", name, "--"];
+            args.extend(specs.iter().map(String::as_str));
+            let touches = self.git(&args).map_err(|error| {
+                format!("could not check whether Git ref {name} still holds old plaintext: {error}")
+            })?;
+            if touches.trim().is_empty() {
+                continue;
+            }
+            // An annotated tag would have to be forged to survive (its object
+            // records a tagger and a target); a ref off the rewritten line has
+            // no commit to be carried onto.
+            if kind == "commit" && on_branch.contains(oid) {
+                carried.push((name.to_string(), oid.to_string()));
+            } else {
+                blocked.push(name.to_string());
+            }
+        }
+        blocked.sort();
+        Ok((carried, blocked))
+    }
+
     /// Replay `commits` (oldest first) building each one's tree via `tree_of`,
     /// dropping commits that become identical to their parent (or an empty
-    /// root). Returns the new tip, or None when nothing survives.
+    /// root). Returns the new tip, or None when nothing survives, plus the
+    /// old-commit → surviving-rewrite map other refs are moved through.
     #[cfg(not(mobile))]
     fn replay(
         &self,
         commits: &[String],
         mut tree_of: impl FnMut(&History, &str) -> Result<String, String>,
-    ) -> Result<Option<String>, String> {
+    ) -> Result<(Option<String>, HashMap<String, Option<String>>), String> {
         let mut prev: Option<(String, String)> = None; // (commit, tree)
+        let mut rewritten: HashMap<String, Option<String>> = HashMap::new();
         for c in commits {
             let tree = tree_of(self, c)?;
             match &prev {
-                Some((_, ptree)) if *ptree == tree => continue,
-                None if self.git(&["ls-tree", &tree])?.trim().is_empty() => continue,
+                // dropped: a ref parked here belongs on the snapshot that
+                // still carries the identical tree
+                Some((pc, ptree)) if *ptree == tree => {
+                    rewritten.insert(c.clone(), Some(pc.clone()));
+                    continue;
+                }
+                None if self.git(&["ls-tree", &tree])?.trim().is_empty() => {
+                    rewritten.insert(c.clone(), None);
+                    continue;
+                }
                 _ => {}
             }
             let meta = self.git(&["log", "-1", "--format=%aI%x1f%cI%x1f%B", c])?;
@@ -598,9 +693,10 @@ impl History {
                 .git_env(&args, &[("GIT_AUTHOR_DATE", &ad), ("GIT_COMMITTER_DATE", &cd)])?
                 .trim()
                 .to_string();
+            rewritten.insert(c.clone(), Some(new.clone()));
             prev = Some((new, tree));
         }
-        Ok(prev.map(|(c, _)| c))
+        Ok((prev.map(|(c, _)| c), rewritten))
     }
 
     /// Point the current branch at `new_tip` (or delete it when history is
@@ -687,6 +783,15 @@ impl History {
         let specs: Vec<String> = names.iter().map(|n| format!(":(literal){}", n)).collect();
         let commits: Vec<String> =
             self.git(&["rev-list", "--reverse", "HEAD"])?.lines().map(str::to_string).collect();
+        // Anything else pointing into this history keeps the "purged" blobs
+        // reachable, so `gc` preserves them while the caller is told the
+        // plaintext is gone. Decide BEFORE rewriting: a refusal has to leave
+        // the repository exactly as it was (SUB-839).
+        let on_branch: HashSet<String> = commits.iter().cloned().collect();
+        let (carried, blocked) = self.classify_other_refs(&specs, &on_branch)?;
+        if !blocked.is_empty() {
+            return Err(retained_refs_error(&blocked));
+        }
         let idx = self.root.join(".git/substrate-rewrite-index");
         let idx_str = idx.to_string_lossy().into_owned();
         let result = self.replay(&commits, |h, c| {
@@ -700,7 +805,20 @@ impl History {
             Ok(h.git_env(&["write-tree"], env)?.trim().to_string())
         });
         fs::remove_file(&idx).ok();
-        self.finish_rewrite(result?.as_deref())
+        let (new_tip, rewritten) = result?;
+        // Move the user's branches and lightweight tags onto the rewritten
+        // line before `finish_rewrite` prunes — while they still point at the
+        // old graph, `gc` would keep every purged object alive.
+        for (name, oid) in &carried {
+            match rewritten.get(oid) {
+                Some(Some(moved)) => self.git(&["update-ref", name, moved])?,
+                // the ref stood on history that the purge emptied out; keeping
+                // it means keeping the plaintext, and dropping it is the
+                // user's call, not ours
+                _ => return Err(retained_refs_error(std::slice::from_ref(name))),
+            };
+        }
+        self.finish_rewrite(new_tip.as_deref())
     }
 
     /// Drop all snapshots older than `cutoff_secs` (unix). The oldest kept
@@ -755,6 +873,7 @@ impl History {
             self.replay(&kept, |h, c| {
                 Ok(h.git(&["rev-parse", &format!("{}^{{tree}}", c)])?.trim().to_string())
             })?
+            .0
         };
         self.finish_rewrite(tip.as_deref())
     }
@@ -821,6 +940,12 @@ mod tests {
         fs::write(dir.join(".assets/pic.png"), [0u8; 32]).unwrap();
         fs::create_dir_all(dir.join(".trash/1752768000000")).unwrap();
         fs::write(dir.join(".trash/1752768000000/gone.md"), "trashed\n").unwrap();
+        fs::create_dir_all(dir.join(".vault")).unwrap();
+        fs::write(
+            dir.join(".vault/seal-conversion.json"),
+            r#"{"scope":"Private","purge_paths":["Private/Secret.md"]}"#,
+        )
+        .unwrap();
         fs::write(dir.join("DS test.md"), "note\n").unwrap();
         fs::write(dir.join(".DS_Store"), [0u8; 8]).unwrap();
         assert!(h.snapshot("snapshot").unwrap());
@@ -926,6 +1051,89 @@ mod tests {
         assert!(dir.join("Secret.md").exists());
         h.snapshot("snapshot").unwrap();
         assert_eq!(h.list("Secret.md").unwrap().len(), 1);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn purge_carries_user_branches_and_lightweight_tags_onto_the_rewrite() {
+        // SUB-839: a branch or tag the user parked on the old history pins the
+        // whole pre-rewrite graph, so `gc --prune=now` keeps every "purged"
+        // blob while the UI says the plaintext is gone. They ride along.
+        let (h, dir) = temp_repo("purgerefs");
+        fs::write(dir.join("Keep.md"), "keep v1\n").unwrap();
+        fs::write(dir.join("Secret.md"), "the accidental secret\n").unwrap();
+        h.snapshot("snapshot one").unwrap();
+        h.git(&["branch", "archive"]).unwrap();
+        h.git(&["tag", "before-seal"]).unwrap();
+        fs::write(dir.join("Keep.md"), "keep v2\n").unwrap();
+        h.snapshot("snapshot two").unwrap();
+        let old_archive = h.git(&["rev-parse", "archive"]).unwrap().trim().to_string();
+
+        h.purge_files(&["Secret.md"]).unwrap();
+
+        for name in ["refs/heads/archive", "refs/tags/before-seal"] {
+            assert!(
+                h.git(&["rev-parse", "--verify", "-q", name]).is_ok(),
+                "{name} must survive — dropping a user ref is not ours to do"
+            );
+        }
+        assert_ne!(
+            h.git(&["rev-parse", "archive"]).unwrap().trim(),
+            old_archive,
+            "the ref moved onto rewritten history"
+        );
+        assert_eq!(
+            h.git(&["show", "refs/heads/archive:Keep.md"]).unwrap(),
+            "keep v1\n",
+            "and still means the same snapshot"
+        );
+        assert!(!all_history_patches(&h).contains("accidental secret"));
+        let unreachable = h.git(&["fsck", "--no-reflogs", "--unreachable"]).unwrap();
+        assert!(!unreachable.contains("blob"), "pruned objects must be gone: {unreachable}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn purge_refuses_when_an_annotated_tag_holds_the_plaintext() {
+        // An annotated tag records a tagger and a target object; rewriting it
+        // would forge the user's tag, so the purge refuses and says so rather
+        // than reporting a privacy boundary it did not establish.
+        let (h, dir) = temp_repo("purgeannotated");
+        fs::write(dir.join("Secret.md"), "the accidental secret\n").unwrap();
+        h.snapshot("snapshot").unwrap();
+        h.git(&["tag", "-a", "release", "-m", "cut here"]).unwrap();
+        let tip = h.git(&["rev-parse", "HEAD"]).unwrap().trim().to_string();
+
+        let error = h.purge_files(&["Secret.md"]).unwrap_err();
+        assert!(error.contains("refs/tags/release"), "the blocker is named: {error}");
+        assert!(error.contains("delete or rewrite them"), "and is actionable: {error}");
+        assert_eq!(h.git(&["rev-parse", "HEAD"]).unwrap().trim(), tip, "a refusal changes nothing");
+        assert_eq!(
+            h.git(&["show", "release:Secret.md"]).unwrap(),
+            "the accidental secret\n",
+            "the tag still resolves — nothing was deleted behind the user's back"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn purge_leaves_refs_alone_when_their_history_never_held_the_note() {
+        let (h, dir) = temp_repo("purgeunrelated");
+        fs::write(dir.join("Keep.md"), "keep v1\n").unwrap();
+        h.snapshot("before the note existed").unwrap();
+        h.git(&["tag", "-a", "early", "-m", "annotated, but innocent"]).unwrap();
+        let tag = h.git(&["rev-parse", "early"]).unwrap().trim().to_string();
+        fs::write(dir.join("Secret.md"), "the accidental secret\n").unwrap();
+        h.snapshot("the note arrives").unwrap();
+
+        h.purge_files(&["Secret.md"]).unwrap();
+
+        assert_eq!(
+            h.git(&["rev-parse", "early"]).unwrap().trim(),
+            tag,
+            "a ref whose history never held the note is not touched"
+        );
+        assert!(!all_history_patches(&h).contains("accidental secret"));
         let _ = fs::remove_dir_all(&dir);
     }
 

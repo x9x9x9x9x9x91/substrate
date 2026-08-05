@@ -16,6 +16,29 @@ export interface NoteMeta {
       `tags:` prop, deduplicated case-insensitively, computed at index time.
       Optional so older projections (history snapshots) still typecheck. */
   tags?: string[];
+  sealed?: boolean;
+}
+
+export interface SealResult {
+  meta: NoteMeta;
+  device_unlock: boolean;
+}
+
+export interface SealScopeInfo {
+  /** Empty string names the vault root. */
+  path: string;
+  state: "pending" | "active";
+  /** False for a marker that arrived by sync or an external write and has not
+      been confirmed on this device. Unconfirmed markers seal nothing, convert
+      nothing, and never purge history (SUB-889). */
+  confirmed: boolean;
+}
+
+export interface SealScopeResult {
+  path: string;
+  sealed: number;
+  already_sealed: number;
+  device_unlock: boolean;
 }
 
 /** Everything a single property can hold across the IPC boundary. `null` is
@@ -136,7 +159,8 @@ export type DoctorKind =
   | "corrupt-config"
   | "stale-config"
   | "invalid-prop"
-  | "broken-reflex";
+  | "broken-reflex"
+  | "unscannable-sealed-note";
 
 /** `error` = definitively broken; `warn` = ambiguous or suspicious. */
 export type DoctorSeverity = "warn" | "error";

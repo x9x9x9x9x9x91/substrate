@@ -8,6 +8,10 @@ use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use walkdir::WalkDir;
 
+mod sealed;
+mod sealed_scope;
+pub use sealed_scope::{SealScopeInfo, SealScopeResult, SCOPE_MARKER};
+
 #[derive(Clone, Debug, Serialize)]
 pub struct NoteMeta {
     pub path: String,
@@ -20,8 +24,13 @@ pub struct NoteMeta {
     /// The note's tag set (SUB-818): inline `#hashtags` from the body unioned
     /// with the `tags:` prop, deduplicated case-insensitively. Computed at
     /// index time so collections, autocomplete and the sidebar's tag folders
-    /// are watcher-live and cost nothing at query time.
+    /// are watcher-live and cost nothing at query time. Always empty for a
+    /// sealed note: tags are derived from the body, so publishing them would
+    /// leak the ciphertext's content into the sidebar and tag collections.
     pub tags: Vec<String>,
+    /// Whole-file age ciphertext. Its filename remains visible, but props,
+    /// body, links, excerpts, tags, and search terms do not enter the index.
+    pub sealed: bool,
 }
 
 /// What a reconcile pass did to one note path (SUB-826). Ordered so a sort of
@@ -75,11 +84,30 @@ pub(crate) fn note_from_history(
     {
         return None;
     }
+    let stem = path.file_stem()?.to_string_lossy().to_string();
+    let folder = path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+    // SUB-889: a historical blob can itself be age ciphertext — the scrubber
+    // reads git trees, which keep every sealed revision verbatim. Project it
+    // exactly as the live index does (filename only, no props/excerpt/tags)
+    // and hand back no body: history is a read surface like any other, and
+    // the past copy of a sealed note is no less sealed than the present one.
+    if sealed::is_sealed(raw.as_bytes()) {
+        let meta = NoteMeta {
+            path: rel.to_string(),
+            title: stem.clone(),
+            stem,
+            folder,
+            props: serde_json::Map::new(),
+            updated_ms: snapshot_ms,
+            excerpt: String::new(),
+            tags: Vec::new(),
+            sealed: true,
+        };
+        return Some((meta, NoteContent { body: String::new(), props: serde_json::Map::new() }));
+    }
     let (fm, body) = split_frontmatter(raw);
     let props = parse_props(fm);
-    let stem = path.file_stem()?.to_string_lossy().to_string();
     let title = prop_str(&props, "title").unwrap_or_else(|| stem.clone());
-    let folder = path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
     let meta = NoteMeta {
         path: rel.to_string(),
         stem,
@@ -89,6 +117,7 @@ pub(crate) fn note_from_history(
         updated_ms: snapshot_ms,
         excerpt: make_excerpt(body),
         tags: tags::note_tags(&props, body),
+        sealed: false,
     };
     Some((meta, NoteContent { body: body.to_string(), props }))
 }
@@ -101,6 +130,14 @@ pub(crate) fn note_from_history(
 pub(crate) fn fact_props(raw: &str) -> serde_json::Map<String, serde_json::Value> {
     let (fm, _) = split_frontmatter(raw);
     parse_props(fm)
+}
+
+#[derive(Serialize)]
+pub struct SealResult {
+    pub meta: NoteMeta,
+    /// Whether a user-presence-protected device copy was installed. False is
+    /// not a seal failure: password unlock remains available everywhere.
+    pub device_unlock: bool,
 }
 
 /// A note's raw frontmatter block (no fences) plus its health (SUB-430).
@@ -360,6 +397,15 @@ pub struct Engine {
     /// is the content of files outside the vault. `None` — tests, the
     /// unconfigured first-run engine — simply stores no text.
     local_dir: Option<PathBuf>,
+    /// Identities authorized by an explicit password or Apple user-presence
+    /// prompt in this app session, scoped to the note the user opened.
+    unlocked_sealed: HashMap<String, age::secrecy::SecretString>,
+    /// Watcher/index enforcement failures are drained by the app shell and
+    /// surfaced to the user; inherited plaintext must never fail silently.
+    seal_failures: Vec<String>,
+    /// Plaintext files an inherited scope converted while indexing. Command
+    /// and watcher boundaries drain this before history can snapshot them.
+    seal_conversions: Vec<String>,
     /// Test-only count of note-file writes through the create/prop-edit
     /// paths folder sync uses — lets sync tests assert write coalescing
     /// (SUB-61). Always 0 in non-test builds.
@@ -1139,6 +1185,9 @@ impl Engine {
             // link — both the index and rename's rewrite skip those matches
             link_re: Regex::new(r"!?\[\[([^\[\]]+)\]\]").unwrap(),
             local_dir: None,
+            unlocked_sealed: HashMap::new(),
+            seal_failures: Vec::new(),
+            seal_conversions: Vec::new(),
             #[cfg(test)]
             note_writes: 0,
         };
@@ -1191,7 +1240,12 @@ impl Engine {
     /// disk.
     pub fn apply_changes_detailed(&mut self, paths: &[PathBuf]) -> Vec<(String, NoteChange)> {
         const RESCAN_THRESHOLD: usize = 500;
-        if paths.len() > RESCAN_THRESHOLD {
+        // A marker changes the inherited policy for an unbounded subtree.
+        // Treat create/edit/delete as a whole-vault reconciliation rather
+        // than pretending the hidden marker itself is a note change.
+        if paths.len() > RESCAN_THRESHOLD
+            || paths.iter().any(|p| p.file_name().is_some_and(|n| n == SCOPE_MARKER))
+        {
             self.rescan();
             return Vec::new();
         }
@@ -1326,8 +1380,47 @@ impl Engine {
         if hidden_rel(&rel) {
             return;
         }
-        // binary or unreadable files stay out of the index; invalid UTF-8 is decoded lossily
-        let Ok(raw) = read_lossy(path) else { return };
+        match self.enforce_sealed_scope(&rel) {
+            Ok(true) => self.seal_conversions.push(rel.clone()),
+            Ok(false) => {}
+            Err(error) => {
+                self.seal_failures.push(format!("{rel}: {error}"));
+                return;
+            }
+        }
+        let Ok(bytes) = fs::read(path) else { return };
+        if sealed::is_sealed(&bytes) {
+            let stem =
+                path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+            let folder = Path::new(&rel)
+                .parent()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let updated_ms = fs::metadata(path).and_then(|m| m.modified()).map(now_ms).unwrap_or(0);
+            self.notes.insert(
+                rel.clone(),
+                NoteMeta {
+                    path: rel,
+                    title: stem.clone(),
+                    stem,
+                    folder,
+                    props: serde_json::Map::new(),
+                    updated_ms,
+                    excerpt: String::new(),
+                    tags: Vec::new(),
+                    sealed: true,
+                },
+            );
+            return;
+        }
+        // Preserve the ordinary-note decoder contract: NUL-bearing binary
+        // files stay out; invalid UTF-8 is display/index-lossy; a UTF-8 BOM
+        // cannot hide the frontmatter fence.
+        if bytes.contains(&0) {
+            return;
+        }
+        let decoded = String::from_utf8_lossy(&bytes);
+        let raw = decoded.strip_prefix('\u{FEFF}').unwrap_or(&decoded);
         let (fm, body) = split_frontmatter(&raw);
         let props = parse_props(fm);
         let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
@@ -1376,8 +1469,63 @@ impl Engine {
             updated_ms,
             excerpt: make_excerpt(body),
             tags,
+            sealed: false,
         };
         self.notes.insert(rel, meta);
+    }
+
+    fn read_note_bytes(&self, rel: &str, abs: &Path) -> Result<Vec<u8>, String> {
+        let bytes = fs::read(abs).map_err(|e| e.to_string())?;
+        if !sealed::is_sealed(&bytes) {
+            return Ok(bytes);
+        }
+        let identity = self.unlocked_sealed.get(rel).ok_or_else(|| "sealed: locked".to_string())?;
+        sealed::decrypt_note(identity, &bytes)
+    }
+
+    fn read_note_strict(&self, rel: &str, abs: &Path) -> Result<String, String> {
+        let bytes = self.read_note_bytes(rel, abs)?;
+        if bytes.contains(&0) {
+            return Err("not a text file".into());
+        }
+        let text = String::from_utf8(bytes).map_err(|_| {
+            "this note is not valid UTF-8 — saving would replace the unreadable bytes, \
+             so the edit was refused; fix the file's encoding outside Substrate first"
+                .to_string()
+        })?;
+        Ok(text.strip_prefix('\u{FEFF}').unwrap_or(&text).to_string())
+    }
+
+    fn read_note_lossy(&self, rel: &str, abs: &Path) -> Result<String, String> {
+        let bytes = self.read_note_bytes(rel, abs)?;
+        if bytes.contains(&0) {
+            return Err("not a text file".into());
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        Ok(text.strip_prefix('\u{FEFF}').unwrap_or(&text).to_string())
+    }
+
+    /// Write plaintext through the file's current OR inherited storage mode.
+    /// Encryption happens before the atomic temp file is created, so an
+    /// app-owned create never leaves plaintext on disk in a sealed scope.
+    fn write_note_atomic(
+        &self,
+        rel: &str,
+        abs: &Path,
+        plaintext: impl AsRef<[u8]>,
+    ) -> Result<(), String> {
+        let sealed_on_disk = fs::read(abs).map(|b| sealed::is_sealed(&b)).unwrap_or(false);
+        if sealed_on_disk {
+            let identity =
+                self.unlocked_sealed.get(rel).ok_or_else(|| "sealed: locked".to_string())?;
+            write_atomic(abs, sealed::encrypt_note(identity, plaintext.as_ref())?)
+        } else if let Some(ciphertext) =
+            self.encrypt_for_inherited_scope(rel, plaintext.as_ref())?
+        {
+            write_atomic(abs, ciphertext)
+        } else {
+            write_atomic(abs, plaintext)
+        }
     }
 
     fn reindex_one(&mut self, rel: &str) {
@@ -1395,12 +1543,150 @@ impl Engine {
         v
     }
 
+    pub fn sealed_configured(&self) -> bool {
+        sealed::has_password_key(&self.root)
+    }
+
+    pub fn take_seal_failures(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.seal_failures)
+    }
+
+    pub(crate) fn take_seal_conversions(&mut self) -> Vec<String> {
+        let mut paths = std::mem::take(&mut self.seal_conversions);
+        paths.sort();
+        paths.dedup();
+        paths
+    }
+
+    fn sealed_identity(
+        &self,
+        password: Option<&str>,
+    ) -> Result<age::secrecy::SecretString, String> {
+        match password {
+            Some(password) => sealed::load_password_key(&self.root, password),
+            None => sealed::load_device_key(&self.root),
+        }
+    }
+
+    /// Encrypt one note whole-file. On first use, `password` creates the
+    /// vault identity and its encrypted recovery copy. Later calls may use
+    /// either that password or Apple user presence via `None`.
+    pub fn seal_note(&mut self, rel: &str, password: Option<&str>) -> Result<SealResult, String> {
+        if hidden_rel(rel) || template_rel(rel) || rel == Settings::REL_PATH {
+            return Err("this app-managed note cannot be sealed".into());
+        }
+        let abs = self.abs(rel)?;
+        self.ensure_inside_root(&abs)?;
+        let plaintext = fs::read(&abs).map_err(|e| e.to_string())?;
+        if sealed::is_sealed(&plaintext) {
+            return Err("note is already sealed".into());
+        }
+
+        let (identity, device_unlock) = if sealed::has_password_key(&self.root) {
+            let identity = self.sealed_identity(password)?;
+            let device = if password.is_some() {
+                #[cfg(not(test))]
+                {
+                    sealed::store_device_key(&self.root, &identity).is_ok()
+                }
+                #[cfg(test)]
+                {
+                    false
+                }
+            } else {
+                true
+            };
+            (identity, device)
+        } else {
+            let password = password.ok_or_else(|| "choose a vault password first".to_string())?;
+            let identity = sealed::generate_identity();
+            sealed::save_password_key(&self.root, &identity, password)?;
+            #[cfg(not(test))]
+            let device = sealed::store_device_key(&self.root, &identity).is_ok();
+            #[cfg(test)]
+            let device = false;
+            (identity, device)
+        };
+
+        write_atomic(&abs, sealed::encrypt_note(&identity, &plaintext)?)?;
+        // Keep authorization only long enough for the command layer to purge
+        // plaintext git history safely (and roll the file back if that purge
+        // fails). The public IPC command locks it before replying.
+        self.unlocked_sealed.insert(rel.to_string(), identity);
+        self.reindex_one(rel);
+        Ok(SealResult { meta: self.meta_after_write(rel)?, device_unlock })
+    }
+
+    /// Authorize and decrypt one sealed note into memory. The file remains
+    /// ciphertext; subsequent body/property writes re-encrypt atomically.
+    pub fn unlock_sealed_note(
+        &mut self,
+        rel: &str,
+        password: Option<&str>,
+    ) -> Result<NoteContent, String> {
+        let abs = self.abs(rel)?;
+        let ciphertext = fs::read(&abs).map_err(|e| e.to_string())?;
+        if !sealed::is_sealed(&ciphertext) {
+            return Err("note is not sealed".into());
+        }
+        let identity = self.sealed_identity(password)?;
+        let plaintext = sealed::decrypt_note(&identity, &ciphertext)?;
+        let raw = String::from_utf8(plaintext)
+            .map_err(|_| "sealed note is not valid UTF-8".to_string())?;
+        let (fm, body) = split_frontmatter(&raw);
+        let content = NoteContent { body: body.to_string(), props: parse_props(fm) };
+        if password.is_some() {
+            // Successful password entry repairs a missing device convenience
+            // copy without making that copy the recovery source of truth.
+            #[cfg(not(test))]
+            let _ = sealed::store_device_key(&self.root, &identity);
+        }
+        self.unlocked_sealed.insert(rel.to_string(), identity);
+        Ok(content)
+    }
+
+    pub fn lock_sealed_note(&mut self, rel: &str) {
+        self.unlocked_sealed.remove(rel);
+    }
+
+    /// A path change is an authorization boundary: the pane reopens the note
+    /// locked at its destination, so the engine must forget the identity under
+    /// BOTH names. Carrying it over to the new path let a direct IPC read
+    /// decrypt the note while the UI showed it locked (SUB-839).
+    fn relock_moved_sealed_note(&mut self, old_rel: &str, new_rel: &str) {
+        self.unlocked_sealed.remove(old_rel);
+        self.unlocked_sealed.remove(new_rel);
+    }
+
+    /// Deliberately return an authorized note to ordinary Markdown. This is
+    /// the only lane that writes sealed plaintext to disk.
+    pub fn unseal_note(&mut self, rel: &str) -> Result<NoteMeta, String> {
+        if self.note_in_sealed_scope(rel)? {
+            return Err(
+                "this note inherits a persistent seal; remove or move it outside that scope first"
+                    .into(),
+            );
+        }
+        let abs = self.abs(rel)?;
+        self.ensure_inside_root(&abs)?;
+        let ciphertext = fs::read(&abs).map_err(|e| e.to_string())?;
+        if !sealed::is_sealed(&ciphertext) {
+            return Err("note is not sealed".into());
+        }
+        let identity = self.unlocked_sealed.get(rel).ok_or_else(|| "sealed: locked".to_string())?;
+        let plaintext = sealed::decrypt_note(identity, &ciphertext)?;
+        write_atomic(&abs, plaintext)?;
+        self.unlocked_sealed.remove(rel);
+        self.reindex_one(rel);
+        self.meta_after_write(rel)
+    }
+
     pub fn read(&self, rel: &str) -> Result<NoteContent, String> {
         if hidden_rel(rel) && !template_rel(rel) {
             return Err("hidden paths are not notes".into());
         }
         let abs = self.abs(rel)?;
-        let raw = read_lossy(&abs)?;
+        let raw = self.read_note_lossy(rel, &abs)?;
         let (fm, body) = split_frontmatter(&raw);
         Ok(NoteContent { body: body.to_string(), props: parse_props(fm) })
     }
@@ -1413,7 +1699,7 @@ impl Engine {
             return Err("hidden paths are not notes".into());
         }
         let abs = self.abs(rel)?;
-        let raw = read_lossy(&abs)?;
+        let raw = self.read_note_lossy(rel, &abs)?;
         Ok(fm_state(&raw))
     }
 
@@ -1447,11 +1733,11 @@ impl Engine {
                 return Err("block contains a --- fence line".into());
             }
         }
-        let existing = read_strict(&abs)?;
+        let existing = self.read_note_strict(rel, &abs)?;
         let (_, body) = split_frontmatter(&existing);
         let out =
             if fm.trim().is_empty() { body.to_string() } else { format!("---\n{fm}\n---\n{body}") };
-        write_atomic(&abs, out)?;
+        self.write_note_atomic(rel, &abs, out)?;
         self.reindex_one(rel);
         self.meta_after_write(rel)
     }
@@ -1487,7 +1773,7 @@ impl Engine {
         // read has no frontmatter fence, so the write below would rewrite the
         // file body-only and report success, silently dropping every prop.
         // Only the template lane may write through a missing file (SUB-59).
-        let existing = match read_strict(&abs) {
+        let existing = match self.read_note_strict(rel, &abs) {
             Ok(s) => s,
             // only a MISSING template file reads as empty (SUB-59) — a template
             // that exists but cannot be decoded refuses like any other note,
@@ -1510,7 +1796,7 @@ impl Engine {
             Some(fm) => format!("---\n{}---\n{}", fm, body),
             None => body.to_string(),
         };
-        write_atomic(&abs, out)?;
+        self.write_note_atomic(rel, &abs, out)?;
         self.reindex_one(rel);
         self.meta_after_write(rel)
     }
@@ -1530,7 +1816,7 @@ impl Engine {
         if let Some(dir) = abs.parent() {
             fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
-        write_atomic(&abs, raw)?;
+        self.write_note_atomic(rel, &abs, raw)?;
         self.reindex_one(rel);
         self.meta_after_write(rel)
     }
@@ -1552,7 +1838,7 @@ impl Engine {
     /// from disk — same fields `index_file` would produce, no index insert.
     fn meta_from_disk(&self, rel: &str) -> Result<NoteMeta, String> {
         let abs = self.abs(rel)?;
-        let raw = read_lossy(&abs)?;
+        let raw = self.read_note_lossy(rel, &abs)?;
         let (fm, body) = split_frontmatter(&raw);
         let props = parse_props(fm);
         let stem = abs.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
@@ -1570,6 +1856,7 @@ impl Engine {
             updated_ms,
             excerpt: make_excerpt(body),
             tags,
+            sealed: false,
         })
     }
 
@@ -1622,7 +1909,7 @@ impl Engine {
         // busiest write path in the app — it needs the same symlink check the
         // other write paths have; `abs()` catches only textual escapes (SUB-555)
         self.ensure_inside_root(&abs)?;
-        let raw = read_strict(&abs)?;
+        let raw = self.read_note_strict(rel, &abs)?;
         let (fm, body) = split_frontmatter(&raw);
         // refuse rather than re-serialize a block that didn't parse (SUB-215)
         let mut props = parse_props_for_write(fm, &raw, rel)?;
@@ -1667,7 +1954,7 @@ impl Engine {
             let yaml = serde_yaml::to_string(&props).map_err(|e| e.to_string())?;
             format!("---\n{}---\n{}", yaml, body)
         };
-        write_atomic(&abs, out)?;
+        self.write_note_atomic(rel, &abs, out)?;
         #[cfg(test)]
         {
             self.note_writes += 1;
@@ -1761,7 +2048,7 @@ impl Engine {
         }
         let yaml = serde_yaml::to_string(&map).map_err(|e| e.to_string())?;
         let content = format!("---\n{}---\n{}", yaml, body.unwrap_or(""));
-        write_atomic(&file, content)?;
+        self.write_note_atomic(&rel, &file, content)?;
         #[cfg(test)]
         {
             self.note_writes += 1;
@@ -1821,8 +2108,8 @@ impl Engine {
             let yaml_title = serde_yaml::to_string(display).map_err(|e| e.to_string())?;
             fm.push_str(&format!("title: {}", yaml_title));
         }
-        write_atomic(&file, format!("---\n{}---\n", fm))?;
         let rel = self.rel(&file);
+        self.write_note_atomic(&rel, &file, format!("---\n{}---\n", fm))?;
         self.index_file(&file.clone());
         self.notes.get(&rel).cloned().ok_or_else(|| "create failed".into())
     }
@@ -1861,6 +2148,9 @@ impl Engine {
     /// link-rewritten note and then clobber it.
     pub fn rename_tracked(&mut self, rel: &str, new_title: &str) -> Result<RenameResult, String> {
         let old = self.notes.get(rel).cloned().ok_or("note not found")?;
+        if old.sealed && !self.unlocked_sealed.contains_key(rel) {
+            return Err("unlock the sealed note before renaming it".into());
+        }
         let new_title = new_title.trim();
         if new_title.is_empty() {
             return Err("title cannot be empty".into());
@@ -1958,8 +2248,14 @@ impl Engine {
             }
         }
 
+        // The destination holds the authorization only until the frontmatter
+        // re-serialize below has used it; `relock_destination` then drops it.
+        let relock_destination = old.sealed && new_rel != rel;
         if new_rel != rel {
             fs::rename(&old_abs, &new_abs).map_err(|e| e.to_string())?;
+            if let Some(identity) = self.unlocked_sealed.remove(rel) {
+                self.unlocked_sealed.insert(new_rel.clone(), identity);
+            }
         }
 
         // every note this rename rewrote, the renamed one included — undo's
@@ -1990,27 +2286,24 @@ impl Engine {
         // through a lossy decode either — it joins `failed` like any other
         // note the rename could not touch, and its bytes stay as they are
         // (SUB-556). Same shape as the SUB-215 parse refusal just below.
-        let decoded = read_strict(&new_abs).map_err(|_| failed.push(new_rel.clone())).ok();
+        let decoded = self
+            .read_note_strict(&new_rel, &new_abs)
+            .map_err(|_| failed.push(new_rel.clone()))
+            .ok();
         // A block that fails to parse must not be re-serialized into a wipe
         // (SUB-215): the move and link rewrites still land, but the note's
         // own bytes — frontmatter included — stay exactly as they were.
-        if let Some(raw) = decoded {
-            let (fm, body) = split_frontmatter(&raw);
-            if let Ok(mut props) = parse_props_for_write(fm, &raw, &new_rel) {
-                if slug == new_title {
-                    props.remove("title");
-                } else {
-                    props.insert("title".into(), serde_json::Value::String(new_title.to_string()));
-                }
-                let out = if props.is_empty() {
-                    body.to_string()
-                } else {
-                    let yaml = serde_yaml::to_string(&props).map_err(|e| e.to_string())?;
-                    format!("---\n{}---\n{}", yaml, body)
-                };
-                write_atomic(&new_abs, out)?;
-            }
+        let title_write = match &decoded {
+            Some(raw) => self.write_renamed_title(&new_rel, &new_abs, raw, new_title, &slug),
+            None => Ok(()),
+        };
+        // Last point the sealed identity is needed at the destination: the
+        // re-serialize above re-encrypts through it. Relock now so every exit
+        // below — the error above included — leaves the note locked (SUB-839).
+        if relock_destination {
+            self.relock_moved_sealed_note(rel, &new_rel);
         }
+        title_write?;
 
         for (path, key, value) in rel_rewrites {
             // a relation prop on the renamed note itself moves with the file
@@ -2050,6 +2343,33 @@ impl Engine {
             new_title,
             names.join(", ")
         ))
+    }
+
+    /// Re-serialize a renamed note's own frontmatter at its new path: the
+    /// exact title is kept as a `title:` prop only when sanitizing changed it.
+    /// A block that fails to parse is left byte-for-byte alone (SUB-215).
+    fn write_renamed_title(
+        &mut self,
+        new_rel: &str,
+        new_abs: &Path,
+        raw: &str,
+        new_title: &str,
+        slug: &str,
+    ) -> Result<(), String> {
+        let (fm, body) = split_frontmatter(raw);
+        let Ok(mut props) = parse_props_for_write(fm, raw, new_rel) else { return Ok(()) };
+        if slug == new_title {
+            props.remove("title");
+        } else {
+            props.insert("title".into(), serde_json::Value::String(new_title.to_string()));
+        }
+        let out = if props.is_empty() {
+            body.to_string()
+        } else {
+            let yaml = serde_yaml::to_string(&props).map_err(|e| e.to_string())?;
+            format!("---\n{}---\n{}", yaml, body)
+        };
+        self.write_note_atomic(new_rel, new_abs, out)
     }
 
     /// The note a `[[target]]` addresses. `name` may carry a heading anchor
@@ -2170,6 +2490,15 @@ impl Engine {
         out
     }
 
+    /// Every markdown path physically inside a managed folder, including a
+    /// malformed/binary `.md` that the index deliberately omitted. Privacy
+    /// transitions use the disk inventory so old history cannot survive just
+    /// because a file was not readable as a note.
+    pub(crate) fn markdown_paths_in_folder(&self, rel: &str) -> Vec<String> {
+        let Ok(abs) = self.abs(rel) else { return Vec::new() };
+        walk_md_files(&abs).into_iter().map(|path| self.rel(&path)).collect()
+    }
+
     /// Create a folder (nested paths ok, parents created). Returns the
     /// normalized relative path that was actually used.
     pub fn create_folder(&self, rel: &str) -> Result<String, String> {
@@ -2210,6 +2539,9 @@ impl Engine {
             fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
         fs::rename(self.abs(rel)?, &new_abs).map_err(|e| e.to_string())?;
+        // Nothing below reads the note's body, so the destination never needs
+        // the identity — it reopens locked, exactly as the pane shows it.
+        self.relock_moved_sealed_note(rel, &new_rel);
         self.remove_note(rel);
         self.reindex_one(&new_rel);
         // the pin is keyed by path — follow the file into its new folder (SUB-410),
@@ -2263,6 +2595,10 @@ impl Engine {
         self.move_schema_homes(old_rel, Some(&new_rel))?;
         self.move_sidebar_folders(old_rel, Some(&new_rel))?;
         self.move_sidebar_keys_folder(old_rel, Some(&new_rel))?;
+        // The seal marker rides along inside the folder, so its confirmation
+        // (SUB-889) has to as well — otherwise renaming a sealed folder would
+        // quietly leave the seal unconfirmed and unenforced.
+        self.move_scope_trust(old_rel, Some(&new_rel))?;
         Ok(new_rel)
     }
 
@@ -2320,6 +2656,10 @@ impl Engine {
         self.move_schema_homes(old_rel, Some(&new_rel))?;
         self.move_sidebar_folders(old_rel, Some(&new_rel))?;
         self.move_sidebar_keys_folder(old_rel, Some(&new_rel))?;
+        // The seal marker rides along inside the folder, so its confirmation
+        // (SUB-889) has to as well — otherwise renaming a sealed folder would
+        // quietly leave the seal unconfirmed and unenforced.
+        self.move_scope_trust(old_rel, Some(&new_rel))?;
         Ok(new_rel)
     }
 
@@ -2439,7 +2779,7 @@ impl Engine {
             return Ok(None);
         }
         self.ensure_inside_root(&abs)?; // SUB-555
-        let raw = read_strict(&abs)?;
+        let raw = self.read_note_strict(rel, &abs)?;
         let (fm, _) = split_frontmatter(&raw);
         parse_props_for_write(fm, &raw, rel).map(Some)
     }
@@ -2455,7 +2795,7 @@ impl Engine {
     ) -> Result<(), String> {
         let abs = self.abs(rel)?;
         self.ensure_inside_root(&abs)?; // SUB-555
-        let raw = read_strict(&abs)?;
+        let raw = self.read_note_strict(rel, &abs)?;
         let (fm, body) = split_frontmatter(&raw);
         let mut props = parse_props_for_write(fm, &raw, rel)?;
         f(&mut props);
@@ -2465,7 +2805,7 @@ impl Engine {
             let yaml = serde_yaml::to_string(&props).map_err(|e| e.to_string())?;
             format!("---\n{}---\n{}", yaml, body)
         };
-        write_atomic(&abs, out)?;
+        self.write_note_atomic(rel, &abs, out)?;
         #[cfg(test)]
         {
             self.note_writes += 1;
@@ -5070,6 +5410,98 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn sealed_note_stays_ciphertext_through_read_edit_lock_and_unseal() {
+        let (mut e, dir) = temp_vault("sealed-roundtrip");
+        let note = e
+            .create_full(
+                "Private",
+                "",
+                Some("record"),
+                None,
+                Some("secret body with [[Hidden target]]\n"),
+            )
+            .unwrap();
+
+        let sealed = e.seal_note(&note.path, Some("correct horse")).unwrap();
+        assert!(sealed.meta.sealed);
+        assert!(sealed.meta.props.is_empty(), "frontmatter stays out of the index");
+        assert!(sealed.meta.excerpt.is_empty(), "body stays out of list excerpts");
+        assert!(e.search("secret body", None, false).is_empty(), "body stays out of FTS");
+        let disk = fs::read(dir.join(&note.path)).unwrap();
+        assert!(sealed::is_sealed(&disk));
+        assert!(!String::from_utf8_lossy(&disk).contains("secret body"));
+        e.lock_sealed_note(&note.path);
+        assert_eq!(e.read(&note.path).unwrap_err(), "sealed: locked");
+
+        assert_eq!(
+            e.unlock_sealed_note(&note.path, Some("wrong password")).unwrap_err(),
+            "wrong vault password"
+        );
+        let content = e.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
+        assert_eq!(content.props["type"], serde_json::json!("record"));
+        assert!(content.body.contains("secret body"));
+        e.write_body(&note.path, "edited secret\n", Some(&content.body)).unwrap();
+        e.lock_sealed_note(&note.path);
+        let edited_disk = fs::read(dir.join(&note.path)).unwrap();
+        assert!(sealed::is_sealed(&edited_disk));
+        assert!(!String::from_utf8_lossy(&edited_disk).contains("edited secret"));
+
+        e.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
+        let plain = e.unseal_note(&note.path).unwrap();
+        assert!(!plain.sealed);
+        let raw = fs::read_to_string(dir.join(&note.path)).unwrap();
+        assert!(raw.contains("edited secret"));
+        assert!(raw.contains("type: record"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn renaming_an_unlocked_sealed_note_relocks_the_destination() {
+        let (mut e, dir) = testutil::temp_vault("sealed-rename-lock");
+        let note =
+            e.create_full("Private Rename", "", None, None, Some("rename secret\n")).unwrap();
+        e.seal_note(&note.path, Some("correct horse")).unwrap();
+        e.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
+
+        let renamed = e.rename(&note.path, "Private Renamed").unwrap();
+        assert_eq!(renamed.path, "Private Renamed.md");
+        assert!(renamed.sealed);
+        assert_eq!(
+            e.read(&renamed.path).unwrap_err(),
+            "sealed: locked",
+            "the destination must not inherit the source's authorization"
+        );
+        let disk = fs::read(dir.join(&renamed.path)).unwrap();
+        assert!(sealed::is_sealed(&disk), "rename keeps ciphertext on disk");
+        assert!(!String::from_utf8_lossy(&disk).contains("rename secret"));
+        let unlocked = e.unlock_sealed_note(&renamed.path, Some("correct horse")).unwrap();
+        assert_eq!(unlocked.body, "rename secret\n");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn moving_an_unlocked_sealed_note_relocks_the_destination() {
+        let (mut e, dir) = testutil::temp_vault("sealed-move-lock");
+        let note = e.create_full("Private Move", "", None, None, Some("move secret\n")).unwrap();
+        e.seal_note(&note.path, Some("correct horse")).unwrap();
+        e.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
+
+        let moved = e.move_note(&note.path, "Archive").unwrap();
+        assert_eq!(moved.path, "Archive/Private Move.md");
+        assert!(moved.sealed);
+        assert_eq!(
+            e.read(&moved.path).unwrap_err(),
+            "sealed: locked",
+            "the destination must not inherit the source's authorization"
+        );
+        let disk = fs::read(dir.join(&moved.path)).unwrap();
+        assert!(sealed::is_sealed(&disk), "move keeps ciphertext on disk");
+        assert!(!String::from_utf8_lossy(&disk).contains("move secret"));
+        let unlocked = e.unlock_sealed_note(&moved.path, Some("correct horse")).unwrap();
+        assert_eq!(unlocked.body, "move secret\n");
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
 
 #[cfg(test)]

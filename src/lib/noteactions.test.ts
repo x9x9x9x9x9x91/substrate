@@ -113,14 +113,68 @@ test("buildNoteActions: the full handler set yields the canonical order", () => 
     exportMarkdown: noop,
     exportPdf: noop,
     exportOneSheet: noop,
+    seal: noop,
+    lockNow: noop,
+    unseal: noop,
     toggleCalendar: noop,
     togglePin: noop,
     trash: noop,
   });
   assert.deepEqual(
     acts.map((a) => a.id),
-    ["open", "move", "rename", "duplicate", "prop", "copy", "reveal", "export-md", "export-pdf", "export-onesheet", "calendar", "pin", "trash"]
+    ["open", "move", "rename", "duplicate", "prop", "copy", "reveal", "export-md", "export-pdf", "export-onesheet", "seal", "lock-now", "unseal", "calendar", "pin", "trash"]
   );
+});
+
+test("buildNoteActions: sealed-note actions use the quiet lock lane", () => {
+  const noop = () => {};
+  assert.deepEqual(
+    buildNoteActions({ seal: noop, lockNow: noop, unseal: noop }).map((a) => [a.id, a.label, a.icon]),
+    [
+      ["seal", "Seal note…", "lock"],
+      ["lock-now", "Lock now", "lock"],
+      ["unseal", "Remove seal…", "lock"],
+    ]
+  );
+});
+
+test("buildNoteActions: sealed strips every plaintext-emitting action at the builder", () => {
+  const noop = () => {};
+  // the full handler set with sealed: true — no call site can leak an export/
+  // duplicate/send surface by forgetting its own gate (SUB-839 review)
+  const acts = buildNoteActions({
+    open: noop,
+    moveToFolder: noop,
+    rename: noop,
+    duplicate: noop,
+    setProperty: noop,
+    copyPath: noop,
+    reveal: noop,
+    exportMarkdown: noop,
+    exportPdf: noop,
+    sendAsLink: noop,
+    lockNow: noop,
+    unseal: noop,
+    togglePin: noop,
+    trash: noop,
+    sealed: true,
+  });
+  const ids = acts.map((a) => a.id);
+  for (const leaky of ["duplicate", "export-md", "export-pdf", "send-link"]) {
+    assert.ok(!ids.includes(leaky), `${leaky} must be absent on a sealed note`);
+  }
+  assert.deepEqual(ids, [
+    "open",
+    "move",
+    "rename",
+    "prop",
+    "copy",
+    "reveal",
+    "lock-now",
+    "unseal",
+    "pin",
+    "trash",
+  ]);
 });
 
 test("buildNoteActions: only wired handlers appear, trash always last + separated", () => {

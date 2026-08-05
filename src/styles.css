@@ -905,6 +905,10 @@ button.side-item {
 .ctx-item svg {
   flex: none;
   color: var(--text-3);
+  /* The row owns the action. A tall menu can finish its entrance animation
+     with the pointer over the glyph, so keep the decorative child out of
+     hit-testing and let the stable row receive the click. */
+  pointer-events: none;
 }
 
 .ctx-item.selected {
@@ -11478,6 +11482,72 @@ button.cal-ag-day {
 
 .dbform-input:focus {
   border-color: var(--accent);
+}
+
+.sealed-device-btn {
+  align-self: stretch;
+}
+
+.sealed-note {
+  position: relative;
+  /* .note is a block scroller — flex it so the lock card's margin:auto
+     centers vertically too, not just horizontally */
+  display: flex;
+}
+
+.sealed-locked {
+  width: min(420px, calc(100% - 48px));
+  margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.sealed-lock-mark {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  color: var(--text-2);
+}
+
+.sealed-lock-mark svg {
+  width: 16px;
+  height: 16px;
+}
+
+.sealed-lock-title {
+  color: var(--text-1);
+  font-size: 17px;
+  font-weight: 590;
+}
+
+.sealed-lock-copy {
+  max-width: 360px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.sealed-lock-hint {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.row-sealed {
+  display: inline-flex;
+  margin-right: 6px;
+  color: var(--text-3);
+  vertical-align: -2px;
+}
+
+.row-sealed svg {
+  width: 12px;
+  height: 12px;
 }
 
 /* SUB-430 repair dialog: the raw frontmatter block, edited as source —

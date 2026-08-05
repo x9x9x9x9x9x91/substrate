@@ -7,7 +7,7 @@
 
 use super::*;
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct AssetInfo {
     pub path: String,
     pub size: u64,
@@ -202,7 +202,19 @@ impl Engine {
         let embed_re = Regex::new(r"!\[\[([^\[\]]+)\]\]").unwrap();
         let mut referenced: HashSet<String> = HashSet::new();
         for path in walk_md_files(&self.root) {
-            let Ok(body) = read_lossy(&path) else { continue };
+            // a locked sealed note's embeds are unscannable — reporting its
+            // assets as orphaned would offer in-use files for deletion, so
+            // the sweep refuses instead of guessing
+            let rel = self.rel(&path);
+            let Ok(body) = self.read_note_lossy(&rel, &path) else {
+                if fs::read(&path).is_ok_and(|b| super::sealed::is_sealed(&b)) {
+                    return Err(
+                        "asset cleanup is unavailable while a sealed note is locked — its embeds cannot be scanned"
+                            .into(),
+                    );
+                }
+                continue;
+            };
             // an embed written inside a fence or `span` is an example of the
             // syntax, not a live reference — it must not keep an asset alive
             // (SUB-495; doctor's embed scan skips the same ones)
@@ -527,6 +539,27 @@ mod tests {
         let orphans: Vec<String> =
             e.assets_orphaned().unwrap().into_iter().map(|a| a.path).collect();
         assert_eq!(orphans, vec!["stale.wav"]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn assets_orphaned_refuses_while_a_sealed_note_is_locked() {
+        use base64::Engine as _;
+        let (mut e, dir) = temp_vault("orphan-sealed");
+        let b64 = base64::engine::general_purpose::STANDARD.encode([1u8, 2, 3]);
+        let held = e.save_asset("held.png", &b64).unwrap();
+        let note = e
+            .create_full("Vaulted", "", None, None, Some(&format!("keeps ![[{held}]] alive\n")))
+            .unwrap();
+        e.seal_note(&note.path, Some("correct horse")).unwrap();
+        e.lock_sealed_note(&note.path);
+        // the sealed note's embeds are unscannable — refusing beats offering
+        // its in-use asset for deletion as "orphaned"
+        let err = e.assets_orphaned().unwrap_err();
+        assert!(err.contains("sealed"), "{err}");
+        // unlocked, the sweep sees the embed again and holds the asset
+        e.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
+        assert!(e.assets_orphaned().unwrap().is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
 

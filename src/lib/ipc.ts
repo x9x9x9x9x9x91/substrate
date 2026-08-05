@@ -42,6 +42,9 @@ import type {
   SavedViewSort,
   SchemaConfig,
   SearchHit,
+  SealResult,
+  SealScopeInfo,
+  SealScopeResult,
   SelectOption,
   SetPropResult,
   SidebarOrder,
@@ -147,6 +150,27 @@ export const vaultRead = (path: string) => {
   }
   return invoke<NoteContent>("vault_read", { path });
 };
+export const vaultSealedConfigured = () => invoke<boolean>("vault_sealed_configured");
+export const vaultSealScopes = () => invoke<SealScopeInfo[]>("vault_seal_scopes");
+export const vaultSealScope = (path: string, password?: string) =>
+  invoke<SealScopeResult>("vault_seal_scope", {
+    path,
+    password: password ?? null,
+  });
+export const vaultConfirmSealScope = (path: string, password?: string) =>
+  invoke<SealScopeResult>("vault_confirm_seal_scope", {
+    path,
+    password: password ?? null,
+  });
+export const vaultRemoveSealScope = (path: string) =>
+  invoke<null>("vault_remove_seal_scope", { path });
+export const vaultSealNote = (path: string, password?: string) =>
+  invoke<SealResult>("vault_seal_note", { path, password: password ?? null });
+export const vaultUnlockSealedNote = (path: string, password?: string) =>
+  invoke<NoteContent>("vault_unlock_sealed_note", { path, password: password ?? null });
+export const vaultLockSealedNote = (path: string) =>
+  invoke<null>("vault_lock_sealed_note", { path });
+export const vaultUnsealNote = (path: string) => invoke<NoteMeta>("vault_unseal_note", { path });
 export const vaultWriteBody = (path: string, body: string, expectedBody?: string | null) =>
   invoke<NoteMeta>("vault_write_body", { path, body, expectedBody: expectedBody ?? null });
 /** Write one property. `expected` is the undo guard (SUB-477): omit it and the

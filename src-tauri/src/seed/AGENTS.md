@@ -196,6 +196,35 @@ live and a torn read looks like an empty file.
 - `.trash/` — deleted notes, restorable. Treat as read-only.
 - `.git/` — the app owns version history here.
 
+## Sealed scopes — unreadable is not broken
+
+A `.substrate-seal` file in a folder means that folder's subtree is sealed: the
+notes under it are encrypted on disk. At the vault root it means every note in
+the vault. The marker inherits down the path, so a sealed ancestor seals everything
+below it — but siblings are independent: `Private/.substrate-seal` says nothing
+about `Public/`.
+
+A sealed note keeps its filename and `.md` suffix; the bytes inside start with
+the line `SUBSTRATE-SEALED-1` followed by an age-encrypted binary payload. That
+is not corruption.
+
+- **Never edit, "repair", reformat or delete a file you cannot read as
+  plaintext.** No frontmatter normalizer, formatter, link rewriter or merge
+  driver over those bytes. Copying, renaming and syncing them byte-for-byte is
+  fine; content-aware diffs are intentionally unavailable while sealed.
+- Work in unsealed scopes. Reading note content inside a sealed one needs a
+  key the app and user authorize — do not try to route around it, and do not
+  touch `.vault/sealed-key.age`, which is the user's only password recovery
+  path.
+- This file, `Settings.md` and `CLAUDE.md` stay plaintext even under a root
+  seal, on purpose: you need to orient before any key is authorized. Their
+  being readable is not evidence that the rest is.
+- **Before creating or replacing a note, check for `.substrate-seal` at the
+  vault root and on every folder of the target path.** If one is there, the new
+  file must be ciphertext too: encrypt it to the public `recipient` named in
+  the marker (never invent a second recipient in the same vault), or leave the
+  creation to the app. Never drop plaintext into a sealed scope.
+
 ## Writing notes safely
 
 - Filename ≈ title. Titles may not contain `[` or `]` or start with `.`;

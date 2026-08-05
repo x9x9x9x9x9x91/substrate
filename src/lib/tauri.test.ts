@@ -423,6 +423,40 @@ test("rename rejects a case-insensitive collision, allows a case-only self-renam
   assert.equal(self.meta.title, "COLLISION BETA 290");
 });
 
+test("a sealed note's rename and move relock their destination (SUB-839)", async () => {
+  const note = await invoke<NoteMeta>("vault_create", {
+    title: "Sealed Path Guard 839",
+    folder: "",
+    body: "sealed path secret\n",
+  });
+  await invoke("vault_seal_note", { path: note.path, password: "correct horse" });
+  await invoke("vault_unlock_sealed_note", { path: note.path, password: "correct horse" });
+
+  const renamed = await invoke<RenameResult>("vault_rename", {
+    path: note.path,
+    title: "Sealed Renamed Guard 839",
+  });
+  await assert.rejects(
+    invoke("vault_read", { path: renamed.meta.path }),
+    /sealed: locked/,
+    "the rename destination must not inherit the source's authorization"
+  );
+
+  await invoke("vault_unlock_sealed_note", {
+    path: renamed.meta.path,
+    password: "correct horse",
+  });
+  const moved = await invoke<NoteMeta>("vault_move", {
+    path: renamed.meta.path,
+    folder: "Archive839",
+  });
+  await assert.rejects(
+    invoke("vault_read", { path: moved.path }),
+    /sealed: locked/,
+    "the move destination must not inherit the source's authorization"
+  );
+});
+
 test("search commands cap their result set like the engine (SUB-519)", async () => {
   // both engine queries are capped — `vault_search` at 30 (vault.rs:2572),
   // `vault_search_full` at FULL_SEARCH_MAX_NOTES = 200 (vault.rs:94, :2636).

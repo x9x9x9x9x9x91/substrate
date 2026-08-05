@@ -217,6 +217,18 @@ declare global {
         setter is for flipping it afterwards. */
     __mockFirstRun?: boolean;
     __mockSetFirstRun?: (on: boolean) => void;
+    /** stage a machine with no device key (SUB-889): sealing reports
+        `device_unlock: false` and the Touch ID lane refuses, so a spec can
+        reach the vault-password fallback the real app falls back to */
+    __mockNoDeviceUnlock?: boolean;
+    /** stage a scope seal whose history cleanup fails (SUB-889): the files
+        encrypt but the marker stays `pending`, which is the only way to reach
+        the "Seal conversion pending" UI */
+    __mockSealPending?: boolean;
+    /** plant a seal marker the way a sync pull or an external writer would
+        (SUB-889): it exists but this device never confirmed it, so it seals
+        nothing until the user accepts it in-app */
+    __mockPlantSealScope?: (path: string) => void;
     /** stage a build with no demo vault bundled (SUB-436 review #3) — the
         backend refuses rather than opening an empty folder, so a spec needs
         a way to reach the refusal */
@@ -305,6 +317,37 @@ let mockFirstRun =
   typeof window !== "undefined" && (window as Window).__mockFirstRun === true;
 let mockRelaunched = false;
 let mockAgentCommand: string | null = null;
+let mockSealedPassword: string | null = null;
+const mockUnlockedSealed = new Set<string>();
+const mockSealScopes = new Set<string>();
+/** scopes whose marker is `pending` — encrypted, history cleanup unfinished */
+const mockPendingSealScopes = new Set<string>();
+/** Scopes whose marker arrived from outside this device and has not been
+    confirmed here. They seal nothing and purge nothing until confirmed
+    (SUB-889). `__mockPlantSealScope` plants one the way a sync pull would,
+    which is the only way to get into this state. */
+const mockUnconfirmedSealScopes = new Set<string>();
+const mockDeviceUnlock =
+  typeof window === "undefined" || (window as Window).__mockNoDeviceUnlock !== true;
+const mockSealStaysPending = () =>
+  typeof window !== "undefined" && (window as Window).__mockSealPending === true;
+
+function mockScopeApplies(path: string): boolean {
+  if (path === "Settings.md" || path === "AGENTS.md" || path === "CLAUDE.md") return false;
+  const folder = mockFolderOf(path);
+  // an unconfirmed marker seals nothing (SUB-889)
+  return [...mockSealScopes].some(
+    (scope) =>
+      !mockUnconfirmedSealScopes.has(scope) &&
+      (scope === "" || folder === scope || folder.startsWith(`${scope}/`))
+  );
+}
+
+function mockEnforceSealScope(note: MockNote): void {
+  if (!mockScopeApplies(note.path)) return;
+  note.sealed = true;
+  mockUnlockedSealed.delete(note.path);
+}
 
 /** local YYYY-MM-DD, `offset` days from today — keeps demo calendar entries
     near whatever day the app is opened */
@@ -1583,6 +1626,10 @@ for (const r of LEDGER_ROWS) {
 
 function meta(n: MockNote): NoteMeta {
   const { body: _body, unreadable: _unreadable, fm: _fm, ...m } = n;
+  // a sealed note projects no props, no excerpt, and no tags: tags are derived
+  // from the body's inline `#hashtags` (SUB-818), so publishing them would leak
+  // the ciphertext's content through the tag sidebar and tag folders
+  if (n.sealed) return { ...m, props: {}, excerpt: "", tags: [], sealed: true };
   // mirrors Engine::index_file (SUB-818): a note's tags are computed at index
   // time from body + props, never stored on the fixture
   return { ...m, tags: noteTags(n.props, n.body) };
@@ -1884,6 +1931,18 @@ function mockRelocateFolder(oldRel: string, newRel: string): void {
       n.folder = mockFolderOf(n.path);
     }
   }
+  for (const scope of [...mockSealScopes]) {
+    if (inside(scope)) {
+      mockSealScopes.delete(scope);
+      mockSealScopes.add(retarget(scope));
+      if (mockPendingSealScopes.delete(scope)) mockPendingSealScopes.add(retarget(scope));
+      // the confirmation travels with its folder (SUB-889); so does the lack
+      // of one — a rename must not silently confirm a planted marker
+      if (mockUnconfirmedSealScopes.delete(scope))
+        mockUnconfirmedSealScopes.add(retarget(scope));
+    }
+  }
+  for (const n of mockNotes) mockEnforceSealScope(n);
   // folder meta follows, subtree included (engine move_folder_meta)
   for (const k of Object.keys(mockFolderMeta)) {
     if (inside(k)) {
@@ -2610,6 +2669,11 @@ const mockTrash: (TrashEntry & {
   note?: MockNote;
   folderNotes?: MockNote[];
   folderDirs?: string[];
+  folderSealScopes?: string[];
+  /** which of those scopes were unconfirmed: the engine parks a marker and its
+      (lack of) confirmation under `.trash/<id>/` together, so a restore must
+      not quietly promote a planted marker to confirmed */
+  folderSealUnconfirmed?: string[];
   /** asset entries (SUB-479): the base64 payload, so restore round-trips bytes */
   asset?: string;
   /** template entries (SUB-781): the template's content, so restore round-trips */
@@ -2884,6 +2948,11 @@ const WATCHED_WRITE_COMMANDS = new Set([
   // acting inside a tag folder writes the note's `tags:` prop like any other
   // prop edit, so the watcher sees it (SUB-818)
   "vault_note_add_tags",
+  "vault_seal_note",
+  "vault_seal_scope",
+  "vault_confirm_seal_scope",
+  "vault_remove_seal_scope",
+  "vault_unseal_note",
   "vault_create",
   "url_capture",
   "vault_rename",
@@ -2953,6 +3022,12 @@ function writtenPathsFor(
       return [path ?? metaPath((result as { meta?: unknown })?.meta ?? result)].filter(
         (p): p is string => !!p
       );
+    case "vault_seal_note":
+      return [path ?? metaPath((result as { meta?: unknown })?.meta)].filter(
+        (p): p is string => !!p
+      );
+    case "vault_unseal_note":
+      return [path ?? metaPath(result)].filter((p): p is string => !!p);
     case "vault_create":
     case "url_capture":
     case "history_restore":
@@ -3224,6 +3299,161 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       return [...mockNotes.map(meta), mockSettingsMeta()].sort(
         (a, b) => b.updated_ms - a.updated_ms
       );
+    case "vault_sealed_configured":
+      return mockSealedPassword !== null;
+    case "vault_seal_scopes":
+      return [...mockSealScopes]
+        .sort()
+        .map((path) => ({
+          path,
+          state: mockPendingSealScopes.has(path) ? ("pending" as const) : ("active" as const),
+          confirmed: !mockUnconfirmedSealScopes.has(path),
+        }));
+    case "vault_seal_scope": {
+      const scope = String(args?.path ?? "").replace(/^[/\\]+|[/\\]+$/g, "");
+      if (scope && !mockFolders.has(scope)) throw new Error("folder not found");
+      if (mockSealScopes.has(scope)) throw new Error("this location already has a persistent seal");
+      const password = typeof args?.password === "string" ? args.password : null;
+      if (mockSealedPassword === null) {
+        if (!password) throw new Error("choose a vault password first");
+        if (password.length < 8) throw new Error("password must be at least 8 characters");
+        mockSealedPassword = password;
+      } else if (password && password !== mockSealedPassword) {
+        throw new Error("wrong vault password");
+      }
+      mockSealScopes.add(scope);
+      let sealed = 0;
+      let already_sealed = 0;
+      for (const n of mockNotes) {
+        if (!mockScopeApplies(n.path)) continue;
+        if (n.sealed) already_sealed += 1;
+        else {
+          n.sealed = true;
+          sealed += 1;
+        }
+        mockUnlockedSealed.delete(n.path);
+      }
+      // the files are already ciphertext; only the history rewrite failed, so
+      // the marker stays pending exactly as the engine leaves it
+      if (mockSealStaysPending()) {
+        mockPendingSealScopes.add(scope);
+        throw new Error(
+          "the files are encrypted, but the persistent seal is still pending because old plaintext history could not be removed: version history is unavailable; restart or retry after repairing history"
+        );
+      }
+      return { path: scope, sealed, already_sealed, device_unlock: mockDeviceUnlock };
+    }
+    // accepting a marker this device did not write: the same conversion the
+    // seal command runs, gated on the vault password / device unlock (SUB-889)
+    case "vault_confirm_seal_scope": {
+      const scope = String(args?.path ?? "").replace(/^[/\\]+|[/\\]+$/g, "");
+      if (!mockSealScopes.has(scope)) throw new Error("this location has no seal marker");
+      if (!mockUnconfirmedSealScopes.has(scope))
+        throw new Error("this seal is already confirmed on this device");
+      const password = typeof args?.password === "string" ? args.password : null;
+      if (mockSealedPassword === null) {
+        if (!password) throw new Error("choose a vault password first");
+        if (password.length < 8) throw new Error("password must be at least 8 characters");
+        mockSealedPassword = password;
+      } else if (password && password !== mockSealedPassword) {
+        throw new Error("wrong vault password");
+      }
+      mockUnconfirmedSealScopes.delete(scope);
+      let sealed = 0;
+      let already_sealed = 0;
+      for (const n of mockNotes) {
+        if (!mockScopeApplies(n.path)) continue;
+        if (n.sealed) already_sealed += 1;
+        else {
+          n.sealed = true;
+          sealed += 1;
+        }
+        mockUnlockedSealed.delete(n.path);
+      }
+      if (mockSealStaysPending()) {
+        mockPendingSealScopes.add(scope);
+        throw new Error(
+          "the files are encrypted, but the persistent seal is still pending because old plaintext history could not be removed: version history is unavailable; restart or retry after repairing history"
+        );
+      }
+      return { path: scope, sealed, already_sealed, device_unlock: mockDeviceUnlock };
+    }
+    case "vault_remove_seal_scope": {
+      const scope = String(args?.path ?? "").replace(/^[/\\]+|[/\\]+$/g, "");
+      if (!mockSealScopes.has(scope)) throw new Error("this location has no seal marker");
+      // Both guards are about opting out of a seal this device applied. For an
+      // unconfirmed marker this call *is* the reject action: there is no
+      // conversion of ours to finish, and deleting a marker that was never
+      // applied opts out of nothing. The engine skips them the same way, so
+      // rejecting a planted marker inside a sealed folder must succeed here
+      // too — otherwise the denial-of-service half of the attack has no spec.
+      if (!mockUnconfirmedSealScopes.has(scope)) {
+        if (mockPendingSealScopes.has(scope))
+          throw new Error("finish the pending seal conversion before removing it");
+        if (
+          scope &&
+          [...mockSealScopes].some(
+            (outer) =>
+              outer !== scope &&
+              (outer === "" || scope.startsWith(`${outer}/`)) &&
+              // an ancestor that enforces nothing wins nothing
+              !mockUnconfirmedSealScopes.has(outer)
+          )
+        ) {
+          throw new Error("a sealed ancestor wins; remove that outer seal first");
+        }
+      }
+      mockSealScopes.delete(scope);
+      mockPendingSealScopes.delete(scope);
+      mockUnconfirmedSealScopes.delete(scope);
+      return null;
+    }
+    case "vault_seal_note": {
+      const n = find();
+      if (!n) throw new Error("not found");
+      if (n.sealed) throw new Error("note is already sealed");
+      const password = typeof args?.password === "string" ? args.password : null;
+      if (mockSealedPassword === null) {
+        if (!password) throw new Error("choose a vault password first");
+        if (password.length < 8) throw new Error("password must be at least 8 characters");
+        mockSealedPassword = password;
+      } else if (password && password !== mockSealedPassword) {
+        throw new Error("wrong vault password");
+      }
+      n.sealed = true;
+      mockUnlockedSealed.delete(n.path);
+      n.updated_ms = Date.now();
+      return { meta: meta(n), device_unlock: mockDeviceUnlock };
+    }
+    case "vault_unlock_sealed_note": {
+      const n = find();
+      if (!n?.sealed) throw new Error("note is not sealed");
+      const password = typeof args?.password === "string" ? args.password : null;
+      if (password !== null && password !== mockSealedPassword) throw new Error("wrong vault password");
+      // no password = the device-key lane; without a stored key it refuses and
+      // the dialog falls back to the vault password
+      if (password === null && (!mockDeviceUnlock || mockSealedPassword === null))
+        throw new Error("Touch ID or device unlock was cancelled or unavailable");
+      mockUnlockedSealed.add(n.path);
+      return { body: n.body, props: n.props };
+    }
+    case "vault_lock_sealed_note":
+      mockUnlockedSealed.delete(String(args?.path ?? ""));
+      return null;
+    case "vault_unseal_note": {
+      const n = find();
+      if (!n?.sealed) throw new Error("note is not sealed");
+      if (!mockUnlockedSealed.has(n.path)) throw new Error("sealed: locked");
+      if (mockScopeApplies(n.path)) {
+        throw new Error(
+          "this note inherits a persistent seal; remove or move it outside that scope first"
+        );
+      }
+      n.sealed = false;
+      mockUnlockedSealed.delete(n.path);
+      n.updated_ms = Date.now();
+      return meta(n);
+    }
     case "vault_read": {
       const stem = templateStem(args?.path);
       if (stem) {
@@ -3237,6 +3467,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const n = find();
       if (!n) throw new Error("not found");
       if (n.unreadable) throw new Error("permission denied");
+      if (n.sealed && !mockUnlockedSealed.has(n.path)) throw new Error("sealed: locked");
       return { body: n.body, props: n.props };
     }
     case "vault_fm_raw": {
@@ -3412,6 +3643,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       }
       n.excerpt = mockMakeExcerpt(body);
       mockNotes.push(n);
+      mockEnforceSealScope(n);
       return meta(n);
     }
     case "vault_template_read": {
@@ -3587,9 +3819,12 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         body: "",
       };
       mockNotes.push(n);
+      mockEnforceSealScope(n);
       // SUB-834: `net-link-titles: false` skips the enrichment fetch — the
       // note stays exactly as captured. Mirrors url_capture's `enrich` flag,
       // so the mock can't pass a case the real engine would refuse to.
+      // The seal lands first either way: a captured link inside a sealed
+      // scope must not sit in plaintext waiting for a fetch that never comes.
       if (args?.enrich === false) return meta(n);
       // simulate the polite background fetch: title + description arrive late
       window.setTimeout(() => {
@@ -3608,6 +3843,9 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     case "vault_rename": {
       const n = find();
       if (!n) throw new Error("not found");
+      if (n.sealed && !mockUnlockedSealed.has(n.path))
+        throw new Error("unlock the sealed note before renaming it");
+      const renamedFrom = n.path;
       const title = ((args?.title as string) ?? "").trim();
       if (!title) throw new Error("title cannot be empty");
       const slug = mockSanitizeFilename(title);
@@ -3680,6 +3918,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       if (slug === title) delete n.props["title"];
       else n.props["title"] = title;
       n.updated_ms = Date.now();
+      // a path change is an authorization boundary — the destination reopens
+      // locked, like Engine::rename_tracked (SUB-839)
+      mockUnlockedSealed.delete(renamedFrom);
+      mockUnlockedSealed.delete(newPath);
       // post-move paths, renamed note first — same shape as RenameResult
       const touched = [n.path, ...[...rewritten].filter((m) => m !== n).map((m) => m.path)];
       return { meta: meta(n), touched };
@@ -3714,6 +3956,13 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         if (inside(mockNotes[i].folder)) folderNotes.unshift(...mockNotes.splice(i, 1));
       }
       const folderDirs = [...mockFolders].filter(inside);
+      const folderSealScopes = [...mockSealScopes].filter(inside);
+      const folderSealUnconfirmed = [...mockUnconfirmedSealScopes].filter(inside);
+      for (const scope of folderSealScopes) {
+        mockSealScopes.delete(scope);
+        mockPendingSealScopes.delete(scope);
+        mockUnconfirmedSealScopes.delete(scope);
+      }
       for (const d of folderDirs) mockFolders.delete(d);
       // trashing drops the folder's meta keys (engine move_folder_meta)
       for (const k of Object.keys(mockFolderMeta)) {
@@ -3748,6 +3997,8 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         notes: folderNotes.map((n) => n.path),
         folderNotes,
         folderDirs,
+        folderSealScopes,
+        folderSealUnconfirmed,
       });
       return id;
     }
@@ -3784,6 +4035,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       n.updated_ms = Date.now();
       mockAddFolder(n.folder);
       mockNotes.push(n);
+      mockEnforceSealScope(n);
       return meta(n);
     }
     case "vault_trash_restore_folder": {
@@ -3798,10 +4050,22 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         rel = `${t.path} ${i}`;
       }
       for (const d of t.folderDirs ?? []) mockAddFolder(rel + d.slice(t.path.length));
+      const restoredUnconfirmed = new Set(t.folderSealUnconfirmed ?? []);
+      for (const scope of t.folderSealScopes ?? []) {
+        const restored = rel + scope.slice(t.path.length);
+        mockSealScopes.add(restored);
+        // `move_scope_trust` retargets a confirmation into `.trash/<id>` and
+        // back out again; an unconfirmed marker has no trust entry to move, so
+        // it comes back exactly as unconfirmed as it went in. Restoring it
+        // confirmed would adopt a planted marker on a round trip through the
+        // trash — the one direction the confirmation gate exists to stop.
+        if (restoredUnconfirmed.has(scope)) mockUnconfirmedSealScopes.add(restored);
+      }
       for (const n of t.folderNotes ?? []) {
         n.path = rel + n.path.slice(t.path.length);
         n.folder = mockFolderOf(n.path);
         n.updated_ms = Date.now();
+        mockEnforceSealScope(n);
         mockNotes.push(n);
       }
       return rel;
@@ -5028,6 +5292,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       if (!n) throw new Error("not found");
       const folder = ((args?.folder as string) ?? "").trim();
       if (n.folder === folder) return meta(n);
+      const movedFrom = n.path;
       const fileName = n.path.split("/").pop()!;
       const newPath = folder ? `${folder}/${fileName}` : fileName;
       if (mockNotes.some((m) => m.path === newPath)) {
@@ -5039,6 +5304,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       n.path = newPath;
       n.folder = folder;
       n.updated_ms = Date.now();
+      // the destination reopens locked, like Engine::move_note (SUB-839)
+      mockUnlockedSealed.delete(movedFrom);
+      mockUnlockedSealed.delete(newPath);
+      mockEnforceSealScope(n);
       return meta(n);
     }
     case "vault_sidebar_order":
@@ -5451,6 +5720,17 @@ if (!isTauri) {
     if (!n) throw new Error(`__mockEditNote: no mock note at ${path}`);
     n.body = body;
     n.updated_ms = Date.now();
+    mockEnforceSealScope(n);
+  };
+  // a marker arriving by sync (SUB-889): the file lands, this device never
+  // confirmed it, so nothing is sealed and no history is touched
+  window.__mockPlantSealScope = (path) => {
+    const scope = path.replace(/^[/\\]+|[/\\]+$/g, "");
+    mockSealScopes.add(scope);
+    mockUnconfirmedSealScopes.add(scope);
+    // the marker file is not a note, so the watcher reports it the way lib.rs
+    // does: seal scopes changed, notes untouched
+    window.__mockEmit?.("vault:seal-scopes-changed");
   };
   // the file vanishing under the app (SUB-506): same outside-the-app bypass as
   // __mockEditNote, so a subsequent vault_read rejects the way a real one does
@@ -5466,7 +5746,7 @@ if (!isTauri) {
       throw new Error(`__mockCloneNote: mock note already exists at ${path}`);
     const stem = path.split("/").pop()?.replace(/\.md$/i, "") ?? path;
     const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
-    mockNotes.push({
+    const clone: MockNote = {
       ...source,
       path,
       stem,
@@ -5474,7 +5754,9 @@ if (!isTauri) {
       folder,
       props: { ...source.props },
       updated_ms: Date.now(),
-    });
+    };
+    mockEnforceSealScope(clone);
+    mockNotes.push(clone);
   };
   window.__mockEditProp = (path, key, value) => {
     // straight into the store, bypassing vault_set_prop's expected-guard —

@@ -1,6 +1,6 @@
 //! Trash: note and folder deletes, restores and permanent purges.
 
-use crate::{AppState, SnapDirty};
+use crate::{AppState, HistoryState, SnapDirty};
 use crate::vault::{NoteMeta, TrashEntry};
 use tauri::State;
 
@@ -39,12 +39,21 @@ pub(crate) fn vault_trash_list(state: State<AppState>) -> Vec<TrashEntry> {
 
 #[tauri::command]
 pub(crate) fn vault_trash_restore(
+    app: tauri::AppHandle,
     state: State<AppState>,
+    history: State<HistoryState>,
     dirty: State<SnapDirty>,
     id: String,
 ) -> Result<NoteMeta, String> {
     dirty.mark();
-    state.0.lock().unwrap().trash_restore(&id)
+    let original = id.split_once('/').map(|(_, path)| path.to_string()).unwrap_or_default();
+    let hist = history.0.lock().unwrap();
+    let mut engine = state.0.lock().unwrap();
+    let result = engine.trash_restore(&id);
+    let restored_to = result.as_ref().ok().map(|meta| meta.path.clone());
+    super::finish_inherited_seal(&app, &mut engine, hist.as_ref(), result, |converted| {
+        super::prior_path_when_converted(converted, restored_to.as_ref(), &original)
+    })
 }
 
 #[tauri::command]
@@ -95,12 +104,26 @@ pub(crate) fn vault_delete_folder(
 /// (numbered when the original path was reoccupied).
 #[tauri::command]
 pub(crate) fn vault_trash_restore_folder(
+    app: tauri::AppHandle,
     state: State<AppState>,
+    history: State<HistoryState>,
     dirty: State<SnapDirty>,
     id: String,
 ) -> Result<String, String> {
     dirty.mark();
-    state.0.lock().unwrap().trash_restore_folder(&id)
+    let hist = history.0.lock().unwrap();
+    let mut engine = state.0.lock().unwrap();
+    let prior = engine
+        .trash_list()
+        .into_iter()
+        .find(|entry| entry.id == id)
+        .map(|entry| entry.notes)
+        .unwrap_or_default();
+    let original = id.split_once('/').map(|(_, path)| path.to_string()).unwrap_or_default();
+    let result = engine.trash_restore_folder(&id);
+    super::finish_inherited_seal(&app, &mut engine, hist.as_ref(), result, |converted| {
+        super::matching_prior_paths(converted, &prior, &original)
+    })
 }
 
 #[tauri::command]

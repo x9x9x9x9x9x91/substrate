@@ -4,7 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTyping, isTypingNow } from "./lib/dom";
 import { MENU_SURFACES } from "./lib/menusurfaces";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { DbIcon, DbLayout, FolderListing, MountInfo, MountRow, MountScanStats, NewTypeProp, NoteMeta, NumberFormat, PropKind, PropValue, RollupConfig, SavedView, SavedViewSort, SelectOption, SidebarOrder, TagFolder, VaultHistoryPoint, View, ViewPref } from "./lib/types";
+import type { DbIcon, DbLayout, FolderListing, MountInfo, MountRow, MountScanStats, NewTypeProp, NoteMeta, NumberFormat, PropKind, PropValue, RollupConfig, SavedView, SavedViewSort, SealScopeInfo, SelectOption, SidebarOrder, TagFolder, VaultHistoryPoint, View, ViewPref } from "./lib/types";
 import { foldedPropKey, foldedPropStr, FUNCTIONAL_TYPES, propStr, typeHome, viewKey } from "./lib/types";
 import { tagFolderApplyTags, tagFolderMatches, tagUniverse } from "./lib/tags";
 import { byFoldedKey, foldedObjectKey, isTypePropName, typeSchemaFor } from "./lib/schemalookup";
@@ -112,6 +112,7 @@ import {
   vaultFolders,
   vaultList,
   vaultRead,
+  vaultRemoveSealScope,
   vaultRenameProp,
   vaultRenameType,
   vaultResolve,
@@ -125,6 +126,7 @@ import {
   vaultSchemaSet,
   vaultSchemaSetIcon,
   vaultNoteAddTags,
+  vaultSealScopes,
   vaultSetSidebarOrder,
   vaultSidebarOrder,
   vaultTagFoldersRead,
@@ -176,6 +178,7 @@ import {
 import { pickCsvFile } from "./lib/csvpick";
 import type { CsvEntry } from "./lib/csvimport";
 import SendLinkDialog from "./components/SendLinkDialog";
+import SealScopeDialog from "./components/SealScopeDialog";
 import TagFolderDialog from "./components/TagFolderDialog";
 import TypeIcon from "./components/TypeIcon";
 import Sidebar, { type FolderEdit, type MenuTarget, type Section } from "./components/Sidebar";
@@ -429,6 +432,11 @@ export default function App() {
   const [mountRowList, setMountRowList] = useState<MountRow[]>([]);
   /** the mount whose "unmount and trash its notes" is awaiting confirmation */
   const [unmountAsk, setUnmountAsk] = useState<MountInfo | null>(null);
+  const [sealScopes, setSealScopes] = useState<SealScopeInfo[]>([]);
+  const [sealScopeDialog, setSealScopeDialog] = useState<{
+    path: string;
+    mode?: "seal" | "confirm";
+  } | null>(null);
   const editorFocusRef = useRef<(() => void) | null>(null);
   // focuses the note pane's title input with the text selected (⌘N in Notes)
   const titleFocusRef = useRef<(() => void) | null>(null);
@@ -488,6 +496,42 @@ export default function App() {
       live = false;
     };
   }, [savedViews]);
+
+  const reloadSealScopes = useCallback(() => {
+    vaultSealScopes().then(setSealScopes).catch((e) => showToast(`couldn't read vault seals (${e})`));
+  }, [showToast]);
+
+  useEffect(() => {
+    reloadSealScopes();
+  }, [reloadSealScopes]);
+
+  // Only a confirmed marker seals anything (SUB-889), so an unconfirmed one
+  // must not hide "Seal folder…" on the rows underneath it either.
+  const scopeInheritedAt = useCallback(
+    (path: string) =>
+      sealScopes.some(
+        (scope) =>
+          scope.confirmed &&
+          (scope.path === "" || path === scope.path || path.startsWith(`${scope.path}/`))
+      ),
+    [sealScopes]
+  );
+
+  const removeSealScope = useCallback(
+    (path: string, rejecting = false) => {
+      vaultRemoveSealScope(path)
+        .then(() => {
+          reloadSealScopes();
+          showToast(
+            rejecting
+              ? `Unconfirmed seal rejected — nothing was encrypted or purged`
+              : `${path ? "Folder" : "Vault"} inheritance stopped — existing encrypted notes stay sealed`
+          );
+        })
+        .catch((e) => showToast(String(e)));
+    },
+    [reloadSealScopes, showToast]
+  );
 
   // window drag (SUB-81 round 2): `data-tauri-drag-region` only fires when the
   // mousedown target IS the marked element — the header bars are mostly covered
@@ -586,6 +630,7 @@ export default function App() {
   const { openNoteRef } = useVaultEvents({
     refresh,
     refreshConfigs,
+    refreshSealScopes: reloadSealScopes,
     showToast,
     undoDispatch,
     setChangedPaths,
@@ -2260,12 +2305,13 @@ export default function App() {
         .then((rel) => {
           setView({ kind: "folder", path: rel });
           reloadFolderMeta();
+          reloadSealScopes();
           refresh();
           reloadSidebarOrder();
         })
         .catch((e) => showToast(String(e instanceof Error ? e.message : e)));
     },
-    [refresh, reloadFolderMeta, reloadSidebarOrder, showToast]
+    [refresh, reloadFolderMeta, reloadSealScopes, reloadSidebarOrder, showToast]
   );
 
   // SUB-263: feedback for the note pane's Move to Trash — a quiet toast with
@@ -2692,12 +2738,20 @@ export default function App() {
         // the open folder view — and an open dashboard inside it — follow
         followFolderRelocation(path, newRel);
         reloadFolderMeta();
+        reloadSealScopes();
         refresh();
         // re-reads the order the engine just rewrote; for a dash group (SUB-698)
         // it also carries the `dashgroup:<folder>` collapse id to the new path
         migrateSidebarGroupFolder(path, newRel);
       }),
-    [refresh, reloadFolderMeta, migrateSidebarGroupFolder, followFolderRelocation, undoApi]
+    [
+      refresh,
+      reloadFolderMeta,
+      reloadSealScopes,
+      migrateSidebarGroupFolder,
+      followFolderRelocation,
+      undoApi,
+    ]
   );
 
   /** SUB-698: move a folder under `target` ("" = vault root) — the gesture
@@ -2721,6 +2775,7 @@ export default function App() {
           follow: (from, to) => {
             followFolderRelocation(from, to);
             reloadFolderMeta();
+            reloadSealScopes();
             refresh();
             migrateSidebarGroupFolder(from, to);
           },
@@ -2731,6 +2786,7 @@ export default function App() {
       afterOpenFlush,
       refresh,
       reloadFolderMeta,
+      reloadSealScopes,
       migrateSidebarGroupFolder,
       followFolderRelocation,
       showToast,
@@ -2918,14 +2974,15 @@ export default function App() {
       buildNoteActions({
         open: () => openNote(n.path),
         moveToFolder: () => startMoveToFolder(n),
-        rename: () => setRenaming(n.path),
-        duplicate: () => duplicateNote(n),
+        rename: n.sealed ? undefined : () => setRenaming(n.path),
         copyPath: () => copyAbsPath(n.path),
         reveal: () => revealRel(n.path),
+        duplicate: () => duplicateNote(n),
         exportMarkdown: () => afterOpenFlush(() => exportNoteMarkdown(n).catch(console.error)),
         exportPdf: () => afterOpenFlush(() => exportNotePdf(n).catch(console.error)),
         exportOneSheet: () => afterOpenFlush(() => exportNoteOneSheet(n).catch(console.error)),
         sendAsLink: () => afterOpenFlush(() => setSendLink(n)),
+        sealed: n.sealed,
         togglePin: () => setPinned(n.path, !pinnedPaths.includes(n.path)),
         pinned: pinnedPaths.includes(n.path),
         trash: () => trashNote(n.path),
@@ -2991,6 +3048,47 @@ export default function App() {
         icon: <DbGlyphIcon />,
         onSelect: () => setFolderIconMenu({ path, anchor }),
       },
+      ...(sealScopes.some((scope) => scope.path === path && !scope.confirmed)
+        ? [
+            {
+              label: "Confirm seal…",
+              hint: "arrived from outside this device",
+              icon: <NoteActionGlyph name="lock" />,
+              onSelect: () => setSealScopeDialog({ path, mode: "confirm" as const }),
+            },
+            {
+              label: "Reject seal",
+              icon: <TrashIcon />,
+              onSelect: () => removeSealScope(path, true),
+            },
+          ]
+        : sealScopes.some((scope) => scope.path === path && scope.state === "active")
+        ? [
+            {
+              label: "Stop seal inheritance",
+              icon: <NoteActionGlyph name="lock" />,
+              onSelect: () => removeSealScope(path),
+            },
+          ]
+        : sealScopes.some((scope) => scope.path === path && scope.state === "pending")
+          ? [
+              {
+                label: "Seal conversion pending",
+                hint: "restart to resume",
+                icon: <NoteActionGlyph name="lock" />,
+                disabled: true,
+                onSelect: () => {},
+              },
+            ]
+        : !scopeInheritedAt(path)
+          ? [
+              {
+                label: "Seal folder…",
+                icon: <NoteActionGlyph name="lock" />,
+                onSelect: () => setSealScopeDialog({ path }),
+              },
+            ]
+          : []),
       ...(folderMeta[path]?.icon
         ? [
             {
@@ -3030,6 +3128,7 @@ export default function App() {
                   : v
               );
               reloadFolderMeta();
+              reloadSealScopes();
               refresh();
               // SUB-698: the engine drops the trashed folder's `dashgroups`
               // entry; its `dashgroup:` collapse id goes with it, so a restored
@@ -3050,10 +3149,14 @@ export default function App() {
       folderMeta,
       saveFolderIcon,
       reloadFolderMeta,
+      reloadSealScopes,
       sectionMoveItems,
       createScratch,
       undoApi,
       restoreTrashedFolder,
+      sealScopes,
+      scopeInheritedAt,
+      removeSealScope,
     ]
   );
 
@@ -4856,6 +4959,47 @@ export default function App() {
           onEditRaw={() => openNote(SETTINGS_PATH)}
           onSettingsChanged={refreshTerminalSettings}
           onToast={showToast}
+          vaultSealed={sealScopes.some(
+            (scope) => scope.path === "" && scope.confirmed && scope.state === "active"
+          )}
+          vaultSealPending={sealScopes.some(
+            (scope) => scope.path === "" && scope.confirmed && scope.state === "pending"
+          )}
+          vaultSealUnconfirmed={sealScopes.some(
+            (scope) => scope.path === "" && !scope.confirmed
+          )}
+          onSealVault={() => {
+            setSettingsOpen(false);
+            setSealScopeDialog({ path: "" });
+          }}
+          onConfirmVaultSeal={() => {
+            setSettingsOpen(false);
+            setSealScopeDialog({ path: "", mode: "confirm" });
+          }}
+          onRejectVaultSeal={() => removeSealScope("", true)}
+          onRemoveVaultSeal={() => removeSealScope("")}
+        />
+      )}
+      {sealScopeDialog && (
+        <SealScopeDialog
+          path={sealScopeDialog.path}
+          mode={sealScopeDialog.mode}
+          onClose={() => {
+            setSealScopeDialog(null);
+            // A refused seal is not a no-op: the files may already be
+            // ciphertext with the marker left pending (SUB-889), so the
+            // sidebar and the folder menu have to re-read the truth.
+            reloadSealScopes();
+            refresh();
+          }}
+          onDone={(result) => {
+            setSealScopeDialog(null);
+            reloadSealScopes();
+            refresh();
+            showToast(
+              `${result.path ? "Folder" : "Vault"} sealed — ${result.sealed} note${result.sealed === 1 ? "" : "s"} converted`
+            );
+          }}
         />
       )}
       {isTauri && !mobile && (

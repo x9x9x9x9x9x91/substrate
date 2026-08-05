@@ -385,6 +385,8 @@ export function NoteActionGlyph({ name }: { name: NoteActionIcon }) {
       return <ExportIcon />;
     case "share":
       return <LinkIcon />;
+    case "lock":
+      return <LockIcon />;
     case "calendar":
       return <CalendarIcon />;
     case "pin":
@@ -439,5 +441,12 @@ export const FileIcon = ({ size = 15 }: { size?: number }) => (
   <svg {...base} width={size} height={size}>
     <path d="M9.3 2.5H5A1.5 1.5 0 0 0 3.5 4v8A1.5 1.5 0 0 0 5 13.5h6A1.5 1.5 0 0 0 12.5 12V5.7Z" />
     <path d="M9.3 2.5v3.2h3.2" />
+  </svg>
+);
+
+export const LockIcon = () => (
+  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+    <rect x="3" y="7" width="10" height="7" rx="2" stroke="currentColor" />
+    <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" />
   </svg>
 );

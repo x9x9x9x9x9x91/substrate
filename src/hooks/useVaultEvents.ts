@@ -13,7 +13,8 @@ import type { ToastAction } from "./useToast";
 /**
  * every backend-originated event the shell listens to: the file watcher
  * (vault:changed), sync pulls (vault:pulled), external config edits
- * (vault:config-changed), a dead watcher (vault:watch-degraded), a refused
+ * (vault:config-changed), inherited-seal enforcement failures
+ * (vault:seal-degraded), a dead watcher (vault:watch-degraded), a refused
  * capture hotkey (capture:hotkey-rejected), a restore that buried a newer
  * external edit (history:restored-over-external), unclaimed Finder drops, and
  * notification/tray note opens (app:open-note).
@@ -25,6 +26,7 @@ import type { ToastAction } from "./useToast";
 export function useVaultEvents(opts: {
   refresh: (ownWrite?: boolean, paths?: string[] | null) => void;
   refreshConfigs: () => void;
+  refreshSealScopes: () => void;
   showToast: (msg: string, action?: ToastAction) => void;
   undoDispatch: (a: UndoAction) => void;
   setChangedPaths: (paths: string[] | null) => void;
@@ -34,6 +36,7 @@ export function useVaultEvents(opts: {
   const {
     refresh,
     refreshConfigs,
+    refreshSealScopes,
     showToast,
     undoDispatch,
     setChangedPaths,
@@ -174,6 +177,60 @@ export function useVaultEvents(opts: {
       unlisten?.();
     };
   }, [refreshConfigs]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    listen("vault:seal-scopes-changed", refreshSealScopes).then((un) => {
+      if (cancelled) un();
+      else unlisten = un;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [refreshSealScopes]);
+
+  // A malformed marker, failed atomic replacement, or failed local-history
+  // purge must never leave an inherited privacy boundary looking healthy.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    listen<string[]>("vault:seal-degraded", (e) => {
+      const count = Array.isArray(e.payload) ? e.payload.length : 0;
+      showToast(
+        `Persistent sealing needs attention for ${count || "one or more"} item${count === 1 ? "" : "s"} — inspect the seal marker, disk permissions, and local history before treating the boundary as complete.`
+      );
+    }).then((un) => {
+      if (cancelled) un();
+      else unlisten = un;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [showToast]);
+
+  // A peer/old client sent plaintext into an inherited scope. This machine
+  // has encrypted it and rewritten its own app-owned history; the sender and
+  // remote are separate copies, exactly like the per-note seal warning.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    listen<string[]>("vault:seal-remote-plaintext", (e) => {
+      const count = Array.isArray(e.payload) ? e.payload.length : 0;
+      showToast(
+        `${count || "Some"} synced note${count === 1 ? "" : "s"} arrived as plaintext and were sealed locally — clean or replace the remote history separately.`
+      );
+    }).then((un) => {
+      if (cancelled) un();
+      else unlisten = un;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [showToast]);
 
   // the file watcher died in the backend: warn once, keep running degraded
   useEffect(() => {

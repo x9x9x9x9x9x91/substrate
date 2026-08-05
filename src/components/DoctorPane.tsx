@@ -15,6 +15,7 @@ const KIND_LABELS: [DoctorKind, string][] = [
   ["stale-config", "Stale vault config"],
   ["invalid-prop", "Invalid property values"],
   ["broken-reflex", "Reflexes that won't run"],
+  ["unscannable-sealed-note", "Sealed notes not checked"],
 ];
 
 interface DoctorPaneProps {

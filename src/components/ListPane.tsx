@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRightIcon, FileIcon, ImageIcon, NotesIcon, PlusIcon } from "./Icons";
+import { ChevronRightIcon, FileIcon, ImageIcon, LockIcon, NotesIcon, PlusIcon } from "./Icons";
 import type { DbIcon, FolderFile, NoteMeta, TagFolder, View } from "../lib/types";
 import { propStr } from "../lib/types";
 import type { DbBlock } from "../lib/views";
@@ -154,7 +154,10 @@ const NoteRow = memo(function NoteRow({
         {renaming ? (
           <InlineEdit initial={n.title} onCommit={onCommit} onCancel={onRenameCancel} />
         ) : (
-          <span className="row-title">{displayTitle(n)}</span>
+          <span className="row-title">
+            {n.sealed && <span className="row-sealed" title="Sealed"><LockIcon /></span>}
+            {displayTitle(n)}
+          </span>
         )}
         <span className="row-date">{date}</span>
       </div>

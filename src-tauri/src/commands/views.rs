@@ -1,7 +1,7 @@
 //! View prefs, saved views, folders and the sidebar order.
 
 use crate::vault::{NoteMeta, SavedView, SavedViewSort, SidebarOrder, ViewPref};
-use crate::{AppState, SnapDirty};
+use crate::{AppState, HistoryState, SnapDirty};
 use tauri::State;
 
 #[tauri::command]
@@ -88,35 +88,59 @@ pub(crate) fn vault_create_folder(
 
 #[tauri::command]
 pub(crate) fn vault_rename_folder(
+    app: tauri::AppHandle,
     state: State<AppState>,
+    history: State<HistoryState>,
     dirty: State<SnapDirty>,
     path: String,
     name: String,
 ) -> Result<String, String> {
     dirty.mark();
-    state.0.lock().unwrap().rename_folder(&path, &name)
+    let hist = history.0.lock().unwrap();
+    let mut engine = state.0.lock().unwrap();
+    let prior = engine.markdown_paths_in_folder(&path);
+    let result = engine.rename_folder(&path, &name);
+    super::finish_inherited_seal(&app, &mut engine, hist.as_ref(), result, |converted| {
+        super::matching_prior_paths(converted, &prior, &path)
+    })
 }
 
 #[tauri::command]
 pub(crate) fn vault_move_folder(
+    app: tauri::AppHandle,
     state: State<AppState>,
+    history: State<HistoryState>,
     dirty: State<SnapDirty>,
     path: String,
     folder: String,
 ) -> Result<String, String> {
     dirty.mark();
-    state.0.lock().unwrap().move_folder(&path, &folder)
+    let hist = history.0.lock().unwrap();
+    let mut engine = state.0.lock().unwrap();
+    let prior = engine.markdown_paths_in_folder(&path);
+    let result = engine.move_folder(&path, &folder);
+    super::finish_inherited_seal(&app, &mut engine, hist.as_ref(), result, |converted| {
+        super::matching_prior_paths(converted, &prior, &path)
+    })
 }
 
 #[tauri::command]
 pub(crate) fn vault_move(
+    app: tauri::AppHandle,
     state: State<AppState>,
+    history: State<HistoryState>,
     dirty: State<SnapDirty>,
     path: String,
     folder: String,
 ) -> Result<NoteMeta, String> {
     dirty.mark();
-    state.0.lock().unwrap().move_note(&path, &folder)
+    let hist = history.0.lock().unwrap();
+    let mut engine = state.0.lock().unwrap();
+    let result = engine.move_note(&path, &folder);
+    let moved_to = result.as_ref().ok().map(|meta| meta.path.clone());
+    super::finish_inherited_seal(&app, &mut engine, hist.as_ref(), result, |converted| {
+        super::prior_path_when_converted(converted, moved_to.as_ref(), &path)
+    })
 }
 
 #[tauri::command]

@@ -20,6 +20,9 @@ pub(super) fn watch_relevant(root: &Path, p: &Path) -> bool {
     if rel.as_os_str().is_empty() {
         return false;
     }
+    if p.file_name().is_some_and(|name| name == SCOPE_MARKER) {
+        return true;
+    }
     if rel.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.')) {
         // the one dot-path exception: live-editable config files (SUB-100).
         // .git, .assets, .vault/templates/… and friends stay invisible

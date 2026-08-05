@@ -33,6 +33,11 @@ pub enum DoctorKind {
     StaleConfig,
     /// A prop value that doesn't parse as its schema kind (date, number).
     InvalidProp,
+    /// A sealed note that is locked right now: its body is ciphertext, so the
+    /// scan below could not check its links, embeds or view references. Said
+    /// out loud rather than reported as a clean note (SUB-889) — the assets
+    /// sweep refuses outright for the same reason (assets.rs `assets_orphaned`).
+    UnscannableSealedNote,
     /// A reflex that won't run: an unloadable `reflexes.json`, a rule that
     /// failed validation, or one the circuit breaker paused (SUB-826). Last in
     /// the enum on purpose — the doctor sorts by kind, and these findings are
@@ -173,8 +178,30 @@ impl Engine {
         let mut md_paths = walk_md_files(&self.root);
         md_paths.sort();
         for path in md_paths {
-            let Ok(raw) = read_lossy(&path) else { continue };
             let rel = self.rel(&path);
+            // An unlocked sealed note scans normally through its identity; a
+            // locked one cannot be read at all, and silence there would report
+            // it as a note with nothing wrong.
+            let raw = if self.notes.get(&rel).is_some_and(|meta| meta.sealed) {
+                match self.read_note_lossy(&rel, &path) {
+                    Ok(raw) => raw,
+                    Err(_) => {
+                        findings.push(DoctorFinding {
+                            kind: DoctorKind::UnscannableSealedNote,
+                            severity: DoctorSeverity::Warn,
+                            paths: vec![rel.clone()],
+                            subject: rel.clone(),
+                            detail:
+                                "sealed and locked — its links, embeds and view references were not checked"
+                                    .into(),
+                        });
+                        continue;
+                    }
+                }
+            } else {
+                let Ok(raw) = read_lossy(&path) else { continue };
+                raw
+            };
             let (_, body) = split_frontmatter(&raw);
             let code = code_ranges(body);
             let mut seen_embed: HashSet<String> = HashSet::new();
@@ -572,6 +599,35 @@ mod tests {
         assert_eq!(broken[0].subject, "ghost note");
         assert_eq!(broken[0].paths, vec!["Hub.md".to_string()]);
         assert_eq!(broken[0].severity, DoctorSeverity::Error);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn doctor_says_a_locked_sealed_note_went_unchecked_and_scans_an_unlocked_one() {
+        let (mut engine, dir) = temp_vault("doctor-sealed");
+        let note = engine
+            .create_full("Secret Hub", "", None, None, Some("Cover: ![[ghost-cover.png]]\n"))
+            .unwrap();
+        engine.seal_note(&note.path, Some("correct horse")).unwrap();
+        engine.lock_sealed_note(&note.path);
+
+        let report = engine.doctor(&Default::default()).unwrap();
+        let unscannable = findings_of(&report, DoctorKind::UnscannableSealedNote);
+        assert_eq!(unscannable.len(), 1, "the locked note is named: {unscannable:?}");
+        assert_eq!(unscannable[0].paths, vec![note.path.clone()]);
+        assert_eq!(unscannable[0].severity, DoctorSeverity::Warn);
+        assert!(
+            findings_of(&report, DoctorKind::BrokenEmbed).is_empty(),
+            "ciphertext must not be scanned as if it were markdown"
+        );
+
+        // authorized, the same note scans like any other
+        engine.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
+        let report = engine.doctor(&Default::default()).unwrap();
+        assert!(findings_of(&report, DoctorKind::UnscannableSealedNote).is_empty());
+        let broken = findings_of(&report, DoctorKind::BrokenEmbed);
+        assert_eq!(broken.len(), 1, "the embed is checked once it can be read: {broken:?}");
+        assert_eq!(broken[0].subject, "ghost-cover.png");
         let _ = fs::remove_dir_all(&dir);
     }
 

@@ -327,6 +327,13 @@ pub(crate) fn restore_note(
     file: &str,
     baseline_ms: u64,
 ) -> Result<RestoreOutcome, String> {
+    // A sealed note's history restarted at version 1 = ciphertext, so any
+    // restorable version IS ciphertext — write_raw would encrypt it AGAIN
+    // (unreadable forever) or, for pre-seal leftovers, write plaintext into a
+    // sealed file. Both are corruption; remove the seal first.
+    if engine.meta(path).is_some_and(|m| m.sealed) {
+        return Err("history restore is unavailable for a sealed note — remove the seal first".into());
+    }
     let content = hist.show(id, file)?;
     // read before the write — afterwards the mtime is our own
     let overwrote_external = baseline_ms > 0
@@ -528,6 +535,38 @@ mod tests {
             !on_disk.contains("changed"),
             "and the old version really is the file: {on_disk:?}"
         );
+    }
+
+    /// SUB-839 review: a sealed note's restorable versions are ciphertext
+    /// (history restarts at v1 = ciphertext on seal), and write_raw would
+    /// re-encrypt them — a doubly-encrypted, permanently unreadable file.
+    /// Restore refuses while the seal stands, even unlocked.
+    #[cfg(not(mobile))]
+    #[test]
+    fn restore_refuses_a_sealed_note() {
+        let t = tempfile::TempDir::new().unwrap();
+        let root = t.path().join("Vault");
+        std::fs::create_dir_all(&root).unwrap();
+        let mut engine = crate::vault::Engine::new(root.clone());
+        let meta = engine.create("Secret", "", None).unwrap();
+        let hist = crate::history::History::new(root.clone()).unwrap();
+        hist.snapshot("plaintext").unwrap();
+        crate::commands::notes::seal_note_and_purge(
+            &mut engine,
+            Some(&hist),
+            &meta.path,
+            Some("correct horse"),
+        )
+        .unwrap();
+        let v1 = hist.list(&meta.path).unwrap()[0].clone();
+        // locked AND unlocked both refuse — the seal, not the lock, is the gate
+        let err = super::restore_note(&mut engine, &hist, &meta.path, &v1.id, &v1.file, 0)
+            .unwrap_err();
+        assert!(err.contains("sealed"), "{err}");
+        engine.unlock_sealed_note(&meta.path, Some("correct horse")).unwrap();
+        let err = super::restore_note(&mut engine, &hist, &meta.path, &v1.id, &v1.file, 0)
+            .unwrap_err();
+        assert!(err.contains("sealed"), "{err}");
     }
 
     /// SUB-781: an edit that landed on disk after the panel read the note is

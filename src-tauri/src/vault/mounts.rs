@@ -764,9 +764,31 @@ impl Engine {
         Ok(())
     }
 
+    /// The mount's own shadow folder — where `mount_annotate` files the notes
+    /// it creates.
+    fn mount_shadow_dir(mount: &Mount) -> String {
+        format!("{MOUNTS_SHADOW_DIR}/{}", sanitize_filename(&mount.name))
+    }
+
+    /// Sealed notes sitting in a mount's shadow folder. A locked sealed note
+    /// indexes with NO props, so [`Engine::sidecars_of`] cannot see its
+    /// `mount` binding: its row reads unannotated and a second annotation
+    /// would file a DUPLICATE sidecar beside the one already there.
+    ///
+    /// Known limitation: a sidecar the user filed outside the shadow folder
+    /// and then sealed is invisible to this check too — nothing outside the
+    /// ciphertext records the binding (SUB-1077 tracks that gap).
+    fn sealed_notes_shadowing_mount(&self, mount: &Mount) -> bool {
+        let prefix = format!("{}/", Self::mount_shadow_dir(mount));
+        self.notes.iter().any(|(rel, m)| m.sealed && rel.starts_with(&prefix))
+    }
+
     /// Every sidecar note bound to one mount, keyed by its vault path.
     /// Sidecars are found by their `mount` prop rather than by folder, so a
-    /// note the user filed elsewhere keeps working.
+    /// note the user filed elsewhere keeps working. Sealed notes carry no
+    /// readable props, so they never appear here — see
+    /// [`Engine::sealed_notes_shadowing_mount`], which is what keeps
+    /// `mount_annotate` from duplicating one.
     pub(super) fn sidecars_of(&self, id: &str) -> BTreeMap<String, NoteMeta> {
         self.notes
             .iter()
@@ -864,9 +886,18 @@ impl Engine {
         let Some(value) = value else {
             return Err(format!("“{rel}” has no note yet"));
         };
+        // No sidecar was found — but a sealed one may be standing right there,
+        // unreadable. Creating a second note beside it would silently split
+        // the row's annotations in two, so refuse and say why (SUB-889).
+        if self.sealed_notes_shadowing_mount(&mount) {
+            return Err(format!(
+                "annotations are unavailable while “{}” has sealed notes — a sealed sidecar cannot be read, so a new one would duplicate it",
+                mount.name
+            ));
+        }
         let stem = Path::new(rel).file_stem().map(|s| s.to_string_lossy().to_string());
         let stem = stem.filter(|s| !s.is_empty()).unwrap_or_else(|| "file".into());
-        let folder = format!("{MOUNTS_SHADOW_DIR}/{}", sanitize_filename(&mount.name));
+        let folder = Self::mount_shadow_dir(&mount);
         // the bindings are strings, so they ride `create_full` — but the
         // user's first value can be any shape a prop takes (a checkbox sends a
         // bool, a number prop a number), and `create_full` only carries
@@ -1748,6 +1779,37 @@ mod tests {
         assert!(e.mount_annotate(&m.id, "track.als", "mount", Some("x".into())).is_err());
         assert!(e.mount_annotate(&m.id, "track.als", " ", Some("x".into())).is_err());
         assert!(e.mount_annotate("nope", "track.als", "x", Some("y".into())).is_err());
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    #[test]
+    fn annotating_refuses_rather_than_duplicating_a_sealed_sidecar() {
+        let (mut e, dir) = temp_vault("msealed");
+        let watched = temp_watched("msealed");
+        fs::write(watched.join("track.als"), b"take one").unwrap();
+        let m = e.add_mount("Album Pool", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let sidecar = e.mount_annotate(&m.id, "track.als", "status", Some("mixing".into())).unwrap();
+        assert_eq!(sidecar.path, "Mounts/Album Pool/track.md");
+
+        // a persistent seal over the mount's folder makes its props unreadable
+        e.prepare_seal_scope("Mounts/Album Pool", Some("correct horse")).unwrap();
+        e.finish_seal_scope().unwrap();
+        assert!(e.meta(&sidecar.path).unwrap().sealed);
+        assert!(e.mount_rows(&m.id).iter().all(|row| row.note.is_none()), "sealed props are unreadable");
+
+        let error = e.mount_annotate(&m.id, "track.als", "bpm", Some("140".into())).unwrap_err();
+        assert!(error.contains("sealed"), "the refusal names the cause: {error}");
+        assert_eq!(
+            fs::read_dir(dir.join("Mounts/Album Pool"))
+                .unwrap()
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "md"))
+                .count(),
+            1,
+            "the refusal left no second sidecar behind"
+        );
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&watched);
     }

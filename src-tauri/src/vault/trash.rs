@@ -295,6 +295,10 @@ impl Engine {
         self.move_schema_homes(rel, None).ok();
         self.move_sidebar_folders(rel, None).ok();
         self.move_sidebar_keys_folder(rel, None).ok();
+        // Park the seal confirmation with the folder instead of dropping it
+        // (SUB-889): `.trash/` is hidden, so nothing there is ever enforced,
+        // and a restore can hand the approval back to wherever it lands.
+        self.move_scope_trust(rel, Some(&format!("{TRASH_DIR}/{id}"))).ok();
         Ok(id)
     }
 
@@ -857,6 +861,9 @@ impl Engine {
             self.apply_folder_config(&cfg, rel, &dest_rel).ok();
         }
         fs::remove_file(trash_folder_config_path(&self.root.join(TRASH_DIR), id)).ok();
+        // Hand the parked seal confirmation back, to the name the folder
+        // actually got — a reoccupied path restores as "Private 2".
+        self.move_scope_trust(&format!("{TRASH_DIR}/{id}"), Some(&dest_rel)).ok();
         self.prune_trash_dirs(&src);
         self.reindex_dir(&dest);
         Ok(dest_rel)
@@ -875,6 +882,7 @@ impl Engine {
         }
         fs::remove_file(&marker).ok();
         fs::remove_file(trash_folder_config_path(&self.root.join(TRASH_DIR), id)).ok();
+        self.move_scope_trust(&format!("{TRASH_DIR}/{id}"), None).ok();
         self.prune_trash_dirs(&src);
         Ok(())
     }
@@ -885,6 +893,7 @@ impl Engine {
         if trash_root.exists() {
             fs::remove_dir_all(&trash_root).map_err(|e| e.to_string())?;
         }
+        self.move_scope_trust(TRASH_DIR, None).ok();
         Ok(())
     }
 }

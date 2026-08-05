@@ -1,6 +1,8 @@
 # Vault format — the agent-facing contract
 
 The vault is a folder of plain markdown files plus a few hidden support directories.
+The one deliberate exception is a note the user explicitly **seals** (§2a): it keeps
+its `.md` path but stores age ciphertext until the user removes the seal.
 Any agent can read and write it correctly using only this document — no app code
 required. Every rule below is verified against the engine; when this doc and the
 code disagree, the code wins and the doc gets fixed (see AGENTS.md: format changes
@@ -8,7 +10,7 @@ update this file in the same merge).
 
 Sources of truth: `src-tauri/src/vault/` (engine — `Engine` façade in `mod.rs`,
 plus the `schema`, `views`, `search`, `trash`, `assets`, `mounts`, `foldersync`, `watch`,
-`doctor`, `seed` modules), `src-tauri/src/lib.rs` + `src-tauri/src/commands/` (IPC),
+`doctor`, `seed`, `sealed` modules), `src-tauri/src/lib.rs` + `src-tauri/src/commands/` (IPC),
 `src-tauri/src/calendarfeed.rs` (read-only iCalendar subscriptions),
 `src-tauri/src/history.rs` (vault git), `src/lib/*.ts` (frontend formats),
 `docs/sheets-spec.md` (the sheet formula language).
@@ -69,17 +71,21 @@ Vault/
 ├── Calendar/                  # standalone events created from the calendar (§12)
 ├── Dashboards/                # optional — when present it IS the dashboards home (§5.2)
 ├── <any folders>/             # notes organize themselves; folders are just paths
+│   └── .substrate-seal        # optional inherited folder seal marker (§2a)
 ├── .claude/skills/            # agent skills, seeded + user-written (§12)
 ├── .assets/                   # embedded binaries, flat (§9)
 ├── .trash/                    # deleted notes + folders, recoverable (§10)
-├── .vault/                    # format.json + schema.json + views.json + folders.json + calendars.json + mounts.json + mounts/ + notifications.json + jobs-exit.json + templates/ + kinds/ + backup/ (§5b–§8)
+├── .vault/                    # format.json + schema.json + views.json + folders.json + calendars.json + mounts.json + mounts/ + notifications.json + jobs-exit.json + sealed-key.age + templates/ + kinds/ + backup/ (§2a, §5b–§8)
+├── .substrate-seal            # optional vault-wide inherited seal marker (§2a)
 └── .git/                      # version history, owned by the app (§11)
 ```
 
 **The hidden rule**: any path component starting with `.` is invisible — never
 indexed, searched, or watched (`vault/mod.rs` `hidden_rel`, `walk_md_files`). That
 covers `.assets/`, `.trash/`, `.vault/`, `.git/`, and any `.foo/` you add
-yourself. Only `.md` files are notes; binary files (containing NUL) are skipped,
+yourself. The `.substrate-seal` policy marker is the sole dotfile watcher
+exception: it is never a note, but creating, changing, or removing one triggers a
+scope reconciliation. Only `.md` files are notes; binary files (containing NUL) are skipped,
 invalid UTF-8 is read lossily. One explicit-path exception: `.vault/templates/`
 (§7) stays unindexed but can be read and written directly.
 
@@ -218,6 +224,204 @@ type: release
 | `tags` | tag list, unioned with the body's inline `#tags` (§3b) |
 
 Everything else is yours. Unknown props are preserved and shown as chips.
+
+## 2a. Sealed notes — whole-file age ciphertext
+
+A user may seal an ordinary note from its note menu. The path and `.md` suffix do
+not change, so the filename (and therefore its folder and filename-derived title)
+remain visible. Every byte that used to be inside the file — YAML frontmatter and
+Markdown body together — is encrypted. The on-disk shape is binary:
+
+```text
+SUBSTRATE-SEALED-1\n
+<age-encryption.org/v1 binary payload>
+```
+
+The payload uses an age X25519 recipient (`age`/`rage` compatible). One random
+identity belongs to the vault. Its private string is never stored in the vault in
+clear:
+
+- `.vault/sealed-key.age` starts with `SUBSTRATE-SEALED-KEY-1\n`, followed by an
+  age scrypt payload containing the identity. The password is chosen on first use,
+  is not stored, and has no account/reset path. Losing the password and every
+  authorized device copy makes the sealed bytes unrecoverable.
+- The key file is deliberately committed to the vault's own Git history and rides
+  vault sync like any other file — that is how the recovery copy reaches other
+  devices. Consequence: whatever remote you sync to holds an offline-attackable
+  scrypt blob, and the password is its entire defense there. Pick it accordingly.
+- On macOS/iOS, Substrate may also store the identity in the non-synchronizing data-
+  protection Keychain with a **user presence** access control. Reading that copy
+  requires Touch ID, Face ID, or the OS device credential. Failure to enroll this
+  convenience copy does not weaken or invalidate the password-protected vault copy.
+- On macOS the data-protection keychain needs an entitlement that only a build
+  with an embedded provisioning profile may claim, so builds without one use the
+  legacy file keychain instead (SUB-1103). Honest cost: the legacy item has no
+  per-item device-lock gating — it lives in the login keychain, readable while
+  that keychain is unlocked, rather than only while the device is unlocked. The
+  user-presence requirement still applies, so reading it still asks for Touch ID,
+  Face ID, or the passcode. See `docs/release-macos.md`.
+
+Locked sealed notes index only `path`, filename stem/title, folder and mtime. Their
+props and excerpt are empty; their body produces no FTS terms, links, backlinks,
+relations, calendar entries, database membership, dashboard data or sheet data.
+That is the feature: an agent or script walking the vault sees the filename and
+ciphertext, never note content. The app also hides history/diff and plaintext export
+actions while locked (history/diff stays unavailable for a sealed note).
+
+Sealing also purges that note (including earlier names) from the app-owned local Git
+history, expires reflogs, prunes the old blobs, and snapshots the ciphertext as its new
+version 1. Without that rewrite, `.git` would remain a plaintext side door for agents.
+A vault that is itself a user-owned Git repository is therefore refused rather than
+rewritten behind the user's back. A sync remote or other clone that already received
+the plaintext history is a separate copy and must be cleaned/replaced separately; the
+local UI states this before sealing.
+
+Unlocking decrypts only into app memory. The file stays ciphertext while it is viewed
+and edited; body and property writes encrypt the complete replacement in memory
+*before* the atomic temp-file write, so no plaintext sidecar or temp file lands on
+disk. Leaving the note (or choosing **Lock now**) drops its in-memory identity.
+**Remove seal** is the sole operation that deliberately writes the complete note
+back as ordinary Markdown. It is refused while the note inherits a persistent
+folder/vault seal.
+
+### Persistent folder and vault seals
+
+A directory may contain `.substrate-seal`; at the vault root it protects the
+whole vault, and inside an ordinary folder it protects that subtree. The UTF-8
+JSON marker is versioned and contains no private material:
+
+```json
+{
+  "version": 1,
+  "state": "active",
+  "recipient": "age1…"
+}
+```
+
+`recipient` is the public half of the same vault X25519 identity described
+above. That is deliberate: the app, watcher, sync adoption and a cooperating
+external writer can encrypt a newly arrived plaintext file without loading the
+private identity or displaying a biometric/password prompt. Decryption still
+requires the password-protected identity or an authorized device key. iOS uses
+the same marker, recipient and private-key architecture; Face ID is only an
+unlock convenience, never an encryption prerequisite.
+
+A marker only takes effect on a device that has **confirmed** it (SUB-889).
+Writing `.substrate-seal` is otherwise an unauthenticated instruction to
+re-encrypt a whole subtree to the recipient in the file *and* to purge the
+matching plaintext out of local history — so a sync pull, a shared folder, or
+anything that can write one file could redirect a vault's encryption and
+destroy its local history. The gate:
+
+- `.vault/seal-trust.json` records the (scope path, recipient) pairs this
+  device confirmed. It is listed in the history exclude set, so it is never
+  committed and can never arrive by sync — a confirmation cannot be forged from
+  outside the machine.
+- An unconfirmed marker is inert: nothing inherits it, no file is converted, no
+  history is purged, and a pending conversion journal that names it is refused
+  at startup. It surfaces in the UI as **Confirm seal…** / **Reject seal** (in
+  Settings for a root marker), and confirming requires the vault's Touch ID or
+  password. Confirmation is refused outright when the marker's recipient is not
+  this vault's own key.
+- The confirmation travels with its folder through rename, move, trash and
+  restore, and is dropped when the folder is permanently deleted or the marker
+  is removed. It is keyed on the exact (scope, recipient) pair and is dropped
+  again the next time the app lists seals and finds the marker gone, so a
+  marker deleted outside the app cannot leave a confirmation lying around for a
+  later re-planted one to inherit.
+- The gate fails **open**, deliberately. An external writer that deletes a
+  confirmed marker, or overwrites it with a different recipient, downgrades that
+  scope to unconfirmed: the pair no longer matches, so enforcement stops and new
+  plaintext in the folder stays plaintext until the user confirms again in-app.
+  That is a denial of protection, not a disclosure of anything already
+  encrypted — existing ciphertext stays encrypted and readable only with the
+  original key — and it is inherent to an unauthenticated marker. Signing
+  markers is what would close it.
+- The cost is deliberate: an external writer can no longer *establish* a seal,
+  only honour one. Signing markers with the vault key would restore that and
+  remains open as a later hardening layer; it is not what this gate does.
+
+Inheritance is conservative:
+
+- Any `.substrate-seal` on the path from the vault root through the note's
+  parent directory requires ciphertext. A sealed ancestor wins. Nested markers
+  must carry the same vault recipient.
+- Sibling subtrees may therefore be mixed: `Private/.substrate-seal` does not
+  affect `Public/`. There is no plaintext exception inside `Private/`; **Remove
+  seal** is refused there. To opt out, stop/remove the outer inheritance or move
+  the note outside it first. Removing a marker never decrypts existing files.
+- `Settings.md`, `AGENTS.md`, and `CLAUDE.md` are operational boot/orientation
+  files rather than user notes and remain plaintext even under a root marker;
+  the app and external agents need them before any private key is authorized.
+- A root marker protects managed note files, not every byte below the vault
+  directory. Hidden operational/recovery stores are outside the conversion
+  walk: `.assets/` binaries, `.vault/templates/`, and parked `.trash/` content
+  remain in their existing storage form. A plaintext trashed note is encrypted
+  (and its prior note history purged) when it is restored into a sealed scope.
+  Do not describe a root seal as encrypting assets, templates, or trash.
+
+Creating a persistent seal is an attended multi-file conversion with a durable
+interruption protocol:
+
+1. The command refuses before mutation when the vault is a user-owned Git
+   repository or app-owned history cannot be opened.
+2. `.vault/seal-conversion.json` is atomically written with the scope, public
+   recipient and every path whose plaintext history must be purged. The scope
+   marker is then written with `state: "pending"`.
+3. Each `.md` file is encrypted independently through the normal atomic
+   temp → fsync → rename → directory-fsync write. The journal is extended
+   *before* each conversion.
+4. App-owned Git history purges all converted paths in one rewrite. Only after
+   that succeeds does the marker atomically change to `"active"`; the journal
+   is removed and ciphertext is snapshotted as the new baseline.
+
+Power loss at any prefix is therefore resumable, not rollback-shaped. On the
+next launch, before IPC, watcher, or auto-snapshot threads start, the public
+recipient encrypts any remaining/new plaintext, the batch history purge is
+retried, and the active marker commits. A repairable history failure leaves the
+pending marker and journal in place and reports that the conversion is not yet
+complete; it never advertises a completed privacy boundary. Already converted
+files remain valid per-note ciphertext throughout.
+
+Once a marker is confirmed and pending or active, app creates, note/folder moves, trash
+restores, sync checkouts, full rescans and watcher-observed external writes all
+run inherited enforcement before indexing the note. A genuinely external
+writer necessarily creates plaintext first; the watcher replaces it with
+ciphertext after the filesystem event/debounce. Failure to replace it (damaged
+marker, permissions, disk error) omits the note from the app index and raises a
+visible `vault:seal-degraded` warning — never a silent plaintext success.
+Well-behaved writers should read the ancestor marker and encrypt to its public
+recipient before their own atomic rename, eliminating even that watcher window.
+
+History and sync retain the same honesty boundary as per-note sealing. The app
+rewrites only its own local Git repository. A sync remote, another clone, backup,
+or user-owned repository that already contains plaintext is a separate copy and
+must be cleaned/replaced separately; a local marker cannot truthfully claim to
+erase it.
+
+External-writer contract:
+
+- Detect the exact magic line before treating a `.md` file as text. Do not run a
+  lossy decoder, frontmatter normalizer, formatter, link rewriter or merge driver
+  over the remaining bytes.
+- Copying, renaming, syncing and versioning the opaque file byte-for-byte is safe.
+  Content-aware diffs and merges are intentionally unavailable while sealed.
+- Do not modify `.vault/sealed-key.age`. It is the user's password recovery path,
+  not disposable cache. Back it up with the vault as opaque bytes.
+- Before creating or replacing a note, inspect `.substrate-seal` at the vault
+  root and every ancestor directory. A pending marker enforces ciphertext just
+  like an active one. Encrypt to its public `recipient`; never invent a second
+  recipient inside the same vault. Writing a *new* marker is not a way to seal a
+  vault: the app ignores one it has not confirmed locally (above), so the user
+  has to accept it in-app before it means anything.
+- Do not edit or delete `.vault/seal-conversion.json`. It is the resumable
+  transaction record for an attended conversion, not disposable cache. It is
+  device-local and excluded from app-owned Git history and sync; only the
+  public `.substrate-seal` marker travels between devices.
+- Do not write, copy or sync `.vault/seal-trust.json`. It is this device's
+  record of which markers its user confirmed; a copied one would hand an
+  external writer back the ability to seal and purge. Like the journal it is
+  excluded from app-owned history and sync.
 
 ## 3. Links and embeds
 
@@ -2624,6 +2828,15 @@ status: promising
 - A sidecar whose file the index no longer knows still gets a row, marked
   missing. An annotation is never invisible because a drive is unplugged.
 - Renaming a mount renames its schema type and moves `Mounts/<name>/` with it.
+- **Sealed sidecars block annotation for the whole mount** — accepted cost. A
+  locked sealed note cannot be read, so the engine cannot tell whether it is
+  the sidecar for the row being annotated; writing a new one would silently
+  duplicate it. So a *single* sealed note anywhere under `Mounts/<name>/`
+  makes annotating **every** row of that mount refuse, with a message naming
+  the cause (`mounts.rs::sealed_notes_shadowing_mount`). Unlocking the vault
+  for the session, or moving the sealed note out of the mount folder, clears
+  it. Refusing is deliberate: the alternative is a duplicate sidecar and two
+  divergent sets of props for one file.
 
 ### Unbound, missing, and unmounting
 
@@ -2981,7 +3194,8 @@ same rule.
 - **Excluded** (via `.git/info/exclude`, written at init —
   `src-tauri/src/history.rs` `EXCLUDE_CONTENT`): `.assets/`, `.trash/`,
   `.DS_Store`, and the device-local state files written off the engine lock —
-  `.vault/notifications.json` and `.vault/jobs-exit.json`.
+  `.vault/notifications.json`, `.vault/jobs-exit.json`, and
+  `.vault/seal-conversion.json` (SUB-889's local interruption journal).
   Everything else is tracked — notes, `.vault/schema.json`, `.vault/views.json`,
   `.vault/mounts.json` + `.vault/mounts/`, `.vault/folders.json`,
   `.vault/templates/`, `Settings.md`.

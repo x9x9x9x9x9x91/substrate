@@ -366,6 +366,7 @@ export default function Palette({
         exportPdf: () => exportNotePdf(note).catch(console.error),
         exportOneSheet: () => exportNoteOneSheet(note).catch(console.error),
         sendAsLink: () => onSendAsLink(note),
+        sealed: note.sealed,
         togglePin: () => onTogglePin(note.path, !pinnedPaths.includes(note.path)),
         pinned: pinnedPaths.includes(note.path),
         trash: () => onTrashNote(note.path),
