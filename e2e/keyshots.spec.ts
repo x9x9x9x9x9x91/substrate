@@ -1,6 +1,6 @@
 import { test, type Page } from "@playwright/test";
 
-// SUB-467 visual evidence: HUD open, a row wearing a chip, and the sheet's
+// Visual evidence: HUD open, a row wearing a chip, and the sheet's
 // "Your keys" section. Not a merge gate — skipped unless invoked as
 //   SHOTS=1 npx playwright test e2e/keyshots.spec.ts
 // Outputs land in shots/ at the worktree root.

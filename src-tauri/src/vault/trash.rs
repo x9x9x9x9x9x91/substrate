@@ -1,7 +1,7 @@
 //! The trash: moving notes, folders and assets into `.trash/`, listing what
 //! is in there, and restoring or purging it.
 //!
-//! Split out of `vault.rs` (SUB-692). Nothing here deletes user content on
+//! Split out of `vault.rs`. Nothing here deletes user content on
 //! the way in — a trashed item keeps its bytes under a timestamped id until
 //! an explicit `trash_delete`/`trash_empty` removes it — and a restore puts
 //! back the sidebar and view config the folder carried when it was trashed.
@@ -9,8 +9,8 @@
 use super::*;
 
 /// What a trash entry restores: a single note, a whole folder subtree, an
-/// `.assets/` file (SUB-479 — assets are recoverable, just never
-/// history-tracked), or a database's template note (SUB-781).
+/// `.assets/` file (assets are recoverable, just never
+/// history-tracked), or a database's template note.
 #[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum TrashKind {
@@ -48,7 +48,7 @@ const TRASH_FOLDER_MARK: &str = ".folder";
 pub(super) const TRASH_ASSETS_DIR: &str = ".assets";
 
 /// Where a trashed template sits inside a deletion's folder:
-/// `.trash/<deleted_ms>/.templates/<stem>.md` (SUB-781). Deleting a database
+/// `.trash/<deleted_ms>/.templates/<stem>.md`. Deleting a database
 /// used to `remove_file` its template outright — the one user-content delete
 /// that skipped the trash. The directory is dot-prefixed for the same reason
 /// `.assets/` is: `walk_md_files` skips dot-dirs, so a parked template can
@@ -62,7 +62,7 @@ fn trash_folder_marker(trash_root: &Path, id: &str) -> PathBuf {
 }
 
 /// Suffix of the view-config sidecar parked beside a trashed folder's marker:
-/// `.trash/<id>.folder.json` (SUB-480). Deleting a folder clears its icon,
+/// `.trash/<id>.folder.json`. Deleting a folder clears its icon,
 /// any schema home pointing into it, and its sidebar row; the sidecar keeps
 /// that config so restore can put it back. Like the marker it sits NEXT to
 /// the tree, so nothing config-shaped lands back in the vault. It does not
@@ -74,8 +74,8 @@ fn trash_folder_config_path(trash_root: &Path, id: &str) -> PathBuf {
     trash_root.join(format!("{id}{TRASH_CONFIG_MARK}"))
 }
 
-/// Suffix of the note-sidecar parked beside a trashed note: `.trash/<id>.note.json`
-/// (SUB-666). Deleting a note clears its sidebar pin and any key assigned to
+/// Suffix of the note-sidecar parked beside a trashed note: `.trash/<id>.note.json`.
+/// Deleting a note clears its sidebar pin and any key assigned to
 /// it, exactly as a folder delete clears the folder's config — so it parks the
 /// same way, and restore puts pin and key back. The suffix has the same
 /// invisibility property as `.folder.json`: it ends in neither `.folder` nor
@@ -94,16 +94,16 @@ pub struct ParkedSidebarEntry {
     pub index: usize,
 }
 
-/// The view-config a folder delete would otherwise destroy (SUB-480), parked
+/// The view-config a folder delete would otherwise destroy, parked
 /// in the trash sidecar and reapplied on restore. Paths are stored as they
 /// were at delete time; restore remaps them onto wherever the folder lands
 /// (a dedupe rename means `Projects` → `Projects 2`).
 #[derive(Clone, Debug, Default, Serialize, serde::Deserialize)]
 pub struct TrashedFolderConfig {
-    /// `$folders` entries for the folder and its subtree (icons, SUB-84).
+    /// `$folders` entries for the folder and its subtree (icons).
     #[serde(default)]
     pub folder_meta: HashMap<String, FolderMeta>,
-    /// db type → home folder, for homes that pointed into the subtree (SUB-85).
+    /// db type → home folder, for homes that pointed into the subtree.
     #[serde(default)]
     pub schema_homes: HashMap<String, String>,
     /// Root-level `$sidebar.folders` rows for the subtree, with their index.
@@ -113,7 +113,7 @@ pub struct TrashedFolderConfig {
     #[serde(default)]
     pub sidebar_pins: Vec<ParkedSidebarEntry>,
     /// `$sidebar.keys` bindings whose target is the folder or something inside
-    /// it (SUB-499): key token → target, e.g. `"3"` → `"folder:Projects"`.
+    /// it: key token → target, e.g. `"3"` → `"folder:Projects"`.
     #[serde(default)]
     pub sidebar_keys: HashMap<String, String>,
 }
@@ -128,7 +128,7 @@ impl TrashedFolderConfig {
     }
 }
 
-/// The sidebar config a note delete would otherwise destroy (SUB-666), parked
+/// The sidebar config a note delete would otherwise destroy, parked
 /// beside the trashed note and reapplied on restore. The note's own path is
 /// implicit — restore knows where the note landed — so only the position and
 /// the key tokens need storing.
@@ -179,8 +179,7 @@ impl Engine {
     ///
     /// Returns the trash id it created (`<deleted_ms>/<rel>`), so an Undo can
     /// restore exactly this version instead of guessing by path — trashing the
-    /// same path twice leaves two entries, and a path scan finds the wrong one
-    /// (SUB-478).
+    /// same path twice leaves two entries, and a path scan finds the wrong one.
     pub fn trash(&mut self, rel: &str) -> Result<String, String> {
         self.trash_at(rel, now_ms(SystemTime::now()))
     }
@@ -188,7 +187,7 @@ impl Engine {
     /// `trash`, but starting from a caller-supplied stamp instead of the clock.
     /// A bulk delete passes ONE stamp for the whole selection so the group
     /// shares a `deleted_ms` and `trash_list`'s `deleted_ms DESC, path ASC`
-    /// orders it by path — see `trash_many` (SUB-577).
+    /// orders it by path — see `trash_many`.
     fn trash_at(&mut self, rel: &str, at: u64) -> Result<String, String> {
         if !self.notes.contains_key(rel) {
             return Err("note not found".into());
@@ -207,7 +206,7 @@ impl Engine {
         self.remove_note(rel);
         let id = format!("{stamp}/{rel}");
         // park the pin position and key bindings the clears below destroy, so a
-        // restore brings the note back with its sidebar row and key (SUB-666) —
+        // restore brings the note back with its sidebar row and key —
         // the note half of what `trash_folder` already parks for a subtree.
         // Best-effort for the same reason: an unwritable sidecar costs config on
         // restore, never the delete.
@@ -217,10 +216,10 @@ impl Engine {
                 fs::write(trash_note_config_path(&self.root.join(TRASH_DIR), &id), json).ok();
             }
         }
-        // a trashed note leaves the sidebar with it (SUB-410), and takes any
-        // key assigned to it (SUB-467). Best-effort, for the reason the folder
+        // a trashed note leaves the sidebar with it, and takes any
+        // key assigned to it. Best-effort, for the reason the folder
         // delete below gives: the file has already moved, so failing here would
-        // withhold the trash id — the very handle Undo needs (SUB-544). A stale
+        // withhold the trash id — the very handle Undo needs. A stale
         // pin is a dangling sidebar row; a lost id is an unrecoverable delete.
         self.move_sidebar_pin(rel, None).ok();
         self.move_sidebar_keys(rel, None).ok();
@@ -230,7 +229,7 @@ impl Engine {
     /// Trash a whole selection as ONE group: every note gets the same
     /// `deleted_ms`, so the Trash pane (`deleted_ms DESC, path ASC`) lists the
     /// group together, in path order, instead of splitting it across a
-    /// millisecond boundary that happened to fall mid-loop (SUB-577).
+    /// millisecond boundary that happened to fall mid-loop.
     ///
     /// Per-note stamping made the group's order depend on how long the loop
     /// took: two notes deleted by one click landed on different stamps
@@ -249,7 +248,7 @@ impl Engine {
     /// subfolders ride along; a plain note-trash of every contained note would
     /// lose them.
     ///
-    /// Returns the trash id it created, same reason as `trash` (SUB-478).
+    /// Returns the trash id it created, same reason as `trash`.
     pub fn trash_folder(&mut self, rel: &str) -> Result<String, String> {
         let rel = rel.trim_matches(['/', '\\']);
         if rel.is_empty() {
@@ -278,7 +277,7 @@ impl Engine {
         // its notes just list individually like separate deletions
         fs::write(trash_folder_marker(&trash_root, &id), "").ok();
         // park the view-config the clears below would otherwise destroy, so a
-        // restore brings the folder back configured (SUB-480). Best-effort:
+        // restore brings the folder back configured. Best-effort:
         // an unwritable sidecar costs config on restore, never the delete.
         let parked = self.collect_folder_config(rel);
         if !parked.is_empty() {
@@ -289,14 +288,14 @@ impl Engine {
         self.remove_subtree(rel);
         // same discipline as the two writes above, for the same reason: the
         // subtree has already moved, so an unwritable views.json must not turn
-        // a completed delete into an Err the caller reads as "nothing happened"
-        // (SUB-544). Config the clears miss is config the sidecar restores.
+        // a completed delete into an Err the caller reads as "nothing happened".
+        // Config the clears miss is config the sidecar restores.
         self.move_folder_meta(rel, None).ok();
         self.move_schema_homes(rel, None).ok();
         self.move_sidebar_folders(rel, None).ok();
         self.move_sidebar_keys_folder(rel, None).ok();
         // Park the seal confirmation with the folder instead of dropping it
-        // (SUB-889): `.trash/` is hidden, so nothing there is ever enforced,
+        // `.trash/` is hidden, so nothing there is ever enforced,
         // and a restore can hand the approval back to wherever it lands.
         self.move_scope_trust(rel, Some(&format!("{TRASH_DIR}/{id}"))).ok();
         Ok(id)
@@ -305,7 +304,7 @@ impl Engine {
     /// Everything about a folder that lives outside the folder itself: its
     /// icon (and its subtree's), any database home pointing into it, and its
     /// sidebar rows with the positions they held. Read before the delete
-    /// clears them (SUB-480).
+    /// clears them.
     fn collect_folder_config(&self, rel: &str) -> TrashedFolderConfig {
         let prefix = format!("{rel}/");
         let inside = |p: &str| p == rel || p.starts_with(&prefix);
@@ -368,7 +367,7 @@ impl Engine {
         // the sidecar is a file on disk, parsed best-effort — a path in it that
         // doesn't start with the folder it was parked under is corrupt, and
         // blind-slicing one shorter than `old_rel` panicked while the engine
-        // mutex was held, poisoning it and bricking every command (SUB-533).
+        // mutex was held, poisoning it and bricking every command.
         // Corrupt entries are skipped, exactly as the sibling remappers do.
         let remap = |p: &str| p.strip_prefix(old_rel).map(|tail| format!("{new_rel}{tail}"));
 
@@ -434,7 +433,7 @@ impl Engine {
 
     /// Everything about a note that lives outside the note itself: where it sat
     /// in the sidebar pins and which keys pointed at it. Read before the delete
-    /// clears them (SUB-666).
+    /// clears them.
     fn collect_note_config(&self, rel: &str) -> TrashedNoteConfig {
         let order = self.sidebar_order();
         // same targets `move_sidebar_keys` drops on — the two must agree or a
@@ -509,7 +508,7 @@ impl Engine {
         // `..` escapes only as a whole component, exactly as `abs` reads it —
         // a substring test refused legal dotted names ("v1..v2"), which left
         // such a note visible in the trash with restore AND delete-forever
-        // both failing, undoable only by emptying the trash (SUB-533)
+        // both failing, undoable only by emptying the trash
         if id.split('/').any(|c| c == "..") || id.starts_with('/') {
             return Err("invalid trash id".into());
         }
@@ -552,7 +551,7 @@ impl Engine {
                 continue;
             }
             // a trashed asset called `x.folder` is a file, not a marker — the
-            // orphan self-heal below would otherwise delete it (SUB-479)
+            // orphan self-heal below would otherwise delete it
             if path.parent().map(|p| p.ends_with(TRASH_ASSETS_DIR)).unwrap_or(false) {
                 continue;
             }
@@ -571,7 +570,7 @@ impl Engine {
         // Self-heal the markers whose tree is gone — but never a file that sits
         // INSIDE a tree that is still parked, because that is the user's own
         // content, deleting it here is irreversible (`.trash/` is git-ignored),
-        // and this is a read command they triggered by opening a pane (SUB-533)
+        // and this is a read command they triggered by opening a pane
         for (path, id) in orphans {
             if marked.iter().any(|m| id.starts_with(&format!("{m}/"))) {
                 continue;
@@ -634,7 +633,7 @@ impl Engine {
                 notes: Vec::new(),
             });
         }
-        // asset entries (SUB-479): `<deleted_ms>/.assets/<name>`. walk_md_files
+        // asset entries: `<deleted_ms>/.assets/<name>`. walk_md_files
         // skips dot-dirs, so these never collide with the note pass above.
         for entry in fs::read_dir(&trash_root).into_iter().flatten().flatten() {
             let Some(stamp) = entry.file_name().to_str().map(str::to_string) else { continue };
@@ -654,7 +653,7 @@ impl Engine {
                     notes: Vec::new(),
                 });
             }
-            // template entries (SUB-781): `<deleted_ms>/.templates/<stem>.md`.
+            // template entries: `<deleted_ms>/.templates/<stem>.md`.
             // Dot-dir again, so the note pass above skips them — a trashed
             // template must not list (or restore) as an ordinary note.
             let tdir = entry.path().join(TRASH_TEMPLATES_DIR);
@@ -713,17 +712,17 @@ impl Engine {
             fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
         fs::rename(&src, &dest).map_err(|e| e.to_string())?;
-        // put the parked pin and keys back before pruning the sidecar (SUB-666),
+        // put the parked pin and keys back before pruning the sidecar,
         // and before `prune_trash_dirs` — the sidecar is a sibling of the note
         // file, so a surviving one would keep the `<deleted_ms>/` skeleton alive.
         // Best-effort, the mirror of the delete's own rule and of the folder
-        // lane's (SUB-543): the file is out of `.trash/`, so failing here would
+        // lane's: the file is out of `.trash/`, so failing here would
         // report a restore that already happened as an error. Getting the note
         // back beats getting its sidebar row back.
         if let Some(cfg) = self.trashed_note_config(id) {
             self.apply_note_config(&cfg, &dest_rel).ok();
         }
-        // Hand the board slot back to the name the note actually got (SUB-1139).
+        // Hand the board slot back to the name the note actually got.
         // Restoring to the original path needs nothing — the card_order entry
         // was left inert by the trash and matches again on its own. A deduped
         // restore does not: the note is back as `Scratch 2.md` while the list
@@ -752,8 +751,8 @@ impl Engine {
         Ok(())
     }
 
-    /// Move a database's template note into `.trash/<deleted_ms>/.templates/`
-    /// (SUB-781). Deleting a type used to `remove_file` its template outright —
+    /// Move a database's template note into `.trash/<deleted_ms>/.templates/`.
+    /// Deleting a type used to `remove_file` its template outright —
     /// the one user-content delete in the vault that bypassed the trash, and
     /// the template is hand-written content (frontmatter defaults + body
     /// skeleton) worth as much as a note. Returns the trash id; today's only
@@ -858,12 +857,12 @@ impl Engine {
         }
         fs::rename(&src, &dest).map_err(|e| e.to_string())?;
         fs::remove_file(&marker).ok();
-        // put the parked view-config back before pruning the sidecar (SUB-480).
+        // put the parked view-config back before pruning the sidecar.
         // Best-effort, the mirror of the delete's own rule: the subtree is out
         // of `.trash/` and the marker is gone, so failing here would report a
         // restore that already happened as an error AND erase the trash entry
         // the user would retry from — the marker is what `trash_list` finds
-        // entries by (SUB-543). Getting the folder back beats getting its icon.
+        // entries by. Getting the folder back beats getting its icon.
         if let Some(cfg) = self.trashed_folder_config(id) {
             self.apply_folder_config(&cfg, rel, &dest_rel).ok();
         }
@@ -871,7 +870,7 @@ impl Engine {
         // Hand the parked seal confirmation back, to the name the folder
         // actually got — a reoccupied path restores as "Private 2".
         self.move_scope_trust(&format!("{TRASH_DIR}/{id}"), Some(&dest_rel)).ok();
-        // Same for the board slots of every note in the subtree (SUB-1139) —
+        // Same for the board slots of every note in the subtree —
         // move_card_order carries `old_rel/…` wholesale, so a folder restored
         // as "Private 2" keeps its cards where the user dragged them.
         if dest_rel != rel {
@@ -934,7 +933,7 @@ mod tests {
     fn listing_the_trash_never_deletes_a_users_own_dot_folder_file() {
         // `.trash/` is git-ignored, so anything removed here is gone for good —
         // and this runs on a pure read the user triggers by opening a pane.
-        // A file merely NAMED like a folder marker is not one (SUB-533).
+        // A file merely NAMED like a folder marker is not one.
         let (mut e, dir) = temp_vault("trashmark");
         e.create("Note", "Projects/Ableton", None).unwrap();
         let keep = dir.join("Projects/Ableton/Live Set.folder");
@@ -956,7 +955,7 @@ mod tests {
     fn a_corrupt_trash_sidecar_never_panics_the_restore() {
         // the sidecar is a file on disk; a path in it shorter than the folder
         // it was parked under used to panic while the engine mutex was held,
-        // poisoning it and bricking every command until restart (SUB-533)
+        // poisoning it and bricking every command until restart
         let (mut e, dir) = temp_vault("trashcorrupt");
         e.create("Note", "Projects/Deep Research", None).unwrap();
         let id = e.trash_folder("Projects/Deep Research").unwrap();
@@ -982,7 +981,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-577: a bulk delete is ONE user action, so its notes share a
+    /// A bulk delete is ONE user action, so its notes share a
     /// `deleted_ms` and the pane's `deleted_ms DESC, path ASC` orders them by
     /// path. Per-note stamping made that order depend on whether the clock
     /// ticked mid-loop — under load it did, and the second note jumped ahead
@@ -1066,7 +1065,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-478: trashing the same path twice leaves two distinct entries, and
+    /// Trashing the same path twice leaves two distinct entries, and
     /// the id `trash` returns picks out the right one. Restoring by a path
     /// scan of `trash_list` would take the newest — the wrong version for an
     /// Undo of the earlier deletion.
@@ -1099,7 +1098,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// The folder half of SUB-478 — `trash_folder`'s id round-trips too.
+    /// The folder half — `trash_folder`'s id round-trips too.
     #[test]
     fn trash_folder_returns_its_id() {
         let (mut e, dir) = temp_vault("folderid");
@@ -1125,7 +1124,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-1139: a deduped restore takes its board slot with it. Trashing
+    /// A deduped restore takes its board slot with it. Trashing
     /// leaves the `card_order` entry inert on purpose, so a restore to the
     /// original path picks the slot back up for free — but when the path was
     /// reoccupied meanwhile the note comes back under a new name, and without
@@ -1177,7 +1176,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// The folder half of SUB-1139 — a subtree restored under a deduped name
+    /// The folder half of the dedupe-restore rule — a subtree restored under a deduped name
     /// carries every card slot in it (`move_card_order` retargets by prefix).
     #[test]
     fn trash_restore_folder_hands_card_slots_to_the_deduped_name() {
@@ -1235,7 +1234,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-666: a note delete parks its sidebar pin and assigned keys in a
+    /// A note delete parks its sidebar pin and assigned keys in a
     /// sidecar, so restore brings the note back with both — the note half of
     /// what `trash_folder` has always done for a subtree. Before this the pin
     /// and key were deleted outright and restore returned a stripped note.
@@ -1277,7 +1276,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-666 changed world: a key token reassigned while the note sat in the
+    /// Changed world: a key token reassigned while the note sat in the
     /// trash keeps its newer target — the parked binding only fills a free slot,
     /// mirroring `apply_folder_config`.
     #[test]
@@ -1305,7 +1304,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-666: a restore that has to dedupe (`Alpha.md` → `Alpha 2.md`) remaps
+    /// A restore that has to dedupe (`Alpha.md` → `Alpha 2.md`) remaps
     /// pin and key onto where the note actually landed, never onto the squatter.
     #[test]
     fn trash_restore_note_config_follows_a_dedupe_rename() {
@@ -1326,7 +1325,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-666: the sidecar is purged by both permanent-delete paths, so a
+    /// The sidecar is purged by both permanent-delete paths, so a
     /// deleted-forever note leaves nothing parked behind.
     #[test]
     fn trash_note_sidecar_is_purged_by_delete_and_empty() {
@@ -1357,7 +1356,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-666 + SUB-577: a bulk delete routes each note through `trash_at`, so
+    /// A bulk delete routes each note through `trash_at`, so
     /// every note in the selection parks its own sidecar under its own id and
     /// restoring one brings back only its own pin.
     #[test]
@@ -1387,7 +1386,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-666: the sidecar is a file on disk — a corrupt or unreadable one
+    /// The sidecar is a file on disk — a corrupt or unreadable one
     /// reads as "nothing parked" and never fails the restore.
     #[test]
     fn a_corrupt_note_sidecar_never_fails_the_restore() {
@@ -1460,7 +1459,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-480: delete parks the folder's view-config in a trash sidecar and
+    /// Delete parks the folder's view-config in a trash sidecar and
     /// restore puts it back — icon, schema home, and sidebar row all survive
     /// the round trip.
     #[test]
@@ -1513,7 +1512,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-480 changed world: config re-assigned while the folder sat in the
+    /// Changed world: config re-assigned while the folder sat in the
     /// trash WINS — restore yields rather than clobbering the newer state, and
     /// a dedupe rename remaps the parked paths onto where the folder landed.
     #[test]
@@ -1557,7 +1556,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-499: the sidecar parks the sidebar keys the delete drops — the
+    /// The sidecar parks the sidebar keys the delete drops — the
     /// folder's own binding and one on a note inside it — and restore puts
     /// both back pointing at the restored paths.
     #[test]
@@ -1585,7 +1584,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-499 changed world: a key token reassigned while the folder sat in
+    /// Changed world: a key token reassigned while the folder sat in
     /// the trash keeps its newer target; the parked binding is dropped, and a
     /// dedupe rename remaps the ones that do come back.
     #[test]
@@ -1613,7 +1612,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-480: a config sidecar is neither listed as a trash entry nor left
+    /// A config sidecar is neither listed as a trash entry nor left
     /// behind when the folder is deleted forever.
     #[test]
     fn trash_folder_config_sidecar_is_invisible_and_purged() {
@@ -1635,7 +1634,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-543: restore moves the subtree out of `.trash/` and deletes the
+    /// Restore moves the subtree out of `.trash/` and deletes the
     /// marker before it puts the parked config back. When that config write
     /// refuses, the old code returned Err — and the marker is the only thing
     /// `trash_list` finds entries by, so the folder vanished from the Trash
@@ -1663,7 +1662,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-544: the trash id is the Undo handle (SUB-478). Dropping the pin is
+    /// The trash id is the Undo handle. Dropping the pin is
     /// bookkeeping that runs after the file has already moved — it must never
     /// cost the caller that handle.
     #[test]

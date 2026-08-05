@@ -1,4 +1,4 @@
-//! Reflexes (SUB-826): deterministic file-event rules the vault carries.
+//! Reflexes: deterministic file-event rules the vault carries.
 //!
 //! One vault-resident file, `.vault/reflexes.json`, says "when this happens to
 //! a path that looks like this, and these props hold, do this". No expressions,

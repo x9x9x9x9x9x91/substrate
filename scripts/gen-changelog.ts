@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * CHANGELOG.md generator and staleness gate (SUB-588).
+ * CHANGELOG.md generator and staleness gate.
  *
  * Substrate had two changelogs that drifted apart: `src/lib/changelog.ts` (the
  * in-app pane, kept current because a human sees it) and `CHANGELOG.md` (the
@@ -12,12 +12,12 @@
  *   (default)  rewrite CHANGELOG.md from CHANGELOG[]
  *   --check    exit 1 when the on-disk file differs from that render, when the
  *              five version numbers disagree, or when a `private: true` item
- *              is not inside a share-mirror strip fence (SUB-985)
+ * is not inside a share-mirror strip fence
  *
  * The version check covers changelog.ts's newest entry, package.json,
  * src-tauri/tauri.conf.json, src-tauri/Cargo.toml and the `substrate` entry in
  * src-tauri/Cargo.lock — the five places a release bump has to touch, and which
- * a hand-edited release routinely misses (SUB-620: a 0.15.0 lock survived the
+ * a hand-edited release routinely misses (a 0.15.0 lock survived the
  * 0.16.0 bump because only the first four were cross-checked).
  * Cargo.toml, Cargo.lock and tauri.conf.json are read with plain text/JSON
  * parsing on purpose: a changelog gate is not worth a TOML dependency.
@@ -64,11 +64,11 @@ export function wrapBullet(text: string, width = WRAP): string {
 }
 
 /**
- * One release as `## <version> — <date> — <title>` plus its structured body
- * (SUB-817): headline items under `### Highlights`, then the remaining items
+ * One release as `## <version> — <date> — <title>` plus its structured body:
+ * headline items under `### Highlights`, then the remaining items
  * under `### New` / `### Improved` / `### Fixed` — the same grouping the
  * in-app pane renders, so the two surfaces stay one document. `private` items
- * describe machine-local surfaces (SUB-830) and stay out of the rendered
+ * describe machine-local surfaces and stay out of the rendered
  * file — CHANGELOG.md and release notes describe what a download actually
  * contains.
  */
@@ -166,7 +166,7 @@ export function versionMismatch(versions: VersionSet): string | null {
   return `version sources disagree:\n${lines.join("\n")}`;
 }
 
-/* ── private-item fencing (SUB-985) ─────────────────────────────────────── */
+/* ── private-item fencing ─────────────────────────────────────── */
 
 /**
  * `private: true` items are filtered out of the rendered CHANGELOG.md and the
@@ -399,7 +399,7 @@ export interface CheckResult {
 
 /**
  * All three halves of `--check`: rendered-vs-on-disk, version agreement, and
- * (SUB-985) every `private: true` item sitting inside a share-mirror fence.
+ * every `private: true` item sitting inside a share-mirror fence.
  */
 export function checkChangelog(root = ROOT): CheckResult {
   const problems: string[] = [];

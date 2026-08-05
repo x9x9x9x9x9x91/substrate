@@ -1,4 +1,4 @@
-//! Tray agenda popover commands (SUB-30). The window helpers they drive
+//! Tray agenda popover commands. The window helpers they drive
 //! (`show_main`, `toggle_capture`) stay in lib.rs with the tray/menu setup
 //! that also uses them.
 
@@ -18,7 +18,7 @@ pub(crate) fn agenda_open_note(app: tauri::AppHandle, path: String) {
     }
 }
 
-/// Fit the tray popover to its rendered content (SUB-746).
+/// Fit the tray popover to its rendered content.
 ///
 /// `height` is the card's own logical height, clamped here rather than in the
 /// webview so the bounds live next to the window that has to honor them. The

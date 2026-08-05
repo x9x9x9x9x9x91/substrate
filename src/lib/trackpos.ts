@@ -1,4 +1,4 @@
-/* A document position that survives an await (SUB-664).
+/* A document position that survives an await.
  *
  * Asset intake captures where the embed belongs — the caret at paste time, the
  * point under a drop — and only writes it after an IPC round trip that can take

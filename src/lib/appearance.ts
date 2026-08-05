@@ -1,4 +1,4 @@
-/* Appearance dials (SUB-955) — the two Settings.md keys that move the app's
+/* Appearance dials — the two Settings.md keys that move the app's
    look without touching its structure: `glow` (bloom intensity) and the accent
    tone pair (`accent-tone` + `accent-tone-nudge`).
 
@@ -9,8 +9,8 @@
 
 import { foldedPropKey } from "./types.ts";
 
-/** the curated accent tones (SUB-955). Sky is index 0 and is the shipped
-    look: its token values are the exact SUB-932 hexes, so a fresh vault and a
+/** the curated accent tones. Sky is index 0 and is the shipped
+    look: its token values are the exact shipped hexes, so a fresh vault and a
     vault that explicitly picks `sky` render identically. */
 export const TONES = [
   { id: "sky", label: "Sky" },
@@ -29,7 +29,7 @@ export const DEFAULT_GLOW = 0;
 
 /** the fine-tune slider's bound, in HSL degrees around the chosen preset.
 
-    ±12 rather than the fuller wheel the issue sketched: the SUB-932 family
+    ±12 rather than the fuller wheel the issue sketched: the family
     rule is that every ramp entry clears 3:1 as a shape on BOTH grounds (dark
     app, print paper), and rotating hue at fixed HSL lightness moves luminance.
     A sweep of all four presets × every moving slot × both grounds puts the
@@ -66,7 +66,7 @@ export const DEFAULT_APPEARANCE: Appearance = {
   nudge: DEFAULT_NUDGE,
 };
 
-/* Settings.md is hand-editable, so every read here folds key casing (SUB-924)
+/* Settings.md is hand-editable, so every read here folds key casing
    and treats an unreadable value as the default rather than as an error — the
    same posture the rest of the settings parsers take. */
 
@@ -169,7 +169,7 @@ export function applyAppearance(root: HTMLElement, a: Appearance): void {
   else root.style.removeProperty("--tone-nudge");
 }
 
-/* SUB-1122: two writers repaint the appearance — the settings pane's
+/* two writers repaint the appearance — the settings pane's
    optimistic preview, which is instant and local, and App's re-read of
    Settings.md after a vault event, which is a round trip. A drag is a preview
    that has NOT reached the note yet (a range input writes on release, not on
@@ -187,7 +187,7 @@ export function applyAppearance(root: HTMLElement, a: Appearance): void {
    just landed must not hand back a preview another field made in the
    meantime.
 
-   SUB-1126: what the claim covers is the previewed LOOK, not the `Appearance`
+   What the claim covers is the previewed LOOK, not the `Appearance`
    struct. Window opacity (lib/vibrancy.ts) is painted by the same drag, from
    the same sheet, released at the same seams — and it lost the same race, for
    the same reason. It rides this claim rather than a sibling counter of its
@@ -207,7 +207,7 @@ export function previewAppearance(root: HTMLElement, a: Appearance): void {
 }
 
 /** take the claim without painting anything — for a look the pane previews
-    through its own writer rather than through `applyAppearance` (SUB-1126:
+    through its own writer rather than through `applyAppearance` (note:
     window opacity, which is a window material and a class, not a token) */
 export function claimAppearancePreview(): void {
   previewSeq += 1;
@@ -227,7 +227,7 @@ export function reconcileAppearance(seq: number): void {
 
 /** true while the document element shows something the note does not yet
     hold — Settings.md reads must leave the appearance AND the window ground
-    (SUB-1126) alone */
+    alone */
 export function appearancePreviewPending(): boolean {
   return previewSeq > reconciledSeq;
 }

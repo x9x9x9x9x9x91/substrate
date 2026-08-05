@@ -36,7 +36,7 @@ import {
 import { foldedPropKey, foldedPropStr, type PropValue } from "./types.ts";
 import { chipCommitValue, propListValue, type RelationCandidate } from "./relation.ts";
 // the cell pickers are React; this is the one seam a widget mounts them
-// through (SUB-796) — see CellEditorHost for why it lives under components/
+// through — see CellEditorHost for why it lives under components/
 import {
   anchorFrom,
   createCellEditorHost,
@@ -51,7 +51,7 @@ function requestFollow(dom: HTMLElement, name: string) {
   dom.dispatchEvent(new CustomEvent(FOLLOW_EVENT, { detail: name, bubbles: true }));
 }
 
-/** Second pass over a just-rendered missing placeholder (SUB-444): the widget
+/** Second pass over a just-rendered missing placeholder: the widget
  * paints `missing <noun> · <name>` synchronously, then this upgrades it to the
  * quieter "not on this device" state once the sync status resolves. Two-step
  * on purpose — the sync lookup is async and a placeholder must never flicker
@@ -106,7 +106,7 @@ export class CheckboxWidget extends WidgetType {
   }
 }
 
-/** A calc line's answer, rendered after the expression (SUB-834). Purely
+/** A calc line's answer, rendered after the expression. Purely
  * additive: the widget sits at the end of the line and never replaces text, so
  * the raw `= 5 kg + 500 g` stays readable and the document itself never gains
  * the result — a plain markdown reader sees only what the user typed.
@@ -175,10 +175,10 @@ function splitRow(line: string): string[] {
   return cells.map((c) => c.trim());
 }
 
-/** Inline marks a rendered cell honors (SUB-201): wikilinks plus the basic
+/** Inline marks a rendered cell honors: wikilinks plus the basic
  * emphasis set. One alternation, first match wins; bold/italic/strike recurse
  * so `**[[link]]**` works, code stays literal. No heavier nesting. The
- * md-link destination keeps one level of balanced parens (SUB-902/912) —
+ * md-link destination keeps one level of balanced parens —
  * Wikipedia-style URLs (…/A_(b)) would otherwise truncate at the first ")",
  * and the print/hub twins already accept this shape. */
 const CELL_MARK_RE =
@@ -196,7 +196,7 @@ function renderCell(el: HTMLElement, text: string) {
       const link = document.createElement("span");
       link.className = "cm-wikilink";
       // follows the whole inner text (the follower parses the anchor off
-      // it), shows the author's display text (SUB-1095)
+      // it), shows the author's display text
       link.setAttribute("data-link", m[1].trim());
       link.textContent = wikiLinkDisplay(m[1]);
       el.appendChild(link);
@@ -274,7 +274,7 @@ export class TableWidget extends WidgetType {
     wrap.appendChild(table);
 
     wrap.addEventListener("mousedown", (e) => {
-      // primary button only (SUB-657) — right/middle click must not follow
+      // primary button only — right/middle click must not follow
       // links or collapse the table to source
       if (e.button !== 0) return;
       const target = e.target as HTMLElement;
@@ -283,7 +283,7 @@ export class TableWidget extends WidgetType {
         e.preventDefault();
         const url = link.getAttribute("data-url");
         if (url) {
-          // SUB-88 lane: external links leave the app
+          // lane: external links leave the app
           if (isTauri) openUrl(url).catch(console.error);
           else window.open(url, "_blank");
           return;
@@ -305,7 +305,7 @@ export class TableWidget extends WidgetType {
   }
 }
 
-/** Handlers the Editor provides for ```view embeds (SUB-86). Widgets read
+/** Handlers the Editor provides for ```view embeds. Widgets read
  * them off state at toDOM time — like the TableWidget's view access, this
  * keeps callback threading out of the decoration data. */
 export interface EmbedHandlers {
@@ -313,14 +313,14 @@ export interface EmbedHandlers {
   openNote?: (path: string) => void;
   /** `savedId` set when the embed came from a `saved:` pin — open that view */
   openView?: (dbType: string, savedId?: string) => void;
-  /** SUB-796 write path: one property of one row. Routed through the app's
+  /** Write path: one property of one row. Routed through the app's
       undoable prop write, so an inline edit lands in the same ⌘Z stack as the
       identical edit made in the database pane. */
   setProp?: (path: string, key: string, value: PropValue) => void;
-  /** SUB-796: create a row of this fence's type, seeded from its query, and
+  /** Create a row of this fence's type, seeded from its query, and
       open it — the app's template-aware typed create, not a second one.
       `query` is the fence's effective filter, so the create can warn when the
-      seeds can't satisfy it and the new row is born hidden (SUB-234's rule) */
+      seeds can't satisfy it and the new row is born hidden */
   createEntry?: (dbType: string, seedProps: [string, string][], query: string) => void;
   /** values in use across a type for one column — the picker's bootstrap */
   usedValues?: (dbType: string, key: string) => string[];
@@ -334,7 +334,7 @@ export const embedHandlers = Facet.define<EmbedHandlers, EmbedHandlers>({
   combine: (values) => values[0] ?? {},
 });
 
-/** What calc lines need from the app (SUB-834): the number dialect results are
+/** What calc lines need from the app: the number dialect results are
  * formatted in, and a live FX resolver for currency conversion. Both come in
  * as one facet so the editor takes a single reconfiguration when either
  * changes. The defaults are the honest inert ones — the app's own dialect, and
@@ -349,7 +349,7 @@ export const calcConfig = Facet.define<CalcConfig, CalcConfig>({
   combine: (values) => values[0] ?? { locale: DEFAULT_NUMBER_LOCALE, fx: () => null },
 });
 
-/** What live values in prose need from the app (SUB-825): the sheets a note's
+/** What live values in prose need from the app: the sheets a note's
  * `= expr` spans reach, already loaded and evaluated by the dashboard sheet
  * bindings, plus the same FX resolver calc lines use. One facet, one
  * reconfiguration when either moves.
@@ -366,7 +366,7 @@ export const liveValuesConfig = Facet.define<LiveValuesConfig, LiveValuesConfig>
   combine: (values) => values[0] ?? { sheets: new Map(), fx: () => null },
 });
 
-/** A live value in prose (SUB-825), rendered in place of the `` `= expr` ``
+/** A live value in prose, rendered in place of the `` `= expr` ``
  * span it was computed from.
  *
  * Unlike a calc line's answer this one REPLACES its source, because the value
@@ -430,7 +430,7 @@ interface ViewWidgetState {
   /** the cell currently being edited, if any — identity survives repaints */
   editing: { path: string; column: string } | null;
   /** set on a mousedown that only dismissed an open picker, so the click that
-      follows it doesn't also open a new one (SUB-792's rule) */
+      follows it doesn't also open a new one */
   dismissing: boolean;
   /** the last rendered result, so click routing reads current data */
   result: EmbedResult;
@@ -445,10 +445,9 @@ function viewState(dom: HTMLElement): ViewWidgetState | undefined {
   return (dom as unknown as Record<symbol, ViewWidgetState | undefined>)[VIEW_STATE];
 }
 
-/** A ```view fence rendered as an editable inline database table (SUB-86,
- * editable since SUB-796). The data snapshot comes from the embedHandlers
- * facet at render time; the vault epoch is part of the widget identity, so any
- * vault change makes eq false (SUB-122).
+/** A ```view fence rendered as an editable inline database table. The data
+ * snapshot comes from the embedHandlers facet at render time; the vault epoch
+ * is part of the widget identity, so any vault change makes eq false.
  *
  * A false `eq` used to mean a fresh DOM node. It no longer has to: CodeMirror
  * runs a second reuse pass over same-constructor widgets and calls
@@ -559,7 +558,7 @@ function paintViewWidget(wrap: HTMLElement, view: EditorView, inner: string): bo
 
   const head = document.createElement("div");
   head.className = "embed-view-head";
-  // a saved-sourced embed carries the pin's identity (SUB-211): its name
+  // a saved-sourced embed carries the pin's identity: its name
   // in the header, its view on click — two cuts of one database stay
   // distinguishable on the same page
   head.title = `Open ${result.savedName ?? result.dbType}`;
@@ -570,7 +569,7 @@ function paintViewWidget(wrap: HTMLElement, view: EditorView, inner: string): bo
   const count = document.createElement("span");
   count.className = "embed-view-count";
   count.textContent = String(result.total);
-  // visible open-database affordance (SUB-145) — the header shouldn't
+  // visible open-database affordance — the header shouldn't
   // need prose to explain that it's clickable
   const open = document.createElement("span");
   open.className = "embed-view-open";
@@ -604,8 +603,8 @@ function paintViewWidget(wrap: HTMLElement, view: EditorView, inner: string): bo
       td.dataset.column = column;
       const model = viewCellModel(result, row.props, column);
       if (model.kind === "checkbox") {
-        // the whole cell is the affordance, same as the database table
-        // (SUB-173) — a box, not the string "true"
+        // the whole cell is the affordance, same as the database table —
+        // a box, not the string "true"
         const box = document.createElement("span");
         box.className = `prop-check${model.checked ? " on" : ""}`;
         box.setAttribute("aria-label", model.checked ? "Checked" : "Unchecked");
@@ -634,7 +633,7 @@ function paintViewWidget(wrap: HTMLElement, view: EditorView, inner: string): bo
     empty.textContent = "No matching rows";
     wrap.insertBefore(empty, state.hostEl);
   } else if (result.cut) {
-    // an author's `limit:` and the surface's cap are different facts (SUB-942):
+    // an author's `limit:` and the surface's cap are different facts:
     // "… 18 more" under a `limit: 5` reads as a cap we imposed. Say which.
     const more = document.createElement("div");
     more.className = "embed-view-more";
@@ -645,7 +644,7 @@ function paintViewWidget(wrap: HTMLElement, view: EditorView, inner: string): bo
     wrap.insertBefore(more, state.hostEl);
   }
 
-  // "+ New" sits below the cap line on purpose (SUB-796): the cap hides rows,
+  // "+ New" sits below the cap line on purpose: the cap hides rows,
   // it never means the table is closed to new ones
   if (handlers.createEntry) {
     const add = document.createElement("button");
@@ -698,7 +697,7 @@ function viewHit(
   if (path) {
     const td = target.closest?.(".embed-view-cell") as HTMLElement | null;
     const column = td?.dataset.column;
-    // the title cell keeps navigating — the row's name is its link (SUB-86)
+    // the title cell keeps navigating — the row's name is its link
     if (!td || !column || "error" in result) return { kind: "open", path };
     const props = result.rows.find((r) => r.path === path)?.props ?? {};
     return { kind: "cell", path, column, td, model: viewCellModel(result, props, column) };
@@ -708,7 +707,7 @@ function viewHit(
 }
 
 function viewMouseDown(wrap: HTMLElement, view: EditorView, e: MouseEvent) {
-  // primary button only (SUB-657) — right/middle click must not navigate
+  // primary button only — right/middle click must not navigate
   // or collapse the embed to source
   if (e.button !== 0) return;
   const state = viewState(wrap);
@@ -720,21 +719,21 @@ function viewMouseDown(wrap: HTMLElement, view: EditorView, e: MouseEvent) {
   // we explicitly drop it into the fence
   e.preventDefault();
 
-  // SUB-792's rule, applied here: a click that dismisses an open picker does
+  // The rule, applied here: a click that dismisses an open picker does
   // only that. The menu's own window listener runs right after this one and
   // closes it; nothing else on this click composes with the dismissal.
   state.dismissing = state.host?.isOpen() ?? false;
 
   if (hit.kind === "cell" && hit.model.kind === "checkbox") {
     // checked stores the YAML scalar true, unchecked REMOVES the prop —
-    // never writes false (SUB-173), same rule as the database pane. The
+    // never writes false, same rule as the database pane. The
     // toggle also lands under a dismissing click: in the pane the open menu
     // closes on window mousedown and the checkbox still takes the click, so
     // needing a second click here would break parity with the same gesture.
     //
     // The read-only check belongs HERE, on the write itself, not only on the
     // paint and the editor-opening click: this toggle writes without ever
-    // opening an editor, so those two guards don't cover it (SUB-829).
+    // opening an editor, so those two guards don't cover it.
     if (!viewCellWritable(result, hit.column)) return;
     handlers.setProp?.(hit.path, hit.model.actualKey, hit.model.checked ? null : true);
     return;
@@ -799,7 +798,7 @@ function openCellEditor(
   const result = state.result;
   const props = result.rows.find((r) => r.path === path)?.props ?? {};
   // a joined column has no editor to open — the caller's guard already ruled,
-  // this keeps the entry point honest on its own terms (SUB-829)
+  // this keeps the entry point honest on its own terms
   if (isJoinedColumn(result, column)) return;
   const model = viewCellModel(result, props, column);
   state.host ??= createCellEditorHost(state.hostEl);
@@ -818,7 +817,7 @@ function openCellEditor(
     candidates: model.schema?.type ? (handlers.relationCandidates?.(model.schema.type) ?? []) : [],
     onCommit: (value) => {
       // list-shaped props reached through the plain text editor keep their
-      // list shape (SUB-557) — the same rule the database table commits by
+      // list shape — the same rule the database table commits by
       const cur = state.editing;
       close();
       if (!cur) return;
@@ -853,16 +852,16 @@ function liveProps(state: ViewWidgetState, path: string): Record<string, unknown
   return state.result.rows.find((r) => r.path === path)?.props ?? {};
 }
 
-/** SUB-636: a number column stores what the app can read back, not the
+/** A number column stores what the app can read back, not the
  * keystrokes — the same normalization the database pane commits through. */
 function commitCellText(value: string, model: CellModel): string {
   return model.kind === "number" ? normalizeNumberInput(value) : value;
 }
 
-// embed routing by extension (SUB-202): audio renders the player, image the
+// embed routing by extension: audio renders the player, image the
 // inline <img>, any other extension a file chip. The intake lanes accept any
 // file type — these sets only pick the widget, they no longer gate intake.
-// The audio set itself lives in artwork.ts (SUB-674 — database file props
+// The audio set itself lives in artwork.ts (database file props
 // classify through it too); re-exported so editor imports stay put.
 export { isAudioEmbed } from "./artwork.ts";
 
@@ -876,16 +875,16 @@ export function isImageEmbed(name: string): boolean {
  * down whenever the cursor enters the line (source reveal), so the <audio>
  * lives here and each widget instance just binds UI to it — a playing master
  * survives edits, note switches, and re-renders. Exported as a type for the
- * database prop affordance (SUB-674), which binds to the same elements. */
+ * database prop affordance, which binds to the same elements. */
 export interface SharedPlayer {
   audio: HTMLAudioElement;
   peaks: number[] | null;
   failed: boolean;
   ready: Promise<void>;
-  /** cacheKey of the bound file version — a re-bounce changes it (SUB-101) */
+  /** cacheKey of the bound file version — a re-bounce changes it */
   key: string | null;
   /** the resolved source peaks are computed from — kept for the deferred
-   * peak load (SUB-115) */
+   * peak load */
   src: AudioSource | null;
   /** peaks were requested (scrolled into view, or played) — the decode runs
    * at most once per bound file version */
@@ -896,12 +895,12 @@ export interface SharedPlayer {
 
 /* Players are keyed by the file's cacheKey so a re-bounced master (same name,
  * new key) naturally misses and rebuilds; `playerNames` aliases the embed
- * name to its current key so getPlayer stays synchronous (SUB-101). */
+ * name to its current key so getPlayer stays synchronous. */
 const players = new Map<string, SharedPlayer>();
 const playerNames = new Map<string, string>();
 let nowPlaying: HTMLAudioElement | null = null;
 
-/* SUB-674: database prop buttons bind to the shared player without creating
+/* Database prop buttons bind to the shared player without creating
  * it (a table render must never stat/decode) — this fan-out tells them when
  * a player for their file is born elsewhere (an embed mount, another row's
  * toggle), so the button goes live without a pane re-render. */
@@ -959,7 +958,7 @@ function getPlayer(name: string): SharedPlayer {
     .then((src) => {
       bindPlayer(name, player, src);
       player.src = src;
-      // peaks deliberately do NOT start here (SUB-115) — decoding a master
+      // peaks deliberately do NOT start here — decoding a master
       // WAV buffers hundreds of MB, so the decode waits for the embed to
       // scroll into view, or for first play past the size gate
     })
@@ -974,7 +973,7 @@ function getPlayer(name: string): SharedPlayer {
 
 /** The shared player for a name if one already exists (an embed or an earlier
  * prop toggle created it), else null. Database prop buttons peek instead of
- * creating (SUB-674): rendering a table or gallery must never stat, allocate,
+ * creating: rendering a table or gallery must never stat, allocate,
  * or decode — the player appears on first toggle, or is already here when the
  * note's embed owns it. Failed entries read as absent. */
 export function peekPlayer(name: string): SharedPlayer | null {
@@ -984,7 +983,7 @@ export function peekPlayer(name: string): SharedPlayer | null {
 }
 
 /** Subscribe to player creation — the late-bind channel for prop buttons
- * whose file's player is born after they mounted (SUB-674). Returns the
+ * whose file's player is born after they mounted. Returns the
  * unsubscribe. */
 export function onPlayerBorn(fn: (name: string, player: SharedPlayer) => void): () => void {
   playerBorn.add(fn);
@@ -993,10 +992,10 @@ export function onPlayerBorn(fn: (name: string, player: SharedPlayer) => void): 
   };
 }
 
-/** Toggle a vault audio file through the shared per-name player (SUB-674) —
+/** Toggle a vault audio file through the shared per-name player —
  * the prop affordance's whole playback path, deliberately NOT the embed's:
  * no startPeaks, so a prop click never decodes (peaks/waveform stay
- * embed-owned, SUB-115). Waits for the source resolution so a first-click
+ * embed-owned). Waits for the source resolution so a first-click
  * play lands; the audio element's own events keep every bound button honest.
  * Returns the player so the caller can bind state to it. */
 export function togglePlayer(name: string): SharedPlayer {
@@ -1009,7 +1008,7 @@ export function togglePlayer(name: string): SharedPlayer {
   return player;
 }
 
-/** Play a file, never pausing it (SUB-812) — what the mini-player's
+/** Play a file, never pausing it — what the mini-player's
  * prev/next and its auto-advance need. Toggle semantics are wrong for a
  * queue step: stepping onto a track whose element happens to be playing
  * (the same file twice in a folder) would stop the music instead of moving
@@ -1025,9 +1024,9 @@ export function startPlayer(name: string): SharedPlayer {
   return player;
 }
 
-/** Ask for this player's waveform (SUB-812) — the mini-player's strip.
+/** Ask for this player's waveform — the mini-player's strip.
  *
- * Deliberately NOT forced, so the SUB-115 size gate still holds: a file over
+ * Deliberately NOT forced, so the size gate still holds: a file over
  * PEAKS_AUTO_MAX_BYTES shows the flat track rather than buffering hundreds of
  * megabytes to draw it. Master-sized WAVs stay instant to play and the bar
  * renders an empty instrument, not a missing one. When an embed of the same
@@ -1043,7 +1042,7 @@ export function requestPeaks(player: SharedPlayer): void {
  * size gate), in which case every bar renders at a constant height: an empty
  * instrument, never a missing one.
  *
- * Shared by the note embed and the mini-player's strip (SUB-812) so the two
+ * Shared by the note embed and the mini-player's strip so the two
  * waveforms in the app cannot drift apart. */
 export function paintWaveform(
   canvas: HTMLCanvasElement,
@@ -1085,7 +1084,7 @@ export function paintWaveform(
   }
 }
 
-/** Start the peak decode once per bound file version (SUB-115). The default
+/** Start the peak decode once per bound file version. The default
  * trigger (embed scrolled into view) skips files over PEAKS_AUTO_MAX_BYTES —
  * those compute on first play (`force`). Waits for the stat when called
  * before it lands. */
@@ -1122,7 +1121,7 @@ export function refreshAudioPlayers() {
         player.src = src;
         // a re-bounce invalidates computed peaks — recompute only when the
         // widget had asked for them (visible or played); the lazy triggers
-        // own everything else (SUB-115)
+        // own everything else
         if (player.peaksRequested) {
           player.peaksRequested = false;
           startPeaks(player, true);
@@ -1151,8 +1150,8 @@ const AUDIO_CLEANUP = Symbol("audio-cleanup");
 
 /** Audio embeds share one player per name (getPlayer), so a healthy widget's
  * identity stays name-only — a vault epoch bump must NOT restart playback or
- * re-decode peaks. Only a widget whose lookup failed carries the epoch in eq
- * (SUB-289): the next bump rebuilds just that widget, the re-stat heals it if
+ * re-decode peaks. Only a widget whose lookup failed carries the epoch in eq:
+ * the next bump rebuilds just that widget, the re-stat heals it if
  * the asset has appeared, and a still-missing one fails again and waits for
  * the next bump. The file and image widgets below follow the same rule. */
 export class AudioWidget extends WidgetType {
@@ -1434,7 +1433,7 @@ export class AudioWidget extends WidgetType {
 
     const toggle = () => {
       if (player.failed) return;
-      // past the size gate peaks wait for this moment (SUB-115)
+      // past the size gate peaks wait for this moment
       startPeaks(player, true);
       if (a.paused) a.play().catch(() => showMissing());
       else a.pause();
@@ -1526,7 +1525,7 @@ export class AudioWidget extends WidgetType {
     });
     if (!a.paused) onPlay();
 
-    // peaks decode is lazy (SUB-115): it kicks off when the embed first
+    // peaks decode is lazy: it kicks off when the embed first
     // scrolls into view (or on first play past the size gate); the flat
     // placeholder bars stand in until it lands
     player.peakListeners.add(draw);
@@ -1564,18 +1563,18 @@ export class AudioWidget extends WidgetType {
   }
 }
 
-/** Any embed that is neither audio nor image (SUB-202): a compact named chip.
+/** Any embed that is neither audio nor image: a compact named chip.
  *  Click / Enter / Space opens the file in its OS-default app — no in-app
  *  preview. The size label fills in once vault_asset_info lands; a missing
  *  target degrades to the same missing idiom as the audio widget. */
 export class FileWidget extends WidgetType {
-  /** stat failed — the next vault epoch rebuilds this chip (SUB-289) */
+  /** stat failed — the next vault epoch rebuilds this chip */
   failed = false;
 
   constructor(
     readonly name: string,
     readonly epoch: number,
-    /** the ⌘, number dialect the size string was written in (SUB-1092) — part
+    /** the ⌘, number dialect the size string was written in — part
      * of the chip's identity, because a chip whose file is unchanged still has
      * to be rewritten when the dial moves */
     readonly locale: NumberLocale = DEFAULT_NUMBER_LOCALE
@@ -1658,7 +1657,7 @@ export class FileWidget extends WidgetType {
 }
 
 export class ImageWidget extends WidgetType {
-  /** blob fetch failed — the next vault epoch rebuilds this image (SUB-289) */
+  /** blob fetch failed — the next vault epoch rebuilds this image */
   failed = false;
 
   constructor(

@@ -1,5 +1,5 @@
 //! Custom dashboard kinds: list what is installed, record consent, withdraw
-//! it (SUB-959), and carry the standing "trust updates" rider (SUB-961).
+//! it, and carry the standing "trust updates" rider.
 //!
 //! Four commands and no fifth: nothing here installs, edits or removes a
 //! bundle. A kind arrives in the vault the way any other file does — the user

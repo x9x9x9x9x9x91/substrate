@@ -1,5 +1,5 @@
 /**
- * A sheet's per-column notification settings (SUB-876).
+ * A sheet's per-column notification settings.
  *
  * A sheet has no schema — `type: sheet` is functional, so there is nowhere to
  * hang a per-property `notify` the way a database does. The settings live in
@@ -34,8 +34,8 @@ export const LEAD_CHOICES = [1, 3, 7, 14, 30];
 /** A cell reads as a date when it parses as a whole date value — the same
     grammar the scheduler applies, since `splitDateRange` is the declared TS
     mirror of `notify::parse_due_range`. Prefix-matching an ISO day instead
-    would offer "Notify…" on a cell the scheduler refuses (seconds, SUB-571)
-    and hide the menu on a range it accepts (SUB-876 review). */
+    would offer "Notify…" on a cell the scheduler refuses (seconds)
+    and hide the menu on a range it accepts. */
 export function looksDated(cell: string): boolean {
   return splitDateRange(cell) !== null;
 }
@@ -71,7 +71,7 @@ export function notifyHint(s: ColumnNotify | undefined): string {
     — one bad line must not hide the rest. The on-disk spelling is `notifyBefore`
     and only that: it is what `notifying_columns` folds for on the Rust side and
     what both docs document, so accepting a `notify_before` alias here would
-    render a confirmed setting the scheduler never fires (SUB-876 review). */
+    render a confirmed setting the scheduler never fires. */
 export function parseColumnNotify(raw: unknown): Record<string, ColumnNotify> | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const out: Record<string, ColumnNotify> = {};

@@ -48,7 +48,7 @@ test("a note seals whole-file, unlocks for a peek, and can return to Markdown", 
   await expect(page.locator(".cm-content")).toContainText("Everything here is a plain markdown file");
 
   // even UNLOCKED, no plaintext-emitting action reaches the menu — Remove
-  // seal is the one deliberate lane back to plaintext (SUB-839 review)
+  // seal is the one deliberate lane back to plaintext (review)
   await page.getByRole("button", { name: "Note actions" }).click();
   for (const leaky of ["Duplicate", "Export Markdown…", "Export PDF…", "Send as link…"]) {
     await expect(page.locator(".dots-item", { hasText: leaky })).toHaveCount(0);
@@ -56,7 +56,7 @@ test("a note seals whole-file, unlocks for a peek, and can return to Markdown", 
   await expect(page.locator(".dots-item", { hasText: "Remove seal…" })).toBeVisible();
   await page.keyboard.press("Escape");
 
-  // A path change is an authorization boundary (SUB-839): rename and move both
+  // A path change is an authorization boundary: rename and move both
   // reopen locked at the destination, so no read can slip through under the
   // new path on the old authorization.
   await page.locator(".note-title").fill("Welcome Sealed");
@@ -105,7 +105,7 @@ test("a note seals whole-file, unlocks for a peek, and can return to Markdown", 
   await expect(page.locator(".dots-item", { hasText: "Seal note…" })).toBeVisible();
 });
 
-/* SUB-889: the two states a happy-path seal never reaches — a machine with no
+/* the two states a happy-path seal never reaches — a machine with no
    device key (so Touch ID refuses and the vault password is the only way in),
    and a scope whose files encrypted but whose history cleanup did not, which
    leaves the marker pending. Both are staged before the module loads. */
@@ -152,7 +152,7 @@ test("without a device key the password carries the unlock, and a failed history
   await expect(page.locator(".ctx-item", { hasText: "Stop seal inheritance" })).toHaveCount(0);
 });
 
-/* SUB-889: the attack the confirmation gate exists to stop. A marker that
+/* the attack the confirmation gate exists to stop. A marker that
    arrives by sync or an external write is inert on this device — it encrypts
    nothing, it hides nothing, and the user has to accept it in-app before it
    means anything. */
@@ -198,7 +198,7 @@ test("a seal marker planted from outside this device seals nothing until it is c
   await expect(page.locator('.row[data-path^="Field notes/"] .row-sealed').first()).toBeVisible();
 });
 
-/* SUB-889: the denial-of-service half of the same attack. A marker planted
+/* the denial-of-service half of the same attack. A marker planted
    *inside* a folder this device really did seal must still be rejectable —
    otherwise one planted file wedges the subtree, and the only way out is
    removing the outer seal the user wanted. The engine skips both removal
@@ -263,7 +263,7 @@ test("a folder seal converts existing notes and new notes inherit until inherita
   await expect(page.locator(".note-title")).toHaveValue("Untitled 2");
 });
 
-/* SUB-935: leaving an unlocked sealed note must hand its authorization back.
+/* Leaving an unlocked sealed note must hand its authorization back.
    The lock screen alone proves nothing here — it is decided by the pane's own
    state, which resets on every note switch, so a note left authorized in the
    engine LOOKS locked while any other surface could still read it in the

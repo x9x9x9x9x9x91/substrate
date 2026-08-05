@@ -5,7 +5,7 @@ import type { MountInfo, MountRow } from "./types";
     state (bound here? folder present?) plus its last-known rows. A mount that
     isn't in `mounts.json` at all never lands here — the surface falls back to
     the vault's notes, since `source: release` naming a database and
-    `source: album-pool` naming a mount share one grammar (SUB-982). */
+    `source: album-pool` naming a mount share one grammar. */
 export type DashboardMountState = { mount: MountInfo; rows: MountRow[] } | { error: string };
 
 const cache = new Map<string, Promise<Map<string, DashboardMountState>>>();
@@ -17,7 +17,7 @@ function cacheKey(names: string[], vaultEpoch: number): string {
 
 /** Load the rows of every mount a dashboard binds, keyed by folded mount name.
     Shares the in-flight/result promise across surfaces the way dashboardSheets
-    does (SUB-940): a note with three charts and a card strip over one mount
+    does: a note with three charts and a card strip over one mount
     costs one `mounts_list` + one `mount_rows` per mount, not one per surface.
 
     A name with no mount is simply absent from the result — the caller reads it

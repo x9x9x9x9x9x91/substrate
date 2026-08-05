@@ -1,6 +1,6 @@
 import { basename } from "./files.ts";
 
-/* CSV import (SUB-274): the pure mapping from parsed CSV rows (parseCsv,
+/* CSV import: the pure mapping from parsed CSV rows (parseCsv,
    src/lib/sheet.ts) to notes-to-create. The dialog (CsvImportDialog,
    DbAdmin.tsx) owns the choices; these functions own the consequences.
    Picking/reading the file lives in csvpick.ts — it touches Tauri IPC,
@@ -43,7 +43,7 @@ export function csvColumns(rows: string[][], firstRowHeaders: boolean): CsvColum
     which kills the whole import. */
 const CSV_RESERVED = ["created", "type", "title", "icon", "home"];
 
-/** Column names as the database will really store them (SUB-559, SUB-562).
+/** Column names as the database will really store them.
     A spreadsheet export routinely carries a name Substrate owns, or the same
     name twice — and both used to be discovered too late: the reserved one
     imported as an empty column, and the duplicate aborted the import on

@@ -58,7 +58,7 @@ function inline(raw: string, assetSrc: AssetSrc): string {
           ? `<img src="${src}" alt="${n}">`
           : `<span class="print-missing">missing image · ${n}</span>`;
       });
-      // a link prints what it MEANS, not its syntax (SUB-1095): the author's
+      // a link prints what it MEANS, not its syntax: the author's
       // display text when they wrote one, else the target with its anchor.
       // The segment is escaped by now, but `|` and `#` survive escaping, so
       // splitting the escaped text finds the same parts.
@@ -66,7 +66,7 @@ function inline(raw: string, assetSrc: AssetSrc): string {
         /\[\[([^[\]]+)\]\]/g,
         (_m, inner: string) => `<span class="print-link">${wikiLinkDisplay(inner)}</span>`,
       );
-      // one level of balanced parens in the destination (SUB-902): Wikipedia
+      // one level of balanced parens in the destination: Wikipedia
       // -style URLs (…/A_(b)) would otherwise truncate at the first ")"
       s = s.replace(
         /\[([^\]]+)\]\((https?:(?:[^()\s]|\([^()\s]*\))+)\)/g,
@@ -106,7 +106,7 @@ export function renderPrintBody(md: string, assetSrc: AssetSrc): string {
     const line = lines[i];
     // opener accepts a full info string (```rust ignore, ```js title=x) —
     // only the closing ``` is bare, so a spaced info string must not demote
-    // the opener to prose and promote its closer to an opener (SUB-898)
+    // the opener to prose and promote its closer to an opener
     const fence = line.match(/^```(\S*)(?:\s[^`]*)?$/);
     if (fence) {
       flushPara();
@@ -162,7 +162,7 @@ export function renderPrintBody(md: string, assetSrc: AssetSrc): string {
         const m = lines[i].match(/^\s*(?:([-*+])|\d+[.)])\s+(.*)$/);
         if (!m) break;
         // a marker-kind flip (bullets → numbers or back) starts a new list of
-        // the right tag; consuming it here would strip the numbering (SUB-901)
+        // the right tag; consuming it here would strip the numbering
         if ((m[1] === undefined) !== ordered) break;
         const task = m[2].match(/^\[([ xX])\]\s+(.*)$/);
         if (task) {

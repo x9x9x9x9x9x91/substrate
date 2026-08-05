@@ -24,7 +24,7 @@ export function urlDisplayTitle(url: string): string {
   return t || url.trim();
 }
 
-/** email/phone kinds (SUB-181): the external href a value opens on click —
+/** email/phone kinds: the external href a value opens on click —
     `mailto:` + the address as typed; `tel:` + the number with spaces and
     dashes stripped from the dialed value only (the displayed value never
     strips anything). */

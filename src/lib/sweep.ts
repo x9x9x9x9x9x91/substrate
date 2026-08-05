@@ -1,10 +1,10 @@
-/** Toast text for the bulk database sweeps (SUB-481). The outcome is built
+/** Toast text for the bulk database sweeps. The outcome is built
     first and is ALWAYS reported; a missing safety snapshot is appended to it,
     never substituted for it — the user must learn what the sweep actually did
     even, and especially, when something else went wrong. Pure, node-testable. */
 
 /** The count half of a `BulkSweep` plus the error of a sweep that stopped
-    partway (SUB-501). Structurally a `BulkSweep`, declared locally so this
+    partway. Structurally a `BulkSweep`, declared locally so this
     module stays free of the IPC types. */
 export interface SweepResult {
   notes: number;

@@ -9,7 +9,7 @@
 //   title: Releases per month  # optional
 //   ```
 //
-// A sheet's named summaries plot too (SUB-745), one point per summary, instead
+// A sheet's named summaries plot too, one point per summary, instead
 // of x/y over rows — so a per-bucket COUNTIF/SUMIF set charts without
 // materializing bucket rows in the sheet:
 //
@@ -19,7 +19,7 @@
 //   ```
 //
 // An optional `by: <prop|column>` splits the y measure into one series per
-// distinct value of that field (SUB-941) — stacked bars, multi-line:
+// distinct value of that field — stacked bars, multi-line:
 //
 //   ```chart
 //   source: expense
@@ -29,7 +29,7 @@
 //   ```
 //
 // A `history:` fence plots one frontmatter fact's own past instead of rows
-// (SUB-832, docs/time-travel-spec.md §3.3) — the chart half of time travel:
+// (docs/time-travel-spec.md §3.3) — the chart half of time travel:
 //
 //   ```chart
 //   history: Assets/BTC.md#price   # <note path>#<frontmatter key>
@@ -38,7 +38,7 @@
 //   kind: line
 //   ```
 //
-// `size: tall` (SUB-969) is the one bounded style token a chart takes — a NAME
+// `size: tall` is the one bounded style token a chart takes — a NAME
 // from a closed roster, never a height in px. An unknown name is simply not
 // honored (the chart draws at its default size) rather than failing the fence.
 // It rides on every binding above, style being orthogonal to where points
@@ -80,10 +80,10 @@ export interface HistoryFactRef {
 }
 
 /** How a chart gets its points. `rows` is the original binding: bucket the
-    source's rows by `x`, reduce with `y`. `summaries` (SUB-745) names sheet
+    source's rows by `x`, reduce with `y`. `summaries` names sheet
     summaries instead — one point per named summary, no rows involved — so a
     per-bucket COUNTIF/SUMIF set charts without materializing bucket rows.
-    `history` (SUB-832) plots one fact's past: the x axis IS time, so it takes
+    `history` plots one fact's past: the x axis IS time, so it takes
     a bare bucket rather than a property, and there is no source to bind — the
     fact names its own note. */
 export type ChartBind =
@@ -94,7 +94,7 @@ export type ChartBind =
 export type ChartConfig = {
   kind: ChartKind;
   title: string | null;
-  /** bounded style token (SUB-969): `size: tall`, or null for the default
+  /** bounded style token: `size: tall`, or null for the default
       plot. A name, never a height — see src/lib/styletokens.ts. */
   size: ChartSize | null;
 } & ChartBind;
@@ -123,7 +123,7 @@ export interface ChartSeries {
       property is real, so genuine zero-match plots keep the neutral empty
       state instead of accusing a column that is there. */
   missing: string | null;
-  /** The `by:` split (SUB-941), null for a single-measure chart. Bands share
+  /** The `by:` split, null for a single-measure chart. Bands share
       the x axis: every band lists the SAME keys in the same order, so a bar
       stacks and a line reads point-for-point against its neighbours. */
   bands: ChartBand[] | null;
@@ -222,7 +222,7 @@ export function parseChartConfig(inner: string): ChartConfig {
   if (kindRaw !== "bar" && kindRaw !== "line") {
     throw new Error(`kind must be bar or line — got "${kv.get("kind")}"`);
   }
-  // `size` is a style token, not a binding (SUB-969): an off-roster value is a
+  // `size` is a style token, not a binding: an off-roster value is a
   // preference we can't honor, so it falls back to the default plot rather than
   // failing a fence whose data is perfectly good. Bindings still throw. It sits
   // on the shared head, above the binding split, so a `history:` chart takes
@@ -233,7 +233,7 @@ export function parseChartConfig(inner: string): ChartConfig {
     size: parseChartSize(kv.get("size")) ?? null,
   };
 
-  // `history` is the time binding (SUB-832 §3.3): the fact IS the source and
+  // `history` is the time binding (spec §3.3): the fact IS the source and
   // the x axis IS time, so a fence carrying `source:` or `series:` too has
   // named its data twice — say which to drop rather than letting one win.
   if (kv.has("history")) {
@@ -275,7 +275,7 @@ export function parseChartConfig(inner: string): ChartConfig {
     }
     // `by` splits a row measure into series; `series` already IS the series
     // list. Both together name the same axis twice, so say which one to drop
-    // rather than letting one quietly win (SUB-941).
+    // rather than letting one quietly win.
     if (kv.has("by")) {
       throw new Error("by splits a row measure — drop by, or drop series");
     }
@@ -348,7 +348,7 @@ export function bucketLabel(key: string, bucket: ChartBucket): string {
 }
 
 /** Same label with the year spelled out, for a window that spans more than one
-    of them — "Jul 17" alone reads as this year (SUB-832). */
+    of them — "Jul 17" alone reads as this year. */
 function bucketLabelWithYear(key: string, bucket: ChartBucket): string {
   if (bucket === "month") return bucketLabel(key, bucket);
   const [y, m, d] = key.split("-").map(Number);
@@ -402,7 +402,7 @@ export function dateOf(raw: string): string | null {
   return m && isIsoDate(m[1]) ? m[1] : null;
 }
 
-// ---------- history series (SUB-832 §3.3) ----------
+// ---------- history series (spec §3.3) ----------
 
 /** First instant of a bucket, in the reader's timezone — the same calendar
     `endOfLocalDay` uses, so a chart and an `AT()` cell agree about where a day
@@ -448,8 +448,7 @@ export function historySeries(
   const note = `no history before ${isoDayOf(lane.oldest_ts_ms)}`;
   // The vault HAS history and this key never appears in it — a typo'd key, or
   // one that was only ever written outside the covered stretch. Reporting the
-  // trim boundary here would blame the trim for a key that was never recorded
-  // (SUB-832).
+  // trim boundary here would blame the trim for a key that was never recorded.
   if (lane.points.length === 0) return empty("no value has been recorded for this key");
 
   const ceiling = endOfLocalDay(today);
@@ -536,7 +535,7 @@ export function scalarCellString(v: unknown): string | undefined {
 
 /** Categorical axes additionally label all-string lists with the same
     comma-space semantics as `propStr`. Mixed/object lists still skip rather
-    than collapsing into "[object Object]" (SUB-671). */
+    than collapsing into "[object Object]". */
 function categoricalCellString(v: unknown): string | undefined {
   const scalar = scalarCellString(v);
   if (scalar !== undefined) return scalar;
@@ -544,7 +543,7 @@ function categoricalCellString(v: unknown): string | undefined {
   return undefined;
 }
 
-/** One cell as a y value. Strings parse strictly (SUB-675, the same
+/** One cell as a y value. Strings parse strictly (the same
     `parseStrictNumber` the footer/formula/sheet/sort surfaces use), so "1e3",
     "0x10" and "Infinity" stay text and count as skipped rows rather than
     charting as 1000, 16 or an axis-breaking Infinity point. */
@@ -615,7 +614,7 @@ function reduce(cell: Cell, fn: ChartAgg["fn"]): number {
     else plain first-appearance order. Prop lookup is case-insensitive (row keys
     are normalized here).
 
-    With `by` (SUB-941) the same rows additionally pivot into one band per
+    With `by` the same rows additionally pivot into one band per
     distinct value of that field, first-seen order — the axis is unchanged, so
     `points` stays the whole-chart series (the foot's count, the empty state)
     and `bands` carries the split. Bands walk the SAME ordered x keys as
@@ -749,7 +748,7 @@ export function aggregate(
     to the vault. */
 export type BandSlotMemory = Map<string, number>;
 
-/** Which chart a `BandSlotMemory` belongs to (SUB-1062). A dashboard renders
+/** Which chart a `BandSlotMemory` belongs to. A dashboard renders
     its chart fences from a list, so nothing about a chart's POSITION there can
     identify it: delete the first fence of two and the second slides up into the
     first's place — and, keyed on position, would inherit the first's colour
@@ -789,7 +788,7 @@ export function chartIdentity(c: ChartConfig): string {
 }
 
 /** Assign each band its ramp slot, keyed on the series' IDENTITY rather than
-    its position in the split (SUB-1062).
+    its position in the split.
 
     `aggregate()` builds bands in the data's first-seen order, so before this a
     series' colour was a function of where it happened to fall: delete every
@@ -803,7 +802,7 @@ export function chartIdentity(c: ChartConfig): string {
     it. A series the chart has never shown takes the lowest free slot, and NEW
     series are served in first-appearance order — so a chart's very first render
     (nothing remembered) still walks the ramp from slot 1 downward, which is
-    what SUB-952's fixed-order invariant asserts.
+    what the fixed-order invariant asserts.
 
     `memory` is mutated in place: it is the chart's, and this is the only writer.
     Eviction: it never grows past `capacity`, and only a series that is ABSENT
@@ -885,7 +884,7 @@ export function assignBandSlots(
   return slots;
 }
 
-/** One point per named summary of a sheet (SUB-745): the summary binding, for
+/** One point per named summary of a sheet: the summary binding, for
     charts whose buckets live in the summary bar rather than in rows (a
     per-bucket COUNTIF/SUMIF set). Names resolve case-insensitively, like every
     other summary lookup, and points keep FENCE order — the author's order is
@@ -924,7 +923,7 @@ export function summarySeries(
 }
 
 /** Schema options of a chart's x prop, resolving both the database type and
-    the prop name case-insensitively (SUB-679). Both keys are user-authored on
+    the prop name case-insensitively. Both keys are user-authored on
     both sides — the fence and `.vault/schema.json` — and every neighbouring
     step (dbRows, aggregate's row keys) already folds case, so a `source:
     Release` / `x: Status` fence must find the `release`/`status` schema entry.
@@ -1027,7 +1026,7 @@ export function chartTitle(c: ChartConfig): string {
     return `${cap(c.source.kind === "db" ? c.source.type : c.source.name)} summaries`;
   }
   // a history chart's subject is the fact itself, and its x axis is always
-  // time — "Price per month" reads the way the fence does (SUB-832)
+  // time — "Price per month" reads the way the fence does
   if (c.bind === "history") {
     const reduced = c.y === "last" ? cap(c.fact.key) : `${cap(c.y)} ${c.fact.key}`;
     return `${reduced} per ${c.x}`;

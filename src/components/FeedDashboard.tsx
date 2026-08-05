@@ -24,11 +24,11 @@ interface FeedDashboardProps {
   onMutated: () => void;
 }
 
-/* Curated newsfeed (SUB-518): the `dashboard: feed` note renders a separate
+/* Curated newsfeed: the `dashboard: feed` note renders a separate
    items sheet's csv fence as one unified stream — newest day first, and inside
    a day the sheet's own row order, because that order IS the curator's ranking.
    An external agent writes every column; the pane writes only `fb`, through the
-   same conflict-guarded optimistic path the food log uses (SUB-93), so a
+   same conflict-guarded optimistic path the food log uses, so a
    re-curation between our read and our click fails as a conflict instead of
    clobbering the new stream. This is a reading surface first: the feedback
    controls stay near-invisible until hovered or set. */
@@ -49,8 +49,8 @@ function openExternalLink(url: string) {
   if (isTauri) openUrl(url).catch(console.error);
 }
 
-/* Topic filter (SUB-697): a stated preference, so it persists per window in
-   localStorage like the calendar layout (SUB-394). Stored as a JSON string
+/* Topic filter: a stated preference, so it persists per window in
+   localStorage like the calendar layout. Stored as a JSON string
    array of lowercased slugs; anything malformed reads as "no filter". */
 const FEED_FILTER_KEY = "substrate.feedTopics";
 
@@ -75,7 +75,7 @@ export default function FeedDashboard({
   onMutated,
 }: FeedDashboardProps) {
   const itemsName = foldedPropStr(meta.props, "items") ?? "News Items";
-  // rendered verbatim — the curator's own stamp. SUB-699 also parses it for
+  // rendered verbatim — the curator's own stamp. The head also parses it for
   // the head's staleness dot: a stamp older than ~36h means the curator (and
   // its watchdog) died, so the dead pipeline becomes the headline — a warning
   // dot with an age instead of the item count. A stamp that won't parse
@@ -125,7 +125,7 @@ export default function FeedDashboard({
   }, [itemsName, vaultEpoch]);
 
   const items = useMemo(() => (body !== null ? parseFeedItems(body) : []), [body]);
-  // SUB-697: chips narrow the stream client-side; the sheet and the fb write
+  // Chips narrow the stream client-side; the sheet and the fb write
   // path always see the full item set (idx stays a full-sheet row index)
   const [activeTopics, setActiveTopics] = useState<string[]>(() => readFeedFilter());
   const topics = useMemo(() => feedTopics(items), [items]);
@@ -147,7 +147,7 @@ export default function FeedDashboard({
   };
 
 
-  // optimistic write, guarded (SUB-93): the items sheet isn't the note on
+  // optimistic write, guarded: the items sheet isn't the note on
   // screen, so an external edit between our read and this write must fail as a
   // conflict, not be clobbered — on any failure the epoch reload re-reads disk
   // truth and the verdict simply doesn't stick

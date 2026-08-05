@@ -1,4 +1,4 @@
-//! Diagnostics tee (SUB-587).
+//! Diagnostics tee.
 //!
 //! Every backend diagnostic used to be a bare `eprintln!`. That works in a dev
 //! run and vanishes entirely for a double-clicked `.app` — a remote beta

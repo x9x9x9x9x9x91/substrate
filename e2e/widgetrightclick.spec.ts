@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-657: the table and ```view block widgets drove their whole interaction
+// The table and ```view block widgets drove their whole interaction
 // off a bare `mousedown` that never read `e.button`, so a right-click fired
 // the primary action — a cell link opened the browser, an embed row navigated
 // away, anything else collapsed the rendered widget to raw markdown. Both
@@ -76,7 +76,7 @@ test("right-click on a table's external-link cell opens nothing (SUB-657)", asyn
 });
 
 test("a table cell md-link keeps a parenthesized URL whole (SUB-912)", async ({ page }) => {
-  // SUB-902 fixed print + hub; the cell renderer is the third twin. The
+  // Fixed print + hub; the cell renderer is the third twin. The
   // destination must keep its one balanced paren level and the trailing ")"
   // must not leak into the cell text.
   await page.addInitScript(() => {

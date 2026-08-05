@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
-// A dashboard kind that no longer exists (SUB-931 retired `waiting`) must get
-// the honest unknown-kind card (SUB-993), not blow the pane up and not morph
+// A dashboard kind that no longer exists (retired `waiting`) must get
+// the honest unknown-kind card, not blow the pane up and not morph
 // into a different tracker. Notes on disk outlive the code that rendered
 // them, so this is the contract for every kind that is ever removed.
 test("a note with a retired dashboard kind renders the unknown-kind card", async ({ page }) => {

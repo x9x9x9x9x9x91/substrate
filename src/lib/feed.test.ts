@@ -185,7 +185,7 @@ test("filterFeedItems: empty selection passes all; matching is case-insensitive"
   assert.equal(filterFeedItems(items, ["scene"])[0].idx, 2);
 });
 
-// ---------- staleness (SUB-699) ----------
+// ---------- staleness ----------
 
 const NOW = new Date(2026, 6, 31, 12, 0, 0).getTime(); // local noon, TZ-proof
 /** local "YYYY-MM-DD HH:MM" of a fixed instant — the shape the curator writes */

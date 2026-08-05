@@ -1,11 +1,11 @@
-//! Ephemeral encrypted handoff — the upload half of "Send as link" (SUB-833).
+//! Ephemeral encrypted handoff — the upload half of "Send as link".
 //!
 //! The frontend seals the rendered note (AES-256-GCM, key kept client-side in
 //! the link's `#fragment`) and hands this command opaque ciphertext plus the
 //! relay URL from Settings.md. Rust-side because the shipped CSP allows no
 //! remote origin (docs/security-config.md) — and because the relay URL is
 //! user-configured input, so the outbound POST goes through `net::guard_url`
-//! like every other fetch (SUB-427 posture: a synced Settings.md must not be
+//! like every other fetch (a synced Settings.md must not be
 //! able to point the app at the local network).
 
 use crate::net;

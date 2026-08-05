@@ -12,7 +12,7 @@ interface TypeIconProps {
 /** A database's icon: emoji, a curated outline glyph (optionally tinted with
     a muted `--opt-*` color), or the quiet default — the type's first letter
     in a rounded square. A type with no schema icon renders its curated
-    default (SUB-183); unknown glyph ids fall back to the auto-glyph. */
+    default; unknown glyph ids fall back to the auto-glyph. */
 export default function TypeIcon({ type, icon, size = 15 }: TypeIconProps) {
   const resolved = resolveIcon(type, icon);
   if (resolved?.emoji) {

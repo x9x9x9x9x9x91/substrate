@@ -12,10 +12,10 @@ import type { TerminalDock } from "../lib/termdock";
 import { vaultRead } from "../lib/ipc";
 
 /**
- * terminal HUD (SUB-398) — desktop app only; the web/mock surface has no PTY.
+ * terminal HUD — desktop app only; the web/mock surface has no PTY.
  *
  * `setTerminalActions` is returned because the boot-time Settings.md read
- * (SUB-441/SUB-490) that seeds the palette quick actions also seeds unrelated
+ * that seeds the palette quick actions also seeds unrelated
  * settings flags, so it stays in App rather than splitting into two reads.
  */
 export function useTerminalHud(mobile: boolean) {
@@ -25,7 +25,7 @@ export function useTerminalHud(mobile: boolean) {
   const [termInject, setTermInject] = useState<{ seq: number; text: string } | null>(null);
   const termSeq = useRef(0);
   /** the user's own palette quick actions, from Settings.md `terminal-actions`
-      (SUB-441) — empty until the note says otherwise, which is the default */
+ — empty until the note says otherwise, which is the default */
   const [terminalActions, setTerminalActions] = useState<TerminalAction[]>([]);
 
   /** Reconcile the render-time copy with the note after any settings write,
@@ -69,7 +69,7 @@ export function useTerminalHud(mobile: boolean) {
     [mobile, refreshTerminalSettings]
   );
 
-  /** a finished drag of the HUD's edge (SUB-863): the write goes to
+  /** a finished drag of the HUD's edge: the write goes to
       Settings.md, but the note is only re-read on the next open, so the live
       copy is updated here too. An external edit still wins on that next open —
       this is optimistic state, not a second source of truth. */

@@ -12,7 +12,7 @@ import { looksLikeUrl } from "./lib/url";
 const isTauri = "__TAURI_INTERNALS__" in window;
 
 /** Drop any pending `substrate://capture?text=` prefill — the window is done
-    with it, so the next ⌥Space capture opens empty (SUB-1075). Awaited before
+    with it, so the next ⌥Space capture opens empty. Awaited before
     the hide it belongs to, so it can never land on a *later* link's prefill.
     The blur-hide has no JS in it at all and is cleared Rust-side instead. */
 async function dropPrefill(): Promise<void> {
@@ -34,13 +34,13 @@ async function hideWindow(): Promise<void> {
 
 function CaptureApp() {
   const [q, setQ] = useState("");
-  // SUB-113: last save failure — the text stays in the input, Enter retries
+  // Last save failure — the text stays in the input, Enter retries
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // The window persists hidden between captures; every time the hotkey
   // re-shows it we start clean with the input focused — except when a
-  // `substrate://capture?text=…` link put something there (SUB-1075). The
+  // `substrate://capture?text=…` link put something there. The
   // prefill is *pulled* after the clear, never pushed before it, because this
   // reset is what would wipe it. One link fires this reset more than once
   // (`capture:prefill` and `tauri://focus`), so the pull must be repeatable —
@@ -139,7 +139,7 @@ function CaptureApp() {
           <input
             ref={inputRef}
             className="palette-input"
-            // titles/URLs, not prose — no macOS autocorrect bubble (SUB-397)
+            // titles/URLs, not prose — no macOS autocorrect bubble
             spellCheck={false}
             autoCorrect="off"
             autoCapitalize="off"

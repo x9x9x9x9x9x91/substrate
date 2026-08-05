@@ -1,4 +1,4 @@
-/* Custom dashboard kinds (SUB-960) — the decisions the pane makes.
+/* Custom dashboard kinds — the decisions the pane makes.
 
    `kinds.ts` owns the format and the per-bundle state machine; this module
    owns what `DashboardBody` does with them: which of the four panes a
@@ -74,7 +74,7 @@ export function resolveKindPane(
 }
 
 /** True when `id` is a name the app renders itself — the collision check the
-    enable surface (SUB-961) and the dispatch above agree on. */
+    enable surface and the dispatch above agree on. */
 export function isBuiltInKind(id: string): boolean {
   return BUILT_IN_KINDS.has(id);
 }

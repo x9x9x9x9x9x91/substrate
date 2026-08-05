@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-1166: a bulk edit that half-lands has to say WHICH notes it couldn't
+// A bulk edit that half-lands has to say WHICH notes it couldn't
 // write and why. The toast can only carry a count — "1 failed" out of 2 is
 // survivable, out of 40 it names nothing — so the refused notes become the
 // selection and each one wears its own reason.

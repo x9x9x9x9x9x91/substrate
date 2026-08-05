@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Workbook pages (SUB-464): a dashboard with a `pages:` frontmatter list
+// Workbook pages: a dashboard with a `pages:` frontmatter list
 // renders an Excel-style tab strip at the bottom of the pane. Fixture:
 // Dashboards/Label Books.md (src/lib/tauri.ts) — metrics page 0 (one card
 // bound to Cash.cash_total), a sheet page (Cash), a view page (release

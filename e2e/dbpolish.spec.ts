@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDb, openFilter } from "./nav";
 
-// SUB-945 design-contract cleanups: the database pane's geometry has to hold
+// Design-contract cleanups: the database pane's geometry has to hold
 // still while the user types or points at it. Each of these used to move
 // something structural (design-principles.md 4 and 5).
 
@@ -140,7 +140,7 @@ test("filter bar: typing never moves anything (SUB-945)", async ({ page }) => {
   expect(bodyWithChips?.y).toBeCloseTo(bodyBefore?.y ?? 0, 0);
 });
 
-// SUB-945 motion & feedback: an anchored popover holds a viewport rect taken
+// Motion & feedback: an anchored popover holds a viewport rect taken
 // when it opened. Scrolling the rows out from under it left it hanging over
 // unrelated data, so the pane dismisses on scroll -- commit-or-close, the same
 // contract a click somewhere else already gets.

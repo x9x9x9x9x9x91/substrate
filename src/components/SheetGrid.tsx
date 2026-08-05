@@ -65,10 +65,10 @@ interface CellPos {
   c: number;
 }
 
-/** Right-click target in the grid (SUB-395): a data row, a data column
+/** Right-click target in the grid: a data row, a data column
     header, a computed column header, or a named summary — in the totals row
-    or in the footer (SUB-937). `notify` on the column arm is the drill-in
-    page (SUB-876) — same menu, swapped item list. */
+    or in the footer. `notify` on the column arm is the drill-in
+    page — same menu, swapped item list. */
 type GridMenu =
   | { kind: "row"; r: number; x: number; y: number }
   | { kind: "col"; name: string; c: number; x: number; y: number; notify?: boolean }
@@ -90,16 +90,16 @@ interface SummaryEdit {
     (SUMIF, arithmetic, other summaries, cross-sheet refs). */
 const QUICK_PICKS = ["SUM", "AVG", "MIN", "MAX", "COUNT"] as const;
 
-// `name = formula`, with the fence's own unicode identifier class (SUB-753) so
+// `name = formula`, with the fence's own unicode identifier class so
 // the editors accept every name the file format does — `Größe`, `märz_total`.
 const LINE_RE = new RegExp(`^(${IDENT_SRC})\\s*=\\s*(\\S[\\s\\S]*?)\\s*$`, "u");
 const FORMULA_NAME_RE = new RegExp(`^${IDENT_SRC}$`, "u");
 
 interface SheetGridProps {
   meta: NoteMeta;
-  /** stable editor identity for the source view (SUB-784): the pane's
+  /** stable editor identity for the source view: the pane's
    * lagging docPath, not the live meta.path — a title rename mid-typing
-   * must relabel the inner editor, never remount it (the SUB-772 class,
+   * must relabel the inner editor, never remount it (the class,
    * one level down). Absent → meta.path (callers that remount wholesale). */
   docPath?: string;
   initial: string;
@@ -107,25 +107,25 @@ interface SheetGridProps {
   onChange: (body: string) => void;
   onFollowLink: (name: string) => void;
   /** source-view editor failures worth saying out loud (a rejected clipboard
-   * write in Copy as Markdown, SUB-591) — silent otherwise. */
+   * write in Copy as Markdown) — silent otherwise. */
   onToast?: (msg: string) => void;
   focusRef?: React.MutableRefObject<(() => void) | null>;
   /** whole-body swap from outside — an external file change landing in a
-   * clean buffer (SUB-93). Adopts in place like the plain editor: an open
+   * clean buffer. Adopts in place like the plain editor: an open
    * cell edit (input, focus, draft) survives; no remount, no onChange. */
   docRef?: React.MutableRefObject<((body: string) => void) | null>;
-  /** past mode (SUB-822): the source-mode editor is a CodeMirror surface too —
+  /** past mode: the source-mode editor is a CodeMirror surface too —
    * keymap commands bypass the app-root beforeinput guard, so it needs the
    * same EditorState.readOnly the plain editor gets. */
   readOnly?: boolean;
-  /** per-column notification settings (SUB-876), read from the pane's live
+  /** per-column notification settings, read from the pane's live
    * `props.columns` rather than `meta.props` — the pane's copy is the one a
    * just-landed write updates. */
   columnNotify?: Record<string, ColumnNotify>;
   /** persist one column's settings; absent hides the menu entry. The pane
    * owns the write so a failure lands on its usual property-error pill. */
   onSetColumnNotify?: (column: string, notify: boolean, notifyBefore: number | null) => void;
-  /** a notification click asking for one row (SUB-876): focus the cell whose
+  /** a notification click asking for one row: focus the cell whose
    * label matches, then call `onRevealed`. No match (the row was edited away
    * between firing and clicking) → the note is simply open, nothing focused. */
   reveal?: { column: string; row: string } | null;
@@ -151,7 +151,7 @@ export default function SheetGrid({
   const [body, setBody] = useState(initial);
   const { fx: rates } = useFxRates();
   const [focus, setFocus] = useState<CellPos | null>(null);
-  /** The other corner of a range selection (SUB-937). null = a single cell.
+  /** The other corner of a range selection. null = a single cell.
       Display-only: nothing about a selection is ever written to the note. */
   const [anchor, setAnchor] = useState<CellPos | null>(null);
   const [sumEdit, setSumEdit] = useState<SummaryEdit | null>(null);
@@ -180,7 +180,7 @@ export default function SheetGrid({
   sumEditRef.current = sumEdit;
 
   const fxResolver: FxResolver = useMemo(() => makeFxResolver(rates), [rates]);
-  // the footer still quotes the one pair it always did (SUB-834)
+  // the footer still quotes the one pair it always did
   const fx = useMemo(() => usdEurFrom(rates), [rates]);
 
   const model = useMemo(() => parseSheet(body), [body]);
@@ -231,7 +231,7 @@ export default function SheetGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [crossKey, vaultEpoch]);
 
-  // Past facts this sheet reads (SUB-832), prefetched before evaluation: the
+  // Past facts this sheet reads, prefetched before evaluation: the
   // engine is synchronous, so history has to be in hand by the time a cell
   // asks. Until it is, those cells say so rather than showing a number.
   const usesHistory = useMemo(() => sheetUsesHistory(model), [model]);
@@ -255,7 +255,7 @@ export default function SheetGrid({
     return evaluateSheet(model, fxResolver, { self: meta.title, load }, undefined, hist);
   }, [model, fxResolver, cross, crossKey, meta.title, hist]);
 
-  /* Per-column number format (SUB-1000): decided once for the whole column
+  /* Per-column number format: decided once for the whole column
      and applied to typed and computed cells alike, so a money column can
      never render 7400 next to 37.680. */
   const colFmts = useMemo(() => sheetColumnFormats(ev), [ev]);
@@ -264,8 +264,8 @@ export default function SheetGrid({
   const cols = dataCols + ev.computed.length;
   const rowCount = ev.rows.length;
 
-  /* Each chip in the grammar of the column it aggregates (SUB-1084) — a
-     headerless chip fell back to the per-value rules SUB-1000 removed from
+  /* Each chip in the grammar of the column it aggregates — a
+     headerless chip fell back to the per-value rules removed from
      the grid, so a total could render 7400 under a column showing 7.400. */
   const sumFmts = useMemo(() => sheetSummaryFormats(model, ev), [model, ev]);
   const usesFx = useMemo(() => sheetUsesFx(model), [model]);
@@ -287,7 +287,7 @@ export default function SheetGrid({
     () => ev.summaries.filter((s) => !totals.absorbed.has(s.name.toLowerCase())),
     [ev, totals]
   );
-  /* Summary bar (SUB-939): the fence's first summary-bearing group is the
+  /* Summary bar: the fence's first summary-bearing group is the
      headline, later groups sit behind one toggle, and summaries that broke
      for one shared reason are spoken for by a single rollup chip. */
   const bar = useMemo(() => summaryBar(footerSummaries), [footerSummaries]);
@@ -310,7 +310,7 @@ export default function SheetGrid({
     if (r0 === r1 && c0 === c1) return null;
     const values: (Value | Cell | undefined)[] = [];
     for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) values.push(cellValue(r, c));
-    // Sum/Avg speak the selected columns' grammar (SUB-1000/1084) when they
+    // Sum/Avg speak the selected columns' grammar when they
     // agree on one; a selection straddling two different columns has no
     // shared reading, so it keeps the per-value rules.
     const fmtAt = (c: number) =>
@@ -332,7 +332,7 @@ export default function SheetGrid({
     c <= selection.c1;
 
   /* a column reads numeric when every non-blank, non-error cell is a number —
-     numeric headers right-align over their digits (SUB-137) */
+     numeric headers right-align over their digits */
   const numericCol = (cells: (Value | Cell)[]): boolean => {
     let seen = false;
     for (const v of cells) {
@@ -348,7 +348,7 @@ export default function SheetGrid({
     [model]
   );
 
-  /** Source of any formula line, summary or computed column (SUB-937). */
+  /** Source of any formula line, summary or computed column. */
   const anyFormulaSrc = useCallback(
     (name: string) =>
       model.formulas.find((f) => f.name.toLowerCase() === name.toLowerCase())?.src ?? "",
@@ -378,7 +378,7 @@ export default function SheetGrid({
   );
 
   /* Every grid mutation funnels through here, so past mode stops at this one
-     line as well as at each affordance (SUB-1140). The gates on the affordances
+     line as well as at each affordance. The gates on the affordances
      are what the reader sees — no cell opens, no + button renders; this is the
      belt behind them, so a write path added later can't quietly send the
      historical body back out through onChange onto the live file. */
@@ -438,7 +438,7 @@ export default function SheetGrid({
     };
   }, [focusRef]);
 
-  /* A notification click naming one row (SUB-876). Identity is the label
+  /* A notification click naming one row. Identity is the label
      cell, folded — the same rule the scheduler keyed the alert with, so a
      row that moved or was sorted still resolves and a renamed one quietly
      doesn't. Scrolls the cell into view because the grid is long, and
@@ -456,7 +456,7 @@ export default function SheetGrid({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reveal, model]);
 
-  /* External body adoption (SUB-288): swap the data under an open cell edit —
+  /* External body adoption: swap the data under an open cell edit —
      the input keeps its DOM node, focus and draft, and commitEdit lands the
      draft on the adopted body. A draft whose row or column vanished in the
      disk version has nowhere to land: end that session. Source view keeps the
@@ -489,8 +489,8 @@ export default function SheetGrid({
       const ed = editingRef.current;
       if (!ed) return;
       setEditing(null);
-      // German-typed numbers normalize at the commit boundary (SUB-636's
-      // rule, missed here — SUB-915). Sheets carry no kind column, so the
+      // German-typed numbers normalize at the commit boundary (the
+      // rule, missed here). Sheets carry no kind column, so the
       // gate is earned from the column itself: only when its other cells
       // read as numbers and it isn't a label column. Everywhere else the
       // draft commits verbatim — an ip "192.168" or a year "2.026" must
@@ -562,7 +562,7 @@ export default function SheetGrid({
     applyBody(updateSheetFormula(body, ed.name, parsed.name, parsed.src));
   };
 
-  // Summary editing (SUB-937): the same one-line grammar as a computed column
+  // Summary editing: the same one-line grammar as a computed column
   // header, from the totals row or from a footer chip. A new line appends to
   // the fence; an existing one is rewritten in place, renames included.
   /* Closing the editor hands the keyboard back to the grid the way a cell
@@ -645,14 +645,14 @@ export default function SheetGrid({
   };
 
   /** Every value in a grid column, data or computed — the evidence the Count
-      quick-pick reads (SUB-944). */
+      quick-pick reads. */
   const columnValues = (c: number) =>
     Array.from({ length: rowCount }, (_, r) => cellValue(r, c));
 
   /** The formula a quick-pick prefills for a column. All of them are
       `FN(column)`, except Count when the column has non-blank, non-error values
       but no numeric cells: it prefills the wildcard COUNTIF that counts those
-      cells instead (SUB-944). The input still takes the whole formula language
+      cells instead. The input still takes the whole formula language
       either way. */
   const pickSrc = (fn: string, col: string, c: number) =>
     fn === "COUNT" && countPickKind(columnValues(c)) === "COUNTIF"
@@ -671,7 +671,7 @@ export default function SheetGrid({
     for (let i = 2; ; i++) if (!taken.has(`${base}_${i}`.toLowerCase())) return `${base}_${i}`;
   };
 
-  // Row/column context menus (SUB-395). Every action funnels through
+  // Row/column context menus. Every action funnels through
   // applyBody, so a no-op mutation (edge move, last column) closes the menu
   // without touching the file.
   const gridMenuItems = (m: GridMenu): MenuItem[] => {
@@ -816,13 +816,13 @@ export default function SheetGrid({
     // intact instead of opening or moving that stale cell.
     if (!(e.target as HTMLElement).classList.contains("sheet-cell")) return;
     // bare-key nav only — modified keys belong to App's window listener
-    // (⌘K palette …); same guard as DatabasePane's key surface (SUB-292)
+    // (⌘K palette …); same guard as DatabasePane's key surface
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const stop = () => {
       e.preventDefault();
       e.stopPropagation(); // keep App's list navigation out of the grid
     };
-    // Shift+arrow extends the range selection (SUB-937); the vim keys stay
+    // Shift+arrow extends the range selection; the vim keys stay
     // plain single-cell navigation.
     const ext = e.shiftKey;
     switch (e.key) {
@@ -858,7 +858,7 @@ export default function SheetGrid({
         break;
       case "Backspace":
         // a focused cell swallows ⌫ — it must never bubble into the app's
-        // back-navigation while the grid holds focus (SUB-392)
+        // back-navigation while the grid holds focus
         stop();
         break;
       case "Escape":
@@ -874,7 +874,7 @@ export default function SheetGrid({
   };
 
   /** Shift+click extends the range from wherever the selection started;
-      a plain click collapses it back to one cell (SUB-937). preventDefault
+      a plain click collapses it back to one cell. preventDefault
       keeps the browser from drawing its own text selection over the range —
       the cell we focus ourselves right after. */
   const onCellMouseDown = (r: number, c: number) => (e: React.MouseEvent) => {
@@ -1113,7 +1113,7 @@ export default function SheetGrid({
       <div className="sheet">
         {toolbar}
         <div className="sheet-src">
-          {/* no SUB-796 embed-edit callbacks: a sheet's source mode is for
+          {/* no embed-edit callbacks: a sheet's source mode is for
               fixing the csv, so a view fence here stays read-only on purpose */}
           <Editor
             docKey={(docPath ?? meta.path) + ":source"}
@@ -1272,7 +1272,7 @@ export default function SheetGrid({
                 </td>
               </tr>
             )}
-            {/* Totals row (SUB-937): pinned to the bottom of the scroll area,
+            {/* Totals row: pinned to the bottom of the scroll area,
                 one cell per column, holding the summaries that describe that
                 column. An empty cell writes a new one. */}
             {model.hasCsv && cols > 0 && (

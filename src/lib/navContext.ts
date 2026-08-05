@@ -1,9 +1,9 @@
 import { createContext, useContext } from "react";
 
-/* SUB-1165 — back navigation for the mouse. ⌫ has always popped the view
+/* Back navigation for the mouse. ⌫ has always popped the view
    history, but nothing on screen did: every pane header would otherwise have
    to thread canGoBack and goBack down from App to render one chevron. Same
-   shape as UndoContext (SUB-477): App owns the history, this is only the
+   shape as UndoContext: App owns the history, this is only the
    read-and-go end of it. */
 
 export type NavApi = {

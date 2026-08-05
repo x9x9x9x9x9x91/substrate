@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 import type { UndoEntry } from "./undo.ts";
 
-/* SUB-477 — how a surface deep in the tree records an undoable action without
+/* How a surface deep in the tree records an undoable action without
    every pane threading a callback down from App. The stack itself lives in
    App's useReducer; this is only the write end of it. */
 

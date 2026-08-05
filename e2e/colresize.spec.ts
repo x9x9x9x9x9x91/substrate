@@ -1,9 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-404: table column resize (header drag handles) + per-column wrap.
+// Table column resize (header drag handles) + per-column wrap.
 // Both persist on the database's ViewPref (views.json in the real engine,
-// mockViews here), the SUB-326 channel — so they survive navigating to
+// mockViews here), the channel — so they survive navigating to
 // another page and back, like the remembered sort. Runs against the
 // deterministic mock backend (fresh page = fresh vault).
 

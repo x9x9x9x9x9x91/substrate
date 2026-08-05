@@ -2,7 +2,7 @@
 # verify-gates.sh — re-run the repo's merge gates and print ACTUAL results.
 #
 # Handbacks report gate results as prose tables, and a table can be
-# affirmatively false (SUB-474: a handback claimed `npm test` pass 825/fail 0
+# affirmatively false (a handback claimed `npm test` pass 825/fail 0
 # at a commit whose real result was 824/1). This makes the mandated re-run
 # one command, so the verdict step starts from observed numbers.
 #
@@ -15,7 +15,7 @@
 #
 # The `ios` leg is a cross-compile CHECK (`cargo check --target
 # aarch64-apple-ios --lib`) — no linking, no signing, no simulator. It exists
-# because the five host gates are all host-target: SUB-827 landed a branch
+# because the five host gates are all host-target: a branch once landed
 # where `commands/voice.rs` referenced `crate::voice::*` ungated, which is 5×
 # E0433 for iOS while tsc/test/cargo/e2e/lint all ran green. With a live
 # TestFlight target that class is merge-then-discover, so it gets a gate.
@@ -87,7 +87,7 @@ NAMES=() STATUSES=() SUMMARIES=() TIMES=()
 OVERALL=0
 
 # A red gate used to say only "e2e FAIL 91s 1 failed, 707 passed" — never
-# WHICH spec (SUB-764), so every red gate cost an ssh into the rig and a grep
+# WHICH spec, so every red gate cost an ssh into the rig and a grep
 # of the per-run log dir. On a red gate we now pull the failing names each
 # tool prints, plus its first error line, out of the log we already have.
 # Capped deliberately: this is a pointer at the failure, not a log dump — the
@@ -116,7 +116,7 @@ print_failure_detail() { # name, log
       # an actionable message that stays buried in the log is not actionable.
       # The location has to be the first one AFTER an error line: warnings carry
       # `-->` arrows too and usually print first, so a plain first-match points
-      # at an unrelated file (observed on the SUB-1121 negative-proof run).
+      # at an unrelated file (observed on the negative-proof run).
       first=$(awk '/^error(\[E[0-9]+\])?:/ { on = 1 }
                    on && /^ +--> / { print; exit }' "$log")
       [[ -n "$first" ]] || first=$(grep -m1 -E "^ +(run: |install )" "$log") ;;
@@ -203,7 +203,7 @@ run_gate() { # name, command...
 # The shared compile cache lives under the CURRENT user's home. The repo's
 # .cargo/config.toml has to hardcode one machine's absolute path (cargo config
 # expands neither ~ nor env vars), so the gate pins the env override, which
-# beats the config on every machine — dev Mac and QA rigs alike (SUB-1014).
+# beats the config on every machine — dev Mac and QA rigs alike.
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$HOME/.cache/substrate-cargo-target}"
 
 IOS_TARGET="aarch64-apple-ios"
@@ -212,7 +212,7 @@ IOS_TARGET="aarch64-apple-ios"
 # setup, so each refusal names the exact command that fixes it — and each
 # still FAILS the gate. A skip-when-unprepped arm would print green on a
 # machine that checked nothing, which is the failure mode this leg exists to
-# prevent (SUB-1121).
+# prevent.
 ios_check() {
   local libdir rustc_bin cargo_v rustc_v
   # Ask the compiler CARGO will use, since cargo is what runs the compile.

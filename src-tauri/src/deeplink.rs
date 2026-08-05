@@ -1,4 +1,4 @@
-//! `substrate://` deeplinks (SUB-1075) — the OS-level door into a running or
+//! `substrate://` deeplinks — the OS-level door into a running or
 //! cold app: `substrate://note/<vault-relative path>.md` opens a note,
 //! `substrate://capture?text=…` opens quick capture prefilled.
 //!
@@ -45,7 +45,7 @@ pub(crate) enum Action {
 }
 
 /// Parse and validate a `substrate://` URL. Every rejection is a message the
-/// user sees, because "the link did nothing" is the one outcome SUB-1075 rules
+/// user sees, because "the link did nothing" is the one outcome the deeplink contract rules
 /// out.
 pub(crate) fn parse(raw: &str) -> Result<Action, String> {
     let url = Url::parse(raw).map_err(|_| format!("Not a valid link: {raw}"))?;

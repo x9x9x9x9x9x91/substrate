@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-648: the feed refresh button dispatches to ONE machine's checkout of
+// The feed refresh button dispatches to ONE machine's checkout of
 // the news curator agent, so it is not a universal affordance — it only
 // renders where the `curator_available` probe finds the skill. The demo vault
 // ships the feed pane; the probe hides the dead dispatch everywhere else.

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Throwaway evidence run for SUB-937 — not a gate.
+// Throwaway evidence run for the totals row — not a gate.
 //   SHOTS=1 npx playwright test e2e/sheettotalsshots.spec.ts
 // Shoots the mock's Fixed Costs sheet (thirteen named summaries) — the shape
 // a real fixed-costs table has. Run it once on origin/main for the "before"

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// The €1 donation nag (SUB-419). It ships dormant — NAG_ENABLED is false — so
+// The €1 donation nag. It ships dormant — NAG_ENABLED is false — so
 // the surface is driven here through the dev-only ?donatenag=1 seam, which is
 // honoured outside Tauri only. Every other spec therefore sees no nag at all,
 // which the last test asserts directly.

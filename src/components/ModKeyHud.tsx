@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { comboLabel, modEntries, type HeldMods, type ShortcutCtx } from "../lib/shortcuts";
 import { isTypingNow } from "../lib/dom";
 
-/** Hold-modifier HUD (SUB-490): hold ⌘ (alone or with ⇧, or ⌃) for a beat and
+/** Hold-modifier HUD: hold ⌘ (alone or with ⇧, or ⌃) for a beat and
     a small panel unfolds under the chrome's shortcut button listing exactly
     the chords that would fire right now. Release and it is gone.
 
@@ -16,7 +16,7 @@ import { isTypingNow } from "../lib/dom";
     for anyone who knows the shortcut, so the reveal waits ARM_MS and any
     non-modifier keydown cancels it: ⌘S never flashes a panel. ARM_MS sits at
     that gap's edge rather than safely above it (400 read as lag —
-    2026-07-29, SUB-582); a slow chord occasionally flashing the panel is the
+    2026-07-29); a slow chord occasionally flashing the panel is the
     accepted cost. Release is a
     dismissal, not a transition — the panel unmounts instantly, because a
     fade-out after keyup reads as lag. Same reason a completed chord kills it
@@ -57,7 +57,7 @@ function chordLabel(m: HeldMods): string {
   return `${m.ctrl ? "⌃" : ""}${m.shift ? "⇧" : ""}${m.mod ? "⌘" : ""}`;
 }
 
-/** The HUD answers `typing` itself (SUB-498): App builds its context from
+/** The HUD answers `typing` itself: App builds its context from
     render state, but whether the caret sits in a text edit is only knowable at
     the moment the hold arms — so the prop deliberately omits it and this
     component reads the live focus. Leaving it in the prop invited the stale
@@ -84,7 +84,7 @@ export default function ModKeyHud({ ctx, enabled }: { ctx: ModKeyHudCtx; enabled
       pending.current = null;
       setHeld(null);
     };
-    /** show the panel for this chord, sampling focus as we go (SUB-498) */
+    /** show the panel for this chord, sampling focus as we go */
     const reveal = (mods: HeldMods | null) => {
       setTyping(isTypingNow());
       setHeld(mods);

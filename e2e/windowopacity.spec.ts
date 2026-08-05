@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-951: the window-opacity dial rides an AppKit material only the macOS
+// The window-opacity dial rides an AppKit material only the macOS
 // desktop build has. Everywhere else — this Chromium run against the mock
 // backend included — the setting is inert: ⌘, hides the row and the window
 // ground keeps the solid `var(--bg)` it always had. That absence is the
@@ -21,7 +21,7 @@ test("the opacity dial is absent outside the macOS desktop build, and the ground
   // assertion below is "hidden", not "nothing painted yet"
   await expect(page.locator(".settings-row", { hasText: "Show app files" })).toBeVisible();
   await expect(page.locator(".settings-row", { hasText: "Window opacity" })).toHaveCount(0);
-  // The appearance dials (SUB-955) ride the same slider chrome, so "no opacity
+  // The appearance dials ride the same slider chrome, so "no opacity
   // dial" is an assertion about WHICH sliders the sheet has, not that it has
   // none: a leaked window-opacity row would show up here as a third one, even
   // if it somehow rendered without its label.

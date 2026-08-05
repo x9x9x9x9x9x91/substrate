@@ -1,4 +1,4 @@
-//! Property tests for the vault-format hot paths (SUB-442).
+//! Property tests for the vault-format hot paths.
 //!
 //! The hand-written tests in `vault::tests` pin known examples; these pin the
 //! *invariants* those examples are instances of, against inputs nobody would
@@ -158,8 +158,8 @@ fn linky_body() -> impl Strategy<Value = String> {
 /// `Engine::new` skips seeding — the vault starts with nothing but `Inbox/`,
 /// which keeps every property's assertions about file counts readable.
 ///
-/// The existing-vault branch does backfill `AGENTS.md` (SUB-474), its
-/// `CLAUDE.md` pointer (SUB-802) and `Settings.md` (SUB-473); drop all three
+/// The existing-vault branch does backfill `AGENTS.md`, its
+/// `CLAUDE.md` pointer and `Settings.md`; drop all three
 /// and rescan so "nothing but `Inbox/`" stays literally true here.
 fn fresh_vault() -> (Engine, tempfile::TempDir) {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -287,7 +287,7 @@ proptest! {
     #[test]
     fn fm_diagnosis_agrees_with_the_write_lane(raw in "(?s).{0,80}") {
         let diag = fm_diagnosis(&raw);
-        // the write lane takes the whole file too (SUB-552) — render the one
+        // the write lane takes the whole file too — render the one
         // this block would have been split out of; with a block in hand the
         // unterminated check never runs, so the file text only has to be real
         let file = format!("---\n{raw}\n---\n");
@@ -567,7 +567,7 @@ proptest! {
     /// A rejected rename is a no-op across the *whole* vault — not just the
     /// note. The rewrite pass runs before the move, so a validation failure
     /// that slipped past the up-front check would show up here as rewritten
-    /// links behind an "unchanged" file (SUB-223).
+    /// links behind an "unchanged" file.
     #[test]
     fn rejected_rename_changes_nothing_anywhere(title in nasty_title()) {
         let (mut e, dir) = fresh_vault();
@@ -672,7 +672,7 @@ proptest! {
         drop(dir);
     }
 
-    /// Literal code is not link syntax (SUB-495, `docs/vault-format.md` §3):
+    /// Literal code is not link syntax (`docs/vault-format.md` §3):
     /// a `[[link]]` inside a fence or an inline `code` span is documentation
     /// *about* the grammar — the editor renders it verbatim, so the engine
     /// must not index it and a rename must not rewrite it. Only the prose
@@ -713,7 +713,7 @@ proptest! {
         drop(dir);
     }
 
-    /// Embeds are assets, not notes (SUB-97): `![[…]]` is never indexed as a
+    /// Embeds are assets, not notes: `![[…]]` is never indexed as a
     /// link and never rewritten by a rename, however closely its target
     /// resembles the renamed note's title.
     #[test]

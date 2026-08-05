@@ -1,7 +1,7 @@
 import { expect, test, type Locator } from "@playwright/test";
 import { openDb, openFilter } from "./nav";
 
-// SUB-644: the database filter and draft-title inputs killed the UA focus
+// The database filter and draft-title inputs killed the UA focus
 // ring (border:none + outline:none) with nothing in its place — a WCAG 2.1
 // SC 2.4.7 failure on a near-black ground. Both now paint the app's accent
 // ring on :focus-visible. A text input matches :focus-visible whenever it is

@@ -14,13 +14,13 @@ import { agendaPayload, type AgendaPayload } from "./lib/agenda";
 import { humanDay, isoDay } from "./lib/calendar";
 import { PlusIcon } from "./components/Icons";
 
-// Tray mini-agenda popover (SUB-30): clicking the menu-bar icon shows today's
+// Tray mini-agenda popover: clicking the menu-bar icon shows today's
 // calendar entries and due tasks, an overdue count, and a Capture… row.
 // Read-only v1: clicking an item opens the note in the main window, Escape
 // (or clicking away — the window hides on blur) dismisses the popover.
 const isTauri = "__TAURI_INTERNALS__" in window;
 
-/* SUB-746: the window is sized to the card rather than a fixed 440px, which
+/* The window is sized to the card rather than a fixed 440px, which
    left dead space under a short day. These bounds are the CSS half of the
    clamp; the Rust half (AGENDA_MIN_HEIGHT / AGENDA_MAX_HEIGHT in lib.rs) is
    authoritative for the window and must agree, or the card and its window
@@ -40,12 +40,12 @@ async function hideWindow(): Promise<void> {
 function AgendaApp() {
   const [payload, setPayload] = useState<AgendaPayload | null>(null);
   const card = useRef<HTMLDivElement | null>(null);
-  /* SUB-761: the listbox and its rows need stable ids so the focused card can
+  /* The listbox and its rows need stable ids so the focused card can
      point aria-activedescendant at the selected row. Same shape as the ⌘K
      palette (Palette.tsx `listId`/`rowId`). */
   const listId = useId();
   const rowId = (i: number) => `${listId}-row-${i}`;
-  /* SUB-755: the ⌘K palette's selection model, minus the query box. Rows are
+  /* The ⌘K palette's selection model, minus the query box. Rows are
      the agenda items followed by the Capture row, so the Capture row's index
      is `payload.items.length`. -1 = nothing selected: the popover opens with
      no row lit (unlike the palette, which always has a first row selected —
@@ -55,7 +55,7 @@ function AgendaApp() {
      keyboard can never disagree about which row Enter would open. */
   const [sel, setSel] = useState(-1);
 
-  /* Fit the window to the card (SUB-746). A ResizeObserver rather than an
+  /* Fit the window to the card. A ResizeObserver rather than an
      effect on `payload`: the card also settles after the webfont loads and
      after a `vault:changed` reload, and each of those is a real height change
      the window has to follow. Repeats are filtered here so an unchanged
@@ -118,19 +118,19 @@ function AgendaApp() {
      resting selection. Clamping to -1 rather than to the new last row: the
      row that was selected is gone, and silently moving the highlight onto a
      different note is exactly the class of bug the palette's select-by-id
-     avoids (Palette.tsx SUB-493). Nothing selected is the honest state. */
+     avoids (Palette.tsx). Nothing selected is the honest state. */
   useEffect(() => {
     setSel((s) => (s >= rowCount ? -1 : s));
   }, [rowCount]);
 
-  // keep the selected row visible when arrow-keying past the fold (SUB-235)
+  // keep the selected row visible when arrow-keying past the fold
   useEffect(() => {
     if (sel < 0) return;
     // queried from the card, not the scroll list: the Capture row sits
     // outside `.agenda-list` (inside the `.agenda-rows` listbox, but pinned
     // below the scroller) and still has to be reachable by index
     card.current?.querySelector(`[data-idx="${sel}"]`)?.scrollIntoView({ block: "nearest" });
-    // SUB-1132: a reload can move the selected row to a different offset while
+    // A reload can move the selected row to a different offset while
     // its index stays put, and the scroller keeps whatever the user scrolled to
   }, [sel, payload]);
 
@@ -158,7 +158,7 @@ function AgendaApp() {
         width: "100%",
         maxWidth: "none",
         marginTop: 0,
-        // sized by content, not the viewport (SUB-746) — a 100vh card could
+        // sized by content, not the viewport — a 100vh card could
         // only ever report the window's own height back to the resize
         minHeight: MIN_HEIGHT,
         maxHeight: MAX_HEIGHT,
@@ -186,7 +186,7 @@ function AgendaApp() {
         }
       }}
       tabIndex={-1}
-      /* SUB-761: the card holds the key model and the focus, so it is the
+      /* The card holds the key model and the focus, so it is the
          combobox-less equivalent of the palette's input — the element that
          points at the active option. The listbox itself is `.agenda-rows`
          below (the card also holds the head and the foot, so it can't be one
@@ -202,7 +202,7 @@ function AgendaApp() {
       <div className="agenda-head">
         {payload ? `Today — ${humanDay(payload.today)}` : "Today"}
       </div>
-      {/* SUB-761: one container owning every row. The scroller and the pinned
+      {/* One container owning every row. The scroller and the pinned
           Capture row used to be siblings under the card, which left no element
           that held the options and nothing else — so no element could carry
           role="listbox" without also owning the head and the foot. This
@@ -226,7 +226,7 @@ function AgendaApp() {
               data-idx={i}
               role="option"
               aria-selected={i === sel}
-              // mousemove, not mouseenter (SUB-493): a reload can insert rows
+              // mousemove, not mouseenter: a reload can insert rows
               // under a resting cursor, and mouseenter would hand selection to
               // whatever slid beneath it
               onMouseMove={() => setSel(i)}

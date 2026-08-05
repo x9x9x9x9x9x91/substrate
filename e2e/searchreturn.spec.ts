@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-267: a search hit opens in its home context — its database's side
+// A search hit opens in its home context — its database's side
 // split, else its folder view, else All notes — and one Esc from there
 // returns to the search with query and picked row intact. The stash is
 // one-shot: navigation or the return itself spends it.
@@ -32,7 +32,7 @@ test("a db entry hit lands in its database, Esc returns to the results", async (
   await expect(page.locator(".search-pane")).toHaveCount(0);
 });
 
-// SUB-668: leaving the search WITHOUT picking a hit puts back what was there,
+// Leaving the search WITHOUT picking a hit puts back what was there,
 // side split included — a database's open entry lives in dbNote alone, so a
 // stash of view+selected would land back in the grid with the note gone.
 test("Esc out of a search restores the database's open side note", async ({ page }) => {
@@ -51,7 +51,7 @@ test("Esc out of a search restores the database's open side note", async ({ page
   await expect(page.locator(".db-note .note-title")).toHaveValue("Gero");
 });
 
-// SUB-695: the same widen for ⌫. A search hit landing somewhere new bridges
+// The same widen for ⌫. A search hit landing somewhere new bridges
 // the detour into the view history — that entry has to carry the database's
 // open note too, or walking back lands in the grid with the side split shut.
 test("⌫ back into a database restores its open side note", async ({ page }) => {

@@ -1,4 +1,4 @@
-/** Designed PDF templates (SUB-816) — the two deliberate layouts the export
+/** Designed PDF templates — the two deliberate layouts the export
     menus offer on top of the generic document dump: the note one-sheet
     (hero artwork + title block + quiet fact rows + body) and the database
     table sheet (clean data listing). Pure HTML builders for the print
@@ -60,8 +60,7 @@ const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** Remove the first `![[name]]` embed — the hero was hoisted out of the flow,
     printing it again inline would double it. The hero's name is the target
     alone, so the embed that carries a display modifier (`![[cover.png|300]]`)
-    has to be matched too — otherwise the press sheet shows the cover twice
-    (SUB-1102). */
+    has to be matched too — otherwise the press sheet shows the cover twice. */
 export function dropEmbedOnce(body: string, name: string): string {
   return body.replace(
     new RegExp(`!\\[\\[\\s*${escapeRe(name)}\\s*(\\|[^\\[\\]]*)?\\]\\]\\n?`),
@@ -143,7 +142,7 @@ export function dateColumns(columns: string[], rows: NoteMeta[]): Set<string> {
 
 /** A database view → the table sheet's inner HTML: the columns and row order
     the table currently shows, de-duplicated exactly like the CSV export
-    (grouping is view-only — SUB-563). `date` is preformatted by the caller
+    (grouping is view-only). `date` is preformatted by the caller
     so this stays clock-free and node-testable. */
 export function buildTableSheet(opts: {
   name: string;

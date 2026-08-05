@@ -57,7 +57,7 @@ test("reorderIds moves before/after target and self-drop is stable", () => {
 
 test("migrateOrderId retargets a moved id in place, keeping its position", () => {
   const order = ["Dashboards/Coding.md", "Dashboards/Overview.md", "Dashboards/Sync.md"];
-  // SUB-466 finding 3: the moved dashboard keeps its slot instead of being
+  // Finding 3: the moved dashboard keeps its slot instead of being
   // dropped by applyOrder and re-appearing at the end of the lane
   assert.deepEqual(
     migrateOrderId(order, "Dashboards/Overview.md", "Dashboards/Releases/Overview.md"),
@@ -94,7 +94,7 @@ test("moveId swaps one slot, edges and unknown ids are stable", () => {
   assert.deepEqual(moveId(["a", "b", "c"], "zzz", 1), ["a", "b", "c"], "unknown id");
 });
 
-/* ----- SUB-466: Dashboards subfolder grouping ----- */
+/* ----- Dashboards subfolder grouping ----- */
 
 const paths = (items: { path: string }[]) => items.map((d) => d.path);
 
@@ -117,7 +117,7 @@ test("splitDashboards splits flat rows from one-level subfolder groups", () => {
   );
 });
 
-// SUB-466 review finding 2: home used to be the folder with the most DIRECT
+// Home used to be the folder with the most DIRECT
 // dashboards, so moving the second dashboard into a subfolder flipped home to
 // that subfolder and the group the user had just created vanished. Home is now
 // scored descendant-inclusive, so these four probe cases all keep their groups.
@@ -169,8 +169,8 @@ test("splitDashboards: home is descendant-scored — a growing subfolder can't s
   // case D — 1 in Dashboards, 1 in Dashboards/Releases, 2 in Finance. The
   // Dashboards tree scores 2 as well, and the depth tiebreak is a wash, so
   // Dashboards wins alphabetically and still groups Releases. Finance's two sit
-  // OUTSIDE home, so SUB-605 hands them to the folder tree instead of the
-  // section's flat list (pre-SUB-605 they rendered flat under Dashboards)
+  // OUTSIDE home, so they go to the folder tree instead of the
+  // section's flat list (pre-change they rendered flat under Dashboards)
   const d = splitDashboards([
     { path: "Dashboards/Overview.md" },
     { path: "Dashboards/Releases/Label.md" },
@@ -205,7 +205,7 @@ test("splitDashboards: deeper nesting collapses into the first segment's group",
 
 test("splitDashboards: a dashboard outside the home folder goes to the tree (SUB-605)", () => {
   // the home folder is the one holding the most dashboards — a stray elsewhere
-  // must not re-root everybody into groups. SUB-605: that stray now surfaces
+  // must not re-root everybody into groups: that stray surfaces
   // under its own folder's tree row instead of in the Dashboards section
   const { home, flat, groups, byFolder } = splitDashboards([
     { path: "Dashboards/Overview.md" },
@@ -224,8 +224,9 @@ test("splitDashboards: a dashboard outside the home folder goes to the tree (SUB
 test("splitDashboards: with home at the vault root, foldered ones go to the tree", () => {
   // home lands on "" only when dashboards actually sit at the vault root, and
   // the root has no tree row — so the root-level ones are the section's flat
-  // rows and every foldered one belongs to its own folder's tree row (SUB-605;
-  // pre-SUB-605 Releases/ rendered as a section subfolder GROUP instead)
+  // rows and every foldered one belongs to its own folder's tree row (before
+  // dashboards became placeable in the folder tree, Releases/ rendered as a
+  // section subfolder GROUP instead)
   const { home, flat, groups, byFolder } = splitDashboards([
     { path: "Overview.md" },
     { path: "Releases/Label.md" },
@@ -268,7 +269,7 @@ test("splitDashboards after a move: order survives, stale order entries drop", (
     { path: "Dashboards/Sync.md" },
     { path: "Dashboards/Coding.md" },
   ];
-  // manual reorder persisted (SUB-401)
+  // manual reorder persisted
   let order = ["Dashboards/Coding.md", "Dashboards/Overview.md", "Dashboards/Sync.md"];
   assert.deepEqual(paths(applyOrder(boot, order, (d) => d.path)), order);
 
@@ -300,7 +301,7 @@ test("splitDashboards after a move: order survives, stale order entries drop", (
   ]);
 });
 
-/* ----- SUB-605: dashboards foldered in the main tree ----- */
+/* ----- dashboards foldered in the main tree ----- */
 
 test("dashTreeFolder: content folders get a tree row, the home subtree does not", () => {
   const home = "Dashboards";
@@ -333,7 +334,7 @@ test("splitDashboards: a content-folder dashboard renders in the tree, not the s
   assert.equal(home, "Dashboards");
   // the section keeps the home folder's own rows, in input order
   assert.deepEqual(paths(flat), ["Dashboards/Overview.md", "Dashboards/Sync.md"]);
-  // …plus its one level of subfolder groups (SUB-466, unchanged)
+  // …plus its one level of subfolder groups (unchanged)
   assert.deepEqual(
     groups.map((g) => [g.folder, paths(g.items)]),
     [["Dashboards/Releases", ["Dashboards/Releases/Label.md"]]]
@@ -375,7 +376,7 @@ test("splitDashboards: no dual render — every path lands in exactly one bucket
 
 test("splitDashboards: content-folder dashboards don't move the home folder", () => {
   // 2 in Dashboards vs 3 in Studio. The counts used to decide this and Studio
-  // took home (SUB-466); since SUB-1079 the explicit folder wins outright, so a
+  // took home; the explicit folder wins outright, so a
   // busy content folder no longer re-roots the section. The split stays a
   // single decision either way: no path renders on both surfaces
   const { home, flat, byFolder } = splitDashboards([
@@ -404,12 +405,14 @@ test("dashboardsHome matches the home splitDashboards uses", () => {
   assert.equal(dashboardsHome([]), "");
 });
 
-/* ----- SUB-1079: the explicit `Dashboards/` rule, inference as fallback ----- */
+/* ----- the explicit `Dashboards/` rule, inference as fallback ----- */
 
 test("dashboardsHome: an existing Dashboards/ folder is home regardless of counts", () => {
-  // the inference alone would hand home to Finance (3 dashboards vs 1), which
-  // is exactly the surprise SUB-1006 answered away: the conventional folder is
-  // the home, so piling dashboards up elsewhere can't re-root the section
+  // the inference alone would hand home to Finance (3 dashboards vs 1) — a root
+  // derived from counts re-decides itself whenever dashboards pile up in a
+  // content folder, which is the surprise the explicit rule answers: the
+  // conventional folder wins outright, so nothing elsewhere can re-root the
+  // section
   const input = [
     { path: "Dashboards/Overview.md" },
     { path: "Finance/Ledger.md" },
@@ -458,7 +461,7 @@ test("dashboardsHome: no Dashboards/ folder → inference, exactly as before", (
 });
 
 test("pinTreeFolder is unaffected by the explicit home rule", () => {
-  // pins split by their own folder, never by the dashboards home (SUB-594)
+  // pins split by their own folder, never by the dashboards home
   assert.equal(pinTreeFolder("Finance", "Finance/Ledger.md"), "Finance");
   assert.equal(pinTreeFolder("Dashboards", "Dashboards/Overview.md"), null);
   assert.equal(
@@ -496,7 +499,7 @@ test("splitDashboards: tree dashboards reorder in their own folder group (SUB-60
 });
 
 test("splitDashboards: the SECTION's Move lane skips interleaved tree rows (SUB-605)", () => {
-  // review finding: the section's reorder lane must be the rows the section
+  // the section's reorder lane must be the rows the section
   // RENDERS, not the whole persisted `dashboards` list. With a tree-foldered
   // dashboard sitting between two section rows in the persisted order, feeding
   // the flat list to moveId swaps a section row against an id the section never
@@ -534,7 +537,7 @@ test("splitDashboards: the SECTION's Move lane skips interleaved tree rows (SUB-
     "the old lane left every rendered row in place — the visible no-op"
   );
 
-  // SUB-466 adjacency survives: Move down off the last flat row walks into the
+  // Adjacency survives: Move down off the last flat row walks into the
   // first group member rather than stopping at the flat list's end
   assert.deepEqual(moveId(lane, "Dashboards/Beta.md", 1), [
     "Dashboards/Alpha.md",
@@ -557,12 +560,13 @@ test("splitDashboards: the SECTION's Move lane skips interleaved tree rows (SUB-
 test("splitDashboards + splitPins: a pinned tree dashboard doesn't nest twice (SUB-594)", () => {
   const dashboards = [{ path: "Dashboards/Overview.md" }, { path: "Studio/Gear Health.md" }];
   const { byFolder } = splitDashboards(dashboards);
-  // SUB-605 gives this dashboard a row under the Studio tree row…
+  // A dashboard filed in a content folder nests under that folder's tree row…
   assert.deepEqual([...byFolder.keys()], ["Studio"]);
   // …so its PIN must not add a SECOND row under that same folder. dashPaths
-  // excludes it by path (SUB-594's rule, unchanged: the pin still shows in the
-  // flat Pinned section, which is a different surface from the tree nest), and
-  // a plain note pinned beside it keeps the nest SUB-585 gave it.
+  // excludes it by path, and the de-dupe stays that narrow: the pin still
+  // shows in the flat Pinned section, which is a different surface from the
+  // tree nest, and a plain note pinned beside it keeps the nest its folder's
+  // tree row gives it.
   const dashPaths = new Set(dashboards.map((d) => d.path));
   const split = splitPins(
     [
@@ -620,7 +624,7 @@ test("orderedRootNodes: reorder round-trip (drag ids, then moveId, re-apply)", (
   );
 });
 
-/* ----- SUB-585: per-group nested ordering + pins in the tree ----- */
+/* ----- per-group nested ordering + pins in the tree ----- */
 
 test("orderedSiblingFolders: each depth reads its own slice of one flat order", () => {
   const folders = ["Life/Fashion", "Life/Recipes", "Life/Person", "Inbox", "Areas"];
@@ -733,7 +737,7 @@ test("splitPins: pinned dashboards stay flat, their folder-mates still nest (SUB
   // a vault whose dashboards live under Life/: a pinned dashboard renders in
   // the Dashboards section only — it must not ALSO nest under the Life tree
   // row. The path set tells a pinned dashboard from a plain note in the same
-  // folder, so Life/Grocery.md keeps the nest SUB-585 gave it.
+  // folder, so Life/Grocery.md keeps the nest the tree gave it.
   const dashPaths = new Set(["Life/Health.md", "Life/Deep/Sleep.md"]);
   const pins = [
     { folder: "Life", path: "Life/Health.md" },
@@ -759,7 +763,7 @@ test("splitPins: pinned dashboards stay flat, their folder-mates still nest (SUB
 
 test("splitPins: a dashboard OUTSIDE the dashboards home also de-dupes (SUB-594)", () => {
   // splitDashboards homes this vault at Life/; the stray Projects/Roadmap.md
-  // gets a row of its own either way — a flat section row before SUB-605, a
+  // gets a row of its own either way — once a flat section row, a
   // Projects tree row since — so pinning it double-rendered under the old
   // home-subtree rule. The path set covers it regardless of the surface.
   const dashboards = [

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { TagCount, TagFolder, TagMatch } from "../lib/types";
 import { tagFolderSummary, tagOptions } from "../lib/tags";
 
-/* The tag-folder builder (SUB-818). Clicked together, never typed: a name,
+/* The tag-folder builder. Clicked together, never typed: a name,
    tags as chips, an any/all toggle, and an exclusion row. There is no query
    language behind this — the chips ARE the query, so what the dialog shows is
    the whole rule.
@@ -15,7 +15,7 @@ const uid = () => `tf-${Math.random().toString(36).slice(2, 10)}`;
     the same rule the matcher uses, applied at authoring time so the folder
     can't hold `#Demo` and `#demo` as two separate requirements.
 
-    A rejection says WHY (SUB-1025): the field used to just clear itself, so
+    A rejection says WHY: the field used to just clear itself, so
     `#2024` and `#a/b` looked accepted until the chip never appeared. */
 type AddResult =
   | { list: string[]; reject?: undefined }

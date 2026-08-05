@@ -64,12 +64,12 @@ type Item = {
   folder?: string;
   /** bare destination name for nav rows ("Release" for "Go to Release") —
       ranking matches the query against it and hoists exact/prefix hits
-      above the Content section (SUB-171) */
+      above the Content section */
   dest?: string;
   /** run() navigates within the palette instead of finishing */
   keepOpen?: boolean;
   /** row that renders for any query (echoes it in its label) rather than
-      matching one — so a list of only these means zero real hits (SUB-673) */
+      matching one — so a list of only these means zero real hits */
   fallback?: true;
   run: () => void;
 };
@@ -92,21 +92,21 @@ export type StartStage = { kind: "moveto"; note: NoteMeta };
 interface PaletteProps {
   mode: "palette" | "capture";
   notes: NoteMeta[];
-  /** true while the app conceals AGENTS.md/CLAUDE.md/Settings.md (SUB-831) —
-      forwarded to the engine so its 30-hit page skips them (SUB-907) */
+  /** true while the app conceals AGENTS.md/CLAUDE.md/Settings.md —
+      forwarded to the engine so its 30-hit page skips them */
   excludeAppFiles: boolean;
   databases: { type: string; count: number }[];
-  /** per-type database icons (SUB-27), keyed by type name */
+  /** per-type database icons, keyed by type name */
   icons: Record<string, DbIcon>;
   dashboards: NoteMeta[];
   folders: string[];
   current: NoteMeta | null;
   startStage?: StartStage | null;
-  /** types with a `.vault/templates/<type>.md` note (SUB-17) */
+  /** types with a `.vault/templates/<type>.md` note */
   templateTypes: string[];
   /** set while a database view is active — runs its CSV export */
   onExportCsv: (() => void) | null;
-  /** SUB-1164: the session undo/redo stack's next move, named in the user's
+  /** The session undo/redo stack's next move, named in the user's
       words ("Role → booking"), or null when there is nothing to undo/redo.
       The palette is the mouse path to ⌘Z: the toast that used to carry Undo
       dies after 4s, and the keystroke was the only way back after that. */
@@ -120,38 +120,38 @@ interface PaletteProps {
   onMoveNote: (path: string, folder: string) => void;
   onRenameNote: (path: string, title: string) => void;
   onRenameFolder: (path: string, name: string) => void;
-  /** SUB-271: duplicate the note in place — App creates, opens and toasts */
+  /** Duplicate the note in place — App creates, opens and toasts */
   onDuplicate: (note: NoteMeta) => void;
-  /** SUB-833: open the Send-as-link dialog for the note */
+  /** Open the Send-as-link dialog for the note */
   onSendAsLink: (note: NoteMeta) => void;
-  /** SUB-257: trash the note via App's single path (flush + toast w/ Undo) */
+  /** Trash the note via App's single path (flush + toast w/ Undo) */
   onTrashNote: (path: string) => void;
-  /** SUB-410: pin/unpin a note in the sidebar's Pinned section */
+  /** Pin/unpin a note in the sidebar's Pinned section */
   onTogglePin: (path: string, pinned: boolean) => void;
   /** the currently pinned note paths — flips the action's label */
   pinnedPaths: string[];
   onRevealRel: (rel: string) => void;
-  /** create a typed entry born complete: schema props + template (SUB-17) */
+  /** create a typed entry born complete: schema props + template */
   onCreateTyped: (title: string, type: string) => void;
-  /** open the type's `.vault/templates/<type>.md` as a note (SUB-59) */
+  /** open the type's `.vault/templates/<type>.md` as a note */
   onEditTemplate: (type: string) => void;
-  /** open the New database dialog (SUB-43) */
+  /** open the New database dialog */
   onNewDatabase: () => void;
-  /** create a `type: sheet` surface note (SUB-393) */
+  /** create a `type: sheet` surface note */
   onCreateSheet: (title: string) => void;
-  /** pick a CSV and open the import dialog (SUB-274) */
+  /** pick a CSV and open the import dialog */
   onImportCsv: () => void;
   onSwitchCapture: () => void;
   onOpenSearch: (seed: string) => void;
   onMutated: () => void;
   /** transient result feedback (folder rescan and friends) */
   onToast: (msg: string) => void;
-  /** terminal HUD (SUB-398), desktop only — null hides the terminal rows */
+  /** terminal HUD, desktop only — null hides the terminal rows */
   onToggleTerminal: (() => void) | null;
   /** summon the HUD and type a command into its PTY */
   onTerminalRun: ((text: string) => void) | null;
   /** the user's own quick actions from Settings.md `terminal-actions`
-      (SUB-441) — empty on a machine that listed none, which is the default */
+ — empty on a machine that listed none, which is the default */
   terminalActions: TerminalAction[];
   /** open the ⌘, settings sheet */
   onOpenSettings: () => void;
@@ -237,14 +237,14 @@ export default function Palette({
   }, [mode, stage]);
 
   const parsed = useMemo(() => parseQuery(q), [q]);
-  // quoted phrases leave `text` (SUB-219) but still search. The engine does
+  // quoted phrases leave `text` but still search. The engine does
   // NOT phrase-adjoin them: `fts_match_expr` (vault.rs) makes every
   // whitespace token a quoted prefix and ANDs them, so `"night drive"`
   // matches a note holding both words anywhere. Real phrase search is
   // unimplemented; joining them back in keeps quoted queries searching.
   const searchText = useMemo(() => [parsed.text, ...parsed.phrases].filter(Boolean).join(" "), [parsed]);
 
-  // SUB-566: the engine's LIMIT 30 page is drawn before the caller's filters
+  // The engine's LIMIT 30 page is drawn before the caller's filters
   // run, so a filtered query could page in 30 notes none of which survive.
   // Hand the filters' verdict down as a path allow-list so the cap applies
   // to the notes actually in scope. `null` = unfiltered.
@@ -313,8 +313,8 @@ export default function Palette({
 
   const setProp = useCallback(
     (note: NoteMeta, key: string, value: string | null) => {
-      // SUB-477: undoable like every other property edit
-      // SUB-1149: the palette closes on apply, so a failed write has nowhere
+      // Undoable like every other property edit
+      // The palette closes on apply, so a failed write has nowhere
       // to show itself — report it on the app toast like every sibling surface
       setPropUndoable({ path: note.path, key, value, record: undo.record })
         .then(onMutated)
@@ -346,7 +346,7 @@ export default function Palette({
   );
 
   // dashboard notes open their rendered surface — the same route the sidebar
-  // and the "Dashboard: …" command take — never the raw editor (SUB-169)
+  // and the "Dashboard: …" command take — never the raw editor
   const dashboardPaths = useMemo(() => new Set(dashboards.map((d) => d.path)), [dashboards]);
   const openNote = useCallback(
     (n: NoteMeta) => {
@@ -362,7 +362,7 @@ export default function Palette({
     if (stage.kind === "actions") {
       const note = stage.note;
       const section = `“${displayTitle(note)}”`;
-      // SUB-257: the canonical note actions — same descriptors as the row
+      // The canonical note actions — same descriptors as the row
       // menu and the note pane's ⋯ menu. Set property stays palette-only
       // (its sub-stage machinery has no menu counterpart); keepOpen marks
       // the rows that navigate into a sub-stage instead of finishing
@@ -584,7 +584,7 @@ export default function Palette({
       return out;
     }
 
-    // "New from template…" — pick a type, then give the entry a title (SUB-17)
+    // "New from template…" — pick a type, then give the entry a title
     if (stage.kind === "newtpl") {
       return templateTypeOptions(databases, templateTypes)
         .filter((o) => !q.trim() || fuzzyScore(q, o.type) > NO_MATCH)
@@ -614,7 +614,7 @@ export default function Palette({
             if (t) onCreateTyped(t, stage.dbType);
           },
         },
-        // the type's `.vault/templates/<type>.md` as an editable note (SUB-59)
+        // the type's `.vault/templates/<type>.md` as an editable note
         {
           id: "newtyped:template",
           label: hasT ? `Edit ${stage.dbType} template` : `Create ${stage.dbType} template`,
@@ -630,13 +630,13 @@ export default function Palette({
     const out: Item[] = [];
     const byPath = new Map(notes.map((n) => [n.path, n]));
     const { filters, trailing } = parsed;
-    // SUB-567: a quoted phrase is a typed query like any other — leaving it
+    // A quoted phrase is a typed query like any other — leaving it
     // out here made `"spectral"` render the Recent list, as if nothing had
     // been typed, while its search was already in flight.
     const hasOps = filters.length > 0 || trailing !== null || parsed.phrases.length > 0;
 
     // a partially typed value already narrows (prefix match) — feels live;
-    // multi-value stubs narrow on their committed segments too (SUB-78)
+    // multi-value stubs narrow on their committed segments too
     const effFilters =
       trailing && (trailing.partial || trailing.values.length > 0)
         ? [
@@ -670,13 +670,13 @@ export default function Palette({
       }
     }
 
-    // SUB-567: gate on what was actually SEARCHED, not on `parsed.text` — a
+    // Gate on what was actually SEARCHED, not on `parsed.text` — a
     // quoted-only query ("spectral") has empty `text`, so this branch never
     // ran and the fetched hits had nowhere to render.
     if (searchText) {
       const scored = filtered
         // dailies match by either face: the stem ("2026-07-18") or the human
-        // date shown in lists ("Sat, 18 Jul 2026") — SUB-209
+        // date shown in lists ("Sat, 18 Jul 2026")
         .map((n) => ({
           n,
           s: Math.max(fuzzyScore(searchText, n.title), fuzzyScore(searchText, displayTitle(n))),
@@ -830,7 +830,7 @@ export default function Palette({
               },
             ]
           : []),
-        // SUB-1164: undo/redo where the mouse can reach them. The row names
+        // Undo/redo where the mouse can reach them. The row names
         // the move it would make, so it stays unambiguous even while a board
         // owns ⌘Z for its own local history.
         ...(undoCommand
@@ -875,7 +875,7 @@ export default function Palette({
           section: "Commands",
           run: rescanFolders,
         },
-        // terminal HUD (SUB-398): desktop-only rows; the quick actions are
+        // terminal HUD: desktop-only rows; the quick actions are
         // keystrokes into the configured agent CLI, not an API — any CLI
         // that knows the slash command works
         ...(onToggleTerminal
@@ -890,7 +890,7 @@ export default function Palette({
               },
             ]
           : []),
-        // quick actions are the user's own (SUB-441): whatever Settings.md's
+        // quick actions are the user's own: whatever Settings.md's
         // `terminal-actions` lists, nothing when it lists nothing. They used
         // to be two rows naming the author's personal agent skills, which on
         // any other machine typed a command no CLI knew.
@@ -971,8 +971,8 @@ export default function Palette({
           run: () => onSetView({ kind: "doctor" }),
         },
         // with a query, a dashboard that already surfaced as a note row
-        // would list twice — both rows open the rendered surface (SUB-169) —
-        // so the command copy is dropped (SUB-397). The empty-query browse
+        // would list twice — both rows open the rendered surface —
+        // so the command copy is dropped. The empty-query browse
         // list stays complete: Recent is recency, Commands is the catalog.
         ...dashboards
           .filter((d) => !searchText || !out.some((i) => i.note?.path === d.path))
@@ -1091,15 +1091,15 @@ export default function Palette({
   }, [q, mode, stage]);
 
   // the "See all results…"/"New note…" fallbacks render unconditionally, so
-  // zero hits used to look identical to results still loading (SUB-262)
+  // zero hits used to look identical to results still loading
   // `searchText`, not `parsed.text` — a quoted-only query is a real query
-  // and deserves a real "no matches" too (SUB-567)
+  // and deserves a real "no matches" too
   // fallback rows carry a flag rather than being listed by id here: the old
   // whitelist went stale when "New sheet" landed and killed the banner for
-  // every plain-text query (SUB-673)
+  // every plain-text query
   const noMatches = stage.kind === "root" && searchText !== "" && onlyFallbacks(items);
 
-  // keep the selected row visible when arrow-keying past the fold (SUB-235)
+  // keep the selected row visible when arrow-keying past the fold
   useEffect(() => {
     listRef.current
       ?.querySelector(`[data-idx="${sel}"]`)
@@ -1209,7 +1209,7 @@ export default function Palette({
           ref={inputRef}
           className="palette-input"
           // macOS autocorrect draws a candidate bubble under the input and
-          // captures ↑↓ while visible — queries aren't prose (SUB-397)
+          // captures ↑↓ while visible — queries aren't prose
           spellCheck={false}
           autoCorrect="off"
           autoCapitalize="off"
@@ -1251,7 +1251,7 @@ export default function Palette({
                 <div className="palette-empty" role="status">No results for “{searchText}”</div>
               )}
               {itemSections.map((group) => {
-                // Key groups by identity, not position (SUB-493). The
+                // Key groups by identity, not position. The
                 // debounced Content batch inserts a section above Search, so
                 // a positional key shifted every group below it and React
                 // remounted them — throwing away live DOM nodes on a purely
@@ -1279,7 +1279,7 @@ export default function Palette({
                           role="option"
                           aria-selected={i === sel}
                           aria-label={[item.label, item.snippet, item.hint].filter(Boolean).join(", ")}
-                          // mousemove, not mouseenter (SUB-493): a debounced
+                          // mousemove, not mouseenter: a debounced
                           // Content batch inserts rows above a resting cursor,
                           // and the browser fires mouseenter for whatever slid
                           // under it — silently moving selection to a row the

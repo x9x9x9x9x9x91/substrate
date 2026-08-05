@@ -14,7 +14,7 @@ pub(super) const MAGIC: &[u8] = b"SUBSTRATE-SEALED-1\n";
 pub(super) const KEY_REL_PATH: &str = ".vault/sealed-key.age";
 const KEY_MAGIC: &[u8] = b"SUBSTRATE-SEALED-KEY-1\n";
 
-/// Floor for the vault password (SUB-935). `.vault/sealed-key.age` is an
+/// Floor for the vault password. `.vault/sealed-key.age` is an
 /// ordinary file in the vault, so every sync remote and every backup holds a
 /// copy: the attacker is offline with the ciphertext, not online against a
 /// rate limiter. scrypt buys work per guess, not immunity — eight characters
@@ -118,7 +118,7 @@ pub(super) fn load_password_key(root: &Path, password: &str) -> Result<SecretStr
 /// when a provisioning profile is embedded in the bundle. Without one, every
 /// call — including from a properly signed, hardened-runtime build — fails
 /// with `errSecMissingEntitlement`, which would make Touch ID unlock look
-/// broken to the user (SUB-1103).
+/// broken to the user.
 ///
 /// So we look for the profile the bundle would carry and use the legacy file
 /// keychain when it is absent. Once the profile ships, the protected keychain
@@ -163,7 +163,7 @@ pub(super) enum DeviceKeyPlacement {
     /// Nothing enrolled for this vault, but SOME vault on this device has a
     /// key here. That is all this says: a moved folder looks exactly like a
     /// second vault the user keeps alongside the first, and the Keychain
-    /// cannot tell them apart (SUB-935). Either way device unlock is not
+    /// cannot tell them apart. Either way device unlock is not
     /// enrolled for THIS vault and the vault password is the way in.
     ElsewhereOnly,
     /// Never enrolled on this device. The ordinary state, not a problem.
@@ -309,7 +309,7 @@ mod tests {
             .contains(identity.expose_secret()));
     }
 
-    /// SUB-1103: the protected keychain is chosen by the presence of the
+    /// the protected keychain is chosen by the presence of the
     /// bundle's provisioning profile, not by a build-time flag.
     #[cfg(target_os = "macos")]
     #[test]

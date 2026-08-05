@@ -2,7 +2,7 @@
 //!
 //! `tauri.conf.json` is the single source of truth for the paths a note may
 //! never reach through `asset:` — `~/.ssh`, `~/.aws`, shell history, and the
-//! rest of SUB-780's credential stores. A subscribed local `.ics` calendar is
+//! rest of the credential stores. A subscribed local `.ics` calendar is
 //! the same risk arriving through a different door: the address is vault data
 //! that syncs between devices, and the app opens it unattended on a timer.
 //!

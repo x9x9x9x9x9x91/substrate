@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDb } from "./nav";
 
-// checkbox property kind (SUB-173): a schema'd checkbox prop renders a small
+// checkbox property kind: a schema'd checkbox prop renders a small
 // check square in every row of its column; one click toggles and saves
 // immediately (checked = YAML `true`, unchecked = prop removed, never
 // `false`) — no editor popup. Fixtures: the inventory schema carries `in use`

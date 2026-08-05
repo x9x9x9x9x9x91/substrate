@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Dashboard print (SUB-676): the portable kinds — metrics, charts, hub —
+// Dashboard print: the portable kinds — metrics, charts, hub —
 // carry a Print action in DashHead's actions slot. It clones the live pane
 // (a workbook's ACTIVE page) into the note path's #print-surface and hands
 // off to the same print mechanism notes use; the @media print rules re-skin
@@ -27,7 +27,7 @@ const printCalls = (page: Page) =>
   page.evaluate(() => (window as unknown as { __printCalls: number }).__printCalls);
 
 // Custom properties keep their authored token stream when read directly.
-// SUB-955's nudgable tones are hsl(calc(...)), so resolve them through a real
+// The nudgable tones are hsl(calc(...)), so resolve them through a real
 // color declaration before comparing the palette that actually paints.
 const resolvedColor = (page: Page, selector: string, property: string) =>
   page
@@ -155,7 +155,7 @@ test("charts: bars and the line chart clone with their geometry", async ({ page 
   // real geometry on paper, not a re-render placeholder
   const bar = surface.locator(".dash-bar").first();
   expect((await bar.boundingBox())!.height).toBeGreaterThan(0);
-  // the chart language draws in the accent family (SUB-932); on paper the
+  // the chart language draws in the accent family; on paper the
   // surface remaps --accent to its darker print weight, so the stroke prints
   // as deep sky-on-white rather than the dark ground's value
   await expect(surface.locator(".chart-line-path")).toHaveCSS("stroke", "rgb(22, 120, 171)");

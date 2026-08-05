@@ -14,19 +14,19 @@ import type { HopDir } from "../lib/cellhop";
 
 interface DateMenuProps {
   anchor: AnchorRect;
-  /** current value — ISO day with an optional ` HH:MM` (SUB-270), or any
+  /** current value — ISO day with an optional ` HH:MM`, or any
       leftover free text */
   value: string;
-  /** SUB-947 type-to-replace: the keystroke that opened this picker, seeded
+  /** Type-to-replace: the keystroke that opened this picker, seeded
       into the date input — typing `2` over a date cell starts parsing there */
   seed?: string;
-  /** SUB-947: Enter/Tab commit AND carry the editor onward (see SelectMenu) */
+  /** Enter/Tab commit AND carry the editor onward (see SelectMenu) */
   onHop?: (dir: HopDir) => void;
   onCommit: (iso: string) => void;
   onClear?: () => void;
   /** open the shared schema editor (change this prop's kind/options) */
   onEditSchema?: () => void;
-  /** opened from inside a z-100 overlay dialog (SUB-647): ride above it.
+  /** opened from inside a z-100 overlay dialog: ride above it.
       Default stays 60 — below the palette overlay, as everywhere else. */
   aboveOverlay?: boolean;
   onClose: () => void;
@@ -49,16 +49,16 @@ export default function DateMenu({
   aboveOverlay,
   onClose,
 }: DateMenuProps) {
-  // SUB-947: a type-to-replace keystroke lands in the parse input, so the
+  // A type-to-replace keystroke lands in the parse input, so the
   // date reads as typed-over rather than picked from the grid
   const [text, setText] = useState(seed ?? "");
-  // the current value, split (SUB-270/SUB-596): a timed value still opens on
+  // the current value, split: a timed value still opens on
   // its day, grid picks keep its time, and a range opens showing both ends
   const valueSplit = splitDateRange(value);
   const valueDay = valueSplit?.start.day ?? null;
   const valueTime = valueSplit?.start.time ?? null;
   const valueEnd = valueSplit?.end ?? null;
-  /** range mode (SUB-596): off, the picker is exactly the single-date picker
+  /** range mode: off, the picker is exactly the single-date picker
       it always was. On, the first grid click arms a start and the second
       closes the range — until then `pending` holds the armed day so the grid
       can preview the span under the cursor. A value that already IS a range
@@ -98,10 +98,10 @@ export default function DateMenu({
   };
 
   /** a grid-picked day keeps the current value's time when it carries one
-      (SUB-270) — the picker stays day-only, never inventing a time */
+ — the picker stays day-only, never inventing a time */
   const withTime = (day: string) => (valueTime ? `${day} ${valueTime}` : day);
 
-  /** picking a day (SUB-596). Outside range mode this is the old behaviour
+  /** picking a day. Outside range mode this is the old behaviour
       verbatim: one click commits that day. Inside it, the first click arms a
       start and the second closes the span — clicking the two days in either
       order gives the same range, since a backwards pick reads as "I meant
@@ -118,7 +118,7 @@ export default function DateMenu({
     }
     const [a, b] = pending <= day ? [pending, day] : [day, pending];
     setPending(null);
-    // dateRangeValue keeps the two endpoints in order (SUB-631) — closing a
+    // dateRangeValue keeps the two endpoints in order — closing a
     // range on the SAME day the value is already timed would otherwise write
     // a timed start against an untimed end, which reads as reversed
     onCommit(dateRangeValue(a, valueTime, { day: b, time: valueEnd?.time }));
@@ -152,11 +152,11 @@ export default function DateMenu({
       e.preventDefault();
       if (text.trim()) commitText();
       else pick(cursor);
-      // SUB-947: same commit, then carry the editor down the column. A range
+      // Same commit, then carry the editor down the column. A range
       // being drawn is mid-gesture — the second click closes it, so no hop.
       if (!ranging) onHop?.(e.shiftKey ? "up" : "down");
     } else if (e.key === "Tab" && onHop) {
-      // SUB-947: commit what's typed (an untouched picker just closes) and
+      // Commit what's typed (an untouched picker just closes) and
       // land one cell over — the arrows belong to the calendar grid, so Tab
       // is the only horizontal hop a date cell offers
       e.preventDefault();
@@ -199,7 +199,7 @@ export default function DateMenu({
     ...(flipUp
       ? { bottom: window.innerHeight - anchor.top + 4 }
       : { top: anchor.bottom + 4 }),
-    // opened from an overlay dialog (SUB-647): ride above the z-100 dim
+    // opened from an overlay dialog: ride above the z-100 dim
     ...(aboveOverlay ? { zIndex: 120 } : {}),
   };
 
@@ -208,7 +208,7 @@ export default function DateMenu({
 
   const typed = parseDateTimeLoose(text);
 
-  /* the span the grid shades (SUB-596): the armed start against the hovered
+  /* the span the grid shades: the armed start against the hovered
      day while a range is being drawn, otherwise the stored range's own two
      ends. Endpoints render as `current` — the shading is the interior. */
   const spanEnds: [string, string] | null =

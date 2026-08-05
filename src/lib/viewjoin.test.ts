@@ -6,7 +6,7 @@ import { filterByQuery } from "./views.ts";
 import type { EmbedResult } from "./embeds.ts";
 import type { NoteMeta, SchemaConfig } from "./types.ts";
 
-/* View-fence joins (SUB-829): dotted `relation.prop` lookup columns. */
+/* View-fence joins: dotted `relation.prop` lookup columns. */
 
 function note(title: string, props: Record<string, unknown>, stem = title): NoteMeta {
   return {

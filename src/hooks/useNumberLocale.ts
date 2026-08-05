@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { numberLocale, subscribeNumberLocale, type NumberLocale } from "../lib/numberLocale";
 
-/** The number dialect as a reactive value (SUB-1092).
+/** The number dialect as a reactive value.
  *
  * Formatters that read the module binding (`formatFileSize`, the dashboard
  * figures, sheet cells) are pure functions of it, but the binding is not React

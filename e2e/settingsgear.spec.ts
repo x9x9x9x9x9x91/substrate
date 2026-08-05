@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-476: the settings gear in the lower-left tools row, and the terminal
+// The settings gear in the lower-left tools row, and the terminal
 // quick-actions list it opens onto — a YAML string list on disk, one entry
 // per line in the box, which has to survive a close/reopen.
 
@@ -121,7 +121,7 @@ test("the terminal-font row warns when the family doesn't resolve (SUB-873)", as
 
 test("escaping out of the box keeps the edit", async ({ page }) => {
   // the field commits on blur, and Esc unmounts the sheet — so without an
-  // explicit blur on the way out the typing is thrown away (SUB-476)
+  // explicit blur on the way out the typing is thrown away
   const tools = page.locator(".side-tools");
   const gear = tools.getByRole("button", { name: "Settings" });
 

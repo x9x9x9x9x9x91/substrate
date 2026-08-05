@@ -7,20 +7,20 @@ import {
 } from "../lib/changelog";
 import { DashHead } from "./DashHead";
 
-/* The in-app release history (SUB-452). Read-only by construction: it renders
+/* The in-app release history. Read-only by construction: it renders
    the CHANGELOG constant and touches no vault IPC, so nothing here is indexed
    by search, lists, or databases. Dressed in the instrument language — the
    shared DashHead, numbered section labels per release, round dots carrying
    the kind.
 
-   Structured per SUB-817: a release leads with its headline items at sentence
+   Structured: a release leads with its headline items at sentence
    prominence, then the remaining items grouped New / Improved / Fixed. Only
    headline rows carry the kind dot; the group label is a section voice —
    uppercase micro-label with a trailing hairline, never a dotted row
-   (SUB-866: a dotted label read as a bullet item and its items as orphan
+   (a dotted label read as a bullet item and its items as orphan
    continuation lines).
 
-   Visual pass (SUB-938): the kind color lives on the group label text as well
+   Visual pass: the kind color lives on the group label text as well
    as the headline dot — meaning-carrying per the option-dot palette, not
    chrome — and "Lead: detail" entries render the lead a step up so a release
    scans as phrases, not a wall of even sentences. */
@@ -48,7 +48,7 @@ function releaseDate(iso: string): string {
 }
 
 interface ChangelogPaneProps {
-  /** Machine-local surfaces carry `private` changelog items (SUB-830); they
+  /** Machine-local surfaces carry `private` changelog items; they
       render only where such a surface exists, so a stock install's history
       describes the app it actually has. Never passed = never shown. */
   showPrivate?: boolean;
@@ -81,7 +81,7 @@ export default function ChangelogPane({ showPrivate = false }: ChangelogPaneProp
               {headlines.length > 0 && (
                 <>
                   {/* the pane matches the generated CHANGELOG.md's
-                      "### Highlights" (SUB-938); the mark is a four-pointed
+                      "### Highlights"; the mark is a four-pointed
                       star in the kind color — a highlight, not a state dot */}
                   <h3 className="chlog-highlights-label">Highlights</h3>
                   <ul className="chlog-headlines">

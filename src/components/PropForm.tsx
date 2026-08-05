@@ -2,10 +2,10 @@ import { useState } from "react";
 import type { NumberFormat, PropKind, RollupConfig, SelectOption } from "../lib/types";
 import SelectMenu, { type AnchorRect } from "./SelectMenu";
 
-/** "＋ Add property" (SUB-43): names a new column, then rides SelectMenu's
+/** "＋ Add property": names a new column, then rides SelectMenu's
     schema editor (kind / options / target) wholesale. Saving writes schema
     only — notes without a value simply render the column empty. A rollup
-    (SUB-678) wires through the same card: the pickers list this database's
+ wires through the same card: the pickers list this database's
     relation props and the picked relation's target props. */
 export default function PropForm({
   anchor,
@@ -21,9 +21,9 @@ export default function PropForm({
   existing: string[];
   /** database types the relation target picker offers */
   databases: string[];
-  /** relation props of this database a rollup can follow (SUB-678) */
+  /** relation props of this database a rollup can follow */
   rollupRelations?: string[];
-  /** the props of a relation's target database (SUB-678) */
+  /** the props of a relation's target database */
   rollupPropsFor?: (relation: string) => string[];
   onSave: (
     name: string,

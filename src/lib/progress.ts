@@ -1,4 +1,4 @@
-/** Progress fences — the goal thermometer (SUB-967). A ```progress fence puts
+/** Progress fences — the goal thermometer. A ```progress fence puts
  *  one number against the number it is supposed to reach:
  *
  *    ```progress

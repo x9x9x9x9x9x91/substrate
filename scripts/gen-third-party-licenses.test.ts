@@ -24,7 +24,7 @@ const realLock = () => readFileSync(resolve(ROOT, "src-tauri/Cargo.lock"), "utf8
 
 /* ── the gate itself ────────────────────────────────────────────────────── */
 
-/* The staleness gate (SUB-872), a sibling of gen-changelog.test.ts's: it fails
+/* The staleness gate, a sibling of gen-changelog.test.ts's: it fails
    the unit suite whenever THIRD-PARTY-LICENSES.md stops describing what the app
    actually ships — a dependency added, removed or bumped, or the file
    hand-edited. `npm test` already globs scripts/*.test.ts, so no CI wiring.

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-453: the week canvas gets a keyboard path. ↑/↓ walk a half-hour time
+// The week canvas gets a keyboard path. ↑/↓ walk a half-hour time
 // cursor (Shift = quarter-hours) down the focused day's column, rendered as
 // .cal-wk-slot; Enter composes a timed draft at that slot — the keyboard twin
 // of the canvas double-click; Escape clears the cursor before the day focus.
@@ -23,7 +23,7 @@ test.beforeEach(async ({ page }) => {
   await page.locator(".cal .db-switch button", { hasText: "Week" }).click();
   await expect(page.locator(".cal-grid.week")).toBeVisible();
   // park keyboard focus on inert chrome so the pane's window listener owns
-  // the keys (a focused control keeps its own Enter/Space — SUB-358)
+  // the keys (a focused control keeps its own Enter/Space)
   await page.locator(".cal-agenda-head").click();
 });
 
@@ -120,7 +120,7 @@ test("focusing a day rings and scrolls its canvas column, not just its strip cel
 });
 
 test("walking to the floor of the day keeps the cursor on the half-hour grid", async ({ page }) => {
-  // SUB-453 review F1: the clamp used to pin at DAY_MIN - SLOT_FINE (23:45)
+  // Review F1: the clamp used to pin at DAY_MIN - SLOT_FINE (23:45)
   // whatever the active step was, so a plain ↓ run to the bottom knocked the
   // cursor onto a :15/:45 phase it could never leave — and that phase went
   // straight into the composed note's time.
@@ -144,7 +144,7 @@ test("walking to the floor of the day keeps the cursor on the half-hour grid", a
 });
 
 test("the time cursor rides along when the week pages", async ({ page }) => {
-  // SUB-453 review F2: the handback claimed the cursor clears when its day
+  // It was once claimed that the cursor clears when its day
   // leaves the week. It doesn't, and shouldn't — page() carries focusIso with
   // the view, so ⌘→ must not silently disarm a cursor the user just placed.
   const slot = page.locator(".cal-wk-slot");

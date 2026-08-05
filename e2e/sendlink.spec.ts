@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-833: "Send as link" — a note rendered to a self-contained HTML
+// "Send as link" — a note rendered to a self-contained HTML
 // document, sealed client-side (AES-GCM), ciphertext parked on a relay; the
 // key rides the URL fragment. The mock's share_upload answers with a
 // deterministic id and never touches the network, so the assertions here

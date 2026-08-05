@@ -125,7 +125,7 @@ test("optionColorVar allowlists free-form frontmatter colors (SUB-619)", () => {
   assert.equal(optionColorVar("Teal"), undefined, "case must match the token roster");
   assert.equal(optionColorVar("teal "), undefined, "no trailing-space smuggling");
   // hostile shapes: anything that would close the var() and inject its own
-  // declaration must fall back, not reach CSS (SUB-619)
+  // declaration must fall back, not reach CSS
   for (const hostile of [
     "red); background:url(https://evil.example/x.png",
     "teal) 55%, transparent); background-image:url(//evil",
@@ -160,7 +160,7 @@ test("ICON_TINTS matches the --opt-* token vocabulary in styles.css", () => {
 
 test("typeTint: explicit tint wins, then the curated default, else a stable hash (SUB-73/183)", () => {
   assert.equal(typeTint("release", { glyph: "music", tint: "teal" }), "var(--opt-teal)");
-  // no schema icon → the curated default's tint (SUB-183)
+  // no schema icon → the curated default's tint
   assert.equal(typeTint("release"), "var(--opt-violet)");
   assert.equal(typeTint("contact"), "var(--opt-blue)");
   assert.equal(typeTint("inventory"), "var(--opt-orange)");

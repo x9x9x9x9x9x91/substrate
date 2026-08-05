@@ -7,11 +7,11 @@ import { dirname } from "node:path";
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
-/* Scroll-anchoring canary (SUB-1132). Chrome silently keeps the content under
+/* Scroll-anchoring canary. Chrome silently keeps the content under
    the viewport still when rows are inserted or removed above it — which means
    a pane whose "the selected row stays painted across a view switch" is really
    the browser's doing can pass its spec anyway, until an unrelated change to
-   the row set moves the delta and the guarantee evaporates (SUB-461/SUB-970).
+   the row set moves the delta and the guarantee evaporates.
    Turning anchoring off makes every reveal the pane's own responsibility: a
    deterministic reveal survives it, an accidental one fails. playwright.config
    sets this for the whole e2e suite, so the gate is anchor-free by default —
@@ -41,14 +41,14 @@ const sharedModules = dirname(
 );
 
 /* Tauri wants a fixed dev port, so 1420 stays the default. The real-app smoke
-   lane (private repo) overrides it — several worktrees share this machine and
+   run (a separate repo) overrides it — several worktrees share this machine and
    a squatting dev server on 1420 would otherwise serve another tree's code.
-   The lane passes the matching devUrl via `tauri dev --config`.
+   It passes the matching devUrl via `tauri dev --config`.
 
    Coupled to `devCsp` in src-tauri/tauri.conf.json, which whitelists
    ws/http://localhost:1420 for HMR and cannot read this variable (JSON, no
    substitution). Overriding the port therefore costs HMR inside `tauri dev`
-   — the page still loads and the smoke lane still passes, only live reload
+   — the page still loads and the smoke run still passes, only live reload
    goes quiet. Change the port here and that CSP entry needs the same value,
    or a `--config` override alongside the devUrl one. */
 // @ts-expect-error process is a nodejs global

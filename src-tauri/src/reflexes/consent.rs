@@ -1,4 +1,4 @@
-//! The one-time per-vault enable switch (SUB-826, consent amendment).
+//! The one-time per-vault enable switch (the consent amendment).
 //!
 //! A reflexes file is data, not code — the closed verb set is what makes that
 //! true, and it is why editing a rule needs no re-approval. But a vault is a

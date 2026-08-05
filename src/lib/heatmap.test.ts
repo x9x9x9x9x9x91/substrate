@@ -157,7 +157,7 @@ test("a mixed-case opener parses, like the hub's dispatcher (SUB-1129)", () => {
   assert.equal(blocks.length, 1);
   assert.equal(blocks[0].error, null);
   assert.equal(blocks[0].config?.date, "logged");
-  // still bare-form: a tail is prose here as it is on the hub (SUB-966)
+  // still bare-form: a tail is prose here as it is on the hub
   assert.equal(parseHeatmapBlocks("```HeatMap tail\nsource: s\ndate: d\nvalue: count\n```").length, 0);
 });
 

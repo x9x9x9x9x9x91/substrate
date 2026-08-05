@@ -18,7 +18,7 @@ const row = (id: string, section: string, label = id, dest?: string): Row => ({
   dest,
 });
 
-/** the command set the audit shot renders for query "release" (SUB-171) */
+/** the command set the audit shot renders for query "release" */
 function releaseCommands(): Row[] {
   return [
     row("cmd:new", "Commands", "New note “release”"),
@@ -80,7 +80,7 @@ test("rankCommands: a mid-name substring matches without hoisting", () => {
 });
 
 /**
- * SUB-805: labels say "New" / "Trash" / "Settings" but people type "create" /
+ * Labels say "New" / "Trash" / "Settings" but people type "create" /
  * "delete" / "preferences" — the rewrite maps verbs token-wise and drops
  * articles, and scoring takes the best of original and rewritten query.
  */
@@ -118,7 +118,7 @@ test("rankCommands: synonym rewrite never drops a literal match", () => {
 });
 
 /**
- * SUB-1016: ranking filtered on `s > 0`, but a real match late in a long label
+ * Ranking filtered on `s > 0`, but a real match late in a long label
  * scores negative (0.2 penalty per character of position) — so a row the query
  * genuinely matches vanished from the palette instead of ranking last.
  */
@@ -182,7 +182,7 @@ test("hoistAboveContent: nothing hoisted leaves the list untouched", () => {
 });
 
 /**
- * SUB-673: the fallback rows echo the query in their labels, so they always
+ * The fallback rows echo the query in their labels, so they always
  * survive ranking. The banner used to key off an id whitelist and went dark
  * the moment "New sheet" joined them.
  */

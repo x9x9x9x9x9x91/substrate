@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-818, editor half: an inline `#tag` is a live thing in prose — it wears
+// Editor half: an inline `#tag` is a live thing in prose — it wears
 // a mark, it opens its collection on click (folder or no folder), and typing
 // `#` offers the tags the vault already has.
 

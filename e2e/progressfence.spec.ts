@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Progress fence — the goal thermometer (SUB-967). A ```progress fence puts one
+// Progress fence — the goal thermometer. A ```progress fence puts one
 // number against the number it should reach, and reads identically on both
 // surfaces it can live on.
 //
@@ -9,7 +9,8 @@ import { expect, test, type Page } from "@playwright/test";
 // + start anchor), a `value: count` over the contact database, and a malformed
 // fence that must error in place. Dashboards/Umbra Home.md (the hub) carries the
 // same two shapes interleaved with its views, cards and charts, plus a third
-// inside a callout body that must stay a code box (SUB-964's rule). Deadlines in
+// inside a callout body, which must stay a code box: machine fences render as
+// widgets only at hub top level, never nested inside a callout. Deadlines in
 // the fixtures are relative to today, so the pace line can't rot.
 
 async function openGoals(page: Page) {
@@ -101,7 +102,7 @@ test("a hub body hosts the same thermometer between its other blocks", async ({ 
 
   // and neither live progress fence fell through to a code box — the page's
   // code boxes are still only the deliberately quoted/callout-nested fences
-  // (SUB-964), one of which is a progress fence inside the [!idea] callout
+  // one of which is a progress fence inside the [!idea] callout
   await expect(page.locator(".hub-body .hub-pre")).toHaveCount(4);
   await expect(page.locator(".hub-body > .hub-pre")).toHaveCount(0);
   await expect(page.locator(".hub-card-idea .hub-progress")).toHaveCount(0);

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// Wikilink → database fallback (SUB-203): an unresolved [[target]] that names
+// Wikilink → database fallback: an unresolved [[target]] that names
 // a database opens that database view (the Notion hub-page pattern) instead of
 // spawning an empty note. A genuine miss still creates the note.
 

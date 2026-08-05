@@ -1,4 +1,4 @@
-//! SUB-614: hand the webview's OWN drags back to WebKit.
+//! Hand the webview's OWN drags back to WebKit.
 //!
 //! wry's `WryWebView` overrides the four `NSDraggingDestination` methods and
 //! tauri-runtime-wry's handler claims EVERY drag session ("handled"), so
@@ -12,7 +12,7 @@
 //! call straight through to `WKWebView`'s implementation (the normal DOM
 //! drag-and-drop pipeline, exactly what Safari does); external drags keep
 //! wry's untouched file-drop lane (`onDragDropEvent` with real paths —
-//! SUB-414 drop positioning and SUB-438 ⇧-link-in-place depend on those).
+//! Drop positioning and ⇧-link-in-place depend on those).
 //!
 //! Swizzling is class-level, so one install covers every window's webview;
 //! the internal/external fork reads the receiving instance, so each webview
@@ -58,7 +58,7 @@ fn table() -> &'static Table {
 /// Both IMPs of a selector — the subclass's own override and the
 /// superclass's inherited pipeline — or None unless BOTH exist and differ.
 ///
-/// The distinctness check is the fail-safe's linchpin (SUB-623):
+/// The distinctness check is the fail-safe's linchpin:
 /// `instance_method` is `class_getInstanceMethod`, which searches
 /// superclasses. If a future wry keeps the class name but drops its drag
 /// overrides, both lookups resolve to the same inherited Method; swizzling
@@ -259,7 +259,7 @@ mod tests {
     /// A base class and a subclass that overrides `draggingEntered:` but NOT
     /// `draggingUpdated:` — the same shape as a wry that dropped an
     /// override. `owned_pair` must hand back distinct IMPs for the override
-    /// and refuse the inherited one (the SUB-623 recursion hole).
+    /// and refuse the inherited one (the recursion hole).
     ///
     /// Scope honestly stated: this pins `owned_pair`'s LOGIC on synthetic
     /// classes. It does not observe the real WryWebView (registered lazily,

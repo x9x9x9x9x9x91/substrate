@@ -1,7 +1,7 @@
 import { ChevronLeftIcon } from "./Icons";
 import { useNav } from "../lib/navContext";
 
-/* SUB-1165: the mouse path back. ⌫ pops the view history; until now nothing
+/* The mouse path back. ⌫ pops the view history; until now nothing
    on screen did, so a mouse-driven detour into a note or a database was a
    one-way trip. The chevron leads the pane header — the header's own button
    grammar (.list-new's shape), not a new chrome idiom — and is absent, rather

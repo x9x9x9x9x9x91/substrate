@@ -1,5 +1,5 @@
 //! Tags: inline `#hashtags` in prose, the `tags:` frontmatter prop, and the
-//! tag-query folders built on top of both (SUB-818).
+//! tag-query folders built on top of both.
 //!
 //! A note's tag set is the **union** of the two sources — an author who writes
 //! `#demo` mid-sentence and an author who lists `tags: [demo]` are saying the
@@ -10,7 +10,7 @@
 //! Folder definitions live in `.vault/tagfolders.json` with the same
 //! discipline as every other hidden config file: missing or corrupt reads as
 //! no folders (a broken prefs file must never fail a vault), writes go
-//! through `vaultfmt` so a newer app's file is never clobbered (SUB-433), and
+//! through `vaultfmt` so a newer app's file is never clobbered, and
 //! unknown keys ride along verbatim.
 //!
 //! Notes never move on disk for a tag folder — the folder is a query, and
@@ -69,7 +69,7 @@ fn trim_tail(tag: &str) -> &str {
 /// deduplicated case-insensitively (the first spelling seen is the one kept).
 ///
 /// Excluded, all tested: fenced code blocks and inline `code` spans (reusing
-/// the `code_ranges` machinery link scanning already rides, SUB-495), link
+/// the `code_ranges` machinery link scanning already rides), link
 /// targets and URL fragments, and anything failing the boundary rule above.
 pub(super) fn inline_tags(body: &str) -> Vec<String> {
     let code = code_ranges(body);
@@ -168,8 +168,8 @@ pub enum TagMatch {
 
 /// One tag folder, as persisted in `.vault/tagfolders.json`.
 ///
-/// `extra` keeps a newer app's fields alive across an older app's rewrite
-/// (SUB-433), the same forward-compat contract `ViewPref` carries.
+/// `extra` keeps a newer app's fields alive across an older app's rewrite,
+/// the same forward-compat contract `ViewPref` carries.
 #[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
 pub struct TagFolder {
     pub id: String,

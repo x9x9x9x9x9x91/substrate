@@ -151,7 +151,7 @@ test("type + query filters rows and shapes cells along the columns", () => {
     ]
   );
   // the widget edits cells, so it needs each row's raw props and the type's
-  // schema alongside the display strings (SUB-796)
+  // schema alongside the display strings
   assert.equal(r.rows[0].props.status, "mastering");
   assert.deepEqual(r.typeSchema, SCHEMA.release);
   assert.equal(r.query, "status:mastering");
@@ -206,7 +206,7 @@ test("cells run through displayValue: dates human, embeds/files by basename (SUB
   assert.equal(cell("released"), "Jul 17, 2026");
   assert.equal(cell("artwork"), "vessel.png");
   assert.equal(cell("contract"), "vessel.pdf");
-  // created is date-kind by default, like the database table (SUB-167)
+  // created is date-kind by default, like the database table
   if (r.columns.includes("created")) assert.equal(cell("created"), "Jul 1, 2026");
 });
 
@@ -355,7 +355,7 @@ test("empty spec → quiet error card", () => {
   assert.ok("error" in r);
 });
 
-/* ---------- sort / limit / columns (SUB-942) ---------- */
+/* ---------- sort / limit / columns ---------- */
 
 test("sort orders rows ascending and descending by a plain column", () => {
   const asc = embedQueryFor({ type: "release", sort: { key: "cat#", dir: 1 } }, RELEASES, SCHEMA, []);
@@ -580,7 +580,7 @@ test("a schema-only database renders with zero rows (not an error)", () => {
   assert.deepEqual(r.rows, []);
 });
 
-/* ---------- seedPropsFromQuery (SUB-796) ---------- */
+/* ---------- seedPropsFromQuery ---------- */
 
 test("plain key:value equality terms seed a new row", () => {
   assert.deepEqual(seedPropsFromQuery("status:mastering"), [["status", "mastering"]]);
@@ -623,7 +623,7 @@ test("system props stay the caller's — type/title/created never seed", () => {
 });
 
 test("a repeated key keeps the first term, like a filter-born entry", () => {
-  // the database pane's own rule (filterInherits, SUB-234) — the fence seed
+  // the database pane's own rule (filterInherits) — the fence seed
   // delegates to it rather than holding a second opinion
   assert.deepEqual(seedPropsFromQuery("status:live status:mastering"), [["status", "live"]]);
 });

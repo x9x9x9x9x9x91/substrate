@@ -53,7 +53,7 @@ function fail(folder: string, text: string): string {
 test("built-ins: the set is non-empty and shadows nothing a vault could name", () => {
   // The contents used to be a second hand-typed list here, kept in sync by
   // hand with the constant, the dispatch chain, the icon map and two docs.
-  // `scripts/check-kinds.ts` (SUB-995) re-derives all of those from source
+  // `scripts/check-kinds.ts` re-derives all of those from source
   // and fails `npm test` on any divergence, so the copy is gone: this test
   // keeps only what the drift gate cannot know — that a plausible vault
   // folder name is NOT reserved, so bundles are still installable.
@@ -265,7 +265,7 @@ test("hash: bytes and equivalent UTF-8 strings agree", async () => {
 });
 
 /** Known-answer vector. These three files and this digest are frozen: the
-    Rust port (SUB-959) must reproduce the same string from the same bytes,
+    Rust port must reproduce the same string from the same bytes,
     so neither side may quietly change the byte layout. Bytes are hashed
     exactly as written here — no BOM strip, no newline normalization, no
     re-serialization of the manifest. */
@@ -315,7 +315,7 @@ async function bundle(over: Record<string, unknown> = {}, folder = "gear-log"): 
 }
 
 /** A stored consent record. `enabledAt` is stamped by Rust at enable time
- * (SUB-959) and the state machine never reads it, so a fixed value keeps the
+ * and the state machine never reads it, so a fixed value keeps the
  * cases below about the two fields that decide anything. */
 const rec = (hash: string, api = KIND_API): KindEnableRecord => ({
   hash,
@@ -386,7 +386,7 @@ test("state: the charts name collides too", async () => {
   assert.match(s.state === "invalid" ? s.reason : "", /built-in/);
 });
 
-// ---------- dashboard: dispatch (SUB-993) ----------
+// ---------- dashboard: dispatch ----------
 
 test("dispatch: no dashboard prop at all keeps the body scan", () => {
   for (const v of [undefined, "", "   "]) {

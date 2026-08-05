@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Machine-fence lockstep drift check (SUB-1069).
+ * Machine-fence lockstep drift check.
  *
  * Which fenced languages hold app-parsed config rather than prose (vault-format
  * §5) is written out TWICE, in two languages that cannot import each other:
@@ -21,8 +21,8 @@
  * — findable. Five languages exist already and four more fence lanes are in
  * flight, each extending both sides by hand.
  *
- * Same shape as scripts/check-ipc.ts (SUB-428) and scripts/check-kinds.ts
- * (SUB-995): re-derive both inventories mechanically from the checked-in tree,
+ * Same shape as scripts/check-ipc.ts and scripts/check-kinds.ts
+ * re-derive both inventories mechanically from the checked-in tree,
  * compare, fail `npm test` on divergence. Input it cannot parse is thrown,
  * never skipped — a silently skipped inventory is exactly the drift this
  * exists to catch.
@@ -39,17 +39,17 @@
  * parsers do not, so a language that moved between the two groups on one side
  * only is drift even though the union matches. Each language present on both
  * sides then has its SPELLING compared, because a case-folded id and a plain
- * one are the same id and different matchers (SUB-1128: ```HeatMap strips on
+ * one are the same id and different matchers (```HeatMap once stripped on
  * one side only). Then the whole PATTERNS are compared, which catches the
- * grammar drifting even while the lists agree — SUB-983's backtick guard and
- * SUB-913's CRLF opener were each added to both sides by hand, and either
+ * grammar drifting even while the lists agree — the backtick guard and
+ * the CRLF opener were each added to both sides by hand, and either
  * could have missed.
  *
- * All three run INDEPENDENTLY (SUB-1130): a merge that both adds a language on
+ * All three run INDEPENDENTLY: a merge that both adds a language on
  * one side and unfolds another's case would otherwise need one fix-and-re-run
  * per finding, because each depth was gated on the one above coming back clean.
  *
- * `checkUseSites` closes the last structural hole (SUB-1130): everything above
+ * `checkUseSites` closes the last structural hole: everything above
  * compares two DECLARED patterns, and said nothing about whether either side's
  * strip function still runs the pattern that was compared. Both do, by
  * delegation, and that is now asserted rather than assumed.
@@ -89,7 +89,7 @@ const TEMPLATE = "```(?:(?:<TAILED>)(?:[ \\t][^`\\n]*)?|<BARE>)\\r?\\n[\\s\\S]*?
  * `[Vv][Ii][Ee][Ww]`, so case folding lives in the pattern text where both
  * sides can be compared character for character (`foldCase` in fences.ts, and
  * see there for why not the `i` flag). Both holes take the widened token —
- * SUB-1104 folded the tailed group, SUB-1128 then folded `heatmap` inside the
+ * case folding reached the tailed group first, then `heatmap` inside the
  * BARE group, so restricting either hole to plain runs makes the checker refuse
  * the very pattern it exists to compare.
  */
@@ -123,7 +123,7 @@ export type FenceInventory = {
   /**
    * The same two groups as the pattern SPELLS them — `[Vv][Ii][Ee][Ww]`, `csv`
    * — keyed by decoded id. Same ids with different spellings are two different
-   * matchers, and that difference is invisible in the decoded lists (SUB-1128).
+   * matchers, and that difference is invisible in the decoded lists.
    */
   spelling: Record<"tailed" | "bare", Map<string, string>>;
   /** the pattern with the end-of-input alternative normalized to `END` */
@@ -246,7 +246,7 @@ export function parseRustPattern(src: string, label = RUST_REL): string {
  * `machine_fence_re()` a memoized accessor), so a strip function that grew its
  * own inline regex would leave this checker comparing two ornaments and
  * reporting lockstep (verified: both sides stayed green under exactly that edit,
- * SUB-1130).
+ * independent-findings rework).
  *
  * The rule is delegation, not equality of behavior — a mechanical check cannot
  * decide whether two regexes mean the same thing, but it can insist the strip
@@ -370,11 +370,11 @@ export function crossCheck(ts: FenceInventory, rust: FenceInventory): string[] {
       );
     }
     // Spelling, for the languages BOTH sides carry. Independent of the set
-    // findings above (SUB-1130) — a merge that adds a language to one side and
+    // findings above — a merge that adds a language to one side and
     // unfolds another's case on the other has two problems, and reporting the
     // second only after the first is fixed costs a whole extra round trip.
     // `[Hh][Ee][Aa][Tt][Mm][Aa][Pp]` and `heatmap` decode to the same id, so
-    // the set diff cannot see this: it is the SUB-1128 leak exactly — one side
+    // the set diff cannot see this: it is the case-fold leak exactly — one side
     // strips ```HeatMap, the other indexes its config as prose.
     for (const lang of ts[group].filter((l) => b.has(l))) {
       const tsSpelling = ts.spelling[group].get(lang)!;
@@ -408,7 +408,7 @@ export function crossCheck(ts: FenceInventory, rust: FenceInventory): string[] {
     // pattern text: the runs are written in a different order, or one side
     // repeats a language. Both are harmless to the matcher — the third cause
     // that used to land here, a case-fold spelled on one side only, is not, and
-    // now has its own named finding above (SUB-1130). What is left is cosmetic,
+    // now has its own named finding above. What is left is cosmetic,
     // so the patterns themselves are the evidence to look at.
     problems.push(
       "the two sides carry the same languages but not the same LIST — a reorder or a " +

@@ -46,32 +46,32 @@ interface DashboardPaneProps {
   notes: NoteMeta[];
   vaultEpoch: number;
   schema: SchemaConfig;
-  /** pinned views, for workbook `saved:` pages (SUB-464) */
+  /** pinned views, for workbook `saved:` pages */
   savedViews?: SavedView[];
   onOpenSource: (path: string) => void;
   onMutated: () => void;
   onFollowLink?: (name: string) => void;
   /** open a database / saved view full-screen (workbook view pages) */
   onOpenView?: (dbType: string, savedId?: string) => void;
-  /** App's toast — a dashboard action's quiet confirmation (SUB-680). The
-      optional action carries a real verb (the tasks board's Undo, SUB-870);
+  /** App's toast — a dashboard action's quiet confirmation. The
+      optional action carries a real verb (the tasks board's Undo);
       it used to be narrowed to a bare string here, which silently dropped
       App's own second argument on the way down. */
   onToast?: (msg: string, action?: { label: string; run: () => void }) => void;
-  /** create a typed entry inline (SUB-680's release picker create half) */
+  /** create a typed entry inline (the release picker create half) */
   onCreateEntry?: (dbType: string, title: string) => Promise<NoteMeta>;
   /** workbook page stepping (⌃⇥ / ⌃⇧⇥) — wired only while a tab strip renders */
   pageStepRef?: MutableRefObject<((dir: 1 | -1) => void) | null>;
-  /** SUB-490: registered-into while a board with a ⌘Z / ⌘⇧Z stack is mounted,
+  /** Registered-into while a board with a ⌘Z / ⌘⇧Z stack is mounted,
       so the shortcut HUD only advertises the chord where it actually fires */
   dashUndo?: DashUndoStore;
-  /** SUB-1125: Settings.md `task-stale-chips` — the global default for the
+  /** Settings.md `task-stale-chips` — the global default for the
       tasks board's age chips. Defaults on, like the setting itself, so an
       embedded board rendered without it behaves as documented. */
   taskStaleChips?: boolean;
 }
 
-/** Fixed-decimal numbers in the app's de-DE dialect (SUB-282): comma decimals,
+/** Fixed-decimal numbers in the app's de-DE dialect: comma decimals,
     dot grouping — the compact shapes stay ("1,23M €", "0,42 €/min", "4,2" APR).
     The symbol always trails (fmtMoney's placement): one currency position per
     surface, the M rides the number as a magnitude suffix. */
@@ -116,12 +116,12 @@ function YieldDashboard({
     if (last && formPrincipal === "") setFormPrincipal(String(last.principalUsd));
   }, [snapshots]);
 
-  // SUB-318: claiming at the venue resets its displayed balance — the claimed
+  // Claiming at the venue resets its displayed balance — the claimed
   // total lives on the note and entered venue balances add on top of it, so
   // the csv series stays cumulative and APR math never sees the withdrawal.
   const claimedUsd = readClaimedUsd(meta.props);
 
-  // ⌘Z / ⌘⇧Z over board mutations (SUB-323): every add/claim pushes the
+  // ⌘Z / ⌘⇧Z over board mutations: every add/claim pushes the
   // prior {body, claimed} pair; undo restores both through the same write
   // path the mutation used, so the file and the prop stay in step. Stacks
   // are session-local to the open board — the note's history panel remains
@@ -136,7 +136,7 @@ function YieldDashboard({
     redoStack.current = [];
     publishDashUndo(true, false);
   };
-  // Every board mutation lands through here (SUB-542, the food log's SUB-93
+  // Every board mutation lands through here (the food log's
   // shape): the optimistic state is already on screen, so a rejected write
   // must surface AND reload disk truth — otherwise the phantom row reads as
   // saved and the next successful write serializes it into the file.
@@ -250,7 +250,7 @@ function YieldDashboard({
   ] ?? 0;
   const cap = Math.max(medRate * 2.5, 10);
 
-  // Full history on demand (SUB-327): the table opens on the recent 8, and a
+  // Full history on demand: the table opens on the recent 8, and a
   // toggle under it walks back to the earliest snapshot — the start of the
   // series shouldn't require opening the source note.
   const [showAll, setShowAll] = useState(false);
@@ -482,10 +482,10 @@ function YieldDashboard({
   );
 }
 
-/** `dashboard: charts` (SUB-993) — the chart-fence renderer by name, fences
+/** `dashboard: charts` — the chart-fence renderer by name, fences
     or not. Reads the body the same way `ChartOrYield` does — heatmap fences
     included, hung under the charts: naming the kind must not silently drop a
-    fence the same body renders when the kind is left off (SUB-966). An empty
+    fence the same body renders when the kind is left off. An empty
     body renders the charts shell with no sections rather than a wrong tracker. */
 function ChartsByKind(props: DashboardPaneProps) {
   const body = useNoteBody(props.meta.path, props.vaultEpoch, props.meta.sealed);
@@ -503,7 +503,7 @@ function heatmapAfter(props: DashboardPaneProps, body: string) {
   ) : undefined;
 }
 
-/** An unrecognized `dashboard:` value (SUB-993): a quiet inline card naming
+/** An unrecognized `dashboard:` value: a quiet inline card naming
     the reason, in the `.chart-err` idiom the view fences already use for an
     unknown database. Never the yield tracker — that fallback belongs to
     notes that name no kind at all. */
@@ -523,7 +523,7 @@ function UnknownKindDashboard({ message, ...props }: DashboardPaneProps & { mess
   );
 }
 
-/** A built-in kind whose renderer never landed (SUB-1021): BUILT_IN_KINDS
+/** A built-in kind whose renderer never landed: BUILT_IN_KINDS
     names it, the if-chain above has no branch for it, so it fell through.
     scripts/check-kinds.ts fails the build on that gap, which makes this card
     unreachable in a shipped build — it exists because the alternative when it
@@ -546,13 +546,13 @@ function MissingKindDashboard({ message, ...props }: DashboardPaneProps & { mess
   );
 }
 
-/** Default dashboards: a ```chart fence declares chart blocks (SUB-33), a
-    ```heatmap fence a year grid (SUB-966), a ```calendar fence a month grid
-    (SUB-965); without any of them the note is a yield tracker (the original
+/** Default dashboards: a ```chart fence declares chart blocks, a
+    ```heatmap fence a year grid, a ```calendar fence a month grid;
+    without any of them the note is a yield tracker (the original
     dashboard). A note carrying both charts and heatmaps leads with its charts
     and hangs the heatmaps under them, so neither fence goes unrendered for
     having been written second. Reached only by a note with NO `dashboard:`
-    prop (SUB-993) — a named-but-unknown kind gets the error card instead. */
+    prop — a named-but-unknown kind gets the error card instead. */
 function ChartOrYield(props: DashboardPaneProps) {
   const body = useNoteBody(props.meta.path, props.vaultEpoch, props.meta.sealed);
   // only a cold read reaches here now — a remount paints from the seed
@@ -567,7 +567,7 @@ function ChartOrYield(props: DashboardPaneProps) {
 }
 
 /** One dashboard note rendered by its dashboard: kind — the single dispatch
-    both the plain pane and workbook pages (SUB-464) go through. */
+    both the plain pane and workbook pages go through. */
 function DashboardBody(props: DashboardPaneProps) {
   const named = propStr(props.meta.props, "dashboard");
   const resolved = resolveDashboardKind(named);
@@ -575,12 +575,12 @@ function DashboardBody(props: DashboardPaneProps) {
   const custom = resolved.dispatch === "unknown";
   const bundles = useKindBundles(custom, props.vaultEpoch);
 
-  // no `dashboard:` prop at all — the legacy body scan (SUB-33)
+  // no `dashboard:` prop at all — the legacy body scan
   if (resolved.dispatch === "body-scan") return <ChartOrYield {...props} />;
   if (custom) {
     // Still asking the backend — never the fallback, and never a "no such
     // kind" card for a kind that may well be installed. The head renders
-    // anyway (SUB-960 review): "the pane never blanks" has to hold for this
+    // anyway: "the pane never blanks" has to hold for this
     // beat too, and the title and source button are known before the bundle
     // list is. No state label: nothing is wrong yet, it just isn't answered.
     if (bundles === null) {
@@ -628,7 +628,7 @@ function DashboardBody(props: DashboardPaneProps) {
   if (kind === "music-work") return <MusicWorkDashboard {...props} />;
   if (kind === "tasks") return <TasksDashboard {...props} />;
   // Everything past here reached the tail. A name that landed in
-  // BUILT_IN_KINDS before its renderer did says so (SUB-1021) instead of
+  // BUILT_IN_KINDS before its renderer did says so instead of
   // rendering an empty chart shell that looks like a dashboard with no data.
   const tail = resolveDispatchTail(kind);
   if (tail.tail === "missing-renderer") return <MissingKindDashboard {...props} message={tail.message} />;
@@ -637,7 +637,7 @@ function DashboardBody(props: DashboardPaneProps) {
 }
 
 export default function DashboardPane(props: DashboardPaneProps) {
-  // a pages: list makes the dashboard a workbook (SUB-464); page 0 is this
+  // a pages: list makes the dashboard a workbook; page 0 is this
   // note's own kind. A dashboard rendered AS a page comes back through
   // renderDashboard with the page note's meta — parsePages is never consulted
   // for it, so a nested workbook renders flat: one tab strip, no recursion.

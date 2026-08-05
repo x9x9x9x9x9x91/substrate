@@ -6,13 +6,13 @@ import { openFilter } from "./nav";
 //  (1) anything iterating a type's schema entries must skip non-prop values —
 //      0.8.0 shipped a filterHint loop that did `schema.options[0]` on the
 //      icon entry and blanked every db view on vaults with db icons;
-//  (2) a homed db's saved views stay OUT of the sidebar tree (SUB-391) —
+//  (2) a homed db's saved views stay OUT of the sidebar tree —
 //      they live as tabs inside the database view only.
 
 async function openZhome(page: Page) {
   await page.goto("/");
   await expect(page.locator(".side-item").first()).toBeVisible();
-  // the homed db's tree row keeps its FOLDER name (SUB-611), db icon + chip
+  // the homed db's tree row keeps its FOLDER name, db icon + chip
   const row = page.locator(".side-folder", { hasText: "ZHome" });
   await expect(row).toHaveCount(1);
   await row.click();
@@ -51,7 +51,7 @@ test("a homed db's saved views stay out of the sidebar; the tab strip owns them 
 
   // opening the pin's tab renders the saved pane (this path hit the same
   // 0.8.0 crash) — the db title stays the db's, the pin rides the active tab
-  // with its ⌘-digit (SUB-677: the tab is this pin's ONLY row anywhere)
+  // with its ⌘-digit (the tab is this pin's ONLY row anywhere)
   await page.locator(".db-tab", { hasText: "Active ones" }).click();
   await expect(page.locator(".list-title")).toHaveText("Zhome");
   await expect(page.locator(".db-tab.active")).toHaveText("Active ones⌘5");

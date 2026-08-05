@@ -672,7 +672,7 @@ test("aggregate: scalar non-strings still label (numbers, booleans)", () => {
   );
 });
 
-// ---------- named binding misses (SUB-749) ----------
+// ---------- named binding misses ----------
 
 test("aggregate: a renamed sheet column is named, not 'No rows matched' (SUB-749)", () => {
   // the issue's repro: the chart binds y: sum:value_usd, the grid renames the
@@ -829,7 +829,7 @@ test("chartTitle: explicit title wins, else derived", () => {
   );
 });
 
-// ---------- summary binding (SUB-745) ----------
+// ---------- summary binding ----------
 
 /** the shape the issue names: bucket totals live as summaries (a COUNTIF /
     SUMIF set), NOT as materialized bucket rows */
@@ -982,7 +982,7 @@ test("parseChartBlocks: summary fences parse alongside row fences (SUB-745)", ()
   assert.equal(blocks[1].config?.bind, "rows");
 });
 
-// ---------- `by:` multi-series (SUB-941) ----------
+// ---------- `by:` multi-series ----------
 
 test("parse: by names the split field; absent means null (SUB-941)", () => {
   const split = parseRow("source: expense\nx: spent:month\ny: sum:amount\nby: category\n");
@@ -1154,7 +1154,7 @@ test("chartTitle: a by split is spoken in the derived title (SUB-941)", () => {
   );
 });
 
-// ---------- history fences (SUB-832 §3.3) ----------
+// ---------- history fences (spec §3.3) ----------
 
 const at = (day: string) => new Date(`${day}T12:00:00`).getTime();
 
@@ -1303,9 +1303,9 @@ test("history fence: title and footer speak the fact, not a source", () => {
   assert.equal(chartSourceDesc(c), "history: Assets/BTC.md#price");
 });
 
-// ---------- band ramp slots (SUB-1062) ----------
+// ---------- band ramp slots ----------
 
-/** the ramp SUB-952 applies: five treatments, walked from the top */
+/** the ramp the band slots apply: five treatments, walked from the top */
 const RAMP = 5;
 const bandsOf = (...names: string[]) => names.map((name) => ({ name }));
 const slotsFor = (memory: BandSlotMemory, ...names: string[]) =>
@@ -1375,7 +1375,7 @@ test("assignBandSlots: an absent series holds its slot while the ramp has room",
   assert.deepEqual(slotsFor(memory, "etf", "crypto", "gold"), [0, 1, 2]);
 });
 
-// ---------- chart identity (SUB-1062) ----------
+// ---------- chart identity ----------
 
 test("chartIdentity: the same split on the same source is the same chart", () => {
   const a = cfg({ by: "bucket" });

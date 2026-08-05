@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-477 slice 1: property edits are on the app's undo stack (docs/undo.md
+// Slice 1: property edits are on the app's undo stack (docs/undo.md
 // §6.1, tests 14–17). Every surface writes through setPropUndoable, so ⌘Z
 // takes back the last property edit — and refuses to when the note changed
 // on disk underneath it, rather than clobbering the other writer.
@@ -11,7 +11,7 @@ function row(page: Page, title: string) {
 }
 
 /** the data-column index of a prop, read off the table header (title first) —
-    headers render display-capitalized (SUB-255), so match case-insensitively */
+    headers render display-capitalized, so match case-insensitively */
 async function colIndex(page: Page, col: string) {
   return page
     .locator(".db-table thead th")
@@ -73,7 +73,7 @@ test("a bulk write over 3 rows reverts in one keystroke", async ({ page }) => {
   await expect(cellOf("Annelies")).toHaveText("radio plugger");
 });
 
-// 16 — the SUB-287 pattern at property granularity
+// 16 — the pattern at property granularity
 test("⌘Z refuses after an external change and the outside value survives", async ({ page }) => {
   await page.goto("/");
   await openDb(page, "Contact");
@@ -85,7 +85,7 @@ test("⌘Z refuses after an external change and the outside value survives", asy
   await expect(cell()).toHaveText("booking");
 
   // someone else rewrites that same property; wait out the own-write echo
-  // window (SUB-116) so the change reads as external, not as our own echo
+  // window so the change reads as external, not as our own echo
   await page.evaluate(() => window.__mockEditProp!("Gero.md", "role", "radio plugger"));
   await page.waitForTimeout(1100);
   await page.evaluate(() => window.__mockEmit!("vault:changed"));
@@ -96,7 +96,7 @@ test("⌘Z refuses after an external change and the outside value survives", asy
   await expect(cell()).toHaveText("radio plugger");
 });
 
-// 16b — a non-conflict failure must not jam the stack (SUB-477 review finding)
+// 16b — a non-conflict failure must not jam the stack
 test("an inverse that fails outright is skipped, not retried forever", async ({ page }) => {
   await page.goto("/");
   await openDb(page, "Contact");

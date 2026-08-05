@@ -1,4 +1,4 @@
-/** Mounts on a dashboard (SUB-982): the binding layer that lets a chart fence
+/** Mounts on a dashboard: the binding layer that lets a chart fence
  *  and a metric card read a mounted folder's live index the way they already
  *  read a database or a sheet.
  *

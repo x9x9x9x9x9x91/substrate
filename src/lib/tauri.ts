@@ -54,7 +54,7 @@ export const setHistoryReadOnly = (active: boolean) => {
   historyReadOnly = active;
 };
 
-/* SUB-822: the guard is an ALLOW-list, not a deny-list. The first shape only
+/* The guard is an ALLOW-list, not a deny-list. The first shape only
    denied `history_*`/`vault_*` plus three names, so every other family passed
    by default — sync_control could push the historical projection to a remote,
    jobs_control could run a job against it, term_spawn could open a shell in a
@@ -71,7 +71,7 @@ const HISTORY_MODE_COMMANDS = new Set([
   "history_points",
   "history_vault_snapshot",
   "history_restore",
-  /* the time-travel query reads (SUB-832): pure git revwalks, no working-tree
+  /* the time-travel query reads: pure git revwalks, no working-tree
      touch — a sheet scrubbed into the past may still ask what a fact was */
   "history_facts",
   "history_sheets",
@@ -98,7 +98,7 @@ const HISTORY_MODE_COMMANDS = new Set([
   "vault_views_read",
   "vault_schema_read",
   "vault_saved_views_read",
-  /* SUB-810: reads one line of device-local config (where a pin exports to);
+  /* Reads one line of device-local config (where a pin exports to);
      touches no vault, writes nothing. The export/forget writes stay blocked. */
   "view_export_target",
   "vault_sidebar_order",
@@ -119,45 +119,45 @@ function blockedByHistoryMode(cmd: string): boolean {
   return !HISTORY_MODE_COMMANDS.has(cmd);
 }
 
-/* e2e hooks into the mock backend (SUB-156/SUB-158), all prefixed `__mock`:
+/* e2e hooks into the mock backend, all prefixed `__mock`:
    __mockFail is created by specs themselves; the rest are installed by the
    mock-only block at the bottom of this file, so the shipped app never has
    them. */
 declare global {
   interface Window {
-    /** command names the mock should reject with `mock failure: <cmd>` (SUB-156) */
+    /** command names the mock should reject with `mock failure: <cmd>` */
     __mockFail?: Set<string>;
-    /** fire the mock event registry — the vault:changed lane (SUB-158) */
+    /** fire the mock event registry — the vault:changed lane */
     __mockEmit?: (event: string, payload?: unknown) => void;
-    /** mutate a mock note's body out-of-band, like an external editor (SUB-158) */
+    /** mutate a mock note's body out-of-band, like an external editor */
     __mockEditNote?: (path: string, body: string) => void;
-    /** remove a mock note out-of-band — a file deleted outside the app (SUB-506) */
+    /** remove a mock note out-of-band — a file deleted outside the app */
     __mockDeleteNote?: (path: string) => void;
     /** clone a mock note under a new path — focused navigation specs use this
         to stage two dashboards of the same renderer without bloating seeds */
     __mockCloneNote?: (sourcePath: string, path: string) => void;
     /** same, one frontmatter property — what an outside editor changing a
-        prop looks like to the undo guard (SUB-477) */
+        prop looks like to the undo guard */
     __mockEditProp?: (path: string, key: string, value: unknown) => void;
     /** replace one mock schema entry like a hand edit on disk; public schema
         writes reject the duplicate identities this regression hook stages */
     __mockEditSchema?: (dbType: string, props: Record<string, PropSchema>) => void;
-    /** stub the settings pane's terminal-font availability check (SUB-873):
+    /** stub the settings pane's terminal-font availability check:
         the real one measures canvas text, and whether an unknown family is
         dropped (CoreText) or substituted (fontconfig) is platform-specific,
         so a spec asserting the hint installs deterministic answers here */
     __mockFontAvailable?: (family: string) => boolean;
-    /** bump a mock asset's mtime — a re-bounce under the same name (SUB-158) */
+    /** bump a mock asset's mtime — a re-bounce under the same name */
     __mockTouchAsset?: (name: string) => void;
-    /** drop an asset straight into the mock .assets store — no app write (SUB-289) */
+    /** drop an asset straight into the mock .assets store — no app write */
     __mockSaveAsset?: (name: string, data: string) => void;
     /** pretend the saved view named `viewName` has already been exported to
-        `dest` (SUB-810). The real first export goes through a native folder
+        `dest`. The real first export goes through a native folder
         dialog, which no browser spec can drive, so the remembered-target
         state is staged; the pin is named rather than id'd because ids are
         generated inside the app. */
     __mockSetExportTarget?: (viewName: string, dest: string) => void;
-    /** put a `.vault/reflexes.json` in the mock vault (SUB-826). A rules file
+    /** put a `.vault/reflexes.json` in the mock vault. A rules file
         can ARRIVE on a device the app never armed — synced vault, restored
         backup — and that first-seen state is the one the settings section has
         to show as paused behind a switch, so a spec has to be able to stage
@@ -165,42 +165,42 @@ declare global {
         different switch from consent. */
     __mockStageReflexesFile?: (opts?: { filePaused?: boolean }) => void;
     /** opt-in: completed note-mutating commands echo vault:changed, debounced
-        like the engine's watcher (SUB-296) */
+        like the engine's watcher */
     __mockSetEchoOnWrites?: (on: boolean) => void;
-    /** opt-in: command execution defers so IPC completion is never synchronous
-        (SUB-295). true → small random timeout (thread-pool reorder);
+    /** opt-in: command execution defers so IPC completion is never synchronous.
+        true → small random timeout (thread-pool reorder);
         "microtask" → minimal defer that out-races React's scheduled
-        re-render — the production resolution class behind the SUB-305
+        re-render — the production resolution class behind the restore race,
         restore race, which the random timeout is too slow to reach */
     __mockSetAsync?: (on: boolean | "microtask") => void;
-    /** SUB-946: hold every call to `cmd` open for `ms` before it runs — a
+    /** Hold every call to `cmd` open for `ms` before it runs — a
         deterministic slow disk. `__mockHoldCommand` parks a command
         indefinitely; this one lets it land on its own, which is what proving
         "the paint happened BEFORE the write returned" needs. `ms: 0` clears
         the delay for that command. */
     __mockSetLatency?: (cmd: string, ms: number) => void;
-    /** SUB-946: reject the NEXT call to `cmd` and only that one — `__mockFail`
+    /** Reject the NEXT call to `cmd` and only that one — `__mockFail`
         is a standing set, so with several writes to the same cell in flight it
         refuses all of them. Refusing exactly one is what "a slow write comes
         back refused after the user already retyped" needs. */
     __mockFailOnce?: (cmd: string) => void;
-    /** SUB-771 instrumentation: record write-lane commands plus the FX
+    /** Instrumentation: record write-lane commands plus the FX
         request seam, with args + outcome from now on */
     __mockTraceCommands?: () => void;
-    /** SUB-771 instrumentation: read the recorded command trace */
+    /** Instrumentation: read the recorded command trace */
     __mockReadCommandTrace?: () => unknown[];
     /** hold every call to `cmd` open until `__mockReleaseCommand` — the
         deterministic form of an IPC still in flight while the user navigates
-        away (SUB-550). The random "timeout" mode is too narrow a window to
+        away. The random "timeout" mode is too narrow a window to
         race a note switch against reliably. */
     __mockHoldCommand?: (cmd: string) => void;
-    /** let a held command through (SUB-550) */
+    /** let a held command through */
     __mockReleaseCommand?: (cmd: string) => void;
     /** bulk-seed `count` loose notes into `folder` — the only way to reach a
-        list long enough for ListPane to window (SUB-461) */
+        list long enough for ListPane to window */
     __mockSeedNotes?: (folder: string, count: number) => void;
     /** seed `count` notes that all match `token`, optionally typed and
-        deliberately ranked below the untyped ones (SUB-566) — the only way to
+        deliberately ranked below the untyped ones — the only way to
         push a filtered match past the engine's result cap */
     __mockSeedMatching?: (opts: {
       folder: string;
@@ -211,54 +211,54 @@ declare global {
       noteType?: string;
     }) => void;
     /** stage the no-vault first-run state — the mock vault always exists,
-        so this is the only way to reach the onboarding screen (SUB-436).
+        so this is the only way to reach the onboarding screen.
         Boot resolution happens on mount, so a spec staging first-run must
         set this flag from addInitScript, before the module loads; the
         setter is for flipping it afterwards. */
     __mockFirstRun?: boolean;
     __mockSetFirstRun?: (on: boolean) => void;
-    /** stage a machine with no device key (SUB-889): sealing reports
+    /** stage a machine with no device key: sealing reports
         `device_unlock: false` and the Touch ID lane refuses, so a spec can
         reach the vault-password fallback the real app falls back to */
     __mockNoDeviceUnlock?: boolean;
-    /** stage a scope seal whose history cleanup fails (SUB-889): the files
+    /** stage a scope seal whose history cleanup fails: the files
         encrypt but the marker stays `pending`, which is the only way to reach
         the "Seal conversion pending" UI */
     __mockSealPending?: boolean;
     /** plant a seal marker the way a sync pull or an external writer would
-        (SUB-889): it exists but this device never confirmed it, so it seals
+        — it exists but this device never confirmed it, so it seals
         nothing until the user accepts it in-app */
     __mockPlantSealScope?: (path: string) => void;
-    /** stage a build with no demo vault bundled (SUB-436 review #3) — the
+    /** stage a build with no demo vault bundled — the
         backend refuses rather than opening an empty folder, so a spec needs
         a way to reach the refusal */
     __mockNoDemoVault?: boolean;
     /** read one prop straight out of the mock store — the disk truth a spec
         needs when the rendered chip can't distinguish a list from a joined
-        scalar (SUB-553) */
+        scalar */
     __mockPropOf?: (path: string, key: string) => unknown;
     /** read one note's body straight out of the mock store — the disk truth a
         spec needs when it must check what landed WITHOUT switching notes,
         since a note switch unmounts the pane and flushes on the way out
-        (SUB-551) */
+ */
     __mockBodyOf?: (path: string) => string;
     /** every note path + body in the mock store, for failure-time dumps: when
         a spec fails it often does NOT know which path the note is under (a
         rename may or may not have landed), so the path-keyed readers above
-        can't be used — they throw on a miss (SUB-771) */
+        can't be used — they throw on a miss */
     __mockNotesDump?: () => { path: string; body: string }[];
-    /** which sealed notes the engine still holds an authorization for
-        (SUB-935). No UI surface shows this — the lock screen is decided by the
+    /** which sealed notes the engine still holds an authorization for.
+        No UI surface shows this — the lock screen is decided by the
         pane's own state, so a hold the app forgot to release looks identical
         to a released one on screen. This is the only way a spec can prove
         that leaving a note actually relocked it. */
     __mockSealedUnlocked?: () => string[];
     /** did the app ask to relaunch? a browser mock can't actually restart */
     __mockRelaunched?: () => boolean;
-    /** the agent command onboarding wrote (SUB-804) — null = never called,
+    /** the agent command onboarding wrote — null = never called,
         "" = called as skip */
     __mockAgentCommand?: () => string | null;
-    /** seed a custom kind bundle into the mock lane (SUB-960). The real ones
+    /** seed a custom kind bundle into the mock lane. The real ones
         are files in `.vault/kinds/<id>/` served over a Tauri scheme, neither
         of which a browser spec has; this stages the same `kinds_list` row and
         keeps the file text where the pane's mock loader can find it. Omit
@@ -274,7 +274,7 @@ declare global {
       enabledHash?: string;
       /** override the manifest api recorded at enable time */
       enabledApi?: number;
-      /** seed the standing "trust updates to this kind" rider (SUB-961) */
+      /** seed the standing "trust updates to this kind" rider */
       trustUpdates?: boolean;
     }) => Promise<void>;
     /** drop every seeded bundle — specs that assert the no-kinds path */
@@ -283,17 +283,17 @@ declare global {
     __mockKindFile?: (id: string, file: string) => string | undefined;
     /** park a conflicted merge in the mock "repository" WITHOUT a pull having
         happened in this session — the state a restart leaves behind, where
-        the engine still has the merge but no last result to report (SUB-572) */
+        the engine still has the merge but no last result to report */
     __mockParkConflicts?: () => void;
     /** unbind a mount on "this machine" without touching its index — the
-        other-machine board a dashboard has to keep charting from (SUB-982).
+        other-machine board a dashboard has to keep charting from.
         Pass a folder path to bind it somewhere instead; a path containing
         "missing" is the folder-went-away case. */
     __mockUnbindMount?: (name: string, path?: string) => void;
   }
 }
 
-/** `sealed` is REQUIRED on `NoteMeta` (SUB-935) but stays optional on the
+/** `sealed` is REQUIRED on `NoteMeta` but stays optional on the
     fixture: nearly a hundred seed notes are plaintext, and `meta()` below is
     the single boundary where a fixture becomes a `NoteMeta`, so it fills the
     default there rather than making every literal carry `sealed: false`. */
@@ -302,11 +302,11 @@ interface MockNote extends Omit<NoteMeta, "sealed"> {
   body: string;
   /** vault_read rejects for these — a file that vanished or became unreadable */
   unreadable?: boolean;
-  /** raw frontmatter block, no fences (SUB-430) — tracked only when the
+  /** raw frontmatter block, no fences — tracked only when the
       block's health matters (the repair lane); absent = no block, so
       vault_fm_raw returns null like the engine on a block-less file */
   fm?: string;
-  /** SUB-552: the file opens with `---` and never closes it. The engine sees
+  /** The file opens with `---` and never closes it. The engine sees
       no block at all (split_frontmatter returns None), so `fm` stays absent —
       but prop writes still refuse, and the banner says so without offering a
       repair dialog there is no block to fill. */
@@ -315,15 +315,14 @@ interface MockNote extends Omit<NoteMeta, "sealed"> {
 
 const now = Date.now();
 
-/** An ISO day `d` days from today — the ```progress fixtures (SUB-967) need
+/** An ISO day `d` days from today — the ```progress fixtures need
     deadlines that stay in the future, since a fence's pace line reads against
     the real calendar and a hard-coded date would rot the fixture. Built on
     daysAgoIso so the day is a LOCAL calendar day: a UTC slice would land a day
-    off near local midnight, against the todayIso() the pace line reads
-    (SUB-718). */
+    off near local midnight, against the todayIso() the pace line reads. */
 const isoDay = (d: number) => daysAgoIso(-d, new Date(now));
 
-/* onboarding mock state (SUB-436): the mock vault is always present, so
+/* onboarding mock state: the mock vault is always present, so
    first-run is opt-in via __mockSetFirstRun before the app boots. */
 let mockVaultRoot = "/Users/demo/Vault (mock)";
 let mockFirstRun =
@@ -332,15 +331,15 @@ let mockRelaunched = false;
 let mockAgentCommand: string | null = null;
 let mockSealedPassword: string | null = null;
 /// Mirrors `sealed::MIN_PASSWORD_CHARS` in the backend — the browser mock must
-/// refuse exactly what the real vault refuses (SUB-935).
+/// refuse exactly what the real vault refuses.
 const MOCK_MIN_SEALED_PASSWORD = 12;
 const mockUnlockedSealed = new Set<string>();
 const mockSealScopes = new Set<string>();
 /** scopes whose marker is `pending` — encrypted, history cleanup unfinished */
 const mockPendingSealScopes = new Set<string>();
 /** Scopes whose marker arrived from outside this device and has not been
-    confirmed here. They seal nothing and purge nothing until confirmed
-    (SUB-889). `__mockPlantSealScope` plants one the way a sync pull would,
+    confirmed here. They seal nothing and purge nothing until confirmed.
+    `__mockPlantSealScope` plants one the way a sync pull would,
     which is the only way to get into this state. */
 const mockUnconfirmedSealScopes = new Set<string>();
 const mockDeviceUnlock =
@@ -351,7 +350,7 @@ const mockSealStaysPending = () =>
 function mockScopeApplies(path: string): boolean {
   if (path === "Settings.md" || path === "AGENTS.md" || path === "CLAUDE.md") return false;
   const folder = mockFolderOf(path);
-  // an unconfirmed marker seals nothing (SUB-889)
+  // an unconfirmed marker seals nothing
   return [...mockSealScopes].some(
     (scope) =>
       !mockUnconfirmedSealScopes.has(scope) &&
@@ -378,7 +377,7 @@ const day = (offset: number) => {
    Static Bouquet (GC must leave it alone); `stale-screenshot.png` and
    `old-bounce.wav` are orphaned on purpose so the Assets pane has both an image
    and a non-image row to find in the browser. `some.pdf` backs the file-chip
-   lane (SUB-202) — chips never decode the payload, so a stub suffices. */
+   lane — chips never decode the payload, so a stub suffices. */
 const PIXEL_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
@@ -407,12 +406,12 @@ mockAssets.set(
   )
 );
 
-/* Per-name asset mtimes (SUB-158): vault_asset_info reads from here so an e2e
+/* Per-name asset mtimes: vault_asset_info reads from here so an e2e
    re-bounce (window.__mockTouchAsset) changes the asset's cacheKey — the
    constant 1 made the audio-player rebind lane unreachable from specs. */
 const mockAssetMtimes = new Map<string, number>();
 
-/* SUB-812: the loose (non-.md) files a folder view lists as rows, per folder.
+/* The loose (non-.md) files a folder view lists as rows, per folder.
    Notes live in mockNotes; these are the rest of what sits on disk beside
    them. Nothing under `.assets/` appears here and nothing here is an asset —
    that separation IS the dedupe rule the real engine enforces by skipping
@@ -469,7 +468,7 @@ const mockNotes: MockNote[] = [
     excerpt: "This is the Inbox. ⌘N drops new notes here instantly.",
     body: "This is the Inbox. ⌘N drops new notes here instantly — file them later by adding them to a database, or don't.\n",
   },
-  /* The seeded agent orientation files (SUB-831): indexed like the real
+  /* The seeded agent orientation files: indexed like the real
      engine indexes them, concealed by the App-side filter unless Settings.md
      says `show-agent-files: true` — which is exactly what the e2e spec
      exercises. Bodies are stand-ins, not the shipped seed text. */
@@ -544,7 +543,7 @@ const mockNotes: MockNote[] = [
     body: "Artwork and visual direction — the blue series and beyond.\n",
   },
   {
-    // SUB-430: one note whose frontmatter block is broken (duplicate key).
+    // One note whose frontmatter block is broken (duplicate key).
     // props carry the lenient last-wins read like the engine's parse_props;
     // the fm field is the verbatim block the repair lane surfaces. Untyped
     // and filed in its own folder so no count-based spec sees it.
@@ -559,7 +558,7 @@ const mockNotes: MockNote[] = [
     fm: "status: draft\nstatus: review\ncreated: 2026-07-17\n",
   },
   {
-    // SUB-552: the opening fence is never closed, so the engine reads the
+    // The opening fence is never closed, so the engine reads the
     // file as having no frontmatter at all — props are empty and the whole
     // text is body. Prop edits still refuse (they would otherwise serialize
     // a fresh block on top and demote every property to text), and the
@@ -595,7 +594,7 @@ const mockNotes: MockNote[] = [
     body: "Portfolio tracker — rows are data; the formulas block computes columns and totals.\n\n```csv\nasset,bucket,units,price_usd\nGLOW,etf,1200,31.4\nBTC,crypto,4.1,64200\nARC,etf,80,92.5\nETH,crypto,9,3050\n```\n\n```formulas\nvalue_usd = units * price_usd\nvalue_eur = value_usd * FX(\"USD\",\"EUR\")\n\ntotal     = SUM(value_eur)\ncrypto    = SUMIF(bucket, \"crypto\", value_eur)\netf       = SUMIF(bucket, \"etf\", value_eur)\nrest      = total - crypto\npositions = COUNT(units)\nmax_pos   = MAX(value_eur)\ngrand_total = total + Cash.cash_total\n```\n",
   },
   {
-    // SUB-937 fixture: the fixed-costs shape — twelve named summaries, most
+    // fixture: the fixed-costs shape — twelve named summaries, most
     // of them describing one column, which is what fills the totals row and
     // leaves the footer to the few that can't be placed.
     path: "Fixed Costs.md",
@@ -646,7 +645,7 @@ const mockNotes: MockNote[] = [
     body: "Cards are bound to summaries on the [[Holdings]] sheet — edit `cards` in this note's frontmatter.\n",
   },
   {
-    // workbook pages (SUB-464): metrics page 0 + a sheet page, a view page,
+    // workbook pages: metrics page 0 + a sheet page, a view page,
     // and one broken entry — the e2e spec walks all four tabs
     path: "Dashboards/Label Books.md",
     stem: "Label Books",
@@ -688,7 +687,7 @@ const mockNotes: MockNote[] = [
     body: "Sample release note. Artwork proofs due Friday; master approved.\n",
   },
   {
-    // hub note seed (SUB-86): prose plus a ```view fence over the release db,
+    // hub note seed: prose plus a ```view fence over the release db,
     // so the inline-embed render path shows on boot
     path: "Projects/Umbra.md",
     stem: "Umbra",
@@ -708,7 +707,7 @@ const mockNotes: MockNote[] = [
     updated_ms: now - 20 * 60_000,
     excerpt: "Daily morning weigh-ins.",
     // fixed history feeds the Overview chart; the three day-relative rows at
-    // the end feed the food pane's weight overlay (SUB-707), sparse on purpose
+    // the end feed the food pane's weight overlay, sparse on purpose
     // so the line has gaps to bridge on any date the suite runs
     body: `Daily morning weigh-ins.\n\n\`\`\`csv\ndate,kg\n2026-07-01,78.9\n2026-07-02,78.6\n2026-07-03,78.8\n2026-07-04,78.4\n2026-07-05,78.5\n2026-07-06,78.2\n2026-07-07,78.3\n2026-07-08,77.9\n2026-07-09,78.1\n2026-07-10,77.8\n2026-07-11,78.0\n2026-07-12,77.7\n2026-07-13,77.9\n2026-07-14,77.6\n${day(-9)},78.4\n${day(-5)},78.0\n${day(0)},77.4\n\`\`\`\n`,
   },
@@ -723,7 +722,7 @@ const mockNotes: MockNote[] = [
     body: "Charts over the label databases and sheets. Each block below is a `chart` fence in this note — edit the text to reconfigure.\n\n```chart\nsource: release\nx: released:month\ny: count\nkind: bar\ntitle: Releases per month\n```\n\n```chart\nsource: release\nx: status\ny: count\nkind: bar\ntitle: Releases by status\n```\n\n```chart\nsource: {{Weight Log}}\nx: date:day\ny: avg:kg\nkind: line\ntitle: Weight (kg)\n```\n\n```chart\nsource: {{Holdings}}\nx: bucket\ny: sum:value_usd\nkind: bar\ntitle: Holdings by bucket\n```\n",
   },
   {
-    // subfoldered dashboard seed (SUB-466): lives one level below the
+    // subfoldered dashboard seed: lives one level below the
     // dashboards' home folder, so the sidebar renders it under a "Releases"
     // group header instead of in the flat list
     path: "Dashboards/Releases/Label Health.md",
@@ -736,12 +735,12 @@ const mockNotes: MockNote[] = [
     body: "Release pipeline health for the label.\n\n```chart\nsource: release\nx: status\ny: count\nkind: bar\ntitle: Releases by status\n```\n",
   },
   {
-    // hub dashboard seed (SUB-189): `dashboard: hub` — the body is ordinary
+    // hub dashboard seed: `dashboard: hub` — the body is ordinary
     // markdown; the hub renderer lays `##` sections out with consecutive
     // callouts as side-by-side cards, the rest in linear flow. Old
     // updated_ms keeps it out of the Today recency grid; the title sorts
     // between Portfolio and Yield APR in the sidebar.
-    // The two trailing ```view fences are SUB-860's fixture: `## People`
+    // The two trailing ```view fences are the fixture: `## People`
     // resolves against the four `type: contact` notes and renders a live
     // table, `## Broken` names a database that does not exist and must show
     // its error in place without taking the sections around it down.
@@ -758,7 +757,7 @@ const mockNotes: MockNote[] = [
       "```\n\n## People\n\n```view\ntype: contact\nview: table\n```\n\n## Release arc\n\n```timeline\nsource: release\nstart: created\nend: released\nlabel: title\ngroup: status\n```\n\n## Broken\n\n```view\ntype: nosuchtype\n```\n\n```chart\nsource: release\nx: status\ny: nonsense\n```\n\n```progress\nlabel: Broken goal\nvalue: count\ntarget: 5\n```\n\n```timeline\nsource: release\nstart: created\n```\n",
   },
   {
-    // progress fence seed (SUB-967): a hub body can be only progress fences,
+    // progress fence seed: a hub body can be only progress fences,
     // which is the standalone fence form without inventing another dashboard
     // kind. It carries a sheet bind, a database count and one malformed fence.
     path: "Dashboards/Goals.md",
@@ -777,7 +776,7 @@ const mockNotes: MockNote[] = [
       "```progress\nlabel: Broken goal\nvalue: count\ntarget: 5\n```\n",
   },
   {
-    // tasks dashboard seed (SUB-732): a read-only cut of task notes. Areas is
+    // tasks dashboard seed: a read-only cut of task notes. Areas is
     // an allowlist (YAML lists and comma text both work); stale_days controls
     // when age raises a row out of the quiet layer.
     path: "Dashboards/Tasks.md",
@@ -796,7 +795,7 @@ const mockNotes: MockNote[] = [
     body: "A read-only attention view over task notes. Configure its area allowlist and stale threshold in this note's frontmatter.\n",
   },
   {
-    // food dashboard seed (SUB-325): `dashboard: food` — config props only,
+    // food dashboard seed: `dashboard: food` — config props only,
     // rows live in the Food Log sheet below. Old updated_ms keeps it out of
     // the Today recency grid.
     path: "Dashboards/Calories.md",
@@ -829,7 +828,7 @@ const mockNotes: MockNote[] = [
     body: `Daily food log — net kcal, negative = exercise.\n\n\`\`\`csv\ndate,food,kcal,protein_g\n${day(-3)},Chicken bowl,650,45\n${day(-3)},Skyr,180,30\n${day(-3)},Toast,700,20\n${day(-2)},"Pasta, alla vodka",815,24\n${day(-1)},Ramen,700,40\n${day(-1)},Flat white,90,6\n${day(-1)},Tortellini,780,32\n${day(-1)},Porridge,320,20\n${day(0)},Chicken bowl,650,45\n${day(0)},Gym,-300,\n\`\`\`\n`,
   },
   {
-    // the food dashboard's DB (SUB-408): stable kcal bases the autocomplete
+    // the food dashboard's DB: stable kcal bases the autocomplete
     // prices from, one per basis kind. Names keep clear of the seeded log
     // foods so the log-memory fixtures (Flat white placeholder, Ramen accept)
     // keep exercising the log-only path. Old updated_ms: out of Today's
@@ -844,9 +843,9 @@ const mockNotes: MockNote[] = [
     body: "Food kcal bases — per 100 g, 100 ml, or unit.\n\n```csv\nname,kcal,per,protein\nChevroux,265,100g,18\nClub Mate,25,100ml,\nEggs,80,x,7\n```\n",
   },
   {
-    // feed dashboard seed (SUB-518): `dashboard: feed` — config props only,
+    // feed dashboard seed: `dashboard: feed` — config props only,
     // items live in the News Items sheet below. `curated` renders verbatim;
-    // day-relative so the pane's ~36h staleness dot (SUB-699) stays quiet by
+    // day-relative so the pane's ~36h staleness dot stays quiet by
     // default — specs that want it stale rewrite the prop. Old updated_ms
     // keeps it out of the Today recency grid.
     path: "Dashboards/News.md",
@@ -879,7 +878,7 @@ const mockNotes: MockNote[] = [
     body: `Curated news rows — the app writes only the fb column.\n\n\`\`\`csv\ndate,topic,title,source,url,blurb,why,fb\n${day(0)},plugins,"Zynaptiq ships Morph 3, realtime now",CDM,https://cdm.link/example/morph3,"Spectral morph between two sources, low enough latency to play live.","Ada Voss's spectral chain is all offline — this one she could perform with.",up\n${day(0)},hardware,M8 firmware 4.2 adds per-track sends,Dirtywave,https://dirtywave.com/example/m8-42,"Two global send busses, addressable per track.","The Slow Bloom sketches lose their space in the DAW; sends travel with the song.",\n${day(0)},scene,Umbra announces a four-date label night,Resident Advisor,,"Four nights across autumn, lineup in waves.","chroma weather plays the second date — first live set since the mixes went out.",\n${day(-1)},ai,Open-weights stem separator beats Demucs on drums,Hacker News,https://news.ycombinator.com/example/stems,"Runs locally, ~2x realtime on Apple silicon.","Archive salvage: the variants with no stems could get usable ones.",down\n${day(-1)},wild,A granular synth built inside a spreadsheet,lines,https://llllllll.co/example/sheet-granular,"12000 formula cells scheduling grains at 30fps.","Filed purely because it is a good trick — no deadline attached.",\n\`\`\`\n`,
   },
   {
-    // music-work dashboard seed (SUB-595): `dashboard: music-work` — config
+    // music-work dashboard seed: `dashboard: music-work` — config
     // props only, the jobs live in the Work Index sheet below
     path: "Dashboards/Music Work.md",
     stem: "Music Work",
@@ -911,7 +910,7 @@ const mockNotes: MockNote[] = [
     body: "Scanned production jobs — written by the nightly tree scan, never hand-edited.\n\n```csv\ncategory,client,job,year,last_active,files,size_mb,flags\nMASTERING,Ada Voss,Voss Signal,2026,2026-06-13,318,23949,\nMASTERING,Mira,mira master v2,2026,2026-03-02,12,340,\nMASTERING,Mira,Fern Static,2025,2026-07-29,51,1392,name 2025 vs files 2026\nMIXING,Juno Marek,ep4,2026,2026-07-18,196,14324,\nMIXING,Mira,\"mira adjust, alt take\",2026,2026-01-06,3,0,\nMIXING,Halo Ferry,drums session,2025,2025-11-02,88,6210,\nOWN WORK,NIGHT CIRCUIT (2026),night circuit,2026,2026-06-01,10,280,\nOWN WORK,COLLABS,Lila,2024,2024-01-23,54,3880,\n```\n",
   },
   {
-    /* A mount sidecar (SUB-888) whose file is no longer in the mounted folder:
+    /* A mount sidecar whose file is no longer in the mounted folder:
        the annotations survive, the row renders missing. Sidecars live under
        Mounts/<mount name>/ and bind by content identity, not by path. */
     path: "Mounts/finance-doc/2025-11 Invoice Old Vendor.md",
@@ -952,7 +951,7 @@ const mockNotes: MockNote[] = [
       status: "doing",
       area: "Studio",
       priority: "High",
-      // pinned to the board's Now section (SUB-786) — hand-picked focus,
+      // pinned to the board's Now section — hand-picked focus,
       // so its 46-day age raises no stale finding there
       now: true,
       due: day(2),
@@ -989,7 +988,7 @@ const mockNotes: MockNote[] = [
       status: "todo",
       area: "Label",
       priority: "Medium",
-      // snoozed off the tasks board until next week (SUB-786) — counted in
+      // snoozed off the tasks board until next week — counted in
       // the header tally, hidden from the groups. Other surfaces (database
       // views, Today) ignore snoozed_until by design.
       snoozed_until: day(7),
@@ -1002,7 +1001,7 @@ const mockNotes: MockNote[] = [
   },
   {
     // overdue: due two days ago — the named overdue fixture the loosened
-    // e2e floor asserts by title (SUB-182 added three overdue-adjacent tasks)
+    // e2e floor asserts by title (the seed adds three overdue-adjacent tasks)
     path: "Tasks/Renew Bandcamp plan.md",
     stem: "Renew Bandcamp plan",
     title: "Renew Bandcamp plan",
@@ -1040,7 +1039,7 @@ const mockNotes: MockNote[] = [
     body: "Full-album pass on the big speakers, notes after.\n",
   },
   {
-    // SUB-270: the timed lane — a date prop carrying HH:MM on the same day as
+    // The timed lane — a date prop carrying HH:MM on the same day as
     // the all-day session above, so e2e can assert all-day-first ordering and
     // the pill's time. updated_ms stays old: Recent's top 8 must not move
     path: "Calendar/Label sync call.md",
@@ -1053,7 +1052,7 @@ const mockNotes: MockNote[] = [
     body: "Weekly sync — pressing schedule and the SMP-031 budget.\n",
   },
   {
-    // SUB-646: the ranged lane — a same-day `start/end` date prop, so e2e can
+    // The ranged lane — a same-day `start/end` date prop, so e2e can
     // assert the week canvas draws the real duration instead of a default
     // hour. It deliberately CONTAINS the 14:00 call above, which pins the
     // overlap half: the two have to share lanes. updated_ms stays old for the
@@ -1072,7 +1071,7 @@ const mockNotes: MockNote[] = [
     body: "Full day on the lathe — levels, depth, and a test cut per hour.\n",
   },
   {
-    // listed but unreadable — the vanished-file empty state (SUB-54) has a
+    // listed but unreadable — the vanished-file empty state has a
     // deterministic mock lane; sorts last in Recent, never matched by queries
     path: "Inbox/Vanished note.md",
     stem: "Vanished note",
@@ -1099,7 +1098,7 @@ const mockNotes: MockNote[] = [
   },
 ];
 
-/* ── Generated bulk density (SUB-170) ──────────────────────────────────────
+/* ── Generated bulk density ──────────────────────────────────────
    Programmatic fixtures layered on top of the hand-crafted set above, so the
    mock vault reads closer to the real thing (a full label pipeline, a deep
    contacts book, a packed inventory) instead of a toy. Everything derives
@@ -1109,33 +1108,33 @@ const mockNotes: MockNote[] = [
    The e2e suite pins the seeded world hard, which shapes what bulk may do:
    - the sidebar orders its (homeless) database list count-desc then
      alphabetically; the Release > Sheet > Contact > Event > Finance-doc >
-     Gear chain was pinned while the flat sidebar section lived (SUB-159
+     Gear chain was pinned while the flat sidebar section lived (that
      removed it — only per-db counts are asserted now), so seeded counts may
-     grow freely as long as each asserted count is updated in step. SUB-182
+     grow freely as long as each asserted count is updated in step. A later
      grew the calendar-eligible dbs: task 4 → 17 (homed in Tasks/, invisible
      to the flat list — free), event 2 → 4 counterbalanced by contact 2 → 4
      and sheet 3 → 5 (release 5 = sheet 5 and contact 4 = event 4, ties break
-     alphabetically); SUB-270 added the timed event (event 4 → 5). Catalog/
+     alphabetically); the timed event came later (event 4 → 5). Catalog/
      artist/inventory/diary keep clear of the asserted counts. Counts are asserted
      at: smoke db rows/filters (release 5 wholesale; task 17, `due < 7d` →
      "13 of 17", +1 in-test create → 18), db-block "N entries" texts, the
-     folder-trash "5 notes" (SUB-270 added the timed event), and the
+     folder-trash "5 notes" (the seed adds the timed event), and the
      delete-task dialog ("17 entries").
    - the calendar's create-type list is asserted exactly ([event, release,
      task]) and is built from types that hold dated entries, event first then
      alphabetical — count-independent, but no generated note may expose an
      ISO-shaped date in a schema-unruled prop (`created` is always exempt).
      The catalog's `released` keeps ISO values but the schema rules it kind
-     text, which the calendar reads as "not a date". The SUB-182 contacts and
+     text, which the calendar reads as "not a date". The contacts and
      sheets carry no ISO props beyond `created` for the same reason.
    - the Notes scratch list is asserted at exactly 4 untyped rows — every
      generated note carries a type.
    - Today's recency grid tops out at the 8 seeded notes — generated
      updated_ms sit 2+ days in the past (genUpdated), so the top-8 closed set
-     holds even after SUB-182.
+     holds even after those extra tasks.
    - the overdue strip/tray count is a FLOOR in e2e (≥ 1, plural-safe), no
      longer exactly 1: "Renew Bandcamp plan" (day −2) is the named fixture,
-     joined by three overdue-adjacent SUB-182 tasks (day −1/−3/−8).
+     joined by three overdue-adjacent tasks (day −1/−3/−8).
    - search and palette fixtures key on specific words ("lisbon", "inbox",
      "vessel", "rondo", "static", "capture", "Umbra", "Overview") — none
      of them appears in generated titles or bodies. */
@@ -1318,7 +1317,7 @@ const GEAR_CATS = [
 ];
 const GEAR_STATUS = ["in studio", "in studio", "in studio", "loaned out", "in repair", "sold"];
 const GEAR_SPOTS = ["Studio A", "Studio B", "storage"];
-/* product-page links for the url-kind `link` prop (SUB-172) — every fifth
+/* product-page links for the url-kind `link` prop — every fifth
    row carries one, the rest demo the empty-cell lane */
 const GEAR_LINKS = [
   "https://www.aeon.audio/driftbox",
@@ -1338,15 +1337,15 @@ for (let i = 0; i < GEAR_NAMES.length; i++) {
   if (i % 3 !== 0) props.location = pick(GEAR_SPOTS, i);
   if (i % 4 !== 0) props.acquired = String(2015 + ((i * 3) % 11));
   if (i % 5 === 0) props.link = GEAR_LINKS[i / 5];
-  // checkbox kind (SUB-173): every third unit is in the live rig — the
+  // checkbox kind: every third unit is in the live rig — the
   // checked lane; the rest demo unchecked (prop absent, never `false`)
   if (i % 3 === 0) props["in use"] = true;
-  // number kind, euro format (SUB-188): most rows carry a price (a few with
+  // number kind, euro format: most rows carry a price (a few with
   // decimals) — Pellas RP-2 demos the junk lane (renders exactly as typed),
   // every fourth row leaves the cell empty
   if (i === 2) props.price = "ask";
   else if (i % 4 !== 3) props.price = 199 + ((i * 137) % 2400) + (i % 5 === 0 ? 0.5 : 0);
-  // the importer's dedupe stamp (SUB-328) — real migrated rows all carry it;
+  // the importer's dedupe stamp — real migrated rows all carry it;
   // must stay invisible as a column
   props.notion_id = `mock-${String(i).padStart(4, "0")}-c147-81ce`;
   const excerpt = `${category} — ${status}.`;
@@ -1395,7 +1394,7 @@ for (let i = 0; i < DIARY.length; i++) {
   });
 }
 {
-  // SUB-300: a stale pick — `today` still points at yesterday, so the rebuilt
+  // A stale pick — `today` still points at yesterday, so the rebuilt
   // Today surface shows it in the leftovers row (Keep rolls it forward, Clear
   // drops it). diary keeps clear of every asserted count, and the date lands
   // on the calendar yesterday, where no spec pins a cell
@@ -1431,7 +1430,7 @@ for (let i = 0; i < DIARY.length; i++) {
 }
 
 {
-  // SUB-605: a dashboard filed in a CONTENT folder, not under the dashboards
+  // A dashboard filed in a CONTENT folder, not under the dashboards
   // home. It renders inside the Ideas tree row instead of in the Dashboards
   // section (splitDashboards routes each path to exactly one surface). Ideas is
   // a plain seeded root no spec pins a note count on, and one ```chart fence
@@ -1448,7 +1447,7 @@ for (let i = 0; i < DIARY.length; i++) {
   });
 }
 
-/* ── Dated density (SUB-182) ────────────────────────────────────────────────
+/* ── Dated density ────────────────────────────────────────────────
    Today and Calendar stop reading like a toy: task deadlines spread across
    the visible weeks (a few overdue-adjacent, a dense today, some this week, a
    couple next week and beyond) plus two more events, so the month scatters
@@ -1460,20 +1459,20 @@ for (let i = 0; i < DIARY.length; i++) {
    e2e pins the Release > Sheet > Contact > Event > Finance-doc > Gear order):
    task is homed in Tasks/, so its count never reaches the flat list and grows
    freely; the +2 events are counterbalanced by +2 contacts and +2 sheets —
-   release 5 vs sheet 6 (Food Log, SUB-325 — moot for ordering since SUB-159
+   release 5 vs sheet 6 (Food Log — moot for ordering
    removed the flat list; only per-db counts are asserted, and no spec pins
    the sheet count) and contact 4 = event 4, ties break alphabetically.
    Every note carries a type (Notes keeps exactly its
    4 scratch rows), no ISO-shaped prop sneaks in beyond the scheduling one
    (`due` / `date` — `created` is exempt), and titles/bodies stay clear of the
    search/palette keywords listed above. */
-/* `area`/`priority` are optional here and drive ONLY the tasks board (SUB-870):
+/* `area`/`priority` are optional here and drive ONLY the tasks board:
    the allowlist is Label/Studio/Admin, so a filler without an area stays off
    that board while still counting as one of the 17 seeded tasks every db-view
    spec pins. Three carry an area on purpose — one more overdue row, and two
    upcoming ones so the board's area groups render below its urgency spine. */
 /* `createdBack` overrides the shared FIXED_BASE created date with one relative
-   to today (SUB-1055): a task whose fixture role is "carries NO rot chip" has
+   to today: a task whose fixture role is "carries NO rot chip" has
    to stay young as the calendar moves, or a fixed created date silently ages
    past `stale_days` and turns the negative assertion red for good. */
 const DENSE_TASKS: {
@@ -1540,7 +1539,7 @@ for (const e of DENSE_EVENTS) {
 }
 /* sidebar counterbalance for the +2 events (see the block comment): contacts
    and sheets grow in step so the pinned count-desc order never moves. Every
-   contact carries an email (SUB-181); Tess also has a phone — the second
+   contact carries an email; Tess also has a phone — the second
    phone lane beside Gero above. */
 const DENSE_CONTACTS: { name: string; role: string; email: string; phone?: string; line: string }[] = [
   { name: "Tess Almeida", role: "booking", email: "booking@umbra.example", phone: "+49 30 7654321", line: "Books the club and small-festival slots." },
@@ -1578,7 +1577,7 @@ for (const s of DENSE_SHEETS) {
   });
 }
 
-/* ── Wide royalty ledger (SUB-193) ──────────────────────────────────────────
+/* ── Wide royalty ledger ──────────────────────────────────────────
    Ten royalty statements, one per platform-period, carrying the 16-prop
    schema above — the widest table in the mock, shaped like the real books so
    the audit harness can judge horizontal density. Hand-written for realistic
@@ -1662,15 +1661,15 @@ for (const r of LEDGER_ROWS) {
 function meta(n: MockNote): NoteMeta {
   const { body: _body, unreadable: _unreadable, fm: _fm, ...m } = n;
   // a sealed note projects no props, no excerpt, and no tags: tags are derived
-  // from the body's inline `#hashtags` (SUB-818), so publishing them would leak
+  // from the body's inline `#hashtags`, so publishing them would leak
   // the ciphertext's content through the tag sidebar and tag folders
   if (n.sealed) return { ...m, props: {}, excerpt: "", tags: [], sealed: true };
-  // mirrors Engine::index_file (SUB-818): a note's tags are computed at index
+  // mirrors Engine::index_file: a note's tags are computed at index
   // time from body + props, never stored on the fixture
   return { ...m, sealed: false, tags: noteTags(n.props, n.body) };
 }
 
-/* Frontmatter health for the fm lanes (SUB-430), mirroring vault.rs's
+/* Frontmatter health for the fm lanes, mirroring vault.rs's
    fm_diagnosis: duplicate top-level keys (same column-0 scan — serde_yaml
    accepts them last-wins, the write lanes refuse), a non-map block, invalid
    YAML. The mock has no YAML parser; the seeded blocks are plain
@@ -1697,7 +1696,7 @@ function mockFmDiagnosis(fm: string): MockFmFault | null {
   return null;
 }
 
-/** The write-lane refusal wording (SUB-215), mirroring FmFault::refusal. */
+/** The write-lane refusal wording, mirroring FmFault::refusal. */
 function mockFmRefusal(path: string, fault: MockFmFault): string {
   const what = fault === "duplicate top-level keys" ? "has duplicate keys" : `is ${fault}`;
   return `frontmatter in ${path} ${what} — fix it in the editor before editing properties`;
@@ -1722,7 +1721,7 @@ function mockFmProps(fm: string): Record<string, unknown> {
   return out;
 }
 
-/** Prop equality for the undo guard (SUB-477) — the engine compares
+/** Prop equality for the undo guard — the engine compares
     serde_json::Values, so lists compare element-wise, not by identity. */
 function mockPropEq(a: PropValue, b: PropValue): boolean {
   if (Array.isArray(a) || Array.isArray(b))
@@ -1811,14 +1810,14 @@ function mockEntries(path: string, snaps: MockSnap[]): HistoryEntry[] {
 
 const mockViews = mockRecord<ViewsConfig[string]>() as ViewsConfig;
 
-/* Mock folder meta (SUB-84): vault-relative folder path → icon, mirroring
+/* Mock folder meta: vault-relative folder path → icon, mirroring
    the `$folders` key in views.json. One seed so the read path shows on boot;
    rename retargets keys, trash drops them, like the engine. */
 const mockFolderMeta: FolderMetaMap = {
   Projects: { icon: { emoji: "🌱" } },
 };
 
-/* Mock tag folders (SUB-818), mirroring `.vault/tagfolders.json`. Empty on
+/* Mock tag folders, mirroring `.vault/tagfolders.json`. Empty on
    boot: a vault's first tag folder is built, never seeded, so specs exercise
    the builder from the same empty state a new vault has. Specs that need
    tagged notes write them with __mockEditNote/__mockEditProp. */
@@ -1847,7 +1846,7 @@ function mockFolderOf(path: string): string {
 
 let mockSidebarOrder: SidebarOrder = { dashboards: [], databases: [], keys: {} };
 
-/** Mirrors Engine::move_sidebar_pin (SUB-410): a pinned note path follows its
+/** Mirrors Engine::move_sidebar_pin: a pinned note path follows its
     note on rename/move (`newPath` given) and leaves the sidebar on trash
     (`null`). No-op when the note isn't pinned. */
 function mockMoveSidebarPin(oldPath: string, newPath: string | null): void {
@@ -1859,7 +1858,7 @@ function mockMoveSidebarPin(oldPath: string, newPath: string | null): void {
   };
 }
 
-/** Mirrors Engine::retarget_sidebar_keys (SUB-467): `f` maps one target token
+/** Mirrors Engine::retarget_sidebar_keys: `f` maps one target token
     to its replacement, or to None to drop the binding. Key tokens never move —
     the user assigned ⌘5, ⌘5 is what they keep. */
 function mockRetargetSidebarKeys(f: (target: string) => string | null | undefined): void {
@@ -1892,7 +1891,7 @@ function mockMoveSidebarKeys(oldPath: string, newPath: string | null): void {
 
 /** Move one note into the mock trash at a caller-supplied stamp — the mock's
     Engine::trash_at. `vault_delete` passes its own `Date.now()`; a bulk
-    delete passes ONE stamp for the whole selection (SUB-577). Throws like the
+    delete passes ONE stamp for the whole selection. Throws like the
     engine when the path isn't a live note. */
 function mockTrashNote(path: string, at: number): string {
   const idx = mockNotes.findIndex((n) => n.path === path);
@@ -1900,10 +1899,10 @@ function mockTrashNote(path: string, at: number): string {
   const [n] = mockNotes.splice(idx, 1);
   // a trashed note leaves the sidebar with it (engine move_sidebar_pin)
   mockMoveSidebarPin(n.path, null);
-  // …and its assigned key frees up (SUB-467)
+  // …and its assigned key frees up
   mockMoveSidebarKeys(n.path, null);
   // engine Engine::trash bumps the stamp until the id is free, so two
-  // deletions of the same path never collide (SUB-478)
+  // deletions of the same path never collide
   let deleted_ms = at;
   while (mockTrash.some((t) => t.id === `${deleted_ms}/${n.path}`)) deleted_ms += 1;
   const id = `${deleted_ms}/${n.path}`;
@@ -1960,7 +1959,7 @@ function mockRelocateFolder(oldRel: string, newRel: string): void {
   for (const n of mockNotes) {
     if (inside(n.folder)) {
       const moved = retarget(n.path);
-      // a pinned note inside the folder keeps its row (SUB-410)
+      // a pinned note inside the folder keeps its row
       mockMoveSidebarPin(n.path, moved);
       n.path = moved;
       n.folder = mockFolderOf(n.path);
@@ -1971,7 +1970,7 @@ function mockRelocateFolder(oldRel: string, newRel: string): void {
       mockSealScopes.delete(scope);
       mockSealScopes.add(retarget(scope));
       if (mockPendingSealScopes.delete(scope)) mockPendingSealScopes.add(retarget(scope));
-      // the confirmation travels with its folder (SUB-889); so does the lack
+      // the confirmation travels with its folder; so does the lack
       // of one — a rename must not silently confirm a planted marker
       if (mockUnconfirmedSealScopes.delete(scope))
         mockUnconfirmedSealScopes.add(retarget(scope));
@@ -2004,7 +2003,7 @@ function mockRelocateFolder(oldRel: string, newRel: string): void {
       ? { dashboards: mockSidebarOrder.dashboards.map((d) => (inside(d) ? retarget(d) : d)) }
       : {}),
   };
-  // …and every key bound into the subtree, the folder row included (SUB-467).
+  // …and every key bound into the subtree, the folder row included.
   // One subtree pass covers the notes too, so the per-note loop above
   // doesn't call the key mirror.
   mockMoveSidebarKeysFolder(oldRel, newRel);
@@ -2012,11 +2011,11 @@ function mockRelocateFolder(oldRel: string, newRel: string): void {
 
 let mockSavedViews: SavedView[] = [];
 let mockCalendarFeeds: CalendarFeedConfig[] = [];
-/** SUB-810: remembered link-folder targets, per saved view. Device-local in
+/** Remembered link-folder targets, per saved view. Device-local in
     the real app (app-config dir), in-memory here. */
 const mockExportTargets = new Map<string, string>();
 
-/** SUB-826: the consent state the reflexes settings section reads and writes.
+/** the consent state the reflexes settings section reads and writes.
     There is no rules file until a spec stages one — which is exactly the
     default the section hides itself on. `enabled` is the one-time per-vault
     arm; `paused` is the separate switch it becomes afterwards. */
@@ -2086,7 +2085,7 @@ function mockRemapSavedViewProp(
 
 const mockSchemaSeed: SchemaConfig = {
   // event: calendar-born entries get the date chip plus the schema's empty
-  // location chip (template default "Studio" wins) — the SUB-60 demo lane
+  // location chip (template default "Studio" wins) — the demo lane
   event: {
     date: { options: [], kind: "date" },
     location: { options: [] },
@@ -2101,7 +2100,7 @@ const mockSchemaSeed: SchemaConfig = {
     },
     // notify flag = the tray agenda's deadline / due-date notification opt-in
     due: { options: [], kind: "date", notify: true },
-    // the tasks board pills priority in the schema's own colors (SUB-870);
+    // the tasks board pills priority in the schema's own colors;
     // an unschema'd vault falls back to the same roster in tasksDashboard.ts
     priority: {
       options: [
@@ -2120,7 +2119,7 @@ const mockSchemaSeed: SchemaConfig = {
         { value: "parked", color: "gray" },
       ],
     },
-    // multi (SUB-79): several values per release — Notion multi_select parity
+    // multi: several values per release — Notion multi_select parity
     format: {
       options: [
         { value: "Vinyl", color: "violet" },
@@ -2133,7 +2132,7 @@ const mockSchemaSeed: SchemaConfig = {
     contract: { options: [], kind: "file" },
     contact: { options: [], kind: "relation", type: "contact" },
   },
-  // the generated pipeline (SUB-170): `released` is kind text ON PURPOSE — a
+  // the generated pipeline: `released` is kind text ON PURPOSE — a
   // date-kind (or schema-unruled ISO) prop would put catalog entries on the
   // calendar, and the calendar's create-type list is e2e-asserted as exactly
   // [event, release, task]
@@ -2175,21 +2174,21 @@ const mockSchemaSeed: SchemaConfig = {
       ],
     },
   },
-  // url kind (SUB-172): product-page links on the gear inventory — the demo
+  // url kind: product-page links on the gear inventory — the demo
   // lane for clickable link cells; a few rows carry values (below)
-  // checkbox kind (SUB-173): `in use` flags the gear in the live rig — a few
+  // checkbox kind: `in use` flags the gear in the live rig — a few
   // rows carry `true` (below), the rest demo the unchecked lane
-  // number kind (SUB-188): `price` is the euro-formatted money column — most
+  // number kind: `price` is the euro-formatted money column — most
   // rows carry a value (below), one carries junk, some stay empty; it also
-  // carries the fixture property description (SUB-191)
+  // carries the fixture property description
   inventory: {
     link: { options: [], kind: "url" },
     "in use": { options: [], kind: "checkbox" },
     price: { options: [], kind: "number", format: "euro", description: "Approximate is fine — current resale value." },
   },
-  // email/phone kinds (SUB-181): the contacts book is the demo lane — every
+  // email/phone kinds: the contacts book is the demo lane — every
   // row carries an email, two carry a phone (the empty-cell lane). The role
-  // select (SUB-184) is the grouped table's "By Type" lane — options in a
+  // select is the grouped table's "By Type" lane — options in a
   // deliberate non-alphabetical order to prove schema-order sections.
   contact: {
     email: { options: [], kind: "email" },
@@ -2225,7 +2224,7 @@ const mockSchemaSeed: SchemaConfig = {
       ],
     },
   },
-  /* ledger (SUB-193): the wide royalty-statement fixture — 16 props + title +
+  /* ledger: the wide royalty-statement fixture — 16 props + title +
      `created` = an 18-column table, the mock's densest, so the audit harness
      can judge header truncation / cell crowding / scroll affordance at real
      width. `period` is kind text ON PURPOSE (quarter labels, ISO months): a
@@ -2275,7 +2274,7 @@ const mockSchema = mockRecord(
   )
 ) as SchemaConfig;
 
-/* ── Perf fixture (SUB-310, gated) ──────────────────────────────────────────
+/* ── Perf fixture (gated) ──────────────────────────────────────────
    `?perfdb=1400` on the dev-server URL (or VITE_PERF_DB=1400 in the env) grows
    a `plugin` database of N rows — the stand-in for a real ~1400-row plugin
    list behind the big-table lazy-paint work. OFF by default: with the gate
@@ -2373,7 +2372,7 @@ if (PERF_DB_COUNT > 0) {
   mockAddFolder("Plugins");
 }
 
-/* Reality-mounts mock (SUB-888): one mount, "finance-doc", bound on this
+/* Reality-mounts mock: one mount, "finance-doc", bound on this
    machine to ~/Personal/Finance, whose "disk" is a dozen fake files. Rows come
    from the index, NOT from stub notes — the only note here is the pre-seeded
    sidecar above, bound to a file that is no longer on disk, so its row renders
@@ -2385,7 +2384,7 @@ if (PERF_DB_COUNT > 0) {
    — that is the "not on this machine" board, not an error state.
 
    The registry is mutable state: rename_type carries the mount and delete_type
-   unmounts it (SUB-71 parity), so neither can leave a mount answering to a
+   unmounts it too, so neither can leave a mount answering to a
    name nothing else uses. */
 interface MockMount {
   id: string;
@@ -2400,7 +2399,7 @@ interface MockMountFile {
   created: string;
   identity: string;
   missing: boolean;
-  /** What the file said about itself (SUB-887). The engine fills this behind a
+  /** What the file said about itself. The engine fills this behind a
       scan; the mock has no bytes, so a PDF's page count is simply part of the
       fake file — enough for the board to prove extracted columns render. */
   extracted?: Record<string, unknown>;
@@ -2575,11 +2574,11 @@ const mockMountInfo = (m: MockMount): MountInfo => ({
   scanned: mockMountIndex[m.id]?.scanned ?? "",
   files: mockMountIndex[m.id]?.files.length ?? 0,
 });
-/* Mock `.vault/templates/` (SUB-17): type → template note. `release` and
+/* Mock `.vault/templates/`: type → template note. `release` and
    `event` have one, so the born-complete create demos both lanes — templated
    types (defaults + body skeleton) and schema-only types (empty chips).
    Explicit-path reads/writes under `.vault/templates/` reach this store like
-   the real engine's hidden-path exception (SUB-59). */
+   the real engine's hidden-path exception. */
 const mockTemplates = mockRecord<{ props: Record<string, unknown>; body: string }>({
   release: {
     props: mockRecord({ status: "parked" }),
@@ -2591,17 +2590,17 @@ const mockTemplates = mockRecord<{ props: Record<string, unknown>; body: string 
   },
 });
 
-/* Mock `.vault/kinds/` (SUB-960): custom kind bundles a spec staged. Empty
+/* Mock `.vault/kinds/`: custom kind bundles a spec staged. Empty
    until __mockWriteKind runs — a lane that never seeds one sees exactly the
    pre-kinds app. `files` holds the bundle text (kind.json included, since the
    hash covers it) because the mock pane loader reads source from here instead
    of the `substrate-kind:` scheme the browser doesn't have. */
 const mockKinds: { row: KindBundleInfo; files: Record<string, string> }[] = [];
 
-/* Mock Settings.md (SUB-398): the ⌘, sheet reads/writes the root settings
+/* Mock Settings.md: the ⌘, sheet reads/writes the root settings
    note by path. In the real engine it's a normal indexed note; here it lives
    outside mockNotes — like the template store above — so the seeded list
-   counts every spec asserts stay put (concealed by default since SUB-878,
+   counts every spec asserts stay put (concealed by default,
    `vault_list` serves it so the reveal toggle can be exercised; only a spec
    that flips `show-agent-files` ever sees the row). Parity covers the
    read/set_prop IPC the settings sheet uses plus that list membership. */
@@ -2609,7 +2608,7 @@ const mockSettings: { props: Record<string, unknown>; body: string; updated_ms: 
   props: { "capture-hotkey": "alt+space", "close-to-tray": "false" },
   body: "Substrate settings — edit and save; changes apply within a second (⌘, opens the settings form).\n",
   // stable like the other seeds (a Date.now() here would float the row to the
-  // top of every list once revealed, SUB-878); writes bump it like real notes
+  // top of every list once revealed); writes bump it like real notes
   updated_ms: now - 5 * 86_400_000,
 };
 
@@ -2626,7 +2625,7 @@ function mockSettingsMeta(): NoteMeta {
   };
 }
 
-/* Mock database icons (SUB-27): stored separately and merged under each
+/* Mock database icons: stored separately and merged under each
    type's reserved `icon` key at read time — the same shape schema.json has
    on disk (SchemaConfig here stays the props-only view; the reserved key is
    a DbIcon, not a PropSchema, so the merge casts). Seeds demo all three
@@ -2637,7 +2636,7 @@ const mockIcons = mockRecord<DbIcon>({
   task: { emoji: "🎵" },
 });
 
-/* Mock database home folders (SUB-85): stored separately and merged under
+/* Mock database home folders: stored separately and merged under
    each type's reserved `home` key at read time, like the icons above. One
    seed — the task db lives in its Tasks/ folder — so the read path shows on
    boot; rename retargets, trash clears, like the engine. */
@@ -2663,7 +2662,7 @@ function mockSchemaRead(): SchemaConfig {
 }
 
 /** The stem of a `.vault/templates/<type>.md` path, null for any other path —
-    mirrors the engine's template_rel exception (SUB-59). */
+    mirrors the engine's template_rel exception. */
 function templateStem(p: unknown): string | null {
   return /^\.vault\/templates\/([^/]+)\.md$/.exec(String(p ?? ""))?.[1] ?? null;
 }
@@ -2671,7 +2670,7 @@ function templateStem(p: unknown): string | null {
 /** Mirrors Engine::make_excerpt (vault.rs): the first line that is non-empty
     after stripping leading `# > - * ` markup and [[ ]] brackets, trimmed and
     truncated to 120 chars with an ellipsis. The mock's one excerpt rule —
-    create, template meta, and write_body all run through here (SUB-290). */
+    create, template meta, and write_body all run through here. */
 function mockMakeExcerpt(body: string): string {
   for (const line of body.split("\n")) {
     const t = line.replace(/^[#>\-* ]+/, "").replace(/\[\[|\]\]/g, "").trim();
@@ -2711,9 +2710,9 @@ const mockTrash: (TrashEntry & {
       (lack of) confirmation under `.trash/<id>/` together, so a restore must
       not quietly promote a planted marker to confirmed */
   folderSealUnconfirmed?: string[];
-  /** asset entries (SUB-479): the base64 payload, so restore round-trips bytes */
+  /** asset entries: the base64 payload, so restore round-trips bytes */
   asset?: string;
-  /** template entries (SUB-781): the template's content, so restore round-trips */
+  /** template entries: the template's content, so restore round-trips */
   template?: { props: Record<string, unknown>; body: string };
 })[] = [];
 
@@ -2721,7 +2720,7 @@ const mockTrash: (TrashEntry & {
 // This state mirrors VaultSyncState's last-result/last-error record and is
 // page scoped, like the rest of the browser mock store.
 // `conflicted` is not stored here: the engine derives it from the repository
-// on every status call (SUB-572), so the mock derives it from the parked
+// on every status call, so the mock derives it from the parked
 // conflict state instead of from the last command's result.
 let mockVaultSyncStatus: Omit<VaultSyncStatus, "conflicted"> = {
   configured: false,
@@ -2807,7 +2806,7 @@ let mockConflicts: ConflictState = { active: false, head: "", remote: "", files:
 
 function mockConflictView(): ConflictState {
   const view = structuredClone(mockConflicts);
-  // engine parity (SUB-522): gitsync::sync_conflicts sorts `path ASC` before
+  // engine parity: gitsync::sync_conflicts sorts `path ASC` before
   // returning (gitsync.rs, `files.sort_by(|a, b| a.path.cmp(&b.path))`), and
   // conflict_paths collects into a BTreeSet, so both lists arrive sorted.
   // The seed happens to be alphabetical; sorting here means it stays parity
@@ -2909,14 +2908,14 @@ function mockExistingTemplateName(noteType: string): string | undefined {
   return matches.length === 1 ? matches[0] : undefined;
 }
 
-/** Mirrors validate_note_title (vault.rs, SUB-223): a dot-stem would land
+/** Mirrors validate_note_title (vault.rs): a dot-stem would land
     the note outside the index and `[`/`]` would corrupt every rewritten
     link — refuse before any mutation, in create and rename alike. */
 function mockValidateNoteTitle(title: string, slug: string) {
   if (slug.startsWith(".")) throw new Error("titles cannot start with a dot");
   if (title.includes("[") || title.includes("]"))
     throw new Error("titles cannot contain [ or ]");
-  // the engine's third refusal (SUB-223/SUB-909): a control char isn't
+  // the engine's third refusal: a control char isn't
   // whitespace, so it survives the slug collapse and only fails at the
   // filesystem. Same Cc set as Rust char::is_control: C0, DEL, C1.
   // eslint-disable-next-line no-control-regex
@@ -2925,15 +2924,15 @@ function mockValidateNoteTitle(title: string, slug: string) {
 }
 
 
-/* Opt-in fidelity flags (SUB-296/SUB-295), both OFF by default. Like the rest
+/* Opt-in fidelity flags, both OFF by default. Like the rest
    of the mock's state they are page-load scoped — a spec's page.goto starts
    fresh, so no cross-spec reset plumbing is needed. */
 let mockEchoOnWrites = false;
-// false | "timeout" (SUB-295 random 1–25ms reorder) | "microtask" (SUB-305:
+// false | "timeout" (random 1–25ms reorder) | "microtask" (
 // resolves before React's scheduled re-render, like production thread-pool
 // IPC can — the ordering the restore race loses on)
 let mockAsyncDispatch: false | "timeout" | "microtask" = false;
-// SUB-771 instrumentation: opt-in command trace (null = off)
+// instrumentation: opt-in command trace (null = off)
 type MockTraceEntry = {
   ms: number;
   cmd: string;
@@ -2946,33 +2945,33 @@ type MockTraceEntry = {
 };
 let mockCmdTrace: MockTraceEntry[] | null = null;
 let mockCmdTraceT0 = 0;
-// SUB-550: commands parked open until their release fn runs — the in-flight
+// commands parked open until their release fn runs — the in-flight
 // IPC a spec needs to still be pending while it navigates elsewhere
 const mockHeldCommands = new Map<string, Promise<void>>();
 const mockHoldReleases = new Map<string, () => void>();
-/* SUB-946: per-command artificial latency, in ms. The hold map above parks a
+/* per-command artificial latency, in ms. The hold map above parks a
    command until a spec releases it; this one makes a command simply SLOW, so
    an optimistic paint can be asserted while the write is still in flight and
    the write still lands by itself. Empty by default — no spec, no cost. */
 const mockLatency = new Map<string, number>();
-/* SUB-946: one-shot refusals, per command, counted down as calls are made.
+/* one-shot refusals, per command, counted down as calls are made.
    __mockFail is a STANDING set: with three writes to the same cell in flight
    it refuses all three, which can't express "the slow first write comes back
    refused after the user already retyped". */
 const mockFailOnce = new Map<string, number>();
 
-/* SUB-296: the engine never emits vault:changed from its commands — the OS
+/* the engine never emits vault:changed from its commands — the OS
    watcher observes the write and, once the vault goes quiet for 300ms
    (vault.rs debounce), emits ONE vault:changed for the whole burst. With the
    flag on the mock mirrors that cadence: each completed note-mutating command
    (re)arms a 300ms timer and a quiet gap flushes a single echo, so a burst of
    writes coalesces exactly like the real watcher. Commands the watcher can't
-   see never echo: template writes (SUB-59 — templates live outside the
+   see never echo: template writes (templates live outside the
    watcher), trash purges/empties and asset writes (dot-paths), config writes
-   (.vault/*.json ride vault:config-changed instead, SUB-100), history
+   (.vault/*.json ride vault:config-changed instead), history
    snapshots/purges (.git-internal).
 
-   The four database/property bulk sweeps ARE watched (SUB-660): they rewrite
+   The four database/property bulk sweeps ARE watched: they rewrite
    ordinary vault notes through edit_props → write_atomic, so the OS watcher
    sees them exactly like any other note write. They classify with unnamed
    reach — a `BulkSweep` returns counts only, never the swept paths — the same
@@ -2983,10 +2982,10 @@ const WATCHED_WRITE_COMMANDS = new Set([
   "vault_fm_write",
   "vault_set_prop",
   // a sheet column's notification setting is a frontmatter write like any
-  // other prop edit (SUB-876)
+  // other prop edit
   "sheet_set_column_notify",
   // acting inside a tag folder writes the note's `tags:` prop like any other
-  // prop edit, so the watcher sees it (SUB-818)
+  // prop edit, so the watcher sees it
   "vault_note_add_tags",
   "vault_seal_note",
   "vault_seal_scope",
@@ -3018,7 +3017,7 @@ let mockEchoPaths = new Set<string>();
     the engine's empty "unknown" payload rather than a half-named list */
 let mockEchoUnknown = false;
 
-/** Engine parity (SUB-460/SUB-516): the watcher's event names the rel paths
+/** Engine parity: the watcher's event names the rel paths
     that changed in the burst, deduped and sorted (`Engine::apply_changes`
     returns a BTreeSet's order). An empty vec is the engine's "I lost track and
     rescanned" — a command whose reach the mock can't name lands there too, by
@@ -3040,7 +3039,7 @@ function scheduleMockEcho(paths: string[] | null) {
     isn't nameable from the call (a folder op sweeps every note under it, a
     rescan touches whatever it stamped). Real and mock commands return the same
     shapes, so this serves both: the mock echoes these paths as its watcher
-    event, and the app records them as its own write (SUB-516). `null` means
+    event, and the app records them as its own write. `null` means
     "we wrote, can't say where", which is what the engine's own unknown-payload
     emit means too. */
 function writtenPathsFor(
@@ -3076,11 +3075,11 @@ function writtenPathsFor(
     case "vault_move":
       // the engine renames on disk and the watcher emits BOTH rels — name the
       // vacated path too, or its echo reads external and the move kills its
-      // own undo entry (SUB-653)
+      // own undo entry
       return [path, metaPath(result)].filter((p): p is string => !!p);
     case "vault_rename": {
-      // every note the link sweep rewrote, not just the renamed one (SUB-515)
-      // — plus the vacated path, which `touched` never names (SUB-653)
+      // every note the link sweep rewrote, not just the renamed one
+      // — plus the vacated path, which `touched` never names
       const touched = (result as { touched?: unknown })?.touched;
       const named = Array.isArray(touched)
         ? touched.filter((p): p is string => typeof p === "string")
@@ -3096,7 +3095,7 @@ function writtenPathsFor(
       // vault_delete_folder, vault_trash_restore_folder, vault_create_folder,
       // vault_rename_folder, mount_rescan — whole-subtree reach.
       // vault_rename_type/_delete_type/_rename_prop/_clear_prop land here too
-      // (SUB-660): a `BulkSweep` result carries counts, not paths, so the
+      // a `BulkSweep` result carries counts, not paths, so the
       // sweep's reach genuinely isn't nameable from the call.
       return null;
   }
@@ -3111,7 +3110,7 @@ function mockRescanChanged(result: unknown): boolean {
   );
 }
 
-/* Engine parity (SUB-519): both search commands cap their result set, so the
+/* Engine parity: both search commands cap their result set, so the
    mock must too — otherwise "search truncates" is untestable and a mock-mode
    query over a large database returns a list production would never produce.
    `vault_search`: `LIMIT 30` (vault.rs:2572, and `.take(30)` on the non-FTS
@@ -3142,7 +3141,7 @@ function mockFirstHit(text: string, tokens: string[], starts: string): number {
   return m ? m.index : Infinity;
 }
 
-/** Sort key for both mock search commands — see the SUB-519 note above. */
+/** Sort key for both mock search commands — see the note above. */
 function mockRank(a: MockSearchRank, b: MockSearchRank): number {
   if (a.titleHit !== b.titleHit) return a.titleHit ? -1 : 1;
   if (a.offset !== b.offset) return a.offset - b.offset;
@@ -3152,7 +3151,7 @@ function mockRank(a: MockSearchRank, b: MockSearchRank): number {
 type MockSearchRank = { titleHit: boolean; offset: number; path: string };
 
 function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
-  // SUB-946: a one-shot refusal is claimed HERE, when the call is made — not
+  // a one-shot refusal is claimed HERE, when the call is made — not
   // where __mockFail is read, which is after the latency gate. With three
   // writes to one cell in flight, "the first one is refused" is only
   // expressible if the refusal binds in call order.
@@ -3162,7 +3161,7 @@ function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknow
     const fail = () => Promise.reject(new Error(`mock failure: ${cmd}`));
     return wait ? mockDelay(wait).then(fail) : fail();
   }
-  // SUB-771 instrumentation: an opt-in ring of write-lane commands plus the
+  // instrumentation: an opt-in ring of write-lane commands plus the
   // FX request seam, with args and outcomes. No effect unless a spec installed
   // the trace hook; including FX lets privacy regressions prove call counts.
   if (mockCmdTrace && (/^vault_(write_body|rename|create|read)$/.test(cmd) || cmd === "fx_rates")) {
@@ -3177,10 +3176,10 @@ function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknow
     mockCmdTrace.push(entry);
     return mockInvokeTraced(cmd, args, entry);
   }
-  // SUB-550: an explicitly held command waits for its release before running
+  // an explicitly held command waits for its release before running
   const held = mockHeldCommands.get(cmd);
   if (held) return held.then(() => mockInvoke(cmd, args));
-  // SUB-946: …and a slowed one waits out its latency first
+  // …and a slowed one waits out its latency first
   const wait = mockLatency.get(cmd);
   if (wait) return mockDelay(wait).then(() => mockDispatchAfterLatency(cmd, args));
   // both flags off: straight dispatch — resolution timing byte-identical to
@@ -3189,7 +3188,7 @@ function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknow
   return mockInvokeFidelity(cmd, args);
 }
 
-/** SUB-946: the tail of mockInvoke, past the hold and latency gates — kept
+/** the tail of mockInvoke, past the hold and latency gates — kept
     separate so the latency path can't re-enter its own gate. */
 function mockDispatchAfterLatency(
   cmd: string,
@@ -3202,7 +3201,7 @@ function mockDispatchAfterLatency(
 const mockDelay = (ms: number) =>
   new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
-// SUB-771 instrumentation: run the traced command through the normal pipeline
+// instrumentation: run the traced command through the normal pipeline
 // (hold gate + fidelity flags untouched) and record how it ended.
 async function mockInvokeTraced(
   cmd: string,
@@ -3233,11 +3232,11 @@ async function mockInvokeFidelity(
   cmd: string,
   args?: Record<string, unknown>
 ): Promise<unknown> {
-  // SUB-295 opt-in: real IPC handlers run on a thread pool — completion is
+  // opt-in: real IPC handlers run on a thread pool — completion is
   // never synchronous and back-to-back commands carry no ordering guarantee.
   // "timeout" defers execution by a small random delay so ordering-sensitive
-  // flows (the SUB-286 write-then-rename class) can actually race.
-  // "microtask" (SUB-305) defers only to a microtask: still never synchronous,
+  // flows (the write-then-rename class) can actually race.
+  // "microtask" defers only to a microtask: still never synchronous,
   // but fast enough to resolve before React's scheduled re-render — the
   // production ordering behind the restore race, which the random timeout
   // loses to (React's render wins and the stale remount is masked).
@@ -3249,7 +3248,7 @@ async function mockInvokeFidelity(
     await Promise.resolve();
   }
   const result = await mockDispatch(cmd, args);
-  // SUB-296 opt-in: echo a completed note mutation like the engine watcher.
+  // opt-in: echo a completed note mutation like the engine watcher.
   // Template paths are excluded even for the write commands (watcher-blind).
   if (
     mockEchoOnWrites &&
@@ -3263,7 +3262,7 @@ async function mockInvokeFidelity(
 }
 
 async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
-  // SUB-156 e2e hook: a spec-listed command rejects, reaching the UI error
+  // e2e hook: a spec-listed command rejects, reaching the UI error
   // surfaces (boot-error bar, save-failed pill, capture error) that an
   // always-succeeding mock leaves untestable
   if (window.__mockFail?.has(cmd)) throw new Error(`mock failure: ${cmd}`);
@@ -3272,7 +3271,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     case "vault_root":
       return mockVaultRoot;
 
-    /* first-run onboarding (SUB-436). The mock vault always exists, so the
+    /* first-run onboarding. The mock vault always exists, so the
        no-vault state is staged by the spec through __mockSetFirstRun. */
     case "onboarding_status":
       return {
@@ -3289,7 +3288,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // has no filesystem to inspect. `is_vault` is the backend's STRICT
       // answer (.vault/ or ≥2 top-level .md): a checkout carrying one stray
       // README.md is not a vault, so it reaches the consent step instead of
-      // opening silently (SUB-436 review #4).
+      // opening silently (review).
       const isVault = /vault/i.test(path) && !/new|fresh|empty|checkout/i.test(path);
       const exists = !/new|fresh|missing/i.test(path);
       return {
@@ -3297,10 +3296,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         exists,
         is_vault: isVault,
         empty: !exists || /empty/i.test(path),
-        // SUB-1097: a folder-organised notes vault — markdown only in
+        // a folder-organised notes vault — markdown only in
         // subfolders — still needs consent but earns the friendlier wording
         nested_markdown: exists && /obsidian|nested/i.test(path),
-        // SUB-1133: `.vault/` already on disk — a returning Substrate vault,
+        // `.vault/` already on disk — a returning Substrate vault,
         // where the add-set line would be false. A folder of loose notes
         // (`two-notes`) reads as a vault too but has no marker, so adopting it
         // really does write the set.
@@ -3340,7 +3339,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       mockRelaunched = true;
       return null;
     case "vault_list":
-      // Settings.md is indexed like the real engine indexes it (SUB-878) —
+      // Settings.md is indexed like the real engine indexes it —
       // the App-side app-file filter is what conceals it by default
       return [...mockNotes.map(meta), mockSettingsMeta()].sort(
         (a, b) => b.updated_ms - a.updated_ms
@@ -3393,7 +3392,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       return { path: scope, sealed, already_sealed, device_unlock: mockDeviceUnlock };
     }
     // accepting a marker this device did not write: the same conversion the
-    // seal command runs, gated on the vault password / device unlock (SUB-889)
+    // seal command runs, gated on the vault password / device unlock
     case "vault_confirm_seal_scope": {
       const scope = String(args?.path ?? "").replace(/^[/\\]+|[/\\]+$/g, "");
       if (!mockSealScopes.has(scope)) throw new Error("this location has no seal marker");
@@ -3556,9 +3555,9 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const stem = templateStem(args?.path);
       const expectedBody = (args?.expectedBody as string | null) ?? null;
       if (stem) {
-        // creates the template when missing, like the real engine (SUB-59)
+        // creates the template when missing, like the real engine
         const t = (mockTemplates[stem] ??= { props: mockRecord(), body: "" });
-        // mirrors the engine's SUB-93 conflict guard
+        // mirrors the engine's conflict guard
         if (expectedBody !== null && t.body !== expectedBody) {
           throw new Error("conflict: file changed on disk");
         }
@@ -3575,7 +3574,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         return mockSettingsMeta();
       }
       const n = find();
-      // mirrors the engine's SUB-94 rule: a missing file is never resurrected
+      // mirrors the engine's rule: a missing file is never resurrected
       if (!n) throw new Error("note no longer exists");
       if (expectedBody !== null && n.body !== expectedBody) {
         throw new Error("conflict: file changed on disk");
@@ -3583,21 +3582,21 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       n.body = args?.body as string;
       n.updated_ms = Date.now();
       // mirrors the engine's write_body → reindex_one → make_excerpt: lists
-      // show the fresh excerpt after an edit, not the stale one (SUB-290)
+      // show the fresh excerpt after an edit, not the stale one
       n.excerpt = mockMakeExcerpt(n.body);
       return meta(n);
     }
     case "vault_set_prop": {
       const key = args?.key as string;
       const value = args?.value as PropValue;
-      // mirrors Engine::set_prop_guarded (SUB-477): `expected` present means
+      // mirrors Engine::set_prop_guarded: `expected` present means
       // check, and its `value` is what the caller believes is on disk (null =
       // "expected absent"). A mismatch refuses the write, store untouched.
       const expected = args?.expected as { value: PropValue } | null | undefined;
       // mirrors the engine's write-domain match: strings, numbers, bools,
       // string lists, null. Anything else is refused there, so refuse here —
       // a mock that accepts more than the engine turns e2e into a lane that
-      // proves nothing (the SUB-479 class of blind spot).
+      // proves nothing (the class of blind spot).
       if (Array.isArray(value)) {
         if (!value.every((v) => typeof v === "string")) throw new Error("list values must be strings");
       } else if (value !== null && !["string", "number", "boolean"].includes(typeof value)) {
@@ -3630,8 +3629,8 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       }
       const n = find();
       if (!n) throw new Error("not found");
-      // mirrors parse_props_for_write (SUB-215): a present-but-broken block
-      // refuses every prop edit until the repair lane fixes it (SUB-430)
+      // mirrors parse_props_for_write: a present-but-broken block
+      // refuses every prop edit until the repair lane fixes it
       if (n.fmUnterminated)
         throw new Error(
           `frontmatter in ${n.path} is never closed — fix it in the editor before editing properties`,
@@ -3652,7 +3651,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       return { meta: meta(n), prior };
     }
     case "sheet_set_column_notify": {
-      // mirrors Engine::set_sheet_column_notify (SUB-876): a nested `columns:`
+      // mirrors Engine::set_sheet_column_notify: a nested `columns:`
       // map, both the map key and the column name keeping whatever spelling is
       // already on disk, the lead clamped to 1..365, and an entry that says
       // nothing removed — as is the map once its last entry goes.
@@ -3692,7 +3691,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // title/stem follow the deduped filename (create writes no `title:` prop)
       const rawTitle = (args?.title as string) ?? "Untitled";
       const title = mockSanitizeFilename(rawTitle);
-      // mirrors Engine::create_full's SUB-223 guard
+      // mirrors Engine::create_full's guard
       mockValidateNoteTitle(rawTitle, title);
       const folder = (args?.folder as string) ?? "Inbox";
       const noteType = (args?.noteType as string | null) ?? null;
@@ -3722,7 +3721,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         body,
       };
       mockAddFolder(folder);
-      // extra create-time props (SUB-17): schema-default chips + template
+      // extra create-time props: schema-default chips + template
       // defaults; created/type/title stay engine-owned like in vault.rs
       for (const [k, v] of extraProps) {
         const key = k.trim();
@@ -3741,9 +3740,9 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     }
     case "vault_template_list":
       return Object.keys(mockTemplates).sort();
-    // Custom kinds (SUB-959) are vault-resident code served through a real
+    // Custom kinds are vault-resident code served through a real
     // Tauri scheme; the mock lane has neither, so bundles exist only when a
-    // spec stages them through __mockWriteKind (SUB-960) — an unseeded lane
+    // spec stages them through __mockWriteKind — an unseeded lane
     // still answers "none installed". Enable/disable move the in-memory
     // consent record only: no consent file appears anywhere.
     case "kinds_list":
@@ -3782,7 +3781,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       if (k) delete k.row.record;
       return null;
     }
-    // Reflexes (SUB-826) need a real vault watcher to FIRE, which the mock
+    // Reflexes need a real vault watcher to FIRE, which the mock
     // lane does not have — but the consent switch is a pure frontend decision
     // and is driven here for real. No rules file by default, which is what the
     // settings section hides itself on; `__mockStageReflexesFile` puts one
@@ -3910,7 +3909,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const display = url.replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/+$/, "");
       const slug =
         display.replace(/[/\\:*?"<>|]/g, " ").replace(/\s+/g, " ").trim() || "Untitled";
-      // mirrors Engine::create_reference's SUB-223 guard
+      // mirrors Engine::create_reference's guard
       mockValidateNoteTitle(display, slug);
       let path = `Inbox/${slug}.md`;
       let i = 2;
@@ -3927,7 +3926,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       };
       mockNotes.push(n);
       mockEnforceSealScope(n);
-      // SUB-834: `net-link-titles: false` skips the enrichment fetch — the
+      // `net-link-titles: false` skips the enrichment fetch — the
       // note stays exactly as captured. Mirrors url_capture's `enrich` flag,
       // so the mock can't pass a case the real engine would refuse to.
       // The seal lands first either way: a captured link inside a sealed
@@ -3956,13 +3955,13 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const title = ((args?.title as string) ?? "").trim();
       if (!title) throw new Error("title cannot be empty");
       const slug = mockSanitizeFilename(title);
-      // mirrors Engine::rename's SUB-223 guard — before any link rewrite
+      // mirrors Engine::rename's guard — before any link rewrite
       mockValidateNoteTitle(title, slug);
       const newPath = n.folder ? `${n.folder}/${slug}.md` : `${slug}.md`;
       // case-insensitive like the engine's new_abs.exists() check on a
       // case-insensitive filesystem (and like mock vault_create's dedupe):
       // "Beta"→"ALPHA" collides with an existing "Alpha.md"; a case-only
-      // rename of the note itself stays allowed (SUB-290)
+      // rename of the note itself stays allowed
       if (
         newPath.toLowerCase() !== n.path.toLowerCase() &&
         mockNotes.some((m) => m.path.toLowerCase() === newPath.toLowerCase())
@@ -3971,10 +3970,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       }
       const oldNames = [n.title.toLowerCase(), n.stem.toLowerCase()];
       // mirrors Engine::rename: only relation props aimed at this note's
-      // type follow the rename (SUB-216)
+      // type follow the rename
       const renamedType = (mockPropString(n.props, "type") ?? "").toLowerCase();
       // mirrors Engine::rename_tracked: every note the sweep actually rewrote,
-      // the renamed one included, named by where it lands (SUB-515)
+      // the renamed one included, named by where it lands
       const rewritten = new Set<MockNote>();
       for (const m of mockNotes) {
         // mirrors Engine::rename — ![[…]] embeds name assets, stay untouched
@@ -3982,7 +3981,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         m.body = m.body.replace(/!?\[\[([^[\]]+)\]\]/g, (whole, inner) => {
           if (whole.startsWith("!")) return whole;
           // only the target moves; the anchor and the author's display text
-          // ride along untouched (SUB-1095)
+          // ride along untouched
           const { target, anchor, alias } = parseWikiLink(String(inner));
           if (!oldNames.includes(target.toLowerCase())) return whole;
           return `[[${title}${anchor ? `#${anchor}` : ""}${alias ? `|${alias}` : ""}]]`;
@@ -4026,7 +4025,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       else n.props["title"] = title;
       n.updated_ms = Date.now();
       // a path change is an authorization boundary — the destination reopens
-      // locked, like Engine::rename_tracked (SUB-839)
+      // locked, like Engine::rename_tracked
       mockUnlockedSealed.delete(renamedFrom);
       mockUnlockedSealed.delete(newPath);
       // post-move paths, renamed note first — same shape as RenameResult
@@ -4035,7 +4034,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     }
     case "vault_delete":
       return mockTrashNote(String(args?.path ?? ""), Date.now());
-    /* SUB-577: mirrors Engine::trash_many — ONE stamp for the whole selection,
+    /* mirrors Engine::trash_many — ONE stamp for the whole selection,
        so the group shares a deleted_ms and vault_trash_list's `deleted_ms
        DESC, path ASC` orders it by path. Per-note Date.now() let a millisecond
        boundary fall mid-loop under load and split the group. Result shape
@@ -4088,9 +4087,9 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           folders: mockSidebarOrder.folders.filter((f) => !inside(f)),
         };
       }
-      // …and the note pins inside the subtree (SUB-410)
+      // …and the note pins inside the subtree
       for (const n of folderNotes) mockMoveSidebarPin(n.path, null);
-      // …and every key bound into the subtree, the folder row included (SUB-467)
+      // …and every key bound into the subtree, the folder row included
       mockMoveSidebarKeysFolder(rel, null);
       let deleted_ms = Date.now();
       while (mockTrash.some((t) => t.id === `${deleted_ms}/${rel}`)) deleted_ms += 1;
@@ -4110,7 +4109,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       return id;
     }
     case "vault_trash_list":
-      // engine parity (SUB-488): Engine::trash_list sorts `deleted_ms DESC,
+      // engine parity: Engine::trash_list sorts `deleted_ms DESC,
       // path ASC` before returning. Sort a COPY — other cases splice into
       // mockTrash by index, so its own order must stay as-is.
       return [...mockTrash]
@@ -4184,7 +4183,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       return null;
     }
     case "vault_trash_restore_template": {
-      // a deleted database's template (SUB-781) — back into the template
+      // a deleted database's template — back into the template
       // store under a numbered stem when the type was recreated with a fresh
       // one, the engine's never-overwrite rule. Returns the stem it landed
       // under, exactly like trash_restore_template.
@@ -4218,18 +4217,18 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // query token must prefix-match some word in the title or body, where a
       // word is an alphanumeric run like the FTS tokenizer produces — so a
       // mid-word substring misses and scattered multi-word tokens hit.
-      // machine-fence bodies are stripped like the engine's index (SUB-261)
+      // machine-fence bodies are stripped like the engine's index
       const tokens = ((args?.q as string) ?? "").toLowerCase().split(/\s+/).filter(Boolean);
       if (tokens.length === 0) return [];
       const words = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
       const bound = "[\\p{L}\\p{N}]";
-      // scope (SUB-566): the caller's structured filters, as a path allow-list.
+      // scope: the caller's structured filters, as a path allow-list.
       // Applied before the cap, exactly like the engine's `path IN (…)` clause —
       // otherwise the cap picks from the unfiltered set and filtered matches
       // that rank outside the top 30 vanish.
       const scope = (args?.scope as string[] | undefined) ?? null;
       const inScope = scope ? new Set(scope) : null;
-      // conceal parity (SUB-907): the engine drops the app files before its
+      // conceal parity: the engine drops the app files before its
       // cap when asked, so the mock must too
       const skipAppFiles = (args?.excludeAppFiles as boolean | undefined) ?? false;
       return mockNotes
@@ -4239,7 +4238,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           const hay = words(`${n.title}\n${stripMachineFences(n.body)}`);
           return tokens.every((t) => hay.some((w) => w.startsWith(t)));
         })
-        // rank before capping, or the cap picks by insertion order (SUB-519)
+        // rank before capping, or the cap picks by insertion order
         .map((n) => {
           const body = stripMachineFences(n.body);
           const titleAt = mockFirstHit(n.title, tokens, bound);
@@ -4261,10 +4260,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         .split(/\s+/)
         .filter(Boolean);
       if (terms.length === 0) return { hits: [], total_notes: 0, truncated: false };
-      // scope (SUB-566): path allow-list applied before the cap, like the engine
+      // scope: path allow-list applied before the cap, like the engine
       const fullScope = (args?.scope as string[] | undefined) ?? null;
       const fullInScope = fullScope ? new Set(fullScope) : null;
-      // conceal parity (SUB-907): excluded before the count AND the cap, so
+      // conceal parity: excluded before the count AND the cap, so
       // total_notes/truncated never speak for files the user can't see
       const fullSkipAppFiles = (args?.excludeAppFiles as boolean | undefined) ?? false;
       const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -4291,7 +4290,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         const title = segment(n.title);
         let total = title.count;
         const matches = [];
-        // machine-fence bodies are stripped like the engine's index (SUB-261)
+        // machine-fence bodies are stripped like the engine's index
         const body = stripMachineFences(n.body);
         const lines = body.split("\n");
         for (let i = 0; i < lines.length; i++) {
@@ -4313,8 +4312,8 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
             path: n.path,
           });
       }
-      // rank before capping, or the cap picks by insertion order (SUB-519).
-      // The count is of the whole match set, not the page (SUB-566) — the UI
+      // rank before capping, or the cap picks by insertion order.
+      // The count is of the whole match set, not the page — the UI
       // needs it to say "first 200 of 359" and to tell a truncated page apart
       // from an empty result set.
       const hits = ranked.sort(mockRank).slice(0, FULL_SEARCH_MAX_NOTES).map((r) => r.hit);
@@ -4332,12 +4331,12 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
             [...m.body.matchAll(/!?\[\[([^[\]]+)\]\]/g)].some(
               (match) =>
                 !match[0].startsWith("!") &&
-                // …and the edge is the TARGET alone (SUB-1095)
+                // …and the edge is the TARGET alone
                 names.includes(parseWikiLink(match[1]).target.toLowerCase())
             )
         )
         .map(meta)
-        // engine parity (SUB-488): Engine::backlinks sorts by title before
+        // engine parity: Engine::backlinks sorts by title before
         // returning (vault.rs, `out.sort_by(|a, b| a.title.cmp(&b.title))`)
         .sort((a, b) => (a.title < b.title ? -1 : a.title > b.title ? 1 : 0));
     }
@@ -4369,14 +4368,14 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
             out.push({ path: m.path, title: m.title, db_type: t as string, prop: actualKey });
         }
       }
-      // engine parity (SUB-488): byte order like `str::cmp`, not localeCompare
+      // engine parity: byte order like `str::cmp`, not localeCompare
       out.sort((a, b) =>
         a.title < b.title ? -1 : a.title > b.title ? 1 : a.prop < b.prop ? -1 : a.prop > b.prop ? 1 : 0
       );
       return out;
     }
     case "vault_resolve": {
-      // engine parity (SUB-1095): the anchor and the display alias are not
+      // engine parity: the anchor and the display alias are not
       // part of the name — `Piranesi#Notes|the book` resolves Piranesi
       const needle = parseWikiLink((args?.name as string) ?? "").target.toLowerCase();
       if (!needle) return null;
@@ -4430,7 +4429,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // audio names resolve to a synthesized WAV (see lib/assets.ts); path
       // embeds always miss, demoing the broken-path state
       const name = (((args?.name as string) ?? "")).trim();
-      // SUB-812: a folder row's absolute path is a real file here — the
+      // A folder row's absolute path is a real file here — the
       // engine stats it through the same link-in-place lane. Checked before
       // the broken-path branch below, which still owns every other path.
       const loose = mockLooseByPath(name);
@@ -4455,7 +4454,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       }
       return [...mockAssets.keys()]
         .filter((name) => !referenced.has(name.toLowerCase()))
-        // engine parity (SUB-488): lowercased byte order (`to_lowercase().cmp`)
+        // engine parity: lowercased byte order (`to_lowercase().cmp`)
         .sort((a, b) => {
           const al = a.toLowerCase();
           const bl = b.toLowerCase();
@@ -4468,7 +4467,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           mtime_ms: now - 40 * 86_400_000,
         }));
     }
-    // SUB-432: a small fixed report — one finding per kind, so the pane's
+    // A small fixed report — one finding per kind, so the pane's
     // grouping, severities and copy-as-JSON all have something to render.
     // Read-only in the mock too: nothing here mutates mockNotes.
     case "vault_doctor":
@@ -4527,10 +4526,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           },
         ],
       };
-    /* SUB-479: asset delete moves into the trash as an `asset` entry keyed
+    /* Asset delete moves into the trash as an `asset` entry keyed
        `<deleted_ms>/.assets/<name>`, mirroring Engine::assets_delete. */
     case "vault_assets_delete": {
-      /* SUB-669: one entry per input name, in order — `Ok(id)` for a file that
+      /* One entry per input name, in order — `Ok(id)` for a file that
          moved, `Ok("")` for one already gone, so a partial failure stays
          per-name attributable the way vault_delete_many is. */
       const out: { Ok?: string; Err?: string }[] = [];
@@ -4591,7 +4590,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
               changed: [...mockVaultSyncStatus.last_result.changed],
             }
           : null,
-        // engine parity (SUB-572): read from the parked merge, not from the
+        // engine parity: read from the parked merge, not from the
         // session's last result, and sorted like sync_conflicts returns it
         conflicted: mockConflicts.active
           ? mockConflicts.files.map((f) => f.path).sort()
@@ -4620,7 +4619,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         pulled: 0,
         conflicted: [],
         head: "5dc371a8f1b9",
-        // a push checks nothing out (engine parity, SUB-516)
+        // a push checks nothing out (engine parity)
         changed: [],
       };
       mockVaultSyncStatus = { configured: true, last_result: report, last_error: null };
@@ -4631,11 +4630,11 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const report: SyncReport = {
         pushed: 0,
         pulled: 3,
-        // engine parity (SUB-522): conflict_paths returns a BTreeSet, so this
+        // engine parity: conflict_paths returns a BTreeSet, so this
         // list is sorted, not pull-order
         conflicted: ["Journal/2026-07-22.md", "Projects/Release plan.md"].sort(),
         head: "91c0f17ab4d2",
-        // engine parity (SUB-516): this pull conflicts, so it parks the merge
+        // engine parity: this pull conflicts, so it parks the merge
         // instead of checking anything out — nothing on disk moved
         changed: [],
       };
@@ -4680,7 +4679,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       }
       // keep-both lands the remote copy beside mine, like the Rust merge does
       const merged = mockConflicts.files.filter((f) => f.resolution === "both").length;
-      // engine parity (SUB-516): finishing checks the merge out, so every
+      // engine parity: finishing checks the merge out, so every
       // conflicted path moved on disk — plus the keep-both copies
       const changed = mockConflicts.files
         .flatMap((f) => (f.resolution === "both" && f.both_path ? [f.path, f.both_path] : [f.path]))
@@ -4706,11 +4705,11 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // mirrors Engine::set_schema_prop: trim, case-insensitive dedupe,
       // date/file/relation/url/email/phone/checkbox/number/rollup kinds drop
       // options
-      // (multi keeps them — SUB-79), relation needs a target, number validates
+      // (multi keeps them), relation needs a target, number validates
       // its display format (plain stores as absent, drops on other kinds), a
-      // rollup (SUB-678) needs its relation (an existing relation-kind prop
+      // rollup needs its relation (an existing relation-kind prop
       // of the same database), target prop and agg vocabulary, a
-      // description (SUB-191) rides any kind trimmed (empty = absent), no
+      // description rides any kind trimmed (empty = absent), no
       // kind + no options demotes the prop, notify (null = keep stored flag)
       // only sticks to date-kind props
       const requestedDbType = ((args?.dbType as string) ?? "").trim();
@@ -4727,7 +4726,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const format = ((args?.format as string | null) ?? "").trim();
       if (kind === "number" && format && !["plain", "euro", "percent"].includes(format))
         throw new Error(`unknown number format “${format}”`);
-      // rollup wiring (SUB-678): three flat args like the IPC command sends
+      // rollup wiring: three flat args like the IPC command sends
       const rollRelation = ((args?.relation as string | null) ?? "").trim();
       const rollProp = ((args?.rollupProp as string | null) ?? "").trim();
       const rollAgg = ((args?.agg as string | null) ?? "").trim();
@@ -4759,7 +4758,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       } else {
         const keep = mockSchema[dbType]?.[prop]?.notify ?? false;
         const notify = ((args?.notify as boolean | null) ?? keep) && kind === "date";
-        // lead time (SUB-842) rides the same date-only rule: 0 clears it,
+        // lead time rides the same date-only rule: 0 clears it,
         // longer than a year clamps, an absent arg keeps the stored value
         const keepBefore = mockSchema[dbType]?.[prop]?.notifyBefore;
         const before = (args?.notifyBefore as number | null) ?? keepBefore;
@@ -4811,7 +4810,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           throw new Error("invalid folder path");
         }
         const rel = parts.join("/");
-        // one home folder, one database (SUB-407)
+        // one home folder, one database
         const other = Object.entries(mockHomes).find(
           ([t, h]) => t !== dbType && h === rel,
         );
@@ -4858,7 +4857,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // relation targets, views pref, sidebar order, and template follow
       const oldName = ((args?.old as string) ?? "").trim();
       const newName = ((args?.new as string) ?? "").trim();
-      // SUB-501: the sweeps return a BulkSweep so a partial run can report its
+      // The sweeps return a BulkSweep so a partial run can report its
       // count with the error. The mock never fails mid-sweep, so `failed` is
       // always absent here — the shape is what has to stay truthful.
       if (oldName === newName) return { notes: 0, skipped: 0 };
@@ -4898,7 +4897,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         mockIcons[newName] = mockIcons[iconOld];
         delete mockIcons[iconOld];
       }
-      // …and so does the home folder (SUB-85)
+      // …and so does the home folder
       const homeOld = mockFoldedKey(mockHomes, oldName);
       if (homeOld) {
         mockHomes[newName] = mockHomes[homeOld];
@@ -4916,13 +4915,13 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         ...mockSidebarOrder,
         databases: mockSidebarOrder.databases.map((d) => (d.toLowerCase() === oldName.toLowerCase() ? newName : d)),
       };
-      // a key bound to the database row follows the rename (SUB-467)
+      // a key bound to the database row follows the rename
       mockMoveSidebarKeysDb(oldName, newName);
       if (templateOld) {
         mockTemplates[templateNew] = mockTemplates[templateOld];
         if (templateOld !== templateNew) delete mockTemplates[templateOld];
       }
-      // a mount IS its schema type (SUB-888), so the registry follows the
+      // a mount IS its schema type, so the registry follows the
       // rename — one left on the old name and the two identities drift apart
       for (const m of mockMounts) {
         if (m.name.trim().toLowerCase() === oldName.toLowerCase()) m.name = newName;
@@ -4971,9 +4970,9 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         ...mockSidebarOrder,
         databases: mockSidebarOrder.databases.filter((d) => d.toLowerCase() !== dbType.toLowerCase()),
       };
-      // …and dies with the delete (SUB-467)
+      // …and dies with the delete
       mockMoveSidebarKeysDb(dbType, null);
-      // the template goes through the trash like the engine's (SUB-781),
+      // the template goes through the trash like the engine's,
       // carrying its content so restore round-trips
       if (templateKey) {
         const tpl = mockTemplates[templateKey];
@@ -4991,7 +4990,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           template: tpl,
         });
       }
-      // deleting the database unmounts the folder it stood for (SUB-888) —
+      // deleting the database unmounts the folder it stood for —
       // otherwise the next rescan feeds a ghost type
       for (const m of mockMounts) {
         if (m.name.trim().toLowerCase() === dbType.toLowerCase()) {
@@ -5050,7 +5049,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       for (const ps of Object.values(schemaProps ?? {}))
         if (ps.kind === "rollup" && ps.relation?.toLowerCase() === oldName.toLowerCase())
           ps.relation = newName;
-      // …and every rollup in ANY database (SUB-740) whose relation points at
+      // …and every rollup in ANY database whose relation points at
       // this one retargets its `prop` reference — left dangling it would read
       // a prop no row carries, rendering the whole column empty
       for (const ts of Object.values(mockSchema)) {
@@ -5069,13 +5068,13 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const rnPref = viewDb ? mockViews[viewDb] : undefined;
       if (rnPref?.group_by?.toLowerCase() === oldName.toLowerCase()) rnPref.group_by = newName;
       if (rnPref?.table_group_by?.toLowerCase() === oldName.toLowerCase()) rnPref.table_group_by = newName;
-      // SUB-326: the remembered sort and hidden entries follow the rename too
+      // The remembered sort and hidden entries follow the rename too
       if (rnPref?.sorts) rnPref.sorts = rnPref.sorts.map((s) => (s.key.toLowerCase() === oldName.toLowerCase() ? { ...s, key: newName } : s));
       if (rnPref?.hidden) rnPref.hidden = rnPref.hidden.map((h) => (h.toLowerCase() === oldName.toLowerCase() ? newName : h));
-      // SUB-949: the table drag order follows the rename too
+      // The table drag order follows the rename too
       if (rnPref?.col_order)
         rnPref.col_order = rnPref.col_order.map((c) => (c.toLowerCase() === oldName.toLowerCase() ? newName : c));
-      // SUB-642: per-layout hidden entries follow the rename too
+      // Per-layout hidden entries follow the rename too
       if (rnPref?.hidden_per_layout?.table)
         rnPref.hidden_per_layout.table = rnPref.hidden_per_layout.table.map((h) =>
           h.toLowerCase() === oldName.toLowerCase() ? newName : h
@@ -5109,7 +5108,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const clPref = viewDb ? mockViews[viewDb] : undefined;
       if (clPref?.group_by?.toLowerCase() === prop.toLowerCase()) delete clPref.group_by;
       if (clPref?.table_group_by?.toLowerCase() === prop.toLowerCase()) delete clPref.table_group_by;
-      // SUB-326: the prop's sort key and hidden entry drop with it; emptied
+      // The prop's sort key and hidden entry drop with it; emptied
       // lists leave the pref entirely (the engine's collapse-to-None rule)
       if (clPref?.sorts) {
         clPref.sorts = clPref.sorts.filter((s) => s.key.toLowerCase() !== prop.toLowerCase());
@@ -5119,12 +5118,12 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         clPref.hidden = clPref.hidden.filter((h) => h.toLowerCase() !== prop.toLowerCase());
         if (clPref.hidden.length === 0) delete clPref.hidden;
       }
-      // SUB-949: the prop drops out of the table drag order too
+      // The prop drops out of the table drag order too
       if (clPref?.col_order) {
         clPref.col_order = clPref.col_order.filter((c) => c.toLowerCase() !== prop.toLowerCase());
         if (clPref.col_order.length === 0) delete clPref.col_order;
       }
-      // SUB-642: per-layout sets lose the prop too — emptied sets collapse to
+      // Per-layout sets lose the prop too — emptied sets collapse to
       // absent, and a sets object with nothing left leaves the pref entirely
       const hpl = clPref?.hidden_per_layout;
       if (hpl) {
@@ -5157,7 +5156,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       return !p.toLowerCase().includes("missing");
     }
     case "vault_folder_files": {
-      // engine parity (SUB-812): name-ascending, case-insensitive — the
+      // engine parity: name-ascending, case-insensitive — the
       // running order for hand-numbered takes
       const folder = String(args?.path ?? "");
       const names = [...(mockLooseFiles.get(folder) ?? [])].sort((a, b) => {
@@ -5201,7 +5200,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         ?? requestedDb;
       // the wire keys are camelCase (Tauri converts for the Rust command);
       // read both so a snake_case straggler still lands
-      // mirrors Engine::set_view_pref (SUB-326): bad sort dirs are refused,
+      // mirrors Engine::set_view_pref: bad sort dirs are refused,
       // empty lists collapse to absent, hidden entries trim (empties drop)
       const sorts = (args?.sorts as ViewsConfig[string]["sorts"] | null) ?? undefined;
       for (const s of sorts ?? []) {
@@ -5210,16 +5209,16 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const hidden = ((args?.hidden as string[] | null) ?? undefined)
         ?.map((h) => h.trim())
         .filter(Boolean);
-      // SUB-949: the drag order sanitizes like the hidden list
+      // The drag order sanitizes like the hidden list
       const colOrder = (((args?.colOrder ?? args?.col_order) as string[] | null) ?? undefined)
         ?.map((c) => c.trim())
         .filter(Boolean);
-      // SUB-948: the board's hand order sanitizes the same way (note paths,
+      // the board's hand order sanitizes the same way (note paths,
       // never validated against the index — a stale path is ignored on read)
       const cardOrder = (((args?.cardOrder ?? args?.card_order) as string[] | null) ?? undefined)
         ?.map((c) => c.trim())
         .filter(Boolean);
-      // SUB-642: per-layout hidden sets sanitize like the flat list — entries
+      // Per-layout hidden sets sanitize like the flat list — entries
       // trim, empties drop, an empty set collapses to absent, and a sets
       // object with nothing left leaves the pref entirely
       const hplRaw = (args?.hiddenPerLayout ?? args?.hidden_per_layout) as
@@ -5235,7 +5234,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
               ...(hplList?.length ? { list: hplList } : {}),
             }
           : undefined;
-      // SUB-404: zero widths drop, wrap entries trim — Engine::set_view_pref
+      // Zero widths drop, wrap entries trim — Engine::set_view_pref
       const widths = Object.fromEntries(
         Object.entries((args?.widths as Record<string, number> | null) ?? {}).filter(([, w]) => w > 0)
       );
@@ -5254,7 +5253,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         hidden: hidden?.length ? hidden : undefined,
         widths: Object.keys(widths).length ? widths : undefined,
         wrap: wrap?.length ? wrap : undefined,
-        // SUB-607: absent = follow the global db-grid setting
+        // Absent = follow the global db-grid setting
         grid: (args?.grid as boolean | null) ?? undefined,
         hidden_per_layout: hiddenPerLayout,
       };
@@ -5340,7 +5339,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       return [...mockFolders].sort();
     case "vault_create_folder": {
       const raw = ((args?.path as string) ?? "").trim();
-      // engine parity (SUB-910): sanitize_folder_rel checks each RAW part,
+      // engine parity: sanitize_folder_rel checks each RAW part,
       // sanitizes it (reserved chars → space, whitespace collapsed), then
       // re-checks the sanitized form — ":.." sanitizes to ".." and must
       // refuse, and "My: Folder" must store as "My Folder", not verbatim
@@ -5364,7 +5363,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const rawName = ((args?.name as string) ?? "").trim();
       if (!oldRel) throw new Error("cannot rename the vault root");
       if (!rawName) throw new Error("folder name cannot be empty");
-      // engine parity (SUB-910): rename_folder sanitizes the new leaf and
+      // engine parity: rename_folder sanitizes the new leaf and
       // refuses a hidden result, exactly like create
       const name = mockSanitizeFilename(rawName);
       if (name.startsWith(".")) throw new Error("hidden folders are not managed");
@@ -5377,7 +5376,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       mockRelocateFolder(oldRel, newRel);
       return newRel;
     }
-    // SUB-698: a folder dragged under another parent ("" = vault root) keeps
+    // A folder dragged under another parent ("" = vault root) keeps
     // its name; everything path-keyed follows exactly as a rename's does.
     // NOTE: no sanitize_folder_rel / hidden_rel parity here — the engine's
     // traversal and dot-folder guards (mod.rs move_folder) are engine-only, so
@@ -5417,7 +5416,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       n.path = newPath;
       n.folder = folder;
       n.updated_ms = Date.now();
-      // the destination reopens locked, like Engine::move_note (SUB-839)
+      // the destination reopens locked, like Engine::move_note
       mockUnlockedSealed.delete(movedFrom);
       mockUnlockedSealed.delete(newPath);
       mockEnforceSealScope(n);
@@ -5496,7 +5495,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       if (["mount", "mount_file", "mount_identity"].includes(prop)) {
         throw new Error(`“${prop}” is set by the mount`);
       }
-      // SUB-887: the file owns these, and the next extraction would overwrite
+      // The file owns these, and the next extraction would overwrite
       // anything typed over them — mirrors Engine::mount_annotate
       if ((MOUNT_EXTRACTED as readonly string[]).some((c) => c.toLowerCase() === prop.toLowerCase())) {
         throw new Error(`“${prop}” is read from the file itself`);
@@ -5578,7 +5577,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     case "agenda_open_capture":
       console.info("[mock] open capture from tray agenda");
       return null;
-    // SUB-1075: in the browser mock nothing ever hands us a `substrate://`
+    // In the browser mock nothing ever hands us a `substrate://`
     // link — the scheme is registered with the OS around a packaged app — so
     // the queue is always empty and the prefill always absent.
     case "deeplink_take_pending":
@@ -5610,7 +5609,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       mockRetargetSidebarKeys((t) => (t === `sv:${args?.id}` ? null : undefined));
       return [...mockSavedViews];
     }
-    /* SUB-810: the link folder itself is real-filesystem work the mock can't
+    /* The link folder itself is real-filesystem work the mock can't
        do, so the mock backend models the part the UI depends on — which view
        has a remembered target, and what a run reports back. */
     case "view_export_target":
@@ -5633,7 +5632,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     }
     case "history_facts": {
       // the mock vault's three snapshot levels (now, -3h, -27h) as fact lanes
-      // (SUB-832): one point per *change*, oldest first, so `valueAt` binary
+      // one point per *change*, oldest first, so `valueAt` binary
       // searches the same shape the real revwalk produces. Numeric facts are
       // walked back so a history chart has a slope to draw; everything else
       // simply held its present value for as long as history goes back.
@@ -5783,7 +5782,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
   }
 }
 
-/* SUB-516 — own-write attribution lives here, at the one place every vault
+/* Own-write attribution lives here, at the one place every vault
    mutation passes through. The alternative was tagging each of the ~30
    `refresh()` call sites in App.tsx with the paths it just wrote, which is the
    same knowledge derived twice and drifts the first time a call site forgets.
@@ -5806,7 +5805,7 @@ export const invoke = async <T,>(cmd: string, args?: Record<string, unknown>): P
   return result;
 };
 
-/* Mock event registry (SUB-158): the real listen() bridges the engine's file
+/* Mock event registry: the real listen() bridges the engine's file
    watcher; the mock keeps its own handlers so specs can fire vault:changed
    (and any future event) through window.__mockEmit. Unlisten really removes —
    the old no-op made the external-change lanes unreachable from e2e. */
@@ -5826,7 +5825,7 @@ const mockListen: typeof tauriListen = async (event, handler) => {
 
 export const listen: typeof tauriListen = isTauri ? tauriListen : mockListen;
 
-/* e2e-only surface (SUB-156/SUB-158): installed only outside Tauri, so the
+/* e2e-only surface: installed only outside Tauri, so the
    shipped app never carries it. Specs stage watcher events, external edits
    and asset re-bounces through these; failures ride __mockFail above. */
 if (!isTauri) {
@@ -5844,7 +5843,7 @@ if (!isTauri) {
     n.updated_ms = Date.now();
     mockEnforceSealScope(n);
   };
-  // a marker arriving by sync (SUB-889): the file lands, this device never
+  // a marker arriving by sync: the file lands, this device never
   // confirmed it, so nothing is sealed and no history is touched
   window.__mockPlantSealScope = (path) => {
     const scope = path.replace(/^[/\\]+|[/\\]+$/g, "");
@@ -5854,7 +5853,7 @@ if (!isTauri) {
     // does: seal scopes changed, notes untouched
     window.__mockEmit?.("vault:seal-scopes-changed");
   };
-  // the file vanishing under the app (SUB-506): same outside-the-app bypass as
+  // the file vanishing under the app: same outside-the-app bypass as
   // __mockEditNote, so a subsequent vault_read rejects the way a real one does
   window.__mockDeleteNote = (path) => {
     const i = mockNotes.findIndex((m) => m.path === path);
@@ -5907,7 +5906,7 @@ if (!isTauri) {
   window.__mockTouchAsset = (name) => {
     mockAssetMtimes.set(name, (mockAssetMtimes.get(name) ?? 1) + 1);
   };
-  // an asset appearing on disk without an app write (SUB-289): no echo
+  // an asset appearing on disk without an app write: no echo
   // window, so the next __mockEmit refreshes immediately
   window.__mockSaveAsset = (name, data) => {
     mockAssets.set(name, data);
@@ -5921,7 +5920,7 @@ if (!isTauri) {
     mockReflexes.hasFile = true;
     mockReflexes.filePaused = Boolean(opts?.filePaused);
   };
-  // SUB-296/SUB-295 opt-ins; off by default, reset by the next page load
+  // Opt-ins; off by default, reset by the next page load
   window.__mockSetEchoOnWrites = (on) => {
     mockEchoOnWrites = on;
     if (!on) window.clearTimeout(mockEchoTimer); // a pending echo dies with the flag
@@ -5929,13 +5928,13 @@ if (!isTauri) {
   window.__mockSetAsync = (on) => {
     mockAsyncDispatch = on === true ? "timeout" : on;
   };
-  // SUB-771 instrumentation: start/read the write-lane command trace
+  // Instrumentation: start/read the write-lane command trace
   window.__mockTraceCommands = () => {
     mockCmdTrace = [];
     mockCmdTraceT0 = Date.now();
   };
   window.__mockReadCommandTrace = () => mockCmdTrace ?? [];
-  // SUB-550: park a command mid-flight so a spec can navigate away while it is
+  // Park a command mid-flight so a spec can navigate away while it is
   // still pending, then let it land into the world it left behind
   window.__mockHoldCommand = (cmd) => {
     if (mockHeldCommands.has(cmd)) return;
@@ -5946,12 +5945,12 @@ if (!isTauri) {
     mockHeldCommands.set(cmd, gate);
     mockHoldReleases.set(cmd, release);
   };
-  // SUB-946: a deterministic slow disk for one command
+  // A deterministic slow disk for one command
   window.__mockSetLatency = (cmd, ms) => {
     if (ms > 0) mockLatency.set(cmd, ms);
     else mockLatency.delete(cmd);
   };
-  // SUB-946: refuse the NEXT call to cmd and only that one (calls counted in
+  // Refuse the NEXT call to cmd and only that one (calls counted in
   // call order, so it binds before the latency wait — see mockInvoke)
   window.__mockFailOnce = (cmd) => {
     mockFailOnce.set(cmd, (mockFailOnce.get(cmd) ?? 0) + 1);
@@ -5961,7 +5960,7 @@ if (!isTauri) {
     mockHoldReleases.get(cmd)?.();
     mockHoldReleases.delete(cmd);
   };
-  // SUB-461: a windowing-sized list. Half the seeds carry a subtitle prop, so
+  // A windowing-sized list. Half the seeds carry a subtitle prop, so
   // the two row heights the offset math distinguishes are both present.
   window.__mockSeedNotes = (folder, count) => {
     for (let i = 0; i < count; i++) {
@@ -5978,7 +5977,7 @@ if (!isTauri) {
       });
     }
   };
-  // SUB-566: a cap-sized match set. `where` decides the rank — a title hit
+  // A cap-sized match set. `where` decides the rank — a title hit
   // sorts ahead of every body-only one, so seeding the untyped bulk into
   // titles and the typed few into late body text puts the typed notes outside
   // the top N on purpose. That is the whole point: a cap applied before the
@@ -6001,14 +6000,14 @@ if (!isTauri) {
       });
     }
   };
-  // SUB-436: stage the no-vault state the real backend reaches on a machine
+  // Stage the no-vault state the real backend reaches on a machine
   // with neither VAULT_DIR, a stored choice, nor ~/Vault
   window.__mockSetFirstRun = (on) => {
     mockFirstRun = on;
   };
   window.__mockRelaunched = () => mockRelaunched;
   window.__mockAgentCommand = () => mockAgentCommand;
-  // SUB-572: stage a merge that was parked before the app restarted. The
+  // Stage a merge that was parked before the app restarted. The
   // engine keeps it in git refs, so status still reports it; only the
   // session's last-result record is gone, which is exactly what this leaves.
   window.__mockWriteKind = async ({
@@ -6054,7 +6053,7 @@ if (!isTauri) {
   window.__mockParkConflicts = () => {
     mockConflicts = mockConflictSeed();
   };
-  // SUB-982: the other-machine board. The index stays exactly as the machine
+  // The other-machine board. The index stays exactly as the machine
   // holding the folder left it — only this machine's binding goes — so a
   // dashboard over the mount still has rows to chart.
   window.__mockUnbindMount = (name, path) => {

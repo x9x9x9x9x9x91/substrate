@@ -1,4 +1,4 @@
-/** The segmented toggle-group idiom (SUB-1054).
+/** The segmented toggle-group idiom.
 
     A `.db-switch` is never one control — it is a set of buttons that only
     mean anything together: "Order rows by: Urgency / Priority / Due / Age".

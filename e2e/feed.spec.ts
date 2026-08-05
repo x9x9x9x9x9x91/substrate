@@ -1,11 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Feed dashboard flows (SUB-518) over the mock seed: Dashboards/News.md
+// Feed dashboard flows over the mock seed: Dashboards/News.md
 // (items: News Items, curated stamp) + the News Items sheet. Seeded rows are
 // day-relative: 3 today (up / unrated / unrated-no-url) + 2 yesterday
 // (down / unrated), so the date grouping and every fb state have data on any
 // date the suite runs. The seeded `curated:` stamp is today 09:10 — fresh, so
-// the staleness dot (SUB-699) stays quiet; the stale specs rewrite the prop.
+// the staleness dot stays quiet; the stale specs rewrite the prop.
 
 const p = (n: number) => String(n).padStart(2, "0");
 /** local "YYYY-MM-DD" — the day part of the seeded stamp */

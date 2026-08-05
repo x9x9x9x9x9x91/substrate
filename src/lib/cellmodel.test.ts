@@ -4,7 +4,7 @@ import { cellModel, cellOpensEditor } from "./cellmodel.ts";
 import type { PropSchema } from "./types.ts";
 
 const schema: Record<string, PropSchema> = {
-  // a select column is just options with no kind — the default (SUB-79)
+  // a select column is just options with no kind — the default
   status: { options: [{ value: "live" }] },
   tags: { options: [], kind: "multi" },
   done: { options: [], kind: "checkbox" },

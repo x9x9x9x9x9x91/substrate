@@ -42,7 +42,7 @@ test("phone shell is a drawer plus a single-pane navigation stack (SUB-332)", as
   await expect(page.locator(".mobile-back")).toBeVisible();
 
   // Scrolled prose used to paint through the transparent full-width tools
-  // row, colliding with Back, History and the overflow menu (SUB-349).
+  // row, colliding with Back, History and the overflow menu.
   await page.locator(".note").evaluate((el) => {
     el.scrollTop = 260;
   });

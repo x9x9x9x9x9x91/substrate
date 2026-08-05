@@ -4,7 +4,7 @@ import { kindsEnable, kindsSetTrust, vaultRoot } from "../lib/ipc";
 import { invalidateKindBundles } from "../hooks/useKindBundles";
 import type { KindReview } from "../lib/kindpane";
 
-/* The review a person reads before code from their vault runs (SUB-961).
+/* The review a person reads before code from their vault runs.
 
    A pane inside the dashboard frame, not a modal. A modal would arrive on top
    of whatever the user was doing and be dismissible with Escape, and the two

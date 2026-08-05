@@ -1,4 +1,4 @@
-// Workbook pages (SUB-464): a `pages:` frontmatter list turns any dashboard
+// Workbook pages: a `pages:` frontmatter list turns any dashboard
 // into a multi-page workbook with an Excel-style tab strip at the bottom of
 // the pane. Tab 0 is always the note itself, rendered by its own dashboard:
 // kind; each entry adds one tab:
@@ -8,7 +8,7 @@
 //       note: Label Statements       # a sheet (editable) or dashboard note
 //     - label: Releases
 //       view: release                # a database type…
-//       query: status:live           # …optionally filtered (SUB-7 language)
+//       query: status:live           # …optionally filtered
 //     - label: Unreleased
 //       saved: umbra-unreleased      # or a pinned view by id/name
 //
@@ -77,7 +77,7 @@ function pageViewSpec(
 /** Parse the `pages:` prop into page entries. Not-a-list (or an empty list)
     means no tabs — the dashboard renders exactly as before. */
 export function parsePages(props: Record<string, unknown>): PageEntry[] {
-  // config keys fold like every prop read (SUB-921) — cased YAML still counts
+  // config keys fold like every prop read — cased YAML still counts
   const raw = byFoldedKey(props, "pages");
   if (!Array.isArray(raw)) return [];
   const out: PageEntry[] = [];

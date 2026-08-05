@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDb, openFilter } from "./nav";
 
-// SUB-810: a saved view can be exported as a folder of links other apps can
+// A saved view can be exported as a folder of links other apps can
 // see. The export is explicit — the pin's menu offers it, the first one asks
 // where, and every later Regenerate silently reuses that folder. Runs against
 // the mock backend; the native folder dialog and the real symlinks are

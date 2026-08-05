@@ -1,4 +1,4 @@
-/* Settings overlay (⌘, — SUB-398): a small form over the vault's Settings.md.
+/* Settings overlay (⌘,): a small form over the vault's Settings.md.
    The note stays the source of truth (plain markdown, hot-reloaded by the
    backend watcher within a second of any save), this pane is just a typed
    front door: read props on open, write each field back on commit via the
@@ -63,7 +63,7 @@ interface SettingsPaneProps {
   vaultSealed: boolean;
   vaultSealPending: boolean;
   /** A root seal marker that arrived from outside this device and seals
-      nothing until it is confirmed here (SUB-889). */
+      nothing until it is confirmed here. */
   vaultSealUnconfirmed: boolean;
   onSealVault: () => void;
   onConfirmVaultSeal: () => void;
@@ -90,7 +90,7 @@ interface Field {
   defaultChip?: string;
   /** text fields only: an inclusive numeric range the value must fall in */
   range?: { min: number; max: number };
-  /** slider fields only (SUB-955): the dial's bounds and the value that
+  /** slider fields only: the dial's bounds and the value that
       means "unset" — landing on it clears the key instead of writing it */
   slider?: { min: number; max: number; step: number; default: number };
   /** slider fields only: how the live number reads next to the track */
@@ -99,14 +99,14 @@ interface Field {
       the value still lives in Settings.md as plain frontmatter) */
   masked?: boolean;
   /** choice fields only: the options, first one the default an unset key
-      reads as (SUB-834) */
+      reads as */
   choices?: { value: string; label: string }[];
   /** heading this field opens (rendered above its row) — the list is flat and
       ordered, so a section runs until the next field that starts one */
   section?: string;
 }
 
-/* SUB-873: a `terminal-font` the machine can't resolve looks like the setting
+/* A `terminal-font` the machine can't resolve looks like the setting
    simply doesn't work — xterm falls back to the app's mono with no sign.
 
    NOT `document.fonts.check`: that answers "can this text be rendered", and
@@ -193,7 +193,7 @@ function selectValue(f: Field, raw: string): string {
 /** current option of a choice field: an unset or unrecognized value reads as
     the first choice, matching how the parsers in `lib/settings.ts` default.
     Matched on a trimmed case-fold, like `selectValue` — a hand-typed
-    `number-locale: en-us` is the value the app formats with (SUB-1092), so
+    `number-locale: en-us` is the value the app formats with, so
     the row has to show it selected rather than falling back to the default. */
 function choiceValue(f: Field, raw: string): string {
   const choices = f.choices ?? [];
@@ -243,7 +243,7 @@ const FIELDS: Field[] = [
     kind: "bool",
     defaultOn: true,
   },
-  /* Appearance (SUB-955) — the two dials that move the look without moving
+  /* Appearance — the two dials that move the look without moving
      the layout. Both default to the shipped picture: glow 0, tone sky. */
   {
     key: "glow",
@@ -269,7 +269,7 @@ const FIELDS: Field[] = [
     slider: { min: -NUDGE_MAX, max: NUDGE_MAX, step: 1, default: DEFAULT_NUDGE },
     format: (n) => (n === 0 ? "0°" : `${n > 0 ? "+" : ""}${n}°`),
   },
-  /* SUB-951: the third look dial, and the only one that reaches outside the
+  /* The third look dial, and the only one that reaches outside the
      window — so it rides the same slider chrome but is hidden where the OS
      can't do it, rather than shown inert. */
   {
@@ -346,7 +346,7 @@ const FIELDS: Field[] = [
     placeholder: "Sweep inbox: /inbox-sweep",
     kind: "multiline",
   },
-  /* SUB-1092: ONE dial for the number dialect. Its predecessor `number-format`
+  /* ONE dial for the number dialect. Its predecessor `number-format`
      offered two values and reached only calc lines and unit cells while every
      other surface stayed hardwired to German — the pane promised more than it
      did. This key reaches all of them, and the labels are the locales' own
@@ -365,7 +365,7 @@ const FIELDS: Field[] = [
     kind: "choice",
     choices: DATE_LOCALES.map((l) => ({ value: l, label: `${dateLocaleSample(l)}  ·  ${l}` })),
   },
-  /* SUB-834: the three requests that leave this machine, each with its own
+  /* The three requests that leave this machine, each with its own
      switch. Grouped under one heading so the answer to "what does this app
      talk to?" is a single place in the UI, not three settings apart. */
   {
@@ -414,8 +414,8 @@ const WINDOW_OPACITY_FIELD = field("window-opacity");
 
 /** What the three appearance keys currently in the form add up to. The pane
     previews through this rather than through the saved note, so dragging a
-    dial repaints the app under the sheet before anything is written
-    (SUB-955); App re-applies the committed truth on the next vault epoch. */
+    dial repaints the app under the sheet before anything is written;
+    App re-applies the committed truth on the next vault epoch. */
 function appearanceOf(v: Record<string, string>) {
   return {
     glow: sliderValue(GLOW_FIELD, v[GLOW_FIELD.key] ?? ""),
@@ -441,7 +441,7 @@ export default function SettingsPane({
   const [values, setValues] = useState<Record<string, string> | null>(null);
   /** what `values` holds right now, readable from a handler that must not be
       re-created on every drag step. The appearance dials repaint OUTSIDE their
-      state updater (SUB-1122) — see `slide` — and still need the current
+      state updater — see `slide` — and still need the current
       sheet, including fields the user edited while a write was in flight. */
   const valuesRef = useRef(values);
   valuesRef.current = values;
@@ -453,7 +453,7 @@ export default function SettingsPane({
       a backend too old to answer, in which case the row simply stays hidden */
   const [vault, setVault] = useState<OnboardingStatus | null>(null);
   const [switching, setSwitching] = useState(false);
-  /** families in the current `terminal-font` that won't take effect (SUB-873),
+  /** families in the current `terminal-font` that won't take effect,
       settled a beat after the last keystroke so half-typed names don't flash a
       warning at someone who is still spelling one correctly */
   const [badFonts, setBadFonts] = useState<TerminalFontProblems>({
@@ -474,7 +474,7 @@ export default function SettingsPane({
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      // SUB-1122: with the sheet gone there is nobody to hold an uncommitted
+      // with the sheet gone there is nobody to hold an uncommitted
       // preview, so hand the appearance back to Settings.md — the next read
       // repaints from the note, as an abandoned drag already did.
       reconcileAppearance(appearancePreviewSeq());
@@ -493,12 +493,12 @@ export default function SettingsPane({
       if (!mountedRef.current) return;
       const v: Record<string, string> = {};
       for (const f of FIELDS) {
-        // fold the read (SUB-924) — a hand-cased key still shows its value
+        // fold the read — a hand-cased key still shows its value
         const raw = c.props[foldedPropKey(c.props, f.key)];
         v[f.key] = fieldText(f, raw);
       }
       // The number dial must report the locale the app is ACTUALLY rendering
-      // in (SUB-1092). With `number-locale` absent, fieldText falls back to
+      // in. With `number-locale` absent, fieldText falls back to
       // the first choice — de-DE — but a vault still carrying the retired
       // `number-format: intl` key renders en-US, so the row would show de-DE
       // selected while the numbers say otherwise, and clicking the
@@ -527,7 +527,7 @@ export default function SettingsPane({
   const close = useCallback(() => {
     // fields commit on blur, and both exits from here (Esc, backdrop click)
     // unmount before the browser would blur on its own — so blur first, or the
-    // edit in the focused box is thrown away (SUB-476).
+    // edit in the focused box is thrown away.
     const active = document.activeElement;
     if (active instanceof HTMLElement) active.blur();
     setClosing(true);
@@ -581,7 +581,7 @@ export default function SettingsPane({
       if (next === (saved[key] ?? "")) return;
       // the HUD sizes get validated here so a typo can't silently collapse it
       if (field?.range && next !== "") {
-        // accept de-DE typed fractions like the reader does (SUB-926)
+        // accept de-DE typed fractions like the reader does
         const n = Number.parseFloat(normalizeNumberInput(next));
         if (!Number.isFinite(n) || n < field.range.min || n > field.range.max) {
           onToast(
@@ -685,11 +685,11 @@ export default function SettingsPane({
     // render replay), and a counter bumped from a render-phase function is a
     // shape that stops being harmless the day reconcile learns to subtract.
     previewAppearance(document.documentElement, appearanceOf(next));
-    // SUB-951: opacity is the one dial you judge by looking THROUGH the
+    // opacity is the one dial you judge by looking THROUGH the
     // window at your desktop, so it has to preview on the drag too — and
     // it is only a class plus a custom property, so an abandoned drag
     // needs no undo: the next settings read repaints from the note.
-    // SUB-1126: which is exactly why it needs the claim as well — that next
+    // Which is exactly why it needs the claim as well — that next
     // read must not arrive DURING the drag, or the old value is what sticks.
     if (f.key === WINDOW_OPACITY_FIELD.key) previewWindowOpacity(n);
   }, []);
@@ -704,7 +704,7 @@ export default function SettingsPane({
       if (!current) return;
       const next = { ...current, [key]: saved[key] ?? "" };
       // back on the persisted snapshot, so this field is no longer ahead of
-      // the note — stop holding the appearance for it (SUB-1122). Only up to
+      // the note — stop holding the appearance for it. Only up to
       // the seq claimed BEFORE this rollback's own repaint, though: a monotone
       // counter cannot say "release mine, keep the older one", and releasing
       // the current seq would hand back a preview another dial made while
@@ -716,7 +716,7 @@ export default function SettingsPane({
       setValues(next);
       previewAppearance(document.documentElement, appearanceOf(next));
       // both repaints happen before the release, so both stay claimed — the
-      // opacity one for the same reason as the appearance one (SUB-1126)
+      // opacity one for the same reason as the appearance one
       if (key === WINDOW_OPACITY_FIELD.key) {
         previewWindowOpacity(sliderValue(WINDOW_OPACITY_FIELD, next[key]));
       }
@@ -729,7 +729,7 @@ export default function SettingsPane({
   const commitSlider = useCallback(
     (f: Field) => {
       // a release that writes NOTHING must still hand the appearance back
-      // (SUB-1122). Dragging glow 30 → 80 → 30 and letting go bumps the claim
+      // Dragging glow 30 → 80 → 30 and letting go bumps the claim
       // on every step and then issues no write, so returning early here used
       // to leave the claim standing for the life of the open sheet: every
       // later Settings.md read dropped its appearance apply, and nothing
@@ -749,7 +749,7 @@ export default function SettingsPane({
       const isDefault = n === f.slider!.default;
       setValues((v) => (v ? { ...v, [f.key]: String(n) } : v));
       // everything previewed up to here is what this write puts in the note
-      // (SUB-1122); a preview made while it is in flight stays claimed
+      // a preview made while it is in flight stays claimed
       const previewed = appearancePreviewSeq();
       setPropUndoable({
         path: SETTINGS_PATH,
@@ -992,7 +992,7 @@ export default function SettingsPane({
                       })}
                     </div>
                     ) : f.kind === "slider" ? (
-                    /* SUB-955: the appearance dials. The live number sits next
+                    /* The appearance dials. The live number sits next
                        to the track because "glow 46" is a value the user wants
                        to be able to come back to, and a bare handle isn't one. */
                     <div className="settings-slider">
@@ -1109,7 +1109,7 @@ export default function SettingsPane({
             ))}
           {/* last, and only when this vault has rules: the enable switch is a
               consequential one, and it should not be the first thing someone
-              scrolling for a font size trips over (SUB-826) */}
+              scrolling for a font size trips over */}
           <ReflexesSettings onToast={onToast} />
           {/* last, and only when the vault has any: consent is a per-vault
               answer, not a preference, and it renders itself away in the

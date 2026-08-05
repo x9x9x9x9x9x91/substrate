@@ -239,7 +239,7 @@ test("foodData: omitted focus is today (day-navigation default)", () => {
   assert.equal(d.todayKcal, 500);
 });
 
-// SUB-691: one absurd row pins the strip's scale and poisons two weeks of
+// One absurd row pins the strip's scale and poisons two weeks of
 // metrics, so implausible kcal is rejected at entry in every path.
 test("kcalInRange: sanity bound, magnitude-based so exercise burn shares it", () => {
   assert.equal(KCAL_MAX, 20000);

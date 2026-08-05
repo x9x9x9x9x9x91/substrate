@@ -7,7 +7,7 @@ import type { PropSchema } from "./types.ts";
    props alphabetically, `created`/`updated` pinned last. `title` is the
    note's name, never a row. */
 
-/** Reserved schema.json keys that aren't props (SUB-27 `icon`, SUB-85
+/** Reserved schema.json keys that aren't props (`icon`,
     `home`) — the same set templates.ts guards at create time. */
 const RESERVED_SCHEMA_KEYS = new Set(["icon", "home"]);
 

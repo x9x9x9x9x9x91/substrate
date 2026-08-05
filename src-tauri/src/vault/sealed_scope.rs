@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 pub const SCOPE_MARKER: &str = ".substrate-seal";
 const CONVERSION_REL_PATH: &str = ".vault/seal-conversion.json";
 
-/// Device-local record of which markers this device confirmed (SUB-889).
+/// Device-local record of which markers this device confirmed.
 /// Excluded from git in [`crate::history::EXCLUDE_CONTENT`], so it can never
 /// arrive by sync — see [`Engine::scope_marker_for_note`] for why that matters.
 const TRUST_REL_PATH: &str = ".vault/seal-trust.json";
@@ -265,7 +265,7 @@ impl Engine {
 
     /// The marker that governs `rel`, or `None` when nothing enforceable does.
     ///
-    /// SUB-889 confirmation gate: a `.substrate-seal` is one small file, so a
+    /// confirmation gate: a `.substrate-seal` is one small file, so a
     /// sync pull or any process with write access to the vault could plant
     /// one — and every enforcement path funnels through here, so an adopted
     /// marker would redirect encryption of the whole scope to its key *and*

@@ -36,7 +36,7 @@ const row = (over: Partial<MountRow> = {}): MountRow => ({
   ...over,
 });
 
-/** The motivating fence (SUB-982): projects touched per month, straight off a
+/** The motivating fence: projects touched per month, straight off a
     mounted folder — same grammar a database source uses. */
 const rowsConfig = (inner: string): RowChartConfig => {
   const c = parseChartConfig(inner);
@@ -118,7 +118,7 @@ test("bytes on the axis: sum:size over a mount", () => {
 test("a mount's schema'd x options colour and order its chart the way the board does", () => {
   // a mount IS a schema type, so `stage` on the mount carries the same options
   // the mount's own board wears — the chart must not fall back to
-  // first-appearance order and default hues (SUB-982 review must-fix 1)
+  // first-appearance order and default hues
   const schema = {
     "album pool": {
       stage: {
@@ -205,7 +205,7 @@ test("aggregate names fold case", () => {
 
 test("bytes speaks the board's size language, not a raw integer", () => {
   // the board's size column says "11,8 MB" via sizeLabel/formatFileSize — a
-  // card over the same folder must not say "12.386.304" (review must-fix 4)
+  // card over the same folder must not say "12.386.304"
   assert.equal(mountCardText("bytes", 12_386_304), sizeLabel({ ...row(), size: 12_386_304 }));
   assert.equal(mountCardText("bytes", 12_386_304), "11,8 MB");
   assert.equal(mountCardText("bytes", 900), "900 B");

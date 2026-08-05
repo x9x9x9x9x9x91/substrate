@@ -1,4 +1,4 @@
-//! Read-only external iCalendar subscriptions (SUB-821).
+//! Read-only external iCalendar subscriptions.
 //!
 //! Subscription metadata is vault data (`.vault/calendars.json`); fetched
 //! bodies are machine-local cache data under the app config directory. The
@@ -328,7 +328,7 @@ fn fetch_with(
                 .join(location)
                 .map_err(|_| FeedError::new(ERR_UNREACHABLE, "feed redirect is invalid"))?;
             // Re-guarded every hop: the first address being safe says nothing
-            // about where it points (SUB-427).
+            // about where it points.
             current = guard(next.as_str()).map_err(|e| FeedError::new(ERR_UNREACHABLE, e))?;
             continue;
         }
@@ -769,7 +769,7 @@ mod tests {
     /// meeting read on a New York machine reads as its New York wall time,
     /// like every other calendar. So the expectation has to be the same
     /// function of the host zone the renderer is — spelling "09:30" into the
-    /// test only passes on a Berlin host (SUB-1022). Anchoring on the UTC
+    /// test only passes on a Berlin host. Anchoring on the UTC
     /// instant keeps the assertion real: the feed's TZID and the recurrence
     /// still have to land on exactly this moment.
     fn shown_at(instant: chrono::DateTime<chrono::Utc>) -> (String, String) {

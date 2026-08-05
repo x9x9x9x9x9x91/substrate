@@ -1,4 +1,4 @@
-// Day rollover (SUB-153): panes used to compute "today" per render, but
+// Day rollover: panes used to compute "today" per render, but
 // nothing re-renders at midnight, so a long-lived window showed yesterday
 // forever. This hook holds todayIso as state, re-arms a timeout for the
 // next local midnight after every fire, and re-checks on window focus —

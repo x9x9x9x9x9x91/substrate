@@ -11,7 +11,7 @@ import { useTodayIso } from "./useTodayIso";
 import TypeIcon from "./TypeIcon";
 import { NoteIcon } from "./Icons";
 
-/* The Today surface (SUB-300): a day-agenda decision surface, not a dashboard.
+/* The Today surface: a day-agenda decision surface, not a dashboard.
    Sixty seconds every morning and the day is decided — three quiet lanes fed
    by the existing machinery (Scheduled: today's calendar entries; Due &
    overdue: deadline props; Picked for today: notes carrying the `today` date
@@ -24,13 +24,13 @@ import { NoteIcon } from "./Icons";
 interface TodayPaneProps {
   notes: NoteMeta[];
   schema: SchemaConfig;
-  /** per-type database icons (SUB-27), keyed by type name */
+  /** per-type database icons, keyed by type name */
   icons: Record<string, DbIcon>;
   onOpenNote: (path: string) => void;
   onOpenJournal: () => void;
   onMutated: () => void;
   onToast?: (msg: string) => void;
-  /** the app-level note context menu (SUB-378) — same items as list rows */
+  /** the app-level note context menu — same items as list rows */
   onRowContextMenu: (path: string, x: number, y: number) => void;
 }
 
@@ -41,8 +41,8 @@ function EntryIcon({ type, icons }: { type: string; icons: Record<string, DbIcon
 }
 
 /** One candidate row (Scheduled / Due lanes): opens on click, picks on the
-    quiet verb. An overdue row's one red signal is its day chip in --danger
-    (SUB-306), showing the day it was due; done rows dim (SUB-205). */
+    quiet verb. An overdue row's one red signal is its day chip in --danger,
+    showing the day it was due; done rows dim. */
 function CandidateRow({
   item,
   overdue,
@@ -197,13 +197,13 @@ export default function TodayPane({
 }: TodayPaneProps) {
   const undo = useUndo();
   // day rollover lives in the hook — re-renders at midnight and on window
-  // focus, so a long-lived window never shows yesterday (SUB-153)
+  // focus, so a long-lived window never shows yesterday
   const iso = useTodayIso();
   const data = useMemo(() => todayData(notes, schema, iso), [notes, schema, iso]);
 
   // the one verb, both directions — the write mirrors CalendarPane's
   // reschedule: the pane owns its mutation, failures land on App's toast and
-  // re-sync so nothing implies the write landed (SUB-240)
+  // re-sync so nothing implies the write landed
   const writeToday = (path: string, day: string | null) => {
     setPropUndoable({ path, key: TODAY_PROP, value: day, record: undo.record })
       .then(onMutated)

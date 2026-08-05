@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-591: right-click with a live editor selection answers with the custom
+// Right-click with a live editor selection answers with the custom
 // selection menu — extract into a new note, turn into (the toolbar's block
 // types), copy as markdown. Without a selection the event passes through to
 // the native menu (spellcheck, system copy/paste) and no custom menu shows.
-// Same ContextMenu surface as SUB-590's background menus.
+// Same ContextMenu surface as the background menus.
 
 function ctxItem(page: Page, label: string | RegExp) {
   return page.locator(".ctx-item", { hasText: label });

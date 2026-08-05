@@ -149,7 +149,7 @@ test("stripMachineFences: an info-string tail strips for live-dispatch langs (SU
     "a\n```heatmap year\nsecret: session\n```\nb",
     "a\n```calendar month\nsecret: 1\n```\nb",
     "a\n```python foo\nsecret = 1\n```\nb",
-    // SUB-968: the timeline parser is strict bare-form too.
+    // The timeline parser is strict bare-form too.
     "a\n```timeline compact\nsource: release\n```\nb",
   ]) {
     assert.equal(stripMachineFences(prose), prose, "tailed bare-form fence stays prose");
@@ -198,7 +198,7 @@ test("stripMachineFences folds case exactly where dispatch does (SUB-1104)", () 
     "```Cards",
     "```CaRdS two-up",
     // bare-form, but the hub lowercases before dispatching, so a bare mixed-case
-    // heatmap renders the live year grid and must leave the index (SUB-1128)
+    // heatmap renders the live year grid and must leave the index
     "```HeatMap",
     "```HEATMAP",
   ]) {
@@ -228,7 +228,7 @@ test("stripMachineFences folds case exactly where dispatch does (SUB-1104)", () 
   assert.equal(stripMachineFences(upperFormulas), upperFormulas, "so it stays searchable prose");
 
   // heatmap is bare-form like csv/formulas but folds case like the tailed
-  // group, because its hub dispatcher lowercases (SUB-1128) — the two rules are
+  // group, because its hub dispatcher lowercases — the two rules are
   // separate axes. There is no dispatch-coupled assertion here the way there is
   // for cards/csv: the reader that folds case is HubDashboard's renderMarkdown,
   // a React component this suite cannot import, and heatmap.ts's
@@ -244,7 +244,7 @@ test("every declared fence language behaves like its group (generated)", () => {
   // is FOR is the group it landed in: the tailed/bare split is the thing
   // scripts/check-fence-langs.ts compares across the TS/Rust lockstep, and a
   // language filed under the wrong one strips differently in the two halves of
-  // the app (SUB-1069).
+  // the app.
   const fence = (open: string) => "a\n" + open + "\nsecret: 1\n```\nb";
   const blanked = "a\n\n\n\nb"; // newline-for-newline: five lines in, five out
   for (const lang of [...TAILED_MACHINE_FENCE_LANGS, ...BARE_MACHINE_FENCE_LANGS]) {
@@ -288,7 +288,7 @@ test("isTailedBareFence marks exactly the tailed bare-form openers (SUB-965)", (
     ["calendar", ""],
     ["csv", ""],
     ["formulas", ""],
-    ["calendar", "\r"], // a CRLF body's opener line, not a tail (SUB-913)
+    ["calendar", "\r"], // a CRLF body's opener line, not a tail
     ["view", "table"],
     ["chart", "compact"],
     ["cards", "two-up"],

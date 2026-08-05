@@ -182,7 +182,7 @@ test("a bulk set paints every row and rolls back only the refused ones", () => {
   );
 });
 
-/* SUB-1148 — the note page holds ONE note's props, not a list */
+/* The note page holds ONE note's props, not a list */
 
 const diskProps = { Status: "todo", Tags: ["a"] };
 

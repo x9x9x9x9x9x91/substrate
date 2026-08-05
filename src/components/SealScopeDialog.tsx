@@ -11,7 +11,7 @@ export default function SealScopeDialog({
   /** Empty string means the vault root. */
   path: string;
   /** `confirm` adopts a marker that arrived by sync or an external write:
-      until it is confirmed here it seals nothing (SUB-889). */
+      until it is confirmed here it seals nothing. */
   mode?: "seal" | "confirm";
   onDone: (result: SealScopeResult) => void;
   onClose: () => void;

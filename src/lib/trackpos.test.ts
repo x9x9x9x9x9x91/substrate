@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { EditorState } from "@codemirror/state";
 import { setTrackedPos, trackedPos, trackedPositions } from "./trackpos.ts";
 
-/* SUB-664: an intake captures where the embed belongs (the caret at paste time,
+/* An intake captures where the embed belongs (the caret at paste time,
    the point under a drop) and only writes it after an IPC round trip. These
    cover the mapping the StateField does in between — trackPos() itself needs a
    live EditorView and is covered in e2e/dropmap.spec.ts. */

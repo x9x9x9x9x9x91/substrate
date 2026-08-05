@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Handoff relay (SUB-833) — the dumb store behind "Send as link".
+/** Handoff relay — the dumb store behind "Send as link".
  *
  * The whole trust model in one sentence: this server only ever holds
  * ciphertext, the AES key rides the link's `#fragment` (which browsers never

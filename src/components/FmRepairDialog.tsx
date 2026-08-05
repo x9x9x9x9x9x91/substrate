@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { FmState, NoteMeta } from "../lib/types";
 import { vaultFmWrite } from "../lib/ipc";
 
-/* Broken-frontmatter repair dialog (SUB-430): the raw block verbatim, the
+/* Broken-frontmatter repair dialog: the raw block verbatim, the
    engine's one-line diagnosis, and a Save that only lands a clean parse — a
    still-broken block bounces back with its diagnosis inline and the dialog
    stays open. Rides the DbAdmin overlay/dbform idiom (Esc or backdrop

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-674: an audio-valued file prop carries a compact play/pause button in
+// An audio-valued file prop carries a compact play/pause button in
 // table cells and on gallery cards, driving the same shared player as note
 // embeds (lib/editor-widgets.ts). Peaks/waveform decode stays embed-owned —
 // prop rendering and prop playback never decode. The mock backend resolves
@@ -20,7 +20,7 @@ function row(page: Page, title: string) {
 }
 
 /* an event within 1s of an app-initiated refresh is treated as the own-write
-   echo (SUB-116/SUB-239) — wait the window out before emitting (mockfail) */
+   echo — wait the window out before emitting (mockfail) */
 async function emitChanged(page: Page) {
   await page.waitForTimeout(1100);
   await page.evaluate(() => window.__mockEmit("vault:changed"));

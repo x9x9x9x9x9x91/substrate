@@ -1,13 +1,13 @@
 import { expect, test } from "@playwright/test";
 
-// ⌘K ranking (SUB-171) against the mock backend: the vault has a "release"
+// ⌘K ranking against the mock backend: the vault has a "release"
 // database plus notes whose bodies mention "release". Before the fix the
 // palette showed only Content snippets — the destination never surfaced.
 
 test("query 'release' surfaces Go to Release without scrolling (SUB-171)", async ({ page }) => {
   await page.goto("/");
   // first paint doubles as the "window key listeners attached" barrier (cold
-  // open lands on Notes — Today is a destination, SUB-300)
+  // open lands on Notes — Today is a destination)
   await expect(page.locator(".list-title")).toHaveText("Notes");
   await page.keyboard.press("Meta+k");
   await page.locator(".palette-input").fill("release");
@@ -40,7 +40,7 @@ test("query 'release' surfaces Go to Release without scrolling (SUB-171)", async
   );
 });
 
-// SUB-805: command labels say "New" but people type "create"/"make"/"add" —
+// Command labels say "New" but people type "create"/"make"/"add" —
 // the synonym rewrite must surface the real command as the top selectable
 // row, not leave the query stranded on the New-note fallback.
 
@@ -74,7 +74,7 @@ test("query 'create a note' still offers New note (SUB-805)", async ({ page }) =
 });
 
 
-// SUB-397: macOS autocorrect draws a candidate bubble under the input and
+// MacOS autocorrect draws a candidate bubble under the input and
 // captures ↑↓ while visible — query inputs must opt out entirely
 
 test("palette and search inputs disable autocorrect (SUB-397)", async ({ page }) => {
@@ -94,8 +94,8 @@ test("palette and search inputs disable autocorrect (SUB-397)", async ({ page })
   await expect(search).toHaveAttribute("autocapitalize", "off");
 });
 
-// SUB-673: regression of SUB-262. The "No results" banner keyed off an id
-// whitelist of fallback rows; "New sheet “x”" (SUB-393) landed later, echoes
+// Regression guard. The "No results" banner keyed off an id
+// whitelist of fallback rows; "New sheet “x”" landed later, echoes
 // the query in its label so it always survives ranking, and its absence from
 // the whitelist killed the banner for every plain-text no-match query.
 
@@ -119,7 +119,7 @@ test("a garbage plain-text query still shows the No results banner (SUB-673)", a
   await expect(banner).toHaveCount(0);
 });
 
-// SUB-1149: the palette closes the instant a property applies, so a rejected
+// The palette closes the instant a property applies, so a rejected
 // write used to vanish into console.error — the value never landed and nothing
 // on screen said so. The failure must reach the app toast, like every sibling
 // surface reports its own write failures.

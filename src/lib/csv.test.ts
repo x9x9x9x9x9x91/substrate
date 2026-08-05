@@ -37,7 +37,7 @@ test("buildCsv stringifies non-string props like the table does", () => {
   assert.equal(buildCsv(["cards"], rows), 'title,cards\nConfig,"[{""label"":""x""}]"\n');
 });
 
-// SUB-903: a cell whose first character is =, +, - or @ is a live formula in
+// a cell whose first character is =, +, - or @ is a live formula in
 // Excel/Numbers/LibreOffice, so exports carry the standard `'` text marker.
 test("buildCsv prefixes cells that a spreadsheet would evaluate", () => {
   const rows = [
@@ -82,7 +82,7 @@ test("buildCsv: the escape does not survive as a formula through re-parse", () =
   assert.ok(!cell.startsWith("="), "re-parsed cell is inert text, not a formula");
 });
 
-// SUB-563: grouping is view-only, so exporting a grouped table
+// Grouping is view-only, so exporting a grouped table
 // yields one row per note — the same file the ungrouped view exports.
 test("buildCsv: a note in two group sections exports once, in view order", () => {
   const both = note("Split Signals", { artist: ["Vela Roan", "Immo Krass"] });

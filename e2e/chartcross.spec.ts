@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-671: a chart over a sheet whose computed column reads ANOTHER sheet.
+// A chart over a sheet whose computed column reads ANOTHER sheet.
 // ChartsDashboard used to call evaluateSheet without the cross-sheet loader,
 // so `net_eur = value_usd + Cash.cash_total` evaluated to an error in every
 // cell: an errored y skipped every row ("No rows matched"), an errored
@@ -83,7 +83,7 @@ test("a chart over a cross-referencing sheet plots real values (SUB-671)", async
   // the cross-sheet summary reached every row: 10 + 300 and 20 + 300
   await expect(bars.nth(0).locator(".dash-bar-time")).toHaveText("etf");
   await expect(bars.nth(0).locator(".dash-bar-val")).toHaveText("310");
-  // the reading a screen reader gets; the drawn tooltip says the same (SUB-941)
+  // the reading a screen reader gets; the drawn tooltip says the same
   await expect(bars.nth(0)).toHaveAttribute("aria-label", "etf · 310");
   await expect(bars.nth(1).locator(".dash-bar-time")).toHaveText("crypto");
   await expect(bars.nth(1).locator(".dash-bar-val")).toHaveText("320");

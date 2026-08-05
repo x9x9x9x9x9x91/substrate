@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# checkout-guard.sh — refuse to run tooling out of a stale checkout (SUB-509).
+# checkout-guard.sh — refuse to run tooling out of a stale checkout.
 #
 # Source this from every executable entry point in scripts/. It answers one
 # question: is the copy of the code you are about to run the copy main has?
@@ -27,7 +27,7 @@ guard_checkout_freshness() {
   here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || return 0
   root=$(git -C "$here" rev-parse --show-toplevel 2>/dev/null) || return 0
 
-  # Only detached checkouts are suspect. A named branch is somebody's lane;
+  # Only detached checkouts are suspect. A named branch is somebody's work;
   # being behind main there is normal and none of this guard's business.
   git -C "$root" symbolic-ref -q HEAD >/dev/null && return 0
 

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDb } from "./nav";
 
-// The table half of SUB-553 (SUB-557). A cell whose column has no list-shaped
+// The table half of the list-cell fallback. A cell whose column has no list-shaped
 // kind falls back to the raw text editor, and that editor is seeded from
 // propStr — which renders a stored YAML list as the joined string "Vinyl,
 // Digital". Committing that text wrote it back as ONE scalar, so opening a
@@ -41,7 +41,7 @@ test("a list-valued cell in an untyped column survives the raw editor (SUB-557)"
   await cell.click();
   const input = page.locator(".selmenu .selmenu-input");
   await expect(input).toHaveValue("Ase, Noa");
-  // Enter commits and carries the editor to the row below (SUB-947), so the
+  // Enter commits and carries the editor to the row below, so the
   // menu that stays on screen is the next cell's — Escape closes it again
   await input.press("Enter");
   await page.keyboard.press("Escape");

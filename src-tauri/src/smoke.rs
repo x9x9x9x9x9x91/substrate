@@ -1,4 +1,4 @@
-//! Real-app smoke hooks (SUB-426). tauri-driver/WebDriver does not support
+//! Real-app smoke hooks. tauri-driver/WebDriver does not support
 //! macOS, so the smoke lane drives the REAL ipc layer from inside the app
 //! (`src/lib/smoke.ts`) and needs exactly two things the normal command set
 //! does not offer: a way to drop a file the outside script can watch, and a

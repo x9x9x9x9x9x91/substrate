@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-492: the non-drag path to assignable keys (SUB-467). Right-click a
+// The non-drag path to assignable keys. Right-click a
 // sidebar destination → "Assign key…" → pick a chip. Same plumbing as the
 // drag (assignKey/unassignKey), so the assertions mirror keyassign.spec.ts:
 // the row wears the chip, the key navigates, and "Remove key" frees it.
@@ -74,7 +74,7 @@ test("the menu path shares the drag path's state: the HUD sees the assignment", 
   await ctxItem(page, "⌘5").click();
   await expect(calendar.locator(".side-key-chip")).toHaveText("⌘5");
 
-  // open the SUB-467 HUD: ⌘5 is gone from its free grid and listed as assigned
+  // open the HUD: ⌘5 is gone from its free grid and listed as assigned
   await page.keyboard.press("Meta+/");
   await page.locator(".sheet-assign-btn").click();
   await expect(page.locator(".key-hud")).toBeVisible();

@@ -1,4 +1,4 @@
-/** The jobs dashboard's exit-history ring (SUB-706). `jobs_read` samples each
+/** The jobs dashboard's exit-history ring. `jobs_read` samples each
     launchd job's (pid, last exit) picture on the 60s poll into a per-label
     ring of recent run outcomes (0 = ok), oldest first, capped at 10 app-side
     at `.vault/jobs-exit.json`. This catches what a single LastExitStatus

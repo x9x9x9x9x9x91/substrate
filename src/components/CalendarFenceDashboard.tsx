@@ -38,7 +38,7 @@ interface CalendarFenceDashboardProps {
   schema: SchemaConfig;
   onOpenSource: (path: string) => void;
   /** render only the calendar sections — no pane chrome — so a hub body can
-      host one fence where it was written (SUB-965) */
+      host one fence where it was written */
   embed?: boolean;
 }
 
@@ -71,7 +71,7 @@ function CalendarSection({
   onOpenSource: (path: string) => void;
   embed?: boolean;
 }) {
-  // day rollover lives in the hook (SUB-153), the same subscription the
+  // day rollover lives in the hook, the same subscription the
   // Calendar pane takes: a fence left open past midnight moves its `.today`
   // highlight and its "today/tomorrow" labels without a remount. Local
   // calendar day throughout — parseDay, never a UTC slice.
@@ -163,7 +163,7 @@ function CalendarSection({
                 // the fence's grid is read-only: no draft composer, no drag,
                 // no drop — a dashboard shows a database, the Calendar pane
                 // edits it. So the cell is a labelled group, not a control
-                // (SUB-520's reasoning, same words).
+                // (the far-page rule's reasoning, same words).
                 <div key={iso} data-iso={iso} className={cls} role="group" aria-label={humanDay(iso, today)}>
                   <span className="cal-daynum" aria-current={iso === todayIso ? "date" : undefined}>
                     <span className={iso === todayIso ? "cal-today" : d.getDate() === 1 ? "cal-seam" : ""}>
@@ -219,7 +219,7 @@ function CalendarSection({
   );
 }
 
-/** A ```calendar fence's month grid (SUB-965): any database date property, or
+/** A ```calendar fence's month grid: any database date property, or
     a sheet's date column, drawn as the same month surface the Calendar pane
     draws — recurrence included, since the entries come from lib/calendar's own
     expansion. Standalone (a one-fence dashboard note) and embedded in a hub

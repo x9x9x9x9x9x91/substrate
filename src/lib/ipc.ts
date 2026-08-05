@@ -61,10 +61,10 @@ import type {
 
 let historyProjection: HistoryVaultSnapshot | null = null;
 /** true from historyEnter until the write guard is released again — spans the
-    present-mode reload, where the projection is already gone (SUB-822). */
+    present-mode reload, where the projection is already gone. */
 let pastSession = false;
 const clone = <T,>(value: T): T => structuredClone(value);
-/** SUB-822 (perf): one deep copy of the projection's note list, made when the
+/** perf: one deep copy of the projection's note list, made when the
     snapshot is adopted. `vaultList` is called on every `vault:changed` — and
     the live vault keeps emitting those while the past is on screen — so a deep
     `structuredClone` per call re-copied every note in the vault for a list that
@@ -84,7 +84,7 @@ export async function historyEnter(id: string): Promise<HistoryVaultSnapshot> {
   return clone(snapshot);
 }
 
-/* SUB-822: modules that stage unsaved text outside the mounted pane register
+/* Modules that stage unsaved text outside the mounted pane register
    a purge here — NotePane's orphanedEdits is the one that matters. Text
    captured while a historical body was on screen must never survive the trip
    back to the present, or reopening that note adopts the past text and saves
@@ -103,7 +103,7 @@ export function historyLeave(unlock = true): void {
   // The purge runs on every leg of the trip back, not just the first: the
   // present-mode reload runs with the write guard still on, so a pane
   // flushing there gets a rejected write and stages a fresh orphan from the
-  // historical body (SUB-822).
+  // historical body.
   if (pastSession) for (const purge of historyLeaveHooks) purge();
   historyProjection = null;
   projectedNotes = [];
@@ -113,7 +113,7 @@ export function historyLeave(unlock = true): void {
 
 export const historyProjectionActive = () => historyProjection !== null;
 
-/** The projection's own copy of a note's body, synchronously (SUB-1169), or
+/** The projection's own copy of a note's body, synchronously, or
     null when no projection is active or it held no such note. `vaultRead`
     answers from the same in-memory snapshot, but only ever as a promise — so
     a pane that waits for it paints one empty frame over data already in
@@ -123,7 +123,7 @@ export const projectedNoteBody = (path: string): string | null =>
 
 export const vaultRoot = () => invoke<string>("vault_root");
 
-/* first-run onboarding (SUB-436) */
+/* first-run onboarding */
 export const onboardingStatus = () => invoke<OnboardingStatus>("onboarding_status");
 /** What a candidate folder is, before anything is written to it. */
 export const vaultInspect = (path: string) => invoke<VaultCandidate>("vault_inspect", { path });
@@ -133,7 +133,7 @@ export const vaultChoose = (path: string, consent = false) =>
   invoke<string>("vault_choose", { path, consent });
 /** Disposable copy of the bundled example vault, selected as the choice. */
 export const vaultDemo = () => invoke<string>("vault_demo");
-/** SUB-804: write `terminal-command` into the just-chosen vault's Settings.md
+/** Write `terminal-command` into the just-chosen vault's Settings.md
     (pre-relaunch, so the ⌘⇧T terminal is wired from the first real session).
     Empty string clears the key — an un-picked chip. */
 export const onboardingSetAgent = (command: string) =>
@@ -143,7 +143,7 @@ export const vaultList = () =>
   historyProjection
     ? Promise.resolve(projectedNotes.slice())
     : invoke<NoteMeta[]>("vault_list");
-/** SUB-822: Settings.md is app configuration, not vault content, and several
+/** Settings.md is app configuration, not vault content, and several
     live surfaces re-read it while the scrubber is open — the terminal HUD, the
     palette's quick actions, the conceal toggle, the drop hint. Projecting the
     historical copy silently swapped the running app's behaviour (a quick action
@@ -182,7 +182,7 @@ export const vaultLockSealedNote = (path: string) =>
 export const vaultUnsealNote = (path: string) => invoke<NoteMeta>("vault_unseal_note", { path });
 export const vaultWriteBody = (path: string, body: string, expectedBody?: string | null) =>
   invoke<NoteMeta>("vault_write_body", { path, body, expectedBody: expectedBody ?? null });
-/** Write one property. `expected` is the undo guard (SUB-477): omit it and the
+/** Write one property. `expected` is the undo guard: omit it and the
     write is unconditional, as it has always been; pass `{ value }` and the
     write is refused with "conflict: property changed on disk" unless the prop
     on disk still equals that value (`{ value: null }` = "expected absent").
@@ -193,7 +193,7 @@ export const vaultSetProp = (
   value: PropValue,
   expected?: { value: PropValue }
 ) => invoke<SetPropResult>("vault_set_prop", { path, key, value, expected: expected ?? null });
-/** Turn a sheet column's date notifications on or off (SUB-876). Separate from
+/** Turn a sheet column's date notifications on or off. Separate from
     `vaultSetProp` because the settings live in a nested `columns:` map and that
     command only writes scalars. `notifyBefore` is the lead-time in days
     (1..365, clamped); null/undefined leaves only the day-of alert. Clearing
@@ -210,10 +210,10 @@ export const sheetSetColumnNotify = (
     notify,
     notifyBefore: notifyBefore ?? null,
   });
-/** Raw frontmatter block + health (SUB-430); null = the note has no block. */
+/** Raw frontmatter block + health; null = the note has no block. */
 export const vaultFmRaw = (path: string) =>
   historyProjection
-    ? // SUB-822: serve the snapshot's own frontmatter. Falling back to the
+    ? // Serve the snapshot's own frontmatter. Falling back to the
       // live block would be worse than null — the props panel would show
       // today's frontmatter above a historical body.
       Promise.resolve<FmState | null>(clone(historyProjection.fm[path] ?? null))
@@ -242,7 +242,7 @@ export const vaultTemplateRead = (type: string) =>
   invoke<NoteContent | null>("vault_template_read", { noteType: type });
 /** Types that have a template note under `.vault/templates/`. */
 export const vaultTemplateList = () => invoke<string[]>("vault_template_list");
-/** Custom dashboard kinds installed in this vault (SUB-959), each with the
+/** Custom dashboard kinds installed in this vault, each with the
     consent record for THIS vault when there is one — enough to run
     `resolveKindState` without a second round trip. Broken bundles are in the
     list too, carrying the reason they are broken. */
@@ -253,7 +253,7 @@ export const kindsList = () => invoke<KindBundleInfo[]>("kinds_list");
 export const kindsEnable = (id: string, hash: string) =>
   invoke<void>("kinds_enable", { id, hash });
 /** Turn the standing "trust updates to this kind in this vault" rider on or
-    off (SUB-961). Only ever edits a consent that already exists: a no-op for a
+    off. Only ever edits a consent that already exists: a no-op for a
     kind nobody enabled, because it carries a decision forward and never makes
     one. */
 export const kindsSetTrust = (id: string, trust: boolean) =>
@@ -261,7 +261,7 @@ export const kindsSetTrust = (id: string, trust: boolean) =>
 /** Withdraw consent. Never fails on an unknown id — a bundle deleted from the
     vault still has to be revocable. */
 export const kindsDisable = (id: string) => invoke<void>("kinds_disable", { id });
-/** This vault's reflex rules (SUB-826) — what the file says, what the runtime
+/** This vault's reflex rules — what the file says, what the runtime
     remembers about each rule, and whether this device has armed the feature at
     all. One round trip so the rule list can't be a call stale against the
     switch that governs it. */
@@ -277,17 +277,17 @@ export const reflexesSetPaused = (paused: boolean) =>
 export const reflexesDisable = () => invoke<void>("reflexes_disable");
 /** The receipts log, newest first. */
 export const reflexesReceipts = () => invoke<ReflexReceipt[]>("reflexes_receipts");
-/** Capture a pasted link as a reference note. `enrich` (SUB-834) decides
+/** Capture a pasted link as a reference note. `enrich` decides
     whether the engine then asks that site for its page title — the caller
     reads `net-link-titles` from Settings.md; the note is created either way,
     keeping the bare URL as its title when the fetch is off. */
 export const urlCapture = (url: string, enrich = true) =>
   invoke<NoteMeta>("url_capture", { url, enrich });
-/** Today's USD→EUR reference rate (SUB-667). Engine-side because the shipped
+/** Today's USD→EUR reference rate. Engine-side because the shipped
     CSP allows no remote origin — a browser fetch here only ever worked in the
     browser lane. Rejects rather than reporting a rate it isn't sure of. */
 export const fxUsdEur = () => invoke<{ usdEur: number; asOf: string }>("fx_usd_eur");
-/** The whole majors table (SUB-834) — one call, every pair the app converts.
+/** The whole majors table — one call, every pair the app converts.
     Same engine-side reasoning as fxUsdEur. */
 export const fxRates = () =>
   invoke<{ base: string; rates: Record<string, number>; asOf: string }>("fx_rates");
@@ -305,23 +305,22 @@ export const calendarFeedDelete = (url: string) =>
 /** Resolves false when a refresh was already running, so the press did
     nothing — the caller says so instead of leaving the button looking idle. */
 export const calendarFeedsRefresh = () => invoke<boolean>("calendar_feeds_refresh");
-/** Upload a sealed handoff payload to the relay (SUB-833); returns the
+/** Upload a sealed handoff payload to the relay; returns the
     handoff id. Engine-side for the same CSP reason as fxUsdEur, plus the
     SSRF guard on the user-configured relay URL. The key never rides along —
     it exists only in the link the frontend builds. */
 export const shareUpload = (relayUrl: string, payloadB64: string, expiry: string, token?: string) =>
   invoke<string>("share_upload", { relayUrl, payloadB64, expiry, token: token || null });
 /** Renames, and reports every note it rewrote (`touched`) — the link sweep
-    reaches third-party notes, and undo has to invalidate on all of them
-    (SUB-515). */
+    reaches third-party notes, and undo has to invalidate on all of them. */
 export const vaultRename = (path: string, title: string) =>
   invoke<RenameResult>("vault_rename", { path, title });
 // both resolve to the trash id they created — restore by that id, never by a
-// path scan of the trash listing (SUB-478: the same path can sit there twice)
+// path scan of the trash listing (the same path can sit there twice)
 export const vaultDelete = (path: string) => invoke<string>("vault_delete", { path });
 /** Bulk trash: ONE call for a whole selection, so every note in it shares a
-    `deleted_ms` and the Trash pane lists the group together in path order
-    (SUB-577). Resolves to one result per input path, in order — `Ok` carries
+    `deleted_ms` and the Trash pane lists the group together in path order.
+    Resolves to one result per input path, in order — `Ok` carries
     the trash id, `Err` the message, so a partial failure stays attributable. */
 export const vaultDeleteMany = (paths: string[]) =>
   invoke<{ Ok?: string; Err?: string }[]>("vault_delete_many", { paths });
@@ -335,19 +334,19 @@ export const vaultTrashRestoreFolder = (id: string) =>
   invoke<string>("vault_trash_restore_folder", { id });
 export const vaultTrashDeleteFolder = (id: string) =>
   invoke<void>("vault_trash_delete_folder", { id });
-/** Restore a deleted database's template (SUB-781); resolves to the stem it
+/** Restore a deleted database's template; resolves to the stem it
     landed under — numbered when the type has been given a new template since. */
 export const vaultTrashRestoreTemplate = (id: string) =>
   invoke<string>("vault_trash_restore_template", { id });
 export const vaultTrashDeleteTemplate = (id: string) =>
   invoke<void>("vault_trash_delete_template", { id });
 /** `scope`, when given, is the allow-list of paths the caller's structured
-    filters left standing (SUB-566) — the engine applies it BEFORE its result
+    filters left standing — the engine applies it BEFORE its result
     cap, so the page comes from notes the user can actually see. Omit it when
-    the query has no filters. `excludeAppFiles` mirrors the conceal toggle
-    (SUB-831/878): pass true while the app hides AGENTS.md/CLAUDE.md/
-    Settings.md so the engine's counts and page slots skip them too (SUB-907).
-    The historical projection applies the same boundary (SUB-822) — a snapshot
+    the query has no filters. `excludeAppFiles` mirrors the conceal toggle:
+    pass true while the app hides AGENTS.md/CLAUDE.md/
+    Settings.md so the engine's counts and page slots skip them too.
+    The historical projection applies the same boundary — a snapshot
     search must not surface files the live conceal toggle hides. */
 const historySearchNotes = (q: string, scope?: string[], excludeAppFiles?: boolean) => {
   if (!historyProjection) return [];
@@ -450,19 +449,19 @@ export const vaultImportAsset = (path: string) =>
   invoke<string>("vault_import_asset", { path });
 export const vaultLinkAsset = (path: string) =>
   invoke<string>("vault_link_asset", { path });
-/** Physical Shift state at drop time (SUB-438) — Tauri drop events carry no
+/** Physical Shift state at drop time — Tauri drop events carry no
     modifiers, so the handler asks the OS. Always false off macOS. */
 export const dropShiftDown = () => invoke<boolean>("drop_shift_down");
 export const vaultAssetInfo = (name: string) => invoke<AssetInfo>("vault_asset_info", { name });
-/** Loose (non-note) files directly inside one folder (SUB-812) — the folder
+/** Loose (non-note) files directly inside one folder — the folder
     view's file rows. Lazy per folder on purpose: the vault index stays
     `.md`-only, so a folder of masters costs one `read_dir` when you open it
     and nothing when you don't. `path` may be `""` for the vault root. */
 export const vaultFolderFiles = (path: string) =>
   invoke<FolderListing>("vault_folder_files", { path });
 export const vaultAssetsOrphaned = () => invoke<AssetInfo[]>("vault_assets_orphaned");
-/** Move `.assets/` files to the trash (SUB-479) — recoverable, not unlinked.
-    Resolves to one result per input name, in order (SUB-669): `Ok` carries the
+/** Move `.assets/` files to the trash — recoverable, not unlinked.
+    Resolves to one result per input name, in order: `Ok` carries the
     trash id (empty when the name was already gone), `Err` the message, so a
     partial failure still says how many landed and which names did not. The
     call itself rejects only on up-front validation, before anything moves. */
@@ -473,7 +472,7 @@ export const vaultAssetsRestore = (id: string) =>
   invoke<string>("vault_assets_restore", { id });
 export const vaultAssetsTrashDelete = (id: string) =>
   invoke<void>("vault_assets_trash_delete", { id });
-/** Read-only integrity scan (SUB-432) — reports, never repairs. */
+/** Read-only integrity scan — reports, never repairs. */
 export const vaultDoctor = () => invoke<DoctorReport>("vault_doctor");
 export const vaultSyncPush = () => invoke<SyncReport>("vault_sync_push");
 export const vaultSyncPull = () => invoke<SyncReport>("vault_sync_pull");
@@ -495,13 +494,13 @@ export const vaultSyncResolveFinish = () => invoke<SyncReport>("vault_sync_resol
 export const historyList = (path: string) => invoke<HistoryEntry[]>("history_list", { path });
 export const historyPoints = () => invoke<VaultHistoryPoint[]>("history_points");
 /** The history of specific frontmatter facts, for `AT()` / `PROP()` and the
-    chart `history:` source (SUB-832). Batched: one call opens the repository
+    chart `history:` source. Batched: one call opens the repository
     once and walks the oldest-snapshot boundary once, however many facts a
     dashboard is asking about. */
 export const historyFacts = (refs: { path: string; key: string }[]) =>
   invoke<FactLane[]>("history_facts", { refs });
-/** Every sheet note as it stood at each instant, for `AT(date, Sheet.member)`
-    (SUB-832). Instants rather than dates because "the last moment of that day"
+/** Every sheet note as it stood at each instant, for `AT(date, Sheet.member)`.
+    Instants rather than dates because "the last moment of that day"
     is the reader's own calendar, already resolved front-end for fact lanes —
     sending the instant keeps one definition of the boundary. Batched for the
     same reason as `historyFacts`: one repository walk per dashboard. */
@@ -511,7 +510,7 @@ export const historyDiff = (id: string, file: string) =>
   invoke<DiffLine[]>("history_diff", { id, file });
 /** `baselineMs` is the `updated_ms` the caller is rendering. When the file on
     disk turns out to be newer, the restore still runs and the backend emits
-    `history:restored-over-external` so the buried edit is announced (SUB-781). */
+    `history:restored-over-external` so the buried edit is announced. */
 export const historyRestore = (path: string, id: string, file: string, baselineMs?: number) =>
   invoke<NoteMeta>("history_restore", { path, id, file, baselineMs });
 export const historyPurgeNote = (path: string) =>
@@ -552,12 +551,12 @@ export const vaultSchemaSet = (
   options: SelectOption[],
   kind?: PropKind,
   notify?: boolean,
-  /** date kind only (SUB-842): lead-time alert N days before; 0 clears it */
+  /** date kind only: lead-time alert N days before; 0 clears it */
   notifyBefore?: number,
   target?: string,
   format?: NumberFormat,
   description?: string,
-  /** rollup kind only (SUB-678): the derived column's wiring */
+  /** rollup kind only: the derived column's wiring */
   rollup?: RollupConfig | null
 ) =>
   invoke<SchemaConfig>("vault_schema_set", {
@@ -574,7 +573,7 @@ export const vaultSchemaSet = (
     rollupProp: rollup?.prop ?? null,
     agg: rollup?.agg ?? null,
   });
-/** Set or clear a database's icon (SUB-27) — the whole icon at once; null
+/** Set or clear a database's icon — the whole icon at once; null
     removes it (auto-glyph fallback). */
 export const vaultSchemaSetIcon = (dbType: string, icon: DbIcon | null) =>
   invoke<SchemaConfig>("vault_schema_set_icon", {
@@ -583,7 +582,7 @@ export const vaultSchemaSetIcon = (dbType: string, icon: DbIcon | null) =>
     emoji: icon?.emoji ?? null,
     tint: icon?.tint ?? null,
   });
-/** Set or clear a database's home folder (SUB-85) — null clears it (the
+/** Set or clear a database's home folder — null clears it (the
     database leaves the Folders tree and lists under Databases again). */
 export const vaultSchemaHomeSet = (dbType: string, home: string | null) =>
   invoke<SchemaConfig>("vault_schema_home_set", { dbType, home });
@@ -634,7 +633,7 @@ export const vaultCreateFolder = (path: string) =>
 export const vaultRenameFolder = (path: string, name: string) =>
   invoke<string>("vault_rename_folder", { path, name });
 /** Move a folder under another parent ("" = vault root), keeping its name
-    (SUB-698) — the directory sibling of `vaultMove`. Resolves to the folder's
+ — the directory sibling of `vaultMove`. Resolves to the folder's
     new vault-relative path. */
 export const vaultMoveFolder = (path: string, folder: string) =>
   invoke<string>("vault_move_folder", { path, folder });
@@ -646,12 +645,12 @@ export const vaultSidebarOrder = () =>
     : invoke<SidebarOrder>("vault_sidebar_order");
 export const vaultSetSidebarOrder = (order: SidebarOrder) =>
   invoke<SidebarOrder>("vault_set_sidebar_order", { order });
-/** Per-folder metadata (SUB-84): vault-relative folder path → icon. */
+/** Per-folder metadata: vault-relative folder path → icon. */
 export const vaultFolderMetaRead = () =>
   historyProjection
     ? Promise.resolve(clone(historyProjection.folder_meta))
     : invoke<FolderMetaMap>("vault_folder_meta_read");
-/** Set or clear a folder's icon (SUB-84) — the whole icon at once; null
+/** Set or clear a folder's icon — the whole icon at once; null
     removes it (plain folder glyph fallback). */
 export const vaultFolderIconSet = (path: string, icon: DbIcon | null) =>
   invoke<FolderMetaMap>("vault_folder_icon_set", {
@@ -660,10 +659,10 @@ export const vaultFolderIconSet = (path: string, icon: DbIcon | null) =>
     emoji: icon?.emoji ?? null,
     tint: icon?.tint ?? null,
   });
-/** Every tag in the vault with its note count, most-used first (SUB-818) —
+/** Every tag in the vault with its note count, most-used first —
     the source for `#` autocomplete and the tag folder builder's chip picker. */
 export const vaultTags = () => invoke<TagCount[]>("vault_tags");
-/** Tag folder definitions from `.vault/tagfolders.json` (SUB-818). */
+/** Tag folder definitions from `.vault/tagfolders.json`. */
 export const vaultTagFoldersRead = () => invoke<TagFolder[]>("vault_tag_folders_read");
 /** Replace the whole tag folder list — ordering is the frontend's, as with
     saved views and the sidebar order. Resolves to the list as written. */
@@ -673,7 +672,7 @@ export const vaultTagFoldersWrite = (folders: TagFolder[]) =>
     `tags:` prop; the note never moves on disk. */
 export const vaultNoteAddTags = (path: string, tags: string[]) =>
   invoke<NoteMeta>("vault_note_add_tags", { path, tags });
-/** Reality mounts (SUB-888): a real folder rendered as a database, no import
+/** Reality mounts: a real folder rendered as a database, no import
     and no copies. `mounts.json` holds the portable half; the folder each mount
     points at is machine-local, which is why binding is its own call. */
 export const mountsList = () => invoke<MountInfo[]>("mounts_list");
@@ -701,10 +700,10 @@ export const mountAnnotate = (id: string, rel: string, prop: string, value: Prop
     trashes them (recoverable from Trash, never hard-deleted). */
 export const mountRemove = (id: string, cleanup: boolean) =>
   invoke<Mount[]>("mount_remove", { id, cleanup });
-// Tray agenda popover (SUB-30): window management lives Rust-side
+// Tray agenda popover: window management lives Rust-side
 export const agendaOpenNote = (path: string) => invoke<void>("agenda_open_note", { path });
 export const agendaOpenCapture = () => invoke<void>("agenda_open_capture");
-/** Drain `substrate://` links the OS handed us (SUB-1075). Called on mount —
+/** Drain `substrate://` links the OS handed us. Called on mount —
     which is also what tells Rust the window is ready, so a cold-start link
     queued before the vault loaded resolves here — and again on
     `deeplink:pending`. Each entry carries either a note path to open or a
@@ -713,7 +712,7 @@ export const deeplinkTakePending = () => invoke<DeeplinkResolved[]>("deeplink_ta
 // Capture's side of the `substrate://capture?text=` handoff
 // (`deeplink_capture_prefill` / `deeplink_clear_capture_prefill`) is invoked
 // directly in capture.tsx, in that file's style — no wrapper here.
-/** Fit the tray popover to its rendered card (SUB-746). `height` is the
+/** Fit the tray popover to its rendered card. `height` is the
     card's logical height; Rust clamps it and re-anchors under the tray icon. */
 export const agendaResize = (height: number) => invoke<void>("agenda_resize", { height });
 export const vaultSavedViewsRead = () =>
@@ -730,7 +729,7 @@ export const vaultCreateType = (name: string, props: NewTypeProp[]) =>
   invoke<SchemaConfig>("vault_create_type", { name, props });
 /** Rename a database: bulk `type:` rewrite + schema key move (relation
     targets, views pref, sidebar order, template follow). Snapshot first.
-    A `failed` sweep stopped partway — report its count too (SUB-501). */
+    A `failed` sweep stopped partway — report its count too. */
 export const vaultRenameType = (oldName: string, newName: string) =>
   invoke<BulkSweep>("vault_rename_type", { old: oldName, new: newName });
 /** Delete a database: `trashNotes` false strips `type:` from its notes, true
@@ -757,7 +756,7 @@ export const historySnapshot = (label: string) =>
   invoke<boolean>("history_snapshot", { label });
 
 
-/* Real-app smoke lane (SUB-426). Both refuse unless the engine
+/* Real-app smoke lane. Both refuse unless the engine
    saw SUBSTRATE_SMOKE=1; only src/lib/smoke.ts calls them, and that module is
    tree-shaken out of production builds. */
 /** Drop a file in `$SUBSTRATE_SMOKE_DIR` — the driver's channel to the

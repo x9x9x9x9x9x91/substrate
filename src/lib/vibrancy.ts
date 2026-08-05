@@ -1,4 +1,4 @@
-/* SUB-951 — the frontend half of window vibrancy.
+/* The frontend half of window vibrancy.
 
    The backend installs or removes the OS material (an `NSVisualEffectView`
    behind the window) for the same `window-opacity` key; this paints the app's
@@ -36,16 +36,16 @@ export function applyWindowOpacity(pct: number): void {
 }
 
 /** The settings pane's repaint: `applyWindowOpacity`, plus the appearance
-    claim (SUB-1126).
+    claim.
 
     A drag previews a value the note does not hold yet, so the very next
     Settings.md read — the watcher echo of the PREVIOUS commit, which lands
     mid-drag — would repaint the old opacity over it and leave it there:
     nothing writes again until the dial moves. Same race the appearance dials
-    lost in SUB-1122, and the same claim answers it; see lib/appearance.ts for
+    lost before the claim existed, and the same claim answers it; see lib/appearance.ts for
     why one counter covers both. Nothing here is undoable, so an abandoned
     drag still needs no undo: the release hands the claim back and the next
-    read repaints from the note (the SUB-951 shape, unchanged).
+    read repaints from the note (the material-dial shape, unchanged).
 
     The claim here is belt-and-braces as the pane stands today: `slide` paints
     the appearance for every dial it drives, opacity included, so the drag is

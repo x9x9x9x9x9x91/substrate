@@ -4,26 +4,26 @@
 export const NOTE_DRAG_MIME = "application/x-substrate-note";
 
 /** dataTransfer MIME carrying a database type while dragging an All-databases
-    manager row toward the Folders tree (SUB-403). */
+    manager row toward the Folders tree. */
 export const DB_DRAG_MIME = "application/x-substrate-db";
 
 /** dataTransfer MIME carrying {section,id} while dragging a sidebar item to reorder. */
 export const SIDE_DRAG_MIME = "application/x-substrate-side";
 
 /** dataTransfer MIME carrying a prop key while dragging a database table header
-    to reorder its column (SUB-949). Its own MIME so a header only ever accepts
+    to reorder its column. Its own MIME so a header only ever accepts
     another header — a note or key chip dragged across the table finds no drop
     target there. */
 export const COL_DRAG_MIME = "application/x-substrate-col";
 
 /** dataTransfer MIME carrying a key token ("mod+5") while dragging a key chip
-    between the key HUD and a sidebar destination row (SUB-467). Its own MIME so
+    between the key HUD and a sidebar destination row. Its own MIME so
     a destination row can host it alongside the note/db drop and the reorder
     drag without any of them guessing at the payload. */
 export const KEY_DRAG_MIME = "application/x-substrate-key";
 
 /** dataTransfer MIME carrying a folder path while dragging a Dashboards group
-    header toward the Folders tree (SUB-698). Its own MIME so a tree row can tell
+    header toward the Folders tree. Its own MIME so a tree row can tell
     "move this directory under me" apart from the note/db drops it already
     hosts — and so the group header can carry it alongside SIDE_DRAG_MIME, the
     reorder payload that wins while the drag stays inside the group lane. */
@@ -72,8 +72,8 @@ const HIDDEN_ROOTS = new Set(["Journal", "Dashboards"]);
 
 /**
  * The Folders tree's visible root nodes in display order: the hidden root
- * surfaces filtered out, the persisted order (SUB-401, generalized by SUB-585)
- * applied per sibling group — `order` is ONE flat list of folder paths at any
+ * surfaces filtered out, the persisted order (generalized from the roots to
+ * every sibling group when nested reorder landed) applied per sibling group — `order` is ONE flat list of folder paths at any
  * depth, and each sibling group picks out its own members, so a root reorder
  * and a nested reorder never disturb each other. Folders not named in `order`
  * append in buildFolderTree's alphabetical order, stale entries drop out.
@@ -84,7 +84,7 @@ export function orderedRootNodes(folders: string[], order: string[]): FolderNode
 }
 
 /**
- * One sibling group's folder paths in display order (SUB-585): the children of
+ * One sibling group's folder paths in display order: the children of
  * `parent` ("" = the visible roots), with the persisted order applied the same
  * way the tree renders them. This is the id list the Move up/down menu math
  * runs on — kept here so menu and render can't drift apart.
@@ -106,8 +106,8 @@ export function orderedSiblingFolders(
 }
 
 /**
- * Fold one sibling group's new order back into the flat persisted list
- * (SUB-585): the group's members leave their old slots and re-enter in `group`
+ * Fold one sibling group's new order back into the flat persisted list:
+ * the group's members leave their old slots and re-enter in `group`
  * order, everything else keeps its position. Only relative order WITHIN a
  * group ever matters to the readers (applyOrder per sibling group), so
  * appending the group at the end is equivalent to any fancier splice. Returns
@@ -122,10 +122,10 @@ export function mergeGroupOrder(global: string[], group: string[]): string[] {
 }
 
 /**
- * The tree row a pinned note nests under (SUB-585): its home folder — unless
+ * The tree row a pinned note nests under: its home folder — unless
  * the note sits at the vault root or inside a hidden surface (Journal,
  * Dashboards), which have no tree row; those pins render in the flat Pinned
- * section instead. `dashPaths` (SUB-594) is the set of DASHBOARD note paths —
+ * section instead. `dashPaths` is the set of DASHBOARD note paths —
  * every dashboard already renders its own row in the Dashboards section
  * (flat or in a group, wherever its folder falls), so a pinned dashboard must
  * not ALSO nest under a folder tree row. Exclusion is by path, not by folder:
@@ -147,11 +147,11 @@ export function pinTreeFolder(
 
 /**
  * Split the pinned notes (already in `$sidebar.pins` order) into the rows the
- * flat Pinned section keeps and the per-folder groups the tree renders
- * (SUB-585). Order inside each bucket preserves the input order — reorders
+ * flat Pinned section keeps and the per-folder groups the tree renders.
+ * Order inside each bucket preserves the input order — reorders
  * persist through mergeGroupOrder against the same flat pins list. `dashPaths`
  * is the set of dashboard note paths, forwarded to pinTreeFolder so a pinned
- * dashboard stays flat instead of double-rendering in the tree (SUB-594); the
+ * dashboard stays flat instead of double-rendering in the tree; the
  * caller passes it (no groupDashboards dependency in here).
  */
 export function splitPins<T extends { path: string; folder: string }>(
@@ -195,7 +195,7 @@ export function applyOrder<T>(items: T[], order: string[], keyOf: (t: T) => stri
   return out;
 }
 
-/** One subfolder group in the Dashboards section (SUB-466). */
+/** One subfolder group in the Dashboards section. */
 export interface DashGroup<T> {
   /** full vault-relative folder path ("Dashboards/Releases") */
   folder: string;
@@ -210,26 +210,26 @@ function folderOfPath(path: string): string {
   return i === -1 ? "" : path.slice(0, i);
 }
 
-/** The conventional dashboards home (SUB-1079): a top-level `Dashboards/`
+/** The conventional dashboards home: a top-level `Dashboards/`
     folder IS the section's home whenever it exists, so the section's root is a
     thing the user can see and move rather than a tally they have to reverse-
     engineer. Same shape as the databases' explicit `home` key. */
 export const DASHBOARDS_HOME_FOLDER = "Dashboards";
 
 /**
- * The dashboards' home folder. EXPLICIT FIRST (SUB-1079, from SUB-1006's
- * answer): if the vault has a top-level `Dashboards/` folder — either as a real
+ * The dashboards' home folder. EXPLICIT FIRST: if the vault has a top-level
+ * `Dashboards/` folder — either as a real
  * folder in `folders`, or implied by a dashboard living in it — that folder is
  * the home, regardless of counts. Only a vault without one falls back to the
  * inference below, so zero-config vaults keep working and configured ones stop
  * re-rooting themselves when dashboards pile up somewhere else.
  *
- * FALLBACK — inference (SUB-466): the folder with the highest
+ * FALLBACK — inference: the folder with the highest
  * DESCENDANT-INCLUSIVE dashboard count — dashboards in it plus in any of its
  * subfolders — not a common path prefix and not a direct-contents tally. A
  * direct tally re-decides the whole section's shape from folder contents, so
  * dragging the second dashboard into a subfolder flipped home to that subfolder
- * and made the group the user just created vanish (SUB-466 review, finding 2).
+ * and made the group the user just created vanish.
  * Counting descendants keeps a home's score unchanged when dashboards move INTO
  * its subfolders, while a single stray dashboard elsewhere still can't re-root
  * everybody. Ties break to the shallowest path, then alphabetically; the vault
@@ -288,13 +288,13 @@ export function dashboardsHome(
 }
 
 /**
- * The folder tree row a dashboard nests under (SUB-605), or null when the
+ * The folder tree row a dashboard nests under, or null when the
  * Dashboards section owns it instead. A dashboard filed in a CONTENT folder —
  * `Studio/Gear Health.md` beside that folder's databases and pinned notes —
  * belongs in the tree where the user put it; the Dashboards section keeps the
  * ones in the dashboards home subtree, which is what it was built for.
  *
- * Null for: the home subtree (section, flat or in a SUB-466 subfolder group),
+ * Null for: the home subtree (section, flat or in a subfolder group),
  * the vault root and the hidden surfaces (Journal/Dashboards have no tree row
  * at all, so the section is their only home).
  */
@@ -307,15 +307,15 @@ export function dashTreeFolder(path: string, home: string): string | null {
 }
 
 /**
- * Split the dashboards three ways from ONE home decision (SUB-466 + SUB-605):
+ * Split the dashboards three ways from ONE home decision:
  * the Dashboards section's flat rows, its one level of subfolder groups, and
  * the rows that nest under a folder tree row keyed by their folder.
  *
  * A dashboard directly in the home folder renders flat; one in a subfolder of
  * it joins that subfolder's group, keyed by the FIRST segment below home so
  * nesting never goes deeper than one level; one outside home entirely goes to
- * `byFolder` for the tree (SUB-605). The three buckets are filled in a single
- * pass off `dashTreeFolder`, so a path can't land in two of them — SUB-466's
+ * `byFolder` for the tree. The three buckets are filled in a single
+ * pass off `dashTreeFolder`, so a path can't land in two of them — the
  * no-dup rule holds by construction rather than by two agreeing predicates.
  *
  * Input order is preserved: flat rows keep their relative order, groups appear
@@ -358,7 +358,7 @@ export function splitDashboards<T extends { path: string }>(
 }
 
 /**
- * Retarget a persisted id after the thing it names moved (SUB-466): the entry
+ * Retarget a persisted id after the thing it names moved: the entry
  * for `oldId` becomes `newId` in place, keeping the manual sidebar position a
  * move would otherwise lose — `applyOrder` drops ids it can't match, so a moved
  * dashboard silently fell to the end of its lane. Returns the same array when

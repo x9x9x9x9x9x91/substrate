@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Portable shared Cargo target for local Substrate builds (SUB-987).
+# Portable shared Cargo target for local Substrate builds.
 #
 # Cargo does not expand $HOME or ~ in .cargo/config.toml, so a checked-in
 # absolute target-dir ties every clone to one account. Keep the default in a
 # shell entry point instead: npm's Tauri command and the repo scripts source
-# this file, while CI/rig/release overrides remain authoritative.
+# this file, while CI/release overrides remain authoritative.
 
 substrate_use_shared_cargo_target() {
   if [[ -z "${CARGO_TARGET_DIR:-}" ]]; then

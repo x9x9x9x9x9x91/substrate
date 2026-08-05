@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-392: ⌘⌫ trash, focus-follows-selection, and ⌫ back-navigation against
+// ⌘⌫ trash, focus-follows-selection, and ⌫ back-navigation against
 // the deterministic mock backend. Fresh page = fresh vault per test.
 
 function row(page: Page, title: string) {

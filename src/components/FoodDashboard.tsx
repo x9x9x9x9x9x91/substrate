@@ -33,23 +33,23 @@ interface FoodDashboardProps {
   vaultEpoch: number;
   onOpenSource: (path: string) => void;
   onMutated: () => void;
-  /** SUB-490: registered-into while mounted, so the shortcut HUD advertises
+  /** Registered-into while mounted, so the shortcut HUD advertises
       this pane's ⌘Z / ⌘⇧Z only where it fires */
   dashUndo?: DashUndoStore;
 }
 
-/* Daily net-kcal tracker (SUB-325): the `dashboard: food` note renders a
+/* Daily net-kcal tracker: the `dashboard: food` note renders a
    separate log sheet's csv fence. One optimistic-write mutation path per data
-   note — add / delete on the log, upsert / delete on the food DB (SUB-408) —
+   note — add / delete on the log, upsert / delete on the food DB —
    and one ⌘Z stack over both. The pane keeps both bodies in state and derives
    everything (hero, band verdict, 14-day strip, repeat chips) with a single
    foodData pass over the log; suggestions merge the DB's stable kcal bases
-   into the log's memory (buildFoodMemory). Day navigation (SUB-408): the
+   into the log's memory (buildFoodMemory). Day navigation: the
    hero, rows list and the form's log date follow a focus day (‹ › arrows or
    clicking a strip bar); avg7/week-delta/strip stay today-anchored trends.
    The band is a floor, not a target: under the floor means "still eating",
    so it reads light green — on the way, not done — against the band's deep
-   green (SUB-977: no yellow; only blowing the ceiling is a warning state).
+   green (no yellow; only blowing the ceiling is a warning state).
    Negative kcal = exercise, so a day's total is already net. */
 
 const STATE_COLOR: Record<DayState, string> = {
@@ -68,8 +68,8 @@ const STATE_WORD: Record<DayState, string> = {
 
 const fmt = (v: number): string => v.toLocaleString(numberLocale());
 
-/** Percent-across-the-plot of column `i`'s centre, for the weight overlay
-    (SUB-707): the strip's columns are equal flex children, so column centres
+/** Percent-across-the-plot of column `i`'s centre, for the weight overlay:
+    the strip's columns are equal flex children, so column centres
     sit at (i + 0.5) / n — the overlay rides the same geometry as the bars. */
 function colX(i: number, n: number): number {
   return ((i + 0.5) / n) * 100;
@@ -109,14 +109,14 @@ export default function FoodDashboard({
   const [body, setBody] = useState<string | null>(null);
   const [writeErr, setWriteErr] = useState<string | null>(null);
 
-  // the food DB note (SUB-408): stable kcal bases; missing never blocks the
+  // the food DB note: stable kcal bases; missing never blocks the
   // pane — suggestions just fall back to log memory only
   const [dbPath, setDbPath] = useState<string | null>(null);
   const [dbMissing, setDbMissing] = useState(false);
   const [dbBody, setDbBody] = useState<string | null>(null);
   const [dbOpen, setDbOpen] = useState(false);
 
-  // the weight log (SUB-707): read-only, and entirely optional — a missing
+  // the weight log: read-only, and entirely optional — a missing
   // note (or an unreadable one) just means no overlay, never error chrome.
   // The pane never writes it, so it needs no path/conflict state.
   const [weightBody, setWeightBody] = useState<string | null>(null);
@@ -126,13 +126,13 @@ export default function FoodDashboard({
   const [dayOffset, setDayOffset] = useState(0);
   const focusDay = shiftDate(todayIso, dayOffset);
 
-  // one form since SUB-702: a minus-typed kcal IS the exercise entry — the
+  // one form: a minus-typed kcal IS the exercise entry — the
   // csv convention "negative = exercise" carries straight through
   const [formFood, setFormFood] = useState("");
   const [formKcal, setFormKcal] = useState("");
   const [formProtein, setFormProtein] = useState("");
 
-  // the basis-drift tripwire (SUB-688): set by submit when the fresh row
+  // the basis-drift tripwire: set by submit when the fresh row
   // contradicts the remembered basis, cleared by dismiss/pin, and self-clears
   // when the memory no longer shows the drift (see the effect below)
   const [drift, setDrift] = useState<FoodDrift | null>(null);
@@ -142,7 +142,7 @@ export default function FoodDashboard({
   const [dbKcal, setDbKcal] = useState("");
   const [dbProtein, setDbProtein] = useState("");
   const [dbPer, setDbPer] = useState<DbBasis>("100g");
-  // grams per unit (SUB-687): the piece↔gram bridge, only meaningful for
+  // grams per unit: the piece↔gram bridge, only meaningful for
   // unit-based entries — the input shows only when the toggle is on unit
   const [dbGrams, setDbGrams] = useState("");
 
@@ -247,7 +247,7 @@ export default function FoodDashboard({
     [body, todayIso, floor, ceiling, focusDay]
   );
 
-  // the strip's weight overlay (SUB-707) — null whenever the window holds no
+  // the strip's weight overlay — null whenever the window holds no
   // weigh-in, which is also the missing-file case
   const weight = useMemo(
     () => (d !== null && weightBody !== null ? weightSeries(weightBody, d.days.map((x) => x.day)) : null),
@@ -256,7 +256,7 @@ export default function FoodDashboard({
 
   const dbEntries = useMemo(() => (dbBody !== null ? parseFoodDb(dbBody) : []), [dbBody]);
 
-  // optimistic write, guarded (SUB-93): the log note isn't the one on
+  // optimistic write, guarded: the log note isn't the one on
   // screen, so an external edit between our read and this write must fail
   // as a conflict, not be clobbered — on any failure the epoch reload
   // re-reads disk truth and the row simply doesn't stick
@@ -272,7 +272,7 @@ export default function FoodDashboard({
       });
   };
 
-  // same guarded optimistic write for the DB note (SUB-408)
+  // same guarded optimistic write for the DB note
   const writeDb = (next: string, expected: string) => {
     if (dbPath === null) return;
     setDbBody(next);
@@ -285,7 +285,7 @@ export default function FoodDashboard({
       });
   };
 
-  // ⌘Z / ⌘⇧Z over log mutations (SUB-331, the yield board's SUB-323 stack in
+  // ⌘Z / ⌘⇧Z over log mutations (the yield board's stack in
   // food shape): every log/DB add/delete pushes the prior body of THE NOTE IT
   // mutates; undo restores it through that note's conflict-guarded write, so
   // an external edit mid-session fails as a conflict instead of being
@@ -338,13 +338,13 @@ export default function FoodDashboard({
 
   const kcalNum = Number(formKcal);
   const kcalTyped = formKcal.trim() !== "" && isFinite(kcalNum);
-  // a typed number owns the row, but a slipped digit is not a meal (SUB-691)
+  // a typed number owns the row, but a slipped digit is not a meal
   // — out of the sanity bound it stays typed (so no auto-fill quietly logs a
   // different number) and simply can't be added. Exercise burn shares the
   // field, and the bound is magnitude-based, so it is covered too.
   const kcalSane = kcalTyped && kcalInRange(kcalNum);
 
-  // autocomplete over the whole log + the food DB (SUB-375/SUB-408): the log
+  // autocomplete over the whole log + the food DB: the log
   // remembers portions and recency, the DB wins the kcal basis — a food in
   // the DB suggests its stable per-100g/ml/unit numbers instead of replaying
   // the newest logged row. Rebuilt only when either body changes.
@@ -357,20 +357,20 @@ export default function FoodDashboard({
     [memory, formFood, suggestOpen]
   );
   // the typed quantity, so a suggestion row can advertise the fill accepting
-  // it WOULD produce (SUB-629) instead of always the last portion
+  // it WOULD produce instead of always the last portion
   const typedQty = useMemo(() => parseFoodInput(formFood), [formFood]);
   // "Eggs" known + kcal left empty → submit resolves it; preview the number
   // in the kcal placeholder so the resolve is never a surprise. A kcal
-  // expression typed in the food field (SUB-629: "Chicken bowl 200g 100ph",
+  // expression typed in the food field ("Chicken bowl 200g 100ph",
   // "Pizza 2*180") states its number outright, so it beats the memory — but
-  // only for kcal: its protein still comes from the memory basis (SUB-634).
+  // only for kcal: its protein still comes from the memory basis.
   const resolved = useMemo(
     () => (kcalTyped ? null : (parseKcalExpr(formFood, memory) ?? autoFill(memory, formFood))),
     [memory, formFood, kcalTyped]
   );
   const kcalValid = kcalSane || resolved !== null;
   // set by accept(), cleared by hand-edits of kcal/protein and by submit —
-  // while set, food-text edits reprice the two filled fields (SUB-629)
+  // while set, food-text edits reprice the two filled fields
   const filledRef = useRef(false);
 
   const logEntry = (entry: FoodEntry) => {
@@ -412,7 +412,7 @@ export default function FoodDashboard({
     writeDb(removeFoodDbEntry(dbBody, idx), dbBody);
   };
 
-  // the tripwire's action (SUB-688): move the kcal authority to the drift
+  // the tripwire's action: move the kcal authority to the drift
   // row's basis. An existing DB row keeps its protein/g — those are facts of
   // their own; the pin is only about the price
   const pinDrift = () => {
@@ -460,7 +460,7 @@ export default function FoodDashboard({
     setFormKcal(fill.kcal !== null ? String(fill.kcal) : "");
     setFormProtein(fill.protein !== null ? String(fill.protein) : "");
     // the fill is machine-owned until the user touches kcal/protein by hand:
-    // editing the food text afterwards (the "6x" → "2x" fix, SUB-629) must
+    // editing the food text afterwards (the "6x" → "2x" fix) must
     // reprice it, or the stale number logs against the new quantity and the
     // wrong row poisons the memory basis
     filledRef.current = true;
@@ -478,7 +478,7 @@ export default function FoodDashboard({
       // an accept-owned number repriced through an expression (accept "Ramen"
       // → edit to "Ramen 2*180") leaves the expr in the text — log its
       // canonical name, not the verbatim soup, or the memory learns a food
-      // literally named "Ramen 2*180" (SUB-629 review). A hand-typed kcal
+      // literally named "Ramen 2*180". A hand-typed kcal
       // (flag clear) keeps the name verbatim — the user owns the whole row.
       if (filledRef.current) {
         const e = parseKcalExpr(food);
@@ -491,12 +491,12 @@ export default function FoodDashboard({
     } else {
       return;
     }
-    // an activity name ("Walking", "Gym") always logs negative (SUB-702) —
+    // an activity name ("Walking", "Gym") always logs negative —
     // the minus is implied, typing it anyway changes nothing
     if (isExerciseName(food)) kcal = -Math.abs(kcal);
-    // the drift tripwire (SUB-688) reads the PRE-submit memory — after the
+    // the drift tripwire reads the PRE-submit memory — after the
     // append, the row's own basis is the newest truth and there's nothing
-    // left to compare against. Exercise rows (negative kcal, SUB-702) never
+    // left to compare against. Exercise rows (negative kcal) never
     // trip it, so the exercise name check gates it too
     const driftHit = isExerciseName(food) ? null : detectDrift(memory, { food, kcal });
     logEntry({
@@ -505,7 +505,7 @@ export default function FoodDashboard({
       date: focusDay,
       food,
       kcal,
-      // a minus-typed kcal is an exercise row (SUB-702) — those never carry
+      // a minus-typed kcal is an exercise row — those never carry
       // protein, whatever sits in the optional field
       protein: kcal < 0 ? null : protein,
     });
@@ -523,7 +523,7 @@ export default function FoodDashboard({
   // strip scale: the band must always fit, so the ceiling pins the top
   // unless a logged day overshoots it
   const maxScale = d ? Math.max(ceiling, floor, ...d.days.map((x) => x.total)) : ceiling;
-  // SUB-684 zero-line split: when any of the 14 days nets negative (exercise
+  // Zero-line split: when any of the 14 days nets negative (exercise
   // burn > intake), the plot grows a sub-zero region — one scale maps
   // [minTotal, maxScale] onto the plot, a zero hairline sits at the split,
   // and negative bars hang from it at true scale. The bottom 12% (≈17px of
@@ -570,7 +570,7 @@ export default function FoodDashboard({
                   <div className="dash-apr">{fmt(d.todayKcal)}</div>
                   <div className="dash-sub">
                     {/* the question the pane answers first is "how far to the
-                        goal floor" (SUB-374); the ceiling only leads once the
+                        goal floor"; the ceiling only leads once the
                         floor is met — and turns red once it's blown */}
                     {d.headroom < 0 ? (
                       <span style={{ color: "var(--danger)" }}>
@@ -664,14 +664,14 @@ export default function FoodDashboard({
                   />
                   {split && <div className="food-zero" style={{ bottom: `${zero}%` }} />}
                   {d.days.map((day, i) => {
-                    // clicking a bar navigates the pane to that day (SUB-408);
+                    // clicking a bar navigates the pane to that day;
                     // every LOGGED day carries its value like the other bar
                     // charts do — bars without numbers can't be compared, and
                     // the band alone doesn't give the strip a scale. Unlogged
                     // days stay unlabeled: absent is not zero (principle 2).
                     const isToday = i === d.days.length - 1;
                     const isFocus = day.day === d.focusDay;
-                    // split plot (SUB-684): bars hang off the zero line
+                    // split plot: bars hang off the zero line
                     // (absolutely positioned, see .food-plot.split) — negatives
                     // downward, positives up, the empty stub just ABOVE the
                     // line so it never reads as a tiny negative. Labels ride
@@ -710,7 +710,7 @@ export default function FoodDashboard({
                       </div>
                     );
                   })}
-                  {/* weight overlay (SUB-707): one polyline over the same day
+                  {/* weight overlay: one polyline over the same day
                       columns on weight's OWN padded scale, so a 0.6 kg move
                       reads as a move. Unlogged days get no dot and the line
                       bridges them — weight is continuous, unlike kcal where
@@ -725,7 +725,7 @@ export default function FoodDashboard({
                           preserveAspectRatio="none"
                           aria-hidden="true"
                         >
-                          {/* casing first, line on top (SUB-977): a background-
+                          {/* casing first, line on top: a background-
                               colored stroke under the line cuts a dark gap
                               wherever it crosses a bar, so the line stays
                               readable over any bar color. Both polylines opt
@@ -774,13 +774,13 @@ export default function FoodDashboard({
                         const show =
                           i === 0 || i === weight.points.length - 1 || p.day === d.focusDay;
                         if (!show) return null;
-                        // collision guard (SUB-709): the kg label and the
+                        // collision guard: the kg label and the
                         // column's kcal value are both centred on the column,
                         // so a dot landing near its bar top prints the two
                         // through each other. Both labels are ~15px tall
                         // (~11% of the 140px plot): the kcal value rides its
                         // bar's far edge (top; the tip of a negative bar in a
-                        // split plot, SUB-684), the kg label 7px above its
+                        // split plot), the kg label 7px above its
                         // dot. When the dot falls inside the kcal label's
                         // span, lift the kg label to stack above the kcal
                         // value instead — the dot's hover title still carries
@@ -798,7 +798,7 @@ export default function FoodDashboard({
                         if (barTop !== null) {
                           // the label span the dot must clear: positive days
                           // carry it above the bar top, a negative day's
-                          // hangs BELOW its tip (SUB-684) — same window shape,
+                          // hangs BELOW its tip — same window shape,
                           // shifted under the tip, lifting just above the label
                           if (split && day.total < 0) {
                             if (bottom > barTop - 25 && bottom < barTop - 3) bottom = barTop;
@@ -863,7 +863,7 @@ export default function FoodDashboard({
                         setFormFood(v);
                         setSuggestOpen(true);
                         setSuggestIdx(0);
-                        // an accept-owned fill reprices with the text (SUB-629):
+                        // an accept-owned fill reprices with the text:
                         // "Ramen" accepted → "Ramen 2x" edited rescales, an
                         // unknown name clears the number rather than keeping
                         // the stale one
@@ -904,7 +904,7 @@ export default function FoodDashboard({
                     {suggestions.length > 0 && (
                       <div className="food-suggest" role="listbox">
                         {suggestions.map((s, i) => {
-                          // advertise the fill accepting WOULD produce (SUB-629):
+                          // advertise the fill accepting WOULD produce:
                           // scaled by the typed quantity ("babybell 2x" shows
                           // 2× pricing), not always the last portion's
                           const fill = fillFor(s, typedQty.qty, typedQty.unit);
@@ -962,7 +962,7 @@ export default function FoodDashboard({
                       type="number"
                       // same preview contract as kcal: a resolved protein
                       // (memory basis, or an expression's name scaled by
-                      // its quantity — SUB-634) shows as the placeholder,
+                      // its quantity) shows as the placeholder,
                       // never as a value, so it can't clobber hand input
                       placeholder={
                         resolved !== null && resolved.protein !== null

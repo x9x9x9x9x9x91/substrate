@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Music work board flows (SUB-595) over the mock seed: Dashboards/Music
+// Music work board flows over the mock seed: Dashboards/Music
 // Work.md (index: Work Index) + the Work Index sheet — 8 jobs across 3 years,
 // 3 categories and 6 artists, one flagged row, one 0 MB job.
 

@@ -1,4 +1,4 @@
-//! Reality mounts (SUB-888): a real folder rendered as a database.
+//! Reality mounts: a real folder rendered as a database.
 //!
 //! A mount has two halves that live in different places on purpose. Its
 //! identity — id, name, globs — is in the vault and syncs; the path it points
@@ -10,8 +10,8 @@ use crate::vault::{ExtractQueue, Mount, MountRow, MountScanStats};
 use crate::{appcfg, blocking, AppState, OnboardingState, SnapDirty};
 use tauri::{Emitter, Manager, State};
 
-/// Hand a freshly scanned mount's unread files to the background queue
-/// (SUB-887). Called with the engine lock already released: enqueueing is a
+/// Hand a freshly scanned mount's unread files to the background queue.
+/// Called with the engine lock already released: enqueueing is a
 /// push onto a bounded deque, and everything slow happens on the queue's own
 /// threads. Files past the queue's capacity are simply not taken — the next
 /// scan offers them again.
@@ -38,7 +38,7 @@ fn bind_mount_on_machine(
         None => {
             // Unbinding leaves the mount and its index alone, but this
             // machine's document text describes files it can no longer open
-            // and nothing will read it again (SUB-1134).
+            // and nothing will read it again.
             engine.forget_mount_text(id);
             MountScanStats {
                 id: id.to_string(),
@@ -248,7 +248,7 @@ pub(crate) fn mount_remove(
 mod tests {
     use super::*;
 
-    /// SUB-1134: "Locate folder… → none" is the one unbind path in the app,
+    /// "Locate folder… → none" is the one unbind path in the app,
     /// and it used to leave the text store behind with nothing to read it.
     #[test]
     fn unbinding_here_takes_this_machines_text_with_it() {

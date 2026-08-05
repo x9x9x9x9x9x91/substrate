@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-701: the month grid speaks Notion Calendar's line language now — a
+// The month grid speaks Notion Calendar's line language now — a
 // tinted identity bar + dim time + title per entry instead of the boxed
 // icon-chip — plus the orientation marks that came with the same redesign:
 // today's weekday header sharpens, the 1st names its month in-grid, and a
@@ -62,7 +62,7 @@ test("today orients twice: circled day number + sharpened weekday header", async
   page,
 }) => {
   await openCalendar(page);
-  // the circle (pre-SUB-701 behavior, unchanged)
+  // the circle (pre-change behavior, unchanged)
   await expect(
     page.locator(`.cal-day[data-iso="${isoDay(0)}"] .cal-today`)
   ).toBeVisible();
@@ -107,7 +107,7 @@ test("a done task reads resolved in the grid and Upcoming, still clickable", asy
   const chip = cell.locator(".cal-entry", { hasText: "Ship the patron download codes" });
   await expect(chip).not.toHaveClass(/\bdone\b/);
 
-  // mark it done from the chip's context menu (SUB-376 path)
+  // mark it done from the chip's context menu
   await chip.click({ button: "right" });
   await page.locator(".ctx-item", { hasText: "Mark done" }).click();
 

@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-564: a create the engine refuses used to clear the draft and say
+// A create the engine refuses used to clear the draft and say
 // nothing — the row never appeared, no toast, only a console line the user
 // can't see. The database draft row, the relation picker's inline create and
 // the calendar's day draft all ended on `.catch(console.error)`; each now
-// reports on App's toast the way the cell writes have since SUB-240.
+// reports on App's toast the way the cell writes have.
 //
 // `window.__mockFail` makes the mock reject the named command, which is the
 // same rejection shape `Engine::create_full` produces for a refused title
@@ -53,7 +53,7 @@ test("a refused calendar day create surfaces on the toast (SUB-564)", async ({ p
   await expect(toast).toContainText("couldn’t create “Studio hold”");
 });
 
-// SUB-656: SUB-564's fix landed in the panes but skipped App's own four
+// The fix landed in the panes but skipped App's own four
 // create lanes — the ones the PALETTE drives, where the silence is worst:
 // run() closes the palette before the promise settles, so a refused create
 // takes the typed title with it. The toast names the title and the engine's

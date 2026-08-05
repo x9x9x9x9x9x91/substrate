@@ -35,12 +35,12 @@ interface TasksDashboardProps {
   onMutated: () => void;
   onToast?: (msg: string, action?: { label: string; run: () => void }) => void;
   onCreateEntry?: (dbType: string, title: string) => Promise<NoteMeta>;
-  /** Settings.md `task-stale-chips` (SUB-1125) — the global default for the
+  /** Settings.md `task-stale-chips` — the global default for the
       age chips. Omitted means on, matching the setting's own default. */
   taskStaleChips?: boolean;
 }
 
-/* Tasks board v3 (SUB-870; mockup variant B "Sectioned",
+/* Tasks board v3 (mockup variant B "Sectioned",
    docs/mockups/sub870-tasks-v3-B.png). v2 was an attention report with three
    verbs bolted on: it ranked rot, never read `due`, and drew its checkoff as
    a dot pixel-identical to the read-only state mark. v3 is a task interface —
@@ -49,7 +49,7 @@ interface TasksDashboardProps {
    it, and a way to author and park work without leaving the board.
 
    That checkbox is the one deliberate exception to design-principles §6's "a
-   visible button per row" (amended there for task surfaces, SUB-870): here
+   visible button per row" (amended there for task surfaces): here
    the checkbox IS the content — the row's primary verb. Every other verb
    stays quiet-on-hover, as the house rule wants. */
 
@@ -64,7 +64,7 @@ const COMPLETE_HOLD_MS = 260;
 const ADDED_FLASH_MS = 1600;
 
 /** Row tooltip: what the row's dates mean, in words. The old "Attention score
-    N" is gone with the score it named (SUB-870) — an internal ranking number
+    N" is gone with the score it named — an internal ranking number
     was never something to explain to the user. */
 function rowTitle(row: TasksDashboardRow, now: Date): string {
   const parts: string[] = [];
@@ -81,7 +81,7 @@ function rowTitle(row: TasksDashboardRow, now: Date): string {
   return `${parts.join(". ")}.`;
 }
 
-/** Header state (SUB-870): what's actually pressing, urgency first. The
+/** Header state: what's actually pressing, urgency first. The
     snoozed tally left the header — parked work has its own section now, and
     the header should read as today's load. */
 function stateLabel(overdue: number, dueToday: number, nowCount: number, total: number): string {
@@ -109,7 +109,7 @@ const SECTION_TINT: Record<TasksDashboardSection["kind"], string> = {
   area: "var(--opt-blue)",
 };
 
-/** The pin mark (SUB-1109): a pinned task carries no `stale`/`undated` chip —
+/** The pin mark: a pinned task carries no `stale`/`undated` chip —
     Now is the chosen list, so rot isn't a diagnostic for it
     (tasksDashboard.ts). In the list that reads off the **Now** heading, but a
     pinned card on the board sits in its area column with no heading to explain
@@ -150,10 +150,10 @@ export default function TasksDashboard({
   }, []);
   const now = useMemo(() => new Date(nowMs), [nowMs]);
 
-  // View and sort (SUB-933) live as frontmatter props on the dashboard note —
+  // View and sort live as frontmatter props on the dashboard note —
   // the same config surface `areas`/`stale_days` use, so the choice survives
   // restarts and syncs with the vault. Read them case-folded, exactly as the
-  // model does (the SUB-921 contract): a hand-written `View: board` configures
+  // model does (the contract): a hand-written `View: board` configures
   // the pane instead of being silently ignored by it. Local state answers the
   // click instantly; the effect re-syncs when the note itself changes (an
   // external edit, or another window).
@@ -194,7 +194,7 @@ export default function TasksDashboard({
     priority: string | null;
     anchor: AnchorRect;
   } | null>(null);
-  // the card whose move menu is open, and where it was summoned (SUB-1053)
+  // the card whose move menu is open, and where it was summoned
   const [moveMenu, setMoveMenu] = useState<{
     path: string;
     title: string;
@@ -209,9 +209,9 @@ export default function TasksDashboard({
   const [draftDue, setDraftDue] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   // the just-created row: scrolled to and flashed, because urgency ranking
-  // can land a new undated task far below the fold (SUB-870 review)
+  // can land a new undated task far below the fold
   const [added, setAdded] = useState<string | null>(null);
-  // board drag (SUB-933): the card in flight and the column under it
+  // board drag: the card in flight and the column under it
   const [dragPath, setDragPath] = useState<string | null>(null);
   const [dropArea, setDropArea] = useState<string | null>(null);
 
@@ -346,7 +346,7 @@ export default function TasksDashboard({
     moveToArea(row, area);
   };
 
-  /** The keyboard/menu equivalent of a drop (SUB-1053): drag was the only verb
+  /** The keyboard/menu equivalent of a drop: drag was the only verb
       that could re-area a card, which left the move unreachable without a
       pointer. One entry per column — the board's own areas, so the menu can
       never name a target a drop couldn't reach — each running the same
@@ -364,7 +364,7 @@ export default function TasksDashboard({
   const wake = (row: TasksDashboardRow) =>
     write(row.path, "snoozed_until", null, `Awake — ${row.title}`);
 
-  /** Inline date/priority edits (SUB-870 do-now 5): the same undoable prop
+  /** Inline date/priority edits: the same undoable prop
       path every other verb takes, so a chip click and a note edit are one
       operation on the ⌘Z stack. Retitling a row's own due date is the
       commonest triage move there is — it belongs on the row. */
@@ -403,7 +403,7 @@ export default function TasksDashboard({
     ];
   };
 
-  /** Quick-add (SUB-870): the Food board's `.dash-form` / `.dash-add` idiom.
+  /** Quick-add: the Food board's `.dash-form` / `.dash-add` idiom.
       The seeds matter more than they look — a task created with no `area`
       lands in Unassigned, which an area allowlist filters straight off the
       board, so the row the user just typed would appear to vanish.
@@ -570,12 +570,12 @@ export default function TasksDashboard({
     );
   };
 
-  /** A kanban card (SUB-933): the row's content restacked for a 240px
+  /** A kanban card: the row's content restacked for a 240px
       column — checkbox and title up top, the same due/priority edit chips
       below, the quiet verbs on hover. Urgency stays readable through the
       chips' own hues; the card never moves columns for being late.
 
-      The rot layer rides along (SUB-1055): the same amber `tasks-finding`
+      The rot layer rides along: the same amber `tasks-finding`
       chip the list row carries, in the same slot after priority, so a task
       that has gone stale or has no created date says so in either view. Age
       stays in the tooltip only — the list's `Nd` column is a scannable
@@ -592,7 +592,7 @@ export default function TasksDashboard({
         title={rowTitle(row, now)}
         // the card is a labelled group, not a control: its own verbs are the
         // buttons inside it. The label gives the group a name to announce and
-        // gives the move menu something to be summoned from (SUB-1053)
+        // gives the move menu something to be summoned from
         role="group"
         aria-label={row.title}
         aria-keyshortcuts="Shift+F10"

@@ -32,17 +32,17 @@ export default function SealedNoteDialog({
   // A device attempt the user abandoned is still live in the OS: its sheet can
   // answer at any time. Keeping the device button disabled until it actually
   // settles stops a second user-presence prompt stacking on the first
-  // (SUB-935).
+  //.
   const [deviceInFlight, setDeviceInFlight] = useState(false);
   const passRef = useRef<HTMLInputElement>(null);
   // Which attempt is live. A Keychain prompt that never returns — the known
   // macOS failure where the user-presence sheet does not appear — would
-  // otherwise leave this dialog busy forever with no way out (SUB-935).
+  // otherwise leave this dialog busy forever with no way out.
   // Abandoning bumps the token, so a late answer to a wait the user walked
   // away from cannot close the dialog under them.
   const attempt = useRef(0);
 
-  // Unmounting is abandoning too (SUB-935). Navigating away closes this dialog
+  // Unmounting is abandoning too. Navigating away closes this dialog
   // with the OS sheet still up; the unlock can land seconds later, against a
   // pane that has already run its teardown and released nothing. Bumping the
   // token here routes that late success down the release path below, so the
@@ -94,7 +94,7 @@ export default function SealedNoteDialog({
         // hold with no owner — nothing would ever release it, and the note
         // would stay decryptable for the rest of the session. Release it here
         // instead; the refcount means a holder the user acquired since (the
-        // password fallback) survives untouched (SUB-935).
+        // password fallback) survives untouched.
         if (mode === "unlock") void vaultLockSealedNote(meta.path);
       })
       .catch((e) => {
@@ -129,7 +129,7 @@ export default function SealedNoteDialog({
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       // Escape out of a device wait drops back to the password field rather
-      // than closing, so a hung Keychain sheet is never a dead end (SUB-935).
+      // than closing, so a hung Keychain sheet is never a dead end.
       if (busy && deviceWait) {
         e.stopPropagation();
         abandonDeviceWait();

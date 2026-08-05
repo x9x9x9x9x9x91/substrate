@@ -4,7 +4,7 @@ import { parseStrictNumber } from "./aggregate.ts";
 import { canonicalColumn } from "./dbcolumns.ts";
 import { byFoldedKey } from "./schemalookup.ts";
 
-/** Does the schema call this column a number? (SUB-639) — the one gate for
+/** Does the schema call this column a number? — the one gate for
     numeric grouping, read the way `sortCmpFor` reads `kind === "number"`. */
 function isNumberKey(key: string, typeSchema?: Record<string, PropSchema>): boolean {
   return byFoldedKey(typeSchema, key)?.kind === "number";
@@ -17,7 +17,7 @@ export interface NoteGroup {
   notes: NoteMeta[];
 }
 
-/** One note's group keys for a prop (SUB-221): a list value (YAML list of
+/** One note's group keys for a prop: a list value (YAML list of
     strings, e.g. hand-typed tags) contributes EACH item — the note belongs
     to group a AND group b — case-insensitively deduped so it never lands
     twice in one group. A scalar contributes its display string, exactly as
@@ -41,7 +41,7 @@ function propGroupValues(props: Record<string, unknown>, key: string): string[] 
 }
 
 /** The bucket one group value falls in. Plain columns fold by casing, as
-    they always have. A number-kind column (SUB-639) folds by parsed VALUE —
+    they always have. A number-kind column folds by parsed VALUE —
     `1200` and `1200.00` are one section, not two — using the same
     `parseStrictNumber` coercion sort and the footer aggregates already agree
     with. A cell that isn't a number in a number column can't be bucketed by
@@ -62,7 +62,7 @@ function groupKeyer(numeric: boolean): (v: string) => string {
     casing never split into two sections (shared by board + table grouping).
     A list-valued note sits in several buckets and can be taken into several
     groups — that is the point of per-item grouping. With `typeSchema` given,
-    a number-kind prop buckets by numeric value (SUB-639). */
+    a number-kind prop buckets by numeric value. */
 export function bucketByProp(
   notes: NoteMeta[],
   groupBy: string,
@@ -87,8 +87,8 @@ export function bucketByProp(
 
 /** Unschema'd values present in a note set, deduped case-insensitively
     (first casing wins) and sorted for display — the shared "extras" tail of
-    board columns and table sections. List-valued props contribute each item
-    (SUB-221), matching the per-item bucketing. A number-kind prop (SUB-639)
+    board columns and table sections. List-valued props contribute each item,
+    matching the per-item bucketing. A number-kind prop
     dedupes by numeric value instead — `1200` and `1200.00` yield ONE extra,
     spelled as first seen, the same fold `bucketByProp` drains by. */
 export function extraValues(
@@ -109,7 +109,7 @@ export function extraValues(
   return [...extras.values()].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 }
 
-/** The notes behind a grouped view, each counted once (SUB-561). Per-item
+/** The notes behind a grouped view, each counted once. Per-item
     grouping deliberately places a list-valued note in several sections, so
     the flat row sequence holds it once per membership — right for display and
     focus, wrong for anything that answers "how many notes, and what do their
@@ -126,7 +126,7 @@ export function distinctNotes(notes: NoteMeta[]): NoteMeta[] {
   return out;
 }
 
-/** Apply a board's hand order (SUB-948) to one column's notes. Mirrors
+/** Apply a board's hand order to one column's notes. Mirrors
     `orderedColumns`: the notes the order names lead, in its sequence; every
     other note keeps the order it came in (the view's resting order) behind
     them. Paths naming no note here are skipped, so an order carrying notes
@@ -149,9 +149,9 @@ export function orderedNotes(notes: NoteMeta[], order: string[] | undefined): No
   return [...lead, ...notes.filter((n) => !taken.has(n.path))];
 }
 
-/** The prop a table groups by (SUB-184): the saved pref when it still names
-    a groupable column (multi-kind excluded, SUB-79; rollup excluded,
-    SUB-678 — a derived column groups nothing), else ungrouped — unlike
+/** The prop a table groups by: the saved pref when it still names
+    a groupable column (multi-kind excluded; rollup excluded
+    too — a derived column groups nothing), else ungrouped — unlike
     the board, a table has no fallback grouping. */
 export function tableGroupBy(
   columns: string[],
@@ -168,7 +168,7 @@ export function tableGroupBy(
   return canonicalColumn(groupable, pref);
 }
 
-/** Table grouping (SUB-184): one section per schema option that holds visible
+/** Table grouping: one section per schema option that holds visible
     notes, in option order; unschema'd values follow (alphabetical); the
     "No …" section trails. Empty sections are dropped — a table partition
     shows only what's there (the board's empty drop-target columns are a

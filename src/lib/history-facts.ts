@@ -1,4 +1,4 @@
-// The reader half of time-travel queries (SUB-832, docs/time-travel-spec.md):
+// The reader half of time-travel queries (docs/time-travel-spec.md):
 // fact lanes from the backend, plus the notes the app already has loaded, turned
 // into the *synchronous* resolver the formula engine reads through (§3.1).
 // Pure TS, no DOM/node imports: runs in the app and under `node --test`.

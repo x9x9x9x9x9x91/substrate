@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-834: the three outbound-request switches and the number format row.
+// The three outbound-request switches and the number format row.
 // The switches default ON and are enforced at the call sites that initiate a
 // request, so what matters here is the behavior on the other side of the
 // toggle — not that the row rendered. Link titles: the capture still happens,
@@ -35,7 +35,7 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator(".list-title")).toHaveText("Notes");
   // a settings toggle writes Settings.md; the watcher echo is what makes the
   // app re-read the flag. The mock mirrors that cadence on request, same as
-  // the SUB-490 / SUB-607 switches.
+  // the switches.
   await page.evaluate(() => window.__mockSetEchoOnWrites?.(true));
 });
 

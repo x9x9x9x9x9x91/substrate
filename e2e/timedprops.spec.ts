@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
 
-// Optional time-of-day on date props (SUB-270): the mock vault seeds
+// Optional time-of-day on date props: the mock vault seeds
 // "Label sync call" today at 14:00 next to the all-day "Umbra listening
 // session" — these specs assert the timed entry renders its 24h time and
 // sorts after the all-day one on the calendar surfaces (the rebuilt Today
-// surface asserts the same ordering in its Scheduled lane, SUB-300).
+// surface asserts the same ordering in its Scheduled lane).
 
 /** "2026-07-18" — ISO of today +/- offsetDays, local like dates.todayIso */
 function isoDay(offsetDays = 0): string {
@@ -17,7 +17,7 @@ function isoDay(offsetDays = 0): string {
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   // the list's first paint doubles as the "app is live" barrier (cold open
-  // lands on Notes — Today is a destination, SUB-300)
+  // lands on Notes — Today is a destination)
   await expect(page.locator(".list-title")).toHaveText("Notes");
 });
 

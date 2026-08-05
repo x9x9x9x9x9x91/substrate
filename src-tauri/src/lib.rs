@@ -43,7 +43,7 @@ use vault::{Engine, Settings};
 
 pub(crate) struct AppState(pub(crate) Mutex<Engine>);
 
-/// First-run state (SUB-436). `pending` is true when resolution found no
+/// First-run state. `pending` is true when resolution found no
 /// vault, so the frontend shows onboarding instead of the app; the Engine is
 /// still constructed (against a throwaway dir) so every IPC command stays
 /// callable and nothing needs an `Option<Engine>` threaded through it.
@@ -112,7 +112,7 @@ fn snapshot_now(app: &tauri::AppHandle, label: &str) {
     }
 }
 
-/// Run the vault's reflex rules over one watcher batch (SUB-826).
+/// Run the vault's reflex rules over one watcher batch.
 ///
 /// Called from the watcher callback AFTER the UI has been told what changed,
 /// on that same thread: rules are a background consequence of an edit, never
@@ -184,7 +184,7 @@ enum MountsRestorePoint {
     /// History was on: the rewrite is one undoable step.
     Snapshot,
     /// History was off or failed, so the files it will rewrite were copied
-    /// to this dir first (SUB-1011).
+    /// to this dir first.
     Backup(std::path::PathBuf),
 }
 
@@ -192,7 +192,7 @@ enum MountsRestorePoint {
 /// behind either way. History on → the snapshot IS the recovery point, and no
 /// duplicate backup is made. History off (the vault is the user's own git repo,
 /// or `History::new` failed) → an explicit file backup, which is what keeps a
-/// history-disabled vault from deferring on every launch forever (SUB-1011).
+/// history-disabled vault from deferring on every launch forever.
 /// Either failing defers, unchanged: no recovery point, no rewrite.
 fn mounts_migration_restore_point(
     snapshot: Option<Result<bool, String>>,
@@ -222,7 +222,7 @@ fn mounts_migration_restore_point(
 struct RuntimeState {
     settings: Settings,
     active_hotkey: String,
-    /// SUB-951: the opacity the window material was last installed for. `None`
+    /// The opacity the window material was last installed for. `None`
     /// until the first apply, so a vault whose note already says 100 still
     /// takes the (no-op, material-free) path once rather than never running.
     #[cfg(target_os = "macos")]
@@ -231,7 +231,7 @@ struct RuntimeState {
 
 struct SharedRuntime(Mutex<RuntimeState>);
 
-// Command modules (SUB-617): the whole `#[tauri::command]` surface, grouped by
+// Command modules: the whole `#[tauri::command]` surface, grouped by
 // domain. Glob-imported so `generate_handler!` below can keep naming commands
 // bare, exactly as it did while they all lived in this file.
 mod commands;
@@ -297,7 +297,7 @@ fn toggle_capture(app: &tauri::AppHandle) {
 }
 
 
-/// Popover geometry, logical px (SUB-746). Width is fixed; the height the
+/// Popover geometry, logical px. Width is fixed; the height the
 /// window is built at is the maximum, so the first paint can only shrink.
 #[cfg(desktop)]
 pub(crate) const AGENDA_WIDTH: f64 = 340.0;
@@ -307,7 +307,7 @@ pub(crate) const AGENDA_MIN_HEIGHT: f64 = 160.0;
 pub(crate) const AGENDA_MAX_HEIGHT: f64 = 480.0;
 
 /// Where the last tray click wants the popover: the icon's horizontal centre
-/// and the y just under it, in physical pixels (SUB-746).
+/// and the y just under it, in physical pixels.
 ///
 /// Resizing to fit the content (`agenda_resize`) has to re-anchor afterwards
 /// — AppKit's `setContentSize:` pins the window's BOTTOM-left corner, so a
@@ -339,7 +339,7 @@ fn place_agenda(app: &tauri::AppHandle, w: &tauri::WebviewWindow, spot: AgendaSp
     w.set_position(tauri::PhysicalPosition::new(x, spot.top_y)).ok();
 }
 
-/// Tray mini-agenda popover (SUB-30): left-clicking the tray icon toggles a
+/// Tray mini-agenda popover: left-clicking the tray icon toggles a
 /// small window just below the icon, clamped to that icon's monitor.
 #[cfg(desktop)]
 fn toggle_agenda(app: &tauri::AppHandle, icon: tauri::Rect) {
@@ -376,7 +376,7 @@ fn toggle_agenda(app: &tauri::AppHandle, icon: tauri::Rect) {
     w.set_focus().ok();
 }
 
-/// SUB-651: a changed capture-hotkey the engine refuses rides this event to
+/// A changed capture-hotkey the engine refuses rides this event to
 /// the UI — both failure arms below used to be silent outside the log file,
 /// leaving the settings form showing the new chord while the OLD one stayed
 /// registered. `kind` lets the toast tell a typo from another app's chord.
@@ -390,7 +390,7 @@ struct HotkeyRejected {
     /// the chord that actually stayed registered ("" when none ever did)
     active: String,
     /// which chord this was — the toast names the setting the user has to go
-    /// fix, and there is more than one now (SUB-827 review B-6)
+    /// fix, and there is more than one now
     which: &'static str,
 }
 
@@ -455,7 +455,7 @@ fn apply_settings(app: &tauri::AppHandle, root: &std::path::Path) {
         apply_hotkey(app, "capture", &settings.capture_hotkey, &mut active);
         rt.active_hotkey = active;
     }
-    // SUB-951: the window material follows the dial, so it rides the same
+    // The window material follows the dial, so it rides the same
     // hot-reload as the hotkey — no IPC command, and an edit to the note
     // (or a ⌘, drag) shows through within the watcher's second.
     #[cfg(target_os = "macos")]
@@ -473,7 +473,7 @@ pub fn run() {
     applog::install_panic_hook();
     applog::startup();
     let builder = tauri::Builder::default();
-    // SUB-1075: on Windows/Linux the OS delivers a `substrate://` link by
+    // On Windows/Linux the OS delivers a `substrate://` link by
     // launching the binary again with the URL as its only argument. The
     // single-instance guard has to be the FIRST plugin so that second copy
     // exits before it initialises anything; its `deep-link` feature hands the
@@ -490,7 +490,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
-        // OS-level `substrate://` scheme (SUB-1075). What actually registers
+        // OS-level `substrate://` scheme. What actually registers
         // it with the OS is `plugins.deep-link.desktop` in tauri.conf.json —
         // Info.plist CFBundleURLTypes on macOS — so this only works from a
         // packaged .app, never from `tauri dev` on mac.
@@ -506,13 +506,13 @@ pub fn run() {
             })
             .build(),
     );
-    // in-app updater (SUB-806): check/download/install driven from the
+    // in-app updater: check/download/install driven from the
     // frontend (src/hooks/useUpdater.ts); process gives it app.relaunch()
     #[cfg(desktop)]
     let builder = builder
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init());
-    // Custom dashboard kinds (SUB-959): the only door vault-resident renderer
+    // Custom dashboard kinds: the only door vault-resident renderer
     // code gets out through. Registered everywhere except iOS for the first
     // TestFlight build — macOS/Linux see `substrate-kind://localhost/…`,
     // Windows/Android
@@ -530,7 +530,7 @@ pub fn run() {
             // sandboxed data dir until git-sync (docs/ios.md step 4) fills it.
             let default_root = default_vault_root(app.handle());
             let config_dir = app.path().app_config_dir().expect("no app config dir");
-            // SUB-645: the demo vault used to be copied into app-data, inside
+            // The demo vault used to be copied into app-data, inside
             // the asset-protocol deny list, so every asset added to it 403'd.
             // Move a pre-existing copy — and a stored choice pointing at it —
             // to ~/Documents once, BEFORE the choice is resolved below. Never
@@ -544,7 +544,7 @@ pub fn run() {
                     Err(e) => applog!("demo vault migration failed, left as-is: {e}"),
                 }
             }
-            // SUB-436 resolution: VAULT_DIR → stored choice → an existing
+            // Resolution: VAULT_DIR → stored choice → an existing
             // ~/Vault (adopted silently) → first run. An install that already
             // has ~/Vault therefore boots exactly as it did before this
             // existed: same root, no prompt, choice recorded on the way past.
@@ -579,10 +579,10 @@ pub fn run() {
                     }
                 };
             // Mount path bindings are machine-local, so the folder watcher
-            // reads them from the same app-config dir (SUB-888).
+            // reads them from the same app-config dir.
             let folders_cfg_dir = config_dir.clone();
             let migrate_cfg_dir = config_dir.clone();
-            // reflex consent is machine-local too (SUB-826 consent amendment)
+            // reflex consent is machine-local too (consent amendment)
             let reflex_cfg_dir = config_dir.clone();
             app.manage(OnboardingState {
                 pending: Mutex::new(first_run),
@@ -595,17 +595,17 @@ pub fn run() {
             std::fs::create_dir_all(&root).expect("could not create mobile vault dir");
             let mut engine = if first_run { Engine::new_unconfigured(root) } else { Engine::new(root) }
                 // machine-local storage: mount document text, alongside the
-                // mount path bindings that already live here (SUB-1093)
+                // mount path bindings that already live here
                 .with_local_dir(config_dir.clone());
             let watch_root = engine.root.clone();
             let settings_root = watch_root.clone();
             let notify_root = watch_root.clone();
             let folders_root = watch_root.clone();
             // the folder watcher's callback runs mount reflexes, which resolve
-            // paths against the VAULT root, not the watched folder (SUB-826)
+            // paths against the VAULT root, not the watched folder
             let folders_vault_root = watch_root.clone();
             let reflex_root = watch_root.clone();
-            // No history for the placeholder root either (SUB-530): History
+            // No history for the placeholder root either: History
             // git-inits whatever it is handed, and the onboarding screen has
             // nothing to snapshot. `None` is already the supported
             // history-disabled state, so every history command answers the
@@ -621,7 +621,7 @@ pub fn run() {
                     }
                 }
             };
-            // SUB-889: a power/process loss during a multi-file seal leaves a
+            // a power/process loss during a multi-file seal leaves a
             // journal before it leaves any ciphertext. Resume encryption and
             // the one batch history purge before IPC, watcher and snapshot
             // threads can observe or commit a half-converted scope — and
@@ -654,16 +654,16 @@ pub fn run() {
                     Err(error) => applog!("pending seal conversion recovery failed: {error}"),
                 }
             }
-            // Folder-backed databases became mounts (SUB-888). Migrate on
+            // Folder-backed databases became mounts. Migrate on
             // load, before anything reads the vault: one folder concept
             // afterwards, never two. A recovery point goes first — a snapshot
             // where history is on, an explicit file backup where it is not
-            // (SUB-1011) — and the run is idempotent, so a crash mid-migration
+            // and the run is idempotent, so a crash mid-migration
             // is retried on the next launch.
             // `has_migratable_folder_mappings`, not `folder_mappings()`: a
             // mapping with no type is left in place by design, so gating on
             // "any mapping at all" would re-enter this on every launch and
-            // write a fresh backup dir each time (SUB-1011 review).
+            // write a fresh backup dir each time.
             let mut engine = engine;
             if engine.has_migratable_folder_mappings() {
                 let protected = mounts_migration_restore_point(
@@ -707,7 +707,7 @@ pub fn run() {
             }
             // Machine-local mount text for mounts this vault no longer has —
             // above all, the mounts of a DIFFERENT vault the app used to be
-            // pointed at, since the config dir is per app (SUB-1134). Runs
+            // pointed at, since the config dir is per app. Runs
             // after the migration so the mounts it just created count as
             // live, and only for a real vault: the first-run placeholder has
             // no mounts, and sweeping against it would throw away text the
@@ -721,7 +721,7 @@ pub fn run() {
             // Engine::new's first rescan may adopt plaintext under an already
             // active marker (a file created while the app was closed), and so
             // may the mounts migration's rescan just above — which is why this
-            // drain sits BELOW it (SUB-889): one boundary for both, while the
+            // drain sits BELOW it: one boundary for both, while the
             // migration's own prior paths are still the current ones. Purge
             // before the launch snapshot can preserve their plaintext versions.
             if !first_run {
@@ -761,7 +761,7 @@ pub fn run() {
             app.manage(reflexes::ReflexState::load(&reflex_root));
             app.manage(notify::NotifyShared(Mutex::new(notify::NotifyState::load(&notify_root))));
 
-            // Mount extraction (SUB-887): files are opened on background
+            // Mount extraction: files are opened on background
             // workers, never on a scan. The sink is the only place the engine
             // lock is taken — once per batch of finished files — and it ends
             // the way every other background writer ends, by telling the
@@ -830,7 +830,7 @@ pub fn run() {
                         // the blur-hide runs no frontend code, so the pending
                         // `substrate://capture?text=` prefill is dropped here
                         // instead — otherwise the next ⌥Space capture would
-                        // inherit a link's text (SUB-1075)
+                        // inherit a link's text
                         capture_handle
                             .app_handle()
                             .state::<crate::deeplink::DeepLinks>()
@@ -838,9 +838,9 @@ pub fn run() {
                     }
                 });
 
-                // Tray mini-agenda popover (SUB-30): hidden until the tray icon
+                // Tray mini-agenda popover: hidden until the tray icon
                 // is left-clicked, hides again on blur like the capture window.
-                // Transparent (SUB-746) so only the rounded `.palette` card
+                // Transparent so only the rounded `.palette` card
                 // paints — an opaque window showed a black square behind the
                 // 12px radius and a black band under the short content.
                 let agenda = tauri::WebviewWindowBuilder::new(
@@ -862,7 +862,7 @@ pub fn run() {
                 .visible(false)
                 .skip_taskbar(true)
                 .build()?;
-                // SUB-746: menu-bar extras must not activate their app.
+                // Menu-bar extras must not activate their app.
                 // Re-class the tao window as a non-activating NSPanel before
                 // it is ever shown; if the runtime shape isn't what panel.rs
                 // expects it declines and the popover keeps the old
@@ -889,7 +889,7 @@ pub fn run() {
 
                 // Close-to-tray on the main window when enabled in Settings.md.
                 if let Some(main) = app.get_webview_window("main") {
-                    // SUB-614: let the webview's own drags reach WebKit —
+                    // Let the webview's own drags reach WebKit —
                     // without this every HTML5 drag (sidebar reorder,
                     // note→folder, board columns) dies in the real app.
                     // Class-level, so the capture/agenda webviews are
@@ -958,7 +958,7 @@ pub fn run() {
                     });
                 // Dedicated monochrome mark (icons/tray@2x.png), not the app tile:
                 // as a template image macOS tints the alpha mask, so the tile's
-                // dark rounded square would show up as a solid blob (SUB-425).
+                // dark rounded square would show up as a solid blob.
                 match tauri::image::Image::from_bytes(include_bytes!("../icons/tray@2x.png")) {
                     Ok(icon) => tray = tray.icon(icon).icon_as_template(true),
                     Err(e) => {
@@ -1005,10 +1005,10 @@ pub fn run() {
                         let mut notes_touched = matches!(batch, vault::WatchBatch::Rescan);
                         let mut config_touched = notes_touched;
                         // rel paths that actually moved; empty = "unknown, refresh
-                        // everything" (SUB-460), which is what a rescan reports
+                        // everything", which is what a rescan reports
                         let mut changed: Vec<String> = Vec::new();
                         // the same paths with what happened to each, for reflexes
-                        // (SUB-826) — a rescan carries none: rules run on live
+                        // — a rescan carries none: rules run on live
                         // events only, never on a catch-up sweep
                         let mut outcomes: Vec<(String, vault::NoteChange)> = Vec::new();
                         let mut reflexes_touched = false;
@@ -1017,7 +1017,7 @@ pub fn run() {
                                 vault::WatchBatch::Rescan => engine.rescan(),
                                 vault::WatchBatch::Paths(paths) => {
                                     // .vault/{schema,views,folders}.json ride
-                                    // the watcher now (SUB-100) — a separate
+                                    // the watcher now — a separate
                                     // signal, never a note refetch
                                     let (config, notes): (Vec<_>, Vec<_>) = paths
                                         .into_iter()
@@ -1087,7 +1087,7 @@ pub fn run() {
 
             // Folder-database watcher: mappings with `"watch": true` in
             // `.vault/folders.json`, and mounts with `"watch": true` in
-            // `.vault/mounts.json` that are bound on this machine (SUB-888),
+            // `.vault/mounts.json` that are bound on this machine,
             // sync live. The callback runs the same sync as the palette
             // rescan — strictly read-only on the watched folders.
             let folders_handle = app.handle().clone();
@@ -1166,7 +1166,7 @@ pub fn run() {
             std::thread::spawn(move || notify::run(notify_handle));
             calendarfeed::run(app.handle().clone());
 
-            // `substrate://` links (SUB-1075). The listener goes up before any
+            // `substrate://` links. The listener goes up before any
             // link can be replayed into it, and nothing is resolved here: the
             // handler only validates and queues, so a cold-start link that
             // beat the frontend is still waiting when the main window drains
@@ -1364,7 +1364,7 @@ mod tests {
             Ok(MountsRestorePoint::Snapshot)
         ));
 
-        // no history at all: the file backup is the recovery point (SUB-1011),
+        // no history at all: the file backup is the recovery point,
         // so the migration proceeds instead of deferring forever
         for result in [None, Some(Ok(false))] {
             let point = super::mounts_migration_restore_point(result.clone(), || {
@@ -1392,7 +1392,7 @@ mod tests {
     /// `Resolution::FirstRun` branch) must stay empty. It used to collect an
     /// Inbox, Settings.md and the agent files — a half-vault in Application
     /// Support that no picker ever migrated and that outlived the app,
-    /// written while the log said `vault: none — first run` (SUB-530).
+    /// written while the log said `vault: none — first run`.
     #[test]
     fn the_first_run_placeholder_root_stays_empty() {
         let t = tempfile::TempDir::new().unwrap();

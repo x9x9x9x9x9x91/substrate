@@ -28,14 +28,14 @@ pub struct SyncReport {
     pub pulled: u32,
     pub conflicted: Vec<String>,
     /// The commit the vault is on when this operation returns. The app-file
-    /// backfill (SUB-1110) runs after the pull's inner phase has built this
+    /// backfill runs after the pull's inner phase has built this
     /// report and commits on top, so the pull re-reads HEAD into this field
     /// afterwards rather than leaving the Sync pane rendering a tip the vault
     /// has already moved past.
     pub head: String,
     /// Vault-relative paths this pull actually rewrote in the working tree —
-    /// the diff between the HEAD we came from and the one we landed on
-    /// (SUB-516). A pull is not undoable, so the app uses these to invalidate
+    /// the diff between the HEAD we came from and the one we landed on.
+    /// A pull is not undoable, so the app uses these to invalidate
     /// exactly the undo entries the checkout stepped on, rather than learning
     /// about a wholesale git checkout through the OS watcher (docs/undo.md
     /// §3.5). Empty when nothing was checked out (a push, an up-to-date pull,
@@ -47,11 +47,11 @@ pub struct SyncReport {
 /// `MERGE_REF` pins the remote commit the merge was computed against, and
 /// `RESOLUTIONS_REF` points at a JSON blob of the per-path choices made so
 /// far. Neither touches the working tree, so a half-resolved vault is still a
-/// clean tree that History can snapshot (SUB-429).
+/// clean tree that History can snapshot.
 pub(crate) const MERGE_REF: &str = "refs/substrate/sync-merge";
 pub(crate) const RESOLUTIONS_REF: &str = "refs/substrate/sync-resolutions";
 
-/// Where a merge commit waits between "written" and "checked out" (SUB-569).
+/// Where a merge commit waits between "written" and "checked out".
 /// A merge is committed here first, never straight to `HEAD`: if the checkout
 /// then fails, the branch has not moved and the vault is exactly as it was.
 /// Only once the working tree holds the merged content does the branch ref
@@ -59,10 +59,10 @@ pub(crate) const RESOLUTIONS_REF: &str = "refs/substrate/sync-resolutions";
 /// mid-operation.
 pub(crate) const STAGING_REF: &str = "refs/substrate/sync-staging";
 
-/// SUB-568/SUB-655: any path that parents a commit on, or force-checks-out
+/// Any path that parents a commit on, or force-checks-out
 /// over, a HEAD state it read earlier has to re-read the complete state first
 /// and bail with this instead; the user can just try again. The app also holds
-/// the history/snapshot mutex through the destructive local phase (SUB-731),
+/// the history/snapshot mutex through the destructive local phase,
 /// closing the check-to-checkout window against its auto-snapshot thread. The
 /// re-read remains a defensive guard for library callers and external git.
 const HEAD_MOVED: &str =
@@ -343,7 +343,7 @@ fn owned_repo(root: &Path) -> Result<Repository, String> {
 
 /// Mobile half of History initialization. A missing repository is ours to
 /// create; a pre-existing one is ours only if it is stamped, or if it lost the
-/// stamp but still carries our exclusions (SUB-1018) — anything else remains
+/// stamp but still carries our exclusions — anything else remains
 /// strictly foreign.
 /// Desktop never calls this and keeps its established git CLI behavior.
 // dead on desktop by design — see the `#![allow(dead_code)]` note in githist.rs
@@ -443,7 +443,7 @@ fn pinned_cert_path(repo: &Repository) -> std::path::PathBuf {
     repo.path().join("substrate-sync-cert.der")
 }
 
-/// SUB-713: a file any history rewrite (purge or trim — both engines'
+/// A file any history rewrite (purge or trim — both engines'
 /// `finish_rewrite`) leaves in the git dir and the next successful push
 /// removes. While it stands, a rejected push almost certainly means the
 /// remote still holds the pre-rewrite history, so the error says that in
@@ -480,10 +480,10 @@ fn clear_history_rewritten(repo: &Repository) -> Result<(), String> {
 }
 
 /// The classified message both push-failure paths share once they know the
-/// failure is the post-rewrite one (SUB-713): name the cause and the manual
+/// failure is the post-rewrite one: name the cause and the manual
 /// remedy in plain language instead of dropping raw git wording on the user.
 /// Substrate never force-pushes a remote on its own — the designed consent
-/// flow for replacing one is parked, so SUB-713 ships the honest error only.
+/// flow for replacing one is parked, so this ships the honest error only.
 /// The raw rejection rides along at the end for anyone who wants it.
 fn rewritten_history_push_error(raw: &str) -> String {
     format!(
@@ -653,7 +653,7 @@ pub fn sync_push_gated<G>(
     repo.reference(&tracking_ref, local_oid, true, "vault sync push updated remote tracking ref")
         .map_err(|e| format!("vault sync push tracking update failed: {e}"))?;
     // The remote now holds this vault's history, rewritten or not — the
-    // rewrite marker's job is done (SUB-713).
+    // rewrite marker's job is done.
     clear_history_rewritten(&repo)?;
 
     Ok(report(pushed, 0, Vec::new(), local_oid))
@@ -722,7 +722,7 @@ fn pull_local_phase(
     if report.conflicted.is_empty() {
         let backfilled = backfill_missing_app_files(repo);
         // These are working-tree writes exactly like a checkout's, so they
-        // belong in `changed` (SUB-1110): `announce_pull` emits `vault:pulled`
+        // belong in `changed`: `announce_pull` emits `vault:pulled`
         // only when that list is non-empty and hands it out as the payload, so
         // a pull whose only writes are backfilled files would otherwise land
         // Settings and every seed note and announce nothing — leaving the UI to
@@ -734,7 +734,7 @@ fn pull_local_phase(
             paths.extend(backfilled.into_iter().map(String::from));
             report.changed = paths.into_iter().collect();
             // …and the backfill's own commit is now the tree's tip, so re-read
-            // it into `head` (SUB-1110 r2, finding 5). The Sync pane renders
+            // it into `head` (r2, finding 5). The Sync pane renders
             // `report.head` directly, and a backfill-only pull would otherwise
             // show the commit the pull *resolved to* while the vault sits one
             // commit ahead of it. Best-effort: if HEAD cannot be read the
@@ -767,13 +767,13 @@ fn pull_local_phase_inner(
         run_finish_race_hook();
         // The initial pull is exposed to the same race as the born-HEAD arms:
         // a first snapshot landing here would be orphaned by the checkout and
-        // forced branch creation below (SUB-731).
+        // forced branch creation below.
         if head_moved(repo, &head_plan) {
             return Err(HEAD_MOVED.into());
         }
         #[cfg(test)]
         run_post_check_race_hook();
-        // First join with the seeds still on disk (SUB-956): the deferral left
+        // First join with the seeds still on disk: the deferral left
         // HEAD unborn precisely so this arm could run, but a `safe()` checkout
         // refuses to write over the untracked starter notes sitting there. They
         // are the app's own text and the remote is about to supersede them, so
@@ -823,7 +823,7 @@ fn pull_local_phase_inner(
         run_finish_race_hook();
         // A snapshot landing since `local_oid` was read is not an ancestor of
         // the remote tip: moving the branch there would orphan it and check its
-        // content back out (SUB-655).
+        // content back out.
         if head_moved(repo, &head_plan) {
             return Err(HEAD_MOVED.into());
         }
@@ -845,7 +845,7 @@ fn pull_local_phase_inner(
         return Err("vault sync cannot merge the remote branch in its current state".into());
     }
 
-    // A pull after a LOCAL history rewrite (purge/trim, SUB-713) is meant to
+    // A pull after a LOCAL history rewrite (purge/trim) is meant to
     // fail loudly here: the rewritten history shares no merge base with the
     // remote's old one, so this either refuses above or parks an
     // everything-conflicts merge below — never a quiet re-adoption of the
@@ -860,13 +860,13 @@ fn pull_local_phase_inner(
         .merge_commits(&local_commit, &remote_commit, None)
         .map_err(|e| format!("vault sync merge failed: {e}"))?;
     // Belt for the vaults that already borned HEAD on their seeds before the
-    // deferral above existed (SUB-956): take the remote for every conflicted
+    // deferral above existed: take the remote for every conflicted
     // path whose local side is still untouched starter text, so those vaults
     // join as quietly as a fresh one does.
     if merged.has_conflicts() {
         adopt_untouched_seed_conflicts(repo, &mut merged)?;
     }
-    // ...and the other half of the same adoption (SUB-956 review, finding 4).
+    // ...and the other half of the same adoption.
     // Conflicts are only the starter notes the remote also has. The ones it
     // does NOT have merge cleanly — as additions — and would ride into the
     // user's real vault as demo notes, on every device, which is the opposite
@@ -897,9 +897,9 @@ fn pull_local_phase_inner(
         repo.find_tree(tree_oid).map_err(|e| format!("vault sync merge tree unavailable: {e}"))?;
     #[cfg(test)]
     run_finish_race_hook();
-    // Same race as the resolve path (SUB-568): a snapshot landing since
+    // Same race as the resolve path: a snapshot landing since
     // `local_oid` was read would be orphaned by this merge's parents and
-    // reverted by the forced checkout (SUB-655).
+    // reverted by the forced checkout.
     if head_moved(repo, &head_plan) {
         return Err(HEAD_MOVED.into());
     }
@@ -913,7 +913,7 @@ fn pull_local_phase_inner(
         CheckoutBuilder::new().force().recreate_missing(true),
     )?;
     // Only once the merge is really on disk: a failed checkout must leave any
-    // parked conflict exactly as it was (SUB-569).
+    // parked conflict exactly as it was.
     clear_pending_merge(repo)?;
 
     let changed = changed_between(repo, Some(local_oid), merge_oid);
@@ -995,7 +995,7 @@ pub fn sync_conflicts(root: &Path) -> Result<ConflictState, String> {
 }
 
 /// The paths of the conflicted pull parked in git right now, empty when there
-/// is none. Read from the repository, not from session memory (SUB-572): the
+/// is none. Read from the repository, not from session memory: the
 /// status surface has to be right on the first launch after a restart, when
 /// nothing has pushed or pulled in this session yet but a conflicted merge is
 /// still parked.
@@ -1058,7 +1058,7 @@ pub fn sync_resolve_finish(root: &Path) -> Result<SyncReport, String> {
 /// is local-only. The HEAD re-read remains a defensive check for external git
 /// and ungated library callers.
 ///
-/// KNOWN LIMITATION (SUB-780): the gate only covers writers inside this
+/// KNOWN LIMITATION: the gate only covers writers inside this
 /// process. A file created in the vault by anything else — Finder, an editor,
 /// a sync daemon — during the sub-second window between [`ensure_clean`] and
 /// the checkout below is untracked when the checkout runs, and
@@ -1069,7 +1069,7 @@ pub fn sync_resolve_finish(root: &Path) -> Result<SyncReport, String> {
 /// new path; that changes conflict-resolution semantics and needs its own
 /// issue.
 ///
-/// NO APP-FILE BACKFILL HERE, deliberately (SUB-1110): this path does its own
+/// NO APP-FILE BACKFILL HERE, deliberately: this path does its own
 /// merge and checkout and never reaches [`pull_local_phase`], so a first join
 /// whose pull *conflicts* finishes without the app files a joined vault would
 /// otherwise be given. The omission is narrow and self-healing — the backfill
@@ -1168,7 +1168,7 @@ pub fn sync_resolve_finish_gated<G>(
     run_finish_race_hook();
     // A snapshot landing between the parked-OID read above and this commit
     // would be orphaned — the merge is parented on the stale OID and the
-    // forced checkout reverts the snapshot's content (SUB-568).
+    // forced checkout reverts the snapshot's content.
     if head_moved(&repo, &head_plan) {
         return Err(HEAD_MOVED.into());
     }
@@ -1180,7 +1180,7 @@ pub fn sync_resolve_finish_gated<G>(
         &tree,
         &[&local_commit, &remote_commit],
         // deletes an external writer's file landed since ensure_clean —
-        // documented on this fn (SUB-780)
+        // documented on this fn
         CheckoutBuilder::new().force().recreate_missing(true).remove_untracked(true),
     )?;
     clear_pending_merge(&repo)?;
@@ -1192,13 +1192,13 @@ pub fn sync_resolve_finish_gated<G>(
 
 #[cfg(test)]
 thread_local! {
-    /// Test seam for SUB-568: runs at the exact point a background snapshot
+    /// Test seam: runs at the exact point a background snapshot
     /// could land — after the parked merge state is read, before the merge is
     /// committed. Thread-local, so parallel tests can't see each other's hook.
     static FINISH_RACE_HOOK: std::cell::RefCell<Option<Box<dyn Fn()>>> =
         const { std::cell::RefCell::new(None) };
     /// Runs after the defensive HEAD re-read, immediately before checkout.
-    /// SUB-731 uses it to prove the app's history gate—not timing luck—keeps a
+    /// Uses it to prove the app's history gate—not timing luck—keeps a
     /// snapshot out of the former check-to-checkout window.
     static POST_CHECK_RACE_HOOK: std::cell::RefCell<Option<Box<dyn Fn()>>> =
         const { std::cell::RefCell::new(None) };
@@ -1408,7 +1408,7 @@ fn stage_side(index: &mut git2::Index, path: &str, side: &ConflictSide) -> Resul
 }
 
 /// Resolve, remote-side, every conflict whose local version is still the app's
-/// own untouched starter text (SUB-956).
+/// own untouched starter text.
 ///
 /// The belt behind the first-snapshot deferral. That deferral only helps a
 /// vault that has not committed yet; a phone that already snapshotted its
@@ -1466,7 +1466,7 @@ fn adopt_untouched_seed_conflicts(
 
 /// Drop the untouched starter notes the remote does not carry, so a first join
 /// through the belt path lands the remote's tree and not the remote's tree plus
-/// three demo notes (SUB-956 review, finding 4).
+/// three demo notes.
 ///
 /// The mirror of what `remove_untouched_seed_files` does for the unborn arm,
 /// made on the merge index rather than on disk — a conflicted pull checks
@@ -1518,7 +1518,7 @@ fn drop_untouched_starter_notes(
 /// answers the safe way. A runaway guard, not a policy: no real vault reaches
 /// it, and a vault that does keeps its files exactly as they are.
 ///
-/// The cost this bounds, stated honestly (SUB-1110): the walk stops at the
+/// The cost this bounds, stated honestly: the walk stops at the
 /// first commit carrying the path, so a file deleted recently is cheap — but a
 /// file deleted *early* in a long history walks nearly the whole graph, and it
 /// does so per missing path, on every pull that reaches the backfill, since the
@@ -1532,7 +1532,6 @@ fn drop_untouched_starter_notes(
 const HISTORY_WALK_LIMIT: usize = 20_000;
 
 /// Put back the app's own files this vault ends up without after a join
-/// (SUB-1110).
 ///
 /// **The rule, in one sentence:** once a pull has landed, every
 /// [`vault::app_file_paths`] entry missing from the vault is written from this
@@ -1540,14 +1539,14 @@ const HISTORY_WALK_LIMIT: usize = 20_000;
 /// case its absence is somebody's deletion and is left alone.
 ///
 /// The gap it closes. `Engine::new` backfills these files on boot, but skips
-/// any vault with sync configured (SUB-473: two devices each inventing the same
+/// any vault with sync configured (two devices each inventing the same
 /// file from different build seeds park an add/add conflict that refuses the
 /// whole merge). A device joining a remote whose vault never carried them
 /// therefore ended up without them permanently — the unborn arm above deletes
 /// the local seeds before checking the remote out, and the boot backfill that
 /// would put them back is the one that guard closes. Here the write happens
 /// *after* a pull instead of before one, which changes both halves of that
-/// bargain: SUB-473's collision now resolves itself, because two devices
+/// bargain: the collision now resolves itself, because two devices
 /// writing the same shipped text land byte-identical trees, and any older
 /// revision meeting a newer one is an add/add conflict whose local side is
 /// untouched seed text — exactly what `adopt_untouched_seed_conflicts` above
@@ -1566,7 +1565,7 @@ const HISTORY_WALK_LIMIT: usize = 20_000;
 /// the invariant every other arm of the pull holds — it returns with the tree
 /// clean — and makes the backfill push-ready like any other note.
 ///
-/// Not into a vault a NEWER build has written, either (SUB-1110 r2, finding 2).
+/// Not into a vault a NEWER build has written, either (r2, finding 2).
 /// These files carry no format version of their own, so the question is taken
 /// at vault level exactly as the boot backfill takes it: if any versioned file
 /// says a newer Substrate owns this vault, this build does not add files to it
@@ -1616,7 +1615,7 @@ fn backfill_missing_app_files_with(
     let mut wrote: Vec<&'static str> = Vec::new();
     for rel in crate::vault::app_file_paths() {
         // `symlink_metadata`, not `exists()`: a dangling symlink at a seeded
-        // path is the user's arrangement and reads as absent (SUB-973).
+        // path is the user's arrangement and reads as absent.
         if fs::symlink_metadata(workdir.join(rel)).is_ok() {
             continue;
         }
@@ -1633,7 +1632,7 @@ fn backfill_missing_app_files_with(
     }
     if commit(repo, &wrote).is_err() {
         // Undo rather than hand the next pull a tree it will refuse. Both
-        // halves matter (SUB-1110 r2, finding 1): the files go, AND anything
+        // halves matter (r2, finding 1): the files go, AND anything
         // staged for them is dropped. `working_tree_is_dirty` counts a staged
         // phantom as dirty just like an untracked file does, so an un-reset
         // index would make `ensure_clean_for_pull` refuse EVERY later pull
@@ -1666,7 +1665,7 @@ fn backfill_missing_app_files_with(
 /// `add_path` per file rather than `add_all`: the only thing this commit is
 /// entitled to capture is what it wrote itself.
 ///
-/// The on-disk index is written LAST, after the commit has landed (SUB-1110 r2,
+/// The on-disk index is written LAST, after the commit has landed (review r2,
 /// finding 1). Everything before it is in-memory or object-database work —
 /// `write_tree` reads the in-memory index and writes only blobs and trees — so
 /// nothing between here and the commit needs the staged state to be on disk,
@@ -1708,7 +1707,7 @@ fn commit_backfill(repo: &Repository, paths: &[&str]) -> Result<(), String> {
 ///
 /// The question that separates "this remote never had the file" from "somebody
 /// deleted it" — the one distinction the backfill turns on, since resurrecting
-/// a deletion on every device is the failure SUB-956 was about.
+/// a deletion on every device is the failure this distinction exists to prevent.
 ///
 /// Newest-first, stopping at the first commit that carries the path, so the
 /// deletion case — the one that repeats, because the file stays absent — costs
@@ -1721,7 +1720,7 @@ fn commit_backfill(repo: &Repository, paths: &[&str]) -> Result<(), String> {
 ///
 /// Anything that goes wrong — an unreadable object, the walk limit — answers
 /// `true`: leaving a file alone is always the recoverable mistake. A history
-/// rewrite (SUB-713) that drops the path entirely can leave this answering
+/// rewrite that drops the path entirely can leave this answering
 /// `false` for a file the user did once delete; the deletion then predates a
 /// history that no longer records it, and the file comes back, which is the
 /// same bargain a rewrite makes with everything else it removes.
@@ -1895,7 +1894,7 @@ fn current_branch(repo: &Repository) -> Result<(String, Oid), String> {
         .ok_or_else(|| "vault sync has no local snapshot to send".to_string())
 }
 
-/// Write a merge commit and put it on disk in the only safe order (SUB-569):
+/// Write a merge commit and put it on disk in the only safe order:
 /// commit to a staging ref, check the tree out, and advance the branch last.
 ///
 /// The obvious order — commit to `HEAD`, then check out — is a data-loss trap.
@@ -1976,7 +1975,7 @@ fn ensure_clean(repo: &Repository) -> Result<(), String> {
 
 /// `ensure_clean` for a pull that may be a first join.
 ///
-/// Same rule with one exemption (SUB-956): a repository whose HEAD is still
+/// Same rule with one exemption: a repository whose HEAD is still
 /// unborn because the first snapshot was deferred has a working tree full of
 /// untracked starter notes and nothing else. Those files are the app's own
 /// text, so refusing the pull over them would strand the very vault the
@@ -2039,8 +2038,8 @@ fn report(pushed: u32, pulled: u32, conflicted: Vec<String>, head: Oid) -> SyncR
     SyncReport { pushed, pulled, conflicted, head: head.to_string(), changed: Vec::new() }
 }
 
-/// The same report, plus the working-tree paths a checkout just rewrote
-/// (SUB-516). Only the arms that actually check a tree out call this.
+/// The same report, plus the working-tree paths a checkout just rewrote.
+/// Only the arms that actually check a tree out call this.
 fn report_changed(
     pushed: u32,
     pulled: u32,
@@ -2144,7 +2143,7 @@ fn callbacks(auth: Auth, pinned: Option<Vec<u8>>) -> (RemoteCallbacks<'static>, 
         // verification for this connection, which is the point — the vendored
         // openssl has no OS trust store to consult for a self-signed server.
         //
-        // KNOWN LIMITATION (SUB-780): byte equality is the ONLY check. Neither
+        // KNOWN LIMITATION: byte equality is the ONLY check. Neither
         // hostname (CN/SAN) nor notAfter is verified, so the pinned cert is
         // accepted from any host it is presented by, and stays accepted after
         // it expires. This is the accepted TOFU tradeoff — the pin is a
@@ -2699,7 +2698,7 @@ mod tests {
         assert_clean(&pair.b);
     }
 
-    /// SUB-516: a pull reports exactly which files its checkout rewrote, so
+    /// A pull reports exactly which files its checkout rewrote, so
     /// the app can invalidate the undo entries that touch them and leave the
     /// rest alive. A pull that lands nothing reports nothing.
     #[test]
@@ -2791,7 +2790,7 @@ mod tests {
         Repository::open(root).unwrap().head().unwrap().target().unwrap()
     }
 
-    /// SUB-569: the merge used to be committed to HEAD *before* the checkout,
+    /// The merge used to be committed to HEAD *before* the checkout,
     /// so a checkout failure left the branch claiming the remote work had
     /// landed while the working tree still held the pre-merge content — the
     /// next auto-snapshot then recorded it as a deletion and the next push
@@ -2832,7 +2831,7 @@ mod tests {
         assert_ne!(head_of(&pair.b), before);
     }
 
-    /// Same ordering bug on the resolution path (SUB-569). Here a lost merge
+    /// Same ordering bug on the resolution path. Here a lost merge
     /// also discards the user's recorded choices: `pending_merge` decides the
     /// parked merge is finished once HEAD descends from the remote OID.
     #[test]
@@ -2868,7 +2867,7 @@ mod tests {
         assert!(!sync_conflicts(&pair.b).unwrap().active);
     }
 
-    /// SUB-568: the engine gate does not cover the auto-snapshot thread, which
+    /// The engine gate does not cover the auto-snapshot thread, which
     /// takes the history mutex instead. A snapshot landing between the parked
     /// state read and the merge commit used to be orphaned — parented off, and
     /// then reverted by, the forced checkout.
@@ -2908,7 +2907,7 @@ mod tests {
         );
     }
 
-    /// SUB-731: the unborn-branch arm has the same finish seam as a fast
+    /// The unborn-branch arm has the same finish seam as a fast
     /// forward. A first snapshot arriving after fetch must become the local
     /// side of a retry, not be orphaned and checked back out of existence.
     #[test]
@@ -3069,7 +3068,7 @@ mod tests {
         let pulled_oid = Oid::from_str(&report.head).unwrap();
         let repo = Repository::open(&local_root).unwrap();
         let final_commit = repo.head().unwrap().peel_to_commit().unwrap();
-        // descendant, not child: the app-file backfill (SUB-1110) commits
+        // descendant, not child: the app-file backfill commits
         // between the checkout and this snapshot. What matters is unchanged —
         // the snapshot built on top of the pulled head instead of forking off it.
         assert!(
@@ -3084,7 +3083,7 @@ mod tests {
         assert_clean(&local_root);
     }
 
-    /// SUB-655: the same race on the pull path. A snapshot landing between the
+    /// The same race on the pull path. A snapshot landing between the
     /// HEAD read at the top of `pull_local_phase` and the merge commit used to
     /// be orphaned — parented off, and then reverted by, the forced checkout.
     #[test]
@@ -3121,7 +3120,7 @@ mod tests {
         assert_clean(&pair.b);
     }
 
-    /// SUB-655, fast-forward arm: the branch move is just as exposed as the
+    /// Fast-forward arm: the branch move is just as exposed as the
     /// merge commit — a snapshot landing first is not an ancestor of the remote
     /// tip, so moving the branch there orphans it and reverts its content.
     #[test]
@@ -3153,7 +3152,7 @@ mod tests {
         assert_clean(&pair.b);
     }
 
-    /// SUB-572: status has to answer from git, not from session memory, or the
+    /// Status has to answer from git, not from session memory, or the
     /// first launch after a restart reports Ready over a parked conflict.
     #[test]
     fn pending_conflicts_are_readable_from_the_repository_alone() {
@@ -3218,7 +3217,7 @@ mod tests {
 
     #[test]
     fn history_prepare_readopts_a_vault_that_lost_its_sentinel() {
-        // SUB-1018, mobile half: losing the stamp alone must not turn our own
+        // Mobile half of the sentinel rule: losing the stamp alone must not turn our own
         // vault foreign — the exclusions we wrote still identify it, and the
         // stamp is restored so the next boot takes the cheap path.
         let scratch = TempDir::new().unwrap();
@@ -3271,7 +3270,7 @@ mod tests {
         fs::write(b.join("Note.md"), "from b\n").unwrap();
         assert!(history_b.snapshot("snapshot").unwrap());
         // two: this snapshot, plus b's backfill of the app files this bare
-        // remote was never seeded with (SUB-1110)
+        // remote was never seeded with
         assert_eq!(sync_push(&b, &credentials_b).unwrap().pushed, 2);
         assert_eq!(sync_pull(&a, &credentials_a).unwrap().pulled, 2);
         assert_eq!(fs::read_to_string(a.join("Note.md")).unwrap(), "from b\n");
@@ -3347,7 +3346,7 @@ mod tests {
         assert_eq!(sync_push(&a, &credentials_a).unwrap().pushed, 0);
     }
 
-    /// SUB-713: after a purge rewrites local history, the push is rejected
+    /// After a purge rewrites local history, the push is rejected
     /// non-fast-forward — and the error must explain that in plain language
     /// with the manual remedy, not raw git wording. Over `file://` that
     /// rejection arrives as a transport error (git2 `NotFastForward`), which
@@ -3692,7 +3691,7 @@ mod tests {
         write_note(&b, "Inbox/After join.md", "written after joining\n");
         assert!(history_b.snapshot("snapshot").unwrap());
         // two: this snapshot, plus the commit that put back the app files this
-        // remote never carried (SUB-1110)
+        // remote never carried
         assert_eq!(sync_push(&b, &credentials_b).unwrap().pushed, 2);
     }
 
@@ -3709,7 +3708,7 @@ mod tests {
         let credentials_b = remote.scratch.path().join("config-b/sync.json");
         configure(&b, &credentials_b, &remote.bare);
 
-        // born on the seeds, behind the deferral's back — the pre-SUB-956 state
+        // born on the seeds, behind the deferral's back — the pre-change state
         {
             let repo = Repository::open(&b).unwrap();
             let mut index = repo.index().unwrap();
@@ -3794,7 +3793,7 @@ mod tests {
     }
 
     /// The seeded vault as the app actually produces one: booted through the
-    /// real engine, not just `seed_new_vault` (SUB-956 review, finding 2). The
+    /// real engine, not just `seed_new_vault`. The
     /// engine indexes, scans and may persist device state under `.vault/`, and
     /// the deferral has to survive every bit of that — a helper that skips the
     /// boot cannot tell us whether it does.
@@ -3876,8 +3875,7 @@ mod tests {
 
     /// The predicate vouches for a snapshot of a live folder, and the delete
     /// walk runs after it. A note that lands in between is uncommitted and
-    /// unrecoverable, so the delete re-checks every file it touches
-    /// (SUB-956 review, finding 1).
+    /// unrecoverable, so the delete re-checks every file it touches.
     #[test]
     fn a_note_written_after_the_vouch_survives_the_seed_delete() {
         let scratch = TempDir::new().unwrap();
@@ -3901,8 +3899,7 @@ mod tests {
 
     /// "Nothing unrecognized" is not enough: a vault the user emptied has
     /// nothing unrecognized in it either, and adopting a remote wholesale over
-    /// deletions they made is not deferral, it is data loss
-    /// (SUB-956 review, finding 3).
+    /// deletions they made is not deferral, it is data loss.
     #[test]
     fn an_emptied_or_partial_seed_tree_no_longer_defers() {
         let scratch = TempDir::new().unwrap();
@@ -3932,7 +3929,7 @@ mod tests {
 
     /// The belt path adopts the remote wholesale, which means the starter notes
     /// it does NOT carry have to go too. They merge cleanly — as additions —
-    /// so nothing but an explicit drop removes them (SUB-956 review, finding 4).
+    /// so nothing but an explicit drop removes them.
     #[test]
     fn the_belt_path_drops_starter_notes_the_remote_never_had() {
         let remote = populated_remote(&[
@@ -3942,7 +3939,7 @@ mod tests {
         let (b, _history_b) = fresh_seeded_vault(remote.scratch.path().join("b"));
         let credentials_b = remote.scratch.path().join("config-b/sync.json");
         configure(&b, &credentials_b, &remote.bare);
-        // born on the seeds: the pre-SUB-956 install the belt exists for
+        // born on the seeds: the pre-change install the belt exists for
         {
             let repo = Repository::open(&b).unwrap();
             let mut index = repo.index().unwrap();
@@ -3970,7 +3967,7 @@ mod tests {
         assert!(!b.join("Bookshelf.md").exists());
         assert!(!b.join("Lisbon.md").exists());
         assert!(!b.join("Inbox/Capture anything.md").exists());
-        // app furniture is not a demo note: it stays (SUB-1110)
+        // app furniture is not a demo note: it stays
         assert!(b.join(crate::vault::AGENTS_REL_PATH).is_file());
         assert!(b.join("Projects/Album.md").is_file());
         assert_clean(&b);
@@ -4003,7 +4000,7 @@ mod tests {
     }
 
     /// The wedge finding 2 named, end to end, with the engine doing the writing
-    /// (SUB-956 review; non-negotiable c).
+    /// (non-negotiable c).
     ///
     /// Saving a view is the most ordinary thing a user does before their first
     /// sync, and it puts real, git-tracked content under `.vault/`. The old walk
@@ -4107,7 +4104,7 @@ mod tests {
         assert!(!b.join("Welcome.md").exists());
     }
 
-    /// SUB-1110. The remote is a real vault that never carried the app files —
+    /// The remote is a real vault that never carried the app files —
     /// an old-build or hand-made repo — so the join lands a tree without them
     /// and the boot backfill can no longer help (sync is configured).
     #[test]
@@ -4129,7 +4126,7 @@ mod tests {
         // demo notes stay out — the backfill is app furniture only
         assert!(!b.join("Welcome.md").exists());
         assert!(!b.join("Bookshelf.md").exists());
-        // and they are REPORTED, so `vault:pulled` carries them (SUB-1110
+        // and they are REPORTED, so `vault:pulled` carries them (from
         // review): the app must not have to wait for the watcher's debounce to
         // learn about writes the pull itself made
         for rel in crate::vault::app_file_paths() {
@@ -4155,7 +4152,7 @@ mod tests {
 
     /// The other side of the same rule: an app file the remote's history HAS
     /// carried is absent because somebody deleted it, and no device may bring
-    /// it back — the failure SUB-956 exists to prevent.
+    /// it back — the failure the backfill rule exists to prevent.
     #[test]
     fn a_join_never_resurrects_an_app_file_the_remote_deleted() {
         let remote = populated_remote(&[("Projects/Album.md", "---\ntype: note\n---\nreal\n")]);
@@ -4206,7 +4203,7 @@ mod tests {
         assert_clean(&pair.b);
     }
 
-    /// SUB-1110 review, finding 1's other half: a pull that lands nothing from
+    /// Review finding 1's other half: a pull that lands nothing from
     /// the remote and only backfills still reports its writes. Without them
     /// `announce_pull` sees an empty `changed` and emits no `vault:pulled` at
     /// all, so the files appear only when the watcher happens to notice.
@@ -4229,7 +4226,7 @@ mod tests {
         assert_clean(&pair.a);
     }
 
-    /// SUB-1110 r2, finding 1, first half: the commit path itself must not
+    /// review r2, finding 1, first half: the commit path itself must not
     /// persist a staged index it may never commit. An unborn HEAD is the
     /// cheapest real failure past the staging step — `add_path` and
     /// `write_tree` both succeed, the parent lookup does not.
@@ -4263,7 +4260,7 @@ mod tests {
         Err("the commit failed".to_string())
     }
 
-    /// SUB-1110 r2, finding 1, second half: whatever the commit left staged,
+    /// review r2, finding 1, second half: whatever the commit left staged,
     /// the undo puts back. The bug this pins is the pull AFTER the failure —
     /// files removed but still staged reads as dirty, so `ensure_clean_for_pull`
     /// refuses every later pull until an auto-snapshot happens to run `add -A`.
@@ -4292,7 +4289,7 @@ mod tests {
         assert_clean(&pair.a);
     }
 
-    /// SUB-1110 r2, finding 6. The walk's runaway guard answers the safe way:
+    /// review r2, finding 6. The walk's runaway guard answers the safe way:
     /// a history too long to search reads as "carried", so nothing is written.
     #[test]
     fn a_history_past_the_walk_limit_backfills_nothing() {
@@ -4315,7 +4312,7 @@ mod tests {
         ensure_clean_for_pull(&repo).expect("the give-up arm left the tree dirty");
     }
 
-    /// SUB-1110 r2, finding 2. A vault a NEWER build has written is not one
+    /// review r2, finding 2. A vault a NEWER build has written is not one
     /// this build adds files to — the same rule the boot backfill has always
     /// followed, now on the sync path too. Without it, the first future build
     /// that stops shipping a `SEED_FILES` path would have every older build
@@ -4423,7 +4420,7 @@ mod sim_round_trip {
     use super::*;
     use tempfile::TempDir;
 
-    /// The SUB-377 simulator leg, engine-level: run this test binary INSIDE a
+    /// The simulator leg, engine-level: run this test binary INSIDE a
     /// booted iOS simulator (`xcrun simctl spawn <udid> <test-bin>
     /// sim_round_trip --ignored`) against a live vault-sync server named by
     /// env. It proves the phone stack — libgit2 + vendored openssl + pinned

@@ -9,7 +9,7 @@ import type { NoteMeta, PropSchema } from "./types.ts";
     Without it every key keeps the classic text semantics. */
 export type QuerySchema = Record<string, PropSchema> | undefined;
 
-/** Does the schema call this key a number? (SUB-639) Keys arrive lowercased
+/** Does the schema call this key a number? Keys arrive lowercased
     from the parse while schema keys keep their spelling, so the lookup tries
     both — the one gate for every numeric filter path below. */
 function numberKind(key: string, schema: QuerySchema): boolean {
@@ -22,27 +22,27 @@ function numberKind(key: string, schema: QuerySchema): boolean {
 }
 
 /** Filter operators. `:` is the classic `key:value` exact/prefix match; the
-    rest are date comparisons (SUB-66) against an ISO-day operand. */
+    rest are date comparisons against an ISO-day operand. */
 export type CmpOp = "<" | ">" | "<=" | ">=";
 export type FilterOp = ":" | CmpOp;
 
 export interface QueryFilter {
   key: string;
-  /** OR over one prop (SUB-78): `key:a,b` hits when ANY value matches, each
+  /** OR over one prop: `key:a,b` hits when ANY value matches, each
       with the classic per-value semantics. Length ≥ 1, lowercased. A date
       comparison carries exactly one value — the operand (duration/ISO day). */
   values: string[];
   /** absent/`:` = classic value match. A comparison op turns this into a
       date filter whose single `values` entry is the operand. */
   op?: FilterOp;
-  /** SUB-198: a `-` directly prefixing the filter (`-status:live`, `-due < 7d`)
+  /** A `-` directly prefixing the filter (`-status:live`, `-due < 7d`)
       negates it — the filter hits exactly when the positive form would not. */
   neg?: boolean;
 }
 
 export interface ParsedQuery {
   text: string;
-  /** quoted sections (`"exact phrase"`, SUB-219): unwrapped and kept out of
+  /** quoted sections (`"exact phrase"`): unwrapped and kept out of
       `text`. Callers match each as an exact substring — the semantics the
       search pane's FTS gives quoted phrases — instead of splitting them into
       words that can never hit with their quote characters attached. */
@@ -51,13 +51,13 @@ export interface ParsedQuery {
   /** an operator token still being typed at the end ("type:", "type:rel",
       "due <", "due < 7"). For a multi-value stub ("type:a,b…"), `values`
       holds the comma-committed segments and `partial` the one being typed.
-      `neg` is set when the stub opened with `-` ("-type:rel", SUB-198). */
+      `neg` is set when the stub opened with `-` ("-type:rel"). */
   trailing: { key: string; values: string[]; partial: string; op: FilterOp; neg?: boolean } | null;
 }
 
 // key charclass: a unicode letter, then letters/numbers/underscore plus the
 // classic `#` and `-` — ASCII-only lexing made non-ASCII prop keys
-// (`Gebühr:`) unfilterable (SUB-219)
+// (`Gebühr:`) unfilterable
 const OP_RE = /^(\p{L}[\p{L}\p{N}_#-]*):(.*)$/u;
 const CMP_WHOLE_RE = /^(\p{L}[\p{L}\p{N}_#-]*)(<=|>=|<|>)(\S+)$/u;
 const CMP_HEAD_RE = /^(\p{L}[\p{L}\p{N}_#-]*)(<=|>=|<|>)$/u;
@@ -66,7 +66,7 @@ const CMP_TAIL_RE = /^(<=|>=|<|>)(\S*)$/;
 
 /** A pasted URI or drive-letter path matches the operator shape ("file:" +
     rest, "c:" + rest) but is never a filter — any `scheme://` counts, not
-    just http(s), and `X:\`/`X:/` is a Windows path (SUB-219). A key part can
+    just http(s), and `X:\`/`X:/` is a Windows path. A key part can
     never contain `/` or `.`, so anything with those before the colon already
     falls out as plain text. */
 const URI_RE = /^[\p{L}][\p{L}\p{N}+.-]*:\/\//u;
@@ -79,7 +79,7 @@ function tokenize(q: string): string[] {
 }
 
 /** The bare-word side of a parsed query as matchable words: quoted phrases
-    stay whole and lose their quotes (SUB-232), so `"night drive"` is ONE
+    stay whole and lose their quotes, so `"night drive"` is ONE
     substring word — a plain whitespace split would shred it into `"night` +
     `drive"` and match nothing. */
 export function textWords(text: string): string[] {
@@ -95,7 +95,7 @@ interface ValueSeg {
   quoted: boolean;
 }
 
-/** The OR segments of a raw filter value (SUB-78): split on commas outside
+/** The OR segments of a raw filter value: split on commas outside
     quotes, unwrap the quoted ones. Empty segments drop out (`a,,b` → a, b). */
 function splitValues(raw: string): ValueSeg[] {
   const out: ValueSeg[] = [];
@@ -111,7 +111,7 @@ interface CmpRead {
   /** tokens the expression spans — comparisons may be typed with spaces
       (`due < 7d` = 3 tokens, `due <7d` / `due< 7d` = 2, `due<7d` = 1) */
   len: number;
-  /** the first token carried a `-` prefix (`-due < 7d`, SUB-198) */
+  /** the first token carried a `-` prefix (`-due < 7d`) */
   neg: boolean;
 }
 
@@ -241,7 +241,7 @@ export function compareTarget(operand: string, today: string): string | null {
   return durationFrom(operand, today) ?? (isIsoDate(operand) ? operand : null);
 }
 
-/** What a comparison operand resolves to, given the key (SUB-639). A
+/** What a comparison operand resolves to, given the key. A
     number-kind key reads a bare number as a numeric threshold — `price > 500`
     compares by value, the identity the column's sort and footer already use.
     Every other key keeps the date grammar (duration / ISO day) untouched, and
@@ -301,12 +301,12 @@ export function parseQuery(q: string, today = todayIso(), schema?: QuerySchema):
   for (let i = 0; i < tokens.length; i++) {
     const tok = tokens[i];
     // a pasted URI or path matches the operator shape ("file:" + rest) but
-    // is never a filter (SUB-219 widened the old http(s)-only exemption)
+    // is never a filter (widening the old http(s)-only exemption)
     if (URI_RE.test(tok) || DRIVE_RE.test(tok)) {
       words.push(tok);
       continue;
     }
-    // a fully quoted token is a phrase (SUB-219): neither words nor a
+    // a fully quoted token is a phrase: neither words nor a
     // filter — callers match it as an exact substring. An unclosed quote is
     // still being typed and tokenizes to bare words, as before.
     const phrase = /^"([^"]*)"$/.exec(tok);
@@ -314,7 +314,7 @@ export function parseQuery(q: string, today = todayIso(), schema?: QuerySchema):
       if (phrase[1]) phrases.push(phrase[1]);
       continue;
     }
-    // SUB-198: a `-` directly prefixing a filter shape negates it. Anything
+    // A `-` directly prefixing a filter shape negates it. Anything
     // else keeps the hyphen literal — `-foo` and `foo-bar` stay text words.
     const neg = tok.length > 1 && tok.startsWith("-");
     const body = neg ? tok.slice(1) : tok;
@@ -332,7 +332,7 @@ export function parseQuery(q: string, today = todayIso(), schema?: QuerySchema):
       // the next token; consume it unless it's an operator/URL of its own
       if (segs.length === 0 && i + 1 < tokens.length) {
         const next = tokens[i + 1];
-        // a `-`-prefixed operator is an operator, not a value (SUB-198)
+        // a `-`-prefixed operator is an operator, not a value
         const nbody = next.length > 1 && next.startsWith("-") ? next.slice(1) : next;
         if (!OP_RE.test(nbody) && !CMP_WHOLE_RE.test(nbody) && !CMP_HEAD_RE.test(nbody) && !URI_RE.test(nbody) && !DRIVE_RE.test(nbody)) {
           segs = splitValues(next);
@@ -391,7 +391,7 @@ function valueMatches(actual: string | undefined, wanted: string): boolean {
   return a === wanted || a.startsWith(wanted);
 }
 
-/** Match on a number-kind column (SUB-639): equality of VALUE, so
+/** Match on a number-kind column: equality of VALUE, so
     `price:1200` hits a cell written `1200.0` and does NOT hit 12000 the way
     prefix matching did. Only when both sides parse as numbers — a text
     operand (`price:tbd`) or a non-numeric cell falls back to the classic
@@ -409,7 +409,7 @@ function numberMatches(actual: string | undefined, wanted: string): boolean {
     per entry, not as one joined string. */
 export function propValues(n: NoteMeta, key: string): string[] {
   // filter keys arrive lowercased from the parse while frontmatter keeps the
-  // author's spelling — fold like every other prop read (SUB-916)
+  // author's spelling — fold like every other prop read
   const v = n.props[foldedPropKey(n.props, key)];
   if (v === undefined || v === null) return [];
   if (Array.isArray(v)) return v.filter((x): x is string => typeof x === "string");
@@ -425,32 +425,32 @@ export function matchesFilters(
   return filters.every((f) => {
     const actual = f.key === "folder" ? [n.folder || ""] : propValues(n, f.key);
     const op = f.op ?? ":";
-    // SUB-198: a negated filter hits exactly when the positive form would not
+    // A negated filter hits exactly when the positive form would not
     const neg = f.neg ?? false;
-    // SUB-639: a number-kind column has numeric identity, not text identity
+    // A number-kind column has numeric identity, not text identity
     const numeric = f.key !== "folder" && numberKind(f.key, schema);
-    // OR over the filter's values (SUB-78): any one hitting is enough
+    // OR over the filter's values: any one hitting is enough
     if (op === ":") {
       const match = numeric ? numberMatches : valueMatches;
       const hit = f.values.some((w) => actual.some((v) => match(v, w)));
       return neg ? !hit : hit;
     }
-    // date comparison (SUB-66): the prop must hold an ISO day satisfying the
+    // date comparison: the prop must hold an ISO day satisfying the
     // relation against the operand's target day (`due < 7d` hits due days
-    // earlier than today+7d, overdue included). A timed value (SUB-270)
+    // earlier than today+7d, overdue included). A timed value
     // compares on its day part. A missing prop or a non-date value never
     // satisfies a comparison — so under negation it always hits; an
     // unresolvable operand leaves the filter inert either way, so a
     // half-typed `due < 7` doesn't blank the list.
     //
-    // A range (SUB-596) hits when the WHOLE span satisfies the relation. For
+    // A range hits when the WHOLE span satisfies the relation. For
     // the forward operators that is the start, exactly as before; for `<` it
     // means the end decides, which is the overdue rule the calendar and the
     // tray already use — `due < today` skips a span still running and catches
     // it the day after it closes. A single date has one endpoint, so nothing
     // about its behaviour changes.
     //
-    // On a number-kind key (SUB-639) the operand is a bare number and the
+    // On a number-kind key the operand is a bare number and the
     // relation is numeric: `price > 500` keeps 1200, drops 120.5. Cells that
     // aren't numbers never satisfy it, exactly as non-dates never satisfy a
     // date comparison.
@@ -476,7 +476,7 @@ export function matchesFilters(
   });
 }
 
-/** Props a new entry inherits from the active filter (SUB-234): each simple
+/** Props a new entry inherits from the active filter: each simple
     bare `key:value` term pins that prop, so an entry born under `status:live`
     is born status:live and stays visible. Only single exact-value terms
     inherit — negations, date comparisons, OR lists and quoted phrases don't
@@ -520,7 +520,7 @@ export function filterCompletions(
 }
 
 /** Display spelling of one filter, for completion chips: `status:live`,
-    `category:label, festival`, `due < 2026-08-01`. A negated filter (SUB-198)
+    `category:label, festival`, `due < 2026-08-01`. A negated filter
     reads with a `not ` prefix: `not status:live`. */
 export function filterLabel(key: string, op: FilterOp, values: string[], neg = false): string {
   const label = op === ":" ? `${key}:${values.join(", ")}` : `${key} ${op} ${values[0] ?? ""}`;
@@ -531,7 +531,7 @@ export function filterLabel(key: string, op: FilterOp, values: string[], neg = f
     Classic filters complete to `key:value`; a multi-value stub keeps its
     comma-committed prefix verbatim (`category:Label,Fes` → `category:Label,Festival `).
     Comparisons replace the whole trailing expression (`due < 20…`) with the
-    spaced `key <op> value` form. A negated stub (SUB-198) keeps its `-` —
+    spaced `key <op> value` form. A negated stub keeps its `-` —
     captured and re-emitted by the classic path, survived positionally by the
     comparison path, whose match never includes the prefix. */
 export function completeFilter(q: string, key: string, value: string, op: FilterOp = ":"): string {
@@ -548,7 +548,7 @@ export function completeFilter(q: string, key: string, value: string, op: Filter
   return q.replace(/\p{L}[\p{L}\p{N}_#-]*\s*(?:<=|>=|<|>)\s*\S*$/u, `${key} ${op} ${v}`) + " ";
 }
 
-/** A dead-end hint under a filter bar's zero rows (SUB-266): `text` is the
+/** A dead-end hint under a filter bar's zero rows: `text` is the
     one-line muted hint; `fixedQuery`, when present, is the corrected query a
     click applies. */
 export interface FilterHint {
@@ -567,7 +567,7 @@ function serializeFilter(f: QueryFilter): string {
   return `${neg}${f.key} ${f.op} ${f.values[0] ?? ""}`;
 }
 
-/** Why a filter bar came up empty, in one line (SUB-266). Two heuristics, in
+/** Why a filter bar came up empty, in one line. Two heuristics, in
     order: (a) a filter key the type doesn't have (`no property "statsu"`,
     trailing stub included — it can't start matching); (b) a filter's value
     plus the bare words after it re-joins to an existing value of that prop
@@ -623,7 +623,7 @@ export function filterDeadEndHint(
         const vals = t.partial ? [...t.values, t.partial] : t.values;
         parts.push(serializeFilter({ key: t.key, values: vals, op: t.op, neg: t.neg }));
       }
-      // quoted phrases ride along re-quoted (SUB-704) — ahead of the bare
+      // quoted phrases ride along re-quoted — ahead of the bare
       // leftover words: the rebuild descends most-structured → least
       // (filters, stub, exact phrases, words)
       for (const p of parsed.phrases) parts.push(`"${p}"`);

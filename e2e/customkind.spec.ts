@@ -1,13 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Custom dashboard kinds (SUB-960): a `dashboard:` value naming a bundle in
+// Custom dashboard kinds: a `dashboard:` value naming a bundle in
 // the vault mounts that bundle's mount(el, ctx) module behind the standard
 // head. Every state that can't run — review pending, api out of range, an
 // invalid bundle, a module that throws — renders a card naming the kind and
 // the file, and the head survives all of them. The one thing a named kind
 // must NEVER do is fall through to charts-or-yield: that fallback belongs to
 // notes naming no kind at all, and using it here would answer "show me
-// gear-log" with a yield tracker (the SUB-993 regression, one layer down).
+// gear-log" with a yield tracker (the regression, one layer down).
 //
 // The mock lane has no `substrate-kind:` scheme, so the pane imports the same
 // source through a blob URL (gated on !isTauri; the shipped CSP allows the
@@ -146,7 +146,7 @@ test("an enabled bundle mounts and renders behind the standard head", async ({ p
 test("a bundle that has not been enabled shows the review, not the fallback", async ({ page }) => {
   await openKind(page, { enabled: false });
 
-  // SUB-961: the review is a pane inside the frame, not a modal — it replaces
+  // The review is a pane inside the frame, not a modal — it replaces
   // the body while the head stays exactly where it was.
   const review = page.locator("[data-testid=kind-review]");
   await expect(review).toHaveCount(1);
@@ -430,7 +430,7 @@ test("a stylesheet in the bundle is injected for the pane and taken out again", 
 });
 
 test("a custom kind renders as a workbook page too", async ({ page }) => {
-  // SUB-464 workbook pages route every dashboard page back through
+  // Workbook pages route every dashboard page back through
   // DashboardBody, so the custom branch should be inherited — verified here
   // rather than assumed. Label Books' page list gains a page pointing at
   // Overview, which is the custom kind.

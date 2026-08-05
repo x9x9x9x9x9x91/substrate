@@ -1,5 +1,5 @@
 /**
- * Canonical license texts for the SPDX ids in the Rust crate graph (SUB-872),
+ * Canonical license texts for the SPDX ids in the Rust crate graph,
  * lifted verbatim from the crate sources cargo already has on disk — minus any
  * copyright line the carrier crate happened to put at the top. Each body here is
  * reproduced ONCE for every crate under that id, so a single crate's copyright

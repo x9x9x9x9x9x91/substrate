@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDb } from "./nav";
 
-/* SUB-481: every bulk database sweep takes a safety snapshot first. When the
+/* Every bulk database sweep takes a safety snapshot first. When the
    vault has no restore point (history disabled), the sweep must still run —
    history is worth reporting, never worth blocking on — but it must not pass
    in silence, and the warning is appended to the outcome, never replacing it.
@@ -23,7 +23,7 @@ test("a failed pre-sweep snapshot warns and the property rename still runs", asy
   await form.locator(".selmenu-btn-primary").click();
 
   // the warning ACCOMPANIES the outcome — the user still learns what the
-  // sweep did, which is exactly when they most need to (SUB-481)
+  // sweep did, which is exactly when they most need to
   await expect(page.locator(".toast")).toContainText("Renamed in 5 notes");
   await expect(page.locator(".toast")).toContainText("no safety snapshot taken");
   // …and the sweep genuinely went through

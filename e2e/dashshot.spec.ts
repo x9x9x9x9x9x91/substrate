@@ -1,6 +1,6 @@
 import { test } from "@playwright/test";
 
-// Throwaway visual check for SUB-466 — not a gate.
+// Throwaway visual check for the dashboard folders — not a gate.
 //   SHOTS=1 npx playwright test e2e/dashshot.spec.ts
 test.skip(!process.env.SHOTS, "evidence run only");
 

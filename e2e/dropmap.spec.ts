@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-/* SUB-664: an asset import is an IPC round trip — fs::copy under the vault
+/* An asset import is an IPC round trip — fs::copy under the vault
    mutex can hold seconds on a big file. The drop point was sampled once to set
    the selection, then the embed was written at the LIVE cursor when the write
    landed. A user who clicked elsewhere and kept typing got the embed spliced

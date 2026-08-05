@@ -1,4 +1,4 @@
-/* What one cell of an inline ```view table means (SUB-829).
+/* What one cell of an inline ```view table means.
 
    The widget that renders that table lives in editor-widgets.ts, which pulls
    in CodeMirror and the React editor host — so nothing in there can be
@@ -12,7 +12,7 @@
 import { cellModel, cellOpensEditor, type CellModel } from "./cellmodel.ts";
 import type { EmbedResult } from "./embeds.ts";
 
-/** Is this column a lookup through a relation (SUB-829) rather than one of
+/** Is this column a lookup through a relation rather than one of
     this row's own props? */
 export function isJoinedColumn(result: EmbedResult, column: string): boolean {
   return !("error" in result) && (result.joins?.includes(column) ?? false);
@@ -46,7 +46,7 @@ export function viewCellModel(
 
 /** Whether a click on this cell opens an editor. The kind rule is the
     database table's (`cellOpensEditor`); on top of it a joined column
-    (SUB-829) is read-only, because its value is a stored property of ANOTHER
+     is read-only, because its value is a stored property of ANOTHER
     row — the same reason a rollup cell is inert. */
 export function viewCellEditable(
   result: EmbedResult,
@@ -62,7 +62,7 @@ export function viewCellEditable(
     toggle in place — so the editability question splits in two: the
     read-only-ness is shared, the kind rule is not. A checkbox toggle bypasses
     the editor entirely, so guarding only the paint and the editor-opening
-    click would leave that write open (SUB-829). */
+    click would leave that write open. */
 export function viewCellWritable(result: EmbedResult, column: string): boolean {
   return !("error" in result) && !isJoinedColumn(result, column);
 }

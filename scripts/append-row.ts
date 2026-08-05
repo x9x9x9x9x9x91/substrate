@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Append one database row to a Substrate vault (SUB-815).
+ * Append one database row to a Substrate vault.
  *
  * The smallest useful shape of "external tool writes a file, the watcher does
  * the rest": create ONE new note carrying `type: <type>` plus the props you
@@ -45,7 +45,7 @@
  *   --dry-run             Print what would be written, write nothing.
  *
  * Environment:
- *   VAULT_DIR  Vault root — REQUIRED, there is no default (SUB-777): an unset
+ *   VAULT_DIR  Vault root — REQUIRED, there is no default: an unset
  *              target would silently write into the real ~/Vault.
  */
 

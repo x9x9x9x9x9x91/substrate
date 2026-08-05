@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-627: the sidebar's folder tree hard-clipped its last visible row against
+// The sidebar's folder tree hard-clipped its last visible row against
 // the fixed bottom zone (Vault sync/Trash) when it overflowed. The scroller now
-// carries the same gated edge-fade idiom the table edges use (SUB-195/207):
+// carries the same gated edge-fade idiom the table edges use:
 // .side-more-y paints a bottom mask only while it can still scroll down, so at
 // the stop the last row renders crisp and a tree that fits never fades.
 // Runs against the deterministic mock backend (fresh page = fresh vault).

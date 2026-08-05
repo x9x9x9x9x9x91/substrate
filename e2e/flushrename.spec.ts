@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-286: app-level rename/move of the OPEN note must wait out the pane's
+// App-level rename/move of the OPEN note must wait out the pane's
 // pending debounced save. Without the flush the pane's late cleanup flush
-// writes to the OLD path after the mutation, the write dies silently (SUB-94)
+// writes to the OLD path after the mutation, the write dies silently
 // and the typed text never reaches disk. Both flows commit the mutation
 // inside the 500ms debounce window, then force a disk re-read by switching
 // notes and back.
@@ -13,7 +13,7 @@ function row(page: Page, title: string) {
 
 async function boot(page: Page) {
   await page.goto("/");
-  // cold open lands on the Notes scratch list (Today is a destination, SUB-300)
+  // cold open lands on the Notes scratch list (Today is a destination)
   await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }

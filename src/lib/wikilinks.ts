@@ -1,4 +1,4 @@
-/* Wikilink completion (SUB-269): the pure half of the [[ popup — query
+/* Wikilink completion: the pure half of the [[ popup — query
    detection, title ranking, insert text — kept free of CodeMirror so it runs
    under node --test. Editor.tsx wraps these in a CompletionSource. */
 
@@ -56,8 +56,8 @@ export interface WikiLinkParts {
   alias: string | null;
 }
 
-/** The three parts of a wikilink's inner text, `[[target#anchor|alias]]`
-    (SUB-1095). The alias is everything past the FIRST `|`; the anchor is a
+/** The three parts of a wikilink's inner text, `[[target#anchor|alias]]`.
+    The alias is everything past the FIRST `|`; the anchor is a
     `#` tail on what's left. Every piece is trimmed; an absent one is null,
     and an empty target (`[[#Notes]]`) points inside the note it sits in.
 
@@ -73,8 +73,8 @@ export function parseWikiLink(inner: string): WikiLinkParts {
   return { target, anchor, alias };
 }
 
-/** The file an `![[…]]` embed names, with any display modifier dropped
-    (SUB-1102). The modifier is everything past the FIRST `|` — a size or
+/** The file an `![[…]]` embed names, with any display modifier dropped.
+    The modifier is everything past the FIRST `|` — a size or
     layout hint (`|300`, `|300x200`, `|left`) in the Obsidian dialect these
     vaults are written in. `![[cover.png|300]]` names `cover.png`; without this
     split every reader looks for a file literally called `cover.png|300` and
@@ -108,7 +108,7 @@ export function wikiLinkDisplay(inner: string): string {
     starts with `^`. Heading text matches literally, case-insensitively —
     the same rule the wikilink autocomplete offers. Null when nothing in the
     note answers to that name, which is a broken link, not a scroll to the
-    top (SUB-1095). Fences are skipped: a `# comment` inside a code block is
+    top. Fences are skipped: a `# comment` inside a code block is
     code, not a heading. */
 export function anchorLine(text: string, anchor: string): number | null {
   const want = anchor.trim().toLowerCase();

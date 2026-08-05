@@ -1,16 +1,16 @@
 // Machine fences (```view / ```chart / ```progress / ```cards / ```heatmap /
 // ```calendar / ```timeline / ```csv / ```formulas) hold app-parsed
 // config/data, not prose (vault-format §5) — their bodies stay out of search
-// indexing (SUB-261). Mirrors strip_machine_fences in
+// indexing. Mirrors strip_machine_fences in
 // src-tauri/src/vault/mod.rs; keep the fence set and semantics in lockstep
 // with it.
 
 /** Fence languages the hub/editor dispatch as live widgets on the FIRST WORD
     of the info string — so a tailed opener (```view table, ```chart compact)
     renders as a widget and its config must leave the index like the bare form
-    (SUB-899 for view, SUB-983 for chart/cards). `cards` renders live once the
-    hub-canvas lands (SUB-964); stripping it is contract, not yet render.
-    `progress` joins them with the goal thermometer (SUB-967) — a fence's
+    for `view` as much as for `chart`/`cards`. `cards` renders live once the
+    hub-canvas lands; stripping it is contract, not yet render.
+    `progress` joins them with the goal thermometer — a fence's
     target, deadline and bind are config, so they leave the index too.
 
     These dispatch CASE-INSENSITIVELY — every reader lowercases the first word
@@ -18,14 +18,14 @@
     isViewFence, `metriccards.ts` collectCardsFences, `slashmenu.ts`
     fenceLang) — so ```View and ```CHART render live too, and the strip pass
     must fold case the same way or their config stays in the search index
-    while the widget renders (SUB-1104). The case rule follows dispatch per
+    while the widget renders. The case rule follows dispatch per
     LANG, not per group — see CASE_FOLDING_BARE_LANGS below. */
 export const TAILED_MACHINE_FENCE_LANGS = ["view", "chart", "progress", "cards"] as const;
 
 /** Fence languages whose parsers are strict bare-form (the sheet csv/formulas
-    parsers, the hub's heatmap and timeline, the calendar parser of SUB-965):
+    parsers, the hub's heatmap and timeline, the calendar parser):
     a TAILED one renders as plain code — someone's prose — and stays
-    searchable. Only the bare opener is machine content. (SUB-968 for
+    searchable. Only the bare opener is machine content. (Likewise for
     timeline.) */
 export const BARE_MACHINE_FENCE_LANGS = [
   "csv",
@@ -37,7 +37,7 @@ export const BARE_MACHINE_FENCE_LANGS = [
 
 /** The case rule is a SEPARATE axis from the tail rule above, and it follows
     each lang's own dispatcher — whatever spelling dispatch accepts, the
-    stripper strips (SUB-1104, SUB-1128).
+    stripper strips.
 
     csv/formulas dispatch CASE-SENSITIVELY: `findFence` (sheet.ts) matches the
     literal "```csv"/"```formulas", so ```CSV parses as nothing and renders as
@@ -51,8 +51,8 @@ export const BARE_MACHINE_FENCE_LANGS = [
     `parseHeatmapBlocks` (heatmap.ts) folds case in its opener. They disagreed
     once — the pane matched the literal opener, so a bare ```HeatMap drew the
     year grid on the hub and nothing in the pane, with its config left in the
-    search index (SUB-1128 widened the strip to the hub's spelling, SUB-1129
-    widened the pane's parser to match). Where dispatchers ever disagree again
+    search index (the strip was widened to the hub's spelling, then the pane's
+    parser widened to match). Where dispatchers ever disagree again
     the strip follows the WIDEST one: stripping a fence some reader renders
     live closes a real leak, and the cost if the other reader is the one a note
     uses is that a machine-config block stays out of search — which is the rule
@@ -61,7 +61,7 @@ export const BARE_MACHINE_FENCE_LANGS = [
     ever starts or stops folding case, move the lang across this set — both
     sides.
 
-    timeline (SUB-968) folds case for the simpler version of the same reason:
+    timeline folds case for the simpler version of the same reason:
     its ONE dispatcher is the hub, which lowercases the first word before
     matching, so a bare ```TimeLine draws the live band and its source/start/
     label config must leave the index with it. */
@@ -75,7 +75,7 @@ const CASE_FOLDING_BARE_LANGS: ReadonlySet<string> = new Set([
     Digits and hyphens (legal in a lang id) have no case and pass through.
 
     The obvious spelling for this is an inline modifier group — `(?i…)` —
-    and that is what the first cut of SUB-1104 used — but pattern modifiers are
+    and that is what the first cut used — but pattern modifiers are
     ES2025, first shipped in Safari/WebKit 26.0. `MACHINE_FENCE_RE` is built at
     module load and this module is in the boot bundle (src/lib/tauri.ts), so on
     any older WKWebView — which every macOS/iOS build can still land on, no
@@ -87,7 +87,7 @@ const CASE_FOLDING_BARE_LANGS: ReadonlySet<string> = new Set([
     same reason it did before: a JS `i` flag (or Rust's
     `RegexBuilder.case_insensitive`) would fold case without changing one
     character of either pattern, which is exactly the drift the lockstep check
-    cannot see (SUB-1069). The `i` flag is also wrong on the merits here — it
+    cannot see. The `i` flag is also wrong on the merits here — it
     would fold csv/formulas too, and ```CSV must stay searchable prose. */
 const foldCase = (lang: string) => lang.replace(/[a-z]/g, (c) => `[${c.toUpperCase()}${c}]`);
 
@@ -96,10 +96,10 @@ const foldCase = (lang: string) => lang.replace(/[a-z]/g, (c) => `[${c.toUpperCa
     is someone's prose: it renders as a code box and stays in the search index,
     exactly as stripMachineFences below leaves it. Any surface that dispatches
     live widgets on the info string's FIRST WORD must ask this before mounting,
-    or a tailed opener renders live while its config stays indexed (SUB-965
-    review; the SUB-899/SUB-983 leak class from the other direction). `tail` is
+    or a tailed opener renders live while its config stays indexed (the
+    machine-fence leak class from the other direction). `tail` is
     the info string after the first word — bodies arrive line-split, so a
-    trailing CR (SUB-913's CRLF openers) is not a tail. */
+    trailing CR (a CRLF opener) is not a tail. */
 export function isTailedBareFence(lang: string, tail: string): boolean {
   return (
     (BARE_MACHINE_FENCE_LANGS as readonly string[]).includes(lang.toLowerCase()) &&
@@ -113,9 +113,9 @@ export function isTailedBareFence(lang: string, tail: string): boolean {
     searchable, tail and all. Tails are accepted for the live-dispatch
     languages only, and a tail may not contain a backtick — an inline prose
     mention of a fence opener (`` ```chart `` in running text) must never
-    swallow the rest of its line and blank prose to the next fence (SUB-983
+    swallow the rest of its line and blank prose to the next fence
     review finding; the guard also closes the same pre-existing leak for
-    ```view tails). CRLF openers (```view\r\n) strip too (SUB-913).
+    ```view tails). CRLF openers (```view\r\n) strip too.
 
     The live-dispatch group — plus every bare-form lang whose own dispatcher
     folds case (heatmap) — is spelled per-letter ([Vv][Ii][Ee][Ww]) by
@@ -127,7 +127,7 @@ export function isTailedBareFence(lang: string, tail: string): boolean {
     Lockstep twin: machine_fence_re in src-tauri/src/vault/mod.rs — the Rust
     side mirrors these lists AND this spelling by hand; change both together.
     Exported for scripts/check-fence-langs.ts, which compares this pattern
-    against the Rust one and fails `npm test` when the two drift (SUB-1069). */
+    against the Rust one and fails `npm test` when the two drift. */
 export const MACHINE_FENCE_RE = new RegExp(
   "```(?:(?:" +
     TAILED_MACHINE_FENCE_LANGS.map(foldCase).join("|") +
@@ -146,7 +146,7 @@ export const MACHINE_FENCE_RE = new RegExp(
     Must keep DELEGATING to `MACHINE_FENCE_RE` — an inline regex here would be
     the pattern the app actually runs while the lockstep checker went on
     comparing the constant, and both sides would read as in step. Enforced by
-    checkUseSites in scripts/check-fence-langs.ts (SUB-1130); same rule on the
+    checkUseSites in scripts/check-fence-langs.ts; same rule on the
     Rust twin. */
 export function stripMachineFences(body: string): string {
   return body.replace(MACHINE_FENCE_RE, (m) => "\n".repeat((m.match(/\n/g) ?? []).length));

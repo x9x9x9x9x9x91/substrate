@@ -1,4 +1,4 @@
-/** SUB-686: overall app zoom, the Notion ⌘+/⌘−/⌘0 idiom. This module owns the
+/** Overall app zoom, the Notion ⌘+/⌘−/⌘0 idiom. This module owns the
     pure pieces — the level ladder and the persisted-value parsing — so they
     run under node --test; the DOM/webview application lives in App, which is
     the only place that knows whether a real webview is present. */

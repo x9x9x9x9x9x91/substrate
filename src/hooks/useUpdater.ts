@@ -10,13 +10,13 @@ const FIRST_CHECK_MS = 20_000;
 const RECHECK_MS = 12 * 60 * 60 * 1000;
 
 /**
- * SUB-806: in-app updater. Quiet by design — a check that finds nothing, or
+ * In-app updater. Quiet by design — a check that finds nothing, or
  * fails (offline, GitHub down, iOS where the plugin isn't registered), says
  * nothing. Something new → sticky toast with an Install action; install runs
  * in the background and lands in a sticky "Restart now" toast.
  *
  * The toast slot is shared with every routine 4s message, so a sticky offer
- * CAN be displaced at any moment (four-review finding, 2026-08-02). The
+ * CAN be displaced at any moment. The
  * cycle therefore re-offers every 12h unconditionally: a dismissed or
  * displaced toast is silence until the next cycle, never a lost update. A
  * staged install (downloaded, awaiting restart) re-surfaces its "Restart

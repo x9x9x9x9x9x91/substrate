@@ -11,7 +11,7 @@
 //! mutating op a no-op, read ops refused. Pre-stamp Substrate repos (every
 //! commit authored by `Substrate <substrate@local>`, or no commits yet) are
 //! adopted on first boot, as is a repo that lost its stamp but still carries
-//! our `.git/info/exclude` vocabulary (`exclude_is_ours`, SUB-1018).
+//! our `.git/info/exclude` vocabulary (`exclude_is_ours`).
 
 use serde::Serialize;
 #[cfg(not(mobile))]
@@ -56,11 +56,11 @@ pub(crate) const SENTINEL: &str = ".git/substrate-owned";
 /// is device-local scheduling bookkeeping ("this reminder already fired today"),
 /// not vault content — and the notification scheduler writes it from its own
 /// thread without the engine lock, so leaving it visible to git let it dirty
-/// the tree at any moment, including the middle of a sync resolve (SUB-568).
-/// `.vault/jobs-exit.json` is the same shape (SUB-706): device-local launchd
+/// the tree at any moment, including the middle of a sync resolve.
+/// `.vault/jobs-exit.json` is the same shape: device-local launchd
 /// run history, written from the `jobs_read` poll outside the engine lock.
 /// `.vault/seal-trust.json` is device-local *by security requirement* rather
-/// than by convenience (SUB-889): it records which seal markers this device
+/// than by convenience: it records which seal markers this device
 /// confirmed, and a marker is only enforced — and only ever triggers a history
 /// purge — when it is confirmed here. Syncing that record would hand a remote
 /// writer the very approval the confirmation gate exists to withhold.
@@ -82,7 +82,7 @@ pub(crate) const EXCLUDE_LINES_EVER_OURS: &[&str] = &[
     ".vault/seal-trust.json",
 ];
 
-/// Secondary ownership marker for `.git/info/exclude` (SUB-1018).
+/// Secondary ownership marker for `.git/info/exclude`.
 ///
 /// The sentinel is one file inside `.git`, and losing it used to be terminal:
 /// a vault whose `.git/config` and sentinel were both lost (partial restore,
@@ -150,7 +150,7 @@ fn resolve_rename(p: &str) -> String {
     // `find`/`rfind` are independent, so a name carrying its braces in the
     // wrong order ("Loop }end{.md => Loop v2.md") inverts the range and the
     // slice below panics — on a thread whose poisoned mutex then takes the
-    // whole history feature, and the exit snapshot, down with it (SUB-533)
+    // whole history feature, and the exit snapshot, down with it
     if let (Some(open), Some(close)) = (p.find('{'), p.rfind('}')) {
         if let Some(arrow) = p.get(open..close).and_then(|s| s.find(" => ")) {
             let newer = &p[open + arrow + 4..close];
@@ -186,7 +186,7 @@ impl History {
             // migration: vaults Substrate initialized before the sentinel
             // carry no stamp — adopt when every commit on every ref is a
             // Substrate snapshot (or nothing was ever committed), or when the
-            // repo still carries our exclusions (SUB-1018: a lost sentinel
+            // repo still carries our exclusions (a lost sentinel
             // plus one commit made under git's implicit identity must not
             // disable version history forever)
             exclude_is_ours(&root) || Self::all_commits_substrate_authored(&root)?
@@ -204,7 +204,7 @@ impl History {
             // already returned. That races libgit2 writes on the sync side,
             // and it breaks the product contract — the mobile rewrite path
             // requires loose objects, so a packed vault makes purge/trim
-            // refuse on a vault the user never touched (SUB-603).
+            // refuse on a vault the user never touched.
             h.git(&["config", "maintenance.auto", "false"])?;
             h.git(&["config", "gc.auto", "0"])?;
             // exclusions live inside .git so the vault itself stays clean of
@@ -344,7 +344,7 @@ impl History {
     }
 
     /// Drop `.vault/notifications.json` from the index once, if a vault from
-    /// before it was excluded still tracks it (SUB-568). An exclude rule has
+    /// before it was excluded still tracks it. An exclude rule has
     /// no effect on an already-tracked path, so without this the notification
     /// scheduler — which writes that file on its own thread, outside the
     /// engine lock — keeps dirtying the tree at arbitrary moments, including
@@ -366,7 +366,7 @@ impl History {
     /// Would this snapshot born HEAD on nothing but the app's own starter
     /// content?
     ///
-    /// The first-join deferral (SUB-956). A vault that has never been
+    /// The first-join deferral. A vault that has never been
     /// snapshotted and holds only untouched seeds has no history worth
     /// starting: leaving HEAD unborn is what lets the first sync pull take
     /// `pull_local_phase`'s initial-pull arm and adopt the remote wholesale,
@@ -420,7 +420,7 @@ impl History {
     }
 
     /// Snapshot before a bulk sweep, reporting whether A RESTORE POINT EXISTS
-    /// rather than whether a commit was made (SUB-481). `snapshot`'s false has
+    /// rather than whether a commit was made. `snapshot`'s false has
     /// two meanings and only one is dangerous: history disabled = no restore
     /// point at all, while a clean tree means HEAD already IS the restore
     /// point — the common case, since the auto-snapshot layer commits after a
@@ -462,8 +462,8 @@ impl History {
         ])?;
         // numstat spells a rename "old => new" — indistinguishable from a
         // literal " => " in the note's own name — so the notation may only
-        // be resolved on lines a name-status pass proves are renames
-        // (SUB-225); the renames set keys on commit id
+        // be resolved on lines a name-status pass proves are renames;
+        // the renames set keys on commit id
         let renames = self.rename_commits(&spec)?;
         let mut entries = Vec::new();
         for chunk in out.split('\u{1}').skip(1) {
@@ -714,7 +714,7 @@ impl History {
                 fs::remove_file(self.root.join(".git/index")).ok();
             }
         }
-        // SUB-713: mark the vault for sync — while the marker stands, a
+        // Mark the vault for sync — while the marker stands, a
         // rejected push is explained as "the remote still holds the
         // pre-rewrite history" (gitsync::push_rejection_error). The mobile
         // engine (githist.rs finish_rewrite) writes the same marker.
@@ -786,7 +786,7 @@ impl History {
         // Anything else pointing into this history keeps the "purged" blobs
         // reachable, so `gc` preserves them while the caller is told the
         // plaintext is gone. Decide BEFORE rewriting: a refusal has to leave
-        // the repository exactly as it was (SUB-839).
+        // the repository exactly as it was.
         let on_branch: HashSet<String> = commits.iter().cloned().collect();
         let (carried, blocked) = self.classify_other_refs(&specs, &on_branch)?;
         if !blocked.is_empty() {
@@ -913,7 +913,7 @@ mod tests {
     #[test]
     fn restore_point_is_false_only_when_history_is_off() {
         // a clean tree still HAS a restore point — HEAD — so it must report
-        // true where the raw snapshot reports "no commit made" (SUB-481)
+        // true where the raw snapshot reports "no commit made"
         let (h, dir) = temp_repo("restorepoint");
         fs::write(dir.join("a.md"), "one\n").unwrap();
         assert!(h.snapshot_restore_point("snapshot").unwrap());
@@ -1006,7 +1006,7 @@ mod tests {
 
     #[test]
     fn list_keeps_literal_arrow_names_straight() {
-        // SUB-225: a note literally named "a => b" is NOT rename notation —
+        // A note literally named "a => b" is NOT rename notation —
         // history and restore must target this file, never a "b.md"
         let (h, dir) = temp_repo("arrow");
         fs::write(dir.join("a => b.md"), "arrow v1\n").unwrap();
@@ -1056,7 +1056,7 @@ mod tests {
 
     #[test]
     fn purge_carries_user_branches_and_lightweight_tags_onto_the_rewrite() {
-        // SUB-839: a branch or tag the user parked on the old history pins the
+        // a branch or tag the user parked on the old history pins the
         // whole pre-rewrite graph, so `gc --prune=now` keeps every "purged"
         // blob while the UI says the plaintext is gone. They ride along.
         let (h, dir) = temp_repo("purgerefs");
@@ -1139,7 +1139,7 @@ mod tests {
 
     #[test]
     fn purge_drops_sync_refs_so_the_old_graph_is_pruned() {
-        // SUB-658: vault sync owns refs in the same repository (gitsync.rs) —
+        // Vault sync owns refs in the same repository (gitsync.rs) —
         // the remote-tracking ref written after every push/fetch, a parked
         // conflict merge, its recorded resolutions, and the merge staging ref.
         // Pinned on the pre-purge tip they keep the whole pre-rewrite graph
@@ -1291,7 +1291,7 @@ mod tests {
     }
 
     /// The notification scheduler writes `.vault/notifications.json` on its own
-    /// thread, without the engine lock, so git must never see it (SUB-568).
+    /// thread, without the engine lock, so git must never see it.
     /// A vault created before the exclusion still tracks the file, and an
     /// exclude rule alone does nothing to a tracked path — boot has to drop it.
     #[test]
@@ -1357,7 +1357,7 @@ mod tests {
 
     #[test]
     fn fresh_vault_pins_background_maintenance_off() {
-        // SUB-603: git's detached `maintenance run --auto` repacks after a
+        // Git's detached `maintenance run --auto` repacks after a
         // commit has already returned — it races libgit2 writes and packs
         // away the loose objects the mobile rewrite path requires. Both keys
         // must live in the vault's OWN config, not be inherited.
@@ -1451,7 +1451,7 @@ mod tests {
 
     #[test]
     fn lost_sentinel_plus_a_pre_config_root_commit_keeps_time_travel() {
-        // SUB-1018: the vault is ours, but its `.git/config` and sentinel were
+        // the vault is ours, but its `.git/config` and sentinel were
         // both lost (partial restore / a copy tool that skipped them), so the
         // next snapshot committed under git's implicit machine identity. That
         // one non-Substrate ROOT commit failed the all-authors heuristic, and
@@ -1594,7 +1594,7 @@ mod tests {
         // not braces), and git prints the rename verbatim — with `}` before `{`
         // the find/rfind range inverts. The slice panicked on a thread whose
         // poisoned mutex then took version history AND the exit snapshot down
-        // with it, so the session's edits never got committed (SUB-533)
+        // with it, so the session's edits never got committed
         assert_eq!(resolve_rename("Loop }end{.md => Loop v2.md"), "Loop v2.md");
         assert_eq!(resolve_rename("}a{.md => x.md"), "x.md");
         assert_eq!(resolve_rename("Set }.md => Set {.md"), "Set {.md");

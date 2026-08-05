@@ -1,4 +1,4 @@
-//! Reality mounts (SUB-888): a real folder on disk rendered as a database.
+//! Reality mounts: a real folder on disk rendered as a database.
 //!
 //! A mount has two halves that live in two different places on purpose:
 //!
@@ -39,7 +39,7 @@ pub const MOUNTS_INDEX_REL_DIR: &str = ".vault/mounts";
 pub const MOUNTS_SHADOW_DIR: &str = "Mounts";
 
 /// Prefix of the pre-migration backup an unsnapshottable vault gets instead
-/// of a history restore point (SUB-1011): `.vault/backup/<prefix><stamp>/`.
+/// of a history restore point: `.vault/backup/<prefix><stamp>/`.
 /// It sits under the same `.vault/backup/` the format migrations already use
 /// (`vaultfmt::BACKUP_REL_DIR`), so there is one place a user looks for "what
 /// the app copied before it rewrote something".
@@ -52,7 +52,7 @@ const MOUNTS_MIGRATION_BACKUP_NOTES: &str = "notes";
 /// Bounded buffer used while streaming a file into its identity hash.
 const IDENTITY_CHUNK: usize = 64 * 1024;
 
-/// Most files one mount's scan offers the extraction queue (SUB-887). A
+/// Most files one mount's scan offers the extraction queue. A
 /// 40 000-file sample library fills in over several scans rather than
 /// flooding the queue in one go; the remainder is picked up next time,
 /// because "not extracted yet" is a durable state in the index.
@@ -70,7 +70,7 @@ const EXTRACT_JOBS_PER_SCAN: usize = super::extractq::CAPACITY / 2;
 /// user's: they bind the note to a file and are hidden from the row's props.
 pub(super) const BINDING_PROPS: [&str; 3] = ["mount", "mount_file", "mount_identity"];
 
-/// The one way a mount's root path is resolved, everywhere (SUB-888 review).
+/// The one way a mount's root path is resolved, everywhere.
 ///
 /// Tilde form first — bindings are stored contracted (`~/…`), so a raw
 /// `canonicalize` on one fails outright — then the normalized form, which is
@@ -99,7 +99,7 @@ pub struct Mount {
     #[serde(default, skip_serializing_if = "is_false")]
     pub watch: bool,
     /// Keys a newer Substrate wrote that this build doesn't understand. Kept
-    /// so a read→write cycle here doesn't strip them (SUB-433).
+    /// so a read→write cycle here doesn't strip them.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -124,7 +124,7 @@ pub struct MountFile {
     pub identity: String,
     #[serde(default, skip_serializing_if = "is_false")]
     pub missing: bool,
-    /// What the file said about itself when it was last opened (SUB-887):
+    /// What the file said about itself when it was last opened:
     /// duration, page count, tags. Cached against [`Self::identity`] — a file
     /// whose content is unchanged is never opened again, across launches.
     #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
@@ -140,7 +140,7 @@ pub struct MountFile {
     /// "never opened", and it is cleared whenever the content changes.
     #[serde(default, skip_serializing_if = "is_false")]
     pub extract_tried: bool,
-    // A document's own body text is NOT here, deliberately (SUB-1093): this
+    // A document's own body text is NOT here, deliberately: this
     // index is inside the vault, so it syncs and it is committed to history,
     // and the text belongs to a file OUTSIDE the vault. It is kept on the
     // machine that can read that file — `vault/mounttext.rs`, in the app
@@ -193,7 +193,7 @@ pub struct MountScanStats {
     pub missing: usize,
     /// Mount-relative paths of the files this scan saw for the first time —
     /// the same rows `added` counts, named. Reflexes turn each one into a
-    /// `mount.file_added` event (SUB-826), which needs the paths, not a
+    /// `mount.file_added` event, which needs the paths, not a
     /// tally. Sorted, since the index it comes from is.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub added_files: Vec<String>,
@@ -245,7 +245,7 @@ pub(super) fn read_mounts(root: &Path) -> Vec<Mount> {
     mounts.into_iter().filter(|m| safe_id(&m.id)).collect()
 }
 
-/// The write half of [`read_mounts`], gated by the format sidecar (SUB-433).
+/// The write half of [`read_mounts`], gated by the format sidecar.
 pub(super) fn write_mounts(root: &Path, mounts: &[Mount]) -> Result<(), String> {
     crate::vaultfmt::prepare_write(root, crate::vaultfmt::VaultFile::Mounts)?;
     let abs = root.join(MOUNTS_REL_PATH);
@@ -364,7 +364,7 @@ fn row_of(f: &MountFile, note: Option<(&String, &NoteMeta)>) -> MountRow {
     // source of truth. `mount_annotate` refuses these names, so a collision
     // only exists for a sidecar written before the column did.
     //
-    // A document's text reaches no row (SUB-1093): everything this loop
+    // A document's text reaches no row: everything this loop
     // inserts becomes a column, and a document's body is a search payload,
     // not a cell — which is one of the two reasons it is not in the index at
     // all.
@@ -420,7 +420,7 @@ impl Engine {
     }
 
     /// One document's text and whether it stopped at a cap — read on this
-    /// machine, kept on this machine (SUB-1093). `None` where the file has
+    /// machine, kept on this machine. `None` where the file has
     /// never been read here, holds no text, or has changed since it was: all
     /// three are "nothing to show", and the caller does not have to tell them
     /// apart. `identity` is what makes it the *file's* text and not a stale
@@ -432,7 +432,7 @@ impl Engine {
         (!e.text.is_empty()).then(|| (e.text.clone(), e.truncated))
     }
 
-    /// Drop this machine's text for a mount it can no longer read (SUB-1134).
+    /// Drop this machine's text for a mount it can no longer read.
     ///
     /// Unbinding is not unmounting: the mount, its index and its sidecars all
     /// stay, and every other machine is untouched. What goes is the text this
@@ -446,7 +446,7 @@ impl Engine {
     }
 
     /// Collect stores no mount in this vault can name, and answer how many
-    /// went (SUB-1134). Called on vault load, which is the one moment the
+    /// went. Called on vault load, which is the one moment the
     /// worst case is visible: the store dir belongs to the app, not to the
     /// vault, so pointing the app at a different vault strands every mount id
     /// of the previous one there with nothing to enumerate it.
@@ -456,7 +456,7 @@ impl Engine {
         mounttext::collect(dir, &|id| live.contains(id))
     }
 
-    /// Files in this mount whose own metadata we have never read (SUB-887).
+    /// Files in this mount whose own metadata we have never read.
     ///
     /// Called right after a scan, with the folder's binding on this machine.
     /// A file is offered once per content change: [`scan_mount`] carries
@@ -476,7 +476,7 @@ impl Engine {
     pub fn mount_extract_jobs(&self, id: &str, path: &Path) -> Vec<ExtractJob> {
         let root = resolve_mount_path(path);
         let mut out = Vec::new();
-        // What this machine has already read the text of (SUB-1093). Every
+        // What this machine has already read the text of. Every
         // file read here leaves an entry, empty ones included, so "no entry"
         // means exactly "never read on this machine" — which is the state of
         // every row indexed before the store existed, and of every row a
@@ -541,7 +541,7 @@ impl Engine {
             let mut index = read_index(&self.root, &id);
             let mut touched = false;
             // this machine's half of the answer: document text, which never
-            // goes near the index (SUB-1093). `None` when the engine has no
+            // goes near the index. `None` when the engine has no
             // config dir — then the columns land and the text is dropped.
             let mut store = self.text_dir().map(|d| mounttext::read(d, &id));
             let mut store_touched = false;
@@ -694,7 +694,7 @@ impl Engine {
     /// The type rename goes first because it is the one step with real
     /// collision guards and a bulk note sweep — if it refuses outright,
     /// nothing has moved. But it can also come back half-done
-    /// (`Ok(BulkSweep { failed: Some(..) })`, SUB-501/554), and where it
+    /// (`Ok(BulkSweep { failed: Some(..) })`), and where it
     /// stopped decides where the schema key is: a failure in the note loop or
     /// at `write_schema` leaves the key on the OLD name, anything later leaves
     /// it on the NEW one. So this does not assume — it reads the schema back
@@ -708,7 +708,7 @@ impl Engine {
     /// folder name. A partial sweep is surfaced to the caller as an `Err`
     /// after the registry has been squared with the schema.
     ///
-    /// No command calls this any more (SUB-888 cut `mount_rename`): a mount is
+    /// No command calls this any more (cut `mount_rename`): a mount is
     /// renamed from the database side, through `vault_rename_type`, which
     /// carries the registry along via `rename_mount_named`. It stays as the
     /// engine-side primitive that path is defined against.
@@ -747,7 +747,7 @@ impl Engine {
     }
 
     /// Follow a database rename into the registry: a mount IS its schema
-    /// type, so a type renamed from the database side (SUB-43) has to carry
+    /// type, so a type renamed from the database side has to carry
     /// its mount with it or the two names drift apart. No-op when no mount
     /// answers to `old`.
     pub(super) fn rename_mount_named(&self, old: &str, new: &str) -> Result<(), String> {
@@ -800,7 +800,7 @@ impl Engine {
     ///
     /// Known limitation: a sidecar the user filed outside the shadow folder
     /// and then sealed is invisible to this check too — nothing outside the
-    /// ciphertext records the binding (SUB-1077 tracks that gap).
+    /// ciphertext records the binding (a known gap).
     fn sealed_notes_shadowing_mount(&self, mount: &Mount) -> bool {
         let prefix = format!("{}/", Self::mount_shadow_dir(mount));
         self.notes.iter().any(|(rel, m)| m.sealed && rel.starts_with(&prefix))
@@ -895,7 +895,7 @@ impl Engine {
             return Err(format!("“{prop}” is how a note binds to its file"));
         }
         // an extracted column is the file talking; a value typed over it would
-        // be silently replaced by the next extraction anyway (SUB-887)
+        // be silently replaced by the next extraction anyway
         if super::extract::EXTRACTED_COLUMNS.iter().any(|c| folded_eq(c, prop)) {
             return Err(format!("“{prop}” is read from the file itself"));
         }
@@ -911,7 +911,7 @@ impl Engine {
         };
         // No sidecar was found — but a sealed one may be standing right there,
         // unreadable. Creating a second note beside it would silently split
-        // the row's annotations in two, so refuse and say why (SUB-889).
+        // the row's annotations in two, so refuse and say why.
         if self.sealed_notes_shadowing_mount(&mount) {
             return Err(format!(
                 "annotations are unavailable while “{}” has sealed notes — a sealed sidecar cannot be read, so a new one would duplicate it",
@@ -1034,7 +1034,7 @@ impl Engine {
         let prior = read_index(&self.root, id);
         // Every row of an identity, not just the first: byte-identical copies
         // are ordinary in a sample library, and a rename inside such a group
-        // still has to find a row that no other copy has taken (SUB-1135).
+        // still has to find a row that no other copy has taken.
         let mut by_identity: HashMap<String, Vec<usize>> = HashMap::new();
         let mut by_rel: HashMap<String, usize> = HashMap::new();
         for (i, f) in prior.files.iter().enumerate() {
@@ -1057,7 +1057,7 @@ impl Engine {
 
             // A file's own row first, while its bytes are unchanged — otherwise
             // a byte-identical twin can take it, and this file reads as brand
-            // new every scan (SUB-1135). Then any free row of the same identity:
+            // new every scan. Then any free row of the same identity:
             // a renamed file keeps its row. Then rel path: a file edited in
             // place has a new identity but is the same row.
             let rows = (!identity.is_empty())
@@ -1072,7 +1072,7 @@ impl Engine {
                 .or_else(|| by_rel.get(&rel).filter(|i| !claimed.contains(*i)))
                 .copied();
             // What the file already told us about itself, kept only while the
-            // bytes it describes are the same bytes (SUB-887). A renamed file
+            // bytes it describes are the same bytes. A renamed file
             // keeps its values; a file edited in place drops them and is
             // offered to the queue again.
             let mut carried = MountFile::default();
@@ -1123,7 +1123,7 @@ impl Engine {
         stats.added_files.sort();
         // a mount's FIRST scan meets every file it will ever have at once.
         // Those aren't arrivals, they're the folder as it already was, and
-        // replaying them as events is exactly the catch-up SUB-826 §9 rules
+        // replaying them as events is exactly the catch-up spec §9 rules
         // out. The counts still say `added` — only the event list is empty.
         if prior.scanned.is_empty() {
             stats.added_files.clear();
@@ -1196,7 +1196,7 @@ impl Engine {
     }
 
     /// Adopt the folder-backed databases of `.vault/folders.json` as mounts —
-    /// the one-way migration off the stub-note sync this replaces (SUB-888).
+    /// the one-way migration off the stub-note sync this replaces.
     ///
     /// Per mapping: a mount named after the mapping's database type (the type
     /// already exists, so no new one is registered), every stub note of that
@@ -1216,7 +1216,7 @@ impl Engine {
     /// into `.vault/backup/mounts-migration.<stamp>/`, and return that dir.
     ///
     /// This is the recovery artifact for a vault that cannot be snapshotted —
-    /// its own git repo, or a `History::new` that failed (SUB-1011). Without
+    /// its own git repo, or a `History::new` that failed. Without
     /// it the migration deferred on every launch, forever; with it the caller
     /// has the same "you can get the old shape back" guarantee a snapshot
     /// gives, just as files rather than a commit.
@@ -1235,7 +1235,7 @@ impl Engine {
         let backups = self.root.join(crate::vaultfmt::BACKUP_REL_DIR);
         // A same-millisecond neighbour is an EARLIER backup, never junk: bump
         // the stamp until the name is free rather than deleting somebody's
-        // recovery artifact to make room for ours (SUB-1011 review).
+        // recovery artifact to make room for ours.
         let mut stamp = now_ms(SystemTime::now());
         let (dest, staging) = loop {
             let dest = backups.join(format!("{MOUNTS_MIGRATION_BACKUP_PREFIX}{stamp}"));
@@ -1307,7 +1307,7 @@ impl Engine {
     /// Is there a mapping this migration could actually convert? A mapping
     /// with no type is left in place forever (see `migrate_folder_mappings`),
     /// so gating on `folder_mappings()` alone would re-enter the migration —
-    /// and write a fresh backup — on every single launch (SUB-1011 review).
+    /// and write a fresh backup — on every single launch.
     pub fn has_migratable_folder_mappings(&self) -> bool {
         self.folder_mappings().iter().any(|m| !m.db_type.trim().is_empty())
     }
@@ -1315,7 +1315,7 @@ impl Engine {
     /// Returns the mounts and the paths to bind for them on THIS machine — the
     /// caller owns the config write, and the recovery point before the call:
     /// a history snapshot where history is on, else
-    /// [`Engine::backup_before_mounts_migration`] (SUB-1011).
+    /// [`Engine::backup_before_mounts_migration`].
     pub fn migrate_folder_mappings(&mut self) -> MountMigration {
         let mut report = MountMigration::default();
         for m in self.folder_mappings() {
@@ -1459,7 +1459,7 @@ impl Engine {
     }
 
     /// The extraction work every mount bound on this machine is owed
-    /// (SUB-887) — the companion to [`sync_mounts`], for the callers that
+    /// the companion to [`sync_mounts`], for the callers that
     /// scan everything at once. Unbound mounts contribute nothing: the files
     /// are not here to open.
     ///
@@ -1741,7 +1741,7 @@ mod tests {
     #[test]
     fn mount_writes_respect_the_format_sidecar() {
         // a vault whose other machine runs a newer Substrate: every mounts
-        // write refuses rather than downgrading the file (SUB-433)
+        // write refuses rather than downgrading the file
         let (mut e, dir) = temp_vault("mfmt");
         let watched = temp_watched("mfmt");
         fs::write(watched.join("a.als"), b"a").unwrap();
@@ -2049,7 +2049,7 @@ mod tests {
         let _ = fs::remove_dir_all(&watched);
     }
 
-    /// SUB-826: reflexes need the paths that arrived, not the count — and the
+    /// reflexes need the paths that arrived, not the count — and the
     /// first scan of a mount is the folder as it already was, not arrivals.
     #[test]
     fn a_scan_names_the_files_that_arrived_but_never_the_first_load() {
@@ -2230,7 +2230,7 @@ mod tests {
 
     #[test]
     fn a_vault_without_history_is_backed_up_and_migrates_to_a_terminal_state() {
-        // SUB-1011: a vault that is the user's own git repo (or whose history
+        // A vault that is the user's own git repo (or whose history
         // failed to open) can never be snapshotted, so the migration used to
         // defer on EVERY launch, forever. It now writes an explicit backup of
         // what it is about to rewrite and goes through.
@@ -2246,7 +2246,7 @@ mod tests {
         let stub = format!("{old_folder}/a.md");
         e.set_prop(&stub, "status", Some("keep")).unwrap();
         // the stub is pinned in the sidebar and carries a key, so the move
-        // into `Mounts/<name>/` rewrites views.json too (SUB-1011 review)
+        // into `Mounts/<name>/` rewrites views.json too
         let mut order = e.sidebar_order();
         order.pins = vec![stub.clone()];
         order.keys.insert("5".into(), format!("note:{stub}"));
@@ -2286,7 +2286,7 @@ mod tests {
         );
 
         // 3. views.json: the migration DID retarget the pin and the key, and
-        //    the pre-rewrite bytes are in the artifact (SUB-1011 review)
+        //    the pre-rewrite bytes are in the artifact
         let moved_rel = e.sidebar_order().pins[0].clone();
         assert_ne!(moved_rel, stub, "the pin followed the sidecar into Mounts/");
         assert!(moved_rel.starts_with(MOUNTS_SHADOW_DIR), "{moved_rel}");
@@ -2339,7 +2339,7 @@ mod tests {
 
     #[test]
     fn a_first_run_vault_without_views_json_migrates_and_fabricates_nothing() {
-        // SUB-1011: the copy set is what the run REWRITES, and on a first run
+        // The copy set is what the run REWRITES, and on a first run
         // most of it does not exist yet — nothing is pinned, so there is no
         // views.json, and no mount is registered, so there is no mounts.json.
         // A missing source is nothing to preserve rather than a failure: the
@@ -2386,7 +2386,7 @@ mod tests {
 
     #[test]
     fn a_backup_that_cannot_be_written_defers_the_migration() {
-        // SUB-1011 fail-safe: no recovery artifact, no rewrite. The caller
+        // Fail-safe: no recovery artifact, no rewrite. The caller
         // (lib.rs) defers on the Err; what this pins is that the failure is
         // reported rather than swallowed, and that the vault is untouched.
         use std::os::unix::fs::PermissionsExt;
@@ -2418,7 +2418,7 @@ mod tests {
 
     #[test]
     fn a_second_history_less_run_finds_nothing_to_migrate() {
-        // SUB-1011 idempotency: the second launch of a history-disabled vault
+        // Idempotency: the second launch of a history-disabled vault
         // is a no-op — no second backup of a migrated vault, no second mount,
         // no rewrite of an adopted note.
         let (mut e, dir) = temp_vault("mmig-nohist-twice");
@@ -2449,7 +2449,7 @@ mod tests {
 
     #[test]
     fn repeat_launches_over_an_unmigratable_mapping_write_one_backup_at_most() {
-        // SUB-1011 review, finding 2: a mapping with no `type` is left in
+        // Review, finding 2: a mapping with no `type` is left in
         // place by `migrate_folder_mappings` FOREVER, so a gate on
         // `folder_mappings()` alone re-entered the migration — and wrote a
         // fresh backup dir — on every launch. Three launches, no growth.
@@ -2553,7 +2553,7 @@ mod tests {
 
     #[test]
     fn migration_through_a_symlinked_root_binds_its_sidecars() {
-        // SUB-888 review: `/tmp` is a symlink to `/private/tmp` on macOS, so
+        // Review: `/tmp` is a symlink to `/private/tmp` on macOS, so
         // a mapping recorded under `/tmp/…` resolves to a different prefix
         // than the folder the scan walks. If migration and scan disagree
         // about that prefix, the adopted sidecars' `mount_file` rels are
@@ -2600,7 +2600,7 @@ mod tests {
 
     #[test]
     fn a_partial_rename_sweep_keeps_the_registry_on_the_schema_key() {
-        // SUB-888 review: `rename_type` reports a half-done sweep as
+        // Review: `rename_type` reports a half-done sweep as
         // `Ok(BulkSweep { failed })`, not `Err` — so a bare `?` used to walk
         // straight past it and rename the registry while the schema key had
         // not moved. The mount would then answer to a name no type carries:
@@ -2641,7 +2641,7 @@ mod tests {
 
     #[test]
     fn a_first_annotation_may_be_a_checkbox() {
-        // SUB-888 review: the first annotation created the sidecar through a
+        // Review: the first annotation created the sidecar through a
         // strings-only path, so a checkbox (bool) or a number as the FIRST
         // thing said about a row was refused outright while the same value on
         // an existing sidecar went through fine.
@@ -2668,7 +2668,7 @@ mod tests {
         let _ = fs::remove_dir_all(&watched);
     }
 
-    // ---- extraction (SUB-887) ----------------------------------------------
+    // ---- extraction ----------------------------------------------
 
     /// Run every job a scan produced, the way the app's queue eventually
     /// does — synchronously, so the test asserts about the index rather than
@@ -2754,7 +2754,7 @@ mod tests {
         )
     }
 
-    /// SUB-1134. Unbinding keeps the mount and every machine's index; what it
+    /// Unbinding keeps the mount and every machine's index; what it
     /// cannot keep is this machine's text, which is about files it can no
     /// longer open.
     #[test]
@@ -2779,7 +2779,7 @@ mod tests {
         let _ = fs::remove_dir_all(&watched);
     }
 
-    /// SUB-1134. The config dir is per app, not per vault, so a store whose
+    /// The config dir is per app, not per vault, so a store whose
     /// mount belongs to a vault the app has moved away from has nothing left
     /// to name it. Load is where that gets noticed.
     #[test]
@@ -2832,7 +2832,7 @@ mod tests {
             "the machine that read the file has its text"
         );
 
-        // THE point of SUB-1093: the index syncs and is committed to history,
+        // THE point of the machine-local text store: the index syncs and is committed to history,
         // and the text belongs to a file outside the vault. Not one word of
         // it may be in there.
         let on_disk = fs::read_to_string(e.root.join(index_rel_path(&m.id))).unwrap();
@@ -2938,7 +2938,7 @@ mod tests {
 
     #[test]
     fn byte_identical_files_settle_after_one_reading_each() {
-        // SUB-1135: a sample library is full of byte-identical copies, and
+        // A sample library is full of byte-identical copies, and
         // every one of them shares an identity with its twins. Matching a
         // scanned file to its prior row by identity FIRST let one copy claim
         // a twin's row, which left the twin's own row unclaimed — read as a

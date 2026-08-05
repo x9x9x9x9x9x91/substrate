@@ -285,7 +285,7 @@ test("partitionDbEntries: an empty type set collapses nothing", () => {
 });
 
 test("filterByQuery: a quoted phrase is an exact substring, not words (SUB-219)", () => {
-  // matched nothing before SUB-219 — the quote characters stayed on the words
+  // this once matched nothing — the quote characters stayed on the words
   assert.deepEqual(
     filterByQuery(releases, '"slow bloom"').map((n) => n.title),
     ["Slow Bloom EP"]
@@ -361,7 +361,7 @@ test("isPristineScratch: only an untouched ⌘N note qualifies (SUB-264)", () =>
   assert.equal(isPristineScratch("Inbox/Untitled.md", "", {}), true);
 });
 
-/* SUB-639: the pane passes its type schema through, so a number column
+/* The pane passes its type schema through, so a number column
    filters by value end to end — including the mid-typing stub, which is where
    the old text semantics silently let every row through. */
 const priced: NoteMeta[] = [

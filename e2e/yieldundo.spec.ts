@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// Yield board undo history (SUB-323): ⌘Z / ⌘⇧Z step board mutations —
+// Yield board undo history: ⌘Z / ⌘⇧Z step board mutations —
 // snapshot adds and claims — through the same write paths the mutations
 // used, so the csv body and the claimed_usd prop stay in step.
 // Runs against the deterministic mock Yield APR fixture (14 rows, last 232).
@@ -34,7 +34,7 @@ test("⌘Z removes an added snapshot, ⌘⇧Z brings it back", async ({ page }) 
 
 test("⌘Z reverts a claim — the claimed split leaves the Accrued metric", async ({ page }) => {
   const accrued = page.locator(".dash-metric", { hasText: "Accrued" });
-  // two-click claim (SUB-322)
+  // two-click claim
   await page.locator(".dash-claim").click();
   await page.locator(".dash-claim").click();
   await expect(accrued).toContainText("claimed");
@@ -47,7 +47,7 @@ test("⌘Z reverts a claim — the claimed split leaves the Accrued metric", asy
   await expect(accrued).toContainText("claimed");
 });
 
-// SUB-665 — the two ⌘Z owners used to both answer one press. App's window
+// The two ⌘Z owners used to both answer one press. App's window
 // listener registers first (bubble phase, at mount), so the board's
 // preventDefault could not suppress it: one keystroke rewrote the board note
 // AND undid an unrelated session edit, toasting only the latter. The registry

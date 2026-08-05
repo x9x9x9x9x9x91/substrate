@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// CSV import (SUB-274): palette action → file pick → column choices → a new
+// CSV import: palette action → file pick → column choices → a new
 // database created through the same vault_create_type path as "New database",
 // one vault_create per row. The browser flow picks via a hidden
 // <input type=file> (the mock has no native dialog), driven here through
@@ -9,7 +9,7 @@ import { expect, test } from "@playwright/test";
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   // first paint doubles as the "window key listeners attached" barrier (cold
-  // open lands on Notes — Today is a destination, SUB-300)
+  // open lands on Notes — Today is a destination)
   await expect(page.locator(".list-title")).toHaveText("Notes");
 });
 

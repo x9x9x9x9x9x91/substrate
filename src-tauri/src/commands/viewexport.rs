@@ -1,4 +1,4 @@
-//! Saved view → link folder on disk (SUB-810).
+//! Saved view → link folder on disk.
 //!
 //! Three commands, all explicit: ask where a view exports to, run the
 //! export/regenerate, and forget the target when the pin goes away. The

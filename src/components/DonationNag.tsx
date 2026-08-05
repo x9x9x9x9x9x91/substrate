@@ -14,12 +14,12 @@ import {
 } from "../lib/donate";
 import { XIcon } from "./Icons";
 
-/** The €1 nag (SUB-419) — a quiet banner, not a modal: it lands at the bottom
+/** The €1 nag — a quiet banner, not a modal: it lands at the bottom
     of the window on app boot, never over work in progress, and never steals
     focus from the editor. Esc or the close button dismisses it for this
     session; the checkbox retires it for good.
 
-    Its innards ride the shared dialog grammar (SUB-1168) — dbform-note for the
+    Its innards ride the shared dialog grammar — dbform-note for the
     sentence, dbform-foot for the action row, dbform-x + XIcon for dismiss — so
     only the toast shell is its own. It deliberately does NOT compose `overlay`
     the way the dbform dialogs do: a backdrop would put it on top of work in
@@ -47,7 +47,7 @@ export default function DonationNag() {
     setOpen(showing);
   }, []);
 
-  // Listen from mount, not from `open` (SUB-503): gating this on `open` put the
+  // Listen from mount, not from `open`: gating this on `open` put the
   // listener in a later commit than the one that paints the banner, so an Esc
   // pressed the instant it appeared hit no handler and the nag stayed up.
   // Closing an already-closed nag is a no-op, so listening while hidden is free.

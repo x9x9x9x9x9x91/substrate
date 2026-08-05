@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { DANGER, OK, RGB, RUNNING, WARN } from "./tokens.ts";
 
-/* SUB-1152: the failure this guards is not a wrong colour, it's a colour that
+/* The failure this guards is not a wrong colour, it's a colour that
    stops following the theme — a hex typed into a component looks right the
    day it's written and then silently ignores every later edit to the token it
    was copied from. */

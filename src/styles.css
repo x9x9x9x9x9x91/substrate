@@ -1,5 +1,5 @@
 :root {
-  /* SUB-89: the grey ramp is NEUTRAL (equal-ish RGB, no cool tint) — the blue
+  /* The grey ramp is NEUTRAL (equal-ish RGB, no cool tint) — the blue
      cast we flagged came from cool-hued greys; indigo lives only in
      interactive tokens (--accent/--link), never in surfaces or text greys */
   --bg: #090909;
@@ -8,7 +8,7 @@
   --border: rgba(255, 255, 255, 0.09);
   --border-soft: rgba(255, 255, 255, 0.06);
   --border-strong: rgba(255, 255, 255, 0.14);
-  /* SUB-936: db-grid column rules only — fainter than --border-soft so the
+  /* `db-grid` column rules only — fainter than --border-soft so the
      grid orients without competing with the row hairlines */
   --grid-line: rgba(255, 255, 255, 0.04);
   --text-1: #f5f6f6;
@@ -21,12 +21,12 @@
   /* dense many-row tables (the dashboard panes) want a fainter hover than
      --hover: at high row density the stronger wash flickers as the pointer
      crosses rows. Same weight the dashboard rows have always used, named
-     so the next dense table gets it right by default (SUB-531). */
+     so the next dense table gets it right by default. */
   --hover-dense: rgba(255, 255, 255, 0.03);
   /* the faintest raised surface: a control face at rest (checkbox, kbd chip),
      a quiet state wash, a pre block. Same weight as --hover-dense and a
      different job — making dense hover fainter should not repaint every
-     checkbox in the app, which is why this is its own name (SUB-1152). */
+     checkbox in the app, which is why this is its own name. */
   --surface-faint: rgba(255, 255, 255, 0.03);
   /* the unfilled part of a bar or rail — progress tracks, quota bars, the
      mastering range. A ground for a fill to sit on, not a hairline: it shares
@@ -35,20 +35,20 @@
   /* the selected/active wash. Deliberately declared, not aliased to --border:
      it happens to land on the same weight, but a hairline and a selection
      wash are unrelated roles and a change to one shouldn't ride along on the
-     other (SUB-1152 — they were identical and nothing said whether that was
+     other (they were identical and nothing said whether that was
      derivation or coincidence; it is coincidence). */
   --active: rgba(255, 255, 255, 0.09);
   --danger: #eb5757;
   --ok: #4cb782;
-  /* the attention amber (SUB-1151): "worth a look", between --ok and the
+  /* the attention amber: "worth a look", between --ok and the
      act-now --danger. It sat as two different hand-typed hexes on five
      surfaces, each commented as THE amber; this is the one they all mean.
      Not an --opt-* — those are user schema colours, chosen by the user. */
   --warn: #d9a02b;
-  /* pale tint of --ok for "progressing, not there yet" states (SUB-977) */
+  /* pale tint of --ok for "progressing, not there yet" states */
   --ok-soft: color-mix(in srgb, var(--ok) 55%, #fff);
   /* select-option dot palette — meaning-carrying marks only, never chrome;
-     saturated enough to pop on the neutral ground (SUB-89), Linear-dosage */
+     saturated enough to pop on the neutral ground, Linear-dosage */
   --opt-gray: #8d939e;
   --opt-blue: #609ae8;
   --opt-indigo: #7d8cf0;
@@ -85,14 +85,14 @@
   --code-type: #8fb3c9;
   --font: "Inter Variable", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
-  /* Dashboard instrument language (SUB-409). Mono carries data and labels,
+  /* Dashboard instrument language. Mono carries data and labels,
      Inter carries the title and sentences; structure is hairlines, never
      boxes; hue stays in the interactive/state tokens above. --text-4 extends
-     the SUB-89 neutral ramp one step (same tint delta as --text-3), for plot
+     the neutral ramp one step (same tint delta as --text-3), for plot
      axes and page footers only. */
   --hair: rgba(255, 255, 255, 0.1);
   --hair-soft: rgba(255, 255, 255, 0.055);
-  /* SUB-943's strong page rule, routed through SUB-955's tone family. The
+  /* The strong page rule, routed through the tone family. The
      default is the chosen sky fade; preset and fine-tune changes move every
      stop with the dashboard ink instead of leaving literal sky behind. */
   --hairline-accent: linear-gradient(
@@ -105,7 +105,7 @@
   --text-4: #54565a;
   --bg-input: #0d0d0e;
   --r: 2px;
-  /* The one app-chrome slot (SUB-468): the keyboard button sits fixed at this
+  /* The one app-chrome slot: the keyboard button sits fixed at this
      viewport coordinate on every desktop view, aligned with the note-tools
      row (.main's 8px margin + 1px border, then note-tools' 10px padding) and
      14px inside .main's right edge. Every pane that loads controls on that
@@ -120,7 +120,7 @@
   --dash-sentence: 400 13px/1.5 var(--font); /* prose, hints */
 }
 
-/* Bounded style tokens (SUB-969) — the ONLY place an author's accent name
+/* Bounded style tokens — the ONLY place an author's accent name
    becomes a colour. A board writes `accent: teal`, the renderer emits
    `data-accent="teal"` after checking the name against the option roster
    (src/lib/styletokens.ts), and these ten rules resolve it. Nothing else in
@@ -301,7 +301,7 @@ button:focus-visible,
   height: 100vh;
 }
 
-/* SUB-822 — whole-vault history floats above the normal shell. It changes
+/* Whole-vault history floats above the normal shell. It changes
    the shell's geometry (rather than covering it), so the banner never hides
    note tools or the sidebar's first row. */
 .app.time-travel-open {
@@ -413,7 +413,7 @@ button:focus-visible,
   padding: 0;
 }
 
-/* SUB-822: the past has to read as a different room at a glance. The old cue
+/* The past has to read as a different room at a glance. The old cue
    was `filter: saturate(0.35)` on the sidebar/main, which was both too quiet
    on already-desaturated chrome and a real layout bug: a filtered element
    becomes the containing block for its `position: fixed` descendants, so the
@@ -463,8 +463,8 @@ button:focus-visible,
 }
 
 .sidebar {
-  /* yields below ~954px window width so the note column keeps room (SUB-151);
-     SUB-686 widened the ceiling — labels truncated too early at 218px */
+  /* yields below ~954px window width so the note column keeps room;
+     the ceiling was widened — labels truncated too early at 218px */
   width: clamp(160px, 26vw, 248px);
   flex: none;
   display: flex;
@@ -477,7 +477,7 @@ button:focus-visible,
   flex: none;
 }
 
-/* collapsed-sidebar rail (SUB-394): clears the macOS traffic lights (overlay
+/* collapsed-sidebar rail: clears the macOS traffic lights (overlay
    titlebar, ~72px) and carries the reveal button while the content panes take
    the rest of the width */
 .sidebar-rail {
@@ -512,7 +512,7 @@ button:focus-visible,
   display: none;
 }
 
-/* SUB-259: the boundary hairline appears only once rows scroll under the
+/* The boundary hairline appears only once rows scroll under the
    fixed header — inset shadow, so it never shifts layout */
 .sidebar-head.scrolled {
   box-shadow: inset 0 -1px 0 var(--border-soft);
@@ -590,9 +590,9 @@ button.side-item {
   font-variant-numeric: tabular-nums;
 }
 
-/* SUB-611: quiet chip on a db-homed folder row — the row keeps the folder's
+/* Quiet chip on a db-homed folder row — the row keeps the folder's
    on-disk name; this is the one hint that clicking opens the database view
-   (the .head-kind idiom at row scale). SUB-686: pinned to the row's right
+   (the .head-kind idiom at row scale). Pinned to the row's right
    edge — mid-row it read as clutter between label and count. */
 .side-db-chip {
   font-size: 8.5px;
@@ -647,9 +647,9 @@ button.side-item {
   padding-bottom: 6px;
 }
 
-/* SUB-627: an overflowing tree used to hard-clip its last row against
+/* An overflowing tree used to hard-clip its last row against
    .side-bottom's divider — half a row, and nothing saying more was below.
-   Same gate idiom as the table edges (SUB-195/207): the fade paints only
+   Same gate idiom as the table edges: the fade paints only
    while the scroller can still move down, so at the stop the last row
    renders crisp, and a tree that fits never fades. A mask, not a scrim, so
    it needs no background token and can't drift from the sidebar's ground. */
@@ -658,7 +658,7 @@ button.side-item {
   mask-image: linear-gradient(to bottom, black calc(100% - 20px), transparent);
 }
 
-/* the head's hairline (SUB-259) already says rows passed under it, but the row
+/* the head's hairline already says rows passed under it, but the row
    itself still clipped mid-glyph — same gate, other end, off at scroll 0 */
 .sidebar-scroll.side-scrolled-y {
   -webkit-mask-image: linear-gradient(to bottom, transparent, black 14px);
@@ -682,7 +682,7 @@ button.side-item {
   );
 }
 
-/* SUB-1001: the same gate, generalised. Five surfaces were clipping content
+/* The same gate, generalised. Five surfaces were clipping content
    mid-glyph at a container edge with nothing saying more was there; rather
    than five bespoke fades, any scroller opting in via useEdgeFade() gets this
    one. Depths match the sidebar (14px in, 20px out) so every fade in the app
@@ -807,7 +807,7 @@ button.side-item {
 
 /* the chevron's gutter without the chevron: 11px matches the chevron's
    effective advance (14px wide, -3px margin), so a row that has no twisty
-   still lands its icon in the shared column (SUB-618) */
+   still lands its icon in the shared column */
 .side-chevron-spacer {
   flex: none;
   width: 11px;
@@ -826,7 +826,7 @@ button.side-item {
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
-/* a note dragged over the Pinned section header (SUB-410) */
+/* a note dragged over the Pinned section header */
 .side-label-row.drop-target {
   background: var(--accent-soft);
   color: var(--text-1);
@@ -919,7 +919,7 @@ button.side-item {
   }
 }
 
-/* SUB-945: one pop-in for every anchored menu. The context menu and the
+/* One pop-in for every anchored menu. The context menu and the
    palette animated; the property/date/column/dots popovers appeared
    instantly, so the same kind of click read as two different surfaces.
    The menu grows out of its trigger — origin top-left when it drops, and
@@ -1043,7 +1043,7 @@ button.side-item {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
-/* SUB-951 — the desktop shining through, at `window-opacity` percent.
+/* The desktop shining through, at `window-opacity` percent.
 
    Only two surfaces take the alpha: the window ground and `.main`. `--bg` and
    `--bg-panel` themselves stay OPAQUE, because ~20 other rules use them as a
@@ -1061,7 +1061,7 @@ button.side-item {
    plain webview, iOS and the e2e mock never take this path — their window is
    opaque exactly as before, and `color-mix` rather than an rgba() literal so
    both surfaces keep reading their existing tokens — no new grey enters the
-   ramp (SUB-89). */
+   ramp. */
 /* index.html paints the canvas `#08090a` inline so the window can't flash
    white before React mounts. That ground sits BEHIND body, so leaving it
    opaque would have the translucent surfaces composite against it and the OS
@@ -1088,7 +1088,7 @@ html.vibrancy .main {
 }
 
 /* 44px matches .sidebar-drag, so the sidebar's and the content pane's
-   hairlines meet as one line (SUB-468) */
+   hairlines meet as one line */
 .list-head {
   display: flex;
   align-items: center;
@@ -1100,7 +1100,7 @@ html.vibrancy .main {
 }
 
 /* Heads that reach the window's right edge load their controls there, so they
-   reserve the fixed chrome slot (SUB-468). The narrow .list column never sits
+   reserve the fixed chrome slot. The narrow .list column never sits
    under the slot and keeps its full width; the database grid only reaches the
    edge while no entry is open beside it. */
 .cal .list-head,
@@ -1125,7 +1125,7 @@ html.vibrancy .main {
   font-variant-numeric: tabular-nums;
 }
 
-/* SUB-400: quiet kind word ("Folder" / "Database" / "Dashboard") naming what
+/* Quiet kind word ("Folder" / "Database" / "Dashboard") naming what
    the open view IS — headers otherwise read identically across kinds */
 .head-kind {
   font-size: 10.5px;
@@ -1139,7 +1139,7 @@ html.vibrancy .main {
   flex: none;
 }
 
-/* SUB-1165: back chevron — leads the header, .list-new's shape mirrored to
+/* Back chevron — leads the header, .list-new's shape mirrored to
    the leading edge. Present only while there is somewhere to return to, so
    the header's left edge is quiet in the views you start from. */
 .list-back {
@@ -1164,7 +1164,7 @@ html.vibrancy .main {
   color: var(--text-1);
 }
 
-/* SUB-584: folder header "+" — births a note (or the home database's entry)
+/* Folder header "+" — births a note (or the home database's entry)
    in the open folder; sits at the header's far edge, .sidebar-new's shape */
 .list-new {
   display: flex;
@@ -1282,7 +1282,7 @@ html.vibrancy .main {
   background: var(--border-soft);
 }
 
-/* SUB-461 windowing: the anchor marks where the notes region starts (the
+/* Windowing: the anchor marks where the notes region starts (the
    measure effect reads its offset), the spacers stand in for the rows outside
    the painted slice so the scroll height matches a full render. */
 .list-win-anchor {
@@ -1301,7 +1301,7 @@ html.vibrancy .main {
   color: var(--text-3);
 }
 
-/* SUB-266: a clickable dead-end hint — the did-you-mean case applies the
+/* A clickable dead-end hint — the did-you-mean case applies the
    corrected query on click */
 button.empty-hint-fix {
   border: none;
@@ -1358,7 +1358,7 @@ button.empty-hint-fix:hover {
   padding: 44px clamp(24px, 4.5vw, 56px) 120px;
 }
 
-/* external-truth banners (SUB-93 conflict / SUB-94 gone): quiet inline strip
+/* external-truth banners (conflict / gone): quiet inline strip
    under the title — no toast, no modal */
 .note-feedback {
   position: sticky;
@@ -1407,7 +1407,7 @@ button.empty-hint-fix:hover {
   border-color: var(--border-strong);
 }
 
-/* SUB-430: broken frontmatter — the block is invisible to the editor, so a
+/* Broken frontmatter — the block is invisible to the editor, so a
    quiet strip between the props and the body names it and opens the repair
    dialog. Hairline + err-dot, the save-error lane's warning vocabulary. */
 .fm-banner {
@@ -1463,7 +1463,7 @@ button.empty-hint-fix:hover {
   color: var(--text-3);
 }
 
-/* SUB-132: body-write failure — quiet persistent pill under the title until
+/* Body-write failure — quiet persistent pill under the title until
    a write succeeds; the button IS the retry */
 .save-error {
   display: flex;
@@ -1504,7 +1504,7 @@ button.empty-hint-fix:hover {
   padding: 0 2px;
 }
 
-/* template header (SUB-59): fixed type name + muted marker, same metrics */
+/* template header: fixed type name + muted marker, same metrics */
 .note-title-template {
   display: flex;
   align-items: baseline;
@@ -1518,7 +1518,7 @@ button.empty-hint-fix:hover {
   color: var(--text-3);
 }
 
-/* day-steppers (SUB-176): 26px square hit areas via .note-tool, quiet until
+/* day-steppers: 26px square hit areas via .note-tool, quiet until
    hovered */
 .daily-nav {
   flex: none;
@@ -1584,7 +1584,7 @@ button.empty-hint-fix:hover {
   text-overflow: ellipsis;
 }
 
-/* born-empty schema chips (SUB-17) collapse to a key-only pill */
+/* born-empty schema chips collapse to a key-only pill */
 .chip-val:empty {
   display: none;
 }
@@ -1712,7 +1712,7 @@ button.empty-hint-fix:hover {
 /* Visual labels stay inert so clicks reach the full-row primary action —
    but the remove control must stay out of this blanket: it out-specificities
    the .chip-x hover/focus reveal, so an × click would fall through to the
-   overlay and open the editor instead of removing (SUB-399). The base
+   overlay and open the editor instead of removing. The base
    .chip-x rules keep it pointer-inert until the row is hovered. */
 .prop-rows .prop-row:has(> .chip-primary) > :not(.chip-primary, .chip-x) {
   pointer-events: none;
@@ -1769,7 +1769,7 @@ button.empty-hint-fix:hover {
   display: none;
 }
 
-/* born-empty schema rows (SUB-17): a quiet affordance in the value column —
+/* born-empty schema rows: a quiet affordance in the value column —
    the chip-val itself stays empty (its :empty collapse and the e2e contract
    are untouched) */
 .prop-rows .prop-empty {
@@ -2049,7 +2049,7 @@ button.empty-hint-fix:hover {
   border-left-color: var(--text-1);
 }
 
-/* the empty-doc cue (ghost dailies, SUB-320) recedes to the quietest text */
+/* the empty-doc cue (ghost dailies) recedes to the quietest text */
 .cm-editor .cm-placeholder {
   color: var(--text-3);
 }
@@ -2092,7 +2092,7 @@ button.empty-hint-fix:hover {
   opacity: 0.58;
   /* the ⌄/› glyphs sit low in their em box and the line box centers on the
      full line (descender included) — lift to the heading's cap-height center
-     and pull toward the text so the gap matches other markers (SUB-149) */
+     and pull toward the text so the gap matches other markers */
   transform: translate(2px, -5px);
 }
 
@@ -2113,7 +2113,7 @@ button.empty-hint-fix:hover {
   padding: 0 3px;
 }
 
-/* SUB-834: a calc line's answer, rendered after the expression and never
+/* A calc line's answer, rendered after the expression and never
    written to the document. Muted on purpose — the expression is the content,
    this is the app answering it. Unselectable so a ⌘A copy of the note yields
    the markdown the file actually holds. */
@@ -2139,7 +2139,7 @@ button.empty-hint-fix:hover {
   cursor: help;
 }
 
-/* SUB-825: a live value in prose, rendered in place of its `= expr` span.
+/* A live value in prose, rendered in place of its `= expr` span.
    Reads as the sentence's own text — no chip chrome, no second grey — with
    only the faint tint and the tabular figures marking it as computed rather
    than typed. Unselectable for the same reason the calc answer is: a ⌘A copy
@@ -2171,7 +2171,7 @@ button.empty-hint-fix:hover {
   text-decoration: underline;
 }
 
-/* SUB-244: find-in-note panel (⌘F) — the stock CodeMirror panel is light
+/* Find-in-note panel (⌘F) — the stock CodeMirror panel is light
    chrome; reskin it with the app tokens (compound selectors beat the
    runtime-injected base theme) */
 .cm-editor .cm-panels {
@@ -2272,7 +2272,7 @@ button.empty-hint-fix:hover {
   outline-offset: 1px;
 }
 
-/* SUB-269: [[ wikilink completion popup — palette language (elevated panel,
+/* [[ wikilink completion popup — palette language (elevated panel,
    hairline edge, accent-bar selected row), no stock light tooltip */
 .cm-editor .cm-tooltip.cm-tooltip-autocomplete {
   background: var(--bg-elevated);
@@ -2360,7 +2360,7 @@ button.empty-hint-fix:hover {
 }
 
 /* an accented callout carries its mood on the left rule while it is being
-   written, matching how the hub board renders it (SUB-969). The glyph keeps
+   written, matching how the hub board renders it. The glyph keeps
    the kind hue: type and mood are two different marks. */
 .cm-editor .cm-line.cm-callout-line[data-accent] {
   border-left-color: var(--accent-tint);
@@ -2415,7 +2415,7 @@ button.empty-hint-fix:hover {
   .editor-shell.with-outline .editor-outline {
     position: fixed;
     top: 22px;
-    /* clears the fixed chrome slot (SUB-496) — no -9px correction here: this
+    /* clears the fixed chrome slot — no -9px correction here: this
        box is positioned against the viewport, not inside .main */
     right: calc(var(--chrome-x) + var(--chrome-slot));
     width: 160px;
@@ -2521,7 +2521,7 @@ button.empty-hint-fix:hover {
   color: var(--text-1);
 }
 
-/* ```view embed (SUB-86): a read-only inline database table inside the note.
+/* ```view embed: a read-only inline database table inside the note.
    Same greyscale chrome as .cm-md-table, framed as one quiet card. */
 .embed-view {
   margin: 6px 0;
@@ -2551,7 +2551,7 @@ button.empty-hint-fix:hover {
   font-weight: 400;
 }
 
-/* quiet right-aligned › — the header's visible open-database cue (SUB-145) */
+/* quiet right-aligned › — the header's visible open-database cue */
 .embed-view-open {
   margin-left: auto;
   color: var(--text-3);
@@ -2592,7 +2592,7 @@ button.empty-hint-fix:hover {
   color: var(--text-1);
 }
 
-/* SUB-796: the row is no longer one target. The title cell navigates (hence
+/* The row is no longer one target. The title cell navigates (hence
    the pointer); every other cell edits, so it reads as a field, and a derived
    rollup reads as neither. */
 .embed-view-table tbody tr {
@@ -2628,7 +2628,7 @@ button.empty-hint-fix:hover {
 }
 
 /* the "+ New" affordance sits below the cap line: hiding rows never means the
-   table is closed to new ones (SUB-796) */
+   table is closed to new ones */
 .embed-view-new {
   display: block;
   width: 100%;
@@ -2683,7 +2683,7 @@ button.empty-hint-fix:hover {
   padding: 2px 8px;
 }
 
-/* SUB-444: "not on this device" is not damage — vault sync ships notes and
+/* "not on this device" is not damage — vault sync ships notes and
    deliberately leaves `.assets/` behind, so this state is expected on a
    synced phone. One step quieter than the broken placeholder: solid hairline
    instead of the dashed "something is wrong" border, same neutral ink. */
@@ -2693,7 +2693,7 @@ button.empty-hint-fix:hover {
   font-style: italic;
 }
 
-/* file chip (SUB-202): quiet single-line pill for non-media embeds — same
+/* file chip: quiet single-line pill for non-media embeds — same
    weight family as .cm-embed-missing, hover/focus states from .cm-audio */
 .cm-filechip {
   display: inline-flex;
@@ -2814,7 +2814,7 @@ button.empty-hint-fix:hover {
 }
 
 /* transient result feedback (e.g. folder rescan) — quiet, auto-dismissed.
-   A step above the 12px chrome scale (SUB-471): it must register from the
+   A step above the 12px chrome scale: it must register from the
    corner of the eye in its 4s on screen. */
 .toast {
   position: fixed;
@@ -2835,7 +2835,7 @@ button.empty-hint-fix:hover {
   gap: 10px;
 }
 
-/* toast action (SUB-263: Undo) — same quiet hairline as note-banner buttons */
+/* toast action (Undo) — same quiet hairline as note-banner buttons */
 .toast button {
   flex-shrink: 0;
   padding: 3px 9px;
@@ -2856,7 +2856,7 @@ button.empty-hint-fix:hover {
   border-color: var(--border-strong);
 }
 
-/* SUB-806: dismiss ✕ on sticky toasts (updater) — quieter than the action
+/* Dismiss ✕ on sticky toasts (updater) — quieter than the action
    button; it's the escape hatch, not the offer. `.toast button` outranks a
    bare class, so this selector must carry the same specificity + order */
 .toast button.toast-dismiss {
@@ -2873,7 +2873,7 @@ button.empty-hint-fix:hover {
   color: var(--text-1);
 }
 
-/* SUB-272: the table multi-select action bar — the toast's floating-pill
+/* The table multi-select action bar — the toast's floating-pill
    language, but it stays put while a selection lives (no auto-dismiss) */
 .bulkbar {
   position: fixed;
@@ -2894,7 +2894,7 @@ button.empty-hint-fix:hover {
   gap: 6px;
 }
 
-/* SUB-945: it arrived on a curve and left on a cut. Same closing idiom as the
+/* It arrived on a curve and left on a cut. Same closing idiom as the
    palette overlay — the pane holds it mounted for one 90ms fade. */
 .bulkbar.closing {
   opacity: 0;
@@ -2913,7 +2913,7 @@ button.empty-hint-fix:hover {
   font-variant-numeric: tabular-nums;
 }
 
-/* SUB-1166: the same count, but it is now naming what went wrong */
+/* The same count, but it is now naming what went wrong */
 .bulkbar-count.is-fail {
   color: var(--danger);
 }
@@ -2966,7 +2966,7 @@ button.empty-hint-fix:hover {
   }
 }
 
-/* SUB-133: vault-list read failure — persistent bar over the main pane's top
+/* Vault-list read failure — persistent bar over the main pane's top
    edge (fixed, so it stays out of the .app flex row; the left inset mirrors
    .sidebar's width clamp + .main's 8px gap, so it tracks the sidebar at
    every window width — a bare 256px only lined up at the clamp ceiling) */
@@ -3053,7 +3053,7 @@ button.empty-hint-fix:hover {
   color: var(--text-3);
 }
 
-/* SUB-113: capture-window save failure — text stays put, Enter retries */
+/* Capture-window save failure — text stays put, Enter retries */
 .capture-error {
   padding: 0 18px 10px;
   color: var(--danger);
@@ -3089,7 +3089,7 @@ button.empty-hint-fix:hover {
   margin-left: auto;
 }
 
-/* SUB-1001: was the last unconditional bottom fade — it dissolved the final
+/* Was the last unconditional bottom fade — it dissolved the final
    result at the bottom stop. Now rides the shared gate (.edge-fade-y), which
    paints only toward the side the list can still scroll. The bottom padding
    stays as clearance so the last row clears the footer's hairline. */
@@ -3109,7 +3109,7 @@ button.empty-hint-fix:hover {
   color: var(--text-3);
 }
 
-/* SUB-262: zero-hit query signal — one muted, non-selectable row */
+/* Zero-hit query signal — one muted, non-selectable row */
 .palette-empty {
   display: flex;
   align-items: center;
@@ -3188,16 +3188,16 @@ button.empty-hint-fix:hover {
   background: var(--surface-faint);
 }
 
-/* Tray mini-agenda popover (SUB-30) — palette chrome, greyscale rows; color
-   only on meaning-carrying dots (SUB-25 dosage): due = yellow, overdue = red. */
-/* SUB-746: the tray popover's window is transparent, so its frame must not
+/* Tray mini-agenda popover — palette chrome, greyscale rows; color
+   only on meaning-carrying dots: due = yellow, overdue = red. */
+/* The tray popover's window is transparent, so its frame must not
    paint — the card owns the background, border and 12px radius. Scoped to
    agenda.html's body class; the main and capture windows keep `var(--bg)`. */
 body.agenda-window {
   background: transparent;
 }
 
-/* SUB-754: same trap as `.palette.capture-palette .palette-foot` below — the
+/* Same trap as `.palette.capture-palette .palette-foot` below — the
    tray popover is a 340px-wide DESKTOP window, so the phone breakpoint fires
    inside it and strips the designed hints. Keep the esc foot and row hints. */
 body.agenda-window .palette-foot {
@@ -3218,7 +3218,7 @@ body.agenda-window .palette-hint {
   color: var(--text-3);
 }
 
-/* SUB-761: the listbox container (agenda.tsx) — a layout passthrough, not a
+/* The listbox container (agenda.tsx) — a layout passthrough, not a
    visual layer. It wraps the scroller and the pinned Capture row so one
    element owns every option row; to leave the card's layout byte-identical it
    repeats the flex column the card had and hands its own free space straight
@@ -3258,7 +3258,7 @@ body.agenda-window .palette-hint {
     color 120ms ease-out;
 }
 
-/* SUB-755: keyboard selection and hover are the same visible state — the two
+/* Keyboard selection and hover are the same visible state — the two
    can never disagree, because hover sets the selection (agenda.tsx
    `onMouseMove`) rather than painting a second highlight of its own. Same
    tokens as `.palette-item.selected`, one rule instead of two. */
@@ -3272,7 +3272,7 @@ body.agenda-window .palette-hint {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-/* SUB-755: the card takes programmatic focus on open (it owns the key model),
+/* The card takes programmatic focus on open (it owns the key model),
    which makes Chromium paint its default focus ring around the whole popover.
    The selected row carries the visible state instead. Scoped to the tray
    window so the main ⌘K palette — which focuses its input, not the card —
@@ -3328,7 +3328,7 @@ body.agenda-window .palette:focus-visible {
   border-radius: 0 0 7px 7px;
 }
 
-/* the ? cheat sheet (SUB-28) — palette chrome, static rows */
+/* the ? cheat sheet — palette chrome, static rows */
 .shortcut-sheet {
   width: 480px;
   max-width: calc(100vw - 80px);
@@ -3362,7 +3362,7 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-1);
 }
 
-/* SUB-1001: this fade used to be unconditional, so the sheet dissolved its own
+/* This fade used to be unconditional, so the sheet dissolved its own
    last row even at the bottom stop — "Show app files" read as a rendering bug
    at a 900px window height. It now rides the shared gate (.edge-fade-y), which
    turns the fade off wherever the scroller can't move further. The bottom
@@ -3391,7 +3391,7 @@ body.agenda-window .palette:focus-visible {
   gap: 4px;
 }
 
-/* The unified keyboard button + contextual fold-out panel (SUB-396, SUB-468) —
+/* The unified keyboard button + contextual fold-out panel —
    the note-tool idiom (borderless, hover ground) at the fixed chrome slot, so
    it completes the note's [clock][⋯] row at the corner and still stands alone
    on views that have no note tools. Below the overlays. */
@@ -3461,7 +3461,7 @@ body.agenda-window .palette:focus-visible {
   row-gap: 2px;
 }
 
-/* the foot is the route to the full sheet (SUB-468) — a real button, dressed
+/* the foot is the route to the full sheet — a real button, dressed
    as the quiet strip it already was */
 .keyhints-foot {
   display: flex;
@@ -3485,7 +3485,7 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-2);
 }
 
-/* the sheet's ghost action (SUB-467), right-aligned against the esc hint */
+/* the sheet's ghost action, right-aligned against the esc hint */
 .sheet-assign-btn {
   margin-left: auto;
   padding: 1px 7px;
@@ -3509,7 +3509,7 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-3);
 }
 
-/* Key-assign HUD (SUB-467) — the sheet's chrome at panel scale, parked bottom
+/* Key-assign HUD — the sheet's chrome at panel scale, parked bottom
    right. Deliberately NOT an overlay: the sidebar underneath must stay live,
    because assigning a key IS a drag onto a sidebar row. */
 .key-hud {
@@ -3626,7 +3626,7 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-1);
 }
 
-/* SUB-485: free but standing on a pinned view's shortcut — reads as available
+/* Free but standing on a pinned view's shortcut — reads as available
    at a lower weight, still grabbable, and comes fully forward on hover so the
    drag never feels blocked */
 .key-chip-shadow {
@@ -3652,7 +3652,7 @@ body.agenda-window .palette:focus-visible {
   transition: opacity 120ms ease-out;
 }
 
-/* Hold-modifier HUD (SUB-490) — the same shell as the click panel above,
+/* Hold-modifier HUD — the same shell as the click panel above,
    sharing its anchor so the two read as one surface in two states. It differs
    by SUBTRACTION, not restyling: denser rows, no hover or selected states, no
    footer. The absence of interactivity is the signal that this thing is a
@@ -3743,7 +3743,7 @@ body.agenda-window .palette:focus-visible {
   padding: 1px 4px;
 }
 
-/* Ableton-style info view (SUB-416): a persistent pointer readout docked into
+/* Ableton-style info view: a persistent pointer readout docked into
    the lower-left sidebar. It claims real layout space instead of obscuring
    the bottom navigation; the scrollable tree yields while it is open. */
 .info-view {
@@ -3828,7 +3828,7 @@ body.agenda-window .palette:focus-visible {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
 }
 
-/* SUB-452: the lower-left "about the app" cluster. The controls share the
+/* The lower-left "about the app" cluster. The controls share the
    ?'s own row so they stay adjacent; the readout panel above still spans the
    full sidebar column. */
 .info-view-row {
@@ -3873,13 +3873,13 @@ body.agenda-window .palette:focus-visible {
   }
 }
 
-/* ————— dashboard instrument language (SUB-409) —————
+/* ————— dashboard instrument language —————
    One header, one label voice, one data voice, hairline structure. The page
    is a spec sheet: mono uppercase micro-labels, ruled stat rows instead of
    boxed cards, round state dots, --r radii. Inter speaks only in the
    title and in sentences. */
 
-/* ————— accent tone table (SUB-955) —————
+/* ————— accent tone table —————
    Four curated tones for the accent family above, plus a bounded hue nudge.
    The owner's call (03.08): presets as the base, a fine-tune slider around
    them —
@@ -3888,7 +3888,7 @@ body.agenda-window .palette:focus-visible {
    Every value is written as hsl() with its hue inside a calc, so ONE
    variable — --tone-nudge, in degrees, written by the Settings slider —
    rotates the whole family coherently. Sky is the :root default and carries
-   the exact HSL of the shipped SUB-932 hexes (hsl(200.6 77.1% 67.5%) IS
+   the exact HSL of the shipped hexes (hsl(200.6 77.1% 67.5%) IS
    #6cc0ec, asserted in lib/appearance.test.ts), so a default vault renders
    the shipped look with no attribute set and no arithmetic that can drift.
 
@@ -3905,9 +3905,9 @@ body.agenda-window .palette:focus-visible {
    maps them onto the same tokens, so a toned dashboard prints in its own ink
    rather than reverting to sky's. */
 
-/* sky — the shipped SUB-932 family: its numbers ARE the V1 hexes */
+/* sky — the shipped family: its numbers ARE the V1 hexes */
 :root {
-  /* degrees of hue offset around the chosen tone, ±12 (SUB-955) */
+  /* degrees of hue offset around the chosen tone, ±12 */
   --tone-nudge: 0;
 
   --tone-accent: hsl(calc((200.6 + var(--tone-nudge)) * 1deg) 77.1% 67.5%);
@@ -4000,7 +4000,7 @@ body.agenda-window .palette:focus-visible {
   --tone-paper-series-5: #8f7a3f;
 }
 
-/* The dashboard accent family (SUB-932, owner's call: pure b/w reads flat;
+/* The dashboard accent family (owner's call: pure b/w reads flat;
    V1 "sky" picked from the 03.08 contact sheet). One family, never per-widget
    hues, and SCOPED to the dashboard surfaces — a :root swap would repaint
    sidebar selection, every focus ring and the whole app's interactive indigo,
@@ -4020,7 +4020,7 @@ body.agenda-window .palette:focus-visible {
    dashboard it pages through — it sits outside .dash-inner in the DOM, so
    without this its active rule would stay app-indigo under a sky body.
 
-   SUB-955 splits the VALUES out into the tone table below: this block now
+   The VALUES live in the tone table below: this block now
    only says which family slot each token is, so a tone change moves the
    whole family at once and this scope list stays the one place that decides
    WHERE the family applies. */
@@ -4063,7 +4063,7 @@ body.agenda-window .palette:focus-visible {
   border-bottom: 1px solid var(--hair);
 }
 
-/* SUB-943: the two strong page hairlines carry the accent fade. Keep the
+/* The two strong page hairlines carry the accent fade. Keep the
    transparent border in the box model so the 1.5px paint never reflows the
    list or dashboard; the variable above makes the full gradient tone-aware. */
 .list-head,
@@ -4220,7 +4220,7 @@ body.agenda-window .palette:focus-visible {
 }
 
 
-/* ————— changelog (SUB-452, structured SUB-817, visual pass SUB-938) —————
+/* ————— changelog (structured, visual pass) —————
    A release history in the instrument language: the version is the section
    label's own text, the release name rides the label voice beside it, the
    date sits at the right end of the same rule. Headline items lead the
@@ -4231,7 +4231,7 @@ body.agenda-window .palette:focus-visible {
 
 .chlog-release {
   /* prose reads at a reading measure, not the 1120px dashboard grid — the
-     wide measure was the "wall of text" (SUB-938) */
+     wide measure was the "wall of text" */
   max-width: 720px;
 }
 
@@ -4311,7 +4311,7 @@ body.agenda-window .palette:focus-visible {
   margin-top: 14px;
 }
 
-/* the group label is a section voice, not a row (SUB-866): uppercase
+/* the group label is a section voice, not a row: uppercase
    micro-label closed by a trailing hairline, same anatomy as
    .dash-section-label one step down. No dot — a dotted label read as a
    bullet peer of the dotted headlines. The highlights label shares the
@@ -4358,7 +4358,7 @@ body.agenda-window .palette:focus-visible {
 }
 
 .chlog-mark {
-  /* a ✦ in the kind color — a highlight mark, not a state dot (SUB-938);
+  /* a ✦ in the kind color — a highlight mark, not a state dot;
      baseline-aligned with the row's first line by the flex parent */
   flex: none;
   font-size: 11px;
@@ -4409,7 +4409,7 @@ body.agenda-window .palette:focus-visible {
 }
 
 /* the positioning ground for a chart's one tooltip card — the card moves to
-   the hovered slot rather than one card existing per bar (SUB-941) */
+   the hovered slot rather than one card existing per bar */
 .chart-wrap {
   position: relative;
 }
@@ -4423,7 +4423,7 @@ body.agenda-window .palette:focus-visible {
   position: relative;
 }
 
-/* `size: tall` (SUB-969) — the only size token a chart fence can name. The
+/* `size: tall` — the only size token a chart fence can name. The
    number lives here and in BAR_PLOT_PX (ChartsDashboard.tsx); a fence names
    the token, never the height. */
 .dash-chart[data-size="tall"] {
@@ -4458,7 +4458,7 @@ body.agenda-window .palette:focus-visible {
   border-radius: 0;
   /* flat fill; --bar/--bar-hover carry the per-bar hue when the renderer has
      one — the schema hue on a colored select axis (pill idiom), or the
-     accent series ramp on an uncolored categorical axis (SUB-932). The
+     accent series ramp on an uncolored categorical axis. The
      fallback is the accent itself: a single-series chart is one series, so
      it wears the family's first colour rather than reading as grey. */
   background: var(--bar, var(--accent));
@@ -4504,11 +4504,11 @@ body.agenda-window .palette:focus-visible {
 
 /* A kept time label owns its hidden neighbours' room — thinning already
    guarantees the widest token fits in labelEvery columns, so render it whole
-   instead of ellipsizing to one column ("2025-…" ×9 says nothing, SUB-1087).
+   instead of ellipsizing to one column ("2025-…" ×9 says nothing).
    The box itself is sized to the token (width: max-content) and placed by the
    column's own flex cross-alignment, so the PAINTED text — not just the box —
    is centred on the bar: text-align cannot do this, since inline content that
-   overflows its box always spills to the inline end regardless (SUB-1087
+   overflows its box always spills to the inline end regardless (from
    review). The edge columns swap centring for an inward anchor, which bounds
    the painted rect at the plot's edges (first column's left and last column's
    right are the plot's own edges — .dash-chart has no horizontal padding). */
@@ -4536,7 +4536,7 @@ body.agenda-window .palette:focus-visible {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* the line plot's geometry is percentage-based, so `size: tall` (SUB-969) is
+/* the line plot's geometry is percentage-based, so `size: tall` is
    purely this box growing — the path, dots and hints follow */
 .chart-line[data-size="tall"] {
   height: 250px;
@@ -4576,8 +4576,8 @@ body.agenda-window .palette:focus-visible {
   background: var(--accent-text);
 }
 
-/* ————— glow (SUB-955) —————
-   The bloom the owner dialled back to zero in the SUB-932 round-2 sheet, kept
+/* ————— glow —————
+   The bloom the owner dialled back to zero in the round-2 sheet, kept
    as a
    dial instead of a decision. --glow and --glow-bars are 0–1 scalars written
    from the Settings slider; every rule below multiplies one of them, and the
@@ -4705,7 +4705,7 @@ body.agenda-window .palette:focus-visible {
   overflow: hidden;
 }
 
-/* An empty bucket — no rows behind it, split or not (SUB-954) — reads as a
+/* An empty bucket — no rows behind it, split or not — reads as a
    flat tick in the axis hairline rather than as a bar of its own. */
 .dash-bar.is-empty {
   background: var(--hair);
@@ -4870,7 +4870,7 @@ body.agenda-window .palette:focus-visible {
   color: var(--danger);
 }
 
-/* The consent review a custom kind waits behind (SUB-961). A pane in the
+/* The consent review a custom kind waits behind. A pane in the
    dashboard frame, so it takes the page's own measure rather than a dialog's:
    full-width prose, the facts as a definition list, the decision at the
    bottom. Nothing here is styled to be dismissed. */
@@ -4981,7 +4981,7 @@ body.agenda-window .palette:focus-visible {
 }
 
 /* a chart still plotting, with something worth saying about its source — a
-   mount reading its last-known index (SUB-982). Quiet by design: the data is
+   mount reading its last-known index. Quiet by design: the data is
    real, only possibly stale, so this is not an error voice. */
 .chart-note {
   font-size: 12.5px;
@@ -4989,7 +4989,7 @@ body.agenda-window .palette:focus-visible {
   margin: 2px 0 6px;
 }
 
-/* Heatmap blocks (```heatmap fences, SUB-966) — a year of day squares in the
+/* Heatmap blocks (```heatmap fences) — a year of day squares in the
    chart language's greyscale. Intensity is the same white-alpha ramp the bars
    use, five steps of it, so a heatmap next to a chart reads as one surface:
    no hue means no claim about which day was good. */
@@ -5178,7 +5178,7 @@ body.agenda-window .palette:focus-visible {
   background: var(--hm-4);
 }
 
-/* the goal thermometer (SUB-967) — a ```progress fence. It is a section like
+/* the goal thermometer — a ```progress fence. It is a section like
    a chart is: label above, picture, then the reading and the pace line. */
 .progress-fence {
   margin-top: 26px;
@@ -5251,7 +5251,7 @@ body.agenda-window .palette:focus-visible {
   }
 }
 
-/* ── ```calendar fences (SUB-965) ── the Calendar pane's month grid, sized for
+/* ── ```calendar fences ── the Calendar pane's month grid, sized for
    a dashboard section instead of a full pane. It reuses the pane's cell,
    chip and pager classes verbatim (one visual language for one surface); only
    the outer sizing differs, because the pane grid is a flex child that fills
@@ -5357,7 +5357,7 @@ body.agenda-window .palette:focus-visible {
   border: none;
   border-radius: var(--r);
   background: var(--accent);
-  /* the filled button's ink follows the accent's lightness (SUB-932): white
+  /* the filled button's ink follows the accent's lightness: white
      on the app's indigo was 4.7:1, but white on the dashboard's sky #6cc0ec
      is 2.0:1 — unreadable. A light fill takes a dark ink; this is the deep
      end of the same family, 7.4:1 on the fill. */
@@ -5375,7 +5375,7 @@ body.agenda-window .palette:focus-visible {
   filter: brightness(0.92);
 }
 
-/* Claim (SUB-318): quiet ghost next to the primary Add — marks the current
+/* Claim: quiet ghost next to the primary Add — marks the current
    balance as claimed so freshly entered venue numbers add on top. The
    actions wrap as one unit so Claim never strands on its own row. */
 .dash-form-actions {
@@ -5462,7 +5462,7 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-3);
 }
 
-/* history toggle (SUB-327): quiet text control under the table — walks the
+/* history toggle: quiet text control under the table — walks the
    table back to the earliest snapshot and closes up again */
 .dash-table-toggle {
   margin-top: 8px;
@@ -5495,7 +5495,7 @@ body.agenda-window .palette:focus-visible {
 
 
 
-/* Hub dashboard (dashboard: hub, SUB-189) — ordinary markdown laid out as a
+/* Hub dashboard (dashboard: hub) — ordinary markdown laid out as a
    column-first home: `##` = section labels (dash-section-label), consecutive
    callouts = cards side by side, everything else linear. Neutral greys; the
    only color is the callout kind accent, reusing the editor glyph hues. */
@@ -5542,7 +5542,7 @@ body.agenda-window .palette:focus-visible {
   border-left-color: var(--opt-violet);
 }
 
-/* an accent replaces the kind's default hue on the type rule (SUB-969): the
+/* an accent replaces the kind's default hue on the type rule: the
    glyph-free hub card marks its type by position and title, so the rule is
    free to carry the author's mood. Higher specificity than the three rules
    above, so order in this file isn't load-bearing. */
@@ -5579,7 +5579,7 @@ body.agenda-window .palette:focus-visible {
   font-size: 12.5px;
 }
 
-/* hub headings join the shared section voice (SUB-409) — the hub note's ##
+/* hub headings join the shared section voice — the hub note's ##
    headings are section labels, not prose headings */
 .hub-heading {
   display: flex;
@@ -5614,7 +5614,7 @@ body.agenda-window .palette:focus-visible {
   margin-bottom: 0;
 }
 
-/* a ```view fence's live table (SUB-860). The framed card the editor's inline
+/* a ```view fence's live table. The framed card the editor's inline
    widget wears would read as a second box inside the page; on the hub the
    section label above it is already the frame, so the table sits open in the
    flow like the markdown tables around it. */
@@ -5628,20 +5628,20 @@ body.agenda-window .palette:focus-visible {
   color: var(--danger);
 }
 
-/* a ```chart fence (SUB-964) — the charts dashboard renders it embedded, so
+/* a ```chart fence — the charts dashboard renders it embedded, so
    the wrapper only owns the gap to the next block; the chart carries its own
    label and provenance foot. */
 .hub-chart {
   margin: 0 0 16px;
 }
 
-/* a ```heatmap fence (SUB-966) — same deal as .hub-chart: the wrapper owns
+/* a ```heatmap fence — same deal as.hub-chart: the wrapper owns
    only the gap, the grid carries its own label, legend and foot */
 .hub-heatmap {
   margin: 0 0 16px;
 }
 
-/* a ```progress fence (SUB-967) — the thermometer owns its own head, bar and
+/* a ```progress fence — the thermometer owns its own head, bar and
    pace line, so the wrapper only owns the gap to the next block. Its first
    fence drops the standalone top margin: in a hub the section label above it
    already sets the distance. */
@@ -5652,7 +5652,7 @@ body.agenda-window .palette:focus-visible {
   margin-top: 0;
 }
 
-/* a ```calendar fence (SUB-965) — same deal: the month grid brings its own
+/* a ```calendar fence — same deal: the month grid brings its own
    heading, pager and foot, so the wrapper owns only the gap. The section's own
    bottom margin is dropped here; the wrapper spaces hub blocks uniformly. */
 .hub-calendar {
@@ -5950,7 +5950,7 @@ body.agenda-window .palette:focus-visible {
 }
 
 /* the tab strip scrolls horizontally when crowded (no wrap), with the
-   SUB-195 right-edge fade cue; the accent underline is the one colored
+   right-edge fade cue; the accent underline is the one colored
    chrome in the header */
 .db-tabs {
   flex: 1;
@@ -5968,7 +5968,7 @@ body.agenda-window .palette:focus-visible {
 }
 
 .db-tabs.db-more-x {
-  /* 20px matches the table fade right below it (SUB-1001 review) */
+  /* 20px matches the table fade right below it */
   -webkit-mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);
   mask-image: linear-gradient(to right, black calc(100% - 20px), transparent);
 }
@@ -6006,7 +6006,7 @@ body.agenda-window .palette:focus-visible {
   bottom: 0;
   height: 2px;
   background: var(--accent);
-  /* SUB-945: the underline draws itself under the tab you just picked
+  /* The underline draws itself under the tab you just picked
      instead of blinking into place. Per-tab, not a shared sliding element */
   transform-origin: left center;
   animation: tab-underline 140ms ease-out;
@@ -6025,7 +6025,7 @@ body.agenda-window .palette:focus-visible {
   }
 }
 
-/* SUB-677: a pinned view's ⌘-digit rides its tab — the app-wide keycap
+/* A pinned view's ⌘-digit rides its tab — the app-wide keycap
    (.key), nudged off the tab's name */
 .db-tab .key {
   margin-left: 5px;
@@ -6130,10 +6130,10 @@ body.agenda-window .palette:focus-visible {
   outline: none;
 }
 
-/* the database filter bar (SUB-18): one quiet query row under the tab bar,
+/* the database filter bar: one quiet query row under the tab bar,
    rendered only on demand — an active query, focus, the naming flow, or the
    funnel toggle keep it on screen */
-/* SUB-945: the filter row and its completion chips form one block. The chips
+/* The filter row and its completion chips form one block. The chips
    overlay the body rather than joining the column flow, so appearing and
    vanishing mid-typing never moves the table (design-principles.md 4) */
 .db-filter-wrap {
@@ -6176,15 +6176,15 @@ body.agenda-window .palette:focus-visible {
   outline: none;
 }
 
-/* SUB-644: no border to recolor, so keyboard focus paints the app's accent
+/* No border to recolor, so keyboard focus paints the app's accent
    ring on the input itself — the same 1.5px var(--accent) every other
-   focusable surface gets (SUB-512's .cal-wk-col idiom) */
+   focusable surface gets (the .cal-wk-col idiom) */
 .db-filter-input:focus-visible {
   outline: 1.5px solid var(--accent);
   outline-offset: 2px;
 }
 
-/* visible "pin this filter" affordance — the ⋯-menu path stays (SUB-82) */
+/* visible "pin this filter" affordance — the ⋯-menu path stays */
 .db-filter-save {
   flex: none;
   transition: opacity 120ms ease-out;
@@ -6223,7 +6223,7 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-1);
 }
 
-/* SUB-945: nothing to save or clear yet — the buttons hold their space and
+/* Nothing to save or clear yet — the buttons hold their space and
    fade out, so the first keystroke lights them up instead of shoving the
    input sideways */
 .db-filter-save.is-off,
@@ -6245,11 +6245,11 @@ body.agenda-window .palette:focus-visible {
   overflow: auto;
 }
 
-/* the right-edge fade says more columns hide past the edge (SUB-130) — SUB-195
+/* the right-edge fade says more columns hide past the edge
    gates it on actual scrollability: gone at max scroll so the last column
    renders crisp, and absent entirely when the table fits its pane. The board
-   scrolls the same axis, so it carries the same cue (SUB-207).
-   SUB-1001: widened 12px → 20px. At 12px a chip or a numeral clipped by the
+   scrolls the same axis, so it carries the same cue.
+   Widened 12px → 20px. At 12px a chip or a numeral clipped by the
    pane edge still ended in a near-solid stub, which read as a rendering fault
    rather than a cue; 20px also matches every other fade in the app. */
 .db-body:has(> .db-table).db-more-x,
@@ -6302,7 +6302,7 @@ body.agenda-window .palette:focus-visible {
   transition: color 120ms ease-out;
 }
 
-/* SUB-945: rows sliding under the sticky header need the header to read as a
+/* Rows sliding under the sticky header need the header to read as a
    lid over them. One step on the border it already has — the vertical twin of
    the .db-scrolled-x freeze line, and at scroll 0 nothing changes. */
 .db-scrolled-y .db-table th {
@@ -6314,7 +6314,7 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-1);
 }
 
-/* SUB-199: ordinal marking a key's place in a multi-key sort — muted and
+/* Ordinal marking a key's place in a multi-key sort — muted and
    small so it reads as a subscript of the arrow, never as its own column */
 .db-sort-ord {
   margin-left: 1px;
@@ -6327,14 +6327,14 @@ body.agenda-window .palette:focus-visible {
   border-bottom: 1px solid var(--border-soft);
 }
 
-/* SUB-607: vertical column rules — Notion's grid, for tracking a column down
+/* Vertical column rules — Notion's grid, for tracking a column down
    a wide or sparse table. `.db-grid` rides the table when the database's
    override (ViewPref `grid`) or the global `db-grid` setting says on. A
    sibling selector, not a per-cell border, so single-cell colSpan rows (group
    headers, window spacers) never catch a rule. The second column is excluded:
    its divider is the frozen Name cell's own box-shadow edge below — a border
    here too would double that line to 2px at scroll 0. `--grid-line` is
-   fainter than any shared border token (SUB-936): the grid orients, the row
+   fainter than any shared border token: the grid orients, the row
    hairlines still carry the hierarchy. */
 .db-grid th + th:not(:nth-child(2)),
 .db-grid td + td:not(:nth-child(2)) {
@@ -6365,20 +6365,20 @@ body.agenda-window .palette:focus-visible {
     inset -1px 0 0 var(--border);
 }
 
-/* SUB-945: the wash eases in on the shared 120ms grammar and snaps back out
+/* The wash eases in on the shared 120ms grammar and snaps back out
    on leave — an easing exit trails the pointer across a long table */
 .db-table tbody tr:hover td {
   background: var(--hover);
   transition: background-color 120ms ease-out;
 }
 
-/* SUB-272: a multi-selected row carries the accent tint — it outranks the
+/* A multi-selected row carries the accent tint — it outranks the
    hover wash (later at equal specificity) and keeps the frozen Name cell's
    opaque base via the same layer trick as hover/open */
 .db-table tbody tr.is-selected td,
 .db-table tbody tr.is-selected:hover td {
   background: var(--accent-soft);
-  /* SUB-945: the tint arrives over 140ms so a shift-range select reads as one
+  /* The tint arrives over 140ms so a shift-range select reads as one
      sweep; declared on the selected rules only, so deselect snaps clear */
   transition: background-color 140ms ease-out;
 }
@@ -6395,7 +6395,7 @@ body.agenda-window .palette:focus-visible {
   background: rgba(255, 255, 255, 0.028);
 }
 
-/* frozen Name column (SUB-194): on wide tables the first column sticks to
+/* frozen Name column: on wide tables the first column sticks to
    the pane's left edge while the rest of the row scrolls beneath it. The base
    is the opaque pane token so sliding rows never bleed through; hover/open
    washes layer the same token values the flat rules use over that base, so
@@ -6405,7 +6405,7 @@ body.agenda-window .palette:focus-visible {
   position: sticky;
   left: 0;
   z-index: 2;
-  /* SUB-945: the transparent layer renders identically to the bare token but
+  /* The transparent layer renders identically to the bare token but
      gives hover/selected a background-image to interpolate from */
   background: linear-gradient(transparent, transparent), var(--bg-panel);
 }
@@ -6454,7 +6454,7 @@ body.agenda-window .palette:focus-visible {
     inset -1px 0 0 var(--border);
 }
 
-/* SUB-195: the left-edge fade can't be a mask — mask-image on .db-body covers
+/* The left-edge fade can't be a mask — mask-image on .db-body covers
    sticky descendants too, dimming the pinned Name column it must leave crisp.
    Instead an overlay rides each frozen cell's right edge, so the fade starts
    exactly where the frozen column ends at any column width. Section headers
@@ -6475,7 +6475,7 @@ body.agenda-window .palette:focus-visible {
   box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 
-/* SUB-945: commit flash. An edited cell used to close its editor and look
+/* Commit flash. An edited cell used to close its editor and look
    exactly as it did before — the write and a discarded edit were the same
    picture. One accent wash, one-shot, laid over the cell so the value's own
    colours (option pills, links) are untouched. */
@@ -6509,7 +6509,7 @@ body.agenda-window .palette:focus-visible {
   }
 }
 
-/* grouped table (SUB-184): a section header row spans the full width in the
+/* grouped table: a section header row spans the full width in the
    board column header's language — option dot, label, muted count (.db-col-head
    type scale/weight), the "No …" section in the board's muted treatment */
 .db-group-tr td {
@@ -6544,7 +6544,7 @@ body.agenda-window .palette:focus-visible {
   min-width: 0;
 }
 
-/* SUB-194: the full-width section-header cell can't stick (zero slack
+/* The full-width section-header cell can't stick (zero slack
    against the table box), so its LABEL rides the freeze instead — it lands
    in the frozen column's lane while the table is scrolled right. z stays
    auto so the label still slides UNDER the sticky thead on vertical scroll. */
@@ -6563,7 +6563,7 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-3);
 }
 
-/* SUB-310: windowed-table spacer rows stand in for the off-screen rows above
+/* Windowed-table spacer rows stand in for the off-screen rows above
    and below the painted slice — inert voids: no hover wash, no row hairline,
    no frozen-column fade overlay, no sticky Name cell (the empty td would
    paint an opaque block over scrolling rows' left edge) */
@@ -6607,12 +6607,12 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-3);
 }
 
-/* number kind (SUB-188): numbers column-scan, text doesn't — right-align */
+/* number kind: numbers column-scan, text doesn't — right-align */
 .db-cell-txt.cell-num {
   text-align: right;
 }
 
-/* checkbox kind (SUB-173): the one-click check square, same visual language
+/* checkbox kind: the one-click check square, same visual language
    as the editor's .cm-task-toggle — border-token box (~14px, subtle radius);
    checked fills with the accent focused controls use + a white check mark */
 .db-cell-txt.cell-check {
@@ -6620,7 +6620,7 @@ body.agenda-window .palette:focus-visible {
   align-items: center;
 }
 
-/* audio-valued file props (SUB-674): a compact play/pause leading the path
+/* audio-valued file props: a compact play/pause leading the path
    text, in table cells (.prop-audio) and on gallery cards (.db-gtitle-row).
    16px keeps the uniform 32px row height; a quiet ghost that only lights
    while its file is the one playing */
@@ -6730,7 +6730,7 @@ body.agenda-window .palette:focus-visible {
   padding: 12px 14px;
 }
 
-/* SUB-945: the no-matches state renders inside the scroller, so it has to
+/* The no-matches state renders inside the scroller, so it has to
    claim the row rather than sit at content width against the left edge */
 .db-board > .empty {
   flex: 1;
@@ -6748,7 +6748,7 @@ body.agenda-window .palette:focus-visible {
   background: rgba(255, 255, 255, 0.018);
 }
 
-/* SUB-945: the target column takes a faint accent wash under the ring, so
+/* The target column takes a faint accent wash under the ring, so
    the drop target is legible without reading the border alone */
 .db-col.drop {
   border-color: var(--accent);
@@ -6799,12 +6799,12 @@ body.agenda-window .palette:focus-visible {
   border-radius: 8px;
   background: var(--bg-elevated);
   cursor: grab;
-  /* SUB-948: the drop line below paints into the column's 6px gap from here;
+  /* the drop line below paints into the column's 6px gap from here;
      the landing flash (.db-flashing) already assumed this position */
   position: relative;
 }
 
-/* SUB-948: where a dragged card will land in an unsorted column — a 2px
+/* where a dragged card will land in an unsorted column — a 2px
    accent line drawn in the gap ABOVE or BELOW this card. It is a
    pseudo-element rather than a spacer element on purpose: a real node in the
    column would add another 6px flex gap and shove every card down, so the
@@ -6837,7 +6837,7 @@ body.agenda-window .palette:focus-visible {
 }
 
 /* card metadata is data, not prose — one mono voice across board, gallery,
-   list, and calendar week subtitles (SUB-256, SUB-247) */
+   list, and calendar week subtitles */
 .db-card .row-sub,
 .db-gcard .row-sub,
 .db-list .row-sub,
@@ -6848,7 +6848,7 @@ body.agenda-window .palette:focus-visible {
 }
 
 /* an empty column's body is a visible drop zone — dashed inset, one card
-   tall — so the column reads as a place, not a leftover label (SUB-168) */
+   tall — so the column reads as a place, not a leftover label */
 .db-col-empty {
   flex: 1;
   min-height: 72px;
@@ -6860,7 +6860,7 @@ body.agenda-window .palette:focus-visible {
   border-color: var(--accent);
 }
 
-/* per-column "+ New" (SUB-243): quiet and muted at the column's foot —
+/* per-column "+ New": quiet and muted at the column's foot —
    the toolbar .db-new's shape, one step quieter */
 .db-col-new {
   display: flex;
@@ -6875,7 +6875,7 @@ body.agenda-window .palette:focus-visible {
   font-size: 11.5px;
   font-weight: 500;
   text-align: left;
-  /* SUB-945: hidden at rest, but it keeps its grid space, so revealing it
+  /* Hidden at rest, but it keeps its grid space, so revealing it
      never shifts the column's cards */
   opacity: 0;
   transition: opacity 120ms ease-out;
@@ -6924,7 +6924,7 @@ body.agenda-window .palette:focus-visible {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
   /* rows must own their height: with auto rows the aspect-ratio cover
-     contributes none and every card crushes to a sliver at density (SUB-319) */
+     contributes none and every card crushes to a sliver at density */
   grid-auto-rows: max-content;
   gap: 14px;
   align-content: start;
@@ -6973,7 +6973,7 @@ body.agenda-window .palette:focus-visible {
   opacity: 1;
 }
 
-/* SUB-945: start only when the bitmap reports load, not when its element
+/* Start only when the bitmap reports load, not when its element
    mounts. Cached remounts keep is-loaded but never regain this class. */
 .db-gcover img.cover-entering {
   animation: cover-in 220ms ease-out;
@@ -6992,7 +6992,7 @@ body.agenda-window .palette:focus-visible {
 }
 
 /* artless cover: the db's TypeIcon recedes to a quiet mark — the card's
-   title leads, never the placeholder (SUB-313) */
+   title leads, never the placeholder */
 .db-gcover-ph {
   display: flex;
   color: var(--text-3);
@@ -7082,7 +7082,7 @@ body.agenda-window .palette:focus-visible {
   font-weight: 400;
 }
 
-/* SUB-644: same accent ring for the inline draft title — the wrapper's
+/* Same accent ring for the inline draft title — the wrapper's
    outline marks the pending row, this one marks where focus sits in it */
 .db-draft-input:focus-visible {
   outline: 1.5px solid var(--accent);
@@ -7096,7 +7096,7 @@ tr.db-draft-tr td.db-title {
   background: var(--bg-elevated);
 }
 
-/* SUB-945: the draft settles into the list instead of appearing already
+/* The draft settles into the list instead of appearing already
    there — the one moment where a row genuinely arrives */
 tr.db-draft-tr,
 .db-card.db-draft,
@@ -7179,7 +7179,7 @@ tr.db-draft-tr,
   display: flex;
   justify-content: flex-end;
   /* right inset leaves the fixed chrome slot free — the keyboard button
-     completes this row at the corner: [clock][⋯][kbd] (SUB-468). The 9px is
+     completes this row at the corner: [clock][⋯][kbd]. The 9px is
      .main's own offset from the viewport edge (8px margin + 1px border), so
      the reservation lands flush against the fixed button. */
   padding: 10px calc(var(--chrome-x) + var(--chrome-slot) - 9px) 0 14px;
@@ -7286,7 +7286,7 @@ tr.db-draft-tr,
   background: var(--hover);
 }
 
-/* snapshot rows are listbox options with roving focus (SUB-363) — the ring
+/* snapshot rows are listbox options with roving focus — the ring
    marks keyboard entry; pointer picks keep the quiet .selected ground */
 .hist-item:focus-visible {
   outline: 1.5px solid var(--accent);
@@ -7408,7 +7408,7 @@ tr.db-draft-tr,
   font-size: 12.5px;
 }
 
-/* foreign-repo state (SUB-214): same quiet grey as the empty state, no chrome */
+/* foreign-repo state: same quiet grey as the empty state, no chrome */
 .hist-disabled {
   width: 100%;
   padding: 26px 18px;
@@ -7682,7 +7682,7 @@ tr.db-draft-tr,
   color: var(--text-1);
 }
 
-/* Range selection (SUB-937) — a wash, not a second frame: the focused cell
+/* Range selection — a wash, not a second frame: the focused cell
    keeps the accent outline as the one sharp mark in the range. */
 .sheet-cell.selected {
   background: var(--accent-soft);
@@ -7807,7 +7807,7 @@ th.sheet-computed:hover {
   width: 100%;
 }
 
-/* Totals row (SUB-937) — the last row of the table, pinned to the bottom of
+/* Totals row — the last row of the table, pinned to the bottom of
    the scroll area so a long sheet keeps its totals in view. A summary whose
    formula describes exactly one column lives here instead of in the footer. */
 
@@ -8166,7 +8166,7 @@ th.sheet-computed:hover {
 
 .metrics-cards {
   margin-top: 24px;
-  /* A block, not a ticker (SUB-625). auto-fit put every card on one row, so a
+  /* A block, not a ticker. auto-fit put every card on one row, so a
      7-card board at 1900px was a thin strip pinned to the top of an empty
      pane — a width fault every metrics board with few cards inherits. The
      renderer picks the column count from the card count (--metrics-cols,
@@ -8228,7 +8228,7 @@ th.sheet-computed:hover {
    dashboard; mid-importance sinks toward dust. Which cards stay sharp is
    data — `emph: true` in the note's frontmatter — so the rule keys on the
    .sunk class the renderer assigns, never on card position. */
-/* the emphasised value is where the accent family earns its keep (SUB-932):
+/* the emphasised value is where the accent family earns its keep:
    the one or two cards the owner flagged read in accent, the rest stay in
    the neutral ramp. Hue marks importance here, not state — the two never
    collide because a state value (over/under/failed) carries its own class. */
@@ -8245,7 +8245,7 @@ th.sheet-computed:hover {
 }
 
 /* an accented card marks itself on the LABEL and its column rule, never on
-   the value (SUB-969). The value ramp above is the whole of principle 11's
+   the value. The value ramp above is the whole of principle 11's
    two-sharp-values discipline — if an accent could reach `.dash-card-eur`,
    a board that accents every card would read as a board with eight sharp
    values, and the contrast that makes the important two findable would be
@@ -8290,7 +8290,7 @@ th.sheet-computed:hover {
 }
 
 
-/* Select-type properties — option dots + value picker (SUB-11) */
+/* Select-type properties — option dots + value picker */
 
 .opt-dot {
   display: inline-block;
@@ -8313,13 +8313,13 @@ th.sheet-computed:hover {
   margin-top: -2px;
 }
 
-/* status dots in card/list subtitles (SUB-142) */
+/* status dots in card/list subtitles */
 .row-sub .opt-dot {
   margin-right: 4px;
   margin-top: -1px;
 }
 
-/* multi-select values (SUB-79): one dot per value inside the chip */
+/* multi-select values: one dot per value inside the chip */
 .chip-val .opt-dot {
   margin-right: 4px;
   margin-top: -1px;
@@ -8342,7 +8342,7 @@ th.sheet-computed:hover {
   flex-direction: column;
 }
 
-/* section label above a picker list — "Databases" on the type picker (SUB-73) */
+/* section label above a picker list — "Databases" on the type picker */
 .selmenu-listhead {
   padding: 8px 10px 0;
   font-size: 10.5px;
@@ -8392,7 +8392,7 @@ th.sheet-computed:hover {
   color: var(--text-1);
 }
 
-/* hairline between the value rows and the grey action block (SUB-143) */
+/* hairline between the value rows and the grey action block */
 .selmenu-item.separated {
   position: relative;
   margin-top: 9px;
@@ -8442,7 +8442,7 @@ th.sheet-computed:hover {
   color: var(--text-3);
 }
 
-/* cell mode (SUB-405): the picker rides the table cell itself — the wrapper
+/* cell mode: the picker rides the table cell itself — the wrapper
    loses its panel chrome, the input pins to the cell rect (same text metrics
    as .db-cell-txt, so the glyphs land where the value sat), and the option
    list hangs off it as its own panel. .flip-up stacks the panel above. */
@@ -8580,7 +8580,7 @@ th.sheet-computed:hover {
   border-color: var(--border-strong);
 }
 
-/* a latched footer toggle (SUB-596: the date picker's Range button) */
+/* a latched footer toggle (the date picker's Range button) */
 .selmenu-btn.on {
   color: var(--text-1);
   border-color: var(--accent);
@@ -8916,7 +8916,7 @@ th.sheet-computed:hover {
   font-size: 12px;
 }
 
-/* ── Sync conflict resolution (SUB-429) ─────────────────────── */
+/* ── Sync conflict resolution ─────────────────────── */
 
 .sync-conflict .vault-sync-card-head {
   align-items: flex-start;
@@ -9131,7 +9131,7 @@ th.sheet-computed:hover {
   color: var(--text-3);
 }
 
-/* type tag on trashed assets, so they read apart from notes (SUB-479) */
+/* type tag on trashed assets, so they read apart from notes */
 .trash-row-tag {
   margin-left: 6px;
   font-size: 11.5px;
@@ -9168,7 +9168,7 @@ span.asset-thumb svg {
   height: 14px;
 }
 
-/* all-databases manager (SUB-159) — trash-row-shaped list, one row per db */
+/* all-databases manager — trash-row-shaped list, one row per db */
 .dbmgr {
   flex: 1;
   display: flex;
@@ -9229,7 +9229,7 @@ span.asset-thumb svg {
   flex: none;
 }
 
-/* ----- reality mounts (SUB-888) ----- */
+/* ----- reality mounts ----- */
 
 /* the glyph that marks a database as a real folder on disk, in the manager
    list and in the sidebar — quiet, it rides beside the name */
@@ -9290,7 +9290,7 @@ span.asset-thumb svg {
   background: var(--bg-elevated);
 }
 
-/* SUB-1166: a row a bulk write was refused on. The marker sits next to the
+/* A row a bulk write was refused on. The marker sits next to the
    title carrying that note's own reason; the row keeps its ordinary paint —
    the value never landed, so there is nothing wrong with what it shows. */
 .db-fail {
@@ -9343,7 +9343,7 @@ span.asset-thumb svg {
 
 
 /* property kind selector inside the schema editor — wraps to a second row
-   as the kind vocabulary grows (11 kinds at SUB-188), never squeezes labels */
+   as the kind vocabulary grows (11 kinds at), never squeezes labels */
 .selmenu-kinds {
   display: flex;
   flex-wrap: wrap;
@@ -9380,7 +9380,7 @@ span.asset-thumb svg {
   color: var(--text-3);
 }
 
-/* the property description as an entry hint (SUB-191): one muted line under
+/* the property description as an entry hint: one muted line under
    the picker's filter input — truncated, never wraps, full text on hover */
 .selmenu-prophint {
   padding: 6px 12px 4px;
@@ -9391,7 +9391,7 @@ span.asset-thumb svg {
   text-overflow: ellipsis;
 }
 
-/* the bulk bar's replace-semantics line (SUB-635): a bulk multi/relation
+/* the bulk bar's replace-semantics line: a bulk multi/relation
    write REPLACES every selected note's values, so the picker says so in one
    quiet wrapping line under the filter input — same ink as the entry hint,
    but never truncated (the warning must read in full) */
@@ -9421,7 +9421,7 @@ span.asset-thumb svg {
   white-space: nowrap;
 }
 
-/* lead-time row (SUB-842): same family as the notify checkbox above it, so
+/* lead-time row: same family as the notify checkbox above it, so
    the pair reads as one reminder block */
 .selmenu-notify-lead {
   padding-top: 0;
@@ -9449,7 +9449,7 @@ span.asset-thumb svg {
   color: var(--text-3);
 }
 
-/* Database icons — per-type glyph/emoji with optional muted tint (SUB-27) */
+/* Database icons — per-type glyph/emoji with optional muted tint */
 
 .type-icon {
   flex: none;
@@ -9677,7 +9677,7 @@ span.asset-thumb svg {
   font-variant-numeric: tabular-nums;
   padding: 4px 0;
   border-radius: 5px;
-  /* SUB-945: arrowing through the grid glides the cursor and the span
+  /* Arrowing through the grid glides the cursor and the span
      shading across the days instead of teleporting cell to cell */
   transition:
     background-color 90ms ease-out,
@@ -9709,7 +9709,7 @@ span.asset-thumb svg {
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
 
-/* a range's interior (SUB-596) — the two endpoints already read as `current`,
+/* a range's interior — the two endpoints already read as `current`,
    so the shading is what joins them into one span */
 .datemenu-day.inspan {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
@@ -9745,7 +9745,7 @@ span.asset-thumb svg {
   opacity: 0.7;
 }
 
-/* url-kind values render as external links (SUB-172) — the editor's
+/* url-kind values render as external links — the editor's
    wikilink treatment: link tint, underline on hover */
 .url-link {
   color: var(--link);
@@ -9812,7 +9812,7 @@ span.asset-thumb svg {
   border-top: 1px solid var(--border-soft);
 }
 
-/* Vault doctor (SUB-432) — read-only findings grouped by kind, on the trash
+/* Vault doctor — read-only findings grouped by kind, on the trash
    pane's row chassis. No destructive affordances: nothing here writes. */
 
 .doctor-group + .doctor-group {
@@ -9907,7 +9907,7 @@ span.asset-thumb svg {
   gap: 10px;
   height: 44px;
   flex: none;
-  /* right-loaded sort switch, so it reserves the fixed chrome slot (SUB-468);
+  /* right-loaded sort switch, so it reserves the fixed chrome slot;
      the 9px is .main's own offset from the viewport edge (8px margin + 1px
      border) */
   padding: 0 calc(var(--chrome-x) + var(--chrome-slot) - 9px) 0 16px;
@@ -10103,7 +10103,7 @@ span.asset-thumb svg {
   }
 }
 
-/* Audio embeds — inline player, lit-slab waveform (SUB-15) */
+/* Audio embeds — inline player, lit-slab waveform */
 
 .cm-audio {
   display: inline-flex;
@@ -10341,7 +10341,7 @@ span.asset-thumb svg {
   border-radius: 8px;
 }
 
-/* drag-over hint pill (SUB-438): toast-shaped, but pinned while the drag
+/* drag-over hint pill: toast-shaped, but pinned while the drag
    hovers — teaches ⇧-link without stealing pointer events from the drop */
 .drop-hint {
   position: fixed;
@@ -10427,8 +10427,8 @@ span.asset-thumb svg {
   color: var(--text-3);
 }
 
-/* destructive lane + trailing hint — the ctx-menu conventions (SUB-143)
-   carried into the ⋯ dropdown (SUB-257) */
+/* destructive lane + trailing hint — the ctx-menu conventions
+   carried into the ⋯ dropdown */
 .dots-item.danger,
 .dots-item.danger svg {
   color: var(--danger);
@@ -10489,7 +10489,7 @@ span.asset-thumb svg {
     user-select: text;
   }
 
-  /* dashboards print as themselves (SUB-676): the live pane's DOM clones into
+  /* dashboards print as themselves: the live pane's DOM clones into
      the surface, keeping its own layout and type voices — the dark token ramp
      just remaps onto this block's light palette. Only chrome that means
      nothing on paper (the head's actions cluster: print/source buttons) is
@@ -10512,7 +10512,7 @@ span.asset-thumb svg {
     --bg-input: #f6f7f8;
   }
 
-  /* the accent family's paper weights (SUB-932). The sky family is tuned for
+  /* the accent family's paper weights. The sky family is tuned for
      a near-black ground and washes out on white — #6cc0ec is 9.9:1 on #090909
      but only 1.9:1 on the print panel, i.e. invisible as text and barely a
      shape as a bar. So the WHOLE family is remapped here, not just the two
@@ -10526,7 +10526,7 @@ span.asset-thumb svg {
      the cloned pane too: the print surface contains a .dash-inner, and a
      dark-ground value declared there would otherwise shadow the paper one.
 
-     SUB-955: the values now come from the tone table's --tone-paper-* slots,
+     the values come from the tone table's --tone-paper-* slots,
      so a dashboard prints in the tone it is wearing. Sky's paper slots hold
      the exact hexes this block used to name. */
   #print-surface,
@@ -10561,7 +10561,7 @@ span.asset-thumb svg {
   }
 
   /* Glow is a screen affordance: a drop-shadow on ink prints as a grey
-     smear, so the bloom rules are switched off wholesale for paper (SUB-955)
+     smear, so the bloom rules are switched off wholesale for paper
      rather than each being re-scoped to exclude the print surface. */
   [data-glow] .chart-line-path,
   [data-glow] .chart-dot,
@@ -10599,7 +10599,7 @@ span.asset-thumb svg {
 
   /* an empty bucket prints as the faint tick it draws on screen, in both
      shapes — the id-scoped rules above would otherwise print a split gap as
-     nothing and a plain one as a solid grey mark (SUB-954) */
+     nothing and a plain one as a solid grey mark */
   #print-surface .dash-bar.is-empty {
     background: var(--hair);
   }
@@ -10787,7 +10787,7 @@ span.asset-thumb svg {
     margin: 14px 0;
   }
 
-  /* ---- designed templates (SUB-816) ----
+  /* ---- designed templates ----
      The one-sheet and table sheet ride the same surface and palette but
      carry their own deliberate layout — confident title, quiet fact rows,
      restrained accents. Hierarchy comes from size and weight only. */
@@ -10948,7 +10948,7 @@ span.asset-thumb svg {
   margin: 18mm;
 }
 
-/* ── Calendar view (SUB-14) ─────────────────────────────────── */
+/* ── Calendar view ─────────────────────────────────── */
 /* Month/week grids over real notes: entries are database rows with a date
    prop plus standalone type:event notes. Greyscale — databases read through
    their name prefix, never color. */
@@ -11291,7 +11291,7 @@ span.asset-thumb svg {
   color: var(--text-3);
 }
 
-/* today's weekday header sharpens while today is on the grid (SUB-701) — the
+/* today's weekday header sharpens while today is on the grid — the
    second orientation mark next to the circled day number */
 .cal-weekdays span.cal-wd-today {
   color: var(--text-1);
@@ -11309,7 +11309,7 @@ span.asset-thumb svg {
   grid-auto-rows: 1fr;
 }
 
-/* week surface (SUB-448): a pinned all-day strip over a scrollable 24h
+/* week surface: a pinned all-day strip over a scrollable 24h
    canvas. Strip and canvas share the column template — a left gutter the
    hour labels live in, then the seven days. */
 .cal-weekdays.week,
@@ -11387,13 +11387,13 @@ span.asset-thumb svg {
   background: var(--accent-soft);
 }
 
-/* the focused day's canvas half wears the strip cell's ring (SUB-453), so
+/* the focused day's canvas half wears the strip cell's ring, so
    keyboard focus reads as one column across both surfaces */
 .cal-wk-col.focused {
   box-shadow: inset 0 0 0 1.5px var(--border-strong);
 }
 
-/* SUB-512: the column is the week's tab stop and holds real DOM focus, so
+/* The column is the week's tab stop and holds real DOM focus, so
    keyboard focus draws the app's accent ring — same treatment every other
    focusable surface gets, inset because the column has no room to bleed. A
    mouse press keeps the quiet .focused ring only: no outline residue. */
@@ -11440,7 +11440,7 @@ span.asset-thumb svg {
   min-height: 17px;
   padding: 3px 6px;
   border: 1px solid var(--border-soft);
-  /* SUB-701: the leading edge carries the database's identity tint — the
+  /* The leading edge carries the database's identity tint — the
      same hue the month bar and the type icon wear; overdue overrides it
      with --danger below (one mark, one meaning) */
   border-left: 2px solid var(--entry-tint, var(--border-soft));
@@ -11466,7 +11466,7 @@ span.asset-thumb svg {
   overflow: hidden;
 }
 
-/* an overdue timed block wears the red leading edge (SUB-206) — through
+/* an overdue timed block wears the red leading edge — through
    hover too: the hover rule's :hover outranks the bare .overdue, so the
    red needs its own hover leg or hovering re-tints the edge */
 .cal-entry.cal-wk-block.overdue,
@@ -11589,7 +11589,7 @@ span.asset-thumb svg {
   border-radius: 2px;
 }
 
-/* an expanded day ("+N more") scrolls its full list inside the cell (SUB-107) */
+/* an expanded day ("+N more") scrolls its full list inside the cell */
 .cal-day.expanded {
   overflow-y: auto;
 }
@@ -11621,7 +11621,7 @@ span.asset-thumb svg {
   font-weight: 600;
 }
 
-/* a month's first day names its month in-grid ("Aug 1", SUB-701) — a step
+/* a month's first day names its month in-grid ("Aug 1") — a step
    up from the bare-number ramp so the seam registers while scanning */
 .cal-seam {
   color: var(--text-2);
@@ -11680,7 +11680,7 @@ span.asset-thumb svg {
   font-size: 10px;
 }
 
-/* month chips (SUB-701): the Notion-Calendar line language — a small rounded
+/* month chips: the Notion-Calendar line language — a small rounded
    color bar carrying the database's identity tint, dim HH:MM, title. No box,
    no icon: the boxed icon-chip cost ~2× the height and read heavy at seven
    columns; identity moved from the glyph to the bar's hue (same typeTint the
@@ -11720,7 +11720,7 @@ span.asset-thumb svg {
   opacity: 0.45;
 }
 
-/* done entries (SUB-701): visible but resolved — dimmed, struck title, bar
+/* done entries: visible but resolved — dimmed, struck title, bar
    faded. Every entry surface (month chip, week card, canvas block, agenda
    row) wears the same treatment; the component only marks non-repeating
    entries, so a series never strikes its future occurrences. */
@@ -11735,12 +11735,12 @@ span.asset-thumb svg {
   color: var(--text-3);
 }
 
-/* multi-day spans (SUB-596): a range renders as one chip per covered day.
+/* multi-day spans: a range renders as one chip per covered day.
    Month cells are separate grid cells, so the bar can't be a single element —
    instead every covered day gets the tint fill and the inner edges square
    off, which reads as one bar running across the row. Each day's chip keeps
    its own title, so a span that wraps to the next week is still legible.
-   SUB-701: the fill is the entry's own identity tint now, not the one
+   the fill is the entry's own identity tint, not the one
    accent — a trip and a release week stop wearing the same color. */
 .cal-entry.span {
   background: color-mix(in srgb, var(--entry-tint, var(--accent)) 16%, transparent);
@@ -11772,7 +11772,7 @@ span.asset-thumb svg {
   color: var(--text-2);
 }
 
-/* entry badges (SUB-249): untinted badge svgs stay quiet, like Today's rows */
+/* entry badges: untinted badge svgs stay quiet, like Today's rows */
 .cal-entry svg,
 .cal-ag-item svg {
   flex: none;
@@ -11795,7 +11795,7 @@ span.asset-thumb svg {
   white-space: nowrap;
 }
 
-/* a timed entry's HH:MM (SUB-270) — quiet, monospaced digits, never shrinks */
+/* a timed entry's HH:MM — quiet, monospaced digits, never shrinks */
 .cal-entry-time {
   flex: none;
   font-size: 10px;
@@ -11809,7 +11809,7 @@ span.asset-thumb svg {
   color: var(--text-3);
 }
 
-/* week cards (SUB-247): full entry cards in the database card language —
+/* week cards: full entry cards in the database card language —
    elevated and bordered, a title row (icon, time, title, repeat mark) over a
    compact prop subtitle */
 .cal-grid.week .cal-entry {
@@ -11818,7 +11818,7 @@ span.asset-thumb svg {
   gap: 3px;
   padding: 7px 9px;
   border: 1px solid var(--border-soft);
-  /* the same identity edge the canvas blocks wear (SUB-701) — the week
+  /* the same identity edge the canvas blocks wear — the week
      surface reads as one color system across strip and canvas */
   border-left: 2px solid var(--entry-tint, var(--border-soft));
   border-radius: 8px;
@@ -12082,7 +12082,7 @@ button.cal-peek-row:hover {
   padding: 2px 10px 8px;
 }
 
-/* empty-agenda discoverability hint (SUB-175) — muted, one line */
+/* empty-agenda discoverability hint — muted, one line */
 .cal-hint {
   padding: 4px 6px;
   font-size: 12px;
@@ -12155,9 +12155,9 @@ button.cal-ag-day {
   background: var(--active);
 }
 
-/* SUB-609: the entry the peek/context menu is editing wears the selected
+/* The entry the peek/context menu is editing wears the selected
    accent tint (Notion-Calendar style) so the popover and its target read as
-   one unit. Same token as a multi-selected table row (SUB-272). Placed after
+   one unit. Same token as a multi-selected table row. Placed after
    every entry-surface base/hover rule so the tint outranks them at equal or
    matching specificity; a span's covered days all light together (the
    component marks every segment). */
@@ -12178,7 +12178,7 @@ button.cal-ag-day {
   border-color: var(--accent);
 }
 
-/* overdue group + marks (SUB-206) — color stays on meaning-carrying marks
+/* overdue group + marks — color stays on meaning-carrying marks
    only: the deadline dot's red (--danger), same 6px geometry as the Today
    pane's dot; the group keeps a hairline separation from upcoming rows */
 .cal-ag-overdue {
@@ -12211,7 +12211,7 @@ button.cal-ag-day {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Database management (SUB-43) ─────────────────────────────────────── */
+/* ── Database management ─────────────────────────────────────── */
 
 /* centered admin cards (create/rename/delete/strip) — palette chrome,
    dialog size */
@@ -12324,7 +12324,7 @@ button.cal-ag-day {
   height: 12px;
 }
 
-/* SUB-430 repair dialog: the raw frontmatter block, edited as source —
+/* Repair dialog: the raw frontmatter block, edited as source —
    mono on the input ground, taller than a one-line dbform-input */
 .fm-raw {
   width: 100%;
@@ -12344,7 +12344,7 @@ button.cal-ag-day {
   border-color: var(--accent);
 }
 
-/* SUB-833 Send-as-link: the expiry choice as a segmented row of the dialog's
+/* Send-as-link: the expiry choice as a segmented row of the dialog's
    own buttons — the active choice borrows the primary accent */
 .sendlink-expiry {
   display: flex;
@@ -12434,7 +12434,7 @@ button.cal-ag-day {
   height: 10px;
 }
 
-/* CSV import dialog (SUB-274): the scrollable column/include checklist —
+/* CSV import dialog: the scrollable column/include checklist —
    rows ride the prop-check checkbox idiom, never a new control */
 .dbform-columns {
   display: flex;
@@ -12557,7 +12557,7 @@ button.cal-ag-day {
   height: 10px;
 }
 
-/* SUB-404: column drag handle — a grab strip riding the header cell's right
+/* Column drag handle — a grab strip riding the header cell's right
    edge (the th is sticky, hence positioned, so the strip anchors to it; it
    stays INSIDE the cell — each sticky th is its own stacking context, so an
    overflowing strip would vanish under the next header's opaque background).
@@ -12586,7 +12586,7 @@ button.cal-ag-day {
   background: var(--border-strong);
 }
 
-/* SUB-949: header drag-reorder. The label is the grab area (the resize strip
+/* Header drag-reorder. The label is the grab area (the resize strip
    above keeps its own 8px edge), the dragged header fades, and the drop slot
    paints the sidebar's insertion line — a 2px accent rule on the side the
    pointer is over, inset so a sticky header's own background can't cover it. */
@@ -12658,7 +12658,7 @@ body.col-resizing * {
   width: 34px;
 }
 
-/* aggregation footer (SUB-74): pinned under the table with the sticky
+/* aggregation footer: pinned under the table with the sticky
    header's discipline — same panel background, one hairline on top */
 .db-table tfoot td {
   position: sticky;
@@ -12720,7 +12720,7 @@ body.col-resizing * {
 
 .db-agg-value {
   color: var(--text-2);
-  /* SUB-945: keyed on the value in DbTableLayout, so this runs on every
+  /* Keyed on the value in DbTableLayout, so this runs on every
      recompute -- the figure fades in rather than swapping under the eye */
   animation: agg-in 200ms ease-out;
 }
@@ -12735,7 +12735,7 @@ body.col-resizing * {
   color: var(--text-1);
 }
 
-/* mixed-unit marker (SUB-834): a footer figure that folded foreign units in,
+/* mixed-unit marker: a footer figure that folded foreign units in,
    or had to leave some out, carries a dim asterisk whose title says which.
    Superscripted so it reads as an annotation on the number, not a digit. */
 .db-agg-mark,
@@ -12752,7 +12752,7 @@ body.col-resizing * {
   color: var(--text-2);
 }
 
-/* SUB-945: the resting footer's only offer. Hidden until the footer is
+/* The resting footer's only offer. Hidden until the footer is
    hovered or keyboard-focused, but it holds its space, so setting the first
    aggregation moves nothing (design-principles.md 5) */
 .db-agg-ghost {
@@ -12791,7 +12791,7 @@ body.col-resizing * {
   color: var(--danger);
 }
 
-/* SUB-89 tinted value pills — Notion-dose color for select values; the ground
+/* Tinted value pills — Notion-dose color for select values; the ground
    stays neutral, the value itself is the mark */
 .opt-pill {
   display: inline-flex;
@@ -12816,7 +12816,7 @@ body.col-resizing * {
   flex-wrap: wrap;
 }
 
-/* relation values pill neutral (SUB-253) — hairline, no tint: a relation is
+/* relation values pill neutral — hairline, no tint: a relation is
    a link to an entry, never a colored status. Height matches .opt-pill. */
 .rel-pill {
   display: inline-flex;
@@ -12841,13 +12841,13 @@ body.col-resizing * {
   color: var(--text-3);
 }
 
-/* SUB-92 today */
+/* Today */
 
 /* The pane is a quiet scroll surface with one centered reading column —
    Linear's document rhythm: eyebrow, confident date, then sections split by
    hairlines. No boxes-in-boxes; rows bleed to the column edge on hover.
    `.today-pane`, not `.today` — the calendar agenda's day label also wears
-   a `today` class (SUB-126). */
+   a `today` class. */
 .today-pane {
   flex: 1;
   min-width: 0;
@@ -12978,7 +12978,7 @@ body.col-resizing * {
   background: var(--active);
 }
 
-/* done/cancelled (SUB-205): the dim is the one mark — never strike+dim (SUB-148) */
+/* done/cancelled: the dim is the one mark — never strike+dim */
 .today-row.done {
   color: var(--text-3);
 }
@@ -12994,7 +12994,7 @@ body.col-resizing * {
 
 /* the day qualifier on an overdue or leftover row — quiet mono in a fixed
    right-aligned column, so dates of different lengths never shift the verb
-   cluster; on an overdue row it carries the calendar's red (SUB-306), the
+   cluster; on an overdue row it carries the calendar's red, the
    row's one red signal */
 .today-row-day {
   flex: none;
@@ -13011,7 +13011,7 @@ body.col-resizing * {
   color: var(--danger);
 }
 
-/* the one verb (SUB-300): Pick / Unpick / Keep / Clear — quiet text buttons
+/* the one verb: Pick / Unpick / Keep / Clear — quiet text buttons
    revealed by row hover or keyboard focus, never a picket fence of pills;
    the fixed min-width keeps the cluster's right edge still across rows */
 .today-act {
@@ -13060,7 +13060,7 @@ body.col-resizing * {
   }
 }
 
-/* SUB-124 pill regression fixes — chips grow instead of overflowing, table
+/* Pill regression fixes — chips grow instead of overflowing, table
    rows stay one line tall, the db-open note's × gets clear corner room */
 .chip:has(.multi-pills) {
   height: auto;
@@ -13088,7 +13088,7 @@ body.col-resizing * {
   max-width: 240px;
 }
 
-/* SUB-125 plain-note default chip — every note is at least a "note"; the
+/* Plain-note default chip — every note is at least a "note"; the
    chip states the kind quietly and clicking it joins a database */
 .chip-plain .chip-plain-val {
   color: var(--text-3);
@@ -13098,10 +13098,10 @@ body.col-resizing * {
   color: var(--text-2);
 }
 
-/* ---- SUB-212: display-columns curator ----
+/* ---- display-columns curator ----
    The tab row's "Columns" dropdown: an icon-only trigger on the
    db-new/db-filter-toggle idiom; the menu reuses .dots-menu/.dots-item.
-   (The SUB-160 "Views" dropdown it once shared chrome with is gone —
+   (The "Views" dropdown it once shared chrome with is gone —
    saved views are the tab strip now.) */
 
 .db-cols {
@@ -13144,7 +13144,7 @@ body.col-resizing * {
 
 /* ---- food dashboard ---- */
 
-/* Day strip (SUB-325): 14 columns rising from a baseline, the floor→ceiling
+/* Day strip: 14 columns rising from a baseline, the floor→ceiling
    band shaded behind them — the band is what makes over/under read at a
    glance. Bar color carries the day's band verdict. */
 
@@ -13181,7 +13181,7 @@ body.col-resizing * {
   align-items: center;
   justify-content: flex-end;
   gap: 3px;
-  cursor: pointer; /* the strip is the day picker (SUB-408) */
+  cursor: pointer; /* the strip is the day picker */
 }
 
 .food-bar {
@@ -13207,7 +13207,7 @@ body.col-resizing * {
   background: rgba(117, 119, 123, 0.25);
 }
 
-/* SUB-684 zero-line split: when any of the 14 days nets negative, the plot
+/* Zero-line split: when any of the 14 days nets negative, the plot
    gains a sub-zero region under a zero hairline in the plot's existing
    border color — no new chrome. Bars and labels leave the flex flow so
    negatives can hang below the line while positives and the empty stub stay
@@ -13242,10 +13242,10 @@ body.col-resizing * {
   z-index: 2;
 }
 
-/* weight overlay (SUB-707): a line across the same day columns on its own
+/* weight overlay: a line across the same day columns on its own
    vertical scale. It sits ABOVE the bars but never takes the pointer — the
    strip underneath is still the day picker — except the dots, which carry
-   their own hover title. Blue (SUB-977; was the burn-accent teal, which
+   their own hover title. Blue (was the burn-accent teal, which
    drowned in the bars' greens), with a bg-colored casing stroke and dot
    rings so the line reads over any bar color. */
 .food-weight {
@@ -13328,7 +13328,7 @@ body.col-resizing * {
   position: relative;
 }
 
-/* autocomplete under the food input (SUB-375) — dots-menu chrome; the log
+/* autocomplete under the food input — dots-menu chrome; the log
    is the memory, so every logged food suggests forever */
 .food-suggest {
   position: absolute;
@@ -13450,7 +13450,7 @@ body.col-resizing * {
   color: var(--danger);
 }
 
-/* day navigation (SUB-408): ‹ Today › sits right of the hero number, a
+/* day navigation: ‹ Today › sits right of the hero number, a
    segmented control in the db-switch idiom; next is disabled at today */
 .food-hero {
   display: flex;
@@ -13536,7 +13536,7 @@ body.col-resizing * {
   color: var(--text-1);
 }
 
-/* food database (SUB-408): the section header is a disclosure toggle with
+/* food database: the section header is a disclosure toggle with
    the DB note's open-source button at the right. The toggle speaks the
    section-label voice — it IS the section title, just clickable. */
 .food-db-head {
@@ -13597,7 +13597,7 @@ body.col-resizing * {
   color: var(--text-3);
 }
 
-/* the basis-drift tripwire (SUB-688): the one loud line when a logged row
+/* the basis-drift tripwire: the one loud line when a logged row
    contradicts the remembered price — a warn-grade finding in amber, the pin
    action in the interaction accent, dismiss in dust */
 .food-drift {
@@ -13624,7 +13624,7 @@ body.col-resizing * {
   margin-top: 10px;
 }
 
-/* Curated newsfeed (dashboard: feed, SUB-518) — a reading surface, so the
+/* Curated newsfeed (dashboard: feed) — a reading surface, so the
    stream is one column of hairline-separated cards with no boxes and no
    colored chrome beyond the topic dot. The feedback buttons idle at --text-4
    and only earn --ok/--danger once set: nothing on this page should compete
@@ -13733,7 +13733,7 @@ body.col-resizing * {
   margin-top: 10px;
 }
 
-/* SUB-626: this pair trains the curator — it has to read as a control, not as
+/* This pair trains the curator — it has to read as a control, not as
    two stray glyphs. Quiet-chip chrome (the .side-db-chip/.rel-pill hairline),
    a 26×24 hit target, and the verdict tinted with the .opt-pill formula so a
    chosen direction is legible at a glance without adding colored chrome. */
@@ -13788,7 +13788,7 @@ body.col-resizing * {
   color: var(--text-1);
 }
 
-/* Topic chips (SUB-697): the same quiet-chip chrome as .feed-vote, sitting
+/* Topic chips: the same quiet-chip chrome as .feed-vote, sitting
    between head and stream. "all" is a real chip so the cleared state reads as
    a selection, not an absence; active chips lift with hover-tier chrome
    rather than a color fill — the topic dot already carries the hue. */
@@ -13837,7 +13837,7 @@ body.col-resizing * {
   color: var(--text-4);
 }
 
-/* Music work index (SUB-595): a scanning surface — 245 jobs pivoted three
+/* Music work index: a scanning surface — 245 jobs pivoted three
    ways. The group header carries the page's only sharp values (the year's job
    count and total size); every job line stays at --text-2 and below so a
    year's worth of rows reads as texture you skim, not a wall of data. Rows are
@@ -13961,7 +13961,7 @@ body.col-resizing * {
   min-width: 62px;
 }
 
-/* Property-visibility checklist (SUB-326): the header right-click menu.
+/* Property-visibility checklist: the header right-click menu.
    Check squares reuse .prop-check so shown/hidden reads at a glance; the
    list scrolls past ~12 props instead of outgrowing the window. */
 .propvis {
@@ -14006,7 +14006,7 @@ body.col-resizing * {
   border-top: 1px solid var(--border-soft);
 }
 
-/* ── Phone shell (SUB-332) ───────────────────────────────────
+/* ── Phone shell ───────────────────────────────────
    One surface at a time: navigation is a drawer, list/detail is a stack,
    and every persistent control reaches the 44px touch target. The runtime
    match in App uses this exact breakpoint so behavior and geometry cannot
@@ -14054,7 +14054,7 @@ body.col-resizing * {
     transform: translateX(0);
     visibility: visible;
     pointer-events: auto;
-    /* SUB-793: keep the moving drawer out of hit-testing until its final
+    /* Keep the moving drawer out of hit-testing until its final
        position. Under load, actionability could sample two stalled frames and
        dispatch a tap at the row's old x-coordinate; the scrim received it and
        navigation silently stayed on the current view. Closing still disables
@@ -14087,7 +14087,7 @@ body.col-resizing * {
     color: var(--text-2);
   }
 
-  /* SUB-584: the folder header "+" is the ONLY create path on touch (no ⌘N)
+  /* The folder header "+" is the ONLY create path on touch (no ⌘N)
      — same 44px bump the sidebar buttons get */
   .list-new {
     width: 44px;
@@ -14115,7 +14115,7 @@ body.col-resizing * {
   }
 
   /* the touch-sized chevron advances 41px (44 − 3px margin) — the gutter on
-     chevron-less rows has to grow with it or the icon column splits (SUB-618) */
+     chevron-less rows has to grow with it or the icon column splits */
   .side-chevron-spacer {
     width: 41px;
   }
@@ -14196,7 +14196,7 @@ body.col-resizing * {
   }
 
   /* The fixed keyboard button is !mobile-gated, so the chrome slot these heads
-     reserve on desktop is 40px of empty gutter on a 390px screen (SUB-497).
+     reserve on desktop is 40px of empty gutter on a 390px screen.
      .cal and .search-head hand back the space in their own rules below. */
   .trash .list-head,
   .dbmgr .list-head,
@@ -14449,7 +14449,7 @@ body.col-resizing * {
   }
 }
 
-/* ── Terminal HUD (SUB-398) ─────────────────────────────────── */
+/* ── Terminal HUD ─────────────────────────────────── */
 
 /* quake-style: fixed to the window bottom, slides up over the content and
    back down when dismissed; the PTY session survives hiding, so the panel is
@@ -14475,7 +14475,7 @@ body.col-resizing * {
   transform: translateY(0);
 }
 
-/* SUB-864: docked right — the same overlay panel anchored to the other edge.
+/* Docked right — the same overlay panel anchored to the other edge.
    Every axis flips: it fills the window height and takes a width fraction,
    slides in from the right, and its frame line moves to the left side. */
 .termhud.dock-right {
@@ -14493,7 +14493,7 @@ body.col-resizing * {
   transform: translateX(0);
 }
 
-/* SUB-863: the panel's inner edge is a drag handle — the top edge when docked
+/* The panel's inner edge is a drag handle — the top edge when docked
    bottom, the left edge when docked right. It was a decorative 6px grip
    before; same footprint, now it resizes (and double-clicks back to the
    default size). Hairline lights on hover, like the column handle. */
@@ -14603,7 +14603,7 @@ body.termhud-resizing-ew .termhud {
   }
 }
 
-/* ── Settings sheet (⌘, — SUB-398) ──────────────────────────── */
+/* ── Settings sheet (⌘,) ──────────────────────────── */
 
 .settings-sheet {
   width: 520px;
@@ -14655,7 +14655,7 @@ body.termhud-resizing-ew .termhud {
   color: var(--text-3);
 }
 
-/* the terminal-font row's "not found" line (SUB-873): the hint's own type, one
+/* the terminal-font row's "not found" line: the hint's own type, one
    grey step brighter so it reads as the newer line without becoming an error
    state — nothing is broken, the font just isn't resolving */
 .settings-hint-warn {
@@ -14663,7 +14663,7 @@ body.termhud-resizing-ew .termhud {
   color: var(--text-2);
 }
 
-/* Settings → Kinds (SUB-961): the consent list. A section of rows rather than
+/* Settings → Kinds: the consent list. A section of rows rather than
    a control per key — each line is a thing the vault contains, not a
    preference — so the list carries no bullets and leans on the row idiom. */
 .settings-kinds-lead {
@@ -14705,7 +14705,7 @@ body.termhud-resizing-ew .termhud {
   outline: none;
 }
 
-/* SUB-476: the terminal quick-actions list — one entry per line, so it needs
+/* The terminal quick-actions list — one entry per line, so it needs
    height and a top-aligned row rather than the single-line box's centering */
 .settings-textarea {
   width: 230px;
@@ -14756,7 +14756,7 @@ body.termhud-resizing-ew .termhud {
   background: var(--text-1);
 }
 
-/* SUB-864: a two-choice segmented control (terminal dock edge). Same chrome
+/* A two-choice segmented control (terminal dock edge). Same chrome
    family as the switch above — elevated track, accent for the live choice —
    but both options stay named, because "bottom vs right" has no on/off. */
 .settings-seg {
@@ -14787,11 +14787,11 @@ body.termhud-resizing-ew .termhud {
   color: var(--text-1);
 }
 
-/* SUB-955: the appearance dials. A hairline track with a small round handle —
+/* The appearance dials. A hairline track with a small round handle —
    the same restraint as the switch, no filled progress bar, because the value
    is a taste dial and not a measurement. The number rides to its right in the
    mono data voice, tabular so the handle doesn't jitter the row while it
-   moves. The window-opacity dial (SUB-951) rides the same chrome. */
+   moves. The window-opacity dial rides the same chrome. */
 .settings-slider {
   flex: none;
   display: flex;
@@ -14904,7 +14904,7 @@ body.termhud-resizing-ew .termhud {
   --chip-tone: hsl(274.4deg 57.6% 76.9%);
 }
 
-/* SUB-834: a two-option row (number format) — the send-link expiry picker's
+/* A two-option row (number format) — the send-link expiry picker's
    latched-button idiom rather than a <select>, so both options stay readable
    without opening anything */
 .settings-choice {
@@ -14925,7 +14925,7 @@ body.termhud-resizing-ew .termhud {
   color: var(--text-3);
 }
 
-/* SUB-419: the €1 donation nag. The toast's floating language — bottom of the
+/* The €1 donation nag. The toast's floating language — bottom of the
    window, out of the way, no backdrop and no focus trap: it must never sit on
    top of work in progress. Wider than a toast because it carries a sentence. */
 .donate-nag {
@@ -14944,7 +14944,7 @@ body.termhud-resizing-ew .termhud {
   animation: toast-in 140ms ease-out;
 }
 
-/* The body and the action row are the shared dbform grammar (SUB-1168):
+/* The body and the action row are the shared dbform grammar:
    .dbform-note carries the sentence, .dbform-foot the row. Two deviations
    only — the foot reads left-to-right (offer, opt-out, then dismiss pushed to
    the far edge) rather than the dialogs' right-aligned button cluster, because
@@ -14979,7 +14979,7 @@ body.termhud-resizing-ew .termhud {
   cursor: pointer;
 }
 
-/* ── First-run onboarding (SUB-436) ───────────────────────────────────────
+/* ── First-run onboarding ───────────────────────────────────────
    Only surface a returning user never sees. Same instrument language as the
    dashboards: mono labels, Inter sentences, hairlines instead of boxes. */
 .onboarding {
@@ -15129,7 +15129,7 @@ body.termhud-resizing-ew .termhud {
   word-break: break-all;
 }
 
-/* ---- workbook pages (SUB-464): the bottom sheet-tab strip ---- */
+/* ---- workbook pages: the bottom sheet-tab strip ---- */
 
 /* the pane splits into the page (whatever surface the tab shows) and the
    strip; the strip sits at the BOTTOM like a spreadsheet's sheet tabs */
@@ -15197,7 +15197,7 @@ body.termhud-resizing-ew .termhud {
 
 /* active marker rides the TOP edge — the strip hangs below the page,
    mirroring .db-tab.active::after which underlines from above. The marker
-   wears the accent (SUB-932): it is a where-am-I mark, and hue on a 2px
+   wears the accent: it is a where-am-I mark, and hue on a 2px
    rule is the cheapest legible one — the tab's own label keeps carrying the
    selection in --text-1 for anyone who can't see the hue. */
 .wb-tab.active::after {
@@ -15236,7 +15236,7 @@ body.termhud-resizing-ew .termhud {
   font-weight: 500;
 }
 
-/* SUB-818 tag-folder builder: the rule as chips. No colour of its own — a tag
+/* Tag-folder builder: the rule as chips. No colour of its own — a tag
    chip is the same hairline-and-grey vocabulary as every other pill in the
    app, so a folder full of them still reads as chrome, not decoration. */
 .tagfolder-row {
@@ -15250,7 +15250,7 @@ body.termhud-resizing-ew .termhud {
   color: var(--text-3);
 }
 
-/* ----- folder = playlist: file rows + the mini-player (SUB-812) ----------
+/* ----- folder = playlist: file rows + the mini-player ----------
 
    A folder view's third list grammar (database blocks, notes, then loose
    files) and the persistent transport bar the audio ones drive. Structure is
@@ -15395,7 +15395,7 @@ body.termhud-resizing-ew .termhud {
   padding: 2px;
 }
 
-/* a refused chip (SUB-1025): a short nudge and a hint naming the grammar.
+/* a refused chip: a short nudge and a hint naming the grammar.
    No red, no icon — the field's own border firms up for the moment the hint
    is showing, the same "quiet refusal" the rest of the app uses. Two
    identical animations so a second refusal restarts the motion. */

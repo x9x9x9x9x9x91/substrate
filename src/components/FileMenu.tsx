@@ -11,10 +11,10 @@ interface FileMenuProps {
   value: string;
   /** does the target exist? null while unknown */
   exists: boolean | null;
-  /** SUB-947 type-to-replace: the keystroke that opened this menu, seeded
+  /** Type-to-replace: the keystroke that opened this menu, seeded
       into the path input */
   seed?: string;
-  /** SUB-947: Enter/Tab commit AND carry the editor onward (see SelectMenu) */
+  /** Enter/Tab commit AND carry the editor onward (see SelectMenu) */
   onHop?: (dir: HopDir) => void;
   onCommit: (path: string) => void;
   onClear?: () => void;
@@ -41,7 +41,7 @@ export default function FileMenu({
   onEditSchema,
   onClose,
 }: FileMenuProps) {
-  // SUB-947: a type-to-replace keystroke starts the path text
+  // A type-to-replace keystroke starts the path text
   const [text, setText] = useState(seed ?? "");
   const [sel, setSel] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -97,7 +97,7 @@ export default function FileMenu({
       e.preventDefault();
       if (text.trim()) {
         commitText();
-        // SUB-947: a typed path commits and carries on down the column. A
+        // A typed path commits and carries on down the column. A
         // highlighted ACTION row (open/reveal/choose…) is not a value edit —
         // it runs and stays put, so no hop.
         onHop?.(e.shiftKey ? "up" : "down");

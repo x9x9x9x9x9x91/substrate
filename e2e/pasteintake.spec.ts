@@ -2,12 +2,12 @@ import { expect, test, type Page } from "@playwright/test";
 
 /* Paste/drop intake hardening.
 
-   SUB-659: a refused vault write (read-only .assets/, ENOSPC, unmounted
+   A refused vault write (read-only .assets/, ENOSPC, unmounted
    volume) rejected into console.error alone. preventDefault had already eaten
    the event, so the paste simply vanished — no embed, no toast, nothing. The
    Tauri drop lane already toasted; these two lanes now match it.
 
-   SUB-662: the paste loop returned after the first file item, so a multi-file
+   The paste loop returned after the first file item, so a multi-file
    payload imported one file and dropped the rest on the floor, silently and
    for the same reason. Both drop lanes already collected every file.
 

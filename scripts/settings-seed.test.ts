@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 // The seeded Settings.md body (seed.rs seed_settings) is the app's own
 // self-documentation — the file users hand-edit, where each key gets a
-// bullet. It drifted five keys behind the ⌘, pane once already (SUB-897:
+// bullet. It drifted five keys behind the ⌘, pane once already (
 // mod-hud, terminal-dock, terminal-width, share-relay-*). This suite pins
 // the two sources together so a new pane field fails `npm test` until the
 // seed body documents it.
@@ -33,8 +33,8 @@ const shared = pane.replace(new RegExp(`${MARK}-start[\\s\\S]*?${MARK}-end`, "g"
 /** Every settings key the ⌘, form manages (the FIELDS array). */
 const paneKeys = [...shared.matchAll(/^\s*key: "([^"]+)"/gm)].map((m) => m[1]);
 
-/** The seeded Settings.md body: the SETTINGS_BODY literal (SUB-973 split it
-    off the frontmatter so the body can be refreshed in existing vaults). */
+/** The seeded Settings.md body: the SETTINGS_BODY literal (split off
+    the frontmatter so the body can be refreshed in existing vaults). */
 const seedFn = /pub\(crate\) const SETTINGS_BODY: &str = "([\s\S]*?)";/.exec(seed);
 
 test("seed_settings body exists where this test expects it", () => {

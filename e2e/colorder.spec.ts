@@ -1,9 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-949: table columns drag-reorder from the header LABEL, and the order
+// Table columns drag-reorder from the header LABEL, and the order
 // persists on the database's ViewPref (views.json in the real engine,
-// mockViews here) — the same SUB-326 channel as widths and wrap, so it
+// mockViews here) — the same channel as widths and wrap, so it
 // survives navigating away and a layout switch. Runs against the
 // deterministic mock backend (fresh page = fresh vault).
 
@@ -96,7 +96,7 @@ test("after a reorder the resize handle and the right-click checklist still work
   await dragColBefore(page, moved, before[0]);
   expect((await colOrder(page))[0]).toBe(moved);
 
-  // SUB-404 resize: the moved column's 8px edge strip still drags it wider,
+  // Resize: the moved column's 8px edge strip still drags it wider,
   // and the width persists — the two gestures share the header, never fight
   const th = page.locator(".db-table thead th", { hasText: moved });
   const start = (await th.boundingBox())!;
@@ -114,7 +114,7 @@ test("after a reorder the resize handle and the right-click checklist still work
   expect(Math.abs(back.width - after.width)).toBeLessThan(3);
   expect((await colOrder(page))[0]).toBe(moved);
 
-  // SUB-326 regression: right-click the header row still opens the
+  // Regression: right-click the header row still opens the
   // property-visibility checklist
   await page.locator(".db-table thead").click({ button: "right" });
   await expect(page.locator(".propvis")).toBeVisible();

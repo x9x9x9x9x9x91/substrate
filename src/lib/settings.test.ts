@@ -174,7 +174,7 @@ test("terminalFontFamily: CSS metacharacters never pass through (vault content i
   assert.equal(terminalFontFamily("Menlo, A}bad{", MONO), `Menlo, ${MONO}`);
 });
 
-/* SUB-873: the hint on the settings row. `isAvailable` is stubbed here — in
+/* The hint on the settings row. `isAvailable` is stubbed here — in
    the app the pane measures the family against the generic bases on a canvas
    (widths move when the family is really installed). */
 const installed = (...names: string[]) => (f: string) => names.includes(f);
@@ -285,7 +285,7 @@ test("parseTerminalActions: a lone string is one action", () => {
 });
 
 test("parseTerminalActions: unset or unusable entries yield no rows", () => {
-  // the whole point of the key (SUB-441): a machine that lists nothing gets
+  // the whole point of the key: a machine that lists nothing gets
   // no quick-action rows at all, rather than someone else's
   assert.deepEqual(parseTerminalActions({}), []);
   assert.deepEqual(parseTerminalActions({ "terminal-actions": 7 }), []);
@@ -378,7 +378,7 @@ test("parseTaskStaleChips: only an explicit false turns the age chips off (SUB-1
   assert.equal(parseTaskStaleChips({ "task-stale-chips": false }), false);
   assert.equal(parseTaskStaleChips({ "task-stale-chips": "false" }), false);
   assert.equal(parseTaskStaleChips({ "task-stale-chips": " FALSE " }), false);
-  // cased spellings read like the documented key (SUB-924)
+  // cased spellings read like the documented key
   assert.equal(parseTaskStaleChips({ "Task-Stale-Chips": false }), false);
   // default ON: an unset key, `true`, or a typo all keep the chips
   assert.equal(parseTaskStaleChips({}), true);
@@ -389,7 +389,7 @@ test("parseTaskStaleChips: only an explicit false turns the age chips off (SUB-1
 test("parseShowAppFiles: only an explicit true reveals the app files (SUB-831)", () => {
   // the inverse rule of the other bools: the blank slate is the default, so
   // an unset key, garbage, or `false` in any casing all keep them concealed.
-  // The key keeps its pre-SUB-878 name so existing vaults stay revealed.
+  // The key keeps its pre-change name so existing vaults stay revealed.
   assert.equal(parseShowAppFiles({ "show-agent-files": true }), true);
   assert.equal(parseShowAppFiles({ "show-agent-files": "true" }), true);
   assert.equal(parseShowAppFiles({ "show-agent-files": " TRUE " }), true);
@@ -421,7 +421,7 @@ test("parseWindowOpacity: 80–100, anything else falls back to 90 (SUB-951)", (
 test("isAppFile: exact root names only (SUB-831, SUB-878)", () => {
   assert.equal(isAppFile("AGENTS.md"), true);
   assert.equal(isAppFile("CLAUDE.md"), true);
-  // SUB-878: the settings note behind the ⌘, sheet is app chrome too
+  // The settings note behind the ⌘, sheet is app chrome too
   assert.equal(isAppFile("Settings.md"), true);
   // a user's own note that happens to share a stem, or a nested copy, is
   // ordinary content — concealment is about the seeded root files

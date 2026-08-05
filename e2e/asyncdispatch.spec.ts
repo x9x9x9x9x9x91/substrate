@@ -3,9 +3,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import { join } from "node:path";
 
-// SUB-295: with the mock's opt-in async dispatch on, IPC completion is never
+// With the mock's opt-in async dispatch on, IPC completion is never
 // synchronous, so ordering-sensitive flows can actually race in e2e. The
-// SUB-286 class: commitTitle's pending debounced save must fully land before
+// Class: commitTitle's pending debounced save must fully land before
 // the rename fires — under async dispatch a flush that doesn't await the
 // write lets the rename slip in first and the body dies on the old path.
 // Title AND body must both land regardless of command order.
@@ -14,7 +14,7 @@ function row(page: Page, title: string) {
   return page.locator(".list .row", { has: page.getByText(title, { exact: true }) });
 }
 
-/* SUB-771 instrumentation — ON FAILURE ONLY.
+/* Instrumentation — ON FAILURE ONLY.
    The blur-rename spec below has failed on loaded QA rigs (3× across
    2026-08-01/02) while passing every rerun, every local run and 40/40
    --repeat-each=10. The open question is whether the marker died in the
@@ -133,7 +133,7 @@ async function dumpFailure(page: Page, probe: Probe, testInfo: TestInfo, marker:
           : null,
         mockNotes,
         domTrail: w.__sub771 ?? [],
-        // SUB-771 round 2: the write-lane IPC trace — did the teardown flush
+        // Round 2: the write-lane IPC trace — did the teardown flush
         // fire at all, to which path, and how did it end?
         commandTrace: (() => {
           try {
@@ -179,14 +179,14 @@ async function dumpFailure(page: Page, probe: Probe, testInfo: TestInfo, marker:
   });
 }
 
-// cold open lands on the Notes scratch list (Today is hidden, SUB-299)
+// cold open lands on the Notes scratch list (Today is hidden)
 async function boot(page: Page) {
   await page.goto("/");
   await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
 
-// SUB-305: a history restore fires two re-read lanes at once — the
+// A history restore fires two re-read lanes at once — the
 // reloadNonce remount and the vaultEpoch bump. When the load lane's read
 // resolves first — production thread-pool IPC can, and the mock's
 // "microtask" mode reproduces that resolution class deterministically (the
@@ -273,19 +273,19 @@ test("title-commit flush-then-rename lands body and title under async dispatch (
 test("body typed during a title blur-rename survives — the editor never remounts (SUB-766/SUB-772)", async ({
   page,
 }, testInfo) => {
-  const probe = makeProbe(page); // SUB-771: listeners only, no timing effect
+  const probe = makeProbe(page); // Listeners only, no timing effect
   await boot(page);
   probe.mark("booted");
   await page.evaluate(() => {
     window.__mockSetAsync?.(true);
-    // SUB-771: record every write-lane IPC (cmd, path, body tail, outcome)
+    // Record every write-lane IPC (cmd, path, body tail, outcome)
     // page-side — read back only by the failure dump
     window.__mockTraceCommands?.();
   });
 
   // the capture flow: retitle, click straight into the body, keep typing.
-  // The click blurs the title into commitTitle's flush-then-rename. SUB-766
-  // ferried state across the resulting remount; SUB-772's rig trace showed
+  // The click blurs the title into commitTitle's flush-then-rename. The async dispatch
+  // ferried state across the resulting remount; the CI trace showed
   // keystrokes dying inside the remount gap under load, so the fix keeps
   // the editor mounted and relabels the pane's state in place. Tag the live
   // editor DOM node before the rename to pin exactly that: the same
@@ -294,7 +294,7 @@ test("body typed during a title blur-rename survives — the editor never remoun
   await page.locator(".cm-editor").evaluate((el) => {
     (el as HTMLElement).dataset.premount = "1";
   });
-  // SUB-771: the DOM trail is installed BEFORE the race window and runs
+  // The DOM trail is installed BEFORE the race window and runs
   // page-side; it observes, it never waits
   await watchDom(page, "Renamed Blur E2E", marker);
   const title = page.locator(".note-title");
@@ -335,7 +335,7 @@ test("body typed during a title blur-rename survives — the editor never remoun
   }
 });
 
-// SUB-771 review finding (HIGH): the pane's rename-alias map must die when
+// The pane's rename-alias map must die when
 // the pane re-opens the vacated path — a NEW note can live there (creating a
 // note reuses freed names), and a surviving alias would redirect its saves
 // into the rename's destination: text typed in the new note lands in the old
@@ -379,7 +379,7 @@ test("a fresh note at a renamed-away path keeps its own saves (SUB-771)", async 
   await expect(page.locator(".cm-content")).toContainText(marker);
 });
 
-// SUB-772 review finding: a rename committed while the conflict banner is up
+// A rename committed while the conflict banner is up
 // must not wedge the pane. The banner belongs to the OLD path's dispute; the
 // rename relabels in place, so the stale banner would suppress the re-read
 // and make flush refuse the re-keyed buffer forever. The fix clears the
@@ -392,7 +392,7 @@ test("rename committed under an open conflict banner clears it and keeps saving 
   await page.evaluate(() => window.__mockSetAsync?.(true));
 
   // disk diverges, then the user types: the debounced guarded write is
-  // refused and the conflict banner comes up (SUB-158 mechanics)
+  // refused and the conflict banner comes up
   await page.evaluate(() => window.__mockEditNote("Welcome.md", "DISK-WINS-772\n"));
   await page.locator(".cm-content").click();
   await page.keyboard.type("TYPED-772 ");

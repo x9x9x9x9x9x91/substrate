@@ -1,4 +1,4 @@
-//! Reflex execution (SUB-826): the runner that turns a matched rule into
+//! Reflex execution: the runner that turns a matched rule into
 //! engine calls, and the rails that keep it from running away.
 //!
 //! Everything a rule does goes through the engine's ordinary guarded paths —

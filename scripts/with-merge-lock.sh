@@ -14,7 +14,7 @@
 # one); a dead holder's leftover lock is stolen with a warning so a crashed
 # session never wedges the merge train.
 #
-# --wait (SUB-1051) turns that refusal into a blocking acquire: poll until
+# --wait turns that refusal into a blocking acquire: poll until
 # the holder releases, then take the lock. Refusal stays the DEFAULT — a
 # flagless run behaves exactly as it did. Without it every caller hand-rolls
 # its own retry loop, which is what the 2026-08-04 batch did for ~40 min
@@ -25,8 +25,8 @@
 # with-gates-lock.sh and verify-gates-remote.sh — never 1, so a caller can
 # tell "I waited and the train is jammed" from "I refused on sight".
 #
-# At RELEASE, local main being ahead of origin/main is called out loudly
-# (SUB-1051 half 2). merge→gates→push atomicity is convention only, and on
+# At RELEASE, local main being ahead of origin/main is called out loudly.
+# merge→gates→push atomicity is convention only, and on
 # 2026-08-04 a session merged locally, released the lock, and left main 2-3
 # commits unpushed for ~25 min — which breaks the next caller's
 # `git pull --rebase origin main` with "Cannot rebase onto multiple
@@ -36,7 +36,7 @@
 #
 # Preflight (before taking the lock, refuse loudly rather than mutate):
 #  - the tree we run in must not be mid-merge (MERGE_HEAD)
-#  - no stashes may exist repo-wide (SUB-293: refs/stash is shared across
+#  - no stashes may exist repo-wide (refs/stash is shared across
 #    worktrees; a cross-session "pop after merge" stash is a booby trap
 #    under concurrent merges) — override with WITH_MERGE_LOCK_IGNORE_STASH=1
 #
@@ -182,7 +182,7 @@ warn_unpushed_main() {
 }
 
 # ---------------------------------------------------------------------------
-# Atomic claim (SUB-1137)
+# Atomic claim
 #
 # A lock is CLAIMED by building it complete in a private scratch dir and then
 # renaming that dir onto the lock path. rename(2) is atomic, so the lock path
@@ -216,7 +216,7 @@ warn_unpushed_main() {
 # rather than flatten a tree. Composed paths are guarded on BOTH halves with
 # `${var:?}`, which aborts the run on an empty or unset component instead of
 # expanding it into a root-shaped argument. This is structural on purpose: a
-# lock script is exactly where a path variable ends up empty (SUB-1051 F1 — a
+# lock script is exactly where a path variable ends up empty (a known failure — a
 # release path deleting a stealer's fresh lock), and the guard has to hold on
 # the day nobody is reading the diff.
 
@@ -518,7 +518,7 @@ acquire
 # The preflight above ran BEFORE the lock. Flagless, that check-then-act gap
 # is milliseconds. With --wait it is the whole budget — up to 30 minutes of
 # another session doing exactly what the preflight refuses: parking a
-# MERGE_HEAD, leaving a repo-wide stash (SUB-293). Ask again now that the lock
+# MERGE_HEAD, leaving a repo-wide stash. Ask again now that the lock
 # is actually in hand, and refuse the same way rather than merge on a reading
 # taken half an hour ago. Unconditional, not --wait-gated: a flagless run can
 # also wait — losing a claim race costs it a poll, a steal costs it more — and

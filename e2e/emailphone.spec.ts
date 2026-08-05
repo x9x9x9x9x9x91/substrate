@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// email/phone property kinds (SUB-181): schema'd email/phone props render the
+// email/phone property kinds: schema'd email/phone props render the
 // value exactly as typed (no stripping — unlike url) as a link; clicking opens
 // mailto:/tel: externally — window.open in the mock lane, stubbed here so the
 // test stays offline; tel: strips spaces/dashes from the dialed number only.

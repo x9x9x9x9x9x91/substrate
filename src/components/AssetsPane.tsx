@@ -60,7 +60,7 @@ interface AssetsPaneProps {
 }
 
 /** Orphaned-asset GC: `.assets/` files no `![[...]]` embed references anymore.
- * Deletes move the file to the trash (SUB-479), recoverable until the trash is
+ * Deletes move the file to the trash, recoverable until the trash is
  * emptied — the armed two-click stays, since no history stands behind an asset. */
 export default function AssetsPane({ vaultEpoch }: AssetsPaneProps) {
   const [entries, setEntries] = useState<AssetInfo[] | null>(null);
@@ -88,7 +88,7 @@ export default function AssetsPane({ vaultEpoch }: AssetsPaneProps) {
     disarmTimer.current = window.setTimeout(() => setArmed(null), 10_000);
   };
 
-  /* SUB-669: the delete is per-name, so a partial failure reports how many
+  /* The delete is per-name, so a partial failure reports how many
      landed in the trash and which names did not — the whole-call reject stays
      the up-front validation error, where nothing moved. */
   const del = (names: string[]) => {
@@ -149,7 +149,7 @@ export default function AssetsPane({ vaultEpoch }: AssetsPaneProps) {
         {entries === null ? (
           /* an errored scan renders the strip below — never a loading state
              that sticks forever; same DOM as the resolved state, so the scan
-             landing only swaps text (SUB-650) */
+             landing only swaps text */
           error === null ? (
             <div className="empty">
               <ImageIcon />

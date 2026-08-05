@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// Evidence run only (SUB-932): BEFORE/AFTER shots of the metrics + charts
+// Evidence run only: BEFORE/AFTER shots of the metrics + charts
 // panes on both grounds. The app has no runtime light theme — the only light
 // surface is the print pass (@media print remaps the dark ramp), so "light"
 // here means the print surface, captured by cloning the live pane into

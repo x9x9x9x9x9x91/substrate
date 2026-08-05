@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-768: moving the OPEN note into a folder outside the current view's
+// Moving the OPEN note into a folder outside the current view's
 // scope used to leave the view behind — the selection-guard then snapped the
 // editor to a DIFFERENT note and the next keystroke landed in it (the
 // wrong-note editing trap). Both entry paths (palette "Move to folder…" and
@@ -18,7 +18,7 @@ function sideFolder(page: Page, name: string) {
 
 async function boot(page: Page) {
   await page.goto("/");
-  // cold open lands on the Notes scratch list (Today is a destination, SUB-300)
+  // cold open lands on the Notes scratch list (Today is a destination)
   await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await expect(page.locator(".list-title")).toHaveText("Notes");
   await row(page, "Welcome").click();
@@ -53,11 +53,11 @@ test("dragging the open note onto a sidebar folder follows it too (SUB-768)", as
   await expect(row(page, "Welcome")).toBeVisible();
 });
 
-// SUB-1061: the same trap one keystroke later. Undo moves the file back
+// The same trap one keystroke later. Undo moves the file back
 // outside the pane that recorded it, so without a follow the view stays on
 // the destination, `selected` names the path the note just vacated, and the
 // selection-guard snaps the editor to a neighbour — the wrong-note trap the
-// SUB-768 fix closed for the forward move, reopened by ⌘Z.
+// Fix closed for the forward move, reopened by ⌘Z.
 test("⌘Z after moving the open note follows it back (SUB-1061)", async ({ page }) => {
   await row(page, "Welcome").dragTo(sideFolder(page, "Projects"));
   await expect(page.locator(".list-title")).toHaveText("Projects");

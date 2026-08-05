@@ -107,7 +107,7 @@ async function runPrintDialog(surface: HTMLElement) {
 }
 
 /** Read a note and inline its image embeds as data URLs — the shared front
-    half of the PDF surface and the handoff document (SUB-833). Only image
+    half of the PDF surface and the handoff document. Only image
     embeds get inlined — audio/other files render as placeholders, so their
     (possibly master-sized) bytes are never read. */
 async function readNoteInlined(meta: NoteMeta) {
@@ -128,7 +128,7 @@ async function readNoteInlined(meta: NoteMeta) {
 }
 
 /** Note → one standalone HTML document, everything inlined — the plaintext
-    "Send as link" seals (SUB-833). */
+    "Send as link" seals. */
 export async function buildNoteHandoffHtml(meta: NoteMeta): Promise<string> {
   const { body, props, assetSrc } = await readNoteInlined(meta);
   return buildHandoffDocument({
@@ -154,7 +154,7 @@ export async function exportNotePdf(meta: NoteMeta) {
   await runPrintDialog(surface);
 }
 
-/** Note → one-sheet PDF (SUB-816): the designed layout — hero artwork,
+/** Note → one-sheet PDF: the designed layout — hero artwork,
     title block, quiet fact rows, then the body — through the same print
     surface and dialog as the generic export. Assets inline exactly like
     the plain PDF path: vault-local only, nothing fetched at export time. */
@@ -165,7 +165,7 @@ export async function exportNoteOneSheet(meta: NoteMeta) {
   await runPrintDialog(surface);
 }
 
-/** Database view → table-sheet PDF (SUB-816): the columns and row order the
+/** Database view → table-sheet PDF: the columns and row order the
     table currently shows, as a designed data listing — the CSV export's
     printed twin. */
 export async function exportDbPdf(dbType: string, columns: string[], rows: NoteMeta[]) {
@@ -180,7 +180,7 @@ export async function exportDbPdf(dbType: string, columns: string[], rows: NoteM
   await runPrintDialog(surface);
 }
 
-/** Dashboard → print/PDF (SUB-676): the note path's twin for a live pane. The
+/** Dashboard → print/PDF: the note path's twin for a live pane. The
     pane is already laid out as designed, so its DOM clones into the same
     print surface — cards, charts and tables keep their real geometry instead
     of re-rendering — and the `@media print` rules re-skin the clone light and

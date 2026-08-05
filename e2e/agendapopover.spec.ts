@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-746: the tray popover's three defects were all "the window is a plain
+// The tray popover's three defects were all "the window is a plain
 // opaque box". Two of the three fixes are observable in the browser and are
 // pinned here; the third (non-activating NSPanel) is AppKit-only and cannot
 // be exercised without Tauri, so it is verified by hand in the real app plus
@@ -35,7 +35,7 @@ test("the agenda window frame is transparent — only the card paints (SUB-746)"
   expect(card.shadow).not.toBe("none");
 });
 
-// SUB-754: the popover's real window is 340px wide (AGENDA_WIDTH), which sits
+// The popover's real window is 340px wide (AGENDA_WIDTH), which sits
 // under the 700px phone breakpoint — so a rule written for phones hid the esc
 // foot and every row hint inside a desktop window. The other specs here run at
 // the default 1280 where that media query is inactive, which is exactly why it
@@ -52,7 +52,7 @@ test("the agenda popover keeps its hints and foot at the real 340px window width
   await expect(page.locator(".agenda-capture .palette-hint")).toBeVisible();
 });
 
-// SUB-755: the popover had half a keyboard model — the card took focus and
+// The popover had half a keyboard model — the card took focus and
 // handled Escape, and nothing else. ArrowDown/Enter were dead keys, the Tab
 // trail from the card was BODY→BODY→BODY, and the programmatic focus made
 // Chromium paint its default ring around the whole card. These pin the ⌘K
@@ -68,7 +68,7 @@ test("arrow keys move a selected row and Enter opens it (SUB-755)", async ({ pag
   await page.goto("/agenda.html");
   await expect(page.locator(".palette")).toBeVisible();
   const rows = page.locator(".agenda-list .agenda-row");
-  // the mock day always carries at least two entries (smoke.spec.ts SUB-121)
+  // the mock day always carries at least two entries (smoke.spec.ts)
   await expect(rows.nth(1)).toBeVisible();
 
   // opens with nothing selected — no row is the answer to a question the
@@ -91,7 +91,7 @@ test("arrow keys move a selected row and Enter opens it (SUB-755)", async ({ pag
   // the two input models can't show different "this is what Enter hits".
   // Poll rather than sample once: the wash fades in over 120ms
   // (.agenda-row's background-color transition, styles.css) and an instant
-  // read can land before the first frame — still exactly transparent (SUB-763)
+  // read can land before the first frame — still exactly transparent
   await expect
     .poll(() => rows.nth(0).evaluate((el) => getComputedStyle(el).backgroundColor))
     .not.toBe("rgba(0, 0, 0, 0)");
@@ -115,7 +115,7 @@ test("the agenda card never paints the browser focus ring (SUB-755)", async ({ p
   expect(outline).toBe("none");
 });
 
-// SUB-761: the rows shipped as plain divs because there was no element that
+// The rows shipped as plain divs because there was no element that
 // held the options and nothing else — the card also owns the head and the
 // foot, and the Capture row sat outside the scroller. `.agenda-rows` is that
 // container now. This pins the tree an assistive tech actually reads: one

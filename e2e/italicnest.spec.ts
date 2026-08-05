@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-654: ⌘I over a bold word used to eat one asterisk off each `**` pair —
+// ⌘I over a bold word used to eat one asterisk off each `**` pair —
 // toggleInlineMark compared exactly `mark.length` chars and never checked that
 // those chars were a whole delimiter, so `**bold**` became `*bold*` (bold
 // destroyed, italic in its place) on both unwrap paths: selection inside the

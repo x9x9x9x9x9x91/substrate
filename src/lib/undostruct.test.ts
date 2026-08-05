@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-/* SUB-515 — the structural undo helpers against the mock backend. Same shim
+/* The structural undo helpers against the mock backend. Same shim
    as undo.test.ts: `isTauri` sniffs `window` at module scope, so node has to
    look like a browser before the first app import. */
 (globalThis as { window?: unknown }).window = globalThis;
@@ -262,7 +262,7 @@ test("folder rename: the inverse uses the rel the engine returned, and covers th
 });
 
 test("folder move: undo puts the folder back, with its sidebar order lanes", async () => {
-  // SUB-698 review: dragging a dash group header onto a tree row was a bare
+  // Review: dragging a dash group header onto a tree row was a bare
   // vaultMoveFolder — no undo entry at all. The inverse is a move back to the
   // parent it came from, and the engine's path-keyed lanes ride the inverse.
   await vaultCreateFolder("Undo MF/Group");

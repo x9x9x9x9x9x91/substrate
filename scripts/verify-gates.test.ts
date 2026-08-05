@@ -6,9 +6,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// verify-gates.sh's red-gate diagnosis (SUB-764). A red gate used to print
+// verify-gates.sh's red-gate diagnosis. A red gate used to print
 // only the summary row ("e2e FAIL 91s 1 failed, 707 passed"), so finding out
-// WHICH spec failed cost an ssh into the rig and a grep of the log dir. Now
+// WHICH spec failed cost an ssh into the CI machine and a grep of the log dir. Now
 // each red stage also prints the failing names + first error line.
 //
 // Hermetic: a throwaway git repo holding only the script, plus stub `npm` /
@@ -86,8 +86,8 @@ test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; 
   1 passed (402ms)
 `,
 
-  // The ios leg (SUB-1121): a cross-compile check, so its red shape is rustc's,
-  // verbatim from SUB-827's pre-fix state (ungated `crate::voice::*`).
+  // The ios leg: a cross-compile check, so its red shape is rustc's,
+  // verbatim from the pre-fix state (ungated `crate::voice::*`).
   // The leading warning is load-bearing: warnings carry `-->` arrows too and
   // print first, so the location line has to be found relative to the error.
   ios: `    Checking substrate v0.1.0 (/repo/src-tauri)
@@ -295,7 +295,7 @@ test("the failing-name list is capped, and says how many it dropped", () => {
   });
 });
 
-// SUB-1121. The ios leg is the only gate whose prerequisites are per-machine
+// The ios leg is the only gate whose prerequisites are per-machine
 // operator setup, which makes "skip when unprepped" the tempting shape — and
 // the wrong one: a leg that skips itself reports green on a machine that
 // checked nothing, which is exactly the blindness the leg exists to close.

@@ -34,7 +34,7 @@ const noop = () => {};
 
 /** The pane header's name for a view. `tagFolders` is only needed by the
     tagfolder kind — its name lives in the folder definition, not the view, so
-    a rename retitles the open pane without rewriting view state (SUB-818). */
+    a rename retitles the open pane without rewriting view state. */
 export function viewLabel(view: View, tagFolders: TagFolder[] = []): string {
   switch (view.kind) {
     case "tagfolder":
@@ -63,7 +63,7 @@ export function viewLabel(view: View, tagFolders: TagFolder[] = []): string {
       return "Saved view";
     case "mount":
       // a mount renders DatabasePane too, and its name lives in the registry
-      // rather than in the view — generic label only (SUB-888)
+      // rather than in the view — generic label only
       return "Mounted folder";
     case "dashboard":
       return "Dashboard";
@@ -92,7 +92,7 @@ function subtitle(n: NoteMeta): string {
   return parts.join(" · ");
 }
 
-/** SUB-460: one row, memoized. Every prop is a primitive or a stable callback,
+/** One row, memoized. Every prop is a primitive or a stable callback,
     so an unrelated App re-render (toast, another row's selection) reconciles
     nothing here.
 
@@ -139,7 +139,7 @@ const NoteRow = memo(function NoteRow({
         e.stopPropagation();
         onSelect(n.path);
         // Enter goes on into the note (Space only selects) — same move as the
-        // app-level enter-edit shortcut (SUB-392)
+        // app-level enter-edit shortcut
         if (e.key === "Enter") onActivate?.(n.path);
       }}
       draggable={!renaming}
@@ -169,14 +169,14 @@ const NoteRow = memo(function NoteRow({
   );
 });
 
-/** SUB-812: one loose file in a folder view. Audio rows lead with the play
+/** One loose file in a folder view. Audio rows lead with the play
     button and drive the same shared player as note embeds and database prop
     buttons — pressing it also seats the listening queue on this folder, which
     is what gives the mini-player its prev/next.
 
     The always-visible play button is the sanctioned exception to "no visible
-    button per row" (design-principles §6, amended for task checkboxes in
-    SUB-870): auditioning IS a folder-of-bounces' reason to exist, and the
+    button per row" (design-principles §6, amended for task checkboxes):
+    auditioning IS a folder-of-bounces' reason to exist, and the
     test the amendment names — is the control the row's reason, or a
     convenience hung off it — passes here. Every other verb (Reveal) stays
     quiet until hover or focus, and non-audio rows carry no visible button at
@@ -198,7 +198,7 @@ const FileRow = memo(function FileRow({
   // The size string below is formatted in the ⌘, dial's dialect, which this
   // row reads out of a module binding rather than a prop — and the row is
   // memo'd, so its parent repainting after a settings change would not reach
-  // it (SUB-1092). Subscribing is what makes the dial move these rows.
+  // it. Subscribing is what makes the dial move these rows.
   useNumberLocale();
   const kind = fileKind(file);
   const ext = fileExt(file.name);
@@ -261,7 +261,7 @@ const FileRow = memo(function FileRow({
   );
 });
 
-/* SUB-461 windowing knobs, the ListPane cut of DatabasePane's SUB-310 pattern:
+/* Windowing knobs, the ListPane cut of DatabasePane's pattern:
    lists longer than WIN_MIN paint only the scroll viewport ± WIN_OVERSCAN rows
    (WIN_INITIAL rows on the first frame, before the scroller reports its
    geometry), with spacer divs standing in for the rest so scroll height and
@@ -285,31 +285,31 @@ interface ListPaneProps {
   onRenameNote: (path: string, title: string) => void | Promise<unknown>;
   onRenameCancel: () => void;
   onRowContextMenu: (path: string, x: number, y: number) => void;
-  /** SUB-590: right-click on the pane's empty space — the view-contextual
+  /** Right-click on the pane's empty space — the view-contextual
       create menu. Rows keep their own menu; they preventDefault first, which
       is how the background handler knows to stand down. */
   onBackgroundContextMenu?: (x: number, y: number) => void;
-  /** Enter on a row: select is done, move on into the note (SUB-392) */
+  /** Enter on a row: select is done, move on into the note */
   onActivate?: (path: string) => void;
-  /** the open folder's icon (SUB-84), when one is set */
+  /** the open folder's icon, when one is set */
   folderIcon?: DbIcon;
-  /** collapsed database blocks above the loose rows (SUB-87) — only the
+  /** collapsed database blocks above the loose rows — only the
       folder and All notes views pass any; click-through opens the database */
   blocks?: DbBlock[];
-  /** per-type database icons (SUB-27) for the blocks */
+  /** per-type database icons for the blocks */
   icons?: Record<string, DbIcon>;
   onOpenDb?: (type: string) => void;
-  /** SUB-584: folder header "+" — new note born in this folder (a typed entry
+  /** Folder header "+" — new note born in this folder (a typed entry
       when the folder is a database's home, today's daily in the Journal).
       Same fork ⌘N takes; the button is the only visible path on touch, where
       ⌘N doesn't exist. */
   onNewHere?: () => void;
-  /** SUB-818: tag folder definitions — the header needs them to name a
+  /** Tag folder definitions — the header needs them to name a
       `tagfolder` view, which carries only an id. */
   tagFolders?: TagFolder[];
   /** Phone copy avoids advertising keyboard-only chrome. */
   mobile?: boolean;
-  /** SUB-812: the folder's loose (non-note) files, below the notes. Only
+  /** The folder's loose (non-note) files, below the notes. Only
       folder views pass any — "All notes" spans folders, so there is no one
       folder whose files it could list. */
   files?: FolderFile[];
@@ -351,7 +351,7 @@ function ListPane({
 }: ListPaneProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
 
-  /* SUB-818: the open tag folder, when one is. Its rule (not a path) is what
+  /* The open tag folder, when one is. Its rule (not a path) is what
      the header's tooltip has to spell out — a tag folder has no location. */
   const openTagFolder = useMemo(
     () => (view.kind === "tagfolder" ? tagFolders.find((f) => f.id === view.id) : undefined),
@@ -366,12 +366,12 @@ function ListPane({
           ? `Every note tagged #${view.tag}`
           : undefined;
 
-  /* SUB-461: long lists paint lazily. The subtitle line is what makes a row
+  /* Long lists paint lazily. The subtitle line is what makes a row
      tall, so it is computed once per note here and reused by both the offset
      math and the render. */
   const subs = useMemo(() => notes.map(subtitle), [notes]);
 
-  /* Rows are memoized (SUB-460), so nothing re-renders them as time passes and
+  /* Rows are memoized, so nothing re-renders them as time passes and
      "2m" would sit there all afternoon. Before the memo an unrelated App render
      refreshed them incidentally; now the clock has to be an explicit input.
      Same minute tick CalendarPane uses. */
@@ -466,7 +466,7 @@ function ListPane({
     if (!body || !(anchor instanceof HTMLElement)) return;
     let rowH = 0;
     let subH = 0;
-    // file rows (SUB-812) are excluded alongside the database blocks: the
+    // file rows are excluded alongside the database blocks: the
     // window's offset math describes the NOTES region, and measuring a row of
     // a different height into rowH would slide every painted note
     for (const el of body.querySelectorAll(".row:not(.row-dbblock):not(.row-file)")) {
@@ -495,7 +495,7 @@ function ListPane({
   // geometry can change with no scroll event: full-screening the window,
   // dragging its edge, collapsing the sidebar. winSync reads clientHeight, so
   // a taller viewport keeps the shorter slice and paints a blank band below it
-  // until the user scrolls. Same ResizeObserver DatabasePane uses (SUB-310).
+  // until the user scrolls. Same ResizeObserver DatabasePane uses.
   useEffect(() => {
     const body = bodyRef.current;
     if (!windowed || !body) return;
@@ -530,7 +530,7 @@ function ListPane({
   // unchanged selection and scroll the window back onto it. Without this the
   // row only stays painted when the browser's scroll anchoring happens to
   // absorb the index shift — which it does for some list deltas and not for
-  // others, so the guarantee was never actually the pane's (SUB-461).
+  // others, so the guarantee was never actually the pane's.
   useEffect(() => {
     revealedFor.current = null;
   }, [view]);
@@ -538,8 +538,7 @@ function ListPane({
   // row drops DOM focus to <body> with no event of its own. The reveal below
   // then can't tell "the list had focus a moment ago" from "focus was never
   // here", so it declines to move the ring and the keyboard is left orphaned.
-  // Track ownership as focus moves instead of sampling it after the fact
-  // (SUB-461).
+  // Track ownership as focus moves instead of sampling it after the fact.
   const hadRowFocus = useRef(false);
   useEffect(() => {
     const body = bodyRef.current;
@@ -585,7 +584,7 @@ function ListPane({
     if (!el) return;
     revealedFor.current = selected;
     el.scrollIntoView({ block: "nearest" });
-    // focus follows selection (SUB-392): after a click, DOM focus sits on the
+    // focus follows selection: after a click, DOM focus sits on the
     // clicked row — arrowing away without this leaves the focus ring (and
     // Enter's target) on the stale row. Only steal focus from a sibling row
     // (or the one this pane just unmounted), never from the editor.
@@ -598,7 +597,7 @@ function ListPane({
   return (
     <div
       className="list"
-      // SUB-590: empty space answers right-click with the create menu. A
+      // Empty space answers right-click with the create menu. A
       // row's own handler ran first (bubbling) and preventDefault()ed, so
       // a prevented event means "already handled" — stand down.
       onContextMenu={(e) => {
@@ -615,7 +614,7 @@ function ListPane({
         {view.kind === "folder" && folderIcon && (
           <TypeIcon type={viewLabel(view)} icon={folderIcon} size={16} />
         )}
-        {/* SUB-818: a tag folder and a bare tag collection both wear the tag
+        {/* A tag folder and a bare tag collection both wear the tag
             glyph — the same mark the sidebar row carries, so the header
             confirms what was clicked */}
         {(view.kind === "tagfolder" || view.kind === "tag") && (
@@ -629,13 +628,13 @@ function ListPane({
           {viewLabel(view, tagFolders)}
         </span>
         <span className="list-count">{notes.length + blocks.length + files.length}</span>
-        {/* SUB-400: name the kind of thing that's open — a folder of 2 notes
+        {/* Name the kind of thing that's open — a folder of 2 notes
             and a database of 1424 entries otherwise wear the same header */}
         {view.kind === "folder" && <span className="head-kind">Folder</span>}
         {view.kind === "tagfolder" && <span className="head-kind">Tag folder</span>}
         {view.kind === "tag" && <span className="head-kind">Tag</span>}
-        {/* SUB-584: births in this folder — a typed entry when the folder is a
-            database's home, today's daily in the Journal (SUB-593); the ⌘N
+        {/* Births in this folder — a typed entry when the folder is a
+            database's home, today's daily in the Journal; the ⌘N
             fork made clickable, and the only path on touch */}
         {view.kind === "folder" && onNewHere && (
           <button
@@ -647,7 +646,7 @@ function ListPane({
             <PlusIcon />
           </button>
         )}
-        {/* SUB-818: creating inside a tag folder tags the new note instead of
+        {/* Creating inside a tag folder tags the new note instead of
             moving it — same button, the acting-tags rule behind it */}
         {view.kind === "tagfolder" && onNewHere && openTagFolder && (
           <button
@@ -667,7 +666,7 @@ function ListPane({
         ref={bodyRef}
         // scroll events aren't cancelable, so this can't block scrolling; an
         // unchanged window bails out of re-render, so the pane only re-renders
-        // when the painted slice actually moves (SUB-461)
+        // when the painted slice actually moves
         onScroll={windowed ? () => winSyncRef.current() : undefined}
       >
         {notes.length === 0 && blocks.length === 0 && files.length === 0 ? (
@@ -738,7 +737,7 @@ function ListPane({
             {winBottomH > 0 && (
               <div className="list-win-spacer" aria-hidden="true" style={{ height: winBottomH }} />
             )}
-            {/* SUB-812: the pane's third list grammar — the folder's loose
+            {/* The pane's third list grammar — the folder's loose
                 files, below the notes, behind their own seam. Deliberately
                 unwindowed: the engine caps the listing, so this is a bounded
                 render, and the notes above own the window offsets. */}
@@ -775,6 +774,6 @@ function ListPane({
   );
 }
 
-/* SUB-460: the pane is pure in its props — App-state churn that doesn't touch
+/* The pane is pure in its props — App-state churn that doesn't touch
    them (toast, overlays, palette) stops reconciling the whole list. */
 export default memo(ListPane);

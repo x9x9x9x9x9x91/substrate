@@ -78,7 +78,7 @@ export function missingCls(n: { props: Record<string, unknown> }): string {
     they describe the file, and the file is the source of truth. */
 export const MOUNT_INTRINSICS = ["name", "extension", "size", "created", "modified"] as const;
 
-/** Columns read out of the files themselves (SUB-887) — duration for audio,
+/** Columns read out of the files themselves — duration for audio,
     page count for PDFs, tags where a file carries them. They appear on a row
     only once that file has been read, so a board fills these in behind a
     scan rather than with it. Read-only for the same reason the intrinsics

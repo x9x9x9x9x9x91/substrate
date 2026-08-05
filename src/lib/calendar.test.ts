@@ -294,7 +294,7 @@ test("cellDayLabel: the 1st names its month, every other day stays bare (SUB-701
   assert.equal(cellDayLabel(new Date(2027, 0, 1)), "Jan 1");
 });
 
-/* ----- recurrence (SUB-174) ----- */
+/* ----- recurrence ----- */
 
 test("parseRepeat: bare cadences, case- and space-insensitive", () => {
   assert.deepEqual(parseRepeat("daily"), { unit: "day", n: 1 });
@@ -370,7 +370,7 @@ test("recurrence: repeat_until is inclusive", () => {
   // the occurrence ON the until-day survives, the next one doesn't
   assert.deepEqual(entries.map((e) => e.day), ["2026-07-18", "2026-07-19", "2026-07-20"]);
   // an until before the anchor (a typo, usually) truncates the series but
-  // never hides the note itself — the anchor still renders (SUB-220)
+  // never hides the note itself — the anchor still renders
   const truncated = calendarEntries(
     [note("E.md", { date: "2026-07-18", repeat: "daily", repeat_until: "2026-07-17" })],
     {},
@@ -391,7 +391,7 @@ test("recurrence: no window → only the surviving anchor", () => {
   const daily = { date: "2026-07-18", repeat: "daily" };
   assert.deepEqual(calendarEntries([note("E.md", daily)], {}).map((e) => e.day), ["2026-07-18"]);
   // …unless the anchor itself is skipped; an until before the anchor no
-  // longer hides it (SUB-220)
+  // longer hides it
   assert.deepEqual(calendarEntries([note("E.md", { ...daily, repeat_skip: ["2026-07-18"] })], {}), []);
   assert.deepEqual(
     calendarEntries([note("E.md", { ...daily, repeat_until: "2026-07-17" })], {}).map((e) => e.day),
@@ -414,7 +414,7 @@ test("recurrence: a series anchored years back still surfaces in a small window"
   assert.deepEqual(entries.map((e) => e.day), ["2026-07-17"]);
 });
 
-/* SUB-570: expansion seeks to the window arithmetically. Walking there from
+/* Expansion seeks to the window arithmetically. Walking there from
    the anchor spent the 1000-occurrence budget on days nobody asked for, so a
    viewport far from the anchor came back empty. */
 test("recurrence: a weekly series anchored 3 years back fills a viewport window", () => {
@@ -471,7 +471,7 @@ test("recurrence: seeking lands on the window's first day when it is an occurren
   assert.equal(entries[0].day, "2026-07-27", "an occurrence ON start is not skipped");
 });
 
-/* SUB-570's actual failure: the pane covered grid + Upcoming with ONE window,
+/* The actual failure: the pane covered grid + Upcoming with ONE window,
    so paging back stretched the span until MAX_OCCURRENCES truncated a daily
    series short of today — grid fine, Today and Upcoming empty. */
 test("two windows: a far-back grid does not starve the upcoming window", () => {
@@ -596,14 +596,14 @@ test("overdueEntries: a skipped or ended series still never counts", () => {
   assert.deepEqual(overdueEntries(notes, schema, "2026-07-19"), []);
 });
 
-/* ----- optional time-of-day on date props (SUB-270) ----- */
+/* ----- optional time-of-day on date props ----- */
 
 test("splitDayTime: day-only, timed, and the T separator", () => {
   assert.deepEqual(splitDayTime("2026-07-19"), { day: "2026-07-19", time: null });
   assert.deepEqual(splitDayTime("2026-07-19 14:30"), { day: "2026-07-19", time: "14:30" });
   assert.deepEqual(splitDayTime("2026-07-19T09:05"), { day: "2026-07-19", time: "09:05" });
   assert.deepEqual(splitDayTime("2026-07-19 00:00"), { day: "2026-07-19", time: "00:00" });
-  // SUB-714: a single-digit hour parses and pads, agreeing with parseDateTimeLoose
+  // A single-digit hour parses and pads, agreeing with parseDateTimeLoose
   assert.deepEqual(splitDayTime("2026-07-19 9:30"), { day: "2026-07-19", time: "09:30" });
   assert.deepEqual(splitDayTime("2026-07-19T9:30"), { day: "2026-07-19", time: "09:30" });
 });
@@ -619,7 +619,7 @@ test("splitDayTime: bad day or bad time is null, never a partial split", () => {
   assert.equal(splitDayTime(""), null);
 });
 
-/* ----- date ranges (SUB-596) ----- */
+/* ----- date ranges ----- */
 
 test("splitDateRange: single dates, spans, and timed spans", () => {
   assert.deepEqual(splitDateRange("2026-09-01"), {
@@ -656,7 +656,7 @@ test("splitDayTime returns the START of a range, so every caller sorts by it", (
     day: "2026-09-01",
     time: "09:00",
   });
-  // the unpadded-hour normalization runs through the range path too (SUB-714)
+  // the unpadded-hour normalization runs through the range path too
   assert.deepEqual(splitDayTime("2026-09-01 9:00/2026-09-03 17:00"), {
     day: "2026-09-01",
     time: "09:00",

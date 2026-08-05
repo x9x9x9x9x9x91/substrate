@@ -35,7 +35,7 @@ pub fn readonly_dirs_enforced() -> bool {
     })
 }
 
-/// Make one existing file un-renamable, and undo it (SUB-669).
+/// Make one existing file un-renamable, and undo it.
 ///
 /// A read-only *directory* refuses a rename of everything inside it, which is
 /// too coarse when a test needs exactly one file of a batch to fail. macOS's

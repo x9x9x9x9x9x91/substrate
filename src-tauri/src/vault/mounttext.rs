@@ -1,5 +1,4 @@
 //! A mount's document text, kept on the machine that can read the files
-//! (SUB-1093).
 //!
 //! The text of a PDF sitting in a mounted folder is the content of a file
 //! *outside* the vault. The mount index (`mounts.rs`) is inside the vault: it
@@ -179,14 +178,14 @@ pub fn forget(dir: &Path, id: &str) {
 }
 
 /// Drop every store in this dir that no live mount can name, and answer how
-/// many went (SUB-1134).
+/// many went.
 ///
 /// `forget` covers the mount that is removed. What it cannot see is the store
 /// that outlives the *vault*: this dir belongs to the app, not to the vault,
 /// so pointing the app at a different vault leaves the previous one's mount
 /// ids sitting here with nothing that will ever enumerate them again. Nothing
 /// escapes the machine either way — the dir is outside every sync leg
-/// (SUB-1093) — so what is at stake is disk and hygiene, [`MOUNT_TEXT_MAX`]
+/// — so what is at stake is disk and hygiene, [`MOUNT_TEXT_MAX`]
 /// per stranded mount, held forever.
 ///
 /// Only files this module could have written are candidates: `<id>.json` for

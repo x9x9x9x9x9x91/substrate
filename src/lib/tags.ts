@@ -1,5 +1,5 @@
 // Tags: inline `#hashtags` in prose, the `tags:` frontmatter prop, and the
-// tag-query folders built on both (SUB-818).
+// tag-query folders built on both.
 //
 // The pure half — no React, no CodeMirror — so it runs under `node --test`
 // and the editor, sidebar and builder can all share one grammar.

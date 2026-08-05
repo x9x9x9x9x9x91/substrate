@@ -1,11 +1,11 @@
-// Food quick-add autocomplete (SUB-375): the log itself is the memory — every
+// Food quick-add autocomplete: the log itself is the memory — every
 // row ever written contributes a remembered food, so "it remembers new foods"
 // costs nothing. A small quantity grammar ("Eggs 2x", "x2 Eggs", "3 Eggs",
 // "Magerspeck 30g", "100ml Milch") turns each remembered row into a per-unit
-// basis, and typed quantities scale from it. The food DB (SUB-408) overrides
+// basis, and typed quantities scale from it. The food DB overrides
 // the remembered basis by name and surfaces never-logged foods; the log keeps
 // recency ranking and last-portion defaults. A kcal expression typed straight
-// into the food field (SUB-629) — "Chicken bowl 200g 100ph" (per-hundred basis) or
+// into the food field — "Chicken bowl 200g 100ph" (per-hundred basis) or
 // trailing math ("Pizza 2*180", "23+23") — beats the memory outright.
 //
 // Pure TS, erasable syntax only — runs in the app and under `node --test`.
@@ -31,7 +31,7 @@ const TRAILING_RE = new RegExp(`^(.*\\S)\\s+(?:x\\s*(${NUM})|(${NUM})\\s*(x|g|ml
 // leading: "2x Eggs" / "x2 Eggs" / "100g Speck" / "3 Eggs" (bare count = x)
 const LEADING_RE = new RegExp(`^(?:x\\s*(${NUM})|(${NUM})\\s*(x|g|ml)?)\\s+(\\S.*)$`, "i");
 
-/** A typed quantity, read in the dial's dialect (SUB-1092). The comma was
+/** A typed quantity, read in the dial's dialect. The comma was
     assumed decimal here, so an en-US or en-GB user typing "Rice 1,500g" got
     1.5 g of rice — a thousandfold error in a number they will act on.
     `normalizeNumberInput` is the same reader every number-kind cell uses, so
@@ -92,12 +92,12 @@ export interface FoodMemory {
   /** rows sharing this base — a light popularity signal for ranking */
   count: number;
   exercise: boolean;
-  /** grams per one unit (SUB-687) — only from a DB row's `g` column on
+  /** grams per one unit — only from a DB row's `g` column on
       x-based entries, never inferred from the log; null = no honest
       piece↔gram bridge */
   gPerUnit: number | null;
-  /** the basis authority is the food DB, not the log's newest row (SUB-688 —
-      the drift tripwire pins against the DB differently when it contradicts
+  /** the basis authority is the food DB, not the log's newest row (the drift
+       tripwire pins against the DB differently when it contradicts
       a curated row vs a replayed one) */
   fromDb: boolean;
 }
@@ -105,7 +105,7 @@ export interface FoodMemory {
 /** One memory per distinct base (case-insensitive), food and exercise kept
     apart. The newest row (by date, then log order) provides the basis; kcal
     is stored positive for exercise so the UI's sign convention stays in one
-    place. Food DB entries (SUB-408) then win the basis by name — stable
+    place. Food DB entries then win the basis by name — stable
     kcal/protein instead of replaying the newest row — and never-logged DB
     foods join the memory (lastDate "" ranks them below logged foods). The
     log keeps the portion default when the DB basis can carry it (g↔ml is
@@ -134,7 +134,7 @@ export function buildFoodMemory(rows: FoodRow[], db: FoodDbEntry[] = []): FoodMe
       lastDate: r.date,
       count: (prev?.count ?? 0) + 1,
       exercise,
-      gPerUnit: null, // the log never teaches piece weights (SUB-687)
+      gPerUnit: null, // the log never teaches piece weights
       fromDb: false,
     };
     // ISO dates compare lexicographically; a same-date later row wins too
@@ -185,9 +185,9 @@ export interface FoodFill {
       portion for weight-based ones ("Speck 2x" = twice last time's grams)
     - g/ml → per-unit scale; g and ml are treated as the same basis (the
       kitchen-log approximation). Against an x-based entry a conversion
-      exists only when the DB says what one unit weighs (SUB-687); without
+      exists only when the DB says what one unit weighs; without
       it kcal stays null and the typed name is kept
-    An exercise entry fills its kcal NEGATIVE (SUB-702): the form has one
+    An exercise entry fills its kcal NEGATIVE: the form has one
     mode, and the minus sign in the kcal field is what marks exercise. */
 export function fillFor(entry: FoodMemory, qty: number | null, unit: QtyUnit | null): FoodFill {
   const sign = entry.exercise ? -1 : 1;
@@ -219,7 +219,7 @@ export function fillFor(entry: FoodMemory, qty: number | null, unit: QtyUnit | n
       protein: entry.perProtein !== null ? Math.round(entry.perProtein * qty) : null,
     };
   }
-  // grams against a piece-based entry: the DB's gram weight (SUB-687) is the
+  // grams against a piece-based entry: the DB's gram weight is the
   // only honest bridge — without it the user fills the number
   if (entry.gPerUnit !== null) {
     const units = qty / entry.gPerUnit;
@@ -234,7 +234,7 @@ export function fillFor(entry: FoodMemory, qty: number | null, unit: QtyUnit | n
 
 /** Ranked suggestions for the typed input: prefix matches over substring
     matches, then recency, then row count. Empty base → nothing (the repeat
-    chips already cover "no idea yet"). One pool since SUB-702: food and
+    chips already cover "no idea yet"). One pool: food and
     exercise memories suggest side by side — an exercise row's fill carries
     the minus, which is all that separates the modes now. */
 export function suggestFoods(memory: FoodMemory[], input: string, limit = 6): FoodMemory[] {
@@ -268,7 +268,7 @@ export function autoFill(memory: FoodMemory[], input: string): FoodFill | null {
   return fill.kcal === null ? null : fill;
 }
 
-// ---- activity names always log negative (SUB-702) ----
+// ---- activity names always log negative ----
 
 // curated activity vocabulary, EN + DE — matched as WHOLE words of the base
 // name so food names that merely contain one ("Radler", "Sportgetränk" as a
@@ -293,7 +293,7 @@ export function isExerciseName(input: string): boolean {
     .some((w) => EXERCISE_WORDS.has(w));
 }
 
-// ---- kcal expressions in the food field (SUB-629) ----
+// ---- kcal expressions in the food field ----
 
 // trailing per-hundred basis: "Chicken bowl 200g 100ph" = 100 kcal per 100 g/ml
 const PH_RE = /(\d+(?:[.,]\d+)?)\s*ph\s*$/i;
@@ -362,7 +362,7 @@ function evalMath(src: string): number | null {
   return v !== null && i === src.length ? v : null;
 }
 
-/** Protein for an expression's leading name (SUB-634): the same exact-base
+/** Protein for an expression's leading name: the same exact-base
     lookup and fill semantics `accept()` uses, so "Skyr 300g 60ph" carries the
     protein its remembered per-gram basis implies instead of logging 0 g — the
     weighed ph foods are exactly the protein carriers. A name without its own
@@ -377,7 +377,7 @@ function exprProtein(memory: FoodMemory[], name: string): number | null {
   return entry ? fillFor(entry, qty, unit).protein : null;
 }
 
-/** A kcal expression typed straight into the food field (SUB-629), in either
+/** A kcal expression typed straight into the food field, in either
     form:
     - per-hundred: "<name> <qty><g|ml> <kcal>ph" → kcal = qty × ph/100. The
       name keeps the quantity ("Chicken bowl 200g"), so the logged row teaches the
@@ -386,7 +386,7 @@ function exprProtein(memory: FoodMemory[], name: string): number | null {
       "(10+5)*20"). The leading text stays the name; a nameless expression
       keeps the full text as its name so the row stays readable.
     The expression states only its kcal, so protein comes from `memory` when
-    the leading name resolves (SUB-634) — omit the argument and it stays null.
+    the leading name resolves — omit the argument and it stays null.
     Null when neither form parses — the memory auto-fill then gets its say. */
 export function parseKcalExpr(text: string, memory: FoodMemory[] = []): FoodFill | null {
   const t = text.trim();
@@ -401,7 +401,7 @@ export function parseKcalExpr(text: string, memory: FoodMemory[] = []): FoodFill
     if (qty === null || unit === null || unit === "x") return null;
     const kcal = Math.round((qty * num(ph[1])) / 100);
     // 0ph or a sub-half-kcal portion would log a 0-kcal row — no answer.
-    // Above the sanity bound is a slipped digit, not a meal (SUB-691)
+    // Above the sanity bound is a slipped digit, not a meal
     if (kcal < 1 || !kcalInRange(kcal)) return null;
     return { name: rest, kcal, protein: exprProtein(memory, rest) };
   }
@@ -431,7 +431,7 @@ export function parseKcalExpr(text: string, memory: FoodMemory[] = []): FoodFill
   };
 }
 
-// ---- basis-drift tripwire (SUB-688) ----
+// ---- basis-drift tripwire ----
 
 export interface FoodDrift {
   /** display base of the contradicted food */

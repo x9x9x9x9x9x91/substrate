@@ -215,7 +215,7 @@ test("filterLabel spells classic and comparison filters", () => {
 });
 
 test("parseQuery: a bare quoted phrase never shreds into words (SUB-232 → SUB-219)", () => {
-  // SUB-232 kept the phrase glued inside `text`; SUB-219 supersedes that by
+  // The phrase was once glued inside `text`; it is superseded by
   // extracting it into `phrases` — either way it must not split into words
   const p = parseQuery('"night drive" ');
   assert.equal(p.text, "");
@@ -573,7 +573,7 @@ test("filterInherits: the first term per key wins (SUB-234)", () => {
 });
 
 test("parseQuery: a quoted phrase is a phrase, not words (SUB-219)", () => {
-  // before SUB-219 the quotes stayed on the text words, so a quoted phrase
+  // the quotes once stayed on the text words, so a quoted phrase
   // never hit anything outside the search pane
   const p = parseQuery('"slow bloom" ', TODAY);
   assert.deepEqual(p.phrases, ["slow bloom"]);
@@ -662,7 +662,7 @@ test("completeFilter lexes non-ASCII keys (SUB-219)", () => {
   assert.equal(completeFilter("Fällig < 20", "fällig", "2026-08-01", "<="), "fällig <= 2026-08-01 ");
 });
 
-/* SUB-266 dead-end hints — the two heuristics under a filter bar's zero rows */
+/* Dead-end hints — the two heuristics under a filter bar's zero rows */
 const HINT_COLS = ["status", "cat#", "artist", "category", "created"];
 const HINT_NOTES = [
   note("Slow Bloom EP", { type: "release", status: "in review", "cat#": "SMP-030" }),
@@ -767,7 +767,7 @@ test("filterDeadEndHint: folder is a known key whose values are folders (SUB-266
   });
 });
 
-/* SUB-639: a number-kind column filters by numeric value — exact match on
+/* A number-kind column filters by numeric value — exact match on
    `price:1200` and real comparison on `price > 500`. */
 const PRICE_SCHEMA: Record<string, PropSchema> = {
   price: { options: [], kind: "number" },

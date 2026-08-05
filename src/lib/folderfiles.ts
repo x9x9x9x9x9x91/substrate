@@ -1,4 +1,4 @@
-/** Folder-as-playlist classification (SUB-812) — pure parsing over the
+/** Folder-as-playlist classification — pure parsing over the
  * `FolderFile` rows the engine lists for a folder view. Turning a row into a
  * playable URL is `assets.ts`'s job; driving the shared player is
  * `editor-widgets.ts`'s; this module only decides what a row IS.

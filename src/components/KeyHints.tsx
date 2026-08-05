@@ -5,13 +5,13 @@ import { getQueue } from "../lib/playqueue";
 import { isTypingNow } from "../lib/dom";
 import type { NoteMeta, View } from "../lib/types";
 
-/** The one keyboard affordance (SUB-468): a note-tool-weight button parked at
+/** The one keyboard affordance: a note-tool-weight button parked at
     the app's fixed chrome slot on every desktop view, folding out the keys
     live in the CURRENT view — pane-owned surfaces (calendar, database grid,
     sheet) included, straight from the registry's `hint` gates. The panel foot
     opens the full ⌘/ sheet, so NotePane no longer carries its own kbd button.
     Expanded state persists per window (localStorage, the sidebar-collapse
-    idiom, SUB-394). Desktop only — App gates the mount on !mobile. */
+    idiom). Desktop only — App gates the mount on !mobile. */
 export default function KeyHints({
   view,
   selectedMeta,
@@ -33,7 +33,7 @@ export default function KeyHints({
   canGoBack: boolean;
   sheetOpen: boolean;
   onShowSheet: () => void;
-  /** SUB-490: the hold-⌘ HUD, which hangs off this wrapper's anchor. It is
+  /** The hold-⌘ HUD, which hangs off this wrapper's anchor. It is
       passed in rather than imported so this component keeps owning only one
       thing — where the shortcut affordances sit in the chrome. */
   children?: ReactNode;
@@ -78,7 +78,7 @@ export default function KeyHints({
     };
   }, [open, closing, close]);
 
-  // SUB-498: whether the caret is in a text edit decides which surface rows are
+  // Whether the caret is in a text edit decides which surface rows are
   // honest, and focus moves under an open panel (⌘D opens the journal editor
   // without a click, which is what would have closed it) — so this is live
   // state, re-read on open and on every focus change while open, not a
@@ -115,7 +115,7 @@ export default function KeyHints({
     dbNote,
     daily,
     pins,
-    // the panel lists registry entries, and custom keys are unlisted (SUB-467)
+    // the panel lists registry entries, and custom keys are unlisted
     customKeys: {},
     searchReturn: false,
     canGoBack,
@@ -127,7 +127,7 @@ export default function KeyHints({
     dashCanRedo: false,
     canUndo,
     canRedo,
-    // SUB-812: the transport chords are live whenever a folder is queued,
+    // The transport chords are live whenever a folder is queued,
     // and the panel describes the surface underneath it — the bar is chrome
     // above every surface, so read the queue directly rather than threading
     // one more prop through App

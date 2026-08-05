@@ -2,7 +2,7 @@
     contenteditable, a CodeMirror body, or a native `<select>` (which spends
     letters on option typeahead and arrows on option movement). Every pane's
     keyboard surface gates on this so a shortcut never steals a keystroke the
-    focused control was going to use (SUB-481: one definition, five panes). */
+    focused control was going to use (one definition, five panes). */
 export function isTyping(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false;
   return (
@@ -14,7 +14,7 @@ export function isTyping(el: EventTarget | null): boolean {
   );
 }
 
-/** The same question asked of whatever holds focus RIGHT NOW (SUB-498).
+/** The same question asked of whatever holds focus RIGHT NOW.
     `isTyping` tests an event's target, which is all a key handler needs; the
     shortcut hint surfaces render from held state instead — they have no event —
     so they read the live focus to decide whether the surface-scoped chords they

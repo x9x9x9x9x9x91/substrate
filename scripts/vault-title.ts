@@ -1,8 +1,8 @@
 /**
- * Shared vault title rules for the offline importers (SUB-279). The import
+ * Shared vault title rules for the offline importers. The import
  * scripts write .md files directly, bypassing the engine — this module mirrors
  * sanitize_filename() and validate_note_title() from src-tauri/src/vault.rs so
- * a script-written note obeys the same rules as an engine-made one (SUB-223):
+ * a script-written note obeys the same rules as an engine-made one:
  * no invisible dot-stems, no link-corrupting brackets.
  */
 
@@ -17,7 +17,7 @@ export function sanitizeFilename(title: string): string {
   return cleaned || "Untitled";
 }
 
-/** Mirrors validate_note_title() (SUB-223): a stem starting with `.` would
+/** Mirrors validate_note_title(): a stem starting with `.` would
     land the note outside the index, and `[`/`]` would corrupt every rewritten
     [[wikilink]] — refuse both, throwing the engine's own messages. `title` is
     the exact input, `slug` its sanitized form. */
@@ -28,7 +28,7 @@ export function validateNoteTitle(title: string, slug: string): void {
   if (title.includes("[") || title.includes("]")) {
     throw new Error("titles cannot contain [ or ]");
   }
-  // Mirrors the engine's third refusal (SUB-904): a control char (NUL, DEL)
+  // Mirrors the engine's third refusal: a control char (NUL, DEL)
   // isn't whitespace, so it survives the collapse into the slug and the
   // filesystem then refuses the name -- after side effects, in the engine's
   // rename case. Same Cc set as Rust's char::is_control: C0, DEL, C1.

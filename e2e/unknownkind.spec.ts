@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Unknown dashboard kinds (SUB-993): a `dashboard:` value the build doesn't
+// Unknown dashboard kinds: a `dashboard:` value the build doesn't
 // render is an honest inline card naming the typo and the kinds that DO
 // exist — the same quiet posture a ```view fence over an unknown database
 // takes. It used to fall through to the yield tracker, so a typo answered
@@ -56,7 +56,7 @@ test("dashboard: charts dispatches to the charts renderer by name", async ({ pag
 });
 
 test("no dashboard: prop at all keeps the body scan", async ({ page }) => {
-  // the legacy path (SUB-33), unchanged: chart fences make it a charts
+  // the legacy path, unchanged: chart fences make it a charts
   // dashboard with no key named anywhere
   await openOverview(page, null);
   await expect(page.locator(".chart-err")).toHaveCount(0);

@@ -61,18 +61,18 @@ export type FolderEdit = { kind: "create"; parent: string } | { kind: "rename"; 
 
 export type MenuTarget =
   | { kind: "folder"; path: string }
-  /** SUB-698: a Dashboards-section group header. Its folder gets the same menu
+  /** A Dashboards-section group header. Its folder gets the same menu
       a tree folder does — the kind exists so the Move up/down entries ride the
       "dashgroups" lane the header actually reorders in, not the folder tree's. */
   | { kind: "dashgroup"; path: string }
   | { kind: "dashboard"; path: string }
   | { kind: "db"; type: string }
   | { kind: "savedview"; id: string }
-  /** a plain note pinned to the sidebar (SUB-410) */
+  /** a plain note pinned to the sidebar */
   | { kind: "pin"; path: string }
-  /** a tag-query folder (SUB-818) — Edit/Delete, and the key-assign lane */
+  /** a tag-query folder — Edit/Delete, and the key-assign lane */
   | { kind: "tagfolder"; id: string }
-  /** SUB-492: a fixed destination row (Today/Notes/Calendar/Journal/…). It has
+  /** A fixed destination row (Today/Notes/Calendar/Journal/…). It has
       no actions of its own — its menu exists purely so the key-assign lane is
       reachable without a drag; `token` is already the target token. */
   | { kind: "fixed"; token: string };
@@ -84,57 +84,57 @@ interface SidebarProps {
   mobile: boolean;
   mobileOpen: boolean;
   onMobileClose: () => void;
-  /** collapse the sidebar to the slim rail (SUB-394, desktop only) */
+  /** collapse the sidebar to the slim rail (desktop only) */
   onToggleHidden: () => void;
-  /** untyped notes count — the Notes view's badge (SUB-70) */
+  /** untyped notes count — the Notes view's badge */
   scratchCount: number;
-  /** collapsed sidebar sections from `$sidebar.collapsed` (SUB-70):
+  /** collapsed sidebar sections from `$sidebar.collapsed`:
       section ids ("dashboards" | "savedviews" | "folders") */
   collapsedIds: string[];
   onToggleCollapse: (id: string) => void;
-  /** per-type database icons (SUB-27), keyed by type name */
+  /** per-type database icons, keyed by type name */
   icons: Record<string, DbIcon>;
-  /** folder path → database type for dbs with a home folder (SUB-85): the
+  /** folder path → database type for dbs with a home folder: the
       folder tree renders those rows as the database; every database (homed
-      or not) is also reachable from the All databases manager (SUB-159) */
+      or not) is also reachable from the All databases manager */
   homeDbByFolder: Record<string, string>;
-  /** SUB-888: the folded names of databases that are mounted folders. A homed
+  /** The folded names of databases that are mounted folders. A homed
       db row for one gets the mount glyph, and opens the mount view — which is
       why opening a db goes through `onOpenDb` rather than setView here. */
   mountDbs: ReadonlySet<string>;
   onOpenDb: (type: string) => void;
   dashboards: NoteMeta[];
-  /** SUB-594: the paths in `dashboards`, computed by App so the pin split and
+  /** The paths in `dashboards`, computed by App so the pin split and
       App's pin menu math run off the identical set. A pinned dashboard already
       has a Dashboards-section row, so it must not nest in the folder tree too. */
   dashPaths: ReadonlySet<string>;
-  /** plain notes pinned to the sidebar (SUB-410), in `$sidebar.pins` order */
+  /** plain notes pinned to the sidebar, in `$sidebar.pins` order */
   pinned: NoteMeta[];
   /** open a pinned note in its home context */
   onOpenNote: (path: string) => void;
   /** the open note's path — a pinned row for it renders active */
   selectedPath: string | null;
-  /** a note dragged onto the Pinned section gets pinned (SUB-410) */
+  /** a note dragged onto the Pinned section gets pinned */
   onPinNote: (path: string) => void;
-  /** pinned saved views (SUB-18), flat in their own sidebar section */
+  /** pinned saved views, flat in their own sidebar section */
   savedViews: SavedView[];
   folders: string[];
-  /** persisted ROOT-folder drag order (SUB-401) — `$sidebar.folders` */
+  /** persisted ROOT-folder drag order — `$sidebar.folders` */
   folderOrder: string[];
-  /** persisted Dashboards group-header drag order (SUB-698) — `$sidebar.dashgroups` */
+  /** persisted Dashboards group-header drag order — `$sidebar.dashgroups` */
   dashGroupOrder: string[];
-  /** move a Dashboards group's folder under `target` ("" = vault root), SUB-698 */
+  /** move a Dashboards group's folder under `target` ("" = vault root) */
   onMoveFolder: (path: string, target: string) => void;
-  /** per-folder icons (SUB-84), keyed by vault-relative folder path */
+  /** per-folder icons, keyed by vault-relative folder path */
   folderMeta: FolderMetaMap;
-  /** tag-query folders (SUB-818), rendered inline with the real folders and
+  /** tag-query folders, rendered inline with the real folders and
       told apart by the tag glyph. They hold no notes on disk, so they never
       nest and never carry children. */
   tagFolders: TagFolder[];
   /** the tag-folder builder — App owns the sheet; the sidebar only asks for
       it, either blank (new) or seeded with an existing folder to edit */
   onTagFolderEdit: (folder: TagFolder | null) => void;
-  /** a note dragged onto a tag folder is TAGGED, never moved (SUB-818) */
+  /** a note dragged onto a tag folder is TAGGED, never moved */
   onDropNoteTagFolder: (path: string, id: string) => void;
   /** path of the sidebar note (dashboard) currently being renamed inline */
   renaming: string | null;
@@ -148,17 +148,17 @@ interface SidebarProps {
   onCreateFolder: (path: string) => void | Promise<unknown>;
   onRenameFolder: (path: string, name: string) => void | Promise<unknown>;
   /** `pinnable` says the drag was a PLAIN note drag (a list row — no
-      SIDE_DRAG_MIME riding along): only those may pin on an own-folder drop
-      (SUB-585). A sidebar row gesture (dashboard/pin reorder) landing on its
+      SIDE_DRAG_MIME riding along): only those may pin on an own-folder drop.
+      A sidebar row gesture (dashboard/pin reorder) landing on its
       own folder must stay a silent no-op, or the dashboard double-renders —
-      SUB-466 finding 1's regression, reopened via group headers. */
+      the regression, reopened via group headers. */
   onDropNote: (path: string, folder: string, pinnable: boolean) => void;
-  /** a database dragged in from the All-databases manager (SUB-403): the
+  /** a database dragged in from the All-databases manager: the
       folder it lands on — plain row or another db's home row alike —
       becomes the database's home folder */
   onDropDb: (type: string, folder: string) => void;
   /** the Folders "+" anchored menu (New folder / New database…) — App owns
-      the items, the dialog and folder-edit setters live there (SUB-403) */
+      the items, the dialog and folder-edit setters live there */
   onAddMenu: (x: number, y: number) => void;
   onReorderSection: (section: Section, ids: string[]) => void;
   onContextMenu: (target: MenuTarget, x: number, y: number) => void;
@@ -167,7 +167,7 @@ interface SidebarProps {
   onJournal: () => void;
   onOpenSearch: () => void;
   onCapture: () => void;
-  /** SUB-467: assignable keys. `keys` is `$sidebar.keys` (key token → target
+  /** Assignable keys. `keys` is `$sidebar.keys` (key token → target
       token); `active` says the key HUD is open, which only changes how the
       sidebar LOOKS — the drop targets stay live either way, because a chip
       already sitting on a row can always be dragged to another one. `onAssign`
@@ -177,22 +177,22 @@ interface SidebarProps {
     keys: Record<string, string>;
     onAssign: (token: string, target: string) => void;
   };
-  /** open the ⌘, settings sheet from the bottom-rail gear (SUB-476) */
+  /** open the ⌘, settings sheet from the bottom-rail gear */
   onOpenSettings: () => void;
-  /** open the vault-wide history scrubber (SUB-822) */
+  /** open the vault-wide history scrubber */
   onOpenTimeTravel: () => void;
-  /** SUB-822: already browsing the past — the clock's own call
+  /** Already browsing the past — the clock's own call
       (history_snapshot) is a write and the guard rejects it, so the button
       goes quiet instead of erroring. */
   viewingPast?: boolean;
 }
 
-/** The reorderable sidebar lanes (SUB-585): the Dashboards section's rows, one
+/** The reorderable sidebar lanes: the Dashboards section's rows, one
     folder sibling group per depth ("folders" = roots, "folders:<parent>" = the
     children of <parent>), one pin group per surface ("pins" = the flat Pinned
-    section, "pins:<folder>" = the pins nested under a tree row), and — SUB-605
+    section, "pins:<folder>" = the pins nested under a tree row), and
     — one group per folder whose tree row hosts dashboards
-    ("dashes:<folder>"), plus — SUB-698 — the Dashboards section's subfolder
+    ("dashes:<folder>"), plus the Dashboards section's subfolder
     GROUP HEADERS ("dashgroups"), which order against each other rather than
     against the dashboard rows inside them. A drag never crosses lanes: the
     token is part of the payload, so a tree dashboard reorders among its
@@ -266,7 +266,7 @@ function Sidebar({
       .catch(() => undefined);
   }, []);
 
-  // SUB-627: geometry changes that fire no scroll event still flip the gate —
+  // Geometry changes that fire no scroll event still flip the gate —
   // a resized window moves clientHeight, expanding/collapsing a folder moves
   // scrollHeight. ResizeObserver catches the first, MutationObserver the
   // second; both are mount-once, so nothing runs per render or per frame.
@@ -291,18 +291,18 @@ function Sidebar({
   const foldersOpen = !collapsedIds.includes("folders");
   const dashboardsOpen = !collapsedIds.includes("dashboards");
   const pinnedOpen = !collapsedIds.includes("pinned");
-  // a note dragged over the Pinned section (SUB-410) highlights the section
+  // a note dragged over the Pinned section highlights the section
   const [pinDrop, setPinDrop] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [scrolledY, setScrolledY] = useState(false);
-  // SUB-627: the tree's last visible row was hard-clipped by .side-bottom's
+  // The tree's last visible row was hard-clipped by .side-bottom's
   // divider when it overflowed — nothing said "more below". Same gate idiom
-  // the table edges use (SUB-195): paint the fade only while the scroller can
+  // the table edges use: paint the fade only while the scroller can
   // still move, so at the stop the last row renders crisp.
   const [moreBelow, setMoreBelow] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [dropFolder, setDropFolder] = useState<string | null>(null);
-  // the tag folder a dragged note is hovering (SUB-818) — its own state, not
+  // the tag folder a dragged note is hovering — its own state, not
   // dropFolder's, because the two lanes mean different things: one moves the
   // file, the other tags it in place
   const [dropTagFolder, setDropTagFolder] = useState<string | null>(null);
@@ -314,9 +314,9 @@ function Sidebar({
   // would no-op (dragover can't read the payload, only its MIME)
   const [dragSection, setDragSection] = useState<Section | null>(null);
 
-  // SUB-466: dashboards in a subfolder of their home folder render under a
+  // Dashboards in a subfolder of their home folder render under a
   // collapsible group header; the home folder's own stay flat above the groups.
-  // SUB-605: one filed in a CONTENT folder leaves the section entirely and
+  // One filed in a CONTENT folder leaves the section entirely and
   // renders inside that folder's tree row instead (`dashesByFolder`) — one
   // split decides all three, so no path can render twice.
   const {
@@ -324,24 +324,24 @@ function Sidebar({
     flat: flatDashboards,
     groups: rawDashGroups,
     byFolder: dashesByFolder,
-    // SUB-1079: the folder list so an existing (even empty) `Dashboards/`
+    // The folder list so an existing (even empty) `Dashboards/`
     // folder is the section's home outright, inference only without one
   } = splitDashboards(dashboards, folders);
 
-  // SUB-698: the headers follow their own persisted drag order, groups the
+  // The headers follow their own persisted drag order, groups the
   // user never dragged staying in the split's alphabetical order behind them.
   const dashGroups = applyOrder(rawDashGroups, dashGroupOrder, (g) => g.folder);
 
-  // the tree follows the persisted drag order at EVERY depth (SUB-401 roots,
-  // SUB-585 nested): one flat `$sidebar.folders` list, each sibling group
+  // the tree follows the persisted drag order at EVERY depth (roots and
+  // nested alike): one flat `$sidebar.folders` list, each sibling group
   // reading its own slice; hidden surfaces (Journal/Dashboards) never render
   const tree = orderedRootNodes(folders, folderOrder);
   const orderedChildren = (node: FolderNode) => applyOrder(node.children, folderOrder, (n) => n.path);
 
-  // SUB-585: pinned notes render under their home folder's tree row; only
+  // Pinned notes render under their home folder's tree row; only
   // pins with no tree row keep the flat section — vault root, hidden surfaces,
   // and pinned dashboards, which already have a Dashboards-section row
-  // (SUB-594; `dashPaths` comes from App so its pin menus split identically)
+  // (`dashPaths` comes from App so its pin menus split identically)
   const { flat: flatPins, byFolder: pinsByFolder } = splitPins(pinned, dashPaths);
 
   // a "new subfolder" edit starts visible: make sure the Folders section and
@@ -366,7 +366,7 @@ function Sidebar({
       return next;
     });
 
-  /* ----- key chips → destination rows (SUB-467) ----- */
+  /* ----- key chips → destination rows ----- */
 
   // the row a key chip is hovering, by target token — highlight only
   const [keyDrop, setKeyDrop] = useState<string | null>(null);
@@ -456,7 +456,7 @@ function Sidebar({
     </button>
   );
 
-  // SUB-618: every row in the rail — fixed, dashboard, pin, folder — starts
+  // Every row in the rail — fixed, dashboard, pin, folder — starts
   // with the chevron gutter, so one icon column runs top to bottom. A row's
   // indent is purely its tree depth; depth 0 matches `.side-item`'s own 8px
   // padding, so a root folder row sits in the same column as Today.
@@ -464,7 +464,7 @@ function Sidebar({
 
   // one saved-view row — only pins of dbs WITHOUT a home folder render in
   // the sidebar (under All databases); homed dbs surface their pins as tabs
-  // inside the database view, so the folder tree stays uncluttered (SUB-391)
+  // inside the database view, so the folder tree stays uncluttered
   const savedViewRow = (v: SavedView, depth: number) =>
     renamingView === v.id ? (
       <div
@@ -533,7 +533,7 @@ function Sidebar({
         onDropNote(notePath, path, !e.dataTransfer.types.includes(SIDE_DRAG_MIME));
         return;
       }
-      // SUB-698: a Dashboards group header dropped here moves the whole
+      // A Dashboards group header dropped here moves the whole
       // subfolder under this row; the engine no-ops a move onto its own parent
       const folderPath = e.dataTransfer.getData(FOLDER_DRAG_MIME);
       if (folderPath) {
@@ -545,7 +545,7 @@ function Sidebar({
     },
   });
 
-  // the Dashboards header as a drop target (SUB-605): folderDragProps minus
+  // the Dashboards header as a drop target: folderDragProps minus
   // the database lane — a db homed on the hidden Dashboards/ folder would have
   // no tree row to render on. Notes (a tree dashboard coming home, or a plain
   // list note) move into the dashboards home folder.
@@ -570,13 +570,13 @@ function Sidebar({
     },
   };
 
-  /* ----- section reorder drag (SUB-401 roots; SUB-585 every lane) ----- */
+  /* ----- section reorder drag (roots and every row) ----- */
 
   // the lane's current display-order ids — the base a drop reorders. Folder
   // lanes hand back sibling paths at the lane's depth; pin lanes hand back
   // note paths inside that surface, in the split order rendered above.
   const sectionIds = (section: Section): string[] => {
-    // SUB-605: the SECTION's lane is the rows the section RENDERS — its flat
+    // The SECTION's lane is the rows the section RENDERS — its flat
     // rows then its group members, in render order — not every dashboard in
     // the vault. Feeding the whole list back made a move against a neighbour
     // that lives in the folder tree a silent no-op (reorderIds/moveId would
@@ -587,7 +587,7 @@ function Sidebar({
     if (section.startsWith("dashes:")) {
       return (dashesByFolder.get(section.slice("dashes:".length)) ?? []).map((d) => d.path);
     }
-    // SUB-698: the group HEADERS are their own lane, keyed by folder path
+    // The group HEADERS are their own lane, keyed by folder path
     if (section === "dashgroups") return dashGroups.map((g) => g.folder);
     if (section === "pins") return flatPins.map((n) => n.path);
     if (section.startsWith("pins:")) {
@@ -636,15 +636,15 @@ function Sidebar({
     },
   });
 
-  // a folder row is a note/db drop target (NOTE_DRAG_MIME / DB_DRAG_MIME,
-  // SUB-403) and a reorder drag source/target (SIDE_DRAG_MIME) within its own
-  // sibling group (SUB-585 — roots ride "folders", nested rows
+  // a folder row is a note/db drop target (NOTE_DRAG_MIME / DB_DRAG_MIME)
+  // and a reorder drag source/target (SIDE_DRAG_MIME) within its own
+  // sibling group (roots ride "folders", nested rows
   // "folders:<parent>") — one handler set would override the other on spread,
   // so dispatch on the drag's MIME. A note drag from a LIST row carries only
   // NOTE_DRAG_MIME; a sidebar row being reordered carries SIDE_DRAG_MIME too,
   // and the reorder lane wins while the drag stays inside its group (dropping
   // a pin row on a foreign folder row still moves the file).
-  // SUB-698 adds FOLDER_DRAG_MIME to the lane: a group header dragged out of
+  // Adds FOLDER_DRAG_MIME to the lane: a group header dragged out of
   // the Dashboards section lands on a tree row as "move this directory here".
   const isDropPayload = (e: React.DragEvent) =>
     e.dataTransfer.types.includes(NOTE_DRAG_MIME) ||
@@ -678,7 +678,7 @@ function Sidebar({
     };
   };
 
-  // SUB-698: a dash group header is three things at once — a note drop target
+  // A dash group header is three things at once — a note drop target
   // (a dashboard dragged onto it files into the group), a reorder row in the
   // "dashgroups" lane, and a drag SOURCE carrying its folder toward the tree.
   // Same MIME dispatch as folderRowDragProps, and the same rule: while the drag
@@ -718,7 +718,7 @@ function Sidebar({
   };
 
   // the Pinned section takes plain note drags only. A sidebar row dragged to be
-  // reordered or moved carries SIDE_DRAG_MIME as well (SUB-466's dashboard rows
+  // reordered or moved carries SIDE_DRAG_MIME as well (the dashboard rows
   // carry both payloads), and such a gesture is never "pin this" — accepting it
   // pinned the dashboard the user was only trying to move, rendering it twice
   const isPinPayload = (e: React.DragEvent) =>
@@ -732,13 +732,13 @@ function Sidebar({
         : " drop-before"
       : "";
 
-  /* ----- dashboard rows (SUB-466: flat rows + subfolder groups) ----- */
+  /* ----- dashboard rows (flat rows + subfolder groups) ----- */
 
   // a dashboard row drags for BOTH jobs: reorder inside the section
   // (SIDE_DRAG_MIME) and move-to-folder (NOTE_DRAG_MIME) when it lands on a
   // folder row or a group header — one dragstart carrying both payloads, each
-  // target picking the MIME it understands. It also RECEIVES key chips
-  // (SUB-467), so the incoming side dispatches on the drag's MIME the same way
+  // target picking the MIME it understands. It also RECEIVES key chips,
+  // so the incoming side dispatches on the drag's MIME the same way
   // rootFolderDragProps does.
   const dashDragProps = (path: string, section: Section) => {
     const reorder = reorderDragProps(section, path);
@@ -758,9 +758,9 @@ function Sidebar({
 
   /**
    * One dashboard row. `section` is its reorder lane — the Dashboards section's
-   * own rows ride "dashboards", a SUB-605 tree row rides "dashes:<folder>".
-   * `depth` is the row's tree depth on the rail's shared indent scale (SUB-618):
-   * 0 for a section row, 1 for a SUB-466 group member, and the folder's own
+   * own rows ride "dashboards", a tree row rides "dashes:<folder>".
+   * `depth` is the row's tree depth on the rail's shared indent scale:
+   * 0 for a section row, 1 for a group member, and the folder's own
    * depth + 1 for a tree-nested one, which lines it up with the sibling folder
    * and pin rows around it.
    */
@@ -772,15 +772,15 @@ function Sidebar({
       nested?: boolean;
     }
   ) => {
-    // every dashboard carries its own mark (SUB-391): frontmatter `icon:`
+    // every dashboard carries its own mark: frontmatter `icon:`
     // first, then the curated per-kind glyph, then the shared chart glyph
     const dIcon = dashboardIcon(d.props);
     const dashIcon = dIcon ? <TypeIcon type={d.title} icon={dIcon} /> : <ChartIcon />;
-    // SUB-605: `side-dash-nested` marks a row the folder TREE owns rather than
+    // `side-dash-nested` marks a row the folder TREE owns rather than
     // the Dashboards section — the two surfaces are otherwise identical rows,
     // and telling them apart is exactly the no-dual-render invariant. It is a
     // structure/test hook only: no CSS rule targets it (the indent rides
-    // rowPad(depth), SUB-618), so styling stays in styles.css
+    // rowPad(depth)), so styling stays in styles.css
     const cls = `side-item${nested ? " side-dash-nested" : ""}${
       key === `dash:${d.path}` ? " active" : ""
     }${keyDropClass(`dash:${d.path}`)}${dropClass(section, d.path)}`;
@@ -824,8 +824,8 @@ function Sidebar({
     );
   };
 
-  // one pinned-note row: the flat Pinned section (SUB-410) and, nested at a
-  // depth, under its home folder's tree row (SUB-585). Drags like a dashboard
+  // one pinned-note row: the flat Pinned section and, nested at a
+  // depth, under its home folder's tree row. Drags like a dashboard
   // row — SIDE_DRAG_MIME reorders it inside its own pin group, and the
   // NOTE_DRAG_MIME payload riding along means dropping it on a folder row
   // MOVES the file (the engine retargets the pin to the new path).
@@ -859,7 +859,7 @@ function Sidebar({
         onDrop={(e) => (isKeyPayload(e) ? keys.onDrop(e) : reorder.onDrop(e))}
       >
         {/* every row wears the tree's chevron gutter so its icon lines up with
-            sibling folder rows at the same depth (SUB-618) */}
+            sibling folder rows at the same depth */}
         <span className="side-chevron-spacer" />
         {mark ? <TypeIcon type={n.title} icon={mark} /> : <NoteIcon />}
         <span className="side-label-text">{n.title}</span>
@@ -868,7 +868,7 @@ function Sidebar({
     );
   };
 
-  /* ----- tag folders (SUB-818) ----- */
+  /* ----- tag folders ----- */
 
   // Rendered inline with the real folders, above the tree: they are the same
   // KIND of destination, so they sit in the same list, and the tag glyph is
@@ -954,13 +954,13 @@ function Sidebar({
   const renderNode = (node: FolderNode, depth: number): React.ReactNode => {
     const open = !collapsed.has(node.path);
     const isRenaming = folderEdit?.kind === "rename" && folderEdit.path === node.path;
-    // pinned notes nest under their folder's row (SUB-585) — subfolders
-    // first, then the folder's own dashboards (SUB-605), then its pins; any of
+    // pinned notes nest under their folder's row — subfolders
+    // first, then the folder's own dashboards, then its pins; any of
     // them makes the row expandable
     const nodePins = pinsByFolder.get(node.path) ?? [];
     const nodeDashes = dashesByFolder.get(node.path) ?? [];
     const hasKids = node.children.length > 0 || nodeDashes.length > 0 || nodePins.length > 0;
-    // SUB-605: dashboards filed in this folder, rendered here INSTEAD of in the
+    // Dashboards filed in this folder, rendered here INSTEAD of in the
     // Dashboards section (splitDashboards routes each path to exactly one)
     const dashKids = (open: boolean, depth: number) =>
       open
@@ -972,21 +972,21 @@ function Sidebar({
     // nested rows in their parent's own lane
     const section: Section = depth === 0 ? "folders" : `folders:${parentOf(node.path)}`;
     const kids = orderedChildren(node);
-    // a folder's SUB-84 icon replaces the plain glyph (the engine only stores
+    // a folder's icon replaces the plain glyph (the engine only stores
     // real marks, so meta present = a mark to render); with none set, a
-    // curated name default steps in (SUB-391) before the plain folder glyph
+    // curated name default steps in before the plain folder glyph
     const icon = folderMeta[node.path]?.icon ?? folderDefaultIcon(node.name);
-    // SUB-85: a database's home folder opens as the database — db icon,
+    // A database's home folder opens as the database — db icon,
     // click = db view, chevron expands its real subfolders.
-    // SUB-611 legibility: the row KEEPS the folder's on-disk name and wears
+    // Legibility: the row KEEPS the folder's on-disk name and wears
     // a small DB chip instead of silently swapping identity to the type
     // label — the sidebar mirrors disk, the chip says what a click does.
     const homeDb = homeDbByFolder[node.path];
     if (homeDb) {
       const dbLabel = homeDb.charAt(0).toUpperCase() + homeDb.slice(1);
-      // saved-view pins do NOT nest here (SUB-391) — the database view's tab
-      // strip owns them; the chevron expands real subfolders and NOTE pins
-      // (SUB-585), which nest under any folder row, db-dressed or plain
+      // saved-view pins do NOT nest here — the database view's tab
+      // strip owns them; the chevron expands real subfolders and NOTE pins,
+      // which nest under any folder row, db-dressed or plain
       const expandable = hasKids;
       return (
         <div key={node.path}>
@@ -1158,8 +1158,8 @@ function Sidebar({
           )}
         </div>
       </div>
-      {/* SUB-259: an unchanged boolean bails out of re-render, so the rail
-          only re-renders when the header hairline actually flips (SUB-194) */}
+      {/* An unchanged boolean bails out of re-render, so the rail
+          only re-renders when the header hairline actually flips */}
       <div
         className={`sidebar-scroll${scrolledY ? " side-scrolled-y" : ""}${
           moreBelow ? " side-more-y" : ""
@@ -1196,9 +1196,9 @@ function Sidebar({
           {keyChip("journal")}
         </button>
         {/* the Dashboards section also hosts the built-in Proxy status view
-            (SUB-294) where the machine runs a proxy (SUB-441) — it belongs
+ where the machine runs a proxy — it belongs
             with the other dashboards, not the bottom rail */}
-        {/* SUB-605: the header is the way BACK — a dashboard dragged out of the
+        {/* The header is the way BACK — a dashboard dragged out of the
             folder tree and dropped here moves the file into the dashboards home
             folder, the mirror of dropping a section row onto a folder row. It
             takes NOTE drags only: the shared folderDragProps would also accept
@@ -1227,14 +1227,14 @@ function Sidebar({
         {dashboardsOpen && (
           <>
             {flatDashboards.map((d) => dashRow(d))}
-            {/* SUB-466: one indent level of subfolder groups. The header is a
+            {/* One indent level of subfolder groups. The header is a
                 folder row — collapse rides the persisted `collapsedIds`
                 (`dashgroup:<folder>`), and a dashboard dropped on it moves
                 the file into that subfolder */}
             {dashGroups.map((g) => {
               const gid = `dashgroup:${g.folder}`;
               const open = !collapsedIds.includes(gid);
-              // SUB-698: the group's menu carries the folder lane's Rename…,
+              // The group's menu carries the folder lane's Rename…,
               // so the header needs the tree row's inline-edit branch too —
               // without it the rename state would arm with nothing to type in
               const renaming = folderEdit?.kind === "rename" && folderEdit.path === g.folder;
@@ -1286,7 +1286,7 @@ function Sidebar({
                   </div>
                   {open && g.items.map((d) => dashRow(d, { depth: 1 }))}
                   {/* a "New subfolder…" from the group's menu edits here, the
-                      same inline row the tree gives a folder (SUB-698) */}
+                      same inline row the tree gives a folder */}
                   {open && folderEdit?.kind === "create" && folderEdit.parent === g.folder
                     ? createRow(g.folder, 1)
                     : null}
@@ -1296,7 +1296,7 @@ function Sidebar({
           </>
         )}
 
-        {/* SUB-159: the flat Databases section (homeless dbs only) is gone —
+        {/* The flat Databases section (homeless dbs only) is gone —
             one persistent entry opens the manager listing EVERY database */}
         {item("dbmanager", "All databases", <DbGlyphIcon />, () =>
           setView({ kind: "dbmanager" })
@@ -1308,11 +1308,11 @@ function Sidebar({
           .filter((v) => !Object.values(homeDbByFolder).includes(v.db))
           .map((v) => savedViewRow(v, 1))}
 
-        {/* SUB-410: plain notes pinned to the sidebar. The section only exists
+        {/* Plain notes pinned to the sidebar. The section only exists
             while something is pinned — an empty header would be chrome nobody
             asked for; the row menu's "Pin to sidebar" creates the first pin,
             and a note dragged onto the section adds more. Pins whose home
-            folder has a tree row render THERE instead (SUB-585); this flat
+            folder has a tree row render THERE instead; this flat
             section keeps the rest (vault root, Journal/Dashboards notes). */}
         {flatPins.length > 0 && (
           <div
@@ -1320,7 +1320,7 @@ function Sidebar({
               if (!isPinPayload(e)) return;
               e.preventDefault();
               // "move" to match what note drags allow (effectAllowed = "move"
-              // at every source, SUB-1023): a dropEffect outside effectAllowed
+              // at every source): a dropEffect outside effectAllowed
               // is reset to "none" by the browser, and no drop event fires at
               // all — the section silently refused every real gesture while
               // the spec's dispatched events, which skip that negotiation,
@@ -1385,7 +1385,7 @@ function Sidebar({
         {foldersOpen && (
           <>
             {tree.map((n) => renderNode(n, 0))}
-            {/* tag folders close the same section (SUB-818) — same row shape,
+            {/* tag folders close the same section — same row shape,
                 same depth, told apart by the glyph. They sit after the real
                 folders because the tree carries a persisted drag order and
                 these follow their definition file instead. */}
@@ -1403,7 +1403,7 @@ function Sidebar({
           <div className="side-tools">
             <InfoView
               view={view}
-              /* SUB-452: the release history sits beside the ? — same ghost
+              /* The release history sits beside the ? — same ghost
                  weight, because both are "about the app", not the vault */
               trailing={
                 <>
@@ -1426,7 +1426,7 @@ function Sidebar({
                   >
                     <SparkleIcon />
                   </button>
-                  {/* SUB-476: ⌘, had no visible affordance. The gear closes the
+                  {/* ⌘, had no visible affordance. The gear closes the
                       row (help, what's new, settings) — same ghost weight. */}
                   <button
                     type="button"
@@ -1447,7 +1447,7 @@ function Sidebar({
   );
 }
 
-/* SUB-460: the sidebar is pure in its props — App-state churn that does not
+/* The sidebar is pure in its props — App-state churn that does not
    touch them (toast, overlays, palette, editor keystrokes) stops reconciling
    the whole tree. Callbacks it takes are stabilized at the App call site. */
 export default memo(Sidebar);

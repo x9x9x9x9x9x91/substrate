@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-395: sheet row/column delete + reorder via context menu. The mock's
+// Sheet row/column delete + reorder via context menu. The mock's
 // Holdings sheet: data columns asset,bucket,units,price_usd; rows GLOW,
 // BTC, ARC, ETH; computed value_usd/value_eur.
 

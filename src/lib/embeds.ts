@@ -1,14 +1,14 @@
-// View embeds (SUB-86): a ```view fence inside a note body renders a read-only
+// View embeds: a ```view fence inside a note body renders a read-only
 // inline database table in the editor — the hub-page primitive. Config is
 // hand-editable key: value text, one per line:
 //
 //   ```view
 //   type: release              # a database type
-//   query: status:unreleased   # the SUB-7 filter-bar language (optional)
+//   query: status:unreleased   # the filter-bar language (optional)
 //   view: table                # accepted; only table renders in v1
-//   sort: released:desc        # SUB-942, optional
-//   limit: 5                   # SUB-942, optional
-//   columns: status, artist    # SUB-942, optional
+//   sort: released:desc        # optional
+//   limit: 5                   # optional
+//   columns: status, artist    # optional
 //   ```
 //
 // or the one-key saved form, referencing a pinned view by id (or name):
@@ -17,13 +17,13 @@
 //   saved: umbra-unreleased
 //   ```
 //
-// Unknown keys and malformed lines are parse ERRORS since SUB-942 — a fence
+// Unknown keys and malformed lines are parse ERRORS — a fence
 // that says `sortt:` used to render silently unsorted, which is the worst of
 // both worlds. Errors, malformed values and unknown references all render as
 // a quiet inline error card, never a crash and never a broken sibling. The
 // fence is plain markdown — the widget snapshot rebuilds on doc edits/remounts
 // and on every vault change (the vault epoch rides the widget identity,
-// SUB-122).
+// identity).
 //
 // Pure TS, no DOM/node imports: runs in the app and under `node --test`.
 
@@ -64,19 +64,19 @@ export interface EmbedSpec {
   saved?: string;
   /** accepted but v1 renders table regardless */
   view?: string;
-  /** SUB-942: one ordering key, `sort: <prop>` or `sort: <prop>:desc`. The
+  /** One ordering key, `sort: <prop>` or `sort: <prop>:desc`. The
       property is resolved (and the ordering itself run) against the database's
       own columns at query time, not here. */
   sort?: SavedViewSort;
-  /** SUB-942: the fence's own row cut, applied after filtering and sorting.
+  /** The fence's own row cut, applied after filtering and sorting.
       Distinct from the surface's safety cap — see `EmbedResult.cut`. */
   limit?: number;
-  /** SUB-942: explicit column pick and order, matched case-insensitively
+  /** Explicit column pick and order, matched case-insensitively
       against the database's columns. Wins over a `saved:` pin's own list. */
   columns?: string[];
 }
 
-/** A parsed fence: its spec, or the first thing wrong with the text (SUB-942).
+/** A parsed fence: its spec, or the first thing wrong with the text.
     Malformed and unknown keys are errors now rather than silent no-ops — a
     fence that says `sortt:` used to render, unsorted, with nothing to show for
     the typo. The error travels as a value through `embedQueryFor` into the
@@ -90,7 +90,7 @@ export interface EmbedRow {
   title: string;
   /** display strings, aligned 1:1 with `columns` */
   cells: string[];
-  /** the note's raw props (SUB-796). Editing a cell needs the value behind the
+  /** the note's raw props. Editing a cell needs the value behind the
       display string — a checkbox's boolean, a multi's list, a date's ISO — plus
       the note's own spelling of the key. Carrying the props verbatim lets the
       widget derive all of that with the same helpers the database table uses
@@ -110,21 +110,21 @@ export type EmbedResult =
       total: number;
       savedId?: string;
       savedName?: string;
-      /** the type's resolved schema (SUB-796) — the widget's cell editors read
+      /** the type's resolved schema — the widget's cell editors read
           kinds, options, formats and relation targets from it, exactly as the
           database table does. `{}` for an undeclared type. */
       typeSchema: Record<string, PropSchema>;
-      /** the effective query after a `saved:` pin resolves (SUB-796) — "+ New"
+      /** the effective query after a `saved:` pin resolves — "+ New"
           seeds a row from it, and a pinned embed must seed from the pin's own
           filter, not from the fence's (absent) `query:` line */
       query: string;
-      /** The join columns among `columns` (SUB-829), by their canonical
+      /** The join columns among `columns`, by their canonical
           dotted name. A joined cell is a stored value read off ANOTHER row,
           so it is read-only wherever cells are editable — the widget asks
           this set, exactly as it asks the schema for a rollup. Absent when
           the fence declares no joins. */
       joins?: string[];
-      /** Why `rows` is shorter than `total`, when it is (SUB-942). The two
+      /** Why `rows` is shorter than `total`, when it is. The two
           reasons are not the same fact and must not read the same way: a
           `limit:` is the author SAYING "top 5", a cap is the surface refusing
           to paint 4000 rows in a note. Absent when nothing was cut. */
@@ -141,8 +141,8 @@ const KEY_RE = /^([A-Za-z][\w-]*)\s*:\s*([\s\S]*)$/;
 /** `sort: released` / `sort: released:desc` — direction optional, either case. */
 const SORT_RE = /^(.*?)(?::\s*(asc|desc))?$/i;
 
-/** Parse one fence body into its spec, or the first error in its text
-    (SUB-942). Never throws: a bad fence is a VALUE the render path turns into
+/** Parse one fence body into its spec, or the first error in its text.
+    Never throws: a bad fence is a VALUE the render path turns into
     the same quiet card an unknown database gets.
 
     Blank selector values (`query:`, for example) stay draftable. Empty
@@ -221,7 +221,7 @@ export function parseViewSpec(inner: string): ViewSpecResult {
   return spec;
 }
 
-/** Props a new row created from a fence should start with (SUB-796), read off
+/** Props a new row created from a fence should start with, read off
     the fence's own `query:`. A fence that shows `status:mastering` is a
     statement about what belongs in it, so "+ New" seeds the row to match —
     otherwise the row is created and immediately filtered back out of the
@@ -229,7 +229,7 @@ export function parseViewSpec(inner: string): ViewSpecResult {
 
     Which terms pin is `filterInherits`' call, not a second opinion: this is
     the same question the database pane answers when an entry is born under an
-    active filter (SUB-234), and two copies of that rule would drift. So
+    active filter, and two copies of that rule would drift. So
     negations, comparisons, OR-lists, phrases and bare words seed nothing.
 
     Two things a fence needs on top of the pane's rule:
@@ -282,8 +282,8 @@ export function findSavedView(savedViews: SavedView[], ref: string): SavedView |
     `parseViewSpec` result straight in.
 
     Columns follow the database table's own set (dbColumns over every note of
-    the type) — or the fence's own `columns:` (SUB-942), else the pin's own
-    `columns` when a `saved:` view curates them (SUB-212) — capped at
+    the type) — or the fence's own `columns:`, else the pin's own
+    `columns` when a `saved:` view curates them — capped at
     EMBED_MAX_COLS.
 
     Rows are the query matches, ordered by `sort:` when the fence names one
@@ -297,7 +297,7 @@ export function embedQueryFor(
   schema: SchemaConfig,
   savedViews: SavedView[],
   // display caps default to the inline widget's; a full-page surface
-  // (workbook view pages, SUB-464) passes wider ones
+  // (workbook view pages) passes wider ones
   caps: { cols: number; rows: number } = { cols: EMBED_MAX_COLS, rows: EMBED_MAX_ROWS }
 ): EmbedResult {
   if ("error" in spec) return { error: spec.error };
@@ -320,7 +320,7 @@ export function embedQueryFor(
   // a database is real when the schema knows it or a note carries the type —
   // anything else is a typo and gets the quiet card
   // the fence's type and the schema's key are both hand-authored, so the
-  // schema entry resolves case-insensitively (SUB-696) — a mis-cased fence
+  // schema entry resolves case-insensitively — a mis-cased fence
   // must keep its schema-driven columns, kinds and formats instead of
   // silently falling back to no schema at all
   const declared = typeSchemaFor(schema, dbType);
@@ -333,14 +333,14 @@ export function embedQueryFor(
   const matched = query.trim() ? filterByQuery(ofType, query, undefined, typeSchema) : ofType;
   const dbCols = dbColumns(ofType, typeSchema);
   // Three sources for the column list, in falling authority: the fence's own
-  // `columns:` (SUB-942), the pin's curated list (SUB-212), the full union.
+  // `columns:`, the pin's curated list, the full union.
   //
   // The fence's list is the only one that ERRORS on an unknown name. A pin's
   // list is persisted state that outlives prop renames, so a key falling out
   // of it stays a quiet drop; a fence's list is text the author is looking at
   // right now, and a silently-missing column there is just a wrong table.
   //
-  // A dotted name MAY be a join (SUB-829) — a lookup through the relation it
+  // A dotted name MAY be a join — a lookup through the relation it
   // names rather than one of this database's own columns. A stored column of
   // that exact name wins first (`isJoinName`): frontmatter keys are allowed
   // to carry dots, and a vault already storing `v1.2` must keep rendering it.
@@ -404,7 +404,7 @@ export function embedQueryFor(
   // that header in the database pane does. `title` is sortable without being a
   // column, same as there.
   //
-  // A dotted `sort:` (SUB-829) orders by the looked-up value under the TARGET
+  // A dotted `sort:` orders by the looked-up value under the TARGET
   // property's own kind. The joined values are materialized onto a shallow
   // props copy for every MATCHED row — before the cut, like every other sort
   // here, which is the only reading that makes `sort: release.date:desc` +
@@ -464,14 +464,14 @@ export function embedQueryFor(
         ? ({ kind: "limit", shown } as const)
         : ({ kind: "cap", shown } as const);
   // cells go through the same displayValue pipeline as the database table
-  // (SUB-179): dates human, files/embeds by basename — created/updated are
-  // date-kind unless the schema overrides, matching the table (SUB-167)
+  // dates human, files/embeds by basename — created/updated are
+  // date-kind unless the schema overrides, matching the table
   const kinds = columns.map((c, i) =>
     colJoins[i]
       ? undefined
       : byFoldedKey(typeSchema, c)?.kind ?? (isBuiltinDateName(c) ? "date" : undefined)
   );
-  // a joined column's cells come from the target row, not this one (SUB-829),
+  // a joined column's cells come from the target row, not this one,
   // and it is a join because it was PICKED as one — not because its name
   // happens to match one that resolved
   const joinNames = columns.filter((_, i) => colJoins[i] !== undefined);
@@ -494,7 +494,7 @@ export function embedQueryFor(
         const v = foldedPropStr(n.props, c) ?? "";
         // the dial, not de-DE: an embedded view sits beside the database pane
         // that renders the same rows, and two dialects on one screen is the
-        // exact failure the single seam exists to prevent (SUB-1092). Module
+        // exact failure the single seam exists to prevent. Module
         // binding rather than a threaded prop because nothing threads props
         // into a fence snapshot; ViewWidget's identity carries the vault
         // epoch, which a Settings.md write bumps, so the fence repaints.

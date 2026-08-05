@@ -72,7 +72,7 @@ export type ScopedValue = Cell | FErr;
 export type Scope = Map<string, ScopedValue | ScopedValue[]>;
 
 /** Key prefix for the whole-column view of the *current* sheet's columns,
-    bound alongside the per-row values in row scope (SUB-748). In row scope a
+    bound alongside the per-row values in row scope. In row scope a
     column name resolves to this row's cell — which is what a computed column
     wants everywhere except a row-scoped `LOOKUP`'s table arguments, where a
     same-sheet table (`LOOKUP(cur, code, rate)`) still needs whole columns.
@@ -118,7 +118,7 @@ function readsRowValue(e: Expr, rowShaped: (ref: string) => boolean): boolean {
     case "ref":
       return e.sheet === undefined && rowShaped(e.name);
     case "call":
-      // A row-scoped LOOKUP (SUB-748) yields a per-row value, so it counts as
+      // A row-scoped LOOKUP yields a per-row value, so it counts as
       // row-shaped itself even though LOOKUP is an aggregate name — that keeps
       // a LOOKUP keyed off another LOOKUP classifying as one per-row line.
       if (isRowScopedLookup(e, rowShaped)) return true;
@@ -133,7 +133,7 @@ function readsRowValue(e: Expr, rowShaped: (ref: string) => boolean): boolean {
   }
 }
 
-/** A LOOKUP call whose *key* argument is row-shaped (SUB-748): it evaluates
+/** A LOOKUP call whose *key* argument is row-shaped: it evaluates
     once per row against the current row's cell, so it does not make its line a
     summary. Its key/value column arguments stay whole-column table refs. */
 export function isRowScopedLookup(e: Expr, rowShaped: (ref: string) => boolean): boolean {
@@ -142,7 +142,7 @@ export function isRowScopedLookup(e: Expr, rowShaped: (ref: string) => boolean):
   );
 }
 
-// `rowShaped` (optional) enables the SUB-748 row-scope rule: pass it to have a
+// `rowShaped` (optional) enables the row-scope rule: pass it to have a
 // LOOKUP with a row-shaped key classify as a computed column instead of a
 // summary. Without it, every aggregate name makes the line a summary (v2 rule).
 export function hasAggregate(e: Expr, rowShaped?: (ref: string) => boolean): boolean {
@@ -162,8 +162,7 @@ export function hasAggregate(e: Expr, rowShaped?: (ref: string) => boolean): boo
 
 /** Does the expression call `name` (already uppercased, as the parser stores
     call names) anywhere inside it? The summary bar asks this about `FX` so a
-    sheet that never converts currency stops carrying a USD→EUR stamp under it
-    (SUB-939). */
+    sheet that never converts currency stops carrying a USD→EUR stamp under it. */
 export function callsFunction(e: Expr, name: string): boolean {
   switch (e.k) {
     case "call":
@@ -203,13 +202,13 @@ export function collectRefs(e: Expr, out: string[] = []): string[] {
  * Same walk as `collectRefs`, except that the conditional aggregates separate
  * their value column from their filters: `SUMIF(status, "open", value_eur)` is
  * a sum OF value_eur, filtered BY status — the criteria columns and the match
- * values are modifiers, not what the number is about (SUB-1013, answered
+ * values are modifiers, not what the number is about (answered
  * Option A). `SUMIF(col, match)` sums col itself, so col is its own value
  * column. COUNTIF has no value column — it counts rows — so every filter
  * column it names describes it equally, while its match values still don't.
  * Every other call descends normally; evaluation keeps reading every ref.
  *
- * Used for totals-row placement (SUB-937): which column a summary sits under. */
+ * Used for totals-row placement: which column a summary sits under. */
 export function describingRefs(e: Expr, out: string[] = []): string[] {
   switch (e.k) {
     case "ref":
@@ -683,7 +682,7 @@ export function looseEq(a: ScopedValue, b: ScopedValue): boolean {
 function compare(op: BinOp, l: ScopedValue, r: ScopedValue): Value {
   if (op === "=") return looseEq(l, r);
   if (op === "<>") return !looseEq(l, r);
-  // a blank cell never satisfies an ordering comparison (SUB-238) — without
+  // a blank cell never satisfies an ordering comparison — without
   // this guard null skips the numeric path and "" sorts below every number,
   // so `IF(b<10,…)` fired on empty rows
   if (l === null || r === null) return false;
@@ -702,7 +701,7 @@ function compare(op: BinOp, l: ScopedValue, r: ScopedValue): Value {
 
 // Numeric view of a column: errors propagate (SUM over a broken cell is
 // broken, like Excel), text and blanks are skipped. String cells parse
-// strictly (SUB-221) — "1e3"/"Infinity" are text, they can't poison a SUM.
+// strictly — "1e3"/"Infinity" are text, they can't poison a SUM.
 function numericCells(col: ScopedValue[]): number[] | FErr {
   const out: number[] = [];
   for (const c of col) {
@@ -716,7 +715,7 @@ function numericCells(col: ScopedValue[]): number[] | FErr {
   return out;
 }
 
-// ---------- SUMIF/COUNTIF criteria (SUB-743) ----------
+// ---------- SUMIF/COUNTIF criteria ----------
 //
 // Excel-style comparison criteria: a *string* match argument that starts with
 // >=, <=, <>, > or < compares instead of matching exactly (`">=1"`, `"<5"`,
@@ -741,7 +740,7 @@ function parseCriteria(match: ScopedValue): Criteria | null {
 }
 
 // One cell against one comparison criteria. Blank cells never satisfy a
-// comparison (same rule as `compare`, SUB-238) — including `<>`, so a blank
+// comparison (same rule as `compare`) — including `<>`, so a blank
 // row can't silently join a `"<>0"` bucket. A numeric criteria over a
 // non-numeric cell errors rather than guessing at a text ordering.
 function matchesCriteria(cell: ScopedValue, c: Criteria, name: string): boolean | FErr {
@@ -761,12 +760,12 @@ function matchesCriteria(cell: ScopedValue, c: Criteria, name: string): boolean 
   return c.op === "<" ? a < b : c.op === ">" ? a > b : c.op === "<=" ? a <= b : a >= b;
 }
 
-// ---------- SUMIF/COUNTIF wildcard criteria (SUB-752) ----------
+// ---------- SUMIF/COUNTIF wildcard criteria ----------
 //
 // Excel treats `*` (any run, including empty) and `?` (exactly one character)
 // as wildcards in an exact-match criteria string, with `~` as the escape:
 // `~*`, `~?` and `~~` are the literal characters. Only the exact-match path is
-// affected — comparison criteria (SUB-743) parse first and never reach here.
+// affected — comparison criteria parse first and never reach here.
 //
 // A pattern that uses neither a wildcard nor an escape compiles to null and
 // keeps the plain `looseEq` path, so ordinary matches (including their numeric
@@ -798,7 +797,7 @@ function compileWildcard(pattern: string): RegExp | null {
   return special ? new RegExp(`^${src}$`, "i") : null;
 }
 
-// Blank cells never match a pattern (SUB-238 doctrine) — without this guard
+// Blank cells never match a pattern — without this guard
 // `"*"` would count every empty row. Matching is case-insensitive, like looseEq.
 function wildcardMatch(cell: ScopedValue, re: RegExp): boolean {
   if (cell === null || isErr(cell)) return false;
@@ -824,7 +823,7 @@ function evalAggregate(
     // That view holds TODAY's column, so inside `AT()` it must not answer at
     // all: `AT(2026-01-01, SUM(amount))` would otherwise hand back the current
     // total with a past date on it — the exact quiet wrong answer the bare-ref
-    // branch of `evaluate` refuses (SUB-832). Fall through to that refusal.
+    // branch of `evaluate` refuses. Fall through to that refusal.
     if (e.k === "ref" && e.sheet === undefined && hist?.asOfDate === undefined) {
       const col = scope.get(ROW_COLUMNS_PREFIX + e.name);
       if (Array.isArray(col)) return col;
@@ -867,7 +866,7 @@ function evalAggregate(
       return last === null ? ferr(`${name}: no non-empty values`) : last;
     }
     case "SUMPRODUCT": {
-      // Row-wise product across every argument column, summed (SUB-744) — the
+      // Row-wise product across every argument column, summed — the
       // weighted average is `SUMPRODUCT(v, w) / SUMPRODUCT(w)` with no helper
       // column. Coercion follows Excel rather than numericCells' skip rule:
       // a row whose cells aren't all numeric contributes 0 (a blank weight
@@ -910,7 +909,7 @@ function evalAggregate(
     }
     case "SUMIF":
     case "COUNTIF": {
-      // Multi-criteria (SUB-742): extra (column, match) pairs append after the
+      // Multi-criteria: extra (column, match) pairs append after the
       // existing args — COUNTIF(col, m, col2, m2, …), SUMIF(col, m, valueCol,
       // col2, m2, …) — and every pair must hit for a row to count (AND).
       // SUMIF's extended form always spells the value column, so the pair
@@ -930,7 +929,7 @@ function evalAggregate(
       // Each pair carries its column, its match value, the parsed comparison
       // criteria when the match is ">=1"-shaped (null = exact match), and the
       // compiled wildcard pattern when an exact-match string uses `*`/`?`
-      // (SUB-752; null = plain looseEq).
+      // (null = plain looseEq).
       const pairs: {
         col: ScopedValue[];
         match: ScopedValue;
@@ -1034,7 +1033,7 @@ function evalAggregate(
       if (isErr(vals)) return vals;
       const blank = (c: ScopedValue): boolean =>
         c === null || (typeof c === "string" && c.trim() === "");
-      // A blank key never matches (same rule as `compare`/criteria, SUB-238),
+      // A blank key never matches (same rule as `compare`/criteria),
       // so an empty rates cell can't quietly become the row everything hits.
       if (blank(key)) return ferr(`${name}: key is empty`);
       for (let i = 0; i < keys.length; i++) {
@@ -1204,8 +1203,8 @@ export function evaluate(
           const d = Math.max(-15, Math.min(15, Math.trunc(nv)));
           // Shift the decimal point in decimal (exponential-notation) space,
           // not binary-float space: 1.005 * 100 is 100.49999… as a double,
-          // but "1.005e2" parses to exactly 100.5 — the half cases land right
-          // (SUB-221). Excel rounds half away from zero.
+          // but "1.005e2" parses to exactly 100.5 — the half cases land right.
+          // Excel rounds half away from zero.
           const [coef, exp] = Math.abs(xv).toExponential().split("e");
           const shifted = Number(`${coef}e${Number(exp) + d}`);
           // a value too large to shift has no fractional digits left anyway

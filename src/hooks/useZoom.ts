@@ -4,8 +4,8 @@ import { isTauri } from "../lib/tauri";
 import { parseZoom, zoomLabel, ZOOM_STORAGE_KEY } from "../lib/zoom";
 
 /**
- * SUB-686: overall app zoom (⌘= / ⌘− / ⌘0), the Notion idiom. Same
- * localStorage tier as the sidebar collapse (SUB-394): per-window
+ * Overall app zoom (⌘= / ⌘− / ⌘0), the Notion idiom. Same
+ * localStorage tier as the sidebar collapse: per-window
  * ergonomics, not vault state. In the real app the WEBVIEW zooms (native
  * text/layout scaling, like a browser); in the mock/dev browser that API
  * doesn't exist, so CSS zoom on the root stands in — same visual result,

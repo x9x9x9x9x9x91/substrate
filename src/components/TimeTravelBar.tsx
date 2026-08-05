@@ -38,7 +38,7 @@ export default function TimeTravelBar({
   const ordered = useMemo(() => [...points].reverse(), [points]);
   const activeIndex = Math.max(0, ordered.findIndex((point) => point.id === active?.id));
   const newest = Math.max(ordered.length - 1, 0);
-  // SUB-822: the bar mounts while `points` is still empty (App fetches them
+  // The bar mounts while `points` is still empty (App fetches them
   // after opening it), so a useState initializer alone pinned the handle at 0
   // — the OLDEST snapshot — and never moved when the list arrived. Re-seat it
   // whenever the snapshot list or the active point changes; a user drag keeps

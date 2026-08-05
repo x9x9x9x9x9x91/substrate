@@ -16,14 +16,14 @@ import { netAllowed, SETTINGS_PATH } from "../lib/settings";
 import type { NumberLocale } from "../lib/numberLocale";
 import { useNumberLocale } from "../hooks/useNumberLocale";
 
-/* "Send as link" (SUB-833): render → seal → upload, all before the relay
+/* "Send as link": render → seal → upload, all before the relay
    sees a byte of plaintext. Rides the DbAdmin overlay/dbform idiom. The
    dialog is honest about what expiry can and cannot do — it limits access
    from now on, it does not un-save a copy the recipient kept. */
 
 const EXPIRY_ORDER: HandoffExpiry[] = ["burn", "1d", "7d", "30d"];
 
-/* The sealed size, in the dial's dialect (SUB-1092). This was a third private
+/* The sealed size, in the dial's dialect. This was a third private
    copy of the KB/MB humanizer, and the only one that always wrote a dot
    decimal — so "1.4 MB" read English even under the German default. Kept local
    rather than folded into display.ts's formatFileSize because the shapes
@@ -48,7 +48,7 @@ export default function SendLinkDialog({
   const numberLocale = useNumberLocale();
   const [relay, setRelay] = useState<string | null>(null); // null = still loading settings
   const [relayToken, setRelayToken] = useState("");
-  /** SUB-834: `net-share-relay` — the switch that closes this upload. Same
+  /** `net-share-relay` — the switch that closes this upload. Same
       shape as the unset-relay state below (explain, offer no send button),
       because both are "this cannot send yet, here is where to change that"
       rather than a failure. Enforced here, one step before the only call that

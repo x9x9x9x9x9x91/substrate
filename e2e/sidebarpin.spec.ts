@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
-// SUB-410: a plain note (no database, no `type: dashboard`) can hold a sidebar
-// row. SUB-585: that row lives UNDER the note's home folder in the Folders
+// A plain note (no database, no `type: dashboard`) can hold a sidebar
+// row. That row lives UNDER the note's home folder in the Folders
 // tree; only pins with no tree row (vault root, Journal/Dashboards) keep the
 // flat Pinned section. Rows reorder within their lane, and dropping a note on
 // its own folder row pins it too.
@@ -11,7 +11,7 @@ const ROOT_NOTE = "Welcome"; // lives at the vault root — pins into the flat s
 const pinnedSection = "Pinned";
 
 /**
- * Drag `from` onto `to` with a real pointer sequence (SUB-1023). Chromium only
+ * Drag `from` onto `to` with a real pointer sequence. Chromium only
  * enters a native HTML5 drag after at least one move following the mousedown,
  * and only fires `drop` when the target's dragover accepted the gesture with a
  * dropEffect the source's effectAllowed permits — the negotiation that
@@ -132,7 +132,7 @@ test("dragging a note onto the Pinned section adds a pin", async ({ page }) => {
   await page.locator(".ctx-item", { hasText: "Pin to sidebar" }).click();
   await expect(page.locator(".side-item", { hasText: ROOT_NOTE })).toBeVisible();
 
-  // SUB-1023: this drag runs as a REAL pointer gesture, not dispatched events
+  // This drag runs as a REAL pointer gesture, not dispatched events
   // with a handmade DataTransfer. The synthetic path skips the browser's
   // effect negotiation — the very step that swallowed the drop in the app
   // (a `copy` dropEffect against the source's `effectAllowed = "move"`), so
@@ -149,7 +149,7 @@ test("dragging a note onto the Pinned section adds a pin", async ({ page }) => {
 
 test("dropping a note on its own folder row pins it there (SUB-585)", async ({ page }) => {
   // the note already lives in Inbox, so this drop can't be a move — the
-  // gesture reads "give it a sidebar row under Inbox". SUB-1023: the other
+  // gesture reads "give it a sidebar row under Inbox". This is the other
   // pin lane, so it runs as a real gesture too.
   const note = page.locator(".row", { hasText: NOTE }).first();
   const inboxRow = page.locator(".side-folder", { hasText: "Inbox" });

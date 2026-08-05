@@ -22,7 +22,7 @@ type SearchReturn = {
 };
 
 /**
- * SUB-28: the app-level keyboard dispatcher — the shortcut registry's action
+ * The app-level keyboard dispatcher — the shortcut registry's action
  * map plus the keydown listener that feeds it. Everything it drives (view
  * state, note commands, overlays) is owned by App and passed in, so this is
  * routing only.
@@ -64,11 +64,11 @@ export function useShortcutRouter(opts: {
   pageStepRef: React.RefObject<((dir: 1 | -1) => void) | null>;
   editorFocusRef: React.RefObject<(() => void) | null>;
   undoStateRef: React.RefObject<UndoState>;
-  /** SUB-1164: App owns the undo/redo moves themselves — the palette's rows
+  /** App owns the undo/redo moves themselves — the palette's rows
       run these same two callbacks, so click and keystroke can't drift */
   runUndo: () => void;
   runRedo: () => void;
-  /** SUB-686: current app zoom level and its ladder-stepping setter */
+  /** Current app zoom level and its ladder-stepping setter */
   zoom: number;
   applyZoom: (next: number) => void;
 }) {
@@ -115,12 +115,12 @@ export function useShortcutRouter(opts: {
     applyZoom,
   } = opts;
 
-  // All app-level keys dispatch through the shortcut registry (SUB-28): the
+  // All app-level keys dispatch through the shortcut registry: the
   // registry owns matching (combo + scope + when), this map owns the actions.
   // Pane-owned surfaces keep their local handlers: calendar, database grid,
   // palette input, search input, menus, sheet grid and the CodeMirror editor
   // (whose Mod-b/Mod-i combos come from the registry via shortcutCmKey).
-  // SUB-455: useLayoutEffect, not useEffect. A passive effect runs AFTER the
+  // UseLayoutEffect, not useEffect. A passive effect runs AFTER the
   // browser paints, so between "the sidebar is on screen" and "the keyboard
   // dispatcher exists" there is a real window with no keydown listener at all —
   // a shortcut pressed in it hits nothing and is silently lost (keypresses are
@@ -129,10 +129,10 @@ export function useShortcutRouter(opts: {
   useLayoutEffect(() => {
     const actions: Record<string, (ctx: ShortcutCtx, e: KeyboardEvent) => void> = {
       palette: () => setOverlay((o) => (o === "palette" ? null : "palette")),
-      // SUB-477: the registry's "surface" scope already kept us out of the
+      // The registry's "surface" scope already kept us out of the
       // editor and every text input, so by the time we're here ⌘Z means the
       // vault's undo, not text undo.
-      // SUB-1164: the move itself lives in App, shared with the palette's
+      // The move itself lives in App, shared with the palette's
       // Undo/Redo rows — including the stale-entry explanation (§3.3)
       undo: () => runUndo(),
       redo: () => runRedo(),
@@ -156,7 +156,7 @@ export function useShortcutRouter(opts: {
         setOverlay(null);
         setSettingsOpen((s) => !s);
       },
-      // SUB-686: `zoom` is in this effect's dep array, so the closure is
+      // `zoom` is in this effect's dep array, so the closure is
       // never stale
       "zoom-in": () => applyZoom(stepZoom(zoom, 1)),
       "zoom-out": () => applyZoom(stepZoom(zoom, -1)),
@@ -166,7 +166,7 @@ export function useShortcutRouter(opts: {
         if (ctx.daily) openJournal(shiftDate(ctx.daily, e.key === "ArrowLeft" ? -1 : 1));
       },
       "workbook-step": (_ctx, e) => {
-        // page-stepping on an open workbook dashboard (SUB-464): ⌃⇥ next,
+        // page-stepping on an open workbook dashboard: ⌃⇥ next,
         // ⌃⇧⇥ previous — the browser tab-cycle idiom
         pageStepRef.current?.(e.shiftKey ? -1 : 1);
       },
@@ -183,7 +183,7 @@ export function useShortcutRouter(opts: {
         const id = i === null ? undefined : ctx.pins[i];
         if (id) setView({ kind: "saved", id });
       },
-      // SUB-467: a key the user dragged onto a sidebar row. Two targets aren't
+      // A key the user dragged onto a sidebar row. Two targets aren't
       // Views and open through the same handlers their rows click; everything
       // else round-trips through viewKey()'s vocabulary. A stale target (its
       // row edited out of views.json by hand) resolves to nothing and no-ops.
@@ -194,13 +194,13 @@ export function useShortcutRouter(opts: {
         if (target === "journal") return openJournal(todayIso());
         if (target.startsWith("note:")) return openNote(target.slice(5));
         // search stashes the pre-search view like the sidebar row does —
-        // a bare setView would leave Esc restoring a stale view (SUB-267)
+        // a bare setView would leave Esc restoring a stale view
         if (target === "search") return openSearch();
         const v = targetView(target);
         if (v) setView(v);
       },
       "esc-close": (ctx) => {
-        // SUB-267: an armed search-return claims the Esc first — back to the
+        // An armed search-return claims the Esc first — back to the
         // results with query and picked row intact (spent on use)
         if (ctx.searchReturn && searchReturn) returnToSearch(searchReturn);
         // search: the pane's input handles its own keys; this catches Esc when
@@ -211,7 +211,7 @@ export function useShortcutRouter(opts: {
       "list-down": () => moveSelection(1),
       "list-up": () => moveSelection(-1),
       "enter-edit": () => editorFocusRef.current?.(),
-      // SUB-392: ⌘⌫ — in a database view the open side note, else the
+      // ⌘⌫ — in a database view the open side note, else the
       // selected row; same undo toast as every other trash surface. Ghost
       // dailies have no file yet and templates are chrome, not notes.
       "trash-note": (ctx) => {
@@ -225,7 +225,7 @@ export function useShortcutRouter(opts: {
         if (menuUp()) return;
         goBack();
       },
-      // SUB-812: the mini-player's transport. The queue is module state (it
+      // The mini-player's transport. The queue is module state (it
       // has to outlive every view), so these route straight to it rather than
       // through App — the same two functions the bar's own buttons call, so
       // key and click can't drift.
@@ -235,7 +235,7 @@ export function useShortcutRouter(opts: {
     const onKey = (e: KeyboardEvent) => {
       // Let focused native controls own their activation keys. Without this
       // guard, the list-view Enter shortcut prevents a sidebar button's
-      // synthesized click whenever a note is selected (SUB-357).
+      // synthesized click whenever a note is selected.
       const target = e.target instanceof HTMLElement ? e.target : null;
       if (
         !e.metaKey &&
@@ -261,14 +261,14 @@ export function useShortcutRouter(opts: {
         daily: selectedMeta ? dailyDateOf(selectedMeta.path) : null,
         pins: pinIds,
         customKeys,
-        // SUB-267: armed only while the hit's landing context is still up
+        // Armed only while the hit's landing context is still up
         searchReturn:
           searchReturn !== null &&
           viewKey(searchReturn.view) === viewKey(view) &&
           (searchReturn.view.kind === "db"
             ? dbNote === searchReturn.note
             : selected === searchReturn.note),
-        // SUB-392: an open db side note counts — ⌫ closes it like Esc
+        // An open db side note counts — ⌫ closes it like Esc
         canGoBack:
           viewHistory.current.length > 0 ||
           ((view.kind === "db" || view.kind === "saved") && dbNote !== null),
@@ -286,9 +286,9 @@ export function useShortcutRouter(opts: {
       if (!hit) return;
       // A surface below already answered this key — CodeMirror's keymap, a
       // dialog, a menu. Running the app shortcut too fires two handlers off
-      // one press (SUB-670), so the app defers. Overlay entries are exempt:
+      // one press, so the app defers. Overlay entries are exempt:
       // the sheet sits ABOVE the editor, so its Esc must still close it even
-      // though CodeMirror's own Esc binding preventDefaults first (SUB-316).
+      // though CodeMirror's own Esc binding preventDefaults first.
       if (e.defaultPrevented && !hit.scopes.includes("overlay")) return;
       const run = actions[hit.id];
       if (!run) return; // editor-scope entries are CodeMirror's, listed only

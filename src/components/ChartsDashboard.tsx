@@ -53,7 +53,7 @@ interface ChartsDashboardProps {
       fence and parsing it a second time. */
   configOverride?: ChartConfig;
   /** rendered under the chart sections, above the foot — how a note that also
-      carries ```heatmap fences shows them without a second pane head (SUB-966) */
+      carries ```heatmap fences shows them without a second pane head */
   after?: ReactNode;
 }
 
@@ -77,7 +77,7 @@ function fmtVal(v: number): string {
     is split (`by:`). `band` is the band's RAMP SLOT, not its index in the
     tooltip nor in the band list — a band with no rows at this x is absent here
     but keeps its treatment, and a band whose neighbours came and went keeps it
-    across renders too (SUB-1062). */
+    across renders too. */
 interface TipRow {
   name: string | null;
   band: number;
@@ -109,7 +109,7 @@ function tipText(label: string, rows: TipRow[]): string {
   return `${label} · ${rows.map((r) => `${r.name}: ${fmtFull(r.value)}`).join(", ")}`;
 }
 
-/** Hover/focus tooltip shared by both chart kinds (SUB-941). The card is
+/** Hover/focus tooltip shared by both chart kinds. The card is
     positioned inside the chart's own wrap — one element per chart, moved to the
     hovered slot, rather than one card per bar. Anchoring is by the slot's box,
     so a bar's card sits on top of the bar and a line's sits at the plot top. */
@@ -175,7 +175,7 @@ function ChartTip({ tip }: { tip: TipState | null }) {
     different number from any series it contains.
 
     Which series gets which slot is keyed on the series itself, not on where it
-    lands in the split (SUB-1062, `assignBandSlots` in lib/chart.ts): a chart's
+    lands in the split (`assignBandSlots` in lib/chart.ts): a chart's
     first render walks the ramp from the top in first-seen order, and from then
     on a series keeps its slot while it is on screen, however the rows around it
     change. */
@@ -228,7 +228,7 @@ function useRoving(n: number) {
   return { slots, onKeyDown, tabIndexOf };
 }
 
-/** The dashboard accent family's series ramp (SUB-932, design principle 3):
+/** The dashboard accent family's series ramp (design principle 3):
     the sky blues, #6cc0ec first. Fixed order, five entries, each
     contrast-checked on both the dark ground and the print white — a
     categorical chart cycles it so its buckets read as distinct without
@@ -247,7 +247,7 @@ const SERIES_RAMP = [
     axis keeps its schema hues; another categorical axis cycles the V1 series
     ramp; a time axis stays one series in the plain accent. Split charts keep
     their own band treatments. Values and labels thin out when crowded. */
-/** Bar height budget per size token (SUB-969). Keep in lockstep with the
+/** Bar height budget per size token. Keep in lockstep with the
     `.dash-chart` min-heights in styles.css: each is its budget + the 50px the
     axis rule, value line and time-label row take under the tallest bar. The
     token picks from THIS table — a fence never names a pixel height. */
@@ -265,12 +265,12 @@ function BarChart({
   /** `by:` split — each column stacks its bands bottom-up in band order */
   bands?: ChartBand[] | null;
   /** ramp slot per band, keyed on series identity so a band keeps its colour
-      when its neighbours come and go (SUB-1062); falls back to band order */
+      when its neighbours come and go; falls back to band order */
   bandSlots?: number[];
   xOptions?: SelectOption[];
   /** buckets are categories, not time — colour an unsplit axis with the ramp */
   categorical?: boolean;
-  /** bounded style token (SUB-969): `tall`, or absent for the default plot */
+  /** bounded style token: `tall`, or absent for the default plot */
   size?: ChartSize | null;
 }) {
   const { wrapRef, tip, show, hide } = useChartTip();
@@ -281,7 +281,7 @@ function BarChart({
   useEffect(() => {
     const chart = chartRef.current;
     // A category label is a name, not a tick on a continuum — hiding it makes
-    // its bar anonymous (SUB-1087). Categorical axes keep every label
+    // its bar anonymous. Categorical axes keep every label
     // (showLabel short-circuits), so only time axes measure and thin.
     if (!chart || categorical) return;
     const measure = () => {
@@ -290,7 +290,7 @@ function BarChart({
       // kept label is sized to its own text (`is-roomy` → width: max-content),
       // so dividing by the label's own width would read 1 for every label and
       // collapse thinning to "keep everything" — a feedback loop through the
-      // class this very measurement decides (SUB-1087 review).
+      // class this very measurement decides (review).
       const widestRatio = labels.reduce(
         (ratio, label) =>
           Math.max(ratio, label.scrollWidth / Math.max(1, label.parentElement?.clientWidth ?? 1)),
@@ -316,7 +316,7 @@ function BarChart({
     i === 0 ||
     i === points.length - 1 ||
     (i % labelEvery === 0 && points.length - 1 - i >= labelEvery);
-  /** One empty-bucket reading for both shapes (SUB-954): a bucket with no rows
+  /** One empty-bucket reading for both shapes: a bucket with no rows
       behind it — a zero-filled gap in a date axis, split or not — carries no
       tooltip rows, so it says "no rows" and wears the empty treatment. A
       bucket whose real rows happen to sum to zero is NOT empty and keeps its
@@ -346,7 +346,7 @@ function BarChart({
           // stack itself carries the same honest zero mark as a plain bar.
           const zero = !empty && total === 0;
           const h = max > 0 ? Math.max(3, (total / max) * BAR_PLOT_PX[size ?? "default"]) : 3;
-          // SUB-979's collision was position, not existence — the fixed label
+          // the collision was position, not existence — the fixed label
           // bands hold a short bar's value above the axis fine, so it stays
           const valueLabel = showVals && total !== 0 ? fmtVal(total) : "";
           const tint = !bands && !empty
@@ -392,7 +392,7 @@ function BarChart({
               onKeyDown={(e) => onKeyDown(e, i)}
             >
               {/* an empty bucket is already said by the baseline tick — the "0"
-                  label on top of it is the same statement twice (SUB-527) */}
+                  label on top of it is the same statement twice */}
               <span className="dash-bar-val" title={valueLabel || undefined}>
                 {valueLabel}
               </span>
@@ -457,9 +457,9 @@ function LineChart({
 }: {
   points: ChartPoint[];
   bands?: ChartBand[] | null;
-  /** ramp slot per band, keyed on series identity (SUB-1062) — see BarChart */
+  /** ramp slot per band, keyed on series identity — see BarChart */
   bandSlots?: number[];
-  /** bounded style token (SUB-969): `tall`, or absent for the default plot */
+  /** bounded style token: `tall`, or absent for the default plot */
   size?: ChartSize | null;
 }) {
   const { wrapRef, tip, show, hide } = useChartTip();
@@ -530,7 +530,7 @@ function LineChart({
   // this index by array identity cannot cache it across those renders. Build
   // the O(bands × points) index once per render instead; then the two readings
   // for every slot use O(1) key lookups rather than rescanning each band and
-  // making the render quadratic in the number of points (SUB-954).
+  // making the render quadratic in the number of points.
   const bandAt = bands?.map((b) => new Map(b.points.map((p) => [p.key, p]))) ?? null;
   const rowsAt = (i: number): TipRow[] => {
     const p = points[i];
@@ -546,7 +546,7 @@ function LineChart({
   return (
     <div className="chart-wrap" ref={wrapRef}>
       {/* the line plot is percentage-based, so the size token only has to
-          change the box's height — no coordinate maths moves (SUB-969) */}
+          change the box's height — no coordinate maths moves */}
       <div className="chart-line" data-size={size ?? undefined}>
         <div className="chart-line-plot">
           <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
@@ -626,12 +626,12 @@ function ChartSection({
   series: ChartSeries | null;
   loadError: string | null;
   /** this chart's band-slot memory, looked up by chart identity rather than by
-      the section's position on the dashboard (SUB-1062) */
+      the section's position on the dashboard */
   memoryFor: (c: ChartConfig) => BandSlotMemory;
   /** schema options of a db-sourced categorical x prop — bars wear their hues */
   xOptions?: SelectOption[];
   /** provenance line when the source isn't a database or a sheet — a mount
-      says which folder it is reading (SUB-982) */
+      says which folder it is reading */
   sourceDesc?: string;
   /** quiet line above the plot: a mount that isn't bound here, or whose folder
       has gone away, still charts its last-known index and says so rather than
@@ -655,7 +655,7 @@ function ChartSection({
         : null;
   // Ramp slots belong to the chart, not to the rows behind it and not to where
   // the fence sits on the page: `memoryFor` hands back the memory this CHART
-  // has been keeping (SUB-1062), so editing the source — a row added, a
+  // has been keeping, so editing the source — a row added, a
   // category's last row deleted — never re-letters the series still on screen,
   // and deleting the fence above this one never hands this chart a stranger's
   // colours. An over-full or invalid split paints no marks, so it claims no
@@ -682,7 +682,7 @@ function ChartSection({
         // a bound property that exists nowhere in the source is a named error,
         // like a LOOKUP miss or a `series:` binding to a non-summary — "check
         // the property names" is the app knowing the answer and not saying it
-        // (SUB-749). A renamed column lands here; genuine zero-match below.
+        // A renamed column lands here; genuine zero-match below.
         <div className="chart-err">{series.missing}</div>
       ) : splitError ? (
         <div className="chart-err">{splitError}</div>
@@ -692,7 +692,7 @@ function ChartSection({
             ? // historySeries always says WHY it drew nothing — no snapshots at
               // all, no value ever recorded for this key, or a window that ends
               // before the fact begins. A generic fallback here would only ever
-              // mask one of those (SUB-832).
+              // mask one of those.
               series.note
             : "No rows matched — check the source and property names."}
         </div>
@@ -719,7 +719,7 @@ function ChartSection({
               categorical={
                 // a text column of pre-bucketed calendar keys (the Spending
                 // importer's shape) is a time axis despite its null bucket;
-                // a history lane (SUB-832) is always a time axis
+                // a history lane is always a time axis
                 c.bind === "summaries" ||
                 (c.bind === "rows" &&
                   c.x.bucket === null &&
@@ -730,7 +730,7 @@ function ChartSection({
           )}
           {/* the trim boundary is said in place, next to the plot it shortened,
               rather than left for the reader to infer from a chart that just
-              starts late (SUB-832 §3.3) */}
+              starts late (spec §3.3) */}
           {series.note ? (
             <div className="dash-foot" style={{ margin: "4px 0 0" }}>{series.note}</div>
           ) : null}
@@ -758,11 +758,11 @@ export default function ChartsDashboard({
   configOverride,
   after,
 }: ChartsDashboardProps) {
-  // one table, one resolver (SUB-834); the footer's single pair is derived
+  // one table, one resolver; the footer's single pair is derived
   const { fx: rates } = useFxRates();
   const fx = useMemo(() => usdEurFrom(rates), [rates]);
   const [sheets, setSheets] = useState<Map<string, DashboardSheetState>>(new Map());
-  // SUB-1001: the last chart's title used to cut in half against the pane's
+  // The last chart's title used to cut in half against the pane's
   // bottom edge with nothing marking the overflow. Declared above the `embed`
   // branch below — hooks can't sit behind a conditional return.
   const fade = useEdgeFade<HTMLDivElement>();
@@ -772,7 +772,7 @@ export default function ChartsDashboard({
     [body, configOverride]
   );
 
-  // One band-slot memory per CHART, not per section (SUB-1062). The sections
+  // One band-slot memory per CHART, not per section. The sections
   // below are rendered from `blocks` by index, so a fence deleted above another
   // hands its React instance — and, with it, anything that instance remembers —
   // to the chart that slides up into its place. Keyed on chart identity the
@@ -800,7 +800,7 @@ export default function ChartsDashboard({
   const sheetNames = useMemo(() => {
     const seen = new Map<string, string>();
     for (const b of blocks) {
-      // a history fence reads a note's own past — no sheet to load (SUB-832)
+      // a history fence reads a note's own past — no sheet to load
       if (!b.config || b.config.bind === "history") continue;
       const s = b.config.source;
       if (s.kind === "sheet") seen.set(s.name.toLowerCase(), s.name);
@@ -808,12 +808,12 @@ export default function ChartsDashboard({
     return [...seen.values()];
   }, [blocks]);
   // Every `source:` that reads as a database is ALSO a candidate mount name: a
-  // mount registers its name as a type (SUB-982), so one grammar covers both
+  // mount registers its name as a type, so one grammar covers both
   // and only the vault knows which a given name is.
   const dbNames = useMemo(() => {
     const seen = new Map<string, string>();
     for (const b of blocks) {
-      // a history fence has no source at all (SUB-832) — same guard as above
+      // a history fence has no source at all — same guard as above
       if (!b.config || b.config.bind === "history") continue;
       const s = b.config.source;
       if (s.kind === "db") seen.set(s.type.toLowerCase(), s.type);
@@ -862,7 +862,7 @@ export default function ChartsDashboard({
   const hist = useHistoryLanes(histRefs, vaultEpoch);
 
   // Load every charted sheet — and transitively any sheet its formulas
-  // reference — then evaluate each with the cross-sheet loader (SUB-671).
+  // reference — then evaluate each with the cross-sheet loader.
   // Without the loader a computed column reading another sheet evaluated to an
   // error in every cell, which the chart then skipped or stringified. The
   // epoch/rate cache shares the same work across composed dashboard tiles.
@@ -923,7 +923,7 @@ export default function ChartsDashboard({
       return { series, loadError: error };
     }
     if (c.source.kind === "db") {
-      // A mount IS a schema type (SUB-982), so its x prop carries the same
+      // A mount IS a schema type, so its x prop carries the same
       // schema'd options a database's does — resolved once, above the split,
       // or a mount chart would wear default hues and first-appearance order
       // while the mount's own board wears its configured colours.

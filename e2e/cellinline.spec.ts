@@ -1,14 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// In-cell editing (SUB-405): clicking a table cell puts the input ON the
+// In-cell editing: clicking a table cell puts the input ON the
 // cell itself — typing happens in the actual box, the option list hangs
 // below as a panel. Free-text kinds prefill the raw value and commit like
 // an inline input; optioned kinds keep the empty filter input and ghost the
 // current value as the placeholder.
 
 /** the data-column index of a prop, read off the table header (title first) —
-    headers render display-capitalized (SUB-255), so match case-insensitively */
+    headers render display-capitalized, so match case-insensitively */
 async function colIndex(page: Page, col: string) {
   return page
     .locator(".db-table thead th")
@@ -57,7 +57,7 @@ test("free-text cell edits in place: input on the cell rect, prefilled, Enter co
   );
   expect(allSelected).toBe(true);
 
-  // Enter commits the typed text. Since SUB-947 it also carries the editor to
+  // Enter commits the typed text. It also carries the editor to
   // the cell below, so the menu still on screen belongs to the NEXT row —
   // Escape puts the table back at rest.
   await input.fill("2019");
@@ -99,7 +99,7 @@ test("free-text cell: Escape discards, click-away commits, emptied Enter clears"
   await expect(page.locator(".selmenu")).toHaveCount(0);
   await expect(cell()).toHaveText("2021");
 
-  // emptying + Enter clears the value explicitly (and hops on, per SUB-947)
+  // emptying + Enter clears the value explicitly (and hops on)
   await cell().click();
   await input.fill("");
   await input.press("Enter");

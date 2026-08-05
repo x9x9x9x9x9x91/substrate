@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// SUB-1054: the segmented switch idiom carried no group role or name anywhere
+// the segmented switch idiom carried no group role or name anywhere
 // — seven hand-rolled `.db-switch` containers, each one announcing a pile of
 // unrelated pressed buttons. SwitchGroup now owns the container and requires
 // a name, so the semantics cannot be forgotten. This guard keeps the idiom

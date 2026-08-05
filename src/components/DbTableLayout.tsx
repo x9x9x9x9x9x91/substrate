@@ -19,7 +19,7 @@ import { AGG_OPTIONS, ColMenu, openExternalLink, WIN_INITIAL, type Focus } from 
 import { byFoldedKey, isBuiltinDateName } from "../lib/schemalookup";
 import type { HopDir } from "../lib/cellhop";
 
-/** the open cell editor (SUB-947 adds the two ways it can open pre-filled:
+/** the open cell editor (two ways it can open pre-filled:
     `seed` = the keystroke that opened it, `caretAtEnd` = F2's edit-in-place) */
 type EditCellState = {
   path: string;
@@ -29,7 +29,7 @@ type EditCellState = {
   caretAtEnd?: boolean;
 };
 
-/** The table layout (SUB-621 split out of DatabasePane): the windowed
+/** The table layout (split out of DatabasePane): the windowed
     thead/tbody/tfoot render, its group headers and spacers, the aggregation
     footer and the bulk bar with its property editors. DatabasePane stays the
     façade — every piece of state and every callback below is owned there and
@@ -164,14 +164,14 @@ export default function DbTableLayout({
   setScrolledY: (v: boolean) => void;
   moreRight: boolean;
   setMoreRight: (v: boolean) => void;
-  /** SUB-945: drop every popover anchored to a rect this scroller just moved */
+  /** Drop every popover anchored to a rect this scroller just moved */
   dismissAnchored: () => void;
   /** scopes SelectMenu's scroll-dismiss event to this database pane */
   anchorStaleScope: string;
   cycleSort: (key: string, additive: boolean) => void;
   startResize: (key: string, e: React.MouseEvent) => void;
   resetWidth: (key: string) => void;
-  /** SUB-949 column drag-reorder: the key being dragged, the live drop slot
+  /** Column drag-reorder: the key being dragged, the live drop slot
       (the 2px accent line), and the three transitions the headers drive. */
   colDrag: string | null;
   setColDrag: (v: string | null) => void;
@@ -193,13 +193,13 @@ export default function DbTableLayout({
   onNoteMenu: (path: string, x: number, y: number) => void;
   onTrashNotes: (paths: string[]) => void;
   sel: ReadonlySet<string>;
-  /** SUB-1166: notes a bulk write was refused on, each mapped to what the
+  /** Notes a bulk write was refused on, each mapped to what the
       vault said. These rows are also what's selected, so the bar's count and
       the marked rows describe one thing. */
   writeFailed: ReadonlyMap<string, string>;
-  /** SUB-945: the cell a write just landed in, lit for one fade */
+  /** The cell a write just landed in, lit for one fade */
   lastWritten: { path: string; key: string; nonce: number } | null;
-  /** SUB-945: while >0 the selection just emptied and the bar is fading out,
+  /** While >0 the selection just emptied and the bar is fading out,
       still showing this count */
   bulkClosing: number;
   clearSel: () => void;
@@ -213,7 +213,7 @@ export default function DbTableLayout({
     el: Element | null | undefined,
     opts?: { seed?: string; caretAtEnd?: boolean }
   ) => void;
-  /** SUB-947: an editor committed and asked to carry on to the next cell */
+  /** An editor committed and asked to carry on to the next cell */
   hopEdit: (from: { path: string; key: string }, dir: HopDir) => void;
   commitCell: (value: string | null) => void;
   commitListCell: (path: string, key: string, values: string[]) => void;
@@ -231,7 +231,7 @@ export default function DbTableLayout({
     description?: string,
     rollup?: RollupConfig | null
   ) => void;
-  /** the rollup schema editor's pickers (SUB-678): followable relation props
+  /** the rollup schema editor's pickers: followable relation props
       of this database, and the props of a relation's target database */
   rollupRelations: string[];
   rollupPropsFor: (relation: string) => string[];
@@ -241,18 +241,18 @@ export default function DbTableLayout({
   reportFailure: (what: string) => (err: unknown) => void;
   tallied: NoteMeta[];
   aggs: Record<string, AggKind>;
-  /** Per-column footer aggregation (SUB-834): the value plus what the
+  /** Per-column footer aggregation: the value plus what the
       conversion cost — `converted` names the foreign units folded in,
       `skipped` the ones that couldn't be. Both empty on a unitless column. */
   aggResults: Record<string, UnitAgg | undefined>;
   /** As-of date of the rates cells and the footer converted at, for the
-      markers' hover text; empty when nothing is known about it (SUB-834). */
+      markers' hover text; empty when nothing is known about it. */
   fxAsOf?: string;
-  /** Rates for unit columns (SUB-834): a cell stored in a foreign unit
+  /** Rates for unit columns: a cell stored in a foreign unit
       renders converted into its column's. Absent → currency cells render as
       typed, never as a wrong number. */
   fx?: FxResolver;
-  /** Number formatting the vault is set to (SUB-834) — footer figures follow
+  /** Number formatting the vault is set to — footer figures follow
       the same convention as the cells above them. */
   numberLocale: NumberLocale;
   bulkColMenu: AnchorRect | null;
@@ -268,7 +268,7 @@ export default function DbTableLayout({
   pickBulkCol: (key: string, anchor: AnchorRect) => void;
 }) {
   // arrow for any active key; with 2+ keys a muted ordinal marks each key's
-  // place in the lexicographic order (SUB-199)
+  // place in the lexicographic order
   const sortArrow = (key: string) => {
     const i = sorts.findIndex((s) => s.key === key);
     if (i === -1) return null;
@@ -280,12 +280,12 @@ export default function DbTableLayout({
     );
   };
 
-  // SUB-184: row index → the section starting at it (empty when ungrouped,
+  // Row index → the section starting at it (empty when ungrouped,
   // so the flat render below never looks). Plain const, not a hook — the
   // layout branches above return early, hooks can't live down here.
   const groupStartAt = new Map((rowGroups ?? []).map((g) => [g.start, g] as const));
 
-  /* SUB-310: the painted slice. Unwindowed tables take the whole row set; a
+  /* The painted slice. Unwindowed tables take the whole row set; a
      windowed one takes win (or the WIN_INITIAL first slice until winSync
      runs), clamped to the live row count and stretched to keep an open cell
      editor's row painted — unmounting it would kill its menu mid-edit. The
@@ -333,7 +333,7 @@ export default function DbTableLayout({
               <OptionDot
                 color={optionColor(groupSchema?.options, value)}
               />
-              {/* SUB-639: the column's format too, like the board header —
+              {/* The column's format too, like the board header —
                   without it a number section read raw "1200" over cells
                   rendering "1.200,00 €" */}
               {displayValue(
@@ -354,7 +354,7 @@ export default function DbTableLayout({
     </tr>;
   };
 
-  /* SUB-949: header drag-reorder. Only the LABEL button is draggable — the
+  /* Header drag-reorder. Only the LABEL button is draggable — the
      8px resize strip keeps its own mousedown, so a grab near the edge still
      resizes and never starts a reorder. The whole th is the drop zone (the
      pointer lands anywhere across a wide header), and the side is decided by
@@ -400,7 +400,7 @@ export default function DbTableLayout({
     return colDropAt.after ? " db-th-drop-after" : " db-th-drop-before";
   };
 
-  // SUB-272: the bulk bar's column editor reuses the single-cell machinery
+  // The bulk bar's column editor reuses the single-cell machinery
   // (SelectMenu/DateMenu/RelationMenu/FileMenu), anchored at the bar button
   // it was opened from — near the bottom edge every menu flips up on its own.
   // Checkbox columns never reach this: pickBulkCol gave them a choice menu.
@@ -413,7 +413,7 @@ export default function DbTableLayout({
     setBulkEdit(null);
     clearSel();
   };
-  // SUB-635: a bulk multi/relation write REPLACES each selected note's whole
+  // A bulk multi/relation write REPLACES each selected note's whole
   // list with the picked set, but the picker's toggles read as additive. The
   // write semantics stay; the picker states them plainly, naming the column
   // and the selection size (the selection can't change while the menu rides).
@@ -430,18 +430,18 @@ export default function DbTableLayout({
       <div
         className={`db-body${scrolledX ? " db-scrolled-x" : ""}${scrolledY ? " db-scrolled-y" : ""}${moreRight ? " db-more-x" : ""}`}
         ref={bodyRef}
-        // SUB-194/195: scroll events aren't cancelable, so this can't block
+        // Scroll events aren't cancelable, so this can't block
         // scrolling; an unchanged boolean bails out of re-render, meaning the
         // pane only re-renders when one of the fade/cue gates actually flips.
-        // winSync re-windows the painted rows (SUB-310) — same bail-out math.
+        // winSync re-windows the painted rows — same bail-out math.
         onScroll={(e) => {
           const el = e.currentTarget;
           setScrolledX(el.scrollLeft > 0);
-          // SUB-945: the sticky header only reads as a lid once rows have gone
+          // The sticky header only reads as a lid once rows have gone
           // under it -- same gate idiom as the freeze line, same bail-out
           setScrolledY(el.scrollTop > 0);
           setMoreRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1);
-          // SUB-945: cell editors and header menus hold a rect captured at open
+          // Cell editors and header menus hold a rect captured at open
           // -- once the rows slide under them they point at the wrong cell
           dismissAnchored();
           winSyncRef.current();
@@ -450,7 +450,7 @@ export default function DbTableLayout({
         {colCss && <style>{colCss}</style>}
         <table className={`db-table${gridOn ? " db-grid" : ""}`}>
           <thead
-            // SUB-326: right-click anywhere on the header row opens the
+            // Right-click anywhere on the header row opens the
             // property-visibility checklist, anchored at the pointer
             onContextMenu={(e) => {
               e.preventDefault();
@@ -541,7 +541,7 @@ export default function DbTableLayout({
                   undefined
                 }
                 // a row hosting an open cell editor stays undraggable — the
-                // menu inside it owns the mouse (SUB-402)
+                // menu inside it owns the mouse
                 draggable={editCell?.path !== n.path}
                 onDragStart={(e) => {
                   e.dataTransfer.setData(NOTE_DRAG_MIME, n.path);
@@ -562,7 +562,7 @@ export default function DbTableLayout({
                     if (e.target === e.currentTarget) setFocus({ c: 0, r, path: n.path });
                   }}
                   onClick={(e) => {
-                    // SUB-272: a modifier turns the click into a selection
+                    // A modifier turns the click into a selection
                     // gesture only (no open/edit); plain click = as before
                     if (e.shiftKey || e.metaKey || e.ctrlKey) {
                       e.preventDefault();
@@ -576,7 +576,7 @@ export default function DbTableLayout({
                   }}
                 >
                   <span className="db-cell-txt db-title-txt">{n.title}</span>
-                  {/* SUB-1166: the bulk toast counts the failures; this is
+                  {/* The bulk toast counts the failures; this is
                       where THIS note's own reason lives, on the row it
                       happened to. Title text so the reason is readable
                       without a pointer, and reachable by screen readers. */}
@@ -598,27 +598,27 @@ export default function DbTableLayout({
                   const cschema = byFoldedKey(typeSchema, c);
                   const copts = cschema?.options ?? [];
                   // created/updated are built-in meta props: date-kind unless the
-                  // schema overrides (SUB-167), so they format and style like
+                  // schema overrides, so they format and style like
                   // schema'd dates instead of leaking raw ISO
                   const ckind = cschema?.kind ?? (isBuiltinDateName(c) ? "date" : undefined);
                   const multiVals = ckind === "multi" ? propList(n.props, actualKey) : [];
                   const relVals = ckind === "relation" ? propList(n.props, actualKey) : [];
                   const broken = ckind === "file" && !!val && fileOk[val] === false;
-                  // audio-valued file prop (SUB-674): the cell carries a
+                  // audio-valued file prop: the cell carries a
                   // compact play/pause next to the path text
                   const audioTarget = ckind === "file" && val ? audioFileTarget(val) : null;
-                  // checkbox (SUB-173): checked iff the raw prop is the YAML
+                  // checkbox: checked iff the raw prop is the YAML
                   // bool true — `false`/missing/empty all read as unchecked
                   const checked = ckind === "checkbox" && n.props[actualKey] === true;
                   const closeCell = () => {
                     setEditCell(null);
                     setSchemaEditCell(false);
                   };
-                  // SUB-947: Enter/Tab in this cell's editor commit and carry
+                  // Enter/Tab in this cell's editor commit and carry
                   // on to the next one. Bound to the CELL, not the editor —
                   // the editor has already closed itself by the time this runs
                   const hop = (dir: HopDir) => hopEdit({ path: n.path, key: c }, dir);
-                  // SUB-945: a write that just landed here lights the cell for
+                  // A write that just landed here lights the cell for
                   // one fade -- the confirmation a single-cell edit never got
                   const flashed = lastWritten?.path === n.path && lastWritten.key === c;
                   return (
@@ -635,7 +635,7 @@ export default function DbTableLayout({
                       }}
                       title={(ckind === "file" || ckind === "url" || ckind === "email" || ckind === "phone") && val ? val : undefined}
                       onClick={(e) => {
-                        // SUB-272: same selection-gesture branch as the title
+                        // Same selection-gesture branch as the title
                         // cell — a modified click never toggles/starts an edit
                         if (e.shiftKey || e.metaKey || e.ctrlKey) {
                           e.preventDefault();
@@ -647,7 +647,7 @@ export default function DbTableLayout({
                           // checkbox cells toggle in place — the whole cell is
                           // the one obvious affordance, no raw-string editor
                           if (ckind === "checkbox") toggleCheckboxCell(n.path, c);
-                          // a rollup cell (SUB-678) is derived — read-only,
+                          // a rollup cell is derived — read-only,
                           // no editor; the value recomputes from the vault
                           else if (ckind !== "rollup") startEdit(n.path, c, e.currentTarget);
                         });
@@ -681,7 +681,7 @@ export default function DbTableLayout({
                             {displayValue(val, ckind, cschema?.format)}
                           </a>
                         ) : audioTarget ? (
-                          // SUB-674: the button stops its own propagation, so
+                          // The button stops its own propagation, so
                           // the rest of the cell still starts the editor
                           <span className="prop-audio">
                             <AudioPropButton name={audioTarget} />
@@ -692,7 +692,7 @@ export default function DbTableLayout({
                         ) : (
                           <OptionPill color={optionColor(copts, val)}>
                             {displayValue(val, ckind, cschema?.format, fx, numberLocale)}
-                            {/* SUB-834: a cell rendered in the column's unit
+                            {/* A cell rendered in the column's unit
                                 but STORED in another says so on hover — the
                                 file still holds exactly what was typed */}
                             {(() => {
@@ -827,7 +827,7 @@ export default function DbTableLayout({
             })}
             {windowed && winBottomH > 0 && spacerRow(winBottomH, "db-win-bottom")}
           </tbody>
-          {/* SUB-945: the footer is always here. It used to mount with the
+          {/* The footer is always here. It used to mount with the
               first aggregation, so the table's geometry jumped the moment you
               set one and there was nothing to discover the feature from
               (design-principles.md 4 + 5). At rest it states the row count;
@@ -840,7 +840,7 @@ export default function DbTableLayout({
                   const kind = aggregationKind(aggs, c);
                   const agg = kind ? aggResults[c] : undefined;
                   const res = agg?.value;
-                  // the marker (SUB-834): a footer figure that folded foreign
+                  // the marker: a footer figure that folded foreign
                   // units in — or had to leave some out — says so rather than
                   // passing for a plain single-unit total
                   const mark = aggMarker(agg, fxAsOf);
@@ -860,7 +860,7 @@ export default function DbTableLayout({
                               {AGG_OPTIONS.find((o) => o.kind === kind)?.label}
                             </span>
                             {res != null && (
-                              // SUB-945: keyed on the value so a recompute
+                              // Keyed on the value so a recompute
                               // remounts the span and fades the new figure in
                               // -- a number that silently swaps reads as a
                               // misread rather than a result
@@ -895,7 +895,7 @@ export default function DbTableLayout({
       {adminPop}
       {(sel.size > 0 || bulkClosing > 0) && (
         <div className={`bulkbar${sel.size === 0 ? " closing" : ""}`}>
-          {/* SUB-1166: after a partial bulk failure the selection IS the
+          {/* After a partial bulk failure the selection IS the
               failures, so the bar says why it narrowed instead of leaving a
               silently smaller "N selected" behind. */}
           <span className={`bulkbar-count${writeFailed.size > 0 ? " is-fail" : ""}`}>
@@ -930,7 +930,7 @@ export default function DbTableLayout({
           anchor={bulkColMenu}
           up
           items={shown
-            // a rollup column (SUB-678) is derived — no write path, so no
+            // a rollup column is derived — no write path, so no
             // bulk edit
             .filter((c) => typeSchema[c]?.kind !== "rollup")
             .map((c) => ({

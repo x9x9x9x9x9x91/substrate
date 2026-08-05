@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-393: "New sheet" palette command — sheets are surfaces (no database),
+// "New sheet" palette command — sheets are surfaces (no database),
 // so the palette is their creation front door. The typed query becomes the
 // title; the fresh sheet opens on its empty-grid state ("+ column" starts
 // the csv block).

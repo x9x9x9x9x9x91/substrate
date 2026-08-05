@@ -142,7 +142,7 @@ test("buildNoteActions: sealed-note actions use the quiet lock lane", () => {
 test("buildNoteActions: sealed strips every plaintext-emitting action at the builder", () => {
   const noop = () => {};
   // the full handler set with sealed: true — no call site can leak an export/
-  // duplicate/send surface by forgetting its own gate (SUB-839 review)
+  // duplicate/send surface by forgetting its own gate (review)
   const acts = buildNoteActions({
     open: noop,
     moveToFolder: noop,

@@ -1,12 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-939: the summary bar under a sheet used to render every named summary as
+// The summary bar under a sheet used to render every named summary as
 // one flat wrap — a finance sheet with a dozen of them read as a dump, a single
 // cascading error printed a row of bare `!`, and the USD→EUR stamp showed under
 // sheets holding no currency at all. These specs drive the three fixes through
 // the real grid: blank-line groups, one rollup chip, a conditional stamp.
 
-// The totals row (SUB-937) absorbs every summary that describes one column, so
+// The totals row absorbs every summary that describes one column, so
 // the summary bar under this sheet only ever holds the leftovers — the second
 // group here is deliberately made of summaries no column can claim (over other
 // summaries, over two columns, a bare constant), which is what keeps the
@@ -44,7 +44,7 @@ ceiling = 6000
 \`\`\`
 `;
 
-// one name collision (a formula named like a data column, SUB-751) breaking
+// one name collision (a formula named like a data column) breaking
 // every summary downstream of it — the reported Holdings case, reproduced
 const CASCADE = `---
 type: sheet
@@ -87,7 +87,7 @@ total = SUM(eur)
 \`\`\`
 `;
 
-// SUB-1084: a chip used to render headerless, so a total could contradict the
+// a chip used to render headerless, so a total could contradict the
 // column it sums. value_usd groups (it carries a five-digit value), and the
 // mean is a quantity divided by a count — still money.
 const CHIP_FORMAT = `---
@@ -158,7 +158,7 @@ test("a summary renders in the grammar of the column it aggregates (SUB-1084)", 
   await expect(val("mean")).toHaveText("3.700");
 
   // and a four-digit column keeps its bare grammar all the way up into the
-  // summary: net_eur renders 4200/3100/… ungrouped (SUB-633), so its sum too
+  // summary: net_eur renders 4200/3100/… ungrouped, so its sum too
   await openSheet(page, FINANCE);
   await expect(
     page.locator(".sheet-totals .sheet-total", { hasText: "net_total" }).locator(".sheet-total-val")

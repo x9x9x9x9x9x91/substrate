@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-651: a changed `capture-hotkey` the backend refuses (won't parse, or
+// A changed `capture-hotkey` the backend refuses (won't parse, or
 // the OS says another app owns it) used to be silent outside the log file —
 // the settings form showed the new chord while the OLD one stayed registered.
 // `apply_settings` now emits `capture:hotkey-rejected` from both arms; the

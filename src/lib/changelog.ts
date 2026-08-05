@@ -1,4 +1,4 @@
-/* The in-app release history (SUB-452).
+/* The in-app release history.
  *
  * This is a code module on purpose: the changelog is a property of the build,
  * not a note in the vault. Nothing here is written to, indexed by, or
@@ -9,14 +9,14 @@
  * module changed. Newest first; the first entry always matches the version in
  * package.json (asserted in changelog.test.ts).
  *
- * STRUCTURE (SUB-817). Each item carries a kind — new / improved / fixed — and
+ * STRUCTURE. Each item carries a kind — new / improved / fixed — and
  * the surfaces group by it, so a reader can skim features without wading
  * through fixes. A release's flagship (usually the item its title alludes to)
  * is flagged `headline: true` and leads the release at full prominence; at most
  * two headlines per release (asserted in changelog.test.ts), and small patch
  * releases need none.
  *
- * HOW RELEASES UPDATE THIS (SUB-588). This array is the single source of truth
+ * HOW RELEASES UPDATE THIS. This array is the single source of truth
  * for the release history — the repo-root CHANGELOG.md is GENERATED from it and
  * any hand-edit there is lost on the next run. When you bump the version:
  *
@@ -38,7 +38,7 @@ export interface ChangelogItem {
   kind?: ChangelogKind;
   /** the release's flagship — rendered first and larger, outside the groups */
   headline?: boolean;
-  /** A machine-local surface not present in every install (SUB-830). Excluded
+  /** A machine-local surface not present in every install. Excluded
       from the generated CHANGELOG.md and release notes; the in-app pane shows
       it only on machines that actually have the surface. */
   private?: true;
@@ -88,7 +88,7 @@ const LEAD_MAX = 60;
 /**
  * Entries authored as "Lead phrase: detail" split here so the pane can render
  * the lead a step up — a release then scans as short bold phrases instead of a
- * wall of even sentences (SUB-938). Presentation-only: the generated
+ * wall of even sentences. Presentation-only: the generated
  * CHANGELOG.md keeps the raw text. No early colon → null, render plain.
  */
 export function splitLead(text: string): { lead: string; rest: string } | null {
@@ -753,7 +753,7 @@ export const CHANGELOG: ChangelogRelease[] = [
   /* 0.3.0 through 0.6.0 shipped before this array existed and were never
      written up in user language; CHANGELOG.md never covered them either, so
      there is nothing to recover. The two founding releases below are carried
-     over verbatim from the hand-written CHANGELOG.md (SUB-588). */
+     over verbatim from the hand-written CHANGELOG.md. */
   {
     version: "0.2.0",
     date: "2026-07-17",

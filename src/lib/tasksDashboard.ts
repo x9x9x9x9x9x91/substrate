@@ -12,7 +12,7 @@ export interface TasksDashboardConfig {
   areas: string[] | null;
   /** the resolved threshold, always a positive whole number of days */
   staleDays: number;
-  /** whether age findings render on this board at all (SUB-1125): the global
+  /** whether age findings render on this board at all: the global
       Settings default, overridden to on by a board that sets its own
       `stale_days`. Per-note `stale: never` still wins over both. */
   staleChips: boolean;
@@ -20,12 +20,12 @@ export interface TasksDashboardConfig {
   sort: TasksSort;
 }
 
-/** How the board renders: the sectioned urgency list (SUB-870), or a kanban
+/** How the board renders: the sectioned urgency list, or a kanban
     board with one column per area. */
 export type TasksView = "list" | "board";
 
-/** The within-section (and within-column) ordering. `urgency` is the SUB-870
-    default: due bucket, then priority, then age. The others lead with one
+/** The within-section (and within-column) ordering. `urgency` is the default:
+    due bucket, then priority, then age. The others lead with one
     dimension and keep the rest as tiebreakers. */
 export type TasksSort = "urgency" | "priority" | "due" | "age";
 
@@ -50,7 +50,7 @@ export interface TasksDashboardRow {
   stale: boolean;
   /** Secondary diagnostics, never the row's reason for being on the board. */
   finding: "stale" | "undated" | null;
-  /** Pinned to the hand-picked Now section (SUB-786). */
+  /** Pinned to the hand-picked Now section. */
   now: boolean;
   /** The wake day, on snoozed rows only. */
   snoozedUntil: string | null;
@@ -114,7 +114,7 @@ function parseAreas(value: unknown): string[] | null {
 }
 
 /** The board's own threshold, or null when it doesn't set a usable one. The
-    null carries meaning beyond the fallback (SUB-1125): a board that names a
+    null carries meaning beyond the fallback: a board that names a
     threshold has asked for age chips, so it keeps them even when the global
     Settings toggle is off. An unreadable value is a typo, not a request —
     it reads as unset, and the resolved threshold falls back to 30. */
@@ -147,7 +147,7 @@ export function parseTasksSort(value: unknown): TasksSort {
   }
 }
 
-/** `staleChipsDefault` is the global Settings toggle (SUB-1125), on unless
+/** `staleChipsDefault` is the global Settings toggle, on unless
     Settings.md turns it off. It is a DEFAULT: a board with its own
     `stale_days` has asked for age chips explicitly and keeps them. */
 export function tasksDashboardConfig(
@@ -165,7 +165,7 @@ export function tasksDashboardConfig(
 }
 
 /** The calendar day a date-ish prop names, or null. A bare `YYYY-MM-DD` and a
-    timed `YYYY-MM-DD HH:MM` (SUB-270) both resolve to their day; anything else
+    timed `YYYY-MM-DD HH:MM` both resolve to their day; anything else
     — including an impossible date like 2026-02-30 — is null. */
 function dayPart(value: unknown): { iso: string; ordinal: number } | null {
   const raw = clean(value);
@@ -207,7 +207,7 @@ export function taskAgeDays(value: unknown, now: Date): number | null {
 /** Whole local-calendar days until `due`: negative is overdue, 0 is today,
     positive is upcoming. Malformed and missing values return null — an
     unreadable due date must leave the row where it was, never bucket it as
-    urgent and never drop it (the SUB-786 trust rule, now covering `due`). */
+    urgent and never drop it (the trust rule, now covering `due`). */
 export function taskDueDays(value: unknown, now: Date): number | null {
   const day = dayPart(value);
   const today = todayOrdinal(now);
@@ -227,7 +227,7 @@ export function taskIsNow(value: unknown): boolean {
 }
 
 /** `stale: never` on a task note exempts it from age findings for good
-    (SUB-1125) — some notes just aren't touched, and a rot chip on one is
+    — some notes just aren't touched, and a rot chip on one is
     noise about a decision already made, exactly like a pinned Now row. A
     boolean/string `false` reads the same way, since that is how the key gets
     typed by hand. Anything else — including a typo and including `true` — is
@@ -242,7 +242,7 @@ export function taskStaleExempt(value: unknown): boolean {
 /** A task is snoozed while `snoozed_until` is a strict future YYYY-MM-DD
     (local calendar). Today or past means awake; malformed values never hide
     a task — a bad date silently vanishing a row would be the worst failure
-    shape for a trust surface (SUB-786). */
+    shape for a trust surface. */
 export function taskIsSnoozed(value: unknown, now: Date): boolean {
   const raw = clean(value);
   if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
@@ -314,11 +314,11 @@ const dueRank = (row: TasksDashboardRow): number =>
   row.dueDays === null ? Number.MAX_SAFE_INTEGER : row.dueDays;
 
 /** The stable tail every ordering ends on, so input order never changes the
-    board (the SUB-870 determinism rule, kept across all four sorts). */
+    board (the determinism rule, kept across all four sorts). */
 const compareTail = (a: TasksDashboardRow, b: TasksDashboardRow): number =>
   compareText(a.title, b.title) || compareText(a.path, b.path);
 
-/** The four orderings behind the sort switch. `urgency` is SUB-870's
+/** The four orderings behind the sort switch. `urgency` is the
     default — due bucket, then priority, then age. The others promote one
     dimension to the front and keep the remaining ones as tiebreakers, so
     switching sorts re-ranks rather than shuffles. */
@@ -386,7 +386,7 @@ export function buildTasksDashboard(
 
     const ageDays = taskAgeDays(note.props.created, now);
     const priority = clean(note.props.priority);
-    // whether age is a diagnostic for THIS task: off globally (SUB-1125), or
+    // whether age is a diagnostic for THIS task: off globally, or
     // exempted on the note itself. `stale` follows the same gate as the chip
     // so the flag never claims rot the board deliberately isn't reporting.
     const ages = config.staleChips && !taskStaleExempt(note.props.stale);

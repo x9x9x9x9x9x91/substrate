@@ -30,7 +30,7 @@ test("parseFxCache: missing asOf degrades to empty string", () => {
   assert.deepEqual(parseFxCache('{"usdEur":0.9}'), { usdEur: 0.9, asOf: "", live: false });
 });
 
-/* ---- rate table (SUB-834) ------------------------------------------- */
+/* ---- rate table ------------------------------------------- */
 
 // EUR base, the shape the engine hands over: 1 EUR buys 1.164 USD.
 const table: FxRatesState = {

@@ -43,7 +43,7 @@ test("wikiLinkInsert: closes the link unless ]] already follows", () => {
   assert.equal(wikiLinkInsert("Alpha Notes", "]] rest"), "Alpha Notes");
 });
 
-// SUB-1095 — twin of the Rust `wikilink_splits_into_target_anchor_alias`
+// twin of the Rust `wikilink_splits_into_target_anchor_alias`
 // test (src-tauri/src/vault/mod.rs); keep the cases in step.
 test("parseWikiLink: target, anchor and alias", () => {
   assert.deepEqual(parseWikiLink("Piranesi"), {
@@ -122,7 +122,7 @@ test("anchorLine: ^id finds the block that carries the ref", () => {
 });
 
 test("embedTarget: the display modifier is dropped, a # never is", () => {
-  // SUB-1102 — twin of embed_target in src-tauri/src/vault/mod.rs
+  // Twin of embed_target in src-tauri/src/vault/mod.rs
   assert.equal(embedTarget("cover.png"), "cover.png");
   assert.equal(embedTarget("cover.png|300"), "cover.png");
   assert.equal(embedTarget("cover.png|300x200"), "cover.png");

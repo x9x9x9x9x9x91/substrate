@@ -1,4 +1,4 @@
-// Calendar fences (SUB-965): a ```calendar fence inside a dashboard note draws
+// Calendar fences: a ```calendar fence inside a dashboard note draws
 // one month grid over any database date property. Config stays hand-editable
 // key: value text (portable), exactly like the ```chart fence next to it:
 //
@@ -6,7 +6,7 @@
 //   source: release            # a database type, or {{Sheet Name}} for a sheet
 //   date: released             # the date property the grid places notes on
 //   label: title               # optional — what each chip reads (default: title)
-//   query: status:unreleased   # optional — the SUB-7 filter-bar language
+//   query: status:unreleased   # optional — the filter-bar language
 //   ```
 //
 // Recurrence is NOT reimplemented here: a database source expands through
@@ -156,7 +156,7 @@ function withLabel(e: CalEntry, note: NoteMeta | undefined, label: string | null
 }
 
 /** Grid entries for a database source. `window` is the month grid's own span:
-    recurrence (SUB-174, vault-format §5.7) expands inside it through
+    recurrence (vault-format §5.7) expands inside it through
     calendarEntries — this module never re-derives a cadence. */
 export function dbCalendarEntries(
   config: CalendarConfig,
@@ -265,7 +265,7 @@ export function sortEntries(entries: CalEntry[]): CalEntry[] {
     source's non-repeating notes come back whatever the grid's window says
     (calendarEntries only bounds spans and recurrence), and a sheet source
     takes no window at all, so a 40-row sheet would otherwise read "40 entries
-    this month" in every month (SUB-965 review). The adjacent-month cells the
+    this month" in every month. The adjacent-month cells the
     grid draws are deliberately NOT counted: the month named in the heading is
     the month the number is about. */
 export function countEntriesInMonth(entries: CalEntry[], year: number, month0: number): number {

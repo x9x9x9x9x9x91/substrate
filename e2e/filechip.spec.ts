@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// File chips (SUB-202): any embed that is neither audio nor image renders a
+// File chips: any embed that is neither audio nor image renders a
 // named chip; click / Enter opens the file externally (the mock file_open
 // logs via console.info). Runs against the deterministic mock backend (fresh
 // page = fresh vault).
@@ -14,8 +14,8 @@ async function boot(page: Page) {
 }
 
 /* an event within 1s of an app-initiated refresh is treated as the own-write
-   echo: no immediate refetch (SUB-116), only a trailing one at window expiry
-   (SUB-239, App.tsx) — wait the window out before emitting so the lane under
+   echo: no immediate refetch, only a trailing one at window expiry
+   (App.tsx) — wait the window out before emitting so the lane under
    test runs immediately */
 async function seedBody(page: Page, body: string) {
   await page.evaluate((b) => window.__mockEditNote("Welcome.md", b), body);

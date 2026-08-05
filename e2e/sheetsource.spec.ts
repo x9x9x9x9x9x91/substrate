@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-795 resolution — the "stale sheet source view" was live-preview
+// Resolution — the "stale sheet source view" was live-preview
 // concealment, not staleness. The original repro's element-center click
 // landed the caret on the ```formulas fence delimiter line, so the marker
 // was typed into the fence info string; on reopen the cursor sits elsewhere
@@ -67,7 +67,7 @@ test("an edit on the fence delimiter line is concealed on reopen, revealed under
   await openHoldingsSource(page);
 
   const marker = `E2E-FENCE ${Date.now()}`;
-  // element-center click: this is the original SUB-795 repro's gesture, and
+  // element-center click: this is the original repro's gesture, and
   // it puts the caret on the ```formulas fence delimiter line
   await page.locator(".sheet-src .cm-content").click();
   await page.keyboard.type(marker);
@@ -79,7 +79,7 @@ test("an edit on the fence delimiter line is concealed on reopen, revealed under
 
   await navigateAwayAndBack(page);
   // concealed: the cursor is outside the fence line, so its raw text is
-  // hidden by live preview — this is the state SUB-795 read as "stale"
+  // hidden by live preview — this is the state the bug report read as "stale"
   await expect(page.locator(".sheet-src .cm-content")).not.toContainText(marker);
 
   // walk the cursor up onto the delimiter line — the raw text reveals

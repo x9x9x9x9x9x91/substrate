@@ -1,14 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-765: ⌘N is the flagship capture moment — the user hits it and types
-// immediately, faster than the ~80ms title-focus handoff. SUB-455 made that
+// ⌘N is the flagship capture moment — the user hits it and types
+// immediately, faster than the ~80ms title-focus handoff. An earlier fix made that
 // handoff cancel on any keydown, so those first characters went to
-// document.body and vanished (the list has no type-ahead, SUB-392) and the
+// document.body and vanished (the list has no type-ahead) and the
 // note stayed unfocused and "Untitled" forever. Now a printable key pressed
 // while nothing is focused fires the pending focus synchronously, in time for
 // that same character to land in the title.
 //
-// The SUB-455 regressions this must not reawaken stay pinned in
+// The regressions this must not reawaken stay pinned in
 // scratchabandon.spec.ts and rowcontrols.spec.ts; the third test here covers
 // the list-focused arm directly.
 
@@ -49,7 +49,7 @@ test("a fast-typed string after ⌘N lands whole, and titles the note", async ({
 test("with the list focused, a non-printable key after ⌘N is not yanked into the title (SUB-455)", async ({
   page,
 }) => {
-  // SUB-883: this test used to race the real 80ms handoff timer — on a
+  // This test used to race the real 80ms handoff timer — on a
   // saturated machine the arrow arrived after the timer had fired, and the
   // title taking focus then is the *intended* idle-user behavior, not a bug.
   // Fake time removes the race: the handoff timer cannot fire while the

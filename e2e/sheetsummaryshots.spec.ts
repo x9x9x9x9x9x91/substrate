@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Throwaway evidence run for SUB-939 — not a gate.
+// Throwaway evidence run for the sheet summary row — not a gate.
 //   SHOTS=1 SHOT_DIR=/tmp/sub939-after npx playwright test e2e/sheetsummaryshots.spec.ts
 // Renders the three cases the issue names (a finance sheet with many
 // summaries, one cascading error, a sheet with no currency in it) so the bar

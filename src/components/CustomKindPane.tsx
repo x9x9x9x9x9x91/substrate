@@ -26,7 +26,7 @@ import KindReviewCard from "./KindReviewCard";
 import { kindsEnable } from "../lib/ipc";
 import { invalidateKindBundles } from "../hooks/useKindBundles";
 
-/* The host for a vault-resident dashboard kind (SUB-960, vault-format §5.8).
+/* The host for a vault-resident dashboard kind (vault-format §5.8).
 
    What this component is responsible for, and the kind is not: the head (title,
    state dot, source button, Print), deciding whether the code may run at all,
@@ -68,7 +68,7 @@ export interface CustomKindPaneProps {
       kind runs; only the record carries the standing "trust updates" rider. */
   record?: KindEnableRecord;
   /** the files the hash covers, for the review's file list. Absent on rows
-      from a build older than SUB-961. */
+      from a build older than the review flow. */
   files?: KindFileMeta[];
 }
 
@@ -369,7 +369,7 @@ export default function CustomKindPane(props: CustomKindPaneProps) {
 
 /** Read one bundle file as text.
 
-    In the app that is a fetch over the `substrate-kind:` scheme (SUB-959),
+    In the app that is a fetch over the `substrate-kind:` scheme,
     which serves only the manifest's `entry` and `style` and refuses anything
     else. In the mock/dev lane there is no scheme and no vault, so e2e seeds
     bundle text through a window hook instead. The mock branch is gated on
@@ -439,7 +439,7 @@ function makeCtx(
       return { ...note.current, props: { ...note.current.props } };
     },
     css: KIND_CSS,
-    // Mood, bounded (SUB-969): the same roster of names a `cards` fence or a
+    // Mood, bounded: the same roster of names a `cards` fence or a
     // hub callout draws from, handed over so a kind can offer a choice instead
     // of inventing a hex. A kind sets `data-accent="<name>"` on a sanctioned
     // class and the app resolves the hue; an off-roster name simply doesn't

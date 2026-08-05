@@ -1,12 +1,12 @@
-/** The date/time dialect, as one user-facing dial (SUB-1107).
+/** The date/time dialect, as one user-facing dial.
  *
- * The twin of `numberLocale.ts` (SUB-1092), same seam, same rules: every
+ * The twin of `numberLocale.ts`, same seam, same rules: every
  * rendered date and clock time in the app — trash rows, asset rows, history
  * stamps, list chips, time-travel points, dashboard "polled" lines, the
  * printed export header — is written in ONE locale, and this module is the
  * only place that locale is decided.
  *
- * Before SUB-1107 those call sites split three ways: some hardwired `de-DE`,
+ * Before this module those call sites split three ways: some hardwired `de-DE`,
  * some hardwired `en-GB`, and some passed `undefined`, which means "whatever
  * the OS says". The last is the worst of the three, because it silently
  * differs per machine while every number beside it obeys the vault's setting

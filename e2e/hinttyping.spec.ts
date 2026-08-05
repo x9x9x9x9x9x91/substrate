@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-498: both shortcut hint surfaces render from held state rather than from a
+// Both shortcut hint surfaces render from held state rather than from a
 // key event, so they used to normalize `typing` away and advertise the
 // surface-scoped chords — Move note to Trash ⌘⌫, Back ⌘[, Previous / next
 // journal day ⌘⇧←/→ — while the caret sat in a text edit and those chords
@@ -24,7 +24,7 @@ async function typeInJournal(page: Page) {
 
 /** Cold open, optionally with the click panel already unfolded.
 
-    The panel remembers being open across launches (localStorage, SUB-394),
+    The panel remembers being open across launches (localStorage),
     which is also the only way to have it up while the caret is in a text edit:
     clicking the chip focuses the chip, and from there the surface chords really
     do fire, so that reading would be honest either way. An open panel hides the
@@ -35,7 +35,7 @@ async function boot(page: Page, opts: { panelOpen?: boolean } = {}) {
   }
   await page.goto("/");
   // first paint doubles as the "window key listeners attached" barrier (cold
-  // open lands on Notes — Today is a destination, SUB-300)
+  // open lands on Notes — Today is a destination)
   await expect(page.locator(".list-title")).toHaveText("Notes");
   // both surfaces listen from effects, which flush after the commit that
   // painted the list — a key sent on that paint can land before anything is
@@ -111,7 +111,7 @@ test("the hold-⌘ HUD drops the surface rows while typing (SUB-498)", async ({ 
   await page.keyboard.up("Meta");
 
   // ⌘⇧ from inside the editor: the journal step is the chord the editor itself
-  // claims for selection extension (SUB-112)
+  // claims for selection extension
   await page.keyboard.down("Meta");
   await page.keyboard.down("Shift");
   await expect(hud).toBeVisible();

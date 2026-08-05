@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-/* SUB-516: vault:changed names the paths it changed, so the open note only
+/* Vault:changed names the paths it changed, so the open note only
    re-reads when it is one of them. Proven the way the pane experiences it —
    let the note diverge on disk, then fire the event for somebody ELSE's note:
    an unnarrowed pane would re-read and adopt the divergence. Then fire it for
@@ -36,7 +36,7 @@ test("an unrelated vault:changed does not re-read the open note", async ({ page 
 });
 
 test("an unpathed vault:changed still re-reads the open note", async ({ page }) => {
-  // the engine's "I lost track and rescanned" payload (SUB-460): nothing to
+  // the engine's "I lost track and rescanned" payload: nothing to
   // narrow by, so the pane keeps its old wholesale behaviour
   await boot(page);
   const ed = page.locator(".cm-content");

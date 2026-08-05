@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-570: paging the calendar far back used to empty Today and Upcoming. The
+// Paging the calendar far back used to empty Today and Upcoming. The
 // pane asked for ONE entries window spanning the grid AND the 14-day upcoming
 // list, so paging back STRETCHED that window instead of moving it. Once the
 // span passed the 1000-occurrence expansion cap, a daily series was truncated
@@ -11,7 +11,7 @@ import { expect, test } from "@playwright/test";
 /** How far back to page. The cap bites at 1000 occurrences of a daily series,
     so the anchor has to sit more than ~1000 days behind today: 36 months is
     ~1096 days in every month of every year, with margin on both sides, so this
-    spec never depends on which month the wall clock is in (SUB-547). */
+    spec never depends on which month the wall clock is in. */
 const PAGE_BACK = 36;
 
 test("a series anchored far back still fills Upcoming (SUB-570)", async ({ page }) => {
@@ -27,7 +27,7 @@ test("a series anchored far back still fills Upcoming (SUB-570)", async ({ page 
   }
   await expect(page.locator(".cal-grid.month")).toBeVisible();
 
-  // the grid's first cell, not today (SUB-547) — today isn't on this grid at all
+  // the grid's first cell, not today — today isn't on this grid at all
   const anchorIso = await page
     .locator(".cal-day")
     .first()

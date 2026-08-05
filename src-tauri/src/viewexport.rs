@@ -1,4 +1,4 @@
-//! Saved view → a regenerated link folder on disk (SUB-810).
+//! Saved view → a regenerated link folder on disk.
 //!
 //! The reverse direction of a mounted database: a saved view can be
 //! *exported* as a real folder other apps can see — Finder, Ableton's
@@ -206,7 +206,7 @@ fn canon_nearest(p: &Path) -> PathBuf {
     p.to_path_buf()
 }
 
-/// Refuse to build a link folder inside the vault itself (SUB-1009).
+/// Refuse to build a link folder inside the vault itself.
 ///
 /// A link folder in the vault is derived data sitting in the one tree that
 /// syncs: the vault's git history would carry symlinks whose targets are

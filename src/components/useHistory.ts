@@ -10,7 +10,7 @@ import { makeHistorySheetValue } from "../lib/sheet";
 import type { FxResolver, HistoryRef, HistoryResolver } from "../lib/formula";
 import type { FactLane, NoteMeta } from "../lib/types";
 
-/** The prefetch half of time-travel queries (SUB-832, docs/time-travel-spec.md
+/** The prefetch half of time-travel queries (docs/time-travel-spec.md
     §3.1). The formula engine is synchronous — a cell cannot await a git
     revwalk — so the facts a sheet reads in the past tense are collected
     statically, fetched once here, and handed back as a resolver the engine
@@ -110,7 +110,7 @@ function run(epoch: number): void {
       // `!notesAsked` matters on its own: an epoch bump during this run reset
       // the store, and if nothing new was queued meanwhile the vault listing
       // would never be re-fetched — the store would sit "not ready" and every
-      // fact would read as pending forever (SUB-832).
+      // fact would read as pending forever.
       if (pending.length || pendingDates.length || !notesAsked) run(snapshot.epoch);
     }
   })();
@@ -200,7 +200,7 @@ export function useHistoryLanes(
 }
 
 /** Last prefetch failure, for a surface that wants to say history is stale
-    rather than quietly showing "not loaded yet" cells forever (SUB-667's
+    rather than quietly showing "not loaded yet" cells forever (the same
     lesson, one subsystem over). */
 export function useHistoryError(): string | null {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot).err;

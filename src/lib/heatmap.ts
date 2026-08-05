@@ -1,4 +1,4 @@
-// Heatmap blocks (SUB-966): a ```heatmap fence declares one year of day
+// Heatmap blocks: a ```heatmap fence declares one year of day
 // squares — the contribution-graph read of a database or a sheet. Config is
 // the same hand-editable key: value text every other fence uses:
 //
@@ -6,7 +6,7 @@
 //   source: session            # a database type, or {{Sheet Name}} for a sheet
 //   date: logged               # the date property/column the squares sit on
 //   value: count               # count | sum:<number prop>
-//   query: status:done         # the SUB-7 filter-bar language (optional, db only)
+// query: status:done # the filter-bar language (optional, db only)
 //   ```
 //
 // Nothing else: a heatmap is one question ("how much, per day, across a
@@ -108,11 +108,11 @@ export function parseHeatmapConfig(inner: string): HeatmapConfig {
     renderMarkdown does — it lowercases the lang before dispatching, so a
     mixed-case opener renders the live year grid there. Matching the literal
     lowercase spelling here made the SAME note render a grid on the hub and
-    nothing in the dashboard pane (SUB-1129), and the strip pass already
+    nothing in the dashboard pane, and the strip pass already
     follows the wider spelling (CASE_FOLDING_BARE_LANGS in fences.ts), so a
     mixed-case fence's config is out of the search index either way. Still
     bare-form: the `\r?\n` right after the lang rejects a tailed opener, which
-    is prose for every bare-form language (SUB-966). */
+    is prose for every bare-form language. */
 export function parseHeatmapBlocks(body: string): HeatmapBlock[] {
   const re = /```heatmap\r?\n([\s\S]*?)```/gi;
   const out: HeatmapBlock[] = [];

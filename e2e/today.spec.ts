@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// The rebuilt Today surface (SUB-300): a day-agenda decision surface — three
+// The rebuilt Today surface: a day-agenda decision surface — three
 // quiet lanes (Scheduled, Due & overdue, Picked for today), the one verb Pick
 // (writes the `today` date prop), and a leftovers row for stale picks. Entry
-// points are back (sidebar, palette, ⌘1) but cold open stays on Notes
-// (SUB-299). Same deterministic mock backend as smoke.spec.ts.
+// points are back (sidebar, palette, ⌘1) but cold open stays on Notes.
+// Same deterministic mock backend as smoke.spec.ts.
 
 /** "Jul 18" this year, "Jul 18, 2026" otherwise — mirrors calendar.humanDay */
 function humanDay(offsetDays = 0): string {
@@ -29,7 +29,7 @@ function chip(page: Page, key: string) {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  // cold open lands on Notes (SUB-299) — its first paint is the liveness
+  // cold open lands on Notes — its first paint is the liveness
   // barrier; Today is a destination, reached here by its shortcut
   await expect(page.locator(".list-title")).toHaveText("Notes");
   await expect(page.locator(".today-pane")).toHaveCount(0);
@@ -53,7 +53,7 @@ test("the three lanes render from fixtures, leftovers on top", async ({ page }) 
   await expect(stale.locator(".today-act", { hasText: "Keep" })).toBeVisible();
   await expect(stale.locator(".today-act", { hasText: "Clear" })).toBeVisible();
 
-  // Scheduled: today's events, all-day before the timed one (SUB-270) — the
+  // Scheduled: today's events, all-day before the timed one — the
   // timed row closes the lane whatever fixed-date fixtures drift in
   const scheduled = lane(page, "Scheduled");
   await expect(scheduled.locator(".today-row", { hasText: "Umbra listening session" })).toBeVisible();

@@ -270,7 +270,7 @@ test("checkUseSites throws when a strip function cannot be found", () => {
  * through the same parse-and-compare path the checker uses. The tests above all
  * feed hand-built inventories, so a refactor that made `collect()` compare a
  * side against itself — or widened SHAPE until it matched anything — would leave
- * every one of them green (SUB-1130). These fail if the guard stops biting.
+ * every one of them green. These fail if the guard stops biting.
  *
  * `throws` is the honest expectation for a grammar edit: the pattern stops being
  * the known shape, and the checker refuses to read past it rather than compare
@@ -368,7 +368,7 @@ test("normalizeEnd accepts either dialect's end-of-input and rejects others", ()
 });
 
 test("parseFencePattern throws on an unknown pattern shape", () => {
-  // Losing the backtick guard from the tail (SUB-983) is a real grammar change
+  // Losing the backtick guard from the tail is a real grammar change
   // and must stop the checker rather than be read past.
   assert.throws(
     () => parseFencePattern("```(?:(?:view)(?:[ \\t][^\\n]*)?|csv)\\r?\\n[\\s\\S]*?" + JS_END, "x"),

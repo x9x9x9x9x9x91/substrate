@@ -1,4 +1,4 @@
-/* SUB-477 — the one place a property edit becomes undoable (docs/undo.md §6.2).
+/* The one place a property edit becomes undoable (docs/undo.md §6.2).
 
    Every surface that writes a property goes through here rather than calling
    vaultSetProp directly, so ⌘Z behaves identically whether the edit came from
@@ -18,7 +18,7 @@ import type { UndoEntry, UndoScope } from "./undo.ts";
 export type UndoRecorder = (entry: Omit<UndoEntry, "id"> & { id?: number }) => void;
 
 /** How a surface actually lands a property write. Everything ordinary uses
-    `vaultSetProp`; a mount's rows (SUB-888) route through `mount_annotate`
+    `vaultSetProp`; a mount's rows route through `mount_annotate`
     instead, because a row's note may not exist until this very write creates
     it. Undo/redo go back through the same writer, so ⌘Z behaves the same on
     a mounted folder as anywhere else. */
@@ -58,7 +58,7 @@ export async function setPropUndoable(opts: {
       still the caller's promise to follow; this hook belongs to undo/redo,
       whose closures otherwise have no route back to the originating UI. */
   onApplied?: () => void | Promise<void>;
-  /** non-default write path (a mount's rows, SUB-888) */
+  /** non-default write path (a mount's rows) */
   write?: PropWriter;
 }): Promise<NoteMeta> {
   const { path, key, value, record } = opts;
@@ -94,7 +94,7 @@ function tagsPropValue(raw: unknown): PropValue | undefined {
   return undefined;
 }
 
-/** Drop a note on a tag folder (SUB-818): add tags, record the inverse.
+/** Drop a note on a tag folder: add tags, record the inverse.
 
     `vault_note_add_tags` is a union — additive and de-duped — so the inverse
     is "put the prior `tags:` back", never "remove the tags we asked for": the
@@ -217,7 +217,7 @@ export async function setPropUndoableBulk(opts: {
   /** just the property's display name, when the surface renames columns */
   keyLabel?: string;
   scope?: UndoScope;
-  /** non-default write path (a mount's rows, SUB-888) */
+  /** non-default write path (a mount's rows) */
   write?: PropWriter;
 }): Promise<BulkPropResult> {
   const { paths, key, value, record } = opts;

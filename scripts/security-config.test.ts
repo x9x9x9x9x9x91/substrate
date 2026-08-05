@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The security block's invariants (SUB-610/SUB-612). The bundle smoke lane
+// The security block's invariants. The bundle smoke lane
 // (SMOKE_BUNDLE=1) proves the shipped CSP behaves; it is optional and slow,
 // so this test holds the config shape inside the required `npm test` gate —
 // a future edit that drops a load-bearing line fails here, not in a shipped DMG.
@@ -53,7 +53,7 @@ function sources(csp: string, name: string): string[] {
   return hit.split(/\s+/).slice(1);
 }
 
-// SUB-959: the two origins vault-resident custom-kind code is served from —
+// The two origins vault-resident custom-kind code is served from —
 // `substrate-kind://localhost/…` on macOS/iOS, `http://substrate-kind.localhost/…`
 // on Windows/Android. Both spellings of the SAME scheme; neither is optional,
 // and neither is a wildcard.
@@ -140,7 +140,7 @@ test("Tauri's style-src nonce injection stays disabled, and ONLY style-src", () 
   );
 });
 
-// SUB-780: the deny list is the only thing standing between a pasted
+// The deny list is the only thing standing between a pasted
 // `![[~/.ssh/id_ed25519]]` and the webview reading it, so every store is
 // pinned by exact string here — see docs/security-config.md for why the
 // credential dirs are named in full rather than globbed as `$HOME/.claude*`.
@@ -153,7 +153,7 @@ const DENY_MUST_INCLUDE = [
   "$HOME/.kube/**",
   "$HOME/.claude/**",
   "$HOME/.codex/**",
-  // SUB-844: the updater signing key — its compromise signs code for every
+  // The updater signing key — its compromise signs code for every
   // install, so it's a credential store like .ssh
   "$HOME/.tauri/**",
   "$HOME/.npmrc",
@@ -206,8 +206,8 @@ test("updater config keeps its pubkey pin and https GitHub endpoint (SUB-806)", 
   // The pubkey is the whole trust model: the app refuses any update the
   // matching private key (~/.tauri/substrate-updater.key, never committed)
   // didn't sign. Pinned as the LITERAL string — a length/shape check would
-  // wave any attacker-generated minisign key through (four-review finding,
-  // 2026-08-02); this test is the only mechanical defence against a
+  // wave any attacker-generated minisign key through; this test is the
+  // only mechanical defence against a
   // re-pointed trust anchor. Rotating the key legitimately means updating
   // this constant in the same commit, deliberately.
   const PINNED_PUBKEY =

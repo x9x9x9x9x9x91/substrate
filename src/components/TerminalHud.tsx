@@ -1,4 +1,4 @@
-/* Terminal HUD (SUB-398): a quake-style panel that slides up from the bottom
+/* Terminal HUD: a quake-style panel that slides up from the bottom
    on ⌘⇧T and hosts the user's agent CLI (Settings.md `terminal-command`) in a
    real PTY. The session lives in the Rust backend and
    survives hiding — the component only attaches/detaches a renderer.
@@ -13,7 +13,7 @@
    returning false only for the toggle chord. Esc is the TUI's (vim, Claude
    Code menus), NOT a HUD-close key: closing is ⌘⇧T, same as opening.
 
-   Trust gate (SUB-427, SUB-775): the command comes from Settings.md, which
+   Trust gate: the command comes from Settings.md, which
    syncs and can be imported, so it is not automatically allowed to run. That
    holds for both ways vault text reaches the PTY — the spawn command and a
    palette quick action's `terminal-actions` line — so both run through the
@@ -172,7 +172,7 @@ export default function TerminalHud({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // `terminal-font` applies to the live instance (SUB-862): the Terminal is
+  // `terminal-font` applies to the live instance: the Terminal is
   // built once, but Settings.md is re-read on every HUD open, so a font
   // changed between opens has to land on the existing renderer. Cell metrics
   // move with the family, so re-fit — otherwise cols/rows lie until the next
@@ -193,7 +193,7 @@ export default function TerminalHud({
     // Focus synchronously rather than inside the rAF below: the HUD is summoned
     // by an explicit chord and the very next keystroke is meant for the shell.
     // A deferred grab leaves a frame in which that keystroke lands in whatever
-    // had focus — usually the note editor — which is the SUB-455 fault in
+    // had focus — usually the note editor — which is the fault in
     // miniature. Remember the outgoing focus so closing can hand it back.
     const prev = document.activeElement as HTMLElement | null;
     term.focus();
@@ -259,7 +259,7 @@ export default function TerminalHud({
   // and lets a TUI's input loop come up; a dead-session race at worst types
   // into the fresh shell prompt, which is still the intended command.
   // The text is a `terminal-actions` line, so it is vault-carried and passes
-  // the same trust gate as the spawn command (SUB-775) — untrusted asks
+  // the same trust gate as the spawn command — untrusted asks
   // instead of typing, and the ask replaces any confirm card already up
   // (the click is the newer intent).
   useEffect(() => {
@@ -303,7 +303,7 @@ export default function TerminalHud({
     };
   }, [open]);
 
-  /* SUB-863 — drag the panel's inner edge to resize it, double-click to reset.
+  /* Drag the panel's inner edge to resize it, double-click to reset.
 
      Same shape as the database column handle (DatabasePane `startResize`):
      window-level listeners so the pointer may leave the 6px strip, the live

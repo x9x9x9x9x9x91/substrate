@@ -1,6 +1,6 @@
 import { vaultSyncStatus } from "./ipc.ts";
 
-/** Why an embed has no file behind it (SUB-444).
+/** Why an embed has no file behind it.
  *
  * `broken` — the target is genuinely gone: deleted, renamed, or a
  * link-in-place path that no longer resolves.
@@ -31,7 +31,7 @@ let configured: Promise<boolean> | undefined;
 /** Cached `vault_sync_status().configured`. Read once per session — the
  * status only changes when the user saves a remote, which calls
  * `resetSyncConfigured()`. Never rejects: an unavailable status degrades to
- * "no sync", i.e. the pre-SUB-444 broken-embed behaviour. */
+ * "no sync", i.e. the pre-change broken-embed behaviour. */
 export function syncConfigured(): Promise<boolean> {
   if (!configured) {
     configured = vaultSyncStatus().then(

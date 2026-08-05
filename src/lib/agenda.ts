@@ -8,18 +8,18 @@ import {
   type CalEntry,
 } from "./calendar.ts";
 
-/* isDeadline's and isComplete's definitions moved to calendar.ts (SUB-206 /
-   SUB-205 — the calendar's overdue helper shares both, and agenda already
+/* isDeadline's and isComplete's definitions moved to calendar.ts (the
+   calendar's overdue helper shares both, and agenda already
    depends on calendar, so the dependency direction is unchanged); they stay
    part of this module's surface. */
 export { isComplete, isDeadline };
 
-/* Tray mini-agenda payload (SUB-30): what the menu-bar popover shows for one
-   day. The query is SUB-14's calendar query wholesale — a note is an agenda
-   row iff the calendar would show it that day. "Deadline" is SUB-21's
-   notion: a date prop the schema flags `notify: true` (the same opt-in the
+/* Tray mini-agenda payload: what the menu-bar popover shows for one
+   day. The query is the calendar query wholesale — a note is an agenda
+   row iff the calendar would show it that day. "Deadline" is the
+   scheduler's notion: a date prop the schema flags `notify: true` (the same opt-in the
    due-date scheduler fires on), so a shipped release's past `released` date
-   never counts as overdue. Complete entries (SUB-205) never count either. */
+   never counts as overdue. Complete entries never count either. */
 
 export interface AgendaItem extends CalEntry {
   /** true when this entry's prop is a schema-declared deadline */
@@ -31,17 +31,17 @@ export interface AgendaPayload {
   today: string;
   /** everything dated today — plain entries first, deadlines after */
   items: AgendaItem[];
-  /** deadlines whose day passed before today, complete ones excluded (SUB-205) */
+  /** deadlines whose day passed before today, complete ones excluded */
   overdue: number;
 }
 
 
 /** The popover's contents for `today` (local YYYY-MM-DD): every note dated
     that day plus a count of passed deadlines. Read-only display data — the
-    popover never mutates the vault. Recurrence (SUB-174) expands inside
+    popover never mutates the vault. Recurrence expands inside
     [today, today] so a series due today shows; a repeating entry never counts
     as overdue — a series always has a next occurrence. A complete entry
-    (SUB-205) never counts either — done work stops nagging. */
+ never counts either — done work stops nagging. */
 export function agendaPayload(
   notes: NoteMeta[],
   schema: SchemaConfig,
@@ -54,7 +54,7 @@ export function agendaPayload(
   for (const e of calendarEntries(notes, schema, { start: today, end: today })) {
     const deadline = isDeadline(schema, e.type, e.prop);
     if (e.day === today) items.push({ ...e, deadline });
-    // a range is late only once its END has passed (SUB-596)
+    // a range is late only once its END has passed
     else if (
       deadline &&
       e.day < today &&
@@ -66,7 +66,7 @@ export function agendaPayload(
   }
   items.sort(
     (a, b) =>
-      // all-day first, then timed ascending (SUB-270), then the classic order
+      // all-day first, then timed ascending, then the classic order
       compareEntryTime(a, b) ||
       Number(a.deadline) - Number(b.deadline) ||
       a.title.localeCompare(b.title) ||

@@ -6,7 +6,7 @@ function csvField(v: string): string {
   return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
 }
 
-/** Spreadsheet formula-injection guard (SUB-903, decided 2026-08-04): a cell
+/** Spreadsheet formula-injection guard (decided 2026-08-04): a cell
     whose text STARTS with `=`, `+`, `-` or `@` is a live formula the moment the
     exported file is opened in Excel/Numbers/LibreOffice, so it ships with the
     standard `'` text-marker prefix. Safe by default, no setting.
@@ -24,11 +24,11 @@ const csvCell = (v: string) => csvField(escapeFormula(v));
 
 /** The table view as CSV: name column first, then the visible prop columns,
     rows in the order the table currently shows them — one row per NOTE.
-    Grouping is view-only (SUB-563): a note that a list-valued
+    Grouping is view-only: a note that a list-valued
     group puts in several sections is on screen once per membership, but the
     file holds it once, at its first on-screen position, so a grouped export
     is byte-identical to the same view's ungrouped one. Same de-duplication
-    the footer tallies over (SUB-561). */
+    the footer tallies over. */
 export function buildCsv(columns: string[], rows: NoteMeta[]): string {
   const lines = [["title", ...columns].map(csvCell).join(",")];
   for (const n of distinctNotes(rows)) {

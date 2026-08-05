@@ -27,7 +27,7 @@ export type DashboardSheetState =
 
 const cache = new Map<string, Promise<Map<string, DashboardSheetState>>>();
 
-/** The whole rate table keys the cache, not just USD→EUR (SUB-834): a sheet
+/** The whole rate table keys the cache, not just USD→EUR: a sheet
     may convert any quoted pair, so two tables that agree on that one pair
     while differing elsewhere are NOT interchangeable evaluations. */
 function ratesKey(rates: FxRatesState | null): string {
@@ -47,7 +47,7 @@ function cacheKey(sheetNames: string[], vaultEpoch: number, rates: FxRatesState 
     them reads a frontmatter fact. One `history_facts` call for the whole set:
     a dashboard showing five views of the same weight lane builds it once —
     though a chart on the same dashboard prefetches through `useHistory`
-    instead, so the two paths fetch the same lanes separately (SUB-832; the
+    instead, so the two paths fetch the same lanes separately (the
     cost is stated in docs/sheets-spec.md). A failed fetch does not fail the
     pass: it yields a resolver that reports every fact as not loaded yet, which
     is what a transient IPC failure means — dropping the resolver entirely
@@ -125,7 +125,7 @@ export function dashboardSheets(
           continue;
         }
         // a sealed note indexes with no props, so the type check below would
-        // call it "not a sheet" when the truth is that it is locked (SUB-889)
+        // call it "not a sheet" when the truth is that it is locked
         if (resolved.sealed) {
           models.set(name.toLowerCase(), ferr(`“${name}” is sealed`));
           continue;
@@ -151,11 +151,11 @@ export function dashboardSheets(
       }
     }
 
-    // One shared resolver over the whole quoted table (SUB-834) — the same
+    // One shared resolver over the whole quoted table — the same
     // one sheets, cards and charts use, so a GBP column converts here exactly
     // as it does in the grid.
     const fxResolver: FxResolver = makeFxResolver(rates);
-    // Past facts, prefetched before evaluation (SUB-832): here the load is
+    // Past facts, prefetched before evaluation: here the load is
     // already async, so the sheets' history rides the same pass as their
     // cross-sheet BFS rather than needing a store. Gated on a sheet actually
     // asking — a dashboard of plain sheets never lists the vault. The cache

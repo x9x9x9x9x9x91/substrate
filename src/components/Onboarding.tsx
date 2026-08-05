@@ -1,4 +1,4 @@
-/* First-run screen (SUB-436): shown only when the backend resolved no vault
+/* First-run screen: shown only when the backend resolved no vault
    at all — no VAULT_DIR, no stored choice, no existing ~/Vault. A returning
    user never reaches this file. One screen, three doors, and a paragraph
    explaining what a vault actually is; the choice is written to the
@@ -147,7 +147,7 @@ export default function Onboarding({
     }
   }, []);
 
-  /** SUB-804: write the pick immediately — the Restart button must stay a
+  /** Write the pick immediately — the Restart button must stay a
       plain relaunch, not a save step, so a pick that lands is already on
       disk. Re-clicking the active chip clears it (written as ""). A failed
       write must not block the restart: the vault is chosen and works, the
@@ -317,7 +317,7 @@ export default function Onboarding({
               >
                 {candidate.action.label}
               </button>
-              {/* SUB-1098: adoption adds files of its own — three visible ones
+              {/* Adoption adds files of its own — three visible ones
                   at the root, an Inbox/, and hidden .vault/, .claude/ and .git/
                   folders. For an app whose pitch is "your files, untouched",
                   finding unfamiliar notes after the restart is the wrong way to
@@ -325,7 +325,7 @@ export default function Onboarding({
                   being a surprise.
 
                   The list must match docs/user/import.md's add-set table
-                  (SUB-1078) — an earlier version of this line named the three
+                  — an earlier version of this line named the three
                   root files and promised "nothing else", while the doc named
                   seven entries including a whole git repository. A user who
                   diffs the folder afterwards is the one who finds out.
@@ -333,8 +333,8 @@ export default function Onboarding({
                   Adoption verbs only. `init` (empty or missing folder) runs the
                   starter seed instead — Welcome.md, the example notes, the
                   dashboards — so this list would be wrong there too. And not on
-                  the plain reopen of a folder that already carries `.vault/`
-                  (SUB-1133): there the set is already on disk, so announcing it
+                  the plain reopen of a folder that already carries `.vault/`:
+                  there the set is already on disk, so announcing it
                   as incoming is false. `disclosureFor` owns that split — a
                   marker-less folder of two loose notes gets "Open vault" too,
                   and adopting it really does write all of this. */}

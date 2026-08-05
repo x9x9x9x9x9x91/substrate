@@ -18,7 +18,7 @@ function readCache(): FxRatesState | null {
   try {
     const cached = parseFxRatesCache(localStorage.getItem(FX_RATES_CACHE_KEY));
     if (cached) return cached;
-    // an install that only ever cached the single pair (pre-SUB-834) starts
+    // an install that only ever cached the single pair (pre) starts
     // from a one-row table rather than blank, so the first paint after an
     // update still converts USD→EUR while the live refresh is in flight
     const old = parseFxCache(localStorage.getItem(FX_CACHE_KEY));
@@ -90,10 +90,11 @@ const refreshFxRates = () => requestRefresh(true);
 export const ensureFxRates = () => requestRefresh(false);
 
 /** The one FX source for sheets, dashboards, databases and calc notes
-    (SUB-386; whole table since SUB-834): cached app-wide, refreshed once on
+    (a whole multi-currency table since the shared resolver landed): cached
+    app-wide, refreshed once on
     first enabled use, never written to any note. `err` carries the last
     refresh failure so a pane can say the rates
-    are stale instead of silently showing the cached ones (SUB-667).
+    are stale instead of silently showing the cached ones.
 
     This is also the single call-site seam for the fetch — a privacy toggle
     gates it here, not in each consumer. */

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-468: the keyboard button holds one coordinate across every desktop
+// The keyboard button holds one coordinate across every desktop
 // surface — asserted here against the widest sweep of them (keyhints.spec.ts
 // gates the same invariant on three). The screenshots are a side effect for
 // eyeballing overlap; they land outside the repo, so the assertions are what
@@ -38,7 +38,7 @@ test("the keyboard button holds one coordinate across every desktop surface", as
   expect(await slot(page, "05-calendar")).toEqual(base);
 
   await page.locator(".side-item", { hasText: "Portfolio" }).click();
-  // SUB-682: the head is the kicker-less title row now — wait on that
+  // The head is the kicker-less title row now — wait on that
   await expect(page.locator(".dash-head").first()).toBeVisible();
   await expect(page.locator(".dash-kicker")).toHaveCount(0);
   expect(await slot(page, "06-dashboard")).toEqual(base);
@@ -49,8 +49,8 @@ test("the keyboard button holds one coordinate across every desktop surface", as
   await expect(page.locator(".search-note-row").first()).toBeVisible();
   expect(await slot(page, "07-search")).toEqual(base);
 
-  // the doctor report landed after this lane branched (SUB-432) and its head
-  // carries a right-side action, so it has to reserve the slot like the rest.
+  // the doctor report's head carries a right-side action too, so it has to
+  // reserve the slot like the rest.
   // Reload first: search left the caret in its own input, where ⌘K is inert.
   await page.goto("/");
   await expect(page.locator(".list-title")).toHaveText("Notes");

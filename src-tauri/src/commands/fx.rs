@@ -1,4 +1,5 @@
-//! The FX rates the finance surfaces share (SUB-667, table in SUB-834).
+//! The FX rates the finance surfaces share: one multi-currency table behind a
+//! single resolver, so every surface quotes the same rate.
 
 use crate::net;
 
@@ -14,7 +15,7 @@ pub(crate) async fn fx_usd_eur() -> Result<net::FxQuote, String> {
     crate::blocking(net::fetch_usd_eur).await?
 }
 
-/// The whole majors table (SUB-834), so a sheet can convert any pair the app
+/// The whole majors table, so a sheet can convert any pair the app
 /// knows without a request per currency. Same one call, same failure contract
 /// as [`fx_usd_eur`] — the frontend derives every cross rate from this.
 #[tauri::command]

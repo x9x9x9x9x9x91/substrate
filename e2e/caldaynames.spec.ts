@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-520: every calendar day cell names itself. Before this, only the little
+// Every calendar day cell names itself. Before this, only the little
 // day-number button inside a cell had a label — which names the button ("New
 // entry on Jul 20"), not the day it sits in, so a screen reader walking the
 // month grid or the week's all-day strip hit anonymous divs full of entries.
-// The week canvas column already did this right (SUB-512); the strip and the
+// The week canvas column already did this right; the strip and the
 // month grid now match it, without becoming tab stops.
 
 /** "2026-07-18" — ISO of today +/- offsetDays, local like dates.todayIso */
@@ -40,7 +40,7 @@ test("month cells are named groups, and none of them is a tab stop", async ({ pa
   }
 
   // naming a region is not the same decision as making it focusable — the
-  // month grid still has no day-level tab stops (SUB-512 left that open)
+  // month grid still has no day-level tab stops
   await expect(page.locator(".cal-grid.month .cal-day[tabindex]")).toHaveCount(0);
 
   // and the name is the day it holds: today's cell is reachable by role+name,
@@ -73,7 +73,7 @@ test("all-day strip cells name themselves, distinct from the canvas column", asy
   }
 
   // the strip stays a non-focusable region: the week's single tab stop is
-  // still the canvas rover (SUB-512), not a second one up in the strip
+  // still the canvas rover, not a second one up in the strip
   await expect(page.locator(".cal-grid.week .cal-day[tabindex]")).toHaveCount(0);
   await expect(page.locator('.cal-wk-col[tabindex="0"]')).toHaveCount(1);
 

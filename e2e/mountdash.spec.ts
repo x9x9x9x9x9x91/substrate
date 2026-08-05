@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Dashboards over mounts (SUB-982): a chart fence and a metric card can source
+// Dashboards over mounts: a chart fence and a metric card can source
 // a mounted folder's live index the way they already source a database or a
 // sheet — no importer, no new grammar. Fixture: the seeded `finance-doc` mount
 // (src/lib/tauri.ts) — 12 files on the mock disk plus one row the index

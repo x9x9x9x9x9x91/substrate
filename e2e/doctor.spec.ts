@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-432: the vault doctor is a read-only report. The palette opens it, the
+// The vault doctor is a read-only report. The palette opens it, the
 // findings group by kind, note paths click through — and there is deliberately
 // nothing in the pane that repairs anything.
 

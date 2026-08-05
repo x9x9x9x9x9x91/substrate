@@ -10,12 +10,12 @@ import {
 import { ASSIGNABLE_KEYS, keyLabel, targetLabel } from "../lib/keyassign";
 import { useEdgeFade } from "../hooks/useEdgeFade";
 
-/** The ? cheat sheet (SUB-28): every row comes from the shortcut registry, so
+/** The ? cheat sheet: every row comes from the shortcut registry, so
     the sheet always matches the real bindings. Opens on ? or ⌘/ (dispatched
     app-level through the registry, which also owns Esc/? close); clicking the
     backdrop closes. Palette visual language, ≤120ms fades.
 
-    SUB-467: user-assigned keys can't come from the registry (one unlisted
+    User-assigned keys can't come from the registry (one unlisted
     entry answers for all of them), so they get their own section built from
     `$sidebar.keys`, plus the button that opens the key HUD. */
 export default function ShortcutOverlay({
@@ -52,7 +52,7 @@ export default function ShortcutOverlay({
   // pool order, so the section reads the same way the HUD's chips do
   const mine = ASSIGNABLE_KEYS.filter((k) => k.token in customKeys);
 
-  /* SUB-485: the pin row is the one entry whose combos aren't all live — its
+  /* The pin row is the one entry whose combos aren't all live — its
      `when` gate answers per digit (a digit past the pin count does nothing),
      and a user key on ⌘<digit> retires that one outright. Rendering the whole
      ⌘5…⌘9 run made the sheet contradict itself: the same key appeared here AND

@@ -1,4 +1,4 @@
-/** Workbook pages (SUB-464): when a dashboard note carries a `pages:` list,
+/** Workbook pages: when a dashboard note carries a `pages:` list,
     the pane becomes a multi-page workbook — page 0 is the note itself
     (rendered by its own dashboard: kind), each entry adds a page, and an
     Excel-style tab strip sits at the BOTTOM of the pane. A `note:` page
@@ -152,7 +152,7 @@ function ViewPage({
           title={result.savedName ?? title}
           state={{
             // the head counts what the page SHOWS against what matched when a
-            // cut fired (SUB-942) — "23 rows" over a five-row table is a lie
+            // cut fired — "23 rows" over a five-row table is a lie
             // the table's own foot then has to walk back
             label: result.cut
               ? `${result.rows.length} of ${result.total} rows`

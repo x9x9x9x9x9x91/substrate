@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Contrast discipline on metrics cards (SUB-578, design principle 11): at most
+// Contrast discipline on metrics cards (design principle 11): at most
 // two cards keep the sharp voice, chosen by `emph: true` in the note's
 // frontmatter — never by position. Fixture: Dashboards/Portfolio.md
 // (src/lib/tauri.ts) flags Total value + Grand total out of seven cards.

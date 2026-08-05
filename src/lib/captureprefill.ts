@@ -1,5 +1,5 @@
 /** Capture-box reset, split out of `capture.tsx` so the ordering rule below is
-    testable (SUB-1075).
+    testable.
 
     One `substrate://capture?text=…` link resets the capture window more than
     once: the backend emits `capture:prefill` immediately AND the window gets a

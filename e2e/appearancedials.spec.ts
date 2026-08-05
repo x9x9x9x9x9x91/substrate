@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-955: the two appearance dials in ⌘, — Glow (0-100) and Accent tone
+// The two appearance dials in ⌘, — Glow (0-100) and Accent tone
 // (four curated presets + a ±12° nudge). Runs against the mock backend, so
 // this covers the whole path a user takes: the pane writes Settings.md, the
 // watcher echo re-reads it, and App re-applies the result to <html>.
@@ -81,7 +81,7 @@ test("the shipped default sets no appearance state at all", async ({ page }) => 
   await expect(page.locator("html")).not.toHaveAttribute("data-tone", /.*/);
 
   await openDashboard(page, "Portfolio");
-  // the SUB-932 sky accent, unchanged by the tone table's arithmetic
+  // the sky accent, unchanged by the tone table's arithmetic
   await expect.poll(() => colorOn(page, ".dash-inner", "--accent")).toBe("rgb(108, 192, 236)");
 });
 
@@ -175,7 +175,7 @@ test("a tone chip repaints the whole accent family, on screen and for paper", as
   await expect.poll(() => colorOn(page, ".dash-inner", "--series-2")).toBe("rgb(184, 99, 167)");
   // series-5 is the ramp's warm neutral counterweight and does NOT rotate
   await expect.poll(() => colorOn(page, ".dash-inner", "--series-5")).toBe("rgb(201, 185, 143)");
-  // SUB-943's page rule is part of this family too, not literal sky chrome
+  // The page rule is part of this family too, not literal sky chrome
   await expect.poll(() => styleOf(page, ".dash-head", "backgroundImage")).toContain(
     "rgb(201, 162, 230)"
   );

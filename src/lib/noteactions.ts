@@ -3,7 +3,7 @@ import { foldedPropStr } from "./types.ts";
 import { vaultCreate, vaultRead, vaultSetProp } from "./ipc.ts";
 import { isSystemPropName } from "./schemalookup.ts";
 
-/* SUB-271 — Duplicate: a note is copied in place as "<title> copy". The
+/* Duplicate: a note is copied in place as "<title> copy". The
    engine's create path dedupes the filename ("X copy.md", "X copy 2.md", …),
    so re-duplicating never overwrites. Body and props ride along; the
    engine-owned props (`type`/`title`/`created`, folded) do not: `created`
@@ -51,7 +51,7 @@ export async function duplicateNote(note: NoteMeta): Promise<NoteMeta> {
   return m;
 }
 
-/* SUB-257 — one canonical note action set. The row-menu (App's ContextMenu),
+/* One canonical note action set. The row-menu (App's ContextMenu),
    the open note's DotsMenu and the palette's actions stage all render from
    these descriptors: same labels, same order, same icons, one destructive
    lane at the bottom. A surface passes only the handlers it can wire; the
@@ -95,10 +95,10 @@ export interface NoteActionHandlers {
   reveal?: () => void;
   exportMarkdown?: () => void;
   exportPdf?: () => void;
-  /** SUB-816: the designed one-sheet layout (hero artwork + facts + body),
+  /** The designed one-sheet layout (hero artwork + facts + body),
       next to the generic PDF dump */
   exportOneSheet?: () => void;
-  /** SUB-833: encrypt the rendered note client-side and park it on the
+  /** Encrypt the rendered note client-side and park it on the
       relay as a one-shot/expiring link */
   sendAsLink?: () => void;
   /** Whole-file at-rest encryption. Only the actions the current sealed
@@ -111,14 +111,14 @@ export interface NoteActionHandlers {
       palette, note pane — can reintroduce a leak by forgetting a ternary.
       Applies while unlocked too: "Remove seal" is the one deliberate lane
       that writes sealed content back out as plaintext.
-      REQUIRED (SUB-935): optional made "I forgot to pass it" and "this note is
+      REQUIRED: optional made "I forgot to pass it" and "this note is
       not sealed" the same value, and the gate below fails open on it. */
   sealed: boolean;
-  /** the open note's per-note calendar opt-out (SUB-175); calendarHidden
+  /** the open note's per-note calendar opt-out; calendarHidden
       flips the label */
   toggleCalendar?: () => void;
   calendarHidden?: boolean;
-  /** SUB-410: put the note in (or take it out of) the sidebar's Pinned
+  /** Put the note in (or take it out of) the sidebar's Pinned
       section; `pinned` flips the label. Never touches the note itself. */
   togglePin?: () => void;
   pinned?: boolean;
@@ -170,7 +170,7 @@ export function buildNoteActions(h: NoteActionHandlers): NoteAction[] {
       run: h.togglePin,
     });
   // the destructive lane: always last, always separated, always carrying the
-  // "recoverable" hint (SUB-143's convention — trash restores via the Trash)
+  // "recoverable" hint (the convention — trash restores via the Trash)
   if (h.trash)
     out.push({
       id: "trash",

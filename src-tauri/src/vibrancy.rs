@@ -1,4 +1,4 @@
-/*! Desktop-through-the-window vibrancy (SUB-951, macOS only).
+/*! Desktop-through-the-window vibrancy (macOS only).
 
 The blur is the OS material's — an `NSVisualEffectView` behind our content —
 never a CSS `backdrop-filter`, which would blur the notes themselves. AppKit

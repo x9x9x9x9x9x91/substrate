@@ -26,7 +26,7 @@ test("no match scores -1", () => {
 });
 
 /**
- * SUB-1016: the streak bonus asked whether the target char before this match
+ * The streak bonus asked whether the target char before this match
  * appears ANYWHERE in the query, which is true by accident whenever a query
  * letter repeats in the target — so matches pages apart collected a
  * contiguity bonus. It must key off adjacency to the previous match instead.
@@ -51,7 +51,7 @@ test("a genuinely contiguous run still pays (SUB-1016)", () => {
 });
 
 /**
- * SUB-1016: the subsequence branch charges 0.2 per character of position, so a
+ * The subsequence branch charges 0.2 per character of position, so a
  * real match late in a long label sums negative. It stays a match — callers
  * drop candidates on the sentinel alone, never on sign.
  */

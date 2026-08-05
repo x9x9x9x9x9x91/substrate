@@ -11,7 +11,7 @@ export interface Snapshot {
 }
 
 /** Snapshot timestamps are LOCAL wall-clock whether the row carries a time or
-    not (SUB-233): parsed from explicit components like dates.ts does, because
+    not: parsed from explicit components like dates.ts does, because
     `new Date("YYYY-MM-DD")` reads a bare date as UTC while a datetime reads
     local — mixing the two skews intervals by the TZ offset and can invert
     the sort. */
@@ -58,7 +58,7 @@ export interface YieldStats {
 const MIN_PER_YEAR = 365 * 24 * 60;
 
 export function parseSnapshotsFromBody(body: string): { snapshots: Snapshot[]; fence: { from: number; to: number } | null } {
-  /** The shared quote-aware finder (SUB-277): the old lazy regex missed CRLF
+  /** The shared quote-aware finder: the old lazy regex missed CRLF
       fences entirely and ended the fence early on a ``` inside a quoted cell,
       which made fence.to point into row data and corrupted appends. */
   const csv = findFence(body, "csv");
@@ -84,7 +84,7 @@ export function fmtAt(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-/** Snapshot timestamp for display (SUB-250): the date shaped like note chips
+/** Snapshot timestamp for display: the date shaped like note chips
     (dates.ts formatDateHuman, "Jul 17, 2026"); when the raw carries a clock
     time the year is dropped and the time appended — "2026-07-17 14:18" →
     "Jul 17, 14:18". Non-ISO raws pass through untouched. */
@@ -105,14 +105,14 @@ export function appendSnapshotToBody(body: string, s: { atRaw: string; yieldUsd:
   }
   const inner = body.slice(fence.from, fence.to);
   // the closing fence may hug the last row (no trailing newline) — splice the
-  // new row in either way instead of silently no-opping (SUB-231)
+  // new row in either way instead of silently no-opping
   const updated = inner.endsWith("\n```")
     ? inner.replace(/\n```$/, `\n${row}\n\`\`\``)
     : inner.replace(/```$/, `\n${row}\n\`\`\``);
   return body.slice(0, fence.from) + updated + body.slice(fence.to);
 }
 
-/** Cumulative claimed yield (SUB-318): claiming at the venue resets its
+/** Cumulative claimed yield: claiming at the venue resets its
     displayed balance, but the snapshot series must not reset — csv rows stay
     cumulative (claimed + live venue balance) so interval/APR math never sees
     the withdrawal. The running claimed total lives on the note as a
@@ -206,11 +206,11 @@ export interface FxRate {
   live: boolean;
 }
 
-/* The live FX read moved to the engine (SUB-667): the shipped CSP allows no
+/* The live FX read moved to the engine: the shipped CSP allows no
    remote origin, so the browser fetch that used to live here was blocked in
    the packaged app. It is now `fxUsdEur` in lib/ipc.ts, called from useFx. */
 
-/** Money on dashboards (SUB-245): the app's de-DE dialect (SUB-196) —
+/** Money on dashboards: the app's de-DE dialect —
     German grouping ("1.234,56") with the symbol trailing after a space,
     same as euro cells render. */
 export function fmtMoney(n: number | null, currency: "€" | "$", digits = 0): string {
@@ -222,7 +222,7 @@ export function fmtMoney(n: number | null, currency: "€" | "$", digits = 0): s
   );
 }
 
-/** FX rate wherever it's quoted (SUB-282): de-DE like fmtMoney, always
+/** FX rate wherever it's quoted: de-DE like fmtMoney, always
     4 decimals ("0,8642") — a quote, not money, so no symbol attached. */
 export function fmtFx(rate: number): string {
   return rate.toLocaleString(numberLocale(), { minimumFractionDigits: 4, maximumFractionDigits: 4 });
@@ -239,7 +239,7 @@ export function sharpCardIndices(cards: { emph?: boolean }[]): Set<number> {
   return new Set(flagged.slice(0, 2));
 }
 
-/** Column count for a metrics board's card strip (SUB-625). One row of N
+/** Column count for a metrics board's card strip. One row of N
     tiles pinned to the top of a wide pane reads as a ticker, not a board:
     seven cards at 1900px occupied the top ~15% and left the rest empty. The
     strip becomes a block instead — at most four columns, and the count is
@@ -256,7 +256,7 @@ export function metricsColumns(count: number): number {
   return 4;
 }
 
-/** Tracking window as humane units (SUB-327): "42 min", "5 h 20 min",
+/** Tracking window as humane units: "42 min", "5 h 20 min",
     "4 d 11 h" — two largest units, zero remainders dropped. */
 export function fmtWindow(minutes: number): string {
   const m = Math.round(minutes);

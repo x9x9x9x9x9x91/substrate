@@ -1,9 +1,9 @@
 //! The filesystem watchers: the vault-root watcher behind `vault:changed`, and
 //! the folder-backed-database watcher behind `folders.json`'s `watch` opt-in.
 //!
-//! Split out of `vault.rs` (SUB-692). Both watchers share the same shape — a
+//! Split out of `vault.rs`. Both watchers share the same shape — a
 //! debounce loop over `notify` events with a degraded-mode timed rescan when
-//! the watcher can't be built (SUB-157) — and neither touches `Engine`: they
+//! the watcher can't be built — and neither touches `Engine`: they
 //! signal, and the caller runs `Engine::rescan` / `Engine::sync_folders`.
 
 use super::mounts::resolve_mount_path;
@@ -24,14 +24,14 @@ pub(super) fn watch_relevant(root: &Path, p: &Path) -> bool {
         return true;
     }
     if rel.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.')) {
-        // the one dot-path exception: live-editable config files (SUB-100).
+        // the one dot-path exception: live-editable config files.
         // .git, .assets, .vault/templates/… and friends stay invisible
         return config_path(root, p);
     }
     match p.extension() {
         // existing non-md files are noise; dirs and vanished paths matter.
         // .MD counts as markdown too — a case-insensitive filesystem hands
-        // the extension through in whatever case the user typed (SUB-225)
+        // the extension through in whatever case the user typed
         Some(ext) => ext.eq_ignore_ascii_case("md") || !p.is_file(),
         None => true,
     }
@@ -40,12 +40,12 @@ pub(super) fn watch_relevant(root: &Path, p: &Path) -> bool {
 /// The live-editable config files —
 /// `.vault/{schema,views,folders,calendars,tagfolders,mounts,reflexes}.json`.
 /// The watcher surfaces exactly these dot-paths so external edits apply
-/// without a restart (SUB-100); lib.rs routes them to a separate
+/// without a restart; lib.rs routes them to a separate
 /// `vault:config-changed` signal instead of the note-refetch `vault:changed`.
 ///
 /// `.vault/reflexes-log.json` is deliberately NOT here: the reflex receipts
 /// file is app-owned, and a watched log would make every fire re-enter the
-/// watcher that produced it (SUB-826).
+/// watcher that produced it.
 pub fn config_path(root: &Path, p: &Path) -> bool {
     let rel = p.strip_prefix(root).unwrap_or(p);
     rel == Path::new(SCHEMA_REL_PATH)
@@ -57,7 +57,7 @@ pub fn config_path(root: &Path, p: &Path) -> bool {
         || rel == Path::new(crate::reflexes::CONFIG_REL_PATH)
 }
 
-/// Cadence of the degraded-mode fallback (SUB-157): when the watcher can't
+/// Cadence of the degraded-mode fallback: when the watcher can't
 /// be built or the vault root can't be watched, `watch`/`watch_folders`
 /// keep the vault fresh by firing a full rescan on this interval and
 /// retrying the watcher every cycle, instead of leaving external edits
@@ -68,7 +68,7 @@ const DEGRADED_RESCAN_INTERVAL: Duration = Duration::from_secs(45);
 /// Live watcher for the vault root: batches debounced change paths over
 /// `on_change` (`Rescan` when the backend lost events). If the watcher
 /// can't be built or the root can't be watched, reports once over
-/// `on_error` and drops into degraded mode (SUB-157): a full `Rescan`
+/// `on_error` and drops into degraded mode: a full `Rescan`
 /// every `DEGRADED_RESCAN_INTERVAL` with a watcher retry each cycle — the
 /// first successful retry fires one catch-up `Rescan` and takes over as
 /// the live watcher.
@@ -77,7 +77,7 @@ where
     F: Fn(WatchBatch) + Send + 'static,
     E: Fn(String) + Send + 'static,
 {
-    // SUB-953: on iOS notify's recommended backend is kqueue, which holds one
+    // On iOS notify's recommended backend is kqueue, which holds one
     // open fd per watched file. A real vault (thousands of notes) blows the
     // ~256-fd process cap the moment a sync checkout populates it, starving
     // every later `open` in the app (first-device sync died staging its
@@ -92,7 +92,7 @@ where
 }
 
 /// `watch` with the degraded-mode cadence as a parameter — tests inject
-/// milliseconds so the retry/promote path is exercisable (SUB-157).
+/// milliseconds so the retry/promote path is exercisable.
 fn watch_with_interval<F, E>(
     root: PathBuf,
     on_change: F,
@@ -103,7 +103,7 @@ fn watch_with_interval<F, E>(
     F: Fn(WatchBatch) + Send + 'static,
     E: Fn(String) + Send + 'static,
 {
-    // Poll-only mode (SUB-953): never arm the notify backend — arming walks
+    // Poll-only mode: never arm the notify backend — arming walks
     // the whole tree opening an fd per file on kqueue targets, so even a
     // failed retry churns the fd budget. Not routed through `on_error`:
     // polling here is the designed mode, not a degradation.
@@ -124,7 +124,7 @@ fn watch_with_interval<F, E>(
     }
 
     /// Watcher construction plus the root watch as one retryable unit —
-    /// degraded mode retries both (SUB-157).
+    /// degraded mode retries both.
     fn arm(
         root: &Path,
         tx: &std::sync::mpsc::Sender<Msg>,
@@ -236,7 +236,7 @@ fn watchable_root(vault_root: &Path, path: &Path) -> Option<PathBuf> {
 
 /// Every folder to watch and the globs that filter its events: the mappings
 /// of `.vault/folders.json` plus the mounts of `.vault/mounts.json` that
-/// opted in AND are bound to a path on this machine (SUB-888). Mount
+/// opted in AND are bound to a path on this machine. Mount
 /// bindings are machine-local, so the caller supplies them.
 fn watch_targets(
     vault_root: &Path,
@@ -267,7 +267,7 @@ fn watch_targets(
 /// pass at the next app start).
 ///
 /// Per-folder watch failures are collected as (folder, error) pairs and
-/// returned so the caller can route them to `on_error` (SUB-157) — a
+/// returned so the caller can route them to `on_error` — a
 /// folder that exists but can't be watched must surface, not vanish into
 /// `.ok()`. A failed folder still lands in `watched`, so it reports once
 /// instead of re-firing on every refresh. Unwatch failures stay ignored:
@@ -298,7 +298,7 @@ fn refresh_folder_watches(
 }
 
 /// Route per-folder watch failures through the same reporting channel as
-/// watcher-level failures (SUB-157): one `on_error` per folder, formatted
+/// watcher-level failures: one `on_error` per folder, formatted
 /// `watch <path>: <err>`.
 fn report_folder_watch_failures<E: Fn(String)>(failures: Vec<(PathBuf, String)>, on_error: &E) {
     for (path, err) in failures {
@@ -306,7 +306,7 @@ fn report_folder_watch_failures<E: Fn(String)>(failures: Vec<(PathBuf, String)>,
     }
 }
 
-/// Degraded-mode poll for the folder watcher (SUB-157): construction
+/// Degraded-mode poll for the folder watcher: construction
 /// failed, so reconciliation runs on a timer instead of events. Every cycle
 /// retries construction and — while still down — fires `on_change` only
 /// when at least one mapping currently opts in (`watch: true`); the
@@ -363,8 +363,8 @@ fn folder_watch_relevant(watched: &[(PathBuf, Vec<String>)], p: &Path) -> bool {
 /// watcher; a quiet-after-burst fires `on_change`, and the caller runs
 /// `Engine::sync_folders` — the manual rescan path, strictly read-only on
 /// the watched folders. Per-folder watch failures report through `on_error`
-/// as `watch <path>: <err>` (SUB-157). Watcher-construction failure fires
-/// `on_error` once and drops into degraded mode (SUB-157): a timed
+/// as `watch <path>: <err>`. Watcher-construction failure fires
+/// `on_error` once and drops into degraded mode: a timed
 /// `on_change` poll on the vault watcher's cadence, gated on at least one
 /// mapping opting in (re-checked every cycle), with a construction retry
 /// each cycle — the first success promotes back to the event loop.
@@ -378,7 +378,7 @@ fn folder_watch_relevant(watched: &[(PathBuf, Vec<String>)], p: &Path) -> bool {
 /// launch when at least one folder is watched, covering changes made while
 /// the app was closed.
 ///
-/// `bindings` reads this machine's mount id → path map (SUB-888); it is a
+/// `bindings` reads this machine's mount id → path map; it is a
 /// closure rather than a snapshot because the map lives outside the vault
 /// (`appcfg`) and changes when the user binds a mount while the app runs.
 pub fn watch_folders<F, E, B>(vault_root: PathBuf, bindings: B, on_change: F, on_error: E)
@@ -391,7 +391,7 @@ where
 }
 
 /// `watch_folders` with the degraded-mode cadence as a parameter — tests
-/// inject milliseconds so the retry/promote path is exercisable (SUB-157).
+/// inject milliseconds so the retry/promote path is exercisable.
 fn watch_folders_with_interval<F, E, B>(
     vault_root: PathBuf,
     bindings: B,
@@ -409,7 +409,7 @@ fn watch_folders_with_interval<F, E, B>(
         Changed,
     }
 
-    /// Construction as a retryable unit for degraded mode (SUB-157).
+    /// Construction as a retryable unit for degraded mode.
     fn build(tx: &std::sync::mpsc::Sender<Msg>) -> Result<notify::RecommendedWatcher, String> {
         let tx = tx.clone();
         notify::recommended_watcher(move |res: notify::Result<notify::Event>| match res {
@@ -448,7 +448,7 @@ fn watch_folders_with_interval<F, E, B>(
     // the `.vault`/sentinel pair stays best-effort `.ok()`: losing
     // config-edit tracking only means mapping edits wait for the next burst
     // or restart — per-folder watch failures are the ones worth reporting
-    // (SUB-157)
+    //
     let mut cfg_watched = watcher.watch(&dot_vault, RecursiveMode::NonRecursive).is_ok();
     if !cfg_watched {
         // no `.vault` yet → no mappings either; the sentinel sees it appear
@@ -514,7 +514,7 @@ mod tests {
 
     #[test]
     fn watcher_surfaces_vault_config_json_only() {
-        // SUB-100/SUB-821/SUB-888: exactly the live-editable config files pass the dot-path
+        // Exactly the live-editable config files pass the dot-path
         // rejection — app-internal state, .git and deeper .vault subtrees
         // stay invisible to the watcher.
         let (_e, dir) = temp_vault("cfgwatch");
@@ -532,13 +532,13 @@ mod tests {
         }
         assert!(!watch_relevant(&dir, &dir.join(".vault/notifications.json")));
         // the receipt log is app-owned and deliberately unwatched, or every
-        // reflex that fires would wake the watcher that fired it (SUB-826)
+        // reflex that fires would wake the watcher that fired it
         assert!(!watch_relevant(&dir, &dir.join(".vault/reflexes-log.json")));
         assert!(!watch_relevant(&dir, &dir.join(".git/config")));
         assert!(!watch_relevant(&dir, &dir.join(".vault/templates/event.md")));
         assert!(!watch_relevant(&dir, &dir.join(".vault/nested/schema.json")));
         // the per-mount index is app-owned, written by our own scans — a
-        // watcher signal on it would only chase our own tail (SUB-888)
+        // watcher signal on it would only chase our own tail
         assert!(!watch_relevant(&dir, &dir.join(".vault/mounts/abc.json")));
         let _ = fs::remove_dir_all(&dir);
     }
@@ -561,8 +561,8 @@ mod tests {
             )
         });
         // keep touching the file until an event lands: a fixed arm-delay
-        // flakes when the watcher thread starts late on a loaded machine
-        // (SUB-406) — a missed first write then has nothing left to observe
+        // flakes when the watcher thread starts late on a loaded machine —
+        // a missed first write then has nothing left to observe
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         loop {
             fs::write(dir.join("ping.md"), format!("hello {:?}", std::time::Instant::now()))
@@ -615,7 +615,7 @@ mod tests {
 
     #[test]
     fn watch_targets_covers_mappings_and_bound_mounts() {
-        // SUB-888: mounts join folder mappings in the watch set, but only
+        // Mounts join folder mappings in the watch set, but only
         // when they opted in AND this machine has bound them to a folder —
         // an unbound mount has nothing to watch.
         let (mut e, dir) = temp_vault("wtargets");
@@ -704,7 +704,7 @@ mod tests {
         });
         // The launch pass fires only after the watched mapping is armed. Give
         // loaded gate hosts the same 30s budget as the retrying watcher tests
-        // instead of treating scheduler delay as a watcher failure (SUB-892).
+        // instead of treating scheduler delay as a watcher failure.
         rx.recv_timeout(Duration::from_secs(30)).expect("no launch-pass fire within 30s");
         let mut expected = tree_snapshot(&watched);
         fs::write(watched.join("invoice.pdf"), b"%PDF one").unwrap();
@@ -747,7 +747,7 @@ mod tests {
         std::thread::sleep(Duration::from_millis(800)); // let the watcher arm
                                                         // flipping watch on re-drives the watch set — the edit itself fires.
                                                         // Re-write until the event lands: a fixed arm-delay flakes when the
-                                                        // watcher thread starts late on a loaded machine (SUB-406)
+                                                        // watcher thread starts late on a loaded machine
         let deadline = std::time::Instant::now() + Duration::from_secs(30);
         loop {
             write_folders_json(
@@ -777,7 +777,7 @@ mod tests {
 
     #[test]
     fn watcher_poll_only_never_arms_live_events() {
-        // SUB-953: in poll-only mode (iOS) the watcher must deliver periodic
+        // In poll-only mode (iOS) the watcher must deliver periodic
         // `Rescan`s and nothing else — a perfectly watchable root with a
         // fresh write would produce a `Paths` batch if a live backend were
         // armed, and arming is exactly what poll-only mode exists to avoid
@@ -813,7 +813,7 @@ mod tests {
 
     #[test]
     fn watcher_degraded_rescans_then_promotes() {
-        // SUB-157: an unwatchable root (it sits under a regular FILE, so
+        // An unwatchable root (it sits under a regular FILE, so
         // path canonicalization fails on every notify backend) reports
         // through on_error and drops into the degraded poll loop instead of
         // returning — periodic `Rescan` fires stand in for live events.
@@ -859,7 +859,7 @@ mod tests {
         // heal the filesystem: the loop's next retry arms a live watcher.
         // Keep re-writing ping.md — a single write can land in the gap
         // between the degraded loop stopping and the live watcher arming,
-        // which then has nothing left to observe (SUB-406 under load)
+        // which then has nothing left to observe (under load)
         fs::remove_file(&file).unwrap();
         fs::create_dir_all(&root).unwrap();
         std::thread::sleep(Duration::from_millis(500)); // let a retry promote
@@ -890,7 +890,7 @@ mod tests {
 
     #[test]
     fn folder_watcher_degraded_loop_polls_opted_in_mappings() {
-        // SUB-157: construction failure can't be forced through the
+        // Construction failure can't be forced through the
         // filesystem (the builder never touches it), so the degraded loop
         // is exercised at its seam with a fault-injecting builder — the
         // same loop code the production path runs. A cycle fires on_change
@@ -957,7 +957,7 @@ mod tests {
 
     #[test]
     fn folder_watch_failures_reach_on_error() {
-        // SUB-157: per-folder watch failures collected by
+        // Per-folder watch failures collected by
         // `refresh_folder_watches` report as `watch <path>: <err>`. A dir
         // that passes `folder_watch_root` is watchable on every common
         // backend (chmod tricks are root- and platform-dependent), so the
@@ -996,11 +996,11 @@ mod tests {
         let _ = fs::remove_dir_all(&watched_dir);
     }
 
-    // ---- format versions (SUB-433) ----
+    // ---- format versions ----
 
     #[test]
     fn uppercase_md_files_are_indexed_and_watched() {
-        // SUB-225: Note.MD is a note — picked up by the boot walk, the
+        // Note.MD is a note — picked up by the boot walk, the
         // watcher's relevance filter, and watcher-driven reindexing
         let (mut e, dir) = temp_vault("uppermd");
         fs::write(dir.join("Shout.MD"), "loud note\n").unwrap();

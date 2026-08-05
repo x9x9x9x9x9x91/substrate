@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Yield board write failures (SUB-542) against the mock backend's failure hook
-// (window.__mockFail, SUB-156). Every board mutation renders optimistically
+// Yield board write failures against the mock backend's failure hook
+// (window.__mockFail). Every board mutation renders optimistically
 // before its write resolves, and the writes used to be fired with a bare
 // `.then(onMutated)` — a rejection was unhandled, so a refused write left the
 // phantom snapshot on screen reading exactly like a saved one, and the next
@@ -60,7 +60,7 @@ test("a refused claim surfaces and the Accrued metric keeps disk truth", async (
     window.__mockFail = new Set(["vault_set_prop"]);
   });
 
-  // two-click claim (SUB-322)
+  // two-click claim
   await page.locator(".dash-claim").click();
   await page.locator(".dash-claim").click();
 

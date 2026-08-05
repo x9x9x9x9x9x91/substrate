@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { openDb, openFilter } from "./nav";
 
-// SUB-467: assignable keybinds. The ? sheet's "Assign keys…" button opens a
+// Assignable keybinds. The ? sheet's "Assign keys…" button opens a
 // floating HUD of free key chips; dragging a chip onto a sidebar destination
 // binds it, dragging it back to the HUD clears it, and the key then navigates.
 //
@@ -31,8 +31,9 @@ async function dragChip(page: Page, chip: Locator, target: Locator): Promise<voi
     saved views, so nothing is shadowed and the open grid starts at the top). */
 const freeChip = (page: Page) => page.locator(".key-hud-grid .key-chip").first();
 
-/** Pin one filtered view on Release (the SUB-18 flow), so digits 5–9 have a pin
-    behind them and the SUB-485 shadow warning has something to warn about. */
+/** Pin one filtered view on Release (filter the table, then Save view… from
+    the view menu), so digits 5–9 have a pin behind them and the warning that
+    fires when a pin shadows a chip has something to warn about. */
 async function savePin(page: Page, name: string): Promise<void> {
   await openDb(page, "Release");
   await (await openFilter(page)).fill("status:live ");
@@ -185,8 +186,8 @@ test("a dashboard row takes a key alongside its reorder drag", async ({ page }) 
 // The engine keeps the stored TARGETS truthful — a key bound to something
 // renamed follows it, a key bound to something deleted is freed. The mock
 // backend mirrors those hooks, so the browser sees the same behaviour the Rust
-// tests pin. `Tasks` is the mock vault's home-folder database row (SUB-85) —
-// SUB-611: it wears the FOLDER name with a DB chip and carries a `db:` target.
+// tests pin. `Tasks` is the mock vault's home-folder database row —
+// It wears the FOLDER name with a DB chip and carries a `db:` target.
 test("a key on a database row follows the rename and dies with the delete", async ({ page }) => {
   await openHud(page);
   const taskRow = page.locator(".side-folder", {
@@ -196,7 +197,7 @@ test("a key on a database row follows the rename and dies with the delete", asyn
   await expect(taskRow.locator(".side-key-chip")).toHaveText("⌘5");
   await page.keyboard.press("Escape");
 
-  // rename the database: the row keeps its FOLDER name (SUB-611) and the
+  // rename the database: the row keeps its FOLDER name and the
   // key — the db: target underneath follows the rename
   await page.locator(".side-item", { hasText: "All databases" }).click();
   await page.locator(".dbmgr-row", { hasText: "Task" }).locator(".dbmgr-menu").click();
@@ -237,7 +238,7 @@ test("assigned keys show up in the cheat sheet's Your keys section", async ({ pa
   await page.keyboard.press("Escape");
 });
 
-// SUB-485: with pins live, digits 5–9 are already spoken for. The HUD used to
+// With pins live, digits 5–9 are already spoken for. The HUD used to
 // offer them as unclaimed and the sheet listed the whole ⌘5…⌘9 run regardless,
 // so a drop silently retired a working pin shortcut with nothing said.
 test("the HUD lists pin-shadowing keys apart, still draggable", async ({ page }) => {
@@ -252,7 +253,7 @@ test("the HUD lists pin-shadowing keys apart, still draggable", async ({ page })
   // ⌘5 and ⌃5 both sit on the first pin — `mod` in view-pins' combo means ⌘ OR ⌃
   const shadowed = page.locator(".key-chip-shadow");
   await expect(shadowed).toHaveText(["⌘5", "⌃5"]);
-  // SUB-677: each shadowing chip names the pin it would displace
+  // Each shadowing chip names the pin it would displace
   await expect(page.locator(".key-hud-row-label")).toHaveText(["Live releases", "Live releases"]);
   await expect(page.locator(".key-hud-hint", { hasText: "replaces its pin shortcut" })).toBeVisible();
   // ⌘6 has no second pin behind it, so it stays an ordinary free chip

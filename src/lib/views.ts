@@ -9,7 +9,7 @@ function isUnfiled(folder: string): boolean {
   return folder === "" || folder === "Inbox" || folder.startsWith("Inbox/");
 }
 
-/** The Notes inbox predicate (SUB-70, tightened SUB-390): a scratch note is
+/** The Notes inbox predicate (tightened): a scratch note is
     untyped AND unfiled — no `type:` prop, and living at the vault root or in
     `Inbox/`. Typed notes live in their databases; untyped notes filed into a
     folder (Journal dailies, Life/, …) belong to that folder's view. Giving a
@@ -28,7 +28,7 @@ export function scratchNotes(notes: NoteMeta[]): NoteMeta[] {
   return notes.filter(isScratchNote).sort((a, b) => b.updated_ms - a.updated_ms);
 }
 
-/** SUB-264: a ⌘N-created scratch note that was never touched — default
+/** A ⌘N-created scratch note that was never touched — default
     "Untitled" stem (dedupe suffix included), empty body, and only the
     engine's create-time `created` prop. These abandon themselves on leave
     instead of persisting as empty litter. The name is read from the path
@@ -44,16 +44,16 @@ export function isPristineScratch(
   return Object.keys(props).every((k) => k === "created");
 }
 
-/** One collapsed database's summary in a folder / All notes list (SUB-87). */
+/** One collapsed database's summary in a folder / All notes list. */
 export interface DbBlock {
   type: string;
   count: number;
 }
 
-/** Strict database membership (SUB-87): a note whose `type` prop is one of
+/** Strict database membership: a note whose `type` prop is one of
     the given database types leaves the loose row list and collapses into the
     database's block; untyped notes and types outside the set stay loose. The
-    caller passes the used-types set (SUB-152) so this list and the sidebar's
+    caller passes the used-types set so this list and the sidebar's
     databases agree on what counts as a database. Blocks sort by count desc,
     then type name — the sidebar's order. */
 export function partitionDbEntries(
@@ -78,16 +78,16 @@ export function partitionDbEntries(
   return { loose, blocks };
 }
 
-/** Apply a filter-bar query to a database's notes (SUB-18). The query is the
-    SUB-7 operator language: `status:live` filters by prop, `due < 7d` compares
-    a date prop against today (SUB-66), bare words match the note title
+/** Apply a filter-bar query to a database's notes. The query is the operator
+    language: `status:live` filters by prop, `due < 7d` compares
+    a date prop against today, bare words match the note title
     (case-insensitive substring, every word must hit), and a quoted phrase is
     an exact substring against the searchable text — title, body excerpt, and
-    prop values (SUB-219), the haystack the search pane gives quoted phrases.
+    prop values, the haystack the search pane gives quoted phrases.
     A half-typed trailing operator already narrows, like in the search pane.
     `today` pins the date comparisons' reference day — callers with their own
-    day pass it through. `schema` gives number-kind columns numeric identity
-    (SUB-639): `price:1200` matches a cell written 1200.0 and `price > 500`
+    day pass it through. `schema` gives number-kind columns numeric identity:
+    `price:1200` matches a cell written 1200.0 and `price > 500`
     compares by value; without it every key keeps the classic text
     semantics. */
 export function filterByQuery(
@@ -100,7 +100,7 @@ export function filterByQuery(
   if (!q) return notes;
   const parsed = parseQuery(query, today, schema);
   // a half-typed trailing operator already narrows; for a multi-value stub
-  // the comma-committed segments narrow too (SUB-78)
+  // the comma-committed segments narrow too
   const t = parsed.trailing;
   const filters =
     t && (t.partial || t.values.length > 0)
@@ -135,11 +135,11 @@ export function findViewByName(
   );
 }
 
-/** Pins in sidebar order (SUB-67): pins nest under their database, databases
+/** Pins in sidebar order: pins nest under their database, databases
     in sidebar order, array order within each database — the exact sequence
-    ⌘5…⌘9 follows. Where a pin RENDERS splits on its database's home (SUB-391):
+    ⌘5…⌘9 follows. Where a pin RENDERS splits on its database's home:
     a homeless database's pins are sidebar rows, a homed database's pins are
-    DatabasePane view tabs — which carry the pin's ⌘-digit (SUB-677). Pins
+    DatabasePane view tabs — which carry the pin's ⌘-digit. Pins
     whose database isn't listed (e.g. no notes left) render nowhere and get
     no shortcut either. */
 export function pinsInSidebarOrder(views: SavedView[], dbOrder: string[]): SavedView[] {

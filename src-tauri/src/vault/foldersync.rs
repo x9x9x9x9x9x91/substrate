@@ -1,7 +1,7 @@
 //! Folder-backed databases: the `.vault/folders.json` mappings and the scan
 //! that turns files in a watched folder into stub notes.
 //!
-//! Split out of `vault.rs` (SUB-692). The sync is strictly READ-ONLY on the
+//! Split out of `vault.rs`. The sync is strictly READ-ONLY on the
 //! mapped folder — files are only ever stat'd; the notes are the metadata
 //! layer written next to them in the vault.
 
@@ -25,7 +25,7 @@ pub struct FolderMapping {
     #[serde(default, skip_serializing_if = "is_false")]
     pub watch: bool,
     /// Keys a newer Substrate wrote that this build doesn't understand. Kept
-    /// so a read→write cycle here doesn't strip them (SUB-433).
+    /// so a read→write cycle here doesn't strip them.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -83,7 +83,7 @@ pub(super) const SYNC_PROPS: [&str; 7] =
 /// The key a sync-owned prop must be written under: the spelling already in
 /// the note wins (so `Modified:` is refreshed in place rather than gaining a
 /// lowercase twin), and a prop the note doesn't carry yet is created in the
-/// canonical lowercase form (SUB-925). Pairs with `folded_prop_str` on the
+/// canonical lowercase form. Pairs with `folded_prop_str` on the
 /// read side — every folded read here has a matching folded write.
 pub(super) fn folded_write_key(
     props: &serde_json::Map<String, serde_json::Value>,
@@ -103,7 +103,7 @@ pub(super) fn read_folder_mappings(root: &Path) -> Vec<FolderMapping> {
 /// The write half of `read_folder_mappings`: mappings back to
 /// `.vault/folders.json` as pretty JSON in the same field shape it reads.
 pub(super) fn write_folder_mappings(root: &Path, mappings: &[FolderMapping]) -> Result<(), String> {
-    // refuse to rewrite a file a newer app wrote (SUB-433)
+    // refuse to rewrite a file a newer app wrote
     crate::vaultfmt::prepare_write(root, crate::vaultfmt::VaultFile::Folders)?;
     let abs = root.join(FOLDERS_REL_PATH);
     if let Some(dir) = abs.parent() {
@@ -207,11 +207,11 @@ impl Engine {
                         || folded_prop_str(&note.props, "size").as_deref() != Some(size.as_str());
                     if flagged || stale {
                         // one write per file: stamp refresh and missing-flag
-                        // clear land in a single re-serialize (SUB-61). Each
+                        // clear land in a single re-serialize. Each
                         // one goes through the key the note actually spells,
                         // so a recased `Modified:`/`Size:` is refreshed rather
                         // than twinned, and a recased `Missing:` is really
-                        // removed instead of surviving every tick (SUB-925).
+                        // removed instead of surviving every tick.
                         match self.edit_props(rel, |p| {
                             let modified_key = folded_write_key(p, "modified");
                             p.insert(modified_key, serde_json::Value::String(modified.clone()));
@@ -225,8 +225,8 @@ impl Engine {
                             Ok(_) => {
                                 stats.updated += 1;
                             }
-                            // a write we could not make is not an update
-                            // (SUB-541): report it like the create branch
+                            // a write we could not make is not an update:
+                            // report it like the create branch
                             // below, first error wins
                             Err(e) => {
                                 stats.error.get_or_insert(format!("stamp for {rel}: {e}"));
@@ -241,7 +241,7 @@ impl Engine {
                         .unwrap_or_default();
                     // one write: the full frontmatter up front — sync-owned
                     // props plus schema-seeded empties — then one index pass,
-                    // instead of create + one set_prop per prop (SUB-61)
+                    // instead of create + one set_prop per prop
                     let mut props: Vec<(String, String)> =
                         Vec::with_capacity(3 + schema_empties.len());
                     props.push(("file".into(), contract_tilde(&file)));
@@ -275,8 +275,8 @@ impl Engine {
             }
             let Some(note) = self.notes.get(rel).cloned() else { continue };
             if folded_prop_str(&note.props, "missing").as_deref() != Some("true") {
-                // a note we could not flag is not flagged (SUB-541); the flag
-                // lands on the existing spelling of the key (SUB-925)
+                // a note we could not flag is not flagged; the flag
+                // lands on the existing spelling of the key
                 if let Err(e) = self.edit_props(rel, |p| {
                     let key = folded_write_key(p, "missing");
                     p.insert(key, serde_json::Value::String("true".into()));
@@ -565,7 +565,7 @@ mod tests {
     }
 
     /// Narrow companion to the test above: no missing flag in play, just a
-    /// changed file behind recased stamp keys (SUB-925).
+    /// changed file behind recased stamp keys.
     #[test]
     fn folder_sync_refreshes_recased_stamp_keys_in_place() {
         let (mut e, dir) = temp_vault("fsync-stamp-case");
@@ -621,7 +621,7 @@ mod tests {
     }
 
     /// The other half of the pair: flagging a vanished file lands on the
-    /// note's own spelling of `missing` (SUB-925).
+    /// note's own spelling of `missing`.
     #[test]
     fn folder_sync_flags_missing_on_the_recased_key() {
         let (mut e, dir) = temp_vault("fsync-missing-case");
@@ -747,9 +747,9 @@ mod tests {
 
     #[test]
     fn folder_sync_reports_a_write_it_could_not_make() {
-        // SUB-541: both write paths in the scan discarded their result with
+        // Both write paths in the scan discarded their result with
         // `.ok()` and counted the file anyway, so a note whose frontmatter the
-        // write lanes refuse (SUB-215) was reported "updated" — or silently
+        // write lanes refuse was reported "updated" — or silently
         // counted "missing" without the flag landing — on every scan forever.
         // The create branch in the same loop already sets stats.error; these
         // two now match it.
@@ -774,7 +774,7 @@ mod tests {
         // poison the stub's frontmatter the way an external editor would.
         // Duplicate top-level keys are the fault that matters here: reads stay
         // lenient (serde_yaml takes last-wins, so the note keeps its `file`
-        // prop and stays managed) while every write lane refuses (SUB-215).
+        // prop and stays managed) while every write lane refuses.
         let stub_abs = dir.join(&stub.path);
         let raw = fs::read_to_string(&stub_abs).unwrap();
         let poisoned = raw.replacen("---\n", "---\ntype: finance-doc\n", 1);

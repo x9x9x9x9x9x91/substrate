@@ -1,4 +1,4 @@
-//! Vault-resident custom dashboard kinds — the Rust half (SUB-959).
+//! Vault-resident custom dashboard kinds — the Rust half.
 //!
 //! A custom kind is renderer code that lives in the vault at
 //! `.vault/kinds/<id>/`, is enabled per vault per device, and then runs with
@@ -294,7 +294,7 @@ pub struct KindBundle {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub record: Option<KindEnableRecord>,
     /// What the hash covers, as names and sizes. Metadata only, and derived
-    /// from the same read the hash was taken over, so the review pane (SUB-961)
+    /// from the same read the hash was taken over, so the review pane
     /// says "3 files, 4.1 kB" about the bytes it is asking consent for rather
     /// than about a second, later look at the folder.
     pub files: Vec<KindFileMeta>,
@@ -454,7 +454,7 @@ pub fn list_bundles(vault_root: &Path, cfg_dir: &Path, ids: &[String]) -> Vec<Ki
 /// without the bundle; `enabledAt` is when, so a stale decision is visible.
 ///
 /// `trustUpdates` is the one standing permission in the whole arrangement, and
-/// it is off until someone turns it on per kind per vault (SUB-961): with it
+/// it is off until someone turns it on per kind per vault: with it
 /// set, a hash drift re-records consent at the new bytes instead of dropping to
 /// the review card. It exists for the loop the arc is FOR — an agent iterating
 /// on a kind the user already read and owns — and it is deliberately not a

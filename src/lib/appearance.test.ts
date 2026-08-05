@@ -117,7 +117,7 @@ test("glow 0 writes NO attribute and NO scalar — the default costs nothing", (
   assert.equal(root.props.has("--glow-bars"), false);
 });
 
-/* ————— the preview claim (SUB-1122) ————— */
+/* ————— the preview claim ————— */
 
 test("a preview holds the appearance until the note has caught up", () => {
   const root = fakeRoot();
@@ -200,7 +200,7 @@ test("a paint-free claim covers a dial outside the Appearance struct (SUB-1126)"
   assert.equal(root.dataset.glow, undefined);
 
   // release: the same seam as every other dial, so an abandoned drag still
-  // self-heals — the next read repaints the ground from the note (SUB-951)
+  // self-heals — the next read repaints the ground from the note
   reconcileAppearance(appearancePreviewSeq());
   assert.equal(appearancePreviewPending(), false);
 });
@@ -276,7 +276,7 @@ test("applyAppearance clamps what it is handed", () => {
   assert.equal(root.props.get("--tone-nudge"), String(NUDGE_MAX));
 });
 
-/* ————— the sky preset still IS the shipped SUB-932 family —————
+/* ————— the sky preset still IS the shipped family —————
 
    V1 was picked out of the round-2 contact sheet, so the default tone is not
    "close to" the shipped look, it is the shipped look. The tone table writes
@@ -297,10 +297,21 @@ function hslToHex(h: number, s: number, l: number): string {
   return `#${[f(0), f(8), f(4)].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 }
 
+/** The tail of `text` from `anchor` on. A bare `slice(indexOf(…))` fails open:
+    a renamed or deleted anchor gives -1, `slice(-1)` hands back the last
+    character of the file, and every assertion over that one character passes
+    vacuously — the tests would go green on a stylesheet that lost the block
+    they exist to guard. So the anchor is asserted before it is used. */
+function sliceFrom(text: string, anchor: string): string {
+  const at = text.indexOf(anchor);
+  assert.ok(at >= 0, `styles.css no longer contains “${anchor}”`);
+  return text.slice(at);
+}
+
 /** every `--tone-<slot>: hsl(calc((<hue> + …)) <s>% <l>%…)` in the sky block */
 function skySlots(): Map<string, string> {
   const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
-  const table = css.slice(css.indexOf("accent tone table (SUB-955)"));
+  const table = sliceFrom(css, "accent tone table");
   // the sky block is the first one and is the bare :root — stop at the first
   // tone-scoped block so a later preset can't be mistaken for sky
   const sky = table.slice(0, table.indexOf(':root[data-tone="'));
@@ -319,7 +330,7 @@ function skySlots(): Map<string, string> {
 test("the sky tone reproduces the shipped SUB-932 hexes exactly", () => {
   const slots = skySlots();
   const shipped: Record<string, string> = {
-    // screen family — the dark-ground values SUB-932 shipped
+    // screen family — the dark-ground values that shipped
     accent: "#6cc0ec",
     "accent-soft": "#6cc0ec",
     "accent-text": "#a5d8f0",
@@ -346,7 +357,7 @@ test("the sky tone reproduces the shipped SUB-932 hexes exactly", () => {
 
 test("every tone declares the full family on both grounds", () => {
   const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
-  const table = css.slice(css.indexOf("accent tone table (SUB-955)"));
+  const table = sliceFrom(css, "accent tone table");
   for (const tone of TONES) {
     const block =
       tone.id === "sky"
@@ -374,7 +385,7 @@ test("every tone declares the full family on both grounds", () => {
 
 test("series-5 is fixed across every preset and the full nudge range", () => {
   const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
-  const table = css.slice(css.indexOf("accent tone table (SUB-955)"));
+  const table = sliceFrom(css, "accent tone table");
   for (const tone of TONES) {
     const start = tone.id === "sky" ? 0 : table.indexOf(`:root[data-tone="${tone.id}"]`);
     const laterStarts = TONES.map((next) => table.indexOf(`:root[data-tone="${next.id}"]`))
@@ -403,7 +414,7 @@ test("the SUB-943 strong hairline reads only from the tone family", () => {
 
 /* ————— the family stays legible everywhere the dials can reach —————
 
-   The SUB-932 rule the tone table inherits: every ramp entry clears 3:1 as a
+   The rule the tone table inherits: every ramp entry clears 3:1 as a
    shape on BOTH grounds. The nudge rotates hue at fixed HSL lightness, which
    moves luminance, so the bound is only safe if it is checked against every
    slot of every preset at both ends — that sweep is what fixes NUDGE_MAX at
@@ -424,7 +435,7 @@ function contrast(a: string, b: string): number {
 
 test("no tone, at any nudge, drops a family colour below 3:1 on its ground", () => {
   const css = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
-  const table = css.slice(css.indexOf("accent tone table (SUB-955)"));
+  const table = sliceFrom(css, "accent tone table");
   const re =
     /--tone-(paper-)?([a-z0-9-]+):\s*hsl\(calc\(\(([\d.]+)\s*\+\s*var\(--tone-nudge\)\)\s*\*\s*1deg\)\s+([\d.]+)%\s+([\d.]+)%/g;
   let checked = 0;
@@ -492,7 +503,7 @@ test("no accent dial reaches the band ramp", () => {
     );
   }
   // and the tone table never declares one
-  const table = css.slice(css.indexOf("accent tone table (SUB-955)"));
+  const table = sliceFrom(css, "accent tone table");
   assert.doesNotMatch(table.slice(0, table.indexOf("\n@media print {")), /--tone-(?:paper-)?band-/);
 });
 

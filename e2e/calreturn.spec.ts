@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-521: opening a calendar entry hands the view to the note, so the pane
+// Opening a calendar entry hands the view to the note, so the pane
 // unmounts. Everything about "where I was reading" used to die with it —
 // coming back (⌫, or the sidebar) dumped you in the current month even if you
 // had been three weeks out in week layout. The layout is a preference and the

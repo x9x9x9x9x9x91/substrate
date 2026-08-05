@@ -2,7 +2,7 @@ import { isTauri } from "./tauri.ts";
 import { filePick, fileReadText } from "./ipc.ts";
 import { basename } from "./files.ts";
 
-/* Pick-a-CSV plumbing for the import flow (SUB-274). Kept apart from
+/* Pick-a-CSV plumbing for the import flow. Kept apart from
    csvimport.ts: this module pulls in Tauri IPC, which can't load under
    node --test, while the pure mapping there must. */
 

@@ -1,13 +1,13 @@
-//! The vault doctor: a read-only integrity report (SUB-432) over links,
+//! The vault doctor: a read-only integrity report over links,
 //! embeds, `.vault/*.json` references and prop values.
 //!
-//! Split out of `vault.rs` (SUB-692). Nothing here writes — the doctor
+//! Split out of `vault.rs`. Nothing here writes — the doctor
 //! reports what looks wrong and leaves the vault byte-identical; repair is a
 //! separate, explicit action.
 
 use super::*;
 
-/// What a doctor finding is about (SUB-432). Serialized in kebab-case so the
+/// What a doctor finding is about. Serialized in kebab-case so the
 /// JSON is readable by agents without a lookup table; the UI groups by it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -27,7 +27,7 @@ pub enum DoctorKind {
     /// falls back to empty (vault-format §6–§8b), which is what keeps a
     /// mangled sidecar from bricking the app — but silently, so the doctor
     /// is where "your tag folders are gone because the file is garbage"
-    /// gets said out loud (SUB-1025).
+    /// gets said out loud.
     CorruptConfig,
     /// A `.vault/*.json` entry pointing at a type or folder that no longer exists.
     StaleConfig,
@@ -35,11 +35,11 @@ pub enum DoctorKind {
     InvalidProp,
     /// A sealed note that is locked right now: its body is ciphertext, so the
     /// scan below could not check its links, embeds or view references. Said
-    /// out loud rather than reported as a clean note (SUB-889) — the assets
+    /// out loud rather than reported as a clean note — the assets
     /// sweep refuses outright for the same reason (assets.rs `assets_orphaned`).
     UnscannableSealedNote,
     /// Device unlock is not enrolled for THIS vault, though some vault on this
-    /// device has enrolled it (SUB-935). The Keychain item is keyed on the
+    /// device has enrolled it. The Keychain item is keyed on the
     /// vault's absolute path, so this is what a moved or copied folder looks
     /// like — and equally what a second vault kept alongside the first looks
     /// like. The finding says only the part that is certain: Touch ID will not
@@ -48,7 +48,7 @@ pub enum DoctorKind {
     /// app would otherwise never say why Touch ID stopped working.
     SealedDeviceKeyNotEnrolled,
     /// A reflex that won't run: an unloadable `reflexes.json`, a rule that
-    /// failed validation, or one the circuit breaker paused (SUB-826). Last in
+    /// failed validation, or one the circuit breaker paused. Last in
     /// the enum on purpose — the doctor sorts by kind, and these findings are
     /// appended by the caller (only it knows the process's reflex state).
     BrokenReflex,
@@ -78,7 +78,7 @@ pub struct DoctorFinding {
     pub detail: String,
 }
 
-/// A read-only integrity pass over the whole vault (SUB-432). Nothing here
+/// A read-only integrity pass over the whole vault. Nothing here
 /// ever writes: `doctor()` reads the in-memory index, the note files, and
 /// `.vault/*.json`, and returns findings. Repair is a separate slice.
 #[derive(Clone, Debug, Serialize)]
@@ -91,13 +91,13 @@ pub struct DoctorReport {
 }
 
 impl Engine {
-    /// Read-only integrity report over the whole vault (SUB-432): broken
+    /// Read-only integrity report over the whole vault: broken
     /// references, ambiguous link targets, stale `.vault/*.json` entries, and
     /// prop values that don't parse as their schema kind. **Nothing is ever
     /// repaired or written** — repair is a later slice, and the tests assert
     /// the vault is byte-identical afterwards.
     ///
-    /// `bindings` is this machine's mount id → path map (SUB-888). It has to
+    /// `bindings` is this machine's mount id → path map. It has to
     /// come from the caller because it lives outside the vault, in the app
     /// config: the same vault is healthy on one machine and unbound on
     /// another, and only the caller knows which machine it is on.
@@ -172,10 +172,10 @@ impl Engine {
 
         // ---- body scan: embeds and ```view fences -----------------------
         let embed_re = Regex::new(r"!\[\[([^\[\]]+)\]\]").unwrap();
-        // opener matches the live-widget grammar for view fences (SUB-899:
-        // info-string tail, first word decides; SUB-913: CRLF; SUB-983:
+        // opener matches the live-widget grammar for view fences (
+        // info-string tail, first word decides; CRLF openers; a
         // backtick-guarded tail so an inline prose mention never matches;
-        // SUB-1104: case folded per letter, because every frontend reader
+        // case folded per letter, because every frontend reader
         // lowercases the first word — ```View renders a live widget, so a
         // broken ref inside one is just as broken and the doctor must see it).
         // The strip twins (machine_fence_re in vault/mod.rs, MACHINE_FENCE_RE
@@ -217,13 +217,13 @@ impl Engine {
             for cap in embed_re.captures_iter(body) {
                 // the name alone — a `|300`-style display modifier is a hint,
                 // not part of the filename, and reporting it as missing was a
-                // false alarm on a file that is right there (SUB-1102)
+                // false alarm on a file that is right there
                 let target = embed_target(&cap[1]).to_string();
                 if target.is_empty() || !seen_embed.insert(target.to_lowercase()) {
                     continue;
                 }
                 // an embed shown as an example inside a fence isn't a missing
-                // file (SUB-495) — the editor renders it verbatim too
+                // file — the editor renders it verbatim too
                 let m = cap.get(0).unwrap();
                 if in_code(&code, m.start(), m.end()) {
                     continue;
@@ -374,7 +374,7 @@ impl Engine {
                         }
                         "number" => {
                             // a value carrying a unit is healthy in a number
-                            // column since SUB-834: `25 USD` in a EUR column
+                            // column: `25 USD` in a EUR column
                             // is data the app renders converted, not junk —
                             // the row keeps its own unit and the file is never
                             // rewritten. Real junk ("ask", "25 furlongs")
@@ -405,7 +405,7 @@ impl Engine {
         // can't lock anyone out of their notes. The cost is that the loss is
         // invisible — tag folders, saved views, folder settings and schemas
         // just aren't there any more. Report it in ONE place for ALL of
-        // them (SUB-1025): the readers stay silent and unchanged, the doctor
+        // them: the readers stay silent and unchanged, the doctor
         // names the file. The consequence clause comes from the registry
         // (`reads_empty_on_corrupt`) because one reader — calendars, §5c —
         // refuses loudly instead of reading empty, and the doctor must never
@@ -454,7 +454,7 @@ impl Engine {
         schema_types.sort();
         // a mount owns a schema type named after itself, and its rows live on
         // disk rather than in notes — so "no notes" is the normal state of a
-        // mount nobody has annotated yet, not a leftover (SUB-888)
+        // mount nobody has annotated yet, not a leftover
         let mounts = self.mounts();
         let mount_types: HashSet<String> = mounts.iter().map(|m| m.name.to_lowercase()).collect();
         for t in schema_types {
@@ -549,7 +549,7 @@ impl Engine {
                 });
             }
         }
-        // Mounts (SUB-888). Unlike a folder mapping, an unbound or missing
+        // Mounts. Unlike a folder mapping, an unbound or missing
         // mount is NOT broken: the board still renders from the last-known
         // index with its rows marked missing, and "Locate folder…" fixes it
         // in one click. So these are warnings about this machine, never
@@ -614,7 +614,7 @@ impl Engine {
 /// having enrolled device unlock is the ordinary state, and a vault with no
 /// sealed notes has nothing to say about Touch ID at all. What IS worth
 /// naming is Touch ID appearing to break itself — enrolled on this device,
-/// yet not for this vault (SUB-935). The wording stops there deliberately: a
+/// yet not for this vault. The wording stops there deliberately: a
 /// moved folder and a second vault on the same machine are indistinguishable
 /// from the Keychain, and telling someone their vault moved when it did not
 /// sends them looking for a problem that does not exist.
@@ -642,7 +642,7 @@ mod tests {
     use super::super::testutil::*;
     use super::*;
 
-    /// SUB-935: the Keychain item is keyed on the vault's absolute path, so
+    /// The Keychain item is keyed on the vault's absolute path, so
     /// device unlock enrolled on this device can still be missing for THIS
     /// vault. Only that case is worth a finding — not "never enrolled", and
     /// not a vault with no sealed key.
@@ -766,7 +766,7 @@ mod tests {
 
     #[test]
     fn doctor_ignores_the_embed_display_modifier() {
-        // SUB-1102: `![[cover.png|300]]` is a 300px-wide cover.png, not a file
+        // `![[cover.png|300]]` is a 300px-wide cover.png, not a file
         // called `cover.png|300` — the doctor used to call a present image
         // missing, and the missing one it reported under the wrong name.
         let (mut engine, dir) = temp_vault("doctor-embed-modifier");
@@ -818,8 +818,8 @@ mod tests {
 
     #[test]
     fn doctor_view_fence_scan_covers_tails_and_crlf() {
-        // all three openers render live widgets (SUB-899 first-word rule; CRLF
-        // per SUB-913; mixed case per SUB-1104 — every reader lowercases the
+        // all three openers render live widgets (first-word rule; CRLF
+        // and mixed case — every reader lowercases the
         // first word), so their dead saved-refs must surface like the bare form
         let (mut engine, dir) = temp_vault("doctor-view-openers");
         fs::write(dir.join("Tail.md"), "---\n---\n```view table\nsaved: ghost-a\n```\n").unwrap();
@@ -855,7 +855,7 @@ mod tests {
             "---\ntype: release\ndue: 2026-07-25 14:30\nruntime: 41.5\n---\nbody\n",
         )
         .unwrap();
-        // a range is a legal date value (SUB-596) — Doctor must not flag it
+        // a range is a legal date value — Doctor must not flag it
         fs::write(
             dir.join("Span.md"),
             "---\ntype: release\ndue: 2026-09-01/2026-09-21\n---\nbody\n",
@@ -867,7 +867,7 @@ mod tests {
             "---\ntype: release\ndue: 2026-09-21/2026-09-01\n---\nbody\n",
         )
         .unwrap();
-        // a hand-edited loose date is not the grammar either (SUB-637): the
+        // a hand-edited loose date is not the grammar either: the
         // parser is width-strict, so the unpadded value must be flagged
         fs::write(dir.join("Loose.md"), "---\ntype: release\ndue: 2026-8-1\n---\nbody\n").unwrap();
         engine.rescan();
@@ -892,7 +892,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// A number column may carry a unit (SUB-834) and its ROWS keep their own:
+    /// A number column may carry a unit and its ROWS keep their own:
     /// `25 USD` in a EUR column is data the app renders converted, not junk.
     /// The doctor must not flag it — while real junk stays flagged.
     #[test]
@@ -993,7 +993,7 @@ mod tests {
     #[test]
     fn doctor_expands_tilde_in_folder_mappings() {
         // mapping paths are stored in `~/…` form; the check must expand like
-        // the sync lanes do or a healthy mapping reads as missing (SUB-776).
+        // the sync lanes do or a healthy mapping reads as missing.
         // `~` itself is a directory on any machine with HOME set, so the test
         // needs no fixture under the real home.
         let (mut engine, dir) = temp_vault("doctor-tilde");
@@ -1052,7 +1052,7 @@ mod tests {
     /// Nearly every config reader swallows a corrupt file and returns empty
     /// (§6–§8b); calendars refuses loudly instead (§5c). Both fallbacks are
     /// deliberate and stay — but the doctor now names the file, once, for
-    /// all of them (SUB-1025), with a consequence clause that matches what
+    /// all of them, with a consequence clause that matches what
     /// the file's reader actually does. Iterates the registry itself so a
     /// new `VaultFile` is covered the day it exists.
     #[test]

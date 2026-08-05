@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-461: ListPane paints only the scroll viewport ± overscan once a list runs
+// ListPane paints only the scroll viewport ± overscan once a list runs
 // past WIN_MIN (60) rows, with spacer divs standing in for the rest. The pane's
 // semantics — count, keyboard selection, drag, context menu — all operate on the
 // note array, not the DOM, so they must survive unchanged.
@@ -89,7 +89,7 @@ test("scrolling swaps the painted slice; rows keep their identity (SUB-461)", as
 test("arrow keys walk into unpainted rows, scrolling the window (SUB-461)", async ({ page }) => {
   // 120 real key presses, each a CDP round trip: ~3s here, but a CI container
   // runs the suite ~6× slower and blew the 20s default while the walk itself
-  // was fine. Same call as the SUB-359 table walk — pay for the round trips,
+  // was fine. Same call as the table walk — pay for the round trips,
   // keep every step.
   test.setTimeout(120_000);
   await openSeeded(page);

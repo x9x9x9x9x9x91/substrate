@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
-// SUB-472: a rendered block widget used to be unreachable by keyboard —
+// A rendered block widget used to be unreachable by keyboard —
 // `Decoration.replace({block:true})` hides the positions it covers, so
 // vertical motion stepped over the whole block and only a mouse click could
 // reveal the source. Arrow keys now land on the block's near edge (down → its
@@ -113,7 +113,7 @@ test("arrow keys reach a rendered markdown table too (SUB-472)", async ({ page }
   await expect(page.locator(".note-title")).toHaveValue("Umbra Home");
   await expect(page.locator(".cm-md-table")).toBeVisible();
 
-  // The callout above hosts chart/cards fences (SUB-964) whose widgets render
+  // The callout above hosts chart/cards fences whose widgets render
   // late and shift line geometry between locator resolution and the click —
   // the click can land on a neighboring line. Anchor the cursor explicitly
   // before walking; the arrow-walk assertions below stay at full strength.

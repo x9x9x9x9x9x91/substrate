@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-941: `by:` pivots one row measure into a series per distinct value —
+// `by:` pivots one row measure into a series per distinct value —
 // stacked bars, multi-line, and a legend that names the marks. The tooltip is
 // the other half: hover or focus a column and the card states the x label and
 // every band's exact value, so a stack is readable without a chart library.
@@ -138,7 +138,7 @@ test("keyboard walks the axis and the focused column states itself (SUB-941)", a
   await expect(bars.nth(0)).toBeFocused();
 });
 
-// SUB-952: the ramp carries five series, so the SUB-941 ceiling of two is
+// The ramp carries five series, so the ceiling of two is
 // gone. A split of four draws four distinct slices, four distinct legend
 // swatches, and four distinct colours — cycling would repeat one.
 const FOUR = [
@@ -291,7 +291,7 @@ test("a real zero split bucket keeps an honest visible zero mark (SUB-954)", asy
   expect(splitFill).not.toBe("rgba(0, 0, 0, 0)");
 
   // The non-split form has always painted a real zero as its normal 3px bar.
-  // The exact fill differs between shapes since SUB-932 (categorical plain
+  // The exact fill differs between shapes (categorical plain
   // bars wear the series ramp); the shared invariant is a visible, painted,
   // not-row-empty mark in both.
   await openOverview(page, PLAIN, zeroRows);
@@ -305,7 +305,7 @@ test("a real zero split bucket keeps an honest visible zero mark (SUB-954)", asy
   expect(plainFill).not.toBe("rgba(0, 0, 0, 0)");
 });
 
-// SUB-954: the same empty bucket without a `by:` — one reading for both
+// The same empty bucket without a `by:` — one reading for both
 // shapes. It used to claim a value of 0, which is a different statement from
 // "nothing landed here".
 test("a zero-filled plain bucket reads as empty, exactly like a split one (SUB-954)", async ({
@@ -328,7 +328,7 @@ test("a zero-filled plain bucket reads as empty, exactly like a split one (SUB-9
   await expect(page.locator(".chart-tip-row")).toHaveCount(0);
 });
 
-// SUB-954: the generic hover rule already outweighs `.dash-bar.is-empty`; the
+// The generic hover rule already outweighs `.dash-bar.is-empty`; the
 // explicit empty-state rule is load-bearing for keyboard focus. Exercise the
 // split shape too so a later stack override cannot silently erase either
 // response. Assert the change, not a literal colour — tokens are free to move.
@@ -363,7 +363,7 @@ for (const [shape, fence] of [
   });
 }
 
-// SUB-954: the card flips below its anchor near the top of the plot so it
+// The card flips below its anchor near the top of the plot so it
 // never covers the legend. Asserted geometrically — a class name alone does
 // not prove the box moved.
 test("a tall bar's card opens downward, a short one's opens upward (SUB-954)", async ({ page }) => {
@@ -397,7 +397,7 @@ test("a tall bar's card opens downward, a short one's opens upward (SUB-954)", a
   // card can still sit lower than a full-height bar's downward one.
 });
 
-// SUB-954: hover slots partition the plot at the MIDPOINTS between dots, so
+// Hover slots partition the plot at the MIDPOINTS between dots, so
 // an irregular time axis hands each point the space nearest to it — and no
 // pixel of the plot belongs to nobody.
 test("line hover slots partition the plot at dot midpoints (SUB-954)", async ({ page }) => {
@@ -449,7 +449,7 @@ test("line hover slots partition the plot at dot midpoints (SUB-954)", async ({ 
   }
 });
 
-// SUB-954: the per-slot band lookup is indexed by key now; a band that has no
+// The per-slot band lookup is indexed by key now; a band that has no
 // row at an x must still be absent from that x's card rather than reading as
 // a zero or as its neighbour's value.
 test("a split line names only the bands present at each x (SUB-954)", async ({ page }) => {

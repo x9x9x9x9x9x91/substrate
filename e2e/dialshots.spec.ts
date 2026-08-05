@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Evidence run only (SUB-955): the Settings pane carrying the two dials, and
+// Evidence run only: the Settings pane carrying the two dials, and
 // the Overview + Portfolio panes at each end of the glow range and on a
 // non-default tone. Same shape as accentshots.spec.ts — SHOTS=1 to run.
 test.skip(!process.env.SHOTS, "evidence run only");

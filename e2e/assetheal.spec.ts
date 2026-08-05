@@ -1,12 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-289: a missing-asset embed used to stay missing until the note
+// A missing-asset embed used to stay missing until the note
 // reloaded — widget identity was name-only, so CodeMirror kept the failed DOM
 // across vault epochs. Now a vault:changed re-stats exactly the failed
 // widgets and heals them in place; healthy widgets compare equal and keep
 // their DOM (a playing audio embed must not restart on an unrelated save).
 
-// cold open lands on the Notes scratch list (Today is a destination, SUB-300) —
+// cold open lands on the Notes scratch list (Today is a destination) —
 // first mock note selected and loaded (same boot shape as filechip.spec)
 async function boot(page: Page) {
   await page.goto("/");
@@ -15,7 +15,7 @@ async function boot(page: Page) {
 }
 
 /* an event within 1s of an app-initiated refresh is treated as the own-write
-   echo (SUB-116/239) — wait the window out before emitting so the refresh
+   echo — wait the window out before emitting so the refresh
    (and its vault epoch bump) runs immediately */
 async function seedBody(page: Page, body: string) {
   await page.evaluate((b) => window.__mockEditNote("Welcome.md", b), body);

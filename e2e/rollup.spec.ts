@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// rollup property kind (SUB-678): a derived column — follow a relation prop
+// rollup property kind: a derived column — follow a relation prop
 // of the SAME database, fold a target prop over the linked rows, computed on
 // read and stored nowhere. The issue's own example, end-to-end through the
 // UI against the mock backend: a new database with a relation into the
@@ -20,7 +20,7 @@ async function newDatabaseWithRelation(page: Page, name: string, prop: string, t
   await form.locator(".dbform-addprop").click();
   const row = form.locator(".dbform-proprow").last();
   await row.locator(".dbform-input").fill(prop);
-  // the kind/target pickers are SelectMenu buttons (SUB-647 swapped the
+  // the kind/target pickers are SelectMenu buttons (they replaced the
   // stock selects): click the row button, pick the option from the menu
   await row.locator(".dbform-select").first().click();
   await page.getByRole("option", { name: "Relation", exact: true }).click();
@@ -63,7 +63,7 @@ test.beforeEach(async ({ page }) => {
   await newEntry(page, "RX2");
   await newEntry(page, "RX3");
   // two ledger statements on RX1 (gross 4213.55 + 3550.10 = 7763.65), one on
-  // RX2 (1186.42), none on RX3 — seeded rows from the SUB-193 ledger
+  // RX2 (1186.42), none on RX3 — seeded rows from the ledger
   // fixture. The sidebar create flow homes the new database in its
   // eponymous folder, so the entries live under Rollrel/
   await stageProps(page, [

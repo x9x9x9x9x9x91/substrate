@@ -1,4 +1,4 @@
-/* Extract-selection-into-note (SUB-591): the pure half of the editor's
+/* Extract-selection-into-note: the pure half of the editor's
    selection context menu — deriving a note title from the selected text and
    the link that replaces the selection in the source note. CodeMirror-free
    so it runs under node --test; Editor.tsx wires it to the view. */
@@ -7,7 +7,7 @@
     (task checkboxes included), ordered markers, quote chevrons and callout
     headers — repeating, so `> ## Title` strips clean too. Same shapes as the
     editor's BLOCK_PREFIX_RE, including the optional `|accent` tail a callout
-    kind may carry (SUB-969) — otherwise extracting `> [!note|teal] Ship it`
+    kind may carry — otherwise extracting `> [!note|teal] Ship it`
     would derive the title `!note|teal Ship it`. */
 const BLOCK_MARKS_RE =
   /^\s*(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+|>\s*(?:\[!(?:note|warn|idea)(?:\|[^\]]*)?\]\s*)?)+/i;

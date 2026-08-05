@@ -1,9 +1,9 @@
 import { expect, test } from "@playwright/test";
 
-// The Journal surface (SUB-176, SUB-210): ⌘D and the sidebar row open today's
+// The Journal surface: ⌘D and the sidebar row open today's
 // journal; day-stepping back opens past days as ghosts — no file until the
 // first keystroke. Salvaged from today.spec.ts when the Today surface was
-// hidden (SUB-299).
+// hidden.
 
 /** "Saturday, 18 July 2026" — the journal note's fixed header (journal.humanDate) */
 function humanDay(offsetDays = 0): string {
@@ -28,14 +28,14 @@ function isoDay(offsetDays = 0): string {
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  // cold open lands on the Notes scratch list (SUB-299) — first paint doubles
+  // cold open lands on the Notes scratch list — first paint doubles
   // as the "window key listeners attached" barrier
   await expect(page.locator(".list-title")).toHaveText("Notes");
 });
 
 test("⌘D and the sidebar Journal item open today's journal", async ({ page }) => {
   await page.keyboard.press("Meta+d");
-  // ⌘D lands in the Journal folder view (SUB-176), not All notes
+  // ⌘D lands in the Journal folder view, not All notes
   await expect(page.locator(".list-title")).toHaveText("Journal");
   await expect(page.locator(".note-title-daily")).toHaveText(humanToday());
 
@@ -46,8 +46,8 @@ test("⌘D and the sidebar Journal item open today's journal", async ({ page }) 
   await expect(page.locator(".list-title")).toHaveText("Journal");
   await expect(page.locator(".note-title-daily")).toHaveText(humanToday());
 
-  // day-stepping stays in the Journal list. Yesterday opens as a ghost
-  // (SUB-210): the dated surface shows, but no file — and no row — exists
+  // day-stepping stays in the Journal list. Yesterday opens as a ghost:
+  // the dated surface shows, but no file — and no row — exists
   // until something is typed
   await page.locator(".daily-nav[title='Yesterday (⌘⇧←)']").click();
   await expect(page.locator(".list-title")).toHaveText("Journal");

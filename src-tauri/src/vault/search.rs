@@ -2,7 +2,7 @@
 //! full-text view with per-line snippets, and the two link-graph queries
 //! (`backlinks`, `related`).
 //!
-//! Split out of `vault.rs` (SUB-692). Snippet highlighting rides on two
+//! Split out of `vault.rs`. Snippet highlighting rides on two
 //! private-use marker chars SQLite's `snippet()` inserts, parsed back into
 //! typed `SnippetPart`s here rather than leaking markup to the frontend.
 
@@ -39,7 +39,7 @@ pub struct FullSearchHit {
     pub matches: Vec<SearchMatch>,
 }
 
-/// A full-search page plus how much of the match set it represents (SUB-566).
+/// A full-search page plus how much of the match set it represents.
 /// `hits` is capped at `FULL_SEARCH_MAX_NOTES`; `total_notes` counts every
 /// note the query matches *within the requested scope*, so the UI can say
 /// "first 200 of 359" instead of presenting a truncated page as the whole
@@ -164,7 +164,7 @@ fn fts_match_expr(q: &str) -> String {
 }
 
 /// The vault-root files the app itself owns and conceals by default
-/// (SUB-831/878) — the same exact-path set as the client's `APP_FILES` in
+/// — the same exact-path set as the client's `APP_FILES` in
 /// src/lib/settings.ts. A nested copy or a user's own "agents notes.md" is
 /// normal content and stays in.
 fn is_app_file(path: &str) -> bool {
@@ -172,7 +172,7 @@ fn is_app_file(path: &str) -> bool {
 }
 
 /// SQL twin of [`is_app_file`], appended to the FTS queries when the caller
-/// wants the concealed files out (SUB-907). Static literals, not bound params
+/// wants the concealed files out. Static literals, not bound params
 /// — the surrounding queries already interpolate their scope clause the same
 /// way, and the three names are compile-time constants.
 fn app_files_clause(exclude: bool) -> String {
@@ -189,7 +189,7 @@ fn app_files_clause(exclude: bool) -> String {
 
 impl Engine {
     /// Load `scope` into the reusable `search_scope` temp table and return the
-    /// `AND …` clause that restricts a query to it (SUB-566). The caller's
+    /// `AND …` clause that restricts a query to it. The caller's
     /// structured filters (`type:`, `folder:`, date comparisons) live in the
     /// UI, so the engine takes their verdict as a path allow-list rather than
     /// re-implementing the semantics — what matters here is only that the
@@ -217,13 +217,13 @@ impl Engine {
 
     /// Palette search. `scope`, when given, is the allow-list of paths the
     /// caller's filters left standing — applied inside the query so the
-    /// LIMIT 30 page is the top 30 of the FILTERED set (SUB-566), not the top
+    /// LIMIT 30 page is the top 30 of the FILTERED set, not the top
     /// 30 overall with the filters cutting it down to nothing afterwards.
     ///
-    /// `exclude_app_files` mirrors the app's conceal boundary (SUB-831/878):
+    /// `exclude_app_files` mirrors the app's conceal boundary:
     /// with the toggle off, AGENTS.md/CLAUDE.md/Settings.md never surface, so
     /// they must fall out here — before the cap — or they silently eat page
-    /// slots the client then filters into nothing (SUB-907).
+    /// slots the client then filters into nothing.
     pub fn search(
         &self,
         q: &str,
@@ -271,11 +271,11 @@ impl Engine {
     /// tokenizer semantics (prefixes, diacritics) via FTS5 highlight().
     ///
     /// `scope` is the path allow-list the caller's structured filters left
-    /// standing (SUB-566) — pushed into the query so the top-N page is the
+    /// standing — pushed into the query so the top-N page is the
     /// top N of the FILTERED set. `total_notes` reports the true size of that
     /// set, so a truncated page never reads as the whole answer.
     ///
-    /// `exclude_app_files` (SUB-907): with the conceal toggle off the client
+    /// `exclude_app_files`: with the conceal toggle off the client
     /// drops AGENTS.md/CLAUDE.md/Settings.md from the page, but `total_notes`
     /// and `truncated` are computed HERE — counting concealed files makes the
     /// pane's "first N of M notes" header and its truncated empty state claim
@@ -521,7 +521,7 @@ mod tests {
 
     #[test]
     fn exclude_app_files_keeps_counts_honest() {
-        // SUB-907: with the conceal toggle off the client drops the app files
+        // with the conceal toggle off the client drops the app files
         // from the page, but total_notes/truncated come from the engine — so
         // the engine must be able to exclude them BEFORE the count and LIMIT,
         // or "first N of M notes" claims matches the user cannot see.
@@ -573,9 +573,9 @@ mod tests {
 
     #[test]
     fn machine_fence_strip_covers_crlf_notes() {
-        // SUB-913: a Windows-authored/synced note opens its fences with
+        // a Windows-authored/synced note opens its fences with
         // ```view\r\n — the strip must treat CRLF like LF or the fence body
-        // indexes as prose (SUB-261 broken for CRLF files).
+        // indexes as prose (the strip was once broken for CRLF files).
         let (mut e, dir) = temp_vault("crlfmf");
         fs::write(
             dir.join("Win.md"),
@@ -594,7 +594,7 @@ mod tests {
 
     #[test]
     fn machine_fences_stay_out_of_search() {
-        // SUB-261: ```view/```chart/```progress (and csv/formulas) fence
+        // ```view/```chart/```progress (and csv/formulas) fence
         // bodies are app config/data, not prose — they must neither match nor
         // snippet, while prose in the same note still does. The progress fence
         // sits AFTER the prose line so the line-number assertion below keeps
@@ -629,7 +629,7 @@ mod tests {
 
     #[test]
     fn tailed_machine_fences_stay_out_of_search() {
-        // SUB-983: the hub dispatches a fence on the FIRST WORD of its info
+        // the hub dispatches a fence on the FIRST WORD of its info
         // string, so ```chart compact renders a live chart — its config must
         // leave the index like the bare form. A tail on a non-machine
         // language is still someone's code and stays searchable.

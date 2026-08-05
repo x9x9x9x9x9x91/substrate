@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { hotkeyLabel, hotkeyRejectedMessage } from "./hotkey.ts";
 
-// SUB-651: the toast is the only surface that says a typed capture-hotkey
+// The toast is the only surface that says a typed capture-hotkey
 // didn't take AND which chord still fires — pin both halves of the copy.
 
 test("hotkeyLabel: modifier vocabulary in canonical glyph order", () => {

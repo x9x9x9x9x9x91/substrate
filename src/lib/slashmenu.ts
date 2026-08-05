@@ -1,4 +1,4 @@
-/* Slash menu (SUB-469): the pure half of the `/` insertion palette — trigger
+/* Slash menu: the pure half of the `/` insertion palette — trigger
    detection, command ranking, insert text — kept free of CodeMirror so it runs
    under node --test. Editor.tsx wraps these in CompletionSources, the same
    autocompletion infrastructure the [[ wikilink popup rides (see wikilinks.ts).
@@ -128,7 +128,7 @@ export function viewTypeQuery(textBefore: string, lang: string | null): string |
 }
 
 /** Where the cursor goes once a ```view fence's `type:`/`saved:` line is
-    settled (SUB-796): outside the fence, so the table renders immediately
+    settled: outside the fence, so the table renders immediately
     instead of leaving you parked in raw fence source you now have to escape.
 
     `after` is the document text from the cursor to (at least) past the

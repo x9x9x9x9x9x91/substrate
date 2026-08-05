@@ -1,4 +1,4 @@
-// Live values in prose (SUB-825) — an inline code span whose text is `=`, one
+// Live values in prose — an inline code span whose text is `=`, one
 // space, then an expression computes, and the answer renders in its place.
 // `The label has `= Masters.count` releases.` reads as a sentence; in any other
 // markdown viewer it degrades to a plain code span, which is the whole point of
@@ -54,7 +54,7 @@ export interface LiveExprMatch {
 
 /** One expression's answer. `display` is always renderable — the quiet dash
     when it didn't work out — and `err` carries the reason for a hover title.
-    The dash is calc.ts's (SUB-834); a failed live value must look exactly like
+    The dash is calc.ts's; a failed live value must look exactly like
     a failed calc line, never a red wall inside a sentence. */
 export interface LiveValue {
   display: string;

@@ -2,7 +2,7 @@
 //! each note type, plus the type- and prop-level sweeps that rewrite every
 //! note when a type or prop is renamed, cleared or deleted.
 //!
-//! Split out of `vault.rs` (SUB-692). Sweeps are deliberately best-effort and
+//! Split out of `vault.rs`. Sweeps are deliberately best-effort and
 //! report a partial tally rather than aborting: a note the index is stale
 //! about, or one the user has open and unparseable, must not block the rest.
 
@@ -31,27 +31,27 @@ pub struct SelectOption {
 /// `notify`: date-kind only — fire a macOS notification when the date comes
 /// due (see notify.rs). Per-prop opt-in; off unless explicitly set.
 ///
-/// `notify_before` (SUB-842, on disk `notifyBefore`): date-kind only — fire an
+/// `notify_before` (on disk `notifyBefore`): date-kind only — fire an
 /// ADDITIONAL lead-time alert N days before the date comes due. Independent of
 /// `notify`: either may be set alone (lead-only reminders are legal), both set
 /// means two alerts per occurrence. 0/absent = off, clamped to 365.
 ///
-/// `format`: number-kind only (SUB-188) — the display format (`euro` /
+/// `format`: number-kind only — the display format (`euro` /
 /// `percent`; absent = plain). Display-only: the note's stored value never
 /// changes.
 ///
-/// `format`: number-kind only (SUB-188) — the display format (`euro` /
+/// `format`: number-kind only — the display format (`euro` /
 /// `percent`; absent = plain). Display-only: the note's stored value never
 /// changes.
 ///
-/// `relation`/`prop`/`agg`: rollup-kind only (SUB-678) — a DERIVED column:
+/// `relation`/`prop`/`agg`: rollup-kind only — a DERIVED column:
 /// follow `relation` (a relation-kind prop of the SAME database — its
 /// `target` names the related database, its values name the linked rows),
 /// read `prop` on each linked row, fold with `agg` (AGG_KINDS). Computed on
 /// read, stored nowhere — the engine only carries the wiring; evaluation
 /// lives in the frontend's rollup derivation (src/lib/rollup.ts).
 ///
-/// `description`: any kind, kindless select props included (SUB-191) — a
+/// `description`: any kind, kindless select props included — a
 /// one-line entry hint shown muted where values are typed. Trimmed on write;
 /// empty stores as absent.
 #[derive(Clone, Debug, Default, Serialize, serde::Deserialize)]
@@ -62,7 +62,7 @@ pub struct PropSchema {
     pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub notify: bool,
-    /// date kind only (SUB-842): lead-time alert N days before the due date
+    /// date kind only: lead-time alert N days before the due date
     /// (None = off). Independent of `notify`.
     #[serde(rename = "notifyBefore", default, skip_serializing_if = "Option::is_none")]
     pub notify_before: Option<u32>,
@@ -72,14 +72,14 @@ pub struct PropSchema {
     /// number kind only: the display format (`euro`/`percent`; None = plain).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub format: Option<String>,
-    /// rollup kind only (SUB-678): the relation prop on the same database to
+    /// rollup kind only: the relation prop on the same database to
     /// follow.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relation: Option<String>,
-    /// rollup kind only (SUB-678): the prop on the related database to read.
+    /// rollup kind only: the prop on the related database to read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prop: Option<String>,
-    /// rollup kind only (SUB-678): the aggregation over the linked rows'
+    /// rollup kind only: the aggregation over the linked rows'
     /// values (AGG_KINDS).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agg: Option<String>,
@@ -87,7 +87,7 @@ pub struct PropSchema {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Keys a newer Substrate wrote that this build doesn't understand. Kept
-    /// so a read→write cycle here doesn't strip them (SUB-433).
+    /// so a read→write cycle here doesn't strip them.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -104,7 +104,7 @@ pub struct NewTypeProp {
     pub target: Option<String>,
 }
 
-/// Rollup kind only (SUB-678): the wiring of a derived rollup column, as
+/// Rollup kind only: the wiring of a derived rollup column, as
 /// `vault_schema_set` hands it over — follow `relation` (a relation prop of
 /// the same database), read `prop` on the linked rows, fold with `agg`
 /// (AGG_KINDS).
@@ -120,7 +120,7 @@ pub struct RollupSet {
 /// because they already carried the target key (a rename never clobbers
 /// existing values).
 ///
-/// `failed` carries the error of a sweep that died partway (SUB-501). The
+/// `failed` carries the error of a sweep that died partway. The
 /// sweep still stops at the first failing note — what changed is that the
 /// partial tally comes back WITH the error instead of being swallowed by a
 /// rejected IPC call, so the user learns how partial their vault now is.
@@ -139,42 +139,42 @@ pub struct BulkSweep {
 /// Known property kinds. `text` is the explicit form of free text — it lets
 /// a schema-registered text column exist with no options, which the demote
 /// rule (no kind + no options) would otherwise sweep away. `multi` is a
-/// select with several values per note (SUB-79) — same options/colors, the
+/// select with several values per note — same options/colors, the
 /// value stored as a YAML string list (a scalar is legal for one value), so
-/// it keeps its options where the other kinds drop them. `url` (SUB-172) is
+/// it keeps its options where the other kinds drop them. `url` is
 /// an external link — the value stays the plain URL string, like `date`/`file`
-/// it carries no options. `email`/`phone` (SUB-181) are contact links — the
+/// it carries no options. `email`/`phone` are contact links — the
 /// value stays the plain string as typed (no stripping), rendered as a
 /// `mailto:`/`tel:` link; like `url` they carry no options. `checkbox`
-/// (SUB-173) is a boolean — checked stores as the YAML scalar `true`,
+/// is a boolean — checked stores as the YAML scalar `true`,
 /// unchecked removes the prop (a stored `false` reads as unchecked); like
-/// the other no-option kinds it carries no options. `number` (SUB-188) is a
+/// the other no-option kinds it carries no options. `number` is a
 /// numeric column — the value stays exactly what's stored today (a plain
 /// YAML scalar, string or number); the schema may carry a display `format`
 /// (`euro`/`percent`, absent = plain) the way relation carries `target`.
-/// `rollup` (SUB-678) is a derived column — `relation`/`prop`/`agg` wire it
+/// `rollup` is a derived column — `relation`/`prop`/`agg` wire it
 /// (see PropSchema); computed on read, stored nowhere, carries no options.
 pub const PROP_KINDS: [&str; 11] = [
     "text", "date", "file", "relation", "multi", "url", "email", "phone", "checkbox", "number",
     "rollup",
 ];
 
-/// The aggregation functions a rollup prop (SUB-678) may apply — the same
-/// vocabulary as the table footer's Calculate (SUB-74, src/lib/aggregate.ts).
+/// The aggregation functions a rollup prop may apply — the same
+/// vocabulary as the table footer's Calculate (src/lib/aggregate.ts).
 pub const AGG_KINDS: [&str; 5] = ["sum", "avg", "min", "max", "count"];
 
-/// Display formats a number-kind prop (SUB-188) may carry: `plain` is the
+/// Display formats a number-kind prop may carry: `plain` is the
 /// absence of a format (the number as stored), `euro` renders German-style
-/// `1.234,56 €`, `percent` (SUB-196) renders the same de-DE way with a ` %`
+/// `1.234,56 €`, `percent` renders the same de-DE way with a ` %`
 /// suffix (`8,5 %`). Rendering is frontend-only; the engine stores the key.
 ///
-/// Since SUB-834 a format may equally name a UNIT (`UNIT_CODES` below);
+/// A format may equally name a UNIT (`UNIT_CODES` below);
 /// `euro`/`percent` stay forever as the aliases for `EUR`/`%` that every
 /// existing vault already carries on disk, so widening the vocabulary needed
 /// no migration.
 pub const NUMBER_FORMATS: [&str; 3] = ["plain", "euro", "percent"];
 
-/// The unit codes a number column may carry (SUB-834), so `format: USD`,
+/// The unit codes a number column may carry, so `format: USD`,
 /// `format: kg` or `format: BPM` writes as readily as `euro` did.
 ///
 /// SOURCE OF TRUTH: `src/lib/units.ts`. This is a mirror — the frontend does
@@ -205,7 +205,7 @@ pub const UNIT_CODES: [&str; 39] = [
     "BPM", "LUFS", "dB", "%",
 ];
 
-/// A number format as it gets stored (SUB-834): the canonical spelling when
+/// A number format as it gets stored: the canonical spelling when
 /// the text names a known format or unit code, else None. Case-insensitive
 /// like units.ts `resolveUnit`; `plain` resolves to None, being the absence
 /// of a format rather than a format.
@@ -224,7 +224,7 @@ fn canonical_number_format(f: &str) -> Option<&'static str> {
 pub struct TypeSchema {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<DbIcon>,
-    /// The database's home folder (SUB-85), reserved like `icon`: the db
+    /// The database's home folder, reserved like `icon`: the db
     /// nests into the sidebar Folders tree at this path and opens as the
     /// folder's greeting view. A user prop called "home" is shadowed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -262,19 +262,19 @@ impl Engine {
     /// Merge one prop's schema into `.vault/schema.json`. Option values are
     /// trimmed and deduped case-insensitively. A `kind` of date/file/relation
     /// drops the options (those kinds have none); `multi` keeps them — it is
-    /// a select whose notes hold several values (SUB-79). Relation kinds also
-    /// carry `target`, the database type they point at; number kinds (SUB-188)
+    /// a select whose notes hold several values. Relation kinds also
+    /// carry `target`, the database type they point at; number kinds
     /// may carry a display `format` (`euro`/`percent` — `plain` stores as
-    /// absent). A rollup prop (SUB-678) carries its full `rollup` wiring —
+    /// absent). A rollup prop carries its full `rollup` wiring —
     /// the relation to follow must be a relation-kind prop of the SAME
     /// database, the target prop a non-empty name, the function one of
-    /// AGG_KINDS; the triple drops on any other kind. `description` (SUB-191)
+    /// AGG_KINDS; the triple drops on any other kind. `description`
     /// is a one-line entry hint valid on ANY
     /// kind — trimmed, empty stores as absent, never dropped by kind. No kind
     /// and no
     /// options demotes the prop back to free text. `notify` (None = keep the
     /// stored flag) only ever sticks to date-kind props — notifications on
-    /// anything else are meaningless. `notify_before` (SUB-842, None = keep the
+    /// anything else are meaningless. `notify_before` (None = keep the
     /// stored value) follows the same date-only rule: `Some(0)` clears it,
     /// anything larger clamps to 365.
     pub fn set_schema_prop(
@@ -295,7 +295,7 @@ impl Engine {
         if db_type.is_empty() || prop.is_empty() {
             return Err("database and property must be non-empty".into());
         }
-        // a mount's binding props are the engine's (SUB-888)
+        // a mount's binding props are the engine's
         self.check_binding_prop(db_type, prop)?;
         let kind = match kind.as_deref().map(str::trim) {
             None | Some("") => None,
@@ -311,10 +311,10 @@ impl Engine {
             }
             _ => None,
         };
-        // a number prop (SUB-188) may carry a display format — validated like
+        // a number prop may carry a display format — validated like
         // the kind vocabulary; `plain` is the absence of a format, and a
         // format arriving on any other kind drops (like `target`). Since
-        // SUB-834 the vocabulary also covers the unit codes, and the stored
+        // The vocabulary also covers the unit codes, and the stored
         // spelling is canonicalized ("usd" → "USD") so the frontend never has
         // to guess at casing.
         let format = match format.as_deref().map(str::trim) {
@@ -326,7 +326,7 @@ impl Engine {
             }
             _ => None,
         };
-        // a rollup prop (SUB-678) needs its whole wiring: the relation to
+        // a rollup prop needs its whole wiring: the relation to
         // follow (validated against this database's schema below — it must be
         // a relation-kind prop of the SAME database), the prop on the related
         // database to read, and the aggregation to apply. The triple arriving
@@ -352,7 +352,7 @@ impl Engine {
             }
             _ => None,
         };
-        // a description (SUB-191) rides any kind — kindless select props
+        // a description rides any kind — kindless select props
         // included — unlike `target`/`format` it is never dropped by kind;
         // trimmed, empty stores as absent
         let description =
@@ -414,10 +414,10 @@ impl Engine {
             let prior = map.get(&db_type).and_then(|ts| ts.props.get(&prop));
             let keep = prior.map(|ps| ps.notify).unwrap_or(false);
             let keep_before = prior.and_then(|ps| ps.notify_before);
-            // keys a newer app wrote on this prop ride along (SUB-433)
+            // keys a newer app wrote on this prop ride along
             let extra = prior.map(|ps| ps.extra.clone()).unwrap_or_default();
             let notify = notify.unwrap_or(keep) && kind.as_deref() == Some("date");
-            // lead time (SUB-842) rides the same date-only rule as `notify`;
+            // lead time rides the same date-only rule as `notify`;
             // 0 clears it, anything longer than a year clamps
             let notify_before = notify_before
                 .or(keep_before)
@@ -449,7 +449,7 @@ impl Engine {
         Ok(map)
     }
 
-    /// Set or clear a database's icon (SUB-27). Fields are trimmed; blank
+    /// Set or clear a database's icon. Fields are trimmed; blank
     /// strings read as absent. Glyph and emoji are one mark — emoji wins when
     /// both arrive; a tint without a mark is meaningless and drops. No mark
     /// at all removes the icon, and a type entry with neither props, icon,
@@ -485,7 +485,7 @@ impl Engine {
         Ok(map)
     }
 
-    /// Set or clear a database's home folder (SUB-85): the folder path the
+    /// Set or clear a database's home folder: the folder path the
     /// database nests into in the sidebar Folders tree, opening as that
     /// folder's greeting view. Validated like any folder path; None (or a
     /// blank string) clears — and a type entry with neither props, icon, nor
@@ -509,7 +509,7 @@ impl Engine {
         match home {
             Some(h) => {
                 // one home folder, one database: the sidebar tree renders a
-                // folder as at most one database (SUB-407), so a second
+                // folder as at most one database, so a second
                 // claimant would silently vanish from it
                 if let Some((other, _)) = map.iter().find(|(t, ts)| {
                     !folded_eq(t, &db_type) && ts.home.as_deref() == Some(h.as_str())
@@ -531,7 +531,7 @@ impl Engine {
         Ok(map)
     }
 
-    /// Schema `home` folders follow the folder they point at (SUB-85): a
+    /// Schema `home` folders follow the folder they point at: a
     /// rename retargets them (subtree included, `new_rel` = Some), trashing
     /// clears them (None — the database goes homeless). schema.json is
     /// written only when something changed.
@@ -559,7 +559,7 @@ impl Engine {
 
     /// Persist the whole schema map (pretty JSON, `.vault/` created on demand).
     pub(super) fn write_schema(&self, map: &SchemaConfig) -> Result<(), String> {
-        // refuse to rewrite a file a newer app wrote (SUB-433)
+        // refuse to rewrite a file a newer app wrote
         crate::vaultfmt::prepare_write(&self.root, crate::vaultfmt::VaultFile::Schema)?;
         let abs = self.root.join(SCHEMA_REL_PATH);
         if let Some(dir) = abs.parent() {
@@ -605,7 +605,7 @@ impl Engine {
         Ok(())
     }
 
-    /// Create a database (SUB-43): register the type in the schema — an
+    /// Create a database: register the type in the schema — an
     /// empty-props entry is fine, schema-registered types list in the
     /// sidebar even with zero notes — plus any initial properties. Nothing
     /// else is written; a database only gets notes when entries are created.
@@ -624,7 +624,7 @@ impl Engine {
             if pname.eq_ignore_ascii_case("home") {
                 return Err("“home” is reserved for the database home folder".into());
             }
-            // a mount's binding props are the engine's (SUB-888)
+            // a mount's binding props are the engine's
             self.check_binding_prop(name, pname)?;
             if entry.keys().any(|k| folded_eq(k, pname)) {
                 return Err(format!("duplicate property “{pname}”"));
@@ -671,12 +671,12 @@ impl Engine {
         Ok(map)
     }
 
-    /// Rename a database (SUB-43): rewrite `type:` on every note of the
+    /// Rename a database: rewrite `type:` on every note of the
     /// type, move the schema key (retargeting relation props that pointed at
     /// it), the views pref and sidebar-order entry, and the type's template
     /// file. All collision guards run before anything is written. Returns
     /// the number of notes rewritten — or, if anything after the first note
-    /// failed, that partial count plus the error (SUB-501/SUB-554), never an
+    /// failed, that partial count plus the error, never an
     /// `Err` that would hide the notes already rewritten.
     pub fn rename_type(&mut self, old: &str, new: &str) -> Result<BulkSweep, String> {
         let old = old.trim();
@@ -718,7 +718,7 @@ impl Engine {
                 p.insert(key, serde_json::Value::String(new.to_string()));
             }) {
                 // stop where the old `?` stopped, but hand the partial tally
-                // back with the error instead of losing it (SUB-501)
+                // back with the error instead of losing it
                 sweep.failed = Some(e);
                 return Ok(sweep);
             }
@@ -729,7 +729,7 @@ impl Engine {
         // durable. Every remaining failure is reported through the sweep the
         // loop above fills in, never as an Err: a bare `?` here would tell the
         // caller the rename didn't happen and say nothing about the N notes
-        // that now carry the new type (SUB-554, same shape as SUB-545).
+        // that now carry the new type (same shape as).
         let mut map = self.schema();
         let schema_old = folded_hash_key(&map, old).map(str::to_string);
         if let Some(entry) = schema_old.as_deref().and_then(|key| map.remove(key)) {
@@ -772,7 +772,7 @@ impl Engine {
             }
         }
 
-        // folder-sync mappings follow the rename (SUB-71) — one left on the
+        // folder-sync mappings follow the rename — one left on the
         // old name would resurrect the database on the next rescan
         let mut mappings = read_folder_mappings(&self.root);
         let mut touched = false;
@@ -788,7 +788,7 @@ impl Engine {
                 return Ok(sweep);
             }
         }
-        // a mount IS its schema type (SUB-888), so the registry follows too
+        // a mount IS its schema type, so the registry follows too
         if let Err(e) = self.rename_mount_named(old, new) {
             sweep.failed = Some(e);
             return Ok(sweep);
@@ -796,13 +796,13 @@ impl Engine {
         Ok(sweep)
     }
 
-    /// Delete a database (SUB-43). `trash_notes` false keeps the notes,
+    /// Delete a database. `trash_notes` false keeps the notes,
     /// stripping `type:` so they become untyped; true moves every note of
     /// the type to the trash (recoverable until emptied — never a silent
     /// file deletion). Either way the schema entry, views pref,
     /// sidebar-order entry, and template file go with the database.
     /// Returns the number of notes affected — or, if a note failed, that
-    /// partial count plus the error (SUB-501), leaving the database itself
+    /// partial count plus the error, leaving the database itself
     /// in place.
     pub fn delete_type(&mut self, db_type: &str, trash_notes: bool) -> Result<BulkSweep, String> {
         let db_type = db_type.trim();
@@ -833,7 +833,7 @@ impl Engine {
         // From here on the notes have already moved. Every remaining failure is
         // reported through the sweep the loop above fills in, never as an Err:
         // a bare `?` here would tell the caller the database wasn't removed and
-        // say nothing about the N notes already in the Trash (SUB-545).
+        // say nothing about the N notes already in the Trash.
         let mut map = self.schema();
         if let Some(key) = folded_hash_key(&map, db_type).map(str::to_string) {
             map.remove(&key);
@@ -863,7 +863,7 @@ impl Engine {
         }
 
         // the template goes through the trash like every other piece of user
-        // content (SUB-781) — it is hand-written (frontmatter defaults + body
+        // content — it is hand-written (frontmatter defaults + body
         // skeleton), and this was the last delete in the vault that destroyed
         // such a file outright. Recoverable from the Trash pane until emptied.
         if let Some(stem) = tpl
@@ -876,8 +876,8 @@ impl Engine {
             }
         }
 
-        // folder-sync mappings targeting the deleted type go with it
-        // (SUB-71) — otherwise the next rescan feeds a ghost type
+        // folder-sync mappings targeting the deleted type go with it —
+        // otherwise the next rescan feeds a ghost type
         let mappings = read_folder_mappings(&self.root);
         let kept: Vec<FolderMapping> =
             mappings.iter().filter(|m| !folded_eq(m.db_type.trim(), db_type)).cloned().collect();
@@ -887,7 +887,7 @@ impl Engine {
                 return Ok(sweep);
             }
         }
-        // deleting the database unmounts the folder it stood for (SUB-888);
+        // deleting the database unmounts the folder it stood for;
         // the sidecars were this type's notes, so they went with the choice
         // the user already made above
         if let Err(e) = self.drop_mounts_named(db_type) {
@@ -897,19 +897,19 @@ impl Engine {
         Ok(sweep)
     }
 
-    /// Rename one property of a database (SUB-43): schema key move plus a
+    /// Rename one property of a database: schema key move plus a
     /// bulk frontmatter key rewrite across the type's notes. Notes already
     /// carrying the new key are left untouched (counted `skipped`) so a
     /// rename never clobbers existing values. A `group_by`/`table_group_by`
     /// view pref on the old name follows the rename, as does its
-    /// `aggregations` key (SUB-76) and every saved view of this database that
-    /// names the prop in its columns, sorts or grouping (SUB-632). A rollup
+    /// `aggregations` key and every saved view of this database that
+    /// names the prop in its columns, sorts or grouping. A rollup
     /// prop that follows the renamed relation retargets its `relation`
-    /// reference along (SUB-678), and every rollup — in any database — that
+    /// reference along, and every rollup — in any database — that
     /// reads the renamed prop through a relation pointing HERE retargets its
-    /// `prop` reference (SUB-740). Returns the sweep the note loop filled in —
+    /// `prop` reference. Returns the sweep the note loop filled in —
     /// a failure in the post-loop schema/views writes rides back as that
-    /// partial tally plus the error (SUB-663), never as an `Err` that would
+    /// partial tally plus the error, never as an `Err` that would
     /// hide the notes already rewritten.
     pub fn rename_prop(
         &mut self,
@@ -931,7 +931,7 @@ impl Engine {
         if new.eq_ignore_ascii_case("home") {
             return Err("“home” is reserved for the database home folder".into());
         }
-        // a mount's binding props are the engine's (SUB-888)
+        // a mount's binding props are the engine's
         self.check_binding_prop(db_type, new)?;
         let schema = self.schema();
         let schema_db = folded_hash_key(&schema, db_type);
@@ -957,7 +957,7 @@ impl Engine {
         let mut sweep = BulkSweep::default();
         for rel in self.notes_of_type(db_type) {
             // the has-key questions go to the write path's own view of the
-            // file, not to the index (SUB-565) — see `write_props`
+            // file, not to the index — see `write_props`
             let props = match self.write_props(&rel) {
                 Ok(Some(p)) => p,
                 Ok(None) => continue,
@@ -988,7 +988,7 @@ impl Engine {
         // remaining failure is reported through the sweep the loop above
         // fills in, never as an Err: a bare `?` here would tell the caller
         // the rename didn't happen and say nothing about the N notes that
-        // already carry the new key (SUB-663, same rule as SUB-545/SUB-554).
+        // already carry the new key (same rule as).
         let mut map = self.schema();
         let schema_db = folded_hash_key(&map, db_type).map(str::to_string);
         if let Some(props) =
@@ -998,7 +998,7 @@ impl Engine {
             if let Some(ps) = schema_old.as_deref().and_then(|key| props.remove(key)) {
                 props.insert(new.to_string(), ps);
             }
-            // a rollup (SUB-678) follows a relation prop of the SAME database
+            // a rollup follows a relation prop of the SAME database
             // by name — renaming that relation retargets the reference
             // (case-folded, the way the frontend resolves it).
             for ps in props.values_mut() {
@@ -1009,7 +1009,7 @@ impl Engine {
                 }
             }
         }
-        // …and a rollup's TARGET prop lives on the RELATED database (SUB-740):
+        // …and a rollup's TARGET prop lives on the RELATED database:
         // renaming a prop here retargets every rollup — in any database,
         // this one included via a self-relation — that reads it through a
         // relation pointing at `db_type`. Left dangling, such a rollup keeps
@@ -1064,7 +1064,7 @@ impl Engine {
                     pref.table_group_by = Some(new.to_string());
                     views_dirty = true;
                 }
-                // the aggregation key follows too (SUB-76), kind kept; an
+                // the aggregation key follows too, kind kept; an
                 // entry already at the new name wins — the value rewrite's
                 // never-clobber collision rule, mirrored for the footer
                 if let Some(aggs) = pref.aggregations.as_mut() {
@@ -1074,8 +1074,8 @@ impl Engine {
                         views_dirty = true;
                     }
                 }
-                // a remembered sort key and a hidden-column entry follow too
-                // (SUB-326) — a rename must not silently unsort or unhide
+                // a remembered sort key and a hidden-column entry follow too —
+                // a rename must not silently unsort or unhide
                 if let Some(sorts) = pref.sorts.as_mut() {
                     for s in sorts.iter_mut() {
                         if folded_eq(&s.key, old) {
@@ -1084,7 +1084,7 @@ impl Engine {
                         }
                     }
                 }
-                // the table drag order follows the rename too (SUB-949) — a
+                // the table drag order follows the rename too — a
                 // stale key would only drop the column back to its default slot
                 if let Some(order) = pref.col_order.as_mut() {
                     for c in order.iter_mut() {
@@ -1102,7 +1102,7 @@ impl Engine {
                         }
                     }
                 }
-                // per-layout hidden entries follow the rename too (SUB-642)
+                // per-layout hidden entries follow the rename too
                 if let Some(hpl) = pref.hidden_per_layout.as_mut() {
                     for set in [hpl.table.as_mut(), hpl.list.as_mut()].into_iter().flatten() {
                         for h in set.iter_mut() {
@@ -1113,8 +1113,8 @@ impl Engine {
                         }
                     }
                 }
-                // a remembered width and a wrap entry follow the rename too
-                // (SUB-404) — same never-clobber rule as the aggregation key
+                // a remembered width and a wrap entry follow the rename too —
+                // same never-clobber rule as the aggregation key
                 if let Some(widths) = pref.widths.as_mut() {
                     let actual = folded_btree_key(widths, old).map(str::to_string);
                     if let Some(w) = actual.as_deref().and_then(|key| widths.remove(key)) {
@@ -1135,7 +1135,7 @@ impl Engine {
                 }
             }
         }
-        // saved views carry their own copies of the same keys (SUB-632) — a
+        // saved views carry their own copies of the same keys — a
         // pin's query, curated columns, sort and grouping follow the rename too
         views_dirty |=
             Self::remap_saved_view_prop(&mut views, db_type, old, Some(new), old_is_number)?;
@@ -1148,16 +1148,16 @@ impl Engine {
         Ok(sweep)
     }
 
-    /// Clean one removed property out of database metadata (SUB-43), after
+    /// Clean one removed property out of database metadata, after
     /// the schema entry is already gone via `set_schema_prop`'s demote path.
     /// `strip_values` additionally performs the separately-confirmed value
     /// sweep; false is the safe schema-only lane when no values were observed.
     /// A `group_by`/`table_group_by` view pref on the prop clears with it, as
-    /// does its `aggregations` entry (SUB-76) and its place in every saved view
-    /// of the database (SUB-632). A note that fails to rewrite
-    /// stops the sweep and comes back as the partial count plus the error
-    /// (SUB-501), leaving the view pref untouched; a failed views write
-    /// after the loop reports the same way (SUB-663) rather than hiding
+    /// does its `aggregations` entry and its place in every saved view
+    /// of the database. A note that fails to rewrite
+    /// stops the sweep and comes back as the partial count plus the error,
+    /// leaving the view pref untouched; a failed views write
+    /// after the loop reports the same way rather than hiding
     /// the notes already stripped.
     pub fn clear_prop(
         &mut self,
@@ -1171,7 +1171,7 @@ impl Engine {
         let mut sweep = BulkSweep::default();
         if strip_values {
             for rel in self.notes_of_type(db_type) {
-                // strict, from disk, for the SUB-565 reason in `write_props`
+                // strict, from disk, for the reason in `write_props`
                 let props = match self.write_props(&rel) {
                     Ok(Some(p)) => p,
                     Ok(None) => continue,
@@ -1196,7 +1196,7 @@ impl Engine {
         // remaining failure is reported through the sweep the loop above
         // fills in, never as an Err: a bare `?` here would tell the caller
         // the clear didn't happen and say nothing about the N notes that
-        // already lost the key (SUB-663, same rule as SUB-545/SUB-554).
+        // already lost the key (same rule as).
         let mut views = self.views_file();
         let mut views_dirty = false;
         let views_db = folded_prop_key(&views, db_type).map(str::to_string);
@@ -1210,7 +1210,7 @@ impl Engine {
                     pref.table_group_by = None;
                     views_dirty = true;
                 }
-                // the prop's aggregation drops with it (SUB-76); an emptied
+                // the prop's aggregation drops with it; an emptied
                 // map collapses to None so the key vanishes from the file
                 if let Some(mut aggs) = pref.aggregations.take() {
                     let actual = folded_btree_key(&aggs, prop).map(str::to_string);
@@ -1219,8 +1219,8 @@ impl Engine {
                     }
                     pref.aggregations = if aggs.is_empty() { None } else { Some(aggs) };
                 }
-                // a sort keyed on the prop and its hidden entry drop with it
-                // (SUB-326); emptied lists collapse to None like the map above
+                // a sort keyed on the prop and its hidden entry drop with it;
+                // emptied lists collapse to None like the map above
                 if let Some(sorts) = pref.sorts.take() {
                     let before = sorts.len();
                     let kept: Vec<SavedViewSort> =
@@ -1230,7 +1230,7 @@ impl Engine {
                     }
                     pref.sorts = if kept.is_empty() { None } else { Some(kept) };
                 }
-                // the prop drops out of the table drag order too (SUB-949);
+                // the prop drops out of the table drag order too;
                 // an emptied order collapses to None like the lists above
                 if let Some(order) = pref.col_order.take() {
                     let before = order.len();
@@ -1250,7 +1250,7 @@ impl Engine {
                     }
                     pref.hidden = if kept.is_empty() { None } else { Some(kept) };
                 }
-                // the prop's per-layout hidden entries drop with it (SUB-642);
+                // the prop's per-layout hidden entries drop with it;
                 // emptied sets collapse to None, both-empty drops the object
                 if let Some(mut hpl) = pref.hidden_per_layout.take() {
                     for set in [&mut hpl.table, &mut hpl.list] {
@@ -1267,7 +1267,7 @@ impl Engine {
                     pref.hidden_per_layout =
                         if hpl.table.is_none() && hpl.list.is_none() { None } else { Some(hpl) };
                 }
-                // the prop's width and wrap entries drop with it (SUB-404)
+                // the prop's width and wrap entries drop with it
                 if let Some(mut widths) = pref.widths.take() {
                     let actual = folded_btree_key(&widths, prop).map(str::to_string);
                     if actual.as_deref().and_then(|key| widths.remove(key)).is_some() {
@@ -1289,8 +1289,8 @@ impl Engine {
                 }
             }
         }
-        // the cleared key drops out of every saved view of this database too
-        // (SUB-632), same contract as the pref above
+        // the cleared key drops out of every saved view of this database too,
+        // same contract as the pref above
         // Schema removal and this separately-confirmed value sweep are two
         // IPC calls. The caller carries the former number kind across that
         // gap so `price > 500` is recognized without mistaking a text
@@ -1736,7 +1736,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-781: deleting a database used to `remove_file` its template — the
+    /// Deleting a database used to `remove_file` its template — the
     /// one user-authored file in the vault a delete destroyed outright. It now
     /// rides the trash like everything else, and restores back into
     /// `.vault/templates/`.
@@ -2017,7 +2017,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-76: aggregation keys ride along on rename, drop on clear.
+    /// Aggregation keys ride along on rename, drop on clear.
     #[test]
     fn rename_prop_moves_aggregation_keys() {
         let (mut e, dir) = temp_vault("rpagg");
@@ -2486,7 +2486,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-632: saved views live in the `$views` slot, outside the per-db
+    /// Saved views live in the `$views` slot, outside the per-db
     /// ViewPref the rename already patched — their columns, sorts and grouping
     /// have to follow the rename too, or a pin silently loses its curation.
     #[test]
@@ -2536,7 +2536,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-632, clear half: the cleared key drops out of saved views without
+    /// Clear half: the cleared key drops out of saved views without
     /// taking the rest of the curation with it.
     #[test]
     fn clear_prop_drops_the_key_from_saved_views() {
@@ -2584,7 +2584,7 @@ mod tests {
 
     #[test]
     fn rename_prop_reports_partial_count_when_a_note_fails() {
-        // SUB-501: the sweep used to `?` out and the whole IPC call rejected,
+        // The sweep used to `?` out and the whole IPC call rejected,
         // so the user saw the error and never learned that some notes had
         // already been rewritten.
         let (mut e, dir) = vault_with_poisoned_note("rp-partial");
@@ -2678,7 +2678,7 @@ mod tests {
 
     #[test]
     fn prop_sweeps_reach_a_note_the_index_is_merely_stale_about() {
-        // the other half of dropping the index pre-filter (SUB-565): a note
+        // the other half of dropping the index pre-filter: a note
         // whose frontmatter is perfectly healthy on disk but gained the key
         // after indexing gets swept now instead of silently passed over.
         let (mut e, dir) = temp_vault("stale-ok");
@@ -2808,7 +2808,7 @@ mod tests {
         assert_eq!(map["release"].props["contract"].kind.as_deref(), Some("file"));
         assert_eq!(e.schema()["release"].props.len(), 2, "persisted across reads");
 
-        // url kind (SUB-172) flows like date/file: persists, options and
+        // url kind flows like date/file: persists, options and
         // notify (date-only) drop, the value stays the plain URL string
         let map = e
             .set_schema_prop(
@@ -2830,7 +2830,7 @@ mod tests {
         assert!(!ps.notify, "notify sticks to date-kind props only");
         assert_eq!(ps.target, None);
 
-        // email/phone kinds (SUB-181) flow the same way: the value stays the
+        // email/phone kinds flow the same way: the value stays the
         // plain string as typed, options and notify drop, no target
         let map = e
             .set_schema_prop(
@@ -2867,7 +2867,7 @@ mod tests {
             .unwrap();
         assert_eq!(map["contact"].props["phone"].kind.as_deref(), Some("phone"));
 
-        // checkbox kind (SUB-173) flows the same way: options drop, notify
+        // checkbox kind flows the same way: options drop, notify
         // stays date-only, no target — the value is the YAML scalar `true`
         // when checked, absent when unchecked
         let map = e
@@ -2890,7 +2890,7 @@ mod tests {
         assert!(!ps.notify, "notify sticks to date-kind props only");
         assert_eq!(ps.target, None);
 
-        // number kind (SUB-188): options/notify/target drop like the other
+        // number kind: options/notify/target drop like the other
         // no-option kinds; the display format persists — validated on write,
         // `plain` stores as absent, a format on a non-number kind drops
         let map = e
@@ -2982,7 +2982,7 @@ mod tests {
             map["release"].props["status"].format, None,
             "format drops off number-kind props"
         );
-        // (SUB-834 widened this: "usd" is now a UNIT format and saves as
+        // (this widened later: "usd" is now a UNIT format and saves as
         // "USD". A format naming no unit and no display shape is still
         // refused.)
         assert!(e
@@ -3000,7 +3000,7 @@ mod tests {
             )
             .is_err());
 
-        // description (SUB-191): valid on ANY kind — a kindless select prop
+        // description: valid on ANY kind — a kindless select prop
         // keeps it (unlike format, never dropped by kind); trimmed on write,
         // empty stores as absent
         let map = e
@@ -3159,7 +3159,7 @@ mod tests {
                 "{code} resolves case-insensitively and stores canonically"
             );
         }
-        // the display shapes stay in the vocabulary forever (SUB-188/196);
+        // the display shapes stay in the vocabulary forever;
         // `plain` is the ABSENCE of a format, not a format
         assert_eq!(canonical_number_format("euro"), Some("euro"));
         assert_eq!(canonical_number_format("percent"), Some("percent"));
@@ -3171,7 +3171,7 @@ mod tests {
         assert_eq!(canonical_number_format(""), None);
     }
 
-    /// A number column may carry a unit (SUB-834): `format: USD` writes as
+    /// A number column may carry a unit: `format: USD` writes as
     /// readily as `euro` did, canonicalized, and `euro`/`percent` still
     /// roundtrip untouched so existing vaults don't break.
     #[test]
@@ -3384,7 +3384,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-842: the lead-time field normalizes like `notify` — date-kind
+    /// The lead-time field normalizes like `notify` — date-kind
     /// only, `Some(0)` clears, a year is the ceiling, and an absent arg
     /// keeps whatever is stored.
     #[test]
@@ -3489,7 +3489,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-842 + SUB-433: a stored lead time and a newer app's unknown key
+    /// A stored lead time and a newer app's unknown key
     /// both survive a rewrite driven by an older-shaped call.
     #[test]
     fn notify_before_and_unknown_keys_survive_a_rewrite() {
@@ -3779,7 +3779,7 @@ mod tests {
 
     #[test]
     fn schema_home_refuses_a_folder_homing_another_db() {
-        // SUB-407: the sidebar tree renders a folder as at most one
+        // The sidebar tree renders a folder as at most one
         // database — a second claimant is refused, not silently shadowed
         let (e, dir) = temp_vault("schemahomeclash");
         e.set_schema_home("task", Some("Areas/Work".into())).unwrap();
@@ -3911,8 +3911,8 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-545: `delete_type` already reports a partial sweep when a note
-    /// fails (SUB-501) — the schema/views writes after the loop bypassed it
+    /// `delete_type` already reports a partial sweep when a note
+    /// fails — the schema/views writes after the loop bypassed it
     /// with a bare `?`, so N notes could move to the Trash while the user was
     /// told only that the database wasn't removed.
     #[test]
@@ -3930,7 +3930,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-554: the same shape one function up. `rename_type` retypes every
+    /// The same shape one function up. `rename_type` retypes every
     /// note first and only then moves the schema key — a bare `?` on that
     /// write told the user the database was untouched while N notes on disk
     /// already carried the new type.
@@ -3951,7 +3951,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-678: a rollup prop stores its wiring (relation/prop/agg) in the
+    /// A rollup prop stores its wiring (relation/prop/agg) in the
     /// schema entry and reads it back; the value itself is derived on read
     /// and never lands anywhere.
     #[test]
@@ -4077,7 +4077,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-678: create_type can't wire a rollup (no relation/prop/agg
+    /// Create_type can't wire a rollup (no relation/prop/agg
     /// channels) — it is refused rather than stored half-configured.
     #[test]
     fn create_type_refuses_a_rollup_initial_prop() {
@@ -4086,11 +4086,11 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-678: renaming the relation a rollup follows retargets the
+    /// Renaming the relation a rollup follows retargets the
     /// rollup's `relation` reference (same database, case-folded); renaming
     /// the rollup itself moves its schema entry like any prop. Renaming the
     /// followed relation leaves the target prop (which lives on the RELATED
-    /// database) alone — that direction is SUB-740's sweep.
+    /// database) alone — that direction is the sweep.
     #[test]
     fn rename_prop_retargets_rollup_relation() {
         let (mut e, dir) = temp_vault("rolluprename");
@@ -4143,7 +4143,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-740: renaming a prop on the RELATED database retargets the `prop`
+    /// Renaming a prop on the RELATED database retargets the `prop`
     /// reference of every rollup that reads it through a relation pointing at
     /// that database — case-folded like the evaluator. A rollup whose relation
     /// targets some OTHER database keeps its reference even when the renamed
@@ -4252,7 +4252,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-740: a self-relation is the same-database case of cross-db
+    /// A self-relation is the same-database case of cross-db
     /// retargeting — renaming the prop moves both the schema key and every
     /// rollup reference that reads it through the self-relation.
     #[test]
@@ -4315,7 +4315,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-678 + SUB-433: an unknown key on a rollup entry rides `extra`
+    /// An unknown key on a rollup entry rides `extra`
     /// through a rewrite — the forward-compat channel that lets an older
     /// build round-trip the rollup fields themselves.
     #[test]
@@ -4355,7 +4355,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-663: `rename_prop` rewrites every note first and only then moves
+    /// `rename_prop` rewrites every note first and only then moves
     /// the schema key — a bare `?` on that write told the user the rename
     /// failed while N notes on disk already carried the new key, and the
     /// tally of them was thrown away.
@@ -4394,7 +4394,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-663: same shape in `clear_prop` — the notes lose the key in the
+    /// Same shape in `clear_prop` — the notes lose the key in the
     /// sweep loop, then the guarded views write (the pref referenced the
     /// stripped prop, so `views_dirty` is set) refuses and the partial
     /// tally must still come back instead of an Err.

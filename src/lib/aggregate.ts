@@ -16,12 +16,12 @@ import { convert, formatQuantity, parseQuantity, resolveUnit, sameDimension } fr
 // that way: a `const` arrow exported across this seam and called from the
 // other module's top level would land in the TDZ.
 
-/** Table-footer aggregations (SUB-74): Notion-style "Calculate" over the
+/** Table-footer aggregations: Notion-style "Calculate" over the
     visible rows of one column. Cell values are strings (props are strings) —
     sum/avg/min/max parse strictly (`parseStrictNumber`) and skip non-numeric
     cells; count counts non-empty strings. */
 
-/** The one numeric coercion for cell strings (SUB-221), shared by the footer
+/** The one numeric coercion for cell strings, shared by the footer
     aggregates, the formula engine and sheet cell typing: a decimal integer
     or float with an optional sign — nothing else. Bare `Number()` also
     accepts hex ("0x10"), binary ("0b101"), octal, exponents ("1e3") and
@@ -34,7 +34,7 @@ export function parseStrictNumber(s: string): number | null {
   return Number(t);
 }
 
-/* Locale-typed number input (SUB-636, made locale-aware in SUB-1092). Display
+/* Locale-typed number input, made locale-aware. Display
    goes through the number-locale dial ("1.234,56 €" in de-DE, "1,234.56" in
    en-US, "1'234.56" in de-CH…), but storage and every parser here are
    canonical dot-decimal — so text typed back in the app's OWN dialect would
@@ -43,7 +43,7 @@ export function parseStrictNumber(s: string): number | null {
    matches no parser, so aggregates skip the row while count counts it). These
    normalize typed text at the commit boundary; YAML stays canonical.
 
-   Before SUB-1092 the grammar was hardwired German, which moved the same bug
+   Before the number-locale dial the grammar was hardwired German, which moved the same bug
    onto every other dial position: under en-US the app rendered 1234 as
    "1,234" and read that back as 1.234, and "1'234"/"1 234,56" were NaN.
 
@@ -140,7 +140,7 @@ export function aggregate(kind: AggKind, values: string[]): number | null {
   }
 }
 
-/** A column's format as a unit code (SUB-834), or null when the column is
+/** A column's format as a unit code, or null when the column is
     unitless (`plain`, absent, or a format naming no unit we know — an
     unreadable format never invents a unit). `euro` and `percent` are the two
     historical spellings every existing vault carries on disk; they resolve to
@@ -152,7 +152,7 @@ export function formatUnit(format: NumberFormat | undefined): string | null {
   return resolveUnit(format)?.code ?? null;
 }
 
-/** What a unit-aware aggregate did (SUB-834). `value` is the aggregation in
+/** What a unit-aware aggregate did. `value` is the aggregation in
     the column's own unit — null when nothing fed it, exactly like
     `aggregate`. `converted` names the foreign units that were converted into
     it, sorted, so the footer can mark the figure instead of quietly mixing
@@ -165,7 +165,7 @@ export interface UnitAgg {
   skipped: string[];
 }
 
-/** One cell as a number in `unit` (SUB-834), with the foreign unit it came
+/** One cell as a number in `unit`, with the foreign unit it came
     from when a conversion happened.
 
     A cell carrying a unit routes through units.ts; EVERYTHING ELSE keeps the
@@ -191,7 +191,7 @@ export function cellInUnit(
   return isErr(c) ? { n: null, from: q.unit } : { n: c, from: q.unit };
 }
 
-/** Unit-aware column aggregation (SUB-834): `aggregate` for a column that
+/** Unit-aware column aggregation: `aggregate` for a column that
     carries a unit. Same-dimension cells in a foreign unit are converted into
     the column's unit and counted; incompatible or rate-less ones are skipped
     exactly as non-numeric text already is, and named in `skipped` so the
@@ -236,7 +236,7 @@ export function aggregateUnits(
   }
 }
 
-/** The footer marker's hover text (SUB-834): what a mixed-unit aggregation
+/** The footer marker's hover text: what a mixed-unit aggregation
     actually did, so a converted figure never passes for a plain total. null
     when the figure needs no marker — nothing converted and nothing skipped,
     which is every unitless column and every column whose rows all share the
@@ -283,7 +283,7 @@ export function aggregateColumns(
   );
 }
 
-/** `aggregateColumns` for unit-aware columns (SUB-834): each column folds in
+/** `aggregateColumns` for unit-aware columns: each column folds in
     its own unit (`unitFor`, from the column's schema format) and reports what
     the conversion cost, so the footer can mark a mixed figure. A column with
     no unit comes back as the plain aggregation with empty marker lists. */
@@ -312,19 +312,19 @@ export function updateAggregation(
   return next;
 }
 
-/** Display form (SUB-245): the dial's grouping with at most 2 decimals
+/** Display form: the dial's grouping with at most 2 decimals
     ("1.234,5" in de-DE, "1,234.5" in en-US), honoring the column's
     NumberFormat like the cells do
     (display.ts formatNumber) — euro appends " €", percent " %", plain and
-    schema-less columns stay bare. Since SUB-834 any units.ts code does the
+    schema-less columns stay bare. Any units.ts code does the
     same through the unit's own suffix ("1.234,5 kg", "128 BPM"); euro and
     percent still route through EUR and % and still render byte-identically.
     Count stays a plain integer: rows counted in a euro column are not euros.
     The pre-round kills float noise (0.1 + 0.2 → "0,3"); `|| 0` normalizes -0.
 
-    `locale` picks the number dialect. It arrived in SUB-834 as a two-value
+    `locale` picks the number dialect. It arrived as a two-value
     "de"/"intl" flag and became a full BCP-47 tag from NUMBER_LOCALES in
-    SUB-1092; it still defaults to DEFAULT_NUMBER_LOCALE, so a call site that
+    the number-locale switch; it still defaults to DEFAULT_NUMBER_LOCALE, so a call site that
     threads nothing renders exactly as it always did. */
 export function formatAgg(
   n: number,

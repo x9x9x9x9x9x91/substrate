@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-749: a binding whose property vanished names it. Renaming a sheet column
+// A binding whose property vanished names it. Renaming a sheet column
 // rewrites the sheet's own formulas, but a chart fence in ANOTHER note keeps
 // pointing at the old name — every row then skips for the same absent column
 // and the chart used to read the generic "No rows matched — check the source

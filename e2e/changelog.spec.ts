@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-452: the in-app release history. The button lives beside the info-view
+// The in-app release history. The button lives beside the info-view
 // ? in the lower-left cluster; the pane is read-only and vault-free.
 
 test.beforeEach(async ({ page }) => {
@@ -19,7 +19,7 @@ test("the changelog button sits next to the info-view ? and opens the pane", asy
 
   await button.click();
   await expect(page.locator(".dash-title")).toHaveText("What's new");
-  // SUB-682: the "substrate / changelog" kicker is gone — the title carries it
+  // The "substrate / changelog" kicker is gone — the title carries it
   await expect(page.locator(".dash-kicker")).toHaveCount(0);
 });
 
@@ -48,14 +48,14 @@ test("a release leads with its headline and groups the rest by kind (SUB-817)", 
 
   // the newest release (0.19.0+) always flags a headline; it renders before
   // the kind groups, under a "Highlights" label matching the generated
-  // CHANGELOG.md (SUB-938)
+  // CHANGELOG.md
   const first = page.locator(".chlog-release").first();
   await expect(first.locator(".chlog-highlights-label")).toHaveText("Highlights");
   await expect(first.locator(".chlog-headline")).not.toHaveCount(0);
   await expect(first.locator(".chlog-headline-text").first()).not.toBeEmpty();
 
   // group labels carry the New/Improved/Fixed word alone — no dot; a dotted
-  // label read as a bullet peer of the dotted headlines (SUB-866)
+  // label read as a bullet peer of the dotted headlines
   const labels = first.locator(".chlog-group-label");
   await expect(labels).not.toHaveCount(0);
   const texts = await labels.allTextContents();
@@ -67,8 +67,8 @@ test("a release leads with its headline and groups the rest by kind (SUB-817)", 
   for (let i = 1; i < texts.length; i++) {
     expect(rank(texts[i])).toBeGreaterThan(rank(texts[i - 1]));
   }
-  // the kind mark (✦, SUB-938 — was a dot) lives on headline rows only;
-  // labels and items stay unmarked (SUB-866)
+  // the kind mark (✦ — was a dot) lives on headline rows only;
+  // labels and items stay unmarked
   await expect(first.locator(".chlog-group-label .dash-dot")).toHaveCount(0);
   await expect(first.locator(".chlog-item .dash-dot")).toHaveCount(0);
   await expect(first.locator(".chlog-headline .dash-dot")).toHaveCount(0);

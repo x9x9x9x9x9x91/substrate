@@ -1,7 +1,7 @@
 import { test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// Throwaway evidence run for the SUB-816 taste gate — not a gate itself.
+// Throwaway evidence run for the taste gate — not a gate itself.
 //   SHOTS=1 npx playwright test e2e/onesheetshots.spec.ts
 // Renders the designed templates to real PDFs (page.pdf applies the
 // @media print rules) so the layout can be judged as the artifact it

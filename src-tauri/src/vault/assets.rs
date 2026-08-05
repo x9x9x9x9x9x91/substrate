@@ -1,7 +1,7 @@
 //! Attachments: the `.assets/` folder behind `![[embeds]]` — saving, importing,
 //! linking, reading, exporting a note with its assets, and the orphan sweep.
 //!
-//! Split out of `vault.rs` (SUB-692). Names are claimed rather than
+//! Split out of `vault.rs`. Names are claimed rather than
 //! overwritten: a second `bounce.wav` lands as `bounce 2.wav`, so an embed
 //! that already points somewhere never silently changes what it points at.
 
@@ -86,8 +86,8 @@ impl Engine {
 
     /// Copy a file that already lives on disk (drag-drop gives us its path)
     /// into `.assets/` — bytes never cross the IPC bridge, so master-sized
-    /// audio imports stay cheap. The copy goes through [`copy_atomic`]
-    /// (SUB-781): a crash mid-copy would otherwise leave a truncated file
+    /// audio imports stay cheap. The copy goes through [`copy_atomic`]:
+    /// a crash mid-copy would otherwise leave a truncated file
     /// under a claimed name that embeds already point at.
     pub fn import_asset(&self, src: &str) -> Result<String, String> {
         let src = Path::new(src);
@@ -103,7 +103,7 @@ impl Engine {
         Ok(filename)
     }
 
-    /// Resolve a dropped path into a link-in-place embed target (SUB-438,
+    /// Resolve a dropped path into a link-in-place embed target (
     /// ⇧-drop): validates it names a file and returns the `~/`-contracted
     /// form — nothing is copied; `asset_info` streams it from where it lives.
     /// The embed grammar can't hold `[`/`]`, so such paths are refused.
@@ -152,7 +152,7 @@ impl Engine {
     /// `![[...]]` asset it embeds, copied into `dest_dir/.assets/` so the
     /// embeds still resolve. Link-in-place embeds (absolute or `~/` paths)
     /// stay links and are never copied. Returns how many assets came along.
-    /// Every file lands temp+rename (SUB-791), so a crash mid-export leaves an
+    /// Every file lands temp+rename, so a crash mid-export leaves an
     /// invisible `.tmp-<pid>-<seq>` behind instead of a truncated note or asset
     /// under its final name — the same contract vault-internal writes get.
     pub fn export_note_bundle(&self, rel: &str, dest_dir: &str) -> Result<usize, String> {
@@ -217,7 +217,7 @@ impl Engine {
             };
             // an embed written inside a fence or `span` is an example of the
             // syntax, not a live reference — it must not keep an asset alive
-            // (SUB-495; doctor's embed scan skips the same ones)
+            // (doctor's embed scan skips the same ones)
             let code = code_ranges(&body);
             for m in embed_re.captures_iter(&body) {
                 let at = m.get(0).unwrap();
@@ -226,7 +226,7 @@ impl Engine {
                 }
                 // a display modifier is a hint, not part of the name — an
                 // asset embedded as `![[cover.png|300]]` is still in use
-                // (SUB-1102)
+                //
                 referenced.insert(embed_target(&m[1]).to_lowercase());
             }
         }
@@ -256,7 +256,7 @@ impl Engine {
     }
 
     /// Delete `.assets/` files by bare name, once the user confirms in the
-    /// Assets pane — into the trash, never unlinked (SUB-479). Each named file
+    /// Assets pane — into the trash, never unlinked. Each named file
     /// moves to `.trash/<deleted_ms>/.assets/<name>`, listing and restoring
     /// like a note does; history still never tracks assets, so the trash is
     /// their only recovery surface. Each file lists and restores on its own, so
@@ -264,8 +264,8 @@ impl Engine {
     /// land in the same millisecond — never required. Missing names are tolerated
     /// (a stale sweep result, not an attack); traversal attempts are not.
     ///
-    /// Returns one entry per input name, in order, the way `trash_many` does
-    /// (SUB-669): `Ok(trash id)` for a file that moved, `Ok("")` for a name that
+    /// Returns one entry per input name, in order, the way `trash_many` does:
+    /// `Ok(trash id)` for a file that moved, `Ok("")` for a name that
     /// was already gone, `Err(message)` for one that could not be moved. A bare
     /// `?` per file used to discard the tally of everything already renamed into
     /// the trash, so a partial failure reported no count and no names; keeping
@@ -378,7 +378,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-781: the import copy is atomic. A failure mid-copy must leave the
+    /// The import copy is atomic. A failure mid-copy must leave the
     /// claimed name absent (an embed pointing at it would otherwise resolve to
     /// a truncated file) and no `.tmp-<pid>-<seq>` litter behind.
     #[test]
@@ -544,7 +544,7 @@ mod tests {
     #[test]
     fn embed_display_modifiers_keep_their_asset_alive_and_travel_in_bundles() {
         use base64::Engine as _;
-        // SUB-1102: `![[cover.png|300]]` is a sized cover.png. The sweep used
+        // `![[cover.png|300]]` is a sized cover.png. The sweep used
         // to see a reference to `cover.png|300`, match no file, and offer the
         // live cover for deletion; the export bundle left it behind.
         let (mut e, dir) = temp_vault("orphan-modifier");
@@ -606,7 +606,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-669: a file that cannot be moved must not discard the outcome of the
+    /// A file that cannot be moved must not discard the outcome of the
     /// ones already trashed. `two.png` is pinned immutable, so its rename — and
     /// only its rename — fails mid-loop; the names on either side of it must
     /// still come back with their trash ids.
@@ -641,7 +641,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-479: deleting an asset moves it to `.trash/<ms>/.assets/<name>`,
+    /// Deleting an asset moves it to `.trash/<ms>/.assets/<name>`,
     /// where it lists as an asset entry and restores with its bytes intact.
     #[test]
     fn assets_delete_trashes_and_restores_with_content() {

@@ -1,9 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-326: property visibility + per-database sort memory. Both persist on
+// Property visibility + per-database sort memory. Both persist on
 // the database's ViewPref (views.json in the real engine, mockViews here),
-// so they survive navigating to another page and back — unlike the SUB-212
+// so they survive navigating to another page and back — unlike the
 // pin curation, which stays a saved-view capture. Runs against the
 // deterministic mock backend (fresh page = fresh vault).
 
@@ -81,7 +81,7 @@ test("column visibility is per-layout: the table and the list curate independent
   await page.keyboard.press("Escape");
 
   // the LIST keeps its own memory: subtitles still read the notable set —
-  // cat# included — not the table's curated N-1 prop list (pre-SUB-642 the
+  // cat# included — not the table's curated N-1 prop list (pre-change the
   // subtitle would have flipped to every shown prop, released/format and all)
   await page.locator("button[aria-label='List']").click();
   const slowBloom = page.locator(".db-list .row[aria-label='Slow Bloom EP']");
@@ -119,7 +119,7 @@ test("a header sort persists across pages and is captured by Save view", async (
   await expect(nameHead.locator(".db-sort")).toHaveText("↓");
   const firstTitle = await page.locator(".db-table tbody tr .db-title").first().textContent();
 
-  // navigate away and back: the sort survives (SUB-326 — it used to reset)
+  // navigate away and back: the sort survives (it used to reset)
   await page.locator(".side-item", { hasText: "All notes" }).click();
   await openRelease(page);
   await expect(nameHead.locator(".db-sort")).toHaveText("↓");

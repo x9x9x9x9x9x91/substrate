@@ -15,7 +15,7 @@ pub(crate) fn temp_vault(name: &str) -> (Engine, PathBuf) {
 }
 
 /// Make every versioned-config write refuse, the way a synced vault whose
-/// other machine upgraded first does (SUB-433). The three tests below use
+/// other machine upgraded first does. The three tests below use
 /// it to hold the line that a durable filesystem move never depends on a
 /// config write that runs after it.
 pub(crate) fn refuse_config_writes(root: &Path) {
@@ -69,7 +69,7 @@ pub(crate) fn vault_with_poisoned_note(name: &str) -> (Engine, PathBuf) {
     (e, dir)
 }
 
-/// SUB-565: a note the index knows as typed, whose frontmatter on disk
+/// A note the index knows as typed, whose frontmatter on disk
 /// went bad AFTER that index entry was built and which carries the sweep's
 /// target key only in the broken block. The lenient index says "no such
 /// key", the strict write path would refuse — so a pre-filter on the index

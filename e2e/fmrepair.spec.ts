@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-430: a malformed frontmatter block is invisible to read() (stripped)
-// while every prop edit refuses on it (SUB-215) — the repair surface makes
+// A malformed frontmatter block is invisible to read() (stripped)
+// while every prop edit refuses on it — the repair surface makes
 // the block visible and fixable in-app. Seeded mock note:
 // Repair/Broken frontmatter.md (duplicate `status` key, src/lib/tauri.ts).
 
@@ -41,7 +41,7 @@ test("broken frontmatter: banner → repair dialog → clean save unblocks prop 
   await expect(banner).toHaveCount(0);
   await expect(page.locator(".prop-row", { hasText: "status" })).toContainText("review");
 
-  // and the SUB-215 refusal is gone — a property edit succeeds
+  // and the refusal is gone — a property edit succeeds
   await page.locator('button[aria-label="Add property"]').click();
   const chip = page.locator(".chip-input");
   await chip.fill("mood: repaired");
@@ -50,7 +50,7 @@ test("broken frontmatter: banner → repair dialog → clean save unblocks prop 
   await expect(page.locator(".save-error")).toHaveCount(0);
 });
 
-// SUB-552: an opening `---` that never closes reads as "no frontmatter" —
+// An opening `---` that never closes reads as "no frontmatter" —
 // the whole file is body text. Prop edits still refuse (writing one would
 // serialize a fresh block on top and demote every property to text), so the
 // banner has to say why, and it points at the editor rather than offering a

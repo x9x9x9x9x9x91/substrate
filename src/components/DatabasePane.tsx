@@ -92,15 +92,15 @@ interface DatabasePaneProps {
   dbType: string;
   /** the database's own rows (a saved view's subset when pinned) */
   notes: NoteMeta[];
-  /** every vault note (SUB-678: a rollup's linked rows live in other
+  /** every vault note (a rollup's linked rows live in other
       databases — the derivation reads them from here) */
   allNotes: NoteMeta[];
   pref: ViewPref | undefined;
   typeSchema: Record<string, PropSchema>;
-  /** the whole vault schema (SUB-678: the rollup schema editor lists the
+  /** the whole vault schema (the rollup schema editor lists the
       related database's props from it) */
   schema: SchemaConfig;
-  /** the database's icon (SUB-27); clicking the header icon edits it */
+  /** the database's icon; clicking the header icon edits it */
   icon?: DbIcon;
   onSaveIcon: (icon: DbIcon | null) => void;
   usedValues: (key: string) => string[];
@@ -116,40 +116,40 @@ interface DatabasePaneProps {
   newSignal: number;
   /** App points this at the current view's CSV export so the palette can call it */
   exportRef?: React.MutableRefObject<(() => void) | null>;
-  /** the global `db-grid` setting (SUB-607) — what tables do when this
+  /** the global `db-grid` setting — what tables do when this
       database's pref carries no `grid` override of its own */
   gridDefault: boolean;
-  /** App-wide numeric display dialect (SUB-834). */
+  /** App-wide numeric display dialect. */
   numberLocale?: NumberLocale;
   onPrefChange: (pref: ViewPref) => void;
   onOpenNote: (path: string) => void;
-  /** right-click on any row/card — App's note context menu (SUB-108) */
+  /** right-click on any row/card — App's note context menu */
   onNoteMenu: (path: string, x: number, y: number) => void;
-  /** SUB-272: the table bulk bar's Move to Trash — App owns the per-note
+  /** The table bulk bar's Move to Trash — App owns the per-note
       fan-out, the one refresh, and the summary toast with Undo */
   onTrashNotes: (paths: string[]) => void;
   onMutated: () => void;
-  /** saved-view seeds (SUB-18): the pane opens with the pin's query;
+  /** saved-view seeds: the pane opens with the pin's query;
       edits stay session-local until re-saved. The pin's sort arrives on
-      `pref.sorts` (SUB-326) — same channel as a database's remembered sort. */
+      `pref.sorts` — same channel as a database's remembered sort. */
   initialQuery?: string;
-  /** SUB-212: the pin's curated display columns — a seed like initialQuery;
+  /** The pin's curated display columns — a seed like initialQuery;
       absent = the dbColumns union. Toggles stay session-local unless App
       also wires onColumnsChange (it does when a pin is open) */
   initialColumns?: string[];
-  /** SUB-212: persist the open pin's column curation; `undefined` restores
+  /** Persist the open pin's column curation; `undefined` restores
       the default union. Fires on every Columns-popover toggle */
   onColumnsChange?: (columns: string[] | undefined) => void;
   /** prefill for the save-view name field (the open pin's name) */
   saveViewSeed?: string;
   /** "Save view…" capture: current filter text, ordered sort keys,
       effective layout, and the curated columns when they differ from the
-      default union (SUB-212) */
+      default union */
   onSaveView: (
     name: string,
     capture: { query: string; sorts: SavedViewSort[]; view: DbLayout; groupBy?: string; tableGroupBy?: string; columns?: string[] }
   ) => void;
-  /* SUB-160: the view tab bar — this db's pins (App filters), the open pin's
+  /* The view tab bar — this db's pins (App filters), the open pin's
      id for the active tab, the two tab actions (open / context menu — App
      owns the menu's items), and the "All" tab's way back to the plain db
      from inside a pin */
@@ -157,7 +157,7 @@ interface DatabasePaneProps {
   activeViewId?: string;
   onOpenView: (id: string) => void;
   onViewMenu: (id: string, x: number, y: number) => void;
-  /** SUB-677: pin id → its ⌘-digit keycap ("⌘5"…"⌘9"), from App's pinIds —
+  /** Pin id → its ⌘-digit keycap ("⌘5"…"⌘9"), from App's pinIds —
       the same order the view-pins shortcut fires on. Only pins with a live
       shortcut have an entry; unpinned tabs render exactly as before. Empty
       on mobile, where no ⌘ exists. */
@@ -165,27 +165,27 @@ interface DatabasePaneProps {
   /** the "All" tab leaves the open pin for its database (App only wires this
       on the saved-view pane; on a plain db the tab is already active) */
   onOpenDb?: () => void;
-  /* SUB-43 database management — App owns the dialogs and the sweeps */
+  /* Database management — App owns the dialogs and the sweeps */
   onRenameDb: () => void;
   onDeleteDb: () => void;
   onRenameProp: (prop: string) => void;
   onRemoveProp: (prop: string) => void;
-  /** SUB-234: App's toast — a created entry the active filter still hides
-      announces itself instead of vanishing silently; SUB-273: the optional
+  /** App's toast — a created entry the active filter still hides
+      announces itself instead of vanishing silently; the optional
       action carries Undo after a board drag move */
   onToast?: (msg: string, action?: { label: string; run: () => void }) => void;
-  /** SUB-888: a mounted folder's rows write through `mount_annotate` — the
+  /** A mounted folder's rows write through `mount_annotate` — the
       row's note may not exist until the write creates it. Absent everywhere
       else, where a plain vaultSetProp is exactly right. */
   writeProp?: PropWriter;
 }
 
-/** SUB-945: how long a just-written cell stays lit. Matches the cell-flash
+/** How long a just-written cell stays lit. Matches the cell-flash
     keyframe in styles.css — long enough to catch out of the corner of an eye,
     short enough that it is gone before the next edit. */
 const CELL_FLASH_MS = 700;
 
-/** SUB-1166: the empty "these notes refused the write" map, shared so a reset
+/** The empty "these notes refused the write" map, shared so a reset
     is referentially stable (same trick as EMPTY_SEL). */
 const EMPTY_FAILED: ReadonlyMap<string, string> = new Map();
 
@@ -233,7 +233,7 @@ export default function DatabasePane({
 }: DatabasePaneProps) {
   const undo = useUndo();
   const anchorStaleScope = useId();
-  // SUB-946: writes in flight, laid over disk so an edit paints the frame it
+  // Writes in flight, laid over disk so an edit paints the frame it
   // happens instead of waiting for IPC plus the full re-sync onMutated kicks
   // off. `notes` below is that composite — every read path in this pane (the
   // filter, the sort, the board buckets, the footer, the export) sees the
@@ -251,7 +251,7 @@ export default function DatabasePane({
     () => (pref ? canonicalViewPref(pref, columns) : undefined),
     [pref, columns]
   );
-  // SUB-678: derive the rollup columns (computed on read, stored nowhere)
+  // Derive the rollup columns (computed on read, stored nowhere)
   // and fold them into the display model — every downstream surface
   // (filter, sort, footer, CSV, board/list/gallery) reads the derived
   // values through the one prop-value path. `rolled` stays null when the
@@ -286,14 +286,14 @@ export default function DatabasePane({
     },
     [typeSchema, schema]
   );
-  // Which persistence channel column curation and sorting write to (SUB-326):
+  // Which persistence channel column curation and sorting write to:
   // an open pin (App wires onColumnsChange) owns its curation via the
-  // SUB-212 `columns` field and keeps sort session-local until re-saved;
+  // `columns` field and keeps sort session-local until re-saved;
   // a plain database view persists both on its ViewPref (hidden/sorts), so
   // they survive navigating away.
   const pinMode = onColumnsChange !== undefined;
   // Re-issue the pref with one field changed — every write goes through here
-  // so a layout switch can never drop the sort or the hidden set (SUB-326).
+  // so a layout switch can never drop the sort or the hidden set.
   const patchPref = (patch: Partial<ViewPref>) => {
     onPrefChange(canonicalViewPref({
       view: layout,
@@ -311,8 +311,8 @@ export default function DatabasePane({
       ...patch,
     }, columns));
   };
-  // SUB-326: the database's persisted hidden-prop set — per-layout since
-  // SUB-642 (the table and the list curate independently; a layout with no
+  // The database's persisted hidden-prop set — per-layout
+  // (the table and the list curate independently; a layout with no
   // set of its own reads the flat `hidden` seed). A prop added later is
   // NOT in the set, so it shows by default — the inverse of a pin's curated
   // shown-list, on purpose (a database is a living surface, a pin a capture).
@@ -320,7 +320,7 @@ export default function DatabasePane({
     () => new Set(pinMode ? [] : hiddenForLayout(normalizedPref, layout)),
     [pinMode, normalizedPref, layout]
   );
-  // SUB-212: curated display columns. null = the default union; a pin's
+  // Curated display columns. null = the default union; a pin's
   // `columns` seeds the selection, toggles keep it in union order so
   // "everything on again" normalizes back to null. The selection is a
   // subset list — a prop added later joins the union but stays hidden in an
@@ -330,7 +330,7 @@ export default function DatabasePane({
   );
   // what actually renders in table/list: the pin's curated order (stale keys
   // dropped quietly by the helper), or the union minus the db's hidden set —
-  // then the drag order (SUB-949) over whichever set that produced. Ordering
+  // then the drag order over whichever set that produced. Ordering
   // rides the pref in BOTH channels, so a pin reorders session-locally (its
   // svPref) and lands the order in the pin's own `columns` on re-save, while
   // a database persists it through views.json.
@@ -342,7 +342,7 @@ export default function DatabasePane({
       : columns.filter((c) => !hidden.has(c));
     return orderedColumns(base, normalizedPref?.col_order);
   }, [pinMode, colSel, columns, hidden, normalizedPref?.col_order]);
-  // SUB-642: persist one layout's hidden set. The write materializes BOTH
+  // Persist one layout's hidden set. The write materializes BOTH
   // layouts — a layout with no set of its own seeds from the flat `hidden`,
   // which the write then drops (the read-side migration made durable: once
   // written, the per-layout shape wins). Empty sets collapse to absent, so
@@ -376,7 +376,8 @@ export default function DatabasePane({
       onColumnsChange?.(norm ?? undefined);
       return;
     }
-    // db mode (SUB-326, per-layout since SUB-642): flip membership in the
+    // db mode (a per-layout hidden set since table and list stopped sharing
+    // one): flip membership in the
     // current layout's hidden set; stale names (renamed/removed props) in
     // the stored list ride along untouched
     const cur = hiddenForLayout(normalizedPref, layout);
@@ -390,11 +391,11 @@ export default function DatabasePane({
       onColumnsChange?.(undefined);
     } else {
       // clears the CURRENT layout's set only — the other layout keeps its
-      // curation (SUB-642)
+      // curation
       writeLayoutHidden([]);
     }
   };
-  // SUB-404: remembered column widths (prop → px, `title` = the Name column)
+  // Remembered column widths (prop → px, `title` = the Name column)
   // and the wrap set. Both live on the pref like the sort, so they persist
   // through views.json in db mode and ride the session-local svPref in a pin.
   const widths = useMemo(
@@ -410,7 +411,7 @@ export default function DatabasePane({
     const next = cur.includes(key) ? cur.filter((x) => x !== key) : [...cur, key];
     patchPref({ wrap: next.length > 0 ? next : undefined });
   };
-  // SUB-607: vertical column rules. The db's own override wins; without one
+  // Vertical column rules. The db's own override wins; without one
   // the table follows the global `db-grid` setting. Toggling back to the
   // global value clears the override rather than pinning it, so the database
   // keeps following the global from then on.
@@ -451,7 +452,7 @@ export default function DatabasePane({
     }
     return lines.join("\n");
   }, [widths, wrapSet, shown]);
-  /** Header drag handle (SUB-404): live width via a throwaway stylesheet —
+  /** Header drag handle: live width via a throwaway stylesheet —
       zero React re-renders while dragging — committed to the pref on mouseup.
       Double-click resets to auto (the handle's onDoubleClick). */
   const startResize = (key: string, e: React.MouseEvent) => {
@@ -484,7 +485,7 @@ export default function DatabasePane({
     window.addEventListener("mouseup", onUp);
   };
 
-  /** SUB-949: header drag-reorder. The gesture starts on the header LABEL
+  /** Header drag-reorder. The gesture starts on the header LABEL
       (the 8px resize strip keeps its own mousedown, so the two never fight)
       and the live drop target is a column key + a side — the 2px accent line
       the thead paints between headers. Committed to the pref's `col_order`
@@ -508,39 +509,39 @@ export default function DatabasePane({
   // Save-view capture: the rendered column list, only when it differs from
   // the default union — a plain save-with-all-columns-in-default-order writes
   // no `columns` field. A pin saved off a database with hidden props inherits
-  // them as a shown-list; since SUB-949 a drag ORDER is a difference too, so
+  // them as a shown-list; a drag ORDER is a difference too, so
   // the same one comparison captures both curation and order.
   const colCapture =
     shown.length === columns.length && shown.every((c, i) => c === columns[i]) ? undefined : shown;
   // the active curation for checkmarks and list subtitles; undefined = the
   // default union in both channels
   const curated = pinMode ? (colSel ? shown : undefined) : hidden.size > 0 ? shown : undefined;
-  // SUB-79: multi-kind props can't group a board — the helper keeps them out
+  // Multi-kind props can't group a board — the helper keeps them out
   // of the candidates and lands a stale views.json pref on a safe fallback.
-  // Rollup props (SUB-678) can't group either — a board drag writes the
+  // Rollup props can't group either — a board drag writes the
   // group prop on drop, and a derived column has no write path
   const groupBy = boardGroupBy(columns, typeSchema, normalizedPref?.group_by);
   const groupable = columns.filter((c) => {
     const kind = byFoldedKey(typeSchema, c)?.kind;
     return kind !== "multi" && kind !== "rollup";
   });
-  // SUB-184: the table's own grouping key — no fallback; a table stays
+  // The table's own grouping key — no fallback; a table stays
   // ungrouped unless the pref names a still-groupable column
   const tableGroup = tableGroupBy(columns, typeSchema, normalizedPref?.table_group_by);
 
-  // SUB-199: the active sort is an ordered key list (plain header click
+  // The active sort is an ordered key list (plain header click
   // replaces it, shift-click adds/cycles a secondary key) — empty = unsorted.
-  // SUB-326: it lives on the pref, so a database's sort persists through
+  // It lives on the pref, so a database's sort persists through
   // views.json while a pin's rides its session-local svPref (App's channel
   // split) and still only lands in the pin via "Save view…".
   const sorts = useMemo(
     () => normalizedPref?.sorts ?? [],
     [normalizedPref?.sorts]
   );
-  // the filter bar: a SUB-7 query string over this database's notes (SUB-18)
+  // the filter bar: a query string over this database's notes
   const [query, setQuery] = useState(initialQuery ?? "");
   const [namingView, setNamingView] = useState(false);
-  // SUB-590: right-click on the pane's empty space — the create menu. Rows,
+  // Right-click on the pane's empty space — the create menu. Rows,
   // cards, chips and the header row all preventDefault in their own handlers
   // first (bubbling), so a prevented event means "already handled here".
   const [bgMenu, setBgMenu] = useState<{ x: number; y: number } | null>(null);
@@ -561,22 +562,22 @@ export default function DatabasePane({
   // focused, or was toggled open — an empty untouched bar reclaims its space
   const [filterOpen, setFilterOpen] = useState(false);
   const [focus, setFocus] = useState<Focus | null>(null);
-  // SUB-272: table row multi-select — the selected rows' paths plus the
+  // Table row multi-select — the selected rows' paths plus the
   // anchor (last clicked row), stored as a path and resolved to a rows index
   // at click time so a re-sort can't strand a numeric index
   const [sel, setSel] = useState<ReadonlySet<string>>(EMPTY_SEL);
   const [selAnchor, setSelAnchor] = useState<string | null>(null);
-  // SUB-1166: which notes a bulk write was refused on, and what the vault
+  // Which notes a bulk write was refused on, and what the vault
   // said about each. The toast can only carry a count — "3 failed" out of 40
   // names nothing — so the reasons live on the rows themselves, and the
   // refused rows become the selection (settleBulkFailures below).
   const [writeFailed, setWriteFailed] = useState<ReadonlyMap<string, string>>(EMPTY_FAILED);
-  // SUB-945: the bar slides in but used to vanish on the frame the selection
+  // The bar slides in but used to vanish on the frame the selection
   // emptied. It stays mounted for the fade-out, and keeps the count it was
   // showing — a bar reading "0 selected" on its way out is worse than none
   const [bulkClosing, setBulkClosing] = useState(0);
   const lastSelSize = useRef(0);
-  // SUB-945: the cell (or board card) a write just landed in, lit for one
+  // The cell (or board card) a write just landed in, lit for one
   // fade. The nonce distinguishes two writes to the same cell.
   const [lastWritten, setLastWritten] = useState<{ path: string; key: string; nonce: number } | null>(
     null
@@ -590,17 +591,17 @@ export default function DatabasePane({
   const [bulkCheck, setBulkCheck] = useState<{ key: string; anchor: AnchorRect } | null>(null);
   // multi/relation bulk edits commit live like the cell editors; the list
   // being built across toggles lives here (starts empty = replace semantics —
-  // the picker states that plainly and every write toasts, SUB-635)
+  // the picker states that plainly and every write toasts)
   const [bulkVals, setBulkVals] = useState<string[]>([]);
-  // SUB-194: gates the frozen Name column's edge cue — true only while the
+  // Gates the frozen Name column's edge cue — true only while the
   // table's scroller is off its left stop
   const [scrolledX, setScrolledX] = useState(false);
   const [scrolledY, setScrolledY] = useState(false);
-  // SUB-195: gates the right-edge fade — true only while columns hide past
+  // Gates the right-edge fade — true only while columns hide past
   // the scroller's right edge (never at max scroll, never when it fits)
   const [moreRight, setMoreRight] = useState(false);
   // gates the view-tab strip's right-edge fade — true only while tabs hide
-  // past the strip's right edge (same cue idiom as SUB-195)
+  // past the strip's right edge (same cue idiom as)
   const [tabsMore, setTabsMore] = useState(false);
   const [iconMenu, setIconMenu] = useState<AnchorRect | null>(null);
   const [groupMenu, setGroupMenu] = useState<AnchorRect | null>(null);
@@ -608,14 +609,14 @@ export default function DatabasePane({
     path: string;
     key: string;
     anchor: AnchorRect;
-    /** SUB-947 type-to-replace: the keystroke that opened this editor */
+    /** Type-to-replace: the keystroke that opened this editor */
     seed?: string;
-    /** SUB-947 (F2): open on the current value, caret at its end */
+    /** F2: open on the current value, caret at its end */
     caretAtEnd?: boolean;
   } | null>(null);
-  /** SUB-947: where a commit-and-move is headed. The editor for the target
+  /** Where a commit-and-move is headed. The editor for the target
       cell can only open once that cell is PAINTED, and in a windowed table
-      (SUB-310) the hop routinely lands on a row that isn't in the DOM yet —
+ the hop routinely lands on a row that isn't in the DOM yet —
       so the landing is a small state machine, not a straight call. */
   const [pendingEdit, setPendingEdit] = useState<{
     c: number;
@@ -652,23 +653,23 @@ export default function DatabasePane({
   const [dragPath, setDragPath] = useState<string | null>(null);
   const [dropCol, setDropCol] = useState<string | null>(null);
   const [newTitle, setNewTitle] = useState<string | null>(null); // null = no draft entry
-  // SUB-243: the board column hosting the open draft — its group value rides
+  // The board column hosting the open draft — its group value rides
   // into commitNew so the card is born in the column it was titled in.
   // null = no column context (non-board layouts); `value: null` = the "No …"
   // column (the entry is born without the group prop).
   const [newCol, setNewCol] = useState<{ value: string | null } | null>(null);
   const [pendingFocus, setPendingFocus] = useState<string | null>(null);
-  // SUB-43: the ＋ add-property popover, and a column's schema editor opened
+  // The ＋ add-property popover, and a column's schema editor opened
   // from the header caret (both anchored at the header cell they came from)
   const [addPropAt, setAddPropAt] = useState<AnchorRect | null>(null);
   const [editSchemaCol, setEditSchemaCol] = useState<{ col: string; anchor: AnchorRect } | null>(
     null
   );
   const [colMenu, setColMenu] = useState<{ col: string; anchor: AnchorRect } | null>(null);
-  // SUB-326: the property-visibility checklist, opened by right-click on the
+  // The property-visibility checklist, opened by right-click on the
   // table header row (anchored where the click landed)
   const [propVisAt, setPropVisAt] = useState<AnchorRect | null>(null);
-  // SUB-74: the aggregation picker, opened from a footer cell (up) or the
+  // The aggregation picker, opened from a footer cell (up) or the
   // column header caret's "Calculate…" (down)
   const [aggMenu, setAggMenu] = useState<{ col: string; anchor: AnchorRect; up: boolean } | null>(
     null
@@ -684,7 +685,7 @@ export default function DatabasePane({
     if (filterOpen) filterInputRef.current?.focus();
   }, [filterOpen]);
 
-  // SUB-945: hold the bulk bar for one fade after the selection empties (the
+  // Hold the bulk bar for one fade after the selection empties (the
   // Palette's closing idiom, same 90ms). A new selection during the fade wins
   // — the timer is cleared and the bar is a live bar again.
   useEffect(() => {
@@ -717,7 +718,7 @@ export default function DatabasePane({
   }, [savedViews, activeViewId]);
 
   // open the title draft: a board column passes itself so the new card is
-  // born with its group value (SUB-243); other entry points pass the first
+  // born with its group value; other entry points pass the first
   // column (the keyboard path's default) or nothing outside the board
   const startDraft = (col?: { value: string | null }) => {
     setNewCol(col ?? null);
@@ -732,14 +733,14 @@ export default function DatabasePane({
     }
   }, [newSignal]);
 
-  // new entries land in the type's home folder when one is set (SUB-85),
+  // new entries land in the type's home folder when one is set,
   // else where most of the type already lives
   const homeFolder = useMemo(() => homeFolderFor(notes, typeHome(typeSchema)), [notes, typeSchema]);
 
-  // SUB-564: the create/export lanes used to end on `.catch(console.error)`,
+  // The create/export lanes used to end on `.catch(console.error)`,
   // so an engine refusal — a title holding [ or ], an unwritable home folder,
   // a refused export — cleared the editor and told the user nothing. Same
-  // silence SUB-240 removed from the cell writes, one lane over. Anything
+  // silence was removed from the cell writes, one lane over. Anything
   // that can fail after its editor has closed reports through here.
   const reportFailure = (what: string) => (err: unknown) => {
     onToast?.(`couldn’t ${what} — ${err instanceof Error ? err.message : String(err)}`);
@@ -747,24 +748,24 @@ export default function DatabasePane({
 
   const commitNew = () => {
     const t = (newTitle ?? "").trim();
-    const col = newCol; // captured before the draft state clears (SUB-243)
-    const q = query; // for the post-create visibility check (SUB-234)
+    const col = newCol; // captured before the draft state clears
+    const q = query; // for the post-create visibility check
     setNewTitle(null);
     setNewCol(null);
     if (!t) return;
-    // born complete (SUB-17): schema-default empty chips + the type's
+    // born complete: schema-default empty chips + the type's
     // template instantiated, written in one create
     const date = todayIso();
     vaultTemplateRead(dbType)
       .then((tpl) => {
         let props = buildEntryProps({ typeSchema, typeNotes: notes, template: tpl, title: t, date });
         // born under an active filter: simple bare key:value terms pin the
-        // new entry's props so it stays visible (SUB-234)
+        // new entry's props so it stays visible
         for (const [k, v] of filterInherits(parsedQuery.filters))
           props = mergeEntryProp(props, k, v);
         // the hosting column's group value wins over template/schema
         // defaults AND the filter inherit, so the card is born in the column
-        // it was titled in (SUB-243); the "No …" column overrides to empty
+        // it was titled in; the "No …" column overrides to empty
         if (groupBy && col) props = mergeEntryProp(props, groupBy, col.value ?? "");
         return vaultCreate(t, homeFolder, dbType, props, buildEntryBody(tpl, t, date));
       })
@@ -772,7 +773,7 @@ export default function DatabasePane({
         setPendingFocus(m.path);
         onMutated();
         // still hidden (a text term, a skipped filter shape)? Say so —
-        // otherwise the create looks dropped (SUB-234)
+        // otherwise the create looks dropped
         if (q.trim() && filterByQuery([m], q, undefined, typeSchema).length === 0)
           onToast?.(`Created “${t}” — hidden by filter`);
       })
@@ -799,7 +800,7 @@ export default function DatabasePane({
 
   // the notes the current filter query lets through; columns stay derived
   // from the full set so a narrow filter doesn't collapse the table.
-  // dispNotes carries the derived rollup values (SUB-678), so a filter can
+  // dispNotes carries the derived rollup values, so a filter can
   // match a rollup column like any other
   const visible = useMemo(
     () => filterByQuery(dispNotes, query, undefined, typeSchema),
@@ -808,10 +809,10 @@ export default function DatabasePane({
   const parsedQuery = useMemo(() => parseQuery(query, undefined, typeSchema), [query, typeSchema]);
   // a filter hiding every row renders the "No matches" empty state inside the
   // scroller (noMatch below) — every layout keeps its scroller mounted through
-  // it (SUB-945), but the contents change size, so the SUB-194/195 fade sync
+  // it, but the contents change size, so the fade sync
   // effect re-runs on this flag to re-read the geometry
   const filterEmpty = visible.length === 0 && query.trim() !== "" && newTitle === null;
-  // SUB-266: why the filter dead-ended — one muted line under "No matches",
+  // Why the filter dead-ended — one muted line under "No matches",
   // clickable when there's a corrected query to apply
   const deadEndHint = useMemo(
     () => (filterEmpty ? filterDeadEndHint(dispNotes, columns, typeSchema, query) : null),
@@ -839,16 +840,16 @@ export default function DatabasePane({
     return "Filter…";
   }, [typeSchema]);
 
-  // lexicographic over the key list (SUB-199): key 1 decides, ties fall
+  // lexicographic over the key list: key 1 decides, ties fall
   // through to key 2, then 3 — per-key semantics live in lib/dbsort, where
-  // select-kind keys compare by schema option order (SUB-309), not A→Z
+  // select-kind keys compare by schema option order, not A→Z
   const sortCmp = useMemo(() => sortCmpFor(sorts, typeSchema), [sorts, typeSchema]);
-  // SUB-265: with no active sort the view rests on title order — stable
+  // With no active sort the view rests on title order — stable
   // across prop edits, unlike the vault_list feed (updated_ms desc), which
   // teleported an edited row to the top mid-edit
   const viewCmp = sortCmp ?? restingCmp;
 
-  // SUB-184: a grouped table interleaves section header rows between runs of
+  // A grouped table interleaves section header rows between runs of
   // data rows. `rows` stays the flat, focus-addressable sequence — sections
   // in option order, the view's sort within each — and `rowGroups` marks
   // where each section starts and how long it runs, so keyboard nav, Enter
@@ -866,7 +867,7 @@ export default function DatabasePane({
     return { rows, rowGroups };
   }, [layout, tableGroup, visible, typeSchema, viewCmp]);
 
-  /* SUB-310: large tables paint lazily. Above WIN_MIN rows the tbody renders
+  /* Large tables paint lazily. Above WIN_MIN rows the tbody renders
      only the scroll viewport ± WIN_OVERSCAN rows; spacer rows before and
      after keep the scroll height exact, so the scrollbar, sticky header and
      sticky footer behave like a full render. Everything semantic — keyboard
@@ -876,7 +877,7 @@ export default function DatabasePane({
      a spacer (their asserted e2e row counts stay exact).
      Rows are uniform-height by CSS (.db-cell-txt is nowrap), so one measured
      row height + the group-header height derives every row's offset. */
-  // SUB-404: a wrapped column breaks the uniform-row-height assumption the
+  // A wrapped column breaks the uniform-row-height assumption the
   // offset math above rests on — wrap opts the table out of windowing (the
   // full render is the price of wrapped cells; toggling wrap off restores it)
   const wrapActive = wrapSet.has("title") || shown.some((c) => wrapSet.has(c));
@@ -954,7 +955,7 @@ export default function DatabasePane({
   // Deliberately a PASSIVE effect, not a layout effect: the fallback metrics
   // make the first frame accurate to the pixel, and a layout effect's
   // synchronous re-render chain measurably delays first paint on big tables
-  // (SUB-310 probe: 148ms → 260ms on the empty→full filter flip in dev)
+  // (probe: 148ms → 260ms on the empty→full filter flip in dev)
   useEffect(() => {
     if (!windowed) return;
     const body = bodyRef.current;
@@ -983,7 +984,7 @@ export default function DatabasePane({
     winSyncRef.current();
   }, [windowed, rows.length, rowGroups, newTitle === null, winMetrics]);
 
-  // SUB-561: the footer answers "how many notes, and what do their values add
+  // The footer answers "how many notes, and what do their values add
   // up to" — one answer per note, not per group membership. Grouping by a
   // list-valued prop (tags, a multi-target relation) puts a note in every
   // section it belongs to, so `rows` holds it several times; a Sum that grows
@@ -991,13 +992,13 @@ export default function DatabasePane({
   // windowing and focus keep the flat sequence; only the tally is deduped.
   const tallied = useMemo(() => (rowGroups ? distinctNotes(rows) : rows), [rows, rowGroups]);
 
-  // SUB-74 footer: chosen aggregations (column → kind) and their computed
+  // Footer: chosen aggregations (column → kind) and their computed
   // values over the visible (filtered, sorted) notes
   const aggs = useMemo(
     () => normalizedPref?.aggregations ?? {},
     [normalizedPref?.aggregations]
   );
-  // the footer's rates (SUB-834): a unit column folds foreign-unit rows in at
+  // the footer's rates: a unit column folds foreign-unit rows in at
   // these, and marks the figure when it did. Linear units (kg, ms) need no
   // rates at all, so an offline table only costs currency columns.
   const { fx: fxRatesState } = useFxRates();
@@ -1016,7 +1017,7 @@ export default function DatabasePane({
     patchPref({ aggregations: Object.keys(next).length > 0 ? next : undefined });
   };
 
-  // SUB-948: an UNSORTED board rests in the order the user's own drags left
+  // an UNSORTED board rests in the order the user's own drags left
   // (`card_order`); a sorted board's order IS its sort, so the hand order
   // stays on disk and unread until the sort is cleared. One flat pref list
   // arranges every column — `orderedNotes` ignores paths that aren't here.
@@ -1032,12 +1033,12 @@ export default function DatabasePane({
     for (const o of options) {
       cols.push({ value: o.value, notes: arrange(take(o.value)) });
     }
-    // SUB-106: unschema'd values form columns from the FULL note set, so a
+    // Unschema'd values form columns from the FULL note set, so a
     // filter that hides every card empties the column instead of deleting it
     for (const v of extraValues(dispNotes, groupBy, options, typeSchema)) {
       cols.push({ value: v, notes: arrange(take(v)) });
     }
-    // SUB-168: the "No …" column (drop target for clearing the prop) only
+    // The "No …" column (drop target for clearing the prop) only
     // exists while at least one visible card actually lacks the prop — when
     // every card is grouped it would be a dead column leading the board
     if (none.length > 0) cols.unshift({ value: null, notes: arrange(none) });
@@ -1074,7 +1075,7 @@ export default function DatabasePane({
   }, [layout, rows, boardCols, shown.length, focus]);
 
   // keep the focused cell/card on screen. A windowed table keeps most rows
-  // out of the DOM (SUB-310): when the focused cell isn't rendered, scroll to
+  // out of the DOM: when the focused cell isn't rendered, scroll to
   // its computed offset instead — the same block:"nearest" semantics — and
   // winSync repaints the window around it (the Enter-to-edit path then finds
   // the cell). Rendered cells keep the exact pre-windowing behavior.
@@ -1097,7 +1098,7 @@ export default function DatabasePane({
       // The composite's focus used to be paint-only: arrows moved the accent
       // class while document.activeElement stayed on <body>. Move real DOM
       // focus with the roving tab stop so AT announces the active card/cell.
-      // An open cell editor owns focus until it closes (SUB-359).
+      // An open cell editor owns focus until it closes.
       if (active !== el) el.focus({ preventScroll: true });
       el.scrollIntoView({ block: "nearest", inline: "nearest" });
       return;
@@ -1115,7 +1116,7 @@ export default function DatabasePane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus, win, editCell]);
 
-  // SUB-194/195: layout/db switches remount or re-fill the scroller — re-sync
+  // Layout/db switches remount or re-fill the scroller — re-sync
   // the fade/cue gates from the live DOM node, not stale state. ResizeObserver
   // covers geometry changes that fire no scroll event: the sidebar/window
   // resizing clientWidth, the table outgrowing the pane when a property is
@@ -1126,7 +1127,7 @@ export default function DatabasePane({
       setScrolledX((body?.scrollLeft ?? 0) > 0);
       setScrolledY((body?.scrollTop ?? 0) > 0);
       setMoreRight(body ? body.scrollLeft < body.scrollWidth - body.clientWidth - 1 : false);
-      // a resized scroller shows a different row band — re-window (SUB-310)
+      // a resized scroller shows a different row band — re-window
       winSyncRef.current();
     };
     sync();
@@ -1159,15 +1160,15 @@ export default function DatabasePane({
   }, [pendingFocus, layout, rows, boardCols]);
 
   // exports what the table shows: current columns, view filter, current sort.
-  // One row per NOTE, not per group membership (SUB-563): grouping
+  // One row per NOTE, not per group membership: grouping
   // is a view-only concern, so a grouped export is byte-identical to the same
   // view's ungrouped one. The flat `rows` still go in — buildCsv owns the
-  // de-duplication (the footer's, SUB-561), keeping every export path on one
+  // de-duplication (the footer's), keeping every export path on one
   // rule; a note in two sections lands once, at its first on-screen position.
   const doExportCsv = () => {
     exportDbCsv(dbType, shown, rows).catch(reportFailure("export"));
   };
-  // the CSV export's printed twin (SUB-816): same columns, order and de-dup
+  // the CSV export's printed twin: same columns, order and de-dup
   const doExportPdf = () => {
     exportDbPdf(dbType, shown, rows).catch(reportFailure("export"));
   };
@@ -1182,13 +1183,13 @@ export default function DatabasePane({
   }, [exportRef]);
 
   // plain click replaces the sort (asc → desc → none); shift-click adds or
-  // cycles a secondary key — the state machine lives in lib/dbsort (SUB-199)
+  // cycles a secondary key — the state machine lives in lib/dbsort
   const cycleSort = (key: string, additive: boolean) => {
     const next = cycleSortKeys(sorts, key, additive);
     patchPref({ sorts: next.length > 0 ? next : undefined });
   };
 
-  // SUB-946: a note's props AS STORED. Key resolution (foldedPropKey) has to
+  // A note's props AS STORED. Key resolution (foldedPropKey) has to
   // run against these and not the optimistic composite — a pending clear
   // removes the key from the composite, and a resolution that misses falls
   // back to the COLUMN's spelling, which is how a refused clear could rename
@@ -1200,18 +1201,18 @@ export default function DatabasePane({
     path: string,
     key: string,
     el: Element | null | undefined,
-    // SUB-947: a keystroke that opened the editor, or F2's edit-in-place
+    // A keystroke that opened the editor, or F2's edit-in-place
     opts?: { seed?: string; caretAtEnd?: boolean }
   ) => {
     if (!el) return;
     setEditCell({ path, key, anchor: anchorFrom(el), ...opts });
   };
 
-  // SUB-240: one funnel for cell writes — a failure used to die on the
+  // One funnel for cell writes — a failure used to die on the
   // console after the editor had already closed; now it surfaces on App's
   // toast and re-syncs, so the grid never implies the write landed.
   // Resolves whether the write landed so callers can chain follow-ups
-  // (SUB-273's drag-move toast only shows on success)
+  // (the drag-move toast only shows on success)
   const writeCell = (
     path: string,
     key: string,
@@ -1219,30 +1220,30 @@ export default function DatabasePane({
     // pre-minted id when the caller wants to point a toast at this exact entry
     id?: number
   ): Promise<boolean> => {
-    // SUB-946: the note's OWN spelling comes off DISK, never the composite.
+    // The note's OWN spelling comes off DISK, never the composite.
     // A pending clear deletes the key from the overlay, so resolving there
     // would lose the note's casing and fall back to the column's — writing
     // `role` onto a note that spells it `Role` makes a case-duplicate in the
     // file, and the undo entry's `prior` would read from the empty slot.
     const props = diskPropsOf(path);
     const actualKey = foldedPropKey(props, key);
-    // SUB-946: paint it now. The write below reconciles — settle on success
+    // Paint it now. The write below reconciles — settle on success
     // (the value holds until the refresh delivers disk truth), drop on
     // failure (the old value comes back on screen, next to the toast).
     const optimistic: PendingWrite[] = [{ path, key: actualKey, value }];
     setPending((cur) => addPending(cur, optimistic));
-    // SUB-477: through the undoable helper, so a mis-typed cell is one ⌘Z away
+    // Through the undoable helper, so a mis-typed cell is one ⌘Z away
     return setPropUndoable({ path, key: actualKey, value, id, record: undo.record, keyLabel: displayColLabel(key), write: writeProp })
       .then(() => {
         setPending((cur) => settlePending(cur, optimistic));
         onMutated();
-        // SUB-945: a write that lands silently is indistinguishable from one
+        // A write that lands silently is indistinguishable from one
         // that didn't. The cell the value went into carries one short accent
         // fade -- the same confirmation the toast gives a bulk write, at the
         // scale of a single cell. The nonce restarts it when the same cell is
         // written twice inside one flash.
         setLastWritten({ path, key, nonce: ++writeNonce.current });
-        // SUB-1166: this note just took a write, so whatever a bulk edit
+        // This note just took a write, so whatever a bulk edit
         // couldn't put on it is no longer the honest thing to show
         setWriteFailed((cur) =>
           cur.has(path) ? new Map([...cur].filter(([p]) => p !== path)) : cur
@@ -1250,7 +1251,7 @@ export default function DatabasePane({
         return true;
       })
       .catch((err) => {
-        // SUB-946: the vault refused it, so the value leaves the screen the
+        // The vault refused it, so the value leaves the screen the
         // same frame the toast arrives — never a rejected value left sitting
         // there reading as saved
         setPending((cur) => dropPending(cur, optimistic));
@@ -1260,7 +1261,7 @@ export default function DatabasePane({
       });
   };
 
-  // SUB-636: typed text lands canonical for number-kind columns — the app
+  // Typed text lands canonical for number-kind columns — the app
   // renders de-DE ("1.234,56 €"), so retyping what it shows must not read as
   // en-style 1.234. Every other kind keeps its text verbatim.
   const commitText = (key: string, value: string): string =>
@@ -1273,7 +1274,7 @@ export default function DatabasePane({
     setEditCell(null);
     setSchemaEditCell(false);
     // what the user is editing is what the pane SHOWS (the composite), but the
-    // key's real spelling only exists on disk (SUB-946 — see diskPropsOf)
+    // key's real spelling only exists on disk (see diskPropsOf)
     const props = notes.find((n) => n.path === path)?.props ?? {};
     const actualKey = foldedPropKey(diskPropsOf(path), key);
     const cur = foldedPropStr(props, key) ?? "";
@@ -1282,7 +1283,7 @@ export default function DatabasePane({
     // but the prop underneath may still hold a YAML list — the editor seeds
     // from propStr, which joins it to "Vinyl, Digital". Writing that text
     // back as a scalar collapsed the list on a save that reported success
-    // (SUB-557, the table half of SUB-553's chip fix). null still clears.
+    // (the table half of the chip fix). null still clears.
     writeCell(path, key, value === null ? null : chipCommitValue(props[actualKey], value));
   };
 
@@ -1313,7 +1314,7 @@ export default function DatabasePane({
     anchorScroll.current = activeAnchor && el ? { top: el.scrollTop, left: el.scrollLeft } : null;
   }, [activeAnchor]);
 
-  // SUB-945: every anchored popover in the pane holds a viewport rect captured
+  // Every anchored popover in the pane holds a viewport rect captured
   // when it opened. Scrolling the body moves the cell out from under it and the
   // menu stays put, pointing at an unrelated row. The scroll handlers call this:
   // anchorsWentStale() first, so a SelectMenu applies its own click-away
@@ -1340,14 +1341,14 @@ export default function DatabasePane({
     setBulkCheck(null);
   }, [anchorStaleScope]);
 
-  // list-valued cells (relation, multi — SUB-79) commit live as the picker
+  // list-valued cells (relation, multi) commit live as the picker
   // toggles (menu stays open); current values re-read from the latest notes
   // each commit
   const commitListCell = (path: string, key: string, values: string[]) => {
     writeCell(path, key, propListValue(values));
   };
 
-  // SUB-947: the grid the hop arithmetic walks — the columns the view SHOWS,
+  // The grid the hop arithmetic walks — the columns the view SHOWS,
   // the rows it currently lists, and each column's kind so derived (rollup)
   // columns can be stepped over.
   const hopGrid = (): HopGrid => ({
@@ -1360,8 +1361,8 @@ export default function DatabasePane({
   });
 
   /** Enter/Tab inside an editor: the value has already been committed through
-      the one write door (SUB-946), and this carries the editor to the next
-      cell. Focus moves first — a windowed table (SUB-310) may not have the
+      the one write door, and this carries the editor to the next
+      cell. Focus moves first — a windowed table may not have the
       target row in the DOM at all, and the focus effect is what scrolls and
       repaints the window around it. `pendingEdit` then opens the editor on
       the frame the cell actually exists. */
@@ -1381,7 +1382,7 @@ export default function DatabasePane({
     setPendingEdit({ c: next.c, r: next.r, path, key, tries: 0 });
   };
 
-  // SUB-947: land the hop. The target cell may need a repaint (windowed
+  // Land the hop. The target cell may need a repaint (windowed
   // table) or simply a frame; retry a bounded number of times against the
   // live DOM, and give up quietly rather than leave a hop half-done.
   useEffect(() => {
@@ -1394,7 +1395,7 @@ export default function DatabasePane({
     if (el && el.dataset.focusPath === path) {
       setPendingEdit(null);
       const kind = byFoldedKey(typeSchema, key)?.kind;
-      // a checkbox is toggled, never typed into (SUB-173) — the hop lands
+      // a checkbox is toggled, never typed into — the hop lands
       // focus on it and stops there rather than opening a text editor
       if (kind !== "checkbox" && kind !== "rollup") startEdit(path, key, el);
       return;
@@ -1409,25 +1410,25 @@ export default function DatabasePane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingEdit, win, rows]);
 
-  // checkbox cells (SUB-173): one click toggles and saves immediately, no
+  // checkbox cells: one click toggles and saves immediately, no
   // editor popup — checked stores the YAML scalar `true`, unchecked REMOVES
   // the prop (never writes `false`); a stored `false` reads as unchecked
   const toggleCheckboxCell = (path: string, key: string) => {
     // the checked state is what the pane shows (a pending toggle counts), but
-    // the key spelling comes off disk (SUB-946 — see diskPropsOf)
+    // the key spelling comes off disk (see diskPropsOf)
     const props = notes.find((n) => n.path === path)?.props ?? {};
     const cur = props[foldedPropKey(diskPropsOf(path), key)] === true;
     writeCell(path, key, cur ? null : true);
   };
 
-  // SUB-272: row multi-select. ⌘/ctrl-click toggles one row, shift-click
+  // Row multi-select. ⌘/ctrl-click toggles one row, shift-click
   // ranges from the anchor (last clicked row) over `rows` indices — a grouped
   // table interleaves header rows in the DOM, so siblings would lie. Plain
   // clicks keep today's behavior and end any selection (the callers below).
   const clearSel = () => {
     setSel(EMPTY_SEL);
     setSelAnchor(null);
-    // SUB-1166: the failure marks ride with the selection they narrowed, so
+    // The failure marks ride with the selection they narrowed, so
     // dismissing the selection is also how the user says "seen it" — no mark
     // can outlive the rows it was pointing at.
     setWriteFailed(EMPTY_FAILED);
@@ -1478,7 +1479,7 @@ export default function DatabasePane({
       const next = new Set([...cur].filter((p) => live.has(p)));
       return next.size === cur.size ? cur : next;
     });
-    // SUB-1166: same for the failure marks — a renamed or deleted note takes
+    // Same for the failure marks — a renamed or deleted note takes
     // its reason with it rather than stranding it on a path nothing renders
     setWriteFailed((cur) => {
       if (cur.size === 0) return cur;
@@ -1492,7 +1493,7 @@ export default function DatabasePane({
   // App's esc-close, both bubble-phase listeners registered earlier, so only
   // a capture listener can preempt them. Menus/overlays own their own Esc:
   // while one is in the DOM this stays out of the way. ⌘⌫ rides the same
-  // capture slot (SUB-392): with rows selected it trashes the selection —
+  // capture slot: with rows selected it trashes the selection —
   // ahead of App's single-note trash-note shortcut.
   useEffect(() => {
     if (sel.size === 0) return;
@@ -1515,16 +1516,16 @@ export default function DatabasePane({
   }, [sel, onTrashNotes]);
 
   // bulk bar writes: one vaultSetProp per selected path (no bulk IPC), ONE
-  // refresh at the end. SUB-477: N writes record ONE undo entry, so the
+  // refresh at the end. N writes record ONE undo entry, so the
   // app's most destructive everyday action takes a single ⌘Z to reverse.
-  // SUB-635: success toasts too — a live multi/relation write REPLACES each
+  // Success toasts too — a live multi/relation write REPLACES each
   // note's list, and a silent replace read as additive (the old failure-only
-  // toast is why SUB-635 could bite); same wording as bulkCommit below.
+  // toast is why that could bite); same wording as bulkCommit below.
   const bulkKeysByPath = (paths: string[], key: string): Record<string, string> =>
-    // spelling off disk, not the optimistic composite (SUB-946 — diskPropsOf)
+    // spelling off disk, not the optimistic composite (diskPropsOf)
     Object.fromEntries(paths.map((path) => [path, foldedPropKey(diskPropsOf(path), key)]));
 
-  // SUB-946: a bulk set paints across every selected row at once, then
+  // A bulk set paints across every selected row at once, then
   // reconciles per row — the writes are sequential (each is a read-modify-
   // write of a file), so waiting for the last one is exactly the visible wait
   // this issue is about. Rows whose write was refused roll back individually;
@@ -1547,7 +1548,7 @@ export default function DatabasePane({
     });
   };
 
-  /* SUB-1166: what happens to the notes a bulk write was refused on.
+  /* What happens to the notes a bulk write was refused on.
      `setPropUndoableBulk` has always returned the reason per path; the pane
      used to throw all of it away and report a bare count, so on a 40-note
      edit "3 failed" left no route at all to the three.
@@ -1583,7 +1584,7 @@ export default function DatabasePane({
     if (paths.length === 0) return;
     const label = displayColLabel(key);
     const optimistic = bulkPending(paths, key, value);
-    // SUB-1166: these rows are being written again — no stale "didn't save"
+    // These rows are being written again — no stale "didn't save"
     // mark may sit on a row while its retry is in flight
     setWriteFailed(EMPTY_FAILED);
     setPending((cur) => addPending(cur, optimistic));
@@ -1613,7 +1614,7 @@ export default function DatabasePane({
   // one-shot bulk commit (select/text/date/file/url/…, checkbox): the write
   // consumes the selection and reports on App's toast
   const bulkCommit = (key: string, raw: string | string[] | boolean | null) => {
-    // same number-kind normalization as the single-cell path (SUB-636): the
+    // same number-kind normalization as the single-cell path: the
     // bulk editor is the same free-text SelectMenu over the same column
     const value = typeof raw === "string" ? commitText(key, raw) : raw;
     const paths = [...sel];
@@ -1641,7 +1642,7 @@ export default function DatabasePane({
 
   // column picked in the bulk bar's picker: checkbox kinds get a Checked /
   // Unchecked choice (they have no value editor), everything else opens the
-  // matching editor anchored where the picker was. A rollup column (SUB-678)
+  // matching editor anchored where the picker was. A rollup column
   // never reaches the picker — the bulk bar filters derived columns out
   // (they have no write path); the guard stays so a stale menu can't open
   // one either
@@ -1666,8 +1667,8 @@ export default function DatabasePane({
       .catch(reportFailure(`create “${title}”`));
   };
 
-  // SUB-273: a board drag used to commit silently — name the target column on
-  // App's toast and offer an Undo. SUB-477: that Undo now pops the very entry
+  // A board drag used to commit silently — name the target column on
+  // App's toast and offer an Undo. That Undo pops the very entry
   // ⌘Z would pop (by id) rather than making its own inverse write, so the two
   // paths can't drift and undoing twice doesn't double-revert.
   const dropOn = (value: string | null) => {
@@ -1699,7 +1700,7 @@ export default function DatabasePane({
     });
   };
 
-  /** SUB-948: within-column drag on an UNSORTED board. The live target is a
+  /** within-column drag on an UNSORTED board. The live target is a
       card path + a side — the 2px accent line the column paints between
       cards — and the drop commits view-side order ONLY: no note is written,
       so the vault format stays untouched by an arrangement. A sorted board
@@ -1735,7 +1736,7 @@ export default function DatabasePane({
     patchPref({ card_order: next });
     const title = notes.find((n) => n.path === path)?.title ?? path;
     // the pre-minted id rides along so the toast's button and ⌘Z pop the
-    // SAME entry (SUB-477) — `record` takes it through the wider recorder type
+    // SAME entry — `record` takes it through the wider recorder type
     const record: UndoRecorder = undo.record;
     record({
       id,
@@ -1756,7 +1757,7 @@ export default function DatabasePane({
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey) return;
       if (isTyping(e.target) || editCell) return;
-      // SUB-1120: Option is a character modifier on macOS, not a command one —
+      // Option is a character modifier on macOS, not a command one —
       // a German layout types `@` as ⌥L and `[` as ⌥5, and those have to open a
       // cell editor like any other character. So an Option chord is let through
       // ONLY to the openers at the bottom of this handler; nav, Enter and
@@ -1771,7 +1772,7 @@ export default function DatabasePane({
         target?.closest("button, a[href], [role='button'], summary")
       )
         return;
-      // SUB-947: on a focused DATA cell of a table, a bare letter is the
+      // On a focused DATA cell of a table, a bare letter is the
       // start of a value, not vim nav — h/j/k/l have to be typeable into a
       // cell. The arrows still move there, and hjkl keeps moving everywhere
       // else (the title column, boards, galleries, lists).
@@ -1844,9 +1845,9 @@ export default function DatabasePane({
             const key = shown[focus.c - 1];
             const enterKind = byFoldedKey(typeSchema, key)?.kind;
             // checkbox cells toggle on Enter like they do on click — the raw
-            // string editor never opens for them (SUB-173)
+            // string editor never opens for them
             if (enterKind === "checkbox") toggleCheckboxCell(n.path, key);
-            // a rollup cell is derived (SUB-678) — read-only, no editor
+            // a rollup cell is derived — read-only, no editor
             else if (enterKind !== "rollup")
               startEdit(
                 n.path,
@@ -1869,7 +1870,7 @@ export default function DatabasePane({
         if (active instanceof HTMLElement && active.matches("[data-fc][data-fr]")) active.blur();
         return;
       }
-      // SUB-947, the two openers a spreadsheet has that this grid lacked.
+      // The two openers a spreadsheet has that this grid lacked.
       // Both need a focused DATA cell in a table, and both refuse the cells
       // with no text editor behind them (checkbox toggles, rollup is derived).
       if (layout !== "table" || !focus || focus.c === 0) return;
@@ -1887,7 +1888,7 @@ export default function DatabasePane({
         startEdit(n.path, key, cellEl(), { caretAtEnd: true });
         return;
       }
-      // SUB-1120: a dead key (`´`, `` ` ``, `^` — bare on German/intl layouts,
+      // a dead key (`´`, `` ` ``, `^` — bare on German/intl layouts,
       // ⌥e/⌥i on US) produces no character here, so `é` used to cost the accent.
       // Open the editor empty and let the composition finish inside the input.
       // Deliberately NOT preventDefault: the browser has to keep the pending
@@ -1913,7 +1914,7 @@ export default function DatabasePane({
     focus && focus.c === c && focus.r === r ? " focused" : "";
 
   // One entry point per composite. Once focus enters, the active coordinate
-  // alone stays tabbable and arrow/HJKL moves that real DOM focus (SUB-359).
+  // alone stays tabbable and arrow/HJKL moves that real DOM focus.
   const tabIndexFor = (c: number, r: number) =>
     focus ? (focus.c === c && focus.r === r ? 0 : -1) : c === 0 && r === 0 ? 0 : -1;
   const boardTabIndexFor = (c: number, r: number) =>
@@ -1955,7 +1956,7 @@ export default function DatabasePane({
       <span className="list-count">
         {query.trim() ? `${visible.length} of ${notes.length}` : notes.length}
       </span>
-      {/* SUB-400: the kind word disambiguates this header from a folder's */}
+      {/* The kind word disambiguates this header from a folder's */}
       <span className="head-kind">Database</span>
     </div>
   );
@@ -1999,7 +2000,7 @@ export default function DatabasePane({
             }}
           >
             {v.name}
-            {/* SUB-677: the pin's ⌘-digit rides its tab — the tab strip is the
+            {/* The pin's ⌘-digit rides its tab — the tab strip is the
                 one surface every pin (homed database included) renders on */}
             {pinKeys[v.id] && <span className="key">{pinKeys[v.id]}</span>}
           </button>
@@ -2084,7 +2085,7 @@ export default function DatabasePane({
                 icon: <PinIcon />,
                 run: () => setNamingView(true),
               },
-              // SUB-607: per-database grid-lines override; the label states
+              // Per-database grid-lines override; the label states
               // the action, like the wrap toggle. Follows the global setting
               // until toggled away from it here.
               ...(layout === "table"
@@ -2117,7 +2118,7 @@ export default function DatabasePane({
     </div>
   );
 
-  // the filter bar (SUB-18): live narrowing as you type; "Save view…" swaps it
+  // the filter bar: live narrowing as you type; "Save view…" swaps it
   // for a name field that pins the current query/sort/layout to the sidebar
   const filterBar = (
     <div className="db-filter">
@@ -2159,7 +2160,7 @@ export default function DatabasePane({
               }
             }}
           />
-          {/* SUB-945: both actions stay mounted at their full size — they used
+          {/* Both actions stay mounted at their full size — they used
               to appear with the first keystroke, which re-laid-out the row the
               cursor was sitting in (design-principles.md 4). They fade in with
               the query, and are disabled while there is nothing to save or
@@ -2208,7 +2209,7 @@ export default function DatabasePane({
       </div>
     ) : null;
 
-  // SUB-945: the completion chips hang off the filter row instead of sitting
+  // The completion chips hang off the filter row instead of sitting
   // in the column flow — a band that opens and closes as you type used to
   // push the whole table down under the cursor (design-principles.md 4)
   const bar = showFilter ? (
@@ -2240,7 +2241,7 @@ export default function DatabasePane({
   const draftRow =
     newTitle !== null ? <div className="row db-draft">{draftInput}</div> : null;
 
-  // SUB-43 admin popovers — rendered in every layout branch: the ＋ add-
+  // Admin popovers — rendered in every layout branch: the ＋ add-
   // property form (anchored at the header ＋ or the view menu) and a column's
   // schema editor (anchored at its table header caret)
   const adminPop = (
@@ -2268,13 +2269,13 @@ export default function DatabasePane({
               label: "Calculate…",
               run: () => setAggMenu({ col: colMenu.col, anchor: colMenu.anchor, up: false }),
             },
-            // SUB-404: per-column wrap toggle — the label states the action,
+            // Per-column wrap toggle — the label states the action,
             // so a wrapped column offers "Clip text" and vice versa
             {
               label: wrapSet.has(colMenu.col) ? "Clip text" : "Wrap text",
               run: () => toggleWrap(colMenu.col),
             },
-            // SUB-326: hides the column, never the data — the visibility
+            // Hides the column, never the data — the visibility
             // checklist (right-click the header) brings it back
             { label: "Hide property", icon: <EyeOffIcon />, run: () => toggleColumn(colMenu.col) },
             {

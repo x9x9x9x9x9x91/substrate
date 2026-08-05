@@ -15,9 +15,9 @@ export function isImageName(name: string): boolean {
   return IMAGE_EXT_RE.test(name.trim());
 }
 
-// the canonical audio set (SUB-202): embeds with an audio extension render
+// the canonical audio set: embeds with an audio extension render
 // the player, and a file prop whose value matches carries the play
-// affordance (SUB-674). The intake lanes accept any file type — this set
+// affordance. The intake lanes accept any file type — this set
 // only picks the affordance, it never gates intake.
 export const AUDIO_EXT_RE = /\.(wav|aiff?|mp3|flac|m4a|ogg|opus|weba|webm)$/i;
 
@@ -32,7 +32,7 @@ export function unwrapEmbed(v: string): string {
   const t = v.trim();
   const m = /^!?\[\[([^[\]]+)\]\]$/.exec(t);
   // an embed's `|300`-style display modifier is a hint, not part of the
-  // cover's filename (SUB-1102)
+  // cover's filename
   return m ? embedTarget(m[1]) : t;
 }
 

@@ -69,7 +69,7 @@ export const ClockIcon = () => (
   </svg>
 );
 
-/* SUB-452: the "what's new" mark — a four-point sparkle with a small
+/* The "what's new" mark — a four-point sparkle with a small
    companion. No existing glyph read as "release history" (ClockIcon is
    version history, BookIcon is the journal). */
 export const SparkleIcon = () => (
@@ -106,7 +106,7 @@ export const XIcon = () => (
   </svg>
 );
 
-/* SUB-1166: a row the vault refused to write. Sits next to the title, holding
+/* A row the vault refused to write. Sits next to the title, holding
    that note's own reason — the toast can only carry a count. */
 export const WarnIcon = () => (
   <svg {...base} width={12} height={12}>
@@ -139,7 +139,7 @@ export const FilterIcon = () => (
   </svg>
 );
 
-/** Struck-through eye — "Hide property" (SUB-326). */
+/** Struck-through eye — "Hide property". */
 export const EyeOffIcon = () => (
   <svg {...base}>
     <path d="M2 8s2.2-3.5 6-3.5S14 8 14 8s-2.2 3.5-6 3.5S2 8 2 8Z" />
@@ -208,7 +208,7 @@ export const CopyIcon = () => (
 );
 
 /* CopyIcon's twin with a plus in the front rect — "make a copy in place"
-   (Duplicate, SUB-271) */
+   (Duplicate) */
 export const DuplicateIcon = () => (
   <svg {...base}>
     <rect x="5.8" y="5.8" width="7.7" height="7.7" rx="1.3" />
@@ -224,7 +224,7 @@ export const FolderIcon = () => (
   </svg>
 );
 
-/* open state of the plain sidebar folder (SUB-183): same back rim and tab as
+/* open state of the plain sidebar folder: same back rim and tab as
    FolderIcon, the front flap tilted open — gray like its sibling, no tint */
 export const FolderOpenIcon = () => (
   <svg {...base}>
@@ -233,7 +233,7 @@ export const FolderOpenIcon = () => (
   </svg>
 );
 
-/* a mounted folder (SUB-888): FolderIcon with the vault's connection to it
+/* a mounted folder: FolderIcon with the vault's connection to it
    drawn in — the plug says "this is a real folder on disk, shown here", not
    "these files live in the vault" */
 export const MountIcon = () => (
@@ -358,8 +358,8 @@ export const ChevronDownIcon = () => (
   </svg>
 );
 
-/* the recurrence mark on calendar chips (SUB-174) — a quiet clockwise arrow */
-/** Vault doctor (SUB-432) — a pulse line, the read-only health check. */
+/* the recurrence mark on calendar chips — a quiet clockwise arrow */
+/** Vault doctor — a pulse line, the read-only health check. */
 export const PulseIcon = () => (
   <svg {...base}>
     <path d="M2 8h2.6l1.7-4.2 3 8.8 1.8-4.6H14" />
@@ -373,7 +373,7 @@ export const RepeatIcon = () => (
   </svg>
 );
 
-/* SUB-1164 — undo/redo as palette rows need a glyph each: the standard
+/* Undo/redo as palette rows need a glyph each: the standard
    curved arrow back over its own tail, mirrored for redo. */
 export const UndoIcon = () => (
   <svg {...base}>
@@ -389,7 +389,7 @@ export const RedoIcon = () => (
   </svg>
 );
 
-/* glyph for a canonical note action (SUB-257) — every surface that renders
+/* glyph for a canonical note action — every surface that renders
    buildNoteActions descriptors resolves the same icon for the same action */
 export function NoteActionGlyph({ name }: { name: NoteActionIcon }) {
   switch (name) {
@@ -422,7 +422,7 @@ export function NoteActionGlyph({ name }: { name: NoteActionIcon }) {
   }
 }
 
-/* ---- playback (SUB-812) -------------------------------------------------
+/* ---- playback -------------------------------------------------
 
    The play/pause pair is filled, not stroked, so it does NOT take `base`:
    the same geometry the note embed draws (PLAY_SVG / PAUSE_SVG in

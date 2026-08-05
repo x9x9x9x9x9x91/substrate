@@ -1,14 +1,14 @@
-/** Layout math for the week view's timed canvas (SUB-448) — pure minute
+/** Layout math for the week view's timed canvas — pure minute
     arithmetic, no DOM. The component maps minutes to pixels; everything
     here is unit-testable: time parsing, drop snapping, and the lane layout
     that keeps concurrent entries side by side instead of stacked. */
 
 export const DAY_MIN = 1440;
-/** a timed entry with no end renders as a one-hour block (SUB-646: a
+/** a timed entry with no end renders as a one-hour block (a
     same-day range carries one, and then the end time sets the height) */
 export const DEFAULT_DURATION_MIN = 60;
 /** shortest block the canvas paints — a 10-minute event still has to be
-    clickable and wear its time (SUB-646) */
+    clickable and wear its time */
 export const MIN_BLOCK_MIN = 30;
 
 const HH_MM = /^(\d{2}):(\d{2})$/;
@@ -39,7 +39,7 @@ export function snapMinutes(min: number, step = 15): number {
   return Math.min(Math.max(snapped, 0), DAY_MIN - step);
 }
 
-/** The minute interval a timed entry paints on the canvas (SUB-646). A
+/** The minute interval a timed entry paints on the canvas. A
     same-day range (`date: … 09:00/… 17:00`) is one entry carrying both ends,
     so its block is as tall as the event really is; an entry with no end (or
     an end that doesn't parse, or one at/before its start — a bad value must

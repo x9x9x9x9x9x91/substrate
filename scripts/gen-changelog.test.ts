@@ -19,7 +19,7 @@ import { CHANGELOG, type ChangelogRelease } from "../src/lib/changelog.ts";
 
 /* ── the gate itself ────────────────────────────────────────────────────── */
 
-/* This is the staleness gate (SUB-588): it fails the unit suite whenever the
+/* This is the staleness gate: it fails the unit suite whenever the
    committed CHANGELOG.md drifts from src/lib/changelog.ts, or whenever the
    five version numbers a release bump must touch disagree. `npm test` already
    globs scripts/*.test.ts, so no CI wiring changes to keep in step. */
@@ -28,7 +28,7 @@ test("CHANGELOG.md is current and the five versions agree (staleness gate)", () 
   assert.ok(ok, problems.join("\n"));
 });
 
-/* ── private-item fencing (SUB-985) ─────────────────────────────────────── */
+/* ── private-item fencing ─────────────────────────────────────── */
 
 /* Markers are assembled, never written whole, and split before `strip`: this
    file ships in the public mirror, where a literal marker would be read as a
@@ -64,7 +64,7 @@ test("the real changelog.ts fences every private item (SUB-985)", () => {
   /* The guard exists so the scan below can't pass vacuously — but the public
      mirror ships this test and NOT the material it guards: share-mirror.sh
      strips every fenced private item out of changelog.ts, and deletes its own
-     tooling on the way past (SUB-1142). So the tooling's absence is the proof
+     tooling on the way past. So the tooling's absence is the proof
      that the strip ran, and there the guard asserts the stronger thing: the
      strip left neither an item nor a marker behind. On any dev checkout
      share-mirror.sh is present and the original guard is untouched, so a
@@ -314,7 +314,7 @@ test("parseCargoVersion refuses a file it cannot read a version out of", () => {
   assert.throws(() => parseCargoVersion('[package]\nname = "x"'), /no version/);
 });
 
-/* Cargo.lock joined the cross-check in SUB-620: a 0.15.0 lock entry survived
+/* Cargo.lock joined the cross-check: a 0.15.0 lock entry survived
    the 0.16.0 bump because the gate only looked at the other four sources. The
    lock is a long list of [[package]] blocks, so the parse has to find the one
    named "substrate" rather than the first version line it meets. */
@@ -380,7 +380,7 @@ test("a stale Cargo.lock alone fails the cross-check (SUB-620)", () => {
   };
   assert.equal(versionMismatch(agreed), null, "lock in agreement passes");
 
-  // exactly the SUB-620 shape: everything bumped except the lock
+  // exactly the shape: everything bumped except the lock
   const stale = versionMismatch({ ...agreed, cargoLock: "0.15.0" });
   assert.ok(stale, "a stale lock must be reported");
   assert.match(stale, /cargoLock: 0\.15\.0/);

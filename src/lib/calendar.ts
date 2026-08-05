@@ -13,27 +13,27 @@ export interface CalEntry {
   prop: string;
   /** local day, YYYY-MM-DD — day-only even when the prop value carries a time */
   day: string;
-  /** the value's optional time-of-day, HH:MM 24h (SUB-270); absent = all-day */
+  /** the value's optional time-of-day, HH:MM 24h; absent = all-day */
   time?: string;
-  /** last day of a multi-day range (SUB-596), YYYY-MM-DD — absent on ordinary
+  /** last day of a multi-day range, YYYY-MM-DD — absent on ordinary
       single dates. Present on EVERY day the span covers, so any surface can
       tell a span apart from a one-day entry without re-reading the note. */
   endDay?: string;
   /** the range end's optional time-of-day, HH:MM 24h */
   endTime?: string;
-  /** where this day sits in its span (SUB-596): the span's first day, its
+  /** where this day sits in its span: the span's first day, its
       last, or a day in between. Absent on single dates. A one-day range
       (start === end) is "start" — there is nothing to continue. */
   spanPos?: "start" | "mid" | "end";
-  /** the note's `status` prop verbatim, when it carries one (SUB-205) */
+  /** the note's `status` prop verbatim, when it carries one */
   status?: string;
-  /** true on every instance of a `repeat:` series, anchor included (SUB-174) */
+  /** true on every instance of a `repeat:` series, anchor included */
   repeating?: boolean;
 }
 
 /* Props that never count as calendar dates, however date-shaped their value:
-   `created` is on every note, `calendar` is the opt-out flag (SUB-175), the
-   `repeat*` keys drive recurrence (SUB-174 — `repeat_until` is date-shaped!),
+   `created` is on every note, `calendar` is the opt-out flag, the
+   `repeat*` keys drive recurrence (`repeat_until` is date-shaped!),
    the rest carry identity, not scheduling. */
 const NOT_DATE = new Set([
   "created",
@@ -67,10 +67,10 @@ export function parseDay(s: string): Date | null {
   return d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3]) ? d : null;
 }
 
-/* A date prop value with an optional time-of-day (SUB-270): the ISO day,
+/* A date prop value with an optional time-of-day: the ISO day,
    optionally followed by a space or T and HH:MM (24h). Day-only values stay
    the common case; the time never leaks into day keys anywhere. A
-   single-digit hour is accepted and normalized to the padded form (SUB-714),
+   single-digit hour is accepted and normalized to the padded form,
    so a hand-written `9:30` reads the same as the DateMenu's typed input. */
 const DAY_TIME_RE = /^(\d{4}-\d{2}-\d{2})(?:[ T](\d{1,2}):(\d{2}))?$/;
 
@@ -80,7 +80,7 @@ export interface DayTime {
   time: string | null;
 }
 
-/** A parsed date value (SUB-596): always a start, optionally an end. */
+/** A parsed date value: always a start, optionally an end. */
 export interface DateRange {
   start: DayTime;
   /** the range's closing endpoint; null for an ordinary single date */
@@ -107,8 +107,8 @@ function fmtDayTime(p: DayTime): string {
   return p.time ? `${p.day} ${p.time}` : p.day;
 }
 
-/** Build a date prop value (SUB-631) — the SUB-270 `day[ HH:MM]` form, with
-    the SUB-596 `/end` half appended when there is an end. Every write path
+/** Build a date prop value — the `day[ HH:MM]` form, with
+    the `/end` half appended when there is an end. Every write path
     funnels through here so none of them can emit a range splitDateRange then
     rejects, which would drop the note off every calendar surface.
 
@@ -133,7 +133,7 @@ export function dateRangeValue(
   return `${fmtDayTime(a)}/${fmtDayTime(b)}`;
 }
 
-/** The end a spanning entry keeps when its start moves to `to` (SUB-1015).
+/** The end a spanning entry keeps when its start moves to `to`.
     The span holds its LENGTH: when both the stored endpoints and the new
     start carry times, the duration is preserved to the minute — an 8-hour
     block dropped on the timed canvas stays 8 hours, rolling past midnight
@@ -171,8 +171,8 @@ export function shiftedRangeEnd(
   return { day: isoDay(addDays(end, deltaDays)), time: span.endTime ?? undefined };
 }
 
-/** Parse a date prop value, range-aware (SUB-596). The grammar is the SUB-270
-    date value, optionally followed by `/` and a second one (the ISO-8601
+/** Parse a date prop value, range-aware. The grammar is the date value,
+    optionally followed by `/` and a second one (the ISO-8601
     interval form): `2026-09-01/2026-09-21`, `2026-09-01 09:00/2026-09-03 17:00`.
     Both endpoints must parse and the end may not precede the start — a
     half-written or reversed range is not a date value at all, so it falls
@@ -182,8 +182,7 @@ export function shiftedRangeEnd(
     The `/` split happens BEFORE the separator scan on purpose: the endpoints
     may each carry a space-separated time, so scanning for the separator first
     would cut a timed range in the wrong place. Mirrored in Rust by
-    `notify::parse_due_range` — the two grammars must stay in lockstep
-    (SUB-571). */
+    `notify::parse_due_range` — the two grammars must stay in lockstep. */
 export function splitDateRange(value: string): DateRange | null {
   const raw = value.trim();
   const cut = raw.indexOf("/");
@@ -202,21 +201,21 @@ export function splitDateRange(value: string): DateRange | null {
     parseDay and the time range (00-23:00-59). parseDay stays strict day-only —
     gates that should tolerate a time route here.
 
-    A range value (SUB-596) splits to its start, so every surface that sorts,
+    A range value splits to its start, so every surface that sorts,
     filters, buckets, or anchors by "the date" keeps doing so on the day the
     item begins. Surfaces that care about the span read `splitDateRange`. */
 export function splitDayTime(value: string): DayTime | null {
   return splitDateRange(value)?.start ?? null;
 }
 
-/** The last day an entry occupies: its range end (SUB-596) when it has one,
+/** The last day an entry occupies: its range end when it has one,
     else the day itself. The one "has this passed?" reading — a span is not
     late while it is still running. */
 export function entryEndDay(e: CalEntry): string {
   return e.endDay ?? e.day;
 }
 
-/** Intra-day order (SUB-270): all-day (day-only) entries first, then timed
+/** Intra-day order: all-day (day-only) entries first, then timed
     entries ascending by time. Compose AHEAD of the existing type/title
     tiebreaks — "" sorts before any "HH:MM". */
 export function compareEntryTime(a: CalEntry, b: CalEntry): number {
@@ -298,7 +297,7 @@ export function cellDayLabel(d: Date): string {
 
 /** A prop counts as a calendar date when the schema declares `kind: "date"`,
     or — with no schema ruling — when the value is shaped like an ISO day with
-    an optional time (SUB-270). Explicit other kinds (file, …) and reserved
+    an optional time. Explicit other kinds (file, …) and reserved
     props never count. */
 function isDateValue(schemaKind: string | undefined, key: string, value: unknown): boolean {
   if (NOT_DATE.has(key.toLowerCase()) || schemaKind === "file") return false;
@@ -309,7 +308,7 @@ function isDateValue(schemaKind: string | undefined, key: string, value: unknown
 }
 
 /** A note is complete when its `status` prop reads done or cancelled —
-   case-insensitive, trimmed (SUB-205). The one status-aware predicate; every
+   case-insensitive, trimmed. The one status-aware predicate; every
    surface reuses it, never compare status strings inline. */
 export function isComplete(status: string | undefined): boolean {
   const s = status?.trim().toLowerCase();
@@ -317,11 +316,11 @@ export function isComplete(status: string | undefined): boolean {
 }
 
 /** A date prop is a deadline when the schema flags it for due-date
-    notifications — the same opt-in SUB-21's scheduler fires on. Lives here
+    notifications — the same opt-in the scheduler fires on. Lives here
     (not agenda.ts) so the calendar's overdue helper shares it without a
-    module cycle; agenda.ts re-exports it (SUB-206).
+    module cycle; agenda.ts re-exports it.
 
-    A lead time alone counts (SUB-842): the scheduler fires for
+    A lead time alone counts: the scheduler fires for
     `notifyBefore > 0` with `notify` off, so Today/Calendar must show that
     prop too — otherwise the alert points at an entry no surface lists. */
 export function isDeadline(schema: SchemaConfig, type: string, prop: string): boolean {
@@ -341,7 +340,7 @@ export function statusSchemaFor(schema: SchemaConfig, type: string) {
    tail simply isn't drawn; the value on disk is untouched. */
 const MAX_SPAN_DAYS = 366;
 
-/** The days a range entry occupies (SUB-596). The start day is ALWAYS emitted,
+/** The days a range entry occupies. The start day is ALWAYS emitted,
     window or not — non-repeating entries have always been window-agnostic, and
     overdue/agenda scans rely on seeing an item whose start has passed. The
     remaining days are clipped to `window` when one is given, so paging the grid
@@ -351,7 +350,7 @@ function spanDays(start: string, end: string, window?: CalWindow): string[] {
   const from = parseDay(start);
   if (!from) return days;
   const seen = new Set(days);
-  // A window jumps straight to its own slice of the span (SUB-1024): the cap
+  // A window jumps straight to its own slice of the span: the cap
   // bounds ITERATIONS, so counting them from the range's start made a window
   // more than MAX_SPAN_DAYS past that start emit nothing — a legitimate
   // multi-year range vanished from the grid, Today and Upcoming mid-span.
@@ -368,7 +367,7 @@ function spanDays(start: string, end: string, window?: CalWindow): string[] {
   return days;
 }
 
-/** Every calendar entry a note contributes. A range-valued date prop (SUB-596)
+/** Every calendar entry a note contributes. A range-valued date prop
     yields one entry per day it covers — same note, same prop, one row per day —
     each carrying `endDay`/`spanPos` so renderers can draw a continuous span
     instead of unrelated chips. `window` clips the span's interior days only. */
@@ -377,14 +376,14 @@ export function entriesForNote(
   schema: SchemaConfig,
   window?: CalWindow
 ): CalEntry[] {
-  // per-note opt-out (SUB-175): YAML parses `calendar: false` to a bool, but
+  // per-note opt-out: YAML parses `calendar: false` to a bool, but
   // imports and hand edits may carry the string — both hide the note
   const optOut = n.props[foldedPropKey(n.props, "calendar")];
   if (optOut === false || optOut === "false") return [];
   const type = foldedPropStr(n.props, "type") ?? "";
   const status = foldedPropStr(n.props, "status");
   // the note's `type` and the schema's key are both hand-authored; a casing
-  // mismatch must not silently drop the type's date rules (SUB-696)
+  // mismatch must not silently drop the type's date rules
   const typeSchema = typeSchemaFor(schema, type) ?? {};
   const heuristic = !FUNCTIONAL_TYPES.has(type.toLowerCase());
   const out: CalEntry[] = [];
@@ -394,14 +393,14 @@ export function entriesForNote(
     if (!isDateValue(kind, key, n.props[key])) continue;
     const raw = propStr(n.props, key);
     if (!raw) continue;
-    // the day keys the calendar; an optional time rides the entry (SUB-270)
+    // the day keys the calendar; an optional time rides the entry
     const range = splitDateRange(raw);
     if (!range) continue;
     const { start, end } = range;
     const base: CalEntry = { path: n.path, title: n.title, type, prop: key, day: start.day };
     if (start.time) base.time = start.time;
     if (status !== undefined) base.status = status;
-    // a single date is one entry, exactly as before (SUB-596)
+    // a single date is one entry, exactly as before
     if (!end || end.day === start.day) {
       if (end) {
         base.endDay = end.day;
@@ -424,7 +423,7 @@ export function entriesForNote(
   return out;
 }
 
-/** Recurrence cadence parsed from a note's `repeat:` prop (SUB-174). */
+/** Recurrence cadence parsed from a note's `repeat:` prop. */
 export interface Repeat {
   unit: "day" | "week" | "month" | "year";
   n: number;
@@ -490,8 +489,8 @@ function dayDiff(from: Date, to: Date): number {
 }
 
 /** The smallest k ≥ 0 whose occurrence lands on or after `start` — computed
-    arithmetically instead of walking every occurrence from the anchor (SUB-570:
-    the walk made expansion cost grow with the anchor's distance from the
+    arithmetically instead of walking every occurrence from the anchor (the
+    walk made expansion cost grow with the anchor's distance from the
     viewport, so a far-back window spent its whole budget getting there).
 
     The estimate is exact for day/week cadences and off by at most one step for
@@ -521,17 +520,17 @@ function seekToWindow(anchor: Date, r: Repeat, start: string): number {
 }
 
 /** Every dated note in the vault, one entry per (note, date prop) — with
-    recurrence (SUB-174) expanded: a note carrying `repeat:` yields its anchor
+    recurrence expanded: a note carrying `repeat:` yields its anchor
     plus virtual occurrences inside `window`, stopping at `repeat_until`
     (inclusive) and dropping days listed in `repeat_skip` (the anchor itself
     may be skipped — that is "delete this occurrence" on the first instance).
     One note on disk, many calendar instances; nothing is materialized.
     Without a window a series emits only its surviving anchor; non-repeating
     notes are window-agnostic. `repeat` applies to all of the note's date
-    props identically. An anchor's time-of-day (SUB-270) carries onto every
+    props identically. An anchor's time-of-day carries onto every
     occurrence; `repeat_until`/`repeat_skip` stay day-only comparisons.
 
-    Recurrence ignores ranges (SUB-596): a repeating note's range-valued prop
+    Recurrence ignores ranges: a repeating note's range-valued prop
     expands from its START day like any other date, and the occurrences are
     single days — the span is NOT carried onto them. A repeating multi-day
     span is a second scheduling concept (overlapping occurrences, spans that
@@ -554,7 +553,7 @@ export function calendarEntries(
         (v): v is string => typeof v === "string" && parseDay(v) !== null
       )
     );
-    // recurrence ignores ranges (SUB-596): a series expands from the span's
+    // recurrence ignores ranges: a series expands from the span's
     // START, one single-day occurrence per step — the continuation days and
     // the span metadata are dropped rather than multiplied by the cadence
     return base
@@ -568,13 +567,13 @@ export function calendarEntries(
         if (!anchor) return [e];
         const out: CalEntry[] = [];
         let count = 0; // in-window occurrences considered, emitted or skipped
-        // seek straight to the window instead of walking there (SUB-570)
+        // seek straight to the window instead of walking there
         const first = window ? seekToWindow(anchor, repeat, window.start) : 0;
         for (let k = first; ; k++) {
           const day = repeatStep(anchor, repeat, k);
           // the anchor is a real dated note, not a virtual occurrence — an
           // until BEFORE it (usually a typo) truncates the series, never hides
-          // the note itself (SUB-220)
+          // the note itself
           if (until && day > until && k > 0) break;
           if (window) {
             if (day > window.end) break;
@@ -590,7 +589,7 @@ export function calendarEntries(
 
 /** Entries across several disjoint windows, deduped by (note, prop, day).
 
-    SUB-570: the calendar renders two spans that drift apart — the grid the
+    The calendar renders two spans that drift apart — the grid the
     user paged to, and the fixed 14-day Upcoming list rooted at today. Covering
     both with ONE window meant the span stretched without bound as you paged
     back, and past ~1000 days MAX_OCCURRENCES truncated a daily series before
@@ -616,13 +615,13 @@ export function calendarEntriesForWindows(
   return out;
 }
 
-/** The calendar's overdue list (SUB-206): non-repeating deadline entries whose
+/** The calendar's overdue list: non-repeating deadline entries whose
     day passed before `today`, oldest first. The scan mirrors agendaPayload's:
     the [today, today] window bounds recurrence expansion only — non-repeating
     entries are window-agnostic, so every past deadline is seen at no extra
     expansion cost. A series is never overdue: it always has a next
-    occurrence — and a complete entry (SUB-205) never is either, matching the
-    Today strip's count. A range (SUB-596) is overdue only once its END day has
+    occurrence — and a complete entry never is either, matching the
+    Today strip's count. A range is overdue only once its END day has
     passed: a span still running is not late. */
 export function overdueEntries(
   notes: NoteMeta[],
@@ -648,7 +647,7 @@ export function overdueEntries(
 
 /** Types that can be created from the calendar: standalone `event` first,
     then every schema database declaring a date-kind prop, alphabetically
-    (SUB-175 — deriving the picker from dated ENTRIES let any imported type
+    (deriving the picker from dated ENTRIES let any imported type
     with a date-shaped prop in as a nonsense create-as category). Functional
     types stay out even when they declare one; reserved type-map keys (icon,
     home) aren't prop specs, hence the `?.kind`. */
@@ -700,7 +699,7 @@ export function datePropFor(type: string, notes: NoteMeta[], schema: SchemaConfi
 }
 
 /** Where a new entry of `type` files itself: standalone events live in
-    Calendar/, a database with a home folder lands there explicitly (SUB-85),
+    Calendar/, a database with a home folder lands there explicitly,
     otherwise the type keeps living where most of it already lives. */
 export function folderFor(type: string, notes: NoteMeta[], home?: string): string {
   const foldedType = type.toLowerCase();

@@ -179,7 +179,7 @@ test("parseSnapshotsFromBody: ``` inside a quoted cell does not end the fence (S
   assert.equal(parseSnapshotsFromBody(out).snapshots.length, 3);
 });
 
-// ---------- claimed_usd (SUB-318) ----------
+// ---------- claimed_usd ----------
 
 test("readClaimedUsd: number, numeric string, missing, junk, negative", () => {
   assert.equal(readClaimedUsd({ claimed_usd: 232 }), 232);
@@ -210,7 +210,7 @@ test("claim flow: rows stay cumulative — entered venue balance + claimed offse
   }
 });
 
-// ---------- fmtWindow (SUB-327) ----------
+// ---------- fmtWindow ----------
 
 test("fmtWindow: two largest units, zero remainders dropped", () => {
   assert.equal(fmtWindow(42), "42 min");

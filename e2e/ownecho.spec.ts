@@ -1,15 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-296: with the mock's opt-in own-write echo on, a completed save echoes
+// With the mock's opt-in own-write echo on, a completed save echoes
 // vault:changed exactly like the engine's watcher — and the open editor must
-// NOT adopt its own echo (SUB-116 invariant): the save round-trip leaves the
+// NOT adopt its own echo: the save round-trip leaves the
 // buffer untouched (no adopt flash, no remount) and the text lands on disk.
 
 function row(page: Page, title: string) {
   return page.locator(".list .row", { has: page.getByText(title, { exact: true }) });
 }
 
-// cold open lands on the Notes scratch list (Today is hidden, SUB-299)
+// cold open lands on the Notes scratch list (Today is hidden)
 async function boot(page: Page) {
   await page.goto("/");
   await page.locator(".side-item", { hasText: /^Notes/ }).click();
@@ -51,7 +51,7 @@ test("a save echoes once and the open editor never adopts its own echo (SUB-296)
   // one completed save → exactly one watcher echo (engine cadence: the 500ms
   // debounced save, then the watcher's 300ms quiet window)
   await expect.poll(() => echoCount(page)).toBe(1);
-  // settle past the app's 1s own-echo window (SUB-116) so the trailing
+  // settle past the app's 1s own-echo window so the trailing
   // refresh and the open-note re-read have fully run
   await page.waitForTimeout(1600);
 
@@ -77,7 +77,7 @@ test("a save echoes once and the open editor never adopts its own echo (SUB-296)
   await expect(ed).toContainText(more);
 });
 
-/* SUB-660: the four database/property bulk sweeps rewrite ordinary notes, so
+/* The four database/property bulk sweeps rewrite ordinary notes, so
    with the echo flag on the watcher reports them exactly like any other write.
    Before the fix the app recorded no own-write for them, and ~300ms later its
    own echo came back classified as somebody ELSE's edit — which marks every

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * THIRD-PARTY-LICENSES.md generator and staleness gate (SUB-872).
+ * THIRD-PARTY-LICENSES.md generator and staleness gate.
  *
  * The app ships other people's code: the vite-compiled npm bundle (the
  * production `dependencies` closure) and the compiled Rust engine (every crate
  * in src-tauri/Cargo.lock). MIT, BSD and Apache all condition redistribution on
  * carrying the notice along, and a DMG or updater tarball is redistribution, so
- * the notice file has to be IN the bundle — same reasoning as SUB-851's
+ * the notice file has to be IN the bundle — same reasoning as
  * THIRD-PARTY-FONTS.md, which this file sits beside in `bundle.resources`.
  *
  * Shape, and why the two halves differ:

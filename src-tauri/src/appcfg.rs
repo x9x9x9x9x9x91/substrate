@@ -1,4 +1,4 @@
-//! Per-machine app config: which vault this install opens (SUB-436).
+//! Per-machine app config: which vault this install opens.
 //!
 //! The file lives in the OS app-config dir (`~/Library/Application
 //! Support/<bundle id>/config.json` on macOS) — deliberately NOT
@@ -33,7 +33,7 @@ pub struct AppConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vault: Option<PathBuf>,
     /// Where each mounted folder lives ON THIS MACHINE: mount id → absolute
-    /// path (SUB-888). A mount's identity, name and globs are portable and
+    /// path. A mount's identity, name and globs are portable and
     /// sync inside the vault; the path binding is per-machine and must not,
     /// which is exactly why it lives here and not in `.vault/mounts.json`.
     /// A mount with no entry here is unbound: its board still renders from
@@ -41,7 +41,7 @@ pub struct AppConfig {
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub mounts: std::collections::BTreeMap<String, PathBuf>,
     /// Which vaults may run reflexes ON THIS DEVICE: canonical vault path →
-    /// the enable decision (SUB-826). One switch for the whole feature, per
+    /// the enable decision. One switch for the whole feature, per
     /// vault, per device. It lives here rather than in the vault for the same
     /// reason custom-kind consent does (`crate::kinds`): a vault syncs
     /// wholesale, so a marker inside it would arrive pre-approved everywhere.
@@ -78,8 +78,8 @@ pub fn read_config(cfg_dir: &Path) -> AppConfig {
 }
 
 /// Read the config, let `edit` change it, write it back. EVERY write goes
-/// through here: the config has grown a second concern (mount path bindings,
-/// SUB-888) and a writer that builds a fresh `AppConfig` from one field
+/// through here: the config has grown a second concern (mount path bindings)
+/// and a writer that builds a fresh `AppConfig` from one field
 /// silently drops the other. Creating the config dir is part of the write.
 pub fn update_config(cfg_dir: &Path, edit: impl FnOnce(&mut AppConfig)) -> Result<(), String> {
     fs::create_dir_all(cfg_dir).map_err(|e| e.to_string())?;
@@ -110,8 +110,7 @@ pub fn write_mount_binding(cfg_dir: &Path, id: &str, path: Option<&Path>) -> Res
 /// How sure do we need to be that a folder is a vault?
 ///
 /// The two callers want different answers, and conflating them is what let a
-/// folder with one stray `README.md` open silently as a vault (SUB-436
-/// review #4).
+/// folder with one stray `README.md` open silently as a vault.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Confidence {
     /// Adopting `~/Vault` at boot, unasked. A pre-marker vault often holds a
@@ -153,7 +152,7 @@ pub fn looks_like_vault_at(p: &Path, confidence: Confidence) -> bool {
 }
 
 /// Is there markdown in a SUBFOLDER of `p`? Purely descriptive — it changes
-/// no verdict, only which consent wording the picker uses (SUB-1097): a
+/// no verdict, only which consent wording the picker uses: a
 /// folder-organised Obsidian vault (`Daily/`, `Projects/`, nothing loose at
 /// the root) fails the strict top-level test and must not be greeted as
 /// "this folder already holds other files".
@@ -239,13 +238,13 @@ pub struct VaultCandidate {
     pub is_vault: bool,
     /// Non-empty and not a vault: initializing here needs explicit consent.
     pub empty: bool,
-    /// Markdown lives in subfolders (SUB-1097). Never changes what is
+    /// Markdown lives in subfolders. Never changes what is
     /// allowed — only which consent wording the picker shows, so a
     /// folder-organised notes vault isn't greeted as a stranger's folder.
     #[serde(default)]
     pub nested_markdown: bool,
     /// The `.vault/` marker is already here — this folder has been a Substrate
-    /// vault before (SUB-1133). `is_vault` is NOT the same question: a plain
+    /// vault before. `is_vault` is NOT the same question: a plain
     /// folder with two top-level notes also earns "Open vault", and adopting
     /// that one really does add Substrate's files. Descriptive only: it
     /// changes no verdict, just which sentence the picker owes the user.
@@ -279,7 +278,7 @@ pub fn open_or_init(p: &Path, consent: bool) -> Result<bool, String> {
     }
     let existed = p.is_dir();
     // strict: this is a pick, so a lone README.md is content to be consented
-    // to, not a vault to adopt (SUB-436 review #4)
+    // to, not a vault to adopt
     if existed && looks_like_vault_at(p, Confidence::Picked) {
         // already a vault: adopt as-is, no seeding, marker backfilled
         fs::create_dir_all(p.join(VAULT_MARKER)).map_err(|e| e.to_string())?;
@@ -309,7 +308,7 @@ mod tests {
         v
     }
 
-    /// SUB-888: the two concerns in `config.json` are written by different
+    /// The two concerns in `config.json` are written by different
     /// flows (picking a vault; binding a mount), and each used to be able to
     /// erase the other by rebuilding the struct from its own field.
     #[test]
@@ -493,7 +492,7 @@ mod tests {
         assert!(open_or_init(&f, true).is_err());
     }
 
-    /// SUB-436 review #4: one stray `.md` used to be enough for any folder to
+    /// Review #4: one stray `.md` used to be enough for any folder to
     /// count as a vault, so picking `~/Documents` or a code checkout with a
     /// single `README.md` opened it silently and wrote `.vault/` into it.
     #[test]
@@ -573,7 +572,7 @@ mod tests {
         assert!(!i.exists && !i.is_vault && i.empty);
     }
 
-    /// SUB-1133: both of these earn the "Open vault" verb, but only one of
+    /// Both of these earn the "Open vault" verb, but only one of
     /// them has been a Substrate vault before. The picker's disclosure line
     /// ("Substrate will add its own files here…") is true for the folder of
     /// loose notes and false for the returning vault, so `inspect` has to say
@@ -601,9 +600,9 @@ mod tests {
         assert!(!inspect(&other).has_marker);
     }
 
-    /// SUB-1097: a folder-organised Obsidian vault — every note in a
+    /// A folder-organised Obsidian vault — every note in a
     /// subfolder, nothing loose at the root — still needs consent (the
-    /// SUB-436 invariant is untouched), but `inspect` now says WHY it looks
+    /// invariant is untouched), but `inspect` now says WHY it looks
     /// note-ish so the UI can pick the friendlier wording.
     #[test]
     fn a_folder_organised_vault_is_flagged_as_nested_markdown_but_still_needs_consent() {

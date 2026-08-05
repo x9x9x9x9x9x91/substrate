@@ -68,7 +68,7 @@ import DotsMenu from "./DotsMenu";
 import { BacklinkIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, LockIcon, NoteActionGlyph, XIcon } from "./Icons";
 
 /** url/email/phone-kind chips open outside the app — the OS handler (browser,
-    mail, phone) in Tauri, a new tab in the browser/mock lane (Editor's SUB-88
+    mail, phone) in Tauri, a new tab in the browser/mock lane (Editor's
     lane split). */
 function openExternalLink(url: string) {
   if (isTauri) openUrl(url).catch(console.error);
@@ -90,18 +90,18 @@ function chipEntries(
   return orderedPropKeys(props, typeSchema).map((k) => [k, propStr(props, k) ?? ""]);
 }
 
-// the typed engine errors of write_body (SUB-93/SUB-94), matched by prefix —
+// the typed engine errors of write_body, matched by prefix —
 // the mock backend throws the same strings (src/lib/tauri.ts)
 const isConflictErr = (e: unknown) =>
   String(e instanceof Error ? e.message : e).startsWith("conflict:");
 const isGoneErr = (e: unknown) =>
   String(e instanceof Error ? e.message : e).startsWith("note no longer exists");
-// SUB-935: the note's identity is no longer authorized in this session — the
+// The note's identity is no longer authorized in this session — the
 // only save failure a user can fix themselves, by unlocking again.
 const isSealedLockedErr = (e: unknown) =>
   String(e instanceof Error ? e.message : e).startsWith("sealed: locked");
 
-/* SUB-549: unsaved text whose write failed for a note that is no longer open,
+/* Unsaved text whose write failed for a note that is no longer open,
    by path. The pane holds exactly one `pending` buffer and the next keystroke
    overwrites it, so text belonging to a note the user has left has nowhere to
    live — it used to be dropped silently. Reopening the note takes it back
@@ -110,7 +110,7 @@ const isSealedLockedErr = (e: unknown) =>
    buffer surviving the pane is the entire point. */
 const orphanedEdits = new Map<string, string>();
 
-/** SUB-822: drop every orphaned buffer. Called when the app leaves the past —
+/** Drop every orphaned buffer. Called when the app leaves the past —
     text captured while a historical projection was on screen belongs to a
     body that no longer exists, and reopening the note in the present would
     otherwise adopt the past text and save it over the live file. Losing a
@@ -129,10 +129,10 @@ interface NotePaneProps {
   schema: SchemaConfig;
   usedValues: (dbType: string, key: string) => string[];
   vaultEpoch: number;
-  /** `number-locale` (SUB-1092): the dialect the body editor's calc lines
+  /** `number-locale`: the dialect the body editor's calc lines
       write numbers in — the app-wide one, read from Settings.md by App. */
   numberLocale?: NumberLocale;
-  /** SUB-516: the paths behind the current `vaultEpoch` bump, or null for
+  /** The paths behind the current `vaultEpoch` bump, or null for
       "unknown — could be anything". */
   changedPaths?: string[] | null;
   onSaveSchema: (
@@ -154,22 +154,22 @@ interface NotePaneProps {
   /** all database types — the schema editor's relation target picker */
   dbTypes: string[];
   onFollowLink: (name: string) => void;
-  /** all note titles — [[ wikilink completion in the body editor (SUB-269) */
+  /** all note titles — [[ wikilink completion in the body editor */
   noteTitles: string[];
-  /** SUB-818: an inline `#tag` was clicked — open its collection */
+  /** An inline `#tag` was clicked — open its collection */
   onOpenTag?: (tag: string) => void;
-  /** SUB-818: the vault's tags with counts — `#` completion in the editor */
+  /** The vault's tags with counts — `#` completion in the editor */
   tagUniverse?: TagCount[];
   onOpenNote: (path: string) => void;
-  /** ```view embeds (SUB-86): resolve a fence spec to its table model */
+  /** ```view embeds: resolve a fence spec to its table model */
   embedQuery?: (spec: ViewSpecResult) => EmbedResult;
   /** ```view embeds: header click opens the database */
   onOpenView?: (dbType: string, savedId?: string) => void;
-  /** ```view embeds (SUB-796): commit one cell through the app's undoable write */
+  /** ```view embeds: commit one cell through the app's undoable write */
   onEmbedSetProp?: (path: string, key: string, value: PropValue) => void;
-  /** ```view embeds (SUB-796): the fence's "+ New" row */
+  /** ```view embeds: the fence's "+ New" row */
   onEmbedCreate?: (dbType: string, seedProps: [string, string][], query: string) => void;
-  /** ```view embeds (SUB-796): a relation cell's create-and-link */
+  /** ```view embeds: a relation cell's create-and-link */
   onEmbedCreateRelation?: (
     path: string,
     key: string,
@@ -177,36 +177,36 @@ interface NotePaneProps {
     title: string
   ) => void;
   onRenamed: (oldPath: string, meta: NoteMeta) => void;
-  /** SUB-783: repair lane for an UNDONE/REDONE rename — App announces the
+  /** Repair lane for an UNDONE/REDONE rename — App announces the
       move to mounted panes (no-remount relabel) and follows the note only
       when it was selected, unlike onRenamed's unconditional select. */
   onRenameUndone?: (oldPath: string, meta: NoteMeta) => void;
   onMutated: () => void;
-  /** SUB-257: trash this note — App's single trash path (flush + delete +
+  /** Trash this note — App's single trash path (flush + delete +
       toast with Undo); the pane flushes its own pending save first */
   onTrash?: (path: string) => void;
-  /** SUB-257: open the palette's folder picker for this note */
+  /** Open the palette's folder picker for this note */
   onMoveToFolder?: (note: NoteMeta) => void;
-  /** SUB-271: duplicate this note in place — App creates the copy, opens it
+  /** Duplicate this note in place — App creates the copy, opens it
       and toasts "Duplicated" */
   onDuplicate?: (note: NoteMeta) => void;
-  /** SUB-833: open the Send-as-link dialog for this note */
+  /** Open the Send-as-link dialog for this note */
   onSendAsLink?: (note: NoteMeta) => void;
-  /** SUB-410: put this note in (or take it out of) the sidebar's Pinned
+  /** Put this note in (or take it out of) the sidebar's Pinned
       section; `pinned` flips the ⋯ menu's label */
   onTogglePin?: (path: string, pinned: boolean) => void;
   pinned?: boolean;
   /** The pane registers its flush-and-settle here: App-level actions
-      (SUB-271 Duplicate/trash) and the SUB-264 scratch-abandon lane await it
+      (Duplicate/trash) and the scratch-abandon lane await it
       before touching the file — pending buffer flushed, every in-flight
       write landed */
   flushRef?: React.MutableRefObject<(() => Promise<void>) | null>;
-  /** SUB-210: a ghost daily — the dated surface exists on screen but not on
+  /** A ghost daily — the dated surface exists on screen but not on
       disk; the first keystroke creates the file (never mere navigation) */
   ghost?: boolean;
   /** the ghost's file just got created from typed text — adopt the meta */
   onGhostCreated?: (meta: NoteMeta) => void;
-  /** a `type` commit re-homed the note into a database — follow it (SUB-208) */
+  /** a `type` commit re-homed the note into a database — follow it */
   onTyped?: (meta: NoteMeta) => void;
   /** open (creating if needed) the daily note for a YYYY-MM-DD date */
   onJournalDay?: (date: string) => void;
@@ -214,20 +214,20 @@ interface NotePaneProps {
   /** registered as focus+select on the title input (⌘N instant scratch note) */
   titleFocusRef?: React.MutableRefObject<(() => void) | null>;
   /** Esc in the note's own surfaces (title input, editor) — App's
-      scratch-abandon (SUB-264) and search-return (SUB-267) lanes */
+      scratch-abandon and search-return lanes */
   onEscape?: (path: string) => void;
   /** scroll-to + flash a body line after opening from search */
   reveal?: { path: string; line: number; nonce: number } | null;
   onRevealed?: () => void;
-  /** the row a sheet notification's click named (SUB-876) — same shape of
+  /** the row a sheet notification's click named — same shape of
       target as `reveal`, but a grid cell rather than a body line */
   revealRow?: (SheetRowTarget & { nonce: number }) | null;
   onRowRevealed?: () => void;
   /** transient user-facing errors (e.g. oversized paste) ride the app toast.
-      SUB-549 also uses the action form for a save that failed on a note the
+      The action form is also used for a save that failed on a note the
       user has already left — the only surface left for it */
   onToast?: (msg: string, action?: { label: string; run: () => void }) => void;
-  /** SUB-822: the note on screen is a historical projection — the body
+  /** The note on screen is a historical projection — the body
       editor is read-only for the duration (the app-root input guard misses
       CodeMirror's own keymap commands). */
   readOnly?: boolean;
@@ -281,14 +281,14 @@ function NotePane({
   const undo = useUndo();
   // docPath is the identity the mounted editor is keyed under (docKey). It
   // tracks path except across the pane's own title rename, where it keeps the
-  // pre-rename value so the editor does NOT remount (SUB-772): the body didn't
+  // pre-rename value so the editor does NOT remount: the body didn't
   // change, only the path label, and the remount's async gap (teardown →
   // vaultRead → mount → focus restore) drops keystrokes typed into it.
   const [loaded, setLoaded] = useState<{ path: string; docPath: string; body: string } | null>(
     null
   );
   const liveBody = loaded?.path === meta.path ? loaded.body : null;
-  // A live value (SUB-825) may convert currency too, so an inline `= expr`
+  // A live value may convert currency too, so an inline `= expr`
   // span earns the rate table on the same terms a calc line does. Memoised
   // because the match now parses each candidate: it is a body-sized scan, not
   // a render-sized one.
@@ -298,7 +298,7 @@ function NotePane({
   );
   const calcNeeded =
     (loaded?.path === meta.path && hasExecutableCalcLine(loaded.body)) || hasLiveExpr;
-  // calc lines (SUB-834): live rates for `= 25 USD in EUR`; the resolver is
+  // calc lines: live rates for `= 25 USD in EUR`; the resolver is
   // null-safe (no table yet → the quiet per-line dash, never a wrong number).
   // Ordinary prose keeps this disabled, so opening a note cannot phone out:
   // both triggers require executable syntax the writer opted into — a calc
@@ -307,13 +307,13 @@ function NotePane({
   // (`` `=SUM(A1:A2)` ``) is not a match and fetches no rates.
   const { fx: fxRatesState } = useFxRates(calcNeeded);
   const calcFx = useMemo(() => makeFxResolver(fxRatesState), [fxRatesState]);
-  // the sheets this note's inline `= expr` spans read (SUB-825) — same loader
+  // the sheets this note's inline `= expr` spans read — same loader
   // and same vault-epoch invalidation the dashboard bindings use
   const liveSheets = useLiveValues(liveBody, vaultEpoch, meta.path, fxRatesState);
   const [diskProps, setDiskProps] = useState<Record<string, unknown>>({});
-  // SUB-1148: property writes in flight, laid over disk truth so a committed
+  // Property writes in flight, laid over disk truth so a committed
   // chip paints the frame it closes instead of a beat later, when the write
-  // resolves. Same overlay the database pane got in SUB-946 (lib/pendingprops)
+  // resolves. Same overlay the database pane got (lib/pendingprops)
   // — `pending` above is the body-save buffer, an unrelated thing.
   const [pendingProps, setPendingProps] = useState<PendingProps>(NO_PENDING);
   const props = useMemo(
@@ -346,18 +346,18 @@ function NotePane({
   const [typePick, setTypePick] = useState(false);
   const [titleDraft, setTitleDraft] = useState(meta.title);
   const [titleError, setTitleError] = useState<string | null>(null);
-  // SUB-132: last body-write failure — shown inline until a write succeeds
+  // Last body-write failure — shown inline until a write succeeds
   const [saveError, setSaveError] = useState<string | null>(null);
-  // SUB-240: last prop-write failure — same inline pill as body saves; the
+  // Last prop-write failure — same inline pill as body saves; the
   // attempted write is held (failedProp) so the pill's click retries it
   const [propError, setPropError] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
-  // SUB-94: the file vanished with unsaved text in the buffer — the pane
+  // The file vanished with unsaved text in the buffer — the pane
   // stays up (text recoverable) under a gone banner, not the empty state
   const [fileGone, setFileGone] = useState(false);
-  // SUB-93: a flush hit an external change — the banner offers reload/overwrite
+  // A flush hit an external change — the banner offers reload/overwrite
   const [conflict, setConflict] = useState(false);
-  // SUB-430: the open note's raw frontmatter block + health. error != null
+  // The open note's raw frontmatter block + health. error != null
   // shows the repair banner — read() strips the block, so this is the only
   // in-app sight of a malformed one
   const [fmState, setFmState] = useState<FmState | null>(null);
@@ -369,7 +369,7 @@ function NotePane({
   const [sealedDialog, setSealedDialog] = useState<SealedNoteMode | null>(null);
   const isSealed = sealedOverride ?? !!meta.sealed;
   // Does THIS pane hold the engine's authorization for this note? The engine
-  // counts holders (SUB-935), so a pane must release exactly what it took: a
+  // counts holders, so a pane must release exactly what it took: a
   // pane that never unlocked — a plaintext note, or a second surface that only
   // read — releasing on teardown would revoke the identity another open pane
   // is still editing with.
@@ -377,16 +377,16 @@ function NotePane({
 
   const pending = useRef<{ path: string; body: string } | null>(null);
   const saveTimer = useRef<number | undefined>(undefined);
-  // the prop write that failed (SUB-240) — the error pill IS its retry
+  // the prop write that failed — the error pill IS its retry
   const failedProp = useRef<{ key: string; value: string | string[] | boolean | null } | null>(null);
-  // same, for the sheet column's notification write (SUB-876) — a different
+  // same, for the sheet column's notification write — a different
   // shape of write, so the pill needs to know which one to replay
   const failedColumn = useRef<{ column: string; notify: boolean; notifyBefore: number | null } | null>(null);
   // disk-known body of the open note — the expected-body the flush guard passes
   const baseRef = useRef<{ path: string; body: string } | null>(null);
-  // in-flight writes count as dirty for the external-reload lane (SUB-93)
+  // in-flight writes count as dirty for the external-reload lane
   const saving = useRef(0);
-  // SUB-264: resolvers parked until the last in-flight write lands — the
+  // Resolvers parked until the last in-flight write lands — the
   // flushRef settle awaits them before the abandon lane reads disk state
   const settleWaiters = useRef<(() => void)[]>([]);
   // state mirrors for timers/promises, where setters alone would read stale
@@ -397,7 +397,7 @@ function NotePane({
   // must not set flags on the new one
   const pathRef = useRef(meta.path);
   pathRef.current = meta.path;
-  // SUB-210: paths open(ed) as ghosts — keyed by path, not a boolean, so the
+  // Paths open(ed) as ghosts — keyed by path, not a boolean, so the
   // cleanup-flush of a just-left ghost (its text still pending) routes to
   // create even though the pane already shows the next note
   const ghostPaths = useRef<Set<string>>(new Set());
@@ -411,7 +411,7 @@ function NotePane({
   // callback mirror so flush's identity stays pinned to onMutated alone
   const onGhostCreatedRef = useRef(onGhostCreated);
   onGhostCreatedRef.current = onGhostCreated;
-  // same reason — SUB-549's orphan toast reaches App from inside flush
+  // same reason — the orphan toast reaches App from inside flush
   const onToastRef = useRef(onToast);
   onToastRef.current = onToast;
   const onOpenNoteRef = useRef(onOpenNote);
@@ -420,13 +420,13 @@ function NotePane({
   const applyingExternal = useRef(false);
   const docReplaceRef = useRef<((body: string) => void) | null>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
-  // SUB-766/SUB-772: where this pane's own title rename moved the open note,
+  // Where this pane's own title rename moved the open note,
   // written by commitTitle the moment the rename resolves. The load effect
   // consumes it to RELABEL the live state in place instead of tearing down
   // and re-reading: the note's body didn't change, only its path did, so the
   // editor keeps running under its old docKey (loaded.docPath) and no
-  // remount happens at all. The first SUB-766 fix let the remount happen and
-  // handed focus + the pending buffer across the gap; SUB-772 (rig runs,
+  // remount happens at all. The first fix let the remount happen and
+  // handed focus + the pending buffer across the gap; the CI runs
   // trace) showed the gap itself is the bug — between the old editor's
   // unmount and the deferred focus restore, keystrokes land on <body> and
   // are dropped, and on a loaded machine that window is wide enough to eat
@@ -435,7 +435,7 @@ function NotePane({
   // every from->to this pane's own renames performed, consulted by flush's
   // failure paths: a write launched against the old path that fails AFTER
   // the mv must park/report under the note's live name, or the held text
-  // lands behind a key nothing can ever reopen (SUB-772 review finding)
+  // lands behind a key nothing can ever reopen
   const renameAliases = useRef(new Map<string, string>());
   const liveAlias = useCallback((path: string): string => {
     const seen = new Set<string>();
@@ -448,7 +448,7 @@ function NotePane({
   }, []);
   // a title rename is in flight: the debounce must not flush the body to a
   // path the engine is about to move (the write lands after the mv and dies
-  // silently, SUB-286's failure). commitTitle re-arms the timer on settle,
+  // silently, the failure). commitTitle re-arms the timer on settle,
   // with the buffer re-keyed to wherever the note now lives.
   const renameInFlight = useRef(0);
 
@@ -465,12 +465,12 @@ function NotePane({
     };
   }, [titleFocusRef]);
 
-  // Guarded save (SUB-93/SUB-94): writes carry the disk-known body as the
+  // Guarded save: writes carry the disk-known body as the
   // expected-body, so an external change rejects instead of being clobbered.
   // Kept deliberately small — the error-surfacing lane shares this catch path.
   // Resolves after the write has landed (errors are surfaced, not thrown) —
   // teardown paths like Move to Trash await it before destroying the file
-  // (SUB-229); fire-and-forget callers ignore it.
+  // fire-and-forget callers ignore it.
   const flush = useCallback(
     (force = false): Promise<void> => {
       window.clearTimeout(saveTimer.current);
@@ -478,9 +478,9 @@ function NotePane({
       if (!p) return Promise.resolve();
       // an unresolved conflict waits for the user's reload/overwrite pick
       if (conflictRef.current && !force) return Promise.resolve();
-      // a gone file is never written again (SUB-94) — the buffer stays put
+      // a gone file is never written again — the buffer stays put
       if (missingRef.current || fileGoneRef.current) return Promise.resolve();
-      // SUB-210: a ghost daily has no file — the first flush creates it with
+      // A ghost daily has no file — the first flush creates it with
       // the typed text; App adopts the meta and the pane leaves ghost mode
       if (ghostPaths.current.has(p.path)) {
         if (ghostCreating.current) return Promise.resolve(); // create in flight — text is in it
@@ -495,7 +495,7 @@ function NotePane({
             if (pathRef.current === p.path) {
               baseRef.current = { path: m.path, body: p.body };
               setDiskProps(m.props);
-              // SUB-558: the write path clears this on success and the create
+              // The write path clears this on success and the create
               // path never did — a retried create left the pill armed forever
               setSaveError(null);
             }
@@ -509,7 +509,7 @@ function NotePane({
           .catch((err) => {
             ghostCreating.current = false;
             if (pathRef.current !== p.path) {
-              // SUB-558, the ghost half of SUB-549: same reasoning as the write
+              // The ghost half: same reasoning as the write
               // catch below — the pane has moved on, `pending` belongs to the
               // note on screen, and the next keystroke there would overwrite
               // the text. Park it by path and toast; the load effect's ghost
@@ -527,7 +527,7 @@ function NotePane({
       }
       pending.current = null;
       saving.current += 1;
-      // SUB-771: a keystroke's closure can re-key pending back to a path this
+      // A keystroke's closure can re-key pending back to a path this
       // pane's own rename already moved — the load effect's fix-up runs after
       // the cleanup flush that grabs the buffer (rig captures: the write goes
       // to the dead path, fails "gone", and its catch used to revert newer
@@ -538,17 +538,17 @@ function NotePane({
       // stale closure's key, and the old code shipped that write with NO
       // expected-body — guarding it against the pre-rename baseRef body would
       // newly raise the conflict banner when the rename's link sweep rewrote
-      // this note's own body under a dirty buffer (SUB-97 lane; review finding)
+      // this note's own body under a dirty buffer
       const expected =
         force || baseRef.current?.path !== p.path ? null : baseRef.current?.body;
-      // SUB-132: a failed write must never be silent — surfaced inline and the
+      // A failed write must never be silent — surfaced inline and the
       // body stays armed so a click on the error pill (or the next debounced
       // edit) retries the same write. Cleared on the next success.
       return vaultWriteBody(livePath, p.body, expected)
         .then(() => {
           // a write that lands after a note switch must not clobber the new
           // note's base — its disk-known body comes from the load effect.
-          // Judged via the rename alias (SUB-772): a write that landed just
+          // Judged via the rename alias: a write that landed just
           // before this pane's own mv still owns the note's base, under the
           // note's live name — leaving it stale makes the next guarded write
           // conflict against a body the user themselves saved.
@@ -564,10 +564,10 @@ function NotePane({
         .catch((err) => {
           // a rename that landed while this write was in flight moved the
           // note; judge "has the pane moved on" and park/report under the
-          // note's LIVE name, or the text hides behind a dead key (SUB-772)
+          // note's LIVE name, or the text hides behind a dead key
           const wrotePath = liveAlias(p.path);
           if (pathRef.current !== wrotePath) {
-            // SUB-549: the pane has moved on, so none of the surfaces below
+            // The pane has moved on, so none of the surfaces below
             // can show this. `pending` must not take the text back either —
             // it is a single slot that now belongs to the note on screen, and
             // the next keystroke there would overwrite it regardless. Park it
@@ -584,23 +584,23 @@ function NotePane({
           // the buffer goes back to pending — dropping unsaved text silently
           // is worse than holding it (re-keyed to the live name if a rename
           // landed mid-write, so the retry writes where the note now is).
-          // SUB-771: unless a NEWER buffer exists — keystrokes typed while
+          // Unless a NEWER buffer exists — keystrokes typed while
           // this write was in flight built a doc that already contains this
           // one's text, and restoring the stale snapshot over it is exactly
           // the silent loss (rig captures: disk froze at the rename-moment
           // body, everything typed after was clobbered here).
           if (!pending.current) pending.current = { path: wrotePath, body: p.body };
           if (isSealedLockedErr(err)) {
-            // SUB-935: the session lost this note's authorization mid-edit —
+            // The session lost this note's authorization mid-edit —
             // another surface locked it, or the app was told to forget it. A
             // save-error pill would be a dead end here (every retry fails the
             // same way), so recover to the lock screen: park the text the way
-            // SUB-549 does and let unlocking reload it, retry armed.
+            // the failed-write path does and let unlocking reload it, retry armed.
             //
             // Park the NEWER buffer, never this write's stale snapshot: the
             // restore just above may hold keystrokes typed while this write
             // was in flight, and parking `p.body` over them is the same
-            // silent loss the SUB-771 guard exists to prevent (SUB-935).
+            // silent loss the stale-overwrite guard exists to prevent.
             const newer =
               pending.current?.path === wrotePath ? pending.current.body : p.body;
             orphanedEdits.set(wrotePath, newer);
@@ -612,11 +612,11 @@ function NotePane({
             return;
           }
           if (isConflictErr(err)) {
-            // SUB-93: the file changed under a dirty buffer — user decides
+            // The file changed under a dirty buffer — user decides
             conflictRef.current = true;
             setConflict(true);
           } else if (isGoneErr(err)) {
-            // SUB-94: the file vanished — the pane shows it, the text stays
+            // The file vanished — the pane shows it, the text stays
             fileGoneRef.current = true;
             setFileGone(true);
           } else {
@@ -644,7 +644,7 @@ function NotePane({
     return () => {
       // the lock must land even when the final flush rejects — otherwise the
       // engine keeps the identity while every surface shows "locked". Only
-      // this pane's own hold is released (SUB-935).
+      // this pane's own hold is released.
       //
       // The hold is read HERE, synchronously: React runs this cleanup and
       // then the next setup body, which zeroes the ref — and that lands long
@@ -666,12 +666,12 @@ function NotePane({
   }, [meta.sealed]);
 
   useEffect(() => {
-    // SUB-766/SUB-772: when this meta.path change is the pane's own title
+    // When this meta.path change is the pane's own title
     // rename landing — commitTitle already relabeled loaded/pending/baseRef
     // in the same commit, the mounted editor is still keyed to
     // loaded.docPath, and the note's content is untouched by a rename — skip
     // the teardown+reload entirely (the remount gap is where typed
-    // keystrokes died — SUB-772 trace); only the path-derived sidecars need
+    // keystrokes died, per the CI trace); only the path-derived sidecars need
     // a refresh. The marker is consumed either way: a meta.path that is NOT
     // the announced destination is a real navigation that voids it.
     const mv = renamedTo.current;
@@ -723,7 +723,7 @@ function NotePane({
         saveTimer.current = window.setTimeout(flush, 500);
       }
       // the rename's link sweep can rewrite this note's own body too (a
-      // self-link, SUB-97 semantics) — re-read; a clean buffer adopts the
+      // self-link) — re-read; a clean buffer adopts the
       // rewrite in place WITHOUT touching docPath (a docKey change here
       // would remount, the exact gap this branch exists to avoid); a dirty
       // buffer keeps the guard path like any external change while typing.
@@ -788,7 +788,7 @@ function NotePane({
     baseRef.current = null;
     let gone = false;
     const path = meta.path;
-    // SUB-771 review (HIGH): a pane-own rename's alias dies the moment this
+    // Review (HIGH): a pane-own rename's alias dies the moment this
     // pane opens the vacated path again — a NEW note can live there now
     // (⌘N reuses freed names), and a surviving alias would silently redirect
     // its saves into the rename's destination: two-note loss. The alias only
@@ -804,10 +804,10 @@ function NotePane({
         flush();
       };
     }
-    // SUB-210: a ghost daily has nothing to read — seed an empty buffer so
+    // A ghost daily has nothing to read — seed an empty buffer so
     // the editor renders; the first keystroke's flush creates the file
     if (ghost && ghostPaths.current.has(path)) {
-      // SUB-558: this day was left with a failed create and its text parked
+      // This day was left with a failed create and its text parked
       // (the catch in flush). Take it back — a ghost has no disk body, so
       // there's no baseRef to guard against and no conflict lane: the held
       // text simply becomes the buffer, armed under the retry pill, and the
@@ -831,7 +831,7 @@ function NotePane({
       (c) => {
         if (gone) return;
         setDiskProps(c.props);
-        // SUB-549: this note was left with a failed write, and its text was
+        // This note was left with a failed write, and its text was
         // parked instead of dropped. Take it back: the editor opens on the
         // held text rather than the stale disk body, the retry pill is armed,
         // and baseRef keeps the disk body so the retry writes guarded (an
@@ -849,14 +849,14 @@ function NotePane({
             return;
           }
         }
-        // SUB-305: a reloadNonce remount (history restore) mounts the editor
+        // A reloadNonce remount (history restore) mounts the editor
         // with the pre-read body before this read resolves. When this read
         // wins the race with the vaultEpoch lane, that lane skips its adopt
         // as a false own-echo — the stale doc would stick, and the next save
         // would silently revert the restore (expected body matches disk, no
         // conflict). So a mounted editor on a still-clean buffer adopts in
         // place here — the docReplace itself no-ops when the doc already
-        // matches (SUB-93/SUB-287 semantics); a dirty or saving buffer keeps
+        // matches; a dirty or saving buffer keeps
         // the guard path.
         if (
           docReplaceRef.current &&
@@ -870,7 +870,7 @@ function NotePane({
         baseRef.current = { path, body: c.body };
         setLoaded({ path, docPath: path, body: c.body });
       },
-      // SUB-504: two-arg form on purpose. A trailing .catch also catches
+      // Two-arg form on purpose. A trailing .catch also catches
       // anything the success handler throws, so an internal React error
       // (a stray update-depth blowup upstream) used to paint the
       // vanished-file empty state and read as data loss. Narrowing by
@@ -884,7 +884,7 @@ function NotePane({
         }
       }
     );
-    // SUB-430: frontmatter health rides the note load — quiet like
+    // Frontmatter health rides the note load — quiet like
     // backlinks; a vanished note simply has no banner
     vaultFmRaw(path)
       .then((f) => {
@@ -897,7 +897,7 @@ function NotePane({
       .then((b) => {
         if (!gone) setBacklinks(b);
       })
-      // quiet but handled (SUB-240): a note that vanished mid-load has no
+      // quiet but handled: a note that vanished mid-load has no
       // backlinks — clear rather than keep the previous note's, never throw
       .catch(() => {
         if (!gone) setBacklinks([]);
@@ -915,8 +915,8 @@ function NotePane({
     };
   }, [meta.path, reloadNonce, isSealed, sealedUnlocked]);
 
-  // One flush registration serves both App-level consumers: SUB-271's
-  // Duplicate/trash actions and SUB-264's scratch-abandon lane. Both must
+  // One flush registration serves both App-level consumers: the
+  // Duplicate/trash actions and the scratch-abandon lane. Both must
   // observe real quiescence before reading disk state — pending buffer
   // flushed AND every in-flight write landed. The registration intentionally
   // outlives the pane (no cleanup): a just-unmounted pane's final flush must
@@ -930,7 +930,7 @@ function NotePane({
     };
   }, [flushRef, flush]);
 
-  // SUB-551: the 500ms debounce is a loss window against anything that ends
+  // The 500ms debounce is a loss window against anything that ends
   // the session without unmounting the pane — quitting, closing the window,
   // the OS terminating us. The quit path is synchronous in Rust (RunEvent::Exit
   // can't await a webview round trip), so the buffer has to already be on its
@@ -958,9 +958,9 @@ function NotePane({
       if (applyingExternal.current) return;
       if (hasExecutableCalcLine(b) || liveExprMatches(b).length > 0) ensureFxRates();
       pending.current = { path: meta.path, body: b };
-      // the file is gone: keep the text, never schedule a write (SUB-94)
+      // the file is gone: keep the text, never schedule a write
       if (missingRef.current || fileGoneRef.current) return;
-      // a title rename is moving the file (SUB-772): hold the text, park the
+      // a title rename is moving the file: hold the text, park the
       // debounce — the write would race the mv and land on the dead path.
       // commitTitle re-keys the buffer and re-arms the timer when it settles.
       if (renameInFlight.current) return;
@@ -972,11 +972,11 @@ function NotePane({
 
   // adopt a body read from disk (external change or conflict-reload): editor
   // surfaces swap in place via docReplaceRef — the plain editor, and the sheet
-  // grid too (SUB-288, keeps an open cell draft); anything else remounts
+  // grid too (keeps an open cell draft); anything else remounts
   const adoptDiskBody = useCallback((path: string, body: string) => {
     baseRef.current = { path, body };
     // keep the mounted editor's identity when the pane already shows this
-    // path — after a rename docPath lags path on purpose (SUB-772), and
+    // path — after a rename docPath lags path on purpose, and
     // resetting it here would turn an in-place adopt into a remount
     setLoaded((l) => (l && l.path === path ? { ...l, body } : { path, docPath: path, body }));
     if (docReplaceRef.current) {
@@ -988,10 +988,10 @@ function NotePane({
     }
   }, []);
 
-  // SUB-93: a bump re-reads the open note and adopts genuine divergence — but
+  // A bump re-reads the open note and adopts genuine divergence — but
   // only while clean. A dirty or saving buffer goes through the flush guard
   // instead (conflict banner).
-  // SUB-516: a bump that names its paths and doesn't name ours is somebody
+  // A bump that names its paths and doesn't name ours is somebody
   // else's note changing; re-reading would be a pointless round trip through
   // the same bytes. An unnamed bump (null) still re-reads: that's the engine
   // saying it rescanned, or one of our own writes landing, and the re-read is
@@ -999,7 +999,7 @@ function NotePane({
   useEffect(() => {
     if (!loaded || loaded.path !== meta.path) return;
     if (changedPaths && !changedPaths.includes(meta.path)) return;
-    // a ghost has no file to re-read — nothing external can diverge (SUB-210)
+    // a ghost has no file to re-read — nothing external can diverge
     if (ghost) return;
     if (missingRef.current || fileGoneRef.current) return;
     if (conflictRef.current || pending.current || saving.current > 0) return;
@@ -1015,16 +1015,16 @@ function NotePane({
         if (base?.path === path && base.body === c.body) return; // our own echo
         adoptDiskBody(path, c.body);
       },
-      // two-arg form, same reason as the mount load above (SUB-504)
+      // two-arg form, same reason as the mount load above
       () => {
-        // the open note vanished underneath a clean buffer (SUB-94)
+        // the open note vanished underneath a clean buffer
         if (gone || pathRef.current !== path) return;
         if (pending.current || saving.current > 0) return;
         missingRef.current = true;
         setMissing(true);
       }
     );
-    // SUB-430: the same bump may be an external editor fixing/breaking the
+    // The same bump may be an external editor fixing/breaking the
     // frontmatter block — re-check its health with the content refetch
     vaultFmRaw(path)
       .then((f) => {
@@ -1038,7 +1038,7 @@ function NotePane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vaultEpoch]);
 
-  // conflict banner actions (SUB-93): take the disk version, or win over it
+  // conflict banner actions: take the disk version, or win over it
   const reloadFromDisk = () => {
     window.clearTimeout(saveTimer.current);
     pending.current = null;
@@ -1051,7 +1051,7 @@ function NotePane({
         setDiskProps(c.props);
         adoptDiskBody(path, c.body);
       },
-      // SUB-506: two-arg form for the SUB-504 reason — a trailing .catch would
+      // Two-arg form for the reason — a trailing .catch would
       // also swallow anything the success handler throws. The old isGoneErr
       // guard was unsatisfiable (vault.rs read() returns raw io errors, not the
       // "note no longer exists" prefix), so a genuinely vanished file left the
@@ -1074,16 +1074,16 @@ function NotePane({
     flush(true); // force: no expected-body — the user chose to win
   };
 
-  // SUB-766/SUB-772: the note moved under a live editor. Relabel every
+  // The note moved under a live editor. Relabel every
   // path-keyed piece of live state BEFORE onRenamed swaps meta.path, and
   // leave a marker so the load effect treats the prop change as a rename
   // landing, not a navigation — the editor keeps running (docKey is
   // loaded.docPath, unchanged), no teardown, no remount, and text typed at
   // any point during the rename stays exactly where the user sees it. The
-  // first SUB-766 fix let the remount happen and ferried focus + buffer
+  // first fix let the remount happen and ferried focus + buffer
   // across its async gap; on slow machines keystrokes fell into the gap
-  // itself (SUB-772 trace), so now there is no gap. Shared by commitTitle
-  // and the undo/redo lane (SUB-783), which applies the same move from
+  // itself, so now there is no gap. Shared by commitTitle
+  // and the undo/redo lane, which applies the same move from
   // outside the pane.
   const relabelForRename = useCallback((from: string, to: string) => {
     renamedTo.current = { from, to };
@@ -1100,7 +1100,7 @@ function NotePane({
     if (pending.current?.path === from) pending.current = { ...pending.current, path: to };
   }, []);
 
-  // SUB-783: ⌘Z/⇧⌘Z of a rename runs vaultRename outside any pane. When the
+  // ⌘Z/⇧⌘Z of a rename runs vaultRename outside any pane. When the
   // note it moves is THIS pane's open note, the same no-remount relabel must
   // fire before the refresh swaps meta.path — the rename bus routes the
   // announce to whichever mounted pane holds the note.
@@ -1121,7 +1121,7 @@ function NotePane({
       return;
     }
     // the pending body save must land before the rename — a late flush would
-    // write to the old path after it and die silently (SUB-286). flush
+    // write to the old path after it and die silently. flush
     // resolves after the write settles (errors are surfaced, not thrown).
     // Between here and the rename settling, the debounce stays parked
     // (renameInFlight): a keystroke's 500ms timer could otherwise fire into
@@ -1140,9 +1140,9 @@ function NotePane({
       }
     };
     flush().then(() =>
-      // SUB-515: the pane's own title field is a rename like any other — it
+      // The pane's own title field is a rename like any other — it
       // goes on the undo stack, and its entry names every note the link
-      // sweep rewrote, not just this one. onApplied (SUB-783): its ⌘Z runs
+      // sweep rewrote, not just this one. onApplied: its ⌘Z runs
       // outside the pane, so the inverse rename routes through App's
       // undo-repair lane (announce → in-place relabel, conditional
       // selection follow) instead of arriving as a bare prop change.
@@ -1172,23 +1172,23 @@ function NotePane({
     });
   };
 
-  // SUB-240: one funnel for property writes — a failure used to vanish with
+  // One funnel for property writes — a failure used to vanish with
   // the closed editor and an unhandled rejection; now it lands on the same
-  // inline pill as body saves (SUB-132), the attempted write is held so the
+  // inline pill as body saves, the attempted write is held so the
   // pill's click retries it, and success clears a previous failure. Per-note
   // state sets guard on the note still being current (a reply can lag a
   // switch); App-level follow-ups keep their old unconditional behavior.
   const writeProp = (key: string, value: string | string[] | boolean | null) => {
     const path = meta.path;
-    // SUB-1148: the note's own spelling comes off DISK, never off the
+    // The note's own spelling comes off DISK, never off the
     // optimistic composite — a pending clear deletes the key there, and the
     // fallback would write the caller's spelling back as a second, differently
-    // cased key in the same file (the SUB-946 lesson).
+    // cased key in the same file.
     const actualKey = foldedPropKey(diskProps, key);
-    // SUB-1148: paint it now; the write and its re-scan reconcile behind it
+    // Paint it now; the write and its re-scan reconcile behind it
     const optimistic: PendingWrite[] = [{ path, key: actualKey, value }];
     setPendingProps((cur) => addPending(cur, optimistic));
-    // SUB-477: undoable like every other property edit
+    // Undoable like every other property edit
     setPropUndoable({ path, key: actualKey, value, record: undo.record })
       .then((m) => {
         setPendingProps((cur) => settlePending(cur, optimistic));
@@ -1202,7 +1202,7 @@ function NotePane({
         onMutated();
       })
       .catch((err) => {
-        // SUB-1148: the refused value rolls back on screen this frame — the
+        // The refused value rolls back on screen this frame — the
         // pill below says why and IS the retry. Unconditional, like the
         // settle: an entry for a note we've left is already gone.
         setPendingProps((cur) => dropPending(cur, optimistic));
@@ -1215,7 +1215,7 @@ function NotePane({
       });
   };
 
-  /** SUB-876: a sheet column's notification setting. Not `writeProp` — the
+  /** A sheet column's notification setting. Not `writeProp` — the
       value is a nested map, which `vault_set_prop` refuses — but it lands on
       the same inline pill when it fails, and the same local-props refresh when
       it lands, so the menu reads its own write back. Not undoable either: the
@@ -1245,7 +1245,7 @@ function NotePane({
   };
 
   const commitChip = (key: string, value: string) => {
-    // SUB-636: the note's property chips are the same free-text editor over
+    // The note's property chips are the same free-text editor over
     // the same schema as the table's cells — a number-kind prop typed in the
     // app's own de-DE dialect lands canonical here too (noteType/schema read
     // at call time, both initialized below before any handler can fire)
@@ -1266,20 +1266,20 @@ function NotePane({
     writeProp(key, null);
   };
 
-  // per-note calendar opt-out (SUB-175): hide writes a real YAML bool, show
+  // per-note calendar opt-out: hide writes a real YAML bool, show
   // removes the prop — same refresh discipline as the chip writes above
   const toggleCalendar = (hidden: boolean) => {
     writeProp("calendar", hidden ? null : false);
   };
 
-  // checkbox kind (SUB-173): clicking the chip toggles and saves immediately —
+  // checkbox kind: clicking the chip toggles and saves immediately —
   // checked stores the YAML scalar `true`, unchecked REMOVES the prop (never
   // writes `false`); a stored `false` reads as unchecked
   const toggleCheckboxChip = (key: string) => {
     writeProp(key, props[foldedPropKey(props, key)] === true ? null : true);
   };
 
-  // list-valued props (relation, multi — SUB-79) commit live as the picker
+  // list-valued props (relation, multi) commit live as the picker
   // toggles (menu stays open): one value stores as a scalar, several as a
   // YAML list, none removes
   const commitList = (key: string, values: string[]) => {
@@ -1292,7 +1292,7 @@ function NotePane({
       .catch(console.error);
   };
 
-  // SUB-591: the selection menu's extract — the chunk becomes an untyped
+  // The selection menu's extract — the chunk becomes an untyped
   // note beside this one, and the editor replaces the selection with a
   // wikilink to it. Undoable like every create; the list refresh rides
   // onMutated like the pane's own writes.
@@ -1338,7 +1338,7 @@ function NotePane({
   };
 
   const isSheet = foldedPropStr(isSealed ? props : meta.props, "type")?.toLowerCase() === "sheet";
-  /* SUB-876: the sheet's per-column notification settings, read from the
+  /* The sheet's per-column notification settings, read from the
      pane's own props copy so the menu sees its own write land. */
   const columnNotify = useMemo(
     () => parseColumnNotify(props[foldedPropKey(props, "columns")]),
@@ -1355,7 +1355,7 @@ function NotePane({
   );
   const noteType = foldedPropStr(props, "type");
   const noteTypeSchema = noteType ? typeSchemaFor(schema, noteType) : undefined;
-  // the rollup schema editor's pickers (SUB-678): the note's type's relation
+  // the rollup schema editor's pickers: the note's type's relation
   // props a rollup can follow, and the (non-rollup) props of the picked
   // relation's target database
   const rollupRelations = useMemo(
@@ -1375,14 +1375,14 @@ function NotePane({
     },
     [schema, noteTypeSchema]
   );
-  // calendar opt-out (SUB-175): the menu item shows only when the note lands
+  // calendar opt-out: the menu item shows only when the note lands
   // on the calendar or already carries the flag — plain undated notes skip it
   const calendarValue = props[foldedPropKey(props, "calendar")];
   const calHidden = calendarValue === false || calendarValue === "false";
   const calToggleable = calHidden || entriesForNote({ ...meta, props }, schema).length > 0;
-  // database identity icons for the type chip + type picker (SUB-73)
+  // database identity icons for the type chip + type picker
   const dbIcons = useMemo(() => iconsByType(schema), [schema]);
-  // a template (SUB-59) shows its type as a fixed header — the filename is
+  // a template shows its type as a fixed header — the filename is
   // the schema key, never user-renamable
   const templateType = templateTypeOf(meta.path);
   // a daily note's date is its identity — the title shows a human date and
@@ -1464,10 +1464,10 @@ function NotePane({
       .catch((e) => console.warn("reveal in Finder unavailable:", e));
   };
 
-  // SUB-257: the ⋯ menu renders the canonical note actions — the same
+  // The ⋯ menu renders the canonical note actions — the same
   // descriptors as the row menu and the palette actions stage. Open is
   // row-only, Set property palette-only, the calendar toggle exists only
-  // here (SUB-175); Rename needs the title input, which dailies and
+  // here; Rename needs the title input, which dailies and
   // templates don't have (their titles are fixed)
   const noteActions = buildNoteActions({
     moveToFolder: onMoveToFolder ? () => onMoveToFolder(meta) : undefined,
@@ -1532,7 +1532,7 @@ function NotePane({
     pinned,
     trash: onTrash
       ? () => {
-          // SUB-229: a pending debounced save must land BEFORE the delete —
+          // A pending debounced save must land BEFORE the delete —
           // trashing inside the 500ms window ate the edit
           flush().then(() => onTrash(meta.path));
         }
@@ -1541,7 +1541,7 @@ function NotePane({
 
   return (
     <div className={isSheet ? "note note-sheet" : "note"}>
-      {/* a ghost daily (SUB-210) has no file yet — history, exports and trash
+      {/* a ghost daily has no file yet — history, exports and trash
           would all hit "not found", so the tools appear with the file */}
       {!ghost && (
       <div className="note-tools">
@@ -1611,7 +1611,7 @@ function NotePane({
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
-              // SUB-226/SUB-772: the editor survives the rename now (no
+              // The editor survives the rename now (no
               // docKey change), so a plain focus call sticks — no
               // post-remount restore flag needed on either commit path
               (e.target as HTMLInputElement).blur();
@@ -1620,7 +1620,7 @@ function NotePane({
             if (e.key === "Escape") {
               setTitleDraft(meta.title);
               (e.target as HTMLInputElement).blur();
-              // SUB-264: Esc on a fresh ⌘N note abandons it (App decides —
+              // Esc on a fresh ⌘N note abandons it (App decides —
               // only pristine session-created scratch notes are deleted)
               onEscape?.(meta.path);
             }
@@ -1710,7 +1710,7 @@ function NotePane({
             const broken = kind === "file" && !!v && fileOk[v] === false;
             // created/updated carry ISO dates but plain notes have no schema
             // kind — format by key, not just by kind. Date-kind props render
-            // an optional time-of-day too (SUB-270); created/updated keep
+            // an optional time-of-day too; created/updated keep
             // their day-only humanizing exactly as before.
             const display =
               kind === "date"
@@ -1889,7 +1889,7 @@ function NotePane({
               setEditingChip(k);
               setChipDraft(v);
             };
-            // checkbox chips (SUB-173): the value IS the square — click
+            // checkbox chips: the value IS the square — click
             // toggles in place, no picker; right-click opens the schema
             // options like other kinds
             if (kind === "checkbox") {
@@ -1969,7 +1969,7 @@ function NotePane({
               }
               openMenu(el);
             };
-            // every chip claims its right-click (SUB-590: an unclaimed one
+            // every chip claims its right-click (an unclaimed one
             // now falls through to the app-root menu, which is never the
             // wish on a chip). Link kinds get their options menu — click
             // opens the link; the rest get the same editor click opens.
@@ -2044,7 +2044,7 @@ function NotePane({
                       ? <MultiValues values={multiVals} options={opts} />
                       : <OptionPill color={optionColor(opts, v)}>{display}</OptionPill>}
                 </span>
-                {/* born-empty schema rows (SUB-17): a quiet affordance — the
+                {/* born-empty schema rows: a quiet affordance — the
                     chip-val itself stays empty (e2e contract) */}
                 {!v && <span className="prop-empty" aria-hidden="true">Empty</span>}
                 <button
@@ -2125,7 +2125,7 @@ function NotePane({
                 </button>
               </>
             ) : (
-              // SUB-552: an unterminated `---` has no block for the dialog to
+              // An unterminated `---` has no block for the dialog to
               // edit, and the whole file is already in the editor below —
               // so the banner points at the fix instead of offering a dialog
               <span>
@@ -2198,7 +2198,7 @@ function NotePane({
               onMutated();
             }}
             // a purge/trim changes no file, so this is the only signal the rest
-            // of the app gets that the history caches must drop (SUB-832)
+            // of the app gets that the history caches must drop
             onHistoryRewritten={onMutated}
           />
         )}
@@ -2274,7 +2274,7 @@ function NotePane({
               // own authorization once the purge is safe (holders back to 0),
               // so this pane holds nothing. Claiming a hold here would make
               // the pane's teardown release someone else's authorization —
-              // whoever unlocks the note next (SUB-935).
+              // whoever unlocks the note next.
               sealedHeld.current = false;
               const quick = (result as { device_unlock?: boolean } | undefined)?.device_unlock;
               if (quick === false) onToast?.("Sealed — use the vault password to unlock on this device");
@@ -2297,7 +2297,7 @@ function NotePane({
   );
 }
 
-/* SUB-460: the pane reads its note through props alone, so App-state churn
+/* The pane reads its note through props alone, so App-state churn
    that does not touch them (toast, sidebar drags, palette, list selection of
    the note already open) stops re-rendering the editor subtree. Every
    callback and object prop is stabilized at the App call site. */

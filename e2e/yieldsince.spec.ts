@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// Yield board history + "since" context (SUB-327): the snapshot table walks
+// Yield board history + "since" context: the snapshot table walks
 // back to the earliest row on demand, and the board states when tracking
 // started — hero sub, toggle label, and foot all carry the series start.
 // Mock Yield APR fixture: 14 rows, first 2026-07-17 10:28.

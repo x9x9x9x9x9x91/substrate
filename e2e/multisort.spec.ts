@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// Multi-key sorting (SUB-199): plain header click replaces the sort
+// Multi-key sorting: plain header click replaces the sort
 // (asc → desc → none, as before); shift-click adds or cycles a SECONDARY key
 // and the table sorts lexicographically over the key list, with a muted
 // ordinal riding each active header's arrow. Runs against the deterministic
@@ -11,7 +11,7 @@ import { openDb } from "./nav";
 
 // titles of the seeded "live" block (catalog rows 0–8), in mock insertion
 // order — the tie order a lone status sort leaves behind. status is a
-// schema'd select, so the key sorts by option order (SUB-309): live is
+// schema'd select, so the key sorts by option order: live is
 // option 0 of [live, in review, mastering, parked] and leads asc — under
 // the old lexicographic collation "in review" led instead
 const LIVE_SEEDED = [

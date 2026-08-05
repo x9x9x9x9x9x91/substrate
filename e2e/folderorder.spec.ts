@@ -1,12 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-401: root folders in the Folders tree reorder (context-menu Move
+// Root folders in the Folders tree reorder (context-menu Move
 // up/down here, drag covered by the shared reorderIds unit tests) and the
-// order persists in `$sidebar.folders`. SUB-585: nested folders reorder the
+// order persists in `$sidebar.folders`. Nested folders reorder the
 // same way, each sibling group reading its own slice of that one flat list.
 
 // the default mock vault's root folder rows in boot (alphabetical) order —
-// home-db rows keep their FOLDER name (SUB-611); nested rows
+// home-db rows keep their FOLDER name; nested rows
 // (Projects/Active, Projects/Archive) and hidden surfaces are filtered
 // out of assertions below
 const ROOTS = ["Calendar", "Field notes", "Ideas", "Inbox", "Mounts", "Projects", "Tasks", "ZHome"];
@@ -96,7 +96,7 @@ test("nested folders reorder within their sibling group (SUB-585)", async ({ pag
   expect(await nestedOrder()).toEqual(["Active", "Archive"]);
 });
 
-// SUB-451: the folder menu creates a note in that folder — same scratch path
+// The folder menu creates a note in that folder — same scratch path
 // ⌘N takes inside a folder view (title focused, pristine-abandon semantics)
 test("folder menu: New note creates the note inside that folder", async ({ page }) => {
   const folder = page.locator(".side-folder", { hasText: "Field notes" });

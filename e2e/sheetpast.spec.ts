@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-1140: a sheet read at an old commit is a read. Time travel already
+// A sheet read at an old commit is a read. Time travel already
 // renders the note read-only, but the grid used to thread that only into some
 // of its affordances — a cell still opened, `+ row` / `+ column` still wrote,
 // and the edit landed in the live file on disk.
@@ -69,7 +69,7 @@ test("past mode hides the add affordances instead of letting them no-op", async 
   await expect(page.locator(".sheet-addcol-btn")).toHaveCount(0);
   await expect(page.locator(".sheet-toolbar .sheet-tool", { hasText: "+ row" })).toHaveCount(0);
   await expect(page.locator(".sheet-toolbar .sheet-tool", { hasText: "+ column" })).toHaveCount(0);
-  // SUB-937's summary affordances stay gated too
+  // the totals row's summary affordances stay gated too
   await expect(page.locator(".sheet-total-add")).toHaveCount(0);
   await expect(page.locator(".sheet-sum-add")).toHaveCount(0);
 

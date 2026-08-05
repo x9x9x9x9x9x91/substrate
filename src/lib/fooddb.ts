@@ -1,4 +1,4 @@
-// Food database for the `dashboard: food` renderer (SUB-408): the pane's
+// Food database for the `dashboard: food` renderer: the pane's
 // second data note — stable kcal/protein bases per food, so autocomplete
 // stops replaying the newest logged row (the "presets" complaint
 // about). Rows live in the DB sheet's csv fence, header `name,kcal,per,
@@ -8,7 +8,7 @@
 //   100ml → kcal/protein per 100 ml
 //   x     → per unit/piece ("Eggs,80,x" = 80 kcal the egg)
 //
-// protein is optional. So is `g` (SUB-687): grams per one unit on x rows
+// protein is optional. So is `g`: grams per one unit on x rows
 // ("Eggs,80,x,7,55" = a 55 g egg), which lets autocomplete price gram-typed
 // quantities against piece-based foods. Header lookup is name-based and
 // order-free like the food log (food.ts); the sheet stays hand-editable,
@@ -28,7 +28,7 @@ export interface FoodDbEntry {
   per: DbBasis;
   /** g protein per one `per` basis; null when empty/column missing */
   protein: number | null;
-  /** grams per ONE UNIT (per=x only — the piece↔gram bridge, SUB-687);
+  /** grams per ONE UNIT (per=x only — the piece↔gram bridge);
       null when empty/column missing. Ignored on 100g/100ml rows. */
   g: number | null;
   /** data-row index in the csv fence (header excluded) — the delete handle */
@@ -60,7 +60,7 @@ export function parseFoodDb(body: string): FoodDbEntry[] {
   const ki = headerIdx(headers, "kcal");
   const bi = headerIdx(headers, "per");
   const pi = headerIdx(headers, "protein");
-  // grams-per-unit column (SUB-687): canonical header "g", "g_per_unit"
+  // grams-per-unit column: canonical header "g", "g_per_unit"
   // accepted for hand editors
   const gi = headers.findIndex((h) => ["g", "g_per_unit"].includes(h.trim().toLowerCase()));
   if (ni < 0 || ki < 0 || bi < 0) return [];
@@ -68,7 +68,7 @@ export function parseFoodDb(body: string): FoodDbEntry[] {
   for (let r = 1; r < rows.length; r++) {
     const cells = rows[r];
     const name = (cells[ni] ?? "").trim();
-    // strict parse like sheet cells (SUB-221): "1e3"/"Infinity" stay text
+    // strict parse like sheet cells: "1e3"/"Infinity" stay text
     const kcal = parseStrictNumber(cells[ki] ?? "");
     const per = PER_WORDS[(cells[bi] ?? "").trim().toLowerCase()];
     if (name === "" || kcal === null || per === undefined) continue;
@@ -84,7 +84,7 @@ export interface FoodDbInput {
   kcal: number;
   per: DbBasis;
   protein: number | null;
-  /** grams per one unit (per=x only, SUB-687); null = unknown */
+  /** grams per one unit (per=x only); null = unknown */
   g: number | null;
 }
 
@@ -103,7 +103,7 @@ export function upsertFoodDbEntry(body: string, e: FoodDbInput): string {
   if (rows.length === 0) rows.push([...CSV_HEADER]);
   const headers = rows[0];
   if (e.protein !== null && headerIdx(headers, "protein") < 0) headers.push("protein");
-  // the grams-per-unit column (SUB-687) is written as "g"; a hand-made
+  // the grams-per-unit column is written as "g"; a hand-made
   // "g_per_unit" header is filled rather than duplicated
   if (e.g !== null && headerIdx(headers, "g") < 0 && headerIdx(headers, "g_per_unit") < 0)
     headers.push("g");

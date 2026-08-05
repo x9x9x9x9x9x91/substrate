@@ -2,7 +2,7 @@
    by the backend watcher). The backend consumes `capture-hotkey`,
    `close-to-tray` and `window-opacity` (which both sides read — the backend
    for the OS material, this side for the ground alpha); the terminal HUD
-   keys (SUB-398) are frontend-owned — the
+   keys are frontend-owned — the
    PTY spawn call passes them down, so the Rust side never parses them. */
 
 import { foldedPropKey } from "./types.ts";
@@ -31,11 +31,11 @@ export interface TerminalSettings {
   command: string;
   /** working directory; empty or missing on disk = the vault root (backend fallback) */
   cwd: string;
-  /** which window edge the HUD docks to (SUB-864) */
+  /** which window edge the HUD docks to */
   dock: TerminalDock;
   /** bottom-dock height as a fraction of the window, 0.2–0.9 */
   height: number;
-  /** right-dock width as a fraction of the window, 0.2–0.7 (SUB-864) */
+  /** right-dock width as a fraction of the window, 0.2–0.7 */
   width: number;
   /** font family for the HUD terminal; empty = the app's `--mono` chain */
   font: string;
@@ -50,7 +50,7 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
   font: "",
 };
 
-/** `terminal-font` → the xterm `fontFamily` string (SUB-862).
+/** `terminal-font` → the xterm `fontFamily` string.
 
     The value is NORMALIZED, never passed through: split on commas, each name
     unwrapped from its quotes, checked against a strict whitelist
@@ -129,7 +129,7 @@ const GENERIC_FAMILIES = new Set([
   "unset",
 ]);
 
-/** entries in `terminal-font` that won't take effect (SUB-873).
+/** entries in `terminal-font` that won't take effect.
 
     Two ways to type a font the terminal never uses, and they need different
     words on the settings row: a name the normalization above drops (whitelist
@@ -165,7 +165,7 @@ export function missingTerminalFonts(
   return { missing, unusable };
 }
 
-/** One palette quick action typed into the terminal HUD (SUB-441). */
+/** One palette quick action typed into the terminal HUD. */
 export interface TerminalAction {
   /** palette row label */
   label: string;
@@ -173,8 +173,8 @@ export interface TerminalAction {
   command: string;
 }
 
-/** `terminal-actions` — palette rows that type a command into the ⌘⇧T HUD
-    (SUB-441). These used to be two hardcoded rows naming the author's own
+/** `terminal-actions` — palette rows that type a command into the ⌘⇧T HUD.
+    These used to be two hardcoded rows naming the author's own
     agent skills (`/inbox-sweep`, `/cal`), which do nothing on anyone else's
     machine; now every user lists their own, or none. Format: one
     `Label: command` per list entry (or a bare `command`, which labels itself).
@@ -183,7 +183,7 @@ export interface TerminalAction {
    `docs/vault-format.md` documents the format as `Label: command`, which YAML
    parses as a single-pair MAP unless the author quotes it — so both shapes
    reach us from real vaults and both have to survive the ⌘, editor round trip
-   (SUB-476: the string-only filter used to delete the map-shaped ones). */
+   (the string-only filter used to delete the map-shaped ones). */
 function terminalActionLine(item: unknown): string | null {
   if (typeof item === "string") return item;
   if (item && typeof item === "object" && !Array.isArray(item)) {
@@ -217,7 +217,7 @@ export function parseTerminalActions(props: Record<string, unknown>): TerminalAc
   return out;
 }
 
-/* SUB-476: the ⌘, form edits `terminal-actions` as one entry per line. Both
+/* The ⌘, form edits `terminal-actions` as one entry per line. Both
    directions stay dumb — trim and drop empties, nothing else. Validation is
    `parseTerminalActions`' job downstream (it silently drops what it can't
    read), so a half-written line is never rewritten under the cursor. */
@@ -242,11 +242,11 @@ export function textToTerminalActions(text: string): string[] {
     .filter((l) => l !== "");
 }
 
-/* Key reads below fold casing (SUB-924): Settings.md is hand-editable, so a
+/* Key reads below fold casing: Settings.md is hand-editable, so a
    cased spelling (`Drop-Hint:`) must read like the documented one — same
    exact-first rule as every other frontmatter read. */
 
-/** `drop-hint` — the drag-over pill explaining copy vs ⇧-link (SUB-438).
+/** `drop-hint` — the drag-over pill explaining copy vs ⇧-link.
     Default ON; only an explicit `false` hides it, so an unset key or any
     typo'd value keeps the affordance discoverable. */
 export function parseDropHint(props: Record<string, unknown>): boolean {
@@ -254,7 +254,7 @@ export function parseDropHint(props: Record<string, unknown>): boolean {
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 
-/** `mod-hud` — the hold-⌘ shortcut HUD (SUB-490). Default ON, same rule as
+/** `mod-hud` — the hold-⌘ shortcut HUD. Default ON, same rule as
     `drop-hint`: only an explicit `false` hides it, so an unset key or a typo'd
     value keeps a discovery affordance discoverable. */
 export function parseModHud(props: Record<string, unknown>): boolean {
@@ -262,7 +262,7 @@ export function parseModHud(props: Record<string, unknown>): boolean {
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 
-/** `db-grid` — vertical column rules in database tables (SUB-607). Default
+/** `db-grid` — vertical column rules in database tables. Default
     ON, same rule as `drop-hint`: only an explicit `false` turns the grid off
     globally. A database's own ViewPref `grid` overrides this either way. */
 export function parseDbGrid(props: Record<string, unknown>): boolean {
@@ -270,8 +270,8 @@ export function parseDbGrid(props: Record<string, unknown>): boolean {
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 
-/** `task-stale-chips` — the `stale` / `undated` age chips on the Tasks board
-    (SUB-1125). Default ON, same rule as `drop-hint`: only an explicit `false`
+/** `task-stale-chips` — the `stale` / `undated` age chips on the Tasks board.
+    Default ON, same rule as `drop-hint`: only an explicit `false`
     turns them off. This is the GLOBAL DEFAULT — a board that sets its own
     `stale_days` keeps its chips either way, and a task note with
     `stale: never` never wears one. */
@@ -280,8 +280,8 @@ export function parseTaskStaleChips(props: Record<string, unknown>): boolean {
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 
-/** The vault-root files the app itself owns (SUB-831; Settings.md joined in
-    SUB-878): the seeded agent orientation pair for the ⌘⇧T terminal's CLI,
+/** The vault-root files the app itself owns (Settings.md joined): the seeded
+    agent orientation pair for the ⌘⇧T terminal's CLI,
     plus the settings note behind the ⌘, sheet. Concealed from the app's own
     note surfaces so a vault reads as the user's content, not the tooling's.
     On disk, in the engine index and to Finder they stay ordinary notes —
@@ -294,8 +294,8 @@ export function isAppFile(path: string): boolean {
   return APP_FILES.includes(path);
 }
 
-/** `show-agent-files` — the reveal switch for the files above (SUB-831).
-    The key name predates Settings.md joining the set (SUB-878) and is kept
+/** `show-agent-files` — the reveal switch for the files above.
+    The key name predates Settings.md joining the set and is kept
     so existing vaults that set it stay revealed; the ⌘, sheet labels it
     "Show app files". Default OFF, inverted rule from `drop-hint`: only an
     explicit `true` reveals, so an unset key or a typo keeps the blank slate. */
@@ -304,7 +304,7 @@ export function parseShowAppFiles(props: Record<string, unknown>): boolean {
   return v === true || (typeof v === "string" && v.trim().toLowerCase() === "true");
 }
 
-/** The three things Substrate can send off this machine (SUB-834). Each has
+/** The three things Substrate can send off this machine. Each has
     its own `net-*` switch in Settings.md, all default ON.
 
     Enforcement lives at the call sites, not in Rust: the shipped CSP allows no
@@ -325,14 +325,14 @@ export function netAllowed(props: Record<string, unknown>, feature: NetFeature):
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 
-/* `number-format` (SUB-834) used to be read here, as a two-value dialect
-   switch that reached only calc lines and unit cells. SUB-1092 replaced it
+/* `number-format` used to be read here, as a two-value dialect
+   switch that reached only calc lines and unit cells. The number-locale key replaced it
    with `number-locale`, which every number surface honors; the retired key is
    still read — as a fallback, once — in numberLocale.ts, so a vault that set
    `intl` keeps its en-style numbers. Nothing else should parse either key. */
 
 /** `window-opacity` — how solid the app's own surfaces are over the desktop,
-    in percent (SUB-951, macOS). The backend reads the same key to install or
+    in percent (macOS). The backend reads the same key to install or
     remove the OS vibrancy material; this side paints the ground at the matching
     alpha. Clamping is deliberately NOT done: an out-of-range or unreadable
     value falls back to the default, because "150" is a mistake, not a wish for

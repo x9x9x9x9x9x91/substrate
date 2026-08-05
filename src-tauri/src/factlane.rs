@@ -5,7 +5,7 @@
 //!
 //! The lane is built once per (path, key) and shared by every surface that
 //! addresses history by DATE: the `AT()` / `PROP()` formula functions, the
-//! chart `history:` source, and the receipt view (SUB-824), which reads the
+//! chart `history:` source, and the receipt view, which reads the
 //! same points and adds the actor column on top.
 //!
 //! The one rule this module exists to enforce: history can be trimmed or

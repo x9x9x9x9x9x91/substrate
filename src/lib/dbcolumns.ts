@@ -68,7 +68,7 @@ export function canonicalViewPref(pref: ViewPref, columns: string[]): ViewPref {
     key === undefined ? undefined : (canonicalColumn(columns, key) ?? key);
   const lists = (keys: string[] | undefined) =>
     keys === undefined ? undefined : canonicalColumnKeys(columns, keys);
-  // `...pref` carries card_order (SUB-948) through untouched on purpose: it
+  // `...pref` carries card_order through untouched on purpose: it
   // holds note PATHS, not column keys, so column canonicalization would only
   // corrupt it.
   return {
@@ -98,7 +98,7 @@ export function canonicalViewPref(pref: ViewPref, columns: string[]): ViewPref {
   };
 }
 
-/** Column set for a database table: schema-registered props (SUB-43 — a
+/** Column set for a database table: schema-registered props (a
     column shows for every entry even with no values) ∪ prop keys in use
     across the type's notes. `type` is constant per view, `title` is the name
     column, `icon`/`home` are reserved schema keys — none of them is a
@@ -136,8 +136,8 @@ export function dbColumns(notes: NoteMeta[], typeSchema: Record<string, PropSche
   });
 }
 
-/** The hidden-prop set one layout renders with (SUB-642): the layout's own
-    per-layout set when it has one, else the flat `hidden` — which pre-SUB-642
+/** The hidden-prop set one layout renders with: the layout's own
+    per-layout set when it has one, else the flat `hidden` — which pre
     pref files carry and which therefore seeds BOTH layouts (the read-side
     migration; the first per-layout write materializes both sets and drops
     the flat key) — else nothing hidden. Board and gallery have no curation
@@ -151,7 +151,7 @@ export function hiddenForLayout(
   return pref?.hidden_per_layout?.[key] ?? pref?.hidden ?? [];
 }
 
-/** The columns a view actually renders (SUB-212): the view's own `columns`
+/** The columns a view actually renders: the view's own `columns`
     in their stored order, filtered to keys that are still columns (a renamed
     or removed prop drops out quietly); a view without `columns` — or one
     whose list every key fell out of — gets the default dbColumns union. The
@@ -173,7 +173,7 @@ export function effectiveColumns(
   return kept.length > 0 ? kept : dbCols;
 }
 
-/** Apply a persisted table column order (SUB-949) to a column list. Keys the
+/** Apply a persisted table column order to a column list. Keys the
     order names lead, in its order; every other column follows in its default
     `dbColumns` position — so a prop added after the drag joins the table
     instead of vanishing, and a renamed/removed one drops out quietly. An
@@ -194,10 +194,10 @@ export function orderedColumns(columns: string[], order: string[] | undefined): 
 }
 
 /** The prop a board groups by: the saved pref when it still names a groupable
-    column, else `status`, else the first candidate. Multi-kind props (SUB-79)
+    column, else `status`, else the first candidate. Multi-kind props
     are never candidates — a card would belong to several columns at once — so
     a stale views.json pref pointing at one falls back instead of crashing.
-    Rollup props (SUB-678) are never candidates either: a board drag WRITES
+    Rollup props are never candidates either: a board drag WRITES
     the group prop on drop, and a derived column has no write path. */
 export function boardGroupBy(
   columns: string[],

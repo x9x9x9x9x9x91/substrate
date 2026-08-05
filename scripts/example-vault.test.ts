@@ -61,8 +61,8 @@ function loadVault(): VaultNote[] {
   const walk = (dir: string, prefix: string) => {
     for (const e of readdirSync(join(VAULT, dir), { withFileTypes: true })) {
       if (e.name.startsWith(".")) continue;
-      // AGENTS.md is the seeded agent orientation file (SUB-474) and CLAUDE.md
-      // its seeded pointer (SUB-802) — real notes to the engine but plain-prose
+      // AGENTS.md is the seeded agent orientation file and CLAUDE.md
+      // its seeded pointer — real notes to the engine but plain-prose
       // ones: no frontmatter, no type, nothing for the demo parsers to check.
       if (e.name === "AGENTS.md" || e.name === "CLAUDE.md") continue;
       const rel = prefix + e.name;
@@ -132,7 +132,7 @@ test("the seeded agent door keeps its sealed-scopes orientation (SUB-1099)", () 
     "utf8"
   );
   // A rewrite that drops this section leaves an external agent treating
-  // ciphertext as a corrupt note (SUB-1059). Each assertion pins one claim
+  // ciphertext as a corrupt note. Each assertion pins one claim
   // the reader has to arrive with, not the prose around it.
   assert.match(seed, /^## Sealed scopes/m, "the sealed-scopes section went missing");
   assert.match(seed, /`\.substrate-seal` file in a folder/, "the marker filename is unnamed");
@@ -156,7 +156,7 @@ test("the seeded agent door keeps its sealed-scopes orientation (SUB-1099)", () 
   assert.match(seed, /never invent a second recipient/, "the one-recipient rule went missing");
   // Reads need an authorized key; writes do not — encrypting to the marker's
   // public recipient is enough. Conflating the two sent agents looking for a
-  // key they never needed (SUB-1059 review).
+  // key they never needed (review).
   assert.doesNotMatch(
     seed,
     /Reading or writing note content inside a sealed one\s+needs a key/,
@@ -169,7 +169,7 @@ test("the seed's documented view example parses to the keys it claims (SUB-474)"
     fileURLToPath(new URL("../src-tauri/src/seed/AGENTS.md", import.meta.url)),
     "utf8"
   );
-  // Link tokens are safe to spell out now, but only inside code (SUB-495):
+  // Link tokens are safe to spell out now, but only inside code:
   // literal code is not link syntax, so a fenced or `span`-wrapped link is
   // never indexed and never rewritten by a rename. Bare ones still would be.
   const outsideCode = seed.replace(/```[\s\S]*?(?:```|$)/g, "").replace(/`[^`\n]*`/g, "");
@@ -184,7 +184,7 @@ test("the seed's documented view example parses to the keys it claims (SUB-474)"
   assert.deepEqual(spec, { type: "trip", query: "status:planned", view: "table" });
 });
 
-// BUILT_IN_KINDS rather than a hand-copied set (SUB-1021): the copy had
+// BUILT_IN_KINDS rather than a hand-copied set: the copy had
 // already drifted from it. Reading the constant also makes the check honest
 // in the public mirror, where the machine-specific kinds are stripped out of
 // it — a demo dashboard on a private kind would ship a note that build cannot
@@ -377,7 +377,7 @@ test("Tasks dashboard builds a board over the demo task notes (SUB-868/870)", ()
 
   const section = (kind: string) => model.sections.find((s) => s.kind === kind);
 
-  // Ordering inside a section is due bucket, then priority, then age (SUB-870).
+  // Ordering inside a section is due bucket, then priority, then age.
   // Both overdue rows share a bucket, and the low-priority one is the *more*
   // overdue of the two — so this pins priority above both due depth and age.
   const overdue = section("overdue");

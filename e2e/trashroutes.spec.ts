@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-278: the trash surfaces outside the note pane (list-row context menu,
+// The trash surfaces outside the note pane (list-row context menu,
 // palette, calendar) share App's post-trash handler — flush of the open
-// note's pending debounced save, then the SUB-263 "Moved to Trash" toast
+// note's pending debounced save, then the "Moved to Trash" toast
 // with Undo and neighbor selection. These flows cover the list-row menu.
 
 function row(page: Page, title: string) {
@@ -11,7 +11,7 @@ function row(page: Page, title: string) {
 
 async function boot(page: Page) {
   await page.goto("/");
-  // cold open lands on the Notes scratch list (Today is a destination, SUB-300)
+  // cold open lands on the Notes scratch list (Today is a destination)
   await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
@@ -48,7 +48,7 @@ test("row-menu trash of the open note flushes the pending save first (SUB-278)",
   await row(page, "Welcome").click({ button: "right" });
   await page.locator(".ctx-item", { hasText: "Move to Trash" }).click();
 
-  // selection lands on the neighbor row (SUB-263), toast offers Undo
+  // selection lands on the neighbor row, toast offers Undo
   const toast = page.locator(".toast");
   await expect(toast).toContainText("Moved to Trash");
   await expect(page.locator(".note-title")).not.toHaveValue("Welcome");
@@ -59,7 +59,7 @@ test("row-menu trash of the open note flushes the pending save first (SUB-278)",
   await expect(page.locator(".cm-content")).toContainText(marker);
 });
 
-// SUB-478: the toast's Undo restores by the trash id vault_delete returned.
+// The toast's Undo restores by the trash id vault_delete returned.
 // Trash a title, recreate it, trash it again — the trash then holds two
 // entries at the same path, and the second toast's Undo must bring back the
 // SECOND version. The old path-scan restore took whichever entry listed
@@ -107,11 +107,11 @@ test("Undo after a double trash restores the newer version (SUB-478)", async ({ 
   await expect(page.locator(".trash-row", { hasText: "Twice Trashed" })).toHaveCount(1);
 });
 
-// SUB-488: the sharper version of the case above. When both deletions come
+// The sharper version of the case above. When both deletions come
 // from the toast lane the newest entry is also the one the toast holds, so a
 // path scan accidentally agrees with id-threading. It only diverges when a
 // SILENT trash lands at the same path while an older toast is still live —
-// the ⌘N scratch abandon (SUB-264) does exactly that. Undo must then restore
+// the ⌘N scratch abandon does exactly that. Undo must then restore
 // the entry the toast was created for, not whatever is newest at that path.
 test("Undo restores its own entry when a silent trash lands at the same path (SUB-488)", async ({
   page,

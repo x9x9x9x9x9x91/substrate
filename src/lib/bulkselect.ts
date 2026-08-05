@@ -1,4 +1,4 @@
-/** SUB-272: pure selection math for the table's row multi-select — in lib so
+/** Pure selection math for the table's row multi-select — in lib so
     the range/toggle semantics are unit-testable without mounting the pane. */
 
 /** Paths of the inclusive row range between two `rows` indices (order-free):

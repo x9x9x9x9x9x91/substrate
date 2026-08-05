@@ -1,4 +1,4 @@
-/* Custom dashboard kinds (SUB-957) — the pure half.
+/* Custom dashboard kinds — the pure half.
 
    A custom kind is dashboard renderer code that lives in the vault at
    `.vault/kinds/<id>/`, is enabled per vault per device, and then runs with
@@ -9,7 +9,7 @@
    the state machine that turns (bundle on disk, consent record) into the one
    thing a pane should render.
 
-   Deliberately IO-free: Rust owns reading the bundle (SUB-959) and the
+   Deliberately IO-free: Rust owns reading the bundle and the
    `substrate-kind:` scheme owns serving it, so everything here takes bytes
    it is handed. Pure TS, no DOM/node imports: runs in the app and under
    `node --test`.
@@ -23,10 +23,10 @@
     feed `fb`), so shadowing one is a way to capture writes; and the dispatch
     table in vault-format §5.2 is a contract external writers rely on.
 
-    SUB-960 wires `DashboardBody` (`src/components/DashboardPane.tsx`) to
-    dispatch off this constant, so the collision check and the dispatch chain
-    cannot drift apart. Every name here is dispatched, `charts` included
-    (SUB-993): it renders the ` ```chart `-fence dashboard (§5.5) whether or
+    `DashboardBody` is wired (`src/components/DashboardPane.tsx`)
+    to dispatch off this constant, so the collision check and the dispatch chain
+    cannot drift apart. Every name here is dispatched, `charts` included:
+    it renders the ` ```chart `-fence dashboard (§5.5) whether or
     not the body actually holds a fence. */
 export const BUILT_IN_KINDS: ReadonlySet<string> = new Set([
   "metrics",
@@ -36,7 +36,7 @@ export const BUILT_IN_KINDS: ReadonlySet<string> = new Set([
   "feed",
   "music-work",
   "tasks",
-  // the chart-fence renderer, dispatched by name since SUB-993
+  // the chart-fence renderer, dispatched by name
   "charts",
 ]);
 
@@ -46,7 +46,7 @@ export const BUILT_IN_KINDS: ReadonlySet<string> = new Set([
     it names the ` ```chart `-fence dashboard (§5.5), so a branch for it would
     be dead code.
 
-    Lives here rather than only in the drift checker (SUB-1021) because the END
+    Lives here rather than only in the drift checker because the END
     of that chain has to tell two cases apart at runtime: a reserved name
     reaching the fallback is the design, any OTHER built-in reaching it is a
     renderer that never landed. scripts/check-kinds.ts imports this constant,
@@ -72,7 +72,7 @@ export function isValidKindId(id: string): boolean {
   return KIND_ID_RE.test(id);
 }
 
-/** What a `dashboard:` prop resolves to (SUB-993). `body-scan` is the legacy
+/** What a `dashboard:` prop resolves to. `body-scan` is the legacy
     path and belongs to notes that name no kind at all — one or more
     ` ```chart ` fences make it a charts dashboard, none leaves it the yield
     tracker (§5.5). A value that IS named but isn't a built-in resolves to
@@ -87,7 +87,7 @@ export type DashboardDispatch =
 /** Resolve one note's `dashboard:` prop to its renderer. Absent or blank is
     body-scan; anything else is a built-in or an honest error card.
 
-    Custom kinds (SUB-960) are resolved by the caller BEFORE this — a bundle
+    Custom kinds are resolved by the caller BEFORE this — a bundle
     that exists and is enabled never reaches here, and one that doesn't
     carries its own `KindState` reason, which is more specific than the
     unknown-kind message below. */
@@ -103,7 +103,7 @@ export function resolveDashboardKind(kind: string | undefined): DashboardDispatc
 }
 
 /** What the tail of the dispatch chain should render for a built-in that got
-    all the way there (SUB-1021). */
+    all the way there. */
 export type DashboardTail =
   | { tail: "fallback" }
   | { tail: "missing-renderer"; kind: string; message: string };
@@ -114,7 +114,7 @@ export type DashboardTail =
     falling through to the chart-fence dashboard shows an empty chart shell,
     which reads as "a dashboard with no data yet" rather than "this build
     cannot render this", and that is the one wrong answer the unrecognized-
-    thing posture (SUB-993) exists to refuse.
+    thing posture exists to refuse.
 
     scripts/check-kinds.ts fails `npm test` on exactly this gap, so the card
     should be unreachable in a shipped build. It is the belt to that gate's
@@ -314,7 +314,7 @@ function toBytes(v: string | Uint8Array): Uint8Array {
 
 /** SHA-256 over a bundle, as `sha256:<hex>`.
 
-    Byte layout, so the Rust side (SUB-959) can produce the identical digest:
+    Byte layout, so the Rust side can produce the identical digest:
     filenames sorted by their UTF-8 bytes ascending; for each file, its
     filename bytes, then `0x0A`, then the file bytes, then `0x0A`. The
     filename is IN the stream on purpose — hashing contents alone would let a
@@ -323,8 +323,8 @@ function toBytes(v: string | Uint8Array): Uint8Array {
 
     File bytes are hashed exactly as provided — exactly as they sit on disk:
     no BOM strip, no newline normalization, no re-serialization of the parsed
-    manifest. The digest covers what actually runs, and any port of it (Rust,
-    SUB-959) must hash the same raw bytes.
+    manifest. The digest covers what actually runs, and any port of it (Rust)
+    must hash the same raw bytes.
 
     Async because it is the platform SHA-256: `crypto.subtle` is global in
     the webview and in `node --test` alike, which beats bundling a hash. */
@@ -383,7 +383,7 @@ export interface KindBundle {
   id: string;
   hash: string;
   manifest: KindManifestResult;
-  /** what the hash covers. Absent on rows from a build older than SUB-961. */
+  /** what the hash covers. Absent on rows from a build older than the review flow. */
   files?: KindFileMeta[];
 }
 
@@ -406,7 +406,7 @@ export interface KindEnableRecord {
   trustUpdates?: boolean;
 }
 
-/** One `kinds_list` row (SUB-959): the bundle as Rust found it on disk, plus
+/** One `kinds_list` row: the bundle as Rust found it on disk, plus
     the consent record for the open vault when there is one. Carried together
     so a pane resolves state from a single round trip and the list can never
     be one call stale against the record it is judged by. */

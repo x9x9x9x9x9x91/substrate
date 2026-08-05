@@ -264,7 +264,7 @@ test("a Notion date with an end becomes a range; endless dates are unchanged (SU
   const read = (name: string) =>
     readFile(join(vault, "Import", "Test", `${name}.md`), "utf8");
   assert.match(await read("Trip"), /^when: 2026-09-01\/2026-09-21$/m);
-  // a Notion instant is truncated to the vault's minute precision (SUB-270);
+  // a Notion instant is truncated to the vault's minute precision;
   // the writer quotes a value carrying a space, as it does for every prop
   assert.match(await read("Standup"), /^when: "2026-09-01 09:30"$/m);
   assert.match(await read("Shift"), /^when: 2026-09-01$/m);

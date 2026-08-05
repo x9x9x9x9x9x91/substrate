@@ -1,4 +1,4 @@
-//! Loose files in ONE folder (SUB-812) — the listing behind "a folder of
+//! Loose files in ONE folder — the listing behind "a folder of
 //! audio is a playlist".
 //!
 //! The vault index deliberately holds `.md` only (`walk_md_files`): notes are

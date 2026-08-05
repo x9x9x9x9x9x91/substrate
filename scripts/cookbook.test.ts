@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// The public dashboard cookbook (cookbook/, SUB-809; repo-root home SUB-865)
+// The public dashboard cookbook (cookbook/, repo-root home)
 // ships copies of examples/vault files as copyable recipes. Copies drift, so
 // this suite pins every recipe file byte-identical to its vault source — the
 // vault is already parsed through the real engine code by

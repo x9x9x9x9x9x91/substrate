@@ -28,7 +28,7 @@ pub(crate) fn vault_schema_set(
 ) -> Result<SchemaConfig, String> {
     // .vault/ writes are invisible to the watcher, so mark for snapshot here
     dirty.mark();
-    // the rollup wiring (SUB-678) arrives as three flat args — any one
+    // the rollup wiring arrives as three flat args — any one
     // present builds the triple set_schema_prop validates against the kind
     let rollup = match (relation, rollup_prop, agg) {
         (None, None, None) => None,
@@ -66,7 +66,7 @@ pub(crate) fn vault_schema_set_icon(
     state.0.lock().unwrap().set_schema_icon(&db_type, glyph, emoji, tint)
 }
 
-/// Set or clear a database's home folder (SUB-85) — None clears (the
+/// Set or clear a database's home folder — None clears (the
 /// database leaves the Folders tree and lists under Databases again).
 #[tauri::command]
 pub(crate) fn vault_schema_home_set(

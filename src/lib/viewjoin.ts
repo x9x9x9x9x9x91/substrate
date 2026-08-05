@@ -1,7 +1,7 @@
-/** View-fence joins (SUB-829): a dotted `relation.prop` name inside a ```view
+/** View-fence joins: a dotted `relation.prop` name inside a ```view
     fence's `columns:` or `sort:` shows a stored property of the row this
     row's relation names — "the date of the release this master points at".
-    Where a rollup (SUB-678) folds MANY linked rows into one number, a join
+    Where a rollup folds MANY linked rows into one number, a join
     lines up ONE linked row's stored value beside the base row. Rows never
     multiply: a join only ever adds a column.
 

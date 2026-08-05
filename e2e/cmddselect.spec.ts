@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-670: ⌘D is the daily-note hotkey, and only that. @codemirror/search's
+// ⌘D is the daily-note hotkey, and only that. @codemirror/search's
 // keymap carries its own Mod-d → selectNextOccurrence, so one press used to
 // run both handlers: the app opened today's journal while CodeMirror silently
 // expanded the caret to the word under it. On today's daily the editor never
@@ -10,7 +10,7 @@ import { expect, test } from "@playwright/test";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  // cold open lands on Notes (SUB-299) — first paint is the "window key
+  // cold open lands on Notes — first paint is the "window key
   // listeners attached" barrier
   await expect(page.locator(".list-title")).toHaveText("Notes");
   await page.keyboard.press("Meta+d");

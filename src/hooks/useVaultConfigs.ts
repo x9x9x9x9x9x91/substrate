@@ -17,7 +17,7 @@ import type {
 } from "../lib/types";
 import { createWriteQueue } from "../lib/writequeue";
 
-/* SUB-241: db prefs, `$sidebar`, `$views` and `$folders` all live in
+/* Db prefs, `$sidebar`, `$views` and `$folders` all live in
    `.vault/views.json` and every setter read-modify-writes the whole file —
    two in flight at once can interleave on disk (a key silently lost) and
    their responses can land out of order (stale config clobbers newer state).
@@ -32,7 +32,7 @@ export const queueViewsWrite = createWriteQueue();
  */
 export function useVaultConfigs(showToast: (msg: string) => void) {
   const [viewsConfig, setViewsConfig] = useState<ViewsConfig>({});
-  // SUB-460: `folders` is seeded here rather than left undefined — a
+  // `folders` is seeded here rather than left undefined — a
   // `?? []` at the Sidebar call site would mint a fresh array every render and
   // silently defeat the memo for every vault whose folders were never dragged.
   const [sidebarOrder, setSidebarOrder] = useState<SidebarOrder>({
@@ -41,18 +41,18 @@ export function useVaultConfigs(showToast: (msg: string) => void) {
     folders: [],
   });
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
-  /** per-folder icons (SUB-84), keyed by vault-relative folder path */
+  /** per-folder icons, keyed by vault-relative folder path */
   const [folderMeta, setFolderMeta] = useState<FolderMetaMap>({});
-  /* tag-query folders (SUB-818). Their own file, not views.json — the queue
+  /* tag-query folders. Their own file, not views.json — the queue
      above serializes views.json writers only, and tagfolders.json has a
      single writer (the builder), so it needs no queue of its own. */
   const [tagFolders, setTagFolders] = useState<TagFolder[]>([]);
   const [schema, setSchema] = useState<SchemaConfig>({});
 
-  // SUB-410: the engine rewrites `$sidebar.pins` behind our back — a rename or
+  // The engine rewrites `$sidebar.pins` behind our back — a rename or
   // move retargets the stored path, a trash drops it. Every op that can do
   // that re-reads the order so the Pinned section stays truthful. Same for
-  // `$sidebar.keys` (SUB-467), which the engine keeps truthful the same way —
+  // `$sidebar.keys`, which the engine keeps truthful the same way —
   // so a database rename or delete has to re-read too.
   const reloadSidebarOrder = useCallback(() => {
     vaultSidebarOrder().then(setSidebarOrder).catch(console.error);
@@ -67,7 +67,7 @@ export function useVaultConfigs(showToast: (msg: string) => void) {
     vaultTagFoldersRead().then(setTagFolders).catch(console.error);
   }, []);
 
-  /* SUB-241: every optimistic views.json write goes through the file's
+  /* Every optimistic views.json write goes through the file's
      queue and, on failure, must not stay diverged from disk — surface it,
      then re-read the config (queued behind any pending writes, so the
      recovery snapshot includes everything already issued) so state

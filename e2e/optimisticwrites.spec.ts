@@ -1,14 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-946: a database edit paints the frame the user commits it; the vault
+// A database edit paints the frame the user commits it; the vault
 // write and its re-scan reconcile behind it. Before this, every commit
 // round-tripped IPC and then asked App for a full re-sync before anything
 // moved, so a board drag or a bulk set sat visibly still until disk answered.
 //
 // The proof needs a write that is SLOW but still lands on its own —
 // __mockHoldCommand parks a command forever, which can never show "the paint
-// happened BEFORE the write returned". __mockSetLatency (SUB-946) is that
+// happened BEFORE the write returned". __mockSetLatency is that
 // deterministic slow disk.
 
 const SLOW_MS = 1500;
@@ -238,16 +238,16 @@ test("undo still takes back a cell edit and a board drag under a slow disk", asy
   await page.locator(".selmenu .selmenu-item", { hasText: "booking" }).click();
   await expect(row(page, "Gero")).toContainText("booking");
 
-  // the undo entry is recorded when the write lands (SUB-477 builds the
-  // inverse from the engine's `prior`), and under a slow disk that is after
-  // the paint — the cell's landed-flash (SUB-945) is that moment on screen
+  // the undo entry is recorded when the write lands (the inverse is built
+  // from the engine's `prior`), and under a slow disk that is after
+  // the paint — the cell's landed-flash is that moment on screen
   await expect(row(page, "Gero").locator(".db-cell-flash")).toHaveCount(1);
   await page.keyboard.press("Meta+z");
   await expect(page.locator(".toast")).toContainText("Undid Role → booking");
   await expect(row(page, "Gero")).toContainText("mix engineer");
   await expect(row(page, "Gero")).not.toContainText("booking");
 
-  // and the board drag's own toast Undo (SUB-273/SUB-477) still points at the
+  // and the board drag's own toast Undo still points at the
   // entry ⌘Z would pop
   await openDb(page, "Release");
   await page.locator('.db-switch button[title="Board"]').click();
@@ -262,7 +262,7 @@ test("undo still takes back a cell edit and a board drag under a slow disk", asy
   await expect(live.locator(".db-card", { hasText: "Slow Bloom EP" })).toHaveCount(0);
 });
 
-/* SUB-1148 — the same overlay on the note page. commitChip closes the editor
+/* The same overlay on the note page. commitChip closes the editor
    BEFORE the write starts, so a chip used to close showing its OLD value and
    snap to the new one a beat later, when vault_set_prop resolved. */
 
@@ -318,7 +318,7 @@ test("note page: a refused chip write rolls back visibly and arms the retry pill
   // painted first…
   await expect(createdChip(page)).toContainText("Jul 18, 2026", { timeout: SLOW_MS / 2 });
   // …then the refusal arrives: the value rolls back on screen rather than
-  // sitting there looking saved, and the pill (SUB-240) says why and retries
+  // sitting there looking saved, and the pill says why and retries
   const pill = page.locator(".save-error");
   await expect(pill).toBeVisible();
   await expect(pill).toHaveAttribute("title", /mock failure: vault_set_prop/);

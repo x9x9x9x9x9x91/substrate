@@ -14,7 +14,7 @@ test("extractTitle: block marks strip, content stays", () => {
   assert.equal(extractTitle("3. an ordered item"), "an ordered item");
   assert.equal(extractTitle("> a quote"), "a quote");
   assert.equal(extractTitle("> [!warn] a callout"), "a callout");
-  // the accent tail (SUB-969) is a style token, never part of the title
+  // the accent tail is a style token, never part of the title
   assert.equal(extractTitle("> [!note|teal] an accented callout"), "an accented callout");
   assert.equal(extractTitle("> [!note|chartreuse] an off-roster accent"), "an off-roster accent");
   assert.equal(extractTitle("> ## nested marks"), "nested marks");
@@ -27,7 +27,7 @@ test("extractTitle: inline marks strip, labels survive", () => {
 });
 
 test("extractTitle: a parenthesized URL strips whole — no stray ) (SUB-919)", () => {
-  // the SUB-902/912 regex family: destination keeps one balanced paren level
+  // the regex family: destination keeps one balanced paren level
   assert.equal(
     extractTitle("See [wiki](https://en.wikipedia.org/wiki/Granular_(synthesis)) for background"),
     "See wiki for background"

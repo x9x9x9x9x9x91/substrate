@@ -32,7 +32,7 @@ interface HistoryPanelProps {
   meta: NoteMeta;
   onClose: () => void;
   onRestored: (m: NoteMeta) => void;
-  /** A purge or trim rewrote the repository's history (SUB-832). No file in the
+  /** A purge or trim rewrote the repository's history. No file in the
       working tree changed, so no `vault:changed` fires and nothing else in the
       app would learn about it — while the time-travel caches (the prefetch
       store in `useHistory`, the dashboard sheet cache) are keyed by vault epoch
@@ -113,7 +113,7 @@ export default function HistoryPanel({
   }, [sel?.id]);
 
   // swallow the app's list-navigation keys while the panel is up — except
-  // inside the snapshot listbox, whose own handler owns them (SUB-363)
+  // inside the snapshot listbox, whose own handler owns them
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // an open DateMenu portal owns its keys — Esc closes the menu, arrows
@@ -137,7 +137,7 @@ export default function HistoryPanel({
     if (!sel || busy) return;
     setBusy(true);
     // the version the panel is rendering — the backend compares it against the
-    // file's real mtime and announces a restore that buried a newer edit (SUB-781)
+    // file's real mtime and announces a restore that buried a newer edit
     historyRestore(meta.path, sel.id, sel.file, meta.updated_ms)
       .then((m) => {
         setBusy(false);
@@ -230,7 +230,7 @@ export default function HistoryPanel({
                 role="listbox"
                 aria-label="Snapshots"
                 onKeyDown={(ev) => {
-                  // roving focus (SUB-363): arrows move the real DOM focus and
+                  // roving focus: arrows move the real DOM focus and
                   // selection together, so the diff follows the announced row
                   if (!entries || entries.length === 0) return;
                   const cur = entries.findIndex((e) => e.id === selId);
@@ -258,7 +258,7 @@ export default function HistoryPanel({
                 {entries === null ? (
                   /* an errored read renders the strip below — never a loading
                      state that sticks forever; same DOM as the resolved state,
-                     so the list landing only swaps text (SUB-650) */
+                     so the list landing only swaps text */
                   error === null ? (
                     <div className="hist-empty">Reading snapshots</div>
                   ) : null

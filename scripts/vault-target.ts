@@ -1,5 +1,5 @@
 /**
- * Shared vault targeting and write rules for the offline importers (SUB-777).
+ * Shared vault targeting and write rules for the offline importers.
  * The import/backfill scripts write into a vault directly, so a silent default
  * would point a live run at the user's real ~/Vault, and a plain writeFile can
  * strand a half-written note that a dedupe pass then skips forever.

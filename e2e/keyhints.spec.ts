@@ -1,20 +1,20 @@
 import { expect, test } from "@playwright/test";
 
-// The unified keyboard button and its contextual panel (SUB-396, SUB-468)
+// The unified keyboard button and its contextual panel
 // against the same deterministic mock backend as shortcuts.spec.ts: registry
 // rows, gated by the live view; the panel's foot routes to the full sheet.
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   // first paint doubles as the "window key listeners attached" barrier (cold
-  // open lands on Notes — Today is a destination, SUB-300)
+  // open lands on Notes — Today is a destination)
   await expect(page.locator(".list-title")).toHaveText("Notes");
 });
 
 test("the button folds out the panel with the list view's live rows", async ({ page }) => {
   const chip = page.locator(".keyhints-chip");
   await expect(chip).toBeVisible();
-  // one affordance, not two: NotePane sheds its own kbd button (SUB-468)
+  // one affordance, not two: NotePane sheds its own kbd button
   await expect(page.locator(".note-tools .keyhints-chip")).toHaveCount(0);
   await expect(chip).toHaveAttribute("aria-label", "Keyboard shortcuts");
   await expect(page.locator(".keyhints-panel")).toHaveCount(0);

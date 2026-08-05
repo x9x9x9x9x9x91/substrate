@@ -172,7 +172,7 @@ test("a merge parked before a restart still reads as needing attention", async (
 
   // The state a restart leaves: the merge is still parked in git, but nothing
   // has pushed or pulled in this session, so there is no last result to read.
-  // Status has to come from the repository or the chip lies (SUB-572).
+  // Status has to come from the repository or the chip lies.
   await page.evaluate(() => window.__mockParkConflicts?.());
   // leaving and returning remounts the pane — a fresh status read with no
   // last result, the same thing a relaunch produces

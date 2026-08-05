@@ -1,4 +1,4 @@
-/** Global FX cache (SUB-386; multi-currency table SUB-834). Rates are one
+/** Global FX cache (multi-currency table). Rates are one
     app-wide value, so they live in localStorage — never in note frontmatter.
     The old per-note fx_rate/fx_date props stamped machine cache into real data
     files (and leaked into database columns); notes carry no fx props anymore. */
@@ -115,8 +115,8 @@ function rateOf(state: FxRatesState, code: string): number | null {
   return typeof r === "number" && isFinite(r) && r > 0 ? r : null;
 }
 
-/** The one FX resolver the sheet engine, metric cards and charts share
-    (SUB-834). Any pair converts through the table's base — from→base→to —
+/** The one FX resolver the sheet engine, metric cards and charts share.
+    Any pair converts through the table's base — from→base→to —
     so eleven quoted majors cover every cross rate between them. Unknown code
     on either side is null, which the engine reports as a missing rate rather
     than a wrong figure. */
@@ -135,7 +135,7 @@ export function makeFxResolver(state: FxRatesState | null): FxResolver {
 }
 
 /** The single pair the pre-table surfaces still read, derived from the table
-    so there is one source of truth for it (SUB-834). null when the table
+    so there is one source of truth for it. null when the table
     can't quote USD→EUR. */
 export function usdEurFrom(state: FxRatesState | null): FxState | null {
   if (!state) return null;

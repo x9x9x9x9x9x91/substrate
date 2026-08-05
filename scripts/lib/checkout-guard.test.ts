@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-// checkout-guard.sh (SUB-509): scripts/ entry points must refuse to run out
+// checkout-guard.sh: scripts/ entry points must refuse to run out
 // of a checkout that is detached BEHIND origin/main — that is the primary
 // checkout's permanent shape, and invoking tooling through it silently runs
 // old code. The guard reads the tree the guard FILE lives in, never the

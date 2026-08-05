@@ -1,4 +1,4 @@
-//! Read-only external calendar subscriptions (SUB-821).
+//! Read-only external calendar subscriptions.
 
 use crate::{calendarfeed, AppState, SnapDirty};
 use tauri::{Emitter, Manager, State};

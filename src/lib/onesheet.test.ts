@@ -78,7 +78,7 @@ test("dropEmbedOnce removes exactly the hoisted embed", () => {
 });
 
 test("dropEmbedOnce: a hoisted embed with a display modifier still goes", () => {
-  // SUB-1102: the hero's name is the target alone, so the sized embed that
+  // The hero's name is the target alone, so the sized embed that
   // produced it has to match — else the press sheet prints the cover twice.
   assert.equal(dropEmbedOnce("![[a.png|300]]\ntext", "a.png"), "text");
   assert.equal(dropEmbedOnce("![[a.png|300x200]]\ntext", "a.png"), "text");
@@ -88,7 +88,7 @@ test("dropEmbedOnce: a hoisted embed with a display modifier still goes", () => 
 });
 
 test("oneSheetHero + buildOneSheet: a sized body embed is hoisted, not doubled", () => {
-  // SUB-1102: before the modifier split this embed resolved to no image at
+  // Before the modifier split this embed resolved to no image at
   // all, so the sheet had no hero; now it has one and must not also inline it.
   const hero = oneSheetHero({}, "intro\n\n![[shot.png|400]]\n", pngFor("shot.png"));
   assert.equal(hero?.name, "shot.png");

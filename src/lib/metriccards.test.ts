@@ -93,9 +93,9 @@ test("names a non-integer digits", () => {
   rejects("- label: A\n  bind: S.a\n  digits: 1.5", /digits must be a whole number/);
 });
 
-// SUB-1030: toLocaleString throws a hard RangeError past 20 fraction digits,
+// ToLocaleString throws a hard RangeError past 20 fraction digits,
 // so no card may reach the formatter carrying more than the shared bound.
-// SUB-1060: the fence is hand-authored text, so it NAMES the bound the way the
+// the fence is hand-authored text, so it NAMES the bound the way the
 // grid tile card line does rather than silently clamping — same words, same
 // shared reader (parseCardDigits).
 test("names out-of-range fence digits with the shared bound", () => {
@@ -129,7 +129,7 @@ test("clampCardDigits keeps whole 0..8 and drops anything that isn't a number", 
   assert.equal(clampCardDigits("2"), undefined);
 });
 
-// The lenient half of the SUB-1060 split: frontmatter is machine-written as
+// The lenient half of the split: frontmatter is machine-written as
 // often as hand-written, so it clamps where the authoring surfaces refuse —
 // the same posture that drops an incomplete card instead of failing the board.
 test("frontmatter cards clamp digits where the fence refuses them", () => {
@@ -235,13 +235,13 @@ test("collectCardsFences ignores cards text inside another fence", () => {
   assert.deepEqual(collectCardsFences(body), []);
 });
 
-// ---------- the two surfaces one summary renders through (SUB-1060) ----------
+// ---------- the two surfaces one summary renders through ----------
 
 /** A named summary reaches a reader twice: as a chip under its own sheet
     (`formatValue`, which reads the value) and as a card on a dashboard
-    (`fmtCard`, which reads what the card author declared). SUB-944 (a
-    value-aware Count quick-pick), SUB-1084 (chips inheriting their column's
-    format) and this issue each rewrite what a value-carrying number means on
+    (`fmtCard`, which reads what the card author declared). The value-aware
+    Count quick-pick, chips inheriting their column's format, and this
+    change each rewrite what a value-carrying number means on
     one of those surfaces, and each is tested only on its own. These two tests
     pin where the surfaces agree and where they deliberately part. */
 
@@ -271,7 +271,7 @@ test("a count renders dimensionless on both surfaces until a card says otherwise
   assert.equal(rows, 3);
   // the chip: a count is a plain row tally, never money
   assert.equal(formatValue(rows), "3");
-  // the card, undeclared: same reading, so a Count quick-pick (SUB-944, which
+  // the card, undeclared: same reading, so a Count quick-pick (which
   // spells a text column's count `COUNTIF(col, "*")`) is safe to bind to a card
   assert.equal(fmtCard(rows), "3");
   assert.equal(fmtCard(rows, "number"), "3");
@@ -286,7 +286,7 @@ test("a count renders dimensionless on both surfaces until a card says otherwise
 
 test("no sheet-derived decimal count can exceed the card bound", () => {
   // the card side is bounded because toLocaleString throws past the engine's
-  // digit cap (SUB-1030); the sheet side is bounded by formatNum's own rules.
+  // digit cap; the sheet side is bounded by formatNum's own rules.
   // This asserts the two agree, so a summary can never carry a decimal count
   // into fmtCard that clampCardDigits would have to rescue.
   for (const name of ["total", "rows", "avg_units", "share"]) {
@@ -311,7 +311,7 @@ test("a card takes an accent off the option roster", () => {
 
 test("an off-roster accent is absent, never an error", () => {
   // deliberately unlike a bad bind or format, which throw: a style token the
-  // theme can't honour is a preference, not a lie about the data (SUB-969)
+  // theme can't honour is a preference, not a lie about the data
   for (const v of ["#14b8a6", "2px", "tealish", "red; content: 'x'"]) {
     assert.equal(one(`- label: A\n  bind: S.a\n  accent: ${v}`).accent, undefined);
   }

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-566 / SUB-567: what the engine's result cap does to a filtered query,
+// What the engine's result cap does to a filtered query,
 // and whether a quoted query can display what it found. Both run against the
 // mock backend (src/lib/tauri.ts), which caps exactly like the engine.
 

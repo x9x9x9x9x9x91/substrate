@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-608: an open create-composer used to swallow clicks on the same day's
+// An open create-composer used to swallow clicks on the same day's
 // entry chips. The input committed on blur, which unmounted the composer
 // between mousedown and mouseup — the cell's chips shifted up mid-click, so
 // the click resolved against the day cell underneath and REOPENED the

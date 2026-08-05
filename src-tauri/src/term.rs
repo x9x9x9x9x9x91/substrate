@@ -1,4 +1,4 @@
-//! Terminal HUD backend (SUB-398): one real PTY session hosting the user's
+//! Terminal HUD backend: one real PTY session hosting the user's
 //! agent CLI (whatever the user configures, e.g. `my-agent-cli`), kept
 //! alive while the HUD is hidden.
 //!
@@ -74,7 +74,7 @@ mod desktop {
     /// Substrate is relaunched from inside a session (the standard ship flow:
     /// build → replace app → relaunch), these ride open(1) into the app and
     /// then into the HUD's PTY, where the embedded agent CLI mistakes itself
-    /// for a child of the *shipping* session (SUB-583: transcripts silently
+    /// for a child of the *shipping* session (transcripts silently
     /// off, wrong session id/profile). The HUD shell must look like a Dock
     /// launch instead. Stripping is safe against user config: the shell is
     /// interactive+login, so anything an rc file exports is re-set after the
@@ -314,7 +314,7 @@ mod tests {
         assert!(text.contains("substrate-hud"), "shell output: {text}");
     }
 
-    // SUB-583: markers inherited from a Claude Code session (the ship flow
+    // Markers inherited from a Claude Code session (the ship flow
     // relaunches the app from inside one) must not reach the HUD's shell,
     // while ordinary env rides through untouched.
     #[test]
@@ -416,7 +416,7 @@ mod tests {
         assert_eq!(resolve_cwd("~", &vault), PathBuf::from(&home));
         assert_eq!(resolve_cwd(vault.to_str().unwrap(), missing), vault.clone());
 
-        // empty or garbage cwd → vault root (SUB-473)
+        // empty or garbage cwd → vault root
         assert_eq!(resolve_cwd("", &vault), vault.clone());
         assert_eq!(resolve_cwd("   ", &vault), vault.clone());
         assert_eq!(resolve_cwd("/nonexistent/definitely/not", &vault), vault.clone());

@@ -1,4 +1,4 @@
-# IPC inventory allowlist (SUB-428) — read by scripts/check-ipc.ts.
+# IPC inventory allowlist — read by scripts/check-ipc.ts.
 #
 # Two directives, one per line; `#` starts a comment:
 #

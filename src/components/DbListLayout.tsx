@@ -6,7 +6,7 @@ import { relDate } from "./ListPane";
 import { cardSubtitle, type Focus } from "./DbPaneShared";
 import type { FxResolver } from "../lib/formula";
 
-/** The list layout (SUB-621, split out of DatabasePane): one row per note
+/** The list layout (split out of DatabasePane): one row per note
     with its relative update date and subtitle. DatabasePane still owns the
     state and callbacks. */
 export default function DbListLayout({

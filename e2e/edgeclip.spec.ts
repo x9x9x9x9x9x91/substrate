@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-1001 evidence + probe run — not a gate.
+// Evidence + probe run — not a gate.
 //   SHOTS=1 npx playwright test e2e/edgeclip.spec.ts
 // Measures the five reported edge-clipping surfaces and shoots each at
 // 1400×900 (the audit viewport) in both themes.

@@ -1,6 +1,6 @@
 import { test } from "@playwright/test";
 
-// Visual evidence for SUB-938 — not a gate.
+// Visual evidence for the changelog pass — not a gate.
 //   SHOTS=1 npx playwright test e2e/chlogshot.spec.ts
 test.skip(!process.env.SHOTS, "evidence run only");
 

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-641: the panes that own the app's irreversible operations were
+// The panes that own the app's irreversible operations were
 // pointer-only — the Trash row menu had no keyboard path, and every row's
 // buttons announced identical names with no item context. Rows are now
 // focusable with their title announced, Enter/Space runs the row's primary

@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-584: the folder header carries a "+" that births a note in the open
-// folder — the SUB-125 ⌘N fork made clickable (and reachable on touch): a
+// The folder header carries a "+" that births a note in the open
+// folder — the ⌘N fork made clickable (and reachable on touch): a
 // database's home folder births that database's entries, any other folder a
 // plain scratch note in place. Non-folder views stay plus-less; note creation
 // there already has its own chrome (db-new, capture, ⌘N).
@@ -41,7 +41,7 @@ test("database home folder: + births that database's entry", async ({ page }) =>
 });
 
 test("Journal folder: + opens today's daily, no Untitled litter (SUB-593)", async ({ page }) => {
-  // ⌘D lands in the Journal folder view with today's daily open (SUB-176)
+  // ⌘D lands in the Journal folder view with today's daily open
   await page.keyboard.press("Meta+d");
   await expect(page.locator(".list-title")).toHaveText("Journal");
   const humanToday = new Intl.DateTimeFormat("en-GB", {
@@ -73,7 +73,7 @@ test.describe("phone", () => {
 
   test("the plus is the touch create path, at a 44px target", async ({ page }) => {
     await page.locator(".mobile-menu").click();
-    // SUB-793: the drawer is deliberately non-interactive while it moves;
+    // The drawer is deliberately non-interactive while it moves;
     // wait on the user-facing readiness contract, not an arbitrary timeout.
     await expect(page.locator(".sidebar")).toHaveCSS("pointer-events", "auto");
     await page.locator(".sidebar .side-folder", { hasText: "Projects" }).first().click();

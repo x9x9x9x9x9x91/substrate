@@ -1,4 +1,4 @@
-//! The background queue that fills extracted columns in (SUB-887).
+//! The background queue that fills extracted columns in.
 //!
 //! Opening files is slow and a mounted folder can hold tens of thousands of
 //! them, so extraction is never on the path of anything a user is waiting

@@ -35,7 +35,7 @@ test("validateNoteTitle checks the raw title for brackets, the slug for dots", (
 
 test("control characters are guarded like the engine (SUB-904)", () => {
   // \u0001 is not whitespace, so it survives the collapse into the slug;
-  // the engine refuses it before any side effect (vault/mod.rs SUB-223 block)
+  // the engine refuses it before any side effect (vault/mod.rs block)
   assert.throws(() => guardedSlug("bad\u0001title"), /control characters/);
   assert.throws(() => guardedSlug("del\u007fchar"), /control characters/);
   assert.throws(() => guardedSlug("c1\u009cchar"), /control characters/);

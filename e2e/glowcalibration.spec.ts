@@ -3,15 +3,15 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-/* SUB-955: the glow dial's two calibration points, held to the pixel.
+/* The glow dial's two calibration points, held to the pixel.
 
-   The 03.08 SUB-932 round-2 contact sheet put up two bloomed variants and
+   The 03.08 round-2 contact sheet put up two bloomed variants and
    neither was picked — so the dial's job is to REACH them, not to approximate
    them. V2 and V3 differ only in whether the bars bloom, which is why the
    dial's line scalar saturates at 70 and the bar scalar starts there.
 
    The reference declarations below are lifted verbatim from that round's
-   `SUB-932-r2-v2-sky-bloom.css` and `-v3-sky-full-bloom.css` overrides (the
+   v2 sky-bloom and v3 sky-full-bloom CSS overrides (the
    glow half of them; the tone half is already the shipped sky family).
 
    This spec renders the same pane twice — once through the dial, once with
@@ -94,7 +94,7 @@ function compare(page: Page, a: string, b: string) {
 
 /* The other half of the calibration: at its defaults the tone table must be
    a no-op. Sky is written as hsl() with a calc'd hue so the nudge can reach
-   it, and that arithmetic has to land back on the literal hexes SUB-932
+   it, and that arithmetic has to land back on the literal hexes that round
    shipped — including --accent-soft's alpha, which is the one slot where a
    colour-space slip would be invisible in a token diff but visible on a
    focus ring. Re-declaring the shipped literals over the tone table must

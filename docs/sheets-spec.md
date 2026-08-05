@@ -327,7 +327,7 @@ walk per day.
 Charts plot a fact's whole history with a `history:` fence rather than a chain
 of `AT()` cells — `docs/dashboards.md` → `charts`.
 
-## Notifications — date columns that fire (SUB-876)
+## Notifications — date columns that fire
 
 A sheet's date column can raise the same notification a database date prop
 does. A sheet has no schema, so the setting lives in the note's own

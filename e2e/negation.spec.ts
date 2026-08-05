@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDb, openFilter } from "./nav";
 
-// Negated query filters (SUB-198) against the mock backend, like the other
+// Negated query filters against the mock backend, like the other
 // database specs: `-key:value` keeps exactly the notes the positive filter
 // would drop, and a `-` that prefixes no filter shape stays plain text.
 

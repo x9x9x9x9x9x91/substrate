@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-590: right-click on empty space answers with a contextual create menu
+// Right-click on empty space answers with a contextual create menu
 // instead of falling through to the webview's stock Reload menu. Rows, chips
 // and cards keep their own menus — they preventDefault first, and the
 // background handlers stand down on e.defaultPrevented.
@@ -118,7 +118,7 @@ test("week canvas: right-click composes at the clicked slot", async ({ page }) =
   // index does not guarantee that: the seeded timed entries all land on
   // `day(0)`, and today's column index moves with the weekday, so nth(2) was
   // empty canvas on a Tuesday and the 09:00–17:00 workshop block on the
-  // Wednesday after (SUB-1127 — red on main overnight with no code change).
+  // Wednesday after (red on main overnight with no code change).
   const col = page
     .locator(".cal-wk-col")
     .filter({ hasNot: page.locator(".cal-wk-block") })

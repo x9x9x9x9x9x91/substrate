@@ -25,8 +25,8 @@ interface CalPeekProps {
   /** the clicked chip's viewport rect */
   anchor: AnchorRect;
   /** a VIRTUAL series occurrence — a repeating entry on a day that isn't its
-      anchor. Only those trade the date/time rows for the series actions
-      (SUB-649): a non-repeating date range's continuation day is not one, and
+      anchor. Only those trade the date/time rows for the series actions:
+      a non-repeating date range's continuation day is not one, and
       edits its span through the stored start like every other write path */
   isOccurrence: boolean;
   /** the `repeat` cadence for display ("Weekly", a raw custom value, "None") */
@@ -157,7 +157,7 @@ export default function CalPeek({
     if (t !== entry.time) onSetTime(t);
   };
 
-  // Beside the entry, Notion-Calendar style (SUB-792): to the RIGHT of the
+  // Beside the entry, Notion-Calendar style: to the RIGHT of the
   // clicked chip, top-aligned with it, so the popover never covers the day
   // it edits. Near the window's right edge it flips to the chip's left; only
   // when neither side has room (a very narrow window) does it fall back to

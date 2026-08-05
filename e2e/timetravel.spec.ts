@@ -14,7 +14,7 @@ test("vault time travel swaps the whole read projection and returns to live stat
   const bar = page.getByRole("region", { name: "Vault time travel" });
   await expect(bar).toBeVisible();
 
-  // SUB-822: the handle opens on the NEWEST snapshot, not the oldest — the
+  // The handle opens on the NEWEST snapshot, not the oldest — the
   // bar mounts before the snapshot list resolves, and it used to stay at 0.
   const slider = bar.getByRole("slider", { name: "Vault snapshot" });
   await expect(slider).toHaveAttribute("max", "2");
@@ -30,7 +30,7 @@ test("vault time travel swaps the whole read projection and returns to live stat
   expect(oldRendered.trim().length).toBeGreaterThan(0);
   expect(oldRendered, "the historical editor is not today's body").not.toContain(liveBody.trim());
 
-  // SUB-822: typing must not even reach the buffer — the app-root input guard
+  // Typing must not even reach the buffer — the app-root input guard
   // missed CodeMirror's own keymap commands, and the mutated past body then
   // rode orphanedEdits onto the live file.
   await page.locator(".cm-content").click();

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-362: the select and file pickers are input-owned composites — one
+// The select and file pickers are input-owned composites — one
 // combobox tab stop, options referenced via aria-activedescendant, no
 // focusable rows inside the popup. Same contract RelationMenu established.
 

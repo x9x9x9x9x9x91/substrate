@@ -11,7 +11,7 @@ import { refreshAudioPlayers } from "../lib/editor-widgets";
 import type { UndoAction } from "./useUndoStack";
 import type { ToastAction } from "./useToast";
 
-/** payload of `app:open-sheet-row` (SUB-876): the sheet, the column that
+/** payload of `app:open-sheet-row`: the sheet, the column that
     fired, and the row's label cell — the row identity the alert was keyed
     with. Backend spelling: `notify.rs`'s fire_and_handle. */
 export interface SheetRowTarget {
@@ -53,14 +53,14 @@ export function useVaultEvents(opts: {
     setVaultEpoch,
     lastOwnRefreshRef,
   } = opts;
-  // the degraded-watcher toast fires once per app run, not per event (SUB-98)
+  // the degraded-watcher toast fires once per app run, not per event
   const watchDegradedRef = useRef(false);
 
   useEffect(() => {
     refresh();
     let unlisten: (() => void) | undefined;
     let cancelled = false;
-    // SUB-239: an in-echo-window event's trailing refresh (see below)
+    // An in-echo-window event's trailing refresh (see below)
     let trailingTimer: number | undefined;
     let trailingEventAt = 0;
     const fireTrailing = () => {
@@ -79,13 +79,13 @@ export function useVaultEvents(opts: {
       refresh(false);
     };
     listen("vault:changed", (e) => {
-      // SUB-101: the audio/image caches key by name for the whole session, so
+      // The audio/image caches key by name for the whole session, so
       // evict wholesale; the next use re-stats. Players re-resolve first so a
-      // re-bounce rebuilds them. (SUB-460's rel-path payload could narrow this
+      // re-bounce rebuilds them. (The rel-path payload could narrow this
       // too, but an asset's cache key isn't its note path — left wholesale.)
       resetAudioSources();
       refreshAudioPlayers();
-      // SUB-516: attribute the event path by path (docs/undo.md §3.3).
+      // Attribute the event path by path (docs/undo.md §3.3).
       // `external` is what somebody else wrote, whatever we were doing at the
       // time; `unknown` is the engine's no-payload rescan, where there is
       // nothing to attribute and only the old timing signal is left.
@@ -93,11 +93,11 @@ export function useVaultEvents(opts: {
       if (!split.unknown) {
         if (split.external.length === 0) {
           // A pure echo of our own write, proven per path rather than assumed
-          // from the clock. Nothing to invalidate, and SUB-116's point stands:
+          // from the clock. Nothing to invalidate, and the point stands:
           // the app already re-listed after its own IPC, so skip the identical
           // second full-vault refetch. The epoch bump is NOT skippable though —
           // not every writer calls refresh() (the settings sheet writes
-          // Settings.md and waits for this event to re-read the flag, SUB-490),
+          // Settings.md and waits for this event to re-read the flag),
           // so announce the narrow path set and let the epoch listeners decide.
           setChangedPaths(split.own);
           setVaultEpoch((n) => n + 1);
@@ -106,12 +106,12 @@ export function useVaultEvents(opts: {
         // somebody else's write, named. Only entries touching those paths can
         // clobber, and the panes only need to re-read those notes — no
         // trailing delay either: an in-window external change is a fact here,
-        // not the guess SUB-239 had to defer on.
+        // not the guess this once had to defer on.
         undoDispatch({ t: "invalidate", paths: split.external });
         refresh(false, split.external);
         return;
       }
-      // SUB-116/SUB-239, unchanged, for the events that name nothing: the
+      // Unchanged, for the events that name nothing: the
       // echo of our own write arrives within the watcher's debounce, so an
       // in-window event is most likely ours and the duplicate refetch is
       // skipped. It can't be proven to be ONLY the echo either — so rather
@@ -128,7 +128,7 @@ export function useVaultEvents(opts: {
         }
         return;
       }
-      // SUB-477: outside the echo window, an event that names nothing is the
+      // Outside the echo window, an event that names nothing is the
       // engine saying it rescanned — someone else's write, of unknown reach.
       // The conservative reading is that every stored inverse might now
       // clobber it, so mark them all stale. The engine's own guard is the real
@@ -146,7 +146,7 @@ export function useVaultEvents(opts: {
     };
   }, [refresh]);
 
-  // SUB-516 (docs/undo.md §3.5): a sync pull checks a tree out from under the
+  // docs/undo.md §3.5: a sync pull checks a tree out from under the
   // app. That is a write nobody can undo, and the watcher would report it as a
   // storm of unrelated file changes — so the pull announces exactly what it
   // rewrote, and those entries (only those) stop being invertible.
@@ -173,7 +173,7 @@ export function useVaultEvents(opts: {
   }, [refresh]);
 
   // external .vault/{schema,views,folders}.json edits arrive on their own
-  // event (SUB-100) — re-read the configs only; no note refetch, no audio
+  // event — re-read the configs only; no note refetch, no audio
   // cache eviction (those ride vault:changed)
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -262,7 +262,7 @@ export function useVaultEvents(opts: {
     };
   }, [showToast]);
 
-  // a changed capture-hotkey refused by the parser or the OS (SUB-651): the
+  // a changed capture-hotkey refused by the parser or the OS: the
   // settings form shows the new chord but the OLD one still fires — every
   // refused save is a distinct user action, so each gets its own toast
   useEffect(() => {
@@ -281,7 +281,7 @@ export function useVaultEvents(opts: {
   }, [showToast]);
 
   // a restore landed on top of an edit that reached disk after the panel read
-  // the note (SUB-781). The restore is what the user asked for and it went
+  // the note. The restore is what the user asked for and it went
   // through — but the buried edit is only findable in history, so say so
   // rather than letting the change vanish silently.
   useEffect(() => {
@@ -302,7 +302,7 @@ export function useVaultEvents(opts: {
   }, [showToast]);
 
   // a Finder drop no editor claimed (dashboard, list, sidebar…) — the OS
-  // showed a "+" cursor, so silence reads as breakage; say what works (SUB-414)
+  // showed a "+" cursor, so silence reads as breakage; say what works
   useEffect(() => {
     if (!isTauri) return;
     let unlisten: (() => void) | undefined;
@@ -327,7 +327,7 @@ export function useVaultEvents(opts: {
     };
   }, [showToast]);
 
-  // a due-date notification click or a tray agenda item opens the note (SUB-21, SUB-30)
+  // a due-date notification click or a tray agenda item opens the note
   const openNoteRef = useRef<(path: string) => void>(() => {});
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -342,7 +342,7 @@ export function useVaultEvents(opts: {
     };
   }, []);
 
-// `substrate://note/…` links the OS handed the app (SUB-1075). The first
+// `substrate://note/…` links the OS handed the app. The first
   // drain is what tells Rust this window is ready, so it also collects
   // anything that arrived during a cold start; after that every warm link
   // announces itself with `deeplink:pending` and drains the same way.
@@ -376,7 +376,7 @@ export function useVaultEvents(opts: {
   }, [showToast]);
 
   // a sheet cell's notification click opens the note AND asks for the row
-  // (SUB-876). Its own event rather than a widened `app:open-note` payload:
+  //. Its own event rather than a widened `app:open-note` payload:
   // that one is a bare path string and the tray agenda emits it too.
   const openSheetRowRef = useRef<(target: SheetRowTarget) => void>(() => {});
   useEffect(() => {

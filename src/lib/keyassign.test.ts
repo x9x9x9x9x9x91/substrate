@@ -75,7 +75,7 @@ test("freeKeys drops assigned tokens, keeps order", () => {
   assert.equal(free[0].token, "mod+6");
 });
 
-/* SUB-485. `view-pins` binds the loose combo `{key, mod}` and `mod` means ⌘ OR
+/* `view-pins` binds the loose combo `{key, mod}` and `mod` means ⌘ OR
    ⌃, so BOTH halves of the pool land on the pin mapping at digits 5–9 — ⌃7
    reaches the third pin exactly like ⌘7 does. The HUD's warning has to cover
    both halves, so these tests assert the ⌃ side explicitly. */

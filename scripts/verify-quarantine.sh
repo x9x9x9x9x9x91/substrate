@@ -4,7 +4,7 @@
 # The dev machine is the worst possible test environment for this: every binary
 # here has already been assessed by Gatekeeper, and `scp`/AirDrop/`cp` do not
 # set the quarantine attribute a browser download does. Quarantine was the
-# single decisive variable in the SUB-459 first-run failure — the same bundle
+# single decisive variable in the first-run failure — the same bundle
 # booted fine unquarantined and hung forever at `_dyld_start` with it. So an
 # artifact that has not been through THIS script has not been through the code
 # path that actually broke.
@@ -110,7 +110,7 @@ xcrun stapler validate "$APP" 2>&1 | sed 's/^/  /' \
 
 # ---------------------------------------------------------------------------
 # 4. The actual claim: it reaches `main`. spctl approving is policy; running is
-#    fact. The failure this whole lane exists to fix produced a process that
+#    fact. The failure this whole check exists to fix produced a process that
 #    existed, held 32 KB RSS, and never executed a line of our code — an
 #    assessment gate would have called that a pass. So: launch it, and wait for
 #    the app's own startup line to appear in a log dir it has to reach `main`

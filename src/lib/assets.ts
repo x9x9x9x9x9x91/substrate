@@ -7,8 +7,8 @@ import type { NoteMeta } from "./types.ts";
 /** A playable URL for an audio embed plus a stable identity for the peak
  * cache. In Tauri the URL streams through the asset protocol (range requests,
  * nothing loaded into memory); the mock backend synthesizes a WAV so the whole
- * player pipeline runs in the browser gate. `size` is the on-disk byte count
- * — the peaks size gate (SUB-115) reads it before any decode happens. */
+ * player pipeline runs in the browser gate. `size` is the on-disk byte count —
+ * the peaks size gate reads it before any decode happens. */
 export interface AudioSource {
   url: string;
   cacheKey: string;
@@ -32,7 +32,7 @@ export function audioSource(name: string): Promise<AudioSource> {
   return p;
 }
 
-/** Drop the session-cached resolutions (SUB-101): callers don't narrow by path,
+/** Drop the session-cached resolutions: callers don't narrow by path,
  * so on every bump the whole `sources` map clears and the next use re-stats
  * (`vaultAssetInfo` is cheap) — a re-bounced file with the same name comes back
  * with a new cacheKey. The inline-image blob URLs share the same staleness and
@@ -130,7 +130,7 @@ async function resolveCover(note: NoteMeta): Promise<string | null> {
 const PEAKS_BARS = 220;
 const PEAKS_PREFIX = "substrate:peaks:v1:";
 
-/** Files bigger than this never get automatic peak computation (SUB-115):
+/** Files bigger than this never get automatic peak computation:
  * the decode buffers the whole file, so master-sized WAVs wait for first
  * play instead of running on scroll-into-view like smaller files. */
 export const PEAKS_AUTO_MAX_BYTES = 64 * 1024 * 1024;
@@ -138,7 +138,7 @@ export const PEAKS_AUTO_MAX_BYTES = 64 * 1024 * 1024;
 /** Peak bars for the waveform, computed once per file version and cached in
  * localStorage (KB-scale entries). Decodes at 8 kHz — plenty of resolution
  * for a few hundred bars, ~5× lighter than decoding at native rate. The
- * caller decides WHEN to run (SUB-115 defers it off first render); this is
+ * caller decides WHEN to run; this is
  * just the pipeline. Returns null when the file can't be decoded; the
  * player still works. */
 export async function loadPeaks(src: AudioSource): Promise<number[] | null> {

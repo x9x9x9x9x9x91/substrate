@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 
 /**
- * sidebar collapse (SUB-394): full-width content on demand, ⌘\ or the rail
+ * sidebar collapse: full-width content on demand, ⌘\ or the rail
  * button. Session preference — localStorage, not views.json: it's per-window
  * ergonomics like scroll position, not vault state.
  */

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb as openDbRow } from "./nav";
 
-// Edge fades reflect actual scrollability (SUB-195), driven by two gate
+// Edge fades reflect actual scrollability, driven by two gate
 // classes on .db-body: .db-more-x paints the right-edge mask only while
 // columns hide past the right edge, .db-scrolled-x paints the left-edge fade
 // only while off the left stop. A table that fits its pane fades neither.

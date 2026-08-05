@@ -1,10 +1,10 @@
-/** The number dialect, as one user-facing dial (SUB-1092).
+/** The number dialect, as one user-facing dial.
  *
  * Every rendered number in the app — sheet cells, db cells, calc lines,
  * dashboard figures, file sizes — is written in ONE locale, and this module
- * is the only place that locale is decided. Before SUB-1092 the tag `de-DE`
+ * is the only place that locale is decided. Before the number-locale key the tag `de-DE`
  * was hardwired into ~19 modules and a second, narrower key (`number-format`,
- * SUB-834) moved only calc lines and unit cells; a reader could therefore see
+ * now retired) moved only calc lines and unit cells; a reader could therefore see
  * two dialects at once and had no single switch for either.
  *
  * Two ways the value reaches a formatter, deliberately:
@@ -28,7 +28,7 @@ export const NUMBER_LOCALES = ["de-DE", "de-CH", "en-US", "en-GB", "fr-FR"] as c
 
 export type NumberLocale = (typeof NUMBER_LOCALES)[number];
 
-/** de-DE, unchanged from every shipped version (SUB-245/SUB-282): an existing
+/** de-DE, unchanged from every shipped version: an existing
  * vault with no `number-locale` key renders byte-identically to before. */
 export const DEFAULT_NUMBER_LOCALE: NumberLocale = "de-DE";
 
@@ -38,7 +38,7 @@ export function isNumberLocale(v: unknown): v is NumberLocale {
 
 /** `number-locale` in Settings.md — a BCP-47 tag from NUMBER_LOCALES.
  *
- * `number-format` (SUB-834) is the retired narrower key and is still honored
+ * `number-format` is the retired narrower key and is still honored
  * when `number-locale` is absent, so a vault that set `intl` keeps its
  * en-style numbers instead of silently reverting to German: `de` → de-DE,
  * `intl` → en-US. An unset or unrecognized value in either key falls back to
@@ -60,7 +60,7 @@ export function numberLocaleSetting(props: Record<string, unknown>): NumberLocal
 }
 
 /** How a locale writes a number, as the two separators a READER needs
- * (SUB-1092). Rendering goes through `toLocaleString`; reading typed text back
+ * Rendering goes through `toLocaleString`; reading typed text back
  * cannot, so the grammar is spelled out here — one table, exhaustive by type,
  * so adding a locale to NUMBER_LOCALES fails to compile until its grammar is
  * declared.
@@ -113,7 +113,7 @@ export function numberLocale(): NumberLocale {
   return current;
 }
 
-/** Subscribe to dial changes (SUB-1092). The binding above is read at render
+/** Subscribe to dial changes. The binding above is read at render
  * time by formatters nothing threads a prop into, so a component that shows
  * one of those strings — a file size, a dashboard figure — has no React reason
  * to repaint when the dial moves: the settings write bumps `vaultEpoch`, but a

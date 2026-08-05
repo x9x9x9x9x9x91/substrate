@@ -10,7 +10,7 @@ import { byFoldedKey } from "../lib/schemalookup";
 import type { FxResolver } from "../lib/formula";
 import { conversionNote } from "../lib/display";
 
-/** The board layout (SUB-621, split out of DatabasePane): one column per
+/** The board layout (split out of DatabasePane): one column per
     group value, draggable cards, the per-column draft and its New button.
     DatabasePane still owns the state, prefs and callbacks. */
 export default function DbBoardLayout({
@@ -63,7 +63,7 @@ export default function DbBoardLayout({
   fxAsOf?: string;
   numberLocale: NumberLocale;
   openPath: string | null;
-  /** SUB-945: the note a write just landed on, lit for one fade */
+  /** The note a write just landed on, lit for one fade */
   lastWritten: { path: string; key: string; nonce: number } | null;
   bgMenuProps: { onContextMenu: (e: React.MouseEvent) => void };
   head: React.ReactNode;
@@ -76,19 +76,19 @@ export default function DbBoardLayout({
   bodyRef: React.RefObject<HTMLDivElement | null>;
   moreRight: boolean;
   setMoreRight: (v: boolean) => void;
-  /** SUB-945: drop every popover anchored to a rect this scroller just moved */
+  /** Drop every popover anchored to a rect this scroller just moved */
   dismissAnchored: () => void;
   dragPath: string | null;
   setDragPath: (v: string | null) => void;
   dropCol: string | null;
   setDropCol: (v: string | null | ((cur: string | null) => string | null)) => void;
   dropOn: (value: string | null) => void;
-  /** SUB-948: is this view UNSORTED? Only then does a within-column drag mean
+  /** is this view UNSORTED? Only then does a within-column drag mean
       anything — a sorted board's order IS its sort, so it shows no insertion
       line (it would promise a slot the sort would immediately overrule) and
       every drop goes through `dropOn`'s prop write as before. */
   handOrder: boolean;
-  /** SUB-948: the card the pointer is landing on and which side of it */
+  /** the card the pointer is landing on and which side of it */
   cardDropAt: { path: string; after: boolean } | null;
   setCardDropAt: (v: { path: string; after: boolean } | null) => void;
   dropCard: (target: string, after: boolean) => void;
@@ -114,7 +114,7 @@ export default function DbBoardLayout({
       </div>
     );
   }
-  // SUB-243: the column the open draft renders and commits into; a draft
+  // The column the open draft renders and commits into; a draft
   // whose column vanished mid-typing (the "No …" column only exists while
   // it holds cards) falls back to the first column
   const draftColKey = (() => {
@@ -129,7 +129,7 @@ export default function DbBoardLayout({
       {head}
       {tabRow}
       {bar}
-      {/* SUB-945: the scroller stays mounted while a filter matches nothing --
+      {/* The scroller stays mounted while a filter matches nothing --
           the empty state renders inside it, the way the gallery does. Swapping
           the scroller out dropped the board's geometry and scroll position
           mid-typing (design-principles.md 4: structure never conditionally
@@ -140,7 +140,7 @@ export default function DbBoardLayout({
         onScroll={(e) => {
           const el = e.currentTarget;
           setMoreRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1);
-          // SUB-945: the cards moved, the menus anchored to them did not
+          // The cards moved, the menus anchored to them did not
           dismissAnchored();
         }}
       >
@@ -150,7 +150,7 @@ export default function DbBoardLayout({
             col.value !== null && groupSchema?.kind === "number"
               ? conversionNote(col.value, groupSchema.format, fx, fxAsOf)
               : null;
-          // SUB-948: hand-ordering is a WITHIN-column gesture on an unsorted
+          // hand-ordering is a WITHIN-column gesture on an unsorted
           // board. A card dragged in from elsewhere still changes its group
           // (dropOn), so this column offers no insertion line for it — the
           // line would name a slot the group write wouldn't honour.
@@ -163,7 +163,7 @@ export default function DbBoardLayout({
                 e.preventDefault();
                 e.dataTransfer.dropEffect = "move";
                 if (dropCol !== colKey) setDropCol(colKey);
-                // SUB-948: the empty tail under the last card belongs to the
+                // the empty tail under the last card belongs to the
                 // column too, so hovering it means "put it last". Cards paint
                 // their own slot and this handler runs after theirs (they
                 // don't stop the bubble), hence the card check.
@@ -243,7 +243,7 @@ export default function DbBoardLayout({
                     onDragStart={(e) => {
                       // text/plain feeds the column-move flow (dragPath);
                       // NOTE_DRAG_MIME makes the card a note-drag source, so
-                      // a sidebar folder accepts the same drag (SUB-402)
+                      // a sidebar folder accepts the same drag
                       e.dataTransfer.setData("text/plain", n.path);
                       e.dataTransfer.setData(NOTE_DRAG_MIME, n.path);
                       e.dataTransfer.effectAllowed = "move";
@@ -290,7 +290,7 @@ export default function DbBoardLayout({
                       onNoteMenu(n.path, e.clientX, e.clientY);
                     }}
                   >
-                    {/* SUB-945: a card that just landed in this column lights
+                    {/* A card that just landed in this column lights
                         the same way a written cell does -- the drop moved it
                         somewhere the eye has to re-find */}
                     {lastWritten?.path === n.path && (
@@ -304,7 +304,7 @@ export default function DbBoardLayout({
                     )}
                   </div>
                 ))}
-                {/* SUB-945: a visible button in every column is the
+                {/* A visible button in every column is the
                     per-row-button anti-pattern (design-principles.md 6). It
                     reveals on column hover/focus-within and keeps its space
                     either way, and stays up while this column holds the open

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-618: one vertical icon column down the whole rail. Every navigable row in
+// One vertical icon column down the whole rail. Every navigable row in
 // the scroll area — the fixed top zone, flat dashboards, grouped-dashboard
 // headers, All databases, pins, folder tree — carries the chevron gutter, so a
 // row without a twisty still lands its mark in the shared column. Indent is
@@ -58,7 +58,7 @@ test("a pinned note joins the same column", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Umbra Home", exact: true })).toBeVisible();
 
   // pin a ROOT note so the flat Pinned section renders (a folder note's pin
-  // nests in the tree instead — SUB-585)
+  // nests in the tree instead)
   await page.locator(".side-item", { hasText: "All notes" }).click();
   const note = page.locator('.row[data-path="Welcome.md"]');
   await expect(note).toBeVisible();

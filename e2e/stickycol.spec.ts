@@ -1,16 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// Frozen Name column (SUB-194): on the wide Ledger fixture (SUB-193 — 16
+// Frozen Name column: on the wide Ledger fixture (16
 // props + Name + the ＋ column) the first column pins to the pane's left
 // edge under horizontal scroll and carries its freeze cue only while
-// scrolled; a narrow table never flips the gate. SUB-607: with grid lines on
+// scrolled; a narrow table never flips the gate. With grid lines on
 // (the default) the first column always shows the SOFT grid hairline — the
 // freeze cue is the STRONGER --border token layered over it when scrolled,
 // so the two states stay distinguishable by weight. Runs against the
 // deterministic mock backend (fresh page = fresh vault).
 
-// the grid hairline (--grid-line, SUB-936) vs the freeze cue (--border) —
+// the grid hairline (--grid-line) vs the freeze cue (--border) —
 // asserted by computed value so a token swap that erases the distinction
 // fails here
 const GRID_EDGE = "rgba(255, 255, 255, 0.04) -1px 0px 0px 0px inset";

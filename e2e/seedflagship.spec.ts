@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-// The seeded flagship dashboard (SUB-788, reading+travel theme SUB-871),
+// The seeded flagship dashboard (reading+travel theme),
 // rendered from the REAL seed bytes.
 //
 // The mock backend's own fixtures can only prove the renderer works on
@@ -28,7 +28,7 @@ const SEED_RS = readFileSync(join(SEED, "../vault/seed.rs"), "utf8");
 function seedNoteLiteral(path: string): string {
   // `rel: "<path>",` then the note's text — with `current:` and whatever line
   // breaks rustfmt decides on in between, which is why the gap is matched
-  // loosely rather than as one fixed newline (SUB-956).
+  // loosely rather than as one fixed newline.
   const m = new RegExp(
     `"${path.replace(".", "\\.")}",\\s*(?:current:)?\\s*"((?:[^"\\\\]|\\\\.)*)"`
   ).exec(SEED_RS);

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-515 slice 2: the structural actions are on the app's undo stack
+// Slice 2: the structural actions are on the app's undo stack
 // (docs/undo.md §6.3). Trash and rename each record an inverse, the trash
 // toast's Undo and ⌘Z are the SAME entry (one pre-minted id, not two
 // lookalike closures), and a rename undo refuses once anything it rewrote —
@@ -25,7 +25,7 @@ async function openNote(page: Page, title: string) {
 
 async function boot(page: Page) {
   await page.goto("/");
-  // cold open lands on the Notes scratch list (Today is a destination, SUB-300)
+  // cold open lands on the Notes scratch list (Today is a destination)
   await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
@@ -45,7 +45,7 @@ test("⌘Z after a trash restores the note", async ({ page }) => {
   await expect(page.locator(".note-title")).toHaveValue("Capture anything");
 });
 
-// the id-keyed half of SUB-478, now via the keyboard: the stack entry closes
+// the id-keyed half, now via the keyboard: the stack entry closes
 // over the trash id vault_delete returned, so ⌘Z restores the version it was
 // recorded for even when an older deletion sits at the same path
 test("⌘Z after a double trash restores the newer version, not whatever is at that path", async ({
@@ -122,7 +122,7 @@ test("a rename undo is refused after an external edit to a link-rewritten note",
   await openNote(page, "Static Bouquet");
   await expect(page.locator(".cm-content")).toContainText("Slow Bloom EP II");
 
-  // SUB-516: an outside edit to a note the rename did NOT touch must leave the
+  // An outside edit to a note the rename did NOT touch must leave the
   // entry alone — it arrives on the same kind of event as the one below and
   // used to be indistinguishable from it.
   await page.evaluate(() => {
@@ -131,7 +131,7 @@ test("a rename undo is refused after an external edit to a link-rewritten note",
   });
 
   // someone else edits the link-rewritten note itself. The rename wrote that
-  // path too, so wait out ITS echo window (SUB-116) — inside it the app is
+  // path too, so wait out ITS echo window — inside it the app is
   // right to read the event as its own sweep coming back.
   await page.waitForTimeout(1100);
   await page.evaluate(() => {
@@ -149,7 +149,7 @@ test("a rename undo is refused after an external edit to a link-rewritten note",
   await expect(page.locator(".cm-content")).toContainText("Slow Bloom EP II");
 });
 
-/* SUB-516, the other half: the same rename, the same kind of external edit —
+/* The other half: the same rename, the same kind of external edit —
    but to a note the rename never touched. Before the event carried paths, any
    outside write invalidated the whole stack and this ⌘Z was refused too. */
 test("a rename undo survives an external edit to an unrelated note", async ({ page }) => {

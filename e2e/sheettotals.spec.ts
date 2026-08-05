@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-937: the in-grid totals row, in-place summary editing, and the
+// the in-grid totals row, in-place summary editing, and the
 // ephemeral selection readout. The mock's Fixed Costs sheet is the fixture:
 // data columns month, rent_eur, studio_eur, tools_eur, paid; computed column
 // monthly_eur; thirteen named summaries, most of them single-column.
@@ -36,11 +36,11 @@ test("single-column summaries render under their column; the rest stay in the fo
   // monthly_eur is the computed column, last before the spacer
   await expect(totalsCell(page, 5)).toContainText("monthly_total");
   // the value is real, not a placeholder: rent 1240×3 + 1290×3 (four-digit
-  // integers stay ungrouped, SUB-633)
+  // integers stay ungrouped)
   await expect(totalsCell(page, 1)).toContainText("7590");
 
   // a filtered sum sits under the column it sums, next to the plain total of
-  // that same column (SUB-1013) — `paid_eur = SUMIF(paid, "yes", monthly_eur)`
+  // that same column — `paid_eur = SUMIF(paid, "yes", monthly_eur)`
   await expect(totalsCell(page, 5)).toContainText("paid_eur");
   await expect(totalsCell(page, 4)).not.toContainText("paid_eur");
 
@@ -64,7 +64,7 @@ test("an empty totals cell writes a new summary; quick-picks prefill the input",
 
   await paid.locator(".sheet-total-add").click();
   await paid.locator(".sheet-fx-pick", { hasText: "Count" }).click();
-  // `paid` holds yes/no, so Count prefills the wildcard COUNTIF (SUB-944):
+  // `paid` holds yes/no, so Count prefills the wildcard COUNTIF:
   // plain COUNT counts numbers and could only ever read 0 here
   await expect(paid.locator(".sheet-fx-input")).toHaveValue('paid_count = COUNTIF(paid, "*")');
   await page.keyboard.press("Enter");
@@ -131,7 +131,7 @@ test("Count follows the column: COUNT over numbers, wildcard COUNTIF over text",
   await expect(bucket.locator(".sheet-fx-input")).toHaveValue(
     'bucket_count = COUNTIF(bucket, "*")'
   );
-  // the other picks are untouched by SUB-944 — Sum still prefills SUM
+  // the other picks are untouched — Sum still prefills SUM
   await bucket.locator(".sheet-fx-pick", { hasText: "Sum" }).click();
   await expect(bucket.locator(".sheet-fx-input")).toHaveValue("bucket_sum = SUM(bucket)");
 

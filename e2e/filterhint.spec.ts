@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDb, openFilter } from "./nav";
 
-// SUB-266: a filter that dead-ends at zero rows says why under "No matches" —
+// A filter that dead-ends at zero rows says why under "No matches" —
 // an unknown property key, or a value the query split apart (`status:in` +
 // the word "review" → the real value "in review"), clickable to apply.
 

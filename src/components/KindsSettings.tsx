@@ -3,7 +3,7 @@ import { kindsDisable, kindsSetTrust } from "../lib/ipc";
 import { invalidateKindBundles, useKindBundles } from "../hooks/useKindBundles";
 import { resolveKindState, type KindBundleInfo, type KindState } from "../lib/kinds";
 
-/* The Kinds section of Settings (SUB-961) — where consent is reviewed after
+/* The Kinds section of Settings — where consent is reviewed after
    the fact.
 
    The review pane answers "should this run?" at the moment a dashboard asks.

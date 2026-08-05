@@ -1,4 +1,4 @@
-/* SUB-477 — the session action-undo stack (docs/undo.md §6.1).
+/* The session action-undo stack (docs/undo.md §6.1).
 
    This is layer 2 of the three undo layers: CodeMirror owns text history
    inside the editor, the vault's git history owns the long tail, and this

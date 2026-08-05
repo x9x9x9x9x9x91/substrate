@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// A list-valued prop on an UNTYPED note (SUB-553). Untyped notes have no
+// A list-valued prop on an UNTYPED note. Untyped notes have no
 // schema, so their chips edit as plain text — and the text a list chip shows
 // is propStr's comma-joined render. Committing that text used to write it
 // back as ONE scalar string, so merely clicking the chip and clicking away

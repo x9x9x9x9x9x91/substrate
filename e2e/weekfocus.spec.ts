@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-512: the week canvas's columns are a real roving-tabindex widget. One
+// The week canvas's columns are a real roving-tabindex widget. One
 // column carries tabindex="0" (the focused day) and every other -1, so Tab
 // enters the canvas exactly once; the focused column holds REAL DOM focus
 // (document.activeElement), not a painted class; it names itself for a screen

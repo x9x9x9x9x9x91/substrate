@@ -1,4 +1,4 @@
-/* SUB-515 — structural actions become undoable (docs/undo.md §6.3).
+/* Structural actions become undoable (docs/undo.md §6.3).
 
    Same shape as undoprops.ts, one layer up: create, trash, move, rename and
    the three folder actions each record their inverse rather than a snapshot.
@@ -6,7 +6,7 @@
    Two things are specific to this slice:
 
    - Trash and create are inverses of each other, and both are keyed by the
-     trash id the engine returns (SUB-478) — never by a path scan, because the
+     trash id the engine returns — never by a path scan, because the
      same path can sit in the trash twice and a scan restores the wrong one.
    - A rename's `paths` is the whole set the engine rewrote (`touched`), not
      just the renamed note. The link sweep edits third-party notes; if the
@@ -123,13 +123,13 @@ export async function moveUndoable(
   opts: Common & {
     path: string;
     folder: string;
-    /** SUB-1061: undo/redo move the file outside the caller's own `.then`,
+    /** Undo/redo move the file outside the caller's own `.then`,
         so the app is left pointing at the path the note just vacated — the
-        selection-guard then snaps the editor to a neighbour (SUB-768's
+        selection-guard then snaps the editor to a neighbour (the
         wrong-note trap, now at ⌘Z time). Callers pass the same follow
         wiring the forward move uses; fires after the inverse move resolves,
         before the stack's refresh. Same hook `renameUndoable` got for the
-        identical asymmetry under SUB-783. */
+        identical asymmetry on rename undo. */
     onApplied?: (oldPath: string, meta: NoteMeta) => void;
   }
 ): Promise<NoteMeta> {
@@ -164,9 +164,9 @@ export async function renameUndoable(
     path: string;
     title: string;
     priorTitle: string;
-    /** SUB-783: undo/redo apply their rename outside any pane, so the path
+    /** Undo/redo apply their rename outside any pane, so the path
         change would otherwise land as a plain prop change and remount the
-        editor (the SUB-772 gap) with no selection repair. Callers pass the
+        editor (the gap) with no selection repair. Callers pass the
         same announce+onRenamed wiring the forward rename uses; fires after
         the inverse rename resolves, before the stack's refresh. */
     onApplied?: (oldPath: string, meta: NoteMeta) => void;
@@ -243,7 +243,7 @@ export async function renameFolderUndoable(
   return newRel;
 }
 
-/** Move a folder under another parent (SUB-698) — the directory keeps its
+/** Move a folder under another parent — the directory keeps its
     name, so the inverse is just "move it back to the parent it came from",
     the same clean structural inverse `moveUndoable` has for a note. The
     engine's path-keyed records (sidebar lanes, folder meta, keys) ride the

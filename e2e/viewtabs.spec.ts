@@ -33,7 +33,7 @@ test("view tabs: render, click switches, All returns, ＋ names a view", async (
   await expect(tabs.nth(2)).toHaveText("Mastering⌘6");
   await expect(page.locator(".db-tab.active")).toHaveText("All");
 
-  // SUB-677: pinned tabs carry their ⌘-digit in pin order; "All" never does
+  // Pinned tabs carry their ⌘-digit in pin order; "All" never does
   await expect(tabs.nth(0).locator(".key")).toHaveCount(0);
   await expect(tabs.nth(1).locator(".key")).toHaveText("⌘5");
   await expect(tabs.nth(2).locator(".key")).toHaveText("⌘6");
@@ -67,7 +67,7 @@ test("view tabs: render, click switches, All returns, ＋ names a view", async (
   await expect(page.locator(".side-view", { hasText: "From plus" })).toHaveCount(1);
 });
 
-// SUB-677: a pin on a HOMED database renders nowhere in the sidebar — the
+// A pin on a HOMED database renders nowhere in the sidebar — the
 // view tab is its only row, so the tab carries the pin's ⌘-digit. Homing the
 // database must not change the digit: the order is the pin order either way.
 test("a homed database's pin keeps its ⌘-digit on its view tab", async ({ page }) => {
@@ -84,7 +84,7 @@ test("a homed database's pin keeps its ⌘-digit on its view tab", async ({ page
     page.locator(".db-tab", { hasText: "Live releases" }).locator(".key")
   ).toHaveText("⌘5");
 
-  // home the database — the pin's sidebar row goes with it (SUB-391)
+  // home the database — the pin's sidebar row goes with it
   await page.locator(".side-item", { hasText: "All databases" }).click();
   await page.locator(".dbmgr-row", { hasText: "Release" }).click({ button: "right" });
   await page.locator(".ctx-item", { hasText: "Set home folder…" }).click();

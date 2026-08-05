@@ -2,7 +2,7 @@ import type { DbIcon, PropSchema, SchemaConfig } from "./types.ts";
 import { byFoldedKey } from "./schemalookup.ts";
 
 /** Reserved key inside a type's `.vault/schema.json` entry holding the
-    database's icon (SUB-27). Prop names are user data; this one is reserved. */
+    database's icon. Prop names are user data; this one is reserved. */
 export const ICON_KEY = "icon";
 
 /** Curated outline glyph set for database icons — no network fetch, no icon
@@ -221,7 +221,7 @@ export function iconForType(
   return byFoldedKey(icons, type);
 }
 
-/* Curated default icons by type name (SUB-183): the designed mark a database
+/* Curated default icons by type name: the designed mark a database
    gets when its schema sets none. Exact, lowercased names only — plurals ride
    their singular's entry, near-misses ("finance-doc") get nothing. Tints stay
    inside the muted --opt-* vocabulary and spread across hues; glyph choice
@@ -263,18 +263,18 @@ const DEFAULT_ICONS: Record<string, DbIcon> = {
   projects: { glyph: "briefcase", tint: "teal" },
 };
 
-/** Curated defaults by type name (SUB-183): a schema icon always wins;
+/** Curated defaults by type name: a schema icon always wins;
     these fire only when a database has none. */
 export function defaultIcon(type: string): DbIcon | undefined {
   return DEFAULT_ICONS[type.trim().toLowerCase()];
 }
 
-/* Curated default icons by folder name (SUB-391) — the SUB-183 idea applied
+/* Curated default icons by folder name — the idea applied
    to plain folders: a distinctive mark when `$folders` sets none, so the
    tree isn't a wall of identical folder glyphs. Keyed by the folder's own
    name (last path segment), lowercased. Names not listed fall through to
    the database-name map — a folder called "Recipes" reads as recipes — and
-   only then to the plain folder glyph. An explicit SUB-84 icon always wins. */
+   only then to the plain folder glyph. An explicit icon always wins. */
 const FOLDER_ICONS: Record<string, DbIcon> = {
   inbox: { glyph: "inbox", tint: "blue" },
   archive: { glyph: "archive", tint: "gray" },
@@ -295,7 +295,7 @@ export function folderDefaultIcon(name: string): DbIcon | undefined {
   return FOLDER_ICONS[k] ?? DEFAULT_ICONS[k];
 }
 
-/* Curated dashboard icons by `dashboard:` kind (SUB-391): every dashboard
+/* Curated dashboard icons by `dashboard:` kind: every dashboard
    row carries its own mark instead of the shared chart glyph. Untinted —
    the sidebar section reads as one quiet gray set (2026-07-24); a
    frontmatter `icon:` can still opt into any mark. Kinds not listed (plain
@@ -317,7 +317,7 @@ const DASHBOARD_ICONS: Record<string, DbIcon> = {
 export function dashboardIcon(props: Record<string, unknown>): DbIcon | undefined {
   const mark = asMark(props.icon);
   if (mark) return GLYPHS[mark] ? { glyph: mark } : { emoji: mark };
-  // the normalization resolveDashboardKind applies, exactly (SUB-1021): trim,
+  // the normalization resolveDashboardKind applies, exactly: trim,
   // no case-fold. KIND_ID_RE makes lowercase the grammar, so `dashboard: Tasks`
   // is an unknown kind and gets the error card — handing it the tasks mark
   // anyway would have the sidebar promise a board the pane then refuses.
@@ -325,7 +325,7 @@ export function dashboardIcon(props: Record<string, unknown>): DbIcon | undefine
   return kind ? DASHBOARD_ICONS[kind] : undefined;
 }
 
-/** The icon a database renders with (SUB-183): the explicit schema icon when
+/** The icon a database renders with: the explicit schema icon when
     set, else the curated default for the type name, else undefined — callers
     fall back to the auto-letter/hash tint exactly as before. */
 export function resolveIcon(type: string, icon?: DbIcon): DbIcon | undefined {
@@ -365,15 +365,15 @@ export function tintVar(tint?: string): string | undefined {
     : undefined;
 }
 
-/** CSS color for a select option's color name (SUB-619). Option colors come
+/** CSS color for a select option's color name. Option colors come
     from note frontmatter, which is free-form, so the name is checked against
     the same closed `--opt-*` roster icon tints use before it reaches CSS —
     an unknown name renders exactly like no color at all, never as an
     interpolated `var(--opt-…)` fragment. */
 export const optionColorVar = tintVar;
 
-/** Every database gets a stable identity color (SUB-73): the icon's explicit
-    tint when set, else the curated default's tint (SUB-183), else a hash of
+/** Every database gets a stable identity color: the icon's explicit
+    tint when set, else the curated default's tint, else a hash of
     the type name into the non-gray `--opt-*` palette — same name, same color,
     across sessions and surfaces. */
 export function typeTint(type: string, icon?: DbIcon): string {

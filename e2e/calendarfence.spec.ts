@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Calendar fence (SUB-965): a ```calendar fence draws any database date
+// Calendar fence: a ```calendar fence draws any database date
 // property as a month grid — standalone on a one-fence dashboard note, or
 // interleaved in a hub body. Entries sit on their day, a chip opens its note,
 // repeating notes (vault-format §5.7) expand inside the drawn month, and a
@@ -143,8 +143,7 @@ test("a bare calendar fence in a hub body renders live; a quoted or tailed one s
     "## Tailed",
     "",
     // a tailed opener is prose: the calendar parser reads the bare form only,
-    // and search keeps such a block indexed — so the hub must NOT mount it
-    // live (SUB-965 review)
+    // and search keeps such a block indexed — so the hub must NOT mount it live
     "```calendar month",
     "source: event",
     "date: date",

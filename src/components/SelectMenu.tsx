@@ -32,7 +32,7 @@ export function optionColor(options: SelectOption[] | undefined, value: string):
   return options?.find((o) => o.value.toLowerCase() === value.toLowerCase())?.color;
 }
 
-/** A select value as a tinted pill (SUB-89) — tinted ground + tinted text
+/** A select value as a tinted pill — tinted ground + tinted text
     from the option color, so values read as marks on the neutral surfaces.
     No option color → plain text (dates/numbers/free text never pill). */
 export function OptionPill({ color, children }: { color?: string; children: ReactNode }) {
@@ -45,7 +45,7 @@ export function OptionPill({ color, children }: { color?: string; children: Reac
   );
 }
 
-/** A multi prop's values as tinted pills (SUB-79/89) — chips and table cells
+/** A multi prop's values as tinted pills — chips and table cells
     share this; colorless values pill in gray so the set reads as one row. */
 export function MultiValues({ values, options }: { values: string[]; options: SelectOption[] }) {
   return (
@@ -59,7 +59,7 @@ export function MultiValues({ values, options }: { values: string[]; options: Se
   );
 }
 
-/** A relation's values as neutral hairline chips (SUB-253) — a relation is
+/** A relation's values as neutral hairline chips — a relation is
     a link to an entry, not a status, so it never borrows an option tint;
     same per-value chip rhythm as MultiValues. */
 export function RelationValues({ values }: { values: string[] }) {
@@ -75,7 +75,7 @@ export function RelationValues({ values }: { values: string[] }) {
 }
 
 /** Anchor rect in viewport coordinates, captured when the picker opens.
-    width/height ride along for cell-mode pickers (SUB-405), which pin the
+    width/height ride along for cell-mode pickers, which pin the
     input onto the anchor instead of dropping a panel under it. */
 export interface AnchorRect {
   left: number;
@@ -90,7 +90,7 @@ export function anchorFrom(el: Element): AnchorRect {
   return { left: r.left, top: r.top, bottom: r.bottom, width: r.width, height: r.height };
 }
 
-/** SUB-945: an anchor is a viewport rect captured when the menu opened — the
+/** An anchor is a viewport rect captured when the menu opened — the
     moment its scroller moves, the menu is pointing at empty space. Events are
     scoped to the pane that owns that scroller: another database or surface
     must never close this menu. */
@@ -121,57 +121,57 @@ interface SelectMenuProps {
   kind?: PropKind;
   /** current notify flag (date-kind props only) */
   notify?: boolean;
-  /** current lead time in days (date-kind props only, SUB-842) */
+  /** current lead time in days (date-kind props only) */
   notifyBefore?: number;
   /** relation kind only: the database this prop currently points at */
   target?: string;
   /** number kind only: the current display format (undefined = plain) */
   format?: NumberFormat;
-  /** any kind (SUB-191): the current entry hint (undefined = none) */
+  /** any kind: the current entry hint (undefined = none) */
   description?: string;
   /** database types the relation target picker offers */
   databases?: string[];
   /** open straight in the options/kind editor (e.g. from a date/file menu) */
   startEditing?: boolean;
-  /** editor heading (default "Property") — "New property" for SUB-43 adds */
+  /** editor heading (default "Property") — "New property" for adds */
   editTitle?: string;
   /** extra card content above the kind picker (the new property's name input) */
   heading?: React.ReactNode;
   /** external gate on Save (e.g. the new property needs a valid name) */
   saveDisabled?: boolean;
-  /** section label above the picker list (SUB-73: "Databases" on the type picker) */
+  /** section label above the picker list ("Databases" on the type picker) */
   listHeading?: string;
-  /** the property this picker edits — names the combobox for assistive tech
-      (SUB-362); omitted → listHeading or a generic name carries it */
+  /** the property this picker edits — names the combobox for assistive tech;
+      omitted → listHeading or a generic name carries it */
   label?: string;
-  /** cell mode (SUB-405): the input pins onto the anchor cell itself so
+  /** cell mode: the input pins onto the anchor cell itself so
       typing happens in the actual box; the list hangs below as a panel.
       Optionless kinds prefill the raw value and commit typed text on Enter
       or click-away, like an inline input. */
   cell?: boolean;
-  /** opened from inside a z-100 overlay dialog (SUB-647): ride above it.
+  /** opened from inside a z-100 overlay dialog: ride above it.
       Default stays 60 — below the palette overlay, as everywhere else. */
   aboveOverlay?: boolean;
   /** owner token for scroll-dismiss events; omitted outside a scrolling DB pane */
   staleScope?: string;
-  /** SUB-947 type-to-replace: the keystroke that opened this editor. It seeds
+  /** Type-to-replace: the keystroke that opened this editor. It seeds
       the input instead of the current value, so typing over a cell reads like
       a spreadsheet — the first character is already in. */
   seed?: string;
-  /** SUB-947 (F2): open on the current value with the caret at its end rather
+  /** F2: open on the current value with the caret at its end rather
       than selected, so the edit extends the text instead of replacing it */
   caretAtEnd?: boolean;
-  /** SUB-947: Enter/Tab commit AND carry the editor onward. This fires after
+  /** Enter/Tab commit AND carry the editor onward. This fires after
       the commit above with the direction to hop; the owner moves focus and
       opens the next cell's editor. Absent outside the database table. */
   onHop?: (dir: HopDir) => void;
   /** per-value icons for picker rows — the type picker shows each database's
-      identity icon so "type" reads as database membership (SUB-73) */
+      identity icon so "type" reads as database membership */
   valueIcons?: Record<string, DbIcon>;
   onCommit: (v: string) => void;
   /** multi kind only: the note's current values (membership drives the ✓s) */
   values?: string[];
-  /** bulk bar only (SUB-635): one quiet line under the filter input stating
+  /** bulk bar only: one quiet line under the filter input stating
       that the write REPLACES every selected note's values — the multi
       toggles otherwise read as additive */
   bulkNote?: string;
@@ -180,12 +180,12 @@ interface SelectMenuProps {
   onToggle?: (v: string) => void;
   onClear?: () => void;
   onSaveSchema: (opts: SelectOption[], kind: PropKind | null, notify?: boolean, notifyBefore?: number, target?: string, format?: NumberFormat, description?: string, rollup?: RollupConfig | null) => void;
-  /** rollup kind only (SUB-678): relation props of THIS database the rollup
+  /** rollup kind only: relation props of THIS database the rollup
       can follow — absent means the rollup kind can't be configured here */
   rollupRelations?: string[];
-  /** rollup kind only (SUB-678): the props of a relation's target database */
+  /** rollup kind only: the props of a relation's target database */
   rollupPropsFor?: (relation: string) => string[];
-  /** rollup kind only (SUB-678): the current wiring, for the editor prefill */
+  /** rollup kind only: the current wiring, for the editor prefill */
   rollup?: RollupConfig;
   onClose: () => void;
 }
@@ -222,7 +222,7 @@ const KIND_HINTS: Record<DraftKind, string | null> = {
   number: "A number column — right-aligned, sums in the footer. Stored as typed.",
 };
 
-/** Number-kind display formats (SUB-188), widened to units (SUB-834) — one
+/** Number-kind display formats, widened to units — one
     quiet row riding the draft UI like relation's target picker, wrapping as
     it grows.
 
@@ -248,7 +248,7 @@ const FORMAT_LABELS: [NumberFormat, string][] = [
   ["dB", "dB"],
 ];
 
-/** Rollup-kind aggregation functions (SUB-678) — the footer Calculate's
+/** Rollup-kind aggregation functions — the footer Calculate's
     vocabulary (AGG_OPTIONS in DbPaneShared), same button-row idiom as the
     number format. */
 const AGG_LABELS: [AggKind, string][] = [
@@ -260,7 +260,7 @@ const AGG_LABELS: [AggKind, string][] = [
 ];
 
 /** The lead time the engine will actually store for what was typed into the
-    days field (SUB-842). The `min`/`max` attributes are advisory — a typed
+    days field. The `min`/`max` attributes are advisory — a typed
     `0.5`, `-5`, or `abc` reaches save untouched — so the same rules the
     engine applies run here: unparseable or ≤0 clears the lead time, a
     fraction rounds to whole days (never silently below the 1-day minimum),
@@ -278,7 +278,7 @@ const MENU_MAX_H = 320;
     Esc. Typing anything and hitting Enter always works — free text is the
     built-in fallback, schema options just come first.
 
-    Cell mode (SUB-405): the input sits ON the anchor cell instead of in a
+    Cell mode: the input sits ON the anchor cell instead of in a
     dropped panel, so typing happens in the actual box. Optionless kinds
     prefill the raw value (selected) and commit like an inline input: Enter
     commits the text (empty = clear), click-away commits a change, arrowing
@@ -320,14 +320,14 @@ export default function SelectMenu({
   rollup,
   onClose,
 }: SelectMenuProps) {
-  // multi kind (SUB-79): picks toggle membership instead of replacing, the
+  // multi kind: picks toggle membership instead of replacing, the
   // menu stays open for more (Esc / click-outside closes, as always)
   const isMulti = kind === "multi";
-  // free-text cell (SUB-405): no schema options to pick from — the input is
+  // free-text cell: no schema options to pick from — the input is
   // a real inline editor (prefilled, selected) and Enter commits its text;
   // sel -1 = the input owns Enter, arrowing down hands it to the list
   const freeCell = !!cell && options.length === 0 && !isMulti;
-  // SUB-947 type-to-replace: a keystroke on a focused cell opens the editor
+  // Type-to-replace: a keystroke on a focused cell opens the editor
   // already holding it — free text starts from the character alone (it
   // REPLACES the old value, spreadsheet-style), an optioned cell uses it as
   // the picker's filter query. Without a seed nothing changes: free cells
@@ -350,13 +350,13 @@ export default function SelectMenu({
     kind ?? (options.length > 0 ? "select" : "text")
   );
   const [draftNotify, setDraftNotify] = useState(notify ?? false);
-  // lead time (SUB-842) lives as text so the field can be blank = off; the
+  // lead time lives as text so the field can be blank = off; the
   // save turns blank into 0, which is how the backend clears a stored value
   const [draftBefore, setDraftBefore] = useState(notifyBefore ? String(notifyBefore) : "");
   const [draftTarget, setDraftTarget] = useState(target ?? "");
   const [draftFormat, setDraftFormat] = useState<NumberFormat>(format ?? "plain");
   const [draftDesc, setDraftDesc] = useState(description ?? "");
-  // rollup wiring (SUB-678): the relation to follow (prefilled with the
+  // rollup wiring: the relation to follow (prefilled with the
   // current wiring, else the first followable relation), the target prop on
   // the related database (no prefill — a conscious pick), and the function
   const [draftRollRelation, setDraftRollRelation] = useState(
@@ -365,18 +365,18 @@ export default function SelectMenu({
   const [draftRollProp, setDraftRollProp] = useState(rollup?.prop ?? "");
   const [draftRollAgg, setDraftRollAgg] = useState<AggKind>(rollup?.agg ?? "sum");
   // rollup pickers: composite highlight for the two listboxes — the input
-  // owns arrows/Enter like the relation target picker above (SUB-362)
+  // owns arrows/Enter like the relation target picker above
   const [rollRelSel, setRollRelSel] = useState(0);
   const [rollPropSel, setRollPropSel] = useState(0);
-  // relation target picker: composite highlight for the schema-edit rows
-  // (SUB-362) — the input owns arrows/Enter like the value picker above
+  // relation target picker: composite highlight for the schema-edit rows —
+  // the input owns arrows/Enter like the value picker above
   const [targetSel, setTargetSel] = useState(() => {
     const i = (databases ?? []).findIndex(
       (d) => d.toLowerCase() === (target ?? "").trim().toLowerCase()
     );
     return i === -1 ? 0 : i;
   });
-  // rollup pickers (SUB-678): the relation to follow must name one of the
+  // rollup pickers: the relation to follow must name one of the
   // followable relations (case-insensitive — the canonical casing saves);
   // the target prop list rides it. A case-insensitive list hit
   // canonicalizes the prop too; typed text stays as the escape hatch for
@@ -451,7 +451,7 @@ export default function SelectMenu({
   }, [fq]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the prefilled raw value opens selected, like a rename input — typing
-  // replaces, arrows-in-text still work after any key. SUB-947: a seeded
+  // replaces, arrows-in-text still work after any key. A seeded
   // (type-to-replace) or F2 editor instead parks the caret after the text —
   // selecting would make the next keystroke wipe what the user just typed.
   useEffect(() => {
@@ -465,7 +465,7 @@ export default function SelectMenu({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // SUB-1132: filtering replaces the rows and resets the selection to the top,
+  // Filtering replaces the rows and resets the selection to the top,
   // which is a no-op whenever it already was 0 — depend on the rows too, or a
   // list the user had scrolled keeps its offset and hides the selection
   useEffect(() => {
@@ -499,7 +499,7 @@ export default function SelectMenu({
         break;
       case "promote":
         // adding the typed value to the schema keeps the prop's kind — a
-        // multi stays a multi; the description (SUB-191) rides along or an
+        // multi stays a multi; the description rides along or an
         // inline promote would silently clear it
         onSaveSchema([...options, { value: row.value }], isMulti ? "multi" : null, undefined, undefined, undefined, undefined, description);
         if (isMulti) onToggle?.(row.value);
@@ -514,7 +514,7 @@ export default function SelectMenu({
     }
   };
 
-  // free-text cell commit (SUB-405): Enter on the input commits its text —
+  // free-text cell commit: Enter on the input commits its text —
   // empty clears (explicit), unchanged just closes
   const commitFree = () => {
     const t = query.trim();
@@ -525,14 +525,14 @@ export default function SelectMenu({
     else onCommit(t);
   };
 
-  /* SUB-947: a commit that carries the editor to the next cell. The commit
+  /* A commit that carries the editor to the next cell. The commit
      itself is unchanged — the same onCommit/onClear the click path uses, so
-     there is exactly one write door (SUB-946's optimistic path included).
+     there is exactly one write door (the optimistic path included).
      The hop is announced afterwards; the owner opens the next editor.
 
      `pick` on a "edit" row opens the schema editor rather than committing, so
      that one never hops — the user is still in this cell. Multi/relation
-     cells commit live and keep their menu open by design (SUB-79); Enter
+     cells commit live and keep their menu open by design; Enter
      there keeps toggling, and only Tab leaves. */
   const hopAfter = (dir: HopDir, commit: () => void) => {
     commit();
@@ -608,7 +608,7 @@ export default function SelectMenu({
     const onDown = (e: MouseEvent) => {
       if (boxRef.current && !boxRef.current.contains(e.target as Node)) clickAway.current();
     };
-    // SUB-945: the anchor rect was captured at open, so a scrolled cell leaves
+    // The anchor rect was captured at open, so a scrolled cell leaves
     // the menu floating over unrelated rows — same exit as a click away
     const onStale = (event: Event) => {
       const detail = (event as CustomEvent<{ scope?: string }>).detail;
@@ -630,7 +630,7 @@ export default function SelectMenu({
       ? { bottom: window.innerHeight - anchor.top + 4 }
       : { top: anchor.bottom + 4 }),
   };
-  // cell mode (SUB-405): the box pins onto the cell rect exactly — never
+  // cell mode: the box pins onto the cell rect exactly — never
   // clamped, the input must sit on the cell; the list hangs off it as an
   // absolute panel (above instead of below when cramped at the bottom)
   const cellStyle: React.CSSProperties = {
@@ -643,7 +643,7 @@ export default function SelectMenu({
   // placement even when the value picker opened in cell mode
   const style: React.CSSProperties = {
     ...(cell && !editing ? cellStyle : panelStyle),
-    // opened from an overlay dialog (SUB-647): ride above the z-100 dim
+    // opened from an overlay dialog: ride above the z-100 dim
     ...(aboveOverlay ? { zIndex: 120 } : {}),
   };
 
@@ -691,7 +691,7 @@ export default function SelectMenu({
   // click inside the menu re-triggers the anchor cell/chip and reopens it
   const stop = (e: React.SyntheticEvent) => e.stopPropagation();
 
-  // the combobox name (SUB-362) — the anchor chip/cell that opened this menu
+  // the combobox name — the anchor chip/cell that opened this menu
   // names the property; without a caller label the list heading stands in
   const pickerName = label ?? listHeading ?? "Pick a value";
 
@@ -923,7 +923,7 @@ export default function SelectMenu({
         ))}
       {draftKind === "number" && (
         // the display format rides the draft UI like relation's target
-        // picker (SUB-188) — one quiet row, plain is the default
+        // picker — one quiet row, plain is the default
         <div className="selmenu-kinds">
           {FORMAT_LABELS.map(([f, label]) => (
             <button
@@ -982,7 +982,7 @@ export default function SelectMenu({
       )}
       <div className="selmenu-addrow">
         <input
-          // the entry hint (SUB-191) rides every kind — one quiet line
+          // the entry hint rides every kind — one quiet line
           className="selmenu-add-input"
           placeholder="Description — shown as an entry hint"
           value={draftDesc}
@@ -1028,7 +1028,7 @@ export default function SelectMenu({
             }
             else if (draftKind === "date" || draftKind === "file" || draftKind === "url" || draftKind === "email" || draftKind === "phone" || draftKind === "checkbox") {
               // blank/garbage lead time saves as 0 — the engine reads that as
-              // "clear it", which a plain undefined would not (SUB-842). Out
+              // "clear it", which a plain undefined would not. Out
               // of range input is normalized HERE and echoed back into the
               // field, so what the box shows is what gets stored.
               const lead = draftKind === "date" ? leadDaysFor(draftBefore) : undefined;
@@ -1050,7 +1050,7 @@ export default function SelectMenu({
               onSaveSchema([], "relation", undefined, undefined, draftTarget.trim(), undefined, desc);
             else if (draftKind === "multi") onSaveSchema(draft, "multi", undefined, undefined, undefined, undefined, desc);
             else if (draftKind === "select") onSaveSchema(draft, null, undefined, undefined, undefined, undefined, desc);
-            // text registers explicitly (SUB-43) — a schema'd text column
+            // text registers explicitly — a schema'd text column
             // survives the demote rule; removal is the separate remove flow
             else onSaveSchema([], "text", undefined, undefined, undefined, undefined, desc);
             // a kind change swaps which menu this chip/cell opens — close out;
@@ -1087,7 +1087,7 @@ export default function SelectMenu({
         aria-activedescendant={sel >= 0 && rows.length > 0 ? rowId(sel) : undefined}
         // an optioned cell keeps the filter input empty and ghosts the
         // current value as its placeholder (DateMenu's idiom) — the cell
-        // never reads blank while the editor rides on it (SUB-405)
+        // never reads blank while the editor rides on it
         placeholder={
           cell && value
             ? value
@@ -1102,10 +1102,10 @@ export default function SelectMenu({
         }}
         onKeyDown={onKey}
       />
-      {/* the schema's entry hint (SUB-191) — one muted line, full text on
+      {/* the schema's entry hint — one muted line, full text on
           hover; undescribed props render nothing (no layout jump). In cell
           mode hint + list ride a hanging panel below (above when flipped)
-          so the input alone overlays the cell (SUB-405). */}
+          so the input alone overlays the cell. */}
       {(() => {
         const body = (
           <>

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # hard-timeout.sh — a wall-clock timeout that does not depend on coreutils.
 #
-# Why this exists (SUB-1052): ssh's ConnectTimeout only covers establishing the
+# Why this exists: ssh's ConnectTimeout only covers establishing the
 # connection. A wedged rig whose sshd ACCEPTS the TCP connection and then never
 # answers defeats it completely — the probe hangs forever with no output, and
 # the v0.22.0 ship needed a manual `kill` to get moving again. macOS ships no

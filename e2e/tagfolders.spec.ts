@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-818: tag folders — a saved tag rule that sits inline with the real
+// Tag folders — a saved tag rule that sits inline with the real
 // folders and ACCEPTS WORK. Building one is chips + any/all + "but not …",
 // never a query language; acting inside one writes the folder's tags onto the
 // note and nothing moves on disk.
@@ -12,7 +12,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 /** Seed tags onto mock notes the way an outside writer would, then let the
     app re-read the index. The 1.1 s wait clears the own-write echo window
-    (SUB-116) so the refetch runs immediately, same as undoclobber. */
+    so the refetch runs immediately, same as undoclobber. */
 async function seed(page: Page, edits: { path: string; body?: string; tags?: string[] }[]) {
   await page.evaluate((es) => {
     for (const e of es) {

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// Designed PDF templates (SUB-816): "Export one-sheet…" in the note menus
+// Designed PDF templates: "Export one-sheet…" in the note menus
 // builds the hero/facts/body layout into #print-surface; "Export PDF…" in a
 // database's ⋯ menu prints the view as the table sheet. Same print
 // mechanism as the generic note export — window.print is stubbed (the mock

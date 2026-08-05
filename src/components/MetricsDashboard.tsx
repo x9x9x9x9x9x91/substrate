@@ -20,7 +20,7 @@ interface MetricsDashboardProps {
   onMutated: () => void;
   /** An embedding surface renders the card strip alone — no dashboard head,
       no footer, no body-level chart pass. The binding and evaluation path is
-      the one every other card surface uses (SUB-964); only the chrome is
+      the one every other card surface uses; only the chrome is
       dropped. */
   embed?: boolean;
   /** Cards the embedding surface already parsed from its own fence, in place
@@ -41,7 +41,7 @@ export default function MetricsDashboard({
   cardsOverride,
   sharpOverride,
 }: MetricsDashboardProps) {
-  // The whole quoted table (SUB-834) drives card evaluation; the single
+  // The whole quoted table drives card evaluation; the single
   // USD→EUR pair is derived from it for the footer, so both read one source.
   const { fx: rates } = useFxRates();
   const fx = useMemo(() => usdEurFrom(rates), [rates]);
@@ -116,7 +116,7 @@ export default function MetricsDashboard({
         )}
 
         {/* the foot carries live facts only — how bindings work and where to
-            edit cards is documentation, not state (SUB-527). With no FX in
+            edit cards is documentation, not state. With no FX in
             play there is nothing to say, so nothing is said. */}
         {fx && (
           <div className="dash-foot">

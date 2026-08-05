@@ -53,7 +53,7 @@ test("the peek opens BESIDE the clicked chip, not over its day (SUB-792)", async
   const left = peekBox!.x + peekBox!.width <= chipBox!.x;
   expect(right || left).toBe(true);
   // top-aligned with the chip — or nudged UP by the on-screen clamp when
-  // today rides the grid's last row (date-dependent geometry, SUB-547
+  // today rides the grid's last row (date-dependent geometry
   // lesson) — but never dropped BELOW it like the old under-the-anchor
   // placement, and never off the top of the screen
   expect(peekBox!.y).toBeLessThanOrEqual(chipBox!.y + 8);
@@ -74,7 +74,7 @@ test("the click that dismisses the peek never opens a composer where it lands (S
   // Target an EMPTY non-today cell, picked from the live grid rather than a
   // fixed isoDay offset: a future offset can be off-grid when today rides
   // the grid's last cell, and yesterday's dense fixtures can fill a cell to
-  // the edges (the SUB-547 date-dependent-geometry lesson). The fixtures
+  // the edges (the date-dependent-geometry lesson). The fixtures
   // only populate ~14 distinct days, so an empty cell always exists.
   const empty = page
     .locator(`.cal-day:not([data-iso="${isoDay(0)}"])`)
@@ -272,7 +272,7 @@ test("a virtual occurrence gets series actions instead of date/time rows", async
   // dead trailing row"), so anchoring on today puts the next weekly occurrence
   // off-screen whenever today falls in the last week: on 2026-07-27 the grid
   // ended Aug 2 and today+7 was Aug 3, so the .nth(1) below matched nothing and
-  // this spec was red for the last week of the month (SUB-547). Row one is
+  // this spec was red for the last week of the month. Row one is
   // always on screen, and the grid is always >= 4 weeks, so anchor+7 always
   // lands in row two.
   const anchorIso = await page

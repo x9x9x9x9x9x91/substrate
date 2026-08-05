@@ -1,4 +1,4 @@
-/* Terminal command trust (SUB-427).
+/* Terminal command trust.
 
    `terminal-command` comes from Settings.md — a plain note that syncs between
    devices and can arrive by import or by someone else's pull request into a
@@ -71,7 +71,7 @@ export function withTrusted(command: string, raw: string | null): string {
   return serializeTrust([...parseTrust(raw), commandHash(command)]);
 }
 
-/** The command inside injected keystrokes (SUB-775). A palette quick action
+/** The command inside injected keystrokes. A palette quick action
     sends the command plus the return that submits it; that return is typing,
     not part of what the user approved. Stripping it keeps ONE approval list
     across both paths — a yes given at spawn covers the same string clicked in

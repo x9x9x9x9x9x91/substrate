@@ -57,7 +57,7 @@ pub(crate) async fn file_pick(
     Some(vault::contract_tilde(&path))
 }
 
-/// Read a text file the user picked outside the vault (CSV import, SUB-274).
+/// Read a text file the user picked outside the vault (CSV import).
 /// Read-only, tilde-expanded, and capped so a stray multi-GB pick fails
 /// instead of stalling the app.
 #[tauri::command]
@@ -70,7 +70,7 @@ pub(crate) fn file_read_text(path: String) -> Result<String, String> {
     std::fs::read_to_string(&p).map_err(|e| format!("couldn't read {path}: {e}"))
 }
 
-/// Loose (non-note) files directly inside one vault folder (SUB-812) — the
+/// Loose (non-note) files directly inside one vault folder — the
 /// folder view's file rows. Deliberately its own lazy call rather than part
 /// of the vault index: the scan stays `.md`-only, and a folder full of
 /// masters costs one `read_dir` when you open it and nothing when you don't.

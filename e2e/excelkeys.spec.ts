@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-947: the spreadsheet keyboard grammar for database tables. Before this,
+// The spreadsheet keyboard grammar for database tables. Before this,
 // every commit closed the editor and stranded focus — filling a column meant
 // re-pressing Enter on every single cell. Now Enter commits and carries the
 // editor down, Tab carries it across (wrapping at the row ends), a printable
@@ -261,7 +261,7 @@ test("filling ten cells down a column takes only the keyboard (SUB-947)", async 
 });
 
 test("the hop steps over a derived rollup column (SUB-947)", async ({ page }) => {
-  // a rollup (SUB-678) is computed on read with no editor behind it: Tab must
+  // a rollup is computed on read with no editor behind it: Tab must
   // not park the editor on one, it has to keep going to the next real cell
   await page.goto("/");
   await newRollupDatabase(page);
@@ -284,7 +284,7 @@ test("the hop steps over a derived rollup column (SUB-947)", async ({ page }) =>
 
 test("the hop keeps its target row painted in a windowed table (SUB-947)", async ({ page }) => {
   test.setTimeout(300_000);
-  // SUB-310: above 60 rows the tbody paints only the viewport ± overscan, so
+  // Above 60 rows the tbody paints only the viewport ± overscan, so
   // the row the editor is hopping to may not be in the DOM at all yet
   await page.goto("/?perfdb=140");
   await openDb(page, "Plugin");

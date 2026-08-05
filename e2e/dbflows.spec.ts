@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-403: the sidebar's two database-into-tree flows. The Folders "+" is an
+// The sidebar's two database-into-tree flows. The Folders "+" is an
 // add menu — plain inline folder create, a database that lands in the tree
 // on an eponymous root folder, or "Mount a folder…" showing a real folder on
-// disk as a database (SUB-888) — and All-databases manager rows
-// drag onto sidebar folders to set their home (SUB-85 IPC, toast confirms).
-// SUB-411 adds the inverse: the tree row's "Stop opening as database" un-homes
+// disk as a database — and All-databases manager rows
+// drag onto sidebar folders to set their home (IPC, toast confirms).
+// Adds the inverse: the tree row's "Stop opening as database" un-homes
 // in place. Runs against the deterministic mock backend (fresh page =
 // fresh vault).
 
@@ -41,7 +41,7 @@ test("New database… from the sidebar homes the new database in the tree", asyn
   await expect(form).toBeVisible();
   await form.locator(".dbform-input").first().fill("Rig");
 
-  // property kind + relation target ride the in-house SelectMenu (SUB-647) —
+  // property kind + relation target ride the in-house SelectMenu —
   // open, pick, commit for both replaced controls
   await form.locator(".dbform-addprop").click();
   const propRow = form.locator(".dbform-proprow");
@@ -116,7 +116,7 @@ test("dragging a manager row onto a sidebar folder sets its home", async ({ page
   // toast confirms, the manager sub gains the home segment…
   await expect(page.locator(".toast")).toContainText("now lives in");
   await expect(releaseRow.locator(".dbmgr-row-sub")).toHaveText("5 entries · Projects");
-  // …and the tree row db-dresses (folder name + DB chip, SUB-611),
+  // …and the tree row db-dresses (folder name + DB chip),
   // click-through to the database view
   const treeRow = page.locator(".side-folder", {
     has: page.locator(".side-label-text", { hasText: /^Projects$/ }),
@@ -130,7 +130,7 @@ test("dropping a database on its own home row is a quiet no-op", async ({ page }
   await page.locator(".side-item", { hasText: "All databases" }).click();
   const taskRow = page.locator(".dbmgr-row", { hasText: "Task" });
   // the seeded home (task → Tasks) db-dresses the tree row (folder name +
-  // DB chip, SUB-611)
+  // DB chip)
   const tasksRow = page.locator(".side-folder", {
     has: page.locator(".side-label-text", { hasText: /^Tasks$/ }),
   });
@@ -144,7 +144,7 @@ test("dropping a database on its own home row is a quiet no-op", async ({ page }
 test("'Stop opening as database' on the tree row un-homes without deleting (SUB-411)", async ({
   page,
 }) => {
-  // the seeded task db dresses its Tasks home row (SUB-85, SUB-611 label)
+  // the seeded task db dresses its Tasks home row
   const treeRow = page.locator(".side-folder", {
     has: page.locator(".side-label-text", { hasText: /^Tasks$/ }),
   });

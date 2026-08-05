@@ -1,4 +1,4 @@
-//! Vault sync over git (SUB-516/572): remote setup, push/pull and the parked
+//! Vault sync over git: remote setup, push/pull and the parked
 //! conflict resolution flow.
 
 use crate::commands::history::with_history;
@@ -12,7 +12,7 @@ pub(crate) struct VaultSyncStatus {
     last_result: Option<SyncReport>,
     last_error: Option<String>,
     /// Paths of the conflicted merge parked in git, read from the repository
-    /// rather than from this session's last result (SUB-572). `last_result`
+    /// rather than from this session's last result. `last_result`
     /// is empty after a restart, so a pane deriving "needs attention" from it
     /// alone reported Ready while a conflicted merge was still waiting.
     conflicted: Vec<String>,
@@ -103,7 +103,7 @@ pub(crate) async fn vault_sync_pull(app: tauri::AppHandle) -> Result<SyncReport,
         // Gate: history first, then engine (the repo-wide lock order), held
         // through the whole local phase. The fetch stays unlocked, but neither
         // an auto-snapshot nor a vault write can land between the final HEAD /
-        // clean checks and checkout + branch update (SUB-731).
+        // clean checks and checkout + branch update.
         let mut result = gitsync::sync_pull_gated(&sync_root(&state), &sync.credentials_path, || {
             let history = history.0.lock().unwrap();
             let engine = state.0.lock().unwrap();
@@ -155,7 +155,7 @@ pub(crate) async fn vault_sync_pull(app: tauri::AppHandle) -> Result<SyncReport,
     .await?
 }
 
-/// Tell the app which paths a pull just rewrote (SUB-516, docs/undo.md §3.5).
+/// Tell the app which paths a pull just rewrote (docs/undo.md §3.5).
 /// A checkout is not undoable, so the undo stack has to drop exactly the
 /// entries it stepped on — and learning that from the OS watcher instead would
 /// arrive a debounce later, with the paths already blurred into whatever else

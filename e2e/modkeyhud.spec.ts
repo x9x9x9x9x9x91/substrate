@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 
-// The hold-⌘ HUD (SUB-490) against the same deterministic mock backend as
+// The hold-⌘ HUD against the same deterministic mock backend as
 // keyhints.spec.ts. Two jobs: prove the timing contract (a typed chord never
 // flashes it, a held one opens it, release closes it), and verify the LOOK —
 // The ask was "small, non intrusive", which is a geometry claim, so it is

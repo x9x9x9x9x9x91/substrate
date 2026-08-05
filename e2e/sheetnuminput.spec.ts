@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-915: the sheet grid was the one commit boundary SUB-636 missed —
+// The sheet grid was the one commit boundary the decimal-comma fix missed —
 // German-typed numbers went into the csv verbatim, so "1.234" evaluated as
 // the float 1.234 (a 1000× money error that still renders as money) and
 // "1.234,56" fell out of SUM entirely. commitEdit now routes the draft
@@ -41,7 +41,7 @@ test("sheet cells normalize German-typed numbers at commit (SUB-915)", async ({ 
 
   // grouped integer: the shape the app itself renders → 1234, NOT 1.234.
   // Rendered "1.234,00" because price_usd carries fractions elsewhere in the
-  // column (92,5) and the column formats as one regime (SUB-1000) — a
+  // column (92,5) and the column formats as one regime — a
   // mis-parse of the input would still show here as "1,23".
   await commitCell(page, 0, 3, "1.234");
   await expect(cell(page, 0, 3)).toHaveText("1.234,00");
@@ -69,7 +69,7 @@ test("a dotted value in a text column survives open+Enter verbatim (SUB-915)", a
   await page.locator(".sheet-input").press("Enter");
   await expect.poll(body).toContain("GLOW,192.168,");
 
-  // a year-shaped label is the same class (SUB-633): 2.026 is a name, not 2026
+  // a year-shaped label is the same class: 2.026 is a name, not 2026
   await commitCell(page, 0, 1, "2.026");
   await expect.poll(body).toContain("GLOW,2.026,");
 });

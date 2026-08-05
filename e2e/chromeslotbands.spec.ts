@@ -1,14 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// The chrome slot (SUB-468) is a desktop-only reservation for the fixed
+// The chrome slot is a desktop-only reservation for the fixed
 // keyboard button. Two widths get it wrong and neither is covered by the
 // existing gates — chromeslot.spec.ts and keyhints.spec.ts both sit at the
 // 1280px default, and the mobile specs sit at 375/390px where they only ever
 // assert that the button is absent.
 //
-//  * 701-900px (SUB-496): the outline goes `position: fixed` in that band and
+//  * 701-900px: the outline goes `position: fixed` in that band and
 //    was inset to a bare 24px, landing under the button.
-//  * <=700px (SUB-497): the button doesn't render at all, but the heads kept
+//  * <=700px: the button doesn't render at all, but the heads kept
 //    reserving 40px for it.
 
 async function chromeSlotRight(page: Page) {

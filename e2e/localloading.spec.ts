@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-1167: two panes that read purely local data still rendered a loading
+// Two panes that read purely local data still rendered a loading
 // word — the cookbook a "Loading recipes…" line that mounted and unmounted
 // again before the cards arrived, the history panel a bare "Loading…" that
 // stuck forever under the error strip when the read failed. Same shape
-// SUB-650 fixed one pane over: the loading frame is the resolved state's own
+// An earlier fix one pane over set the rule: the loading frame is the resolved state's own
 // DOM, and an errored read renders no loading state at all.
 //
 // The reads are held open with `__mockSetLatency` so the loading frame is

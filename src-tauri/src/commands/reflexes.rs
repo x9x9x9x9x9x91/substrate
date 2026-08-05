@@ -1,5 +1,5 @@
 //! Reflexes: the one-time per-vault enable switch, what the rules file says,
-//! and what the rules have actually been doing (SUB-826).
+//! and what the rules have actually been doing.
 //!
 //! Five commands and no sixth: nothing here writes `reflexes.json`. Rules are
 //! authored in the file — the app reads them, reports them, and decides whether

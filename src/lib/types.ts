@@ -1,4 +1,4 @@
-/** App-machinery types, not databases (SUB-389): dashboards and sheets are
+/** App-machinery types, not databases: dashboards and sheets are
     surfaces the app renders, so they never collapse into database blocks,
     never list in All databases, and their date-shaped props never schedule
     (calendar.ts). One set, shared by every "is this type a database?" site. */
@@ -12,15 +12,15 @@ export interface NoteMeta {
   props: Record<string, unknown>;
   updated_ms: number;
   excerpt: string;
-  /** The note's tag set (SUB-818): inline `#hashtags` unioned with the
+  /** The note's tag set: inline `#hashtags` unioned with the
       `tags:` prop, deduplicated case-insensitively, computed at index time.
       Optional so older projections (history snapshots) still typecheck. */
   tags?: string[];
-  /** The note is whole-file encrypted on disk (SUB-889). REQUIRED, unlike
+  /** The note is whole-file encrypted on disk. REQUIRED, unlike
       `tags` above: every surface that decides whether to emit a body — export,
       duplicate, send-as-link — reads this, and an optional field lets a
       forgotten assignment read as "not sealed", which is the one wrong answer
-      that leaks plaintext (SUB-935). The backend always sends it. */
+      that leaks plaintext. The backend always sends it. */
   sealed: boolean;
 }
 
@@ -35,7 +35,7 @@ export interface SealScopeInfo {
   state: "pending" | "active";
   /** False for a marker that arrived by sync or an external write and has not
       been confirmed on this device. Unconfirmed markers seal nothing, convert
-      nothing, and never purge history (SUB-889). */
+      nothing, and never purge history. */
   confirmed: boolean;
 }
 
@@ -56,14 +56,14 @@ export interface SealScopeResult {
     bools and string lists; numbers only ever arrive on the read path. */
 export type PropValue = string | string[] | boolean | number | null;
 
-/** What a guarded property write returns (SUB-477): the post-write meta every
+/** What a guarded property write returns: the post-write meta every
     caller already used, plus the value the write replaced. */
 export interface SetPropResult {
   meta: NoteMeta;
   prior: PropValue;
 }
 
-/** What a rename returns (SUB-515): the renamed note's meta plus every note
+/** What a rename returns: the renamed note's meta plus every note
     the rename actually rewrote — itself, its link sources, and the notes whose
     relation props named it. Undo keys its invalidation on that set, so an
     external edit to a link-rewritten third-party note refuses the undo
@@ -78,9 +78,9 @@ export interface NoteContent {
   props: Record<string, unknown>;
 }
 
-/** A note's raw frontmatter block (no fences) + its health (SUB-430).
+/** A note's raw frontmatter block (no fences) + its health.
     `error` null = parses fine; the repair dialog prefills from `raw`.
-    `repairable` false = the dialog can't fix it (SUB-552: an unterminated
+    `repairable` false = the dialog can't fix it (an unterminated
     opener has no block to edit — the fix is in the body editor). */
 export interface FmState {
   raw: string;
@@ -113,7 +113,7 @@ export interface FullSearchHit {
   matches: SearchMatch[];
 }
 
-/** A full-search page plus how much of the match set it covers (SUB-566).
+/** A full-search page plus how much of the match set it covers.
  *  `hits` is capped at 200 notes; `total_notes` is every note matching within
  *  the scope that was asked for, so the pane can say "first 200 of 359"
  *  instead of showing a truncated page as if it were the whole answer —
@@ -132,7 +132,7 @@ export interface AssetInfo {
   mtime_ms: number;
 }
 
-/** One loose (non-note) file in a folder view (SUB-812) — mirrors Rust's
+/** One loose (non-note) file in a folder view — mirrors Rust's
     `FolderFile`. `path` is absolute: it is what streams through the asset
     protocol, what the OS open/reveal actions take, AND the shared audio
     player's key, so a row and a link-in-place embed of the same file drive
@@ -154,7 +154,7 @@ export interface FolderListing {
   total: number;
 }
 
-/** What a vault-doctor finding is about (SUB-432) — mirrors `DoctorKind`. */
+/** What a vault-doctor finding is about — mirrors `DoctorKind`. */
 export type DoctorKind =
   | "broken-link"
   | "broken-relation"
@@ -188,7 +188,7 @@ export interface DoctorReport {
   findings: DoctorFinding[];
 }
 
-/** One drained `substrate://` link (SUB-1075). Exactly one field is set:
+/** One drained `substrate://` link. Exactly one field is set:
     `path` is a note that survived validation AND exists in this vault;
     `error` is already-worded text to show — a refused link, or one naming a
     note this vault doesn't have. */
@@ -235,7 +235,7 @@ export interface MountRow {
   /** vault path of the sidecar note, absent until first annotated */
   note?: string;
   /** The sidecar's user props, plus whatever was read out of the file itself
-      (SUB-887: duration, pages, tags…). Extraction happens behind a scan, so
+      (duration, pages, tags…). Extraction happens behind a scan, so
       a row can arrive without them and gain them on the next refresh. */
   props: Record<string, unknown>;
 }
@@ -251,7 +251,7 @@ export interface MountScanStats {
   renamed: number;
   missing: number;
   /** mount-relative paths of the newly-seen files, absent when there are
-      none; a mount's very first scan reports none by design (SUB-826) */
+      none; a mount's very first scan reports none by design */
   added_files?: string[];
   error?: string;
 }
@@ -272,7 +272,7 @@ export type View =
   | { kind: "changelog" }
   | { kind: "dbmanager" }
   | { kind: "db"; type: string }
-  /** a reality mount (SUB-888) — keyed by mount id, not name, so a rename
+  /** a reality mount — keyed by mount id, not name, so a rename
       doesn't strand the open view */
   | { kind: "mount"; id: string }
   | { kind: "saved"; id: string }
@@ -289,8 +289,8 @@ export interface TrashEntry {
   title: string;
   deleted_ms: number;
   /** a folder trashes its whole subtree as one entry; `asset` is a trashed
-      `.assets/` file (SUB-479 — recoverable, never history-tracked);
-      `template` is a deleted database's template note (SUB-781) */
+      `.assets/` file (recoverable, never history-tracked);
+      `template` is a deleted database's template note */
   kind: "note" | "folder" | "asset" | "template";
   /** folder entries: original paths of the notes inside (drives count + purge) */
   notes: string[];
@@ -298,15 +298,15 @@ export interface TrashEntry {
 
 export type DbLayout = "list" | "table" | "board" | "gallery";
 
-/** Per-layout column-visibility sets (SUB-642), one optional hidden-prop
+/** Per-layout column-visibility sets, one optional hidden-prop
     list per consuming layout. A layout with no set of its own falls back to
-    the pref's flat `hidden`, which pre-SUB-642 files seed both layouts with. */
+    the pref's flat `hidden`, which pre-change files seed both layouts with. */
 export interface HiddenPerLayout {
   table?: string[];
   list?: string[];
 }
 
-/** Table-footer aggregation over one column (SUB-74); absent key = none. */
+/** Table-footer aggregation over one column; absent key = none. */
 export type AggKind = "sum" | "avg" | "min" | "max" | "count";
 
 /** Per-database layout preference, persisted in `.vault/views.json`. */
@@ -314,34 +314,34 @@ export interface ViewPref {
   view: DbLayout;
   /** the prop a BOARD groups its columns by */
   group_by?: string;
-  /** the prop a TABLE groups its section rows by (SUB-184) — a separate key
+  /** the prop a TABLE groups its section rows by — a separate key
       so a board grouping never re-sections a table and vice versa */
   table_group_by?: string;
-  /** table footer calculations, column → aggregation (SUB-74) */
+  /** table footer calculations, column → aggregation */
   aggregations?: Record<string, AggKind>;
-  /** the database's remembered sort (SUB-326) — the ordered key list header
+  /** the database's remembered sort — the ordered key list header
       clicks build, persisted so it survives navigating away; absent =
       unsorted. A saved-view pin's own sort wins inside the pin. */
   sorts?: SavedViewSort[];
-  /** props hidden from the table's columns (SUB-326); absent = all shown.
-      Pre-SUB-642 this one set fed BOTH the table and the list subtitle; now
+  /** props hidden from the table's columns; absent = all shown.
+      This one set once fed BOTH the table and the list subtitle; now
       it only seeds a layout that has no set of its own yet (read-side
       migration — the first per-layout write materializes both layouts' sets
       and drops this flat key) */
   hidden?: string[];
-  /** per-layout hidden-prop sets (SUB-642): the table and the list curate
+  /** per-layout hidden-prop sets: the table and the list curate
       column visibility independently — hiding a table column no longer
       rewrites every list row's subtitle, and curating a list no longer
       strips the table. Board/gallery have no curation UI and never carry a
       set. */
   hidden_per_layout?: HiddenPerLayout;
-  /** table column order (SUB-949) — the ordered prop keys a header drag
+  /** table column order — the ordered prop keys a header drag
       builds. Keys naming no column are ignored; a prop added after the drag
       appends after the ordered ones in its default `dbColumns` position.
       The Name column is frozen first and never appears here. Absent = the
       default order. */
   col_order?: string[];
-  /** the board's hand order (SUB-948) — note paths in the order a card drag
+  /** the board's hand order — note paths in the order a card drag
       left them, for the whole board rather than per column, so a card keeps
       its slot when its group changes. It lives here and NEVER as a prop in
       the note file: the vault format stays untouched by a UI arrangement.
@@ -350,13 +350,13 @@ export interface ViewPref {
       the list doesn't mention appends after the ordered ones in resting
       order — so a note created or renamed outside the app can't break it. */
   card_order?: string[];
-  /** table column widths in px (SUB-404), prop → width; the reserved `title`
+  /** table column widths in px, prop → width; the reserved `title`
       key sizes the Name column. Absent = every column auto-sizes. */
   widths?: Record<string, number>;
-  /** props whose table cells wrap instead of clipping (SUB-404); `title`
+  /** props whose table cells wrap instead of clipping; `title`
       names the Name column here too. Absent = clip. */
   wrap?: string[];
-  /** table grid-lines override (SUB-607): true/false pins this database's
+  /** table grid-lines override: true/false pins this database's
       vertical column rules on/off; absent = follow the global `db-grid`
       setting. Writers store it only while it disagrees with the global, so
       toggling a database back to the global value re-follows the global. */
@@ -371,10 +371,10 @@ export interface SavedViewSort {
   dir: 1 | -1;
 }
 
-/** A pinned, named query over one database (SUB-18), persisted in
+/** A pinned, named query over one database, persisted in
     `.vault/views.json` under the reserved `$views` key. `query` is the raw
-    SUB-7 operator string, parsed on open by `filterByQuery`. Multi-key sorts
-    (SUB-199): `sorts` holds the full ordered key list when 2+ keys are active
+    operator string, parsed on open by `filterByQuery`. Multi-key sorts:
+    `sorts` holds the full ordered key list when 2+ keys are active
     and `sort` always mirrors its first entry, so older readers still work —
     readers treat a view as `sorts ?? (sort ? [sort] : [])`. */
 export interface SavedView {
@@ -386,9 +386,9 @@ export interface SavedView {
   sorts?: SavedViewSort[];
   view?: DbLayout;
   group_by?: string;
-  /** table-layout grouping (SUB-184), persisted like the board's group_by */
+  /** table-layout grouping, persisted like the board's group_by */
   table_group_by?: string;
-  /** per-view display columns (SUB-212): the ordered property keys this view
+  /** per-view display columns: the ordered property keys this view
       renders in table/list layouts (the title column always leads). Absent =
       the default `dbColumns` union; keys naming no known column are ignored. */
   columns?: string[];
@@ -396,19 +396,19 @@ export interface SavedView {
 
 /** Sidebar section ordering and collapse state, persisted in `.vault/views.json`
     under `$sidebar`. `collapsed` holds section ids ("dashboards", "savedviews",
-    "folders") — SUB-70. The `databases` order predates the SUB-159 manager
+    "folders"). The `databases` order predates the manager
     surface (the flat sidebar section it ordered is gone); the engine still
-    carries the array, the UI no longer writes it. `folders` (SUB-401) holds
+    carries the array, the UI no longer writes it. `folders` holds
     ROOT-level folder paths in the user's drag order — nested folders stay
     alphabetical, folders not in the list append after the ordered ones.
-    `pins` (SUB-410) holds note paths pinned to the Pinned section, in row
+    `pins` holds note paths pinned to the Pinned section, in row
     order; the engine retargets them on rename/move and drops them on trash.
-    `keys` (SUB-467) holds user-assigned shortcuts as key token ("mod+5",
+    `keys` holds user-assigned shortcuts as key token ("mod+5",
     "ctrl+3") → sidebar target token — `viewKey()`'s vocabulary plus
     "note:<path>" and "journal". The engine retargets and drops those values
     alongside `pins`; a target that outlives its row is inert, not an error.
-    `dashgroups` (SUB-698) holds the FOLDER paths of the Dashboards section's
-    subfolder group headers (SUB-466) in the user's drag order — its own lane
+    `dashgroups` holds the FOLDER paths of the Dashboards section's
+    subfolder group headers in the user's drag order — its own lane
     because a group header orders against its sibling headers, never against
     the dashboard rows in `dashboards` or the tree folders in `folders`. */
 export interface SidebarOrder {
@@ -430,42 +430,42 @@ export interface SelectOption {
 
 /** Extra property kinds beyond free text / select. `text` is the explicit
     form of free text — it lets a schema-registered text column exist with no
-    options (SUB-43); `date` = ISO value with a calendar picker; `file` = a
+    options; `date` = ISO value with a calendar picker; `file` = a
     LINK to a real file/folder on disk (absolute or `~/…`) — Substrate never
     copies, moves, or touches the target; `relation` = a typed link to entries
     of another database (`type` below), stored as the target's title/stem (or
     a YAML list of them) and rewritten on rename; `multi` = a select with
-    several values per note (SUB-79) — same options/colors as select, the
+    several values per note — same options/colors as select, the
     value stored as a YAML list of strings (a scalar is legal for one value),
     the picker toggling membership instead of replacing; `url` = an external
-    link (SUB-172), stored as the plain URL string and rendered as a clickable
+    link, stored as the plain URL string and rendered as a clickable
     stripped title (no scheme/www/trailing slash) that opens in the browser;
-    `email`/`phone` = contact links (SUB-181), stored as the plain string and
+    `email`/`phone` = contact links, stored as the plain string and
     rendered exactly as typed — clicking opens `mailto:`/`tel:` externally
     (only the dialed number strips spaces/dashes), editing shows the raw
-    string; `checkbox` = a boolean (SUB-173), stored as the YAML scalar
+    string; `checkbox` = a boolean, stored as the YAML scalar
     `true` when checked — absent/empty means unchecked, so unchecking REMOVES
     the prop rather than writing `false` (a stored `false` still reads as
     unchecked) — rendered as a small check square that toggles on one click,
-    no editor popup; `number` = a numeric column (SUB-188), the value stored
+    no editor popup; `number` = a numeric column, the value stored
     exactly as today (plain YAML scalar, string or number) with an optional
     display `format` below — cells right-align, editing shows the raw stored
     string, and non-numeric junk always renders as typed; `rollup` = a
-    DERIVED column (SUB-678): aggregates (`agg`) one prop's values across the
+    DERIVED column: aggregates (`agg`) one prop's values across the
     rows a relation prop of the SAME database links to — computed on read,
     stored nowhere (no frontmatter value ever lands), so the cell is
     read-only and an empty aggregation renders blank, the footer's
     convention. The wiring rides the three optional fields below. */
 export type PropKind = "text" | "date" | "file" | "relation" | "multi" | "url" | "email" | "phone" | "checkbox" | "number" | "rollup";
 
-/** Display format of a number-kind prop (SUB-188): `plain` = the number as
+/** Display format of a number-kind prop: `plain` = the number as
     stored (same as absent); `euro` = German-style `1.234,56 €` (dot
     thousands, comma decimals, 2 decimals only when the value has decimals);
-    `percent` (SUB-196) = the same de-DE path with a ` %` suffix (`8,5 %`) —
+    `percent` = the same de-DE path with a ` %` suffix (`8,5 %`) —
     the stored number IS the percent, no ×100 math. Display-only: the stored
     value never changes.
 
-    Since SUB-834 the same field also names the column's UNIT: any units.ts
+    The same field also names the column's UNIT: any units.ts
     code (`USD`, `kg`, `BPM`, `LUFS`…) is a valid format, and `euro`/`percent`
     stay forever as the aliases for `EUR` and `%` that every existing vault
     already has on disk. One field, no migration. The vocabulary is open, so
@@ -479,31 +479,31 @@ export interface PropSchema {
   /** the allowed values; select and multi props only — other kinds carry [] */
   options: SelectOption[];
   kind?: PropKind;
-  /** date-kind only: macOS notification when the date comes due (SUB-21) */
+  /** date-kind only: macOS notification when the date comes due */
   notify?: boolean;
-  /** date-kind only (SUB-842): an ADDITIONAL macOS alert this many days
+  /** date-kind only: an ADDITIONAL macOS alert this many days
       before the date comes due. Independent of `notify` — either may stand
       alone, both set means two alerts. Absent/0 = off, capped at 365. */
   notifyBefore?: number;
   /** relation kind only: the database type this prop points at */
   type?: string;
-  /** number kind only (SUB-188): display format; absent = plain */
+  /** number kind only: display format; absent = plain */
   format?: NumberFormat;
-  /** rollup kind only (SUB-678): the relation prop on the SAME database to
+  /** rollup kind only: the relation prop on the SAME database to
       follow — its `type` names the related database, its values name the
       linked rows */
   relation?: string;
-  /** rollup kind only (SUB-678): the prop on the related database to read */
+  /** rollup kind only: the prop on the related database to read */
   prop?: string;
-  /** rollup kind only (SUB-678): the aggregation over the linked rows'
+  /** rollup kind only: the aggregation over the linked rows'
       values — same vocabulary as the table footer's Calculate */
   agg?: AggKind;
-  /** any kind, kindless select props included (SUB-191): a one-line entry
+  /** any kind, kindless select props included: a one-line entry
       hint shown muted where values are typed; absent = none */
   description?: string;
 }
 
-/** A rollup prop's wiring (SUB-678), as the schema editor hands it to
+/** A rollup prop's wiring, as the schema editor hands it to
     vaultSchemaSet: follow `relation` (a relation prop of the same database),
     read `prop` on the linked rows, fold with `agg`. Mirrors the three
     optional PropSchema fields above; on disk they flatten into the prop's
@@ -551,7 +551,7 @@ export interface CalendarFeedSnapshot {
   configError: string | null;
 }
 
-/** A database's icon (SUB-27): a curated outline glyph id or an emoji,
+/** A database's icon: a curated outline glyph id or an emoji,
     optionally tinted with a muted palette name (`--opt-*` tokens). Stored on
     the type's entry in `.vault/schema.json` under the reserved `icon` key.
     See src/lib/dbicons.ts for the accessors that read it back out. */
@@ -561,8 +561,8 @@ export interface DbIcon {
   tint?: string;
 }
 
-/** Per-folder metadata (SUB-84), persisted in `.vault/views.json` under the
-    reserved `$folders` key: currently just the folder's icon, in the SUB-27
+/** Per-folder metadata, persisted in `.vault/views.json` under the
+    reserved `$folders` key: currently just the folder's icon. A folder rename
     model. A folder rename retargets its keys (subtree included); trashing a
     folder drops them. */
 export interface FolderMeta {
@@ -572,10 +572,10 @@ export interface FolderMeta {
 /** `$folders` map: vault-relative folder path → metadata. */
 export type FolderMetaMap = Record<string, FolderMeta>;
 
-/** How a tag folder's positive tags combine (SUB-818). */
+/** How a tag folder's positive tags combine. */
 export type TagMatch = "any" | "all";
 
-/** One tag folder, as persisted in `.vault/tagfolders.json` (SUB-818).
+/** One tag folder, as persisted in `.vault/tagfolders.json`.
 
     A tag folder is a saved query, not a place: it lists notes carrying its
     tags, and acting inside it (create, drag-in) tags the note rather than
@@ -598,7 +598,7 @@ export interface TagCount {
 /** Per-type property schemas, persisted in `.vault/schema.json`.
     Notes keep plain YAML values — this only drives pickers and option order.
     A type entry also carries the reserved `icon` key (DbIcon, not a
-    PropSchema) and `home` key (a folder path string, SUB-85) — both inert at
+    PropSchema) and `home` key (a folder path string) — both inert at
     every `?.kind`/`?.options` access site here; read them via typeIcon /
     typeHome. */
 export type SchemaConfig = Record<string, Record<string, PropSchema>>;
@@ -615,7 +615,7 @@ export interface NewTypeProp {
     rename/clear): `notes` rewritten, `skipped` left untouched because the
     target key already existed.
 
-    `failed` is the error of a sweep that died partway (SUB-501). The sweep
+    `failed` is the error of a sweep that died partway. The sweep
     stops at the first failing note, so the count is what it managed before
     giving up — always report both, since the vault really did change.
     `skipped` is only ever non-zero for a property rename. */
@@ -654,8 +654,8 @@ export interface FactPoint {
   value: string | null;
 }
 
-/** Every change of one frontmatter fact across vault history, oldest first
-    (SUB-832). `oldest_ts_ms` is the commit time of the oldest snapshot still
+/** Every change of one frontmatter fact across vault history, oldest first.
+    `oldest_ts_ms` is the commit time of the oldest snapshot still
     in the vault: anything before it was trimmed or purged and is UNKNOWABLE,
     which surfaces as "no history before …" rather than as a blank or a zero.
     Null when the vault has no snapshots at all. */
@@ -698,7 +698,7 @@ export interface HistoryVaultSnapshot {
   point: VaultHistoryPoint;
   notes: NoteMeta[];
   contents: Record<string, NoteContent>;
-  /** Raw frontmatter per note as of this snapshot (SUB-822) — the body in
+  /** Raw frontmatter per note as of this snapshot — the body in
       `contents` has the block stripped, so this is the past's only sight of
       it. Missing key = the note had no frontmatter then. */
   fm: Record<string, FmState>;
@@ -723,7 +723,7 @@ export interface HistoryStatus {
   enabled: boolean;
 }
 
-/** What one saved-view link-folder export did (SUB-810). */
+/** What one saved-view link-folder export did. */
 export interface ViewExportReport {
   /** Absolute path of the folder holding the links. */
   dest: string;
@@ -740,7 +740,7 @@ export interface SyncReport {
   pulled: number;
   conflicted: string[];
   head: string;
-  /** Vault-relative paths this pull's checkout rewrote (SUB-516) — the diff
+  /** Vault-relative paths this pull's checkout rewrote — the diff
       between the HEAD we came from and the one we landed on. Empty when
       nothing was checked out: a push, an up-to-date pull, a conflicted pull
       that parked. The app rides these in on `vault:pulled` to invalidate
@@ -753,7 +753,7 @@ export interface VaultSyncStatus {
   last_result: SyncReport | null;
   last_error: string | null;
   /** Paths of the conflicted merge parked in git, read from the repository —
-   * unlike `last_result`, this survives a restart (SUB-572). */
+   * unlike `last_result`, this survives a restart. */
   conflicted: string[];
 }
 
@@ -809,7 +809,7 @@ export function viewKey(v: View): string {
   if (v.kind === "folder") return `folder:${v.path}`;
   if (v.kind === "tagfolder") return `tagfolder:${v.id}`;
   // folded, so #Demo and #demo are one destination — the same rule matching
-  // uses (SUB-818)
+  // uses
   if (v.kind === "tag") return `tag:${v.tag.toLowerCase()}`;
   return v.kind;
 }
@@ -837,7 +837,7 @@ export function foldedPropStr(props: Record<string, unknown>, key: string): stri
   return propStr(props, foldedPropKey(props, key));
 }
 
-/** The home folder on one type's schema entry, validated (SUB-85) — like
+/** The home folder on one type's schema entry, validated — like
     typeIcon the reserved `home` key rides inside the flat prop map typed as
     `Record<string, PropSchema>`. Anything malformed reads as no home. */
 export function typeHome(entry: Record<string, PropSchema> | undefined): string | undefined {

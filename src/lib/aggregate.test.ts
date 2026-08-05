@@ -232,7 +232,7 @@ test("normalizeNumberInput: the module binding is the default dialect (SUB-1092)
   assert.equal(normalizeNumberInput("1.234"), "1234"); // de-DE again
 });
 
-// ---------- unit-aware columns (SUB-834) ----------
+// ---------- unit-aware columns ----------
 
 /** A fixed table so conversions are exact and the tests don't need the app's
     live rates: 1 USD = 0.8 EUR, 1 GBP = 1.2 EUR. Any other pair is unknown,

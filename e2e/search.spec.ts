@@ -37,7 +37,7 @@ test("group header: type for db notes, no slot for loose notes (SUB-141)", async
   await openSearch(page);
   await page.locator(".search-input").fill("lisbon");
   const group = page.locator(".search-group", { hasText: "Gero" });
-  // capitalized like folder names (SUB-258) — one taxonomy in the slot
+  // capitalized like folder names — one taxonomy in the slot
   await expect(group.locator(".search-note-hint")).toHaveText("Contact");
 
   // Welcome and Capture anything are both loose notes — no hint slot at all,

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// url property kind (SUB-172): a schema'd url prop renders the stripped
+// url property kind: a schema'd url prop renders the stripped
 // display title (no scheme, no www., no trailing slash) as a link; clicking
 // opens the raw URL externally — window.open in the mock lane, stubbed here
 // so the test stays offline; editing shows the raw string. Fixtures: three

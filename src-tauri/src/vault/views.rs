@@ -3,10 +3,10 @@
 //! plus the remaps that keep all of it pointing at the right note or folder
 //! after a rename, move or trash.
 //!
-//! Split out of `vault.rs` (SUB-692). Every read here treats a missing or
+//! Split out of `vault.rs`. Every read here treats a missing or
 //! corrupt file as empty — view prefs are a convenience, never something to
 //! fail a vault over — while writes go through `vaultfmt` so a newer app's
-//! file is never clobbered (SUB-433).
+//! file is never clobbered.
 
 use super::*;
 
@@ -32,11 +32,11 @@ pub(super) fn parse_view_fence(inner: &str) -> HashMap<String, String> {
     out
 }
 
-/// Per-layout hidden-prop sets (SUB-642): the table and the list curate
+/// Per-layout hidden-prop sets: the table and the list curate
 /// column visibility independently — hiding a table column no longer
 /// rewrites every list row's subtitle, and a curated list no longer strips
 /// the table. A layout with no set of its own falls back to the pref's flat
-/// `hidden` on read (the UI owns that fallback), which pre-SUB-642 files
+/// `hidden` on read (the UI owns that fallback), which pre-change files
 /// seed both layouts with. Board/gallery never carry a set.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, serde::Deserialize)]
 pub struct HiddenPerLayout {
@@ -55,27 +55,27 @@ pub struct ViewPref {
     /// The prop a BOARD groups its columns by.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_by: Option<String>,
-    /// The prop a TABLE groups its section rows by (SUB-184) — a separate key
+    /// The prop a TABLE groups its section rows by — a separate key
     /// so a board grouping never re-sections a table and vice versa.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub table_group_by: Option<String>,
-    /// Table-footer calculations, column → aggregation kind (SUB-74). Opaque
+    /// Table-footer calculations, column → aggregation kind. Opaque
     /// to the engine — the UI owns the vocabulary; BTreeMap for stable writes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aggregations: Option<std::collections::BTreeMap<String, String>>,
-    /// The database's remembered sort (SUB-326): the same ordered key list a
+    /// The database's remembered sort: the same ordered key list a
     /// saved view carries, so a header sort survives navigating away. Absent =
     /// unsorted; a saved-view pin's own sort still wins inside the pin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sorts: Option<Vec<SavedViewSort>>,
-    /// Table column order (SUB-949): the ordered prop keys a header drag
+    /// Table column order: the ordered prop keys a header drag
     /// built. Keys naming no current column are ignored on read, and a prop
     /// added after the drag appends in its default position — so the list is
     /// a preference, not the column set. The Name column is frozen first and
     /// never appears here. Absent = the default order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub col_order: Option<Vec<String>>,
-    /// The board's hand order (SUB-948): note paths in the order a card drag
+    /// The board's hand order: note paths in the order a card drag
     /// left them, one flat list for the whole board. Only an UNSORTED board
     /// reads it — a sorted view's order is its sort. Paths are stored verbatim
     /// and never validated against the index: a path naming no note is ignored
@@ -84,42 +84,42 @@ pub struct ViewPref {
     /// corrupt it. Renaming or moving a note IN the app retargets its entry
     /// (`move_card_order`), so the card keeps its slot; trashing leaves the
     /// entry inert, and a restore picks the slot back up — to the same path
-    /// for free, or retargeted when the restore had to dedupe (SUB-1139).
+    /// for free, or retargeted when the restore had to dedupe.
     /// Absent = resting order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub card_order: Option<Vec<String>>,
-    /// Props hidden from the database's table/list columns (SUB-326). Absent =
-    /// everything shows. Since SUB-642 this flat list is only the SEED a
+    /// Props hidden from the database's table/list columns. Absent =
+    /// everything shows. This flat list is only the SEED a
     /// layout without its own `hidden_per_layout` set falls back to on read —
-    /// pre-SUB-642 files carry just it, feeding both layouts. Names are kept
+    /// pre-change files carry just it, feeding both layouts. Names are kept
     /// verbatim even when no such prop currently exists — dbColumns just
     /// never surfaces them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hidden: Option<Vec<String>>,
-    /// Per-layout hidden-prop sets (SUB-642); the first per-layout write
+    /// Per-layout hidden-prop sets; the first per-layout write
     /// materializes both layouts and drops the flat `hidden` seed (the UI
     /// owns that write rule — the engine just stores what's passed). Absent =
     /// both layouts read the seed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hidden_per_layout: Option<HiddenPerLayout>,
-    /// Table column widths in px, prop name → width (SUB-404); the reserved
+    /// Table column widths in px, prop name → width; the reserved
     /// `title` key sizes the Name column. Absent = every column auto-sizes.
     /// Opaque to the engine beyond dropping zero entries — the UI owns the
     /// clamps; BTreeMap for stable writes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub widths: Option<std::collections::BTreeMap<String, u32>>,
     /// Props whose table cells wrap instead of clipping to one line
-    /// (SUB-404); `title` names the Name column here too. Absent = clip.
+    /// `title` names the Name column here too. Absent = clip.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wrap: Option<Vec<String>>,
-    /// Table grid-lines override (SUB-607): pins this database's vertical
+    /// Table grid-lines override: pins this database's vertical
     /// column rules on/off. Absent = follow the global `db-grid` setting in
     /// Settings.md. Opaque to the engine — the UI owns the follow-the-global
     /// clearing rule.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grid: Option<bool>,
     /// Keys a newer Substrate wrote that this build doesn't understand. Kept
-    /// so a read→write cycle here doesn't strip them (SUB-433).
+    /// so a read→write cycle here doesn't strip them.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -134,15 +134,15 @@ impl ViewPref {
 /// real database names never start with `$`, so the two never collide in the
 /// flat JSON map. `collapsed` holds chevron-collapsed sidebar sections
 /// ("dashboards" | "databases" | "folders") and per-database pin groups
-/// ("dbpins:<type>") — SUB-70. `folders` (SUB-401) holds ROOT-level folder
+/// ("dbpins:<type>"). `folders` holds ROOT-level folder
 /// paths in the user's drag order; nested folders stay alphabetical. `pins`
-/// (SUB-410) holds note paths pinned to the sidebar's Pinned section; a
-/// rename or move retargets them, trashing drops them. `keys` (SUB-467) maps a
+/// holds note paths pinned to the sidebar's Pinned section; a
+/// rename or move retargets them, trashing drops them. `keys` maps a
 /// user-assigned key token ("mod+5") to the sidebar target it opens; the
 /// frontend owns both grammars, the engine treats the key as opaque and only
 /// keeps the VALUES truthful across renames and trashing (see
 /// `move_sidebar_keys`). A BTreeMap, not a HashMap, so views.json diffs stay
-/// deterministic. `dashgroups` (SUB-698) holds the folder paths of the
+/// deterministic. `dashgroups` holds the folder paths of the
 /// Dashboards section's subfolder GROUP HEADERS in the user's drag order — its
 /// own lane, since a header orders against its sibling headers rather than
 /// against the dashboard rows in `dashboards`; every field is
@@ -178,7 +178,7 @@ pub struct SavedViewSort {
     pub dir: i8,
 }
 
-/// A pinned, named query over one database (SUB-18): filters in the SUB-7
+/// A pinned, named query over one database: filters in the query
 /// operator syntax, optional sort, layout, and display columns. Persisted as
 /// an ordered array
 /// under the reserved `$views` key in `.vault/views.json` (same discipline as
@@ -193,7 +193,7 @@ pub struct SavedView {
     pub query: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort: Option<SavedViewSort>,
-    /// Multi-key sort (SUB-199): the full ordered key list, written only when
+    /// Multi-key sort: the full ordered key list, written only when
     /// 2+ keys are active. `sort` always mirrors the first key, so older
     /// readers keep working; readers treat a view as `sorts`, falling back to
     /// a one-element list from `sort`.
@@ -203,10 +203,10 @@ pub struct SavedView {
     pub view: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_by: Option<String>,
-    /// Table-layout grouping (SUB-184), persisted like the board's group_by.
+    /// Table-layout grouping, persisted like the board's group_by.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub table_group_by: Option<String>,
-    /// Per-view display columns (SUB-212): the ordered property keys this view
+    /// Per-view display columns: the ordered property keys this view
     /// renders in table/list layouts. Absent = the frontend's default column
     /// union; unknown keys are ignored there.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -217,8 +217,8 @@ impl SavedView {
     pub const KEY: &'static str = "$views";
 }
 
-/// Per-folder metadata (SUB-84): currently just the folder's icon, in the
-/// SUB-27 model (curated glyph or emoji, optional muted tint). Persisted as
+/// Per-folder metadata: currently just the folder's icon, in the
+/// Model (curated glyph or emoji, optional muted tint). Persisted as
 /// an object keyed by vault-relative folder path under the reserved
 /// `$folders` key in `.vault/views.json` (same discipline as `$sidebar` /
 /// `$views`). A folder rename retargets its keys, subtree included; trashing
@@ -545,7 +545,7 @@ impl Engine {
         &self,
         map: serde_json::Map<String, serde_json::Value>,
     ) -> Result<(), String> {
-        // refuse to rewrite a file a newer app wrote (SUB-433); migrate an
+        // refuse to rewrite a file a newer app wrote; migrate an
         // older one up first. Reads above already succeeded either way.
         crate::vaultfmt::prepare_write(&self.root, crate::vaultfmt::VaultFile::Views)?;
         let abs = self.root.join(ViewPref::REL_PATH);
@@ -591,7 +591,7 @@ impl Engine {
                 ViewPref::LAYOUTS
             ));
         }
-        // the saved-view dir rule (SUB-199), mirrored: ±1 only
+        // the saved-view dir rule, mirrored: ±1 only
         if let Some(list) = &sorts {
             for s in list {
                 if s.dir != 1 && s.dir != -1 {
@@ -601,7 +601,7 @@ impl Engine {
         }
         // empty lists collapse to absent so views.json never carries `[]` keys
         let sorts = sorts.filter(|l| !l.is_empty());
-        // the drag order (SUB-949) sanitizes like the hidden list: entries
+        // the drag order sanitizes like the hidden list: entries
         // trim, empties drop, an emptied order collapses to absent
         let col_order = col_order
             .map(|l| {
@@ -611,7 +611,7 @@ impl Engine {
                     .collect::<Vec<_>>()
             })
             .filter(|l: &Vec<String>| !l.is_empty());
-        // the board's hand order (SUB-948) holds note PATHS, not column names:
+        // the board's hand order holds note PATHS, not column names:
         // blank entries drop and an emptied order collapses to absent, but the
         // paths keep their exact spelling — a file may legally be named with a
         // leading or trailing space, and a trimmed entry would name nothing
@@ -627,7 +627,7 @@ impl Engine {
             })
             .filter(|l: &Vec<String>| !l.is_empty());
         // width 0 means "no remembered width" — dropped like an empty list
-        // entry (SUB-404); the px clamps stay the UI's business
+        // entry; the px clamps stay the UI's business
         let widths = widths
             .map(|m| {
                 m.into_iter().filter(|&(_, w)| w > 0).collect::<std::collections::BTreeMap<_, _>>()
@@ -641,7 +641,7 @@ impl Engine {
                     .collect::<Vec<_>>()
             })
             .filter(|l: &Vec<String>| !l.is_empty());
-        // per-layout sets (SUB-642) sanitize like the flat list: entries trim,
+        // per-layout sets sanitize like the flat list: entries trim,
         // empties drop, an emptied set collapses to absent, and a sets object
         // with nothing left collapses to None
         let hidden_per_layout = hidden_per_layout.and_then(|h| {
@@ -672,7 +672,7 @@ impl Engine {
                 folded_hash_key(&schema, db).map(str::to_string)
             })
             .unwrap_or_else(|| db.to_string());
-        // keys a newer app wrote on this db's pref ride along (SUB-433)
+        // keys a newer app wrote on this db's pref ride along
         let extra = map
             .get(&db)
             .and_then(|v| serde_json::from_value::<ViewPref>(v.clone()).ok())
@@ -777,7 +777,7 @@ impl Engine {
             serde_json::to_value(&views).map_err(|e| e.to_string())?,
         );
         self.write_views_file(map)?;
-        // the deleted view's key frees up (SUB-467)
+        // the deleted view's key frees up
         self.drop_sidebar_key_saved_view(id)?;
         Ok(views)
     }
@@ -843,14 +843,14 @@ impl Engine {
         self.write_folder_meta(&meta)
     }
 
-    /// Sidebar root-folder order follows the folder (SUB-401): a rename
+    /// Sidebar root-folder order follows the folder: a rename
     /// retargets its entries (subtree included, `new_rel` = Some), trashing
     /// drops them (None) — the same discipline as folder meta. No file write
     /// when nothing is stored for the affected subtree; the read side
     /// (applyOrder) already drops unknown paths, so this is hygiene. Note pins
-    /// (SUB-410) inside the subtree ride along the same way — a pinned note in
+    /// inside the subtree ride along the same way — a pinned note in
     /// a renamed folder keeps its row, a trashed folder takes its pins with it.
-    /// So do dashboard GROUP headers (SUB-698): the group is its folder, so
+    /// So do dashboard GROUP headers: the group is its folder, so
     /// renaming or trashing that folder must carry (or drop) its manual
     /// position exactly like a tree folder's.
     pub(super) fn move_sidebar_folders(
@@ -894,7 +894,7 @@ impl Engine {
                 pins.push(p.clone());
             }
         }
-        // …and the DASHBOARD rows inside the folder (SUB-698). These entries are
+        // …and the DASHBOARD rows inside the folder. These entries are
         // full note paths, so a renamed or moved group folder leaves every one of
         // them naming a dead path — and applyOrder drops what it can't match, so
         // the group's dashboards silently fell back to discovery order. Same
@@ -920,14 +920,14 @@ impl Engine {
         Ok(())
     }
 
-    /// A board's hand order follows its notes (SUB-948): renaming or moving a
+    /// A board's hand order follows its notes: renaming or moving a
     /// note in the app retargets its entry in every db's `card_order`, and a
     /// folder lane carries its whole subtree (`old_rel/…`), so a card keeps
     /// the slot the user dragged it to. Trashing deliberately does NOT touch
     /// the list — an entry naming no live note is inert on read, and restoring
     /// the note to the same path hands the slot back for free. A restore that
     /// has to dedupe (the path was reoccupied) does call this, with the name
-    /// the note actually got back (SUB-1139).
+    /// the note actually got back.
     ///
     /// The prefs are walked as raw JSON so a key a newer app wrote survives
     /// untouched; anything that isn't a `card_order` array is left alone. No
@@ -962,7 +962,7 @@ impl Engine {
         Ok(())
     }
 
-    /// A sidebar note pin follows its note (SUB-410): a rename or a move to
+    /// A sidebar note pin follows its note: a rename or a move to
     /// another folder retargets the entry (`new_rel` = Some), trashing drops
     /// it (None) — the same discipline as `move_sidebar_folders`. No file
     /// write when the note isn't pinned; the read side already drops unknown
@@ -992,7 +992,7 @@ impl Engine {
         Ok(())
     }
 
-    /// Rewrite the TARGETS of assigned sidebar keys (SUB-467), the same
+    /// Rewrite the TARGETS of assigned sidebar keys, the same
     /// truthfulness discipline `move_sidebar_pin` applies to pins: `f` maps one
     /// target token to its replacement, or to None to drop the binding. Key
     /// tokens are never touched — the user assigned ⌘5, ⌘5 is what they keep.
@@ -1026,7 +1026,7 @@ impl Engine {
         Ok(())
     }
 
-    /// A key assigned to a note follows that note (SUB-467): rename or move
+    /// A key assigned to a note follows that note: rename or move
     /// retargets, trashing drops. Both note-shaped targets ride along — a plain
     /// pinned note (`note:<path>`) and a dashboard (`dash:<path>`), since a
     /// dashboard is a note too and renaming one must not orphan its key.
@@ -1072,7 +1072,7 @@ impl Engine {
         })
     }
 
-    /// A deleted saved view takes its key with it (SUB-467).
+    /// A deleted saved view takes its key with it.
     fn drop_sidebar_key_saved_view(&self, id: &str) -> Result<(), String> {
         let gone = format!("sv:{id}");
         self.retarget_sidebar_keys(|target| if target == gone { Some(None) } else { None })
@@ -1081,7 +1081,7 @@ impl Engine {
     /// Map one sidebar-order name through `f` inside a views.json map,
     /// leaving the `$sidebar` key absent when it wasn't there before. Both
     /// places a database type is named go through here: the `databases` order
-    /// and any `keys` binding pointing at a `db:<type>` row (SUB-467).
+    /// and any `keys` binding pointing at a `db:<type>` row.
     pub(super) fn remap_sidebar_entry(
         views: &mut serde_json::Map<String, serde_json::Value>,
         f: impl Fn(&str) -> Option<String>,
@@ -1132,9 +1132,9 @@ impl Engine {
     }
 
     /// Follow a property rename (`new = Some`) or clear (`new = None`) through
-    /// every saved view of one database inside a views.json map (SUB-632).
+    /// every saved view of one database inside a views.json map.
     /// Saved views live in the reserved `$views` slot, not in the per-db
-    /// `ViewPref`, so the SUB-76 remap contract has to reach them separately —
+    /// `ViewPref`, so the remap contract has to reach them separately —
     /// otherwise a pin's query filters, curated `columns`, sort and grouping
     /// silently point at a key that no longer exists. Views of other databases
     /// are untouched.
@@ -1158,7 +1158,7 @@ impl Engine {
             // Database identity is case-insensitive, but saved-view ownership
             // must not normalize surrounding whitespace: `" books "` is not
             // the `books` database and may belong to a separately preserved,
-            // malformed entry (SUB-723).
+            // malformed entry.
             if !folded_eq(&v.db, db_type) {
                 continue;
             }
@@ -1174,7 +1174,7 @@ impl Engine {
                     touched = true;
                 }
             }
-            // the legacy single `sort` mirrors the first key (SUB-199), so it
+            // the legacy single `sort` mirrors the first key, so it
             // follows the same way the list does
             if v.sort.as_ref().is_some_and(|s| folded_eq(&s.key, old)) {
                 match new {
@@ -1317,7 +1317,7 @@ mod tests {
             "unknown layout rejected"
         );
 
-        // SUB-184: the table's grouping key is its own field, independent of
+        // the table's grouping key is its own field, independent of
         // the board's, and lands in the file
         let map = e
             .set_view_pref(
@@ -1348,7 +1348,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-74: the footer aggregation map rides along in views.json.
+    /// The footer aggregation map rides along in views.json.
     #[test]
     fn views_aggregations_roundtrip() {
         let (e, dir) = temp_vault("viewsagg");
@@ -1391,7 +1391,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-326: the remembered sort and hidden-column list ride views.json.
+    /// The remembered sort and hidden-column list ride views.json.
     #[test]
     fn views_sorts_and_hidden_roundtrip() {
         let (e, dir) = temp_vault("viewssh");
@@ -1431,7 +1431,7 @@ mod tests {
         assert!(raw.contains("\"sorts\"") && raw.contains("\"hidden\""), "{}", raw);
         assert_eq!(e.views()["release"].sorts.as_ref().unwrap().len(), 2, "re-read sees sorts");
 
-        // a bad dir is refused like a saved view's (SUB-199 rule)
+        // a bad dir is refused like a saved view's
         assert!(
             e.set_view_pref(
                 "release",
@@ -1477,7 +1477,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-642: per-layout hidden sets ride views.json — entries trim,
+    /// Per-layout hidden sets ride views.json — entries trim,
     /// emptied sets collapse to absent, both-empty drops the key entirely;
     /// the flat `hidden` stays the independent seed field it always was.
     #[test]
@@ -1567,7 +1567,7 @@ mod tests {
         assert!(!raw.contains("hidden_per_layout"), "{}", raw);
 
         // the flat seed and the per-layout sets are independent fields: a
-        // pre-SUB-642 file's `hidden` survives a write that adds sets, and
+        // pre-change file's `hidden` survives a write that adds sets, and
         // still parses when the sets are absent (old files load unchanged)
         let map = e
             .set_view_pref(
@@ -1591,7 +1591,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-949: the table drag order rides views.json like the hidden list —
+    /// The table drag order rides views.json like the hidden list —
     /// entries trim, empties drop, an emptied order leaves the file entirely.
     #[test]
     fn views_col_order_roundtrip() {
@@ -1651,7 +1651,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-948: the board's hand order rides views.json the same way, and the
+    /// the board's hand order rides views.json the same way, and the
     /// paths in it are stored verbatim — the engine never checks them against
     /// the index, so a note renamed outside the app leaves a stale entry that
     /// only the reader ignores.
@@ -1721,7 +1721,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-948: a hand-dragged card keeps its slot when the note is renamed or
+    /// a hand-dragged card keeps its slot when the note is renamed or
     /// moved in the app — the entry follows the path, one note at a time or a
     /// whole folder's subtree at once. Paths the lane doesn't name are left
     /// exactly as they were.
@@ -1783,7 +1783,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-404: column widths and the wrap list ride views.json like the
+    /// Column widths and the wrap list ride views.json like the
     /// remembered sort — zero widths drop, wrap entries trim, empties leave
     /// the file.
     #[test]
@@ -1851,7 +1851,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-607: the grid override round-trips both values and stays out of
+    /// The grid override round-trips both values and stays out of
     /// the file entirely while the database follows the global setting.
     #[test]
     fn view_pref_grid_override_persists_and_absents() {
@@ -1928,8 +1928,8 @@ mod tests {
 
     #[test]
     fn database_rename_and_delete_retarget_sidebar_keys() {
-        // SUB-467: a key assigned to a database row (the home-folder row, which
-        // renders AS the database — SUB-85) rides the type rename and dies with
+        // A key assigned to a database row (the home-folder row, which
+        // renders AS the database) rides the type rename and dies with
         // the delete. Both paths go through remap_sidebar_entry.
         let (mut e, dir) = temp_vault("skd");
         e.create_type("books", vec![]).unwrap();
@@ -1980,16 +1980,16 @@ mod tests {
         assert_eq!(e.sidebar_order().databases, vec!["gear", "release"]);
         // collapsed sections round-trip too, and survive a reorder-only write
         assert_eq!(e.sidebar_order().collapsed, vec!["folders", "dbpins:release"]);
-        // SUB-401: the root-folder order round-trips through the same blob
+        // The root-folder order round-trips through the same blob
         assert_eq!(back.folders, vec!["Projects", "Inbox"]);
         assert_eq!(e.sidebar_order().folders, vec!["Projects", "Inbox"]);
-        // SUB-410: pinned note paths round-trip through the same blob
+        // Pinned note paths round-trip through the same blob
         assert_eq!(back.pins, vec!["Inbox/Scratch.md"]);
         assert_eq!(e.sidebar_order().pins, vec!["Inbox/Scratch.md"]);
-        // SUB-698: the dash-group header lane round-trips as its own list
+        // The dash-group header lane round-trips as its own list
         assert_eq!(back.dashgroups, vec!["Dashboards/Money"]);
         assert_eq!(e.sidebar_order().dashgroups, vec!["Dashboards/Money"]);
-        // SUB-467: assigned keys round-trip too
+        // Assigned keys round-trip too
         assert_eq!(back.keys["mod+5"], "folder:Projects");
         assert_eq!(e.sidebar_order().keys["mod+5"], "folder:Projects");
         // view prefs written afterwards keep the sidebar key, and vice versa
@@ -2027,7 +2027,7 @@ mod tests {
 
     #[test]
     fn legacy_views_json_without_dashgroups_still_loads() {
-        // SUB-698: `dashgroups` is new, so every views.json already on disk
+        // `dashgroups` is new, so every views.json already on disk
         // lacks it — it has to read back as an empty lane with the rest of the
         // blob intact, and a later write must add the field without disturbing
         // what was there
@@ -2064,7 +2064,7 @@ mod tests {
 
     #[test]
     fn move_folder_relocates_subtree_and_remaps_sidebar_lanes() {
-        // SUB-698: dragging a dash group header onto a folder tree row moves
+        // Dragging a dash group header onto a folder tree row moves
         // the directory under that parent, keeping its name; the group's
         // `dashgroups` entry and everything else path-keyed follows
         let (mut e, dir) = temp_vault("mvf");
@@ -2102,7 +2102,7 @@ mod tests {
 
     #[test]
     fn folder_move_and_rename_remap_the_dashboards_lane() {
-        // SUB-698 review: the `dashboards` lane holds full NOTE paths, so a
+        // The `dashboards` lane holds full NOTE paths, so a
         // moved or renamed group folder left every dashboard inside it naming a
         // dead path — applyOrder drops what it can't match, and the group's
         // manual order silently collapsed back to discovery order. Both the
@@ -2139,7 +2139,7 @@ mod tests {
 
     #[test]
     fn folder_rename_and_trash_remap_sidebar_folder_order() {
-        // SUB-401: the persisted root-folder order follows the folder — a
+        // The persisted root-folder order follows the folder — a
         // rename rewrites its entry in place, trashing drops it; everything
         // else in the $sidebar blob rides along untouched
         let (mut e, dir) = temp_vault("sfo");
@@ -2167,7 +2167,7 @@ mod tests {
 
     #[test]
     fn note_rename_move_and_trash_remap_sidebar_pins() {
-        // SUB-410: a sidebar note pin is keyed by path and follows its note —
+        // A sidebar note pin is keyed by path and follows its note —
         // rename and move retarget the entry, trashing drops it, and a
         // folder rename/trash carries the pins inside along
         let (mut e, dir) = temp_vault("snp");
@@ -2192,7 +2192,7 @@ mod tests {
         e.rename_folder("Areas", "Realms").unwrap();
         assert_eq!(e.sidebar_order().pins, vec!["Realms/Alpha Prime.md", b.path.as_str()]);
         // trashing the note drops its pin, leaving the others — and parks it,
-        // so a restore brings the row back at its position (SUB-666)
+        // so a restore brings the row back at its position
         let bid = e.trash(&b.path).unwrap();
         assert_eq!(e.sidebar_order().pins, vec!["Realms/Alpha Prime.md"]);
         e.trash_restore(&bid).unwrap();
@@ -2206,7 +2206,7 @@ mod tests {
 
     #[test]
     fn note_rename_move_and_trash_retarget_sidebar_keys() {
-        // SUB-467: an assigned key follows its destination. Both note-shaped
+        // An assigned key follows its destination. Both note-shaped
         // targets ride along — a plain pinned note (`note:`) and a dashboard
         // (`dash:`), which is a note too.
         let (mut e, dir) = temp_vault("skn");
@@ -2250,7 +2250,7 @@ mod tests {
 
     #[test]
     fn folder_rename_and_trash_retarget_sidebar_keys() {
-        // SUB-467: a renamed folder carries its own key and every key assigned
+        // A renamed folder carries its own key and every key assigned
         // to something inside it; trashing drops the whole subtree's keys.
         let (mut e, dir) = temp_vault("skf");
         e.create_folder("Areas/Deep").unwrap();
@@ -2309,7 +2309,7 @@ mod tests {
         // re-set by id replaces in place, order kept
         let mut updated = mk("a", "Live (updated)");
         updated.query = Some("status:live sort".into());
-        // SUB-212: per-view display columns persist like every other field
+        // Per-view display columns persist like every other field
         updated.columns = Some(vec!["status".into(), "artist".into()]);
         let views = e.set_saved_view(&updated).unwrap();
         assert_eq!(views.len(), 2);
@@ -2349,7 +2349,7 @@ mod tests {
         assert_eq!(e.views()["release"].view, "board", "db pref untouched by pins");
         assert_eq!(e.sidebar_order().databases, vec!["release"]);
 
-        // SUB-467: a key assigned to a saved view frees up when it's deleted
+        // A key assigned to a saved view frees up when it's deleted
         e.set_sidebar_order(&SidebarOrder {
             databases: vec!["release".into()],
             keys: [
@@ -2377,7 +2377,7 @@ mod tests {
     #[test]
     fn saved_view_multisort_roundtrip_and_legacy_read() {
         let (e, dir) = temp_vault("svmulti");
-        // SUB-199: a 2-key sort persists the full ordered list, with `sort`
+        // A 2-key sort persists the full ordered list, with `sort`
         // mirroring the first key for older readers
         let view = SavedView {
             id: "a".into(),
@@ -2654,5 +2654,5 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    // ---- doctor (SUB-432) ------------------------------------------------
+    // ---- doctor ------------------------------------------------
 }

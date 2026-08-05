@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-290 (b): the mock backend must recompute a note's excerpt on
+// The mock backend must recompute a note's excerpt on
 // vault_write_body like the real engine (write_body → reindex_one →
 // make_excerpt). Before the fix, lists kept showing the pre-edit excerpt
 // after a save — e2e went green on behavior the real app doesn't have.
@@ -13,7 +13,7 @@ function row(page: Page, title: string) {
 }
 
 test("list row excerpt follows the edited body (SUB-290)", async ({ page }) => {
-  // SUB-606: this timed out at 20s under full-suite load while the excerpt
+  // This timed out at 20s under full-suite load while the excerpt
   // logic was provably correct. The budget, not the app, was the failure:
   // in every captured failure `page.goto("/")` alone consumed 20.8–25.5s of
   // the 20s test budget (cold Vite transform of the app's module graph while

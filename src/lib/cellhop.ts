@@ -1,9 +1,9 @@
-/* The spreadsheet keyboard grammar's arithmetic (SUB-947).
+/* The spreadsheet keyboard grammar's arithmetic.
 
    Filling a column used to cost one Enter to commit and another to re-open
    the next cell. Enter/Tab now commit AND carry the editor to the next cell,
    which turns "which cell is next" into a real question: rollup columns are
-   derived (SUB-678) and hold no editor, so a hop has to walk past them, and
+   derived and hold no editor, so a hop has to walk past them, and
    Tab has to wrap rows the way a spreadsheet does.
 
    Pure TS, no DOM/React: runs in the app and under `node --test`. */
@@ -27,7 +27,7 @@ export interface HopGrid {
   kindAt: (i: number) => PropKind | undefined;
 }
 
-/** A derived cell holds no value of its own (SUB-678), so the commit-and-move
+/** A derived cell holds no value of its own, so the commit-and-move
     hop steps over it rather than opening an editor that could not commit. */
 function inert(grid: HopGrid, c: number): boolean {
   return grid.kindAt(c - 1) === "rollup";
@@ -82,7 +82,7 @@ export function isPrintableKey(e: {
   isComposing?: boolean;
 }): boolean {
   if (e.metaKey || e.ctrlKey) return false;
-  // SUB-1120: Option is NOT a command modifier on macOS — it is how
+  // Option is NOT a command modifier on macOS — it is how
   // international layouts type ordinary characters (German: `@` is ⌥L, `[` is
   // ⌥5, `~` is ⌥N). Rejecting altKey outright made those keys dead on a
   // focused cell. No character list is needed: an Option chord that produces
@@ -103,7 +103,7 @@ export function isPrintableKey(e: {
     NEXT keystroke, and it can only finish that composition inside a real text
     field. On a focused (non-editable) cell it reports `key: "Dead"` and would
     otherwise be swallowed, so the accented character the user is typing lands
-    nowhere. Treated as an opener (SUB-1120): the editor opens empty, and the
+    nowhere. Treated as an opener: the editor opens empty, and the
     composition finishes in the input where it can. */
 export function isDeadKey(e: {
   key: string;

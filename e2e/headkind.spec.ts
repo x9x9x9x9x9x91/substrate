@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-400: pane headers carry a quiet kind word ("Folder" / "Database" /
+// Pane headers carry a quiet kind word ("Folder" / "Database" /
 // "Dashboard") next to the count — a folder of 2 notes and a database of
 // 1424 entries otherwise wear identical headers. Self-describing views
 // (Notes, All notes, Today…) stay unlabeled.
@@ -23,7 +23,7 @@ test("database view header says Database", async ({ page }) => {
 });
 
 test("dashboard header prints no breadcrumb kicker", async ({ page }) => {
-  // SUB-682: the "dashboard / <kind>" kicker SUB-409 introduced is gone —
+  // The "dashboard / <kind>" kicker is gone —
   // design-principles lists breadcrumb kickers as an anti-pattern, and the
   // sidebar row plus the pane title already name the surface.
   await page.locator(".side-item", { hasText: "Portfolio" }).click();

@@ -1,4 +1,4 @@
-/* A React island a plain-DOM surface can open cell editors from (SUB-796).
+/* A React island a plain-DOM surface can open cell editors from.
 
    The database pane is React all the way down, so a cell editor is just a
    conditional element. The inline ```view widget is CodeMirror widget DOM —

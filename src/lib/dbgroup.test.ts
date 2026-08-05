@@ -184,7 +184,7 @@ test("distinctNotes: an ungrouped list passes through unchanged", () => {
   assert.deepEqual(distinctNotes(ns), ns);
 });
 
-/* SUB-639: a number-kind column groups by numeric VALUE, so the same amount
+/* A number-kind column groups by numeric VALUE, so the same amount
    spelled differently is one section, not two. */
 const NUM_SCHEMA: Record<string, PropSchema> = { price: { options: [], kind: "number" } };
 

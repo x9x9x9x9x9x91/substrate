@@ -1,4 +1,4 @@
-//! Vault root, first-run onboarding and app relaunch (SUB-436).
+//! Vault root, first-run onboarding and app relaunch.
 
 use crate::appcfg;
 use crate::{AppState, OnboardingState};
@@ -9,7 +9,7 @@ pub(crate) fn vault_root(state: State<AppState>) -> String {
     state.0.lock().unwrap().root.display().to_string()
 }
 
-/* ---- first-run onboarding (SUB-436) -------------------------------------- */
+/* ---- first-run onboarding -------------------------------------- */
 
 /// What the frontend asks at boot: is a vault open, or must one be chosen?
 #[derive(serde::Serialize)]
@@ -45,7 +45,7 @@ pub(crate) fn onboarding_status(
 /// Report what a candidate folder is, so the UI can offer the right verb
 /// ("Open vault" vs "Initialize here") before anything is written.
 ///
-/// Resolves the typed path exactly like `vault_choose` does (SUB-1096): the
+/// Resolves the typed path exactly like `vault_choose` does: the
 /// verb the picker offers and the action its button runs must describe the
 /// same folder. Inspecting `~/Notes` literally found no such folder relative
 /// to the process cwd, so the picker offered "Create vault here" while the
@@ -66,7 +66,7 @@ pub(crate) fn picked_path(raw: &str) -> std::path::PathBuf {
 /// consent — writes nothing at all. `consent` is the user having explicitly
 /// confirmed "initialize a vault in this non-empty folder".
 ///
-/// Past the consent gate it is NOT atomic, and deliberately so (SUB-548): if
+/// Past the consent gate it is NOT atomic, and deliberately so: if
 /// persisting the choice fails after the folder was prepared, the folder keeps
 /// its `.vault/` and starter notes. Undoing that would mean deleting inside a
 /// folder the user picked, which is never worth it — the leftover is a vault
@@ -96,7 +96,7 @@ pub(crate) fn vault_choose(
     *onboarding.pending.lock().unwrap() = false;
     // The user has left this vault, even though its Engine stays live until the
     // relaunch. Sealed identities unlocked here must not outlive that decision
-    // (SUB-935): whatever is opened next re-prompts.
+    //: whatever is opened next re-prompts.
     state.0.lock().unwrap().forget_sealed_authorizations();
     Ok(canonical.display().to_string())
 }
@@ -107,8 +107,8 @@ pub(crate) fn vault_choose(
 /// Seeding happens HERE rather than in `Engine::new` on the next launch,
 /// because `open_or_init` has just created `.vault/` — which makes the root
 /// exist, permanently falsifying the Engine's own `!root.exists()` freshness
-/// test. Deferring it drops a "create new vault" user into an empty app
-/// (SUB-436 review #2). Split out of the command so a test can drive the real
+/// test. Deferring it drops a "create new vault" user into an empty app.
+/// Split out of the command so a test can drive the real
 /// sequence rather than a copy of it.
 pub(crate) fn init_chosen_vault(p: &std::path::Path, consent: bool) -> Result<bool, String> {
     let seed = appcfg::open_or_init(p, consent)?;
@@ -125,7 +125,7 @@ pub(crate) const DEMO_VAULT_RESOURCE: &str = "demo-vault";
 /// Locate the bundled demo vault. Tries the packaged resource dir first, then
 /// the repo checkout, because `tauri dev` runs from `src-tauri/` and does not
 /// stage bundle resources. `None` means "we have nothing to copy" — the
-/// caller must say so rather than opening an empty folder (SUB-436 review #3).
+/// caller must say so rather than opening an empty folder.
 pub(crate) fn demo_vault_source(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     let packaged =
         app.path().resolve(DEMO_VAULT_RESOURCE, tauri::path::BaseDirectory::Resource).ok();
@@ -146,7 +146,7 @@ pub(crate) fn demo_vault_is_usable(p: &std::path::Path) -> bool {
 
 /// The demo vault copy's home: `~/Documents/Substrate Demo` — a user-visible
 /// folder OUTSIDE every `assetProtocol.scope.deny` entry (tauri.conf.json).
-/// Up to SUB-645 it lived under app-data, which `$HOME/Library/Application
+/// It used to live under app-data, which `$HOME/Library/Application
 /// Support/**` denies; Tauri evaluates deny before allow, so every
 /// `convertFileSrc` asset in the demo — audio embeds, waveforms, gallery
 /// covers — 403'd the moment a user added one.
@@ -155,7 +155,7 @@ pub(crate) fn demo_vault_dir(app: &tauri::AppHandle) -> Option<std::path::PathBu
     Some(home.join("Documents").join("Substrate Demo"))
 }
 
-/// The pre-SUB-645 demo vault location, kept only so an existing copy — with
+/// The pre-change demo vault location, kept only so an existing copy — with
 /// whatever assets a beta tester added — can be migrated. Nothing new is ever
 /// written here.
 pub(crate) fn legacy_demo_vault_dir(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
@@ -172,7 +172,7 @@ pub(crate) enum DemoPrep {
 }
 
 /// Make a demo vault available at `dest` — without destroying anything the
-/// user added (SUB-645). The pre-SUB-645 "delete the destination, re-copy"
+/// user added. The pre-change "delete the destination, re-copy"
 /// reset threw away demo assets on every re-click of "Try the demo vault".
 ///
 /// - `dest` exists at all → `Existing`. When a bundle is available, unchanged
@@ -183,7 +183,7 @@ pub(crate) enum DemoPrep {
 ///   its `.vault/` marker: a marker-less leftover is junk a fresh copy
 ///   replaces, not content to preserve.
 /// - neither → `Fresh`, copied from the bundled source. A copy that does not
-///   come out usable is removed and reported, as before (SUB-436 review #3).
+///   come out usable is removed and reported, as before.
 pub(crate) fn prepare_demo_vault(
     src: Option<&std::path::Path>,
     legacy: Option<&std::path::Path>,
@@ -316,7 +316,7 @@ fn refresh_demo_vault_from(
         // `symlink_metadata`, not `exists()`: a user who moved an example out
         // and symlinked it back owns that arrangement — replacing the link
         // with a regular file (write_atomic renames over it) would break it.
-        // Same rule as the agent-file refresh (SUB-973).
+        // Same rule as the agent-file refresh.
         let target_meta = std::fs::symlink_metadata(&target);
         if let Ok(meta) = &target_meta {
             if !meta.file_type().is_file() {
@@ -407,8 +407,8 @@ fn curated_stamp_value(body: &str) -> Option<String> {
 }
 
 /// Rewrite the demo feed's `curated:` stamp to now, so the first thing a beta
-/// tester opens is a freshly curated feed (SUB-720). The bundled note ships a
-/// fixed stamp, which the staleness dot (SUB-699, `feedStaleness`) reads as a
+/// tester opens is a freshly curated feed. The bundled note ships a
+/// fixed stamp, which the staleness dot (`feedStaleness`) reads as a
 /// yellow "stale · Nd" warning that ages every day the build sits on a shelf —
 /// honest for a real vault, wrong for a demo nobody curates.
 ///
@@ -472,7 +472,7 @@ fn move_dir(src: &std::path::Path, dest: &std::path::Path) -> Result<(), String>
     std::fs::remove_dir_all(src).map_err(|e| e.to_string())
 }
 
-/// One-time launch migration of the pre-SUB-645 demo copy out of app-data, so
+/// One-time launch migration of the pre-change demo copy out of app-data, so
 /// a beta tester's demo leaves the asset-protocol deny list even when "Try
 /// the demo vault" is never clicked again. When the stored vault choice
 /// points at the legacy copy it follows the move — otherwise the next boot
@@ -501,12 +501,12 @@ pub(crate) fn migrate_legacy_demo_vault(
 /// "Try the demo vault": make the bundled example vault available at
 /// `~/Documents/Substrate Demo` and select it. It is never the default, and
 /// an existing copy — migrated or previously made — is reused untouched, not
-/// reset (SUB-645).
+/// reset.
 ///
 /// If a fresh copy is needed but the bundled content is missing, this FAILS
 /// with a message the user can act on. The previous silent fallback created
 /// an empty `.vault/` and reported success, so the door promising "sample
-/// notes, databases and dashboards" opened onto nothing (SUB-436 review #3).
+/// notes, databases and dashboards" opened onto nothing.
 #[tauri::command]
 pub(crate) fn vault_demo(
     app: tauri::AppHandle,
@@ -526,7 +526,7 @@ pub(crate) fn vault_demo(
 ///
 /// Same rule as the not-usable arm of `prepare_demo_vault`: a demo that
 /// cannot be selected does not get to sit around as a folder nothing points
-/// at (SUB-548). The cleanup applies only to a FRESH copy — that one is ours
+/// at. The cleanup applies only to a FRESH copy — that one is ours
 /// and disposable. A migrated or pre-existing demo is the user's content, so
 /// a config failure there leaves the vault exactly where it was. Split out of
 /// the command so a test can drive it — the command itself needs an
@@ -564,7 +564,7 @@ pub(crate) fn copy_dir(src: &std::path::Path, dest: &std::path::Path) -> Result<
     Ok(())
 }
 
-/// Onboarding's optional agent step (SUB-804): write `terminal-command` into
+/// Onboarding's optional agent step: write `terminal-command` into
 /// the just-chosen vault's `Settings.md`, before the relaunch that opens it.
 ///
 /// Deliberately narrow: it only writes into the vault the config currently
@@ -573,7 +573,7 @@ pub(crate) fn copy_dir(src: &std::path::Path, dest: &std::path::Path) -> Result<
 /// why it can't go through the Engine (still rooted in the scratch
 /// placeholder until restart).
 ///
-/// No trust is granted here: the SUB-427 per-machine gate still asks before
+/// No trust is granted here: the per-machine gate still asks before
 /// the first ⌘⇧T actually runs the command. This writes the same string the
 /// user could type into Settings, nothing more.
 #[tauri::command]
@@ -622,7 +622,7 @@ mod tests {
     /// then the Engine that opens it. The absence of this test is why an
     /// onboarding-created vault shipped empty — `Engine::new` gates its own
     /// seeding on `!root.exists()`, which `open_or_init` has already
-    /// falsified (SUB-436 review #2).
+    /// falsified.
     #[test]
     fn a_vault_created_through_onboarding_opens_with_starter_content() {
         let t = tempfile::TempDir::new().unwrap();
@@ -659,7 +659,7 @@ mod tests {
         // a MARKDOWN file under a dot-folder: without it the "`.obsidian/` is
         // never indexed" assertion below passes for the wrong reason — the
         // scan only ever considers `.md`, so a config-only fixture never
-        // reaches the dot-directory filter at all (SUB-1078 review #5)
+        // reaches the dot-directory filter at all (review)
         w(".obsidian/plugins/dataview/README.md", "# Dataview\n\nPlugin docs.\n");
         w("README.md", "My notes. See [[Piranesi]].\n");
         w("Reading log.md", "Currently: [[Piranesi]] and [[Pachinko]].\n");
@@ -673,7 +673,7 @@ mod tests {
             // `![[Pachinko]]` is an embed of a NOTE, so it exercises the
             // embed rule where it can actually fail: an asset embed can never
             // produce a backlink (the target isn't indexed at all), a note
-            // embed can (SUB-1078 review #4).
+            // embed can (review).
             "---\ntags: [daily]\n---\n\nRead [[Piranesi]] all evening; also ![[Pachinko]]. ![[attachments/cover.png]]\n\n```dataview\nTABLE author FROM \"Books\"\n```\n",
         );
         w("attachments/cover.png", "not really a png");
@@ -683,7 +683,7 @@ mod tests {
     /// directory), so a before/after pair proves what adoption did and did
     /// not touch. Directories are entries in their own right: adoption
     /// creates empty ones (`Inbox/`), and a files-only walk would report the
-    /// added set as smaller than it is (SUB-1078 review, low #2).
+    /// added set as smaller than it is (review).
     fn tree(root: &std::path::Path) -> std::collections::BTreeMap<String, Option<Vec<u8>>> {
         let mut out = std::collections::BTreeMap::new();
         let mut stack = vec![root.to_path_buf()];
@@ -709,14 +709,14 @@ mod tests {
         rel == dir || rel.starts_with(&format!("{dir}/"))
     }
 
-    /// SUB-1078 — the adopt-in-place arrival, end to end: the sequence "Open
+    /// the adopt-in-place arrival, end to end: the sequence "Open
     /// an existing folder" actually runs over a folder the user already had.
     /// That is `init_chosen_vault`, then — on the next launch, in `lib.rs`
     /// order — the `Engine` and `History::new` (lib.rs, the setup closure).
     /// History is in scope deliberately: it git-inits the adopted folder, so
     /// a test that stopped at the Engine would certify an added-set that the
     /// shipped path exceeds, and `docs/user/import.md` documents what this
-    /// test measures (SUB-1078 review #3).
+    /// test measures (review).
     ///
     /// Nothing of the user's may be moved, renamed or rewritten; what the app
     /// adds is a closed, named set; and the corpus has to be usable — nested
@@ -777,7 +777,7 @@ mod tests {
         assert!(!root.join("Welcome.md").exists(), "no starter notes in an adopted vault");
         // version history means a git repo INSIDE the adopted folder, stamped
         // as Substrate's own — the single biggest thing adoption adds, and
-        // the one the docs have to name (SUB-1078 review #2)
+        // the one the docs have to name (review)
         assert!(hist.is_enabled(), "history is on for a folder that was not already a git repo");
         assert!(root.join(".git/substrate-owned").is_file(), "the repo is stamped as ours");
         // stated positively too, because these are what a user actually
@@ -821,7 +821,7 @@ mod tests {
         // Pachinko (`![[Pachinko]]`) and the reading log links it, and only
         // the link counts. Asserting this on the asset embed instead would
         // pass for any path at all — `backlinks` returns early for anything
-        // that is not an indexed note (SUB-1078 review #4).
+        // that is not an indexed note (review).
         let pach: Vec<String> =
             engine.backlinks("Books/Pachinko.md").iter().map(|n| n.path.clone()).collect();
         assert!(
@@ -849,9 +849,9 @@ mod tests {
         );
     }
 
-    /// SUB-1078 — the shape a folder-organised Obsidian vault actually hits:
+    /// the shape a folder-organised Obsidian vault actually hits:
     /// everything lives in subfolders, so there are fewer than two top-level
-    /// `.md` files and the strict picked-folder rule (SUB-436 review #4, the
+    /// `.md` files and the strict picked-folder rule (the
     /// one that keeps a checkout with a single README from opening silently)
     /// sends it to the consent branch instead of "Open vault". Pinned here
     /// because it is real behaviour a user meets on the flagship path — the
@@ -899,7 +899,7 @@ mod tests {
         assert!(!root.join("Welcome.md").exists(), "no starter notes in an adopted vault");
     }
 
-    // SUB-436 review #3: "Try the demo vault" promises sample notes, databases
+    // Review #3: "Try the demo vault" promises sample notes, databases
     // and dashboards. Nothing bundled used to mean an empty vault reported as
     // success, so these pin what counts as a source worth copying.
     #[test]
@@ -917,7 +917,7 @@ mod tests {
         assert!(!super::demo_vault_is_usable(&noted), "notes but no marker");
     }
 
-    /// SUB-548: "try the demo" copies a vault and then selects it. If
+    /// "try the demo" copies a vault and then selects it. If
     /// selecting fails, a FRESH copy used to stay — a folder nothing points
     /// at, which the next attempt has to notice and delete. Cleaning up is
     /// free there because a fresh copy is ours and disposable, unlike a
@@ -940,7 +940,7 @@ mod tests {
         assert!(!dest.exists(), "so the fresh copy it was for is gone too");
     }
 
-    /// SUB-645: the SUB-548 cleanup must NOT fire for a migrated or
+    /// The cleanup must NOT fire for a migrated or
     /// pre-existing demo — that is user content, and undoing a failed select
     /// must never delete it.
     #[test]
@@ -1103,7 +1103,7 @@ mod tests {
             .to_string()
     }
 
-    /// SUB-720: a fresh copy's feed stamp is rewritten to copy time, so the
+    /// A fresh copy's feed stamp is rewritten to copy time, so the
     /// first thing a beta tester opens is not a permanent yellow "stale · Nd"
     /// dot that ages with the build. Recency, not equality — the clock moves
     /// between the copy and the assert.
@@ -1151,7 +1151,7 @@ mod tests {
         );
     }
 
-    /// SUB-720: `Existing` is the user's own vault — a demo they have used and
+    /// `Existing` is the user's own vault — a demo they have used and
     /// maybe let go stale. Its stamp tells the truth and is never rewritten.
     #[test]
     fn an_existing_demo_vaults_feed_stamp_is_left_alone() {
@@ -1190,7 +1190,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(dest2.join(super::DEMO_FEED_NOTE)).unwrap(), body);
     }
 
-    /// SUB-645: a demo vault left in app-data by a previous version is moved
+    /// A demo vault left in app-data by a previous version is moved
     /// to the new destination once, assets and all — and a second attempt
     /// finds the destination already there and changes nothing.
     #[test]
@@ -1217,7 +1217,7 @@ mod tests {
         );
     }
 
-    /// SUB-645: a demo vault already at the destination is untouched — even
+    /// A demo vault already at the destination is untouched — even
     /// with a legacy copy still lying around, and even though a source exists
     /// to re-copy from. Re-clicking "Try the demo vault" must not wipe
     /// anything.
@@ -1236,7 +1236,7 @@ mod tests {
     }
 
     /// With no demo anywhere, the click copies the bundled source — the
-    /// pre-SUB-645 first-run behavior, unchanged apart from the destination.
+    /// pre-change first-run behavior, unchanged apart from the destination.
     #[test]
     fn with_no_demo_anywhere_a_fresh_copy_is_made() {
         let t = tempfile::TempDir::new().unwrap();
@@ -1276,7 +1276,7 @@ mod tests {
         assert_eq!(prep, super::DemoPrep::Existing);
     }
 
-    /// SUB-645: at launch, the move out of app-data happens even when "Try
+    /// At launch, the move out of app-data happens even when "Try
     /// the demo vault" is never clicked again — and a stored vault choice
     /// pointing at the legacy copy follows it, or the next boot would resolve
     /// a vanished path and show first-run to a user with a working vault.
@@ -1335,7 +1335,7 @@ mod tests {
         assert_eq!(crate::appcfg::read_config(&cfg).vault.as_deref(), Some(legacy.as_path()));
     }
 
-    /// SUB-1096: the picker's two halves must resolve a typed path
+    /// the picker's two halves must resolve a typed path
     /// identically. `vault_inspect` used to hand the raw string to
     /// `appcfg::inspect`, so `~/Notes` was looked for as a literal folder
     /// named `~` next to the process cwd — never there, so the picker offered

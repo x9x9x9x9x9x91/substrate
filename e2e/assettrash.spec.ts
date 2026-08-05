@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-479: deleting an orphaned asset used to unlink it — the one delete in the
+// Deleting an orphaned asset used to unlink it — the one delete in the
 // app with no recovery path. Now it moves into `.trash/<ms>/.assets/<name>`,
 // lists in the Trash pane as its own kind, and restores back into `.assets/`.
 

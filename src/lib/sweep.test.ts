@@ -70,7 +70,7 @@ test("outcomes single-plural their note counts", () => {
   assert.match(stripPropOutcome("status", ok(1)), /from 1 note$/);
 });
 
-/* SUB-501: a sweep that dies partway used to reject the whole IPC call, so the
+/* A sweep that dies partway used to reject the whole IPC call, so the
    user saw the error alone and never learned how much of the vault had already
    changed. Every partial outcome now carries the count AND the error. */
 

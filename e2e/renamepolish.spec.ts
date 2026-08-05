@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-783/784/785 — the rename lanes SUB-772 left open. ⌘Z of a rename and
+// The rename lanes an earlier remount fix left open. ⌘Z of a rename and
 // the sheet source view both kept the remount shape (keystroke-loss gap),
 // and session folds were keyed by the editor's lagging mount identity, so
 // they missed on reopen under the renamed path.
@@ -11,7 +11,7 @@ function row(page: Page, title: string) {
 
 async function boot(page: Page) {
   await page.goto("/");
-  // cold open lands on the Notes scratch list (Today is a destination, SUB-300)
+  // cold open lands on the Notes scratch list (Today is a destination)
   await page.locator(".side-item", { hasText: /^Notes/ }).click();
   await expect(page.locator(".note-title")).toHaveValue("Welcome");
 }
@@ -68,7 +68,7 @@ test("a rename with the sheet source view open keeps the inner editor mounted (S
     (el as HTMLElement).dataset.premount = "1";
   });
 
-  // retitle, then click straight into the source body — the SUB-766 capture
+  // retitle, then click straight into the source body — the capture
   // flow, one level down: the inner editor must survive the rename
   const marker = `E2E-SHEET-RENAME ${Date.now()}`;
   await page.locator(".note-title").fill("Holdings Renamed");
@@ -82,8 +82,8 @@ test("a rename with the sheet source view open keeps the inner editor mounted (S
   // the typed text reached DISK under the renamed path — asserted against
   // the mock store, not a reopened view: the center-click above lands the
   // caret on the ```formulas fence delimiter line, whose raw text live
-  // preview conceals when the cursor is elsewhere (SUB-795 resolution —
-  // e2e/sheetsource.spec.ts pins the conceal/reveal behavior), so a
+  // preview conceals when the cursor is elsewhere (e2e/sheetsource.spec.ts pins
+  // that conceal/reveal behavior), so a
   // view-side text assert after reopening would fail on concealment
   await expect
     .poll(() =>

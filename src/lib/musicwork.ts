@@ -1,4 +1,4 @@
-// Music work index data for the `dashboard: music-work` renderer (SUB-595):
+// Music work index data for the `dashboard: music-work` renderer:
 // pure pivots over the Work Index sheet's csv fence.
 //
 // The filesystem behind this sheet is category-first (MASTERING/<artist>/<job>,

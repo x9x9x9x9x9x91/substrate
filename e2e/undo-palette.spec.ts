@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-1164: undo had no mouse path once the toast died. The toast that carries
+// Undo had no mouse path once the toast died. The toast that carries
 // an Undo button is gone after 4s, and ⌘Z was the only way back after that —
 // so the palette carries the same two moves as rows, named after what they
 // would take back ("Undo Role → booking").

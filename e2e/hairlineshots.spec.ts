@@ -1,6 +1,6 @@
 import { test } from "@playwright/test";
 
-// Throwaway evidence run for SUB-943 (sky-fade hairline) — not a gate.
+// Throwaway evidence run for the sky-fade hairline — not a gate.
 //   SHOTS=1 npx playwright test e2e/hairlineshots.spec.ts
 test.skip(!process.env.SHOTS, "evidence run only");
 

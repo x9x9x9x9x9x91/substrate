@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// German-typed numbers (SUB-636): the app RENDERS de-DE ("1.234,56 €") but
+// German-typed numbers: the app RENDERS de-DE ("1.234,56 €") but
 // stored values and every parser are canonical dot-decimal. Typing back what
 // the app shows used to fail silently in two directions — "1.234" read as
 // 1.234 (a 1000× corruption that still looked like money) and "1.234,56"
@@ -34,7 +34,7 @@ test("number cell: German-typed value round-trips through the app's own display"
   const input = page.locator(".selmenu .selmenu-input");
   await input.fill("1.234,56");
   await input.press("Enter");
-  // Enter now carries the editor to the row below (SUB-947); Escape leaves it
+  // Enter now carries the editor to the row below; Escape leaves it
   await page.keyboard.press("Escape");
   await expect(page.locator(".selmenu")).toHaveCount(0);
   // stored canonical → rendered back in the dialect it was typed in

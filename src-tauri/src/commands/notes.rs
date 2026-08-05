@@ -121,7 +121,7 @@ pub(crate) async fn vault_seal_scope(
     blocking(move || run_scope_conversion(&app, &path, password.as_deref(), false)).await?
 }
 
-/// Adopt a seal marker this device did not create (SUB-889). Until this runs,
+/// Adopt a seal marker this device did not create. Until this runs,
 /// such a marker is inert: nothing is re-encrypted and no history is purged.
 #[tauri::command]
 pub(crate) async fn vault_confirm_seal_scope(
@@ -204,7 +204,7 @@ mod sealed_history_tests {
         history.snapshot("plaintext two").unwrap();
         // Refs outside the rewrite's own set used to keep every "purged" blob
         // reachable, so `gc` preserved the plaintext the UI promised was gone
-        // (SUB-839). They must survive the seal, pointing at rewritten history.
+        // They must survive the seal, pointing at rewritten history.
         for args in [["branch", "archive-before-seal"], ["tag", "before-seal"]] {
             let planted = Command::new("git").arg("-C").arg(&root).args(args).output().unwrap();
             assert!(planted.status.success(), "{}", String::from_utf8_lossy(&planted.stderr));
@@ -389,7 +389,7 @@ pub(crate) fn vault_unlock_sealed_note(
     path: String,
     password: Option<String>,
 ) -> Result<NoteContent, String> {
-    // Three statements, two short lock holds, on purpose (SUB-935). The middle
+    // Three statements, two short lock holds, on purpose. The middle
     // one loads the identity — on macOS that is the Touch ID sheet, which
     // blocks until the user answers and has been seen never to appear at all.
     // Under the engine lock it froze every other vault command with it: no
@@ -446,7 +446,7 @@ pub(crate) fn vault_write_body(
     state.0.lock().unwrap().write_body(&path, &body, expected_body.as_deref())
 }
 
-/// The wire form of the undo guard's expectation (SUB-477): present means
+/// The wire form of the undo guard's expectation: present means
 /// "check", and its `value` carries the expected prop — null for "absent".
 #[derive(serde::Deserialize)]
 pub(crate) struct ExpectedProp {
@@ -460,7 +460,7 @@ pub(crate) fn vault_set_prop(
     path: String,
     key: String,
     value: Option<serde_json::Value>,
-    // SUB-477 undo guard. Absent/null = no check (every pre-undo caller);
+    // Undo guard. Absent/null = no check (every pre-undo caller);
     // `{"value": null}` = "I expect this key to be absent". The wrapper exists
     // because JSON has one null and the engine needs two: a bare null on the
     // wire can't say which Option layer it belongs to.
@@ -470,7 +470,7 @@ pub(crate) fn vault_set_prop(
     state.0.lock().unwrap().set_prop_guarded(&path, &key, value, expected.map(|e| e.value))
 }
 
-/// Turn a sheet column's date notifications on or off (SUB-876). Its own
+/// Turn a sheet column's date notifications on or off. Its own
 /// command because the settings live in a nested `columns:` map, and
 /// `vault_set_prop` deliberately refuses non-scalar values.
 #[tauri::command]
@@ -535,11 +535,11 @@ pub(crate) fn url_capture(
 ) -> Result<NoteMeta, String> {
     dirty.mark();
     // strip `user:pass@` once, up front: the note must not carry credentials
-    // (SUB-789) and the enrichment fetch must not send them in cleartext, so
+    // and the enrichment fetch must not send them in cleartext, so
     // both halves work from the same cleaned URL
     let url = crate::net::strip_userinfo(&url);
     let meta = state.0.lock().unwrap().create_reference(&url)?;
-    // SUB-834: the capture itself is local and always happens — `enrich` only
+    // The capture itself is local and always happens — `enrich` only
     // decides whether we then ask that site for its title. The caller reads
     // `net-link-titles` from Settings.md; absent means yes, so any caller that
     // doesn't know about the switch keeps the documented behavior.
@@ -555,7 +555,7 @@ pub(crate) fn spawn_url_enrichment(app: tauri::AppHandle, url: String, created: 
             Ok(m) => m,
             Err(e) => {
                 // a pasted https://user:pass@host must not reach substrate.log,
-                // and ureq echoes the URL inside its own error text (SUB-780)
+                // and ureq echoes the URL inside its own error text
                 applog!(
                     "url capture: no metadata for {}: {}",
                     crate::net::redact_url(&url),
@@ -593,7 +593,7 @@ pub(crate) fn spawn_url_enrichment(app: tauri::AppHandle, url: String, created: 
             }
         }
         app.state::<SnapDirty>().mark();
-        // empty payload = "unknown, refresh everything" (SUB-460)
+        // empty payload = "unknown, refresh everything"
         app.emit("vault:changed", Vec::<String>::new()).ok();
     });
 }

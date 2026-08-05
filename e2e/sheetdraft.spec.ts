@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-288: an uncommitted SheetGrid cell draft vs an external change to the
+// An uncommitted SheetGrid cell draft vs an external change to the
 // sheet's own body. The vault:changed lane (NotePane) only guards on
 // pending/saving — an open cell draft is neither — and SheetGrid used to
 // register no docRef, so adoptDiskBody remounted the grid: the focused input
@@ -9,7 +9,7 @@ import { expect, test, type Page } from "@playwright/test";
 // (input, focus, draft) must survive and the commit must land on the adopted
 // body.
 
-// cold open lands on Today (SUB-92) — open the seeded sheet through the palette
+// cold open lands on Today — open the seeded sheet through the palette
 async function openSheet(page: Page) {
   await page.goto("/");
   await expect(page.locator(".side-item").first()).toBeVisible();
@@ -21,7 +21,7 @@ async function openSheet(page: Page) {
 }
 
 /* an event within 1s of an app-initiated refresh is treated as the own-write
-   echo (SUB-116) — wait the window out before emitting (same as mockfail) */
+   echo — wait the window out before emitting (same as mockfail) */
 async function emitChanged(page: Page) {
   await page.waitForTimeout(1100);
   await page.evaluate(() => window.__mockEmit("vault:changed"));

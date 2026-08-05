@@ -40,7 +40,7 @@ export default function InfoView({ view, trailing }: { view: View; trailing?: Re
 
   return (
     <div className={`info-view${open ? " open" : ""}`}>
-      {/* SUB-452: the ? and any sibling "about the app" control share one row,
+      {/* The ? and any sibling "about the app" control share one row,
           so the changelog button sits immediately beside the ? rather than at
           the far edge of the sidebar column. */}
       <div className="info-view-row">

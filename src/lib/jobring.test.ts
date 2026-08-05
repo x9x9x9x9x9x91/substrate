@@ -17,7 +17,7 @@ test("ringVerdict stays silent below two runs or without failures", () => {
 });
 
 test("ringVerdict alerts on a failing majority, warns otherwise", () => {
-  // the SUB-706 case: one lucky success must not repaint a week of failures
+  // the case: one lucky success must not repaint a week of failures
   assert.equal(ringVerdict([1, 1, 1, 1, 0]), "alert");
   assert.equal(ringVerdict([1, 1]), "alert");
   assert.equal(ringVerdict([1, 0]), "warn");

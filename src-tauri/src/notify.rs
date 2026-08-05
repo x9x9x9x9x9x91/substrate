@@ -1,4 +1,4 @@
-//! Due-date notifications (SUB-21): a background scheduler in the main
+//! Due-date notifications: a background scheduler in the main
 //! process — alive as long as the tray is, no window needed — scans the vault
 //! for notes whose type has a `notify: true` date prop in `.vault/schema.json`
 //! and fires a macOS notification when the date comes due (at the time the
@@ -10,12 +10,12 @@
 //! never refires for the same date within a day, across restarts. Notes due
 //! while the app wasn't running do NOT fire late (that would be noise) — the
 //! single exception is an explicit snooze expiring, which fires whenever it
-//! expires, including on a day the deadline itself does not fall on (SUB-737:
+//! expires, including on a day the deadline itself does not fall on (
 //! "tomorrow" on a weekly deadline lands off-series; the user asked for that
 //! reminder, so it is delivered once, on the snoozed date, and the series
 //! carries on untouched).
 //!
-//! A note with a `repeat:` prop (SUB-174) notifies per OCCURRENCE (SUB-643):
+//! A note with a `repeat:` prop notifies per OCCURRENCE:
 //! the scheduler mirrors the calendar's expansion arithmetic (`parseRepeat`/
 //! `repeatStep` in src/lib/calendar.ts) to decide whether today is an
 //! occurrence day, honours `repeat_until`/`repeat_skip` the same way, and
@@ -67,14 +67,14 @@ pub struct DueItem {
     pub path: String,
     pub title: String,
     pub prop: String,
-    /// The DUE date — for a lead-time alert (SUB-842) this is still the day
+    /// The DUE date — for a lead-time alert this is still the day
     /// the deadline lands on, not the day the alert fires.
     pub date: NaiveDate,
     pub time: Option<NaiveTime>,
-    /// SUB-842: `Some(n)` marks this firing as the lead-time alert that runs
+    /// `Some(n)` marks this firing as the lead-time alert that runs
     /// `n` days ahead of `date`. `None` is the day-of alert.
     pub lead: Option<u32>,
-    /// SUB-876: for a date cell in a sheet's csv grid, the row's label — its
+    /// For a date cell in a sheet's csv grid, the row's label — its
     /// first-column value. `None` is a plain note/database prop.
     ///
     /// The label, not the row index, is the row's identity: inserting,
@@ -84,12 +84,12 @@ pub struct DueItem {
     pub row: Option<String>,
 }
 
-/// Marker appended to a lead-time alert's state key (SUB-842). Day-of keys
+/// Marker appended to a lead-time alert's state key. Day-of keys
 /// keep their exact historical shape, so `.vault/notifications.json` files
 /// written by older builds keep working.
 const LEAD_MARK: &str = "lead";
 
-/// Separator between a sheet key's column and row label (SUB-876).
+/// Separator between a sheet key's column and row label.
 const ROW_MARK: char = '#';
 
 /// Percent-escape the characters that carry meaning in a state key. Sheet
@@ -147,7 +147,7 @@ impl DueItem {
     /// `|lead` marker for a lead-time alert, so the two alerts of one due
     /// date fire (and snooze) independently.
     ///
-    /// A sheet cell (SUB-876) puts BOTH coordinates in the prop segment:
+    /// A sheet cell puts BOTH coordinates in the prop segment:
     /// `<path>|<column>#<row label>|<date>`, each part percent-escaped. Note
     /// and database keys keep their exact historical bytes, so existing
     /// `.vault/notifications.json` files keep working.
@@ -212,12 +212,12 @@ impl DueItem {
 /// Parse a date-prop value: `YYYY-MM-DD`, optionally followed by `T` or a
 /// space and `HH:MM`. Anything else is not a due date.
 ///
-/// Seconds are deliberately NOT accepted (SUB-571): the TS grammar rejects
+/// Seconds are deliberately NOT accepted: the TS grammar rejects
 /// them (`splitDayTime`), so a `14:30:00` value appears on no surface — not
 /// the grid, agenda, Upcoming, or `due:today`. Accepting them here made the
 /// scheduler fire a desktop notification for an item the user could not find
 /// anywhere in the app. Unpadded fields and doubled separators are rejected
-/// for the same reason (SUB-637 — see the shape check in `parse_endpoint`).
+/// for the same reason (see the shape check in `parse_endpoint`).
 pub fn parse_due(value: &str) -> Option<(NaiveDate, Option<NaiveTime>)> {
     parse_due_range(value).map(|(start, _)| start)
 }
@@ -227,15 +227,15 @@ type Endpoint = (NaiveDate, Option<NaiveTime>);
 
 fn parse_endpoint(value: &str) -> Option<Endpoint> {
     let v = value.trim();
-    // Shape-check BEFORE chrono (SUB-637): chrono's numeric fields scan
+    // Shape-check BEFORE chrono: chrono's numeric fields scan
     // 1..=width digits, so unpadded DATE fields (`2026-8-1`) and a doubled
     // separator parse there while the TS grammar rejects them — the
     // scheduler then fired for an item no date surface can render. Fixed
     // positions make the byte slices boundary-safe (the separator is ASCII).
-    // The HOUR may be single-digit since SUB-714 widened the TS side
+    // The HOUR may be single-digit widened the TS side
     // (`DAY_TIME_RE`: (\d{1,2}):(\d{2})) — the UI renders `9:30` as 09:30,
-    // so the scheduler and doctor must accept it too (SUB-906). Minutes stay
-    // two-digit, seconds stay refused (SUB-571).
+    // so the scheduler and doctor must accept it too. Minutes stay
+    // two-digit, seconds stay refused.
     let (day, time) = match v.len() {
         10 => (v, None),
         15 | 16 if matches!(v.as_bytes()[10], b' ' | b'T') => (&v[..10], Some(&v[11..])),
@@ -257,7 +257,7 @@ fn parse_endpoint(value: &str) -> Option<Endpoint> {
     Some((date, Some(time)))
 }
 
-/// Parse a date-prop value with its optional range end (SUB-596): the SUB-270
+/// Parse a date-prop value with its optional range end: the day
 /// value, optionally followed by `/` and a second one — `2026-09-01/2026-09-21`,
 /// `2026-09-01 09:00/2026-09-03 17:00`. Returns `(start, end)`; `end` is None
 /// for an ordinary single date. Both endpoints must parse and the end may not
@@ -266,7 +266,7 @@ fn parse_endpoint(value: &str) -> Option<Endpoint> {
 /// The `/` split comes BEFORE the `T`/space scan deliberately: each endpoint
 /// may carry a space-separated time, so scanning for the separator first would
 /// cut a timed range in the wrong place. Mirrors `splitDateRange` in
-/// src/lib/calendar.ts — the two grammars must stay in lockstep (SUB-571).
+/// src/lib/calendar.ts — the two grammars must stay in lockstep.
 pub fn parse_due_range(value: &str) -> Option<(Endpoint, Option<Endpoint>)> {
     let v = value.trim();
     let Some(cut) = v.find('/') else {
@@ -280,7 +280,7 @@ pub fn parse_due_range(value: &str) -> Option<(Endpoint, Option<Endpoint>)> {
     Some((start, Some(end)))
 }
 
-/// Recurrence cadence parsed from a note's `repeat:` prop (SUB-643) — a port
+/// Recurrence cadence parsed from a note's `repeat:` prop — a port
 /// of TS `parseRepeat` (src/lib/calendar.ts): the grammar, the
 /// case-insensitivity and the "anything else is simply non-repeating" reading
 /// all match, so the scheduler fires on exactly the days the calendar shows.
@@ -338,7 +338,7 @@ fn parse_repeat(value: &str) -> Option<Repeat> {
 /// (src/lib/calendar.ts). `repeat_until`/`repeat_skip` gate on it exactly like
 /// the calendar does. Deliberately stricter than chrono's `%Y-%m-%d` (which
 /// tolerates unpadded fields); `parse_due`'s own grammar is untouched — its
-/// lockstep tightening is a sibling lane's (SUB-571).
+/// lockstep tightening is a sibling lane's.
 fn parse_day(s: &str) -> Option<NaiveDate> {
     let b = s.as_bytes();
     if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
@@ -387,7 +387,7 @@ fn repeat_step(anchor: NaiveDate, r: Repeat, k: i64) -> NaiveDate {
 /// Some(today) when today is an occurrence of the series (the anchor itself
 /// is k = 0), else None — the point-query form of `calendarEntries`'
 /// expansion, computed arithmetically from the anchor instead of walking the
-/// series (SUB-570's `seekToWindow` idea, inverted). The candidate k is exact
+/// series (the `seekToWindow` idea, inverted). The candidate k is exact
 /// for day/week cadences; for month/year the clamp check against
 /// `repeat_step` settles it — a Jan-31 series fires on Feb 28, and Mar 30 is
 /// not an occurrence of it.
@@ -453,12 +453,12 @@ fn repeat_skips(props: &serde_json::Map<String, serde_json::Value>) -> Vec<Naive
 }
 
 /// The note-level gates every date surface applies, so the scheduler applies
-/// them too: an explicit calendar opt-out (SUB-175/SUB-640 — YAML round-trips
+/// them too: an explicit calendar opt-out (YAML round-trips
 /// a bare bool, imports and hand edits carry the string) and a completed
-/// status (SUB-205's `isComplete`: done/cancelled, trimmed, case-insensitive).
+/// status (the `isComplete`: done/cancelled, trimmed, case-insensitive).
 fn note_notifies(note: &NoteMeta) -> bool {
-    // every read here folds key casing (SUB-920) — the calendar's TS twin
-    // (SUB-696) already does, and hand-written frontmatter capitalizes freely
+    // every read here folds key casing — the calendar's TS twin
+    // already does, and hand-written frontmatter capitalizes freely
     let calendar = folded_prop_key(&note.props, "calendar").and_then(|k| note.props.get(k));
     let hidden = matches!(calendar, Some(serde_json::Value::Bool(false)))
         || matches!(calendar, Some(serde_json::Value::String(s)) if s == "false");
@@ -474,7 +474,7 @@ fn note_notifies(note: &NoteMeta) -> bool {
     true
 }
 
-/// A sheet column's notification settings (SUB-876), read from the note's
+/// A sheet column's notification settings, read from the note's
 /// `columns:` frontmatter map. Deliberately the same vocabulary as a database
 /// property's schema: `notify` is the day-of alert, `notifyBefore` the
 /// lead-time one, and either may be set without the other.
@@ -552,7 +552,7 @@ pub fn watches_sheet(props: &serde_json::Map<String, serde_json::Value>) -> bool
 pub type SheetBodies = HashMap<String, String>;
 
 /// Case-folded name equality, matching the vault's identity rule everywhere
-/// else (SUB-920): exact spelling first, then lowercase.
+/// else: exact spelling first, then lowercase.
 fn fold_eq(left: &str, right: &str) -> bool {
     left == right || left.to_lowercase() == right.to_lowercase()
 }
@@ -567,7 +567,7 @@ fn occurrence_for(
     anchor: NaiveDate,
     day: NaiveDate,
 ) -> Option<NaiveDate> {
-    // recurrence ignores ranges (SUB-596), like the calendar: a range-valued
+    // recurrence ignores ranges, like the calendar: a range-valued
     // prop repeats from its START, which is all `parse_due` returns —
     // occurrences are single days.
     let Some(repeat) = folded_prop_str(props, "repeat").and_then(|r| parse_repeat(&r)) else {
@@ -585,7 +585,7 @@ fn occurrence_for(
 }
 
 /// Split a state key back into its parts — `<path>|<prop>|<YYYY-MM-DD>`, or
-/// `<path>|<prop>|<YYYY-MM-DD>|lead` for a lead-time alert (SUB-842); the
+/// `<path>|<prop>|<YYYY-MM-DD>|lead` for a lead-time alert; the
 /// bool is that marker. Split from the right so a path containing `|`
 /// survives the trip. The marker is only consumed when it is the FINAL
 /// segment AND the segment before it parses as a date, so a prop literally
@@ -605,7 +605,7 @@ fn split_key(key: &str) -> Option<(&str, &str, NaiveDate, bool)> {
 }
 
 /// Rebuild the item a snooze key names, if the deadline it was snoozed from
-/// still exists unchanged (SUB-737). A note that moved, lost the prop, lost
+/// still exists unchanged. A note that moved, lost the prop, lost
 /// the schema's notify flag, was completed/hidden, or whose due value no
 /// longer places an occurrence on the key's day yields None — the snooze is
 /// stale, and firing for a deadline that no longer exists as snoozed would be
@@ -624,7 +624,7 @@ fn item_for_key(
     }
     // A database property is tried FIRST, so a property whose name literally
     // contains the row marker still resolves as itself; only a segment no
-    // property claims is read as a sheet cell (SUB-876).
+    // property claims is read as a sheet cell.
     db_item_for_key(note, schema, prop, date, is_lead, today)
         .or_else(|| sheet_item_for_key(note, sheets, prop, date, is_lead, today))
 }
@@ -645,7 +645,7 @@ fn db_item_for_key(
     }
     // the flag the key's own alert rides on must still be set: a lead key is
     // stale once `notifyBefore` is cleared, a day-of key once `notify` is
-    // (SUB-842)
+    //
     let lead = match is_lead {
         // same clamp as due_now: a hand-edited out-of-range value must not
         // panic the date math below
@@ -681,7 +681,7 @@ fn db_item_for_key(
     })
 }
 
-/// The sheet-cell twin of `db_item_for_key` (SUB-876): `seg` is
+/// The sheet-cell twin of `db_item_for_key`: `seg` is
 /// `<column>#<row label>`, both escaped. Stale for the same reasons — the
 /// column stopped notifying, the row was renamed or deleted, its date cell
 /// changed — and stale means the snooze is dropped, never fired blind.
@@ -732,7 +732,7 @@ fn sheet_item_for_key(
 
 /// A row's identity: its first cell, trimmed. Not its index — an index shifts
 /// when a row above is inserted, moved, or deleted, and every fired/snoozed
-/// key below it would then point at the wrong deadline (SUB-876).
+/// key below it would then point at the wrong deadline.
 fn row_label(row: &[String]) -> &str {
     row.first().map(|c| c.trim()).unwrap_or_default()
 }
@@ -745,7 +745,7 @@ fn ts(t: NaiveDateTime) -> i64 {
 /// (`Local::now().naive_local()`, snooze targets) — reinterpreting them as
 /// UTC would persist values off by the zone offset.
 ///
-/// DST policy, both halves deterministic and ORDER-PRESERVING (SUB-770):
+/// DST policy, both halves deterministic and ORDER-PRESERVING:
 /// an ambiguous wall time (fall-back hour, lived twice) takes the EARLIEST
 /// reading; a nonexistent one (spring-forward gap) resolves FORWARD to the
 /// instant the gap ends. Forward here means the gap's end, not `t` plus the
@@ -800,7 +800,7 @@ fn gap_end<Tz: TimeZone>(t: NaiveDateTime, tz: &Tz) -> i64 {
 /// today and whose fire time has passed, plus any expired snoozes. Fired
 /// keys and still-running snoozes are skipped.
 ///
-/// A note carrying `repeat:` (SUB-643) is due when TODAY is an occurrence
+/// A note carrying `repeat:` is due when TODAY is an occurrence
 /// day of its series, and the item's date is that occurrence — so the fired
 /// key is occurrence-keyed (each occurrence fires exactly once, KEEP_DAYS
 /// pruning keeps working) and the notification names the day that came due.
@@ -808,7 +808,7 @@ fn gap_end<Tz: TimeZone>(t: NaiveDateTime, tz: &Tz) -> i64 {
 /// `repeat_skip` drops occurrences, the anchor included — the same reads the
 /// calendar makes. Non-recurring notes are byte-identical to before.
 ///
-/// A snooze that outlives its occurrence day (SUB-737) is picked up by a
+/// A snooze that outlives its occurrence day is picked up by a
 /// second pass over the persisted `snoozed` map: a weekly deadline snoozed
 /// "tomorrow" targets a day the series doesn't land on, so no item is built
 /// for it above and the reminder the user explicitly asked for would prune
@@ -818,7 +818,7 @@ fn gap_end<Tz: TimeZone>(t: NaiveDateTime, tz: &Tz) -> i64 {
 /// occurrence carries its own key and fires normally.
 /// The no-sheets spelling, which is what every database test asserts against:
 /// with an empty `sheets` map the pass below is a no-op, so these cases stay
-/// byte-identical to the pre-SUB-876 behaviour they were written for.
+/// byte-identical to the pre-sheet-notification behaviour they were written for.
 #[cfg(test)]
 pub fn due_now(
     notes: &[NoteMeta],
@@ -829,7 +829,7 @@ pub fn due_now(
     due_now_with_sheets(notes, schema, &SheetBodies::new(), state, now)
 }
 
-/// `due_now` plus the sheet pass (SUB-876). `sheets` holds the bodies of the
+/// `due_now` plus the sheet pass. `sheets` holds the bodies of the
 /// notes with notifying columns — only the scheduler has them (it reads them
 /// under the engine lock), so every other caller goes through `due_now` and
 /// gets the database behaviour unchanged.
@@ -867,7 +867,7 @@ pub fn due_now_with_sheets(
             }
             let Some(value) = folded_prop_str(&note.props, prop) else { continue };
             let Some((anchor, time)) = parse_due(&value) else { continue };
-            // day-of looks for an occurrence on today; the lead alert (SUB-842)
+            // day-of looks for an occurrence on today; the lead alert
             // looks `n` days ahead — today is its alert day when `today + n` is
             // an occurrence. The two are independent: either may be configured
             // alone, and a note can hit both on the same scan.
@@ -901,7 +901,7 @@ pub fn due_now_with_sheets(
             }
         }
     }
-    // SUB-737: expired snoozes whose day is NOT an occurrence day of today's
+    // Expired snoozes whose day is NOT an occurrence day of today's
     // scan — the item above was never constructed, so consult the map itself.
     // `out` already carries every key the first pass produced, so a key that
     // is both today's occurrence and snoozed can't be pushed twice.
@@ -946,7 +946,7 @@ fn push_if_due(item: DueItem, state: &NotifyState, now: NaiveDateTime, out: &mut
     }
 }
 
-/// The sheet pass (SUB-876): every date cell of every notifying column,
+/// The sheet pass: every date cell of every notifying column,
 /// checked exactly like a database property. Sheets carry no `repeat:` and no
 /// per-row schema, so a cell is due on its own date and nowhere else — the
 /// candidate list is just the day-of alert, the lead-time alert, or both.
@@ -1012,7 +1012,7 @@ pub struct NotifyState {
     #[serde(default)]
     snoozed: HashMap<String, i64>,
     /// Keys a newer Substrate wrote that this build doesn't understand. Kept
-    /// so a read→write cycle here doesn't strip them (SUB-433).
+    /// so a read→write cycle here doesn't strip them.
     #[serde(flatten)]
     extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -1024,7 +1024,7 @@ impl NotifyState {
     }
 
     pub fn save(&self, root: &Path) -> Result<(), String> {
-        // refuse to rewrite a file a newer app wrote (SUB-433)
+        // refuse to rewrite a file a newer app wrote
         crate::vaultfmt::prepare_write(root, crate::vaultfmt::VaultFile::Notifications)?;
         let abs = root.join(STATE_REL_PATH);
         if let Some(dir) = abs.parent() {
@@ -1053,7 +1053,7 @@ impl NotifyState {
         self.snoozed.get(key).copied()
     }
 
-    /// Every live snooze, `(key, until)` — the late-fire pass (SUB-737) walks
+    /// Every live snooze, `(key, until)` — the late-fire pass walks
     /// these because a snooze can outlive the day its item is constructed on.
     pub fn snoozed_keys(&self) -> impl Iterator<Item = (&str, i64)> {
         self.snoozed.iter().map(|(k, v)| (k.as_str(), *v))
@@ -1074,7 +1074,7 @@ impl NotifyState {
     }
 }
 
-/// The due date a state key names. Lead-time keys (SUB-842) carry a trailing
+/// The due date a state key names. Lead-time keys carry a trailing
 /// `|lead` marker after the date — without stepping over it, prune would read
 /// every live lead key as unparseable and drop it on the next scan.
 fn key_date(key: &str) -> Option<NaiveDate> {
@@ -1117,7 +1117,7 @@ fn scan(app: &tauri::AppHandle) {
         let state = app.state::<crate::AppState>();
         let engine = state.0.lock().unwrap();
         let notes = engine.list();
-        // Only the sheets that opted a column in are opened (SUB-876). The
+        // Only the sheets that opted a column in are opened. The
         // index carries props but no body, and this runs every 60 seconds —
         // the frontmatter flag is what keeps the scan off every other file.
         let sheets: SheetBodies = notes
@@ -1168,7 +1168,7 @@ fn fire_and_handle(app: tauri::AppHandle, item: DueItem) {
         Ok(NotificationResponse::Click) => {
             crate::show_main(&app);
             match &item.row {
-                // a sheet cell opens the note AND reveals its row (SUB-876);
+                // a sheet cell opens the note AND reveals its row;
                 // `app:open-note` keeps its bare-path payload, which the tray
                 // agenda shares
                 Some(row) => {
@@ -1208,7 +1208,7 @@ fn fire_and_handle(app: tauri::AppHandle, item: DueItem) {
 }
 
 /// Fire one plain notification, no actions and no wait — the route reflexes
-/// (SUB-826) use for their `notify` verb. Delivery is spawned because the
+/// use for their `notify` verb. Delivery is spawned because the
 /// backend can block on the window server, and a reflex runs on the watcher
 /// callback thread: a banner must never hold up the next vault refresh.
 #[cfg(target_os = "macos")]
@@ -1261,7 +1261,7 @@ mod tests {
         }
     }
 
-    /// One date-kind prop schema: day-of flag + optional lead time (SUB-842).
+    /// One date-kind prop schema: day-of flag + optional lead time.
     fn date_prop(notify: bool, notify_before: Option<u32>) -> PropSchema {
         PropSchema {
             options: Vec::<SelectOption>::new(),
@@ -1310,7 +1310,7 @@ mod tests {
         assert!(parse_due("").is_none());
     }
 
-    /// SUB-571: the scheduler's grammar matches what the UI can render. A
+    /// The scheduler's grammar matches what the UI can render. A
     /// seconds value is not a due date — firing on one notified the user about
     /// an item absent from every surface (the TS `splitDayTime` rejects it, so
     /// it reaches neither the grid, the agenda, Upcoming, nor `due:today`).
@@ -1324,7 +1324,7 @@ mod tests {
         assert!(parse_due("2026-08-01 14:30").is_some());
     }
 
-    /// SUB-637: the padding axis of the SUB-571 lockstep. Chrono's numeric
+    /// The padding axis of the lockstep. Chrono's numeric
     /// fields are width-tolerant, so unpadded forms and a doubled separator
     /// used to parse here while the TS grammar rejects them (committed TS
     /// twins: calendar.test.ts `splitDayTime: bad day or bad time is null`) —
@@ -1340,15 +1340,15 @@ mod tests {
         assert!(parse_due("2026-08-01").is_some());
         assert!(parse_due("2026-08-01 09:15").is_some());
         assert!(parse_due("2026-08-01T09:15").is_some());
-        // ranges route through the same endpoint parser (SUB-596): a loose
+        // ranges route through the same endpoint parser: a loose
         // endpoint poisons the whole value, a padded one still parses
         assert!(parse_due_range("2026-9-01/2026-09-21").is_none());
         assert!(parse_due_range("2026-09-01 09:00/2026-09-03 17:00").is_some());
     }
 
-    /// SUB-906: SUB-714 widened the TS grammar to a single-digit hour
+    /// Widened the TS grammar to a single-digit hour
     /// (`2026-08-03 9:30` renders as 09:30 on every surface), so the
-    /// scheduler and doctor accept it too — the SUB-637 contract is
+    /// scheduler and doctor accept it too — the contract is
     /// "grammar matches what the UI can render", in both directions.
     #[test]
     fn parse_due_accepts_single_digit_hours_like_the_ui() {
@@ -1363,7 +1363,7 @@ mod tests {
         assert!(parse_due_range("2026-09-01/2026-09-21 9:00").is_some());
     }
 
-    /// SUB-596: the interval form. `parse_due` keeps returning the START, so
+    /// The interval form. `parse_due` keeps returning the START, so
     /// the scheduler, the firing key, and prune are untouched by ranges;
     /// `parse_due_range` is the full-fidelity twin of TS `splitDateRange`.
     #[test]
@@ -1412,8 +1412,8 @@ mod tests {
         assert!(due_now(&notes, &schema, &state, dt(2026, 7, 18, 12, 0)).is_empty());
     }
 
-    /// SUB-920: hand-written frontmatter capitalizes freely and every other
-    /// date surface folds key casing (SUB-696) — the scheduler must too, in
+    /// Hand-written frontmatter capitalizes freely and every other
+    /// date surface folds key casing — the scheduler must too, in
     /// both directions: a cased note still fires, a cased completion or
     /// opt-out still silences.
     #[test]
@@ -1424,7 +1424,7 @@ mod tests {
         let cased = vec![note("Tasks/Cased.md", &[("Type", "task"), ("Due", "2026-07-17")])];
         let due = due_now(&cased, &schema, &state, dt(2026, 7, 17, 9, 0));
         assert_eq!(due.len(), 1, "cased Type/Due fires: {due:?}");
-        // SUB-842: the lead alert reads the value through the same folded
+        // The lead alert reads the value through the same folded
         // reader, so a cased Due owes BOTH firings, not just the day-of one
         let both = schema_of(&[("due", date_prop(true, Some(3)))]);
         let lead = due_now(&cased, &both, &state, dt(2026, 7, 14, 9, 0));
@@ -1498,7 +1498,7 @@ mod tests {
         );
     }
 
-    /// SUB-842: a lead time fires N days BEFORE the due date, at the value's
+    /// A lead time fires N days BEFORE the due date, at the value's
     /// own time (09:00 unless the value carries one) — and nowhere else.
     #[test]
     fn lead_fires_n_days_before_at_default_and_explicit_time() {
@@ -1535,7 +1535,7 @@ mod tests {
         assert_eq!(due[0].describe(), "due — Jul 17, 2026 · 14:30 · in 1 day");
     }
 
-    /// SUB-842: an out-of-range lead time from a hand-edited schema file
+    /// An out-of-range lead time from a hand-edited schema file
     /// clamps instead of panicking chrono's date math — `set_schema_prop`
     /// caps writes at 365, but `Engine::schema()` deserializes raw, and an
     /// unwinding scan would silently kill the scheduler thread for the
@@ -1558,7 +1558,7 @@ mod tests {
         assert_eq!(rebuilt.map(|i| i.lead), Some(Some(365)));
     }
 
-    /// SUB-842: both flags set = two independent alerts, distinct keys —
+    /// Both flags set = two independent alerts, distinct keys —
     /// firing or snoozing one leaves the other alone.
     #[test]
     fn lead_and_day_of_fire_independently() {
@@ -1580,7 +1580,7 @@ mod tests {
         assert_eq!(day_of[0].describe(), "due — Jul 17, 2026");
     }
 
-    /// SUB-842: a lead time on a repeating series fires once per occurrence,
+    /// A lead time on a repeating series fires once per occurrence,
     /// keyed on that occurrence's OWN due date.
     #[test]
     fn lead_on_a_repeat_series_fires_per_occurrence() {
@@ -1605,7 +1605,7 @@ mod tests {
         assert_eq!(second[0].key(), "Tasks/Standup.md|due|2026-07-13|lead");
     }
 
-    /// SUB-842: `|lead` is only a marker when it sits last AND the segment
+    /// `|lead` is only a marker when it sits last AND the segment
     /// before it is a date — a prop literally named `lead` must round-trip as
     /// the day-of key it is, and every legacy key must keep parsing.
     #[test]
@@ -1644,7 +1644,7 @@ mod tests {
         assert_eq!(key_date("garbage"), None);
     }
 
-    /// SUB-842: prune keys off the DUE date, marker or not — a live lead key
+    /// Prune keys off the DUE date, marker or not — a live lead key
     /// must survive, an old one must go.
     #[test]
     fn prune_keeps_live_lead_keys_and_drops_old_ones() {
@@ -1658,7 +1658,7 @@ mod tests {
         assert!(state.snoozed_until("C.md|due|2026-07-17|lead").is_some());
     }
 
-    /// SUB-842: a lead alert snoozes like any other, including the SUB-737
+    /// A lead alert snoozes like any other, including the
     /// late pass that rebuilds the item from its key — and the rebuild goes
     /// stale when the schema drops the lead time.
     #[test]
@@ -1671,7 +1671,7 @@ mod tests {
         let key = "Tasks/Standup.md|due|2026-07-06|lead";
         let mut state = NotifyState::default();
         // snoozed to tomorrow — a day that is neither an occurrence nor a lead
-        // day, so only the SUB-737 pass can find it
+        // day, so only the pass can find it
         state.snooze(key, ts(dt(2026, 7, 4, 9, 0)));
         assert!(due_now(&notes, &schema, &state, dt(2026, 7, 3, 12, 0)).is_empty());
         let late = due_now(&notes, &schema, &state, dt(2026, 7, 4, 9, 0));
@@ -1700,7 +1700,7 @@ mod tests {
         assert!(item_for_key(&notes, &schema, &SheetBodies::new(), day_of, occurrence).is_none());
     }
 
-    /// SUB-842: a lead day missed while the app was closed does NOT fire late
+    /// A lead day missed while the app was closed does NOT fire late
     /// — the day-of alert is the backstop.
     #[test]
     fn missed_lead_days_never_fire_late() {
@@ -1714,7 +1714,7 @@ mod tests {
         assert_eq!(due_now(&notes, &schema, &state, dt(2026, 7, 17, 9, 0)).len(), 1);
     }
 
-    /// SUB-643: `parse_repeat` is the Rust port of TS `parseRepeat`
+    /// `parse_repeat` is the Rust port of TS `parseRepeat`
     /// (src/lib/calendar.ts) — same grammar, same case/space tolerance, same
     /// "anything else is simply non-repeating" reading.
     #[test]
@@ -1912,7 +1912,7 @@ mod tests {
         assert!(fires("Tasks/Bounded.md", 15));
         assert!(!fires("Tasks/Bounded.md", 22));
         // an until before the anchor truncates the series but never hides the
-        // anchor itself (SUB-220)
+        // anchor itself
         assert!(fires("Tasks/Typo.md", 1));
         assert!(!fires("Tasks/Typo.md", 8));
         // an unparseable until is no bound at all — the calendar's read
@@ -2014,7 +2014,7 @@ mod tests {
         assert_eq!(due[0].describe(), "due — Jul 8, 2026 · 14:30");
     }
 
-    /// SUB-596 lockstep: a range-valued recurring prop expands from the
+    /// Lockstep: a range-valued recurring prop expands from the
     /// span's START, one single-day occurrence per step — the calendar's read
     /// ("recurrence ignores ranges").
     #[test]
@@ -2034,7 +2034,7 @@ mod tests {
         assert_eq!(due[0].key(), "Tasks/Sprint.md|due|2026-07-08");
     }
 
-    /// SUB-640: a note opted out of the calendar (`calendar: false`, SUB-175)
+    /// A note opted out of the calendar (`calendar: false`)
     /// reaches no date surface, so the scheduler must not fire for it either.
     /// The engine round-trips the YAML as a bare bool, but imports and hand
     /// edits carry the string — both hide the note, exactly as the TS check.
@@ -2065,8 +2065,8 @@ mod tests {
         assert_eq!(due_now(&notes, &schema, &state, now).len(), 3);
     }
 
-    /// SUB-640: completing a note stops its due notification — the `status`
-    /// prop read through SUB-205's `isComplete` predicate (done/cancelled,
+    /// Completing a note stops its due notification — the `status`
+    /// prop read through the `isComplete` predicate (done/cancelled,
     /// trimmed + case-insensitive), the same one every TS date surface uses.
     #[test]
     fn due_skips_completed_notes() {
@@ -2124,7 +2124,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// SUB-737: a snooze that outlives its occurrence day fires ON the snoozed
+    /// A snooze that outlives its occurrence day fires ON the snoozed
     /// date. A weekly deadline snoozed "tomorrow" targets a day the series
     /// doesn't land on — before this, no item was constructed for that day, the
     /// snooze key was never consulted, and the reminder the user explicitly
@@ -2177,7 +2177,7 @@ mod tests {
         assert_eq!(again[0].key(), key);
     }
 
-    /// SUB-737: the stale-snooze guard. A snooze names a deadline; when that
+    /// The stale-snooze guard. A snooze names a deadline; when that
     /// deadline no longer exists in that shape, the snooze is dropped silently
     /// rather than fired — never notify for something the vault no longer says.
     #[test]
@@ -2257,7 +2257,7 @@ mod tests {
         assert!(due_now(&live, &schema, &junk, now).is_empty(), "malformed key");
     }
 
-    /// SUB-737 regression guard: a DAILY series is an occurrence every day, so
+    /// Regression guard: a DAILY series is an occurrence every day, so
     /// a "tomorrow" snooze lands ON an occurrence — the ordinary path, which
     /// must not double-fire now that a second pass also walks the map.
     #[test]
@@ -2288,7 +2288,7 @@ mod tests {
         assert_eq!(due[0].key(), "Tasks/Daily.md|due|2026-07-09");
     }
 
-    /// SUB-737: the late-fire pass is snooze-only — it must not resurrect
+    /// The late-fire pass is snooze-only — it must not resurrect
     /// ordinary missed dues (a note due while the app was off stays quiet).
     #[test]
     fn late_fire_pass_does_not_resurrect_unsnoozed_misses() {
@@ -2307,7 +2307,7 @@ mod tests {
         );
     }
 
-    /// SUB-737 review finding: a snooze key naming a FUTURE occurrence (an
+    /// A snooze key naming a FUTURE occurrence (an
     /// expired `until` but a day that hasn't arrived — midnight-crossing
     /// "later today", clock shift, hand-edited state) must not fire early.
     /// Firing early would also mark the key fired and swallow the real fire
@@ -2405,7 +2405,7 @@ mod tests {
         }
     }
 
-    /// SUB-770: a wall time inside the spring-forward gap used to fall through
+    /// A wall time inside the spring-forward gap used to fall through
     /// to `and_utc()`, minting an epoch that sorted AFTER the times following
     /// it — `snooze_tomorrow` can produce a 02:xx target, so that snooze fired
     /// an hour late once a year.
@@ -2437,7 +2437,7 @@ mod tests {
     }
 
     /// The fall-back hour is lived twice; the documented choice is the first
-    /// reading, and SUB-770 must not have quietly moved it.
+    /// reading, and nothing may quietly move it.
     #[test]
     fn ts_keeps_ambiguous_times_on_the_earliest_reading() {
         let tz = Berlin2026;
@@ -2495,7 +2495,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    // ---- sheets (SUB-876) ----
+    // ---- sheets ----
 
     /// A sheet note: `type: sheet` plus a `columns:` map opting columns in.
     fn sheet_note(path: &str, columns: &[(&str, bool, Option<u32>)]) -> NoteMeta {

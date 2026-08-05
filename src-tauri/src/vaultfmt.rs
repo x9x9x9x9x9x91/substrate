@@ -1,4 +1,4 @@
-//! Format versions for the hidden `.vault/*.json` config files (SUB-433).
+//! Format versions for the hidden `.vault/*.json` config files.
 //!
 //! Two app versions can share one vault — phone⇄Mac sync, a laptop that
 //! hasn't updated, a restored backup. Until now nothing on disk said which
@@ -247,7 +247,7 @@ pub fn newer_message(file: VaultFile, found: u32) -> String {
 /// no sidecar entry to consult for those, so the conservative reading is "a
 /// newer app owns this vault, don't add files to it behind its back."
 ///
-/// Both targets, deliberately (SUB-1110): it was `#[cfg(desktop)]` while its
+/// Both targets, deliberately: it was `#[cfg(desktop)]` while its
 /// only caller was the desktop-only boot backfill, but the post-pull backfill
 /// in `gitsync` runs on the phone too and asks the same question about the same
 /// unversioned files. The question itself has nothing target-specific in it —
@@ -368,7 +368,7 @@ mod tests {
 
     #[test]
     fn no_sidecar_reads_as_v1() {
-        // every pre-SUB-433 vault: no sidecar at all, everything is v1
+        // every pre-change vault: no sidecar at all, everything is v1
         let root = temp_root("nosidecar");
         for f in VaultFile::ALL {
             assert_eq!(on_disk_version(&root, f), 1, "{}", f.key());

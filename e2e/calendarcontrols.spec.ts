@@ -126,7 +126,7 @@ test("agenda rows carry the entry context menu; Mark done clears an overdue task
   await expect(menu).toBeVisible();
   // task schema has a done option and the entry isn't complete → Mark done
   await menu.locator(".ctx-item", { hasText: "Mark done" }).click();
-  // done entries leave the overdue group entirely (SUB-205/206 semantics)
+  // done entries leave the overdue group entirely
   await expect(agenda.locator(".cal-ag-item", { hasText: "Renew Bandcamp plan" })).toHaveCount(0);
 });
 

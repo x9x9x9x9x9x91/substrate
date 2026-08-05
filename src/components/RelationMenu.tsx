@@ -16,7 +16,7 @@ interface RelationMenuProps {
   anchor: AnchorRect;
   /** current targets (stored titles) */
   values: string[];
-  /** bulk bar only (SUB-635): one quiet line under the filter input stating
+  /** bulk bar only: one quiet line under the filter input stating
       that the write REPLACES every selected note's values — the pick
       toggles otherwise read as additive */
   bulkNote?: string;
@@ -24,12 +24,12 @@ interface RelationMenuProps {
   candidates: RelationCandidate[];
   /** the target database type — labels the create row */
   targetType: string;
-  /** SUB-947 type-to-replace: the keystroke that opened this picker, seeded
+  /** Type-to-replace: the keystroke that opened this picker, seeded
       as its filter query */
   seed?: string;
-  /** SUB-947: Tab commits-and-carries the editor one cell over. Enter does
+  /** Tab commits-and-carries the editor one cell over. Enter does
       NOT hop here — a relation cell is multi-pick and its menu stays open by
-      design (SUB-79), so Enter keeps toggling links. */
+      design, so Enter keeps toggling links. */
   onHop?: (dir: HopDir) => void;
   /** live multi-pick commits; the menu stays open */
   onCommit: (values: string[]) => void;
@@ -61,7 +61,7 @@ export default function RelationMenu({
   onEditSchema,
   onClose,
 }: RelationMenuProps) {
-  // SUB-947: the keystroke that opened the picker is already its filter
+  // The keystroke that opened the picker is already its filter
   const [query, setQuery] = useState(seed ?? "");
   const [sel, setSel] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
@@ -90,7 +90,7 @@ export default function RelationMenu({
     setSel(0);
   }, [q]);
 
-  // SUB-1132: typing replaces the rows and resets the selection to the top,
+  // Typing replaces the rows and resets the selection to the top,
   // which is a no-op whenever it already was 0 — depend on the rows too, or a
   // list the user had scrolled keeps its offset and hides the selection
   useEffect(() => {
@@ -133,7 +133,7 @@ export default function RelationMenu({
       e.preventDefault();
       pick(rows[sel]);
     } else if (e.key === "Tab" && onHop) {
-      // SUB-947: links commit live as they toggle, so Tab has nothing to
+      // Links commit live as they toggle, so Tab has nothing to
       // write — it just leaves this cell for the next one
       e.preventDefault();
       onClose();

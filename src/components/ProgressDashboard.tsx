@@ -1,4 +1,4 @@
-/** The goal thermometer (SUB-967). A ```progress fence puts one number against
+/** The goal thermometer. A ```progress fence puts one number against
     the number it is supposed to reach inside the universal hub canvas. A hub
     body containing one fence is the standalone form; no separate dashboard
     kind or dispatch surface is introduced.
@@ -148,7 +148,7 @@ export default function ProgressDashboard({
     [blocks],
   );
   const sheetNames = useMemo(() => progressSheets(configs), [configs]);
-  // the same quoted rate table the cards read (SUB-834): a bound summary must
+  // the same quoted rate table the cards read: a bound summary must
   // convert identically on a thermometer and on a card
   const { fx: rates } = useFxRates();
   const sheets = useSheetStates(sheetNames, vaultEpoch, meta.path, rates);

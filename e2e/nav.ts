@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 
-// Database navigation after SUB-159: the sidebar's flat Databases section
+// Database navigation: the sidebar's flat Databases section
 // (homeless dbs only) is gone — every database, homed or homeless, zero-note
 // included, opens from the All databases manager.
 export async function openDb(page: Page, name: string) {

@@ -1,7 +1,7 @@
-// Food log data for the `dashboard: food` renderer (SUB-325): one pure pass
+// Food log data for the `dashboard: food` renderer: one pure pass
 // over the log sheet's csv fence shaping everything the pane shows — the focus
-// day's net kcal against the 1900–2300 band (today unless the pane navigated,
-// SUB-408), the 7-day average, the 14-day day strip, and the repeat chips.
+// day's net kcal against the 1900–2300 band (today unless the pane
+// navigated), the 7-day average, the 14-day day strip, and the repeat chips.
 // The pane stays a dumb renderer; this module is the unit-tested half (the
 // today.ts split).
 //
@@ -41,7 +41,7 @@ export interface FoodDay {
 
 export interface FoodData {
   rows: FoodRow[];
-  /** the focus day, YYYY-MM-DD — `today` unless the pane navigated (SUB-408) */
+  /** the focus day, YYYY-MM-DD — `today` unless the pane navigated */
   focusDay: string;
   /** focus day's rows, log order (field names predate day navigation:
       today* describes the FOCUS day, not necessarily the real today) */
@@ -92,14 +92,14 @@ function headerIdx(headers: string[], name: string): number {
 
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** Upper sanity bound on a single entry's kcal (SUB-691). Generous for any
+/** Upper sanity bound on a single entry's kcal. Generous for any
     real meal or workout, so it only ever catches a digit-slip or a runaway
     expression — one absurd row would otherwise pin the strip's scale and
     poison the 7- and 14-day metrics for two weeks. */
 export const KCAL_MAX = 20000;
 
 /** Whether a kcal number is loggable: finite and inside the sanity bound,
-    sign-agnostic so an exercise burn is judged by magnitude (SUB-691). */
+    sign-agnostic so an exercise burn is judged by magnitude. */
 export function kcalInRange(n: number): boolean {
   return isFinite(n) && Math.abs(n) <= KCAL_MAX;
 }
@@ -122,10 +122,10 @@ export function parseFoodRows(body: string): FoodRow[] {
   for (let r = 1; r < rows.length; r++) {
     const cells = rows[r];
     const date = (cells[di] ?? "").trim();
-    // strict parse like sheet cells (SUB-221): "1e3"/"0x10"/"Infinity" are
+    // strict parse like sheet cells: "1e3"/"0x10"/"Infinity" are
     // skipped text, never 1000 kcal
     // Hand edits type the app's own de-DE display dialect ("1.234"), which
-    // the strict parser alone reads as text — fold it first (SUB-923).
+    // the strict parser alone reads as text — fold it first.
     const kcal = parseStrictNumber(normalizeNumberInput(cells[ki] ?? ""));
     if (!DAY_RE.test(date) || kcal === null) continue;
     const protein = pi >= 0 ? parseStrictNumber(normalizeNumberInput(cells[pi] ?? "")) : null;
@@ -188,7 +188,7 @@ export function removeFoodEntry(body: string, idx: number): string {
 }
 
 /** Everything the food pane shows, from the log body + the dashboard note's
-    band props. `focus` is the day the hero/rows describe (SUB-408 day
+    band props. `focus` is the day the hero/rows describe (day
     navigation) — default today; avg7, weekDelta and the 14-day strip stay
     anchored to the real `today` either way. Read-only display data. */
 export function foodData(

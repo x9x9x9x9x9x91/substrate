@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * IPC inventory drift check (SUB-428).
+ * IPC inventory drift check.
  *
  * Three hand-maintained inventories describe the same set of Tauri commands:
  *
@@ -13,7 +13,7 @@
  *                src/lib/tauri.ts, which the e2e suite runs against.
  *
  * Nothing keeps them in step but attention, and attention has already lost:
- * SUB-40 shipped a snake_case arg key that the real IPC dropped silently
+ * Shipped a snake_case arg key that the real IPC dropped silently
  * because the mock reads `args?.x` and never cared about the casing.
  *
  * This script re-derives all three inventories mechanically and fails on any
@@ -590,7 +590,7 @@ export function collect(): Inventories {
   const mockTs = readFileSync(join(ROOT, "src/lib/tauri.ts"), "utf8");
   const allowPath = join(ROOT, "scripts/ipc-allowlist.txt");
 
-  // The command bodies live in src-tauri/src/commands/*.rs (SUB-617); lib.rs
+  // The command bodies live in src-tauri/src/commands/*.rs; lib.rs
   // keeps only the generate_handler! list, so the fns have to be read from
   // there too or every registered name looks unimplemented.
   const commandsDir = join(ROOT, "src-tauri/src/commands");

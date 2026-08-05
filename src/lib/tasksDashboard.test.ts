@@ -139,7 +139,7 @@ test("stale threshold is inclusive; invalid settings use the documented default"
   );
 });
 
-/* SUB-1125 — some notes just aren't touched. Precedence, in order:
+/* some notes just aren't touched. Precedence, in order:
    the per-note override wins over everything; a board's own `stale_days`
    wins over the global toggle; the toggle is the default under both. */
 
@@ -308,14 +308,14 @@ test("snoozed tasks outside the area allowlist do not count as snoozed (SUB-786)
   assert.equal(model.total, 0);
 });
 
-/* —————————————————————— SUB-870: due dates lead —————————————————————— */
+/* —————————————————————— due dates lead —————————————————————— */
 
 test("due days count local calendar days and bucket around today (SUB-870)", () => {
   // NOW is 2026-08-01 local
   assert.equal(taskDueDays("2026-07-31", NOW), -1);
   assert.equal(taskDueDays("2026-08-01", NOW), 0);
   assert.equal(taskDueDays("2026-08-08", NOW), 7);
-  // a timed due value (SUB-270) still buckets by its day
+  // a timed due value still buckets by its day
   assert.equal(taskDueDays("2026-08-01 09:30", NOW), 0);
   // malformed values are simply undated — never urgent, never hidden
   assert.equal(taskDueDays("2026-02-30", NOW), null);

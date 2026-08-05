@@ -11,7 +11,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   </React.StrictMode>,
 );
 
-/* Real-app smoke lane (SUB-426): drives the REAL ipc layer
+/* Real-app smoke lane: drives the REAL ipc layer
    against a real scratch vault, since tauri-driver has no macOS support. The
    flag is a build-time literal, so a normal build evaluates `"undefined" ===
    "1"` and drops the branch — the driver never reaches the shipped bundle.

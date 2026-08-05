@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-463: the table/view block-widget fields no longer recompute on every
+// The table/view block-widget fields no longer recompute on every
 // transaction, and the callout scan is scoped to the viewport. What must
 // survive: a cursor entering a rendered block still reveals its source, a
 // cursor leaving it still re-renders, and a callout still decorates after
@@ -87,7 +87,7 @@ test("a callout scrolled out and back stays decorated", async ({ page }) => {
   expect(before).toBeGreaterThan(0);
 });
 
-// The parse-advance regression (review finding): CM6 only parses ~3000 chars
+// The parse-advance regression: CM6 only parses ~3000 chars
 // up front; a block past that window arrives via a background parse-advance
 // transaction with no doc/selection/focus change. blockFieldUpdate must
 // recompute on it (the syntaxTree reference compare) or the table renders as

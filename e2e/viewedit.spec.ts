@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Editable inline database views (SUB-796): the ```view fence stopped being a
+// Editable inline database views: the ```view fence stopped being a
 // read-only snapshot. A non-title cell click opens the same picker the database
 // pane opens, the write lands through the same undoable path, and "+ New"
 // creates a row seeded from the fence's own query. The title cell and the
-// header keep their SUB-86 meanings — open the note, open the database.
+// header keep their usual meanings — open the note, open the database.
 
 function row(page: Page, title: string) {
   return page.locator(".list .row", { has: page.getByText(title, { exact: true }) });
@@ -48,7 +48,7 @@ test("a text cell edits in place and the write is undoable (SUB-796)", async ({ 
   await expect(target).toHaveText("glass havens");
   await target.click();
 
-  // the same in-cell editor the database pane opens (SUB-405): prefilled with
+  // the same in-cell editor the database pane opens: prefilled with
   // the raw value, Enter commits
   const menu = page.locator(".selmenu");
   await expect(menu).toHaveClass(/selmenu-cell/);
@@ -107,7 +107,7 @@ test("a checkbox cell toggles on the click, without opening a picker", async ({ 
 
   await expect(page.locator(".embed-view")).toBeVisible();
   const box = cell(page, "Call with Gero", "done").locator(".prop-check");
-  // the whole cell is the affordance and nothing is checked yet (SUB-173)
+  // the whole cell is the affordance and nothing is checked yet
   await expect(box).toHaveCount(1);
   await expect(box).not.toHaveClass(/\bon\b/);
 
@@ -148,11 +148,11 @@ test("an open cell editor survives a vault change underneath it", async ({ page 
 
   // someone else edits a different note in this table. The widget's identity
   // carries the vault epoch, so this rebuilds it — the open editor and the
-  // in-progress value have to come through that (SUB-122/SUB-796)
+  // in-progress value have to come through that
   await page.evaluate(() =>
     window.__mockEditProp!("Fern Palace.md", "artist", "outside writer")
   );
-  // past the own-write echo window (SUB-116), or the event reads as ours
+  // past the own-write echo window, or the event reads as ours
   await page.waitForTimeout(1100);
   await page.evaluate(() => window.__mockEmit!("vault:changed"));
 

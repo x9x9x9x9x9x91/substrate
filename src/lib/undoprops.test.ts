@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { UndoEntry } from "./undo.ts";
 
-/* SUB-1025 — dropping a note on a tag folder is undoable like every other
+/* Dropping a note on a tag folder is undoable like every other
    prop edit. The mock backend lives behind `isTauri`, which sniffs `window`
    at module scope, so shim one before importing (same trick as
    noteactions.test.ts) and import the app modules dynamically. */

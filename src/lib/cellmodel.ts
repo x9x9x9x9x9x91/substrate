@@ -1,6 +1,6 @@
-/* One derivation of "what does editing this cell mean" (SUB-796).
+/* One derivation of "what does editing this cell mean".
 
-   The database table has answered this since SUB-79: given a note's props, a
+   The database table has answered this: given a note's props, a
    column name and the type's schema, which kind is it, what's the raw value,
    what's the note's own spelling of the key, is the checkbox on. The inline
    ```view widget now edits cells too, and two copies of that derivation would
@@ -21,12 +21,12 @@ export interface CellModel {
   /** the column's schema entry, when the type declares one */
   schema: PropSchema | undefined;
   /** the effective kind: schema first, then the built-in date meta props
-      (created/updated read as dates unless the schema overrides — SUB-167) */
+      (created/updated read as dates unless the schema overrides) */
   kind: PropKind | undefined;
   /** multi/relation values as a list ([] for every other kind) */
   list: string[];
   /** checkbox only: on iff the raw prop is the YAML bool `true` — `false`,
-      missing and empty all read as unchecked (SUB-173) */
+      missing and empty all read as unchecked */
   checked: boolean;
 }
 
@@ -49,7 +49,7 @@ export function cellModel(
 }
 
 /** Does a plain click on this cell open an editor? Rollups are derived
-    (SUB-678) and checkboxes toggle in place, so neither opens one. */
+ and checkboxes toggle in place, so neither opens one. */
 export function cellOpensEditor(kind: PropKind | undefined): boolean {
   return kind !== "rollup" && kind !== "checkbox";
 }

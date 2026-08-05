@@ -1,9 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-1132: panes that deliberately keep their scroll position across a data
+// Panes that deliberately keep their scroll position across a data
 // or view change owe the selection an explicit reveal — the browser's scroll
-// anchoring must never be what keeps the row painted (SUB-461/SUB-970). The
+// anchoring must never be what keeps the row painted. The
 // e2e server runs with `overflow-anchor: none` for exactly that reason, so
 // every reveal below is the pane's own doing.
 

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// Rendered markdown tables honor inline marks in cells (SUB-201): the Welcome
+// Rendered markdown tables honor inline marks in cells: the Welcome
 // seed's table carries a wikilink and a **bold** status cell — the block
 // widget must render both, not show literal asterisks.
 

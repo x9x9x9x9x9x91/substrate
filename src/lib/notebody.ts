@@ -1,4 +1,4 @@
-/** Bodies this session has already read, per note path (SUB-1169).
+/** Bodies this session has already read, per note path.
  *
  * A dashboard re-reads its own note over IPC on every mount, and until that
  * read lands the pane has nothing to draw — so leaving a board and coming

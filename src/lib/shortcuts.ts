@@ -1,4 +1,4 @@
-/* The single shortcut registry (SUB-28). Every app-level key binding is one
+/* The single shortcut registry. Every app-level key binding is one
    entry here; the window-level dispatcher in App.tsx matches a KeyboardEvent
    against these entries and runs the action mapped to the winning id, and the
    cheat-sheet overlay (ShortcutOverlay) renders straight from the same list —
@@ -9,14 +9,14 @@
    entries (`scope: "editor"`), which stay dispatched by CodeMirror but consume
    their combo from here via `shortcutCmKey`. Pane-owned surfaces (calendar,
    database grid, sheet grid) keep their local handlers and are listed with
-   `scope: "pane"` (SUB-396) — never dispatched, present so the cheat sheet and
+   `scope: "pane"` — never dispatched, present so the cheat sheet and
    the contextual hint panel (`hintEntries`) render one source of truth; their
    `hint` field gates liveness, since `when` needs a real key event. Palette
    input and menus stay unlisted — see the closing comment in App.tsx's key
    effect.
 
    Future consumers by design: palette hint text (each entry already carries a
-   canonical `keys` label) and SUB-5's configurable hotkey (combos are
+   canonical `keys` label) and the configurable hotkey (combos are
    structured data, so a user combo can replace a default one). */
 
 import type { NoteMeta, View } from "./types.ts";
@@ -33,7 +33,7 @@ export type ShortcutGroup = (typeof GROUPS)[number];
     - "editor":   never dispatched at app level — CodeMirror owns the key
     - "pane":     never dispatched at app level — the owning pane (calendar,
                   database grid, sheet) keeps its local handler; listed so the
-                  cheat sheet and hint panel render it (SUB-396) */
+                  cheat sheet and hint panel render it */
 export type ShortcutScope = "global" | "app" | "surface" | "overlay" | "editor" | "pane";
 
 /** One key combination. Modifier fields are tri-state: true = required,
@@ -55,7 +55,7 @@ export interface ShortcutCtx {
   view: View;
   overlay: "palette" | "capture" | null;
   shortcutsOpen: boolean;
-  /** the ⌘, settings sheet is up (SUB-398) — blocks app/surface scopes like
+  /** the ⌘, settings sheet is up — blocks app/surface scopes like
       the shortcut sheet; its own Esc is pane-owned (window capture handler) */
   settingsOpen: boolean;
   typing: boolean;
@@ -63,31 +63,31 @@ export interface ShortcutCtx {
   dbNote: string | null;
   /** date string when the selected note is a journal day, else null */
   daily: string | null;
-  /** pinned saved views in sidebar order — the ⌘5…⌘9 targets (SUB-67) */
+  /** pinned saved views in sidebar order — the ⌘5…⌘9 targets */
   pins: string[];
-  /** SUB-267: a search hit was just opened and its landing context is still
+  /** A search hit was just opened and its landing context is still
       up — one Esc returns to the results (claims esc-close) */
   searchReturn: boolean;
-  /** SUB-392: the view-history stack has somewhere to go back to */
+  /** The view-history stack has somewhere to go back to */
   canGoBack: boolean;
-  /** SUB-396: the open note (list selection or db side note) is a sheet — the
+  /** The open note (list selection or db side note) is a sheet — the
       grid owns a key surface alongside the view's own */
   sheetOpen: boolean;
-  /** SUB-464: the current view is a dashboard whose pages: tab strip renders —
+  /** The current view is a dashboard whose pages: tab strip renders —
       ⌃⇥ / ⌃⇧⇥ steps its pages */
   workbookOpen: boolean;
-  /** SUB-467: user-assigned key token → sidebar target token ($sidebar.keys) */
+  /** User-assigned key token → sidebar target token ($sidebar.keys) */
   customKeys: Record<string, string>;
-  /** SUB-726: a mounted yield/food board currently has history in this
+  /** A mounted yield/food board currently has history in this
       direction. Directional truth lets an empty side fall through to the
       session stack without sharing one keypress with a live board action. */
   dashCanUndo: boolean;
   dashCanRedo: boolean;
-  /** SUB-477: the session undo stack has something to undo / redo. Hint-only
+  /** The session undo stack has something to undo / redo. Hint-only
       — ⌘Z still fires on an empty stack so a stale entry can explain itself. */
   canUndo: boolean;
   canRedo: boolean;
-  /** SUB-812: a folder is queued in the mini-player. The transport chords are
+  /** A folder is queued in the mini-player. The transport chords are
       dead keys with nothing playing, so they only claim the event (and only
       earn a hint row) while there is something to transport. */
   playing: boolean;
@@ -105,7 +105,7 @@ export interface Shortcut {
   when?: (e: KeyEventLike, ctx: ShortcutCtx) => boolean;
   /** keep out of the cheat sheet (overlay-chrome keys like its own Esc) */
   unlisted?: boolean;
-  /** SUB-396: is this entry live in this context — the hint panel's gate.
+  /** Is this entry live in this context — the hint panel's gate.
       Pane/editor surfaces can't rely on `when` (it takes a key event, and
       their scope is never active), so they answer liveness here instead. */
   hint?: (ctx: ShortcutCtx) => boolean;
@@ -186,18 +186,18 @@ function define(s: Omit<Shortcut, "keys">): Shortcut {
   return { ...s, keys: s.combos.map(comboLabel).join(" / ") };
 }
 
-/** ⌘5…⌘9 target pinned views in sidebar order (SUB-67): the 0-based pin
+/** ⌘5…⌘9 target pinned views in sidebar order: the 0-based pin
     index a number key addresses, or null outside the pin range. ⌘1–4 stay
-    with the fixed views (Today/Notes/All/Calendar — SUB-92). */
+    with the fixed views (Today/Notes/All/Calendar). */
 export function pinIndexForKey(key: string): number | null {
   const n = Number(key);
   return Number.isInteger(n) && n >= 5 && n <= 9 ? n - 5 : null;
 }
 
-/** The ⌘-digit each pin owns (SUB-677): pin id → its keycap label, walked
+/** The ⌘-digit each pin owns: pin id → its keycap label, walked
     through pinIndexForKey so the digit mapping keeps one source, over the
     SAME pin order the view-pins matcher fires on. A digit a custom key
-    claims (SUB-467) no longer reaches its pin, so that pin gets no keycap;
+    claims no longer reaches its pin, so that pin gets no keycap;
     pins past the fifth have no digit at all. DatabasePane's view tabs render
     these — the surface homed databases' pins actually appear on. */
 export function pinKeyLabels(
@@ -213,7 +213,7 @@ export function pinKeyLabels(
   return out;
 }
 
-/** SUB-467: one assignable key — a stable token for views.json plus the combo
+/** One assignable key — a stable token for views.json plus the combo
     it dispatches. The pool lives here rather than in keyassign.ts because the
     registry entry below reads it at module-eval time; keyassign.ts re-exports
     it alongside the map helpers, which is where callers should reach for it. */
@@ -225,7 +225,7 @@ export interface AssignKey {
 /** The assignable pool in HUD display order. ⌘5…⌘9 layer over the automatic
     pin mapping; ⌃1…⌃9 are free real estate (no ⌃digit is a Cocoa text chord).
 
-    Every modifier flag is explicit (SUB-110/64 discipline): with `meta: true,
+    Every modifier flag is explicit: with `meta: true,
     ctrl: false, shift: false, alt: false`, ⌘⇧5 and ⌘⌃5 cannot false-match ⌘5.
     That exact-flag shape is also what keeps these combos distinct from
     view-pins' loose `{key, mod}` in the duplicate-bindings test. */
@@ -275,11 +275,11 @@ export const SHORTCUTS: Shortcut[] = [
       { key: "p", meta: true, ctrl: false },
     ],
   }),
-  // SUB-477 — session undo. "surface" scope is the whole safety story: inside
+  // Session undo. "surface" scope is the whole safety story: inside
   // the editor or any text input the scope is inactive, so CodeMirror and the
   // browser keep their own undo and the vault stack never steals ⌘Z.
   //
-  // SUB-665 — and board history availability is the other half of it. The
+  // And board history availability is the other half of it. The
   // yield and food boards keep their OWN window ⌘Z / ⌘⇧Z handlers (dash-undo
   // below). Both sides listen on the bubble phase with App's listener
   // registered first, so
@@ -307,7 +307,7 @@ export const SHORTCUTS: Shortcut[] = [
       { key: "z", mod: true, shift: true, fold: true },
       { key: "y", ctrl: true, meta: false },
     ],
-    // SUB-665: yielded whole on a board, ⌃Y included. The boards only bind the
+    // Yielded whole on a board, ⌃Y included. The boards only bind the
     // z chord, so ⌃Y there is inert rather than half-handled — the alternative
     // (gating just the z combo) leaves the HUD advertising session Redo next
     // to the board's own row under ⌘⇧, which is the confusion being removed.
@@ -339,7 +339,7 @@ export const SHORTCUTS: Shortcut[] = [
     scopes: ["global"],
     combos: [{ key: ",", meta: true, ctrl: false, shift: false }],
   }),
-  // SUB-686: overall app zoom, the browser/Notion idiom. Global — zooming is
+  // Overall app zoom, the browser/Notion idiom. Global — zooming is
   // wanted mid-typing too, and no text surface owns these chords. `mod`
   // (⌘ or ⌃) so Windows/Linux ⌃=/⌃−/⌃0 work like a browser. Shift stays
   // deliberately UNPINNED on the =/+/− lane: which flag rides along is
@@ -417,7 +417,7 @@ export const SHORTCUTS: Shortcut[] = [
     id: "journal-step",
     description: "Previous / next journal day",
     group: "Navigation",
-    // surface, not app: mid-typing ⌘⇧←/→ extends the text selection (SUB-112)
+    // surface, not app: mid-typing ⌘⇧←/→ extends the text selection
     scopes: ["surface"],
     combos: [
       { key: "ArrowLeft", mod: true, shift: true },
@@ -444,7 +444,7 @@ export const SHORTCUTS: Shortcut[] = [
     description: "Go to an assigned sidebar destination",
     group: "Views",
     scopes: ["app"],
-    // SUB-467: user-assigned keys, dragged onto sidebar rows from the key HUD.
+    // User-assigned keys, dragged onto sidebar rows from the key HUD.
     // Placement is the whole arbitration story — registry ORDER is precedence,
     // the when-gate decides whether this entry claims the event at all. It sits
     // ahead of view-today…view-pins because `mod: true` on those means ⌘ OR ⌃:
@@ -464,7 +464,7 @@ export const SHORTCUTS: Shortcut[] = [
     id: "dash-undo",
     description: "Undo board edit",
     group: "Views",
-    // SUB-490: the yield and food boards have owned ⌘Z / ⌘⇧Z since they
+    // The yield and food boards have owned ⌘Z / ⌘⇧Z since they
     // shipped, entirely undocumented — found while taking modifier inventory
     // for the hold HUD. Listed as `pane`: the boards keep their own window
     // handlers, this entry exists so the sheet and the HUD can teach the
@@ -514,7 +514,7 @@ export const SHORTCUTS: Shortcut[] = [
     description: "Go to pinned view (pin order)",
     group: "Views",
     scopes: ["app"],
-    // pins take ⌘5…⌘9 in pin order, first pin ⌘5 (SUB-67); a key with no
+    // pins take ⌘5…⌘9 in pin order, first pin ⌘5; a key with no
     // pin behind it is inert, and pins past the fifth have no shortcut
     combos: ["5", "6", "7", "8", "9"].map((key) => ({ key, mod: true })),
     when: (e, ctx) => {
@@ -522,7 +522,7 @@ export const SHORTCUTS: Shortcut[] = [
       return i !== null && i < ctx.pins.length;
     },
   }),
-  /* SUB-812 — the mini-player's transport. ⌥ is the only free modifier lane
+  /* The mini-player's transport. ⌥ is the only free modifier lane
      in the app: no other registry entry requires it, and inside a text edit
      ⌥←/⌥→ are Cocoa word-motion, which the "surface" scope already protects
      (it stands down while typing). The bar's own buttons print the combos in
@@ -568,7 +568,7 @@ export const SHORTCUTS: Shortcut[] = [
     group: "Navigation",
     scopes: ["surface"],
     combos: [{ key: "Escape" }],
-    // an armed search-return claims Esc first (SUB-267): opening a hit moves
+    // an armed search-return claims Esc first: opening a hit moves
     // to its home context, and one Esc there comes back to the results
     when: (_e, ctx) =>
       ctx.searchReturn ||
@@ -580,7 +580,7 @@ export const SHORTCUTS: Shortcut[] = [
     description: "Move note to Trash",
     group: "Editor",
     // surface, never mid-typing: ⌘⌫ inside a text edit stays Cocoa
-    // delete-to-line-start (SUB-392)
+    // delete-to-line-start
     scopes: ["surface"],
     combos: [{ key: "Backspace", mod: true, alt: false, shift: false }],
     // in a database view it targets the open side note; in list views the
@@ -594,7 +594,7 @@ export const SHORTCUTS: Shortcut[] = [
     id: "nav-back",
     description: "Back",
     group: "Navigation",
-    // bare ⌫ walks the view history (folder → db → back, SUB-392); ⌘[ is the
+    // bare ⌫ walks the view history (folder → db → back); ⌘[ is the
     // macOS-standard alias. Surface scope keeps every text edit's Backspace
     scopes: ["surface"],
     // no alt:false on ⌘[ — a German layout types "[" as ⌥5, so altKey rides
@@ -603,7 +603,7 @@ export const SHORTCUTS: Shortcut[] = [
       { key: "Backspace", mod: false, alt: false },
       { key: "[", mod: true, shift: false },
     ],
-    // search owns its own return flow (Esc, SUB-111/267) and its input
+    // search owns its own return flow (Esc) and its input
     when: (_e, ctx) => ctx.view.kind !== "search" && ctx.canGoBack,
   }),
   define({
@@ -611,7 +611,7 @@ export const SHORTCUTS: Shortcut[] = [
     description: "Move selection down",
     group: "Navigation",
     scopes: ["surface"],
-    // mod:false — ⌘J/⌘↓ (or ⌃-variants) must not silently navigate (SUB-64)
+    // mod:false — ⌘J/⌘↓ (or ⌃-variants) must not silently navigate
     combos: [
       { key: "ArrowDown", mod: false },
       { key: "j", mod: false },
@@ -637,7 +637,7 @@ export const SHORTCUTS: Shortcut[] = [
     combos: [{ key: "Enter", mod: false }],
     when: (e, ctx) => listView(e, ctx) && ctx.selectedMeta !== null,
   }),
-  /* Pane surfaces (SUB-396), listed only: `scope: "pane"` never dispatches —
+  /* Pane surfaces, listed only: `scope: "pane"` never dispatches —
      the panes keep the local handlers these rows describe (CalendarPane's
      window listener, DatabasePane's grid/bulk handlers, SheetGrid's
      onGridKeyDown). The `hint` gate is what the KeyHints panel reads. */
@@ -660,7 +660,7 @@ export const SHORTCUTS: Shortcut[] = [
     // ↑/↓ get their own row because they are the one calendar binding that
     // means two different things: on the week canvas vertical IS time, so
     // they walk the time cursor, while month keeps the ±7-day step that j/k
-    // carry everywhere (SUB-453 review F4 — one "Move focused day" row
+    // carry everywhere (one "Move focused day" row
     // covering both was a lie half the time).
     id: "cal-time",
     description: "Week: time cursor (⇧ quarter-hours) · Month: ±1 week",
@@ -826,7 +826,7 @@ export const SHORTCUTS: Shortcut[] = [
     description: "Find in note",
     group: "Editor",
     scopes: ["editor"],
-    // plain ⌘F — global search stays on ⌘⇧F (SUB-244)
+    // plain ⌘F — global search stays on ⌘⇧F
     combos: [{ key: "f", mod: true, shift: false }],
     hint: (ctx) => ctx.selectedMeta !== null || ctx.dbNote !== null,
   }),
@@ -841,7 +841,7 @@ export function sheetEntries(): Shortcut[] {
   return SHORTCUTS.filter((s) => !s.unlisted);
 }
 
-/** The contextual hint panel's rows (SUB-396): every entry live RIGHT NOW, in
+/** The contextual hint panel's rows: every entry live RIGHT NOW, in
     registry order. A `hint`-gated entry (pane/editor surfaces) answers its
     gate; anything else must be listed, reachable with no overlay and the sheet
     closed, and pass its `when` for a synthetic event of at least one combo.
@@ -851,7 +851,7 @@ export function sheetEntries(): Shortcut[] {
     surface UNDERNEATH them. `typing` is not: it is the one input `scopeActive`
     reads for the "surface" scope, so forcing it false advertised ⌘⌫, ⌘[ and
     ⌘⇧←/→ while the caret sat in a text edit and those chords provably do not
-    fire (SUB-498). Callers pass the live focus — see `isTypingNow`. */
+    fire. Callers pass the live focus — see `isTypingNow`. */
 export function hintEntries(ctx: ShortcutCtx): Shortcut[] {
   const base: ShortcutCtx = { ...ctx, overlay: null, shortcutsOpen: false };
   return SHORTCUTS.filter((s) => {
@@ -875,9 +875,9 @@ export function hintEntries(ctx: ShortcutCtx): Shortcut[] {
   });
 }
 
-/** The modifier chord a hold-HUD can advertise (SUB-490). ⌥ is deliberately
+/** The modifier chord a hold-HUD can advertise. ⌥ is deliberately
     absent from the chord: the HUD advertises the ⌘/⌃/⇧ families, and the one
-    ⌥ family that exists (the mini-player transport, SUB-812) is already on
+    ⌥ family that exists (the mini-player transport) is already on
     screen — its combos are printed in the bar's own button tooltips, so a
     held-⌥ panel would repeat what the user is looking at. `comboUnderMods`
     filters alt combos out below; the ⌘/ sheet still lists them. */
@@ -888,7 +888,7 @@ export type HeldMods = { mod: boolean; ctrl: boolean; shift: boolean };
     panel meant to stay small. They stay in the ⌘/ sheet and the click panel. */
 const HUD_OMIT = new Set(["view-today", "view-notes", "view-all", "view-calendar", "view-pins"]);
 
-/** Does this combo need EXACTLY the modifiers currently held (SUB-490)?
+/** Does this combo need EXACTLY the modifiers currently held?
 
     Held modifiers are a chord, not a filter: holding ⌘ advertises ⌘K but not
     ⌘⇧F, because ⇧ is not down yet — pressing K right now would not fire it.
@@ -907,7 +907,7 @@ export function comboUnderMods(c: Combo, held: HeldMods): boolean {
 }
 
 /** Rows for the hold-modifier HUD: entries live in this context whose combo
-    fires under EXACTLY the held chord (SUB-490). Built on `hintEntries`, so
+    fires under EXACTLY the held chord. Built on `hintEntries`, so
     liveness stays one implementation — the HUD only narrows what the click
     panel would show. Each row keeps just its matching combos, so ⌘⇧← / ⌘⇧→
     renders under ⌘⇧ without dragging along a sibling bare-key combo. */

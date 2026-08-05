@@ -4,20 +4,20 @@ import { parseStrictNumber } from "./aggregate.ts";
 import { splitDayTime } from "./calendar.ts";
 import { byFoldedKey } from "./schemalookup.ts";
 
-/** Multi-key table sorts (SUB-199) cap at three keys — past that the ordinal
+/** Multi-key table sorts cap at three keys — past that the ordinal
     badges stop earning their header space. */
 export const MAX_SORT_KEYS = 3;
 
 /* One shared collator for every table sort. `a.localeCompare(b, undefined,
    {numeric, base})` constructs a fresh Intl.Collator per call — over a
-   1400-row sort that's ~15k constructions, the top line in the SUB-310
-   keystroke profile (~45ms → ~5ms). Collator.compare with the same options
+   1400-row sort that's ~15k constructions, the top line in the keystroke
+   profile (~45ms → ~5ms). Collator.compare with the same options
    is the specified semantics of that localeCompare call, so orderings are
    byte-identical. */
 const sortCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 const collate = (a: string, b: string): number => sortCollator.compare(a, b);
 
-/** A date-kind cell, normalized for ordering (SUB-571). The vault's date
+/** A date-kind cell, normalized for ordering. The vault's date
     grammar accepts both separators — `2026-08-01T09:30` and `2026-08-01 09:30`
     are the same instant written two ways — but the collator sorts them by
     their raw text, and "T" lands after " ", so the earlier T-form fell BELOW a
@@ -26,7 +26,7 @@ const collate = (a: string, b: string): number => sortCollator.compare(a, b);
     Values that aren't date-shaped pass through untouched and keep collating
     among themselves.
 
-    A range (SUB-596) sorts by its START: `splitDayTime` returns the opening
+    A range sorts by its START: `splitDayTime` returns the opening
     endpoint, so a span and a single date on the same day sit together and the
     end never reorders the column. */
 function normalizeDateSortValue(v: string): string {
@@ -40,7 +40,7 @@ function normalizeDateSortValue(v: string): string {
     `localeCompare` (numeric, base sensitivity). Returns null for an empty
     list, so callers can skip the sort pass entirely.
 
-    SUB-309: with `typeSchema` given, a key naming a single-select prop
+    With `typeSchema` given, a key naming a single-select prop
     (kindless schema entry with options — `PropKind` carries no "select";
     kind = undefined + options IS the discriminator, SelectMenu derives its
     draft kind the same way) compares by the value's index in
@@ -73,7 +73,7 @@ export function sortCmpFor(
     if (key === "title" || optionOrder.has(key) || numericKeys.has(key) || dateKeys.has(key))
       continue;
     const schema = byFoldedKey(typeSchema, key);
-    // a rollup column (SUB-678) sorts by its derived numeric value too — the
+    // a rollup column sorts by its derived numeric value too — the
     // derivation feeds the same canonical strings the strict parser reads
     if (schema?.kind === "number" || schema?.kind === "rollup") {
       numericKeys.add(key);
@@ -124,7 +124,7 @@ export function sortCmpFor(
   };
 }
 
-/** The resting order of a view with no active sort keys (SUB-265): by title,
+/** The resting order of a view with no active sort keys: by title,
     with the same locale collation as explicit sorts. Unlike the vault_list
     feed (updated_ms desc) it doesn't move when a prop edit bumps updated_ms,
     so a row never teleports out from under an edit. */

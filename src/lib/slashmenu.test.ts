@@ -148,7 +148,7 @@ test("viewTypeOptions: live db names, fuzzy, dupes and blanks dropped", () => {
   assert.deepEqual(viewTypeOptions("zzz", types), []);
 });
 
-/* ---------- fenceExit (SUB-796) ---------- */
+/* ---------- fenceExit ---------- */
 
 // `after` is the doc from the cursor onward; the cursor sits on the `type:`
 // line's value, so the first line of `after` is that line's remainder.

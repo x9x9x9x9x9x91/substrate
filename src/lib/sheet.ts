@@ -48,8 +48,8 @@ export interface FormulaLine {
   src: string; // right-hand side source text
   expr: Expr | FErr;
   aggregate: boolean;
-  /** Which blank-line-separated block of the fence this line sits in, 0-based
-      (SUB-939). The summary bar reads it for hierarchy: the first block that
+  /** Which blank-line-separated block of the fence this line sits in, 0-based.
+      The summary bar reads it for hierarchy: the first block that
       holds summaries is the headline, later ones collapse. A run of blank
       lines is one separator, and blanks before the first formula line bind to
       block 0 — so an empty block never exists and a fence with no blank lines
@@ -75,8 +75,8 @@ export interface SheetEval {
       re-parse the note. */
   summaries: { name: string; value: Value; group: number }[];
   /** Folded names two things bind to → the message every reference gets
-      instead of data (SUB-751). Kept on the eval so a *reader* sheet can see
-      this sheet's ambiguity too (SUB-756); keyed by folded (lowercased) name. */
+      instead of data. Kept on the eval so a *reader* sheet can see
+      this sheet's ambiguity too; keyed by folded (lowercased) name. */
   collisions: Map<string, string>;
 }
 
@@ -199,7 +199,7 @@ export function parseCsv(text: string): string[][] {
 }
 
 export function serializeCsv(rows: string[][]): string {
-  // Backticks are escaped too (SUB-681): findFence ends the csv fence at the
+  // Backticks are escaped too: findFence ends the csv fence at the
   // first line-initial ``` that is outside CSV quote state, so a cell written
   // verbatim as ```… would truncate the fence at that data line — every row
   // below it, the closing fence, and the following prose fall out of the model
@@ -214,7 +214,7 @@ export function serializeCsv(rows: string[][]): string {
 
 export function typedCell(raw: string): Cell {
   if (raw.trim() === "") return null;
-  // strict parse (SUB-221): "1e3"/"0x10"/"Infinity" stay text, not numbers
+  // strict parse: "1e3"/"0x10"/"Infinity" stay text, not numbers
   const n = parseStrictNumber(raw);
   return n !== null ? n : raw;
 }
@@ -237,7 +237,7 @@ export function parseSheet(body: string): SheetModel {
     // references nothing row-shaped — i.e. only cross-sheet values and other
     // summaries (`net = total - Cash.cash_total` is a summary, not a per-row
     // column). A constant-only right side (`ceiling = 25000`, `annual = 2500 * 12`)
-    // references nothing at all and is a summary too (SUB-715): as a computed
+    // references nothing at all and is a summary too: as a computed
     // column it repeated the same value down every row and couldn't be bound
     // from a dashboard as a single value. Classification is order-independent:
     // scan every line first, then iterate to a fixpoint. A line referencing a
@@ -266,7 +266,7 @@ export function parseSheet(body: string): SheetModel {
       parsed.push({ name: m[1], src: m[2], expr: parseFormula(m[2]), group });
     }
     // A bare (non-dotted) reference that isn't a summary is row-shaped: a data
-    // column or a computed column. Used by the SUB-748 rule — a LOOKUP whose
+    // column or a computed column. Used by the lookup-key rule — a LOOKUP whose
     // *key* is row-shaped evaluates per row, so it doesn't make its line a
     // summary. summaryNames only grows across the fixpoint, so this predicate
     // only ever turns lines into summaries, never back.
@@ -303,7 +303,7 @@ export function parseSheet(body: string): SheetModel {
   return { headers, rows: data, formulas, errors, hasCsv: csv !== null };
 }
 
-// ---------- folded-name collisions (SUB-751) ----------
+// ---------- folded-name collisions ----------
 
 /** Every name in a sheet binds case-insensitively — `PRICE` and `price` are
     one name — but nothing used to check whether two *different* names fold
@@ -319,7 +319,7 @@ export function parseSheet(body: string): SheetModel {
     two data columns, two formula lines, or a formula named like a column.
     The cross-sheet member precedence (summary > computed > data) is a rule for
     *different* names on other sheets and is untouched — but an ambiguous name
-    is refused there too (SUB-756), see `memberValue`. Data cells always keep
+    is refused there too, see `memberValue`. Data cells always keep
     rendering: a vault note that already
     holds a collision still loads and shows its rows, errors and all. */
 function foldedCollisions(headers: string[], formulaNames: string[]): Map<string, string> {
@@ -405,7 +405,7 @@ function memberValue(ev: SheetEval, sheet: string, name: string): ScopedValue | 
   if (s) return s.value;
   const cc = ev.computed.find((c) => c.name.toLowerCase() === name);
   if (cc) return cc.cells;
-  // An ambiguous name on the *other* sheet is ambiguous here too (SUB-756).
+  // An ambiguous name on the *other* sheet is ambiguous here too.
   // Summaries and computed columns already carry their own collision error, so
   // they answer honestly above; a data column doesn't — without this, two
   // headers folding to one name would hand back whichever came first.
@@ -416,7 +416,7 @@ function memberValue(ev: SheetEval, sheet: string, name: string): ScopedValue | 
   return ferr(`no column or summary “${name}” on sheet “${sheet}”`);
 }
 
-/** `hist` is the time-travel seam (SUB-832): the synchronous resolver `PROP()`
+/** `hist` is the time-travel seam: the synchronous resolver `PROP()`
     and `AT()` read facts through, prefetched by the pane exactly the way FX
     rates are. Omitted, those functions report that history isn't loaded rather
     than answering — the sheet still evaluates. */
@@ -444,7 +444,7 @@ function evalSheetInner(
   const computed: { name: string; cells: Value[] }[] = [];
   const summaries: { name: string; value: Value; group: number }[] = [];
 
-  // Names two things fold onto (SUB-751). Bound over every scope below, after
+  // Names two things fold onto. Bound over every scope below, after
   // the real bindings, so an ambiguous name resolves to its own error instead
   // of to whichever binding happened to land last — and a line whose own name
   // is ambiguous carries that error as its value, since nothing can address it.
@@ -519,7 +519,7 @@ function evalSheetInner(
       const scope: Scope = new Map();
       model.headers.forEach((h, c) => scope.set(h.toLowerCase(), rows[i][c] ?? null));
       for (const cc of computed) scope.set(cc.name.toLowerCase(), cc.cells[i] ?? null);
-      // Whole-column view alongside the row values (SUB-748): only a row-scoped
+      // Whole-column view alongside the row values: only a row-scoped
       // LOOKUP's table arguments read it, so a same-sheet rates table works
       // per row while every other name still resolves to this row's cell.
       for (const [k, col] of rowColumns) scope.set(k, col);
@@ -565,7 +565,7 @@ export function findSummary(ev: SheetEval, name: string): Value | FErr {
   return s ? s.value : ferr(`no summary “${name}” on this sheet`);
 }
 
-// ---------- totals row placement (SUB-937) ----------
+// ---------- totals row placement ----------
 
 export interface TotalsRow {
   /** grid column index → summary names, in fence order. Grid columns count
@@ -589,14 +589,14 @@ export interface TotalsRow {
  *
  * "Reads" means `describingRefs`, not every ref: a conditional aggregate is
  * about its value column, not its filters, so `SUMIF(status, "open", value_eur)`
- * sits under `value_eur` (SUB-1013, answered Option A — the number IS a sum of
+ * sits under `value_eur` (answered Option A — the number IS a sum of
  * that column; the filter is a modifier). COUNTIF keeps sitting under its
  * filter column, because counting rows is all it does.
  *
  * Deliberately no fallback guess: a summary the heuristic can't place is
  * visible in the footer, never dropped. Ambiguous (folded) names are refused
  * on both sides — the summary's own name and the column it would land under —
- * because SUB-751 already says nothing may resolve such a name to data.
+ * because the folded-name rule already says nothing may resolve such a name to data.
  *
  * Several summaries may share one column (`sum` and `avg` of the same column);
  * they stack in that cell in fence order rather than one silently winning. */
@@ -639,7 +639,7 @@ export function totalsRow(model: SheetModel): TotalsRow {
   return { byColumn, absorbed };
 }
 
-// ---------- selection readout (SUB-937) ----------
+// ---------- selection readout ----------
 
 export interface SelectionStats {
   /** non-blank cells in the selection, errors included */
@@ -652,7 +652,7 @@ export interface SelectionStats {
 }
 
 /** Sum/avg/count over a selected range — display only, never written back.
-    Blanks are skipped like every aggregate in the language (SUB-238); error
+    Blanks are skipped like every aggregate in the language; error
     cells count as cells but contribute no number, so a range holding one bad
     formula still reports the honest sum of the rest rather than nothing. */
 export function selectionStats(values: (Value | Cell | undefined)[]): SelectionStats {
@@ -671,7 +671,7 @@ export function selectionStats(values: (Value | Cell | undefined)[]): SelectionS
   return { count, numeric, sum, avg: numeric > 0 ? sum / numeric : null };
 }
 
-/** Which Count the totals quick-pick should prefill for a column (SUB-944).
+/** Which Count the totals quick-pick should prefill for a column.
  *
  * COUNT means "how many numbers are here" — the language keeps that meaning,
  * and nothing here changes it. But a quick-pick over a column of text (`paid`
@@ -707,7 +707,7 @@ export function countPickKind(values: (Value | Cell | undefined)[]): "COUNT" | "
 
 // ---------- display ----------
 
-/** Columns whose integers are labels, not quantities (SUB-633). A year or an
+/** Columns whose integers are labels, not quantities. A year or an
  * id is a name made of digits: grouping it renders 2026 as "2.026", and in
  * de-DE the dot IS the thousands separator, so it reads as a different
  * number entirely (the shipped Work Index sheet showed its year column as
@@ -725,10 +725,10 @@ function isLabelColumn(header: string): boolean {
 }
 
 /** Is this column numeric *by evidence*, so a typed draft may be normalized
- * from de-DE into canonical dot-decimal (SUB-915)?
+ * from de-DE into canonical dot-decimal?
  *
- * `normalizeNumberInput` is documented for number-KIND columns only (SUB-636
- * gated every other call site on kind === "number"). Sheets carry no schema,
+ * `normalizeNumberInput` is documented for number-KIND columns only — every
+ * other call site gates it on kind === "number". Sheets carry no schema,
  * so the grid has to earn that gate instead of assuming it: without one,
  * committing an unrelated text cell — an ip `192.168`, a version, a dotted
  * label — silently rewrites it to `192168`, which is data loss on Enter.
@@ -739,7 +739,7 @@ function isLabelColumn(header: string): boolean {
  *     A column of text has no claim on the de-DE grammar; a column that is
  *     all numbers does. An all-blank or single-row column stays verbatim —
  *     no evidence, no rewrite.
- *  2. The column is not a label column (isLabelColumn, SUB-633), which
+ *  2. The column is not a label column (isLabelColumn), which
  *     exists exactly for "the digits here are names, not quantities": a
  *     `year` column of 2.024/2.025 is dotted on purpose and must survive. */
 export function columnTakesNumberInput(
@@ -760,12 +760,12 @@ export function columnTakesNumberInput(
   return seen;
 }
 
-/** The one grid-wide number format, in the user's dialect (SUB-1092:
- * `numberLocale()`, de-DE by default like every other surface, SUB-282):
+/** The one grid-wide number format, in the user's dialect
+ * (`numberLocale()`, de-DE by default like every other surface):
  * grouped thousands, 2 decimals for fractional values, integers bare
  * (de-DE `1.234` — never `1.234,00`).
  *
- * Two exceptions drop the grouping for integers (SUB-633), because a number
+ * Two exceptions drop the grouping for integers, because a number
  * that is really a name — a year, a port, a catalogue number — reads as a
  * different number once grouped: de-DE writes 2026 as "2.026", and the dot
  * IS the thousands separator.
@@ -792,7 +792,7 @@ export function formatNum(v: number, header?: string): string {
   return v.toLocaleString(numberLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-/** How one grid column renders every number in it (SUB-1000).
+/** How one grid column renders every number in it.
  *
  * The shape is decided per COLUMN, not per value, and that is the whole
  * point: formatNum's rules are value-driven (integer vs fractional, below
@@ -811,7 +811,7 @@ export interface ColumnFormat {
  * be consistent about, and it renders no numeric cells. */
 const PLAIN_FORMAT: ColumnFormat = { decimals: 0, group: false };
 
-/** The format one column of values renders in (SUB-1000).
+/** The format one column of values renders in.
  *
  * Two decisions, both from the whole column:
  *
@@ -821,7 +821,7 @@ const PLAIN_FORMAT: ColumnFormat = { decimals: 0, group: false };
  *     thing. A column of whole numbers stays whole (`1.234`, never
  *     `1.234,00`), exactly as before.
  *  2. Grouping — on, unless the column is identifier-shaped. Two ways to be
- *     identifier-shaped, both preserving SUB-633's rule that a number which
+ *     identifier-shaped, both preserving the rule that a number which
  *     is really a NAME must not be dotted (de-DE writes 2026 as "2.026", and
  *     that dot IS the thousands separator):
  *       - a label column by header (isLabelColumn: `year`, `*_id`, `no`,
@@ -829,7 +829,7 @@ const PLAIN_FORMAT: ColumnFormat = { decimals: 0, group: false };
  *       - a column whose numbers are ALL integers below 10000, which is
  *         where unnamed identifiers live (years, ports, PLZ, catalogue
  *         numbers) and where grouping buys no legibility anyway.
- *     The second is SUB-633's four-digit rule re-read per column instead of
+ *     The second is the four-digit rule re-read per column instead of
  *     per value. A pure year column of 2024/2025/2026 still renders bare;
  *     a column that mixes 7400 with 37680 is a column of quantities, so both
  *     group. That difference is the fix: the old per-value test split one
@@ -850,7 +850,7 @@ export function columnFormat(values: readonly (Value | Cell)[], header?: string)
 
 /** Every column's format for one evaluated sheet — data columns by header,
  * computed columns by formula name, in the order the grid renders them
- * (SUB-1000). Computed columns are shaped by the same rule as typed ones:
+ * Computed columns are shaped by the same rule as typed ones:
  * a formula column is where the grid's worst collision lived, since its
  * values straddle 10000 far more often than hand-typed ones do. */
 export function sheetColumnFormats(ev: SheetEval): {
@@ -868,7 +868,7 @@ export function sheetColumnFormats(ev: SheetEval): {
   };
 }
 
-/** One number in its column's format (SUB-1000) — the digits vary per row,
+/** One number in its column's format — the digits vary per row,
  * the grammar never does. */
 export function formatNumIn(v: number, fmt: ColumnFormat): string {
   return v.toLocaleString(numberLocale(), {
@@ -879,14 +879,14 @@ export function formatNumIn(v: number, fmt: ColumnFormat): string {
 }
 
 /** Aggregates whose result is still a quantity of its argument column
- * (SUB-1084): a SUM of euros is euros, so is a MIN, MAX, AVG or LAST. COUNT
+ * a SUM of euros is euros, so is a MIN, MAX, AVG or LAST. COUNT
  * and COUNTIF are deliberately absent — they are dimensionless (see COUNTING). */
 const UNIT_PRESERVING = new Set(["SUM", "AVG", "MIN", "MAX", "LAST"]);
 
-/** Aggregates whose result is a plain count of rows (SUB-1084): dimensionless,
+/** Aggregates whose result is a plain count of rows: dimensionless,
  * so they carry no column grammar of their own — a money column's two decimals
  * would render 4 rows as "4,00". `COUNTIF` is here too, which is what keeps
- * this compatible with SUB-944's value-aware Count quick-pick: it swaps
+ * this compatible with the value-aware Count quick-pick: it swaps
  * `COUNT(col)` for `COUNTIF(col, "*")` on a text column, and both stay
  * dimensionless. */
 const COUNTING = new Set(["COUNT", "COUNTIF"]);
@@ -902,7 +902,7 @@ type FormatClaim = ColumnFormat | "neutral" | "count" | null;
  * the MORE explicit grammar (max decimals, grouping if either side groups)
  * rather than abstaining. `total = SUM(value_usd) - SUM(fees)` over a grouped
  * column and an identifier-shaped one is still money, and the whole point of
- * SUB-1000 is that the ungrouped reading is the dangerous one.
+ * the column grammar is that the ungrouped reading is the dangerous one.
  *
  * A count added to a quantity is neither, so it abstains. */
 function unifyClaims(a: FormatClaim, b: FormatClaim): FormatClaim {
@@ -917,7 +917,7 @@ function unifyClaims(a: FormatClaim, b: FormatClaim): FormatClaim {
 }
 
 /** Two claims meeting under `*` or `/`, where a count scales rather than
- * disagrees (SUB-1084 review): a quantity divided by a count is still that
+ * disagrees (review): a quantity divided by a count is still that
  * quantity, so `mean = SUM(value_usd) / COUNT(value_usd)` keeps value_usd's
  * grammar instead of abstaining back into the per-value rules this issue
  * closed. A count behaves exactly like a bare literal here. */
@@ -926,7 +926,7 @@ function unifyScaled(a: FormatClaim, b: FormatClaim): FormatClaim {
 }
 
 /** The format a summary expression inherits from the columns it reads
- * (SUB-1084). `formats` maps folded column and earlier-summary names to the
+ * `formats` maps folded column and earlier-summary names to the
  * grammar they render in. */
 function claimOf(e: Expr, formats: Map<string, FormatClaim>): FormatClaim {
   switch (e.k) {
@@ -960,7 +960,7 @@ function claimOf(e: Expr, formats: Map<string, FormatClaim>): FormatClaim {
         return claimOf(e.args[e.args.length >= 3 ? 2 : 0], formats);
       // LOOKUP returns a cell of its value column exactly as LAST returns a
       // cell of its argument (formula.ts LOOKUP) — the key and key column
-      // decide WHICH row, never what the result is (SUB-1112). SUMPRODUCT
+      // decide WHICH row, never what the result is. SUMPRODUCT
       // stays absent on purpose: it has no single nameable source column.
       if (e.name === "LOOKUP" && e.args.length >= 3) return claimOf(e.args[2], formats);
       // IF picks one of its branches, so it is whatever they agree on.
@@ -973,10 +973,10 @@ function claimOf(e: Expr, formats: Map<string, FormatClaim>): FormatClaim {
   }
 }
 
-/** Each summary's number format, folded name → format (SUB-1084).
+/** Each summary's number format, folded name → format.
  *
  * The summary bar rendered `formatValue(s.value)` with no column around it,
- * so a chip fell back to the per-value legacy rules that SUB-1000 removed
+ * so a chip fell back to the per-value legacy rules that the column grammar removed
  * from the grid — and a `total = SUM(value_usd)` landing under 10000 and
  * integral rendered `7400` directly beneath a column rendering `7.400` and
  * `37.680`. A summary reads known columns, so it can inherit their grammar.
@@ -1007,7 +1007,7 @@ export function sheetSummaryFormats(
   return out;
 }
 
-/** One summary chip, in the grammar of the columns it aggregates (SUB-1084).
+/** One summary chip, in the grammar of the columns it aggregates.
  *
  * `fmt` absent (a summary that claims no column) keeps the legacy per-value
  * rendering. The one place a chip departs from its column: a fractional
@@ -1027,7 +1027,7 @@ export function formatSummary(v: Value | Cell, fmt?: ColumnFormat): string {
  * Headerless callers (summary cards, metrics tiles) still get the four-digit
  * rule; only the header-driven half of formatNum needs the name.
  *
- * `fmt` is the column's agreed format (SUB-1000). A caller that renders a
+ * `fmt` is the column's agreed format. A caller that renders a
  * whole column — the grid — passes it and gets one grammar down the column;
  * a caller holding a lone number with no column around it (summary chips,
  * metric tiles) omits it and keeps the per-value rules above. */
@@ -1043,7 +1043,7 @@ export function errMessage(v: unknown): string | null {
   return isErr(v) ? v.err : null;
 }
 
-// ---------- summary bar layout (SUB-939) ----------
+// ---------- summary bar layout ----------
 
 export interface BarSummary {
   name: string;
@@ -1070,7 +1070,7 @@ export interface SummaryBar {
 }
 
 /** Split the evaluated summaries into what the bar shows first, what it hides,
-    and the error rollups (SUB-939).
+    and the error rollups.
  *
  * Hierarchy comes from the note itself: blank lines in the ```formulas fence
  * group the lines, and the FIRST group holding summaries is the headline. It
@@ -1126,7 +1126,7 @@ export function summaryBar(summaries: SheetEval["summaries"]): SummaryBar {
   return { headline, rest, rollups };
 }
 
-/** Does this sheet convert currency through `FX()` (SUB-939)? The bar's
+/** Does this sheet convert currency through `FX()`? The bar's
     `USD→EUR …` stamp used to render under every sheet, including ones with no
     money in them at all. The question is asked of this sheet's own formulas
     only: a cross-sheet total that was converted elsewhere carries its rate on
@@ -1135,7 +1135,7 @@ export function sheetUsesFx(model: SheetModel): boolean {
   return model.formulas.some((f) => !isErr(f.expr) && callsFunction(f.expr, "FX"));
 }
 
-/** Does this sheet read frontmatter facts at all (SUB-832)? The gate on the
+/** Does this sheet read frontmatter facts at all? The gate on the
     history prefetch, the way `sheetUsesFx` gates the rates fetch: a sheet with
     no `PROP()`/`AT()` never lists the vault. Present-tense `PROP()` collects no
     refs but still needs the resolver, so this asks the broader question. */
@@ -1145,7 +1145,7 @@ export function sheetUsesHistory(model: SheetModel): boolean {
   );
 }
 
-/** Which past facts this sheet needs before it can be evaluated (SUB-832).
+/** Which past facts this sheet needs before it can be evaluated.
     The formula engine is synchronous and history lives in git, so the reads
     have to be known *before* evaluation: the pane asks this, fetches the lanes,
     and hands back a resolver. Empty means no past reads — a sheet that only
@@ -1170,7 +1170,7 @@ export function sheetHistoryRefs(model: SheetModel, today: () => string = todayI
   return out;
 }
 
-/** Which past days this sheet needs whole *sheets* for (SUB-832, §3.2).
+/** Which past days this sheet needs whole *sheets* for (spec §3.2).
     `AT(date, Other.total)` re-evaluates `Other` as it stood, so the prefetch
     needs the tree at that instant, not just a fact lane. Same static-collection
     rule as `sheetHistoryRefs`: a per-row date collects nothing and reports that
@@ -1429,7 +1429,7 @@ export function deleteSheetFormula(body: string, name: string): string {
 
 // ---------- formula fence editing ----------
 
-/** Append one `name = src` line to the formulas fence (SUB-937: the totals
+/** Append one `name = src` line to the formulas fence (the totals
     row's empty cells and the footer's "+ summary" both land here).
     Creates the fence after the csv block when the sheet has none yet — a
     sheet whose first summary is written in-app must not have to be opened in

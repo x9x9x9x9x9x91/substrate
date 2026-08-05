@@ -21,7 +21,7 @@ const MAX_REDIRECTS: usize = 4;
 /// User-Agent, html only, body capped. Any failure is the caller's cue to
 /// keep the bare-URL note as is.
 ///
-/// Redirects are followed by hand rather than by ureq (SUB-427): a URL that
+/// Redirects are followed by hand rather than by ureq: a URL that
 /// arrives in the vault is untrusted input, and every hop — not just the one
 /// the user pasted — has to clear [`guard_url`] before a socket opens. An
 /// agent with `redirects(4)` would happily walk hop 1 (public) into hop 2
@@ -85,7 +85,7 @@ pub struct FxQuote {
     pub as_of: String,
 }
 
-/// The whole rate table the app converts through (SUB-834): one base and the
+/// The whole rate table the app converts through: one base and the
 /// majors quoted against it, plus the day the reference bank published them.
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -103,7 +103,7 @@ const FX_URL: &str = "https://api.frankfurter.dev/v1/latest?base=USD&symbols=EUR
 const FX_RATES_URL: &str = "https://api.frankfurter.dev/v1/latest?base=EUR\
 &symbols=USD,GBP,CHF,JPY,CAD,AUD,SEK,NOK,DKK,PLN,CZK";
 
-/// The app's one FX read (SUB-667). It lives in Rust for the same reason link
+/// The app's one FX read. It lives in Rust for the same reason link
 /// titles do: the shipped CSP allows no remote origin in `connect-src`, so a
 /// browser `fetch()` here could never work outside dev — and every outbound
 /// request has to pass [`guard_url`] anyway.
@@ -115,7 +115,7 @@ pub fn fetch_usd_eur() -> Result<FxQuote, String> {
     parse_fx_quote(&body, "EUR")
 }
 
-/// The multi-currency read (SUB-834) — same single call, same guard, one row
+/// The multi-currency read — same single call, same guard, one row
 /// per major instead of one number. Still one request per refresh: the table
 /// is what every pair converts through, so nothing here fans out per currency.
 pub fn fetch_fx_rates() -> Result<FxRates, String> {
@@ -162,8 +162,8 @@ pub fn parse_fx_quote(body: &str, symbol: &str) -> Result<FxQuote, String> {
     Ok(FxQuote { usd_eur: rate, as_of })
 }
 
-/// Pull the whole `rates` object out of a frankfurter `/v1/latest` payload
-/// (SUB-834). Per-symbol junk is DROPPED rather than fatal — one bad row in a
+/// Pull the whole `rates` object out of a frankfurter `/v1/latest` payload.
+/// Per-symbol junk is DROPPED rather than fatal — one bad row in a
 /// table of eleven shouldn't cost the user the other ten — but a payload with
 /// no usable row at all is an error, like the single-quote parser.
 ///
@@ -228,7 +228,7 @@ pub fn guard_url(raw: &str) -> Result<Url, String> {
 }
 
 /// A URL safe to write to the app log: the `user:pass@` userinfo is dropped,
-/// everything else is kept so a log line stays diagnosable (SUB-780).
+/// everything else is kept so a log line stays diagnosable.
 ///
 /// A string that doesn't parse into a host-bearing URL is replaced wholesale
 /// rather than logged raw. `Url::parse` is lenient enough to be dangerous
@@ -252,7 +252,7 @@ pub fn redact_url(raw: &str) -> String {
 
 /// The capture-boundary twin of `redact_url`: drops a `user:pass@` userinfo so
 /// credentials never reach the vault — not the filename, not the `url:` prop,
-/// not the outbound title fetch (SUB-789).
+/// not the outbound title fetch.
 ///
 /// Unlike `redact_url` this is not log semantics: a string that doesn't parse,
 /// or that carries no userinfo, is returned VERBATIM. Re-serializing every URL
@@ -432,7 +432,7 @@ mod tests {
 
     #[test]
     fn redact_url_refuses_to_echo_an_unparseable_string() {
-        // SUB-780: not a usable URL, still a password. The second case parses
+        // Not a usable URL, still a password. The second case parses
         // as scheme `alice` + opaque path, so a userinfo-only clear misses it.
         // `htp` IS a valid scheme to url::Url, so this one parses with a real
         // host and gets its userinfo stripped rather than replaced
@@ -452,7 +452,7 @@ mod tests {
 
     #[test]
     fn strip_userinfo_returns_credential_free_input_verbatim() {
-        // SUB-789: no re-serialization on the ordinary path — `Url::parse`
+        // No re-serialization on the ordinary path — `Url::parse`
         // would append a trailing `/` and lowercase the host, silently
         // changing the captured note's title
         assert_eq!(strip_userinfo("https://Example.COM"), "https://Example.COM");
@@ -531,7 +531,7 @@ mod tests {
         assert_eq!(decode_entities("&amp;lt;"), "&lt;");
     }
 
-    /* ---- FX quote (SUB-667) ----------------------------------------- */
+    /* ---- FX quote ----------------------------------------- */
 
     /// A real `/v1/latest?base=USD&symbols=EUR` body, captured 2026-07-30.
     const FX_PAYLOAD: &str =
@@ -578,7 +578,7 @@ mod tests {
         }
     }
 
-    /* ---- FX rate table (SUB-834) ------------------------------------ */
+    /* ---- FX rate table ------------------------------------ */
 
     /// A real `/v1/latest?base=EUR&symbols=…` body, captured 2026-08-03.
     const FX_TABLE_PAYLOAD: &str = r#"{"amount":1.0,"base":"EUR","date":"2026-08-01","rates":{"AUD":1.7823,"CAD":1.5941,"CHF":0.9312,"CZK":24.615,"DKK":7.4602,"GBP":0.86445,"JPY":171.24,"NOK":11.7615,"PLN":4.2678,"SEK":11.0842,"USD":1.16401}}"#;
@@ -661,7 +661,7 @@ mod tests {
         assert_eq!(q.as_of.len(), 10, "as_of: {}", q.as_of);
     }
 
-    /* ---- SSRF guard (SUB-427) -------------------------------------- */
+    /* ---- SSRF guard -------------------------------------- */
 
     fn ip(s: &str) -> IpAddr {
         s.parse().unwrap()
@@ -771,7 +771,7 @@ mod tests {
         );
     }
 
-    /* ---- redirect loop, offline (SUB-779) --------------------------- */
+    /* ---- redirect loop, offline --------------------------- */
 
     /// Serve one scripted response per REQUEST, in order, then stop — the
     /// client keeps the connection alive across same-origin hops, so
@@ -885,7 +885,7 @@ mod tests {
 
     #[test]
     fn a_redirect_to_loopback_is_refused() {
-        // the SUB-427 scenario verbatim: public hop → local service probe
+        // the scenario verbatim: public hop → local service probe
         let (origin, srv) = scripted_server(vec![redirect("http://127.0.0.1:11434/api/tags")]);
         // guard only the entry origin; the loopback hop is a DIFFERENT port,
         // so the real guard judges it

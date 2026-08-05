@@ -1,4 +1,4 @@
-// Unit registry and quantity layer (SUB-834) — the shared vocabulary behind
+// Unit registry and quantity layer — the shared vocabulary behind
 // calc lines ("25 USD in EUR") and unit-aware columns.
 // Pure TS, no DOM/node imports: runs in the app and under `node --test`.
 // Keep to erasable TS syntax only (no enums/namespaces) so node can strip types.
@@ -212,7 +212,7 @@ export function convert(q: Quantity, to: string, fx: FxResolver): number | FErr 
 
 // ---------- display ----------
 
-/** A quantity as text, in the user's number dialect (SUB-1092: de-DE
+/** A quantity as text, in the user's number dialect (de-DE
     `1.234,56` by default, en-US `1,234.56` and the rest of NUMBER_LOCALES on
     the `number-locale` key) — at most 2 fraction digits, pre-rounded like
     display.ts formatNumber so float noise (0.1 + 0.2) and -0 don't leak. The

@@ -1,14 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Prop-write failures (SUB-240) against the mock backend's failure hook
-// (window.__mockFail, SUB-156 — installed by src/lib/tauri.ts outside Tauri).
+// Prop-write failures against the mock backend's failure hook
+// (window.__mockFail, installed by src/lib/tauri.ts outside Tauri).
 // A failed vault_set_prop used to vanish: the chip editor had already closed,
 // the typed value was gone, the rejection unhandled. Now the failure lands on
-// the same retry pill as body saves (SUB-132), holding the attempted write so
+// the same retry pill as body saves, holding the attempted write so
 // the pill's click retries it — and the chip keeps showing the disk truth
 // until a write actually lands.
 
-// cold open lands on the Notes scratch list (Today is a destination, SUB-300) —
+// cold open lands on the Notes scratch list (Today is a destination) —
 // first mock note selected and loaded (same shape as smoke.spec's boot)
 async function boot(page: Page) {
   await page.goto("/");

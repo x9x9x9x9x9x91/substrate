@@ -27,7 +27,7 @@ export function playerStep(dir: 1 | -1): void {
 }
 
 /**
- * The persistent mini-player (SUB-812): app chrome, not note content.
+ * The persistent mini-player: app chrome, not note content.
  *
  * Everything that actually plays lives outside React — the `<audio>` element
  * in `lib/editor-widgets.ts`, the queue in `lib/playqueue.ts` — so this
@@ -79,7 +79,7 @@ export default function MiniPlayer() {
     const sync = () => setAt({ time: a.currentTime, duration: a.duration });
     const onPlay = () => {
       setPlaying(true);
-      // past the size gate the waveform waits for a real play (SUB-115);
+      // past the size gate the waveform waits for a real play;
       // requestPeaks keeps the gate, so a master-sized WAV shows the flat
       // track instead of buffering itself into memory to draw one
       requestPeaks(player);

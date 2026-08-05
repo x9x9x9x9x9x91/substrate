@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-394: sidebar collapse — ⌘\ (and the head/rail buttons) hide the
+// Sidebar collapse — ⌘\ (and the head/rail buttons) hide the
 // sidebar so the content panes take the full width; the slim rail keeps the
 // reveal affordance; the preference survives a reload.
 

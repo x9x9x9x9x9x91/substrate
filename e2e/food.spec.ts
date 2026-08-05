@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Food dashboard flows (SUB-325) over the mock seed: Dashboards/Calories.md
+// Food dashboard flows over the mock seed: Dashboards/Calories.md
 // (band 1900–2300) + the Food Log sheet. Seeded today: Chicken bowl 650/45g +
 // Gym −300 → net 350, under the floor. Day-relative seed rows keep these
 // invariants on any date the suite runs.
@@ -16,14 +16,14 @@ test("food: hero, band verdict, metrics from the seeded log", async ({ page }) =
   // net 350 = 650 − 300; exercise subtracts, protein ignores negatives
   await expect(page.locator(".dash-apr")).toHaveText("350");
   await expect(page.locator(".dash-state")).toContainText("under floor");
-  // under the floor the sub-line leads with distance to goal (SUB-374),
+  // under the floor the sub-line leads with distance to goal,
   // and the seeded Gym row surfaces as burned kcal
   await expect(page.locator(".dash-sub")).toContainText("1.550 kcal to goal · 1.950 to ceiling");
   await expect(page.locator(".dash-sub")).toContainText("300 burned");
   await expect(page.locator(".dash-sub")).toContainText("45 g protein");
   // band metric renders the props, day strip carries 14 columns
   await expect(page.locator(".dash-metric", { hasText: "band" })).toContainText("1.900–2.300");
-  // week vs goal over the seeded window (SUB-374): 4 logged days, all rows
+  // week vs goal over the seeded window: 4 logged days, all rows
   // day-relative, Σnet − 4×1900 — the exact number is seed-derived, so just
   // assert the metric renders with its logged-days sub-line
   await expect(page.locator(".dash-metric", { hasText: "week vs goal" })).toContainText("4/7 logged");
@@ -43,7 +43,7 @@ test("food: weight overlay rides the strip, dots only on weigh-in days (SUB-707)
   const vals = page.locator(".food-weight-val");
   await expect(vals.first()).toHaveText("78,4");
   await expect(vals.last()).toHaveText("77,4");
-  // SUB-709: today's dot lands in the kcal label's band (short 350 bar, the
+  // Today's dot lands in the kcal label's band (short 350 bar, the
   // 77,4 dot near the weight scale's padded floor) — the kg label must stack
   // ABOVE the kcal value with daylight between them, never print through it
   const barVal = page.locator(".food-col.today .dash-bar-val");
@@ -144,7 +144,7 @@ test("food: → accepts with a typed quantity and scales the fill (SUB-375)", as
   await food.pressSequentially("2x Chick");
   const item = page.locator(".food-suggest-item", { hasText: "Chicken bowl" });
   await expect(item).toBeVisible();
-  // the row advertises the scaled fill, not the last portion (SUB-629)
+  // the row advertises the scaled fill, not the last portion
   await expect(item.locator(".food-suggest-detail")).toContainText("2× · 1.300 kcal");
   await food.press("ArrowRight");
   await expect(food).toHaveValue("Chicken bowl 2x");
@@ -245,7 +245,7 @@ test("food: delete removes only its row", async ({ page }) => {
   await expect(page.locator(".food-row")).toHaveCount(2);
 });
 
-// ---- day navigation + food database (SUB-408) ----
+// ---- day navigation + food database ----
 
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /** the pane's dayLabel for a day offset from the run date */
@@ -293,7 +293,7 @@ test("food: autocomplete prices DB foods at their basis (SUB-408)", async ({ pag
   await food.pressSequentially("150g Che");
   const item = page.locator(".food-suggest-item", { hasText: "Chevroux" });
   await expect(item).toBeVisible();
-  // the detail prices the TYPED 150g, not the 100g basis portion (SUB-629)
+  // the detail prices the TYPED 150g, not the 100g basis portion
   await expect(item.locator(".food-suggest-detail")).toContainText("150g · 398 kcal");
   await food.press("ArrowRight");
   await expect(food).toHaveValue("Chevroux 150g");
@@ -315,7 +315,7 @@ test("food: unit-basis DB food scales by count (SUB-408)", async ({ page }) => {
   await expect(page.locator(".dash-form-row label", { hasText: "kcal" }).locator("input")).toHaveValue("80");
 });
 
-// ---- kcal expressions in the food field (SUB-629) ----
+// ---- kcal expressions in the food field ----
 
 test("food: per-hundred expression prices the typed weight (SUB-629)", async ({ page }) => {
   await openFood(page);
@@ -479,7 +479,7 @@ test("food: grams-per-unit DB entry prices gram quantities (SUB-687)", async ({ 
   await expect(page.locator(".dash-apr")).toHaveText("460"); // 350 + 110
 });
 
-// ---- basis-drift tripwire (SUB-688) ----
+// ---- basis-drift tripwire ----
 
 test("food: a contradicting row trips the drift line; pin writes the DB (SUB-688)", async ({ page }) => {
   await openFood(page);
@@ -555,10 +555,11 @@ test("food: undoing the drifted row self-clears the line (SUB-688)", async ({ pa
   await expect(page.locator(".food-drift")).toHaveCount(0);
 });
 
-// SUB-578: inside a dashboard the segmented switch wears the underline-dash
+// Inside a dashboard the segmented switch wears the underline-dash
 // voice instead of a filled pill — the active state has to survive that, and
 // so does the keyboard focus ring. Probed on the DB's per-basis switch (the
-// log form's Food|Exercise switch was retired in SUB-702).
+// log form's Food|Exercise switch was retired once a minus-kcal entry became
+// the way to log exercise).
 test("food: the per switch reads active by underline, and keeps a focus ring", async ({ page }) => {
   await openFood(page);
   await page.locator(".food-db-toggle").click();
@@ -597,7 +598,7 @@ test("food: the per switch reads active by underline, and keeps a focus ring", a
   expect(parseFloat(outline.w)).toBeGreaterThan(0);
 });
 
-// SUB-691: an implausible kcal — a pasted extra digit, or a runaway
+// An implausible kcal — a pasted extra digit, or a runaway
 // expression — used to log fine, and one such row pins the strip's scale so
 // every other day collapses to the 3% floor while avg7 / week-vs-goal stay
 // poisoned for two weeks. Rejected at entry in both input paths now.
@@ -634,7 +635,7 @@ test("food: a 9-digit kcal can't be added, and the strip is unaffected (SUB-691)
   await expect(page.locator(".food-row", { hasText: "Späti" })).toHaveCount(0);
 });
 
-// ---- zero-line split for net-negative days (SUB-684) ----
+// ---- zero-line split for net-negative days ----
 
 test("food: a net-negative day hangs below the zero line at true scale (SUB-684)", async ({
   page,

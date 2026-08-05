@@ -55,7 +55,7 @@ pub(crate) fn vault_folder_meta_read(
     state.0.lock().unwrap().folder_meta()
 }
 
-/// Set or clear a folder's icon (SUB-84) — the whole icon at once; no mark
+/// Set or clear a folder's icon — the whole icon at once; no mark
 /// at all removes the entry (plain folder glyph fallback).
 #[tauri::command]
 pub(crate) fn vault_folder_icon_set(

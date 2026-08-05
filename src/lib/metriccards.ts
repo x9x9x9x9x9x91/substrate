@@ -1,4 +1,4 @@
-/** Metric cards — the one card contract (SUB-964). A metrics dashboard reads
+/** Metric cards — the one card contract. A metrics dashboard reads
  *  its cards from frontmatter; a hub body reads the same cards from a ```cards
  *  fence, so one note can mix headings, callout rows, views, charts and stat
  *  cards without either surface growing its own dialect.
@@ -41,16 +41,16 @@ export interface MetricCard {
   digits?: number;
   /** contrast discipline (principle 11): this card keeps the sharp voice */
   emph?: boolean;
-  /** bounded style token (SUB-969): an option-palette name, or absent */
+  /** bounded style token: an option-palette name, or absent */
   accent?: AccentName;
 }
 
 /** Fraction digits a card may ask for. `Number.toLocaleString` rejects digits
     past its engine's cap with a hard RangeError — 100 on current V8/JSC, 20 on
     engines predating Intl.NumberFormat v3 — and no board value reads past 8,
-    so one bound holds for every card surface (SUB-1030). What differs is the
+    so one bound holds for every card surface. What differs is the
     REACTION, and it follows the surface's existing posture rather than the
-    card's (SUB-1060): hand-authored text — the ```cards fence and a ```tile
+    card's: hand-authored text — the ```cards fence and a ```tile
     card line — is read strictly and names the mistake to the person editing
     it (`parseCardDigits`), while frontmatter stays lenient and clamps
     (`clampCardDigits`), the same split that already governs unknown keys and
@@ -69,7 +69,7 @@ export function clampCardDigits(digits: unknown): number | undefined {
 /** A card's `digits` as hand-authored text declares it: whole, 0..8, or a
     named error. The strict read, shared by the ```cards fence and the ```tile
     card line so the two authoring surfaces refuse the same values with the
-    same words (SUB-1060). Both callers render a parse error in place, so a bad
+    same words. Both callers render a parse error in place, so a bad
     digit is told, never fatal. */
 export function parseCardDigits(raw: string): number {
   const n = Number(raw);
@@ -162,7 +162,7 @@ const ITEM_RE = /^(\s*)-\s+(.*)$/;
 const KV_RE = /^([A-Za-z][\w-]*)\s*:\s*([\s\S]*)$/;
 
 /** Strip one layer of matching quotes. Shared with the ```progress fence
-    (SUB-967) so `bind: "{{Holdings.total}}"` reads the same in both. */
+     so `bind: "{{Holdings.total}}"` reads the same in both. */
 export function unquote(v: string): string {
   const t = v.trim();
   if (t.length >= 2 && ((t[0] === '"' && t.endsWith('"')) || (t[0] === "'" && t.endsWith("'")))) {
@@ -194,7 +194,7 @@ function assign(card: Partial<MetricCard>, rawKey: string, rawValue: string) {
   }
   if (key === "accent") {
     // a style token, not a binding: an off-roster name is simply not honored
-    // (SUB-969). The key is still recorded so a second `accent:` line on the
+    //. The key is still recorded so a second `accent:` line on the
     // same card is caught as a duplicate like every other key.
     card.accent = parseAccent(v);
     return;

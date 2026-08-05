@@ -2,14 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ASSIGNABLE_KEYS, keyLabel, pinIndexForToken, splitFreeKeys, targetLabel } from "../lib/keyassign";
 import { KEY_DRAG_MIME } from "../lib/sidebar";
 
-/** The key HUD (SUB-467): a floating panel of draggable key chips. Drag a free
+/** The key HUD: a floating panel of draggable key chips. Drag a free
     chip onto any sidebar destination to bind it; drag an assigned chip back
     here to clear it. Non-modal on purpose — the sidebar has to stay live
     underneath, so this is NOT an overlay: it's a fixed panel with the sheet's
-    chrome, closing on Esc or an outside click (the KeyHints lifecycle,
-    SUB-396). Assign mode is session-only; nothing about the panel persists.
+    chrome, closing on Esc or an outside click (the KeyHints lifecycle). Assign
+   mode is session-only; nothing about the panel persists.
 
-    SUB-485: free chips come in two grades. Digits 5–9 already carry the
+    Free chips come in two grades. Digits 5–9 already carry the
     automatic pin mapping, so they are listed apart — assignable, but labelled
     with what the drop costs instead of offered as unclaimed. */
 export default function KeyAssignHud({
@@ -25,7 +25,7 @@ export default function KeyAssignHud({
   /** live pinned-view count: digits 5–9 shadow that many pin shortcuts */
   pinCount: number;
   /** live pinned views in ⌘-digit order (App's pinIds) — the shadow section
-      names the view each digit maps to (SUB-677) */
+      names the view each digit maps to */
   pins: string[];
   onUnassign: (token: string) => void;
   onClose: () => void;
@@ -79,7 +79,7 @@ export default function KeyAssignHud({
   const { open, shadowing } = splitFreeKeys(keys, pinCount);
   const assigned = ASSIGNABLE_KEYS.filter((k) => k.token in keys);
 
-  // SUB-677: the view a shadowing digit answers to — ⌘5 and ⌃5 name the same
+  // The view a shadowing digit answers to — ⌘5 and ⌃5 name the same
   // pin (both halves of the pool reach it), resolved off the same pinIds
   // order the shortcut fires on
   const pinName = (token: string): string => {
@@ -137,10 +137,10 @@ export default function KeyAssignHud({
         {open.length === 0 && shadowing.length === 0 && (
           <div className="key-hud-hint">Every key is assigned.</div>
         )}
-        {/* SUB-485: still free, but a pinned view already answers to them.
+        {/* Still free, but a pinned view already answers to them.
             Draggable on purpose — an assignment beating the pin mapping is the
             spec'd precedence; the section just stops the HUD calling them
-            unclaimed. SUB-677: each chip names the view it would displace. */}
+            unclaimed. Each chip names the view it would displace. */}
         {shadowing.length > 0 && (
           <>
             <div className="key-hud-section">Used by pinned views</div>

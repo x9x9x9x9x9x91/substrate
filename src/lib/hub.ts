@@ -1,4 +1,4 @@
-/** Hub dashboard parsing (SUB-189). A `dashboard: hub` note keeps a perfectly
+/** Hub dashboard parsing. A `dashboard: hub` note keeps a perfectly
  *  ordinary markdown body; the hub renderer lays it out as a column-first
  *  home page without inventing any on-disk syntax:
  *
@@ -23,7 +23,7 @@ export interface HubCallout {
   title: string;
   /** continuation lines with the `> ` quote prefix stripped */
   body: string[];
-  /** bounded style token (SUB-969): `> [!note|teal]`, absent if off-roster */
+  /** bounded style token: `> [!note|teal]`, absent if off-roster */
   accent?: AccentName;
 }
 
@@ -35,7 +35,7 @@ export type HubBlock =
 // same sources as Editor.tsx — keep in lockstep (both regexes there: the
 // callout header AND the block prefix the editor hides).
 //
-// The optional `|accent` tail (SUB-969) swallows ANY non-`]` text rather than
+// The optional `|accent` tail swallows ANY non-`]` text rather than
 // only roster names, so `> [!note|chartreuse]` is still a note callout with no
 // accent — an unhonorable style token must not demote a callout to a plain
 // blockquote. Group 1 stays the full prefix and group 2 the kind, which is
@@ -45,7 +45,7 @@ const QUOTE_PREFIX_RE = /^(\s*>\s?)/;
 
 // the opener takes a full info string (```rust ignore) — first word is the
 // language; a spaced info string must not leak the fence body into callout
-// scanning by demoting the opener to prose (SUB-898)
+// scanning by demoting the opener to prose
 const FENCE_OPEN_RE = /^```(\S*)(?:\s[^`]*)?$/;
 const FENCE_CLOSE_RE = /^```\s*$/;
 const SECTION_RE = /^##\s+(.*)$/;

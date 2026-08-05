@@ -1,4 +1,4 @@
-/** The listening queue behind the mini-player (SUB-812): which folder is
+/** The listening queue behind the mini-player: which folder is
  * playing, in what order, and where in it we are.
  *
  * Module state, not React state — deliberately, and for the same reason the

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDb } from "./nav";
 
-// lead-time reminders (SUB-842): a date-kind prop may carry `notifyBefore`,
+// lead-time reminders: a date-kind prop may carry `notifyBefore`,
 // an extra alert that many days before the date comes due. The schema
 // editor's control is date-kind ONLY, blank means off, and the write
 // persists through the mock backend's normalization mirror.

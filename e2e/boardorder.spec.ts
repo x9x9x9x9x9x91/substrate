@@ -1,12 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb, openFilter } from "./nav";
 
-// SUB-948: a board drag lands where the pointer says. On an UNSORTED board a
+// a board drag lands where the pointer says. On an UNSORTED board a
 // 2px accent line shows the exact slot and the card stays there — the order
 // lives on the view's prefs (views.json in the real engine, mockViews here),
 // never as a prop in a note. On a SORTED board there is no line, because the
 // sort owns the order: the card snaps to its sorted slot instead, with the
-// SUB-945 landing flash so the jump is legible. Deterministic mock backend
+// landing flash so the jump is legible. Deterministic mock backend
 // (fresh page = fresh vault).
 
 async function openBoard(page: Page) {
@@ -198,7 +198,7 @@ test("unsorted board: the move is undoable from the toast and from ⌘Z", async 
   await page.locator(".toast button", { hasText: "Undo" }).click();
   expect(await colTitles(page, index)).toEqual(titles);
 
-  // SUB-477: the keyboard pops the same entry the toast button does, so a
+  // the keyboard pops the same entry the toast button does, so a
   // second undo must not fire again on an already-undone move
   const again = await dragCardBefore(page, index, 1, 0);
   await again.target.dispatchEvent("drop", { dataTransfer: again.dataTransfer });
@@ -210,7 +210,7 @@ test("unsorted board: the move is undoable from the toast and from ⌘Z", async 
 test("sorted board: no insertion line — the card snaps to its sorted slot", async ({ page }) => {
   await page.goto("/");
   await openDb(page, "Release");
-  // a sort set in the table rides the same ViewPref into the board (SUB-326)
+  // a sort set in the table rides the same ViewPref into the board
   await page.locator(".db-th-title").click();
   await page.locator('.db-switch button[title="Board"]').click();
   await expect(page.locator(".db-board")).toBeVisible();
@@ -250,6 +250,6 @@ test("sorted board: a cross-column drop still writes the group and flashes", asy
   await cols.nth(otherIndex).dispatchEvent("drop", { dataTransfer });
 
   await expect(cols.nth(otherIndex).locator(".db-card-title", { hasText: moved })).toHaveCount(1);
-  // SUB-945: the card that just moved lights once so the jump is followable
+  // the card that just moved lights once so the jump is followable
   await expect(cols.nth(otherIndex).locator(".db-card.db-flashing")).toHaveCount(1);
 });

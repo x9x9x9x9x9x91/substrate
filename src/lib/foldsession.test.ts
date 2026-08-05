@@ -2,7 +2,7 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { foldSessionKey, migrateSessionFolds, sessionFolds } from "./foldsession.ts";
 
-// SUB-785 — fold memory is keyed by the note's live path, so a rename moves
+// Fold memory is keyed by the note's live path, so a rename moves
 // the entries (plain and view-suffixed) instead of orphaning them.
 
 const RANGES = [{ from: 3, to: 40 }];

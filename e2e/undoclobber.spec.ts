@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-287: an external edit adopted into a clean buffer used to land in the
+// An external edit adopted into a clean buffer used to land in the
 // editor's CodeMirror undo history as a normal entry — the next ⌘Z reverted
 // the adopt itself and the debounced autosave wrote the pre-adopt body back
 // over the external change, silently (no conflict banner: baseRef moved with
@@ -12,7 +12,7 @@ function row(page: Page, title: string) {
   return page.locator(".list .row", { has: page.getByText(title, { exact: true }) });
 }
 
-// cold open lands on the Today surface (SUB-92) — same boot shape as mockfail
+// cold open lands on the Today surface — same boot shape as mockfail
 async function boot(page: Page) {
   await page.goto("/");
   await page.locator(".side-item", { hasText: /^Notes/ }).click();
@@ -23,7 +23,7 @@ test("⌘Z after an external-change adopt keeps the external body (SUB-287)", as
   await boot(page);
   const ed = page.locator(".cm-content");
   // an outside editor rewrites the open note; wait out the own-write echo
-  // window (SUB-116) before emitting so the adopt runs immediately
+  // window before emitting so the adopt runs immediately
   await page.evaluate(() => window.__mockEditNote("Welcome.md", "EXTERNAL-287 external body\n"));
   await page.waitForTimeout(1100);
   await page.evaluate(() => window.__mockEmit("vault:changed"));

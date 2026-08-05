@@ -3,7 +3,7 @@ import type { NoteMeta, View } from "../lib/types";
 import { propStr, viewKey } from "../lib/types";
 
 /**
- * the search detour and its return trip (SUB-267): the query, the view a
+ * the search detour and its return trip: the query, the view a
  * search was opened FROM, the stash that one Esc in the landing context
  * spends to go back, and the one-shot reveal that points the editor at the
  * matched line.
@@ -32,7 +32,7 @@ export function useSearch(opts: {
   } = opts;
 
   const [searchQuery, setSearchQuery] = useState("");
-  // SUB-267: the search a hit was opened from — one Esc in the landing
+  // The search a hit was opened from — one Esc in the landing
   // context returns to it (query + picked row), then the stash is spent
   const [searchReturn, setSearchReturn] = useState<{
     query: string;
@@ -46,7 +46,7 @@ export function useSearch(opts: {
     null
   );
   // where Esc from the search pane returns to: the view and its open note.
-  // A database's open note lives in `dbNote`, not `selected` (SUB-668), so the
+  // A database's open note lives in `dbNote`, not `selected`, so the
   // stash carries both or the return trip lands with the side split shut.
   const preSearchView = useRef<{ view: View; selected: string | null; dbNote: string | null }>({
     view: { kind: "notes" },
@@ -68,7 +68,7 @@ export function useSearch(opts: {
 
   // Esc without a pick: back to the stashed view AND its open note — the
   // search view's empty scope nulled the selection while we were in it, and
-  // leaving a database cleared its side note (SUB-668). Restoring after
+  // leaving a database cleared its side note. Restoring after
   // setView is enough: the leave-clears effect fires on the way OUT of the db
   // view, not on the way back in.
   const closeSearch = useCallback(() => {
@@ -77,11 +77,11 @@ export function useSearch(opts: {
     setDbNote(preSearchView.current.dbNote);
   }, []);
 
-  // open a note at a specific match line, in its home context (SUB-267): its
+  // open a note at a specific match line, in its home context: its
   // database's side split when it has a type, else its folder view, else All
   // notes — and one Esc from there returns to the search, query and picked
-  // row intact. Dashboard notes go to their rendered surface instead
-  // (SUB-169) — a raw fence line means nothing there; the pane's own source
+  // row intact. Dashboard notes go to their rendered surface instead —
+  // a raw fence line means nothing there; the pane's own source
   // button edits them
   const openSearchHit = useCallback(
     (path: string, line: number) => {
@@ -118,7 +118,7 @@ export function useSearch(opts: {
     if (reveal && selected !== reveal.path && dbNote !== reveal.path) setReveal(null);
   }, [selected, dbNote, reveal]);
 
-  // SUB-267: the return trip itself — query and picked row restored, stash
+  // The return trip itself — query and picked row restored, stash
   // spent, so the next Esc is ordinary again. Shared by the app-level Esc
   // (focus outside text) and the editor's own Esc binding
   const returnToSearch = useCallback(
@@ -131,7 +131,7 @@ export function useSearch(opts: {
     []
   );
 
-  // SUB-267: the return stash lives exactly as long as its landing context —
+  // The return stash lives exactly as long as its landing context —
   // any further navigation spends it, so a stale Esc can never jump back
   useEffect(() => {
     // An empty stash has nothing to spend. Without this the effect calls
@@ -149,8 +149,8 @@ export function useSearch(opts: {
   }, [view, selected, dbNote, searchReturn]);
 
   // Esc from inside a note (title input or editor): an armed search-return
-  // jumps back to the results (SUB-267); otherwise a pristine ⌘N note
-  // abandons itself (SUB-264)
+  // jumps back to the results; otherwise a pristine ⌘N note
+  // abandons itself
   const onNoteEscape = useCallback(
     (path: string) => {
       const sr = searchReturn;

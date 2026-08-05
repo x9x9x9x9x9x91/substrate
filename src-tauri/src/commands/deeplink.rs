@@ -1,4 +1,4 @@
-//! `substrate://` deeplink commands (SUB-1075) — the two pulls the frontend
+//! `substrate://` deeplink commands — the two pulls the frontend
 //! makes. Parsing, validation and the pending queue live in
 //! `crate::deeplink`; these are the moments a window says "I'm ready, give me
 //! what arrived".

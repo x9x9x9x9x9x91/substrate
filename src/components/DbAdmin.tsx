@@ -13,7 +13,7 @@ import {
 import { PlusIcon, XIcon } from "./Icons";
 import SelectMenu, { anchorFrom, type AnchorRect } from "./SelectMenu";
 
-/* Database-management dialogs (SUB-43): small centered cards riding the
+/* Database-management dialogs: small centered cards riding the
    palette's overlay idiom — Esc or a backdrop click closes, the first input
    is autofocused, Enter submits. Destructive sweeps are always explicit
    choices with the affected note count in the label. */
@@ -86,7 +86,7 @@ export function NewDatabaseDialog({
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /** the one open picker (kind or relation target) — a SelectMenu anchored at
-      its row button (SUB-647: replaces the two stock selects) */
+      its row button (replaces the two stock selects) */
   const [menu, setMenu] = useState<{
     row: number;
     which: "kind" | "target";
@@ -229,7 +229,7 @@ export function NewDatabaseDialog({
   );
 }
 
-/** "Import CSV as database…" (SUB-274): a picked CSV becomes a new database.
+/** "Import CSV as database…": a picked CSV becomes a new database.
     Name it, say whether the first row is headers, and choose the columns to
     bring — the first included column becomes each entry's title, the rest
     become text props; blank rows are skipped. The type is created through
@@ -257,7 +257,7 @@ export function CsvImportDialog({
   const columns = useMemo(() => csvColumns(rows, headers), [rows, headers]);
   // the names the database will really store: reserved and duplicate headers
   // get suffixed rather than silently emptying a column or aborting the import
-  // on submit (SUB-559, SUB-562). The rows below show these, not the raw ones.
+  // on submit. The rows below show these, not the raw ones.
   const picked = useMemo(
     () => csvSafeColumns(columns.map((c, i) => ({ ...c, include: !excluded.has(i) }))),
     [columns, excluded],
@@ -415,7 +415,7 @@ export function DeleteDatabaseDialog({
   onChoice: (trashNotes: boolean) => Promise<void>;
   onClose: () => void;
 }) {
-  // a mid-sweep failure must outlive a 4s toast (SUB-501): the dialog stays
+  // a mid-sweep failure must outlive a 4s toast: the dialog stays
   // open and carries the partial-count message, like its sibling dialogs
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -483,7 +483,7 @@ export function StripPropDialog({
   onStrip: () => Promise<void>;
   onClose: () => void;
 }) {
-  // same partial-failure surface as the delete dialog (SUB-501)
+  // same partial-failure surface as the delete dialog
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const strip = () => {
@@ -514,7 +514,7 @@ export function StripPropDialog({
   );
 }
 
-/** The destructive half of unmounting (SUB-888). Plain "Unmount" needs no
+/** The destructive half of unmounting. Plain "Unmount" needs no
     dialog — it forgets the folder and leaves the sidecar notes alone. This
     one trashes them, so it names the folder it is NOT touching: the files on
     disk are never at risk, only the notes the vault wrote about them. */
@@ -558,7 +558,7 @@ export function UnmountDialog({
   );
 }
 
-/** "Mount a folder…" (SUB-888): show a real folder on disk as a database —
+/** "Mount a folder…": show a real folder on disk as a database —
     every matching file is a row, read live from an index, and nothing is
     imported or copied (vault-format.md §8). A note is only written for a
     file once you say something about it. The folder comes from the native

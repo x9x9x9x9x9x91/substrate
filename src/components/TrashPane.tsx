@@ -7,8 +7,8 @@ import { dateLocale } from "../lib/dateLocale";
 import { BackButton } from "./BackButton";
 
 /** Kinds with no note history behind them: the purge-history lanes skip them.
-    An asset was never tracked (SUB-479); a template is a `.vault/` file the
-    per-note purge command doesn't address (SUB-781). */
+    An asset was never tracked; a template is a `.vault/` file the
+    per-note purge command doesn't address. */
 const noHistory = (t: TrashEntry) => t.kind === "asset" || t.kind === "template";
 
 function fmtDeleted(ms: number): string {
@@ -24,7 +24,7 @@ function fmtDeleted(ms: number): string {
 }
 
 /** Row sub-line: the parent folder when there is one ("Projects/" for
- * "Projects/foo.md" — the bare filename at vault root is noise, SUB-147),
+ * "Projects/foo.md" — the bare filename at vault root is noise),
  * a folder's note count, and when it was deleted. */
 function trashSub(t: TrashEntry): string {
   const slash = t.path.lastIndexOf("/");
@@ -60,7 +60,7 @@ export default function TrashPane({ vaultEpoch, onRestored, onRestoredFolder }: 
   const [alsoPurge, setAlsoPurge] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const disarmTimer = useRef<number | undefined>(undefined);
-  /** right-click menu over a row (SUB-378) — mirrors the row's buttons;
+  /** right-click menu over a row — mirrors the row's buttons;
       destructive picks ARM the existing confirm rather than acting at once */
   const [menu, setMenu] = useState<{ x: number; y: number; entry: TrashEntry } | null>(null);
 
@@ -119,7 +119,7 @@ export default function TrashPane({ vaultEpoch, onRestored, onRestoredFolder }: 
       return;
     }
     // a template goes back to `.vault/templates/` — like an asset there is
-    // nothing to open, so the pane just refreshes (SUB-781)
+    // nothing to open, so the pane just refreshes
     if (t.kind === "template") {
       run(vaultTrashRestoreTemplate(t.id));
       return;
@@ -210,8 +210,8 @@ export default function TrashPane({ vaultEpoch, onRestored, onRestoredFolder }: 
     },
   ];
 
-  /* the arm label counts kinds separately — a folder is not a note (SUB-109),
-     and an asset is neither (SUB-479), nor is a template (SUB-781) */
+  /* the arm label counts kinds separately — a folder is not a note,
+     and an asset is neither, nor is a template */
   const emptyArmLabel = (list: TrashEntry[]) => {
     const notes = list.filter((t) => t.kind === "note").length;
     const folders = list.filter((t) => t.kind === "folder").length;
@@ -233,7 +233,7 @@ export default function TrashPane({ vaultEpoch, onRestored, onRestoredFolder }: 
         {entries !== null && entries.length > 0 && (
           <span className="list-count">{entries.length}</span>
         )}
-        {/* nothing to purge when the trash holds only assets/templates (SUB-479, SUB-781) */}
+        {/* nothing to purge when the trash holds only assets/templates */}
         {armed === "empty" && (entries ?? []).some((t) => !noHistory(t)) && (
           <label
             className="trash-also"
@@ -260,7 +260,7 @@ export default function TrashPane({ vaultEpoch, onRestored, onRestoredFolder }: 
         {entries === null ? (
           /* an errored load renders the strip below — never a loading state
              that sticks forever; same DOM as the resolved state, so the load
-             landing only swaps text (SUB-650) */
+             landing only swaps text */
           error === null ? (
             <div className="empty">
               <TrashIcon />
@@ -315,7 +315,7 @@ export default function TrashPane({ vaultEpoch, onRestored, onRestoredFolder }: 
                   {t.kind === "asset" && <ImageIcon />}
                   {t.title}
                   {/* assets and templates sit next to notes here, so say which
-                      is which (SUB-479, SUB-781) */}
+                      is which */}
                   {t.kind === "asset" && <span className="trash-row-tag">asset</span>}
                   {t.kind === "template" && <span className="trash-row-tag">template</span>}
                 </span>

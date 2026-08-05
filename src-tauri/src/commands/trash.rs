@@ -6,7 +6,7 @@ use tauri::State;
 
 /// "Delete" from the UI is a move into `.trash/` — recoverable until the
 /// trash itself is emptied. Returns the trash id it created so Undo restores
-/// exactly this version (SUB-478).
+/// exactly this version.
 #[tauri::command]
 pub(crate) fn vault_delete(
     state: State<AppState>,
@@ -18,7 +18,7 @@ pub(crate) fn vault_delete(
 }
 
 /// Bulk "Delete" — one call for a whole multi-select, so the group shares a
-/// `deleted_ms` and the Trash pane lists it together in path order (SUB-577).
+/// `deleted_ms` and the Trash pane lists it together in path order.
 /// A per-note loop on the frontend split the group across a millisecond
 /// boundary under load. Returns one entry per input path, in order: `Ok(id)`
 /// or `Err(message)`, so a partial failure stays per-note attributable.
@@ -61,7 +61,7 @@ pub(crate) fn vault_trash_delete(state: State<AppState>, id: String) -> Result<(
     state.0.lock().unwrap().trash_delete(&id)
 }
 
-/// Restore a trashed template back to `.vault/templates/` (SUB-781); returns
+/// Restore a trashed template back to `.vault/templates/`; returns
 /// the stem it landed under (numbered when the type already has a new one).
 /// Marks the vault dirty: templates sit outside the watcher, so without it
 /// the restored file waits for an unrelated mutation before any snapshot.
@@ -89,7 +89,7 @@ pub(crate) fn vault_trash_empty(state: State<AppState>) -> Result<(), String> {
 }
 
 /// Folder delete — the whole subtree moves into `.trash/` as one recoverable
-/// entry, the same trash semantics as notes. Returns the trash id (SUB-478).
+/// entry, the same trash semantics as notes. Returns the trash id.
 #[tauri::command]
 pub(crate) fn vault_delete_folder(
     state: State<AppState>,

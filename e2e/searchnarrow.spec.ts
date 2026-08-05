@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-510. Narrowing a search used to land the selection on the LAST surviving
+// Narrowing a search used to land the selection on the LAST surviving
 // row instead of the top hit, so Enter opened a note the user never picked.
 //
 // The cause is two effects firing in one commit: `query` changing resets the

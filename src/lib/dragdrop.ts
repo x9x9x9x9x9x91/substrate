@@ -6,7 +6,7 @@
  *     conversion, so the values are ALREADY CSS pixels. Dividing by
  *     devicePixelRatio halves them on Retina, elementFromPoint lands
  *     far up-left, and every drop gets discarded as "outside the editor"
- *     (SUB-414 — drops silently no-op'd on any Retina display).
+ *     (drops silently no-op'd on any Retina display).
  *   - Windows: `ScreenToClient` device pixels — the division is correct.
  *   - Linux/GTK: widget-local logical coordinates, like macOS.
  */
@@ -20,7 +20,7 @@ export function dropClientPoint(
   return { x: position.x / scale, y: position.y / scale };
 }
 
-/** The drag-over hint pill's wording (SUB-438): teaches ⇧-link while a file
+/** The drag-over hint pill's wording: teaches ⇧-link while a file
  * hovers the editor, flips live when Shift goes down mid-drag. */
 export function dropHintText(shift: boolean): string {
   return shift

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Tasks board v3 (SUB-870) over the mock seed (Dashboards/Tasks.md, areas
+// Tasks board v3 over the mock seed (Dashboards/Tasks.md, areas
 // Label/Studio/Admin). The board leads with urgency, so the seed lands as:
 // Overdue = Chase the test pressing approvals (Label, high, −1d) then Renew
 // Bandcamp plan (Admin, low, −2d, stale at 74d); Due today = Approve SMP-030
@@ -79,7 +79,7 @@ test("tasks: checkoff shows a checked state, toasts a real Undo, and ⌘Z also r
   await expect(page.locator(".tasks-row", { hasText: "Approve SMP-030 artwork" })).toHaveCount(0);
   await expect(page.locator(".tasks-group-name", { hasText: /^Due today$/ })).toHaveCount(0);
 
-  // the toast carries a real Undo action (SUB-870), not just a sentence
+  // the toast carries a real Undo action, not just a sentence
   const toast = page.locator(".toast");
   await expect(toast).toContainText("Done — Approve SMP-030 artwork");
   await toast.locator("button", { hasText: "Undo" }).click();
@@ -200,7 +200,7 @@ test("tasks: Now/Later verbs move a row between the focus card and its group (SU
   await expect(nowGroup.locator(".tasks-row")).toHaveCount(2);
   await expect(page.locator(".tasks-group-name", { hasText: /^Studio$/ })).toHaveCount(0);
 
-  // the pin glyph follows the pin (SUB-1109): both Now rows carry it, the
+  // the pin glyph follows the pin: both Now rows carry it, the
   // overdue rows below carry none
   await expect(nowGroup.locator(".tasks-row .tasks-pin")).toHaveCount(2);
   await expect(page.locator(".tasks-overdue .tasks-row .tasks-pin")).toHaveCount(0);
@@ -276,7 +276,7 @@ test("tasks: the snooze menu offers a date picker anchored to its verb (SUB-870)
   // above its top when the bottom of the window is close. A click-coordinate
   // anchor would land on the pointer's y, mid-row, matching neither.
   const width = await page.evaluate(() => window.innerWidth);
-  // measured once the pop-in has settled (SUB-945 gave every anchored menu the
+  // measured once the pop-in has settled (every anchored menu has the
   // same short entrance) -- the assertion itself stays exact, so a menu that is
   // genuinely anchored to the pointer never converges
   await expect(async () => {
@@ -315,7 +315,7 @@ test("tasks: the Board view groups every open row by area, urgency claiming noth
     "Renew the webshop shipping rates",
   ]);
 
-  // the pinned card wears the pin glyph (SUB-1109): on the board there is no
+  // the pinned card wears the pin glyph: on the board there is no
   // Now heading, so the mark is the only thing saying the missing stale chip
   // is an exemption. An unpinned card carries none — including the 74-day
   // Bandcamp row, which is chipped `stale` precisely because it isn't pinned.
@@ -355,7 +355,7 @@ test("tasks: the sort switch re-ranks sections and columns and persists (SUB-933
 }) => {
   await openTasks(page);
 
-  // urgency default inside Overdue: high priority leads (SUB-870 assertion)
+  // urgency default inside Overdue: high priority leads (assertion)
   const overdue = page.locator(".tasks-overdue .tasks-row");
   await expect(overdue.locator(".tasks-title")).toHaveText([
     "Chase the test pressing approvals",
@@ -490,7 +490,7 @@ test("tasks: board cards carry the rot layer the list rows do (SUB-1055)", async
   // it is a finding, not decoration: a task that is merely late carries none.
   // Its `created` is seeded 3 days back RELATIVE to today, not at the seed's
   // FIXED_BASE — a fixed date would drift past stale_days as the calendar
-  // moves and turn this negative case permanently red (SUB-1055 review)
+  // moves and turn this negative case permanently red (review)
   const chase = page.locator(".tasks-card", { hasText: "Chase the test pressing approvals" });
   await expect(chase.locator(".tasks-finding")).toHaveCount(0);
 

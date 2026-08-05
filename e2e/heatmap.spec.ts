@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Heatmap fences (SUB-966): a ```heatmap fence draws one year of day squares
+// Heatmap fences: a ```heatmap fence draws one year of day squares
 // over a database or a sheet. This spec covers the three shapes the feature
 // ships in — a note that is nothing but heatmaps, a note that carries charts
 // AND heatmaps, and a fence written into a hub body beside the other fences —

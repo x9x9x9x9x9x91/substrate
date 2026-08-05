@@ -1,4 +1,4 @@
-/** SUB-455: deferred auto-focus that yields to the user.
+/** Deferred auto-focus that yields to the user.
  *
  * Creating or opening a note focuses its editor (or title) ~80ms later, once
  * the pane has mounted. That delay is a window in which the user can act —
@@ -12,10 +12,10 @@
  * elsewhere (a pointerdown or a keydown). Auto-focus is a convenience for an
  * idle user, never an override of a deliberate one.
  *
- * SUB-765: with one exception, because "intent elsewhere" over-read the
+ * With one exception, because "intent elsewhere" over-read the
  * flagship capture moment. ⌘N on Notes and typing straight away is the whole
  * point of a scratch note — but that first keystroke cancelled the handoff,
- * and the text went nowhere (the list has no type-ahead, SUB-392), leaving
+ * and the text went nowhere (the list has no type-ahead), leaving
  * the note stuck unfocused and "Untitled" forever.
  *
  * The tell is whether the character had anywhere to land. A *printable* key
@@ -25,11 +25,11 @@
  * AT the pending target: fire the pending focus synchronously inside the
  * keydown rather than cancel it. The focus lands before the browser inserts
  * the character, so that same char is typed into the newly focused field.
- * SUB-1123 counts an Option-produced character (⌥L is `@` on a German layout)
+ * This counts an Option-produced character (⌥L is `@` on a German layout)
  * and a pending dead key as exactly that kind of keystroke; see below.
  *
  * Everything else keeps the old semantics exactly: non-printable and
- * command-chorded keys always cancel (SUB-455's arrow-key-at-the-list case), and
+ * command-chorded keys always cancel (the arrow-key-at-the-list case), and
  * so does any key pressed while a real text field or editor already has focus
  * (the scratch-body-split-into-title case). pointerdown cancels
  * unconditionally — a click elsewhere is never ambiguous.
@@ -48,7 +48,7 @@ export function focusSoon(run: () => void, delay = 80): () => void {
     teardown();
   };
   // does the currently focused element accept typed text? if it does, the
-  // keystroke belongs to it and the pending focus must yield (SUB-455)
+  // keystroke belongs to it and the pending focus must yield
   const takesText = (el: Element | null): boolean => {
     if (!el || typeof document === "undefined") return false;
     if (el === document.body) return false;
@@ -63,15 +63,15 @@ export function focusSoon(run: () => void, delay = 80): () => void {
   const typingIntoTheVoid = (e: unknown): boolean => {
     const ev = e as Partial<KeyboardEvent> | null;
     if (!ev || typeof ev.key !== "string") return false;
-    // SUB-1123: ⌘/⌃ are command modifiers; Option is NOT one on macOS — it is
+    // ⌘/⌃ are command modifiers; Option is NOT one on macOS — it is
     // how international layouts type ordinary characters (German: `@` is ⌥L,
     // `[` is ⌥5, `~` is ⌥N). Rejecting altKey outright cancelled the handoff on
-    // an ordinary German character, i.e. the SUB-765 bug reached by typing. No
+    // an ordinary German character, i.e. the bug reached by typing. No
     // character list is needed: an Option chord that produces a character
     // reports THAT character in `key`, so the length test below separates ⌥L
     // ("@") from ⌥ArrowDown on its own. The app's only bare-⌥ chords are ⌥←/⌥→
     // (mini-player transport) — named keys, so they still cancel. Same fix as
-    // the database cell surface (SUB-1120, cellhop.ts).
+    // the database cell surface (cellhop.ts).
     if (ev.ctrlKey || ev.metaKey) return false;
     // a composition in progress belongs to the IME, not to a pending focus
     if (ev.isComposing) return false;

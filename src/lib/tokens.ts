@@ -14,7 +14,7 @@
 
 /** healthy, done, steady — the green */
 export const OK = "var(--ok)";
-/** worth a look: between OK and act-now — the attention amber (SUB-1151) */
+/** worth a look: between OK and act-now — the attention amber */
 export const WARN = "var(--warn)";
 /** act now: failed, unreachable, error — the red */
 export const DANGER = "var(--danger)";

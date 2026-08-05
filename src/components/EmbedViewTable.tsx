@@ -1,4 +1,4 @@
-/** The read-only live-table body a resolved ````view` embed renders (SUB-860).
+/** The read-only live-table body a resolved ````view` embed renders.
     Extracted from the workbook's view page so the two read-only surfaces that
     show one — a workbook `view:`/`saved:` page and a hub dashboard's fence —
     are literally the same table rather than two drifting copies. Chrome-less
@@ -47,7 +47,7 @@ export default function EmbedViewTable({
           ))}
         </tbody>
       </table>
-      {/* Why the table is short, said honestly (SUB-942). An author's `limit:`
+      {/* Why the table is short, said honestly. An author's `limit:`
           and the surface's safety cap are different facts: the first is the
           table they asked for, the second is rows we declined to paint. Both
           state the count they can see against the full match count, so a

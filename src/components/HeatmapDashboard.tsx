@@ -1,4 +1,4 @@
-/** Heatmap dashboard (SUB-966): the ```heatmap fences in a note, each drawn as
+/** Heatmap dashboard: the ```heatmap fences in a note, each drawn as
     a year of day squares — the contribution-graph read of a database or a
     sheet. Parsing and aggregation live in lib/heatmap.ts; this file is layout,
     intensity and the keyboard.
@@ -41,7 +41,7 @@ interface HeatmapDashboardProps {
   schema: SchemaConfig;
   onOpenSource: (path: string) => void;
   /** render only the heatmap sections — no pane chrome — so another dashboard
-      (a hub, SUB-964's fence host) can place one where it was written */
+      (a hub, the fence host) can place one where it was written */
   embed?: boolean;
 }
 
@@ -74,7 +74,7 @@ function HeatmapPlot({ config, tally }: { config: HeatmapConfig; tally: HeatmapT
   // subscribe for the repaint, not the value: every number here goes through
   // fmtNum's module binding, and the tooltip/legend strings are computed inside
   // this component — without the subscription a dial change leaves the old
-  // dialect on screen until something unrelated re-renders (SUB-1092)
+  // dialect on screen until something unrelated re-renders
   useNumberLocale();
   const gridId = useId();
   const gridRef = useRef<HTMLDivElement>(null);
@@ -273,7 +273,7 @@ function HeatmapSection({
         </div>
       ) : tally.missing ? (
         // a bound property that exists nowhere in the source is a named error,
-        // not an empty year — the same call the chart makes (SUB-749)
+        // not an empty year — the same call the chart makes
         <div className="chart-err">{tally.missing}</div>
       ) : (
         <HeatmapPlot config={c} tally={tally} />
@@ -304,7 +304,7 @@ export default function HeatmapDashboard({
     }
     return [...seen.values()];
   }, [blocks]);
-  // Same cross-sheet loader the charts dashboard draws with (SUB-671/SUB-834):
+  // Same cross-sheet loader the charts dashboard draws with:
   // every charted sheet — and transitively any sheet its formulas reference —
   // read once and evaluated with the cross-sheet loader, the epoch/rate cache
   // sharing that work with any chart fences composed alongside these grids.

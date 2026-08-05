@@ -271,7 +271,7 @@ test("SUMIF / COUNTIF with criteria", () => {
   assert.equal(run("SUMIF(units, 80)", holdingsScope), 80);
 });
 
-// SUB-1026: rows pair off criteria against values, so a value column of a
+// Rows pair off criteria against values, so a value column of a
 // different length (a cross-sheet ref) errors like SUMPRODUCT instead of
 // silently reading the overhang as blank rows that sum to 0
 test("SUMIF: mismatched value-column length is an error (SUB-1026)", () => {
@@ -293,7 +293,7 @@ test("SUMIF: mismatched value-column length is an error (SUB-1026)", () => {
   near(run('SUMIF(bucket, "etf", amt, flag, "y")', even), 1);
 });
 
-// SUB-743: comparison criteria strings in SUMIF/COUNTIF
+// Comparison criteria strings in SUMIF/COUNTIF
 const scoreScope: Scope = new Map([
   ["score", [0, 1, 2.5, 5, -1]],
   ["weight", [10, 20, 30, 40, 50]],
@@ -360,7 +360,7 @@ test("SUMIF / COUNTIF plain criteria keep exact-match behaviour (SUB-743)", () =
   assert.equal(run('COUNTIF(note, "a>b")', textScope), 1);
 });
 
-// SUB-744: row-wise products, summed — weighted averages without helper columns
+// Row-wise products, summed — weighted averages without helper columns
 const weightScope: Scope = new Map([
   ["value", [10, 20, 30]],
   ["weight", [1, 2, 7]],
@@ -423,7 +423,7 @@ test("SUMPRODUCT: weighted average idiom (SUB-744)", () => {
   near(run("SUMPRODUCT(value_eur, units) / SUMPRODUCT(units)", holdingsScope), expected, 1e-6);
 });
 
-// SUB-741: keyed lookup — one rates table instead of an inlined rate per row
+// Keyed lookup — one rates table instead of an inlined rate per row
 const ratesScope: Scope = new Map([
   ["code", ["USD", "GBP", "CHF"]],
   ["rate", [0.8721, 1.1642, 1.0503]],
@@ -485,7 +485,7 @@ test("LOOKUP: cross-sheet rates table (SUB-741)", () => {
   assert.ok(isErr(run('LOOKUP("JPY", Rates.code, Rates.rate)', scope)));
 });
 
-// SUB-742: extra (column, match) pairs, ANDed
+// Extra (column, match) pairs, ANDed
 const multiScope: Scope = new Map([
   ["bucket", ["etf", "etf", "crypto", "crypto", "etf"]],
   ["net_worth", ["yes", "no", "yes", "yes", "yes"]],
@@ -508,7 +508,7 @@ test("SUMIF / COUNTIF multi-criteria (SUB-742)", () => {
   assert.equal(run('COUNTIF(bucket, "etf", net_worth, "maybe")', multiScope), 0);
   near(run('SUMIF(bucket, "etf", value, net_worth, "maybe")', multiScope), 0);
 
-  // each added match still honours ">=1"-style comparison criteria (SUB-743)
+  // each added match still honours ">=1"-style comparison criteria
   assert.equal(run('COUNTIF(bucket, "etf", score, ">=1")', multiScope), 2); // 5, 1
   assert.equal(run('COUNTIF(bucket, "etf", score, ">1")', multiScope), 1); // 5
   assert.equal(run('COUNTIF(score, ">=1", net_worth, "yes")', multiScope), 3); // 3, 5, 1
@@ -552,7 +552,7 @@ test("SUMIF / COUNTIF multi-criteria (SUB-742)", () => {
   assert.ok(isErr(run('COUNTIF(bucket, "etf", 1 + 2, 3)', multiScope)));
 });
 
-// ---- SUB-752: wildcard criteria in SUMIF/COUNTIF (start) ----
+// ---- wildcard criteria in SUMIF/COUNTIF (start) ----
 const wildScope: Scope = new Map([
   ["type", ["ETF x", "ETF y", "Stock", "etf z"]],
   ["amount", [1, 2, 4, 8]],
@@ -583,11 +583,11 @@ test("SUMIF / COUNTIF wildcard criteria (SUB-752)", () => {
   // `~*` is a literal star all the way: "a~*" matches the string "a*", nothing here
   assert.equal(run('COUNTIF(code, "a~*")', wildScope), 0);
 
-  // blank cells never match, not even "*" (SUB-238 doctrine)
+  // blank cells never match, not even "*"
   assert.equal(run('COUNTIF(blanky, "*")', wildScope), 2);
   assert.equal(run('COUNTIF(blanky, "ETF*")', wildScope), 2);
 
-  // multi-criteria pairs get identical treatment (SUB-742 seam)
+  // multi-criteria pairs get identical treatment
   assert.equal(run('COUNTIF(type, "ETF*", region, "EU")', wildScope), 2);
   assert.equal(run('COUNTIF(region, "EU", type, "ETF*")', wildScope), 2);
   near(run('SUMIF(type, "ETF*", amount, region, "EU")', wildScope), 1 + 8);
@@ -604,7 +604,7 @@ test("SUMIF / COUNTIF matches without wildcards are unchanged (SUB-752)", () => 
   // a `*`-shaped comparison operand still parses as a comparison, not a pattern
   assert.equal(run('COUNTIF(type, "<>ETF x")', wildScope), 3);
 });
-// ---- SUB-752: wildcard criteria in SUMIF/COUNTIF (end) ----
+// ---- wildcard criteria in SUMIF/COUNTIF (end) ----
 
 test("SUMIF / COUNTIF single-criterion forms are unchanged (SUB-742)", () => {
   assert.equal(run('COUNTIF(bucket, "etf")', multiScope), 3);
@@ -679,7 +679,7 @@ test("hasAggregate: a row-shaped LOOKUP key keeps the line per-row (SUB-748)", (
   assert.ok(hasAggregate(constKey, cols3), "constant key → summary");
   // a key that is a summary name (not row-shaped) stays summary-class
   assert.ok(hasAggregate(parse("LOOKUP(base, Rates.code, Rates.rate)"), cols3));
-  // opting out (no predicate) keeps the pre-SUB-748 rule: every LOOKUP aggregates
+  // opting out (no predicate) keeps the pre-change rule: every LOOKUP aggregates
   assert.ok(hasAggregate(rowKey), "without rowShaped, LOOKUP is aggregate-class");
   // a real aggregate anywhere else on the line still makes it a summary
   assert.ok(hasAggregate(parse("SUM(price_usd) * LOOKUP(currency, Rates.code, Rates.rate)"), cols3));
@@ -744,7 +744,7 @@ test("renameRefs rewrites idents, keeps strings/calls/dotted members/formatting"
   assert.equal(renameRefs("1 +", "total", "net"), "1 +");
 });
 
-// ---------- SUB-753: unicode identifiers ----------
+// ---------- unicode identifiers ----------
 
 describe("describingRefs — what a summary is about (SUB-1013)", () => {
   const d = (src: string) => {
@@ -838,7 +838,7 @@ describe("SUB-753 unicode identifiers", () => {
   });
 });
 
-// ---------- PROP: a frontmatter key on another note (SUB-832) ----------
+// ---------- PROP: a frontmatter key on another note ----------
 
 // present-tense only in this slice: `date` is null on every call below
 const hist: HistoryResolver = (path, key) => {
@@ -899,7 +899,7 @@ describe("PROP", () => {
   });
 });
 
-// ---------- AT: the same fact, as of a past day (SUB-832) ----------
+// ---------- AT: the same fact, as of a past day ----------
 
 // A resolver that answers with the date it was asked for, so a test can see
 // which tense reached it. `weight` is 80 in the past, 72.4 today.
@@ -1053,7 +1053,7 @@ describe("collectHistoryRefs", () => {
   });
 });
 
-// ---------- AT over a cross-sheet member (SUB-832, spec §3.2) ----------
+// ---------- AT over a cross-sheet member (spec §3.2) ----------
 
 describe("AT(date, Sheet.member)", () => {
   // the delegate the prefetching surface supplies: it knows what a sheet is,

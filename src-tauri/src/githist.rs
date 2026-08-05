@@ -257,7 +257,7 @@ fn render_patch(diff: &Diff<'_>, index: usize) -> Result<Vec<DiffLine>, String> 
 
 /// Hunk headers plus add/del/ctx lines of a patch, in the shape History's
 /// diff pane already renders. Vault sync's conflict view reuses it so both
-/// surfaces read identically (SUB-429).
+/// surfaces read identically.
 pub(crate) fn patch_lines(patch: &Patch<'_>) -> Result<Vec<DiffLine>, String> {
     let mut lines = Vec::new();
     for hunk_index in 0..patch.num_hunks() {
@@ -431,7 +431,7 @@ fn fact_lane_in(
     // A topological walk is not a chronological one: a merged or imported
     // history can hand back a commit dated before its own ancestors. `collapse`
     // and `value_at` both read the lane as a timeline, so put it in time order
-    // rather than trusting the walk's (SUB-832).
+    // rather than trusting the walk's.
     readings.sort_by_key(|p| p.ts_ms);
     Ok(FactLane {
         path: rel.to_string(),
@@ -450,7 +450,7 @@ pub(crate) struct SheetsAt {
     /// When that snapshot was actually taken. Not the same number as
     /// `instant_ms`, which is only what was ASKED for: the answering snapshot
     /// is the newest one at or before it, so anything treating this as
-    /// provenance must read the commit's own time (SUB-832).
+    /// provenance must read the commit's own time.
     pub commit_ts_ms: Option<u64>,
     pub oldest_ts_ms: Option<u64>,
     /// (path, raw markdown) for the notes that were sheets *then* — a note that
@@ -462,7 +462,7 @@ pub(crate) struct SheetsAt {
 /// its own — or None when the blob cannot carry one at all. Cutting at the
 /// closing fence is what keeps the filter below honest: without it, testing
 /// `type: sheet` means decoding every markdown blob in the vault whole, at
-/// every answering snapshot, only to drop the prose ones (SUB-832). The cut is
+/// every answering snapshot, only to drop the prose ones. The cut is
 /// on a line boundary, so it never splits a character.
 fn frontmatter_prefix(content: &[u8]) -> Option<String> {
     let start = if content.starts_with(b"---\n") {
@@ -492,7 +492,7 @@ fn frontmatter_prefix(content: &[u8]) -> Option<String> {
         }
     }
     // unterminated block: there is no frontmatter to read, and the whole file
-    // is body — the same answer `split_frontmatter` gives (SUB-552)
+    // is body — the same answer `split_frontmatter` gives
     None
 }
 
@@ -1023,7 +1023,7 @@ fn finish_rewrite(repo: &Repository, new_tip: Option<Oid>) -> Result<(), String>
             }
         }
     }
-    // SUB-713: the same marker the desktop engine writes (history.rs
+    // The same marker the desktop engine writes (history.rs
     // finish_rewrite) — the push path reads it to explain rejections.
     crate::gitsync::mark_history_rewritten(repo.path())?;
     remove_reflogs(repo)?;
@@ -1051,7 +1051,7 @@ pub(crate) fn history_purge_files(root: &Path, rels: &[&str]) -> Result<(), Stri
     // Refs outside the rewrite keep the "purged" objects reachable, so the
     // sweep would preserve them while the caller is told the plaintext is
     // gone. Classify BEFORE writing anything: a refusal leaves the repository
-    // exactly as it was (SUB-839). A detached HEAD refuses HERE, not in
+    // exactly as it was. A detached HEAD refuses HERE, not in
     // finish_rewrite — on a detached HEAD libgit2's `head()` succeeds with a
     // direct ref named "HEAD", every real branch would classify as a user ref,
     // and the carry loop below would move them before the late refusal.
@@ -1193,8 +1193,8 @@ mod tests {
     }
 
     /// A test vault whose git CLI never packs behind our back — `History::new`
-    /// pins `maintenance.auto=false` / `gc.auto=0` on every vault it owns
-    /// (SUB-603), so these tests get the same repo the product ships. Without
+    /// pins `maintenance.auto=false` / `gc.auto=0` on every vault it owns,
+    /// so these tests get the same repo the product ships. Without
     /// that pin, the DETACHED `git maintenance run --auto` that `git commit`
     /// spawns would repack the vault once the loose object count crossed its
     /// threshold, turning the loose objects these tests assert on into a pack
@@ -1537,7 +1537,7 @@ mod tests {
 
     #[test]
     fn libgit2_purge_carries_user_refs_across_and_matches_the_cli() {
-        // SUB-839: a user branch or lightweight tag on the old history keeps
+        // a user branch or lightweight tag on the old history keeps
         // every purged object reachable. Both engines move it onto the rewrite
         // rather than deleting it or leaving the plaintext alive behind it.
         let scratch = TempDir::new().unwrap();
@@ -1604,7 +1604,7 @@ mod tests {
 
     #[test]
     fn libgit2_purge_leaves_an_innocent_annotated_tag_alone_like_the_cli() {
-        // SUB-935: the twin of the desktop's
+        // The twin of the desktop's
         // `purge_leaves_refs_alone_when_their_history_never_held_the_note`.
         // An annotated tag blocks a purge only when its history actually
         // reaches the plaintext; one cut before the note existed must not
@@ -1638,7 +1638,7 @@ mod tests {
 
     #[test]
     fn libgit2_purge_drops_sync_refs_and_prunes_their_pinned_objects() {
-        // SUB-658: vault sync owns refs in the same repository (gitsync.rs).
+        // Vault sync owns refs in the same repository (gitsync.rs).
         // Pinned on the pre-purge tip they keep the whole pre-rewrite graph
         // reachable, so sweep_loose_objects would leave every purged object
         // on disk. Both engines must drop them.
@@ -1938,7 +1938,7 @@ mod tests {
         assert!(pack_files(&Repository::open(&root).unwrap()).unwrap().is_empty());
     }
 
-    /// SUB-713: a mobile rewrite (purge here; trim shares `finish_rewrite`)
+    /// A mobile rewrite (purge here; trim shares `finish_rewrite`)
     /// leaves the sync rewrite marker the push path reads.
     #[test]
     fn history_rewrite_marks_the_vault_for_sync() {

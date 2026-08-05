@@ -106,7 +106,7 @@ export default function VaultSyncPane() {
       // the local draft is discarded; failures leave it available to retry.
       setToken("");
       setRemoteSaved(true);
-      // embeds classify missing assets against sync state (SUB-444) — the
+      // embeds classify missing assets against sync state — the
       // cached "no remote" answer is stale the moment a remote lands
       resetSyncConfigured();
     } catch (error) {
@@ -120,7 +120,7 @@ export default function VaultSyncPane() {
   const configured = status?.configured === true;
   const report = status?.last_result ?? null;
   const visibleStatusError = actionError ?? statusError ?? status?.last_error ?? null;
-  // From the repository, not from this session's last result (SUB-572): after
+  // From the repository, not from this session's last result: after
   // a restart nothing has synced yet, and the pane used to read "Ready" with a
   // conflicted merge still parked in git.
   const hasConflicts = (status?.conflicted.length ?? 0) > 0;

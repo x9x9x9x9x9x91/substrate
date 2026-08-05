@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// Slash menu (SUB-469): a line-initial `/` opens the insertion palette —
+// Slash menu: a line-initial `/` opens the insertion palette —
 // /view, /date, /task, /asset — on CodeMirror's own autocompletion extension,
 // the same one the [[ wikilink popup rides. The flagship is /view: the fence it
 // inserts completes its `type:` from LIVE database names, so a hub page never
@@ -70,7 +70,7 @@ test("/view inserts the fence, whose type: completes from live db names", async 
   await accept(page, "/view");
 
   // the db picker is already open on the type: line — accepting /view opens it
-  // rather than making you type a letter to summon it (SUB-796)
+  // rather than making you type a letter to summon it
   await expect(page.locator(".cm-content")).toContainText("type:");
   await expect(page.locator(menu)).toBeVisible();
 
@@ -79,7 +79,7 @@ test("/view inserts the fence, whose type: completes from live db names", async 
 
   // picking a database settles the fence, so the cursor steps out past its
   // closing line and the table renders on the spot — no raw fence source left
-  // on screen to escape by hand (SUB-796)
+  // on screen to escape by hand
   const embed = page.locator(".embed-view");
   await expect(embed).toBeVisible();
   await expect(embed.locator(".embed-view-name")).toHaveText("Release");

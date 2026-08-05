@@ -21,7 +21,7 @@ pub struct NoteMeta {
     pub props: serde_json::Map<String, serde_json::Value>,
     pub updated_ms: u64,
     pub excerpt: String,
-    /// The note's tag set (SUB-818): inline `#hashtags` from the body unioned
+    /// The note's tag set: inline `#hashtags` from the body unioned
     /// with the `tags:` prop, deduplicated case-insensitively. Computed at
     /// index time so collections, autocomplete and the sidebar's tag folders
     /// are watcher-live and cost nothing at query time. Always empty for a
@@ -33,7 +33,7 @@ pub struct NoteMeta {
     pub sealed: bool,
 }
 
-/// What a reconcile pass did to one note path (SUB-826). Ordered so a sort of
+/// What a reconcile pass did to one note path. Ordered so a sort of
 /// `(rel, kind)` pairs stays stable, and derived from the index rather than
 /// from platform watcher flags — see `Engine::apply_changes_detailed`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -43,7 +43,7 @@ pub enum NoteChange {
     Removed,
 }
 
-/// What a guarded property write returns (SUB-477): the post-write meta every
+/// What a guarded property write returns: the post-write meta every
 /// caller already used, plus the value the write replaced — `None` when the
 /// key was absent, which is exactly the argument that puts it back.
 #[derive(Serialize, Debug)]
@@ -52,7 +52,7 @@ pub struct SetPropResult {
     pub prior: Option<serde_json::Value>,
 }
 
-/// What a rename returns (SUB-515): the renamed note's meta plus every note
+/// What a rename returns: the renamed note's meta plus every note
 /// the rename actually rewrote — itself, its link sources, and the notes whose
 /// relation props named it. Undo invalidates on that set, so an external edit
 /// to a link-rewritten third-party note refuses the undo instead of clobbering
@@ -71,7 +71,7 @@ pub struct NoteContent {
 
 /// Note contents are the one thing a sealed note exists to keep out of the
 /// clear, and a derived `Debug` would put body AND frontmatter into any log
-/// line, panic message or `unwrap` backtrace that touches one (SUB-935). The
+/// line, panic message or `unwrap` backtrace that touches one. The
 /// shape is what a debugger actually needs; the content never is.
 impl std::fmt::Debug for NoteContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -99,7 +99,7 @@ pub(crate) fn note_from_history(
     }
     let stem = path.file_stem()?.to_string_lossy().to_string();
     let folder = path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
-    // SUB-889: a historical blob can itself be age ciphertext — the scrubber
+    // A historical blob can itself be age ciphertext — the scrubber
     // reads git trees, which keep every sealed revision verbatim. Project it
     // exactly as the live index does (filename only, no props/excerpt/tags)
     // and hand back no body: history is a read surface like any other, and
@@ -153,16 +153,16 @@ pub struct SealResult {
     pub device_unlock: bool,
 }
 
-/// A note's raw frontmatter block (no fences) plus its health (SUB-430).
+/// A note's raw frontmatter block (no fences) plus its health.
 /// `read()` strips the block from the body, so without this a malformed
-/// block is invisible in-app while every prop edit refuses on it (SUB-215).
+/// block is invisible in-app while every prop edit refuses on it.
 #[derive(Serialize)]
 pub struct FmState {
     pub raw: String,
     /// None = parses fine; Some(msg) = why the write lanes refuse it
     pub error: Option<String>,
     /// Whether the repair dialog can fix this — false for an unterminated
-    /// opener (SUB-552), where there is no delimited block to edit and the
+    /// opener, where there is no delimited block to edit and the
     /// whole file already sits in the body editor, closing fence included.
     pub repairable: bool,
 }
@@ -170,39 +170,37 @@ pub struct FmState {
 /// Fenced blocks holding app-parsed config/data (vault-format §5) — view
 /// embeds, charts, heatmaps, goal thermometers, timelines, sheet csv +
 /// formulas — are machine content, not prose: their bodies stay out of the
-/// search index (SUB-261). The regex follows
+/// search index. The regex follows
 /// the app parsers' semantics (```<lang>\n anywhere … next ``` or EOF);
 /// user code fences (```ts, ```python foo, …) stay searchable, tail and all.
 /// The LIVE-DISPATCH languages (view, chart, progress, cards) also take an info-string
 /// tail (```view table, ```chart compact, a trailing space): the editor and
 /// hub dispatch on the FIRST WORD of the info string, so a tailed opener is
 /// a live widget like the bare form and its config leaves the index too
-/// (SUB-899 for view, SUB-983 for chart/cards; cards renders once the hub
-/// canvas lands, SUB-964 — stripping it now is contract, not yet render;
-/// progress is the goal thermometer, SUB-967).
+/// (`view` as much as `chart`/`cards`; cards renders once the hub
+/// canvas lands — stripping it now is contract, not yet render;
+/// progress is the goal thermometer).
 /// csv/formulas/heatmap/calendar/timeline parsers are strict bare-form — a
-/// tailed one renders as plain code and stays searchable prose (SUB-968 for
-/// timeline). A tail may not contain a backtick: an inline prose mention of an
-/// opener must never swallow its line and blank prose to the next fence
-/// (SUB-983 review finding). CRLF openers
-/// (```view\r\n) strip too (SUB-913).
+/// tailed one renders as plain code and stays searchable prose. A tail may not contain a backtick: an inline prose mention of an
+/// opener must never swallow its line and blank prose to the next fence.
+/// CRLF openers (```view\r\n) strip too.
 /// The live-dispatch group is spelled per letter ([Vv][Ii][Ee][Ww]) because
 /// every frontend reader lowercases the info string's first word before
 /// matching — ```View renders as a widget, so its config must leave the index
 /// as well, or a mixed-case fence's contents land in the search table while
-/// the widget renders (SUB-1104). The case rule is a separate axis from the
+/// the widget renders. The case rule is a separate axis from the
 /// tail rule and follows each lang's OWN dispatcher: csv/formulas keep exact
 /// case because their parsers match the literal opener, so ```CSV is a plain
 /// code box and stays searchable — while heatmap folds case despite being
 /// bare-form, because the hub lowercases before dispatching and so renders a
-/// bare ```HeatMap live with its config still indexed (SUB-1128). heatmap's
-/// second reader (the dashboard pane) folds case too since SUB-1129; where two
+/// bare ```HeatMap live with its config still indexed. heatmap's
+/// second reader (the dashboard pane) folds case too; where two
 /// dispatchers disagree the strip follows the WIDEST, since stripping closes a
 /// real leak while the cost the other way is only that machine config stays
 /// out of search.
 /// timeline folds case for the simpler version of the same reason: its one
 /// dispatcher is the hub, which lowercases the first word, so a bare
-/// ```TimeLine renders live and its config must leave the index too (SUB-968).
+/// ```TimeLine renders live and its config must leave the index too.
 /// The fold lives IN the pattern rather than on a RegexBuilder so
 /// the two sides stay comparable character for character. The obvious
 /// spelling `(?i:…)` — which this crate does support — is deliberately NOT
@@ -229,7 +227,7 @@ fn machine_fence_re() -> &'static Regex {
 /// the syntax, not a use of it — the editor already renders those verbatim
 /// (`Editor.tsx`, `inCode`), so scanning them made the engine disagree with
 /// what the user sees: example links indexed as real links, and `vault_doctor`
-/// reporting dangling links in files the app itself wrote (SUB-495).
+/// reporting dangling links in files the app itself wrote.
 ///
 /// Fence rule (CommonMark-shaped, deliberately lenient): a line whose first
 /// non-space run is 3+ backticks or tildes opens; the next line whose run is
@@ -298,13 +296,13 @@ fn code_ranges(body: &str) -> Vec<(usize, usize)> {
 }
 
 /// Does `[from, to)` touch any literal-code range? Link and embed scanning
-/// skips the ones that do (SUB-495).
+/// skips the ones that do.
 fn in_code(ranges: &[(usize, usize)], from: usize, to: usize) -> bool {
     ranges.iter().any(|(a, b)| from < *b && to > *a)
 }
 
 /// The three parts of a wikilink's inner text, `[[target#anchor|alias]]`
-/// (SUB-1095). The alias is everything past the FIRST `|` — the display text,
+/// The alias is everything past the FIRST `|` — the display text,
 /// which belongs to the renderer; the anchor is a `#` tail on what's left — a
 /// heading (or `#^block` ref) inside the target note. Every piece is trimmed;
 /// an absent one is `None`, and an empty target (`[[#Notes]]`) means the link
@@ -324,7 +322,7 @@ pub fn split_wikilink(inner: &str) -> (&str, Option<&str>, Option<&str>) {
 }
 
 /// The file an `![[…]]` embed names, with any display modifier dropped
-/// (SUB-1102). The modifier is everything past the **first** `|` — a size or
+///. The modifier is everything past the **first** `|` — a size or
 /// layout hint (`|300`, `|300x200`, `|left`) in the Obsidian dialect these
 /// vaults are written in. `![[cover.png|300]]` names `cover.png`; without this
 /// split, resolution looks for a file literally called `cover.png|300` and
@@ -360,7 +358,7 @@ fn link_key(inner: &str) -> String {
 /// Must keep DELEGATING to `machine_fence_re()` — a `Regex` built here would be
 /// what the indexer actually runs while the lockstep checker went on comparing
 /// the memoized one, and both sides would read as in step. Enforced by
-/// `checkUseSites` in scripts/check-fence-langs.ts (SUB-1130); same rule on the
+/// `checkUseSites` in scripts/check-fence-langs.ts; same rule on the
 /// TS twin.
 fn strip_machine_fences(body: &str) -> String {
     machine_fence_re()
@@ -375,7 +373,7 @@ fn strict_number_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"^[+-]?(\d+\.?\d*|\.\d+)$").unwrap())
 }
 
-/// Does this value read as a QUANTITY — a number carrying a unit (SUB-834)?
+/// Does this value read as a QUANTITY — a number carrying a unit?
 /// `25 USD`, `$25`, `5 kg`, `128 BPM`. Mirrors `units.ts` parseQuantity
 /// closely enough for the one thing the engine needs it for: telling a
 /// healthy unit-carrying value apart from real junk in a number column.
@@ -495,7 +493,7 @@ fn unit_aliases() -> &'static std::collections::HashSet<String> {
     })
 }
 
-/// Is this raw prop value a quantity (SUB-834)? Shape plus a unit we know.
+/// Is this raw prop value a quantity? Shape plus a unit we know.
 fn is_quantity(raw: &str) -> bool {
     let Some(c) = quantity_re().captures(raw.trim()) else { return false };
     // a symbol-prefixed match names its unit in group 2, a trailing one in 5
@@ -504,7 +502,7 @@ fn is_quantity(raw: &str) -> bool {
 }
 
 /// One note's authorized identity plus the number of open holders — panes
-/// that unlocked it and have not locked it again (SUB-935).
+/// that unlocked it and have not locked it again.
 ///
 /// Authorization used to be a single entry per note, and every holder's
 /// `lock_sealed_note` dropped it outright. Two surfaces on the same sealed
@@ -554,7 +552,7 @@ pub struct Engine {
     fts: bool,
     link_re: Regex,
     /// The app config dir, when the engine is running under the app: the one
-    /// place a machine keeps things that must NOT sync (SUB-1093). Mount path
+    /// place a machine keeps things that must NOT sync. Mount path
     /// bindings already live there; so does mount document text, because it
     /// is the content of files outside the vault. `None` — tests, the
     /// unconfigured first-run engine — simply stores no text.
@@ -570,7 +568,7 @@ pub struct Engine {
     seal_conversions: Vec<String>,
     /// Test-only count of note-file writes through the create/prop-edit
     /// paths folder sync uses — lets sync tests assert write coalescing
-    /// (SUB-61). Always 0 in non-test builds.
+    /// Always 0 in non-test builds.
     #[cfg(test)]
     note_writes: usize,
 }
@@ -608,7 +606,7 @@ fn parse_props(fm: Option<&str>) -> serde_json::Map<String, serde_json::Value> {
 
 /// Duplicate top-level keys in a raw frontmatter block: serde_yaml accepts
 /// them last-wins, so the next prop edit would persist the silent dedupe —
-/// the write lanes treat them as unparseable instead (SUB-215). Only
+/// the write lanes treat them as unparseable instead. Only
 /// column-0 `key:` lines count; indented lines and `- ` items belong to
 /// values, `#` starts a comment.
 fn has_duplicate_top_level_keys(fm: &str) -> bool {
@@ -633,8 +631,8 @@ fn has_duplicate_top_level_keys(fm: &str) -> bool {
     false
 }
 
-/// The ways a frontmatter block is unusable for writes (SUB-215),
-/// shared with the repair surface (SUB-430): `refusal` keeps the write
+/// The ways a frontmatter block is unusable for writes,
+/// shared with the repair surface: `refusal` keeps the write
 /// lanes' exact "fix it in the editor" wording, `short` is the bare
 /// diagnosis the repair dialog shows inline.
 #[derive(Clone, Copy)]
@@ -666,10 +664,10 @@ impl FmFault {
     }
 }
 
-/// An opening `---` fence whose closing fence never arrives (SUB-552).
+/// An opening `---` fence whose closing fence never arrives.
 /// `split_frontmatter` reports that as `(None, raw)` — byte-identical to a
 /// file with no frontmatter at all — so `fm_diagnosis` has no block to judge
-/// and the SUB-215 refusal never fires. A prop write would then serialize a
+/// and the refusal never fires. A prop write would then serialize a
 /// fresh block on top and push the whole original file, old fence and old
 /// props included, down into the body: every property demoted to text, on a
 /// write that reports success. The write lanes ask this question directly.
@@ -677,7 +675,7 @@ fn has_unterminated_frontmatter(raw: &str) -> bool {
     (raw.starts_with("---\n") || raw.starts_with("---\r\n")) && split_frontmatter(raw).0.is_none()
 }
 
-/// One health check for a present frontmatter block (SUB-430): the same
+/// One health check for a present frontmatter block: the same
 /// diagnoses `parse_props_for_write` refuses on, without the write-lane
 /// wording. None = the block parses (a present-but-empty block included).
 fn fm_diagnosis(fm: &str) -> Option<FmFault> {
@@ -691,14 +689,14 @@ fn fm_diagnosis(fm: &str) -> Option<FmFault> {
     }
 }
 
-/// The raw frontmatter block + its health for one note's text (SUB-430).
+/// The raw frontmatter block + its health for one note's text.
 /// None = the note has no block. Split out of `Engine::fm_raw` so the
 /// historical projection can carry the same state for a git blob it never
-/// reads off disk (SUB-822) — the past showed "no frontmatter" for every
+/// reads off disk — the past showed "no frontmatter" for every
 /// note, which reads as data loss rather than as an unimplemented lane.
 pub(crate) fn fm_state(raw: &str) -> Option<FmState> {
     let (fm, _) = split_frontmatter(raw);
-    // SUB-552: an unterminated opener has no block to hand back, but the
+    // An unterminated opener has no block to hand back, but the
     // banner must still say so — the prop lanes refuse on it, and without
     // a diagnosis the user sees property edits fail with no explanation.
     // `raw` is empty and `repairable` false: there is no delimited block
@@ -718,7 +716,7 @@ pub(crate) fn fm_state(raw: &str) -> Option<FmState> {
     })
 }
 
-/// Prop parse for the write lanes (SUB-215). Reads stay lenient — a block
+/// Prop parse for the write lanes. Reads stay lenient — a block
 /// that fails to parse yields zero props (`parse_props`) — but a prop edit
 /// built on that empty map would re-serialize over every other key, wiping
 /// them silently. So when a block IS present but unusable (`fm_diagnosis`)
@@ -726,7 +724,7 @@ pub(crate) fn fm_state(raw: &str) -> Option<FmState> {
 /// A present-but-empty block (`---\n---`) is zero props, not an error.
 ///
 /// `raw` is the whole file, not just the block: an unterminated opener
-/// (SUB-552) is invisible in `fm` — it arrives as `None`, the same as no
+/// is invisible in `fm` — it arrives as `None`, the same as no
 /// frontmatter — so the refusal has to ask the raw text.
 fn parse_props_for_write(
     fm: Option<&str>,
@@ -827,11 +825,11 @@ fn read_lossy(path: &Path) -> Result<String, String> {
     }
     let text = String::from_utf8_lossy(&bytes);
     // a leading UTF-8 BOM (Windows editors, sync tools) would hide the
-    // frontmatter fence from split_frontmatter (SUB-215) — strip it on read
+    // frontmatter fence from split_frontmatter — strip it on read
     Ok(text.strip_prefix('\u{FEFF}').unwrap_or(&text).to_string())
 }
 
-/// `read_lossy`'s sibling for the read-then-rewrite paths (SUB-556). Lossy
+/// `read_lossy`'s sibling for the read-then-rewrite paths. Lossy
 /// decoding is right for display and indexing — a note with one bad byte must
 /// still be readable and findable — but a path that decodes, edits and writes
 /// the result back would make `String::from_utf8_lossy`'s U+FFFD substitutions
@@ -851,7 +849,7 @@ fn read_strict(path: &Path) -> Result<String, String> {
     Ok(text.strip_prefix('\u{FEFF}').unwrap_or(&text).to_string())
 }
 
-/// Crash-safe file write (SUB-224): bytes land in a same-directory dotted
+/// Crash-safe file write: bytes land in a same-directory dotted
 /// temp file, then `rename` swaps them into place — a crash or full disk
 /// mid-write leaves the previous content intact instead of a truncated
 /// file. Notes, assets, and `.vault/*.json` route through here;
@@ -859,7 +857,7 @@ fn read_strict(path: &Path) -> Result<String, String> {
 /// discipline. The dotted temp name keeps the half-written file invisible
 /// to the indexer, watcher, and walkers, which all skip dot-paths.
 ///
-/// Power-loss durability (SUB-431): the temp file is fsynced before the
+/// Power-loss durability: the temp file is fsynced before the
 /// rename — otherwise the OS may commit the rename to disk before the data
 /// blocks, and a power cut leaves a truncated/empty note under the final
 /// name. The containing directory is fsynced after the rename so the
@@ -868,7 +866,7 @@ fn read_strict(path: &Path) -> Result<String, String> {
 static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Is this file sealed, judged by its magic prefix alone? A bounded read of
-/// the first bytes, never the body: one short read and no decrypt (SUB-935).
+/// the first bytes, never the body: one short read and no decrypt.
 ///
 /// `false` means "not known to be sealed", NOT "known to be plaintext" — a
 /// file that cannot be opened or read answers `false` too. Callers must place
@@ -922,7 +920,7 @@ pub(crate) fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) -> Result<(), S
     Ok(())
 }
 
-/// [`write_atomic`] for a file that already lives on disk (SUB-781). Assets
+/// [`write_atomic`] for a file that already lives on disk. Assets
 /// arrive as master-sized audio; buffering them in memory just to hand the
 /// bytes to `write_atomic` would defeat the point of the by-path import lane,
 /// so the copy streams into the same dotted temp name and is fsynced before
@@ -931,7 +929,7 @@ pub(crate) fn write_atomic(path: &Path, bytes: impl AsRef<[u8]>) -> Result<(), S
 pub(crate) fn copy_atomic(src: &Path, path: &Path) -> Result<(), String> {
     let dir = path.parent().ok_or("invalid path")?;
     let name = path.file_name().ok_or("invalid path")?.to_string_lossy();
-    // same counter as write_atomic (SUB-779): pid alone collides across
+    // same counter as write_atomic: pid alone collides across
     // same-process concurrent copies to one claimed name
     let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = dir.join(format!(".{}.tmp-{}-{}", name, std::process::id(), seq));
@@ -999,7 +997,7 @@ pub(super) fn template_identity(name: &str) -> String {
 /// filesystem move, or link rewrite: a stem starting with `.` would land the
 /// note outside the index (hidden_rel — the same rule rename_folder applies
 /// to folders), and `[`/`]` would corrupt every link pointed at the new
-/// name. `title` is the exact input, `slug` its sanitized form (SUB-223).
+/// name. `title` is the exact input, `slug` its sanitized form.
 fn validate_note_title(title: &str, slug: &str) -> Result<(), String> {
     if slug.starts_with('.') {
         return Err("titles cannot start with a dot".into());
@@ -1012,7 +1010,7 @@ fn validate_note_title(title: &str, slug: &str) -> Result<(), String> {
     // the filesystem refuses the name. In `rename` that refusal lands AFTER
     // the link rewrites, leaving rewritten [[links]] behind a failed rename.
     // Refusing here keeps the "no side effect before validation" contract
-    // (SUB-223). Whitespace controls (\n, \t) never reach the slug.
+    // Whitespace controls (\n, \t) never reach the slug.
     if slug.chars().any(|c| c.is_control()) {
         return Err("titles cannot contain control characters".into());
     }
@@ -1060,7 +1058,7 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
-/// A database's icon (SUB-27): a curated outline glyph id or an emoji,
+/// A database's icon: a curated outline glyph id or an emoji,
 /// optionally tinted with a muted palette name (`--opt-*` tokens — unknown
 /// names are stored as-is and render untinted, same discipline as option
 /// colors). Glyph ids name glyphs in the app's built-in set; an unknown id
@@ -1143,12 +1141,12 @@ fn file_stamp(md: &fs::Metadata) -> (String, String) {
 }
 
 /// `.vault/templates/<type>.md` — optional per-type skeleton notes: frontmatter
-/// defaults + a body with `{{title}}`/`{{date}}` placeholders (SUB-17). Hidden
+/// defaults + a body with `{{title}}`/`{{date}}` placeholders. Hidden
 /// from the index and the watcher like the rest of `.vault/`; a template is
 /// edited as a plain markdown file and applies to future entries only.
 pub const TEMPLATES_REL_DIR: &str = ".vault/templates";
 
-/// `.vault/kinds/<id>/` — custom dashboard kinds (SUB-957/959): a manifest, an
+/// `.vault/kinds/<id>/` — custom dashboard kinds: a manifest, an
 /// entry module and an optional stylesheet per folder. App-owned like the rest
 /// of `.vault/`: never indexed, never watched, and NOT reachable through the
 /// note commands — `template_rel` stays the only hidden-path exception. The
@@ -1157,7 +1155,7 @@ pub const TEMPLATES_REL_DIR: &str = ".vault/templates";
 /// consent was recorded for.
 pub const KINDS_REL_DIR: &str = ".vault/kinds";
 
-/// The one hidden subtree the note commands serve by explicit path (SUB-59):
+/// The one hidden subtree the note commands serve by explicit path:
 /// `.vault/templates/<type>.md`, flat. Still never indexed or watched like the
 /// rest of `.vault/` — but a direct read/write must succeed so a template can
 /// be edited in-app like any note. Every other hidden path stays unreachable.
@@ -1206,7 +1204,7 @@ pub fn contract_tilde(path: &Path) -> String {
 pub struct Settings {
     pub capture_hotkey: String,
     pub close_to_tray: bool,
-    /// `window-opacity` (SUB-951) — how solid the app's own surfaces are over
+    /// `window-opacity` — how solid the app's own surfaces are over
     /// the desktop, in percent. Range 80–100; 100 = the opaque window.
     pub window_opacity: u8,
 }
@@ -1215,7 +1213,7 @@ impl Settings {
     pub const REL_PATH: &'static str = "Settings.md";
     pub const DEFAULT_HOTKEY: &'static str = "alt+space";
     /// The floor exists for legibility, not taste: below it the app's text
-    /// starts losing to a bright desktop behind the window (SUB-951).
+    /// starts losing to a bright desktop behind the window.
     ///
     /// 80, not the 70 first proposed. Composited against a pure-white desktop
     /// — the worst case, and the one that decides a floor — the thinnest
@@ -1231,7 +1229,7 @@ impl Settings {
     pub fn load(root: &Path) -> Self {
         let raw = read_lossy(&root.join(Self::REL_PATH)).unwrap_or_default();
         let props = parse_props(split_frontmatter(&raw).0);
-        // Folded reads (SUB-924): Settings.md is hand-editable, so a cased
+        // Folded reads: Settings.md is hand-editable, so a cased
         // spelling (`Capture-Hotkey:`) must read like the documented one.
         let capture_hotkey = folded_prop_str(&props, "capture-hotkey")
             .map(|s| s.trim().to_string())
@@ -1265,7 +1263,7 @@ impl Engine {
     /// The engine for a first run, before the user has picked a vault. Its
     /// root is a throwaway folder under app-data that exists only so every
     /// command stays callable behind the onboarding screen (lib.rs), so it
-    /// gets NO scaffolding: no Inbox, no Settings.md, no agent files (SUB-530).
+    /// gets NO scaffolding: no Inbox, no Settings.md, no agent files.
     /// Writing them there left a hidden half-vault in Application Support
     /// that outlived the app itself, while the log said `vault: none`.
     pub fn new_unconfigured(root: PathBuf) -> Self {
@@ -1273,7 +1271,7 @@ impl Engine {
     }
 
     /// Point the engine at this machine's config dir, which is where anything
-    /// that must not sync is kept (SUB-1093). Set once at boot; an engine
+    /// that must not sync is kept. Set once at boot; an engine
     /// without it keeps no mount text, which is the safe direction — the
     /// index, and therefore everything that syncs, is identical either way.
     pub fn with_local_dir(mut self, dir: PathBuf) -> Self {
@@ -1291,15 +1289,15 @@ impl Engine {
         } else if fresh {
             seed::seed(&root);
         } else {
-            // Vaults predating SUB-474 have no AGENTS.md (and pre-SUB-802
-            // none its CLAUDE.md pointer), so the agent the
+            // Older vaults have no AGENTS.md (and older ones none of
+            // its CLAUDE.md pointer), so the agent the
             // ⌘⇧T terminal runs knows nothing about the vault it is sitting
-            // in; vaults predating SUB-398 have no Settings.md, so the ⌘,
+            // in; older vaults have no Settings.md, so the ⌘,
             // form renders only its missing state and the terminal has no
             // configured cwd. Backfill each whenever it is absent — deleting
             // one gets it back on the next launch, the same deal as a fresh
             // vault — and refresh one that still byte-matches a revision this
-            // app shipped (SUB-973): untouched copies would otherwise keep a
+            // app shipped: untouched copies would otherwise keep a
             // years-old agent door in exactly the vaults that are in use. A
             // file the user has edited matches no shipped revision and is
             // never overwritten, and `Settings.md`'s frontmatter — their
@@ -1312,12 +1310,12 @@ impl Engine {
             // guard). The terminal HUD these files serve is a desktop surface
             // anyway.
             //
-            // These files carry no format version of their own (the SUB-433
+            // These files carry no format version of their own (the format-version
             // sidecar covers the hidden JSON config files), so the guard is
             // taken at vault level: if ANY versioned file says a newer app
             // wrote this vault, this boot-time write stays out of it too.
             //
-            // And not into a vault that syncs (SUB-473). Two desktops sharing
+            // And not into a vault that syncs. Two desktops sharing
             // one vault each take this branch on their next launch, each
             // invents the file locally, and each snapshots it — so the pull
             // sees the same path added on both sides from different blobs
@@ -1330,7 +1328,7 @@ impl Engine {
             // backfilled here.
             //
             // The vault that syncs is not left without them, though: it gets
-            // them from the OTHER side of the pull instead (SUB-1110). A join
+            // them from the OTHER side of the pull instead. A join
             // that lands a remote which never carried these files ends with
             // them missing here, and `gitsync::backfill_missing_app_files`
             // writes them once the pull has settled — after a history exists,
@@ -1409,11 +1407,11 @@ impl Engine {
     /// without trusting platform-specific event kinds.
     ///
     /// Returns the note rel paths actually touched, so the UI can be told what
-    /// moved (SUB-460). An EMPTY vec means "unknown — refresh everything": it
+    /// moved. An EMPTY vec means "unknown — refresh everything": it
     /// is what a whole-vault rescan reports, and callers must not read it as
     /// "nothing changed".
     ///
-    /// Test-only since SUB-826: the watcher path now calls
+    /// Test-only: the watcher path now calls
     /// `apply_changes_detailed` directly, because reflexes need to know which
     /// of created/changed/removed each path was.
     #[cfg(test)]
@@ -1421,7 +1419,7 @@ impl Engine {
         self.apply_changes_detailed(paths).into_iter().map(|(rel, _)| rel).collect()
     }
 
-    /// `apply_changes`, plus what happened to each path (SUB-826). The kind is
+    /// `apply_changes`, plus what happened to each path. The kind is
     /// derived from the index, not from platform event flags: a path the index
     /// did not know and now does was created, one it knew is a change, one it
     /// knew and no longer finds was removed. Reflex rules need this
@@ -1511,7 +1509,7 @@ impl Engine {
     /// disk. Beyond dropping the index entry, this frees the path itself: a
     /// sealed authorization left behind on it would silently encrypt whatever
     /// note is created here next, under an identity its author never chose
-    /// and cannot see (SUB-935).
+    /// and cannot see.
     fn remove_note(&mut self, rel: &str) {
         // dropped before the index check — an authorization can outlive the
         // index entry (a sealed note the watcher already deindexed)
@@ -1636,18 +1634,18 @@ impl Engine {
         let updated_ms = fs::metadata(path).and_then(|m| m.modified()).map(now_ms).unwrap_or(0);
         let code = code_ranges(body);
         for cap in self.link_re.captures_iter(body) {
-            // ![[…]] embeds reference assets, not notes — never links (SUB-97)
+            // ![[…]] embeds reference assets, not notes — never links
             if cap[0].starts_with('!') {
                 continue;
             }
             // a link inside a code fence or `span` is documentation about the
-            // syntax, not a link (SUB-495)
+            // syntax, not a link
             let m = cap.get(0).unwrap();
             if in_code(&code, m.start(), m.end()) {
                 continue;
             }
             // `[[Note#Heading|display]]` links the NOTE — the anchor and the
-            // display text are not part of the name (SUB-1095). A bare
+            // display text are not part of the name. A bare
             // `[[#Heading]]` addresses this note, so it is no edge at all.
             let target = link_key(&cap[1]);
             if target.is_empty() {
@@ -1661,7 +1659,7 @@ impl Engine {
                 .prepare_cached("INSERT INTO notes_fts(path, title, body) VALUES(?1, ?2, ?3)")
             {
                 // machine-fence bodies (```view/```chart/```csv/```formulas)
-                // are config/data, not searchable prose (SUB-261)
+                // are config/data, not searchable prose
                 stmt.execute(rusqlite::params![rel, title, strip_machine_fences(body)]).ok();
             }
         }
@@ -1704,7 +1702,7 @@ impl Engine {
 
     /// Record one more holder of this note's authorization. Re-unlocking a
     /// note a second surface already holds adds a holder rather than
-    /// replacing the entry, so the first surface keeps working (SUB-935).
+    /// replacing the entry, so the first surface keeps working.
     fn authorize_sealed(&mut self, rel: &str, identity: age::secrecy::SecretString) {
         match self.unlocked_sealed.get_mut(rel) {
             Some(held) => {
@@ -1745,7 +1743,7 @@ impl Engine {
     ///
     /// Storage mode is decided from what the engine KNOWS — the note is
     /// authorized in this session, or the index says it is sealed — not by
-    /// re-reading the file (SUB-935). The old read was both a TOCTOU (the
+    /// re-reading the file. The old read was both a TOCTOU (the
     /// bytes could change between the decision and the write) and a whole-file
     /// read on the busiest write path in the app. What survives of it is a
     /// 19-byte magic peek in the else branch: it can only turn a would-be
@@ -1760,7 +1758,7 @@ impl Engine {
     /// error mid-read) would be replaced with plaintext. What actually keeps
     /// sealed content sealed is the index and the session's authorizations
     /// above; both must therefore be kept honest whenever a path changes
-    /// hands (SUB-935).
+    /// hands.
     fn write_note_atomic(
         &self,
         rel: &str,
@@ -1878,7 +1876,7 @@ impl Engine {
     /// key. Handing this out lets the caller drop the engine lock for the
     /// slow half — on macOS the identity load is a user-presence prompt that
     /// blocks until the user touches the sensor, and every other vault
-    /// command queues behind the same mutex while it waits (SUB-935).
+    /// command queues behind the same mutex while it waits.
     pub fn plan_sealed_unlock(&self, rel: &str) -> Result<SealedUnlockPlan, String> {
         let abs = self.abs(rel)?;
         let ciphertext = fs::read(&abs).map_err(|e| e.to_string())?;
@@ -1929,7 +1927,7 @@ impl Engine {
         Ok(content)
     }
 
-    /// Release ONE holder's authorization (SUB-935). The identity survives
+    /// Release ONE holder's authorization. The identity survives
     /// while another open surface still holds it; the last release drops it.
     /// A caller that never unlocked this note must not call it — the frontend
     /// locks exactly what it unlocked (NotePane's teardown).
@@ -1943,7 +1941,7 @@ impl Engine {
 
     /// Forget every sealed authorization in this session. The vault the
     /// identities belong to is going away (a vault switch), so holding them
-    /// would authorize reads against a vault the user has left (SUB-935).
+    /// would authorize reads against a vault the user has left.
     pub fn forget_sealed_authorizations(&mut self) {
         self.unlocked_sealed.clear();
     }
@@ -1951,7 +1949,7 @@ impl Engine {
     /// A path change is an authorization boundary: the pane reopens the note
     /// locked at its destination, so the engine must forget the identity under
     /// BOTH names. Carrying it over to the new path let a direct IPC read
-    /// decrypt the note while the UI showed it locked (SUB-839).
+    /// decrypt the note while the UI showed it locked.
     fn relock_moved_sealed_note(&mut self, old_rel: &str, new_rel: &str) {
         self.unlocked_sealed.remove(old_rel);
         self.unlocked_sealed.remove(new_rel);
@@ -1960,7 +1958,7 @@ impl Engine {
     /// The same boundary for a whole directory: renaming or moving a folder
     /// changes the path of every note under it at once, so every
     /// authorization on either side is dropped exactly as a note move drops
-    /// its two (SUB-935). Without this, an authorization stranded on a freed
+    /// its two. Without this, an authorization stranded on a freed
     /// path decides the storage mode of the next note created there.
     fn relock_moved_sealed_subtree(&mut self, old_rel: &str, new_rel: &str) {
         let old_prefix = format!("{old_rel}/");
@@ -2004,7 +2002,7 @@ impl Engine {
         Ok(NoteContent { body: body.to_string(), props: parse_props(fm) })
     }
 
-    /// The raw frontmatter block + its health (SUB-430). None = no block.
+    /// The raw frontmatter block + its health. None = no block.
     /// `read()` strips the block, so this is the only in-app sight of a
     /// malformed one — the repair dialog prefills from it.
     pub fn fm_raw(&self, rel: &str) -> Result<Option<FmState>, String> {
@@ -2017,7 +2015,7 @@ impl Engine {
     }
 
     /// Replace a note's frontmatter block, body preserved byte-verbatim
-    /// (SUB-430). The new block must parse cleanly — this is the repair
+    /// The new block must parse cleanly — this is the repair
     /// lane, it never writes a still-broken block. Empty/whitespace-only
     /// `fm` removes the block entirely.
     pub fn fm_write(&mut self, rel: &str, fm: &str) -> Result<NoteMeta, String> {
@@ -2026,7 +2024,7 @@ impl Engine {
         }
         let abs = self.abs(rel)?;
         self.ensure_inside_root(&abs)?;
-        // a missing file is an error, never a body-only resurrection (SUB-94)
+        // a missing file is an error, never a body-only resurrection
         if !abs.is_file() {
             return Err("note no longer exists".into());
         }
@@ -2056,9 +2054,9 @@ impl Engine {
     }
 
     /// Replace a note's body, frontmatter preserved byte-verbatim. A missing
-    /// file is an error, never a body-only resurrection (SUB-94) — the
+    /// file is an error, never a body-only resurrection — the
     /// `.vault/templates/` lane is the one create-through-write exception
-    /// (SUB-59). `expected` is the optimistic-concurrency guard (SUB-93): the
+    /// `expected` is the optimistic-concurrency guard: the
     /// caller passes the body its buffer derives from and a divergence on
     /// disk rejects the write instead of clobbering the external edit.
     pub fn write_body(
@@ -2073,7 +2071,7 @@ impl Engine {
         let abs = self.abs(rel)?;
         self.ensure_inside_root(&abs)?;
         let template = template_rel(rel);
-        // SUB-59: a template write may be the type's first — ensure the dir
+        // a template write may be the type's first — ensure the dir
         if template {
             if let Some(dir) = abs.parent() {
                 fs::create_dir_all(dir).map_err(|e| e.to_string())?;
@@ -2085,12 +2083,12 @@ impl Engine {
         // an unreadable note must abort the save, not read as empty: an empty
         // read has no frontmatter fence, so the write below would rewrite the
         // file body-only and report success, silently dropping every prop.
-        // Only the template lane may write through a missing file (SUB-59).
+        // Only the template lane may write through a missing file.
         let existing = match self.read_note_strict(rel, &abs) {
             Ok(s) => s,
-            // only a MISSING template file reads as empty (SUB-59) — a template
+            // only a MISSING template file reads as empty — a template
             // that exists but cannot be decoded refuses like any other note,
-            // rather than being rewritten body-only (SUB-556)
+            // rather than being rewritten body-only
             Err(e) => {
                 if template && !abs.exists() {
                     String::new()
@@ -2135,7 +2133,7 @@ impl Engine {
     }
 
     /// Post-write meta lookup: indexed paths come from the reindex; the
-    /// `.vault/templates/` exception (SUB-59) never indexes, so its meta is
+    /// `.vault/templates/` exception never indexes, so its meta is
     /// parsed fresh from disk instead. Anything else hidden errors as before.
     fn meta_after_write(&self, rel: &str) -> Result<NoteMeta, String> {
         if let Some(m) = self.notes.get(rel) {
@@ -2175,7 +2173,7 @@ impl Engine {
 
     /// The string-shaped convenience over `set_prop_value`. Since folder-sync
     /// started writing its flag through the note's own spelling of the key
-    /// (SUB-925) every remaining caller is a test, so a non-test build sees
+    /// every remaining caller is a test, so a non-test build sees
     /// none — same situation as `create` above.
     #[allow(dead_code)]
     pub fn set_prop(
@@ -2188,7 +2186,7 @@ impl Engine {
     }
 
     /// Set a prop to a string, a bool (the per-note calendar opt-out writes
-    /// `calendar: false`, SUB-175), or a list of strings (multi-value, e.g. a
+    /// `calendar: false`), or a list of strings (multi-value, e.g. a
     /// release's several relation targets); `None` — or an empty list —
     /// removes it. Other JSON shapes are refused so frontmatter stays clean
     /// scalar-or-string-list YAML.
@@ -2202,7 +2200,7 @@ impl Engine {
     }
 
     /// `set_prop_value` plus the optimistic-concurrency guard undo needs
-    /// (SUB-477). `expected` is doubly optional on purpose: the outer `None`
+    /// `expected` is doubly optional on purpose: the outer `None`
     /// means "don't check" (every pre-undo caller), and an inner `None` means
     /// "I expect this key to be absent" — the same absence sentinel `value`
     /// uses. A mismatch refuses the write and leaves the file untouched,
@@ -2231,7 +2229,7 @@ impl Engine {
     /// Read a note's frontmatter, let `edit` change the parsed props, write it
     /// back — the round-trip behind the user-facing property writes. Kept
     /// separate from `set_prop_guarded` because structured metadata (a sheet's
-    /// `columns:` map, SUB-876) needs the same round-trip but not that
+    /// `columns:` map) needs the same round-trip but not that
     /// method's scalar-only validation.
     ///
     /// Not the same helper as `edit_props`, which mounts use: this one refuses
@@ -2246,11 +2244,11 @@ impl Engine {
         }
         let abs = self.abs(rel)?;
         // busiest write path in the app — it needs the same symlink check the
-        // other write paths have; `abs()` catches only textual escapes (SUB-555)
+        // other write paths have; `abs()` catches only textual escapes
         self.ensure_inside_root(&abs)?;
         let raw = self.read_note_strict(rel, &abs)?;
         let (fm, body) = split_frontmatter(&raw);
-        // refuse rather than re-serialize a block that didn't parse (SUB-215)
+        // refuse rather than re-serialize a block that didn't parse
         let mut props = parse_props_for_write(fm, &raw, rel)?;
         let out = edit(&mut props)?;
         let text = if props.is_empty() {
@@ -2268,7 +2266,7 @@ impl Engine {
         Ok((out, self.meta_after_write(rel)?))
     }
 
-    /// Set a sheet column's notification settings (SUB-876), stored in the
+    /// Set a sheet column's notification settings, stored in the
     /// note's `columns:` map. Clearing both settings drops the column's entry,
     /// and the last entry drops the map — the metadata never outlives its
     /// reason to exist. Existing spellings win, both for the map key and the
@@ -2325,7 +2323,7 @@ fn apply_prop_write(
     value: Option<serde_json::Value>,
 ) -> Result<(), String> {
     match value {
-        // numbers are accepted for symmetry with the read side (SUB-477):
+        // numbers are accepted for symmetry with the read side:
         // `prior` is the raw parsed YAML, so a documented numeric scalar
         // (`rating: 4`, `price: 1299.50` — docs/vault-format.md §6) comes
         // back as a Number and undo writes it straight back. The UI still
@@ -2367,7 +2365,7 @@ impl Engine {
         self.create_full(title, folder, note_type, None, None)
     }
 
-    /// Create with a full starting state (SUB-17): `props` are extra
+    /// Create with a full starting state: `props` are extra
     /// frontmatter entries — schema-default empty chips and template defaults,
     /// already instantiated by the caller — and `body` the starting body.
     /// `created`/`type`/`title` stay engine-owned; same-named `props` entries
@@ -2455,7 +2453,7 @@ impl Engine {
     /// upgrades it via rename — or forever, if the fetch never succeeds.
     pub fn create_reference(&mut self, url: &str) -> Result<NoteMeta, String> {
         // ASCII-case-insensitive prefix strip: RFC 3986 schemes are
-        // case-insensitive and some sources paste `HTTPS://…` (SUB-908); the
+        // case-insensitive and some sources paste `HTTPS://…`; the
         // TS twin (url.ts looksLikeUrl/urlDisplayTitle) already matches /i,
         // and a guard stricter than the client's turns a promised capture
         // into an error toast with nothing created.
@@ -2469,7 +2467,7 @@ impl Engine {
             return Err("only http(s) links can be captured".into());
         }
         // credentials must never reach the vault: not the filename, not the
-        // `url:` prop (SUB-789). url_capture already strips before calling —
+        // `url:` prop. url_capture already strips before calling —
         // this repeats it defensively for every other caller.
         let stripped = crate::net::strip_userinfo(url);
         let url = stripped.as_str();
@@ -2480,7 +2478,7 @@ impl Engine {
         let display = if display.is_empty() { url } else { display };
         let name = sanitize_filename(display);
         // a hostile or degenerate URL must not produce an invisible note or
-        // a link-corrupting title — refuse the capture instead (SUB-223)
+        // a link-corrupting title — refuse the capture instead
         validate_note_title(display, &name)?;
         let dir = self.root.join("Inbox");
         fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -2512,7 +2510,7 @@ impl Engine {
     /// The file's mtime as it is on disk RIGHT NOW, in ms — not the index's
     /// copy, which is only as fresh as the last reindex. `None` when the path
     /// is unreadable. Used to spot an external edit a caller's baseline
-    /// predates (SUB-781); `0` never appears, so a comparison against a
+    /// predates; `0` never appears, so a comparison against a
     /// baseline of `0` is always inconclusive rather than falsely alarming.
     pub(crate) fn disk_mtime_ms(&self, rel: &str) -> Option<u64> {
         let abs = self.abs(rel).ok()?;
@@ -2520,7 +2518,7 @@ impl Engine {
     }
 
     /// Rename, keeping only the renamed note's meta. The link sweep's reach is
-    /// dropped — callers that need it (undo, SUB-515) use `rename_tracked`.
+    /// dropped — callers that need it (undo) use `rename_tracked`.
     pub fn rename(&mut self, rel: &str, new_title: &str) -> Result<NoteMeta, String> {
         self.rename_tracked(rel, new_title).map(|r| r.meta)
     }
@@ -2530,7 +2528,7 @@ impl Engine {
     /// ![[…]] embeds reference assets, not the note, and stay untouched.
     /// The exact title is kept as a `title:` prop only when sanitizing changed it.
     /// Link sources that can't be rewritten are named in the error AFTER the
-    /// rename lands — surfaced, never silently rotted (SUB-225).
+    /// rename lands — surfaced, never silently rotted.
     ///
     /// `touched` reports EVERY note this rename rewrote — the renamed note plus
     /// each third-party note whose links or relation props followed it. Undo
@@ -2549,7 +2547,7 @@ impl Engine {
         let slug = sanitize_filename(new_title);
         // reject BEFORE any link rewrite or filesystem move: a rejected
         // rename must leave file, links, and index exactly as they were
-        // (SUB-223 — this also covers the url_capture enrichment rename,
+        // (this also covers the url_capture enrichment rename,
         // whose caller keeps the bare-URL title on Err)
         validate_note_title(new_title, &slug)?;
         let new_rel = match Path::new(rel).parent() {
@@ -2577,7 +2575,7 @@ impl Engine {
             .collect();
         // a source that can't be read or written would keep its stale
         // [[old]] links behind a "successful" rename — collect those and
-        // surface them in the result instead of rotting silently (SUB-225)
+        // surface them in the result instead of rotting silently
         let mut failed: Vec<String> = Vec::new();
         // the rewrites are buffered, not written: fs::rename below can fail,
         // and a rewrite already on disk behind a failed rename leaves every
@@ -2589,8 +2587,8 @@ impl Engine {
         for src in &sources {
             let Ok(abs) = self.abs(src) else { continue };
             // an undecodable link source rots exactly like an unwritable one:
-            // reported, never silently rewritten through a lossy decode (SUB-556).
-            // No source here is ever sealed (SUB-935): `index_file` returns
+            // reported, never silently rewritten through a lossy decode.
+            // No source here is ever sealed: `index_file` returns
             // before the link scan for a sealed file and `deindex_note` drops
             // the rows a note had before it was sealed, so a sealed note
             // carries no outgoing edges and cannot be reached as one. The
@@ -2607,19 +2605,19 @@ impl Engine {
                 .link_re
                 .replace_all(body, |caps: &regex::Captures| {
                     // ![[…]] embeds name assets, not the note — renaming the
-                    // note must leave them untouched (SUB-97)
+                    // note must leave them untouched
                     if caps[0].starts_with('!') {
                         return caps[0].to_string();
                     }
                     // a fenced or inline-code link is an example of the syntax;
                     // rewriting it would edit someone's documentation out from
-                    // under them (SUB-495)
+                    // under them
                     let m = caps.get(0).unwrap();
                     if in_code(&code, m.start(), m.end()) {
                         return caps[0].to_string();
                     }
                     // only the target moves: the heading anchor and the
-                    // author's display text ride along untouched (SUB-1095)
+                    // author's display text ride along untouched
                     let (target, anchor, alias) = split_wikilink(&caps[1]);
                     if old_names.contains(&target.to_lowercase()) {
                         let mut inner = new_title.to_string();
@@ -2657,7 +2655,7 @@ impl Engine {
         }
 
         // every note this rename rewrote, the renamed one included — undo's
-        // invalidation key (SUB-515). Paths are post-move: a source that is
+        // invalidation key. Paths are post-move: a source that is
         // this note itself is named by where it now lives.
         let mut touched: Vec<String> = vec![new_rel.clone()];
 
@@ -2669,7 +2667,7 @@ impl Engine {
             // was found: `write_note_atomic` decides storage mode from this key,
             // and both the index entry and any authorization moved to `new_rel`
             // above. Only a self-link reaches this branch, and only ever from a
-            // plaintext note — sealed notes carry no outgoing edges (SUB-935).
+            // plaintext note — sealed notes carry no outgoing edges.
             let live = if src == rel { &new_rel } else { &src };
             if self.write_note_atomic(live, &abs, out).is_err() {
                 failed.push(src);
@@ -2681,7 +2679,7 @@ impl Engine {
         // relation props name their targets by title/stem too — rewrite those
         // values through the same rename (collected pre-move, applied after
         // the file lands at its new path); only props aimed at this note's
-        // type follow it (SUB-216)
+        // type follow it
         let old_type = folded_prop_str(&old.props, "type").unwrap_or_default().to_lowercase();
         let rel_rewrites = self.relation_rewrites(&old_names, new_title, &old_type);
 
@@ -2689,13 +2687,13 @@ impl Engine {
         // abort here (that would leave the rename half-done) and must not go
         // through a lossy decode either — it joins `failed` like any other
         // note the rename could not touch, and its bytes stay as they are
-        // (SUB-556). Same shape as the SUB-215 parse refusal just below.
+        // Same shape as the parse refusal just below.
         let decoded = self
             .read_note_strict(&new_rel, &new_abs)
             .map_err(|_| failed.push(new_rel.clone()))
             .ok();
         // A block that fails to parse must not be re-serialized into a wipe
-        // (SUB-215): the move and link rewrites still land, but the note's
+        // the move and link rewrites still land, but the note's
         // own bytes — frontmatter included — stay exactly as they were.
         let title_write = match &decoded {
             Some(raw) => self.write_renamed_title(&new_rel, &new_abs, raw, new_title, &slug),
@@ -2703,7 +2701,7 @@ impl Engine {
         };
         // Last point the sealed identity is needed at the destination: the
         // re-serialize above re-encrypts through it. Relock now so every exit
-        // below — the error above included — leaves the note locked (SUB-839).
+        // below — the error above included — leaves the note locked.
         if relock_destination {
             self.relock_moved_sealed_note(rel, &new_rel);
         }
@@ -2713,7 +2711,7 @@ impl Engine {
             // a relation prop on the renamed note itself moves with the file
             let path = if path == rel { new_rel.clone() } else { path };
             // an unwritable relation source rots exactly like an unwritable
-            // link source — same collection, same post-rename error (SUB-285)
+            // link source — same collection, same post-rename error
             if self.set_prop_value(&path, &key, Some(value)).is_err() {
                 if !failed.contains(&path) {
                     failed.push(path);
@@ -2725,18 +2723,18 @@ impl Engine {
 
         // Only a rename that actually moved the file frees the old path; a
         // title-only rename keeps it, and with it this session's
-        // authorization for an unlocked sealed note (SUB-935).
+        // authorization for an unlocked sealed note.
         if new_rel != rel {
             self.remove_note(rel);
         } else {
             self.deindex_note(rel);
         }
         self.reindex_one(&new_rel);
-        // a sidebar pin is keyed by path — follow the file (SUB-410)
+        // a sidebar pin is keyed by path — follow the file
         self.move_sidebar_pin(rel, Some(&new_rel))?;
-        // an assigned key is keyed by path too (SUB-467)
+        // an assigned key is keyed by path too
         self.move_sidebar_keys(rel, Some(&new_rel))?;
-        // so is a board card's hand-dragged slot (SUB-948)
+        // so is a board card's hand-dragged slot
         self.move_card_order(rel, &new_rel)?;
         for src in &sources {
             if src != rel {
@@ -2760,7 +2758,7 @@ impl Engine {
 
     /// Re-serialize a renamed note's own frontmatter at its new path: the
     /// exact title is kept as a `title:` prop only when sanitizing changed it.
-    /// A block that fails to parse is left byte-for-byte alone (SUB-215).
+    /// A block that fails to parse is left byte-for-byte alone.
     fn write_renamed_title(
         &mut self,
         new_rel: &str,
@@ -2787,7 +2785,7 @@ impl Engine {
 
     /// The note a `[[target]]` addresses. `name` may carry a heading anchor
     /// and/or display alias (`Piranesi#Notes|the book`) — both are stripped
-    /// before matching (SUB-1095); a bare `#anchor` names no note.
+    /// before matching; a bare `#anchor` names no note.
     pub fn resolve_link(&self, name: &str) -> Option<NoteMeta> {
         let needle = link_key(name);
         if needle.is_empty() {
@@ -2804,7 +2802,7 @@ impl Engine {
     /// links follow a rename exactly like [[wikilinks]] do. Scoped like
     /// `related()`: only props aimed at the renamed note's type follow it —
     /// a prop targeted at another database names a DIFFERENT note that
-    /// happens to share the title (SUB-216); untargeted props have no
+    /// happens to share the title; untargeted props have no
     /// declared scope and still follow any rename.
     fn relation_rewrites(
         &self,
@@ -2860,7 +2858,7 @@ impl Engine {
         out
     }
 
-    /// Set or clear a folder's icon (SUB-84). Same normalization as
+    /// Set or clear a folder's icon. Same normalization as
     /// `set_schema_icon`: fields are trimmed, emoji wins over glyph, a tint
     /// without a mark drops. No mark at all (or `None`) removes the entry,
     /// and an emptied `$folders` map drops the key from the file.
@@ -2957,11 +2955,11 @@ impl Engine {
         self.relock_moved_sealed_note(rel, &new_rel);
         self.remove_note(rel);
         self.reindex_one(&new_rel);
-        // the pin is keyed by path — follow the file into its new folder (SUB-410),
-        // and so does an assigned key (SUB-467)
+        // the pin is keyed by path — follow the file into its new folder,
+        // and so does an assigned key
         self.move_sidebar_pin(rel, Some(&new_rel))?;
         self.move_sidebar_keys(rel, Some(&new_rel))?;
-        // …and the board slot the card was dragged to (SUB-948)
+        // …and the board slot the card was dragged to
         self.move_card_order(rel, &new_rel)?;
         self.notes.get(&new_rel).cloned().ok_or_else(|| "move failed".into())
     }
@@ -2999,7 +2997,7 @@ impl Engine {
         let new_abs = self.abs(&new_rel)?;
         // a case-only rename (demos → Demos) "collides" with itself on
         // case-insensitive filesystems — same self-exception the note
-        // rename lane has (SUB-225)
+        // rename lane has
         if new_rel.to_lowercase() != old_rel.to_lowercase() && new_abs.exists() {
             return Err(format!("a folder named “{}” already exists here", name));
         }
@@ -3012,16 +3010,16 @@ impl Engine {
         self.move_sidebar_folders(old_rel, Some(&new_rel))?;
         self.move_sidebar_keys_folder(old_rel, Some(&new_rel))?;
         // The seal marker rides along inside the folder, so its confirmation
-        // (SUB-889) has to as well — otherwise renaming a sealed folder would
+        // has to as well — otherwise renaming a sealed folder would
         // quietly leave the seal unconfirmed and unenforced.
         self.move_scope_trust(old_rel, Some(&new_rel))?;
-        // every board card inside the folder keeps its slot (SUB-948)
+        // every board card inside the folder keeps its slot
         self.move_card_order(old_rel, &new_rel)?;
         Ok(new_rel)
     }
 
     /// Move a folder under another parent ("" = vault root), keeping its name —
-    /// the sibling of `move_note` for directories (SUB-698: a Dashboards group
+    /// the sibling of `move_note` for directories (a Dashboards group
     /// header dragged onto a folder tree row). Notes inside keep their
     /// filenames, so links survive; the whole subtree is reindexed at the new
     /// path and every path-keyed sidebar record follows, exactly as a rename's
@@ -3058,7 +3056,7 @@ impl Engine {
         let new_abs = self.abs(&new_rel)?;
         // a case-only move (Areas/demos → areas/demos) "collides" with itself on
         // a case-insensitive filesystem — the same self-exception rename_folder
-        // carries (SUB-225)
+        // carries
         if new_rel.to_lowercase() != old_rel.to_lowercase() && new_abs.exists() {
             let where_ = if parent.is_empty() { "the vault root".to_string() } else { parent };
             return Err(format!("“{name}” already exists in {where_}"));
@@ -3076,10 +3074,10 @@ impl Engine {
         self.move_sidebar_folders(old_rel, Some(&new_rel))?;
         self.move_sidebar_keys_folder(old_rel, Some(&new_rel))?;
         // The seal marker rides along inside the folder, so its confirmation
-        // (SUB-889) has to as well — otherwise renaming a sealed folder would
+        // has to as well — otherwise renaming a sealed folder would
         // quietly leave the seal unconfirmed and unenforced.
         self.move_scope_trust(old_rel, Some(&new_rel))?;
-        // every board card inside the folder keeps its slot (SUB-948)
+        // every board card inside the folder keeps its slot
         self.move_card_order(old_rel, &new_rel)?;
         Ok(new_rel)
     }
@@ -3142,7 +3140,7 @@ impl Engine {
         out
     }
 
-    /// `<vault>/.vault/kinds` — the custom-kind bundle root (SUB-959).
+    /// `<vault>/.vault/kinds` — the custom-kind bundle root.
     ///
     /// Deliberately a path accessor and not a reader: `hidden_rel` still hides
     /// every `.`-prefixed segment from the note commands, so nothing about
@@ -3175,7 +3173,7 @@ impl Engine {
         out
     }
 
-    /// The props the WRITE path sees for `rel` (SUB-565), read from disk with
+    /// The props the WRITE path sees for `rel`, read from disk with
     /// the same strict parse `edit_props` performs. The prop sweeps decide
     /// whether to touch a note from this rather than from `self.notes`: the
     /// index is fed by the lenient `parse_props`, so a note whose frontmatter
@@ -3196,7 +3194,7 @@ impl Engine {
         if !abs.is_file() {
             return Ok(None);
         }
-        self.ensure_inside_root(&abs)?; // SUB-555
+        self.ensure_inside_root(&abs)?; // no writes outside the vault root
         let raw = self.read_note_strict(rel, &abs)?;
         let (fm, _) = split_frontmatter(&raw);
         parse_props_for_write(fm, &raw, rel).map(Some)
@@ -3205,14 +3203,14 @@ impl Engine {
     /// Read → mutate frontmatter props → re-serialize → reindex. Like
     /// `set_prop_value` the whole block is re-serialized (keys alphabetized),
     /// so callers never depend on key order. A block that fails to parse
-    /// refuses the edit rather than being re-serialized into a wipe (SUB-215).
+    /// refuses the edit rather than being re-serialized into a wipe.
     pub(super) fn edit_props(
         &mut self,
         rel: &str,
         f: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>),
     ) -> Result<(), String> {
         let abs = self.abs(rel)?;
-        self.ensure_inside_root(&abs)?; // SUB-555
+        self.ensure_inside_root(&abs)?; // no writes outside the vault root
         let raw = self.read_note_strict(rel, &abs)?;
         let (fm, body) = split_frontmatter(&raw);
         let mut props = parse_props_for_write(fm, &raw, rel)?;
@@ -3252,7 +3250,7 @@ impl Engine {
     /// sorted. The index is a `HashMap`, so without the sort the bulk sweeps
     /// would visit notes in an arbitrary order — which only became visible
     /// once a mid-sweep failure started reporting its partial count
-    /// (SUB-501): the same broken note would strand a different number of
+    /// the same broken note would strand a different number of
     /// its neighbours on every run.
     pub(super) fn notes_of_type(&self, db_type: &str) -> Vec<String> {
         let mut rels: Vec<String> = self
@@ -3280,7 +3278,7 @@ mod tags;
 pub use tags::{TagCount, TagFolder, TagMatch};
 
 mod sheetcsv;
-// the scheduler reads sheet grids to find date cells (SUB-876); the rest of
+// the scheduler reads sheet grids to find date cells; the rest of
 // the sheet engine stays in TypeScript
 pub(crate) use sheetcsv::sheet_grid;
 
@@ -3330,17 +3328,16 @@ mod mounts;
 use mounts::read_mounts;
 pub use mounts::{Mount, MountRow, MountScanStats, MOUNTS_REL_PATH};
 
-// What a mounted file says about itself (SUB-887). Split out of `mounts`
+// What a mounted file says about itself. Split out of `mounts`
 // because it is pure per-file parsing: no engine, no lock, no vault.
 mod extract;
 mod extractq;
 pub use extractq::{ExtractDone, ExtractJob, ExtractQueue};
 
 // Where a mounted document's text goes: this machine, never the vault
-// (SUB-1093).
 mod mounttext;
 // Named by the command layer's unbind test, which checks this machine's text
-// goes when the binding does (SUB-1134).
+// goes when the binding does.
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use mounttext::MOUNT_TEXT_DIR;
 
@@ -3371,7 +3368,7 @@ mod tests {
     fn machine_fence_strip_covers_info_string_tails() {
         // ```view/```chart/```progress/```cards <tail> renders as a live
         // widget (first word decides), so its config leaves the index like the
-        // bare form (SUB-899 for view, SUB-983 for chart/cards, SUB-967 for
+        // bare form (view, chart/cards and
         // progress). Lockstep twin: the "info-string tail" test in
         // src/lib/fences.test.ts, same corpus.
         for open in [
@@ -3396,12 +3393,12 @@ mod tests {
             "a\n```formulas x\nsecret = A1\n```\nb",
             "a\n```calendar month\nsecret: 1\n```\nb",
             "a\n```python foo\nsecret = 1\n```\nb",
-            // SUB-968: the timeline parser is strict bare-form too.
+            // The timeline parser is strict bare-form too.
             "a\n```timeline compact\nsource: release\n```\nb",
         ] {
             assert_eq!(strip_machine_fences(prose), prose, "tailed bare-form fence stays prose");
         }
-        // ```calendar joins the machine set in its bare form (SUB-965).
+        // ```calendar joins the machine set in its bare form.
         let cal = "a\n```calendar\nsource: release\ndate: released\n```\nb";
         let out = strip_machine_fences(cal);
         assert!(!out.contains("released"), "calendar config stripped: {out:?}");
@@ -3417,7 +3414,7 @@ mod tests {
         // The frontend readers lowercase the info string's first word before
         // matching, so ```View renders a live widget — and this index-side
         // strip compared case-sensitively, leaving a rendering fence's config
-        // in the SQLite search table (SUB-1104). Lockstep twin: the "folds
+        // in the SQLite search table. Lockstep twin: the "folds
         // case exactly where dispatch does" test in src/lib/fences.test.ts.
         for open in [
             "```View",
@@ -3428,7 +3425,7 @@ mod tests {
             "```Cards",
             "```CaRdS two-up",
             // bare-form, but the hub dispatches it lowercased, so it folds too
-            // (SUB-1128) — bare openers only, no tail
+            // — bare openers only, no tail
             "```HeatMap",
             "```HEATMAP",
         ] {
@@ -3444,7 +3441,7 @@ mod tests {
         }
         // heatmap keeps the OTHER half of its bare-form contract while folding
         // case: a tailed opener is plain code the hub won't render, whatever
-        // its spelling, so it stays searchable (SUB-1128).
+        // its spelling, so it stays searchable.
         let tailed = "a\n```HeatMap year\nsecret: session\n```\nb";
         assert_eq!(strip_machine_fences(tailed), tailed, "tailed mixed-case heatmap stays prose");
     }
@@ -3454,7 +3451,7 @@ mod tests {
         // An inline prose mention of an opener (`` ```chart `` in running
         // text) carries a backtick right after the language word; without the
         // tail's backtick guard it swallowed the rest of the line and blanked
-        // prose to the next fence (SUB-983 review finding — 48 prose lines of
+        // prose to the next fence (48 prose lines of
         // the seeded AGENTS.md left the index). Lockstep twin: the
         // "inline prose mention" test in src/lib/fences.test.ts.
         let body = "One ` ```chart ` fence per chart; prose continues.\nmore prose\n```chart\nsource: r\n```\nafter";
@@ -3466,7 +3463,7 @@ mod tests {
 
     #[test]
     fn machine_fence_strip_covers_heatmap_fences() {
-        // SUB-966: a ```heatmap body is config, not prose — same rule, and the
+        // a ```heatmap body is config, not prose — same rule, and the
         // strict parser means a tailed opener is plain code that stays indexed.
         let body = "a\n```heatmap\nsource: session\ndate: logged\n```\nb";
         let out = strip_machine_fences(body);
@@ -3485,7 +3482,7 @@ mod tests {
         assert!(!folded_eq("Release", "Releases"));
     }
 
-    /// SUB-523: every write in `Engine::new`'s existing-vault branch has to sit
+    /// Every write in `Engine::new`'s existing-vault branch has to sit
     /// under `#[cfg(desktop)]`. An ungated one turns a phone's first sync pull
     /// into an unrelated-history merge, and no runtime test can catch it — this
     /// test binary IS a desktop build, so the mobile shape never executes here
@@ -3596,7 +3593,7 @@ mod tests {
 
     #[test]
     fn write_body_fails_on_deleted_file_without_recreating() {
-        // SUB-94: an externally deleted note must NOT come back body-only
+        // An externally deleted note must NOT come back body-only
         let (mut e, dir) = temp_vault("wbdel");
         fs::remove_file(dir.join("Welcome.md")).unwrap();
         let err = e.write_body("Welcome.md", "ghost\n", None).unwrap_err();
@@ -3605,7 +3602,7 @@ mod tests {
         // …even with a guard body that would match the empty read
         assert!(e.write_body("Welcome.md", "ghost\n", Some("")).is_err());
         assert!(!dir.join("Welcome.md").exists());
-        // the template lane keeps its create-through-write exception (SUB-59)
+        // the template lane keeps its create-through-write exception
         e.write_body(".vault/templates/fresh.md", "skeleton\n", None).unwrap();
         assert!(dir.join(".vault/templates/fresh.md").is_file());
         let _ = fs::remove_dir_all(&dir);
@@ -3632,7 +3629,7 @@ mod tests {
         assert_eq!(err, "not a text file");
         assert_eq!(fs::read(&path).unwrap(), corrupt, "unreadable note was overwritten");
 
-        // the template create-through-write exception (SUB-59) still works
+        // the template create-through-write exception still works
         e.write_body(".vault/templates/fresh.md", "skeleton\n", None).unwrap();
         assert!(dir.join(".vault/templates/fresh.md").is_file());
         let _ = fs::remove_dir_all(&dir);
@@ -3661,7 +3658,7 @@ mod tests {
 
     #[test]
     fn write_body_expected_body_guard() {
-        // SUB-93: the optimistic guard rejects writes based on a stale buffer
+        // The optimistic guard rejects writes based on a stale buffer
         let (mut e, dir) = temp_vault("wbexp");
         let base = e.read("Welcome.md").unwrap().body;
         // matching expected body → the write lands
@@ -3697,7 +3694,7 @@ mod tests {
 
     #[test]
     fn sheet_column_notify_writes_reads_and_clears_the_columns_map() {
-        // SUB-876: the metadata a sheet's date notifications live in. It is a
+        // The metadata a sheet's date notifications live in. It is a
         // nested map, which `set_prop` refuses by design — hence its own path.
         let (mut e, dir) = temp_vault("shcol1");
         let meta = e.set_sheet_column_notify("Welcome.md", "renewal", true, Some(7)).unwrap();
@@ -3748,7 +3745,7 @@ mod tests {
 
     #[test]
     fn set_prop_guarded_matching_expected_writes() {
-        // SUB-477 test 10: the guard passes when `expected` matches what's on
+        // Test 10: the guard passes when `expected` matches what's on
         // disk, both for a present key and for the absent-key sentinel.
         let (mut e, dir) = temp_vault("spg1");
         // key absent → expected Some(None) is the correct claim
@@ -3772,7 +3769,7 @@ mod tests {
 
     #[test]
     fn set_prop_guarded_stale_expected_conflicts_without_touching_disk() {
-        // SUB-477 test 11: a stale claim is refused and the file stays
+        // Test 11: a stale claim is refused and the file stays
         // byte-identical — the same contract write_body's body guard has.
         let (mut e, dir) = temp_vault("spg2");
         e.set_prop("Welcome.md", "status", Some("live")).unwrap();
@@ -3798,7 +3795,7 @@ mod tests {
 
     #[test]
     fn set_prop_guarded_none_expected_bypasses_the_check() {
-        // SUB-477 test 12: every pre-undo caller passes the outer None and
+        // Test 12: every pre-undo caller passes the outer None and
         // keeps its unconditional write.
         let (mut e, dir) = temp_vault("spg3");
         e.set_prop("Welcome.md", "status", Some("live")).unwrap();
@@ -3813,7 +3810,7 @@ mod tests {
 
     #[test]
     fn set_prop_guarded_returns_the_replaced_value() {
-        // SUB-477 test 13: `prior` is None for an absent key and Some(v)
+        // Test 13: `prior` is None for an absent key and Some(v)
         // otherwise — undo feeds it straight back in as `value`.
         let (mut e, dir) = temp_vault("spg4");
         // absent → None, and lists come back as lists, not stringified
@@ -3831,7 +3828,7 @@ mod tests {
 
     #[test]
     fn set_prop_guarded_round_trips_a_numeric_prior() {
-        // SUB-477 review finding: `prior` is the raw parsed YAML value, so a
+        // `prior` is the raw parsed YAML value, so a
         // numeric scalar (docs/vault-format.md documents `rating: 4` and
         // `price: 1299.50`) comes back as Value::Number — and undo feeds it
         // straight back in as `value`. If the write side refuses numbers, that
@@ -3876,7 +3873,7 @@ mod tests {
 
     #[test]
     fn set_prop_refuses_on_unparseable_frontmatter() {
-        // SUB-215: a present-but-unparseable frontmatter block must refuse
+        // A present-but-unparseable frontmatter block must refuse
         // every prop edit and leave the file byte-identical — re-serializing
         // the empty parse would silently wipe every other key.
         let (mut e, dir) = temp_vault("fmguard");
@@ -3923,9 +3920,9 @@ mod tests {
 
     #[test]
     fn set_prop_refuses_an_unterminated_frontmatter_block() {
-        // SUB-552: a block whose opening fence is never closed reaches
+        // A block whose opening fence is never closed reaches
         // split_frontmatter as `(None, raw)` — byte-identical to "this file
-        // has no frontmatter". The SUB-215 refusal never fires (there is no
+        // has no frontmatter". The refusal never fires (there is no
         // block to diagnose), so the write serializes one new prop into a
         // fresh block and pushes the ENTIRE original file, old fence and all
         // the old props included, down into the body. Every property is
@@ -3964,7 +3961,7 @@ mod tests {
 
     #[test]
     fn write_atomic_round_trips_without_temp_residue() {
-        // SUB-224: writes land via same-dir temp + rename — content round-trips,
+        // Writes land via same-dir temp + rename — content round-trips,
         // no `.tmp` residue survives, and the write-through-engine paths
         // (body, props, views/schema json) all leave clean directories.
         let (mut e, dir) = temp_vault("atomicw");
@@ -4019,7 +4016,7 @@ mod tests {
 
     #[test]
     fn write_atomic_create_failure_errors_cleanly() {
-        // SUB-431 moved the temp write to an explicit create+write+fsync —
+        // Moved the temp write to an explicit create+write+fsync —
         // a failure there (unwritable parent) must error, not panic, and
         // leave nothing behind
         let dir =
@@ -4032,7 +4029,7 @@ mod tests {
 
     #[test]
     fn concurrent_same_path_writes_do_not_share_a_temp_file() {
-        // SUB-779: the temp suffix was pid-only, so two writes to one path
+        // The temp suffix was pid-only, so two writes to one path
         // from THIS process would have raced on the same temp name — one
         // thread's rename could publish the other's partial bytes. Both
         // writes must succeed and the survivor must be one payload whole.
@@ -4063,7 +4060,7 @@ mod tests {
 
     #[test]
     fn empty_frontmatter_block_is_not_an_error() {
-        // SUB-215 guard precision: `---\n---` is zero props, not "unparseable"
+        // Guard precision: `---\n---` is zero props, not "unparseable"
         let (mut e, dir) = temp_vault("fmempty");
         fs::write(dir.join("Empty.md"), "---\n---\nBody.\n").unwrap();
         e.rescan();
@@ -4074,7 +4071,7 @@ mod tests {
 
     #[test]
     fn fm_raw_reports_block_health() {
-        // SUB-430: none / healthy / duplicate-keys / invalid-YAML / not-a-map
+        // None / healthy / duplicate-keys / invalid-YAML / not-a-map
         let (mut e, dir) = temp_vault("fmraw");
         fs::write(dir.join("Plain.md"), "no block here\n").unwrap();
         fs::write(dir.join("Good.md"), "---\nstatus: live\n---\nBody.\n").unwrap();
@@ -4106,7 +4103,7 @@ mod tests {
         assert_eq!(empty.raw, "");
         assert_eq!(empty.error, None);
 
-        // SUB-552: an opener that never closes has no block at all, but the
+        // An opener that never closes has no block at all, but the
         // prop lanes refuse on it — the banner must say why. No block means
         // nothing for the repair dialog to prefill, so it is not repairable:
         // the whole file sits in the body editor and the fix is typing the
@@ -4126,7 +4123,7 @@ mod tests {
 
     #[test]
     fn fm_write_repairs_block_and_preserves_body() {
-        // SUB-430: a duplicate-key note becomes prop-editable after repair,
+        // A duplicate-key note becomes prop-editable after repair,
         // the body stays byte-identical, a still-broken replacement is
         // refused untouched, and an empty block removes the frontmatter.
         let (mut e, dir) = temp_vault("fmwrite");
@@ -4134,7 +4131,7 @@ mod tests {
         fs::write(dir.join("Note.md"), before).unwrap();
         e.rescan();
 
-        // broken: every prop edit refuses (SUB-215)
+        // broken: every prop edit refuses
         assert!(e.set_prop("Note.md", "x", Some("y")).is_err());
 
         // a still-broken replacement is refused by its bare diagnosis…
@@ -4179,14 +4176,14 @@ mod tests {
             "---\nstatus: new\n---\nbare body\n"
         );
 
-        // …but a missing file never resurrects (SUB-94)
+        // …but a missing file never resurrects
         assert!(e.fm_write("Gone.md", "status: a").is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn bom_prefixed_note_parses_and_edits() {
-        // SUB-215: a leading UTF-8 BOM no longer hides the frontmatter fence
+        // A leading UTF-8 BOM no longer hides the frontmatter fence
         let (mut e, dir) = temp_vault("fmbom");
         fs::write(dir.join("BOM.md"), "\u{FEFF}---\ntype: release\nstatus: live\n---\nBody.\n")
             .unwrap();
@@ -4205,7 +4202,7 @@ mod tests {
 
     #[test]
     fn rename_preserves_unparseable_frontmatter_bytes() {
-        // SUB-215: rename proceeds (move + link rewrites) but must NOT
+        // Rename proceeds (move + link rewrites) but must NOT
         // re-serialize a broken block — the note's bytes stay verbatim.
         let (mut e, dir) = temp_vault("rnguard");
         let content = "---\ntype: trip\n\tstatus: booked\n---\nBody links [[Kyoto]].\n";
@@ -4231,11 +4228,11 @@ mod tests {
 
     #[test]
     fn edit_props_refuses_on_unparseable_frontmatter() {
-        // SUB-215: the edit_props funnel behind the bulk lanes (type
+        // The edit_props funnel behind the bulk lanes (type
         // rename/delete, prop rename/clear, folder-sync stamps) refuses too.
         // (A note broken BEFORE indexing never reaches the bulk lanes — its
         // zero props hide its type. One poisoned after indexing does, which
-        // is what the SUB-501 mid-sweep-failure tests lean on; the funnel
+        // is what the mid-sweep-failure tests lean on; the funnel
         // itself must never re-serialize a block that didn't parse.)
         let (mut e, dir) = temp_vault("epguard");
         fs::write(dir.join("Bad.md"), "---\ntype: books\n\tstatus: x\n---\nBody.\n").unwrap();
@@ -4290,7 +4287,7 @@ mod tests {
         assert!(!dir.join(&m.path).exists());
         // ...and it comes back. A substring `..` check here left the note
         // stranded in the trash with restore AND delete both refusing it —
-        // the only way out was emptying the trash, i.e. destroying it (SUB-533)
+        // the only way out was emptying the trash, i.e. destroying it
         let back = e.trash_restore(&id).unwrap();
         assert_eq!(back.path, "Inbox/Wait.. what.md");
         assert!(dir.join(&back.path).exists());
@@ -4302,7 +4299,7 @@ mod tests {
     #[test]
     fn restoring_over_a_live_note_keeps_the_original_extension() {
         // the indexer accepts `.MD`; the dedupe used to hardcode `.md` and
-        // produced `Note.MD 2.md` (SUB-533)
+        // produced `Note.MD 2.md`
         let (mut e, dir) = temp_vault("trashext");
         fs::create_dir_all(dir.join("Inbox")).unwrap();
         fs::write(dir.join("Inbox/Note.MD"), "first\n").unwrap();
@@ -4375,7 +4372,7 @@ mod tests {
 
         // the prop path is the busiest write path in the app and read/rewrites
         // a file in place, so an EXISTING file outside is what it can reach —
-        // it must refuse the same way the body writers do (SUB-555)
+        // it must refuse the same way the body writers do
         let planted = "---\nkeep: me\n---\nnot ours\n";
         fs::write(outside.join("x.md"), planted).unwrap();
         assert!(
@@ -4597,7 +4594,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// The per-path event kinds reflexes fire on (SUB-826). Derived from the
+    /// The per-path event kinds reflexes fire on. Derived from the
     /// index, so a rename reports removed-then-created rather than whatever the
     /// platform watcher happened to call it.
     #[test]
@@ -4691,7 +4688,7 @@ mod tests {
 
     #[test]
     fn invalid_utf8_note_is_never_rewritten_through_a_lossy_decode() {
-        // SUB-556: reading is lossy on purpose — a note saved as Latin-1 must
+        // Reading is lossy on purpose — a note saved as Latin-1 must
         // still show up and be searchable. But every write path read the same
         // way, edited the decoded string and wrote it back, which made
         // from_utf8_lossy's U+FFFD substitutions permanent: ticking one
@@ -4720,7 +4717,7 @@ mod tests {
         untouched("fm_write");
 
         // rename is the odd one out: the move itself must still land, so the
-        // note reports through the SUB-225 `failed` channel instead of
+        // note reports through the `failed` channel instead of
         // aborting — with its own bytes carried across untouched
         let err = e.rename("latin1.md", "Pult notes").unwrap_err();
         assert!(err.contains("could not be rewritten"), "{err}");
@@ -4756,7 +4753,7 @@ mod tests {
 
     #[test]
     fn wikilink_splits_into_target_anchor_alias() {
-        // SUB-1095: the shared parse rule. Twin: parseWikiLink in
+        // the shared parse rule. Twin: parseWikiLink in
         // src/lib/wikilinks.ts — keep the cases in step.
         assert_eq!(split_wikilink("Piranesi"), ("Piranesi", None, None));
         assert_eq!(split_wikilink("Piranesi|the book"), ("Piranesi", None, Some("the book")));
@@ -4780,7 +4777,7 @@ mod tests {
 
     #[test]
     fn embed_target_drops_the_display_modifier_but_never_a_hash() {
-        // SUB-1102: `![[cover.png|300]]` names cover.png. Twin: embedTarget in
+        // `![[cover.png|300]]` names cover.png. Twin: embedTarget in
         // src/lib/wikilinks.ts — keep the cases in step.
         assert_eq!(embed_target("cover.png"), "cover.png");
         assert_eq!(embed_target("cover.png|300"), "cover.png");
@@ -4799,7 +4796,7 @@ mod tests {
 
     #[test]
     fn resolve_link_ignores_anchor_and_alias() {
-        // SUB-1095: `[[Lisbon|the city]]` and `[[Lisbon#Notes]]` used to
+        // `[[Lisbon|the city]]` and `[[Lisbon#Notes]]` used to
         // resolve to nothing — the pipe and the anchor were read as part of
         // the note's name.
         let (e, dir) = temp_vault("linkparts");
@@ -4816,7 +4813,7 @@ mod tests {
 
     #[test]
     fn backlinks_see_alias_and_anchor_links() {
-        // SUB-1095: a note whose only outbound links carry an alias or an
+        // a note whose only outbound links carry an alias or an
         // anchor produced no backlink edges at all.
         let (mut e, dir) = temp_vault("linkedges");
         e.create("Reader", "", None).unwrap();
@@ -4838,7 +4835,7 @@ mod tests {
 
     #[test]
     fn rename_rewrites_target_and_keeps_anchor_and_alias() {
-        // SUB-1095: only the note name moves — the heading anchor still
+        // only the note name moves — the heading anchor still
         // points at the heading, the display text is the author's words.
         let (mut e, dir) = temp_vault("rnparts");
         e.create("Reader", "", None).unwrap();
@@ -4861,7 +4858,7 @@ mod tests {
 
     #[test]
     fn rename_tracked_reports_every_note_it_rewrote() {
-        // SUB-515: undo keys its invalidation off this set. A rename that
+        // Undo keys its invalidation off this set. A rename that
         // reported only the renamed note would let an external edit to a
         // link-rewritten third-party note go unnoticed, and the undo would
         // then clobber it (docs/undo.md §6.3).
@@ -4901,7 +4898,7 @@ mod tests {
     #[test]
     fn rename_tracked_reports_relation_prop_sources() {
         // a relation prop naming the note by title is rewritten too — same
-        // clobber risk, so it belongs in `touched` (SUB-515)
+        // clobber risk, so it belongs in `touched`
         let (mut e, dir) = temp_vault("rntrackrel");
         fs::write(dir.join("Noa Feldkamp.md"), "---\ntype: contact\n---\nbio\n").unwrap();
         fs::write(dir.join("Dust Charter.md"), "---\ntype: release\n---\nnotes\n").unwrap();
@@ -4936,11 +4933,11 @@ mod tests {
     fn rename_tracked_omits_sources_it_could_not_rewrite() {
         // a source that failed to rewrite still says [[old]] — its bytes did
         // NOT change, so listing it would make undo invalidate on a note the
-        // rename never touched (SUB-515, mirrors the SUB-225 failed channel)
+        // rename never touched (mirrors the failed channel)
         let (mut e, dir) = temp_vault("rntrackfail");
         fs::write(dir.join("Pale Kiln.md"), "---\ntype: release\n---\nnotes\n").unwrap();
         // an undecodable source can be read as bytes but not as UTF-8, so the
-        // rename reports it instead of rewriting it (SUB-556)
+        // rename reports it instead of rewriting it
         fs::write(dir.join("latin1.md"), b"Gr\xFC\xDFe about [[Pale Kiln]]\n").unwrap();
         fs::write(dir.join("Clean Source.md"), "See [[Pale Kiln]].\n").unwrap();
         e.rescan();
@@ -4985,7 +4982,7 @@ mod tests {
 
     #[test]
     fn rename_rejects_dot_title_without_moving_or_rewriting() {
-        // SUB-223: a dot-stem lands outside the index (hidden_rel) — the
+        // A dot-stem lands outside the index (hidden_rel) — the
         // guard must fire before the move and before any link rewrite
         let (mut e, dir) = temp_vault("rndot");
         let err = e.rename("Lisbon.md", ".secret").unwrap_err();
@@ -5005,7 +5002,7 @@ mod tests {
 
     #[test]
     fn rename_rejects_brackets_and_keeps_links_intact() {
-        // SUB-223: "]]" in a title would rewrite [[Lisbon]] into
+        // "]]" in a title would rewrite [[Lisbon]] into
         // [[Lis]]bon]] — every link corrupted behind a "successful"
         // rename. Reject instead; nothing moves, nothing rewrites.
         let (mut e, dir) = temp_vault("rnbrk");
@@ -5025,7 +5022,7 @@ mod tests {
 
     #[test]
     fn create_rejects_dot_and_bracket_titles() {
-        // SUB-223: create_full must never write an invisible or link-toxic
+        // Create_full must never write an invisible or link-toxic
         // note — reject before the file exists
         let (mut e, dir) = temp_vault("crguard");
         let before = e.list().len();
@@ -5041,7 +5038,7 @@ mod tests {
 
     #[test]
     fn create_reference_rejects_dot_display_url() {
-        // SUB-223: https://.host/… strips to a dot-leading display name —
+        // Https://.host/… strips to a dot-leading display name —
         // the capture must fail outright, never write an invisible note
         let (mut e, dir) = temp_vault("crref");
         let before = e.list().len();
@@ -5054,7 +5051,7 @@ mod tests {
 
     #[test]
     fn create_reference_accepts_uppercase_scheme_like_the_client() {
-        // SUB-908: looksLikeUrl matches the scheme case-insensitively and the
+        // LooksLikeUrl matches the scheme case-insensitively and the
         // palette promises "capture link to Inbox" — a case-sensitive guard
         // here turned that promise into an error toast with nothing created.
         // The display strip is case-insensitive too, so an uppercase scheme
@@ -5072,7 +5069,7 @@ mod tests {
 
     #[test]
     fn rename_to_control_char_title_rewrites_nothing() {
-        // SUB-223, found by proptest: a control character survives
+        // Found by proptest: a control character survives
         // sanitize_filename (it isn't whitespace), so the name only failed at
         // fs::rename — after the link rewrite pass had already run, leaving
         // [[\0]] in every source behind a failed rename.
@@ -5090,7 +5087,7 @@ mod tests {
 
     #[test]
     fn url_capture_dot_title_keeps_visible_bare_title_note() {
-        // SUB-223 (remote-reachable): a fetched og:title of ".secret" must
+        // Remote-reachable: a fetched og:title of ".secret" must
         // not vanish the captured note. spawn_url_enrichment renames an
         // untouched bare-URL note and keeps the bare title on Err — walk
         // that flow: the rename is rejected and the note survives visible.
@@ -5108,7 +5105,7 @@ mod tests {
 
     #[test]
     fn embeds_do_not_index_as_links_or_backlinks() {
-        // SUB-97: ![[asset]] is an embed, not a link — the embedding note
+        // ![[asset]] is an embed, not a link — the embedding note
         // must not show up in the asset note's backlinks, while plain
         // [[links]] keep counting as before
         let (mut e, dir) = temp_vault("emb");
@@ -5124,7 +5121,7 @@ mod tests {
 
     #[test]
     fn code_is_not_link_syntax_anywhere() {
-        // SUB-495: a [[link]] or ![[embed]] inside a fence or an inline `span`
+        // A [[link]] or ![[embed]] inside a fence or an inline `span`
         // is documentation about the grammar. The editor renders it verbatim,
         // so no engine surface may treat it as a reference: not the link index
         // or backlinks, not doctor's broken-link/-embed findings, and not the
@@ -5165,7 +5162,7 @@ mod tests {
 
     #[test]
     fn rename_leaves_embed_targets_untouched() {
-        // SUB-97: renaming a note whose title matches an embed target must
+        // Renaming a note whose title matches an embed target must
         // not rewrite the ![[…]] — that text names the asset, not the note
         let (mut e, dir) = temp_vault("rnemb");
         fs::write(dir.join("bounce.wav.md"), "---\ntitle: bounce.wav\n---\nAsset note\n").unwrap();
@@ -5198,8 +5195,8 @@ mod tests {
         let mut e = Engine::new(dir.clone());
         let scan = t.elapsed();
         let dir = e.root.clone();
-        // 5000 authored + the AGENTS.md (SUB-474), CLAUDE.md (SUB-802) and
-        // Settings.md (SUB-473) boot backfills
+        // 5000 authored + the AGENTS.md, CLAUDE.md and
+        // Settings.md boot backfills
         assert_eq!(e.list().len(), 5003);
 
         let t = std::time::Instant::now();
@@ -5219,7 +5216,7 @@ mod tests {
         );
         // budgets catch order-of-magnitude regressions (accidental O(n²)),
         // not tuning drift — wide enough to hold in debug builds on a machine
-        // running parallel cargo builds + an e2e suite (SUB-406)
+        // running parallel cargo builds + an e2e suite
         assert!(scan < Duration::from_secs(30), "5k scan took {:?}", scan);
         assert!(search < Duration::from_secs(2), "search took {:?}", search);
         assert!(incremental < Duration::from_secs(1), "incremental update took {:?}", incremental);
@@ -5235,7 +5232,7 @@ mod tests {
         assert_eq!(s.capture_hotkey, Settings::DEFAULT_HOTKEY);
         assert!(!s.close_to_tray);
         // …and one terminal-actions row pointing at the seeded /setup skill
-        // (SUB-474). Parsed on the front end, so all the engine owes is a
+        // Parsed on the front end, so all the engine owes is a
         // frontmatter block that still reads as a flat map with the list in it.
         let raw = fs::read_to_string(dir.join(Settings::REL_PATH)).unwrap();
         let (fm, _) = split_frontmatter(&raw);
@@ -5276,7 +5273,7 @@ mod tests {
         assert_eq!(s.capture_hotkey, Settings::DEFAULT_HOTKEY);
         assert!(!s.close_to_tray);
 
-        // SUB-951: window-opacity is range-filtered, never clamped — an
+        // Window-opacity is range-filtered, never clamped — an
         // out-of-range number is a mistake, and snapping 150 to 100 or 70 to the
         // floor would hide it behind a window that looks deliberate. The 79/70
         // rows pin the floor itself: 70 was the first proposal and now falls
@@ -5305,9 +5302,9 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-326: rename/remove-property sweeps carry the remembered sort and
+    /// Rename/remove-property sweeps carry the remembered sort and
     /// hidden entries along, like group_by/aggregations before them.
-    /// SUB-404: widths and wrap ride the same sweeps.
+    /// Widths and wrap ride the same sweeps.
     #[test]
     fn prop_sweeps_follow_sorts_and_hidden() {
         let (mut e, dir) = temp_vault("viewsswp");
@@ -5341,7 +5338,7 @@ mod tests {
         assert_eq!(pref.hidden.as_ref().unwrap(), &vec!["state".to_string(), "cat#".to_string()]);
         assert_eq!(pref.widths.as_ref().unwrap()["state"], 120, "width follows rename");
         assert_eq!(pref.wrap.as_ref().unwrap(), &vec!["state".to_string()], "wrap follows rename");
-        // SUB-642: per-layout hidden entries follow the rename too
+        // Per-layout hidden entries follow the rename too
         let hpl = pref.hidden_per_layout.as_ref().unwrap();
         assert_eq!(
             hpl.table.as_ref().unwrap(),
@@ -5366,7 +5363,7 @@ mod tests {
         assert_eq!(pref.widths.as_ref().unwrap().get("state"), None, "width dropped with the prop");
         assert_eq!(pref.widths.as_ref().unwrap()["cat#"], 80, "other widths stay");
         assert_eq!(pref.wrap, None, "emptied wrap list leaves the file");
-        // SUB-642: the lone list-set entry dropped with the prop, emptying the
+        // The lone list-set entry dropped with the prop, emptying the
         // list set; the table set keeps its other entry
         let hpl = pref.hidden_per_layout.as_ref().unwrap();
         assert_eq!(hpl.table.as_ref().unwrap(), &vec!["artist".to_string()]);
@@ -5483,7 +5480,7 @@ mod tests {
 
         // non-string lists are refused
         assert!(e.set_prop_value("Lisbon.md", "contact", Some(serde_json::json!([1, 2]))).is_err());
-        // a bare number is accepted since SUB-477 — it is a scalar the vault
+        // a bare number is accepted — it is a scalar the vault
         // already stores and hands back as `prior`, so undo must be able to
         // write it. Structured values stay refused.
         assert_eq!(
@@ -5501,7 +5498,7 @@ mod tests {
 
     #[test]
     fn set_prop_bool_roundtrip() {
-        // the calendar opt-out (SUB-175) writes `calendar: false` as a real
+        // the calendar opt-out writes `calendar: false` as a real
         // YAML bool — it must survive the serde_yaml round-trip unquoted and
         // read back as a bool, not the string "false"
         let (mut e, dir) = temp_vault("spbool");
@@ -5561,7 +5558,7 @@ mod tests {
 
     #[test]
     fn rename_relation_rewrites_respect_prop_target() {
-        // SUB-216: two databases, a same-named note in each — renaming the
+        // Two databases, a same-named note in each — renaming the
         // artist must not drag a release's `label` value along; it points at
         // the label database's note that happens to share the title
         let (mut e, dir) = temp_vault("reltarget");
@@ -5671,7 +5668,7 @@ mod tests {
 
     #[test]
     fn create_reference_strips_userinfo_credentials() {
-        // SUB-789: `:` sanitizes to a space but `@` and the username survive,
+        // `:` sanitizes to a space but `@` and the username survive,
         // so an unstripped capture writes the PASSWORD into the filename —
         // synced, and visible in every note list.
         let (mut e, dir) = temp_vault("refcreds");
@@ -5730,7 +5727,7 @@ mod tests {
 
     #[test]
     fn rename_folder_case_only_recase_succeeds() {
-        // SUB-225: demos → Demos must not read as a collision on
+        // Demos → Demos must not read as a collision on
         // case-insensitive filesystems — the "existing" folder is itself
         let (mut e, dir) = temp_vault("recase");
         e.create("Draft A", "demos", None).unwrap();
@@ -5750,7 +5747,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn rename_surfaces_unwritable_link_source() {
-        // SUB-225: an unwritable link source must not rot silently — the
+        // An unwritable link source must not rot silently — the
         // rename still lands, but the error names the note left holding
         // the stale [[old]] link
         // (atomic writes land via rename, so a read-only FILE is still
@@ -5782,8 +5779,8 @@ mod tests {
 
     #[test]
     fn rename_surfaces_unwritable_relation_source() {
-        // SUB-285: an unwritable relation-prop source must surface exactly
-        // like an unwritable link source (SUB-225) — the rename still
+        // An unwritable relation-prop source must surface exactly
+        // like an unwritable link source — the rename still
         // lands, but the error names the note left pointing at the old
         // title (same dir-lock failure mode: atomic writes can't create
         // their temp file in a read-only directory)
@@ -6029,7 +6026,7 @@ mod tests {
 
     #[test]
     fn sealing_a_note_that_is_already_sealed_is_refused() {
-        // SUB-935: a second seal would encrypt the ciphertext under a fresh
+        // A second seal would encrypt the ciphertext under a fresh
         // wrapping, and only the outer one would ever be unwrapped again.
         let (mut e, dir) = testutil::temp_vault("sealed-double");
         let note = e.create_full("Private Twice", "", None, None, Some("once only\n")).unwrap();
@@ -6053,7 +6050,7 @@ mod tests {
 
     #[test]
     fn a_rename_never_rewrites_a_sealed_note_into_plaintext() {
-        // SUB-935 item 3: renaming a link target rewrites every note that
+        // Renaming a link target rewrites every note that
         // points at it, and that loop used to read and write its sources with
         // the bare file helpers — which on a sealed source would have written
         // the decrypted body straight back to disk as plaintext.
@@ -6094,7 +6091,7 @@ mod tests {
 
     #[test]
     fn renaming_a_folder_carries_its_sealed_note_as_locked_ciphertext() {
-        // SUB-935 item 9: folder ops move sealed notes by path. The bytes must
+        // Folder ops move sealed notes by path. The bytes must
         // arrive unchanged, and the destination must not inherit the source's
         // authorization any more than a note rename does.
         let (mut e, dir) = testutil::temp_vault("sealed-folder-rename");
@@ -6118,7 +6115,7 @@ mod tests {
 
     #[test]
     fn a_trashed_sealed_note_lists_by_filename_and_restores_still_sealed() {
-        // SUB-935 items 8 and 9: the trash reads each entry's title out of its
+        // The trash reads each entry's title out of its
         // frontmatter, which a sealed note does not have in the clear — the
         // filename stem is the fallback, and it must never be the ciphertext.
         let (mut e, dir) = testutil::temp_vault("sealed-trash");
@@ -6148,7 +6145,7 @@ mod tests {
 
     #[test]
     fn restarting_the_app_relocks_every_unlocked_sealed_note() {
-        // SUB-935 item 9: authorization lives in the session, never on disk.
+        // Authorization lives in the session, never on disk.
         let (mut e, dir) = testutil::temp_vault("sealed-restart");
         let note = e.create_full("Private Restart", "", None, None, Some("restart secret\n")).unwrap();
         e.seal_note(&note.path, Some("correct horse")).unwrap();
@@ -6169,7 +6166,7 @@ mod tests {
 
     #[test]
     fn the_watcher_reindexes_a_note_that_became_ciphertext_on_disk_as_sealed() {
-        // SUB-935 item 9: the other machine sealed it and sync delivered the
+        // The other machine sealed it and sync delivered the
         // ciphertext. Nothing but the file changed, so only the reindex can
         // notice — and if it does not, the note stays listed as readable and
         // its stale excerpt keeps showing the plaintext.
@@ -6196,7 +6193,7 @@ mod tests {
 
     #[test]
     fn an_unlock_whose_note_was_trashed_while_the_prompt_waited_authorizes_nothing() {
-        // SUB-935: the engine lock is released around the identity load so a
+        // The engine lock is released around the identity load so a
         // Keychain prompt cannot freeze every other vault command. The path
         // can therefore change under a prompt the user is still looking at —
         // and a hold recorded afterwards would seal whatever note is created
@@ -6222,7 +6219,7 @@ mod tests {
 
     #[test]
     fn a_second_unlock_of_one_note_survives_the_first_surfaces_release() {
-        // SUB-935: authorization is refcounted, so two open surfaces on the
+        // Authorization is refcounted, so two open surfaces on the
         // same sealed note do not lock each other out. One closing releases
         // its own hold and nothing more; the last one out locks the note.
         let (mut e, dir) = testutil::temp_vault("sealed-refcount");
@@ -6251,7 +6248,7 @@ mod tests {
 
     #[test]
     fn a_note_created_on_a_trashed_sealed_notes_path_is_written_in_the_clear() {
-        // SUB-935: trashing frees the path. An authorization left behind on it
+        // Trashing frees the path. An authorization left behind on it
         // would make write_note_atomic encrypt the NEXT note created there
         // under the trashed note's identity — a seal its author never chose
         // and, with no index entry saying sealed, could not even see.
@@ -6280,7 +6277,7 @@ mod tests {
 
     #[test]
     fn renaming_a_folder_relocks_the_sealed_notes_inside_it() {
-        // SUB-935: a folder rename moves every path under it, and a path
+        // A folder rename moves every path under it, and a path
         // change is an authorization boundary — the same one a single note's
         // move already enforces. Neither the old rel nor the new one may stay
         // authorized afterwards.
@@ -6312,7 +6309,7 @@ mod tests {
 
     #[test]
     fn a_sealed_note_is_never_a_link_source_a_rename_rewrites() {
-        // SUB-935: the link-rewrite loop in `rename_tracked` reads and rewrites
+        // The link-rewrite loop in `rename_tracked` reads and rewrites
         // every source that points at the renamed note. A sealed note must not
         // be among them — rewriting one means decrypting it on a rename nobody
         // authorized, and failing to means rotting its links silently. The

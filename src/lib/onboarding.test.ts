@@ -56,7 +56,7 @@ test("a folder with unrelated files demands explicit consent", () => {
 });
 
 test("a folder-organised vault gets the friendlier consent copy, not the stranger's-folder warning", () => {
-  // SUB-1097: every note lives in `Daily/`, `Projects/` — nothing loose at the
+  // every note lives in `Daily/`, `Projects/` — nothing loose at the
   // root, so the strict picked-folder test says not-a-vault. The gate stays
   // (still consent), but the sentence must not accuse the user's own notes of
   // being "other files".
@@ -70,12 +70,12 @@ test("a folder-organised vault gets the friendlier consent copy, not the strange
   // …and it must not overclaim: adoption DOES write (.vault/, Settings.md,
   // AGENTS.md, CLAUDE.md), and the disclosure line under this button says so.
   // A blanket "nothing is written / changes nothing on disk" here would
-  // contradict the very next sentence on screen (SUB-1098).
+  // contradict the very next sentence on screen.
   assert.doesNotMatch(warning, /changes nothing on disk|nothing is written/);
 });
 
 test("a folder that only looks vault-ish still demands consent", () => {
-  // SUB-436 review #4: the backend answers is_vault strictly for a picked
+  // Review #4: the backend answers is_vault strictly for a picked
   // folder, so a code checkout carrying one README.md arrives here as
   // not-a-vault and must not short-circuit to "open"
   const a = actionFor(cand({ path: "/home/me/some-checkout", exists: true, empty: false, is_vault: false }));
@@ -83,7 +83,7 @@ test("a folder that only looks vault-ish still demands consent", () => {
 });
 
 test("reopening a Substrate vault is not told files are about to be added", () => {
-  // SUB-1133: the disclosure gate was "not init", so the add-set line rendered
+  // The disclosure gate was "not init", so the add-set line rendered
   // on the plain reopen of a folder that already carries `.vault/` — where
   // "Substrate will add its own files here" is simply false.
   const c = cand({ path: "/home/me/Vault", is_vault: true, has_marker: true });

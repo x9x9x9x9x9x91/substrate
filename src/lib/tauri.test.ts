@@ -26,7 +26,7 @@ test("template reads reuse the listed spelling, exact first", async () => {
 });
 
 test("mock title validation refuses control characters like the engine (SUB-909)", async () => {
-  // Engine::validate_note_title's third refusal (SUB-223): a control char
+  // Engine::validate_note_title's third refusal: a control char
   // survives the slug collapse and only fails at the filesystem — the mock
   // must refuse at the same boundary or e2e greens a flow the engine errors
   // on. \u0007 (BEL) is a C0 control that a terminal paste can carry.
@@ -477,7 +477,7 @@ test("search commands cap their result set like the engine (SUB-519)", async () 
     { q: "zqxcapfixture" }
   );
   assert.equal(full.hits.length, 200, "vault_search_full caps at FULL_SEARCH_MAX_NOTES");
-  // the page is capped but the count is of the whole match set (SUB-566), so
+  // the page is capped but the count is of the whole match set, so
   // the UI can say "first 200 of 205" instead of presenting 200 as the total
   assert.equal(full.total_notes, 205, "vault_search_full counts every match");
   assert.equal(full.truncated, true, "vault_search_full reports the truncation");
@@ -503,7 +503,7 @@ test("search orders by match, not by insertion order (SUB-519)", async () => {
   });
 
   // vault_search returns a bare array; vault_search_full wraps its page in
-  // `{hits, total_notes, truncated}` (SUB-566) — unwrap so both read alike
+  // `{hits, total_notes, truncated}` — unwrap so both read alike
   const paths = (r: unknown) => {
     const list = Array.isArray(r) ? r : (r as { hits: unknown[] }).hits;
     return list.map((h) => (h as { path: string }).path);
@@ -536,7 +536,7 @@ test("search orders by match, not by insertion order (SUB-519)", async () => {
   }
 });
 
-/* SUB-653 — a structural op names BOTH sides of itself as its own write. The
+/* A structural op names BOTH sides of itself as its own write. The
    engine renames on disk and the watcher emits the vacated rel in the same
    burst; before this, only the destination was recorded, so the old path's
    echo read as external and App.tsx invalidated the very undo entry the
@@ -580,7 +580,7 @@ test("rename names the vacated path as its own write (SUB-653)", async () => {
   assert.ok(split.own.includes(note.path), "the vacated path is our own echo");
 });
 
-/* SUB-660: the four database/property bulk sweeps rewrite ordinary vault
+/* The four database/property bulk sweeps rewrite ordinary vault
    notes, so their echo comes back through the watcher like any other write.
    Each must record an own-write — an unnamed one, since a `BulkSweep` returns
    counts and never the swept paths — or the echo lands as an external edit
@@ -685,7 +685,7 @@ test("vault_schema_set stores and validates the rollup wiring (SUB-678)", async 
 
   // renaming the followed relation retargets the rollup's reference (same
   // database, case-folded) — renaming a prop of THIS database leaves the
-  // target prop, which lives on the related db, alone (SUB-740 owns that side)
+  // target prop, which lives on the related db, alone
   await invoke("vault_rename_prop", { dbType: "rollrel", old: "entries", new: "royalties" });
   const after = await invoke<SchemaConfig>("vault_schema_read");
   assert.equal(after["rollrel"]?.["earned"]?.relation, "royalties");
@@ -907,6 +907,6 @@ test("sheet_set_column_notify keeps a sheet's columns map like the engine (SUB-8
   assert.equal(cols(meta), undefined, "an empty columns map is not left behind");
 
   // the engine's own wording (vault/mod.rs set_sheet_column_notify) — asserting
-  // the mock's private phrasing would let the two drift unnoticed (SUB-876 review)
+  // the mock's private phrasing would let the two drift unnoticed
   await assert.rejects(set("  ", true, null), /column name is required/);
 });

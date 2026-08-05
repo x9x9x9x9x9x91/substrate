@@ -97,7 +97,7 @@ function standaloneAudio(line: SourceLine): {
 } | null {
   const embed = STANDALONE_EMBED_RE.exec(line.text);
   // the file alone — a `|300`-style display modifier never names the
-  // player's audio, and the `audio:` fence binds to the file (SUB-1102)
+  // player's audio, and the `audio:` fence binds to the file
   const name = embed && embedTarget(embed[1]);
   if (!embed || !name || name.includes("[") || name.includes("]") || !isAudioEmbed(name)) {
     return null;

@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-292: SheetGrid's vim-nav keydown mapped k/h/j/l without checking
+// SheetGrid's vim-nav keydown mapped k/h/j/l without checking
 // modifiers — e.key is "k" for ⌘K too — and stop()'d the event, so a focused
 // grid cell swallowed ⌘K before App's window-level palette listener saw it.
 
-// cold open lands on Today (SUB-92) — open the seeded sheet through the palette
+// cold open lands on Today — open the seeded sheet through the palette
 async function openSheet(page: Page) {
   await page.goto("/");
   await expect(page.locator(".side-item").first()).toBeVisible();

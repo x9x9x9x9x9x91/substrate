@@ -1,8 +1,8 @@
 //! The starter content written into a brand-new vault, plus the two backfills
 //! `Engine::new` applies to vaults that predate them.
 //!
-//! Split out of `vault.rs` (SUB-692). Every write here goes through
-//! `write_atomic` (SUB-523): a crash mid-seed must leave no half-written note
+//! Split out of `vault.rs`. Every write here goes through
+//! `write_atomic`: a crash mid-seed must leave no half-written note
 //! for the indexer to find.
 
 use super::*;
@@ -14,7 +14,7 @@ use super::*;
 /// onboarding's `vault_choose` has to create `.vault/` before it can record
 /// the choice, which makes the root exist and would otherwise leave
 /// `Engine::new`'s `!root.exists()` test permanently false — a vault created
-/// through the picker would then open completely empty (SUB-436 review #2).
+/// through the picker would then open completely empty.
 pub fn seed_new_vault(root: &Path) {
     fs::create_dir_all(root.join("Inbox")).ok();
     seed(root);
@@ -24,15 +24,15 @@ pub fn seed_new_vault(root: &Path) {
 ///
 /// A table rather than a run of `write` calls so one list is both what `seed`
 /// writes and what [`is_untouched_seed_content`] recognizes — the first-join
-/// adoption (SUB-956) has to be able to say "this file is ours, nobody has
+/// adoption has to be able to say "this file is ours, nobody has
 /// touched it", and a literal buried in a function body cannot answer that.
 ///
 /// Each entry carries the **full history** of what the app has ever seeded at
-/// that path, the same way [`SEED_FILES`] does, for the reason the SUB-956
-/// review named (finding 6): a vault seeded by an *older* build is exactly the
-/// belt path's audience — installs predating the first-snapshot deferral — and
-/// judging their demo notes only against today's text made every one of them
-/// read as the user's work and take the conflict UI. Historical texts were
+/// that path, the same way [`SEED_FILES`] does, for one reason: a vault
+/// seeded by an *older* build is exactly the belt path's audience — installs
+/// predating the first-snapshot deferral — and judging their demo notes only
+/// against today's text made every one of them read as the user's work and
+/// take the conflict UI. Historical texts were
 /// harvested from the release tags (v0.1.0 … v0.22.0), where they lived as
 /// escaped literals in `vault.rs` rather than as files, and frozen under
 /// `src/seed/revisions/` like every other revision.
@@ -45,7 +45,7 @@ pub fn seed_new_vault(root: &Path) {
 /// under `src/seed/revisions/`, appended to `prior`, and its hash appended
 /// to the pinned history — never edited in place.
 const STARTER_NOTES: &[StarterNote] = &[
-    // The Welcome tutorial (SUB-831) — a guided tour rather than a hotkey
+    // The Welcome tutorial — a guided tour rather than a hotkey
     // list, since the agent files it mentions are concealed and this note is
     // the only place that says so. `include_str!` like the flagship
     // dashboard: multi-section markdown as an escaped literal is unreviewable.
@@ -85,7 +85,7 @@ const STARTER_NOTES: &[StarterNote] = &[
             "---\ntype: trip\nstatus: planned\ndays: 7\ncost: 1200\ncreated: 2026-08-03\n---\nSample trip note. Hut-to-hut week, next summer. Waiting on the refuge booking window to open.\n",
         prior: &[],
     },
-    // The flagship dashboard (SUB-788; reading+travel theme SUB-871) and the
+    // The flagship dashboard (reading+travel theme) and the
     // sheet it reads. Both are `include_str!` rather than escaped literals:
     // they are multi-fence markdown, and a csv/formulas/chart fence written
     // as `\n`-escapes is unreviewable. Everything they bind to ships in this
@@ -119,7 +119,7 @@ const STARTER_NOTES: &[StarterNote] = &[
 ];
 
 /// The demo notes the app seeded up to v0.21.0, before the reading-and-travel
-/// set replaced them (SUB-871) — **as hashes, never as text**.
+/// set replaced them — **as hashes, never as text**.
 ///
 /// A fresh vault never sees these, but a vault seeded by one of those builds
 /// still holds them, and this is what lets its first join recognize them as the
@@ -200,10 +200,10 @@ impl StarterNote {
 }
 
 pub(super) fn seed(root: &Path) {
-    // `write_atomic` for the same reason every other vault write uses it
-    // (SUB-224/SUB-431): a crash mid-seed should leave no half-written note
+    // `write_atomic` for the same reason every other vault write uses it:
+    // a crash mid-seed should leave no half-written note
     // behind for the indexer to pick up. The seed files were the last
-    // `fs::write` holdouts in the engine (SUB-523).
+    // `fs::write` holdouts in the engine.
     for note in STARTER_NOTES {
         let content = note.current;
         let p = root.join(note.rel);
@@ -219,7 +219,7 @@ pub(super) fn seed(root: &Path) {
 /// Is the file at `rel` holding `content` something *this app* put there and
 /// nobody has since edited?
 ///
-/// The first-join question (SUB-956), asked per path. A phone that seeded a
+/// The first-join question, asked per path. A phone that seeded a
 /// starter vault and then joined an existing remote has nothing to defend: the
 /// starter notes are the app's own text, not the user's work, so a pull may
 /// adopt the remote's copy over them without asking. Anything the answer is
@@ -236,7 +236,7 @@ pub(super) fn seed(root: &Path) {
 ///   build still answers `true`;
 /// - `Settings.md`, whose body matches a shipped revision and whose frontmatter
 ///   is the shipped one, give or take `terminal-command`. That one key is the
-///   agent chip on the onboarding screen (SUB-804), written before any sync can
+///   agent chip on the onboarding screen, written before any sync can
 ///   run; treating it as untouched is deliberate — it is a device preference,
 ///   and the joining device is adopting the remote's settings note wholesale.
 ///   Any other frontmatter change is the user's and blocks adoption.
@@ -272,7 +272,7 @@ fn is_untouched_seed_content_with(rel: &str, content: &str, hash: fn(&str) -> u6
 ///
 /// A fingerprint on its own, and only here — see [`RETIRED_STARTER_NOTES`].
 /// Nothing writes a retired path, so there is no overwrite for the bytes to
-/// authorize; the hash-is-a-prefilter rule (SUB-973) has nothing to guard. The
+/// authorize; the hash-is-a-prefilter rule has nothing to guard. The
 /// `hash` injected into the caller is deliberately not threaded through: the
 /// ledger's values are [`seed_hash`]'s, and the test that swaps in a colliding
 /// hash is asking about the overwrite seam this arm has no part in.
@@ -318,7 +318,7 @@ fn frontmatter_is_seeded(fm: &str) -> bool {
 /// Is this whole vault still nothing but the content the app seeded?
 ///
 /// The vault-wide form of [`is_untouched_seed_content`], and the question the
-/// first snapshot asks before it borns HEAD (SUB-956). A vault answering `true`
+/// first snapshot asks before it borns HEAD. A vault answering `true`
 /// holds no work: everything in it is the app's own starter text, so a device
 /// joining an existing remote can adopt that remote wholesale instead of
 /// three-way merging demo notes against the user's real vault.
@@ -327,7 +327,7 @@ fn frontmatter_is_seeded(fm: &str) -> bool {
 /// and the agent files — the whole of what [`seed`] writes.
 ///
 /// The set [`vault_holds_only_untouched_seeds`] requires to still be *present*
-/// before it vouches for a tree (SUB-956 review, finding 3). Retired starter
+/// before it vouches for a tree. Retired starter
 /// paths are not in it: nothing writes them, so requiring them would make every
 /// vault fail.
 fn shipped_seed_paths() -> impl Iterator<Item = &'static str> {
@@ -339,12 +339,11 @@ fn shipped_seed_paths() -> impl Iterator<Item = &'static str> {
 }
 
 /// The demo notes alone — the seeded paths a joining device should not carry
-/// into the user's real vault if the remote does not already have them
-/// (SUB-956 review, finding 4).
+/// into the user's real vault if the remote does not already have them.
 ///
 /// Deliberately not every shipped path: `Settings.md` and the agent files are
 /// app furniture a vault is *supposed* to have, and dropping one the remote
-/// happens to lack would strand the joining device without it (SUB-1110).
+/// happens to lack would strand the joining device without it.
 ///
 /// Retired paths are included: a vault seeded by an older build carries them,
 /// and they are demo notes the remote should not inherit either.
@@ -356,7 +355,7 @@ pub(crate) fn starter_note_paths() -> impl Iterator<Item = &'static str> {
 /// agent door, its `CLAUDE.md` pointer, the `/setup` skill. Furniture a vault is
 /// supposed to have, as opposed to the demo notes [`starter_note_paths`] names.
 ///
-/// What the post-pull backfill (SUB-1110) considers putting back when a join
+/// What the post-pull backfill considers putting back when a join
 /// lands a remote that never carried them.
 pub(crate) fn app_file_paths() -> impl Iterator<Item = &'static str> {
     SEED_FILES.iter().map(|f| f.rel).chain(std::iter::once(Settings::REL_PATH))
@@ -366,7 +365,7 @@ pub(crate) fn app_file_paths() -> impl Iterator<Item = &'static str> {
 ///
 /// One path rather than all of them because the caller has already decided,
 /// path by path, which absences are the app's to fill and which are somebody's
-/// deletion (SUB-1110). A `rel` this app does not seed is a no-op.
+/// deletion. A `rel` this app does not seed is a no-op.
 ///
 /// It defers to the whole-vault seed rules — absent gets written, an untouched
 /// shipped revision gets refreshed, anything else is the user's — but only the
@@ -389,7 +388,7 @@ pub(crate) fn seed_app_file(root: &Path, rel: &str) {
 ///
 /// Derived from [`crate::history::EXCLUDE_CONTENT`] — the list that already
 /// decides what git does *not* track in a Substrate-owned vault — so the two
-/// cannot drift (SUB-956 review, finding 2). The earlier form of this filter
+/// cannot drift. The earlier form of this filter
 /// skipped every dot-folder, which read `.vault/` as device-local; it is not.
 /// Views, schema, folder bindings, tag folders, mounts, calendars and the
 /// format sidecar all live there, are all git-tracked, and are all written by
@@ -443,7 +442,7 @@ fn walks_vault_content(root: &Path, entry: &walkdir::DirEntry) -> bool {
 /// The first `false` stops the walk: one file the app did not write is enough
 /// to make this a vault worth defending.
 ///
-/// Presence is required as well as content (SUB-956 review, finding 3). "No
+/// Presence is required as well as content. "No
 /// file the app didn't write" is also true of a vault the user emptied — and
 /// of an empty folder — which would have left HEAD unborn indefinitely, never
 /// capturing those deletions in any history. So the whole shipped seed set has
@@ -478,17 +477,17 @@ pub(crate) fn vault_holds_only_untouched_seeds(root: &Path) -> bool {
 }
 
 /// Delete the untouched seed files in `root`, clearing the way for a
-/// first-join checkout (SUB-956).
+/// first-join checkout.
 ///
 /// Every file is re-checked against [`is_untouched_seed_content`] *at the
 /// moment it is deleted*, not just once for the tree
 /// ([`vault_holds_only_untouched_seeds`] before the call). The predicate
 /// vouches for a snapshot of the folder, and the folder is live: a note synced
 /// in by another tool, or written by the user, between the vouch and this walk
-/// would otherwise be deleted uncommitted and unrecoverable (SUB-956 review,
-/// finding 1). Anything that is not the app's own text stays exactly where it
-/// is, and the `safe()` checkout that follows collides with it and fails
-/// loudly — the outcome this whole path exists to keep.
+/// would otherwise be deleted uncommitted and unrecoverable. Anything that is
+/// not the app's own text stays exactly where it is, and the `safe()`
+/// checkout that follows collides with it and fails loudly — the outcome this
+/// whole path exists to keep.
 ///
 /// Deleting rather than letting the checkout overwrite, for two reasons. A
 /// `safe()` checkout refuses to write over an untracked file at all, so
@@ -540,7 +539,7 @@ pub(crate) fn remove_untouched_seed_files(root: &Path) {
 pub(crate) const AGENTS_REL_PATH: &str = "AGENTS.md";
 
 /// FNV-1a (64-bit) over the *normalized* text — the cheap **prefilter** over
-/// the known revisions (SUB-973). Not a security primitive and deliberately not
+/// the known revisions. Not a security primitive and deliberately not
 /// a new dependency: all it has to do is skip the byte-compare for the common
 /// case, over a handful of short revisions per file.
 ///
@@ -549,7 +548,7 @@ pub(crate) const AGENTS_REL_PATH: &str = "AGENTS.md";
 /// app shipped, and silently overwriting that edit is the one failure this
 /// whole mechanism must not have — so `seed_or_refresh` byte-compares the
 /// on-disk text against the revision that matched before it writes anything
-/// (review, SUB-973). The revision tables below hold the full historical text
+/// (review). The revision tables below hold the full historical text
 /// for exactly that reason.
 ///
 /// The lockstep test pins each revision's hash as a literal, so the exact
@@ -577,7 +576,7 @@ const BUNDLE_ID: &str = "com.example.substrate";
 /// revision to two different values and the pinned literals could only be
 /// right in one of them. Canonicalizing before hashing keeps the history
 /// identical on both sides — and lets a vault seeded with either form still be
-/// recognized as untouched (SUB-973).
+/// recognized as untouched.
 const BUNDLE_ID_PLACEHOLDER: &str = "com.example.substrate";
 
 /// Canonical form of a seed text: what every hash and every byte-compare in
@@ -607,7 +606,7 @@ fn normalize(text: &str) -> std::borrow::Cow<'_, str> {
 /// today, and the full text of *every* revision ever shipped, oldest first
 /// (the last entry is `current`).
 ///
-/// The refresh rule (SUB-973): on-disk text byte-identical to any entry in
+/// The refresh rule: on-disk text byte-identical to any entry in
 /// `revisions` is a copy the user never touched, so it is replaced with
 /// `current`; anything else is the user's file and is left alone. Before this,
 /// an existing vault kept its original seed forever while the app's copy — the
@@ -615,7 +614,7 @@ fn normalize(text: &str) -> std::borrow::Cow<'_, str> {
 ///
 /// The historical revisions are the *text*, not just its fingerprint: a 64-bit
 /// FNV match is a prefilter, and only the bytes may authorize an overwrite
-/// (review, SUB-973). Each one is a frozen copy under `src/seed/revisions/` —
+/// (review). Each one is a frozen copy under `src/seed/revisions/` —
 /// those files are history, so they are appended to and never edited.
 pub(crate) struct SeedFile {
     pub rel: &'static str,
@@ -633,7 +632,7 @@ pub(crate) const SEED_FILES: &[SeedFile] = &[
     SeedFile {
         rel: AGENTS_REL_PATH,
         current: include_str!("../seed/AGENTS.md"),
-        // legacy shipped seeds (v0.16.0-v0.22.0), then r1 (SUB-973)
+        // legacy shipped seeds (v0.16.0-v0.22.0), then r1
         // Keep every distinct revision: an untouched vault may still hold any one.
         revisions: &[
             include_str!("../seed/revisions/agents-v0.16.md"),
@@ -663,16 +662,16 @@ pub(crate) const SEED_FILES: &[SeedFile] = &[
 ];
 
 /// A one-line pointer at `AGENTS.md` under the filename Claude Code actually
-/// auto-loads (SUB-802). A pointer rather than a copy on purpose: two full
+/// auto-loads. A pointer rather than a copy on purpose: two full
 /// copies would silently diverge the first time a user edits one.
 pub(crate) const CLAUDE_REL_PATH: &str = "CLAUDE.md";
 
 pub(crate) const SETUP_SKILL_REL_PATH: &str = ".claude/skills/setup/SKILL.md";
 
-/// The agent-facing files seeded into every vault (SUB-474), for the agent the
+/// The agent-facing files seeded into every vault, for the agent the
 /// ⌘⇧T terminal runs inside it: `AGENTS.md` — what a vault is and how not to
 /// break one — `CLAUDE.md`, a pointer at it for agents that only auto-load
-/// that name (SUB-802), and the `/setup` skill, which interviews the user and
+/// that name, and the `/setup` skill, which interviews the user and
 /// writes skills fitted to their real schema. No prebuilt skills beyond that one on
 /// purpose: a triage skill that doesn't know the user's actual types and
 /// folders is worse than none.
@@ -680,7 +679,7 @@ pub(crate) const SETUP_SKILL_REL_PATH: &str = ".claude/skills/setup/SKILL.md";
 /// Written for fresh vaults by `seed` and backfilled into existing ones by
 /// `Engine::new`. Absence is one trigger, so deleting one brings it back on
 /// the next launch, the same deal as `Settings.md`. The other is a file that
-/// still byte-matches a revision the app shipped (SUB-973): nobody has touched
+/// still byte-matches a revision the app shipped: nobody has touched
 /// it, so it is refreshed to the current text rather than left to rot a
 /// version of the agent door behind the app it documents. A file matching no
 /// shipped revision is the user's, whatever is in it, and is never overwritten.
@@ -716,7 +715,7 @@ fn seed_or_refresh_with(abs: &Path, current: &str, revisions: &[&str], hash: fn(
     // user who symlinked AGENTS.md at a file they keep elsewhere would have
     // that link replaced by a regular file — and a *dangling* link reads as
     // absent, so the backfill would clobber it. Only a regular file is ours to
-    // consider (review, SUB-973).
+    // consider (review).
     match fs::symlink_metadata(abs) {
         Ok(md) => {
             if !md.file_type().is_file() {
@@ -769,7 +768,7 @@ pub(crate) const SETTINGS_BODY: &str = "Substrate settings — edit and save; ch
 /// existing entry. Kept separate from the frontmatter because only the body is
 /// the app's to refresh.
 pub(crate) const SETTINGS_BODY_REVISIONS: &[&str] = &[
-    // legacy shipped bodies (v0.18.0-v0.21.0), then r1 (SUB-973)
+    // legacy shipped bodies (v0.18.0-v0.21.0), then r1
     include_str!("../seed/revisions/settings-body-v0.18.md"),
     include_str!("../seed/revisions/settings-body-v0.20.md"),
     include_str!("../seed/revisions/settings-body-v0.21.md"),
@@ -784,12 +783,12 @@ pub(crate) const SETTINGS_BODY_REVISIONS: &[&str] = &[
 ];
 
 /// The seed `Settings.md`, written for fresh vaults by `seed` and backfilled
-/// into existing ones by `Engine::new` (SUB-473) — vaults predating SUB-398
+/// into existing ones by `Engine::new` — early vaults
 /// have no settings note at all, which leaves the ⌘, form stuck in its
 /// missing state and the terminal with no configured cwd. Absence is one
 /// trigger, so a deleted settings note is recreated on the next launch.
 ///
-/// The other is a stale but untouched **body** (SUB-973). The note is split
+/// The other is a stale but untouched **body**. The note is split
 /// down the middle: everything up to and including the closing `---` fence is
 /// the user's settings and is copied through byte-for-byte — a value the user
 /// changed, a key they deleted (which just means "default"), even hand-written
@@ -843,13 +842,13 @@ fn seed_or_refresh_settings_with(root: &Path, body_revisions: &[&str], hash: fn(
 }
 
 /// Write `terminal-command` into the vault's `Settings.md` — the onboarding
-/// agent step (SUB-804). An empty command removes the key (the user un-picked
+/// agent step. An empty command removes the key (the user un-picked
 /// a chip), matching how the settings form treats empty = plain shell. Seeds
 /// the settings note first when absent (an adopted vault may predate
-/// SUB-398), then edits the one key the way the app's own prop edits do: the
+/// it), then edits the one key the way the app's own prop edits do: the
 /// whole block re-serialized, keys alphabetized. A block that fails the
-/// strict parse refuses rather than being re-serialized into a wipe
-/// (SUB-215) — an adopted vault can arrive with a hand-written Settings.md.
+/// strict parse refuses rather than being re-serialized into a wipe —
+/// an adopted vault can arrive with a hand-written Settings.md.
 pub fn set_terminal_command(root: &Path, command: &str) -> Result<(), String> {
     seed_settings(root); // no-op when the note exists
     let abs = root.join(Settings::REL_PATH);
@@ -873,9 +872,9 @@ mod tests {
     #[test]
     #[cfg(desktop)]
     fn seed_files_backfilled_into_existing_vault_without_clobbering() {
-        // SUB-474: a vault predating that seed has no AGENTS.md, so the agent
-        // in the ⌘⇧T terminal has no orientation. SUB-473: a vault predating
-        // SUB-398 has no Settings.md, so the ⌘, form is stuck in its missing
+        // A vault predating that seed has no AGENTS.md, so the agent
+        // in the ⌘⇧T terminal has no orientation. An older vault still
+        // has no Settings.md, so the ⌘, form is stuck in its missing
         // state. Boot backfills each — while never touching one the user has
         // edited.
         // Desktop-only, like the backfills: on mobile the vault container is
@@ -951,7 +950,7 @@ mod tests {
         let e2c = Engine::new(mine3.clone());
         assert_eq!(fs::read_to_string(e2c.root.join(Settings::REL_PATH)).unwrap(), custom_settings);
 
-        // a newer-format vault is left alone entirely (SUB-433 refuse-newer)
+        // a newer-format vault is left alone entirely (refuse-newer)
         let newer = base.join("newer");
         fs::create_dir_all(newer.join(".vault")).unwrap();
         fs::write(newer.join(".vault/format.json"), "{\"views\": 99}").unwrap();
@@ -975,7 +974,7 @@ mod tests {
         let _ = fs::remove_dir_all(&base);
     }
 
-    /// SUB-973 **lockstep gate**: the last entry of every revision list is the
+    /// **Lockstep gate**: the last entry of every revision list is the
     /// hash of the text the app ships today. Edit a seed file without appending
     /// its predecessor's hash and this fails — which is the point: without the
     /// old hash in the list, every existing vault's copy stops matching a
@@ -987,7 +986,7 @@ mod tests {
         // or reordering any predecessor fail. When a seed changes, append its
         // new hash to both the production table and this pinned history;
         // changing an existing entry is never valid. (The AGENTS.md column was
-        // re-pinned once, in SUB-973's follow-up: the hash is taken over the
+        // re-pinned once,'s follow-up: the hash is taken over the
         // canonical form now — see `normalize` — which moved every entry that
         // names the bundle identifier without changing what any of them mean.)
         const PINNED_SEED_REVISIONS: &[(&str, &[u64])] = &[
@@ -1006,7 +1005,7 @@ mod tests {
             (CLAUDE_REL_PATH, &[0xa5e2_3bfd_dbde_1340]),
             (SETUP_SKILL_REL_PATH, &[0xfc2a_3b78_9d1d_a0e0, 0x39d9_5503_e12c_30f9]),
         ];
-        // Same contract for the starter notes (SUB-956 review, finding 6). The
+        // Same contract for the starter notes. The
         // history is what lets a vault seeded by an older build be recognized
         // as untouched on its first join, so dropping an entry here silently
         // re-opens that gap for one more release's worth of installs. Entries
@@ -1064,7 +1063,7 @@ mod tests {
             0xf23d_0204_7037_b88d,
         ];
 
-        // the tables hold TEXT now (review, SUB-973), so the pin doubles as the
+        // the tables hold TEXT now (review), so the pin doubles as the
         // check that each frozen `src/seed/revisions/` file really is the
         // historical revision it claims to be: hash it and it must equal the
         // literal shipped under that version.
@@ -1191,7 +1190,7 @@ mod tests {
         );
     }
 
-    /// SUB-956 review, finding 6: the belt's real audience is a vault seeded by
+    /// Review, finding 6: the belt's real audience is a vault seeded by
     /// an *older* build, and before the starter notes carried a history their
     /// demo notes read as the user's work and took the conflict UI.
     #[test]
@@ -1310,9 +1309,9 @@ mod tests {
         assert_ne!(seed_hash("a\nb\n"), seed_hash("a\nB\n"));
     }
 
-    /// SUB-973: an untouched seed file is refreshed when the app's copy moves
-    /// on; an edited one never is; a missing one is still backfilled (SUB-474's
-    /// contract). The "old revision" is simulated by pinning a hash of text the
+    /// An untouched seed file is refreshed when the app's copy moves
+    /// on; an edited one never is; a missing one is still backfilled — the
+    /// standing contract. The "old revision" is simulated by pinning a hash of text the
     /// app no longer ships — the same shape a real appended revision has.
     #[test]
     fn stale_unedited_seed_files_are_refreshed_and_edited_ones_are_not() {
@@ -1378,7 +1377,7 @@ mod tests {
         );
     }
 
-    /// SUB-973 follow-up: the frozen revisions are stored with the bundle
+    /// Follow-up: the frozen revisions are stored with the bundle
     /// identifier in placeholder form (the public mirror rewrites it, and the
     /// pinned hashes have to be right in both trees). Real vaults out there
     /// were seeded by private builds and carry the *real* identifier, so
@@ -1420,7 +1419,7 @@ mod tests {
         assert_eq!(fs::read_to_string(&abs).unwrap(), edited, "an edited file was overwritten");
     }
 
-    /// SUB-973 review: a seeded path the user has turned into a symlink is
+    /// Review: a seeded path the user has turned into a symlink is
     /// their arrangement, not a stale seed. `exists()` follows links, so the
     /// refresh would have replaced a live link with a regular file — quietly
     /// detaching the file the user actually keeps — and the backfill would have
@@ -1511,7 +1510,7 @@ mod tests {
         assert!(!root.join("no-settings.md").exists());
     }
 
-    /// SUB-973 review: the fingerprint is a prefilter, not the authorization.
+    /// Review: the fingerprint is a prefilter, not the authorization.
     /// A colliding user edit must not be overwritten — the bytes decide.
     ///
     /// A real FNV-1a-64 collision is impractical to construct here, and
@@ -1570,7 +1569,7 @@ mod tests {
         );
     }
 
-    /// SUB-973, the Settings.md split: the body is the app's documentation and
+    /// The Settings.md split: the body is the app's documentation and
     /// refreshes; the frontmatter is the user's values and is copied through
     /// byte-for-byte, missing keys and all.
     #[test]
@@ -1631,7 +1630,7 @@ mod tests {
         seed_settings(root);
         assert_eq!(fs::read_to_string(root.join(Settings::REL_PATH)).unwrap(), SETTINGS_BODY);
 
-        // …and a missing note is still seeded whole (SUB-473)
+        // …and a missing note is still seeded whole
         fs::remove_file(root.join(Settings::REL_PATH)).unwrap();
         seed_settings(root);
         assert_eq!(
@@ -1643,7 +1642,7 @@ mod tests {
 
     #[test]
     fn set_terminal_command_writes_and_clears_without_losing_settings() {
-        // SUB-804: the onboarding agent step edits ONE key of Settings.md.
+        // The onboarding agent step edits ONE key of Settings.md.
         let t = tempfile::tempdir().unwrap();
         let root = t.path();
 
@@ -1678,7 +1677,7 @@ mod tests {
     #[test]
     #[cfg(desktop)]
     fn seed_files_not_backfilled_into_a_syncing_vault() {
-        // SUB-473: two desktops sharing one vault each take the existing-vault
+        // Two desktops sharing one vault each take the existing-vault
         // branch on their next launch. If both invent Settings.md locally and
         // snapshot it, the pull sees the same path added on both sides from
         // different blobs — an add/add conflict, which parks ALL syncing until
@@ -1730,7 +1729,7 @@ mod tests {
         let _ = fs::remove_dir_all(&base);
     }
 
-    /// The seed writes route through `write_atomic` now (SUB-523). This is the
+    /// The seed writes route through `write_atomic` now. This is the
     /// residue half of that: a fresh vault comes up seeded and indexed with no
     /// dotted `.X.tmp-<pid>-<seq>` left behind, which is what a create-then-failed-
     /// rename looks like. It does not prove atomicity — `fs::write` leaves no
@@ -1751,7 +1750,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-831: the Welcome tutorial names only things this same seed writes —
+    /// The Welcome tutorial names only things this same seed writes —
     /// a tour step pointing at a note that isn't there would be the quiet
     /// failure worth catching. It is also the one place that tells the USER
     /// about the concealed agent files, so that section is load-bearing.
@@ -1780,7 +1779,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-589: a fresh vault explains the dashboard feature itself, since the
+    /// A fresh vault explains the dashboard feature itself, since the
     /// machine-specific kinds that used to demonstrate it are not in every
     /// build. The kind has to be one that renders off the note's own body —
     /// `hub` reads nothing outside the vault, so it works on an empty one.
@@ -1803,7 +1802,7 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
-    /// SUB-788: the flagship dashboard replacing the old `yield-apr` sample.
+    /// The flagship dashboard replacing the old `yield-apr` sample.
     /// Its whole point is that a BRAND-NEW vault renders real numbers, so the
     /// assertions follow the bindings rather than the file's existence: every
     /// card and chart names something this same seed writes. A seed that

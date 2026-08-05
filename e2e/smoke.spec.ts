@@ -43,7 +43,7 @@ function chip(page: Page, key: string) {
 
 async function boot(page: Page) {
   await page.goto("/");
-  // cold open lands on the Notes scratch list (Today is a destination, SUB-300) —
+  // cold open lands on the Notes scratch list (Today is a destination) —
   // these flows build on the scratch list and its first-note selection
   await page.locator(".side-item", { hasText: /^Notes/ }).click();
   // notes view (untyped, recency-first), first mock note selected and loaded
@@ -76,7 +76,7 @@ test("open note, edit, body round-trips", async ({ page }) => {
 
 test("chip edit via picker, chip add via key:value", async ({ page }) => {
   // typed notes live in their databases: All notes collapses them into the
-  // database block (SUB-87) — click through, then open the entry
+  // database block — click through, then open the entry
   await page.locator(".side-item", { hasText: "All notes" }).click();
   await page.locator(".row-dbblock", { hasText: "Release" }).click();
   await expect(page.locator(".db-table")).toBeVisible();
@@ -120,7 +120,7 @@ test("database: table ↔ board toggle", async ({ page }) => {
   await page.locator(".db-switch button[title=\"Board\"]").click();
   await expect(page.locator(".db-board")).toBeVisible();
   // every mock release has a status — the four schema options, no "No status"
-  // column (SUB-168: it only appears while a card actually lacks the prop)
+  // column (it only appears while a card actually lacks the prop)
   await expect(page.locator(".db-col")).toHaveCount(4);
 
   await page.locator(".db-switch button[title=\"Table\"]").click();
@@ -130,7 +130,7 @@ test("database: table ↔ board toggle", async ({ page }) => {
 test("table aggregation footer: pick, compute, persist (SUB-74)", async ({ page }) => {
   await openDb(page, "Release");
   await expect(page.locator(".db-table")).toBeVisible();
-  // SUB-945: the footer rests there with no aggregation set — row count in
+  // The footer rests there with no aggregation set — row count in
   // the title cell, and a "Calc" ghost per column that stays out of the way
   // until the footer is hovered, without ever moving the table's geometry
   await expect(page.locator(".db-table tfoot")).toHaveCount(1);
@@ -138,7 +138,7 @@ test("table aggregation footer: pick, compute, persist (SUB-74)", async ({ page 
   const tracksGhost = page.locator('.db-agg-cell[data-col="tracks"] .db-agg-ghost');
   await expect(tracksGhost).toHaveText("Calc");
   await expect(tracksGhost).toHaveCSS("opacity", "0");
-  // per-CELL reveal (SUB-945 review round): only the hovered cell's ghost
+  // per-CELL reveal: only the hovered cell's ghost
   // wakes, so a resting footer never lights up wholesale
   await page.locator('.db-agg-cell[data-col="tracks"]').hover();
   await expect(tracksGhost).toHaveCSS("opacity", "1");
@@ -168,7 +168,7 @@ test("table aggregation footer: pick, compute, persist (SUB-74)", async ({ page 
   await expect(page.locator('.db-agg-cell[data-col="artist"] .db-agg-value')).toHaveText("5");
 
   // the active option is marked; setting both back to None returns the
-  // footer to rest — still mounted, back to ghosts (SUB-945)
+  // footer to rest — still mounted, back to ghosts
   await tracks.locator(".db-agg-btn").click();
   await expect(page.locator(".colmenu .dots-item", { hasText: "✓ Sum" })).toHaveCount(1);
   await page.locator(".colmenu .dots-item", { hasText: /^None$/ }).click();
@@ -296,7 +296,7 @@ test("sidebar reorder: Move up/down via the context menu (SUB-58)", async ({ pag
   };
   // the machine-bridge dashboards are absent from builds that strip them, so
   // the expected order is derived from what the sidebar actually offers rather
-  // than hard-coded (SUB-589)
+  // than hard-coded
   const dashNames = [
     "Calories",
     "Overview",
@@ -312,8 +312,8 @@ test("sidebar reorder: Move up/down via the context menu (SUB-58)", async ({ pag
   const swapped = [inOrder[1], inOrder[0], ...inOrder.slice(2)];
   expect(await sideTitles(dashNames)).toEqual(swapped);
 
-  // databases no longer reorder: the flat sidebar section this served is gone
-  // (SUB-159) — the manager's row menu carries no Move up/down
+  // databases no longer reorder: the flat sidebar section this served is gone —
+  // the manager's row menu carries no Move up/down
   await page.locator(".side-item", { hasText: "All databases" }).click();
   await page.locator(".dbmgr-row", { hasText: "Release" }).click({ button: "right" });
   await expect(page.locator(".ctx-item", { hasText: "Move up" })).toHaveCount(0);
@@ -323,13 +323,13 @@ test("sidebar reorder: Move up/down via the context menu (SUB-58)", async ({ pag
 
 test("sheet: cell edit recomputes formula column", async ({ page }) => {
   await page.locator(".side-item", { hasText: "All notes" }).click();
-  // sheets are surfaces, not a database (SUB-389): they list as loose rows
+  // sheets are surfaces, not a database: they list as loose rows
   await page.locator('.list .row[data-path="Holdings.md"]').click();
   await expect(page.locator(".note-title")).toHaveValue("Holdings");
   await expect(page.locator(".sheet-table")).toBeVisible();
 
   // BTC row: units 4.1 × 64.200 = 263.220 (value_usd — FX-independent)
-  // data cells render through the grid-wide formatter (de-DE, SUB-282):
+  // data cells render through the grid-wide formatter (de-DE):
   // dot thousands, comma decimals; fractions get 2 decimals
   const btc = page.locator(".sheet-table tbody tr").nth(1);
   await expect(btc.locator("td").nth(2).locator(".sheet-cell")).toHaveText("4,10");
@@ -390,7 +390,7 @@ test("database filter: date comparison due < 7d (SUB-66)", async ({ page }) => {
     .locator(".side-item", { has: page.locator(".side-db-chip") })
     .filter({ has: page.locator(".side-label-text", { hasText: /^Tasks$/ }) })
     .click();
-  // SUB-182 density: 17 seeded tasks
+  // Density: 17 seeded tasks
   await expect(page.locator(".db-table tbody tr")).toHaveCount(17);
 
   // mock task dues run day −8 … +16 around today — `due < 7d` keeps the 13
@@ -441,7 +441,7 @@ test("multi-select prop: picker toggles values, per-value pills + filter (SUB-79
   page,
 }) => {
   // Slow Bloom EP seeds format: Vinyl — a scalar, legal for one value; open
-  // it through its database block (SUB-87)
+  // it through its database block
   await page.locator(".side-item", { hasText: "All notes" }).click();
   await page.locator(".row-dbblock", { hasText: "Release" }).click();
   await page
@@ -488,7 +488,7 @@ test("multi-select prop: picker toggles values, per-value pills + filter (SUB-79
 });
 
 test("⌘5 opens the first pinned view (SUB-67)", async ({ page }) => {
-  // pin a filtered view on the Release database (the SUB-18 flow)
+  // pin a filtered view on the Release database (the flow)
   await openDb(page, "Release");
   await (await openFilter(page)).fill("status:live ");
   await page.locator("button[aria-label='View actions']").click();
@@ -508,7 +508,7 @@ test("⌘5 opens the first pinned view (SUB-67)", async ({ page }) => {
 });
 
 test("notes: untyped scratch list, ⌘2 jump, ⌘N instant note (SUB-70)", async ({ page }) => {
-  // boot leaves us on Notes: untyped AND unfiled only (SUB-390), recency-first
+  // boot leaves us on Notes: untyped AND unfiled only, recency-first
   await expect(page.locator(".list-title")).toHaveText("Notes");
   await expect(page.locator(".list .row")).toHaveCount(3);
   await expect(row(page, "Welcome")).toBeVisible();
@@ -517,7 +517,7 @@ test("notes: untyped scratch list, ⌘2 jump, ⌘N instant note (SUB-70)", async
   await expect(page.locator(".side-item:not(.side-folder)", { hasText: "Inbox" })).toHaveCount(0);
   await expect(page.locator(".side-item:not(.side-folder)", { hasText: "Recent" })).toHaveCount(0);
 
-  // ⌘3 → All notes collapses typed notes into their database blocks (SUB-87);
+  // ⌘3 → All notes collapses typed notes into their database blocks;
   // the block clicks through to the database, ⌘2 jumps back to Notes
   await page.keyboard.press("Meta+3");
   await expect(page.locator(".list-title")).toHaveText("All notes");
@@ -545,7 +545,7 @@ test("notes: untyped scratch list, ⌘2 jump, ⌘N instant note (SUB-70)", async
 });
 
 test("sidebar: section chevrons collapse and re-expand (SUB-70)", async ({ page }) => {
-  // the flat Databases section is gone (SUB-159): one persistent "All
+  // the flat Databases section is gone: one persistent "All
   // databases" nav row in its place — a plain item, no collapsible section
   const mgr = page.locator(".side-item", { hasText: "All databases" });
   await expect(mgr).toBeVisible();
@@ -570,7 +570,7 @@ test("database icons: picker sets glyph, tint, emoji; manager/palette follow (SU
   page,
 }) => {
   // seeded mock icons: release = violet music glyph, task = 🎵 emoji — the
-  // manager row carries them (SUB-159: the flat sidebar db row's replacement)
+  // manager row carries them (the flat sidebar db row's replacement)
   const relItem = page.locator(".dbmgr-row", { hasText: "Release" });
   const openManager = async () => {
     await page.locator(".side-item", { hasText: "All databases" }).click();
@@ -626,7 +626,7 @@ test("database icons: picker sets glyph, tint, emoji; manager/palette follow (SU
   await page.keyboard.press("Escape");
 
   // Remove strips the schema icon — release falls back to its curated
-  // default (SUB-183: violet glyph) instead of the old auto-letter chip
+  // default (violet glyph) instead of the old auto-letter chip
   await relItem.click();
   await page.locator(".db-icon-btn").click();
   await pick.locator(".iconpick-remove").click();
@@ -659,12 +659,12 @@ test("folder icons: context menu picker sets an icon; sidebar row + header follo
   page,
 }) => {
   // seeded mock meta: Projects boots with a 🌱 emoji (the read path) — the
-  // explicit icon beats its "projects" curated name default (SUB-391)
+  // explicit icon beats its "projects" curated name default
   const projects = page.locator(".side-folder", { hasText: "Projects" });
   await expect(projects.locator(".type-icon-emoji")).toHaveText("🌱");
 
-  // a folder named after a curated default renders it with no meta at all
-  // (SUB-391): Calendar boots with the calendar glyph, not the plain folder
+  // a folder named after a curated default renders it with no meta at all:
+  // Calendar boots with the calendar glyph, not the plain folder
   const calendar = page.locator(".side-folder", { hasText: "Calendar" });
   await expect(calendar.locator("svg.type-icon")).toBeVisible();
 
@@ -698,9 +698,9 @@ test("folder icons: context menu picker sets an icon; sidebar row + header follo
 
 test("database home folders: the db nests into the Folders tree (SUB-85)", async ({ page }) => {
   // seeded mock home: task → Tasks/ — the tree row keeps the FOLDER name
-  // (SUB-611) but wears the db icon and a DB chip; no other sidebar row
-  // (SUB-159: the flat homeless-db section is gone). SUB-686 dropped the
-  // per-row entry counts — Notion-style quiet rows.
+  // but wears the db icon and a DB chip; no other sidebar row
+  // (the flat homeless-db section is gone). The per-row entry
+  // counts are gone — Notion-style quiet rows.
   const treeRow = page.locator(".side-folder", {
     has: page.locator(".side-label-text", { hasText: /^Tasks$/ }),
   });
@@ -717,7 +717,7 @@ test("database home folders: the db nests into the Folders tree (SUB-85)", async
   // clicking it opens the database view, not the folder's file list
   await treeRow.click();
   await expect(page.locator(".db-table")).toBeVisible();
-  // SUB-182 density: 17 seeded tasks
+  // Density: 17 seeded tasks
   await expect(page.locator(".db-table tbody tr")).toHaveCount(17);
 
   // a new entry from the database view lands in the home folder explicitly
@@ -733,11 +733,11 @@ test("database home folders: the db nests into the Folders tree (SUB-85)", async
   await page.locator(".ctx-item", { hasText: "Show files" }).click();
 
   // …and the home folder's file list opens — its entries collapse into the
-  // database block (SUB-87), the new entry counted in it
+  // database block, the new entry counted in it
   await expect(page.locator(".list-title")).toHaveText("Tasks");
   await expect(row(page, "Master Vessel Songs v3")).toHaveCount(0);
   const taskBlock = page.locator(".row-dbblock", { hasText: "Task" });
-  // 17 seeded + the entry drafted above (SUB-182 density)
+  // 17 seeded + the entry drafted above
   await expect(taskBlock).toContainText("18 entries");
   await taskBlock.click();
   await expect(page.locator(".db-table tbody tr")).toHaveCount(18);
@@ -757,9 +757,9 @@ test("vanished file: empty state, app survives (SUB-54)", async ({ page }) => {
 test("move collision surfaces a toast instead of failing silently (SUB-58)", async ({ page }) => {
   // seed the collision without create-time duplicates: ⌘N captures "Welcome"
   // into the Inbox, which holds no note of that name yet — create-time dedupe
-  // is per-folder (SUB-65), so it lands at Inbox/Welcome.md exactly, and the
+  // is per-folder, so it lands at Inbox/Welcome.md exactly, and the
   // root note of the same name collides with it on a move. ⌘N is capture
-  // everywhere except the Notes view (SUB-70), so go to All notes first.
+  // everywhere except the Notes view, so go to All notes first.
   await page.locator(".side-item", { hasText: "All notes" }).click();
   await page.keyboard.press("Meta+n");
   await page.locator(".palette-input").fill("Welcome");
@@ -780,7 +780,7 @@ test("move collision surfaces a toast instead of failing silently (SUB-58)", asy
 test("create dedupes filenames per folder like the engine (SUB-65)", async ({ page }) => {
   // "Capture anything" already sits in the Inbox — capturing the same title
   // again must dedupe to a numbered sibling, never duplicate the path. ⌘N is
-  // capture everywhere except the Notes view (SUB-70), so go to All notes first.
+  // capture everywhere except the Notes view, so go to All notes first.
   await page.locator(".side-item", { hasText: "All notes" }).click();
   await page.keyboard.press("Meta+n");
   await page.locator(".palette-input").fill("Capture anything");
@@ -809,13 +809,13 @@ test("folder trash → restore brings back the whole subtree (SUB-58)", async ({
   await page.locator(".side-item", { hasText: "Trash" }).click();
   const entry = page.locator(".trash-row", { hasText: "Calendar" });
   await expect(entry).toBeVisible();
-  // 6 seeded events live in Calendar/ (SUB-182 density + SUB-270's timed one
-  // + SUB-646's ranged one)
+  // 6 seeded events live in Calendar/ (the seeded density + the timed one
+  // + the ranged one)
   await expect(entry).toContainText("6 notes");
   await entry.locator(".trash-restore").click();
 
   // restore lands on the folder view with the whole subtree back — the
-  // events list as their database block (SUB-87)
+  // events list as their database block
   await expect(page.locator(".side-folder", { hasText: "Calendar" })).toBeVisible();
   await expect(page.locator(".row-dbblock", { hasText: "Event" })).toContainText("6 entries");
 });
@@ -842,7 +842,7 @@ test("trash: delete forever can also purge history (SUB-52)", async ({ page }) =
 
 test("trash: empty trash can purge all history in one go (SUB-52)", async ({ page }) => {
   // seed snapshots for one of the two doomed notes — a gear entry opens via
-  // the palette; All notes lists it collapsed into its db block (SUB-87)
+  // the palette; All notes lists it collapsed into its db block
   await page.keyboard.press("Meta+k");
   const input = page.locator(".palette-input");
   await input.fill("rondo");
@@ -1041,7 +1041,7 @@ test("calendar draft type badge opens a picker: icons, pick, Tab, Escape (SUB-91
   await expect(menu.locator(".selmenu-listhead")).toHaveText("Create as");
   await expect(menu.locator(".selmenu-item")).toHaveText([/event/, /release/, /task/]);
   // per-database identity icons — release's is seeded, event's is its
-  // curated default (SUB-183); both render as glyphs
+  // curated default; both render as glyphs
   await expect(
     menu.locator(".selmenu-item", { hasText: "release" }).locator("svg.type-icon")
   ).toBeVisible();
@@ -1078,12 +1078,12 @@ test("calendar draft type badge opens a picker: icons, pick, Tab, Escape (SUB-91
   await page.locator(".cal-draft-input").fill("Master v3");
   await page.locator(".cal-draft-input").press("Enter");
   const todayCell = page.locator(`.cal-day[data-iso="${todayIso()}"]`);
-  // SUB-182 density: today's cell overflows the 3-chip month cap, and a fresh
+  // Density: today's cell overflows the 3-chip month cap, and a fresh
   // task sorts past the visible slice — expand the cell to reach it
   await todayCell.locator(".cal-more", { hasText: "more" }).click();
   const entry = todayCell.locator(".cal-entry", { hasText: "Master v3" });
   await expect(entry).toBeVisible();
-  // SUB-701: month chips carry identity as the tinted leading bar now (the
+  // Month chips carry identity as the tinted leading bar now (the
   // type icon lives on the roomier week/agenda surfaces). The seeded task
   // icon is an untinted emoji, so typeTint's stable hash names the hue —
   // pink (--opt-pink)
@@ -1161,7 +1161,7 @@ test("database management: create → entry → rename → delete keep-notes (SU
   await form.locator(".dbform-proprow .dbform-input").fill("author");
   await form.locator(".selmenu-btn-primary").click();
 
-  // schema-registered: the manager lists it with zero notes (SUB-152), view opens
+  // schema-registered: the manager lists it with zero notes, view opens
   await page.locator(".side-item", { hasText: "All databases" }).click();
   const booksRow = page.locator(".dbmgr-row", { hasText: "books" });
   await expect(booksRow).toBeVisible();
@@ -1202,7 +1202,7 @@ test("database management: create → entry → rename → delete keep-notes (SU
   await page.locator(".side-item", { hasText: "All notes" }).click();
   await row(page, "Dune").click();
   await expect(page.locator(".note-title")).toHaveValue("Dune");
-  // membership gone — the note reads as a plain note again (SUB-125 chip)
+  // membership gone — the note reads as a plain note again
   await expect(chip(page, "Database").locator(".chip-val")).toHaveText("note");
 });
 
@@ -1240,7 +1240,7 @@ test("property management: add / rename / remove with value strip (SUB-43)", asy
 
 test("delete database: trash choice moves notes to Trash (SUB-43)", async ({ page }) => {
   // sidebar context menu entry point this time — the task db row, which
-  // nests into the Folders tree as its home folder (SUB-85; SUB-611 label
+  // nests into the Folders tree as its home folder (the label
   // = the folder's name)
   const taskRow = page
     .locator(".side-item", { has: page.locator(".side-db-chip") })
@@ -1248,11 +1248,11 @@ test("delete database: trash choice moves notes to Trash (SUB-43)", async ({ pag
   await taskRow.click({ button: "right" });
   await page.locator(".ctx-item", { hasText: "Delete database…" }).click();
   const del = page.locator(".dbform");
-  // 17 seeded tasks (SUB-182 density)
+  // 17 seeded tasks
   await expect(del).toContainText("17 entries");
   await del.locator(".selmenu-btn-danger", { hasText: "Move 17 notes to Trash" }).click();
-  // the database is gone; the Tasks FOLDER survives as a plain row (SUB-611
-  // keeps the folder name on the dressed row, so the row stays — chip gone)
+  // the database is gone; the Tasks FOLDER survives as a plain row (the
+  // dressed row keeps the folder name, so the row stays — chip gone)
   const taskFolder = page.locator(".side-folder", {
     has: page.locator(".side-label-text", { hasText: /^Tasks$/ }),
   });
@@ -1271,7 +1271,7 @@ test("capture opens the freshly captured note, not the old list top (SUB-72)", a
   await page.keyboard.press("Enter");
   await expect(page.locator(".overlay")).toHaveCount(0);
 
-  // the OPEN note must be the new capture — before SUB-72 the selection
+  // the OPEN note must be the new capture — the selection
   // guard snapped back to the previous top note before refresh landed
   await expect(page.locator(".note-title")).toHaveValue("Fresh capture target");
 });
@@ -1293,7 +1293,7 @@ test("filing a capture into a database keeps it open (SUB-208)", async ({ page }
   await expect(menu.locator(".selmenu-listhead", { hasText: "Databases" })).toBeVisible();
   await menu.locator(".selmenu-item", { hasText: "task" }).click();
 
-  // the note re-homed into the task db — before SUB-208 it left the view's
+  // the note re-homed into the task db — it used to leave the view's
   // scope and the selection guard snapped to another note, losing the capture
   await expect(page.locator(".note-title")).toHaveValue("Filed capture stays open");
   await expect(chip(page, "Database").locator(".chip-val")).toHaveText("task");
@@ -1323,7 +1323,7 @@ test("typing a note into a NEW database announces the birth (SUB-470)", async ({
   const toast = page.locator(".toast");
   await expect(toast).toContainText("Moved to “expense” — new database");
 
-  // the toast's action homes the db on an eponymous root folder (SUB-403
+  // the toast's action homes the db on an eponymous root folder (the
   // reuse rules); setDbHome's own confirmation replaces the birth toast
   await toast.locator("button", { hasText: "Add to sidebar" }).click();
   await expect(page.locator(".toast")).toContainText("now lives in");
@@ -1332,7 +1332,7 @@ test("typing a note into a NEW database announces the birth (SUB-470)", async ({
   });
   await expect(treeRow).toBeVisible();
 
-  // filing into an EXISTING database stays quiet (SUB-208 behavior intact)
+  // filing into an EXISTING database stays quiet
   await page.locator(".side-item", { hasText: "All notes" }).click();
   await page.keyboard.press("Meta+n");
   await page.locator(".palette-input").fill("Second expense");
@@ -1346,7 +1346,7 @@ test("typing a note into a NEW database announces the birth (SUB-470)", async ({
   await expect(page.locator(".toast")).toHaveCount(0);
 
   // db→db birth: re-typing a note already open in a database side split
-  // carries it into the NEW database — the SUB-267 leave-clear must not
+  // carries it into the NEW database — the leave-clear must not
   // close the pane out from under the follow
   await openDb(page, "Expense");
   await page.locator(".db-title-txt", { hasText: "Second expense" }).click();
@@ -1364,7 +1364,7 @@ test("view embed: inline db table, row click-through, unknown-type card (SUB-86)
   page,
 }) => {
   // the seeded hub note carries a ```view fence over the release db — filed
-  // under Projects/, so it lives in its folder view now (SUB-390)
+  // under Projects/, so it lives in its folder view now
   await page.locator(".side-folder", { hasText: "Projects" }).click();
   await row(page, "Umbra").click();
   await expect(page.locator(".note-title")).toHaveValue("Umbra");
@@ -1388,7 +1388,7 @@ test("view embed: inline db table, row click-through, unknown-type card (SUB-86)
   await expect(rows.nth(1)).toContainText("Vessel Songs");
   await expect(rows.first()).toContainText("SMP-031");
 
-  // the title cell opens the entry note — the rest of the row edits (SUB-796)
+  // the title cell opens the entry note — the rest of the row edits
   await rows.filter({ hasText: "Vessel Songs" }).locator(".embed-view-title").click();
   await expect(page.locator(".note-title")).toHaveValue("Vessel Songs");
 
@@ -1402,7 +1402,7 @@ test("view embed: inline db table, row click-through, unknown-type card (SUB-86)
   await expect(page.locator(".embed-view")).toHaveCount(2);
   await expect(page.locator(".embed-view-err")).toHaveText("Unknown database “bogus”");
 
-  // SUB-122: an open embed re-snapshots when the vault changes underneath
+  // An open embed re-snapshots when the vault changes underneath
   // it — a release note with its own fence sits in the db side split while
   // a row's status is edited through the table
   await openDb(page, "Release");
@@ -1659,7 +1659,7 @@ test("calendar: drag an entry chip to another day reschedules it (SUB-121)", asy
   // (monthGridDays — "never a dead trailing row"), so a fixed offset falls off
   // the grid near month end: on 2026-07-31 today+3 was Aug 3, past the grid's
   // last cell, and this spec timed out waiting for a cell that never existed
-  // (SUB-694 — same trap SUB-547 fixed two tests below). The first cell whose
+  // (same trap fixed two tests below). The first cell whose
   // data-iso isn't today always exists: the grid is >= 4 weeks, so there are
   // always >= 27 non-today cells, and it may be a prev-month trailing day,
   // which drops the same way (dayCell wires onDrop for adjacent cells too).
@@ -1700,7 +1700,7 @@ test("calendar recurring event: repeat weekly, skip one occurrence, delete all (
   // row"), so anchoring on today puts the next weekly occurrence off-screen
   // whenever today falls in the last week: on 2026-07-27 the grid ended Aug 2
   // and today+7 was Aug 3, so .nth(1) below matched nothing and this spec was
-  // red for the last week of the month (SUB-547). Row one is always on screen,
+  // red for the last week of the month. Row one is always on screen,
   // and the grid is always >= 4 weeks, so anchor+7 always lands in row two.
   const anchorIso = await page
     .locator(".cal-day")
@@ -1754,7 +1754,7 @@ test("tray agenda window boots and renders today's mock entries (SUB-121)", asyn
     list.locator(".agenda-row", { hasText: "Approve SMP-030 artwork" })
   ).toBeVisible();
 
-  // the overdue count is a floor, not an exact pin (SUB-182): several
+  // the overdue count is a floor, not an exact pin: several
   // deadlines sit in the past by design — "Renew Bandcamp plan" is the named
   // fixture, asserted by title on the calendar surface in today.spec.ts
   await expect(page.locator(".agenda-overdue")).toContainText(/^[1-9]\d* overdue$/);
@@ -1822,7 +1822,7 @@ test("saved view: per-view display columns curate table + list, recalled by the 
   await colsBtn.click();
   const menu = page.locator(".db-cols-menu");
   await expect(menu.locator(".db-cols-item")).toHaveCount(10);
-  // SUB-945: the curator uses the same check control as the property
+  // The curator uses the same check control as the property
   // checklist, so "shown" is the pressed state, not a ✓ glued to the label
   await expect(menu.locator('.db-cols-item[aria-pressed="true"]')).toHaveCount(10);
 
@@ -1832,7 +1832,7 @@ test("saved view: per-view display columns curate table + list, recalled by the 
   await expect(page.locator(".db-table thead th", { hasText: "cat#" })).toHaveCount(0);
   await page.keyboard.press("Escape");
 
-  // SUB-326: persistent on a plain database — leave and return, still hidden
+  // Persistent on a plain database — leave and return, still hidden
   await page.locator(".side-item", { hasText: "All notes" }).click();
   await openDb(page, "Release");
   await expect(page.locator(".db-table thead th")).toHaveCount(11);

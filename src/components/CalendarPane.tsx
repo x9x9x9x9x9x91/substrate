@@ -88,16 +88,16 @@ import { BackButton } from "./BackButton";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 /** month cells show this many entries before collapsing into "+N more" —
-    the SUB-701 line chips are a row shorter than the old boxed chips, so a
+    the line chips are a row shorter than the old boxed chips, so a
     cell holds four without crowding */
 const MONTH_CAP = 4;
 /** the week surface's all-day strip keeps the tighter cap: its height is
     bounded (34%) and a strip pushed into internal scrolling turns Chromium's
     drag auto-scroll loose under every card drag */
 const ALLDAY_CAP = 3;
-/** week canvas scale (SUB-448): one hour of the day, in px — 24h ≈ 1150px */
+/** week canvas scale: one hour of the day, in px — 24h ≈ 1150px */
 const HOUR_PX = 48;
-/** the canvas time cursor's step (SUB-453): ↑/↓ half-hours, Shift quarters —
+/** the canvas time cursor's step: ↑/↓ half-hours, Shift quarters —
     the same quarter-hour grid a canvas drop snaps to */
 const SLOT_STEP = 30;
 const SLOT_FINE = 15;
@@ -119,10 +119,10 @@ const isExternalEntry = (
   entry: CalendarRenderEntry,
 ): entry is ExternalCalEntry => "feedUrl" in entry;
 
-/** SUB-521: the pane unmounts whenever an entry is opened (the note takes the
+/** The pane unmounts whenever an entry is opened (the note takes the
     view), so the two pieces of "where I was reading" have to live outside it.
     Split by kind: the layout is a stated preference and persists per window
-    like the sidebar collapse (SUB-394), the cursor is session position — a
+    like the sidebar collapse, the cursor is session position — a
     scroll offset, not a setting — and only outlives the mount. */
 const CAL_LAYOUT_KEY = "substrate.calLayout";
 
@@ -136,7 +136,7 @@ function writeCalLayout(l: "month" | "week"): void {
 
 /** epoch ms, so the round trip can't hand a mutated Date back out. null until
     the calendar has been visited, so a first open lands on today even in a
-    window that has been running since before midnight (SUB-153's rollover). */
+    window that has been running since before midnight (the rollover). */
 const calSession: { cursor: number | null } = { cursor: null };
 
 interface CalendarPaneProps {
@@ -146,16 +146,16 @@ interface CalendarPaneProps {
   newSignal: number;
   onOpenNote: (path: string) => void;
   onMutated: () => void;
-  /** SUB-278: Move to Trash routes through App's shared handler — flush of
-      the open note's pending save, then toast with Undo (SUB-263) */
+  /** Move to Trash routes through App's shared handler — flush of
+      the open note's pending save, then toast with Undo */
   onTrashNote: (path: string) => void;
-  /** SUB-240: App's toast — failed writes surface here, not the console;
-      SUB-273: the optional action carries Undo after a drag move */
+  /** App's toast — failed writes surface here, not the console;
+      the optional action carries Undo after a drag move */
   onToast?: (msg: string, action?: { label: string; run: () => void }) => void;
   /** the entry peek's title field renames the note — App's renameNote
       (flush of the open note's pending save, then refresh) */
   onRenameNote: (path: string, title: string) => Promise<unknown>;
-  /** SUB-590: the day menu's "Open daily note" — App's openJournal
+  /** The day menu's "Open daily note" — App's openJournal
       (get-or-create the day's note, ghost for non-today) */
   onOpenJournal: (date: string) => void;
 }
@@ -172,19 +172,19 @@ export default function CalendarPane({
   onOpenJournal,
 }: CalendarPaneProps) {
   const undo = useUndo();
-  // the entry cards' subtitles carry formatted numbers (SUB-1092) — the dial
+  // the entry cards' subtitles carry formatted numbers — the dial
   // is not threaded into this pane, so read it from the store
   const numberLocale = useNumberLocale();
-  // SUB-1001: the Upcoming rail is a fixed 168px against the viewport bottom,
+  // The Upcoming rail is a fixed 168px against the viewport bottom,
   // so a full agenda cut its last row in half with nothing saying more was
   // below it.
   const agendaFade = useEdgeFade<HTMLDivElement>();
-  // SUB-521: opening an entry unmounts the pane (the note takes the view), so
+  // Opening an entry unmounts the pane (the note takes the view), so
   // both of these have to outlive the mount or coming back — ⌫, or the sidebar
   // — silently resets the calendar you were reading. `cursor` is session
   // position, like a scroll offset: it survives the round trip in a module ref
   // and starts fresh next launch. `layout` is a stated preference, so it
-  // persists per window in localStorage, like the sidebar collapse (SUB-394).
+  // persists per window in localStorage, like the sidebar collapse.
   const [cursor, setCursor] = useState(
     () => new Date(calSession.cursor ?? Date.now()),
   );
@@ -211,22 +211,22 @@ export default function CalendarPane({
     prop: string;
     day: string;
     time?: string;
-    /** the dragged entry's span end (SUB-596), so the drop rewrites the whole
+    /** the dragged entry's span end, so the drop rewrites the whole
         range rather than collapsing it to the new start day */
     endDay?: string;
     endTime?: string;
   } | null>(null);
   const [dropIso, setDropIso] = useState<string | null>(null);
-  // canvas drag hover: the snapped drop minute, for the time-ghost line (SUB-448)
+  // canvas drag hover: the snapped drop minute, for the time-ghost line
   const [dropMin, setDropMin] = useState<number | null>(null);
-  // the week canvas's keyboard time cursor (SUB-453): the minute-of-day ↑/↓
+  // the week canvas's keyboard time cursor: the minute-of-day ↑/↓
   // parks on inside the focused day's column, null when disarmed
   const [slotMin, setSlotMin] = useState<number | null>(null);
-  // a day whose "+N more" was clicked renders its full entry list (SUB-107)
+  // a day whose "+N more" was clicked renders its full entry list
   const [expandedIso, setExpandedIso] = useState<string | null>(null);
-  // draft type picker: anchor rect while the SelectMenu is open (SUB-91)
+  // draft type picker: anchor rect while the SelectMenu is open
   const [typeMenu, setTypeMenu] = useState<AnchorRect | null>(null);
-  // entry-chip context menu + its Repeat… picker (SUB-174)
+  // entry-chip context menu + its Repeat… picker
   const [menu, setMenu] = useState<{
     x: number;
     y: number;
@@ -247,7 +247,7 @@ export default function CalendarPane({
     day: string;
     anchor: AnchorRect;
   } | null>(null);
-  // SUB-590: right-click on a day cell (not a chip — chips preventDefault
+  // Right-click on a day cell (not a chip — chips preventDefault
   // first) — the day's own create/navigate menu. `time` is set on the week
   // canvas, where the pointer names a slot, not just a day.
   const [dayMenu, setDayMenu] = useState<{
@@ -260,10 +260,10 @@ export default function CalendarPane({
   const gridRef = useRef<HTMLDivElement>(null);
   const draftInputRef = useRef<HTMLInputElement>(null);
   const weekScrollRef = useRef<HTMLDivElement>(null);
-  // the timed canvas (SUB-453): gridRef only ever holds the all-day strip, so
+  // the timed canvas: gridRef only ever holds the all-day strip, so
   // the focus/scroll effects need their own handle on the canvas half
   const canvasRef = useRef<HTMLDivElement>(null);
-  // SUB-512: bumped when a keyboard gesture should pull REAL DOM focus onto
+  // Bumped when a keyboard gesture should pull REAL DOM focus onto
   // the focused day's canvas column. Not every focusIso change may steal
   // focus — composing (`n`, ⌘N, a canvas double-click) sets focusIso too, and
   // the composer's input owns focus there — so the move is requested
@@ -271,12 +271,12 @@ export default function CalendarPane({
   const [colFocusReq, setColFocusReq] = useState(0);
   const requestColFocus = () => setColFocusReq((n) => n + 1);
 
-  // day rollover lives in the hook (SUB-153) — the today highlight and the
+  // day rollover lives in the hook — the today highlight and the
   // default focus follow midnight in a long-lived window
   const todayIso = useTodayIso();
   const today = parseDay(todayIso) ?? new Date();
 
-  // the canvas now-line's minute-of-day, on a one-minute tick (SUB-448)
+  // the canvas now-line's minute-of-day, on a one-minute tick
   const [nowMin, setNowMin] = useState(() => {
     const n = new Date();
     return n.getHours() * 60 + n.getMinutes();
@@ -355,11 +355,11 @@ export default function CalendarPane({
   }, []);
 
   // recurrence expands over the grid AND the 14-day upcoming list — both read
-  // the same byDay map, so both windows feed it (SUB-174). Two windows, not
+  // the same byDay map, so both windows feed it. Two windows, not
   // one spanning both: paging months back moves the grid away from today while
   // Upcoming stays put, and a single window stretched to cover the gap blew
   // past the expansion cap — the grid still rendered while Today and Upcoming
-  // emptied out (SUB-570).
+  // emptied out.
   const entries = useMemo(() => {
     const gridStart = isoDay(days[0]);
     const gridEnd = isoDay(days[days.length - 1]);
@@ -370,7 +370,7 @@ export default function CalendarPane({
       { start: upcomingStart, end: upcomingEnd },
     ]);
   }, [notes, schema, days, todayIso]);
-  // each database's icon, for the entry badges (SUB-249)
+  // each database's icon, for the entry badges
   const dbIcons = useMemo(() => iconsByType(schema), [schema]);
   /** an entry's mark: the same badge Today wears — the database's TypeIcon,
       the quiet note glyph for untyped notes */
@@ -391,7 +391,7 @@ export default function CalendarPane({
     for (const list of map.values())
       list.sort(
         (a, b) =>
-          // all-day first, then timed ascending (SUB-270), then type/title
+          // all-day first, then timed ascending, then type/title
           compareEntryTime(a, b) ||
           a.type.localeCompare(b.type) ||
           a.title.localeCompare(b.title),
@@ -471,7 +471,7 @@ export default function CalendarPane({
     if (peek && !peekEntry) setPeek(null);
   }, [peek, peekEntry]);
 
-  /** SUB-609: the entry the peek or the context menu is targeting keeps a
+  /** The entry the peek or the context menu is targeting keeps a
       selected tint (Notion-Calendar style), so the popover and the chip it
       edits read as one unit. A span lights whole — its segments are one
       event — while a repeating series stays day-matched: each virtual
@@ -511,8 +511,8 @@ export default function CalendarPane({
     return visible.has(todayIso) ? today : days[0];
   };
 
-  /** `time` — a canvas double-click composes a timed entry at that slot
-      (SUB-448); day cells and the all-day strip keep composing day-only */
+  /** `time` — a canvas double-click composes a timed entry at that slot;
+      day cells and the all-day strip keep composing day-only */
   const openDraft = (day: string, type?: string, time?: string) => {
     setFocusIso(day);
     setDraft({ day, type: type ?? draft?.type ?? "event", time });
@@ -529,7 +529,7 @@ export default function CalendarPane({
   }, [newSignal]);
 
   // keep the focused day on screen — both halves of the week surface
-  // (SUB-453): gridRef is the all-day strip, canvasRef the timed canvas, and
+  // gridRef is the all-day strip, canvasRef the timed canvas, and
   // a focused day that only exists on the canvas would otherwise never scroll
   useEffect(() => {
     if (!focusIso) return;
@@ -541,12 +541,12 @@ export default function CalendarPane({
       ?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [focusIso, layout]);
 
-  // the time cursor leaves with its day (SUB-453) — a cursor parked on a day
+  // the time cursor leaves with its day — a cursor parked on a day
   // that scrolled out of the week would keep highlighting a stale column
   // The cursor disarms when the week canvas isn't the surface any more. It does
   // NOT clear on paging: `page()` carries `focusIso` along with the view, so the
   // focused day is always still visible afterwards and the cursor rides with it
-  // — ⌘→ must not silently disarm a cursor the user just placed (SUB-453 F2).
+  // ⌘→ must not silently disarm a cursor the user just placed.
   useEffect(() => {
     if (layout !== "week" || !focusIso) setSlotMin(null);
   }, [layout, focusIso]);
@@ -560,12 +560,12 @@ export default function CalendarPane({
       ?.scrollIntoView({ block: "nearest" });
   }, [slotMin, focusIso]);
 
-  // an expanded day collapses on any click outside its cell (SUB-107) — the
+  // an expanded day collapses on any click outside its cell — the
   // peek is a body portal, but it belongs to the cell's entry: interacting
   // with it keeps the expansion. Its sub-pickers (status/date/repeat) are
   // separate `.selmenu` portals: a press in one must not collapse the cell —
   // the layout shift scrolls the grid and the peek's scroll-dismiss kills
-  // the edit mid-flight (SUB-321)
+  // the edit mid-flight
   useEffect(() => {
     if (!expandedIso) return;
     const onDown = (e: MouseEvent) => {
@@ -583,7 +583,7 @@ export default function CalendarPane({
     return () => window.removeEventListener("mousedown", onDown);
   }, [expandedIso]);
 
-  /* ── SUB-792: a press that dismisses an open popup layer must not double
+  /* ── A press that dismisses an open popup layer must not double
      as "compose here". The peek/select/date pickers close on window
      mousedown; the day cells create on click — so the SAME gesture that
      dismissed the popup used to land on a day cell and immediately open the
@@ -619,14 +619,14 @@ export default function CalendarPane({
   }, []);
 
   /** the day cells' click-to-create, swallowed when this press's job was
-      dismissing a popup (SUB-792). Chips, +N more, and the explicit create
+      dismissing a popup. Chips, +N more, and the explicit create
       surfaces keep their plain handlers. */
   const openDraftFromCell = (iso: string) => {
     if (pressDismissed.current) return;
     openDraft(iso);
   };
 
-  /* ── SUB-608: the composer's blur-commit vs the click that caused it ──
+  /* ── The composer's blur-commit vs the click that caused it ──
      Committing synchronously on blur tore the composer out of the DOM
      between mousedown and mouseup, so the cell's chips shifted mid-click
      and the click resolved against the day cell underneath — which REOPENED
@@ -647,8 +647,8 @@ export default function CalendarPane({
   draftNow.current = draft;
   const flushNow = useRef<() => void>(() => {});
 
-  /** the create half of a commit, decoupled from the state teardown
-      (SUB-608): the deferred blur path creates from values captured at blur
+  /** the create half of a commit, decoupled from the state teardown:
+      the deferred blur path creates from values captured at blur
       time, after the gesture that caused the blur has fully dispatched */
   const createFromDraft = (
     d: { day: string; type: string; time?: string },
@@ -664,7 +664,7 @@ export default function CalendarPane({
     const typeNotes = notes.filter(
       (n) => foldedPropStr(n.props, "type")?.toLowerCase() === foldedType,
     );
-    // born complete (SUB-60): schema chips + template like the database
+    // born complete: schema chips + template like the database
     // draft row; the picked day merges into the same create (no second
     // write) and is the date {{date}} instantiates to
     vaultTemplateRead(type)
@@ -682,14 +682,14 @@ export default function CalendarPane({
               date: day,
             }),
             prop,
-            // a canvas-slot draft is born timed (SUB-448); day cells stay day-only
+            // a canvas-slot draft is born timed; day cells stay day-only
             time ? `${day} ${time}` : day,
           ),
           buildEntryBody(tpl, title, day),
         ),
       )
       .then(onMutated)
-      // SUB-564: a refused create (a title holding [ or ]) used to die on the
+      // A refused create (a title holding [ or ]) used to die on the
       // console with the draft already cleared — no entry, no message
       .catch((err) =>
         onToast?.(
@@ -707,7 +707,7 @@ export default function CalendarPane({
     createFromDraft(d, title);
   };
 
-  /** SUB-608: the input's blur handler. A blur mid-press only PARKS the
+  /** The input's blur handler. A blur mid-press only PARKS the
       draft — the composer stays mounted, so the pressed element keeps its
       geometry through mouseup and the click lands where the press did. The
       pointerup listener below flushes right after the click has dispatched.
@@ -779,7 +779,7 @@ export default function CalendarPane({
     });
   };
 
-  // SUB-240: a failed date/repeat write used to die on the console — surface
+  // A failed date/repeat write used to die on the console — surface
   // it on App's toast and re-sync, so the grid never implies the write landed
   const reportWriteFailure = (err: unknown) => {
     onToast?.(
@@ -788,13 +788,13 @@ export default function CalendarPane({
     onMutated();
   };
 
-  // SUB-273: a move used to commit silently — name the new day on App's toast
+  // A move used to commit silently — name the new day on App's toast
   // and offer an Undo that writes the captured prior value back. The drag
   // drop and the peek's date row share this one write path; only series
   // anchors reach either (virtual occurrences are inert), so the write and
   // its undo always shift the whole series — no special casing
   /** the value a date prop takes for a (possibly spanning) placement — the
-      SUB-270 `day[ HH:MM]` form, with the SUB-596 `/end` half appended when
+      `day[ HH:MM]` form, with the `/end` half appended when
       the entry is a range. Every write path funnels through this, so a move,
       a time edit, or a peek reschedule can never silently drop a span's end. */
   const dateValue = (
@@ -804,8 +804,8 @@ export default function CalendarPane({
   ) => dateRangeValue(day, time, end);
 
   /** the end a spanning entry keeps when its start moves: the span holds its
-      length — to the minute when both ends and the new start are timed
-      (SUB-1015), by whole days otherwise. Only a span's FIRST day is
+      length — to the minute when both ends and the new start are timed,
+      by whole days otherwise. Only a span's FIRST day is
       draggable (see `isAnchor`), so `span.day` is always the range's start
       and the delta is unambiguous. Pure math in calendar.ts. */
   const shiftedEnd = shiftedRangeEnd;
@@ -817,12 +817,12 @@ export default function CalendarPane({
     time?: string | null,
     end?: { day: string; time?: string } | null,
   ) => {
-    // SUB-477: the toast's Undo pops the entry cmd-Z would pop, by id, so the
+    // The toast's Undo pops the entry cmd-Z would pop, by id, so the
     // two paths can't drift and undoing twice doesn't double-revert
     const id = nextUndoId();
     const title = noteByPath.get(path)?.title ?? path;
-    // a timed value keeps its time across a reschedule (SUB-270); a span
-    // keeps its end, shifted by the same delta (SUB-596)
+    // a timed value keeps its time across a reschedule; a span
+    // keeps its end, shifted by the same delta
     setPropUndoable({
       path,
       key: prop,
@@ -841,7 +841,7 @@ export default function CalendarPane({
       .catch(reportWriteFailure);
   };
 
-  /** Drop targets differ in what they do to the value's time (SUB-448):
+  /** Drop targets differ in what they do to the value's time:
       month cells and the all-day strip's cells keep/clear it, the timed
       canvas sets it. `time` undefined = keep the dragged value's time
       (month), null = clear it (all-day strip), string = set it (canvas). */
@@ -852,8 +852,8 @@ export default function CalendarPane({
     if (!d) return;
     const next = time === undefined ? d.time : (time ?? undefined);
     if (d.day === day && (d.time ?? null) === (next ?? null)) return;
-    // a span moves whole (SUB-596): the end travels with the start, holding
-    // the duration to the minute on a timed canvas drop (SUB-1015)
+    // a span moves whole: the end travels with the start, holding
+    // the duration to the minute on a timed canvas drop
     moveEntryTo(d.path, d.prop, day, next, shiftedEnd(d, { day, time: next }));
   };
 
@@ -863,7 +863,7 @@ export default function CalendarPane({
       write path. The peek can open on ANY day a span covers, so the write
       measures from the note's stored start, never from the day clicked. */
   const movePeekEntry = (e: CalEntry, iso: string) => {
-    // the picker may hand back a range of its own (SUB-596) — take it
+    // the picker may hand back a range of its own — take it
     // wholesale; otherwise the entry's existing span slides with the new start
     const picked = splitDateRange(iso);
     if (!picked) return;
@@ -888,7 +888,7 @@ export default function CalendarPane({
       toast): the row itself shows the result; a failure still toasts + resyncs */
   const setEntryTime = (e: CalEntry, time: string | null) => {
     // the START's time is what this row edits, and the span's end survives it
-    // (SUB-596) — read both off the stored value, since the peek may have
+    // read both off the stored value, since the peek may have
     // opened on a continuation day
     const stored = storedRange(e);
     const start = stored?.start.day ?? e.day;
@@ -905,7 +905,7 @@ export default function CalendarPane({
       .catch(reportWriteFailure);
   };
 
-  /** status from the peek — "done from the calendar" (SUB-205 semantics) */
+  /** status from the peek — "done from the calendar" */
   const setEntryStatus = (e: CalEntry, v: string | null) => {
     const props = noteByPath.get(e.path)?.props ?? {};
     setPropUndoable({
@@ -924,7 +924,7 @@ export default function CalendarPane({
     Promise.resolve(onRenameNote(e.path, title)).catch(reportWriteFailure);
   };
 
-  /* ----- entry-chip menu actions (SUB-174) ----- */
+  /* ----- entry-chip menu actions ----- */
 
   const trashEntry = (e: CalEntry) => {
     onTrashNote(e.path);
@@ -938,7 +938,7 @@ export default function CalendarPane({
       foldedPropStr(noteByPath.get(e.path)?.props ?? {}, e.prop) ?? "",
     )?.day;
 
-  /** the note's stored value for this entry's prop, parsed (SUB-596). Write
+  /** the note's stored value for this entry's prop, parsed. Write
       paths read the span from HERE rather than from the entry, because an
       entry is one covered day of a range and may not be its start. */
   const storedRange = (e: CalEntry) =>
@@ -946,13 +946,13 @@ export default function CalendarPane({
       foldedPropStr(noteByPath.get(e.path)?.props ?? {}, e.prop) ?? "",
     );
 
-  /** is this entry a CONTINUATION day of a span (SUB-596) — a day the range
+  /** is this entry a CONTINUATION day of a span — a day the range
       covers that isn't its start? Those days are inert: the range moves by
       its start, so only the first day drags. */
   const isSpanTail = (e: CalEntry) =>
     e.spanPos !== undefined && e.spanPos !== "start";
 
-  /** the overdue rule, shared by all three renderers (SUB-206/SUB-596): past
+  /** the overdue rule, shared by all three renderers: past
       day, deadline prop, non-repeating, not complete — and for a range, late
       only once its END has passed, so a span still running reads as current. */
   const entryOverdue = (e: CalEntry) =>
@@ -966,12 +966,12 @@ export default function CalendarPane({
       ? `${e.type} · ${e.title}`
       : e.title;
 
-  /** span position as a class suffix (SUB-596): `cal-entry span start|mid|end`
+  /** span position as a class suffix: `cal-entry span start|mid|end`
       lets the CSS square the inner edges so consecutive days read as one bar
       across the row. A single date gets nothing and renders as it always did. */
   const spanClass = (e: CalEntry) => (e.spanPos ? ` span ${e.spanPos}` : "");
 
-  /** SUB-701: an entry's identity color — the database's stable tint (the
+  /** An entry's identity color — the database's stable tint (the
       same `--opt-*` the type icon and select dots wear), quiet gray for
       untyped notes. Rides the chip as a CSS custom property so the styles
       decide what wears it (the leading bar, a span's fill) and overdue can
@@ -991,13 +991,13 @@ export default function CalendarPane({
   const externalTip = (e: ExternalCalEntry) =>
     [e.feedName, e.title, e.location].filter(Boolean).join(" · ");
 
-  /** SUB-701: done-from-the-calendar, visible but resolved — dim + strike.
+  /** Done-from-the-calendar, visible but resolved — dim + strike.
       Non-repeating only: a series' status is the one note's, so a done
       weekly would wrongly strike every future occurrence. */
   const entryDone = (e: CalEntry) => !e.repeating && isComplete(e.status);
 
   const skipOccurrence = (e: CalEntry) => {
-    // SUB-649: repeat_skip only means anything to a series — writing it on a
+    // Repeat_skip only means anything to a series — writing it on a
     // plain entry (a date range's continuation day) does nothing visible but
     // leaves a key that would silently hole a series added later
     if (!e.repeating) return;
@@ -1021,7 +1021,7 @@ export default function CalendarPane({
   };
 
   const endSeriesBefore = (e: CalEntry) => {
-    // SUB-649: same guard as skipOccurrence — no series, no repeat_until
+    // Same guard as skipOccurrence — no series, no repeat_until
     if (!e.repeating) return;
     const anchor = anchorDayOf(e);
     const prev = parseDay(e.day);
@@ -1075,7 +1075,7 @@ export default function CalendarPane({
   };
 
   /** the type's done-like status option, if its schema carries one — the
-      gate for "Mark done" in the entry menu (SUB-376): a plain event has no
+      gate for "Mark done" in the entry menu: a plain event has no
       status to set, so the item simply doesn't exist there */
   const doneOption = (e: CalEntry): string | undefined => {
     if (!e.type) return undefined;
@@ -1117,7 +1117,7 @@ export default function CalendarPane({
     return items;
   };
 
-  /** SUB-590: a day cell's own menu — create on that date, or jump. The
+  /** A day cell's own menu — create on that date, or jump. The
       handler lives on every day surface (month cell, all-day strip, canvas
       column); entry chips preventDefault first, so a prevented event means
       a chip's menu already owns the click. */
@@ -1183,7 +1183,7 @@ export default function CalendarPane({
     return repeatLabel(e) || raw;
   };
 
-  /** the calendar's keyboard surface. Reached two ways (SUB-512):
+  /** the calendar's keyboard surface. Reached two ways:
       - primary: the focused day's canvas column, which now holds real DOM
         focus and takes the keys as a normal focused widget;
       - fallback: the window listener below, for when focus sits on inert
@@ -1200,7 +1200,7 @@ export default function CalendarPane({
       return;
     // Focused controls own their platform activation. Otherwise Calendar's
     // bare-Enter shortcut cancels the button click and opens whichever item
-    // happens to lead the visually focused day (SUB-358).
+    // happens to lead the visually focused day.
     const target = e.target instanceof HTMLElement ? e.target : null;
     if (
       !e.metaKey &&
@@ -1230,7 +1230,7 @@ export default function CalendarPane({
       go(addDays(focusDate(), 1));
       requestColFocus();
     } else if (layout === "week" && (k === "ArrowUp" || k === "ArrowDown")) {
-      // SUB-453: on the week surface ↑/↓ walk the focused day's canvas in
+      // on the week surface ↑/↓ walk the focused day's canvas in
       // half-hours (Shift = quarters) instead of paging a week — vertical
       // IS time here. j/k keep the ±7-day step for anyone who wants it.
       e.preventDefault();
@@ -1244,7 +1244,7 @@ export default function CalendarPane({
         // Clamp to the last slot of the ACTIVE step, not a fixed quarter: a
         // plain ↓ that floored at 23:45 would put every later plain ↑ on a
         // :15/:45 phase the user can't leave, and that phase rides straight
-        // into the composed note's time (SUB-453 review F1). The floor/ceiling
+        // into the composed note's time (review finding F1). The floor/ceiling
         // never drags the cursor backwards — arriving at 23:45 on a Shift step
         // and then pressing plain ↓ holds there rather than jumping up to
         // 23:30, since a Down press must never move the cursor up.
@@ -1262,7 +1262,7 @@ export default function CalendarPane({
     } else if (k === "Enter") {
       e.preventDefault();
       // an armed time cursor composes at its slot — the keyboard twin of
-      // the canvas double-click (SUB-453)
+      // the canvas double-click
       if (slotMin !== null)
         openDraft(isoDay(focusDate()), undefined, minutesToTime(slotMin));
       else {
@@ -1293,11 +1293,11 @@ export default function CalendarPane({
       if (draft) setDraft(null);
       else if (peek) setPeek(null);
       else if (expandedIso) setExpandedIso(null);
-      // the time cursor unwinds before the day focus does (SUB-453) — Esc
+      // the time cursor unwinds before the day focus does — Esc
       // out of "compose at 09:30", then out of the day. The rover falls
       // back to today when no day is focused, so DOM focus must follow it —
       // otherwise the :focus-visible ring keeps burning on the old column
-      // while the next ArrowDown arms today's (review, SUB-512)
+      // while the next ArrowDown arms today's (review)
       else if (slotMin !== null) setSlotMin(null);
       else if (focusIso) {
         setFocusIso(null);
@@ -1330,13 +1330,13 @@ export default function CalendarPane({
     slotMin,
   ]);
 
-  // roving tabindex (SUB-512): real DOM focus follows the focused day when a
+  // roving tabindex: real DOM focus follows the focused day when a
   // keyboard gesture asks for it, so the ring is where focus actually is and a
   // screen reader announces the column it lands on.
   useEffect(() => {
     if (colFocusReq === 0 || layout !== "week") return;
     // focusDate()'s fallback (today, else the first visible day) keeps the
-    // ring truthful when Esc just cleared focusIso (review, SUB-512)
+    // ring truthful when Esc just cleared focusIso (review)
     const iso = focusIso ?? isoDay(visible.has(todayIso) ? today : days[0]);
     const el = canvasRef.current?.querySelector<HTMLElement>(
       `.cal-wk-col[data-iso="${iso}"]`,
@@ -1352,7 +1352,7 @@ export default function CalendarPane({
   }, [colFocusReq, focusIso, layout]);
 
   // past non-repeating deadlines pin an Overdue group atop the agenda
-  // (SUB-206) — the Today strip's "Show in Calendar" lands somewhere honest
+  // the Today strip's "Show in Calendar" lands somewhere honest
   const overdue = useMemo(
     () => overdueEntries(notes, schema, todayIso),
     [notes, schema, todayIso],
@@ -1377,7 +1377,7 @@ export default function CalendarPane({
     return out;
   })();
 
-  /** a day column's accessible name (SUB-512): the same thing the surface's
+  /** a day column's accessible name: the same thing the surface's
       own headings say — the weekday label over the column plus the day number
       in its cell ("Mon, Jul 20"), so a screen reader names the column the way
       a sighted user reads it. */
@@ -1402,14 +1402,14 @@ export default function CalendarPane({
   const entryChip = (e: CalEntry) => {
     // only the anchor (the note's real date) is draggable — moving it rewrites
     // the date prop, shifting the whole series; virtual occurrences are inert.
-    // A span's continuation days are inert for the same reason (SUB-596): the
+    // A span's continuation days are inert for the same reason: the
     // range moves by its start
     const isAnchor =
       (!e.repeating || e.day === anchorDayOf(e)) && !isSpanTail(e);
     // an overdue deadline chip's one red mark is a --danger border-left
-    // (SUB-206) — same rule as the agenda group: past day, deadline prop,
-    // non-repeating, not complete (SUB-205). A range is late only once its
-    // END has passed (SUB-596) — a span still running is not overdue
+    // same rule as the agenda group: past day, deadline prop,
+    // non-repeating, not complete. A range is late only once its
+    // END has passed — a span still running is not overdue
     const isOverdue = entryOverdue(e);
     const tip = entryTip(e);
     return (
@@ -1466,7 +1466,7 @@ export default function CalendarPane({
           });
         }}
       >
-        {/* SUB-701: month chips are Notion-style lines — the type's color
+        {/* Month chips are Notion-style lines — the type's color
             bar carries identity (the boxed icon cost a row of height per
             entry); the icon language stays on the roomier week/agenda
             surfaces. A span needs no bar: its tinted fill IS the identity
@@ -1506,19 +1506,19 @@ export default function CalendarPane({
   const monthItem = (entry: CalendarRenderEntry) =>
     isExternalEntry(entry) ? externalChip(entry) : entryChip(entry);
 
-  /* ── Week layout (SUB-247) ── a real weekly surface, not a stretched month
+  /* ── Week layout ── a real weekly surface, not a stretched month
      row: seven day columns of full entry cards (icon + title + time when
      timed + a compact prop subtitle, the database card language). byDay
-     already orders all-day first, then timed ascending (SUB-270), and there
+     already orders all-day first, then timed ascending, and there
      is no "+N more" cap — the columns have the room. The month renderers
      above stay untouched; the fork happens at the grid. */
   const weekCard = (e: CalEntry) => {
     // same drag rule as the month chip: only the series anchor moves, and a
-    // span moves by its first day only (SUB-596) — pane-level drop handlers
+    // span moves by its first day only — pane-level drop handlers
     // key off the column's [data-iso] either way
     const isAnchor =
       (!e.repeating || e.day === anchorDayOf(e)) && !isSpanTail(e);
-    // same overdue rule as the month chip (SUB-206/SUB-596)
+    // same overdue rule as the month chip
     const isOverdue = entryOverdue(e);
     const tip = entryTip(e);
     const note = noteByPath.get(e.path);
@@ -1624,7 +1624,7 @@ export default function CalendarPane({
   const weekItem = (entry: CalendarRenderEntry) =>
     isExternalEntry(entry) ? externalWeekCard(entry) : weekCard(entry);
 
-  /** the strip's day cell (SUB-448): day number + create affordance +
+  /** the strip's day cell: day number + create affordance +
       all-day cards. Dropping here reschedules to the day AND clears the
       value's time — "make it all-day", the timed canvas's counterpart.
       Cards cap like a month cell ("+N more" expands in place): the canvas
@@ -1658,7 +1658,7 @@ export default function CalendarPane({
         key={iso}
         data-iso={iso}
         className={cls}
-        // SUB-520: the strip cell is a labelled grouping of that day's all-day
+        // The strip cell is a labelled grouping of that day's all-day
         // entries, same shape as the canvas column below it. It stays
         // non-focusable — naming a region and making it a tab stop are separate
         // decisions, and the strip has no roving-tabindex widget behind it. The
@@ -1691,7 +1691,7 @@ export default function CalendarPane({
           aria-label={`New entry on ${humanDay(iso, today)}`}
           aria-current={iso === todayIso ? "date" : undefined}
         >
-          {/* same month-seam label as the month grid (SUB-701) */}
+          {/* same month-seam label as the month grid */}
           <span
             className={
               iso === todayIso
@@ -1739,8 +1739,8 @@ export default function CalendarPane({
     );
   };
 
-  /** a timed entry's canvas block (SUB-448): positioned by its HH:MM, as
-      tall as its same-day end time says (SUB-646) or a default hour without
+  /** a timed entry's canvas block: positioned by its HH:MM, as
+      tall as its same-day end time says or a default hour without
       one, lane-split when entries overlap. Same interactions as every other
       entry surface. */
   const canvasBlock = (
@@ -1749,7 +1749,7 @@ export default function CalendarPane({
   ) => {
     const isAnchor =
       (!e.repeating || e.day === anchorDayOf(e)) && !isSpanTail(e);
-    // same overdue rule as every other entry surface (SUB-206/SUB-596)
+    // same overdue rule as every other entry surface
     const isOverdue = entryOverdue(e);
     const tip = entryTip(e);
     return (
@@ -1876,7 +1876,7 @@ export default function CalendarPane({
       residue after drags). The entry must also parse under the canvas's
       minute math — a time that doesn't goes to the strip, never to a
       silent 00:00 stack. */
-  /** roving tabindex (SUB-512): exactly one tab stop for the whole week — the
+  /** roving tabindex: exactly one tab stop for the whole week — the
       focused day, or (nothing focused yet) whichever day the shortcuts would
       already act on. Tab enters the canvas once; the arrows do the rest. */
   const roverIso = isoDay(focusDate());
@@ -1886,7 +1886,7 @@ export default function CalendarPane({
     const timed = renderItems(iso).filter(
       (e) => e.time && timeToMinutes(e.time) !== null,
     );
-    // a same-day range shapes its own block (SUB-646) — height AND the
+    // a same-day range shapes its own block — height AND the
     // overlap math, so a 14:00 entry inside a 09:00–17:00 one lanes beside it.
     // A multi-day span's endTime belongs to its LAST day, not this column, so
     // its start day keeps the default block rather than painting a lie.
@@ -1903,7 +1903,7 @@ export default function CalendarPane({
     const cls = [
       "cal-wk-col",
       iso === todayIso ? "today" : "",
-      // the canvas half wears the same focus ring as its strip cell (SUB-453)
+      // the canvas half wears the same focus ring as its strip cell
       iso === focusIso ? "focused" : "",
       iso === dropIso && dropMin !== null ? "drop" : "",
     ]
@@ -1953,7 +1953,7 @@ export default function CalendarPane({
           dropOn(iso, minutesToTime(min));
         }}
       >
-        {/* the keyboard time cursor (SUB-453): a half-hour band on the focused
+        {/* the keyboard time cursor: a half-hour band on the focused
             day — the slot Enter composes into. Rendered under the blocks: it
             marks empty canvas, it doesn't veil what's already booked. */}
         {iso === focusIso && slotMin !== null && (
@@ -2011,7 +2011,7 @@ export default function CalendarPane({
 
   const composer = draft && (
     <div className="cal-draft" onClick={(e) => e.stopPropagation()}>
-      {/* nothing to pick when only `event` is creatable (SUB-175) — the badge
+      {/* nothing to pick when only `event` is creatable — the badge
           and its picker stay home; Tab-cycling is already a 1-item no-op */}
       {types.length > 1 && (
         <button
@@ -2054,7 +2054,7 @@ export default function CalendarPane({
   const dayCell = (d: Date) => {
     const iso = isoDay(d);
     const items = renderItems(iso);
-    // SUB-107: "+N more" expands the cell in place — it renders (and scrolls)
+    // "+N more" expands the cell in place — it renders (and scrolls)
     // its full entry list until a second click, Esc, or a click elsewhere
     const expanded = expandedIso === iso;
     const cap = layout === "month" && !expanded ? MONTH_CAP : items.length;
@@ -2076,7 +2076,7 @@ export default function CalendarPane({
         key={iso}
         data-iso={iso}
         className={cls}
-        // SUB-520: the month cell had the same anonymous-div shape as the week
+        // The month cell had the same anonymous-div shape as the week
         // strip — only its day-number button was named, which names the button,
         // not the day. Same `group` treatment, same reason it isn't `gridcell`
         // (no grid navigation semantics are implemented here), and likewise no
@@ -2107,7 +2107,7 @@ export default function CalendarPane({
           aria-label={`New entry on ${humanDay(iso, today)}`}
           aria-current={iso === todayIso ? "date" : undefined}
         >
-          {/* SUB-701: the 1st names its month ("Aug 1") so the seam between
+          {/* The 1st names its month ("Aug 1") so the seam between
               months is visible in-grid; today's circle wins the collision —
               it already orients harder than a month label could */}
           <span
@@ -2232,7 +2232,7 @@ export default function CalendarPane({
           {layout === "week" && (
             <span className="cal-wk-spacer" aria-hidden="true" />
           )}
-          {/* SUB-701: today's column header sharpens when today is on the
+          {/* Today's column header sharpens when today is on the
               grid — the second orientation mark Notion Calendar leans on
               (the circled day number alone is easy to lose in six rows) */}
           {WEEKDAYS.map((w, i) => (
@@ -2254,8 +2254,8 @@ export default function CalendarPane({
           </div>
         ) : (
           <>
-            {/* the week surface (SUB-448): a pinned all-day strip over a
-                scrollable 24h canvas — the strip keeps the SUB-247 card
+            {/* the week surface: a pinned all-day strip over a
+                scrollable 24h canvas — the strip keeps the card
                 language, the canvas places timed entries by their HH:MM */}
             <div className="cal-grid week" ref={gridRef}>
               <span className="cal-wk-spacer" aria-hidden="true" />
@@ -2289,7 +2289,7 @@ export default function CalendarPane({
           className={`cal-agenda-body${agendaFade.className}`}
           {...agendaFade.props}
         >
-          {/* SUB-206: past non-repeating deadlines pin to the top, oldest
+          {/* Past non-repeating deadlines pin to the top, oldest
               first — no overdue, no group (and no empty header) */}
           {overdue.length > 0 && (
             <div className="cal-ag-row cal-ag-overdue">
@@ -2302,7 +2302,7 @@ export default function CalendarPane({
                     className={`cal-ag-item${isSelected(e) ? " selected" : ""}`}
                     onClick={() => onOpenNote(e.path)}
                     onContextMenu={(ev) => {
-                      // same menu as the grid chips (SUB-376) — overdue rows
+                      // same menu as the grid chips — overdue rows
                       // are exactly where "Mark done" / "Move to Trash" is
                       // needed most
                       ev.preventDefault();

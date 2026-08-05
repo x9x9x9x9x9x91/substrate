@@ -8,13 +8,13 @@ import {
 } from "../lib/notebody";
 
 // leaving the past reloads every pane from disk anyway; a body read in one era
-// must never seed a paint in another (the NotePane orphan purge, SUB-822, for
+// must never seed a paint in another (the NotePane orphan purge, for
 // the same reason)
 onHistoryLeave(dropRememberedNoteBodies);
 
 /** This note's body, reloaded when the vault changes under it — seeded, where
     the app already holds a copy, so the pane paints content on its first
-    frame instead of an empty one (SUB-1169).
+    frame instead of an empty one.
  *
  * The seed comes from the in-memory vault snapshot, whichever one is in force:
  * a history projection's own contents while the past is on screen, otherwise

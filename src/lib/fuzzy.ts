@@ -3,7 +3,7 @@
  * the query cannot be threaded through the target. A real match can still score
  * NEGATIVE — the subsequence branch charges 0.2 per character of position, so a
  * genuine hit late in a long label sums below zero — so callers must drop
- * candidates on this sentinel alone, never on `< 0` or `<= 0` (SUB-1016: the
+ * candidates on this sentinel alone, never on `< 0` or `<= 0` (the
  * palette filtered on `> 0` and real matches silently vanished from results).
  */
 export const NO_MATCH = -1;
@@ -34,7 +34,7 @@ export function fuzzyScore(query: string, target: string): number {
   // index of the previous matched char, -1 before the first match — the streak
   // bonus rewards a CONTIGUOUS run, so it needs the previous match position.
   // Asking whether the target char before this one appears anywhere in the
-  // query (SUB-1016) hands the bonus to matches that are pages apart whenever a
+  // query hands the bonus to matches that are pages apart whenever a
   // query letter repeats in the target.
   let prev = -1;
   for (const ch of q) {

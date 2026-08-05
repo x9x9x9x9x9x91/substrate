@@ -8,7 +8,7 @@ import { type Section } from "../components/Sidebar";
  * the writers over `$sidebar` in views.json: section order, collapsed
  * sections, pins and user-assigned keys. Each one folds its edit into the
  * live order object, skips the write when nothing changed, and persists
- * through the shared views.json queue (SUB-241).
+ * through the shared views.json queue.
  */
 export function useSidebarOrderModel(opts: {
   sidebarOrder: SidebarOrder;
@@ -26,11 +26,11 @@ export function useSidebarOrderModel(opts: {
   const setSectionOrder = useCallback(
     (section: Section, ids: string[]) => {
       setSidebarOrder((cur) => {
-        // SUB-585: every lane funnels into one of three persisted lists, each
+        // Every lane funnels into one of three persisted lists, each
         // holding SIBLING GROUPS folded into one flat list — so reordering
         // Life's children can't disturb the roots' order, and a no-op merge
-        // returns the same array, worth skipping the write. SUB-605 made
-        // `dashboards` such a list too: the Dashboards section's rows and each
+        // returns the same array, worth skipping the write. `dashboards`
+        // is such a list too: the Dashboards section's rows and each
         // folder's tree dashboards are separate groups sharing it, so a section
         // reorder must merge rather than replace or it drops the tree rows'
         // entries and they fall back to alphabetical.
@@ -40,7 +40,7 @@ export function useSidebarOrderModel(opts: {
           if (dashboards === cur.dashboards) return cur;
           next = { ...cur, dashboards };
         } else if (section === "dashgroups") {
-          // SUB-698: the Dashboards section's group HEADERS get their own list.
+          // The Dashboards section's group HEADERS get their own list.
           // Folding them into `folders` would let a group's position fight a
           // same-named tree folder's, and into `dashboards` would let it fight
           // the dashboard rows it contains — the headers only ever order
@@ -99,7 +99,7 @@ export function useSidebarOrderModel(opts: {
 
   const collapsedIds = useMemo(() => sidebarOrder.collapsed ?? [], [sidebarOrder]);
 
-  // SUB-410: a plain note gets a sidebar row of its own. The pin is the note's
+  // A plain note gets a sidebar row of its own. The pin is the note's
   // path in `$sidebar.pins`; the engine follows it through renames and moves
   // and drops it on trash, so the stored list stays live.
   const pinnedPaths = useMemo(() => sidebarOrder.pins ?? [], [sidebarOrder]);
@@ -125,7 +125,7 @@ export function useSidebarOrderModel(opts: {
     [persistViewsConfig]
   );
 
-  // SUB-467: user-assigned keys live in `$sidebar.keys` as key token → sidebar
+  // User-assigned keys live in `$sidebar.keys` as key token → sidebar
   // target token. Same persistence shape as the pins above; the engine
   // retargets and drops the VALUES through renames and trash.
   const customKeys = useMemo(() => sidebarOrder.keys ?? {}, [sidebarOrder]);

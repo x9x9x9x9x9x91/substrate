@@ -244,7 +244,7 @@ import { useSidebarOrderModel } from "./hooks/useSidebarOrderModel";
 
 /** Membership. `tagFolders` is only consulted by the tagfolder kind — a view
     naming a folder that no longer exists matches nothing, which is what keeps
-    a deleted tag folder from showing the whole vault (SUB-818). */
+    a deleted tag folder from showing the whole vault. */
 function inView(n: NoteMeta, view: View, tagFolders: TagFolder[] = []): boolean {
   switch (view.kind) {
     case "notes":
@@ -263,7 +263,7 @@ function inView(n: NoteMeta, view: View, tagFolders: TagFolder[] = []): boolean 
       return (n.tags ?? []).some((t) => t.toLowerCase() === view.tag.toLowerCase());
     case "search":
     case "saved":
-    // a mount's rows come from its index, not from the note list (SUB-888)
+    // a mount's rows come from its index, not from the note list
     case "mount":
     case "dashboard":
     case "trash":
@@ -296,12 +296,12 @@ export default function App() {
     lastOwnRefreshRef,
     refresh,
   } = useVaultIndex();
-  // cold open lands on the Notes scratch list (SUB-299) — Today (SUB-300) is
+  // cold open lands on the Notes scratch list — Today is
   // a destination (sidebar, palette, ⌘1), never the front door
   const [view, setView] = useState<View>({ kind: "notes" });
   const [selected, setSelected] = useState<string | null>(null);
   // the open note, readable from callbacks that must not re-bind on every
-  // selection change (SUB-1095: same-note `[[#Heading]]` links)
+  // selection change (same-note `[[#Heading]]` links)
   const selectedRef = useRef<string | null>(null);
   selectedRef.current = selected;
   const {
@@ -313,7 +313,7 @@ export default function App() {
     mobileSwipeStart,
     showMobileDetail,
   } = useMobileLayout();
-  /** SUB-210: a daily surface being viewed with no file behind it — the note
+  /** A daily surface being viewed with no file behind it — the note
       is created on the first keystroke, never by mere navigation */
   const [ghostPath, setGhostPath] = useState<string | null>(null);
   const [overlay, setOverlay] = useState<null | "palette" | "capture">(null);
@@ -337,60 +337,60 @@ export default function App() {
   } = useTerminalHud(mobile);
   const { sidebarHidden, toggleSidebar } = useSidebarHidden();
   const [paletteStart, setPaletteStart] = useState<StartStage | null>(null);
-  // SUB-490: `mod-hud` in Settings.md, default on until a read says otherwise
+  // `mod-hud` in Settings.md, default on until a read says otherwise
   const [modHud, setModHud] = useState(true);
-  // SUB-831/SUB-878: `show-agent-files` in Settings.md — the seeded
+  // `show-agent-files` in Settings.md — the seeded
   // AGENTS.md/CLAUDE.md and Settings.md itself stay ordinary files on disk
   // (and in the engine index), but the app's own note surfaces conceal them
   // unless this is explicitly true, so a vault reads as the user's content
   // rather than the tooling's
   const [showAppFiles, setShowAppFiles] = useState(false);
-  // SUB-607: `db-grid` in Settings.md — the global default for table grid
+  // `db-grid` in Settings.md — the global default for table grid
   // lines; a database's ViewPref `grid` overrides it either way
   const [dbGrid, setDbGrid] = useState(true);
-  // SUB-1125: `task-stale-chips` in Settings.md — the global default for the
+  // `task-stale-chips` in Settings.md — the global default for the
   // Tasks board's age chips; a board's own `stale_days` and a note's
   // `stale: never` both override it
   const [taskStaleChips, setTaskStaleChips] = useState(true);
-  // SUB-834: `net-link-titles` in Settings.md — gates the page-title fetch
+  // `net-link-titles` in Settings.md — gates the page-title fetch
   // behind a pasted link. The capture itself is local and always happens, so
   // this only decides whether the engine then asks that site anything.
   // `net-share-relay`, the other request this app makes, is enforced inside
   // SendLinkDialog, which reads Settings.md for the relay URL anyway.
   const [netLinkTitles, setNetLinkTitles] = useState(true);
-  /** `number-locale` (SUB-1092): the one dialect every number in the app is
+  /** `number-locale`: the one dialect every number in the app is
       written in — de-DE `1.234,56` by default. Held as state as well as in the
       numberLocale.ts binding: the surfaces that take it as a prop (db cells,
       calc lines) then repaint on the next vaultEpoch bump rather than waiting
       for whatever else happens to re-render them. Rides the settings read
       below, so a pick in the ⌘, pane reaches both in the same pass. */
   const [numberLocale, setNumberLocaleState] = useState<NumberLocale>(DEFAULT_NUMBER_LOCALE);
-  /** SUB-492: the key picker opened from a sidebar row's "Assign key…" — its
+  /** The key picker opened from a sidebar row's "Assign key…" — its
       own state, so the parent menu can close itself around it */
   const [keyPicker, setKeyPicker] = useState<{ target: string; x: number; y: number } | null>(null);
-  /** the folder-icon picker set from a folder's context menu (SUB-84) */
+  /** the folder-icon picker set from a folder's context menu */
   const [folderIconMenu, setFolderIconMenu] = useState<{ path: string; anchor: AnchorRect } | null>(
     null
   );
-  /** the db-icon picker set from a database's context menu (SUB-260) */
+  /** the db-icon picker set from a database's context menu */
   const [dbIconMenu, setDbIconMenu] = useState<{ type: string; anchor: AnchorRect } | null>(null);
   const [renamingViewId, setRenamingViewId] = useState<string | null>(null);
   // session-local layout inside an open pin — persisted only by re-saving it
   const [svPref, setSvPref] = useState<ViewPref | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
-  // second-stage folder picker for "Set home folder…" (SUB-159): the row
+  // second-stage folder picker for "Set home folder…": the row
   // menu swaps to this so the pick lands on the same spot
   const [homePicker, setHomePicker] = useState<{ dbType: string; x: number; y: number } | null>(
     null
   );
-  // SUB-466: the dashboard row's "Move to folder…" second stage — same
+  // The dashboard row's "Move to folder…" second stage — same
   // swap-in-place pattern, scoped to the dashboards' folders
   const [dashMovePicker, setDashMovePicker] = useState<{
     path: string;
     x: number;
     y: number;
   } | null>(null);
-  // SUB-611: the folder row's "Open as database…" second stage — pick an
+  // The folder row's "Open as database…" second stage — pick an
   // existing database to home here, or birth a new one homed here
   const [openAsPicker, setOpenAsPicker] = useState<{
     path: string;
@@ -406,10 +406,10 @@ export default function App() {
   const { toast, setToast, showToast } = useToast();
   const { zoom, applyZoom } = useZoom(showToast);
   useUpdater(showToast);
-  // SUB-43 database management: which admin dialog is open (null = none);
+  // Database management: which admin dialog is open (null = none);
   // create's fromSidebar marks the Folders "+" entry point — the new db is
-  // homed into the tree on creation (SUB-403); homeFolder is the folder
-  // menu's "Open as database…" birth (SUB-611) — the new db homes on that
+  // homed into the tree on creation; homeFolder is the folder
+  // menu's "Open as database…" birth — the new db homes on that
   // exact folder instead of an eponymous root
   const [dbDialog, setDbDialog] = useState<
     | { kind: "create"; fromSidebar?: boolean; homeFolder?: string }
@@ -425,11 +425,11 @@ export default function App() {
       }
     | null
   >(null);
-  // SUB-274 CSV import: the picked, parsed file waiting on the import dialog
+  // CSV import: the picked, parsed file waiting on the import dialog
   const [csvImport, setCsvImport] = useState<{ fileName: string; rows: string[][] } | null>(null);
-  // SUB-833: the note being sent as an encrypted expiring link
+  // The note being sent as an encrypted expiring link
   const [sendLink, setSendLink] = useState<NoteMeta | null>(null);
-  // SUB-888 "Mount a folder…": the dialog's open state
+  // "Mount a folder…": the dialog's open state
   const [mountDialog, setMountDialog] = useState(false);
   /** every mount in the vault, with this machine's binding resolved */
   const [mounts, setMounts] = useState<MountInfo[]>([]);
@@ -445,13 +445,13 @@ export default function App() {
   const editorFocusRef = useRef<(() => void) | null>(null);
   // focuses the note pane's title input with the text selected (⌘N in Notes)
   const titleFocusRef = useRef<(() => void) | null>(null);
-  // the open note pane's debounced-save flush (SUB-271): actions that read or
+  // the open note pane's debounced-save flush: actions that read or
   // destroy the file from outside the pane (Duplicate, trash) wait for any
-  // pending text to land first — the pane's own SUB-229 rule, app-wide.
-  // SUB-264's abandon lane awaits the same flush-and-settle before its
+  // pending text to land first — the pane's own rule, app-wide.
+  // The abandon lane awaits the same flush-and-settle before its
   // pristine check.
   const flushOpenRef = useRef<(() => Promise<void>) | null>(null);
-  // SUB-264: paths created by THIS session's ⌘N — the only notes the abandon
+  // Paths created by THIS session's ⌘N — the only notes the abandon
   // lane may ever delete; pre-existing Untitled files are never touched
   const scratchPaths = useRef(new Set<string>());
   const abandonBusy = useRef(new Set<string>());
@@ -479,7 +479,7 @@ export default function App() {
     persistViewsConfig,
   } = useVaultConfigs(showToast);
 
-  /* SUB-810: which pins already have a link folder on THIS machine, by view
+  /* Which pins already have a link folder on THIS machine, by view
      id. Device-local state, so it is read over IPC rather than from the
      synced views config — a target path is true for one machine only. */
   const [exportTargets, setExportTargets] = useState<Record<string, string>>({});
@@ -510,7 +510,7 @@ export default function App() {
     reloadSealScopes();
   }, [reloadSealScopes]);
 
-  // Only a confirmed marker seals anything (SUB-889), so an unconfirmed one
+  // Only a confirmed marker seals anything, so an unconfirmed one
   // must not hide "Seal folder…" on the rows underneath it either.
   const scopeInheritedAt = useCallback(
     (path: string) =>
@@ -538,7 +538,7 @@ export default function App() {
     [reloadSealScopes, showToast]
   );
 
-  // window drag (SUB-81 round 2): `data-tauri-drag-region` only fires when the
+  // window drag: `data-tauri-drag-region` only fires when the
   // mousedown target IS the marked element — the header bars are mostly covered
   // by titles/counts, so drags on the text never reached it. Walk up from the
   // real target instead and start the OS drag ourselves, skipping anything
@@ -558,13 +558,13 @@ export default function App() {
   }, []);
 
 
-  // palette quick actions come from Settings.md (SUB-441), so they must be
+  // palette quick actions come from Settings.md, so they must be
   // known before the palette first opens — not only when the HUD spawns. Read
   // once at boot; the HUD's own re-reads below keep it fresh after an edit.
-  // SUB-490: the hold-⌘ HUD's off switch rides the same read, re-run on
+  // The hold-⌘ HUD's off switch rides the same read, re-run on
   // vaultEpoch so toggling it in the settings pane takes effect immediately.
   useEffect(() => {
-    // SUB-1122: a dial the user is still holding has not reached the note, so
+    // a dial the user is still holding has not reached the note, so
     // this read would repaint the old value over it — see lib/appearance.ts
     const overtaken = () => appearancePreviewPending();
     vaultRead(SETTINGS_PATH)
@@ -574,11 +574,11 @@ export default function App() {
         setDbGrid(parseDbGrid(c.props));
         setTaskStaleChips(parseTaskStaleChips(c.props));
         setShowAppFiles(parseShowAppFiles(c.props));
-        // SUB-955: the appearance dials land on the document element rather
+        // The appearance dials land on the document element rather
         // than in React state — they are CSS inputs, nothing renders off
         // them. This is also the write that CORRECTS the settings pane's
         // optimistic preview once the note has actually taken the value.
-        // SUB-1126: the window ground is previewed by the same drag and lost
+        // The window ground is previewed by the same drag and lost
         // the same race, so it rides the same claim — outside one, this is
         // still the write that corrects the pane's optimistic preview.
         if (!overtaken()) {
@@ -594,7 +594,7 @@ export default function App() {
           setNumberLocale(locale);
           setNumberLocaleState(locale);
         }
-        // SUB-1107: `date-locale` is a module binding, not React state — every
+        // `date-locale` is a module binding, not React state — every
         // date formatter in the app is module-scope or inline, and this read
         // re-runs on vaultEpoch, which is also what repaints them.
         setDateLocale(dateLocaleSetting(c.props));
@@ -604,11 +604,11 @@ export default function App() {
         // an unreadable Settings.md falls back to the shipped look rather than
         // leaving whatever happened to be applied last — unless a dial is
         // mid-drag, in which case the live preview outranks the fallback
-        // (SUB-1122): the pane, not a failed read, is what the user is
+        // the pane, not a failed read, is what the user is
         // holding, and the release repaints from the note either way.
         if (!overtaken()) applyAppearance(document.documentElement, DEFAULT_APPEARANCE);
         // the number dialect falls back the same way and for the same reason
-        // (SUB-1092): a settings note we cannot read is not evidence for any
+        // a settings note we cannot read is not evidence for any
         // particular dial, and showing the shipped default is both honest and
         // recoverable — the next successful read restores the chosen dialect.
         // Numbers stay canonical dot-decimal on disk throughout, so a fallback
@@ -619,7 +619,7 @@ export default function App() {
       });
   }, [vaultEpoch]);
 
-  // SUB-831: what the rest of the app calls `notes` — the index minus the
+  // What the rest of the app calls `notes` — the index minus the
   // concealed app files. One boundary here, so every downstream surface
   // (lists, palette, search, sidebar counts, wikilink completion) agrees;
   // paths that must still WORK on a concealed file (openNote by path,
@@ -637,9 +637,9 @@ export default function App() {
   }, [overlay]);
 
   // leaving a database closes its side note and drops pin-session overrides.
-  // Only LEAVING clears (SUB-267): entering a db with a note already chosen —
+  // Only LEAVING clears: entering a db with a note already chosen —
   // a search hit opening in its home database — must not lose it to the swap.
-  // A birth navigation (SUB-470) is a db→db switch that CARRIES its note into
+  // A birth navigation is a db→db switch that CARRIES its note into
   // the destination — the flag suppresses that one clear (consumed once on
   // the next view change, same discipline as backNav).
   const dbNoteCarry = useRef(false);
@@ -669,8 +669,8 @@ export default function App() {
   });
 
   // types with at least one note (dashboard excluded) — the single source of
-  // truth for which types are databases (SUB-152): the sidebar unions
-  // schema-registered types on top (SUB-43), the views partition takes this set
+  // truth for which types are databases: the sidebar unions
+  // schema-registered types on top, the views partition takes this set
   const usedTypes = useMemo(() => {
     const counts = new Map<string, number>();
     const casing = new Map<string, string>();
@@ -685,11 +685,11 @@ export default function App() {
     return counts;
   }, [notes]);
 
-  // every note title — the body editor's [[ wikilink completion pool (SUB-269)
+  // every note title — the body editor's [[ wikilink completion pool
   const noteTitles = useMemo(() => notes.map((n) => n.title), [notes]);
 
   const databases = useMemo(() => {
-    // schema-registered databases list even with zero notes (SUB-43)
+    // schema-registered databases list even with zero notes
     const counts = new Map(usedTypes);
     const casing = new Set([...counts.keys()].map((t) => t.toLowerCase()));
     for (const t of Object.keys(schema)) {
@@ -699,7 +699,7 @@ export default function App() {
         casing.add(folded);
       }
     }
-    // SUB-888: a mount IS a database — its name is a schema type, so it is
+    // A mount IS a database — its name is a schema type, so it is
     // already in `counts`, but with the sidecar count (usually 0). Its real
     // size is its index, and carrying the mount here is what lets every
     // database surface route to the mount view and wear the mount glyph.
@@ -724,7 +724,7 @@ export default function App() {
   const mountDbNames = useMemo(() => new Set(mountByType.keys()), [mountByType]);
 
   /** Open a database by name, landing on the mount view when that name is a
-      mounted folder (SUB-888). Every "open this database" path goes through
+      mounted folder. Every "open this database" path goes through
       here, so a mount is reachable from the manager, the sidebar and the
       palette without any of them knowing what a mount is. */
   const openDatabase = useCallback(
@@ -765,7 +765,7 @@ export default function App() {
     [databases, sidebarOrder]
   );
 
-  // SUB-460: `folders` is optional on the Rust struct and the loaders write it
+  // `folders` is optional on the Rust struct and the loaders write it
   // straight through, so a `?? []` inline at the call site would mint a fresh
   // array on every render and make memo(Sidebar) a no-op for every vault whose
   // folder order was never dragged. Pin the empty case to one identity.
@@ -774,21 +774,21 @@ export default function App() {
     [sidebarOrder.folders]
   );
 
-  /** SUB-698: the Dashboards section's group headers in drag order — same
+  /** The Dashboards section's group headers in drag order — same
       pinned-empty-identity trick as `sidebarFolderOrder` above. */
   const sidebarDashGroupOrder = useMemo(
     () => sidebarOrder.dashgroups ?? EMPTY_ORDER,
     [sidebarOrder.dashgroups]
   );
 
-  // SUB-401: root folder paths in sidebar display order — the persisted drag
+  // Root folder paths in sidebar display order — the persisted drag
   // order with new folders appended; drives the Move up/down menu math
   const orderedRootFolders = useMemo(
     () => orderedRootNodes(folders, sidebarOrder.folders ?? []).map((n) => n.path),
     [folders, sidebarOrder.folders]
   );
 
-  // SUB-85: folder path → database type for dbs whose home folder exists.
+  // Folder path → database type for dbs whose home folder exists.
   // A home pointing at a folder that isn't there (hand-edit, not yet
   // created) leaves the db in the flat Databases section rather than
   // vanishing from the sidebar.
@@ -809,7 +809,7 @@ export default function App() {
     return out;
   }, [homeDbByFolder]);
 
-  // pin ids in sidebar order — the ⌘5…⌘9 targets (SUB-67)
+  // pin ids in sidebar order — the ⌘5…⌘9 targets
   const pinIds = useMemo(
     () =>
       pinsInSidebarOrder(
@@ -825,15 +825,15 @@ export default function App() {
     if (view.kind === "all") {
       filtered.sort((a, b) => a.title.localeCompare(b.title));
     }
-    // the Journal folder lists its dailies newest-first (SUB-176)
+    // the Journal folder lists its dailies newest-first
     if (view.kind === "folder" && view.path === JOURNAL_DIR) return journalOrder(filtered);
     return filtered;
   }, [notes, view, tagFolders]);
 
-  // SUB-87: in folder and All notes views the database entries collapse into
+  // In folder and All notes views the database entries collapse into
   // per-database blocks above the loose rows; every other view lists its
   // scope as-is. Blocks are click-through only — the loose rows are the
-  // selectable list. Membership follows the used-types set (SUB-152), so a
+  // selectable list. Membership follows the used-types set, so a
   // type with notes collapses even without a schema entry.
   const viewRows = useMemo<{ loose: NoteMeta[]; blocks: DbBlock[] }>(() => {
     if (view.kind === "folder" || view.kind === "all")
@@ -844,12 +844,12 @@ export default function App() {
   const scratchCount = useMemo(() => notes.filter(isScratchNote).length, [notes]);
 
   useEffect(() => {
-    // an open template (SUB-59) lives outside the index — never snap away
+    // an open template lives outside the index — never snap away
     if (selected && templateTypeOf(selected)) return;
-    // a ghost daily (SUB-210) has no file yet, so it's never in viewNotes
+    // a ghost daily has no file yet, so it's never in viewNotes
     if (selected && selected === ghostPath) return;
-    // a concealed app file (SUB-831/SUB-878) — Settings.md via the ⌘, sheet's
-    // "edit raw" (SUB-398), an agent file opened by wikilink — has no row in
+    // a concealed app file — Settings.md via the ⌘, sheet's
+    // "edit raw", an agent file opened by wikilink — has no row in
     // any view, so membership can't decide for it
     if (selected && isAppFile(selected) && !notes.some((n) => n.path === selected)) return;
     if (viewNotes.length === 0) {
@@ -858,7 +858,7 @@ export default function App() {
     }
     // A phone opens on the list itself. Selecting the first row here would
     // immediately skip that navigation level and reproduce the squeezed
-    // desktop shell's most confusing behavior (SUB-332).
+    // desktop shell's most confusing behavior.
     if (mobile) {
       if (selected && !viewNotes.some((n) => n.path === selected))
         setSelected((cur) => (cur === selected ? null : cur));
@@ -867,9 +867,9 @@ export default function App() {
     // membership is checked against the full scope, so a db entry opened
     // explicitly (palette, search hit, restore, embed click-through) keeps
     // its selection in views where it has no row of its own; auto-select
-    // still lands on the first LOOSE note (SUB-87)
+    // still lands on the first LOOSE note
     if (!selected || !viewNotes.some((n) => n.path === selected)) {
-      // SUB-436: this effect can flush a frame late — ⌘N seeds and selects its
+      // This effect can flush a frame late — ⌘N seeds and selects its
       // fresh note between the render that saw no selection and this commit.
       // Resolving against the live value keeps the snap from overwriting a
       // newer selection (which sent the rename and the typing to the note that
@@ -879,12 +879,12 @@ export default function App() {
   }, [viewNotes, viewRows, selected, ghostPath, mobile]);
 
   const selectedMeta = useMemo(() => {
-    // the full index, not the concealed view (SUB-831): a hidden agent file
+    // the full index, not the concealed view: a hidden agent file
     // followed by wikilink must still open in the editor
     const found = indexedNotes.find((n) => n.path === selected) ?? null;
     if (found) return found;
     // templates are unindexed: synthesize the meta NotePane needs — content
-    // is read from disk by path anyway (SUB-59)
+    // is read from disk by path anyway
     const type = selected ? templateTypeOf(selected) : null;
     if (type && selected) {
       return {
@@ -899,7 +899,7 @@ export default function App() {
         sealed: false,
       };
     }
-    // ghost daily (SUB-210): the dated surface exists on screen, not on disk
+    // ghost daily: the dated surface exists on screen, not on disk
     if (selected && selected === ghostPath) {
       const date = dailyDateOf(selected);
       if (date) {
@@ -915,7 +915,7 @@ export default function App() {
         };
       }
     }
-    // Settings.md via ⌘, "edit raw" (SUB-398): concealed from `notes`, but
+    // Settings.md via ⌘, "edit raw": concealed from `notes`, but
     // still present in the full index — synthesize the selected meta so the
     // editor can open it by path like the other concealed app files
     if (selected === SETTINGS_PATH) {
@@ -1039,7 +1039,7 @@ export default function App() {
       setTimeError(error instanceof Error ? error.message : String(error));
       // Recovery must never dead-end: the guard is still on with no
       // projection behind it, so a failed re-entry would leave every write
-      // blocked and no working control on screen (SUB-822). Re-show the past
+      // blocked and no working control on screen. Re-show the past
       // if we can; otherwise release the guard and land in the present, where
       // the error message is at least actionable.
       try {
@@ -1061,9 +1061,9 @@ export default function App() {
       setTimeBusy(true);
       setTimeError(null);
       try {
-        // the baseline is the version being restored (SUB-822): any live
+        // the baseline is the version being restored: any live
         // file newer than it means this restore would bury someone else's
-        // change, which is exactly what SUB-781's detection + rescue
+        // change, which is exactly what the detection + rescue
         // snapshot exist for. Passing 0 disabled both.
         await historyRestore(note.path, timePoint.id, note.path, note.updated_ms);
         setSelected(null);
@@ -1086,7 +1086,7 @@ export default function App() {
 
   useEffect(() => () => historyLeave(), []);
 
-  // leaving a ghost daily (SUB-210) discards it — nothing was ever written
+  // leaving a ghost daily discards it — nothing was ever written
   useEffect(() => {
     if (ghostPath && selected !== ghostPath) setGhostPath(null);
   }, [selected, ghostPath]);
@@ -1104,7 +1104,7 @@ export default function App() {
 
   const openNote = useCallback(
     (path: string) => {
-      // full index (SUB-831): "Open" from search-by-path, a wikilink, or a
+      // full index: "Open" from search-by-path, a wikilink, or a
       // notification must reach a concealed agent file too
       const note = indexedNotes.find((n) => n.path === path);
       // inside a database (or one of its pins), a note of that type opens in
@@ -1117,9 +1117,9 @@ export default function App() {
         return;
       }
       if (note && !inView(note, view, tagFolders)) setView({ kind: "all" });
-      // SUB-558: a daily note with no file behind it has to re-open as a ghost
-      // (SUB-210) — selecting the bare path would synthesize no meta and render
-      // an empty pane. This is the path SUB-549's "Reopen" toast takes when the
+      // A daily note with no file behind it has to re-open as a ghost —
+      // selecting the bare path would synthesize no meta and render
+      // an empty pane. This is the path the "Reopen" toast takes when the
       // failed write was a ghost's create, and it fixes any other link to a day
       // that doesn't exist yet.
       if (!note && dailyDateOf(path)) {
@@ -1135,7 +1135,7 @@ export default function App() {
     openNoteRef.current = openNote;
   }, [openNote]);
 
-  /* A sheet notification's click (SUB-876): open the note and hand the pane
+  /* A sheet notification's click: open the note and hand the pane
      the row to reveal. The nonce makes a second click on the same row a new
      target — the grid clears each one as it lands. */
   const [sheetReveal, setSheetReveal] = useState<(SheetRowTarget & { nonce: number }) | null>(null);
@@ -1155,7 +1155,7 @@ export default function App() {
     [notes, dbNote, view, activeSaved]
   );
 
-  // SUB-396: the note on screen is a sheet — its grid owns a key surface the
+  // The note on screen is a sheet — its grid owns a key surface the
   // hint panel advertises. Db views show their side note, everything else the
   // selection (same meta NotePane renders).
   const sheetOpen =
@@ -1164,10 +1164,10 @@ export default function App() {
       "type"
     )?.toLowerCase() === "sheet";
 
-  // SUB-464: the open dashboard renders a workbook tab strip — ⌃⇥ / ⌃⇧⇥ steps
+  // The open dashboard renders a workbook tab strip — ⌃⇥ / ⌃⇧⇥ steps
   // pages through the ref WorkbookPane registers while mounted
   const pageStepRef = useRef<((dir: 1 | -1) => void) | null>(null);
-  // SUB-490/SUB-726: mounted boards publish actual ⌘Z / ⌘⇧Z availability here
+  // Mounted boards publish actual ⌘Z / ⌘⇧Z availability here
   // (see useDashUndo). Which board renders can depend on the note's body, and
   // mount alone says nothing about whether either history direction is live.
   const {
@@ -1220,7 +1220,7 @@ export default function App() {
     [persistViewsConfig, viewsDbKey]
   );
 
-  /* ----- saved views (SUB-18): named pins over a database ----- */
+  /* ----- saved views: named pins over a database ----- */
 
   // upsert by (db, name): re-saving under an existing name updates that pin
   const saveView = useCallback(
@@ -1238,14 +1238,14 @@ export default function App() {
         name: trimmed,
         db: storedDb,
         ...(capture.query ? { query: capture.query } : {}),
-        // SUB-199: `sort` always mirrors the first key so older readers still
+        // `sort` always mirrors the first key so older readers still
         // work; the full list persists only when 2+ keys are active
         ...(capture.sorts.length > 0 ? { sort: capture.sorts[0] } : {}),
         ...(capture.sorts.length >= 2 ? { sorts: capture.sorts } : {}),
         view: capture.view,
         ...(capture.groupBy ? { group_by: capture.groupBy } : {}),
         ...(capture.tableGroupBy ? { table_group_by: capture.tableGroupBy } : {}),
-        // SUB-212: the pane only sends columns that differ from the default
+        // The pane only sends columns that differ from the default
         // union — a plain save writes no field
         ...(capture.columns?.length ? { columns: capture.columns } : {}),
       };
@@ -1260,7 +1260,7 @@ export default function App() {
         vaultSavedViewsRead,
         "Couldn't save view settings"
       );
-      // SUB-160: a fresh pin must be findable — re-expand the Saved views
+      // A fresh pin must be findable — re-expand the Saved views
       // section if it was collapsed (sections stay as the user left them).
       // Same persistence path as toggleCollapsed.
       setSidebarOrder((cur) => {
@@ -1282,7 +1282,7 @@ export default function App() {
     [savedViews, persistViewsConfig, schemaDbKey]
   );
 
-  // SUB-212: column curation on an open pin persists straight into the view
+  // Column curation on an open pin persists straight into the view
   // (undefined = back to the database's default column union)
   const setViewColumns = useCallback(
     (id: string, columns: string[] | undefined) => {
@@ -1328,7 +1328,7 @@ export default function App() {
         vaultSavedViewsRead,
         "Couldn't save view settings"
       );
-      // SUB-810: the pin's remembered export target goes with it. The folder
+      // The pin's remembered export target goes with it. The folder
       // on disk stays — it is the user's, and it says so on the tin.
       setExportTargets((cur) => {
         if (!(id in cur)) return cur;
@@ -1356,7 +1356,7 @@ export default function App() {
     [schemaDbKey, schemaPropKey]
   );
 
-  // per-type database icons (SUB-27) ride the same schema.json, under the
+  // per-type database icons ride the same schema.json, under the
   // reserved `icon` key — derived here so every surface reads one source
   const dbIcons = useMemo(() => iconsByType(schema), [schema]);
 
@@ -1364,9 +1364,9 @@ export default function App() {
     vaultSchemaSetIcon(schemaDbKey(dbType), icon).then(setSchema).catch(console.error);
   }, [schemaDbKey]);
 
-  // a database's home folder (SUB-85), set/cleared from the All databases
-  // manager (SUB-159), a folder's "Open as database…" (SUB-611), or the
-  // tree row's "Stop opening as database" (SUB-411) — clearing is the exit
+  // a database's home folder, set/cleared from the All databases
+  // manager, a folder's "Open as database…", or the
+  // tree row's "Stop opening as database" — clearing is the exit
   // path back to homeless
   const setDbHome = useCallback(
     (dbType: string, home: string | null) => {
@@ -1385,10 +1385,10 @@ export default function App() {
     [showToast, schemaDbKey]
   );
 
-  // per-folder icons (SUB-84) ride views.json under the reserved `$folders`
+  // per-folder icons ride views.json under the reserved `$folders`
   // key — the setter returns the whole map, same discipline as the schema.
   // Queued like the other views.json writes so it can't interleave with a
-  // pref/sidebar/pin write (SUB-241); not in that issue's toast list.
+  // pref/sidebar/pin write; not in that issue's toast list.
   const saveFolderIcon = useCallback((path: string, icon: DbIcon | null) => {
     queueViewsWrite(() => vaultFolderIconSet(path, icon)).then(setFolderMeta).catch(console.error);
   }, []);
@@ -1399,7 +1399,7 @@ export default function App() {
     vaultFolderMetaRead().then(setFolderMeta).catch(console.error);
   }, []);
 
-  /* ----- reality mounts (SUB-888) ----- */
+  /* ----- reality mounts ----- */
 
   // the registry plus THIS machine's bindings — both halves can change
   // without a note changing, so mounts reload on their own schedule
@@ -1439,7 +1439,7 @@ export default function App() {
     };
   }, [view, vaultEpoch]);
 
-  /* ----- database management (SUB-43) ----- */
+  /* ----- database management ----- */
 
   // re-read the .vault JSONs the bulk engine ops move behind the scenes
   const reloadDbMeta = useCallback(() => {
@@ -1451,7 +1451,7 @@ export default function App() {
 
   // Safety rail: every bulk sweep starts with an explicit snapshot; history
   // being unavailable (no git) never blocks the op — but it must not pass in
-  // silence either (SUB-481), or a sweep runs unprotected and nothing says so.
+  // silence either, or a sweep runs unprotected and nothing says so.
   // Resolves false when NO restore point exists (see history_snapshot's
   // contract); each caller then appends the warning to its outcome toast — a
   // toast fired here would be replaced unseen milliseconds later by the op's
@@ -1471,12 +1471,12 @@ export default function App() {
         setSchema(cfg);
         setDbDialog(null);
         const type = name.trim();
-        // born from the Folders "+" (SUB-403): the db lands in the tree
+        // born from the Folders "+": the db lands in the tree
         // immediately — a root folder named like its sidebar label becomes
-        // its home (SUB-85), created now or REUSED when one already exists
+        // its home, created now or REUSED when one already exists
         // (never "Name 2"); engine refusals surface as THE toast (the plain
         // "created" one would replace it unseen), the db itself still stands.
-        // A folder's "Open as database…" (SUB-611) skips the eponymous-root
+        // A folder's "Open as database…" skips the eponymous-root
         // dance: homeFolder IS the home, it already exists.
         let homeErr: string | null = null;
         if (homeFolder) {
@@ -1505,10 +1505,10 @@ export default function App() {
     [showToast, folders, refresh]
   );
 
-  // SUB-274 CSV import: pick → parse → dialog. The dialog's confirm creates
+  // CSV import: pick → parse → dialog. The dialog's confirm creates
   // the type through the same vault_create_type path as "New database", then
   // one vault_create per row — best-effort per row, so a title the engine
-  // guards (SUB-223) skips that row instead of aborting the whole import
+  // guards skips that row instead of aborting the whole import
   const openCsvImport = useCallback(() => {
     pickCsvFile()
       .then((picked) => {
@@ -1551,7 +1551,7 @@ export default function App() {
     [refresh, showToast]
   );
 
-  // SUB-888 "Mount a folder…": register the mount, bind it here and scan it
+  // "Mount a folder…": register the mount, bind it here and scan it
   // once, all inside mount_add — then read that one scan's stats back for the
   // dialog to show inline. Nothing is imported: the scan only writes the
   // mount's own index, so the refresh is for the new database appearing.
@@ -1566,7 +1566,7 @@ export default function App() {
     [reloadMounts, reloadDbMeta, refresh]
   );
 
-  // SUB-888: unmounting is two different acts. Plain "Unmount" forgets the
+  // Unmounting is two different acts. Plain "Unmount" forgets the
   // folder and leaves every sidecar behind as an ordinary note — remounting
   // the same folder reattaches them, which is why it needs no confirmation.
   // The cleanup variant trashes those notes, so it goes through a dialog and
@@ -1615,7 +1615,7 @@ export default function App() {
     return by;
   }, [activeMount, mountRowList]);
 
-  /** SUB-888: a mount row's property write. Ordinary notes go through
+  /** A mount row's property write. Ordinary notes go through
       vaultSetProp; a mount row can't, because the note it would write to may
       not exist until this very edit creates it. `mount_annotate` creates the
       sidecar on demand and returns the note either way.
@@ -1720,13 +1720,13 @@ export default function App() {
           // a partial sweep still changed the vault, so both paths refresh
           reloadDbMeta();
           refresh();
-          // the engine retargets a key bound to this database (SUB-467)
+          // the engine retargets a key bound to this database
           reloadSidebarOrder();
           if (sweep.failed) {
             // the rename did NOT land (the type keeps its old name) and notes
             // were partially retyped — that message must outlive a 4s toast,
             // so it rejects back into the dialog's persistent inline error
-            // surface, which stays open exactly as it did pre-SUB-501
+            // surface, which stays open exactly as it did pre
             return Promise.reject(
               withSnapshotWarning(renameDbOutcome(dbType, newName, sweep), snapped)
             );
@@ -1752,7 +1752,7 @@ export default function App() {
           // a partial sweep still changed the vault, so both paths refresh
           reloadDbMeta();
           refresh();
-          // …and drops it when the database goes (SUB-467)
+          // …and drops it when the database goes
           reloadSidebarOrder();
           if (sweep.failed) {
             // the database survives a sweep that failed partway; the partial
@@ -1788,7 +1788,7 @@ export default function App() {
           if (sweep.failed) {
             // the schema key never moved — the partial message outlives a 4s
             // toast by rejecting into the dialog's inline error (stays open,
-            // the pre-SUB-501 failure behavior)
+            // the pre-change failure behavior)
             return Promise.reject(
               withSnapshotWarning(renamePropOutcome(prop, newName, sweep), snapped)
             );
@@ -1866,7 +1866,7 @@ export default function App() {
 
   // union of values in use across a type — the picker's no-ceremony bootstrap;
   // for the `type` prop itself it offers the existing databases. A multi prop
-  // (SUB-79) contributes each of its values, not the joined display string.
+  // contributes each of its values, not the joined display string.
   const usedValues = useCallback(
     (dbType: string, key: string): string[] => {
       if (isTypePropName(key)) return databases.map((d) => d.type);
@@ -1898,7 +1898,7 @@ export default function App() {
   const dbTypes = useMemo(() => databases.map((d) => d.type), [databases]);
 
   // create-new inline from a relation picker: lands in the target type's
-  // home folder when one is set (SUB-85), else where most of it already
+  // home folder when one is set, else where most of it already
   // lives (the DatabasePane new-entry heuristic), typed
   const createEntry = useCallback(
     (dbType: string, title: string) => {
@@ -1913,13 +1913,13 @@ export default function App() {
     [notes, schema, refresh, undoApi]
   );
 
-  // SUB-656: the palette closes before its create settles (Palette.tsx's
+  // The palette closes before its create settles (Palette.tsx's
   // run() does `close(); item.run();`), so an engine refusal — a title
   // holding `[`/`]`, a dot-leading slug, an unwritable folder (vault.rs
   // create_full) — had no UI left to return to and died on
   // `.catch(console.error)`: nothing created, nothing said, typed text gone.
-  // The shape createNote has had since SUB-113 and the db/calendar drafts
-  // since SUB-564: name what failed, surface the engine's own reason, and
+  // The shape createNote has had and the db/calendar drafts
+  // took after it: name what failed, surface the engine's own reason, and
   // keep the user's text on the clipboard where there is text to keep.
   const reportCreateFailure = useCallback(
     (what: string, text?: string) =>
@@ -1942,7 +1942,7 @@ export default function App() {
       vaultCreate(title, folder)
         .then((meta) => {
           recordCreate({ meta, record: undoApi.record });
-          // seed the fresh meta synchronously (SUB-72): without it the
+          // seed the fresh meta synchronously: without it the
           // selection-guard effect snaps back to the old list top before
           // refresh() lands — same trick as createScratch/openJournal
           setNotes((ns) => [...ns.filter((n) => n.path !== meta.path), meta]);
@@ -1953,7 +1953,7 @@ export default function App() {
           focusSoon(() => editorFocusRef.current?.());
         })
         .catch((err) => {
-          // SUB-113: the palette is already closed by the time this rejects,
+          // The palette is already closed by the time this rejects,
           // so the captured text has no UI to return to — preserve it on the
           // clipboard and say so; never fail silently
           const msg = err instanceof Error ? err.message : String(err);
@@ -1966,36 +1966,36 @@ export default function App() {
     [refresh, showToast, showMobileDetail, undoApi]
   );
 
-  // ⌘N inside Notes (SUB-70): instant untyped scratch note — no dialog, lands
+  // ⌘N inside Notes: instant untyped scratch note — no dialog, lands
   // in Inbox/ like quick capture, sorts to the top of the recency list, and
   // the cursor drops into the title with "Untitled" selected. The fresh meta
   // is seeded synchronously so the selection effect doesn't snap back before
   // the async refresh lands (same trick as openJournal).
   const createScratch = useCallback(
-    // SUB-818: `tags` is what "create inside a tag folder" means — the note is
+    // `tags` is what "create inside a tag folder" means — the note is
     // born wherever loose notes are born and the folder's tags are written
     // onto it, because a tag folder is a rule, not a place.
     (folder = "Inbox", tags: string[] = []) => {
       vaultCreate("Untitled", folder)
         .then((meta) => (tags.length > 0 ? vaultNoteAddTags(meta.path, tags) : meta))
         .then((meta) => {
-          scratchPaths.current.add(meta.path); // SUB-264: abandons if left pristine
+          scratchPaths.current.add(meta.path); // Abandons if left pristine
           setNotes((ns) => [...ns.filter((n) => n.path !== meta.path), meta]);
           setSelected(meta.path);
           showMobileDetail();
           refresh();
           focusSoon(() => titleFocusRef.current?.());
         })
-        // SUB-656: nothing typed to preserve here (the title is always
+        // Nothing typed to preserve here (the title is always
         // "Untitled"), but an unwritable folder still has to say so
         .catch(reportCreateFailure("create note"));
     },
     [refresh, showMobileDetail, reportCreateFailure]
   );
 
-  // SUB-264: a ⌘N note that stayed pristine abandons itself — capture's Esc
+  // A ⌘N note that stayed pristine abandons itself — capture's Esc
   // never persists at all, this is the same discard one step later. Silent by
-  // design (no trash toast). Flush-then-recheck (SUB-229): a debounced save
+  // design (no trash toast). Flush-then-recheck: a debounced save
   // must land before the emptiness read, or typed text gets deleted under the
   // user. The path stays tracked while it has content — a later empty-out
   // still abandons it.
@@ -2036,7 +2036,7 @@ export default function App() {
     }
   }, [selected, viewKeyNow, abandonScratch]);
 
-  // born-complete typed create (SUB-17): schema-default empty chips + the
+  // born-complete typed create: schema-default empty chips + the
   // type's template instantiated, then the entry opens in place
   const createTyped = useCallback(
     (title: string, dbType: string, focus: "editor" | "title" = "editor") => {
@@ -2072,7 +2072,7 @@ export default function App() {
     [notes, schema, templateTypes, view, refresh, showMobileDetail, undoApi, reportCreateFailure, setNotes, tagFolders]
   );
 
-  // SUB-796 — a cell edited inside an inline ```view fence. Deliberately the
+  // A cell edited inside an inline ```view fence. Deliberately the
   // same call the database pane's cells make (setPropUndoable), so one ⌘Z
   // reverts it whichever surface the edit came from; docs/undo.md §6.2.
   const embedSetProp = useCallback(
@@ -2089,7 +2089,7 @@ export default function App() {
     [undoApi, refresh, showToast]
   );
 
-  // SUB-796 — the fence's "+ New". A born-complete typed create like ⌘N's
+  // The fence's "+ New". A born-complete typed create like ⌘N's
   // (schema defaults + template), plus the fence's own equality filters seeded
   // on top so the new row actually belongs to the table it was added from.
   // It does NOT navigate: the user is writing a note, and the row appearing in
@@ -2120,7 +2120,7 @@ export default function App() {
           setNotes((ns) => [...ns.filter((n) => n.path !== meta.path), meta]);
           refresh();
           // born hidden (a text term, a filter shape the seeds can't satisfy)?
-          // Say so — otherwise the create looks dropped (SUB-234, the pane's rule)
+          // Say so — otherwise the create looks dropped (the pane's rule)
           if (query.trim() && filterByQuery([meta], query, undefined, typeSchema).length === 0)
             showToast(`Created “${title}” — hidden by filter`);
         })
@@ -2129,7 +2129,7 @@ export default function App() {
     [notes, schema, templateTypes, refresh, undoApi, reportCreateFailure, showToast]
   );
 
-  // SUB-796 — a relation cell's "create and link", inline. Same two steps the
+  // A relation cell's "create and link", inline. Same two steps the
   // database pane takes: create the target entry, then add its title to this
   // note's relation list.
   const embedCreateRelation = useCallback(
@@ -2151,7 +2151,7 @@ export default function App() {
     [createEntry, notes, undoApi, refresh, reportCreateFailure]
   );
 
-  // "New sheet…" (SUB-393): sheets are surfaces, not database entries, so the
+  // "New sheet…": sheets are surfaces, not database entries, so the
   // create is just title + `type: sheet` — the grid's empty state ("+ column")
   // starts the csv block. Contextual like ⌘N: an open folder view hosts the
   // new sheet, everything else lands it at the vault root next to Holdings.
@@ -2173,19 +2173,19 @@ export default function App() {
     [view, refresh, showMobileDetail, undoApi, reportCreateFailure, setNotes, tagFolders]
   );
 
-  // a `type` chip commit re-homed an existing note into a database (SUB-208):
+  // a `type` chip commit re-homed an existing note into a database:
   // without this the note leaves the current view's scope on refresh and the
   // selection-guard snaps to another note — the user files a capture and loses
   // it. Follow the note exactly like createTyped: seed the fresh meta
   // synchronously (app state is pre-refresh stale at this instant), then
   // stay on it wherever it now lives.
   //
-  // SUB-470: when the commit MINTS the database — the type isn't in the
+  // When the commit MINTS the database — the type isn't in the
   // pre-refresh `databases` list — filing quietly would teleport the note to
   // a view that exists nowhere on screen yet ("appears from under your
   // grasp"). A birth is announced: follow the note INTO the new database and
   // offer the sidebar home right there — the same eponymous root folder the
-  // Folders "+" create uses (SUB-403/SUB-85, reuse-never-"Name 2").
+  // Folders "+" create uses (reuse-never-"Name 2").
   const followTyped = useCallback(
     (meta: NoteMeta) => {
       setNotes((ns) => [...ns.filter((n) => n.path !== meta.path), meta]);
@@ -2195,7 +2195,7 @@ export default function App() {
         !FUNCTIONAL_TYPES.has(type.toLowerCase()) &&
         !databases.some((d) => d.type.toLowerCase() === type.toLowerCase())
       ) {
-        // db→db birth: keep the note across the SUB-267 leave-clears effect
+        // db→db birth: keep the note across the leave-clears effect
         dbNoteCarry.current = view.kind === "db" || view.kind === "saved";
         setView({ kind: "db", type });
         setDbNote(meta.path);
@@ -2213,7 +2213,7 @@ export default function App() {
                   return f;
                 })
             )
-              // setDbHome owns the success/refusal toast (SUB-407 taken
+              // setDbHome owns the success/refusal toast (a taken
               // folder surfaces as the engine's own error text)
               .then((home) => setDbHome(type, home))
               .catch((e) => showToast(String(e)));
@@ -2229,7 +2229,7 @@ export default function App() {
     [view, databases, folders, refresh, setDbHome, showToast, showMobileDetail, setNotes, tagFolders]
   );
 
-  // open a type's template as an ordinary note (SUB-59): the file lives
+  // open a type's template as an ordinary note: the file lives
   // under hidden `.vault/templates/` — readable/writable by explicit path,
   // never indexed. A type without one gets an empty template created first.
   const openTemplate = useCallback(
@@ -2256,7 +2256,7 @@ export default function App() {
 
   const captureUrl = useCallback(
     (url: string) => {
-      // SUB-834: capture is local and always works; only the title fetch is
+      // Capture is local and always works; only the title fetch is
       // gated, so a link pasted with the switch off lands as a plain URL note
       urlCapture(url, netLinkTitles)
         .then((meta) => {
@@ -2283,14 +2283,14 @@ export default function App() {
 
   const onRenamed = useCallback(
     (oldPath: string, m: NoteMeta) => {
-      // SUB-785: session fold memory is keyed by live path — move it with
+      // Session fold memory is keyed by live path — move it with
       // the note so folds survive a rename done while the note is closed
       migrateSessionFolds(oldPath, m.path);
-      scratchPaths.current.delete(oldPath); // a real title never abandons (SUB-264)
+      scratchPaths.current.delete(oldPath); // a real title never abandons
       setNotes((ns) => ns.map((n) => (n.path === oldPath ? m : n)));
       setSelected(m.path);
       setDbNote((cur) => (cur === oldPath ? m.path : cur));
-      // SUB-624: a rename moves the FILE too (title → stem), so an open
+      // A rename moves the FILE too (title → stem), so an open
       // dashboard view needs the same retarget the move path gets below
       setView((v) =>
         v.kind === "dashboard" && v.path === oldPath ? { ...v, path: m.path } : v
@@ -2301,11 +2301,11 @@ export default function App() {
     [refresh, reloadSidebarOrder]
   );
 
-  // SUB-783: undo/redo of a rename repairs the same state the forward rename
+  // Undo/redo of a rename repairs the same state the forward rename
   // does, but only FOLLOWS the note when it was the selected one — the
   // forward rename's unconditional setSelected would turn ⌘Z of a
   // background note's rename into a navigation. Announced first so an open
-  // pane relabels in place (the SUB-772 no-remount lane) before the path
+  // pane relabels in place (the no-remount lane) before the path
   // swap reaches it as a prop.
   const onRenameApplied = useCallback(
     (oldPath: string, m: NoteMeta) => {
@@ -2323,10 +2323,10 @@ export default function App() {
     [refresh, reloadSidebarOrder]
   );
 
-  // SUB-263: undo of Move to Trash — restore through the same IPC the Trash
+  // Undo of Move to Trash — restore through the same IPC the Trash
   // pane uses, then re-select the note (seeded synchronously like TrashPane's
   // onRestored, so the selection effect finds it before the refresh lands).
-  // SUB-478: by the trash id vault_delete returned, not a path scan — trash
+  // By the trash id vault_delete returned, not a path scan — trash
   // the same path twice and a scan restores the wrong version.
   const restoreTrashed = useCallback(
     (id: string) => {
@@ -2343,7 +2343,7 @@ export default function App() {
     [view, refresh, showToast, showMobileDetail, setNotes, tagFolders]
   );
 
-  // SUB-515: the folder counterpart — undo of "Move folder to Trash" brings
+  // The folder counterpart — undo of "Move folder to Trash" brings
   // the whole subtree back by the trash id and puts the user back in it
   const restoreTrashedFolder = useCallback(
     (id: string) => {
@@ -2360,14 +2360,14 @@ export default function App() {
     [refresh, reloadFolderMeta, reloadSealScopes, reloadSidebarOrder, showToast]
   );
 
-  // SUB-263: feedback for the note pane's Move to Trash — a quiet toast with
+  // Feedback for the note pane's Move to Trash — a quiet toast with
   // Undo, and selection lands on the trashed note's neighbor in the current
   // list (next row, else previous) instead of snapping to the top
-  // SUB-515: the toast's Undo runs the stack entry by id, so the button and
+  // The toast's Undo runs the stack entry by id, so the button and
   // ⌘Z are one action rather than two lookalikes that could drift apart
   const onNoteTrashed = useCallback(
     (path: string, undoId: number) => {
-      scratchPaths.current.delete(path); // explicit trash gets the toast (SUB-264)
+      scratchPaths.current.delete(path); // explicit trash gets the toast
       if (selected === path) {
         const idx = viewRows.loose.findIndex((n) => n.path === path);
         const neighbor = idx >= 0 ? (viewRows.loose[idx + 1] ?? viewRows.loose[idx - 1]) : undefined;
@@ -2379,16 +2379,16 @@ export default function App() {
   );
 
   // run a file-touching action only after the open pane's pending save has
-  // landed (SUB-257 — Duplicate's SUB-271 rule, shared by trash + exports).
+  // landed (Duplicate's rule, shared by trash + exports).
   // The action's promise passes through so callers that rely on rejection
-  // (rename/move, SUB-286 — InlineEdit stays open on a failed rename) keep
+  // (rename/move, InlineEdit stays open on a failed rename) keep
   // their resolve/reject semantics
   const afterOpenFlush = useCallback(<T,>(fn: () => T | Promise<T>): Promise<T> => {
     const flush = flushOpenRef.current;
     return (flush ? flush() : Promise.resolve()).then(fn);
   }, []);
 
-  // SUB-271: duplicate a note next to itself — the engine dedupes the
+  // Duplicate a note next to itself — the engine dedupes the
   // "<title> copy" filename. The open pane's pending save lands first (the
   // copy reads the file), then the fresh copy opens in place, following the
   // same view rules as a born-complete create (createTyped)
@@ -2420,20 +2420,20 @@ export default function App() {
     setOverlay("palette");
   }, []);
 
-  // SUB-257: one trash path for every surface — pending text lands first
-  // (SUB-229), then the SUB-263 toast with Undo + neighbor selection. The
+  // One trash path for every surface — pending text lands first,
+  // then the toast with Undo + neighbor selection. The
   // note pane's own menu goes through here too (it flushes first itself)
   const trashNote = useCallback(
     (path: string) => {
       afterOpenFlush(() => {
         // the id is minted before the write so the toast and the stack entry
-        // are the same action (SUB-515)
+        // are the same action
         const undoId = undoStack.nextUndoId();
         trashUndoable({ path, id: undoId, record: undoApi.record, restore: restoreTrashed })
           .then(() => {
             // a trashed db side note must not linger as state — the pane
             // already unmounts (meta lookup fails), and a stale dbNote would
-            // eat one ⌫/Esc press for nothing (SUB-392)
+            // eat one ⌫/Esc press for nothing
             setDbNote((d) => (d === path ? null : d));
             refresh();
             reloadSidebarOrder();
@@ -2445,10 +2445,10 @@ export default function App() {
     [afterOpenFlush, refresh, reloadSidebarOrder, onNoteTrashed, showToast, undoApi, restoreTrashed]
   );
 
-  // SUB-272: bulk trash from the table's multi-select bar — one refresh, ONE
+  // Bulk trash from the table's multi-select bar — one refresh, ONE
   // summary toast. Undo restores every trashed note through the same per-note
-  // restore as SUB-263.
-  // SUB-577: ONE vault_delete_many, not a vault_delete per note. The per-note
+  // restore.
+  // ONE vault_delete_many, not a vault_delete per note. The per-note
   // loop stamped each note from its own clock reading, so a millisecond
   // boundary falling mid-loop under load split one click's worth of notes
   // across two `deleted_ms` groups and reordered them in the Trash pane. The
@@ -2492,7 +2492,7 @@ export default function App() {
     [afterOpenFlush, dbNote, refresh, restoreTrashed, showToast, undoApi]
   );
 
-  // SUB-1095: a `[[Note#Heading]]` click knows where it wants to land, but
+  // a `[[Note#Heading]]` click knows where it wants to land, but
   // the line only exists once the note's text is in hand — the anchor waits
   // here until the effect below can read the note and aim the reveal.
   const [pendingAnchor, setPendingAnchor] = useState<{ path: string; anchor: string } | null>(null);
@@ -2500,7 +2500,7 @@ export default function App() {
   const followLink = useCallback(
     (name: string) => {
       // the link's NAME is the target alone: the heading anchor says where to
-      // land, the display alias is prose (SUB-1095)
+      // land, the display alias is prose
       const { target, anchor } = parseWikiLink(name);
       if (!target) {
         // `[[#Heading]]` points inside the note that carries it
@@ -2516,7 +2516,7 @@ export default function App() {
           return;
         }
         // unresolved: a database name opens that view (hub-page links,
-        // SUB-203) — only a genuine miss creates the note
+        // links) — only a genuine miss creates the note
         const db = databases.find((d) => d.type.toLowerCase() === target.toLowerCase());
         if (db) openDatabase(db.type);
         else createNote(target, "");
@@ -2525,7 +2525,7 @@ export default function App() {
     [openNote, createNote, databases, openDatabase]
   );
 
-  /* ----- inline view embeds in notes (SUB-86) ----- */
+  /* ----- inline view embeds in notes ----- */
 
   // resolve a ```view fence against the current vault snapshot; the widget
   // re-asks on every render, so this closure must follow the latest state
@@ -2535,7 +2535,7 @@ export default function App() {
   );
 
   // an embed's header click opens the database — or, when the embed came
-  // from a saved: pin, that saved view itself (SUB-211)
+  // from a saved: pin, that saved view itself
   const openEmbedView = useCallback(
     (dbType: string, savedId?: string) =>
       setView(savedId ? { kind: "saved", id: savedId } : { kind: "db", type: dbType }),
@@ -2544,7 +2544,7 @@ export default function App() {
 
   /* ----- sidebar flow: folders, moves, ordering ----- */
 
-  // SUB-466: a moved dashboard keeps its manual sidebar position. The engine
+  // A moved dashboard keeps its manual sidebar position. The engine
   // retargets the note's PIN behind our back but not the reorder entry, and
   // `applyOrder` drops ids it can't match — so without this the row silently
   // fell to the bottom of the Dashboards lane. Re-read the order the engine
@@ -2573,7 +2573,7 @@ export default function App() {
     [persistViewsConfig]
   );
 
-  // SUB-698: a renamed or moved GROUP folder keeps its manual position and its
+  // A renamed or moved GROUP folder keeps its manual position and its
   // collapse state. The engine retargets `$sidebar.dashgroups` behind our back
   // (move_sidebar_folders) but nothing retargets `collapsed`, whose group ids
   // are keyed by folder path — and toggleCollapsed's GC then drops the orphan,
@@ -2618,9 +2618,9 @@ export default function App() {
     [persistViewsConfig]
   );
 
-  // SUB-286: rename/move of the open note wait out its pending save too —
+  // Rename/move of the open note wait out its pending save too —
   // otherwise the pane's late flush writes to the OLD path after the mutation
-  // and dies silently (SUB-94), losing the typed text
+  // and dies silently, losing the typed text
   const renameNote = useCallback(
     (path: string, title: string): Promise<void> =>
       afterOpenFlush(() =>
@@ -2638,16 +2638,16 @@ export default function App() {
     [afterOpenFlush, onRenamed, undoApi]
   );
 
-  // SUB-1061: a move's undo runs long after the move recorded it, so the
+  // A move's undo runs long after the move recorded it, so the
   // follow decision can't ride the closure moveNote captured — it has to read
   // the view/selection as they are at ⌘Z time.
   const moveFollowRef = useRef({ view, selected, tagFolders });
   moveFollowRef.current = { view, selected, tagFolders };
 
-  // SUB-1061: undo/redo apply the inverse move outside moveNote, so without
+  // Undo/redo apply the inverse move outside moveNote, so without
   // this the file returns and `selected` still names the dead destination —
   // the selection-guard snaps the editor to a neighbour and the next
-  // keystroke lands in the wrong note (SUB-768's trap, at undo time). Same
+  // keystroke lands in the wrong note (the trap, at undo time). Same
   // shape as onRenameApplied: repair every path reference, and FOLLOW the
   // view only when the note that moved is the open one and was on screen.
   const onMoveApplied = useCallback(
@@ -2661,7 +2661,7 @@ export default function App() {
       setView((cur) =>
         cur.kind === "dashboard" && cur.path === oldPath ? { ...cur, path: m.path } : cur
       );
-      // seed the moved meta synchronously (SUB-72 trick), same reason the
+      // seed the moved meta synchronously, same reason the
       // forward move does: app state is pre-refresh stale at this instant
       setNotes((ns) => ns.map((n) => (n.path === oldPath ? m : n)));
       if (wasShown && !inView(m, v, tf)) {
@@ -2682,31 +2682,31 @@ export default function App() {
   const moveNote = useCallback(
     (path: string, folder: string): Promise<void> =>
       afterOpenFlush(() => {
-        // SUB-768: whether the view has to FOLLOW is decided against the
+        // Whether the view has to FOLLOW is decided against the
         // pre-move meta — a note the current view never listed (a dashboard
         // or search scope, where the guard clears instead of snapping) must
         // not yank the view, and neither must moving a background note.
         const prev = notesRef.current.find((n) => n.path === path);
         const wasShown = selected === path && !!prev && inView(prev, view, tagFolders);
-        // SUB-1061: onApplied is undo/redo only — the forward move's repair is
+        // OnApplied is undo/redo only — the forward move's repair is
         // the `.then` right below, which knows this call's own `wasShown`
         return moveUndoable({ path, folder, record: undoApi.record, onApplied: onMoveApplied }).then((m) => {
           // the file's rel path changed — follow it everywhere it's referenced
           setSelected((sel) => (sel === path ? m.path : sel));
           setDbNote((cur) => (cur === path ? m.path : cur));
           setRenaming((r) => (r === path ? m.path : r));
-          // SUB-624: an OPEN dashboard is addressed by its path too — since
-          // SUB-605 dragging one between folders is a normal gesture, and a
+          // An OPEN dashboard is addressed by its path too — since
+          // Dragging one between folders is a normal gesture, and a
           // view left on the old path finds no meta and falls back to the list
           setView((v) => (v.kind === "dashboard" && v.path === path ? { ...v, path: m.path } : v));
-          // SUB-768: the OPEN note left this view's scope — left alone, the
+          // The OPEN note left this view's scope — left alone, the
           // selection-guard snaps the editor to a different note and the
           // next keystroke lands in it (the wrong-note editing trap). Follow
           // the note to where it now lives, exactly like followTyped does:
           // untyped Inbox/root captures belong to Notes (the createNote
           // idiom), anything else to its destination folder.
           if (wasShown && !inView(m, view, tagFolders)) {
-            // seed the moved meta synchronously (SUB-72 trick): app state is
+            // seed the moved meta synchronously: app state is
             // pre-refresh stale at this instant, so the destination view has
             // no row for the note yet and the guard would snap right back
             setNotes((ns) => ns.map((n) => (n.path === path ? m : n)));
@@ -2745,8 +2745,9 @@ export default function App() {
     [refresh, undoApi]
   );
 
-  /** SUB-698: a folder that changed rel (rename or move) drags every path the
-      app is CURRENTLY pointing at with it — the SUB-624 rule one level up. The
+  /** A folder that changed rel (rename or move) drags every path the
+      app is CURRENTLY pointing at with it — the rule that an open note or
+      dashboard follows its own file through a rename, one level up. The
       open folder view, an open dashboard inside it, the selected note, the db
       side note and an armed inline rename are all addressed by path, and a
       pane left on the old rel finds no meta and silently falls back to the
@@ -2786,7 +2787,7 @@ export default function App() {
         reloadFolderMeta();
         reloadSealScopes();
         refresh();
-        // re-reads the order the engine just rewrote; for a dash group (SUB-698)
+        // re-reads the order the engine just rewrote; for a dash group
         // it also carries the `dashgroup:<folder>` collapse id to the new path
         migrateSidebarGroupFolder(path, newRel);
       }),
@@ -2800,13 +2801,13 @@ export default function App() {
     ]
   );
 
-  /** SUB-698: move a folder under `target` ("" = vault root) — the gesture
+  /** Move a folder under `target` ("" = vault root) — the gesture
       behind dragging a Dashboards group header onto a folder tree row. The
       dashboards inside keep their filenames and re-render as that row's tree
-      dashboards (SUB-605); a collision surfaces the engine's message. */
+      dashboards; a collision surfaces the engine's message. */
   const moveFolder = useCallback(
     (path: string, target: string) => {
-      // SUB-286's rule for directories: a pending editor save inside the folder
+      // The rule for directories: a pending editor save inside the folder
       // must land BEFORE the dir moves, or the late flush writes to a dead path
       afterOpenFlush(() =>
         moveFolderUndoable({
@@ -2840,10 +2841,10 @@ export default function App() {
     ]
   );
 
-  // chevron-collapsible sidebar sections (SUB-70): the id is a section name
+  // chevron-collapsible sidebar sections: the id is a section name
   // ("dashboards" | "databases" | "folders") or a pin group ("dbpins:<type>");
   // state persists in `.vault/views.json` under `$sidebar.collapsed`
-  // SUB-466: the `dashgroup:<folder>` ids the sidebar can actually render right
+  // The `dashgroup:<folder>` ids the sidebar can actually render right
   // now — a group exists only while some dashboard lives in that subfolder
   const dashGroupIds = useMemo(
     () =>
@@ -2866,11 +2867,11 @@ export default function App() {
     dashGroupIds,
   });
 
-  // SUB-467: the key HUD is open. Session-only by design — assign mode is a
+  // The key HUD is open. Session-only by design — assign mode is a
   // thing you do, not a setting you keep.
   const [keyAssignOpen, setKeyAssignOpen] = useState(false);
 
-  // the ⌘-digit each pin owns (SUB-677) — derived from the same pinIds order
+  // the ⌘-digit each pin owns — derived from the same pinIds order
   // the shortcuts fire on, minus digits a custom key claims. DatabasePane's
   // view tabs render them: the surface a homed database's pins actually
   // appear on, which the sidebar no longer provides
@@ -2887,7 +2888,7 @@ export default function App() {
     [pinnedPaths, notes]
   );
 
-  // SUB-467: live rows behind the target tokens, so the sheet and the HUD name
+  // Live rows behind the target tokens, so the sheet and the HUD name
   // a binding's destination instead of echoing its token
   const keyLabelCtx = useMemo(
     () => ({
@@ -2911,10 +2912,10 @@ export default function App() {
     [mobile, orderedDashboards]
   );
 
-  // SUB-594: every dashboard already has a sidebar row of its own, so a pinned
+  // Every dashboard already has a sidebar row of its own, so a pinned
   // one must not ALSO nest under a folder tree row as a pin. Exclusion is by
   // PATH and independent of WHICH surface owns the dashboard row — the
-  // Dashboards section (home subtree) or, since SUB-605, its folder's tree row.
+  // Dashboards section (home subtree) or, its folder's tree row.
   // Computed once from the list that reaches the Sidebar's `dashboards` prop
   // and passed down, so menu math and render can't disagree (e.g. on mobile,
   // where the filtered list moves the dashboards home).
@@ -2923,37 +2924,37 @@ export default function App() {
     [mobileDashboards]
   );
 
-  // SUB-605: the same three-way dashboard split the sidebar renders — shared
+  // The same three-way dashboard split the sidebar renders — shared
   // here so the row menu's Move lane is the one the row actually reorders in
   const dashSplit = useMemo(
     () => splitDashboards(mobileDashboards, folders),
     [mobileDashboards, folders]
   );
 
-  // SUB-698: the group headers in the order the sidebar draws them — the menu's
+  // The group headers in the order the sidebar draws them — the menu's
   // Move up/down has to index the same list the drag lane reorders
   const orderedDashGroups = useMemo(
     () => applyOrder(dashSplit.groups, sidebarDashGroupOrder, (g) => g.folder),
     [dashSplit, sidebarDashGroupOrder]
   );
 
-  // SUB-585: the split the sidebar renders pins with — flat section rows vs
+  // The split the sidebar renders pins with — flat section rows vs
   // per-folder tree groups. Shared here so pin menus run the same lane math.
   const pinSplit = useMemo(() => splitPins(pinnedNotes, dashPaths), [pinnedNotes, dashPaths]);
 
   // the non-drag reorder path: every reorderable sidebar lane also moves by
-  // menu — dashboards (SUB-58), folder sibling groups at any depth (SUB-401
-  // roots, SUB-585 nested), and pin groups (SUB-585). The id list mirrors what
+  // menu — dashboards, folder sibling groups at any depth (roots
+  // and nested alike), and pin groups. The id list mirrors what
   // the sidebar renders for that lane, so menu math and drag math agree.
   const sectionMoveItems = useCallback(
     (section: Section, id: string): MenuItem[] => {
       const ids =
         section === "dashboards"
-          ? // SUB-605: the section's own rows in render order (flat, then the
+          ? // The section's own rows in render order (flat, then the
             // subfolder groups' members) — NOT every dashboard in the vault.
             // A tree-foldered one interleaved in the persisted order would
             // otherwise absorb the swap and Move up/down would do nothing.
-            // SUB-698: groups in their persisted header order, same as render
+            // Groups in their persisted header order, same as render
             [...dashSplit.flat, ...orderedDashGroups.flatMap((g) => g.items)].map((d) => d.path)
           : section.startsWith("dashes:")
             ? (dashSplit.byFolder.get(section.slice("dashes:".length)) ?? []).map((d) => d.path)
@@ -3012,7 +3013,7 @@ export default function App() {
       .catch(console.error);
   }, []);
 
-  // SUB-257: the row menu renders the canonical note actions (lib/
+  // The row menu renders the canonical note actions (lib/
   // noteactions) — same descriptors the note pane's ⋯ menu and the palette
   // actions stage show, with the row surface's full wiring (Open included)
   const noteMenuItems = useCallback(
@@ -3054,12 +3055,12 @@ export default function App() {
   );
 
   /** `lane` overrides which reorder lane the Move up/down entries act on.
-      SUB-698: a Dashboards group header wears the folder menu but reorders
+      A Dashboards group header wears the folder menu but reorders
       against its sibling HEADERS, not against the folder tree. */
   const folderMenuItems = useCallback(
     (path: string, anchor: AnchorRect, lane?: Section): MenuItem[] => [
       { label: "Open", icon: <FolderIcon />, onSelect: () => setView({ kind: "folder", path }) },
-      // SUB-451: the same instant scratch ⌘N makes in a folder view (2299),
+      // The same instant scratch ⌘N makes in a folder view (2299),
       // reachable without opening the folder first. The view follows the note —
       // otherwise the selection effect snaps back to the current view's first
       // row, since the fresh note is no member of it.
@@ -3076,7 +3077,7 @@ export default function App() {
         icon: <PlusIcon />,
         onSelect: () => setFolderEdit({ kind: "create", parent: path }),
       },
-      // SUB-611: the discoverable half of SUB-85 homing — this folder's row
+      // The discoverable half of homing — this folder's row
       // starts opening as a database (existing or born here). The inverse
       // lives on the db-dressed row ("Stop opening as database").
       {
@@ -3145,7 +3146,7 @@ export default function App() {
           ]
         : []),
       { label: "Reveal in Finder", icon: <FolderIcon />, onSelect: () => revealRel(path) },
-      // SUB-401 roots, SUB-585 nested: every folder reorders by menu within
+      // Roots and nested alike: every folder reorders by menu within
       // its own sibling group
       ...sectionMoveItems(
         lane ??
@@ -3176,7 +3177,7 @@ export default function App() {
               reloadFolderMeta();
               reloadSealScopes();
               refresh();
-              // SUB-698: the engine drops the trashed folder's `dashgroups`
+              // The engine drops the trashed folder's `dashgroups`
               // entry; its `dashgroup:` collapse id goes with it, so a restored
               // group comes back open rather than remembering a stale collapse
               if (lane === "dashgroups") migrateSidebarGroupFolder(path, null);
@@ -3220,8 +3221,8 @@ export default function App() {
             setDbNewSeq((s) => s + 1);
           },
         },
-        // SUB-85: a homed db opens as its folder's greeting view; the raw
-        // file list of the home folder stays reachable here. SUB-611: the
+        // A homed db opens as its folder's greeting view; the raw
+        // file list of the home folder stays reachable here: the
         // row IS a real folder, so it grows subfolders like any other.
         ...(home
           ? [
@@ -3242,7 +3243,7 @@ export default function App() {
           icon: <PenIcon />,
           onSelect: () => setDbDialog({ kind: "rename-db", dbType: type }),
         },
-        // same slot as the folder menu's (SUB-84): right below Rename…
+        // same slot as the folder menu's: right below Rename…
         {
           label: "Change icon…",
           icon: <DbGlyphIcon />,
@@ -3257,9 +3258,9 @@ export default function App() {
               },
             ]
           : []),
-        // SUB-411: the non-destructive exit — un-home straight from the tree
+        // The non-destructive exit — un-home straight from the tree
         // row, same lane as the manager picker's clear (setDbHome toasts).
-        // SUB-611 label: the folder row stays in the sidebar after this, so
+        // Label: the folder row stays in the sidebar after this, so
         // "Remove from sidebar" lied — the click target reverts, that's all
         ...(home
           ? [
@@ -3284,10 +3285,10 @@ export default function App() {
     [homeByDb, dbIcons, saveSchemaIcon, setDbHome]
   );
 
-  // the All-databases manager's row menu (SUB-159): the database's standard
+  // the All-databases manager's row menu: the database's standard
   // items with the home-folder lane inserted above the rename/icon/delete
   // tail; the lane swaps in the folder picker as a second-stage menu on the
-  // spot. SUB-888: a mounted folder gets the unmount lanes there instead of
+  // spot. A mounted folder gets the unmount lanes there instead of
   // the home lane — its "home" is a folder outside the vault entirely.
   const dbManagerMenu = useCallback(
     (type: string, x: number, y: number) => {
@@ -3316,14 +3317,14 @@ export default function App() {
               onSelect: () => setHomePicker({ dbType: type, x, y }),
             },
           ];
-      // the tail is variable (Remove icon only shows when one is set, SUB-260)
+      // the tail is variable (Remove icon only shows when one is set)
       const tail = base.findIndex((it) => it.label === "Rename database…");
       setMenu({ x, y, items: [...base.slice(0, tail), ...lanes, ...base.slice(tail)] });
     },
     [dbMenuItems, schema, mountByType, unmount]
   );
 
-  // SUB-466: the dashboard row's "Move to folder…" — a second-stage picker on
+  // The dashboard row's "Move to folder…" — a second-stage picker on
   // the same spot (the homePicker pattern), scoped to where dashboards
   // plausibly go: their home folder, its existing subfolders, and the vault's
   // root folders. Anywhere else stays reachable through the palette's own
@@ -3355,11 +3356,11 @@ export default function App() {
   );
 
   // the home picker's items: the vault's folders, plus the explicit clear
-  // when the db has a home — the stray-exit (SUB-159)
+  // when the db has a home — the stray-exit
   const homePickerItems = useCallback(
     (dbType: string): MenuItem[] => {
       const cur = typeHome(typeSchemaFor(schema, dbType));
-      // one home folder, one database (SUB-407): a folder already homing
+      // one home folder, one database: a folder already homing
       // another db stays visible but can't be picked — the tree renders a
       // folder as at most one database, so a second claim would vanish
       const takenBy = new Map<string, string>();
@@ -3389,7 +3390,7 @@ export default function App() {
     [schema, folders, setDbHome]
   );
 
-  // SUB-611: the folder row's "Open as database…" second stage. Databases
+  // The folder row's "Open as database…" second stage. Databases
   // whose notes already sit in this folder float to the top (the likely
   // intent — the Newfolder case: typed notes inside, nothing homed), the
   // rest follow with their current home named; the tail births a NEW
@@ -3428,11 +3429,11 @@ export default function App() {
     [databases, homeByDb, setDbHome]
   );
 
-  // the Folders "+" menu (SUB-403): the plain inline-create folder flow, or
+  // the Folders "+" menu: the plain inline-create folder flow, or
   // a database born straight into the tree — the create dialog flagged
   // fromSidebar so createDatabase homes it on an eponymous root folder.
-  // SUB-888's "Mount a folder…" shows a real folder on disk as a database.
-  /* ----- tag folders (SUB-818) ----- */
+  // "Mount a folder…" shows a real folder on disk as a database.
+  /* ----- tag folders ----- */
 
   // the builder sheet: null = closed, { folder: null } = building a new one
   const [tagFolderEdit, setTagFolderEdit] = useState<{ folder: TagFolder | null } | null>(null);
@@ -3504,7 +3505,7 @@ export default function App() {
       if (!folder) return;
       const tags = tagFolderApplyTags(folder);
       if (tags.length === 0) return;
-      // undoable like every other prop edit (SUB-1025): the inverse restores
+      // undoable like every other prop edit: the inverse restores
       // the note's prior `tags:` list, not "remove what we just asked for" —
       // the add is a union, so a tag the note already had must survive undo
       addTagsUndoable({ path, tags, record: undoApi.record, onApplied: () => refresh() })
@@ -3536,7 +3537,7 @@ export default function App() {
             onSelect: () => setMountDialog(true),
           },
           {
-            // SUB-818: born in the same menu as the real folders, because it
+            // Born in the same menu as the real folders, because it
             // is the same kind of thing to the user — a place notes show up
             label: "New tag folder…",
             icon: <TypeIcon type="tag" icon={{ glyph: "tag" }} />,
@@ -3548,7 +3549,7 @@ export default function App() {
   );
 
 
-  /* SUB-810: a pin that has been exported once knows where it exports to, so
+  /* A pin that has been exported once knows where it exports to, so
      its menu offers Regenerate instead of asking again. The targets live on
      the machine, not in the vault (an export path is true for one machine
      only), which is why they arrive over IPC rather than off the pin. */
@@ -3615,7 +3616,7 @@ export default function App() {
     [removeView, exportView, exportTargets]
   );
 
-  /* SUB-492: the non-drag lane for assignable keys (SUB-467). The HUD's drag
+  /* The non-drag lane for assignable keys. The HUD's drag
      is the only way to bind a key otherwise, which no keyboard-first user and
      nobody who can't drag can reach. Same plumbing as the drop — assignKey /
      unassignKey through writeKeys — so there is no parallel state; the menu
@@ -3627,7 +3628,7 @@ export default function App() {
       const pick = (token: string): MenuItem => ({
         label: keyLabel(token),
         icon: <KeyboardIcon />,
-        // SUB-485's warning, in the menu's own idiom: still assignable, but
+        // The warning, in the menu's own idiom: still assignable, but
         // the drop retires a live pin shortcut, so it says so
         hint: shadowing.some((k) => k.token === token) ? "used by a pinned view" : undefined,
         onSelect: () => writeKeys((cur) => assignKey(cur, token, target)),
@@ -3679,7 +3680,7 @@ export default function App() {
     (target: MenuTarget, x: number, y: number) => {
       // the key-assign lane token for this row — viewKey()'s vocabulary, the
       // same strings the drop targets use (Sidebar.tsx keyDropProps)
-      // SUB-698: a dash group IS its folder, so it takes the folder token
+      // A dash group IS its folder, so it takes the folder token
       const keyTarget =
         target.kind === "folder" || target.kind === "dashgroup"
           ? `folder:${target.path}`
@@ -3705,7 +3706,7 @@ export default function App() {
           items: [...folderMenuItems(target.path, { left: x, top: y, bottom: y }), ...keyLane],
         });
       } else if (target.kind === "dashgroup") {
-        // SUB-698: the same folder menu, but its Move up/down rides the
+        // The same folder menu, but its Move up/down rides the
         // "dashgroups" lane — the one the header actually drags in — rather
         // than the folder tree's sibling lane the folder also lives in
         setMenu({
@@ -3717,8 +3718,8 @@ export default function App() {
           ],
         });
       } else if (target.kind === "db") {
-        // db rows exist only in the Folders tree now (homed dbs, SUB-85) —
-        // everything else goes through the All databases manager (SUB-159)
+        // db rows exist only in the Folders tree now (homed dbs) —
+        // everything else goes through the All databases manager
         setMenu({
           x,
           y,
@@ -3727,7 +3728,7 @@ export default function App() {
       } else if (target.kind === "savedview") {
         setMenu({ x, y, items: [...savedViewMenuItems(target.id), ...keyLane] });
       } else if (target.kind === "tagfolder") {
-        // SUB-818: no Rename lane of its own — the rule and the name are one
+        // No Rename lane of its own — the rule and the name are one
         // thing here, and both live in the builder
         const f = tagFolders.find((f) => f.id === target.id);
         setMenu({
@@ -3752,9 +3753,9 @@ export default function App() {
           ],
         });
       } else if (target.kind === "pin") {
-        // a pinned plain note (SUB-410) — the canonical note actions, whose
+        // a pinned plain note — the canonical note actions, whose
         // pin entry reads "Remove pin" here; unpinning never touches the file.
-        // SUB-585: the row also moves by menu within its own pin lane (the
+        // The row also moves by menu within its own pin lane (the
         // folder group it nests under, or the flat Pinned section).
         const n = notes.find((n) => n.path === target.path);
         if (n) {
@@ -3769,14 +3770,14 @@ export default function App() {
       } else {
         const n = notes.find((n) => n.path === target.path);
         if (n) {
-          // SUB-466: the dashboard row's move lane is the scoped folder picker
+          // The dashboard row's move lane is the scoped folder picker
           // (opened on this spot), not the palette's all-folders stage
           const items = noteMenuItems(n).map((it) =>
             it.label === "Move to folder…"
               ? { ...it, onSelect: () => setDashMovePicker({ path: target.path, x, y }) }
               : it
           );
-          // SUB-605: the Move lane is the row's OWN surface — the Dashboards
+          // The Move lane is the row's OWN surface — the Dashboards
           // section, or the folder tree row it nests under
           const treeFolder = dashTreeFolder(target.path, dashSplit.home);
           const lane: Section = treeFolder === null ? "dashboards" : `dashes:${treeFolder}`;
@@ -3822,7 +3823,7 @@ export default function App() {
   const openJournal = useCallback(
     (date: string) => {
       const path = dailyPath(date);
-      // journal opens its own folder view (SUB-176), from anywhere. Select
+      // journal opens its own folder view, from anywhere. Select
       // directly rather than via openNote: that closes over the pre-switch
       // view, and its not-in-view fallback would bounce back to All notes
       if (view.kind !== "folder" || view.path !== JOURNAL_DIR) {
@@ -3834,7 +3835,7 @@ export default function App() {
         showMobileDetail();
         return;
       }
-      // SUB-210: only ⌘D-today creates a file up front. Any other missing day
+      // Only ⌘D-today creates a file up front. Any other missing day
       // opens as a ghost — the dated surface without a file; NotePane creates
       // it on the first keystroke, so stepping through days leaves no litter
       if (date !== todayIso()) {
@@ -3858,14 +3859,14 @@ export default function App() {
     [notes, view, refresh, showMobileDetail]
   );
 
-  // born from context (SUB-125): a database's home folder births that
+  // born from context: a database's home folder births that
   // database's entries, any other folder a scratch note in place. ONE closure
-  // shared by ⌘N's folder branch and the header "+" (SUB-584) — not two
+  // shared by ⌘N's folder branch and the header "+" — not two
   // lookalike forks that could drift apart. In the Journal, "new" means
-  // today's daily (SUB-593, product call): one entry per day is the folder's
+  // today's daily (product call): one entry per day is the folder's
   // whole metaphor, so a loose Untitled beside the dailies is never the wish.
   const newInFolder = useCallback(() => {
-    // SUB-818: inside a tag folder there is no folder to be born into — the
+    // Inside a tag folder there is no folder to be born into — the
     // note lands in Inbox like any scratch and wears the folder's tags, which
     // is what puts it in view
     if (view.kind === "tagfolder") {
@@ -3880,7 +3881,7 @@ export default function App() {
     else createScratch(view.path);
   }, [view, tagFolders, homeDbByFolder, createTyped, createScratch, openJournal]);
 
-  // ⌘N's contextual dispatch, shared with the SUB-590 background menus:
+  // ⌘N's contextual dispatch, shared with the background menus:
   // inside a database, calendar, or folder view, "new" means a new entry
   // here, not Inbox capture; inside Notes it's an instant scratch.
   const createHere = useCallback(() => {
@@ -3891,7 +3892,7 @@ export default function App() {
     else setOverlay("capture");
   }, [view, overlay, createScratch, newInFolder]);
 
-  // SUB-590: right-click on the list pane's empty space — create where you
+  // Right-click on the list pane's empty space — create where you
   // are. "New note" is newInFolder's fork (typed entry in a home-db folder,
   // today's daily in the Journal, scratch elsewhere); the folder lanes only
   // appear where there is a folder to act on.
@@ -3905,7 +3906,7 @@ export default function App() {
           hint: "⌘N",
           onSelect: () => {
             // a tag folder has no path, but it does have a create rule
-            // (SUB-818) — newInFolder owns both forks
+            // newInFolder owns both forks
             if (folder || view.kind === "tagfolder") newInFolder();
             else createScratch();
           },
@@ -3930,7 +3931,7 @@ export default function App() {
     [view, newInFolder, createScratch, revealRel]
   );
 
-  // SUB-210: a ghost daily's first keystroke created the file — seed the meta
+  // A ghost daily's first keystroke created the file — seed the meta
   // synchronously (selection-effect trick as above) and drop ghost mode. The
   // path doesn't change, so selection stays put by itself; a debounced create
   // landing after the user stepped on must NOT yank them back, hence no
@@ -3970,7 +3971,7 @@ export default function App() {
     abandonScratch,
   });
 
-  // SUB-1095: land a followed `#anchor` on its heading. The note is open by
+  // land a followed `#anchor` on its heading. The note is open by
   // now, so reading it is cheap and gives us the line the reveal channel
   // wants — the same channel a search hit uses, so the heading flashes the
   // way a hit does. An anchor no heading answers to leaves the note at the
@@ -3997,7 +3998,7 @@ export default function App() {
 
   const moveSelection = useCallback(
     (dir: 1 | -1) => {
-      // walk the listed rows — db blocks are click-through only (SUB-87)
+      // walk the listed rows — db blocks are click-through only
       const rows = viewRows.loose;
       if (rows.length === 0) return;
       const idx = rows.findIndex((n) => n.path === selected);
@@ -4007,7 +4008,7 @@ export default function App() {
     [viewRows, selected]
   );
 
-  // SUB-392: linear view history — plain ⌫ (or ⌘[) walks back through visited
+  // Linear view history — plain ⌫ (or ⌘[) walks back through visited
   // views (see useViewHistory)
   const { viewHistory, goBack } = useViewHistory({
     view,
@@ -4028,7 +4029,7 @@ export default function App() {
     }
   }, [overlay]);
 
-  /* SUB-1164: one undo move and one redo move, shared by the keystrokes and
+  /* One undo move and one redo move, shared by the keystrokes and
      the palette rows below. The palette is the mouse path to ⌘Z — the toast
      that carries an Undo button is gone after 4s, and until now the keystroke
      was the only way back after that. Sharing the callback rather than
@@ -4100,19 +4101,19 @@ export default function App() {
     applyZoom,
   });
 
-  /* SUB-812: a folder is queued in the mini-player. Drives the bar's own
+  /* A folder is queued in the mini-player. Drives the bar's own
      mount, the shell's reserved height (the bar is chrome WITH height, like
      the time-travel banner — never a float over the panes), and the liveness
      of the transport chords. */
   const playing = useSyncExternalStore(subscribeQueue, getQueue) !== null;
 
-  /* SUB-490: the hold HUD's context. The dispatcher above builds its ctx per
+  /* The hold HUD's context. The dispatcher above builds its ctx per
      keydown, which the HUD can't reuse — a held modifier is a state, not an
-     event. `typing` is deliberately absent (SUB-498): it is knowable only at the
+     event. `typing` is deliberately absent: it is knowable only at the
      moment the hold arms, so ModKeyHud samples the live focus itself rather than
      take a value this memo would serve stale. Overlays suppress the HUD
      outright, so anything they'd add is moot. */
-  /* SUB-1165: the header chevron's supply. The availability expression is the
+  /* The header chevron's supply. The availability expression is the
      ⌫ shortcut's, verbatim including the search exclusion (SearchPane owns Esc
      and its own close), so the key and the click can never disagree about
      whether there is anywhere to go back to. Computed in render rather than
@@ -4161,7 +4162,7 @@ export default function App() {
     (((view.kind === "db" || view.kind === "saved") && dbNoteMeta !== null) ||
       (mobilePane === "detail" && selectedMeta !== null));
 
-  /* SUB-460: Sidebar and ListPane are memoized, so every callback they take
+  /* Sidebar and ListPane are memoized, so every callback they take
      has to keep its identity across an unrelated App render — an inline arrow
      in the JSX is a new function each time and defeats the memo outright.
      These wrap the handlers that were inline; the rest are already useCallback
@@ -4181,14 +4182,14 @@ export default function App() {
   }, []);
   const onSidebarDropNote = useCallback(
     (p: string, f: string, pinnable: boolean) => {
-      // SUB-585: a PLAIN note dropped on the folder it already lives in has
+      // A PLAIN note dropped on the folder it already lives in has
       // nowhere to move — the gesture means "give it a sidebar row here", so
       // it pins (a drop on a FOREIGN folder row still moves the file; the
       // engine retargets any existing pin to the new path). `pinnable` is
       // false for sidebar row gestures (dashboard/pin reorders carry
       // SIDE_DRAG_MIME): a dashboard dropped on its own group header must
       // stay a no-op, or it pins into the flat section and renders twice —
-      // SUB-466 finding 1 (Opus review of this branch caught the reopening).
+      // Finding 1 (Opus review of this branch caught the reopening).
       const folder = p.slice(0, Math.max(0, p.lastIndexOf("/")));
       if (folder === f) {
         if (pinnable) setPinned(p, true);
@@ -4222,7 +4223,7 @@ export default function App() {
     (token: string, target: string) => writeKeys((cur) => assignKey(cur, token, target)),
     [writeKeys]
   );
-  // SUB-460: grouped into one memo rather than passed inline — a fresh object
+  // Grouped into one memo rather than passed inline — a fresh object
   // literal per render is a changed prop, and the memo below would reconcile
   // the whole sidebar on every unrelated App render.
   const sidebarKeyAssign = useMemo(
@@ -4239,7 +4240,7 @@ export default function App() {
     [showMobileDetail]
   );
   const onListRenameCancel = useCallback(() => setRenaming(null), []);
-  // the header mirrors the sidebar row (SUB-391): explicit SUB-84 icon first,
+  // the header mirrors the sidebar row: explicit icon first,
   // then the curated name default. Memoized because a fresh object literal is
   // a prop change to a memoized ListPane on every render.
   const listFolderIcon = useMemo(
@@ -4253,7 +4254,7 @@ export default function App() {
     focusSoon(() => editorFocusRef.current?.());
   }, []);
 
-  /* ----- SUB-812: a folder's loose files, and the listening queue -----
+  /* ----- a folder's loose files, and the listening queue -----
 
      The vault index is `.md`-only by design, so non-note files come from a
      lazy per-folder call made when a folder view opens — never from the scan.
@@ -4280,7 +4281,7 @@ export default function App() {
       })
       .catch(() => {
         // a folder that can't be read lists no files — the notes still show,
-        // which is exactly the pre-SUB-812 pane rather than an error state
+        // which is exactly the pre-change pane rather than an error state
         if (live) setFolderFiles({ files: [], total: 0 });
       });
     return () => {
@@ -4317,10 +4318,10 @@ export default function App() {
     [showToast]
   );
 
-  // SUB-460: NotePane is memoized too, so its inline prop needs stable identity.
+  // NotePane is memoized too, so its inline prop needs stable identity.
   const clearReveal = useCallback(() => setReveal(null), []);
 
-  // SUB-460: stable identity — Sidebar is memoized, and a fresh function here
+  // Stable identity — Sidebar is memoized, and a fresh function here
   // would re-render it on every App state change.
   const navigateFromMobileChrome = useCallback((next: View) => {
     setView(next);
@@ -4377,7 +4378,7 @@ export default function App() {
       onDropCapture={(event) => {
         if (timePoint) event.preventDefault();
       }}
-      // SUB-590: bare chrome answers right-click with the minimal app menu
+      // Bare chrome answers right-click with the minimal app menu
       // instead of the webview's stock "Reload" — anything a deeper surface
       // didn't claim (those preventDefault first). The native menu survives
       // everywhere it still does a job: text fields and the editor
@@ -4650,7 +4651,7 @@ export default function App() {
       ) : view.kind === "mount" ? (
         <div className="main">
           {activeMount ? (
-            // SUB-888: a mounted folder is a database whose rows are files.
+            // A mounted folder is a database whose rows are files.
             // Same pane, same layouts, same views — the only differences are
             // where the rows come from (the mount's index, not the note list),
             // where a cell write lands (`mount_annotate`), and the banner that
@@ -4769,15 +4770,15 @@ export default function App() {
                   group_by: activeSaved.group_by ?? byFoldedKey(viewsConfig, activeSaved.db)?.group_by,
                   table_group_by: activeSaved.table_group_by ?? byFoldedKey(viewsConfig, activeSaved.db)?.table_group_by,
                   aggregations: byFoldedKey(viewsConfig, activeSaved.db)?.aggregations,
-                  // SUB-326: the pin's own sort seeds the pane (session-local
+                  // The pin's own sort seeds the pane (session-local
                   // via setSvPref until re-saved); it never falls back to the
                   // db's remembered sort — a pin is a capture, not a mirror
                   sorts: activeSaved.sorts ?? (activeSaved.sort ? [activeSaved.sort] : undefined),
-                  // SUB-404: column widths/wrap aren't part of a pin's capture —
+                  // Column widths/wrap aren't part of a pin's capture —
                   // they follow the db's remembered layout, like aggregations
                   widths: byFoldedKey(viewsConfig, activeSaved.db)?.widths,
                   wrap: byFoldedKey(viewsConfig, activeSaved.db)?.wrap,
-                  // SUB-607: the grid override follows the db too
+                  // The grid override follows the db too
                   grid: byFoldedKey(viewsConfig, activeSaved.db)?.grid,
                 }
               }
@@ -5018,7 +5019,7 @@ export default function App() {
           labelCtx={keyLabelCtx}
         />
       )}
-      {/* SUB-467: session-only, desktop-only — assigning is a drag, and the
+      {/* Session-only, desktop-only — assigning is a drag, and the
           mobile sidebar is a sheet that closes on the first touch */}
       {keyAssignOpen && !mobile && (
         <KeyAssignHud
@@ -5083,7 +5084,7 @@ export default function App() {
           onClose={() => {
             setSealScopeDialog(null);
             // A refused seal is not a no-op: the files may already be
-            // ciphertext with the marker left pending (SUB-889), so the
+            // ciphertext with the marker left pending, so the
             // sidebar and the folder menu have to re-read the truth.
             reloadSealScopes();
             refresh();
@@ -5141,7 +5142,7 @@ export default function App() {
       {mountDialog && (
         <MountFolderDialog onMount={mountSubmit} onClose={() => setMountDialog(false)} />
       )}
-      {/* SUB-888: the destructive half of unmounting — the notes go to Trash,
+      {/* The destructive half of unmounting — the notes go to Trash,
           so it asks first and snapshots before sweeping */}
       {unmountAsk && (
         <UnmountDialog
@@ -5191,11 +5192,11 @@ export default function App() {
           onClose={() => setDbDialog(null)}
         />
       )}
-      {/* SUB-812: app chrome, so audio outlives every view switch below it.
+      {/* App chrome, so audio outlives every view switch below it.
           The component renders nothing until a folder row starts a queue. */}
       <MiniPlayer />
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
-      {/* SUB-492: the second stage of the row menu's key lane */}
+      {/* The second stage of the row menu's key lane */}
       {keyPicker && (
         <ContextMenu
           x={keyPicker.x}

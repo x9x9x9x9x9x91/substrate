@@ -1,4 +1,4 @@
-/** Live values in prose (SUB-825): the sheets a note body's `` `= expr` ``
+/** Live values in prose: the sheets a note body's `` `= expr` ``
     spans read, loaded and evaluated for the editor to render against.
 
     Deliberately the same shape as the metric cards' own binding
@@ -21,7 +21,7 @@ export function useLiveValues(
   vaultEpoch: number,
   /** the hosting note's path — a different note re-reads its expressions */
   scope: string,
-  /** the whole quoted rate table (SUB-834): a live expression may convert any
+  /** the whole quoted rate table: a live expression may convert any
       pair its sheet quotes, not only USD→EUR */
   rates: FxRatesState | null,
 ): Map<string, DashboardSheetState> {

@@ -135,7 +135,7 @@ test("boardGroupBy: multi-kind props are never candidates (SUB-79)", () => {
 });
 
 test("hiddenForLayout: a layout's own set wins; the flat hidden seeds both (SUB-642)", () => {
-  // a pre-SUB-642 pref carries only the flat list — both layouts read it
+  // a pre-change pref carries only the flat list — both layouts read it
   // (the read-side migration); board/gallery read the table set
   const old = { hidden: ["cat#"] };
   assert.deepEqual(hiddenForLayout(old, "table"), ["cat#"]);

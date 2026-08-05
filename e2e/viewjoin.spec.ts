@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// View-fence joins (SUB-829): a dotted `relation.prop` column in a ```view
+// View-fence joins: a dotted `relation.prop` column in a ```view
 // fence shows a stored property of the row the relation names. That value
 // belongs to ANOTHER note, so the cell is read-only on every surface — the
 // paint, the editor-opening click, and the checkbox toggle, which writes on

@@ -1,4 +1,4 @@
-/* Reflexes (SUB-826) — the frontend's view of the rules engine.
+/* Reflexes — the frontend's view of the rules engine.
 
    Types only, plus the two small pure helpers the settings section needs. The
    app never authors rules: they live in `.vault/reflexes.json` and are edited

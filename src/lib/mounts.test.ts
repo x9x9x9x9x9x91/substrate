@@ -118,7 +118,7 @@ test("intrinsic columns are the read-only ones", () => {
   for (const p of ["name", "extension", "size", "created", "modified", "missing"]) {
     assert.equal(isIntrinsic(p), true, p);
   }
-  // read out of the file itself (SUB-887) — same read-only rule
+  // read out of the file itself — same read-only rule
   for (const p of ["duration", "sample_rate", "channels", "artist", "album", "media_title", "pages"]) {
     assert.equal(isIntrinsic(p), true, p);
   }

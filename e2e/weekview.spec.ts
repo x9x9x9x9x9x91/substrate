@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-247/SUB-448: Week is a time grid — a pinned all-day strip of entry
+// Week is a time grid — a pinned all-day strip of entry
 // cards (.cal-grid.week .cal-day[data-iso]) over a scrollable 24h canvas
 // (.cal-wk-canvas) where timed entries render as blocks positioned by their
 // HH:MM (.cal-wk-col[data-iso] .cal-wk-block). The entry DOM contract
@@ -26,7 +26,7 @@ function addDaysIso(iso: string, n: number): string {
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   // the list's first paint doubles as the "app is live" barrier (cold open
-  // lands on Notes — Today is a destination, SUB-300)
+  // lands on Notes — Today is a destination)
   await expect(page.locator(".list-title")).toHaveText("Notes");
   await page.keyboard.press("Meta+4");
   await expect(page.locator(".cal")).toBeVisible();

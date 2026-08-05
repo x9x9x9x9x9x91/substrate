@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-607: vertical grid lines in database tables. Default ON via the global
+// Vertical grid lines in database tables. Default ON via the global
 // `db-grid` setting; a database's ⋯ menu pins an override on its ViewPref
 // (`grid`), which wins over the global and clears itself when toggled back
 // to the global value. Runs against the deterministic mock backend.
@@ -42,7 +42,8 @@ test("the global setting turns grids off everywhere, but a database override win
   page,
 }) => {
   // the settings toggle writes Settings.md; the watcher echo is what re-reads
-  // the flag — the mock mirrors that cadence on request (same as SUB-490)
+  // the flag — the mock mirrors that cadence on request, the same opt-in
+  // own-write echo the editor's own-echo test drives
   await page.goto("/");
   await expect(page.locator(".list-title")).toHaveText("Notes");
   await page.evaluate(() => window.__mockSetEchoOnWrites?.(true));

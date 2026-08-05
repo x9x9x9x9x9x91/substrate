@@ -42,5 +42,5 @@ dist-ssr
 .npm-ci-stamp
 
 # Local Cargo config is intentionally untracked. Checked-in absolute paths
-# made every clone fail after the primary-machine cutover (SUB-987).
+# made every clone fail after the primary-machine cutover.
 .cargo/config.toml

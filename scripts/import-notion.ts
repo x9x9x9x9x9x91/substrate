@@ -25,7 +25,7 @@
  *
  * Environment:
  *   NOTION_TOKEN  Integration token — required for live runs, never stored or logged.
- *   VAULT_DIR     Vault root — REQUIRED, there is no default (SUB-777): an
+ *   VAULT_DIR     Vault root — REQUIRED, there is no default: an
  *                 unset target would silently write into the real ~/Vault.
  *                 Point at a scratch dir to test.
  *
@@ -35,10 +35,10 @@
  * page, or a note that was never imported) is written under a numeric
  * suffix — existing files are never overwritten.
  *
- * Titles run through the same guards as the engine (SUB-223, mirrored in
+ * Titles run through the same guards as the engine (mirrored in
  * scripts/vault-title.ts): a page titled with a leading dot or `[`/`]` is
  * rejected and never written — the scripts write files directly, so the
- * engine's own create-time validation never sees them (SUB-279).
+ * engine's own create-time validation never sees them.
  */
 
 import { join, resolve } from "node:path";
@@ -102,7 +102,7 @@ export interface ImportReport {
   written: string[];
   /** notion_ids skipped — already imported into the target folder. */
   skipped: string[];
-  /** Pages whose title the engine's guards refuse (SUB-223) — never written. */
+  /** Pages whose title the engine's guards refuse — never written. */
   rejected: { title: string; reason: string }[];
   dryRun: boolean;
 }
@@ -273,7 +273,7 @@ function propKey(name: string): string {
 /** One Notion date endpoint → the vault's date grammar, or undefined if it
     isn't date-shaped. Notion writes a bare `2026-09-01` for a day and a full
     ISO instant (`2026-09-01T09:00:00.000+02:00`) when the date carries a
-    time; the vault keeps `YYYY-MM-DD` with an optional ` HH:MM` (SUB-270) and
+    time; the vault keeps `YYYY-MM-DD` with an optional ` HH:MM` and
     stores no seconds or zone, so the instant is truncated to its minute as
     written. */
 function notionDate(raw: string | null | undefined): string | undefined {
@@ -284,7 +284,7 @@ function notionDate(raw: string | null | undefined): string | undefined {
 
 /** Notion property → frontmatter value; undefined means "skip this prop".
     multi_select maps to a string list — the engine's `multi` kind expects a
-    YAML block list on disk (SUB-177), not a comma-joined scalar. */
+    YAML block list on disk, not a comma-joined scalar. */
 function propValue(prop: NotionProperty): string | number | boolean | string[] | undefined {
   switch (prop.type) {
     case "rich_text":
@@ -306,7 +306,7 @@ function propValue(prop: NotionProperty): string | number | boolean | string[] |
       if (!start) return undefined;
       const end = notionDate(d?.end);
       // Notion's end dates used to be dropped on the floor; the vault's date
-      // grammar carries them now (SUB-596) as `start/end`. An end that isn't
+      // grammar carries them now as `start/end`. An end that isn't
       // after the start is not a span — keep the plain start rather than
       // writing a value the engine would reject
       return end && end > start ? `${start}/${end}` : start;
@@ -381,7 +381,7 @@ function yamlScalar(v: string | number | boolean): string {
     return JSON.stringify(v);
   }
   // no `#` in the bare class: in YAML " #" starts a comment, so an unquoted
-  // "SMP-030 # draft" would read back as just "SMP-030" (SUB-119)
+  // "SMP-030 # draft" would read back as just "SMP-030"
   if (/^[A-Za-z0-9][A-Za-z0-9 .,_&()+/'-]*$/.test(v) && !v.endsWith(":")) return v;
   return JSON.stringify(v);
 }
@@ -444,7 +444,7 @@ export async function run(opts: Options, vaultEnv?: string): Promise<ImportRepor
   const known = await existingNotionIds(target);
   // Names already taken in the target folder (case-insensitive, like the
   // engine), seeded from disk so a page titled like an existing note gets a
-  // numeric suffix instead of overwriting that note (SUB-118). The notion_id
+  // numeric suffix instead of overwriting that note. The notion_id
   // skip in the loop runs before the name check, so a page's own
   // already-imported file is never treated as a collision.
   const usedNames = new Set(
@@ -481,7 +481,7 @@ export async function run(opts: Options, vaultEnv?: string): Promise<ImportRepor
     if (page.created_time) props.created = page.created_time.slice(0, 10);
     props.notion_id = notionId;
 
-    // SUB-223 guards, mirrored for direct-to-disk imports (SUB-279): a title
+    // Guards, mirrored for direct-to-disk imports: a title
     // the engine would refuse is reported, never written as an invisible
     // (dot-stem) or link-toxic (brackets) note
     let base: string;
@@ -504,7 +504,7 @@ export async function run(opts: Options, vaultEnv?: string): Promise<ImportRepor
     } else {
       await mkdir(target, { recursive: true });
       // atomic: a truncated note would be skipped forever by the notion_id
-      // dedupe above, so a retry could never heal it (SUB-777)
+      // dedupe above, so a retry could never heal it
       await writeAtomic(join(target, `${name}.md`), renderNote(props, body));
       console.log(`  wrote ${rel}`);
     }

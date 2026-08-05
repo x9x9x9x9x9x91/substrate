@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-416: the route to the canonical shortcut sheet plus the persistent,
-// Ableton-style pointer help dock. SUB-468 moved the route: the app-level
+// The route to the canonical shortcut sheet plus the persistent,
+// Ableton-style pointer help dock. The route moved: the app-level
 // keyboard button folds out contextual hints, whose foot opens the sheet.
 
 test.beforeEach(async ({ page }) => {
@@ -71,7 +71,7 @@ test("mobile omits the desktop help controls", async ({ page }) => {
   await page.goto("/");
   await expect(page.locator(".mobile-nav")).toBeVisible();
   await expect(page.locator(".info-view-toggle")).toHaveCount(0);
-  // SUB-468: the one keyboard button is App-level and desktop-only — the
+  // The one keyboard button is App-level and desktop-only — the
   // note pane no longer carries a second one anywhere
   await expect(page.locator(".keyhints-chip")).toHaveCount(0);
 });

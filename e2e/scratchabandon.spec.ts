@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-264: a ⌘N scratch note that stays pristine (Untitled title, empty body,
+// A ⌘N scratch note that stays pristine (Untitled title, empty body,
 // only the created prop) abandons itself on leave — Esc, selection change —
 // instead of littering the vault. Content or a real title makes it stick.
 

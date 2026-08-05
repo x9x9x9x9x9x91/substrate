@@ -14,10 +14,10 @@ import TypeIcon from "./TypeIcon";
 import { BoardIcon, ColumnsIcon, GalleryIcon, ListIcon, TableIcon } from "./Icons";
 
 /** Card/list subtitle: the notable props joined with " · ". A part whose
-    value matches a colored schema option leads with that option's dot
-    (SUB-142), so a status reads as a status, not as more text. `keys`
-    overrides the notable set — a curated view lists exactly its columns
-    (SUB-212). Exported for the calendar's week cards (SUB-247). */
+    value matches a colored schema option leads with that option's dot,
+    so a status reads as a status, not as more text. `keys`
+    overrides the notable set — a curated view lists exactly its columns.
+    Exported for the calendar's week cards. */
 export function cardSubtitle(
   n: NoteMeta,
   typeSchema: Record<string, PropSchema>,
@@ -59,7 +59,7 @@ export function cardSubtitle(
 }
 
 /** url/email/phone-kind cells open outside the app — the OS handler (browser,
-    mail, phone) in Tauri, a new tab in the browser/mock lane (Editor's SUB-88
+    mail, phone) in Tauri, a new tab in the browser/mock lane (Editor's
     lane split). */
 export function openExternalLink(url: string) {
   if (isTauri) openUrl(url).catch(console.error);
@@ -68,7 +68,7 @@ export function openExternalLink(url: string) {
 
 /** Cover tile for a gallery card: resolved artwork when the note has any,
     otherwise the database's TypeIcon at placeholder scale — the title below
-    leads the card (SUB-313). Stays blank while resolving so cards don't
+    leads the card. Stays blank while resolving so cards don't
     flash the icon before the image lands. */
 const revealedGalleryCovers = new Set<string>();
 
@@ -129,10 +129,10 @@ export function GalleryCover({ note, dbType, icon }: { note: NoteMeta; dbType: s
 
 /** Focus coordinates: table = (prop col 0..n, row); board = (column, card);
     list = row in r, c stays 0. Path keeps the same note focused when a sort,
-    filter, edit, or board move changes its coordinates (SUB-359). */
+    filter, edit, or board move changes its coordinates. */
 export type Focus = { c: number; r: number; path: string };
 
-/** Anchored popover menu for a table column header (SUB-43) — portal-rendered
+/** Anchored popover menu for a table column header — portal-rendered
     like SelectMenu, because a CSS dropdown inside the horizontally scrolling
     table body gets clipped. Closes on pick, outside click, or Escape. */
 export function ColMenu({
@@ -188,11 +188,11 @@ export function ColMenu({
   );
 }
 
-/** The header "Columns" curator (SUB-212): a compact dropdown listing every
+/** The header "Columns" curator: a compact dropdown listing every
     column of the dbColumns union with a checkmark, toggling re-renders the
     pane immediately. Same open/close idiom as DotsMenu (toggle, outside
     click, Escape) — a multi-toggle, so a pick keeps the menu open (the
-    SUB-79 picker's idiom); outside click or Escape closes. The trigger is an
+    picker's idiom); outside click or Escape closes. The trigger is an
     icon-only tool on the view-tab row. */
 export function ColumnsMenu({
   columns,
@@ -239,7 +239,7 @@ export function ColumnsMenu({
       {open && (
         <div className="dots-menu db-cols-menu">
           {columns.map((c) => {
-            // null = all on. SUB-945: the same check control PropVisMenu uses
+            // null = all on. The same check control PropVisMenu uses
             // — these are two checklists of the same columns, and a ✓ glued to
             // the label read as a different kind of list
             const on = checked ? checked.includes(c) : true;
@@ -261,7 +261,7 @@ export function ColumnsMenu({
   );
 }
 
-/** Property-visibility checklist (SUB-326): right-click on the table header
+/** Property-visibility checklist: right-click on the table header
     (or "Properties…" in the ⋯ menu) opens every column as a check row that
     toggles in place — the menu stays open so several props hide in one visit.
     Name anchors the table and never lists. Same portal/close idiom as ColMenu. */
@@ -331,7 +331,7 @@ export function PropVisMenu({
   );
 }
 
-/** The aggregation picker's vocabulary (SUB-74): picker order, labels. */
+/** The aggregation picker's vocabulary: picker order, labels. */
 export const AGG_OPTIONS: { kind: AggKind; label: string }[] = [
   { kind: "sum", label: "Sum" },
   { kind: "avg", label: "Average" },
@@ -349,7 +349,7 @@ export const LAYOUT_ICON: Record<DbLayout, React.ReactNode> = {
   gallery: <GalleryIcon />,
 };
 
-/* SUB-310 windowing knobs: tables bigger than WIN_MIN paint only the scroll
+/* Windowing knobs: tables bigger than WIN_MIN paint only the scroll
    viewport ± WIN_OVERSCAN rows (WIN_INITIAL rows on the first frame, before
    the scroller reports its geometry). WIN_ROW_H/WIN_HEAD_H are the
    pre-measurement fallbacks — the measure effect replaces them from the live
@@ -360,12 +360,12 @@ export const WIN_INITIAL = 64;
 export const WIN_ROW_H = 32;
 export const WIN_HEAD_H = 33;
 
-/* SUB-404 column-resize clamps (px). The floor keeps a column grabbable —
+/* Column-resize clamps (px). The floor keeps a column grabbable —
    narrower than the header label just floors at the label (nowrap th). */
 export const MIN_COL_W = 60;
 export const MAX_COL_W = 800;
 
-/** The rules a column width compiles to. Two levers, both needed (SUB-613):
+/** The rules a column width compiles to. Two levers, both needed:
     the inner text block (`.db-cell-txt`) clamps cell CONTENT — under the
     table's auto layout a column tracks its widest cell, so this overrides the
     240px default clamp both ways. But it only ever acts as a floor: while the
@@ -386,5 +386,5 @@ export const colWidthRule = (idx: number, w: number, live?: boolean) => {
 };
 
 /** shared empty selection — a stable reference so clearing an already-empty
-    selection never re-renders (SUB-272) */
+    selection never re-renders */
 export const EMPTY_SEL: ReadonlySet<string> = new Set();

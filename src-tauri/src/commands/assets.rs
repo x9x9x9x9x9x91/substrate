@@ -57,7 +57,7 @@ pub(crate) fn vault_link_asset(state: State<AppState>, path: String) -> Result<S
     state.0.lock().unwrap().link_asset(&path)
 }
 
-/// Whether a Shift key is physically down right now (SUB-438). Tauri's
+/// Whether a Shift key is physically down right now. Tauri's
 /// drag-drop event carries no modifier flags, so the drop handler asks the
 /// OS directly at drop time. macOS-only; elsewhere always false, so drops
 /// keep the copy behavior.
@@ -97,9 +97,9 @@ pub(crate) fn vault_assets_orphaned(
     state.0.lock().unwrap().assets_orphaned()
 }
 
-/// Read-only vault integrity report (SUB-432). Takes no `SnapDirty` — it
+/// Read-only vault integrity report. Takes no `SnapDirty` — it
 /// never writes, so there is nothing to mark dirty. The mount bindings come
-/// from this machine's app config (SUB-888): the doctor reports an unbound
+/// from this machine's app config: the doctor reports an unbound
 /// mount, and only the config knows what is bound here.
 #[tauri::command]
 pub(crate) fn vault_doctor(
@@ -111,7 +111,7 @@ pub(crate) fn vault_doctor(
     let mut report = state.0.lock().unwrap().doctor(&bindings)?;
     // appended here, not inside `doctor()`: whether a rule runs is process
     // state (loaded file, breaker), and the doctor only reads the vault
-    // (SUB-826 §6)
+    // (spec §6)
     if let Ok(loaded) = reflexes.0.lock() {
         report.findings.extend(loaded.doctor_findings());
     }
@@ -129,7 +129,7 @@ pub(crate) fn vault_assets_delete(
     state.0.lock().unwrap().assets_delete(&names)
 }
 
-/// Restore a trashed asset back into `.assets/` (SUB-479); returns the name it
+/// Restore a trashed asset back into `.assets/`; returns the name it
 /// landed under (numbered when the original name was reoccupied).
 #[tauri::command]
 pub(crate) fn vault_assets_restore(

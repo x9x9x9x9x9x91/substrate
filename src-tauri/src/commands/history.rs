@@ -23,13 +23,13 @@ pub(crate) fn with_history<T>(
 }
 
 /// Run a HISTORY-REWRITING op under both gates: the history mutex AND the
-/// engine mutex (SUB-661).
+/// engine mutex.
 ///
 /// LOCK ORDER — history first, then the engine. Every site that holds both
 /// takes them in that order (`history_restore` above does the same), so the
 /// nesting can never invert into an ABBA deadlock. `vault_sync_pull` and
 /// `vault_sync_resolve_finish` take the history lock first too and keep it
-/// while taking the engine lock for their destructive local phase (SUB-731).
+/// while taking the engine lock for their destructive local phase.
 ///
 /// Why the engine lock at all, when a rewrite touches only git: a purge/trim
 /// ends in `finish_rewrite` — `git reset` onto the rewritten tip plus
@@ -76,7 +76,7 @@ pub(crate) struct HistoryVaultSnapshot {
     point: VaultHistoryPoint,
     notes: Vec<NoteMeta>,
     contents: HashMap<String, NoteContent>,
-    /// Raw frontmatter per note, as of this snapshot (SUB-822). `read()`
+    /// Raw frontmatter per note, as of this snapshot. `read()`
     /// strips the block, so without this the frontmatter panel showed every
     /// historical note as having none.
     fm: HashMap<String, FmState>,
@@ -267,7 +267,7 @@ pub(crate) async fn history_sheets(
                     // for: the answering commit is the newest one at or before
                     // that instant, and a note stamped with the question rather
                     // than the answer is a lie the moment anything reads it as
-                    // provenance (SUB-832)
+                    // provenance
                     let ts = at.commit_ts_ms.unwrap_or(0);
                     let sheets = at
                         .files
@@ -320,7 +320,7 @@ pub(crate) struct RestoreOutcome {
 ///
 /// `baseline_ms` is the `updated_ms` the panel's caller was rendering. A file
 /// whose on-disk mtime is NEWER than that changed under the user between the
-/// panel opening and the click, and the restore is about to bury it (SUB-781).
+/// panel opening and the click, and the restore is about to bury it.
 /// It is deliberately advisory, not a guard: refusing would be a new way for a
 /// restore the user explicitly asked for to fail. The toast promises the
 /// buried edit is in history, so the detection has to MAKE that true: an edit
@@ -353,7 +353,7 @@ pub(crate) fn restore_note(
     }
     let meta = engine.write_raw(path, &content)?;
     // The file is replaced by this point, so the snapshot after it is
-    // bookkeeping and must not fail the restore (SUB-548). Reporting Err here
+    // bookkeeping and must not fail the restore. Reporting Err here
     // put HistoryPanel on its `.catch` branch, which skips both `onRestored`
     // and `load` — the editor kept rendering the pre-restore buffer over the
     // already-restored file, and the next keystroke saved it back, undoing
@@ -394,7 +394,7 @@ pub(crate) async fn history_restore(
         })?;
         app.state::<SnapDirty>().mark();
         // after the write, never instead of it: the restore succeeded and its
-        // meta must reach the caller either way (SUB-781)
+        // meta must reach the caller either way
         if out.overwrote_external {
             use tauri::Emitter;
             app.emit("history:restored-over-external", RestoredOverExternal { path }).ok();
@@ -411,7 +411,7 @@ pub(crate) fn purge_notes(hist: &History, rels: &[&str]) -> Result<(), String> {
     hist.purge_files(rels)?;
     // The rewrite ends in `reflog expire --expire=now` + `gc --prune=now`, so
     // by this point the old versions are unrecoverable. A failing re-snapshot
-    // must not turn that into an Err (SUB-548): TrashPane deliberately chains
+    // must not turn that into an Err: TrashPane deliberately chains
     // `historyPurgeNote(...).then(destroy)` so a purge failure aborts the
     // delete — correct, but it reads Err as "the purge didn't happen". An Err
     // from the snapshot AFTER a completed purge stranded the note in trash
@@ -480,7 +480,7 @@ pub(crate) fn history_snapshot(h: State<HistoryState>, label: String) -> Result<
 
 #[cfg(test)]
 mod tests {
-    /// SUB-729: these rewrites can take seconds or minutes, so their command
+    /// These rewrites can take seconds or minutes, so their command
     /// handlers must stay async and yield a Send future that Tauri can drive
     /// without occupying its IPC thread.
     #[test]
@@ -513,7 +513,7 @@ mod tests {
         assert_trim(super::history_trim);
     }
 
-    /// SUB-548: a snapshot that fails AFTER the file has been replaced must
+    /// A snapshot that fails AFTER the file has been replaced must
     /// not fail the restore. HistoryPanel's `.catch` skips `onRestored`, so
     /// the editor kept a stale buffer over an already-restored file and the
     /// next save silently undid the restore — while the user was told it
@@ -544,7 +544,7 @@ mod tests {
         );
     }
 
-    /// SUB-839 review: a sealed note's restorable versions are ciphertext
+    /// Review: a sealed note's restorable versions are ciphertext
     /// (history restarts at v1 = ciphertext on seal), and write_raw would
     /// re-encrypt them — a doubly-encrypted, permanently unreadable file.
     /// Restore refuses while the seal stands, even unlocked.
@@ -576,7 +576,7 @@ mod tests {
         assert!(err.contains("sealed"), "{err}");
     }
 
-    /// SUB-781: an edit that landed on disk after the panel read the note is
+    /// An edit that landed on disk after the panel read the note is
     /// silently buried by a restore. The restore still runs — that is what was
     /// asked for — but it reports the bury, and the pre-write snapshot makes
     /// the toast's "in version history" promise true even when the edit is
@@ -632,7 +632,7 @@ mod tests {
         assert!(!unknowable.overwrote_external, "no baseline means no claim either way");
     }
 
-    /// SUB-548: the purge rewrite ends in `reflog expire --expire=now` +
+    /// The purge rewrite ends in `reflog expire --expire=now` +
     /// `gc --prune=now`, so once it returns the old versions are gone for
     /// good. TrashPane chains `historyPurgeNote(...).then(destroy)` and reads
     /// an Err as "the purge didn't happen" — an Err from the re-snapshot after
@@ -661,7 +661,7 @@ mod tests {
         );
     }
 
-    /// SUB-661: a purge/trim rewrite must not run while a pull's local phase
+    /// A purge/trim rewrite must not run while a pull's local phase
     /// holds the engine gate. The pull computes its merge from the branch tip
     /// it read before the rewrite and then sets the branch unconditionally, so
     /// an overlap silently restored the history the user had just purged
@@ -719,7 +719,7 @@ mod tests {
         assert_eq!(hist.lock().unwrap().as_ref().unwrap().list(&meta.path).unwrap().len(), 1);
     }
 
-    /// SUB-822: one commit must project notes, schema and saved-view config
+    /// One commit must project notes, schema and saved-view config
     /// from that SAME tree, and reading it must leave the live worktree byte
     /// for byte alone.
     #[test]

@@ -1,4 +1,4 @@
-/** Ephemeral encrypted handoff (SUB-833) — a note rendered to one
+/** Ephemeral encrypted handoff — a note rendered to one
     self-contained HTML document, sealed client-side, and parked on a dumb
     relay that only ever sees ciphertext. The AES key rides the link's
     `#fragment`, which browsers never send over the wire, so the relay (and

@@ -1,4 +1,4 @@
-/* The Today surface's data (SUB-300): one pure pass over the vault snapshot
+/* The Today surface's data: one pure pass over the vault snapshot
    shaping the day-agenda decision surface — what's Scheduled today, what's
    Due & overdue, and what's been Picked for today. The one verb is Pick: it
    writes an ordinary date prop (`today: YYYY-MM-DD`) on the note, so
@@ -41,7 +41,7 @@ export function todayTitle(iso: string): string {
 export const TODAY_PROP = "today";
 
 /** The day a note is picked for, when its `today` prop carries a valid day —
-    an optional time (SUB-270) parses but never keys the pick. */
+    an optional time parses but never keys the pick. */
 export function pickedDay(n: NoteMeta): string | null {
   const raw = propStr(n.props, TODAY_PROP);
   if (!raw) return null;
@@ -65,12 +65,12 @@ export interface TodayData {
   today: string;
   /** "Friday, July 18" */
   title: string;
-  /** today's non-deadline calendar entries, SUB-270 order (all-day, then
+  /** today's non-deadline calendar entries, in order (all-day, then
       timed ascending) — picked notes and the pick prop itself stay out */
   scheduled: AgendaItem[];
   /** deadline entries needing the decision: overdue first (oldest first),
-      then today's. Complete today-items ride along for the dimmed payoff
-      (SUB-205); complete or repeating past ones never nag (SUB-30's rule) */
+      then today's. Complete today-items ride along for the dimmed payoff;
+      complete or repeating past ones never nag */
   due: AgendaItem[];
   /** notes whose `today` prop is today — the committed agenda */
   picked: PickedItem[];
@@ -100,8 +100,8 @@ export function todayData(notes: NoteMeta[], schema: SchemaConfig, today: string
   }
 
   // one calendar pass over [today, today]: non-repeating entries ignore the
-  // window, so every past deadline shows; a series expands only inside it
-  // (SUB-174), which is why a repeating entry never counts as overdue
+  // window, so every past deadline shows; a series expands only inside it,
+  // which is why a repeating entry never counts as overdue
   const scheduled: AgendaItem[] = [];
   const due: AgendaItem[] = [];
   const timeByPath = new Map<string, string>();
@@ -117,7 +117,7 @@ export function todayData(notes: NoteMeta[], schema: SchemaConfig, today: string
     const deadline = isDeadline(schema, e.type, e.prop);
     if (e.day === today) {
       (deadline ? due : scheduled).push({ ...e, deadline });
-      // a range still running is not overdue (SUB-596) — its today-row above
+      // a range still running is not overdue — its today-row above
       // already carries it
     } else if (
       e.day < today &&
@@ -130,8 +130,8 @@ export function todayData(notes: NoteMeta[], schema: SchemaConfig, today: string
     }
   }
 
-  // lanes keep the agenda's order: all-day first, then timed ascending
-  // (SUB-270), title as the tiebreak; the due lane fronts its overdue rows
+  // lanes keep the agenda's order: all-day first, then timed ascending,
+  // title as the tiebreak; the due lane fronts its overdue rows
   // oldest-first, today's deadlines after
   const agendaOrder = (a: AgendaItem, b: AgendaItem) =>
     compareEntryTime(a, b) || a.title.localeCompare(b.title) || a.prop.localeCompare(b.prop);

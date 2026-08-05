@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// Date ranges (SUB-596): a date prop may carry an end — `start/end` — and the
+// Date ranges: a date prop may carry an end — `start/end` — and the
 // picker draws one. These specs walk the whole path: toggle Range in the date
 // menu, click two days, and assert the committed value, the collapsed chip
 // text, the multi-day span on the calendar, and that clearing the end puts a
@@ -92,7 +92,7 @@ test("turning Range off reverts the value to a plain single date", async ({ page
   await expect(chip.locator(".chip-val")).not.toContainText("–");
 });
 
-// SUB-631: on a SAME-DAY range the two endpoints can be written out of order
+// On a SAME-DAY range the two endpoints can be written out of order
 // (a timed start against a day-only end sorts as reversed), which made
 // splitDateRange reject the value and the note disappear from every calendar
 // surface. This walks the two same-day write paths a user can reach from the
@@ -129,7 +129,7 @@ test("a same-day range survives being timed from the peek (SUB-631)", async ({ p
   ).toHaveText("09:00");
 });
 
-// SUB-649: the peek used to read "not the span's first day" as "virtual series
+// The peek used to read "not the span's first day" as "virtual series
 // occurrence" and offer Skip / Delete-this-and-following on a plain date range.
 // Both wrote repeat_skip / repeat_until onto a note with no `repeat:` — nothing
 // re-rendered, but the keys stayed, ready to hole a series added later.

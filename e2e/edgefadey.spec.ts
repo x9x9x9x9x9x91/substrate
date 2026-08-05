@@ -1,10 +1,10 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// The shared vertical edge fade (SUB-1001). One gate — useEdgeFade() plus
+// The shared vertical edge fade. One gate — useEdgeFade() plus
 // .edge-fade-y in styles.css — now serves the settings sheet, the calendar's
 // Upcoming rail, the charts dashboard and the database manager, replacing what
-// would otherwise have been four bespoke fades. Same contract as the table edges (SUB-195) and the
-// sidebar tree (SUB-627): .edge-more-y paints only while the scroller can move
+// would otherwise have been four bespoke fades. Same contract as the table edges and the
+// sidebar tree: .edge-more-y paints only while the scroller can move
 // down, .edge-scrolled-y only while it is off the top stop, so the row at a
 // stop always renders crisp and a surface that fits fades neither end.
 // Runs against the deterministic mock backend (fresh page = fresh vault).
@@ -32,7 +32,7 @@ test("settings sheet: fades down, never at the bottom stop", async ({ page }) =>
   await expect(body).not.toHaveClass(/edge-scrolled-y/);
 
   // bottom stop: the last row ("Show app files") renders crisp — this is the
-  // SUB-1001 defect itself, where the fade used to be unconditional
+  // Defect itself, where the fade used to be unconditional
   await toBottom(page, ".shortcut-sheet-body");
   await expect(body).not.toHaveClass(/edge-more-y/);
   const maskAtBottom = await body.evaluate((el) => getComputedStyle(el).maskImage);

@@ -122,7 +122,7 @@ test("displayValue formats number-kind values by display format (SUB-188)", () =
   assert.equal(displayValue("1234.56", "number", "euro"), "1.234,56 €");
   assert.equal(displayValue("349.5", "number", "euro"), "349,5 €");
   assert.equal(displayValue("-1234.5", "number", "euro"), "-1.234,5 €");
-  // percent (SUB-196): same de-DE path as euro — the stored number IS the
+  // percent: same de-DE path as euro — the stored number IS the
   // percent (no ×100 math), German grouping + " %"
   assert.equal(displayValue("12", "number", "percent"), "12 %");
   assert.equal(displayValue("8.5", "number", "percent"), "8,5 %");
@@ -193,7 +193,7 @@ test("audioPropTarget finds a note's first audio-valued file prop (SUB-674)", ()
   assert.equal(audioPropTarget({}, schema), null);
 });
 
-// ---------- unit-aware cells (SUB-834) ----------
+// ---------- unit-aware cells ----------
 
 /** Fixed rates, like aggregate.test's: 1 USD = 0.8 EUR, 1 GBP = 1.2 EUR;
     anything else is a rate we don't have. */

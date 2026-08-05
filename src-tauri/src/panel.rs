@@ -1,4 +1,4 @@
-//! SUB-746: turn the tray agenda popover into a non-activating panel.
+//! Turn the tray agenda popover into a non-activating panel.
 //!
 //! A menu-bar extra must not activate its app. tao builds every window as a
 //! `TaoWindow` (an `NSWindow` subclass), and an ordinary `NSWindow` can only

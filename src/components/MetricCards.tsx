@@ -1,5 +1,5 @@
 /** The metric card strip, shared by the metrics dashboard (cards from
-    frontmatter) and hub bodies (cards from a ```cards fence, SUB-964). One
+    frontmatter) and hub bodies (cards from a ```cards fence). One
     card contract, one resolution path, one look — a stat card must not read
     differently depending on which surface hosts it. */
 
@@ -24,7 +24,7 @@ export interface CardValue {
   title?: string;
 }
 
-/** One card's value off a mount's index (SUB-982). A mount that isn't bound on
+/** One card's value off a mount's index. A mount that isn't bound on
     this machine — or whose folder has gone away — still answers from the
     last-known index rather than blanking: the card keeps its number and says
     underneath why it may be stale, which is the mount board's own contract.
@@ -61,10 +61,10 @@ function mountCard(
 
 /** Load every named sheet — and transitively any sheet its formulas reference
     — then evaluate each with the cross-sheet loader. Shared by the card strip
-    and the ```progress fence (SUB-967): one bind grammar deserves one loader,
+    and the ```progress fence: one bind grammar deserves one loader,
     so a summary can't resolve differently depending on who asked.
 
-    The load itself goes through the shared dashboard sheet cache (SUB-940), so
+    The load itself goes through the shared dashboard sheet cache, so
     several surfaces on one board — a hub with two ```cards fences and a
     thermometer, say — bound to the same sheet SET cost one IPC + BFS +
     evaluation pass, not one per surface. Surfaces with different root sets
@@ -76,7 +76,7 @@ export function useSheetStates(
       re-reads its cards; identical sheet roots at one vault epoch and FX rate
       still resolve to the same cached evaluation */
   scope: string,
-  /** the whole quoted rate table (SUB-834) — a bound sheet may convert any
+  /** the whole quoted rate table — a bound sheet may convert any
       pair, not only USD→EUR */
   rates: FxRatesState | null,
 ): Map<string, SheetState> {
@@ -117,7 +117,7 @@ export interface BindRead {
 }
 
 // A bound summary that doesn't exist is the same class of miss the charts
-// name (SUB-749): renaming it left the card reading "—" with the reason
+// name: renaming it left the card reading "—" with the reason
 // buried in a hover tooltip, which on a dashboard is indistinguishable from
 // a summary that legitimately has no value. The reader now names the summary
 // it couldn't find; the sheet's actual summary list stays in the tooltip,
@@ -147,8 +147,8 @@ export function readBind(sheets: Map<string, SheetState>, bind: string): BindRea
 
 /** Read one card's value out of the loaded sheets — or a mount's index:
     `{{Album Pool.count}}` and `{{Holdings.total}}` are the same binding
-    grammar (SUB-982), and only the vault knows which of the two a name is.
-    Sheets load through the shared `useSheetStates` loader (SUB-967), so a
+    grammar, and only the vault knows which of the two a name is.
+    Sheets load through the shared `useSheetStates` loader, so a
     card strip and a thermometer bound to the same sheet set cost one pass. */
 export function useCardValues(
   cards: MetricCard[],
@@ -156,7 +156,7 @@ export function useCardValues(
   scope: string,
   rates: FxRatesState | null,
 ): (i: number) => CardValue {
-  // mounts resolve alongside sheets, not instead of them (SUB-982): only the
+  // mounts resolve alongside sheets, not instead of them: only the
   // vault knows which of the two a bound name is
   const [mounts, setMounts] = useState<Map<string, DashboardMountState> | null>(null);
   // why the mount pass failed, when it did — a name that resolves as neither
@@ -203,7 +203,7 @@ export function useCardValues(
     if (!b) return { text: "—", title: `bad binding “${cards[i].bind}” — want {{Sheet.summary}}` };
     // a name that is a mount reads its index; anything else is a sheet. The
     // lookup has to wait for the mount pass, or a card bound to a mount would
-    // flash "no note named …" before the answer arrives (SUB-982).
+    // flash "no note named …" before the answer arrives.
     if (mounts === null) return { text: "…" };
     const mstate = mounts.get(b.sheet.toLowerCase());
     const state = sheets.get(b.sheet.toLowerCase());
@@ -236,13 +236,13 @@ export function MetricCardStrip({
   sharp: Set<number>;
   cardValue: (i: number) => CardValue;
 }) {
-  // how the strip wraps into a block (SUB-625) — card count, not viewport
+  // how the strip wraps into a block — card count, not viewport
   const cols = metricsColumns(cards.length);
   return (
     <div className="metrics-strip">
       <div
         className="dash-cards metrics-cards"
-        // the column count is data, not a breakpoint (SUB-625): it depends
+        // the column count is data, not a breakpoint: it depends
         // on how many cards the note declares, so the grid track comes from
         // the renderer and the stylesheet owns everything else
         style={{ "--metrics-cols": cols } as CSSProperties}
@@ -250,14 +250,14 @@ export function MetricCardStrip({
         {cards.map((card, i) => {
           const v = cardValue(i);
           // the binding is chrome, not content — tooltip only, merged
-          // with any error title (SUB-246)
+          // with any error title
           const title = v.title ? `${card.bind} — ${v.title}` : card.bind;
           // the tile that opens a row drops its leading hairline — the
           // rule divides tiles inside a row, it never fences the left
           // edge of one
           const cls = `dash-card${sharp.has(i) ? "" : " sunk"}${i % cols === 0 ? " row-start" : ""}`;
           return (
-            // the accent is a NAME, never a colour (SUB-969): the attribute is
+            // the accent is a NAME, never a colour: the attribute is
             // all the renderer knows, and the ten rules in styles.css are the
             // only place it becomes a hue. An absent accent emits no attribute.
             <div className={cls} key={i} title={title} data-accent={card.accent}>

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// Table row multi-select + bulk bar (SUB-272) against the mock backend's
+// Table row multi-select + bulk bar against the mock backend's
 // Contact db: four rows resting in title order (Annelies, Gero, Noa, Tess),
 // `role` a schema'd select prop (mix engineer / artwork / booking / radio
 // plugger). Fresh page = fresh vault per test.
@@ -88,7 +88,7 @@ test("Move to Trash trashes every selected row with one summary toast; Undo rest
   await expect(row(page, "Noa")).toHaveCount(1);
 });
 
-// SUB-488: Engine::trash_list sorts `deleted_ms DESC, path ASC`, and the
+// Engine::trash_list sorts `deleted_ms DESC, path ASC`, and the
 // Trash pane renders that order as-is. A bulk trash puts several entries in
 // the same millisecond, so the pane's order is decided purely by the path
 // tie-break — the one place the engine's contract is directly observable.
@@ -118,7 +118,7 @@ test("a same-millisecond bulk trash lists in path order, newest group first (SUB
   await expect(titles.nth(1)).toHaveText("Noa");
 });
 
-// SUB-577: the sibling above passes only while the two deletes happen to land
+// The sibling above passes only while the two deletes happen to land
 // on the same millisecond. Under parallel-suite load one boundary fell between
 // them and the group split across two `deleted_ms` values, putting Noa first.
 // Stubbing Date.now to advance every reading forces that boundary on every
@@ -156,7 +156,7 @@ test("a plain click with a selection active opens the note and clears the select
   await expect(page.locator("tr.is-selected")).toHaveCount(0);
 });
 
-// SUB-635: a bulk multi/relation edit REPLACES each selected note's whole
+// A bulk multi/relation edit REPLACES each selected note's whole
 // list with the picked set — it is NOT additive, however the toggles read.
 // The picker states the replace up front (one quiet line naming the column
 // and the selection size) and every live write toasts, so the replace is

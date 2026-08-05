@@ -297,7 +297,7 @@ test("created may be overridden — a backfill knows the real date", async (t) =
   assert.equal(report.content.match(/created:/g)?.length, 1);
 });
 
-// ---------- exclusive-create hardening (review findings, SUB-815) ----------
+// ---------- exclusive-create hardening ----------
 
 test("a stale temp file never misfiles the row — it fails loudly instead", async (t) => {
   const vault = await tmpVault(t);

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-493. Content matches arrive on a debounce, after the synchronous note
+// Content matches arrive on a debounce, after the synchronous note
 // and command rows. Inserting that section pushes every row below it down —
 // and a cursor resting where the user left it is suddenly over a different
 // row. The browser fires mouseenter for the row that moved under the pointer,

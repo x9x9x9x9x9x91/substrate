@@ -17,7 +17,7 @@ interface IconPickerProps {
 
 const PICKER_MAX_H = 330;
 
-/** Small popover for a database's icon (SUB-27): emoji field, curated glyph
+/** Small popover for a database's icon: emoji field, curated glyph
     grid, muted tint swatches. No settings page — this is the whole surface.
     Glyph/tint clicks save immediately and keep the popover open (glyph then
     tint is the common flow); Remove resets to the auto-glyph and closes. */

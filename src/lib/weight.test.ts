@@ -114,7 +114,7 @@ test("weightSeries: own scale — a real cut move spans most of the plot", () =>
 });
 
 test("weightSeries: a real 0.6 kg move reads as a move, not a flat line", () => {
-  // the SUB-707 case: 68.0 → 67.4 across the window. Under MIN_SPAN_KG, so
+  // the case: 68.0 → 67.4 across the window. Under MIN_SPAN_KG, so
   // the floor span applies — 0.6 / 1.4 ≈ 43% of the plot, unmistakably not flat
   const s = weightSeries(bodyWith(["2026-07-21,68.0", "2026-07-25,67.4"]), WINDOW);
   assert.ok(s);

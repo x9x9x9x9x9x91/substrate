@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// Grouped table view (SUB-184): section header rows partition one table by a
+// Grouped table view: section header rows partition one table by a
 // select prop — schema option order, colored dots, muted counts, a trailing
 // "No <prop>" section — against the deterministic mock backend (fresh page =
 // fresh vault per test). The mock contact db is the "By Type" lane: four
@@ -173,7 +173,7 @@ test("SUB-561: grouping doesn't inflate the footer count or its sums", async ({ 
 
   await groupTableBy(page, "contact");
   // the two-contact release really is on screen twice — six data rows over
-  // three sections — which is what per-item grouping is for (SUB-221)
+  // three sections — which is what per-item grouping is for
   await expect(page.locator(".db-group-tr")).toHaveCount(3);
   await expect(page.locator(".db-table tbody tr:not(.db-group-tr)")).toHaveCount(6);
   // …and the footer still answers for five notes worth 42 tracks

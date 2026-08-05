@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// SUB-1095: `[[target#anchor|alias]]`. The link NAMES the target — the anchor
+// `[[target#anchor|alias]]`. The link NAMES the target — the anchor
 // says where to land inside it, the alias is what you read. Before this, both
 // forms resolved to nothing and created a stray note.
 

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-466: dashboards living in a subfolder of their home folder render under
+// Dashboards living in a subfolder of their home folder render under
 // a collapsible group header, and a dashboard moves between folders by drag or
 // by the row's "Move to folder…" picker.
 
@@ -19,7 +19,7 @@ test.beforeEach(async ({ page }) => {
 test("a subfoldered dashboard renders under a group header and opens", async ({ page }) => {
   const group = dashGroup(page, "Releases");
   await expect(group).toHaveCount(1);
-  // SUB-686 dropped the header's member count — the rows under it say it all
+  // Dropped the header's member count — the rows under it say it all
   await expect(group.locator(".side-count")).toHaveCount(0);
 
   // the grouped row sits under the header, the flat ones stay above it
@@ -40,7 +40,7 @@ test("a subfoldered dashboard renders under a group header and opens", async ({ 
 });
 
 test("dropping a dashboard on its OWN group header stays a no-op", async ({ page }) => {
-  // SUB-585 review finding: the own-folder-drop-pins gesture must not apply to
+  // The own-folder-drop-pins gesture must not apply to
   // sidebar row drags — a dashboard dropped back on its own group header used
   // to be a silent no-op, and pinning it here would render it twice (its pin
   // routes to the flat Pinned section, since Dashboards is a hidden root)
@@ -60,8 +60,8 @@ test("dragging a flat dashboard onto a group header moves the file", async ({ pa
   const group = dashGroup(page, "Releases");
   await expect(group).toHaveCount(1);
   // pre-state: Overview is a FLAT dashboard, not yet a Releases member —
-  // collapsing the group must not hide it (SUB-686 dropped the header count
-  // this used to assert, so membership is proven by collapse visibility)
+  // collapsing the group must not hide it (the header count this used to
+  // assert is gone, so membership is proven by collapse visibility)
   await group.getByRole("button", { name: "Collapse Releases" }).click();
   await expect(page.getByRole("button", { name: "Overview", exact: true })).toBeVisible();
   await group.getByRole("button", { name: "Expand Releases" }).click();
@@ -75,7 +75,7 @@ test("dragging a flat dashboard onto a group header moves the file", async ({ pa
   await group.dispatchEvent("dragover", { dataTransfer });
   await group.dispatchEvent("drop", { dataTransfer });
 
-  // Overview joined the group (SUB-686 dropped the header count, so prove
+  // Overview joined the group (the header count is gone, so prove
   // membership by collapse: a group member vanishes with its header closed)
   await page.getByRole("button", { name: "Overview", exact: true }).click();
   await expect(page.locator(".dash-title")).toHaveText("Overview");
@@ -87,14 +87,14 @@ test("dragging a flat dashboard onto a group header moves the file", async ({ pa
 });
 
 test("dragging a dashboard onto the Pinned header does not pin it", async ({ page }) => {
-  // SUB-466 review finding 1: a dashboard drag carries NOTE_DRAG_MIME so it can
+  // A dashboard drag carries NOTE_DRAG_MIME so it can
   // land on a folder, and the Pinned drop zone used to take any note payload —
   // so a drag aimed at the Pinned header pinned the dashboard and rendered it
   // twice in the sidebar. A drag that also carries SIDE_DRAG_MIME is a sidebar
   // row gesture, never "pin this".
 
   // seed a pin from a plain ROOT note so the flat Pinned section (the drop
-  // target) exists — a folder note's pin nests in the tree instead (SUB-585)
+  // target) exists — a folder note's pin nests in the tree instead
   await page.locator(".side-item", { hasText: "All notes" }).click();
   const note = page.locator('.row[data-path="Welcome.md"]');
   await expect(note).toBeVisible();
@@ -143,7 +143,7 @@ test("Move to folder… moves a grouped dashboard back out, order survives", asy
 test("the OPEN dashboard follows its file through a move (SUB-624)", async ({ page }) => {
   // moveNote retargeted `selected`/`dbNote`/`renaming` but not `view`, so an
   // open dashboard's pane lost its meta on the old path and fell back to the
-  // list — easy to hit since SUB-605 made moving a dashboard a normal gesture
+  // list — easy to hit made moving a dashboard a normal gesture
   const row = page.getByRole("button", { name: "Label Health", exact: true });
   await row.click();
   await expect(page.locator(".dash-title")).toHaveText("Label Health");
@@ -184,7 +184,7 @@ test("the OPEN dashboard follows its file through a rename (SUB-624)", async ({ 
   );
 });
 
-/* ----- SUB-605: dashboards foldered in the main tree ----- */
+/* ----- dashboards foldered in the main tree ----- */
 
 /** A folder tree row by name (the Folders section's rows, not a dash group). */
 function treeFolder(page: Page, name: string) {
@@ -193,7 +193,7 @@ function treeFolder(page: Page, name: string) {
   });
 }
 
-/** The dashboard rows the FOLDER TREE owns (SUB-605), in render order. */
+/** The dashboard rows the FOLDER TREE owns, in render order. */
 async function treeDashNames(page: Page): Promise<string[]> {
   return page.locator(".side-dash-nested .side-label-text").allTextContents();
 }
@@ -258,7 +258,7 @@ test("dragging a Dashboards-section row onto a folder moves it into the tree", a
   await moved.click();
   await expect(page.locator(".dash-title")).toHaveText("Overview");
 
-  // no pin was created by the gesture (SUB-466 finding 1 stays fixed)
+  // no pin was created by the gesture
   await expect(page.locator(".side-section-toggle", { hasText: "Pinned" })).toHaveCount(0);
 });
 
@@ -356,7 +356,7 @@ test("a tree dashboard reorders within its folder, by menu", async ({ page }) =>
   await expect(page.locator(".side-item", { hasText: "Umbra Home" })).toBeVisible();
 });
 
-/* ----- SUB-698: the group header is a first-class row ----- */
+/* ----- the group header is a first-class row ----- */
 
 /** A group header ONLY — `dashGroup` above also matches the tree row a group
     grows once it is moved out of the Dashboards section. */
@@ -396,7 +396,7 @@ test("a group header carries the folder menu; Rename keeps place and collapse", 
   page,
 }) => {
   await seedSecondGroup(page);
-  // the new group lands after the seeded one (SUB-605's dashboards lane orders
+  // the new group lands after the seeded one (the dashboards lane orders
   // the members; the headers follow that until the dashgroups lane says else)
   expect(await groupNames(page)).toEqual(["Releases", "Metrics"]);
 
@@ -449,7 +449,8 @@ test("Move to Trash on a group takes its dashboards; restore brings them back", 
   await entry.locator(".trash-restore").click();
 
   // restore rebuilds the group header with its dashboard inside (the member
-  // row below is the proof — headers carry no count since SUB-686)
+  // row below is the proof — headers carry no count since the sidebar
+  // clarity pass)
   const back = groupHeader(page, "Releases");
   await expect(back).toHaveCount(1);
   const dash = sideDash(page, "Label Health");
@@ -477,8 +478,8 @@ test("dragging a group header past another reorders the groups", async ({ page }
   expect(await groupNames(page)).toEqual(["Metrics", "Releases"]);
 
   // both are still their own top-level groups holding their own dashboard —
-  // neither folder was moved into the other (counts left the headers in
-  // SUB-686, so the member rows themselves are the proof)
+  // neither folder was moved into the other (the counts left the headers,
+  // so the member rows themselves are the proof)
   await expect(groupHeader(page, "Releases")).toHaveCount(1);
   await expect(groupHeader(page, "Metrics")).toHaveCount(1);
   await expect(sideDash(page, "Label Health")).toHaveCount(1);
@@ -504,7 +505,7 @@ test("dragging a group header onto a folder row moves the folder into the tree",
 
   // the whole subfolder moved: gone from the Dashboards section, a real tree
   // row under Ideas now, and its dashboard renders as one of the tree's
-  // (SUB-605) rather than a section row
+  // rather than a section row
   await expect(groupHeader(page, "Releases")).toHaveCount(0);
   const moved = treeFolder(page, "Releases");
   await expect(moved).toHaveCount(1);
@@ -537,7 +538,7 @@ test("a moved group keeps its dashboards' manual order (SUB-698 review)", async 
   await group.dispatchEvent("dragover", { dataTransfer });
   await group.dispatchEvent("drop", { dataTransfer });
   // the drop moved Overview into the group (headers lost their count in
-  // SUB-686 — the nested row is the evidence)
+  // The nested row is the evidence)
   const groupDashNames = () =>
     page.locator(".side-dash-group ~ .side-item .side-label-text").allTextContents();
   await expect

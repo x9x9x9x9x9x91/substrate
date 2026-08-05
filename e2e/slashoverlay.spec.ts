@@ -2,8 +2,8 @@ import { expect, test } from "@playwright/test";
 
 // ⌘/ opens the keyboard-shortcuts overlay. It must NEVER write to the note:
 // CodeMirror's defaultKeymap binds Mod-/ to toggleComment, which silently
-// inserted `<!-- -->` into the focused document while the sheet opened
-// (SUB-316). The Editor filters that binding out; this spec pins both halves.
+// inserted `<!-- -->` into the focused document while the sheet opened.
+// The Editor filters that binding out; this spec pins both halves.
 
 function row(page: import("@playwright/test").Page, title: string) {
   return page.locator(".list .row", { has: page.getByText(title, { exact: true }) });

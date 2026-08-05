@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDb } from "./nav";
 
-// number property kind (SUB-188): a schema'd number prop with euro format
+// number property kind: a schema'd number prop with euro format
 // renders German-style (dot thousands, comma decimals — decimals only when
 // the value has them, trailing " €") and right-aligned; editing shows and
 // saves the raw stored string; junk values render exactly as typed.

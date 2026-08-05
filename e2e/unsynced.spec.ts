@@ -1,9 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-444: vault sync ships notes but deliberately leaves `.assets/` behind
+// Vault sync ships notes but deliberately leaves `.assets/` behind
 // (src-tauri/src/gitsync.rs:233-236), so a synced phone opens a note whose
 // embeds have no files. That is the design working — it must not render as a
-// broken link. Same boot/seed shape as assetheal.spec (SUB-289).
+// broken link. Same boot/seed shape as assetheal.spec.
 
 async function boot(page: Page) {
   await page.goto("/");
@@ -12,7 +12,7 @@ async function boot(page: Page) {
 }
 
 /* an event within 1s of an app-initiated refresh is treated as the own-write
-   echo (SUB-116/239) — wait the window out before emitting */
+   echo — wait the window out before emitting */
 async function seedBody(page: Page, body: string) {
   await page.evaluate((b) => window.__mockEditNote("Welcome.md", b), body);
   await page.waitForTimeout(1100);

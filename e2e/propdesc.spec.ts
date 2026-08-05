@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDb } from "./nav";
 
-// property descriptions (SUB-191): a schema'd prop may carry a one-line
+// property descriptions: a schema'd prop may carry a one-line
 // description that shows as a quiet muted hint where values are entered —
 // the cell picker popup and the note-side chip editor. Undescribed props
 // render nothing. The schema editor's draft UI edits it (any kind), and
@@ -12,7 +12,7 @@ import { openDb } from "./nav";
 const HINT = "Approximate is fine — current resale value.";
 
 /** the data-column index of a prop, read off the table header (title first) —
-    headers render display-capitalized (SUB-255), so match case-insensitively */
+    headers render display-capitalized, so match case-insensitively */
 async function colIndex(page: import("@playwright/test").Page, col: string) {
   return page
     .locator(".db-table thead th")

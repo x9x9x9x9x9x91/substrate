@@ -26,7 +26,7 @@ interface DoctorPaneProps {
   onOpenNote: (path: string) => void;
 }
 
-/** Read-only vault integrity report (SUB-432). This pane REPORTS ONLY —
+/** Read-only vault integrity report. This pane REPORTS ONLY —
     there are deliberately no fix buttons; repair is a separate slice, and
     the backend command never writes. The raw report is one click away as
     JSON so an agent can consume the same data the pane renders. */
@@ -86,7 +86,7 @@ export default function DoctorPane({ vaultEpoch, onOpenNote }: DoctorPaneProps) 
         {report === null ? (
           /* an errored scan renders the strip below — never a loading state
              that sticks forever; same DOM as the resolved state, so the scan
-             landing only swaps text (SUB-650) */
+             landing only swaps text */
           error === null ? (
             <div className="empty">
               <PulseIcon />

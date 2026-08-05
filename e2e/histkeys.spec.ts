@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-363: history snapshots are a real listbox — options carry names,
+// History snapshots are a real listbox — options carry names,
 // selection, and roving focus; arrows move both focus and the loaded diff.
 
 async function openHistory(page: Page) {
@@ -79,7 +79,7 @@ test("overlay Escape and pointer selection are unchanged", async ({ page }) => {
   await expect(page.locator(".hist")).toHaveCount(0);
 });
 
-// SUB-647: the trim date rides the in-house DateMenu (no stock date input) —
+// The trim date rides the in-house DateMenu (no stock date input) —
 // the future-date guard moved into the commit handler and refuses inline
 test("trim date picks through DateMenu; a future date is refused inline", async ({ page }) => {
   await openHistory(page);

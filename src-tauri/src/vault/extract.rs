@@ -1,4 +1,4 @@
-//! Reading what a mounted file says about itself (SUB-887).
+//! Reading what a mounted file says about itself.
 //!
 //! A mounted folder is usually full of one or two kinds of file — a sample
 //! library, a paper pile — and the columns that make it a useful database are
@@ -25,7 +25,7 @@
 //!   cheap: a 500-page PDF and a 5-hour WAV cost about what a 3-minute MP3
 //!   costs, because neither parser walks the bytes it isn't asked about.
 //!
-//! Reading a PDF's *text* (SUB-1093) is the one thing in here that would
+//! Reading a PDF's *text* is the one thing in here that would
 //! otherwise scale with the document rather than with the caps above, because
 //! it does walk the bytes: a thesis decompresses page after page and hands
 //! back every glyph. So it carries two caps of its own —
@@ -48,7 +48,7 @@ pub type Extracted = BTreeMap<String, serde_json::Value>;
 /// Everything one read of a file produced: the short values that become
 /// columns, and the file's own body text, which deliberately does not.
 ///
-/// The split is the point (SUB-1093). [`Reading::columns`] is merged into a
+/// The split is the point. [`Reading::columns`] is merged into a
 /// row's props and therefore into the board's column set, so everything in it
 /// has to be cell-sized. A PDF's text is kilobytes — a fine thing to search,
 /// an unreadable thing to put in a column — so it travels beside the columns
@@ -168,7 +168,7 @@ const AUDIO_SIZE_CAP: u64 = 1024 * 1024 * 1024;
 /// want a page count from.
 const PDF_MAX_DECOMPRESSED: usize = 16 * 1024 * 1024;
 
-/// How many pages of a PDF are read for text (SUB-1093).
+/// How many pages of a PDF are read for text.
 ///
 /// Text extraction is the one thing in this module whose cost tracks the
 /// document's length rather than its object count: every page read means
@@ -297,7 +297,7 @@ fn audio(path: &Path) -> Result<Extracted, String> {
 }
 
 /// Page count and the document title from the PDF catalog, plus a bounded
-/// excerpt of the document's own text (SUB-1093).
+/// excerpt of the document's own text.
 ///
 /// The load parses the object table, not the page content streams, so the
 /// cost tracks the number of objects rather than the number of megabytes of
@@ -342,7 +342,7 @@ fn pdf(path: &Path) -> Result<Reading, String> {
     Ok(Reading { columns: out, text, text_truncated })
 }
 
-/// The first pages of a PDF's own text, under both caps (SUB-1093).
+/// The first pages of a PDF's own text, under both caps.
 ///
 /// Bounded twice, because the two failure modes are different documents: a
 /// long one is stopped by [`PDF_TEXT_MAX_PAGES`], a dense one by

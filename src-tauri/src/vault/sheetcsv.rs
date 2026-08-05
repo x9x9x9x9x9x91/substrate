@@ -1,4 +1,4 @@
-//! Reading the ```csv fence a sheet note stores its grid in (SUB-876).
+//! Reading the ```csv fence a sheet note stores its grid in.
 //!
 //! The app's sheet engine lives in TypeScript (`src/lib/sheet.ts`); the
 //! scheduler runs in Rust and needs the same grid to find date cells, so this
@@ -22,7 +22,7 @@ pub struct Grid {
 
 impl Grid {
     /// Index of a header, exact match first, then case-folded — sheet names
-    /// bind case-insensitively everywhere else (SUB-751, SUB-920), and a
+    /// bind case-insensitively everywhere else, and a
     /// header typed `Renewal` must answer to a `renewal:` metadata key.
     pub fn column(&self, name: &str) -> Option<usize> {
         if let Some(i) = self.headers.iter().position(|h| h == name) {
@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     fn bare_quote_mid_cell_is_literal() {
-        // the TS rule: a quote only opens at cell start (SUB-681 neighbourhood)
+        // the TS rule: a quote only opens at cell start
         let rows = parse_csv("12\" single,next\n");
         assert_eq!(rows, [["12\" single", "next"]]);
     }

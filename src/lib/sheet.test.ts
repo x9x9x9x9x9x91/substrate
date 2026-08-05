@@ -354,7 +354,7 @@ test("formatValue: label columns render longer integers ungrouped too (SUB-633)"
   assert.equal(formatValue(null, "year"), "");
 });
 
-// ── per-column number format (SUB-1000) ──────────────────────────────────────
+// ── per-column number format ──────────────────────────────────────
 
 test("columnFormat: one decision per column, not per value (SUB-1000)", () => {
   // the collision: a money column holding 7400 and 37680 used to render
@@ -362,9 +362,9 @@ test("columnFormat: one decision per column, not per value (SUB-1000)", () => {
   assert.deepEqual(columnFormat([7400, 37680], "value_usd"), { decimals: 0, group: true });
   // any fraction in the column puts every cell on 2 decimals
   assert.deepEqual(columnFormat([1200, 4.1], "units"), { decimals: 2, group: true });
-  // all-integer and all under the SUB-633 threshold: still bare
+  // all-integer and all under the threshold: still bare
   assert.deepEqual(columnFormat([12, 340, 9999], "count"), { decimals: 0, group: false });
-  // label columns stay bare however large (SUB-633)
+  // label columns stay bare however large
   assert.deepEqual(columnFormat([48211, 1000042], "order_id"), { decimals: 0, group: false });
   assert.deepEqual(columnFormat([2024, 2025, 2026], "year"), { decimals: 0, group: false });
   // nothing numeric to decide from — errors, blanks, text
@@ -453,7 +453,7 @@ test("Work Index sheet: the year column renders ungrouped (SUB-633)", () => {
   assert.equal(render(1)[3], "2024");
 });
 
-// ── summary chips inherit their column's format (SUB-1084) ───────────────────
+// ── summary chips inherit their column's format ───────────────────
 
 /** Every chip of a sheet, rendered the way the summary bar renders them. */
 const chips = (body: string): Record<string, string> => {
@@ -466,14 +466,14 @@ const chips = (body: string): Record<string, string> => {
 };
 
 test("summary chip renders in the grammar of the column it sums (SUB-1084)", () => {
-  // the reported case: value_usd renders 7.400 / 37.680 after SUB-1000, but a
+  // the reported case: value_usd renders 7.400 / 37.680, but a
   // total landing under 10000 and integral rendered "7400" one row below it
   const body =
     "```csv\nasset,value_usd\nBTC,37680\nHEDGE,-30280\n```\n\n" +
     "```formulas\ntotal = SUM(value_usd)\n```\n";
   const ev = evaluateSheet(parseSheet(body), fx);
   const fmts = sheetColumnFormats(ev);
-  // the column groups: it carries a five-digit value, so SUB-1000 renders it money-shaped
+  // the column groups: it carries a five-digit value, so the column grammar renders it money-shaped
   assert.deepEqual(
     ev.rows.map((r) => formatValue(r[1], "value_usd", fmts.data[1])),
     ["37.680", "-30.280"]
@@ -648,7 +648,7 @@ test("classification: cross-sheet scalars make summaries, mixed refs stay column
     "share:col",
     "cash_rows:agg",
   ]);
-  // a bare cross-sheet scalar is a summary; a constant is one too (SUB-715)
+  // a bare cross-sheet scalar is a summary; a constant is one too
   const m2 = parseSheet(
     "```csv\na\n1\n```\n\n```formulas\nplain = Cash.cash_total\nlit = 42\n```"
   );
@@ -730,7 +730,7 @@ test("cross-sheet: quoted sheet names reach titles with spaces", () => {
 test("cross-sheet: member precedence is summary > computed > data column", () => {
   // Distinct names, one per kind: a member resolves to whichever kind holds it.
   // (Precedence only ever *decided* anything when one name held two kinds, and
-  // since SUB-751 that is a collision on the source sheet, not a silent pick —
+  // that is a collision on the source sheet, not a silent pick —
   // see the folded-name block below for that case.)
   const other = parseSheet("```csv\nd,b\n1,10\n2,20\n```\n\n```formulas\nc = b * 3\ns = SUM(b)\n```");
   const mine = parseSheet(
@@ -850,7 +850,7 @@ test("cross-sheet: LOOKUP keyed by a constant or a summary stays a summary (SUB-
   const rates = parseSheet("```csv\ncode,rate\nUSD,0.8721\nGBP,1.1642\n```");
   const load = (n: string): SheetModel | FErr =>
     n.toLowerCase() === "rates" ? rates : ferr(`no note named “${n}”`);
-  // SUB-741 semantics unchanged: constant key, and a key that is an earlier
+  // Semantics unchanged: constant key, and a key that is an earlier
   // summary — neither is row-shaped, so both lines stay summaries.
   const mine = parseSheet(
     "```csv\nitem,price_usd,currency\na,250,USD\nb,100,GBP\n```\n\n```formulas\n" +
@@ -938,7 +938,7 @@ test("updateSheetFormula case-only rename rewrites refs to the new casing", () =
   near(findSummary(ev, "total"), 300900 * 0.8721);
 });
 
-// ---------- SUB-218: fence parsing fixes ----------
+// ---------- fence parsing fixes ----------
 
 test("setSheetCell round-trips a quoted cell containing ``` without ejecting rows (SUB-218)", () => {
   const body = "before\n\n```csv\nname,note\na,x\nb,y\n```\n\nafter\n";
@@ -1007,7 +1007,7 @@ test("classification: forward references resolve against the whole fence (SUB-21
   );
 });
 
-// ---------- SUB-227: ragged rows survive grid mutations ----------
+// ---------- ragged rows survive grid mutations ----------
 
 const RAGGED = "```csv\nname,amount\nrent,1200,monthly,essential\nfood,400,weekly\n```\n";
 
@@ -1048,7 +1048,7 @@ test("addSheetColumn surfaces a ragged row's first extra cell (SUB-227)", () => 
   assert.ok(next.includes("rent,1200,monthly,essential"), "cells beyond the new width still kept");
 });
 
-// ---------- row/column delete + reorder (SUB-395) ----------
+// ---------- row/column delete + reorder ----------
 
 test("deleteSheetRow removes exactly one data row, out-of-range is a no-op", () => {
   const next = deleteSheetRow(BODY, 0);
@@ -1116,7 +1116,7 @@ test("deleteSheetFormula removes one line; dangling refs error visibly, not sile
   assert.equal(deleteSheetFormula(BODY, "nope"), BODY);
 });
 
-// ---------- SUB-681: a backtick cell must be quoted, or it truncates the fence ----------
+// ---------- a backtick cell must be quoted, or it truncates the fence ----------
 
 test("setSheetCell with a col-0 value starting with ``` keeps every row and the prose (SUB-681)", () => {
   const body = "before\n\n```csv\nname,note\na,x\nb,y\nc,z\n```\n\nafter\n";
@@ -1170,7 +1170,7 @@ test("a mid-string backtick cell round-trips byte-stable (SUB-681)", () => {
   ]);
 });
 
-// ---------- SUB-683: formulas fence must not grow blank lines ----------
+// ---------- formulas fence must not grow blank lines ----------
 
 test("updateSheetFormula is byte-idempotent across repeated edits (SUB-683)", () => {
   const once = updateSheetFormula(BODY, "rest", "rest", "total - etf");
@@ -1196,7 +1196,7 @@ test("deleteSheetFormula leaves the remaining fence byte-stable (SUB-683)", () =
   assert.equal(two, BODY.replace("etf         = SUMIF(bucket, \"etf\", value_eur)\n", "").replace("rest        = total - crypto\n", ""));
 });
 
-// ---------- SUB-753: unicode identifiers ----------
+// ---------- unicode identifiers ----------
 
 describe("SUB-753 unicode identifiers", () => {
   const UBODY = [
@@ -1253,7 +1253,7 @@ describe("SUB-753 unicode identifiers", () => {
   });
 });
 
-// ---------- SUB-751: folded-name collisions ----------
+// ---------- folded-name collisions ----------
 // Names bind case-insensitively, so two distinct names can fold to one. The
 // engine reports the ambiguity instead of letting the last binding win.
 
@@ -1325,7 +1325,7 @@ test("SUB-751: a row-scoped LOOKUP over an ambiguous table column errors too", (
   }
 });
 
-// ---------- SUB-756: collisions cross the sheet boundary ----------
+// ---------- collisions cross the sheet boundary ----------
 // The reader can't disambiguate what the source sheet left ambiguous, so a
 // member off a folded name errors instead of serving the first binding.
 
@@ -1498,7 +1498,7 @@ describe("SUB-939 — summary bar hierarchy, error rollup, FX stamp", () => {
   });
 
   test("summaries failing from one root cause become a single rollup chip", () => {
-    // `value_eur` is both a data column and a formula name (SUB-751): every
+    // `value_eur` is both a data column and a formula name: every
     // summary reading it carries the same collision message
     const b = bar(
       "value_usd = units * price_usd\nvalue_eur = value_usd * 2\n\ntotal = SUM(value_eur)\ncrypto = SUMIF(bucket, \"crypto\", value_eur)\netf = SUMIF(bucket, \"etf\", value_eur)",
@@ -1715,7 +1715,7 @@ describe("SUB-944 — which Count a quick-pick prefills", () => {
     assert.equal(countPickKind([10, 20, 30]), "COUNT");
     // one number is enough — COUNT still has something honest to report
     assert.equal(countPickKind(["n/a", 20, null]), "COUNT");
-    // strings that parse strictly are what COUNT itself counts (SUB-221)
+    // strings that parse strictly are what COUNT itself counts
     assert.equal(countPickKind(["12", "n/a"]), "COUNT");
     assert.equal(countPickKind(["1e3", "0x10"]), "COUNTIF", "those stay text");
   });

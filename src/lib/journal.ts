@@ -1,4 +1,4 @@
-/* Daily notes (SUB-19): a journal entry is a plain note at
+/* Daily notes: a journal entry is a plain note at
    `Journal/YYYY-MM-DD.md`. ISO date plumbing lives in ./dates — this adds
    only the journal-specific pieces. */
 
@@ -53,7 +53,7 @@ export function displayTitle(n: Pick<NoteMeta, "path" | "title">): string {
   return date ? humanDateShort(date) : n.title;
 }
 
-/** Journal folder order (SUB-176): daily notes newest-first by filename date,
+/** Journal folder order: daily notes newest-first by filename date,
     non-daily strays after by updated_ms desc. Returns a new array. */
 export function journalOrder(notes: NoteMeta[]): NoteMeta[] {
   const daily: { note: NoteMeta; date: string }[] = [];

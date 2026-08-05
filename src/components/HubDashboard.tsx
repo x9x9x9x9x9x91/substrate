@@ -1,4 +1,4 @@
-/** Hub dashboard (SUB-189): the column-first home-page renderer. The note
+/** Hub dashboard: the column-first home-page renderer. The note
     body is ordinary markdown — `parseHub` (src/lib/hub.ts) splits it into
     section labels (`## `), card rows (consecutive callouts, laid out side by
     side in the `.dash-cards` grid — the columns) and linear markdown chunks.
@@ -31,7 +31,7 @@ import { optionColor, OptionPill } from "./SelectMenu";
 
 interface HubDashboardProps {
   meta: NoteMeta;
-  /** the vault snapshot a ```view fence queries (SUB-860) */
+  /** the vault snapshot a ```view fence queries */
   notes: NoteMeta[];
   schema: SchemaConfig;
   /** pinned views, for a fence's `saved:` line */
@@ -68,7 +68,7 @@ interface Ctx {
     vaultEpoch: number;
     onOpenSource: (path: string) => void;
   };
-  /** the ```calendar fence's inputs (SUB-965) — same shape as `chart`, since
+  /** the ```calendar fence's inputs — same shape as `chart`, since
       the calendar dashboard is the same kind of embedded surface */
   calendar?: {
     meta: NoteMeta;
@@ -82,7 +82,7 @@ interface Ctx {
       belongs to the PAGE (principle 11), so a fence can't pick its own sharp
       set. Absent (as in a callout body) means cards fences stay code boxes. */
   cards?: { slot: (n: number) => CardsSlot | null };
-  /** the ```progress fence's inputs (SUB-967) — same shape the chart fence
+  /** the ```progress fence's inputs — same shape the chart fence
       needs, since both hand the fence back to their own dashboard */
   progress?: NonNullable<Ctx["chart"]>;
   /** database-backed horizontal time view; omitted inside callout bodies */
@@ -131,7 +131,7 @@ function openExternalLink(url: string) {
 /** The editor's cell-mark set (editor-widgets.ts CELL_MARK_RE) plus `![[...]]`
  *  embeds up front (print.ts order): wikilink, md-link, code, bold, italic,
  *  strike — bold/italic/strike recurse, code stays literal. No more. The
- *  md-link destination takes one level of balanced parens (SUB-902), so a
+ *  md-link destination takes one level of balanced parens, so a
  *  Wikipedia-style URL doesn't truncate at its first ")". */
 const INLINE_MARK_RE =
   /!\[\[([^[\]]+)\]\]|\[\[([^[\]]+)\]\]|\[([^\]]+)\]\(((?:[^()\s]|\([^()\s]*\))+)\)|`([^`]+)`|\*\*([^*]+)\*\*|\*([^*]+)\*|~~([^~]+)~~/g;
@@ -148,11 +148,11 @@ function Inline({ text, ctx }: { text: string; ctx: Ctx }): ReactNode {
     if (m.index > last) out.push(text.slice(last, m.index));
     if (m[1] !== undefined) {
       // the name alone — a `|300`-style display modifier is a hint, not
-      // part of the filename (SUB-1102)
+      // part of the filename
       out.push(<DashEmbed key={k++} name={embedTarget(m[1])} />);
     } else if (m[2] !== undefined) {
       // the link still FOLLOWS the whole inner text (the follower parses the
-      // anchor off it); what it SHOWS is the author's display text (SUB-1095)
+      // anchor off it); what it SHOWS is the author's display text
       const name = m[2].trim();
       out.push(
         <button
@@ -235,12 +235,12 @@ function DashEmbed({ name }: { name: string }) {
 /* ---- linear markdown chunks (print.ts block set, as React) --------------- */
 
 // opener accepts a full info string; group 1 stays the first word, the same
-// "first word decides" read as the editor's isViewFence (SUB-898). Group 2 is
+// "first word decides" read as the editor's isViewFence. Group 2 is
 // the tail, and it decides for the bare-form languages: their parsers only
 // accept "```<lang>\n", so a tailed opener must fall through to a code box
 // here too — otherwise the hub draws a live widget whose config
-// stripMachineFences leaves in the search index (SUB-966, SUB-965; the
-// SUB-899/SUB-983 leak class). The tail keeps its leading whitespace, so a
+// stripMachineFences leaves in the search index (the machine-fence
+// leak class). The tail keeps its leading whitespace, so a
 // bare opener with a stray trailing space counts as tailed — which is exactly
 // what MACHINE_FENCE_RE does with it. `isTailedBareFence` (lib/fences.ts) is
 // the single predicate every surface asks.
@@ -265,7 +265,7 @@ function tableRow(line: string): string[] {
 
 const isTableDivider = (l: string) => /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(l) && l.includes("-");
 
-/** A ```view fence in a hub body (SUB-860): the same live database table the
+/** A ```view fence in a hub body: the same live database table the
     editor's inline widget and a workbook view page show, read-only, sitting in
     the section slot it was written into. A fence that resolves to an error
     (unknown database, empty spec) says so in place — the chart-block idiom
@@ -291,7 +291,7 @@ function HubViewFence({
   );
 }
 
-/** A ```chart fence in a hub body (SUB-964): the same chart the charts
+/** A ```chart fence in a hub body: the same chart the charts
     dashboard draws, in the section slot it was written into. The fence is
     handed back to ChartsDashboard verbatim in embed mode — one parser
     (lib/chart.ts), one renderer, so a chart never reads differently depending
@@ -314,7 +314,7 @@ function HubChartFence({ inner, chart }: { inner: string; chart: NonNullable<Ctx
   );
 }
 
-/** A ```heatmap fence in a hub body (SUB-966): the year grid, in the slot it
+/** A ```heatmap fence in a hub body: the year grid, in the slot it
     was written into. Handed to HeatmapDashboard verbatim in embed mode, the
     way a chart fence is — one parser, one renderer. */
 function HubHeatmapFence({ inner, heatmap }: { inner: string; heatmap: NonNullable<Ctx["heatmap"]> }) {
@@ -334,7 +334,7 @@ function HubHeatmapFence({ inner, heatmap }: { inner: string; heatmap: NonNullab
   );
 }
 
-/** A ```calendar fence in a hub body (SUB-965): the fence's own month grid,
+/** A ```calendar fence in a hub body: the fence's own month grid,
     handed to CalendarFenceDashboard in embed mode — one parser
     (lib/calendarfence.ts), one renderer, and recurrence expands here exactly
     as it does on a standalone dashboard. Each fence keeps its own month
@@ -362,7 +362,7 @@ function HubCalendarFence({
   );
 }
 
-/** A ```progress fence in a hub body (SUB-967): the same goal thermometer the
+/** A ```progress fence in a hub body: the same goal thermometer the
     progress dashboard draws, in the section slot it was written into. Handed
     back to ProgressDashboard verbatim in embed mode — one parser
     (lib/progress.ts), one renderer, so a goal never reads differently
@@ -388,7 +388,7 @@ function HubProgressFence({
   );
 }
 
-/** A ```cards fence in a hub body (SUB-964): the metrics board's card strip,
+/** A ```cards fence in a hub body: the metrics board's card strip,
     same item schema and same bind resolution, sitting where it was written.
     Emphasis is capped across the whole page, not per fence — the parent hands
     down this fence's slice of that decision. */
@@ -405,7 +405,7 @@ function HubCardsFence({ slot }: { slot: CardsSlot }) {
     Dropping them all from the recursion's ctx is what does it — and it also
     keeps a nested cards fence from consuming a page slot that belongs to a
     real one. ```view keeps working, because an embedded table inside a card is
-    still one table. (SUB-968 adds timeline to the same rule.) */
+    still one table. (Timeline joined the same rule.) */
 function nestedMarkdownCtx(ctx: Ctx): Ctx {
   return {
     ...ctx,
@@ -454,8 +454,7 @@ function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
       // a tailed opener of a bare-form language (```calendar month, ```heatmap
       // year) is prose whatever its first word says: its parser reads the bare
       // form only, and search keeps such a block indexed — so mounting it live
-      // here would publish its config through the index (SUB-966, SUB-965
-      // review). Falls through to the code box, which is what
+      // here would publish its config through the index. Falls through to the code box, which is what
       // stripMachineFences already assumes.
       const bareOnly = isTailedBareFence(lang, fence[2] ?? "");
       // fences the hub renders live; anything else stays a code box
@@ -640,7 +639,7 @@ function MarkdownChunk({ text, ctx }: { text: string; ctx: Ctx }) {
 function HubCard({ callout, ctx }: { callout: HubCallout; ctx: Ctx }) {
   const bodyCtx = useMemo(() => nestedMarkdownCtx(ctx), [ctx]);
   return (
-    // accent overrides the kind's own rule hue (SUB-969) — a name off the
+    // accent overrides the kind's own rule hue — a name off the
     // roster never reaches here, so the attribute is absent and the callout
     // reads exactly as an unaccented one
     <div className={`dash-card hub-card hub-card-${callout.kind}`} data-accent={callout.accent}>
@@ -667,7 +666,7 @@ export default function HubDashboard({
 
   const blocks = useMemo(() => (body !== null ? parseHub(body) : []), [body]);
 
-  // ```cards fences, page-wide (SUB-964): every fence is parsed up front so
+  // ```cards fences, page-wide: every fence is parsed up front so
   // the sharp-value cap and the sheet loads are decided once for the whole
   // page — two sharp values across the hub, one pass over the bound sheets,
   // however many strips the body carries. parseHub keeps fences inside their

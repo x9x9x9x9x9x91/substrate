@@ -1,4 +1,4 @@
-/* SUB-946 — optimistic property writes: the value paints the frame the user
+/* Optimistic property writes: the value paints the frame the user
    commits it, the vault write and its re-scan reconcile behind it.
 
    Every database write already round-trips IPC and then asks App for a full
@@ -145,7 +145,7 @@ export function dropPending(
 export function prunePending(
   cur: PendingProps,
   /* the shape a refresh has to carry, nothing more: the database pane hands
-     its whole NoteMeta[], the note pane the one note it has open (SUB-1148) */
+     its whole NoteMeta[], the note pane the one note it has open */
   notes: readonly { path: string; props: Record<string, unknown> }[]
 ): PendingProps {
   if (cur.size === 0) return cur;
@@ -196,7 +196,7 @@ export function applyPending(notes: NoteMeta[], pending: PendingProps): NoteMeta
 }
 
 /** Same overlay for a pane that holds ONE note's props rather than a list
-    (the note page, SUB-1148). Returns the input object untouched when this
+    (the note page). Returns the input object untouched when this
     note has nothing in flight, so an idle pane keeps its identity and every
     memo hanging off `props` stays put. */
 export function applyPendingTo(

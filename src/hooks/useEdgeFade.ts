@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 
 /**
- * Vertical scroll affordance (SUB-1001). The sidebar tree (SUB-627) and the
- * table edges (SUB-195/207) each grew their own copy of the same gate: a
+ * Vertical scroll affordance. The sidebar tree and the
+ * table edges each grew their own copy of the same gate: a
  * mask-image fade that paints only on the side the scroller can still move
  * toward, so the row at a scroll stop stays crisp and a surface that fits
  * never fades at all. This is that gate, once — a caller opts in by calling

@@ -1,4 +1,4 @@
-/* Boot gate (SUB-436): asks the backend whether a vault is open before
+/* Boot gate: asks the backend whether a vault is open before
    mounting the app. On every machine that already has one — VAULT_DIR set,
    a stored choice, or an existing ~/Vault — this resolves to "app" and App
    mounts exactly as it did before onboarding existed. The onboarding screen

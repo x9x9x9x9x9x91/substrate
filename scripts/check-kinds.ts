@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Dashboard-kind inventory drift check (SUB-995).
+ * Dashboard-kind inventory drift check.
  *
  * The set of `dashboard:` values the app renders is written out by hand in
  * five places, and until this script existed only one of them was guarded:
@@ -19,7 +19,7 @@
  *      a new vault (and examples/vault/AGENTS.md, held byte-identical to it by
  *      scripts/example-vault.test.ts).
  *
- * Same shape as scripts/check-ipc.ts (SUB-428): re-derive every inventory
+ * Same shape as scripts/check-ipc.ts: re-derive every inventory
  * mechanically from the checked-in tree, compare, and fail `npm test` on any
  * divergence. Input it cannot parse is thrown, never skipped — a silently
  * skipped inventory is exactly the drift this exists to catch.
@@ -49,7 +49,7 @@ import { RESERVED_KINDS } from "../src/lib/kinds.ts";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** Built-in names that exist to be un-shadowable, not to be dispatched. Owned
-    by src/lib/kinds.ts since SUB-1021 — the dispatch tail needs the same set
+    by src/lib/kinds.ts — the dispatch tail needs the same set
     at runtime to tell a legitimate fall-through from a missing renderer, and
     two copies of it would be one more inventory to drift. Re-exported because
     the failures below name it and the tests import it from here. */

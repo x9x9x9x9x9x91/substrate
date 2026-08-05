@@ -34,7 +34,7 @@ export function todayIso(): string {
 /** Milliseconds from `now` to the next local midnight (plus 1ms so the
  * timeout lands strictly inside the new day). The Date constructor
  * normalizes the +1 day, so month/year boundaries and DST stay correct.
- * Drives the day-rollover timer in useTodayIso (SUB-153). */
+ * Drives the day-rollover timer in useTodayIso. */
 export function msUntilNextMidnight(now: Date): number {
   const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
   return Math.max(0, midnight.getTime() - now.getTime()) + 1;
@@ -50,7 +50,7 @@ export function shiftDate(date: string, days: number): string {
 /** The local ISO day `days` before `now` (default: the current moment).
     Component arithmetic keeps it on the local calendar, so near local
     midnight it agrees with todayIso()/DateMenu where a UTC slice
-    (`toISOString().slice(0, 10)`) would land a day off (SUB-718). */
+    (`toISOString().slice(0, 10)`) would land a day off. */
 export function daysAgoIso(days: number, now: Date = new Date()): string {
   const t = new Date(now.getFullYear(), now.getMonth(), now.getDate() - days);
   return toIso(t.getFullYear(), t.getMonth() + 1, t.getDate());
@@ -70,7 +70,7 @@ const DURATION_RE = /^(\d+)([dw])$/;
 /** A relative duration operand (`7d`, `2w`) resolved against `from`: days and
     weeks, landing on the ISO day the duration reaches (`7d` from 2026-07-17 →
     2026-07-24). Null when the text isn't a duration. Used by the query
-    language's date comparisons (SUB-66), where durations measure from today. */
+    language's date comparisons, where durations measure from today. */
 export function durationFrom(text: string, from: string): string | null {
   const m = DURATION_RE.exec(text);
   if (!m) return null;
@@ -86,7 +86,7 @@ const DOTTED_DATE_RE = /^(\d{1,2})\.(\d{1,2})\.(\d{4}|\d{2})$/;
 /** Two-digit years use the POSIX pivot: 69–99 → 19xx, 00–68 → 20xx. Without
     this the dotted branch misses "7.8.26" and the input falls through to
     Date.parse, which reads dotted dates MONTH-first — the day and month
-    silently transpose whenever the day is ≤ 12 (SUB-1029). */
+    silently transpose whenever the day is ≤ 12. */
 function expandYear(y: number): number {
   return y >= 100 ? y : y >= 69 ? 1900 + y : 2000 + y;
 }
@@ -117,7 +117,7 @@ function monthFromName(name: string): number | null {
     into the next month and shift `Z` datetimes across midnight in
     negative-offset timezones. Month-name forms are resolved by hand because
     Date.parse reads a trailing day number as a 2-digit year ("jul 17" →
-    2001-07-17, SUB-228); with no year written they mean the CURRENT year.
+    2001-07-17); with no year written they mean the CURRENT year.
     Returns null when unparseable — including a Date.parse result on the
     engine's default year (≤ 2001) from yearless input, a silently-wrong
     answer. */
@@ -156,19 +156,19 @@ export function parseDateLoose(text: string): string | null {
   const d = new Date(ms);
   // engine year-guesses on yearless input are silently wrong — V8 defaults a
   // missing year to 2001 ("2/3" → 2001-02-03), JSC to 19xx — so a pre-2002
-  // result without a written 4-digit year is null, never committed (SUB-228)
+  // result without a written 4-digit year is null, never committed
   if (d.getFullYear() <= 2001 && !/\d{4}/.test(t)) return null;
   return toIso(d.getFullYear(), d.getMonth() + 1, d.getDate());
 }
 
-/* The hour may be single-digit ("9:30", SUB-714); minutes stay two-digit,
+/* The hour may be single-digit ("9:30"); minutes stay two-digit,
    matching splitDayTime's value grammar. */
 const TRAILING_TIME_RE = /^(.*?)[T ](\d{1,2}):(\d{2})$/;
 
-/** parseDateLoose plus an optional trailing ` HH:MM` time (SUB-270 — 24h,
+/** parseDateLoose plus an optional trailing ` HH:MM` time (24h,
     space or T separator): "2026-07-19 14:30" → { day: "2026-07-19", time:
     "14:30" }. A single-digit hour is accepted and normalized to the padded
-    HH:MM the value grammar stores (SUB-714 — it used to fall through to the
+    HH:MM the value grammar stores (it used to fall through to the
     day-only path and silently lose the time). The day part is whatever
     parseDateLoose accepts; an out-of-range time (25:00) nulls the whole
     thing rather than silently dropping the time. parseDateLoose's own

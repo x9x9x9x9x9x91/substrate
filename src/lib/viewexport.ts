@@ -6,13 +6,13 @@ import { rollupColumns, rollupProps, withRollups } from "./rollup.ts";
 import { isTauri } from "./tauri.ts";
 import { viewExportRun, viewExportTarget } from "./ipc.ts";
 
-/** The rows a saved view stands for (SUB-810), without opening it: its
+/** The rows a saved view stands for, without opening it: its
     database's notes narrowed by its own stored query. The pane derives the
     same set — it just starts from `initialQuery` — so an export from the tab
     strip's menu matches what opening the pin would show. Layout, grouping and
     column choices are display-only and can't change membership.
 
-    Rollup columns are derived first (SUB-678), for the same reason the pane
+    Rollup columns are derived first, for the same reason the pane
     filters over `dispNotes`: a pin whose query reads a rollup column would
     otherwise match nothing here and export a folder that doesn't match the
     view on screen. Derivation is skipped entirely when the type declares no

@@ -13,7 +13,7 @@ interface MusicWorkDashboardProps {
   onOpenSource: (path: string) => void;
 }
 
-/* Music work index (SUB-595): the `dashboard: music-work` note renders a
+/* Music work index: the `dashboard: music-work` note renders a
    separate Work Index sheet as a pivotable board. The production tree on disk
    is category-first, so "everything for Leo" is a folder and "what did I do in
    2025" is invisible; the tree can't be reorganized (no server-side move on the

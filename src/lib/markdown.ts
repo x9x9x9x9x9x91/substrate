@@ -14,7 +14,7 @@ export const TASK_RE = /^([ \t]*(?:>[ \t]*)*(?:[-*+]|\d+[.)])[ \t]+\[)([ xX])\]/
 
 /** Label of a complete Markdown link selection, or null when `text` is not
  *  exactly one link. Destinations keep one balanced parenthesis level so
- *  Wikipedia-style URLs (…/A_(b)) can be safely unwrapped (SUB-929). */
+ *  Wikipedia-style URLs (…/A_(b)) can be safely unwrapped. */
 export function markdownLinkLabel(text: string): string | null {
   const match = /^\[([^\]]+)]\(((?:[^()]|\([^()]*\))+)\)$/.exec(text);
   return match?.[1] ?? null;

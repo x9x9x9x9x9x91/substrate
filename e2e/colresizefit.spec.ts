@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-613: column resize must track the pointer in BOTH directions in BOTH
-// fit modes. The original SUB-404 rule pinned only the cell text block —
+// Column resize must track the pointer in BOTH directions in BOTH
+// fit modes. The original resize rule pinned only the cell text block —
 // a floor: with the 100%-width table FITTING its pane (wide window, small
 // database — the everyday state), the layout redistributed the pane surplus
 // straight back and a shrink drag visibly did nothing. The colresize.spec.ts

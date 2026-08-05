@@ -1,4 +1,4 @@
-// The boards' ⌘Z / ⌘⇧Z stacks (SUB-490/SUB-726): which board a dashboard note renders
+// The boards' ⌘Z / ⌘⇧Z stacks: which board a dashboard note renders
 // can depend on its BODY (ChartOrYield reads the file before choosing), so App
 // cannot tell from `dashboard:` whether undo or redo is available. The owning
 // pane publishes its live history — same idiom as the workbook's pageStepRef.
@@ -21,7 +21,7 @@ export interface DashUndoRegistration {
     mounts the next board before unmounting the last, and the outgoing pane's
     cleanup must not clear availability already published by the incoming one.
 
-    Observable, not a bare ref (SUB-490 review): the panes register from a
+    Observable, not a bare ref: the panes register from a
     layout effect, after App's render has already read its inputs. A memo
     reading `ref.current` therefore served a stale answer on
     dashboard→dashboard navigation. */

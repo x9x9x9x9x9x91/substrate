@@ -21,7 +21,7 @@ async function tmpVault(t: { after: (fn: () => void) => void }): Promise<string>
 
 /** Fixture pool copied under a temp HOME so tilde contraction applies
     deterministically — on CI runners the checkout lives outside $HOME, so
-    tests asserting `~/…` forms must bring their own (SUB-161). */
+    tests asserting `~/…` forms must bring their own. */
 async function tmpHomePool(t: { after: (fn: () => void) => void }): Promise<string> {
   // realpath'd: contractTilde compares literal prefixes, and mkdtemp returns
   // /var/… where the files resolve to /private/var/… on macOS

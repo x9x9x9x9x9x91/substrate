@@ -65,7 +65,7 @@ test("a failed read leaves the box cleared rather than throwing", async () => {
   assert.equal(text, "");
 });
 
-// SUB-1075 review finding 1. One `substrate://capture?text=…` link resets the
+// One `substrate://capture?text=…` link resets the
 // capture window twice — `capture:prefill` fires immediately, `tauri://focus`
 // whenever the window server delivers it — and each reset clears the box
 // before its pull resolves. The second reset therefore lands its clear AFTER

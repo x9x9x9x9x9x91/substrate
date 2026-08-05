@@ -204,7 +204,7 @@ test("durationFrom resolves d and w from a base date, rejects the rest", () => {
 test("parseDateTimeLoose: a trailing HH:MM splits off, the day parses loosely (SUB-270)", () => {
   assert.deepEqual(parseDateTimeLoose("2026-07-19 14:30"), { day: "2026-07-19", time: "14:30" });
   assert.deepEqual(parseDateTimeLoose("2026-07-19T14:30"), { day: "2026-07-19", time: "14:30" });
-  // SUB-714: a single-digit hour is accepted and padded on output
+  // A single-digit hour is accepted and padded on output
   assert.deepEqual(parseDateTimeLoose("2026-07-19 9:30"), { day: "2026-07-19", time: "09:30" });
   assert.deepEqual(parseDateTimeLoose("2026-07-19T9:30"), { day: "2026-07-19", time: "09:30" });
   assert.deepEqual(parseDateTimeLoose("jul 17 09:05"), {

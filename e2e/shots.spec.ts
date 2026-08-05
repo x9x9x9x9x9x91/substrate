@@ -1,6 +1,6 @@
 import { test } from "@playwright/test";
 
-// Phase-3 evidence run (SUB-409): full-page screenshots of every dashboard
+// Phase-3 evidence run: full-page screenshots of every dashboard
 // against the mock backend. Not a merge gate — skipped unless invoked as
 //   SHOTS=1 npx playwright test e2e/shots.spec.ts
 // Outputs land in /tmp/dash-shots/.

@@ -1,4 +1,4 @@
-/* Terminal HUD geometry (SUB-863, SUB-864): which edge the ⌘⇧T panel docks to
+/* Terminal HUD geometry: which edge the ⌘⇧T panel docks to
    and how much of the window it takes.
 
    Both live in Settings.md — `terminal-dock`, `terminal-height`,
@@ -44,7 +44,7 @@ export function terminalSizeRange(dock: TerminalDock): {
 
 /** `terminal-dock` — only the two exact words dock anywhere but the bottom.
     An unset key, a typo, or a non-string all read as `bottom`, which is the
-    shape the HUD has always had (SUB-398) and so the safe fallback. */
+    shape the HUD has always had and so the safe fallback. */
 export function parseTerminalDock(v: unknown): TerminalDock {
   const s = typeof v === "string" ? v.trim().toLowerCase() : "";
   return s === "right" ? "right" : DEFAULT_TERMINAL_DOCK;
@@ -56,7 +56,7 @@ export function parseTerminalDock(v: unknown): TerminalDock {
 export function parseTerminalSize(dock: TerminalDock, v: unknown): number {
   const { min, max, fallback } = terminalSizeRange(dock);
   // de-DE typed fractions ("0,6") are the app's own display dialect, not a
-  // typo — fold them to dot-decimal before parsing (SUB-926, SUB-636 family)
+  // typo — fold them to dot-decimal before parsing
   const n =
     typeof v === "number" ? v : Number.parseFloat(typeof v === "string" ? normalizeNumberInput(v) : "");
   return Number.isFinite(n) && n >= min && n <= max ? n : fallback;

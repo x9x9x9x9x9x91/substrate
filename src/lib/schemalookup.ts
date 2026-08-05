@@ -1,4 +1,4 @@
-// Case-folded schema lookups (SUB-679, SUB-696). Database types and prop
+// Case-folded schema lookups. Database types and prop
 // names are user-authored on both sides — the note/fence text and
 // `.vault/schema.json` — and nothing keeps their casing in step. A raw
 // `schema[type]` therefore misses silently: no error, just a type that

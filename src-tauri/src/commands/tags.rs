@@ -1,4 +1,4 @@
-//! Tags and tag folders (SUB-818).
+//! Tags and tag folders.
 //!
 //! Per-note tags are already on `NoteMeta` (computed at index time), so the
 //! frontend gets them free with every note it already loads. These commands

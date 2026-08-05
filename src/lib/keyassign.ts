@@ -1,4 +1,4 @@
-/* User-assignable sidebar keys (SUB-467). A key chip dragged from the key HUD
+/* User-assignable sidebar keys. A key chip dragged from the key HUD
    onto a sidebar row binds that key to that destination; the binding lives in
    `$sidebar.keys` (views.json) as a flat key-token → target-token map, and the
    `custom-key` registry entry dispatches it.
@@ -50,11 +50,11 @@ export function freeKeys(assign: Record<string, string>): AssignKey[] {
 }
 
 /** The pin a pool key would shadow, or null. Digits 5–9 in BOTH halves of the
-    pool sit on the automatic pin mapping (SUB-67): view-pins' combo is the
+    pool sit on the automatic pin mapping: view-pins' combo is the
     loose `{key, mod}`, and `mod` means ⌘ OR ⌃, so ⌃7 reaches the third pin
     exactly like ⌘7 does. Assigning such a key is legal — custom-key wins on
     precedence, by design — but it silently retires a working pin shortcut, so
-    the HUD says so before the drag (SUB-485). */
+    the HUD says so before the drag. */
 export function pinIndexForToken(token: string, pinCount: number): number | null {
   const combo = comboForToken(token);
   if (!combo) return null;

@@ -1,4 +1,4 @@
-/** Real-app smoke driver (SUB-426).
+/** Real-app smoke driver.
  *
  * The 312 e2e flows run against the handwritten mock backend in `tauri.ts` —
  * fast, but the Rust↔TS bridge is never crossed, so real-IPC-only bugs (a
@@ -47,7 +47,7 @@ export const SMOKE_TOKENS = {
 /** The note every phase operates on — ships in `examples/vault`. */
 const TARGET = "Welcome.md";
 /** The custom kind bundle the script seeds into the scratch vault's
-    `.vault/kinds/` (SUB-960). Not part of `examples/vault`. */
+    `.vault/kinds/`. Not part of `examples/vault`. */
 const KIND_ID = "smoke-kind";
 /** Trashed and restored — a second note keeps the edit assertions isolated. */
 const TRASH_TARGET = "Releases/Fern Static.md";
@@ -113,7 +113,7 @@ async function flow(): Promise<void> {
   // 1.5 styles — the packaged app's CSP must let runtime styles through.
   //     Tauri appends a nonce to style-src at bundle time, and a nonce voids
   //     'unsafe-inline' (CSP spec) — which shipped 0.16.0 with CodeMirror's
-  //     entire style-mod-injected theme blocked (SUB-610). Only the bundled
+  //     entire style-mod-injected theme blocked. Only the bundled
   //     build has the nonce, so only the bundle smoke mode can catch a
   //     regression; in dev this step is a cheap tautology. The probe uses the
   //     same mechanism CodeMirror does: a <style> element created at runtime.
@@ -154,10 +154,10 @@ async function flow(): Promise<void> {
   });
 
   // 1.6 custom kinds — the two operations CustomKindPane does that only the
-  //     real app can prove (SUB-960). The mock e2e lane has no CSP and no
+  //     real app can prove. The mock e2e lane has no CSP and no
   //     scheme: it imports bundle code from a blob: URL. The shipped app
   //     fetches and imports over `substrate-kind:`, which script-src and
-  //     connect-src both gate — the SUB-610/612 class of bug, where a policy
+  //     connect-src both gate — the class of bug, where a policy
   //     that only exists in the bundled build blocks something dev never saw.
   //     In dev mode this step rides devCsp and is the weaker check; under
   //     SMOKE_BUNDLE=1 it is the real one.

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { kindsList } from "../lib/ipc";
 import type { KindBundleInfo } from "../lib/kinds";
 
-/* The installed custom kinds, shared by everything that shows them (SUB-961).
+/* The installed custom kinds, shared by everything that shows them.
 
    Lifted out of DashboardPane because consent is now editable from two
    surfaces — the review pane and the settings section — and both have to

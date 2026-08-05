@@ -1,16 +1,16 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Hub dashboard (SUB-189): a `dashboard: hub` note renders its ordinary
+// Hub dashboard: a `dashboard: hub` note renders its ordinary
 // markdown body column-first — `##` headings become section labels,
 // consecutive callouts become cards side by side (the columns), everything
 // else stays in linear flow. Fixture: Dashboards/Umbra Home.md
 // (src/lib/tauri.ts) — one `## Releases` section, three callouts (one per
 // kind) wikilinking Slow Bloom EP / Vessel Songs / Static Bouquet, then a
-// paragraph and a table, then two ```view fences (SUB-860): a `type: contact`
+// paragraph and a table, then two ```view fences: a `type: contact`
 // one that resolves to a live table, and a broken one that must fail in
-// place. SUB-964 adds a ```cards fence, a QUOTED cards fence and a chart+cards
+// place. A later round adds a ```cards fence, a QUOTED cards fence and a chart+cards
 // pair inside a callout body (all three must stay code boxes) and two ```chart
-// fences (one sound, one with a broken `y:`) to the same fixture. SUB-968 adds
+// fences (one sound, one with a broken `y:`) to the same fixture. The timeline fence adds
 // one sound and one malformed ```timeline fence. Runs against the
 // deterministic mock backend.
 
@@ -151,7 +151,7 @@ test("one hub body renders markdown, cards, chart, view and timeline fences toge
   // ```view: the live database table
   await expect(page.locator(".hub-body .hub-view .embed-view-table tbody tr")).toHaveCount(4);
 
-  // ```timeline: the grouped horizontal time view (SUB-968); the malformed
+  // ```timeline: the grouped horizontal time view; the malformed
   // one renders its parse error in place, never a code box
   await expect(page.locator(".hub-body .hub-timeline")).toHaveCount(1);
   await expect(page.locator(".hub-body .hub-timeline-err")).toHaveCount(1);
@@ -196,7 +196,7 @@ test("chart, cards and progress fences inside a callout stay code boxes (SUB-964
   await expect(callout.locator(".hub-chart")).toHaveCount(0);
   await expect(callout.locator(".metrics-strip")).toHaveCount(0);
   // a live thermometer inside a quoted body would be a second dashboard
-  // surface inside a card (SUB-967 follows the SUB-964 rule)
+  // surface inside a card (progress fences follow the same rule)
   await expect(callout.locator(".hub-progress")).toHaveCount(0);
 });
 

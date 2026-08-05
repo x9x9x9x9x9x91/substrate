@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-550: an asset save is an IPC round trip. Switching notes while one is in
+// An asset save is an IPC round trip. Switching notes while one is in
 // flight destroys the editor view the embed was going to be dispatched into,
 // and CodeMirror swallows a dispatch on a destroyed view — so the file landed
 // in the vault, nothing referenced it, and nothing said so. The write must

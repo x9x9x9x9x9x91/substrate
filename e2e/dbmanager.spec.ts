@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// All-databases manager (SUB-159): one surface listing EVERY database —
+// All-databases manager: one surface listing EVERY database —
 // homed and homeless, schema-only zero-note ones included — replacing the
 // flat sidebar Databases section that only ever showed the homeless few.
 // Runs against the deterministic mock backend (fresh page = fresh vault).
@@ -26,7 +26,7 @@ test("manager lists every database with counts and home folders", async ({ page 
 
   // every mock database, one row each: the schema types, the used-but-
   // unschema'd ones (finance-doc, artist, diary), and the homed task db
-  // alike; sheet is a functional type (SUB-389) — surfaces never list here
+  // alike; sheet is a functional type — surfaces never list here
   const names = [
     "Artist",
     "Catalog",
@@ -46,8 +46,8 @@ test("manager lists every database with counts and home folders", async ({ page 
   for (const n of names) await expect(rows.filter({ hasText: n })).toHaveCount(1);
   await expect(page.locator(".list-count")).toHaveText(String(names.length));
 
-  // counts and homes read straight: task homed (SUB-85), release homeless —
-  // a homeless row shows only its count, no dangling separator (SUB-200)
+  // counts and homes read straight: task homed, release homeless —
+  // a homeless row shows only its count, no dangling separator
   const releaseSub = rows.filter({ hasText: "Release" }).locator(".dbmgr-row-sub");
   await expect(releaseSub).toHaveText("5 entries");
   await expect(rows.filter({ hasText: "Task" })).toContainText("17 entries · Tasks");
@@ -104,7 +104,7 @@ test("rename and delete run through the manager's row menu", async ({ page }) =>
 test("set home folder from the manager, clear it back out (SUB-85)", async ({ page }) => {
   await page.locator(".side-item", { hasText: "All databases" }).click();
   const releaseRow = page.locator(".dbmgr-row", { hasText: "Release" });
-  // homeless: the sub line is the bare count, no home segment (SUB-200)
+  // homeless: the sub line is the bare count, no home segment
   await expect(releaseRow.locator(".dbmgr-row-sub")).toHaveText("5 entries");
 
   // Set home folder… → second-stage picker over the vault's folders
@@ -114,14 +114,14 @@ test("set home folder from the manager, clear it back out (SUB-85)", async ({ pa
   await expect(releaseRow).toContainText("Projects");
   await expect(page.locator(".toast")).toContainText("now lives in");
 
-  // the database nests into the Folders tree as its home (SUB-85) — the
-  // row keeps the folder name (SUB-611) and wears the DB chip
+  // the database nests into the Folders tree as its home — the
+  // row keeps the folder name and wears the DB chip
   const treeRow = page.locator(".side-folder", {
     has: page.locator(".side-label-text", { hasText: /^Projects$/ }),
   }).filter({ has: page.locator(".side-db-chip") });
   await expect(treeRow).toBeVisible();
 
-  // …and clearing the home is the exit path back to a stray (SUB-411 label)
+  // …and clearing the home is the exit path back to a stray
   await releaseRow.click({ button: "right" });
   await page.locator(".ctx-item", { hasText: "Change home folder…" }).click();
   await page.locator(".ctx-item", { hasText: "Stop opening as database" }).click();

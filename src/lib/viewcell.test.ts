@@ -11,7 +11,7 @@ import type { EmbedResult } from "./embeds.ts";
 import type { NoteMeta, SchemaConfig } from "./types.ts";
 
 /* Cell meaning inside an inline ```view table — the read-only-ness a joined
-   column (SUB-829) has to hold on EVERY surface: paint, editor-opening click,
+   column has to hold on EVERY surface: paint, editor-opening click,
    and the checkbox toggle that writes without opening anything. */
 
 function note(title: string, props: Record<string, unknown>): NoteMeta {

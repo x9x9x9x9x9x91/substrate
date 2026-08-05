@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Error surfaces (SUB-156) and external-change lanes (SUB-158) against the
+// Error surfaces and external-change lanes against the
 // mock backend's e2e hooks (window.__mock*, installed by src/lib/tauri.ts
 // outside Tauri). Each test gets a fresh page, so the per-page mock store and
 // hook state never leak between flows.
@@ -9,7 +9,7 @@ function row(page: Page, title: string) {
   return page.locator(".list .row", { has: page.getByText(title, { exact: true }) });
 }
 
-// cold open lands on the Notes scratch list (Today is a destination, SUB-300) —
+// cold open lands on the Notes scratch list (Today is a destination) —
 // first mock note selected and loaded (same shape as smoke.spec's boot)
 async function boot(page: Page) {
   await page.goto("/");
@@ -18,8 +18,8 @@ async function boot(page: Page) {
 }
 
 /* an event within 1s of an app-initiated refresh is treated as the own-write
-   echo: no immediate refetch (SUB-116), only a trailing one at window expiry
-   (SUB-239, App.tsx) — wait the window out before emitting so the lane under
+   echo: no immediate refetch, only a trailing one at window expiry
+   (App.tsx) — wait the window out before emitting so the lane under
    test runs immediately */
 async function emitChanged(page: Page) {
   await page.waitForTimeout(1100);
@@ -128,7 +128,7 @@ test("a ghost day whose create fails while you're away is toasted, and Reopen ha
 
   await page.setViewportSize({ width: 960, height: 620 });
   await boot(page);
-  // yesterday opens as a ghost (SUB-210): dated surface, no file until typed
+  // yesterday opens as a ghost: dated surface, no file until typed
   await page.keyboard.press("Meta+d");
   await page.locator(".daily-nav[title='Yesterday (⌘⇧←)']").click();
   const rows = page.locator(".list .row");
@@ -224,7 +224,7 @@ test("external edit inside the echo window surfaces late, not never (SUB-239)", 
 }) => {
   await boot(page);
   // no 1100ms wait this time: the event lands inside the boot refresh's echo
-  // window, where SUB-116 used to drop it — the edit only surfaced on the
+  // window, where the echo window used to drop it — the edit only surfaced on the
   // next watcher event. A trailing refresh at window expiry picks it up.
   await page.evaluate(() => window.__mockEditNote("Welcome.md", "ECHO-239 late external body\n"));
   await page.evaluate(() => window.__mockEmit("vault:changed"));
@@ -245,7 +245,7 @@ test("external edit under a dirty buffer raises the conflict banner; Reload take
   });
   await page.keyboard.type("TYPED-158");
   // the flush carries the stale expected-body → the mock's conflict guard
-  // (tauri.ts, SUB-93 mirror) rejects → banner with the two choices
+  // (tauri.ts mirror) rejects → banner with the two choices
   const banner = page.locator(".note-banner");
   await expect(banner).toBeVisible();
   await expect(banner.locator("button", { hasText: "Reload" })).toBeVisible();
@@ -265,7 +265,7 @@ test("Reload on a note that vanished mid-conflict says so instead of doing nothi
 }) => {
   await page.setViewportSize({ width: 960, height: 620 });
   await boot(page);
-  // same conflict setup as SUB-158 above: disk diverges, then the user types
+  // same conflict setup as above: disk diverges, then the user types
   await page.evaluate(() => window.__mockEditNote("Welcome.md", "DISK-506\n"));
   await page.locator(".cm-content").focus();
   await page.keyboard.type("TYPED-506");
@@ -277,7 +277,7 @@ test("Reload on a note that vanished mid-conflict says so instead of doing nothi
   await banner.locator("button", { hasText: "Reload" }).click();
 
   // the reload read rejects — the pane has to say the file is gone. Before
-  // SUB-506 the rejection was swallowed by an isGoneErr guard that the backend
+  // The rejection was swallowed by an isGoneErr guard that the backend
   // never satisfies, leaving the stale buffer on screen looking live.
   await expect(page.locator(".note-banner", { hasText: "file is gone" })).toBeVisible();
   // the typed text stays reachable — this is the fileGone banner, not the
@@ -295,8 +295,8 @@ test("asset re-bounce rebinds the audio player under a new cache key (SUB-158)",
   await expect(page.locator(".cm-audio")).toBeVisible();
   await expect(page.locator(".cm-audio-name")).toHaveText("test.wav");
 
-  // peaks decode once the embed scrolls into view (SUB-115); the localStorage
-  // entry keys by the asset's cacheKey path:size:mtime (assets.ts, SUB-101) —
+  // peaks decode once the embed scrolls into view; the localStorage
+  // entry keys by the asset's cacheKey path:size:mtime (assets.ts) —
   // the rebind reuses the widget DOM in place, so this cache artifact is the
   // observable proof that the re-stat → new cacheKey → rebind chain ran
   const peaksKey = (mtime: number) => `substrate:peaks:v1:mock://test.wav:16:${mtime}`;

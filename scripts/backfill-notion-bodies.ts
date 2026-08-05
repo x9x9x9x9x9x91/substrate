@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Notion body backfill (SUB-166): the MCP-based migration copied properties
+ * Notion body backfill: the MCP-based migration copied properties
  * but often not page bodies. This walks the vault for notes carrying a
  * `notion_id` whose body is EMPTY, fetches the page's blocks, and writes the
  * rendered markdown below the frontmatter. Props and non-empty bodies are
@@ -14,7 +14,7 @@
  *
  * Env:
  *   NOTION_TOKEN  Integration token (required)
- *   VAULT_DIR     Vault root — REQUIRED, there is no default (SUB-777): an
+ *   VAULT_DIR     Vault root — REQUIRED, there is no default: an
  *                 unset target would silently rewrite the real ~/Vault.
  */
 

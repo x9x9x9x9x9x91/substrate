@@ -1,5 +1,5 @@
 /**
- * Palette command ranking (SUB-171).
+ * Palette command ranking.
  *
  * fuzzyScore bands: a prefix match scores 1000 - len, a word-start substring
  * scores just under 700, anything fuzzier lands lower. Destination rows
@@ -16,7 +16,7 @@ import { NO_MATCH, fuzzyScore } from "./fuzzy.ts";
 export const HOIST_MIN = 700;
 
 /**
- * Verb aliases the palette understands (SUB-805): command labels say "New" /
+ * Verb aliases the palette understands: command labels say "New" /
  * "Trash" / "Settings", people type "create" / "delete" / "preferences".
  * Applied token-wise to build one rewritten query variant; scoring takes the
  * best of original and rewrite, so a literal match never loses to its alias.
@@ -81,7 +81,7 @@ export function rankCommands<T extends Rankable>(
   const ranked = commands
     .map((c, i) => ({ c, i, s: rankScore(query, c) }))
     // a row is dropped only when the query cannot be threaded through it at
-    // all: a weak match ranks last, it does not disappear (SUB-1016)
+    // all: a weak match ranks last, it does not disappear
     .filter((x) => x.s > NO_MATCH)
     .sort((a, b) => b.s - a.s || a.i - b.i)
     .map((x) => x.c);
@@ -99,7 +99,7 @@ export function rankCommands<T extends Rankable>(
  * Tested against `fallback`, never an id whitelist: the query-echoing rows
  * embed the query verbatim in their label, so they always survive ranking,
  * and a whitelist silently goes stale the moment another one is added
- * (SUB-673 — "New sheet" broke the SUB-262 guard exactly that way).
+ * ("New sheet" broke the guard exactly that way).
  */
 export function onlyFallbacks<T extends { fallback?: boolean }>(items: T[]): boolean {
   return items.length > 0 && items.every((i) => i.fallback === true);

@@ -1,13 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-979: long categorical labels and low bars used to change each column's
+// Long categorical labels and low bars used to change each column's
 // total height. That lifted some bar baselines, wrapped date/category tokens,
 // and put small values into the axis-label band. This fixture keeps the chart
 // deliberately narrow and mixes long labels with a 45x value range.
-// SUB-1087 sharpened the label policy: categorical axes never thin (a bar
+// The label policy that answers it: categorical axes never thin (a bar
 // without its name is anonymous — every label stays, ellipsized per column),
 // time axes thin and render kept tokens whole into the freed room, and small
-// bars keep their value label (the SUB-979 collision was position, not
+// bars keep their value label (the collision was position, not
 // existence).
 
 const SPEND = `---
@@ -152,7 +152,7 @@ test("pre-bucketed month keys read as a time axis: thinned whole labels, one ser
   // glyphs are not the same rect, and inline content that overflows its box
   // always spills to the inline end whatever text-align says — so a computed
   // "where the text should be" passes while the text draws outside the plot
-  // (SUB-1087 review). Range.selectNodeContents gives the real ink.
+  // (review). Range.selectNodeContents gives the real ink.
   const kept = await labels.evaluateAll((nodes) =>
     nodes
       .filter((node) => getComputedStyle(node).visibility !== "hidden")

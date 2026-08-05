@@ -1,6 +1,6 @@
-/* Session-scoped fold memory (SUB-785). Keyed by the note's LIVE path — not
+/* Session-scoped fold memory. Keyed by the note's LIVE path — not
    the editor's mount identity (docKey), which deliberately lags the path
-   across a rename (SUB-772): folds saved under the lagging key would be
+   across a rename: folds saved under the lagging key would be
    orphaned the moment the user navigates away and back under the new path. */
 
 export const sessionFolds = new Map<string, { from: number; to: number }[]>();

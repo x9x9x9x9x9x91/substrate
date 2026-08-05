@@ -11,14 +11,14 @@ import { BackButton } from "./BackButton";
 
 interface DbManagerPaneProps {
   /** every database in the schema, homed and homeless, zero-note ones
-      included (SUB-152/SUB-43) — App's `databases` derivation. A row with a
-      `mount` is a mounted folder (SUB-888): same list, same menu, a glyph and
+      included — App's `databases` derivation. A row with a
+      `mount` is a mounted folder: same list, same menu, a glyph and
       its folder instead of a home. */
   databases: { type: string; count: number; mount?: MountInfo }[];
-  /** per-type database icons (SUB-27), keyed by type name */
+  /** per-type database icons, keyed by type name */
   icons: Record<string, DbIcon>;
   /** the raw schema — each row's home folder reads its reserved `home` key
-      (SUB-85) straight, so a dangling home (folder gone) still shows */
+ straight, so a dangling home (folder gone) still shows */
   schema: SchemaConfig;
   onOpen: (type: string) => void;
   /** row context menu (right-click or the ⋯ button) — App composes it from
@@ -27,7 +27,7 @@ interface DbManagerPaneProps {
   onNewDatabase: () => void;
 }
 
-/** All-databases manager (SUB-159): the one surface listing EVERY database —
+/** All-databases manager: the one surface listing EVERY database —
     the flat sidebar section it replaces only ever showed the homeless few.
     Row click opens the database; everything else (rename, delete, home
     folder) lives on the row menu so the list stays quiet. */
@@ -39,7 +39,7 @@ export default function DbManagerPane({
   onRowMenu,
   onNewDatabase,
 }: DbManagerPaneProps) {
-  // SUB-1001: the list overflows once the window is short enough (it fits at
+  // The list overflows once the window is short enough (it fits at
   // 900px, not at 600), and scrolled it butted a half row against the pane's
   // edge with nothing marking the overflow.
   const fade = useEdgeFade<HTMLDivElement>();
@@ -78,7 +78,7 @@ export default function DbManagerPane({
               <div
                 key={d.type}
                 className="dbmgr-row"
-                // rows double as drag sources (SUB-403): dropping one on a
+                // rows double as drag sources: dropping one on a
                 // sidebar folder sets that folder as the database's home
                 draggable
                 onDragStart={(e) => {

@@ -1,4 +1,4 @@
-/* SUB-651: the backend refuses a changed `capture-hotkey` setting in two
+/* The backend refuses a changed `capture-hotkey` setting in two
    ways that used to be silent outside the log file — the chord won't parse,
    or the OS says another app owns it — and in both the OLD chord stays
    registered while the settings form shows the new one. `apply_settings`
@@ -69,13 +69,13 @@ export function hotkeyLabel(chord: string): string {
   return glyphs + keyLabel;
 }
 
-/** Toast text for a refused capture-hotkey change (SUB-651). The typed chord
+/** Toast text for a refused capture-hotkey change. The typed chord
     shows as typed when it won't parse, as a label when it reached the OS; the
     chord that actually still fires is always named — the form and the engine
     disagree until the user fixes it, and this is the only place that says so. */
 /* One event carries every global chord, so the toast has to name the one it
    is about: a refused voice chord that says "quick capture has no working
-   hotkey" points the user at the wrong setting (SUB-827 review B-6).
+   hotkey" points the user at the wrong setting.
 
    A table rather than a chain of ifs, so a private chord is one strippable
    row: the lookup itself stays in the shared path and reads `which` in every

@@ -3,11 +3,11 @@ import { NoteIcon } from "./Icons";
 import { printPane } from "../lib/export";
 import { BackButton } from "./BackButton";
 
-/* The one dashboard header (SUB-409): title row over hairline. Every
+/* The one dashboard header: title row over hairline. Every
    dashboard renders this — per-page headers were five different hand-built
    variants before. `actions` slots page controls (refresh, pause, window
    switcher, print) left of the source button. The breadcrumb kicker it used to
-   print above the title is gone (SUB-682): the sidebar and the title
+   print above the title is gone: the sidebar and the title
    already say where you are, and design-principles lists it under the
    anti-patterns. */
 export function DashHead({
@@ -51,7 +51,7 @@ export function DashHead({
   );
 }
 
-/** The print action for the portable dashboard kinds (SUB-676) — it slots
+/** The print action for the portable dashboard kinds — it slots
     into DashHead's `actions` the same way the other page controls do. The
     click clones the dashboard's own `.dash-inner` (the live pane, active
     workbook page included) into the note path's print surface. */

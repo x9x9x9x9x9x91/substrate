@@ -1,7 +1,7 @@
 import type { NoteMeta, PropSchema } from "./types.ts";
 import { isReservedSchemaName, isSystemPropName } from "./schemalookup.ts";
 
-/* SUB-17 — new entries are born complete. Creating a note of a type (from a
+/* New entries are born complete. Creating a note of a type (from a
    database view, or the palette's "New from template…") pre-populates every
    prop the type's schema defines as an empty chip, and instantiates the
    type's optional template note (`.vault/templates/<type>.md`): its
@@ -32,7 +32,7 @@ function orderKeys(keys: Iterable<string>): string[] {
 }
 
 /** `{{title}}` / `{{date}}` substitution — in template bodies and prop values.
-    Single pass with a replacer function (SUB-237): the substituted values are
+    Single pass with a replacer function: the substituted values are
     literal text — `$&`/`$$` in a title aren't JS replacement patterns, and a
     placeholder spelled inside the title (`x{{date}}y`) is never re-scanned. */
 export function instantiate(text: string, title: string, date: string): string {
@@ -63,7 +63,7 @@ export function templateDefaults(
 }
 
 /** The props a new entry of a type is born with: every prop the type's schema
-    defines (rollup props excluded, SUB-678 — a derived column is never
+    defines (rollup props excluded — a derived column is never
     written, so it gets no empty create-time chip); when the type has no
     schema yet, the union of props in use across
     its existing notes. `typeNotes` must already be filtered to the type. */
@@ -119,7 +119,7 @@ export function buildEntryBody(
 }
 
 /** Where new entries of a type land: the type's explicit home folder when
-    one is set (SUB-85), else the folder most of the type already lives in,
+    one is set, else the folder most of the type already lives in,
     Inbox when there are none yet. `typeNotes` must already be filtered to
     the type. */
 export function homeFolderFor(typeNotes: NoteMeta[], home?: string): string {
@@ -179,7 +179,7 @@ export function canonicalTemplateType(
 /** Override one prop in create-time pairs: an existing pair with the same
     key (case-insensitive) keeps its position and its own key spelling, only
     the value is replaced; a missing key appends. For caller-owned values the
-    empty schema fill must not win over — the calendar's picked day (SUB-60). */
+    empty schema fill must not win over — the calendar's picked day. */
 export function mergeEntryProp(
   pairs: [string, string][],
   key: string,
@@ -193,11 +193,11 @@ export function mergeEntryProp(
 }
 
 /** Directory the engine keeps per-type templates in — hidden, never indexed
-    or watched (SUB-17), but readable/writable by explicit path (SUB-59). */
+    or watched, but readable/writable by explicit path. */
 export const TEMPLATES_DIR = ".vault/templates";
 
 /** Vault-relative path of a type's template note — mirrors the Rust
-    `sanitize_filename` so both sides name the same file (SUB-59). */
+    `sanitize_filename` so both sides name the same file. */
 export function templatePath(type: string): string {
   const name =
     type

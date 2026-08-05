@@ -1,4 +1,4 @@
-// Curated newsfeed data for the `dashboard: feed` renderer (SUB-518): one pure
+// Curated newsfeed data for the `dashboard: feed` renderer: one pure
 // pass over the items sheet's csv fence shaping the unified stream the pane
 // renders, plus the fb (feedback) write-back transformer.
 //
@@ -95,7 +95,7 @@ export function parseFeedItems(body: string): FeedItem[] {
   return out.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
 }
 
-/** Distinct topic slugs in stream order, lowercased (SUB-697). Items with an
+/** Distinct topic slugs in stream order, lowercased. Items with an
     empty topic don't contribute a chip — they're only reachable with the
     filter off, which the pane's "all" state covers. */
 export function feedTopics(items: FeedItem[]): string[] {
@@ -109,7 +109,7 @@ export function feedTopics(items: FeedItem[]): string[] {
 
 /** The stream narrowed to `active` topics; an empty selection means no filter
     (everything shows). Selection entries that match no item are inert, so a
-    persisted selection survives the topic set changing under it (SUB-697). */
+    persisted selection survives the topic set changing under it. */
 export function filterFeedItems(items: FeedItem[], active: string[]): FeedItem[] {
   if (active.length === 0) return items;
   const want = new Set(active.map((t) => t.trim().toLowerCase()));
@@ -141,7 +141,7 @@ export function cycleFeedback(current: Feedback, clicked: "up" | "down"): Feedba
 /** The body with row `idx`'s fb cell set to the cycled verdict, everything else
     byte-identical. Returns the body unchanged when there's no csv fence, no fb
     column, or the row is out of range — a no-op write is better than a clobber.
-    `expected` is the caller's guard for `vaultWriteBody` (SUB-93). */
+    `expected` is the caller's guard for `vaultWriteBody`. */
 export function setFeedback(
   body: string,
   idx: number,
@@ -159,7 +159,7 @@ export function setFeedback(
   return { next: setSheetCell(body, idx, fi, next), expected: body };
 }
 
-/* Staleness (SUB-699): the `curated:` stamp parsed as an instant, so a dead
+/* Staleness: the `curated:` stamp parsed as an instant, so a dead
    curator reads in the head as a warning dot with an age ("stale · 5d")
    instead of an innocent item count. Strictly additive — a missing or
    unparseable stamp classifies fresh and the pane keeps rendering it

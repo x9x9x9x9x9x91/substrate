@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// "Mount a folder…" (SUB-888): show a real folder on disk as a database —
+// "Mount a folder…": show a real folder on disk as a database —
 // every matching file is a row read from a live index, nothing is imported and
 // no note is written until a row is annotated. Against the mock backend: one
 // folder is already mounted ("finance-doc" → ~/Personal/Finance, 12 files plus

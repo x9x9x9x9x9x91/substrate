@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-402: database rows/cards are note-drag sources — any layout's entry
+// Database rows/cards are note-drag sources — any layout's entry
 // drops onto a sidebar folder to move the file, like ListPane rows always
 // could. The sidebar's folder drop target needs no per-layout changes: every
 // layout carries the same NOTE_DRAG_MIME payload.

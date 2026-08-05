@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDb } from "./nav";
 
-// SUB-1165: ⌫ has always popped the view history, but nothing on screen did —
+// ⌫ has always popped the view history, but nothing on screen did —
 // a mouse-driven detour into a database or a side note was a one-way trip.
 // The pane header carries a back chevron whenever ⌫ would do something.
 

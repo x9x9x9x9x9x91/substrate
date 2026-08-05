@@ -29,14 +29,14 @@ interface SearchPaneProps {
   setQuery: (q: string) => void;
   onOpenMatch: (path: string, line: number) => void;
   onClose: () => void;
-  /** SUB-267: one-shot restore of the picked row after an Esc-return — the
+  /** One-shot restore of the picked row after an Esc-return — the
       row the stash names is re-selected once results are back */
   restoreSel?: { path: string; line: number } | null;
   onRestoredSel?: () => void;
-  /** the app-level note context menu (SUB-378) — same items as list rows */
+  /** the app-level note context menu — same items as list rows */
   onRowContextMenu: (path: string, x: number, y: number) => void;
-  /** true while the app conceals AGENTS.md/CLAUDE.md/Settings.md (SUB-831) —
-      forwarded to the engine so its counts and page slots skip them (SUB-907) */
+  /** true while the app conceals AGENTS.md/CLAUDE.md/Settings.md —
+      forwarded to the engine so its counts and page slots skip them */
   excludeAppFiles: boolean;
 }
 
@@ -64,7 +64,7 @@ export default function SearchPane({
   const [engineResult, setEngineResult] = useState<{
     query: string;
     hits: FullSearchHit[];
-    /** notes matching in the engine, past the page cap (SUB-566) */
+    /** notes matching in the engine, past the page cap */
     total: number;
     truncated: boolean;
   }>({ query: "", hits: [], total: 0, truncated: false });
@@ -77,7 +77,7 @@ export default function SearchPane({
   const rowId = (i: number) => `${listId}-row-${i}`;
 
   const parsed = useMemo(() => parseQuery(query), [query]);
-  // quoted phrases leave `text` (SUB-219) but still search. Joining them back
+  // quoted phrases leave `text` but still search. Joining them back
   // in is exactly what quoted text has always done here: the engine does NOT
   // phrase-adjoin them — `fts_match_expr` (vault.rs) turns every whitespace
   // token into a quoted prefix and ANDs them — so `"night drive"` matches a
@@ -87,7 +87,7 @@ export default function SearchPane({
   const searchText = useMemo(() => [parsed.text, ...parsed.phrases].filter(Boolean).join(" "), [parsed]);
 
   // a partially typed operator value already narrows, like in the palette;
-  // multi-value stubs narrow on their committed segments too (SUB-78)
+  // multi-value stubs narrow on their committed segments too
   const effFilters = useMemo(
     () =>
       parsed.trailing && (parsed.trailing.partial || parsed.trailing.values.length > 0)
@@ -106,7 +106,7 @@ export default function SearchPane({
     [parsed]
   );
 
-  // SUB-566: the engine caps its result page, so the structured filters have
+  // The engine caps its result page, so the structured filters have
   // to reach it — filtering a global top-200 page client-side renders an
   // authoritative "No results" over notes that ranked 201st. The filters'
   // semantics live here (dates, negation, prefix matching), so the engine
@@ -153,7 +153,7 @@ export default function SearchPane({
     [engineResult, searchText]
   );
   // a page that ran out is NOT an answer — the empty state must not claim
-  // "no results" while the engine still had more (SUB-566)
+  // "no results" while the engine still had more
   const truncated = engineResult.query === searchText && engineResult.truncated;
 
   const completions = useMemo(() => {
@@ -203,7 +203,7 @@ export default function SearchPane({
   }, [groups]);
 
   useEffect(() => setSel(0), [query, sort]);
-  // clamp functionally (SUB-510): narrowing a query shrinks the rows and
+  // clamp functionally: narrowing a query shrinks the rows and
   // changes `query` in the SAME commit, so both effects fire together. Read
   // through the updater — a captured `sel` is the pre-reset one, and clamping
   // it lands the selection on the last surviving row instead of the top hit.
@@ -211,7 +211,7 @@ export default function SearchPane({
     setSel((s) => (s > 0 && s > rows.length - 1 ? Math.max(0, rows.length - 1) : s));
   }, [rows.length]);
 
-  // SUB-267: an Esc-return re-selects the row the hit was opened from once
+  // An Esc-return re-selects the row the hit was opened from once
   // the results are back; a row that never reappears is dropped, not chased
   useEffect(() => {
     if (!restoreSel || rows.length === 0) return;
@@ -220,7 +220,7 @@ export default function SearchPane({
     onRestoredSel?.();
   }, [rows, restoreSel, onRestoredSel]);
 
-  // SUB-1132: a new result set moves every row while `sel` can stay the same
+  // A new result set moves every row while `sel` can stay the same
   // number — refining a query resets it to 0, which is a no-op when it already
   // was 0. The scroller keeps whatever offset the user had scrolled to, so
   // without `rows` here the selected hit is simply left off-screen.
@@ -231,7 +231,7 @@ export default function SearchPane({
   }, [sel, rows]);
 
   const totalMatches = groups.reduce((s, g) => s + g.h.total, 0);
-  // SUB-566: on a truncated page the match sum counts only the notes we were
+  // On a truncated page the match sum counts only the notes we were
   // handed, so presenting it as the total under-reports (measured 3–4× on
   // broad queries). Say what the page actually is instead of inventing a
   // total the engine never sent.
@@ -284,7 +284,7 @@ export default function SearchPane({
           className="search-input"
           autoFocus
           // queries aren't prose — keep the macOS autocorrect bubble away
-          // from ↑↓ list navigation (SUB-397)
+          // from ↑↓ list navigation
           spellCheck={false}
           autoCorrect="off"
           autoCapitalize="off"
@@ -351,7 +351,7 @@ export default function SearchPane({
           <div className="empty" role="status">
             {truncated ? (
               // the engine had more than it sent — "No results" would be a
-              // lie about notes that exist (SUB-566)
+              // lie about notes that exist
               <span>Showing none of {engineResult.total} matching notes — narrow the search</span>
             ) : query.trim() ? (
               <span>No results for “{query.trim()}”</span>
@@ -386,7 +386,7 @@ export default function SearchPane({
                 >
                   <NoteIcon />
                   <span className="search-note-title">
-                    {/* daily notes read as dates (SUB-209) — engine highlights
+                    {/* daily notes read as dates — engine highlights
                         on the raw stem don't survive, and don't need to */}
                     {dailyDateOf(n.path) ? displayTitle(n) : <Snippet parts={h.title_parts} />}
                   </span>

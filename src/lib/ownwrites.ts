@@ -1,4 +1,4 @@
-/* SUB-516 — which paths in a `vault:changed` event are our own echo, and
+/* Which paths in a `vault:changed` event are our own echo, and
    which are somebody else's write (docs/undo.md §3.3).
 
    The engine never emits from its commands: the OS watcher observes the write
@@ -6,7 +6,7 @@
    So every app write comes back to us looking exactly like an external one,
    and the app has to recognise its own reflection.
 
-   SUB-116 recognised it by time alone — one global "we wrote at T" stamp, and
+   The first cut recognised it by time alone — one global "we wrote at T" stamp, and
    any event within a second of it was ours. That is wrong the moment two
    writes overlap: while a save to A sits inside the window, a real external
    edit to B arrives on the same event and is read as our echo. The undo stack
@@ -16,12 +16,12 @@
    the window; anything else on the event is external, however busy we were
    elsewhere. Commands whose reach we can't name (a folder rename, a rescan)
    record an unnamed write instead, and while one of those is in the window an
-   event is read as ours the way it always was — no better than SUB-116 there,
+   event is read as ours the way it always was — no better than the first cut there,
    and deliberately no worse: over-reading those as external would mark the
    folder op's own undo entry stale the instant its echo arrived. */
 
 /** How long after our own write its echo can still arrive. Matches the
-    watcher's debounce plus slack (SUB-116's window, unchanged). */
+    watcher's debounce plus slack (the window, unchanged). */
 export const ECHO_WINDOW_MS = 1000;
 
 /** path → when we last wrote it. Entries older than the window are dropped on
@@ -49,14 +49,14 @@ export type EchoSplit = {
   /** paths on the event that are our own write coming back */
   own: string[];
   /** the event named nothing we can reason about path-by-path: an empty or
-      absent payload (the engine's "unknown, I rescanned" signal, SUB-460), or
+      absent payload (the engine's "unknown, I rescanned" signal), or
       a payload arriving while a write of ours we couldn't enumerate is still
       in the window. Callers stay conservative on this — refresh everything,
       re-read the open note — and fall back to `recentOwn` to decide whether
       it was ours. */
   unknown: boolean;
   /** a write of ours, of any kind, is still inside the echo window. The one
-      thing left of SUB-116's global timestamp: when an event names no paths
+      thing left of the global timestamp: when an event names no paths
       there is nothing else to go on. */
   recentOwn: boolean;
 };

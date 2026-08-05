@@ -1,4 +1,4 @@
-/** Rollup columns (SUB-678): a rollup prop derives its value from the rows a
+/** Rollup columns: a rollup prop derives its value from the rows a
     relation prop of the SAME database links to — follow `relation`, read
     `prop` on each linked row, fold with `agg` (the footer Calculate's
     vocabulary, src/lib/aggregate.ts). Computed on read, stored nowhere: the
@@ -8,7 +8,7 @@
     column through the one prop-value path.
 
     Matching mirrors related() and the rename sweep — which retargets both
-    `relation` (SUB-678) and, across databases, `prop` (SUB-740) with the
+    `relation` and, across databases, `prop` with the
     same case-folding: the related database is
     matched case-insensitively by `type:`, its rows by title OR stem,
     case-insensitive and trimmed — two rows sharing a title are
@@ -108,7 +108,7 @@ export function rollupColumns(
       const values: string[] = [];
       for (const v of propList(n.props, foldedPropKey(n.props, relEntry[0]))) {
         const t = targets.get(v.trim().toLowerCase());
-        // fold like the table's own cell read (SUB-917) — hand-cased
+        // fold like the table's own cell read — hand-cased
         // frontmatter must feed the rollup exactly as it renders
         if (t) values.push(foldedPropStr(t.props, cfg.prop) ?? "");
       }

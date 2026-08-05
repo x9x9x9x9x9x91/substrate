@@ -74,7 +74,7 @@ export default tseslint.config(
       // model. Fixing them means an accessibility pass (real roles + key
       // handlers), which is its own piece of work, not a lint autofix.
       "jsx-a11y/no-static-element-interactions": "warn",
-      // same family, reached once SUB-520 gave the calendar's day cells a real
+      // same family, reached once the calendar's day cells got a real
       // `role="group"`: naming a region and making its click affordance
       // keyboard-reachable are separate pieces of work.
       "jsx-a11y/no-noninteractive-element-interactions": "warn",

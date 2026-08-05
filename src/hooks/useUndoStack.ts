@@ -4,7 +4,7 @@ import type { UndoEntry, UndoState } from "../lib/undo";
 import type { UndoApi } from "../lib/undoContext";
 import type { ToastAction } from "./useToast";
 
-/* SUB-477 — the session undo stack lives here, in one reducer, because ⌘Z is
+/* The session undo stack lives here, in one reducer, because ⌘Z is
    global: whichever surface made the edit, the keystroke arrives at the
    document. The pure moves are in lib/undo.ts; this is only their dispatch. */
 export type UndoAction =
@@ -28,7 +28,7 @@ function undoReducer(s: UndoState, a: UndoAction): UndoState {
         s,
         s.entries.flatMap((e) => e.paths)
       );
-    // SUB-516: the event named its paths, so only the entries that touch one
+    // The event named its paths, so only the entries that touch one
     // of them are unsafe — everything else stays runnable
     case "invalidate":
       return undoStack.invalidate(s, a.paths);
@@ -43,7 +43,7 @@ function undoReducer(s: UndoState, a: UndoAction): UndoState {
   }
 }
 
-/* SUB-477 — session undo. The stack holds inverse operations; running one
+/* Session undo. The stack holds inverse operations; running one
    is async (it's a vault write), so the cursor only moves after the write
    lands, keyed by entry id in case the stack shifted meanwhile. A refused
    inverse means someone else changed the prop: say so and mark it stale

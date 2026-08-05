@@ -23,7 +23,7 @@ test("primary list and Today rows expose separate keyboard controls (SUB-355)", 
   await page.locator(".side-item", { hasText: "All notes" }).click();
   const noteRow = page.locator(".list").getByRole("button", { name: "Welcome", exact: true });
   await noteRow.focus();
-  // All notes is now a native button (SUB-357), so the preceding click leaves
+  // All notes is now a native button, so the preceding click leaves
   // Chromium in pointer modality. Round-trip with the keyboard before checking
   // :focus-visible — the ring is deliberately absent for pointer focus.
   await page.keyboard.press("Tab");
@@ -36,7 +36,8 @@ test("primary list and Today rows expose separate keyboard controls (SUB-355)", 
   // Existing global list navigation remains independent of the newly
   // focusable row controls: an arrow key changes selection and bare Enter
   // still moves into the selected note's editor. Welcome sorts last among the
-  // loose rows (the Yield APR fixture left with SUB-447), so step UP — the
+  // loose rows (the Yield APR fixture left when the yield-apr dashboard kind
+  // was retired), so step UP — the
   // direction with a guaranteed neighbor — then back DOWN to Welcome, the
   // known plain note, before entering the editor (its neighbors are sheets
   // and dashboards, whose panes aren't the note editor).

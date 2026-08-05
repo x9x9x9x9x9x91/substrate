@@ -118,7 +118,7 @@ test("a printable key with no text target fires the pending focus at once (SUB-7
 });
 
 test("a printable key while a text field is focused still cancels (SUB-765)", async () => {
-  // the SUB-455 scratch-body-split-into-title case lives here
+  // the scratch-body-split-into-title case lives here
   for (const active of [el("INPUT"), el("TEXTAREA"), el("SELECT"), el("DIV", true)]) {
     const w = fakeWindow();
     await withDocument(active, async () => {
@@ -141,7 +141,7 @@ test("non-printable and command-chorded keys still cancel with no text target (S
     { key: "Escape" },
     { key: "a", metaKey: true },
     { key: "a", ctrlKey: true },
-    // ⌘⌥/⌃⌥ are still command chords, Option or not (SUB-1123)
+    // ⌘⌥/⌃⌥ are still command chords, Option or not
     { key: "@", metaKey: true, altKey: true },
     { key: "@", ctrlKey: true, altKey: true },
   ]) {
@@ -181,7 +181,7 @@ test("an Option-produced character fires the pending focus (SUB-1123)", async ()
 });
 
 test("an Option chord over a named key still cancels (SUB-1123)", async () => {
-  // ⌥←/⌥→ are the mini-player transport (SUB-812); ⌥ArrowDown/⌥Backspace are
+  // ⌥←/⌥→ are the mini-player transport; ⌥ArrowDown/⌥Backspace are
   // Cocoa motion — none of them are a character heading for the pending field
   for (const key of [
     { key: "ArrowLeft", altKey: true },
@@ -206,7 +206,7 @@ test("an Option chord over a named key still cancels (SUB-1123)", async () => {
 test("a dead key fires the pending focus so its accent can compose (SUB-1123)", async () => {
   // ´ + e → é: the dead key carries no character, but it is on its way to one,
   // and that composition can only finish inside a real text field. Cancelling
-  // here left the note unfocused (SUB-765) AND lost the accent.
+  // here left the note unfocused AND lost the accent.
   const w = fakeWindow();
   await withDocument(body, async () => {
     await withWindow(w, async () => {

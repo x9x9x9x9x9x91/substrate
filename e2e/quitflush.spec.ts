@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-551: the pane's 500ms save debounce is a loss window against anything
+// The pane's 500ms save debounce is a loss window against anything
 // that ends the session without unmounting the pane. On macOS ⌘Q reaches
 // neither CloseRequested nor ExitRequested — it lands straight in
 // RunEvent::Exit, which is synchronous and cannot await a webview round trip,

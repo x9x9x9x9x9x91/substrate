@@ -5,7 +5,7 @@ import { basename } from "../lib/files";
    same paths so the surfaces can't drift; the mini-player renders them too */
 import { PauseGlyph, PlayGlyph } from "./Icons";
 
-/** Compact play/pause for an audio-valued file prop (SUB-674), in table
+/** Compact play/pause for an audio-valued file prop, in table
     cells and on gallery cards. Drives the SAME shared player as note embeds
     (lib/editor-widgets.ts), so playback survives navigation, a second
     button's click takes over, and every button bound to the file reflects
@@ -17,7 +17,7 @@ export function AudioPropButton({
   onToggle,
 }: {
   name: string;
-  /** SUB-812: run just before the shared player toggles. Folder rows use it
+  /** Run just before the shared player toggles. Folder rows use it
       to seat the listening queue on this file, so pressing play in a folder
       also tells the mini-player what "next" means. Toggle semantics are
       unchanged — a second press on the playing row still pauses it. */

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Ableton project pool → Substrate vault importer (SUB-37).
+ * Ableton project pool → Substrate vault importer.
  *
  * Turns a folder of Ableton projects ("the album pool") into a folder-backed
  * database: each immediate subfolder containing a `.als` file becomes one row
- * (a stub note) in the vault, following the SUB-13 folder-sync conventions —
+ * (a stub note) in the vault, following the folder-sync conventions —
  * `type`/`file`/`modified`/`size` props, dedupe by the `file` prop's path, a
  * `missing` flag for vanished projects — so these rows interoperate with the
  * engine's own folder sync instead of fighting it.
@@ -25,14 +25,14 @@
  * `missing: true` (never deleted); it recovers when the folder comes back.
  *
  * Project folder names become note titles, so they run through the same
- * guards as the engine (SUB-223, mirrored in scripts/vault-title.ts): a name
+ * guards as the engine (mirrored in scripts/vault-title.ts): a name
  * with a leading dot or `[`/`]` is rejected, reported, and never written —
  * the script writes files directly, so the engine's own create-time
- * validation never sees them (SUB-279).
+ * validation never sees them.
  *
  * If a bounce/preview render sits next to the `.als` (audio file in the
- * project folder), the row's note embeds it by path — `![[~/…]]` (SUB-15,
- * linked in place, never copied) — so you can listen while triaging. On
+ * project folder), the row's note embeds it by path — `![[~/…]]` (linked in
+ * place, never copied) — so you can listen while triaging. On
  * re-import an existing embed pointing into the project folder is left
  * alone; a new one is appended only when none exists yet.
  *
@@ -55,7 +55,7 @@
  *   --dry-run             Print what would change, write nothing
  *
  * Environment:
- *   VAULT_DIR  Vault root — REQUIRED, there is no default (SUB-777): an unset
+ *   VAULT_DIR  Vault root — REQUIRED, there is no default: an unset
  *              target would silently write into the real ~/Vault. Point at a
  *              scratch dir to test.
  *
@@ -103,7 +103,7 @@ export interface ImportReport {
   missing: string[];
   /** Pool subfolders without a `.als` — not projects. */
   skipped: string[];
-  /** Projects whose name the engine's title guards refuse (SUB-223) — never written. */
+  /** Projects whose name the engine's title guards refuse — never written. */
   rejected: { name: string; reason: string }[];
   dryRun: boolean;
 }
@@ -528,7 +528,7 @@ export async function run(opts: Options, vaultEnv?: string): Promise<ImportRepor
     const existingRel = managed.get(project.folderAbs);
     if (existingRel === undefined) {
       // new row — stub note shaped like an engine folder-sync stub.
-      // SUB-223 guards, mirrored for direct-to-disk rows (SUB-279): a project
+      // Guards, mirrored for direct-to-disk rows: a project
       // name the engine would refuse is reported, never written as an
       // invisible (dot-stem) or link-toxic (brackets) note
       let slug: string;

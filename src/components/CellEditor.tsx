@@ -29,7 +29,7 @@ interface CellEditorProps {
   onClose: () => void;
 }
 
-/** The picker a cell edit opens, chosen by kind (SUB-796). The database table
+/** The picker a cell edit opens, chosen by kind. The database table
     grew this cascade first; the inline ```view widget mounts the same one, so
     a select cell inside a note behaves exactly like the same cell in the pane.
     Schema editing is deliberately absent here — an inline table is a view of a

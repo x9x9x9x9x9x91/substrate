@@ -168,7 +168,7 @@ interface OutlineHeading {
   text: string;
 }
 
-// the optional `|accent` tail is the bounded style token (SUB-969) — kept in
+// the optional `|accent` tail is the bounded style token — kept in
 // lockstep with src/lib/hub.ts, which reads the same two shapes. The editor
 // hides the whole prefix either way; group 3 is the accent name, unvalidated
 // here and resolved by parseAccent before it can reach a colour.
@@ -314,7 +314,7 @@ function delimiterRun(view: EditorView, pos: number, ch: string): number {
 // Is `mark` actually part of a delimiter run of this length? A run of `*`
 // nests — 1 is italic, 2 is bold, 3 is both — so italic is only present in odd
 // runs, and eating one `*` off a `**` pair would turn bold into italic instead
-// of nesting (SUB-654). Other marks don't nest, so any run that fits is a hit.
+// of nesting. Other marks don't nest, so any run that fits is a hit.
 function markPresentInRun(run: number, mark: string): boolean {
   if (run < mark.length) return false;
   if (mark === "*") return run % 2 === 1;
@@ -484,7 +484,7 @@ function turnInto(view: EditorView, style: BlockStyle): boolean {
 }
 
 /** The toolbar's block-type list, module-level so the selection context
-    menu (SUB-591) renders the same actions — one source, two surfaces. */
+    menu renders the same actions — one source, two surfaces. */
 const TURN_OPTIONS: [BlockStyle, string, string][] = [
   ["h1", "Heading 1", "#"],
   ["h2", "Heading 2", "##"],
@@ -547,8 +547,8 @@ const editorHasFocus = StateField.define<boolean>({
   },
 });
 
-/** A block-widget field's decorations plus the document spans that decide them
- * (SUB-463). `regions` is every candidate block — including the ones currently
+/** A block-widget field's decorations plus the document spans that decide them.
+ * `regions` is every candidate block — including the ones currently
  * rendered as raw source, which contribute no decoration at all — so a
  * selection-only transaction can ask "could this cursor move change anything?"
  * without walking the syntax tree. */
@@ -636,7 +636,7 @@ const tableRender = StateField.define<BlockRender>({
   provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
 });
 
-/** Is this FencedCode a ```view embed (SUB-86)? The first word of the info
+/** Is this FencedCode a ```view embed? The first word of the info
  * string decides, same as the chart fence's `chart`. */
 function isViewFence(state: EditorState, node: SyntaxNode): boolean {
   const info = node.getChild("CodeInfo");
@@ -645,11 +645,11 @@ function isViewFence(state: EditorState, node: SyntaxNode): boolean {
   return lang.toLowerCase() === "view";
 }
 
-/** The vault epoch as editor state (SUB-122): App bumps it on every vault
+/** The vault epoch as editor state: App bumps it on every vault
  * change, Editor dispatches it in, and view embeds carry it in their widget
  * identity — a bump flips ViewWidget.eq to false, so CodeMirror rebuilds
  * just the embed DOM with a fresh data snapshot. Failed asset embeds
- * (audio/file/image) ride the bump the same way (SUB-289); healthy ones keep
+ * (audio/file/image) ride the bump the same way; healthy ones keep
  * name-only identity, so playback and loaded images are never disturbed. */
 const setVaultEpoch = StateEffect.define<number>();
 const vaultEpochField = StateField.define<number>({
@@ -746,14 +746,14 @@ const audioAnnotationRender = StateField.define<AudioAnnotationRender>({
   provide: (field) => EditorView.decorations.from(field, (value) => value.deco),
 });
 
-/** SUB-472: the line span of every block widget currently rendered (tables and
+/** The line span of every block widget currently rendered (tables and
  * ```view embeds). A `Decoration.replace({block:true})` hides the positions it
  * covers, so CodeMirror's vertical motion steps over the whole block in one
  * go — arrow keys could never land inside, and only a mouse click revealed the
  * source. Callouts never had the bug: they replace only the `>` prefix, so
  * their lines stay ordinary text.
  *
- * Reads each field's `deco`, not its `regions` (SUB-463): regions include the
+ * Reads each field's `deco`, not its `regions`: regions include the
  * blocks currently showing raw source, whose lines are ordinary text that
  * CodeMirror already steps through one at a time. */
 function blockWidgetLines(state: EditorState): { first: number; last: number }[] {
@@ -779,7 +779,7 @@ function blockWidgetLines(state: EditorState): { first: number; last: number }[]
   return spans;
 }
 
-/** Arrow into a rendered block instead of over it (SUB-472). CodeMirror still
+/** Arrow into a rendered block instead of over it. CodeMirror still
  * computes the motion — it knows about wrapped lines, which plain doc-line
  * arithmetic does not — and we only step in when its answer jumped clean over
  * a block. Moving down we land on the block's first line, moving up on its
@@ -807,7 +807,7 @@ function arrowIntoBlock(view: EditorView, forward: boolean): boolean {
   return true;
 }
 
-/** SUB-463: scans the visible lines only, like the rest of buildDecorations.
+/** Scans the visible lines only, like the rest of buildDecorations.
  * A callout block can start above the viewport, so the scan backs up to the
  * first line of the block the viewport's top line belongs to; a block that
  * starts inside the viewport is still followed to its real end past the
@@ -835,7 +835,7 @@ function addCalloutDecorations(
     const header = CALLOUT_HEADER_RE.exec(first.text);
     if (!header || !isBlockquoteLine(state, first.from)) continue;
     const kind = header[2].toLowerCase() as CalloutKind;
-    // the same accent the hub board reads (SUB-969), so an accented callout
+    // the same accent the hub board reads, so an accented callout
     // looks accented where it is written, not only where it is rendered. The
     // glyph keeps the KIND hue — accent marks mood, the glyph marks type.
     const accent = parseAccent(header[3]);
@@ -873,7 +873,7 @@ function addCalloutDecorations(
   return Math.max(doneThrough, toLine);
 }
 
-/** SUB-88: decorate one `[label](url)` Link node — off the active line the
+/** Decorate one `[label](url)` Link node — off the active line the
  *  `[` and `](url)` marks collapse and the label becomes a clickable
  *  `cm-mdlink`; on the active line the raw syntax stays visible with the mark
  *  on top (same discipline as wikilinks). Only the simple inline form is
@@ -925,7 +925,7 @@ function decorateMdLink(
   return true;
 }
 
-/** Calc-line answers (SUB-834), appended after each `=` line in view.
+/** Calc-line answers, appended after each `=` line in view.
  *
  * The evaluation is whole-document even though the widgets are viewport-only:
  * a `= sum` reads the lines above it and a variable reference depends on every
@@ -969,7 +969,7 @@ function addCalcDecorations(
   }
 }
 
-/** Live values in prose (SUB-825): an inline `` `= expr` `` span renders as the
+/** Live values in prose: an inline `` `= expr` `` span renders as the
  * value it computes to.
  *
  * Whole-document scan, viewport-scoped widgets, same reasoning as calc lines —
@@ -1175,7 +1175,7 @@ function buildDecorations(view: EditorView): DecorationSet {
       const line = state.doc.lineAt(start).number;
       if (focused && active.has(line)) continue;
       // the file alone — a `|300`-style display modifier is a size hint,
-      // accepted and (for now) ignored, never part of the name (SUB-1102)
+      // accepted and (for now) ignored, never part of the name
       const target = embedTarget(m[1]);
       let widget = isAudioEmbed(target)
         ? new AudioWidget(target, epoch)
@@ -1207,7 +1207,7 @@ function buildDecorations(view: EditorView): DecorationSet {
       if (focused && active.has(line)) {
         deco.push(mark.range(start, end));
       } else {
-        // SUB-1095: off the cursor's line a link shows what it MEANS — the
+        // off the cursor's line a link shows what it MEANS — the
         // author's display text when they wrote one (`[[Note|text]]` reads
         // as "text"), so the target and the pipe hide with the brackets.
         // Only a non-empty alias hides anything; `[[Note|]]` would leave an
@@ -1223,7 +1223,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         deco.push(Decoration.replace({}).range(end - 2, end));
       }
     }
-    // SUB-818: inline `#tags` become clickable chips. Nothing is replaced —
+    // Inline `#tags` become clickable chips. Nothing is replaced —
     // the text you typed stays the text you see, so editing a tag is just
     // editing. The grammar is the shared one (lib/tags.ts); `inCode` is the
     // editor's own authority on fences and stays the veto.
@@ -1249,7 +1249,7 @@ const livePreview = ViewPlugin.fromClass(
       this.decorations = buildDecorations(view);
     }
     update(u: ViewUpdate) {
-      // a vault epoch bump rebuilds too (SUB-289): failed embed widgets flip
+      // a vault epoch bump rebuilds too: failed embed widgets flip
       // to epoch-sensitive eq and re-stat; healthy ones compare equal and
       // keep their DOM (playback, loaded images)
       if (
@@ -1262,7 +1262,7 @@ const livePreview = ViewPlugin.fromClass(
         // a transaction that changes neither doc, selection nor viewport, so it
         // needs saying explicitly or a re-read sheet never reaches the prose
         u.startState.facet(liveValuesConfig) !== u.state.facet(liveValuesConfig) ||
-        // the ⌘, number dialect arrives the same way (SUB-1092): a facet
+        // the ⌘, number dialect arrives the same way: a facet
         // reconfigure with no doc, selection or viewport change. Calc results
         // and file-chip sizes are both written in it, so without this the
         // editor keeps rendering the previous dialect until the next keystroke
@@ -1275,7 +1275,7 @@ const livePreview = ViewPlugin.fromClass(
   { decorations: (v) => v.decorations }
 );
 
-/** SUB-88: external links open outside the app — the OS browser in Tauri,
+/** External links open outside the app — the OS browser in Tauri,
  *  a new tab in the browser/mock lane. */
 function openExternalLink(url: string) {
   if (isTauri) openUrl(url).catch(console.error);
@@ -1307,7 +1307,7 @@ function pastedAssetName(file: File): string {
 /** Insert an `![[...]]` embed at `at` (default: the live cursor), on its own
  * line when the position sits inside surrounding text. The caret follows the
  * embed only when the insert lands where the caret already is — an import that
- * resolves after the user moved on must not yank them back (SUB-664). */
+ * resolves after the user moved on must not yank them back. */
 function insertEmbedAt(view: EditorView, embed: string, at = view.state.selection.main.head) {
   const line = view.state.doc.lineAt(at);
   const before = at > line.from && line.text.slice(0, at - line.from).trim() !== "";
@@ -1320,13 +1320,13 @@ function insertEmbedAt(view: EditorView, embed: string, at = view.state.selectio
   });
 }
 
-/** Insert only while the editor is still mounted (SUB-550). CodeMirror silently
+/** Insert only while the editor is still mounted. CodeMirror silently
  * swallows a dispatch on a destroyed view, so an asset whose save lands after a
  * note switch would leave an unreferenced file on disk and no sign of it. The
  * `destroyed` flag is private in the typings; destroy() detaches the DOM, so
  * `isConnected` is the public equivalent. False → the embed was not written.
  *
- * `where` is the intake's tracked insert point (SUB-664), mapped through every
+ * `where` is the intake's tracked insert point, mapped through every
  * edit that landed while the write was in flight; without one — or once it has
  * been released — the live cursor is the target. */
 function insertEmbedIfLive(view: EditorView, embed: string, where?: PosTracker) {
@@ -1335,7 +1335,7 @@ function insertEmbedIfLive(view: EditorView, embed: string, where?: PosTracker) 
   return true;
 }
 
-/** Files that reached the vault but never got linked, said once (SUB-550) —
+/** Files that reached the vault but never got linked, said once —
  * the silent unreferenced write is the failure this replaces. */
 function reportUnlinked(names: string[], onToast?: (msg: string) => void) {
   if (names.length === 0) return;
@@ -1373,12 +1373,12 @@ async function insertPastedAsset(
   return insertEmbedIfLive(view, `![[${saved}]]`, where) ? null : saved;
 }
 
-/** [[ wikilink completion (SUB-269): inside an open `[[…`, fuzzy-ranked note
+/** [[ wikilink completion: inside an open `[[…`, fuzzy-ranked note
     titles; accepting inserts `title]]` and never doubles an existing `]]`.
     The query/rank/insert rules live pure in lib/wikilinks — this is only the
     CodeMirror plumbing.
 
-    Gated on the syntax tree like the slash menu below (SUB-652): inside a code
+    Gated on the syntax tree like the slash menu below: inside a code
     fence, an indented block or an inline span a `[[` is literal text, and the
     empty query there lists every title — so Enter meaning "newline" would
     splice the top fuzzy match into what was being typed. */
@@ -1410,7 +1410,7 @@ function wikiLinkCompletions(titlesRef: React.MutableRefObject<string[] | undefi
   };
 }
 
-/** `#` tag completion (SUB-818): typing `#` offers the vault's existing tags,
+/** `#` tag completion: typing `#` offers the vault's existing tags,
     most-used first. Same code-context gate as the `[[` popup — inside a fence
     a `#` is a comment or a heading, never a tag. Accepting inserts the tag
     text alone; there is no closer to balance.
@@ -1434,7 +1434,7 @@ function tagCompletions(universeRef: React.MutableRefObject<TagCount[] | undefin
   };
 }
 
-/** `/` slash menu (SUB-469): a line-initial `/` opens the insertion palette —
+/** `/` slash menu: a line-initial `/` opens the insertion palette —
     /view, /date, /task, /asset. Same autocompletion extension as the [[ popup,
     so Esc, arrows and Enter behave identically and there's no custom widget.
     Trigger and insert rules live pure in lib/slashmenu.
@@ -1481,7 +1481,7 @@ function slashCompletions() {
   };
 }
 
-/** `type:` completion inside a ```view fence (SUB-469): live database names, so
+/** `type:` completion inside a ```view fence: live database names, so
     a fence never needs exact recall of a db's spelling. */
 function viewTypeCompletions(dbTypesRef: React.MutableRefObject<string[] | undefined>) {
   return (context: CompletionContext): CompletionResult | null => {
@@ -1499,7 +1499,7 @@ function viewTypeCompletions(dbTypesRef: React.MutableRefObject<string[] | undef
       options: options.map((type) => ({
         label: type,
         // picking a db settles the fence, so step the cursor out past its
-        // closing line (SUB-796) — the table renders right there instead of
+        // closing line — the table renders right there instead of
         // leaving you parked in raw fence source you'd have to escape by hand.
         // Dismissing the popup instead keeps the old behaviour: cursor stays
         // in the fence, source visible.
@@ -1526,34 +1526,34 @@ function viewTypeCompletions(dbTypesRef: React.MutableRefObject<string[] | undef
 
 interface EditorProps {
   docKey: string;
-  /** identity for session fold memory (SUB-785) — the note's LIVE path,
-   * which docKey deliberately lags across a rename (SUB-772). Folds saved
+  /** identity for session fold memory — the note's LIVE path,
+   * which docKey deliberately lags across a rename. Folds saved
    * under the lagging mount identity would miss on reopen under the new
    * path. Defaults to docKey (nonce stripped) for callers without renames. */
   foldKey?: string;
   initial: string;
   onChange: (body: string) => void;
   onFollowLink: (name: string) => void;
-  /** SUB-818: an inline `#tag` was clicked — open that tag's collection. */
+  /** An inline `#tag` was clicked — open that tag's collection. */
   onOpenTag?: (tag: string) => void;
-  /** every tag in the vault with its count — the `#` completion source
-      (SUB-818), same list the tag-folder builder offers */
+  /** every tag in the vault with its count — the `#` completion source,
+      same list the tag-folder builder offers */
   tagUniverse?: TagCount[];
-  /** all note titles — the [[ wikilink completion source (SUB-269) */
+  /** all note titles — the [[ wikilink completion source */
   noteTitles?: string[];
-  /** all database types — the ```view fence's `type:` completion (SUB-469) */
+  /** all database types — the ```view fence's `type:` completion */
   dbTypes?: string[];
-  /** ```view embeds (SUB-86): resolve a fence spec to its table model */
+  /** ```view embeds: resolve a fence spec to its table model */
   embedQuery?: (spec: ViewSpecResult) => EmbedResult;
   /** ```view embeds: row click opens the entry note */
   onOpenNote?: (path: string) => void;
-  /** ```view embeds (SUB-86): header click opens the database */
+  /** ```view embeds: header click opens the database */
   onOpenView?: (dbType: string, savedId?: string) => void;
-  /** ```view embeds (SUB-796): commit one cell, through the app's undoable
+  /** ```view embeds: commit one cell, through the app's undoable
       prop write — an inline edit lands in the same ⌘Z stack as the same edit
       made in the database pane */
   onEmbedSetProp?: (path: string, key: string, value: PropValue) => void;
-  /** ```view embeds (SUB-796): the "+ New" row — a typed, templated create
+  /** ```view embeds: the "+ New" row — a typed, templated create
       seeded from the fence's query */
   onEmbedCreate?: (dbType: string, seedProps: [string, string][], query: string) => void;
   /** values already in use for one column of a type — the picker's bootstrap */
@@ -1567,12 +1567,12 @@ interface EditorProps {
     targetType: string,
     title: string
   ) => void;
-  /** vault epoch — view embeds re-snapshot their data when it bumps (SUB-122) */
+  /** vault epoch — view embeds re-snapshot their data when it bumps */
   vaultEpoch?: number;
   focusRef?: React.MutableRefObject<(() => void) | null>;
   /** whole-doc replace from outside — an external file change landing in a
-   * clean buffer (SUB-93). Cursor clamped; dispatched as a non-history
-   * transaction so ⌘Z can't revert the adopt (SUB-287); fires onChange like
+   * clean buffer. Cursor clamped; dispatched as a non-history
+   * transaction so ⌘Z can't revert the adopt; fires onChange like
    * an edit (callers suppress). */
   docRef?: React.MutableRefObject<((body: string) => void) | null>;
   /** scroll a 1-based body line into view, flash it, and put the cursor there */
@@ -1583,13 +1583,13 @@ interface EditorProps {
   onEscape?: () => void;
   /** transient user-facing errors (oversized paste) ride the app toast */
   onToast?: (msg: string) => void;
-  /** SUB-591: the selection menu's extract — creates the spun-off note
+  /** The selection menu's extract — creates the spun-off note
       (title pre-dedupe, body = the selected text), resolves to its meta so
       the editor can link the final title. Absent → no Extract item. */
   onExtractNote?: (title: string, body: string) => Promise<NoteMeta>;
-  /** shown while the doc is empty — a ghost daily's "type to create" cue (SUB-320) */
+  /** shown while the doc is empty — a ghost daily's "type to create" cue */
   emptyHint?: string;
-  /** SUB-822: the doc is a historical projection — make the buffer itself
+  /** The doc is a historical projection — make the buffer itself
       read-only. Blocking beforeinput/paste/drop at the app root is not
       enough: CodeMirror's own keymap commands (Enter, Backspace, the
       history/search bindings) dispatch transactions directly and never
@@ -1597,13 +1597,13 @@ interface EditorProps {
       later flushed it over the live file. Reconfigured through a compartment
       so entering/leaving the past never rebuilds the view. */
   readOnly?: boolean;
-  /** calc lines (SUB-1092): the dialect their answers are formatted in — the
+  /** calc lines: the dialect their answers are formatted in — the
       app-wide `number-locale` setting. Defaults to de-DE, as it does. */
   numberLocale?: NumberLocale;
-  /** calc lines (SUB-834): live FX for `25 USD in EUR`. Absent → currency
+  /** calc lines: live FX for `25 USD in EUR`. Absent → currency
       conversions report a missing rate rather than inventing one. */
   calcFx?: FxResolver;
-  /** live values in prose (SUB-825): the sheets this note's `` `= expr` ``
+  /** live values in prose: the sheets this note's `` `= expr` ``
       spans reach, loaded and evaluated by the dashboard sheet bindings.
       Absent → cross-sheet expressions report a missing sheet rather than
       rendering a value nothing backs. */
@@ -1651,17 +1651,17 @@ export default function Editor({
   const [activeHeading, setActiveHeading] = useState<number | null>(null);
   const [outlineOpen, setOutlineOpen] = useState(true);
   const [dropHint, setDropHint] = useState<string | null>(null);
-  // SUB-591: right-click with a live selection opens the app menu at the
+  // Right-click with a live selection opens the app menu at the
   // pointer; turnPage is its "Turn into…" drill-in (same ContextMenu, new
   // item list)
   const [selMenu, setSelMenu] = useState<{ x: number; y: number } | null>(null);
   const [turnPage, setTurnPage] = useState(false);
   const outlineJump = useRef<{ from: number; until: number } | null>(null);
-  // calc config (SUB-834) rides a compartment rather than a ref: the number
+  // calc config rides a compartment rather than a ref: the number
   // dialect and the FX table change while the editor stays mounted, and the
   // results already on screen have to re-render when they do
   const calcCompartment = useRef(new Compartment());
-  // live values (SUB-825) ride their own compartment for the same reason: the
+  // live values ride their own compartment for the same reason: the
   // sheets they read land asynchronously and change again whenever the vault
   // does, and the values already on screen have to follow
   const liveCompartment = useRef(new Compartment());
@@ -1687,11 +1687,11 @@ export default function Editor({
   const calcFxRef = useRef(calcFx);
   const liveSheetsRef = useRef(liveSheets);
   // the [[ completion source is provided once at mount — titles live behind
-  // a ref so vault changes reach it without recreating the editor (SUB-269)
+  // a ref so vault changes reach it without recreating the editor
   const noteTitlesRef = useRef(noteTitles);
-  // same shape for the view fence's `type:` completion (SUB-469)
+  // same shape for the view fence's `type:` completion
   const dbTypesRef = useRef(dbTypes);
-  // and for `#` completion + tag clicks (SUB-818)
+  // and for `#` completion + tag clicks
   const tagUniverseRef = useRef(tagUniverse);
   const onOpenTagRef = useRef(onOpenTag);
   onChangeRef.current = onChange;
@@ -1750,7 +1750,7 @@ export default function Editor({
     view.focus();
   };
 
-  /* SUB-591 — the selection context menu. Right-click with a live selection
+  /* The selection context menu. Right-click with a live selection
      claims the event (native menu suppressed — the design call: the menu
      exists ONLY here, so spellcheck and system copy/paste keep their home
      whenever no selection is up); right-click without one returns false and
@@ -1773,7 +1773,7 @@ export default function Editor({
     try {
       const meta = await create(extractTitle(selected), selected);
       // a note switch raced the create — replacing text now would land in the
-      // wrong doc (SUB-550's isConnected discipline); the note exists either
+      // wrong doc (the isConnected discipline); the note exists either
       // way, the link just never gets planted. Said out loud, like the paste
       // path's reportUnlinked: a stray note with no link and no word is the
       // failure that discipline exists to stop.
@@ -1880,7 +1880,7 @@ export default function Editor({
 
   // The live fold identity — a ref, because the update listener and the
   // unmount cleanup are built once per docKey while foldKey moves with a
-  // rename (SUB-785): folds must land under wherever the note lives NOW.
+  // rename: folds must land under wherever the note lives NOW.
   // Updated in an effect, not the render body: on NAVIGATION the main
   // effect's cleanup must still see the outgoing note's key (all cleanups
   // run before any setup), where a render-body write would already have
@@ -1889,7 +1889,7 @@ export default function Editor({
   useEffect(() => {
     foldKeyRef.current = foldKey ?? docKey;
   }, [foldKey, docKey]);
-  // SUB-822: past mode toggles EditorState.readOnly through a compartment —
+  // Past mode toggles EditorState.readOnly through a compartment —
   // the ref keeps the mount-time value correct when a note opens while the
   // scrubber is already open.
   const readOnlyComp = useRef(new Compartment());
@@ -1913,19 +1913,19 @@ export default function Editor({
         drawSelection(),
         highlightSpecialChars(),
         keymap.of([
-          // combos come from the shortcut registry (SUB-28) so the cheat
+          // combos come from the shortcut registry so the cheat
           // sheet always matches the real bindings
           { key: shortcutCmKey("editor-bold"), run: (view) => toggleInlineMark(view, "**") },
           { key: shortcutCmKey("editor-italic"), run: (view) => toggleInlineMark(view, "*") },
-          // ⌘F opens the in-note find panel (SUB-244); the registry entry
+          // ⌘F opens the in-note find panel; the registry entry
           // keeps it out of every app-level dispatch
           { key: shortcutCmKey("editor-find"), run: openSearchPanel },
-          // ⌘D belongs to the app (daily note, SUB-19) — searchKeymap ships
+          // ⌘D belongs to the app (daily note) — searchKeymap ships
           // its own Mod-d → selectNextOccurrence, which ran alongside the app
           // hotkey and left a stray word selection the next keystroke
-          // overwrote (SUB-670). Everything else in searchKeymap stays.
+          // overwrote. Everything else in searchKeymap stays.
           ...searchKeymap.filter((binding) => binding.key !== "Mod-d"),
-          // Esc is the note-level step-back (SUB-267 search return, SUB-264
+          // Esc is the note-level step-back (search return
           // scratch abandon): below the find panel's own Esc above, and the
           // completion tooltip's Esc (a separate extension) must win too —
           // defer whenever a tooltip is open
@@ -1939,12 +1939,12 @@ export default function Editor({
             },
           },
           // rendered block widgets (tables, ```view) join vertical motion
-          // instead of being skipped (SUB-472) — above defaultKeymap so it
+          // instead of being skipped — above defaultKeymap so it
           // beats cursorLineDown/Up, and only when a block is actually next
           { key: "ArrowDown", run: (view) => arrowIntoBlock(view, true) },
           { key: "ArrowUp", run: (view) => arrowIntoBlock(view, false) },
-          // ⌘D is the app's daily-note hotkey (SUB-19), not delete-line;
-          // ⌘/ is the shortcuts overlay (SUB-316) — a help key must never
+          // ⌘D is the app's daily-note hotkey, not delete-line;
+          // ⌘/ is the shortcuts overlay — a help key must never
           // write to the document, and markdown has no comment toggle
           ...defaultKeymap.filter(
             (binding) => binding.key !== "Mod-d" && binding.key !== "Mod-/"
@@ -1953,11 +1953,11 @@ export default function Editor({
         ]),
         search({ top: true }),
         // an empty ghost daily must say it's writable — the cue vanishes on
-        // the first keystroke (SUB-320)
+        // the first keystroke
         ...(emptyHint ? [cmPlaceholder(emptyHint)] : []),
-        // [[ pops fuzzy-ranked note titles (SUB-269); `/` at line start pops
+        // [[ pops fuzzy-ranked note titles; `/` at line start pops
         // the insertion palette and a view fence's `type:` pops live database
-        // names (SUB-469); `#` pops the vault's tags (SUB-818). override owns
+        // names; `#` pops the vault's tags. override owns
         // the popup — the triggers are mutually exclusive, so each returns
         // null outside its own context
         autocompletion({
@@ -2022,7 +2022,7 @@ export default function Editor({
           }
         }),
         EditorView.domEventHandlers({
-          // SUB-591: a right-click inside a live selection gets the app menu
+          // A right-click inside a live selection gets the app menu
           // (extract / turn into / copy-as-markdown); without one the event
           // passes through — the native menu keeps spellcheck and the system
           // copy/paste lane. preventDefault also stands App's chrome-fallback
@@ -2063,7 +2063,7 @@ export default function Editor({
                 return true;
               }
             }
-            // SUB-818: a tag opens its collection on the same terms as a
+            // A tag opens its collection on the same terms as a
             // wikilink — plain click when the editor isn't focused, ⌘-click
             // when it is, so clicking into text you're writing still means
             // "put the caret here"
@@ -2081,9 +2081,9 @@ export default function Editor({
           paste(e, view) {
             const items = e.clipboardData?.items;
             if (!items) return false;
-            // any file type attaches (SUB-202) — the embed's widget is chosen
+            // any file type attaches — the embed's widget is chosen
             // by extension at render time. Every file in the payload imports
-            // (SUB-662): stopping at the first left the rest unreachable, since
+            // stopping at the first left the rest unreachable, since
             // preventDefault also denies them to CodeMirror's own paste.
             const files: File[] = [];
             for (const item of items) {
@@ -2095,7 +2095,7 @@ export default function Editor({
             e.preventDefault();
             const toast = onToastRef.current;
             // the caret at paste time, mapped through anything typed while the
-            // writes are in flight (SUB-664)
+            // writes are in flight
             const at = trackPos(view, view.state.selection.main.head);
             (async () => {
               const unlinked: string[] = [];
@@ -2108,7 +2108,7 @@ export default function Editor({
               .catch((err) => {
                 // a refused write (read-only .assets/, ENOSPC, volume gone) was
                 // a swallowed rejection — the paste vanished with no sign at
-                // all, since preventDefault already ate the event (SUB-659)
+                // all, since preventDefault already ate the event
                 console.error(err);
                 toast?.(`Import failed: ${err}`);
               })
@@ -2126,7 +2126,7 @@ export default function Editor({
             view.dispatch({ selection: { anchor: pos } });
             const toast = onToastRef.current;
             // the drop point, not wherever the caret has wandered by the time
-            // the writes land (SUB-664)
+            // the writes land
             const at = trackPos(view, pos);
             (async () => {
               const unlinked: string[] = [];
@@ -2138,7 +2138,7 @@ export default function Editor({
             })()
               .catch((err) => {
                 console.error(err);
-                toast?.(`Import failed: ${err}`); // SUB-659
+                toast?.(`Import failed: ${err}`);
               })
               .finally(() => at.release());
             return true;
@@ -2177,7 +2177,7 @@ export default function Editor({
           selection: { anchor: head },
           // not the user's edit: keep it out of the undo history, or the next
           // ⌘Z reverts the adopt and autosaves the stale body over the
-          // external change (SUB-287). Earlier user edits stay undoable.
+          // external change. Earlier user edits stay undoable.
           annotations: [Transaction.addToHistory.of(false)],
         });
       };
@@ -2197,7 +2197,7 @@ export default function Editor({
     };
   }, [docKey]);
 
-  // SUB-822: entering/leaving the past flips the buffer's read-only state in
+  // Entering/leaving the past flips the buffer's read-only state in
   // place; docRef's external-adopt dispatch still lands (readOnly blocks user
   // input, not programmatic changes).
   useEffect(() => {
@@ -2208,7 +2208,7 @@ export default function Editor({
     });
   }, [readOnly, docKey]);
 
-  // a vault epoch bump rebuilds view-embed DOM in place (SUB-122) — cursor,
+  // a vault epoch bump rebuilds view-embed DOM in place — cursor,
   // scroll and undo history ride along untouched
   useEffect(() => {
     const view = viewRef.current;
@@ -2236,7 +2236,7 @@ export default function Editor({
     return () => window.clearTimeout(t);
   }, [revealNonce, revealLine, docKey]);
 
-  // SUB-834: a settings change or a fresh FX table repaints the answers on
+  // A settings change or a fresh FX table repaints the answers on
   // screen. The compartment is the whole mechanism — reconfiguring it is a
   // transaction, which is what makes the livePreview plugin rebuild.
   useEffect(() => {
@@ -2249,7 +2249,7 @@ export default function Editor({
     });
   }, [numberLocale, calcFx, docKey]);
 
-  // Live values follow the same path (SUB-825): a fresh sheet map — the first
+  // Live values follow the same path: a fresh sheet map — the first
   // load landing, or a vault change re-evaluating the sheets a note reads —
   // arrives as a reconfiguration, and the values on screen recompute with it.
   useEffect(() => {
@@ -2270,7 +2270,7 @@ export default function Editor({
     let gone = false;
     const clientPoint = (p: { x: number; y: number }) =>
       dropClientPoint(p, window.devicePixelRatio, navigator.platform);
-    // drag-over hint (SUB-438): ⇧-link only exists where the backend can
+    // drag-over hint: ⇧-link only exists where the backend can
     // sample the key, so the pill is macOS-only; `drop-hint: false` hides it.
     // Settings are read once per drag sequence — cheap, and a just-saved
     // toggle applies to the very next drag. Shift is polled (throttled) so
@@ -2327,7 +2327,7 @@ export default function Editor({
           setDropHint(null);
           el.classList.remove("cm-dropping");
           // every dropped path imports — Rust's import_asset rejects
-          // directories, so no front-end filtering (SUB-202)
+          // directories, so no front-end filtering
           const paths = event.payload.paths;
           if (paths.length === 0) return;
           const { x, y } = clientPoint(event.payload.position);
@@ -2338,10 +2338,10 @@ export default function Editor({
           view.dispatch({ selection: { anchor: pos } });
           // import_asset copies under the vault mutex — seconds for a big
           // file, and the user keeps typing. The embed belongs at the drop
-          // point, mapped through those edits (SUB-664).
+          // point, mapped through those edits.
           const at = trackPos(view, pos);
           (async () => {
-            // ⇧-drop links in place instead of copying (SUB-438) — sampled
+            // ⇧-drop links in place instead of copying — sampled
             // once per drop, so one gesture treats every path the same way
             const link = await dropShiftDown();
             const unlinked: string[] = [];
@@ -2389,7 +2389,7 @@ export default function Editor({
     const target = event.target as HTMLElement;
     if (!view || event.button !== 0 || event.defaultPrevented) return;
     const content = view.contentDOM.getBoundingClientRect();
-    // SUB-895: the fold gutter is visually part of the body surface, but
+    // The fold gutter is visually part of the body surface, but
     // CodeMirror leaves a click on its empty rows focused on the scroller.
     // Map that click onto the matching document line (or the end of a sparse
     // document). A real fold marker prevents the event in its own handler, so

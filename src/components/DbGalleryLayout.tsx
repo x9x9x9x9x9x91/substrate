@@ -7,7 +7,7 @@ import { AudioPropButton } from "./AudioPropButton";
 import { cardSubtitle, GalleryCover, type Focus } from "./DbPaneShared";
 import type { FxResolver } from "../lib/formula";
 
-/** The gallery layout (SUB-621, split out of DatabasePane): cover-led cards
+/** The gallery layout (split out of DatabasePane): cover-led cards
     in a grid. DatabasePane still owns the state and callbacks. */
 export default function DbGalleryLayout({
   rows,
@@ -63,7 +63,7 @@ export default function DbGalleryLayout({
         {draftRow}
         {noMatch}
         {rows.map((n, r) => {
-          // SUB-674: a note with an audio-valued file prop gets the play
+          // A note with an audio-valued file prop gets the play
           // affordance leading its title; other cards render as before
           const audioTarget = audioPropTarget(n.props, typeSchema);
           return (

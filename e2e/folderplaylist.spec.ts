@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-812: a folder of audio IS a playlist. The folder view lists loose
+// A folder of audio IS a playlist. The folder view lists loose
 // (non-.md) files below its notes — audio ones playable through the same
 // shared player note embeds and database prop buttons already drive — and a
 // persistent mini-player keeps playing while you navigate anywhere else.
@@ -28,7 +28,7 @@ function fileRow(page: Page, name: string) {
   return page.locator(".row-file", { hasText: name });
 }
 
-// the deferred-decode probe (SUB-115): a peaks cache entry only appears when
+// the deferred-decode probe: a peaks cache entry only appears when
 // a waveform actually decodes
 function peaksKeys(page: Page) {
   return page.evaluate(() =>

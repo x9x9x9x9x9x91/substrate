@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-/* First-run onboarding (SUB-436). The mock vault always exists, so the
+/* First-run onboarding. The mock vault always exists, so the
    no-vault state is staged through __mockFirstRun before the module loads —
    boot resolution happens on mount and can't be flipped after the fact.
 
@@ -108,12 +108,12 @@ test("opening an existing vault offers open, not initialize", async ({ page }) =
 });
 
 test("the picker says which files it will add before you commit", async ({ page }) => {
-  // SUB-1098: adoption writes files of its own into the folder. Learning that
+  // adoption writes files of its own into the folder. Learning that
   // from unfamiliar files appearing after the restart is the wrong way to
   // learn it. The list here has to be the whole add-set from
-  // docs/user/import.md (SUB-1078), not just the visible root files.
-  // The folder is a marker-less one: two loose notes earn "Open vault"
-  // (SUB-1133), and adopting it does write the whole set.
+  // docs/user/import.md, not just the visible root files.
+  // The folder is a marker-less one: two loose notes earn "Open vault",
+  // and adopting it does write the whole set.
   await bootFirstRun(page);
   await page.getByLabel("Existing folder").fill("/home/me/loose-vault");
   await page.getByLabel("Existing folder").press("Enter");
@@ -136,7 +136,7 @@ test("the picker says which files it will add before you commit", async ({ page 
 });
 
 test("reopening a vault is not promised files it already has", async ({ page }) => {
-  // SUB-1133: the gate was "not init", so this line rendered on the plain
+  // The gate was "not init", so this line rendered on the plain
   // reopen of an already-adopted vault too — where `.vault/` and the setup
   // files are already on disk and "Substrate will add its own files here" is
   // false. Honest wording, and never both lines at once.
@@ -155,7 +155,7 @@ test("reopening a vault is not promised files it already has", async ({ page }) 
 });
 
 test("creating a fresh vault does not make the three-file promise", async ({ page }) => {
-  // SUB-1098 review #1: a missing or empty folder is the `init` verb, which
+  // Review: a missing or empty folder is the `init` verb, which
   // runs the starter seed — Welcome.md, the example notes, the dashboards —
   // roughly a dozen files. Saying "Settings.md, AGENTS.md and CLAUDE.md…
   // nothing else" there would be exactly the surprise this line prevents on
@@ -184,7 +184,7 @@ test("a folder holding other files demands consent before initializing", async (
 });
 
 test("a checkout with one stray note is not silently opened as a vault", async ({ page }) => {
-  // SUB-436 review #4: one top-level .md used to be enough for any picked
+  // Review #4: one top-level .md used to be enough for any picked
   // folder to count as a vault, so ~/Documents or a code checkout opened
   // straight through and got .vault/ written into it
   await bootFirstRun(page);
@@ -197,7 +197,7 @@ test("a checkout with one stray note is not silently opened as a vault", async (
 });
 
 test("a folder-organised notes vault is asked politely, not warned about", async ({ page }) => {
-  // SUB-1097: notes only in subfolders (Daily/, Projects/) fail the strict
+  // notes only in subfolders (Daily/, Projects/) fail the strict
   // top-level test, so consent is still required — but the copy must not tell
   // the owner their own notes are "other files"
   await bootFirstRun(page);
@@ -221,7 +221,7 @@ test("the demo vault is a one-click way in", async ({ page }) => {
 });
 
 test("a build without the demo vault says so instead of opening nothing", async ({ page }) => {
-  // SUB-436 review #3: the missing-resource fallback used to create an empty
+  // Review #3: the missing-resource fallback used to create an empty
   // .vault/ and report success, so this door opened onto an empty app
   await page.addInitScript(() => {
     window.__mockFirstRun = true;

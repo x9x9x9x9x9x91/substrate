@@ -1,4 +1,4 @@
-/** Bounded style tokens (SUB-969). Boards and custom kinds get to set mood,
+/** Bounded style tokens. Boards and custom kinds get to set mood,
  *  never CSS: an author picks a NAME from a closed roster and the design system
  *  decides what that name looks like. So `accent: teal` is expressible and
  *  `accent: #14b8a6`, `accent: 2px`, a font or a rule is not — there is no
@@ -26,7 +26,7 @@
 import { ICON_TINTS, optionColorVar } from "./dbicons.ts";
 
 /** The accent roster — the `--opt-*` vocabulary, shared with option colors so
-    a board and its databases speak one set of hues (SUB-619, SUB-73). */
+    a board and its databases speak one set of hues. */
 export const ACCENT_NAMES = ICON_TINTS;
 export type AccentName = (typeof ACCENT_NAMES)[number];
 

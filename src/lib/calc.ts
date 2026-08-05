@@ -1,4 +1,4 @@
-// Calc lines (SUB-834) — a note line that starts with `=` computes, and the
+// Calc lines — a note line that starts with `=` computes, and the
 // answer renders beside it without ever being written to the document.
 // Pure TS, no DOM/node imports: runs in the app and under `node --test`.
 // Keep to erasable TS syntax only (no enums/namespaces) so node can strip types.
@@ -10,7 +10,7 @@
 // type every sheet call-site reads. So the ~150 lines of Pratt parsing below
 // are duplicated on purpose, over Quantity instead of Cell. What IS shared:
 // the FErr/FxResolver vocabulary, the IDENT rules, and every unit and number
-// primitive in units.ts/aggregate.ts. A later unification (SUB-825) would
+// primitive in units.ts/aggregate.ts. A later unification would
 // merge the two evaluators; until then formula.ts stays sheets-owned.
 
 import { normalizeNumberInput, parseStrictNumber } from "./aggregate.ts";

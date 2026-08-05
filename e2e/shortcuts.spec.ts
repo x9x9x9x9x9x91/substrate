@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-// The shortcut-registry lanes (SUB-110/111/112/134/139) against the same
+// The shortcut-registry lanes against the same
 // deterministic mock backend as smoke.spec.ts.
 
 /** "Saturday, 18 July 2026" — the journal note's fixed header (journal.humanDate) */
@@ -18,7 +18,7 @@ function humanDay(offsetDays = 0): string {
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   // first paint doubles as the "window key listeners attached" barrier (cold
-  // open lands on Notes — Today is a destination, SUB-300)
+  // open lands on Notes — Today is a destination)
   await expect(page.locator(".list-title")).toHaveText("Notes");
 });
 
@@ -90,7 +90,7 @@ test("cheat sheet: one row per label, both combos on the this-sheet row (SUB-139
   expect(await row.locator(".key").allInnerTexts()).toEqual(["⌘/", "?"]);
 
   // the journal label stands alone — and "Go to Today" is back with the
-  // rebuilt surface (SUB-300)
+  // rebuilt surface
   await expect(labels.filter({ hasText: "Open today's journal" })).toHaveCount(1);
   await expect(labels.filter({ hasText: "Go to Today" })).toHaveCount(1);
   // hasText is a substring test — exact-match the retired label instead
@@ -105,13 +105,13 @@ test("cheat sheet: one row per label, both combos on the this-sheet row (SUB-139
 test("digit views: ⌘1 today, ⌘2 notes, ⌘3 all, ⌘4 calendar", async ({ page }) => {
   await page.keyboard.press("Meta+2");
   await expect(page.locator(".list-title")).toHaveText("Notes");
-  // the scratch list rides along — untyped + unfiled only (SUB-390)
+  // the scratch list rides along — untyped + unfiled only
   await expect(page.locator(".list .row")).toHaveCount(3);
   await page.keyboard.press("Meta+3");
   await expect(page.locator(".list-title")).toHaveText("All notes");
   await page.keyboard.press("Meta+4");
   await expect(page.locator(".cal")).toBeVisible();
-  // ⌘1 is back with the rebuilt Today surface (SUB-300)
+  // ⌘1 is back with the rebuilt Today surface
   await page.keyboard.press("Meta+1");
   await expect(page.locator(".today-pane")).toBeVisible();
   await expect(page.locator(".list")).toHaveCount(0);

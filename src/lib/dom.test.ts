@@ -35,7 +35,7 @@ test("text fields are typing", () => {
 });
 
 test("a native select is typing — it owns option typeahead and arrow keys", () => {
-  // the superset behaviour (SUB-481): previously only the grid/board panes
+  // the superset behaviour: previously only the grid/board panes
   // guarded SELECT, so a focused picker could lose a letter to a pane shortcut
   assert.equal(isTyping(new FakeElement("SELECT") as unknown as EventTarget), true);
 });

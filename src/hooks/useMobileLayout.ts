@@ -7,7 +7,7 @@ function mobileLayoutMatches(): boolean {
 }
 
 /**
- * SUB-332: the phone is a navigation stack, never the desktop three-pane
+ * The phone is a navigation stack, never the desktop three-pane
  * shell squeezed narrow. The CSS query owns geometry; this matching runtime
  * capability keeps selection/navigation semantics in lockstep with it.
  */

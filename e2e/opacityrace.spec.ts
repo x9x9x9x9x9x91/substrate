@@ -1,11 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
-/* SUB-1126: the window-opacity dial previews on the drag and writes on the
+/* The window-opacity dial previews on the drag and writes on the
    release, so for the length of that drag the note honestly still holds the
    old value — and a Settings.md read landing inside it used to repaint that
    old value over what the user was looking at, where it STUCK: nothing writes
    again until the dial moves. The watcher echo of the previous commit is
-   exactly such a read. Same race the appearance dials lost in SUB-1122, and
+   exactly such a read. Same race the appearance dials once lost, and
    the fix is the same claim (lib/appearance.ts), extended to cover the ground.
 
    The dial itself is macOS-desktop-only (windowopacity.spec.ts pins that
@@ -89,7 +89,7 @@ test("a settings read landing mid-drag leaves the previewed window ground alone"
 
   // release, and the claim goes back: the ground is Settings.md's again, so
   // the next read repaints it from the note — here, no vibrancy at all. That
-  // is the SUB-951 self-healing path (an abandoned drag needs no undo), and
+  // is the material dial's self-healing path (an abandoned drag needs no undo), and
   // it has to survive the fix.
   await glow.blur();
   await expect.poll(() => ground(page)).toEqual({ on: false, pct: "" });

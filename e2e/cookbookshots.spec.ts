@@ -2,7 +2,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { readFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-// Cookbook gallery shots (SUB-809) — an evidence run, not a gate.
+// Cookbook gallery shots — an evidence run, not a gate.
 //   SHOTS=1 npx playwright test e2e/cookbookshots.spec.ts
 //
 // Each shot must show the RECIPE rendering, not a lookalike fixture: the
@@ -195,7 +195,7 @@ const SHOTS: Shot[] = [
     ready: async (page) => {
       await expect(page.locator(".hub-body")).toBeVisible();
       await expect(page.getByText("Reference pass", { exact: false })).toBeVisible();
-      // SUB-860: both view fences are live tables now — the shot shows the
+      // Both view fences are live tables now — the shot shows the
       // recipe's real point, so nothing is cropped out of frame
       await expect(page.locator(".hub-view .embed-view-table")).toHaveCount(2);
       await expect(page.locator(".hub-view-err")).toHaveCount(0);

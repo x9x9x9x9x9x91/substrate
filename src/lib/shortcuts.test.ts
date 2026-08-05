@@ -92,7 +92,7 @@ test("no duplicate bindings within a scope", () => {
   // "pane" is deliberately unchecked: the pane surfaces share combos (every
   // grid moves on ←→↑↓/hjkl) and never dispatch, so no conflict can fire.
   //
-  // SUB-467 note: custom-key and view-pins both answer to ⌘5…⌘9, and that is
+  // Note: custom-key and view-pins both answer to ⌘5…⌘9, and that is
   // deliberate LAYERING, not a duplicate — registry order picks the winner
   // (custom-key first), the when-gates arbitrate (custom-key only claims an
   // assigned key, so an unassigned digit falls through to the pin). The two
@@ -227,7 +227,7 @@ test("the sheet lists one row per description (SUB-139)", () => {
 });
 
 test("matcher: app-scope view keys need no overlay, typing allowed", () => {
-  // ⌘1 is back with the rebuilt Today surface (SUB-300)
+  // ⌘1 is back with the rebuilt Today surface
   assert.equal(matchShortcut(ev("1", { metaKey: true }), ctx({ typing: true }))?.id, "view-today");
   assert.equal(matchShortcut(ev("2", { metaKey: true }), ctx())?.id, "view-notes");
   assert.equal(matchShortcut(ev("3", { metaKey: true }), ctx())?.id, "view-all");
@@ -286,7 +286,7 @@ test("pinKeyLabels: the keycap order is the pin order, shadowed and past-five pi
     d: "⌘8",
     e: "⌘9",
   });
-  // a custom key on a digit retires that pin's shortcut (SUB-467), so the
+  // a custom key on a digit retires that pin's shortcut, so the
   // pin gets no keycap — the tab can't advertise a dead key
   assert.deepEqual(pinKeyLabels(["a", "b"], { "mod+5": "folder:Projects" }), { b: "⌘6" });
   // no pins, no labels
@@ -329,7 +329,7 @@ test("matcher: journal day-stepping only from a daily note", () => {
   assert.equal(matchShortcut(ev("ArrowRight", { metaKey: true, shiftKey: true }), daily)?.id, "journal-step");
   assert.equal(matchShortcut(ev("ArrowLeft", { metaKey: true, shiftKey: true }), ctx()), null);
   assert.equal(matchShortcut(ev("ArrowLeft", { metaKey: true, shiftKey: true }), ctx({ overlay: "palette", daily: "2026-07-17" })), null);
-  // mid-typing the chord extends the text selection instead (SUB-112)
+  // mid-typing the chord extends the text selection instead
   assert.equal(matchShortcut(ev("ArrowLeft", { metaKey: true, shiftKey: true }), ctx({ daily: "2026-07-17", selectedMeta: SOME_NOTE, typing: true })), null);
   assert.equal(matchShortcut(ev("ArrowRight", { metaKey: true, shiftKey: true }), ctx({ daily: "2026-07-17", selectedMeta: SOME_NOTE, typing: true })), null);
 });
@@ -358,7 +358,7 @@ test("matcher: mod-chords never fall through to list navigation (SUB-64)", () =>
   assert.equal(matchShortcut(ev("ArrowUp", { metaKey: true }), ctx()), null);
   assert.equal(matchShortcut(ev("Enter", { metaKey: true }), ctx({ selectedMeta: SOME_NOTE })), null);
   // ⌘K keeps its real binding (palette) — never a selection move; ⌃K is a
-  // text key and fires nothing (SUB-110)
+  // text key and fires nothing
   assert.equal(matchShortcut(ev("k", { metaKey: true }), ctx())?.id, "palette");
   assert.equal(matchShortcut(ev("k", { ctrlKey: true }), ctx()), null);
 });
@@ -448,7 +448,7 @@ test("editor-scope entries are listed but never app-dispatched", () => {
   assert.equal(matchShortcut(ev("b", { metaKey: true }), ctx()), null);
   assert.equal(matchShortcut(ev("b", { metaKey: true }), ctx({ typing: true })), null);
   assert.ok(sheetEntries().some((s) => s.id === "editor-bold"));
-  // plain ⌘F (find-in-note, SUB-244) stays CodeMirror-owned; only ⌘⇧F
+  // plain ⌘F (find-in-note) stays CodeMirror-owned; only ⌘⇧F
   // reaches the app-level search
   assert.equal(matchShortcut(ev("f", { metaKey: true }), ctx()), null);
   assert.equal(matchShortcut(ev("f", { metaKey: true }), ctx({ typing: true })), null);
@@ -622,8 +622,8 @@ test("hintEntries: `when` gates answer from their synthetic events (SUB-396)", (
 test("hintEntries: typing hides the surface rows that cannot fire (SUB-498)", () => {
   // `typing` is the one input the "surface" scope reads, so normalizing it away
   // advertised chords the caret's own text edit had already claimed: ⌘⌫ is
-  // Cocoa delete-to-line-start (SUB-392), ⌘⇧←/→ extends the selection
-  // (SUB-112), ⌫ / ⌘[ are the field's own.
+  // Cocoa delete-to-line-start, ⌘⇧←/→ extends the selection,
+  // ⌫ / ⌘[ are the field's own.
   const live = ctx({ selectedMeta: SOME_NOTE, daily: "2026-07-17", canGoBack: true });
   const outside = hintEntries(live).map((s) => s.id);
   for (const id of ["trash-note", "nav-back", "journal-step", "list-down", "list-up"]) {
@@ -641,7 +641,7 @@ test("hintEntries: typing hides the surface rows that cannot fire (SUB-498)", ()
   }
 });
 
-/* ── the hold-modifier HUD (SUB-490) ───────────────────────────────────── */
+/* ── the hold-modifier HUD ───────────────────────────────────── */
 
 const MODS = {
   cmd: { mod: true, ctrl: false, shift: false },

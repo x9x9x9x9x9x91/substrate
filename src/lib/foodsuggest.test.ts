@@ -162,7 +162,7 @@ test("isExerciseName: activity words read as exercise, whole-word only (SUB-702)
   assert.equal(isExerciseName(""), false);
 });
 
-// ---- food DB merge (SUB-408) ----
+// ---- food DB merge ----
 
 test("buildFoodMemory db: never-logged food joins with the basis as portion", () => {
   const mem = buildFoodMemory([], [
@@ -222,7 +222,7 @@ test("buildFoodMemory db: exercise memory untouched, db ranks below logged", () 
   ]);
   const ex = mem.find((m) => m.exercise)!;
   assert.equal(ex.perKcal, 300); // the log's exercise row, not the db's "Gym"
-  // one pool (SUB-702): the exercise Gym (logged, newest) ranks first; the
+  // one pool: the exercise Gym (logged, newest) ranks first; the
   // db's food "Gym" is a distinct memory and still surfaces, dateless-last
   const s = suggestFoods(mem, "g");
   assert.deepEqual(
@@ -231,7 +231,7 @@ test("buildFoodMemory db: exercise memory untouched, db ranks below logged", () 
   );
 });
 
-// ---- kcal expressions in the food field (SUB-629) ----
+// ---- kcal expressions in the food field ----
 
 test("parseKcalExpr: per-hundred basis prices the typed weight/volume", () => {
   assert.deepEqual(parseKcalExpr("goulash 200g 100ph"), {
@@ -253,7 +253,7 @@ test("parseKcalExpr: per-hundred basis prices the typed weight/volume", () => {
   assert.equal(parseKcalExpr("100ph"), null);
   // ph must be trailing
   assert.equal(parseKcalExpr("100ph goulash 200g"), null);
-  // a rounded-to-zero portion is no answer either (review finding)
+  // a rounded-to-zero portion is no answer either
   assert.equal(parseKcalExpr("Chicken bowl 200g 0ph"), null);
   assert.equal(parseKcalExpr("Skyr 1g 40ph"), null); // 0.4 rounds to 0
 });
@@ -301,7 +301,7 @@ test("parseKcalExpr: a ph-logged row teaches the memory the per-gram basis", () 
   });
 });
 
-// ---- expression protein from the memory basis (SUB-634) ----
+// ---- expression protein from the memory basis ----
 
 test("parseKcalExpr: a resolved name scales its protein by the typed quantity", () => {
   const mem = buildFoodMemory(rowsOf(["2026-07-21,Skyr 100g,60,10"]));
@@ -333,7 +333,7 @@ test("parseKcalExpr: per-x and per-100 bases both scale, rounded", () => {
 
 test("parseKcalExpr: protein stays null without an honest basis", () => {
   const mem = buildFoodMemory(rowsOf(["2026-07-21,Skyr 100g,60,10", "2026-07-21,Gym,-300,"]));
-  // no memory passed at all — the SUB-629 behaviour, unchanged
+  // no memory passed at all — the behaviour, unchanged
   assert.equal(parseKcalExpr("Skyr 300g 60ph")!.protein, null);
   // unknown name, and a prefix is not an exact match
   assert.equal(parseKcalExpr("Eintopf 300g 60ph", mem)!.protein, null);
@@ -350,7 +350,7 @@ test("parseKcalExpr: protein stays null without an honest basis", () => {
   assert.equal(parseKcalExpr("Gym 2*150", mem)!.protein, null);
 });
 
-// ---- piece↔gram bridging via the DB's gram weight (SUB-687) ----
+// ---- piece↔gram bridging via the DB's gram weight ----
 
 test("buildFoodMemory db: gram weight rides x-based entries only", () => {
   const mem = buildFoodMemory([], [
@@ -380,12 +380,12 @@ test("fillFor: grams against a piece-based entry convert via the DB weight", () 
 test("autoFill + exprProtein resolve through the bridge", () => {
   const mem = buildFoodMemory([], [{ name: "Eggs", kcal: 80, per: "x", protein: 7, g: 55, idx: 0 }]);
   assert.deepEqual(autoFill(mem, "eggs 110g"), { name: "Eggs 110g", kcal: 160, protein: 14 });
-  // SUB-634's protein path runs fillFor, so a ph expression prices grams
+  // The protein path runs fillFor, so a ph expression prices grams
   // against a piece basis now too
   assert.equal(parseKcalExpr("Eggs 110g 145ph", mem)!.protein, 14);
 });
 
-// SUB-691: an expression above the sanity bound is a slipped digit, not a
+// An expression above the sanity bound is a slipped digit, not a
 // meal — null like any other invalid form, so the memory auto-fill gets its say.
 test("parseKcalExpr: rejects results above the kcal sanity bound", () => {
   assert.equal(parseKcalExpr("X 999999999*999999999"), null);
@@ -399,7 +399,7 @@ test("parseKcalExpr: rejects results above the kcal sanity bound", () => {
   assert.equal(parseKcalExpr("Oil 100000g 900ph"), null);
 });
 
-// ---- basis-drift tripwire (SUB-688) ----
+// ---- basis-drift tripwire ----
 
 test("detectDrift: a contradicting row fires with both bases", () => {
   const mem = buildFoodMemory(rowsOf(["2026-07-21,Babybell 6x,330,24"]));

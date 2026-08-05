@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-/* SUB-1147: a `var(--x)` naming a token nothing declares is not a CSS error —
+/* A `var(--x)` naming a token nothing declares is not a CSS error —
    the declaration is simply dropped, so the rule renders as if the line were
    never written. `.cm-live-value` lost its tint that way (the one mark
    separating a computed value from a typed one) and three `.mount-*` rules
@@ -65,7 +65,7 @@ test("every var(--x) in styles.css resolves to a token something defines", () =>
 });
 
 test("the ramp the mount banner and live-value tint ride is declared", () => {
-  // the four rules SUB-1147 repaired, pinned so a later edit can't quietly
+  // the four repaired rules, pinned so a later edit can't quietly
   // reintroduce a token that doesn't exist
   const declared = declaredTokens(cssWithoutComments());
   for (const token of ["--bg", "--bg-input", "--bg-panel", "--bg-elevated"]) {

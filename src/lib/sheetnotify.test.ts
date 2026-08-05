@@ -18,7 +18,7 @@ test("looksDated accepts an ISO day with or without a time, and nothing else", (
 });
 
 test("looksDated offers nothing the scheduler would refuse", () => {
-  // parse_due rejects seconds (SUB-571) and unpadded fields (SUB-637); a menu
+  // parse_due rejects seconds and unpadded fields; a menu
   // entry on such a cell could be switched on and would never fire
   assert.equal(looksDated("2026-08-01 14:30:00"), false);
   assert.equal(looksDated("2026-8-1"), false);
@@ -64,7 +64,7 @@ test("parseColumnNotify reads back the map a write produced", () => {
 
 test("parseColumnNotify ignores a snake_case lead — camelCase is the on-disk spelling", () => {
   // the scheduler folds for `notifyBefore` only, so reading `notify_before`
-  // here would confirm a setting in the menu that never fires (SUB-876 review)
+  // here would confirm a setting in the menu that never fires
   assert.deepEqual(parseColumnNotify({ Due: { notify_before: 3 } }), {
     Due: { notify: false, notifyBefore: undefined },
   });

@@ -1,4 +1,4 @@
-/** The donation nag (SUB-419) — built now, shipped dormant.
+/** The donation nag — built now, shipped dormant.
 
     Substrate is going open source with an honest ask: about once a week the
     app says it costs €1 if you want the message gone forever, and otherwise
@@ -18,7 +18,7 @@
     module and DonationNag.tsx is inert while this is false. */
 export const NAG_ENABLED = false;
 
-/** TODO(SUB-419): payment rail undecided — replace before activating. */
+/** TODO: payment rail undecided — replace before activating. */
 export const DONATE_URL = "https://example.invalid/donate";
 
 /** Warm, factual, no guilt, no emoji. */

@@ -1,4 +1,4 @@
-/* The Reflexes section of the settings sheet (SUB-826).
+/* The Reflexes section of the settings sheet.
 
    Three jobs, in this order of importance:
 

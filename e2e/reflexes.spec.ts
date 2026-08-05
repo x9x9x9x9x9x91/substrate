@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-826: the Reflexes settings section — the one thing about this feature a
+// the Reflexes settings section — the one thing about this feature a
 // user actually operates. Rules are authored in `.vault/reflexes.json` and the
 // pane never writes one, so what is worth pinning here is the consent walk:
 // a vault with no rules file says nothing at all, a rules file that ARRIVES on

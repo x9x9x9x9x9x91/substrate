@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-1054: the segmented `.db-switch` idiom is a set of buttons that only
+// the segmented `.db-switch` idiom is a set of buttons that only
 // mean anything together, and it carried no group role or name on any of its
 // seven instances. SwitchGroup now owns the container. The unit guard
 // (src/components/SwitchGroup.test.ts) proves no raw markup is left; this

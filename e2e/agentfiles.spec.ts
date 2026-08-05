@@ -1,9 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-831: the seeded AGENTS.md/CLAUDE.md stay real files (the mock indexes
+// The seeded AGENTS.md/CLAUDE.md stay real files (the mock indexes
 // them like the engine does) but the app conceals them until Settings.md says
 // `show-agent-files: true` — a fresh vault reads as the user's blank slate,
-// not the tooling's. SUB-878 added Settings.md itself to the concealed set
+// not the tooling's. Settings.md itself is in the concealed set
 // (the ⌘, sheet's "edit raw" opens it regardless). The toggle lives in the
 // ⌘, sheet; the flag rides the same Settings.md read as `mod-hud`, so
 // flipping it applies on the watcher echo without a restart.

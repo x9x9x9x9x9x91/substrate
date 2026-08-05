@@ -18,7 +18,7 @@ test("parseTerminalDock: only an explicit `right` docks anywhere else (SUB-864)"
 });
 
 test("parseTerminalDock: unset, garbage or non-string all read as bottom", () => {
-  // bottom is the shape the HUD has always had (SUB-398), so it's the one a
+  // bottom is the shape the HUD has always had, so it's the one a
   // typo'd or synced-from-a-newer-version note should fall back to
   for (const bad of [undefined, null, "", "  ", "left", "top", "botom", 7, true, ["right"], {}]) {
     assert.equal(parseTerminalDock(bad), "bottom", `dock ${JSON.stringify(bad)}`);

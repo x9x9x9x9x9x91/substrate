@@ -1,9 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// SUB-1062: a `by:` split's ramp slots are keyed on the series' identity and on
+// a `by:` split's ramp slots are keyed on the series' identity and on
 // the chart's, so a series keeps its colour ACROSS renders — when the rows
 // under it change, and when another chart fence on the same dashboard is
-// deleted out from above it. The SUB-952 specs pin the ramp within one render
+// deleted out from above it. The ramp-order specs pin the ramp within one render
 // (walked from the top, never cycled); these pin what happens between two, on a
 // dashboard that stays open, which is how a person actually reads one.
 
