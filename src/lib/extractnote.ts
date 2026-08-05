@@ -6,9 +6,11 @@
 /** Block marks stripped from a candidate title line: ATX hashes, list bullets
     (task checkboxes included), ordered markers, quote chevrons and callout
     headers — repeating, so `> ## Title` strips clean too. Same shapes as the
-    editor's BLOCK_PREFIX_RE. */
+    editor's BLOCK_PREFIX_RE, including the optional `|accent` tail a callout
+    kind may carry (SUB-969) — otherwise extracting `> [!note|teal] Ship it`
+    would derive the title `!note|teal Ship it`. */
 const BLOCK_MARKS_RE =
-  /^\s*(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+|>\s*(?:\[!(?:note|warn|idea)\]\s*)?)+/i;
+  /^\s*(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+|>\s*(?:\[!(?:note|warn|idea)(?:\|[^\]]*)?\]\s*)?)+/i;
 
 /** Inline marks carry no meaning in a title: links collapse to their label,
     emphasis/code ticks drop. The outline's strip (Editor.tsx), mirrored. */

@@ -26,6 +26,10 @@ export interface VaultCandidate {
   /** markdown lives in subfolders rather than at the root (SUB-1097) — never
       changes what's allowed, only which consent wording is honest */
   nested_markdown: boolean;
+  /** `.vault/` is already there: this folder has been a Substrate vault before
+      (SUB-1133). Not the same as `is_vault`, which two top-level notes are
+      enough for. */
+  has_marker: boolean;
 }
 
 /** What the app shows at boot. `unknown` covers the pre-status frame so the
@@ -84,6 +88,26 @@ export function actionFor(c: VaultCandidate): ChoiceAction {
     warning:
       "This folder already holds other files. Substrate will treat them as vault content — it won't move or delete anything, but they'll show up in your notes list.",
   };
+}
+
+/** Which sentence the picker owes a candidate under its button.
+
+    `adds` is the SUB-1098 disclosure — this pick writes Substrate's own files
+    into the folder, said once before the user commits. `already` is the same
+    honesty pointed the other way: the folder has been a Substrate vault before,
+    so the add-set is mostly there and promising it as new is simply false.
+    `null` is `init`, where the starter seed writes far more than the add-set
+    and the list would be wrong again (SUB-1098 review #1).
+
+    The split that matters (SUB-1133): "Open vault" is NOT one case. A folder
+    with a `.vault/` marker is a returning vault — nothing is added. A folder
+    with two loose notes and no marker earns the same verb but is a real
+    adoption, and it keeps the `adds` line. */
+export type Disclosure = "adds" | "already" | null;
+
+export function disclosureFor(c: VaultCandidate, action: ChoiceAction): Disclosure {
+  if (action.kind === "init") return null;
+  return action.kind === "open" && c.has_marker ? "already" : "adds";
 }
 
 /** Folder name → a vault path under `parent`. Rejects path separators so a

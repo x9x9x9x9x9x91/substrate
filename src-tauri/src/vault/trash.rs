@@ -726,6 +726,16 @@ impl Engine {
         if let Some(cfg) = self.trashed_note_config(id) {
             self.apply_note_config(&cfg, &dest_rel).ok();
         }
+        // Hand the board slot back to the name the note actually got (SUB-1139).
+        // Restoring to the original path needs nothing — the card_order entry
+        // was left inert by the trash and matches again on its own. A deduped
+        // restore does not: the note is back as `Scratch 2.md` while the list
+        // still names `Scratch.md`, which now belongs to whatever reoccupied
+        // the path, so the slot has to follow the note explicitly. No-op (and
+        // no write) when nothing ordered it. Best-effort like the config above.
+        if dest_rel != rel {
+            self.move_card_order(rel, &dest_rel).ok();
+        }
         fs::remove_file(trash_note_config_path(&self.root.join(TRASH_DIR), id)).ok();
         self.prune_trash_dirs(&src);
         self.reindex_one(&dest_rel);
@@ -864,6 +874,12 @@ impl Engine {
         // Hand the parked seal confirmation back, to the name the folder
         // actually got — a reoccupied path restores as "Private 2".
         self.move_scope_trust(&format!("{TRASH_DIR}/{id}"), Some(&dest_rel)).ok();
+        // Same for the board slots of every note in the subtree (SUB-1139) —
+        // move_card_order carries `old_rel/…` wholesale, so a folder restored
+        // as "Private 2" keeps its cards where the user dragged them.
+        if dest_rel != rel {
+            self.move_card_order(rel, &dest_rel).ok();
+        }
         self.prune_trash_dirs(&src);
         self.reindex_dir(&dest);
         Ok(dest_rel)
@@ -1109,6 +1125,91 @@ mod tests {
         assert_eq!(m.path, "Dolomites 2.md", "restore never overwrites");
         assert!(e.read("Dolomites.md").unwrap().body.contains("New tenant"));
         assert!(e.read("Dolomites 2.md").unwrap().body.contains("Hut-to-hut"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// SUB-1139: a deduped restore takes its board slot with it. Trashing
+    /// leaves the `card_order` entry inert on purpose, so a restore to the
+    /// original path picks the slot back up for free — but when the path was
+    /// reoccupied meanwhile the note comes back under a new name, and without
+    /// this the slot stayed pointed at whatever now owns the old path.
+    #[test]
+    fn trash_restore_hands_the_card_slot_to_the_deduped_name() {
+        let (mut e, dir) = temp_vault("rescard");
+        e.set_view_pref(
+            "release",
+            "board",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(vec!["Dolomites.md".to_string(), "Kyoto.md".to_string()]),
+        )
+        .unwrap();
+
+        e.trash("Dolomites.md").unwrap();
+        let id = e.trash_list()[0].id.clone();
+        fs::write(dir.join("Dolomites.md"), "---\ntype: note\n---\nNew tenant\n").unwrap();
+        e.apply_changes(&[dir.join("Dolomites.md")]);
+        let m = e.trash_restore(&id).unwrap();
+        assert_eq!(m.path, "Dolomites 2.md", "restore never overwrites");
+        assert_eq!(
+            e.views()["release"].card_order.as_ref().unwrap(),
+            &vec!["Dolomites 2.md".to_string(), "Kyoto.md".to_string()],
+            "the slot follows the restored note, the new tenant does not inherit it"
+        );
+
+        // a restore no order names writes nothing at all
+        e.create("Loose", "", None).unwrap();
+        e.trash("Loose.md").unwrap();
+        let id = e.trash_list().iter().find(|t| t.path == "Loose.md").unwrap().id.clone();
+        e.create("Loose", "", None).unwrap();
+        let before = fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap();
+        assert_eq!(e.trash_restore(&id).unwrap().path, "Loose 2.md", "still deduped");
+        assert_eq!(
+            fs::read_to_string(dir.join(ViewPref::REL_PATH)).unwrap(),
+            before,
+            "no card_order entry matched — no file write"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The folder half of SUB-1139 — a subtree restored under a deduped name
+    /// carries every card slot in it (`move_card_order` retargets by prefix).
+    #[test]
+    fn trash_restore_folder_hands_card_slots_to_the_deduped_name() {
+        let (mut e, dir) = temp_vault("rescardfold");
+        e.create("Note", "Releases", None).unwrap();
+        e.set_view_pref(
+            "release",
+            "board",
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(vec!["Releases/Note.md".to_string()]),
+        )
+        .unwrap();
+        let id = e.trash_folder("Releases").unwrap();
+        e.create("Other", "Releases", None).unwrap();
+        assert_eq!(e.trash_restore_folder(&id).unwrap(), "Releases 2");
+        assert_eq!(
+            e.views()["release"].card_order.as_ref().unwrap(),
+            &vec!["Releases 2/Note.md".to_string()],
+            "every card in the subtree follows the folder to its new name"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

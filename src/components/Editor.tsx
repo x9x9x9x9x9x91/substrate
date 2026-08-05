@@ -98,6 +98,7 @@ import type { RelationCandidate } from "../lib/relation";
 import { markdownLinkLabel, TASK_PREFIX_RE } from "../lib/markdown";
 import { scanAudioAnnotationFences } from "../lib/audio-annotations";
 import { extractLink, extractTitle } from "../lib/extractnote";
+import { parseAccent } from "../lib/styletokens";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 
 const mdHighlight = HighlightStyle.define([
@@ -167,9 +168,13 @@ interface OutlineHeading {
   text: string;
 }
 
+// the optional `|accent` tail is the bounded style token (SUB-969) — kept in
+// lockstep with src/lib/hub.ts, which reads the same two shapes. The editor
+// hides the whole prefix either way; group 3 is the accent name, unvalidated
+// here and resolved by parseAccent before it can reach a colour.
 const BLOCK_PREFIX_RE =
-  /^(\s*)(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+|>\s+(?:\[!(?:note|warn|idea)\]\s*)?)?/i;
-const CALLOUT_HEADER_RE = /^(\s*>\s*\[!(note|warn|idea)\]\s*)/i;
+  /^(\s*)(?:#{1,6}\s+|[-*+]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+|>\s+(?:\[!(?:note|warn|idea)(?:\|[^\]]*)?\]\s*)?)?/i;
+const CALLOUT_HEADER_RE = /^(\s*>\s*\[!(note|warn|idea)(?:\|([^\]]*))?\]\s*)/i;
 const QUOTE_PREFIX_RE = /^(\s*>\s?)/;
 
 function outlineHeadings(state: EditorState): OutlineHeading[] {
@@ -830,6 +835,10 @@ function addCalloutDecorations(
     const header = CALLOUT_HEADER_RE.exec(first.text);
     if (!header || !isBlockquoteLine(state, first.from)) continue;
     const kind = header[2].toLowerCase() as CalloutKind;
+    // the same accent the hub board reads (SUB-969), so an accented callout
+    // looks accented where it is written, not only where it is rendered. The
+    // glyph keeps the KIND hue — accent marks mood, the glyph marks type.
+    const accent = parseAccent(header[3]);
     let lastNumber = number;
     while (lastNumber < state.doc.lines) {
       const next = state.doc.line(lastNumber + 1).text;
@@ -842,7 +851,12 @@ function addCalloutDecorations(
       let cls = `cm-callout-line cm-callout-${kind}`;
       if (lineNumber === number) cls += " cm-callout-first";
       if (lineNumber === lastNumber) cls += " cm-callout-last";
-      deco.push(Decoration.line({ class: cls }).range(line.from));
+      deco.push(
+        Decoration.line({
+          class: cls,
+          ...(accent ? { attributes: { "data-accent": accent } } : {}),
+        }).range(line.from),
+      );
 
       if (focused && active.has(lineNumber)) continue;
       const prefix = lineNumber === number ? CALLOUT_HEADER_RE.exec(line.text) : QUOTE_PREFIX_RE.exec(line.text);

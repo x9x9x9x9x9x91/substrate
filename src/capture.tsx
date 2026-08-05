@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import "@fontsource-variable/inter";
 import "./styles.css";
 import { invoke } from "./lib/tauri";
+import { resetCaptureBox } from "./lib/captureprefill";
 import type { NoteMeta } from "./lib/types";
 import { looksLikeUrl } from "./lib/url";
 
@@ -10,7 +11,19 @@ import { looksLikeUrl } from "./lib/url";
 // into Inbox, Escape (or clicking away — the window hides on blur) dismisses.
 const isTauri = "__TAURI_INTERNALS__" in window;
 
+/** Drop any pending `substrate://capture?text=` prefill — the window is done
+    with it, so the next ⌥Space capture opens empty (SUB-1075). Awaited before
+    the hide it belongs to, so it can never land on a *later* link's prefill.
+    The blur-hide has no JS in it at all and is cleared Rust-side instead. */
+async function dropPrefill(): Promise<void> {
+  if (!isTauri) return;
+  await invoke<void>("deeplink_clear_capture_prefill").catch(() => undefined);
+}
+
 async function hideWindow(): Promise<void> {
+  // hiding is the window saying it's done: a prefill it didn't file dies here
+  // rather than waiting for the next capture to inherit it
+  await dropPrefill();
   if (!isTauri) return;
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
   await getCurrentWindow()
@@ -25,29 +38,47 @@ function CaptureApp() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   // The window persists hidden between captures; every time the hotkey
-  // re-shows it we start clean with the input focused.
+  // re-shows it we start clean with the input focused — except when a
+  // `substrate://capture?text=…` link put something there (SUB-1075). The
+  // prefill is *pulled* after the clear, never pushed before it, because this
+  // reset is what would wipe it. One link fires this reset more than once
+  // (`capture:prefill` and `tauri://focus`), so the pull must be repeatable —
+  // hence a read that doesn't consume, and an explicit `dropPrefill` when the
+  // window hides or files. The ordering rule lives in `lib/captureprefill.ts`,
+  // where it is tested.
   const reset = useCallback(() => {
-    setQ("");
     setError(null);
     inputRef.current?.focus();
+    void resetCaptureBox({
+      setText: setQ,
+      readPrefill: () =>
+        isTauri ? invoke<string | null>("deeplink_capture_prefill") : Promise.resolve(null),
+    });
   }, []);
 
   useEffect(() => {
     reset();
     if (!isTauri) return;
     let unlisten: (() => void) | undefined;
+    let unlistenPrefill: (() => void) | undefined;
     let cancelled = false;
     import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
-      getCurrentWindow()
-        .listen("tauri://focus", reset)
-        .then((u) => {
-          if (cancelled) u();
-          else unlisten = u;
-        });
+      const win = getCurrentWindow();
+      win.listen("tauri://focus", reset).then((u) => {
+        if (cancelled) u();
+        else unlisten = u;
+      });
+      // a capture window that was already open and focused gets no
+      // `tauri://focus`, so the link tells it to pull directly
+      win.listen("capture:prefill", reset).then((u) => {
+        if (cancelled) u();
+        else unlistenPrefill = u;
+      });
     });
     return () => {
       cancelled = true;
       unlisten?.();
+      unlistenPrefill?.();
     };
   }, [reset]);
 
@@ -66,7 +97,7 @@ function CaptureApp() {
       return;
     }
     setQ("");
-    void hideWindow();
+    void hideWindow(); // files the note and drops any prefill it came from
   };
 
   return (

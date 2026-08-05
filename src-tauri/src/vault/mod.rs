@@ -167,7 +167,7 @@ pub struct FmState {
 /// (SUB-899 for view, SUB-983 for chart/cards; cards renders once the hub
 /// canvas lands, SUB-964 — stripping it now is contract, not yet render;
 /// progress is the goal thermometer, SUB-967).
-/// csv/formulas/heatmap parsers are strict bare-form — a tailed one renders as plain
+/// csv/formulas/heatmap/calendar parsers are strict bare-form — a tailed one renders as plain
 /// code and stays searchable prose. A tail may not contain a backtick: an
 /// inline prose mention of an opener must never swallow its line and blank
 /// prose to the next fence (SUB-983 review finding). CRLF openers
@@ -199,7 +199,7 @@ fn machine_fence_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
         Regex::new(
-            r"```(?:(?:[Vv][Ii][Ee][Ww]|[Cc][Hh][Aa][Rr][Tt]|[Pp][Rr][Oo][Gg][Rr][Ee][Ss][Ss]|[Cc][Aa][Rr][Dd][Ss])(?:[ \t][^`\n]*)?|csv|formulas|[Hh][Ee][Aa][Tt][Mm][Aa][Pp])\r?\n[\s\S]*?(?:```|\z)",
+            r"```(?:(?:[Vv][Ii][Ee][Ww]|[Cc][Hh][Aa][Rr][Tt]|[Pp][Rr][Oo][Gg][Rr][Ee][Ss][Ss]|[Cc][Aa][Rr][Dd][Ss])(?:[ \t][^`\n]*)?|csv|formulas|[Hh][Ee][Aa][Tt][Mm][Aa][Pp]|[Cc][Aa][Ll][Ee][Nn][Dd][Aa][Rr])\r?\n[\s\S]*?(?:```|\z)",
         )
             .unwrap()
     })
@@ -2968,15 +2968,22 @@ mod tests {
             assert!(!out.contains("secret"), "config stripped for {open:?}: {out:?}");
             assert_eq!(out.matches('\n').count(), body.matches('\n').count(), "line map kept");
         }
-        // csv/formulas parsers are strict bare-form: a tailed one renders as
-        // plain code and stays searchable — as does any tailed user fence.
+        // csv/formulas/calendar parsers are strict bare-form: a tailed one
+        // renders as plain code and stays searchable — as does any tailed
+        // user fence.
         for prose in [
             "a\n```csv raw\nsecret,1\n```\nb",
             "a\n```formulas x\nsecret = A1\n```\nb",
+            "a\n```calendar month\nsecret: 1\n```\nb",
             "a\n```python foo\nsecret = 1\n```\nb",
         ] {
             assert_eq!(strip_machine_fences(prose), prose, "tailed bare-form fence stays prose");
         }
+        // ```calendar joins the machine set in its bare form (SUB-965).
+        let cal = "a\n```calendar\nsource: release\ndate: released\n```\nb";
+        let out = strip_machine_fences(cal);
+        assert!(!out.contains("released"), "calendar config stripped: {out:?}");
+        assert_eq!(out.matches('\n').count(), cal.matches('\n').count(), "line map kept");
     }
 
     #[test]

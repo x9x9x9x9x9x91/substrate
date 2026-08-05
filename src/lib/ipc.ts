@@ -13,6 +13,7 @@ import type {
   ConflictState,
   DbIcon,
   DbLayout,
+  DeeplinkResolved,
   DiffLine,
   DoctorReport,
   FmState,
@@ -672,6 +673,15 @@ export const mountRemove = (id: string, cleanup: boolean) =>
 // Tray agenda popover (SUB-30): window management lives Rust-side
 export const agendaOpenNote = (path: string) => invoke<void>("agenda_open_note", { path });
 export const agendaOpenCapture = () => invoke<void>("agenda_open_capture");
+/** Drain `substrate://` links the OS handed us (SUB-1075). Called on mount —
+    which is also what tells Rust the window is ready, so a cold-start link
+    queued before the vault loaded resolves here — and again on
+    `deeplink:pending`. Each entry carries either a note path to open or a
+    message to show; a link that resolves to nothing is never silent. */
+export const deeplinkTakePending = () => invoke<DeeplinkResolved[]>("deeplink_take_pending");
+// Capture's side of the `substrate://capture?text=` handoff
+// (`deeplink_capture_prefill` / `deeplink_clear_capture_prefill`) is invoked
+// directly in capture.tsx, in that file's style — no wrapper here.
 /** Fit the tray popover to its rendered card (SUB-746). `height` is the
     card's logical height; Rust clamps it and re-anchors under the tray icon. */
 export const agendaResize = (height: number) => invoke<void>("agenda_resize", { height });

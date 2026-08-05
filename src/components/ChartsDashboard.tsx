@@ -32,6 +32,7 @@ import {
   type ChartSeries,
 } from "../lib/chart";
 import { optionColorVar } from "../lib/dbicons";
+import type { ChartSize } from "../lib/styletokens";
 import { useHistoryLanes } from "./useHistory";
 import { DashHead, DashPrintButton } from "./DashHead";
 import { optionColor } from "./SelectMenu";
@@ -246,12 +247,19 @@ const SERIES_RAMP = [
     axis keeps its schema hues; another categorical axis cycles the V1 series
     ramp; a time axis stays one series in the plain accent. Split charts keep
     their own band treatments. Values and labels thin out when crowded. */
+/** Bar height budget per size token (SUB-969). Keep in lockstep with the
+    `.dash-chart` min-heights in styles.css: each is its budget + the 50px the
+    axis rule, value line and time-label row take under the tallest bar. The
+    token picks from THIS table — a fence never names a pixel height. */
+const BAR_PLOT_PX: Record<"default" | ChartSize, number> = { default: 120, tall: 220 };
+
 function BarChart({
   points,
   bands,
   bandSlots,
   xOptions,
   categorical,
+  size,
 }: {
   points: ChartPoint[];
   /** `by:` split — each column stacks its bands bottom-up in band order */
@@ -262,6 +270,8 @@ function BarChart({
   xOptions?: SelectOption[];
   /** buckets are categories, not time — colour an unsplit axis with the ramp */
   categorical?: boolean;
+  /** bounded style token (SUB-969): `tall`, or absent for the default plot */
+  size?: ChartSize | null;
 }) {
   const { wrapRef, tip, show, hide } = useChartTip();
   const { slots, onKeyDown, tabIndexOf } = useRoving(points.length);
@@ -326,7 +336,7 @@ function BarChart({
         : [];
   return (
     <div className="chart-wrap" ref={wrapRef}>
-      <div className="dash-chart" ref={chartRef}>
+      <div className="dash-chart" ref={chartRef} data-size={size ?? undefined}>
         {points.map((p, i) => {
           const rows = rowsAt(i);
           const empty = rows.length === 0;
@@ -335,7 +345,7 @@ function BarChart({
           // It is not empty, but it has no positive slice to paint, so the
           // stack itself carries the same honest zero mark as a plain bar.
           const zero = !empty && total === 0;
-          const h = max > 0 ? Math.max(3, (total / max) * 120) : 3;
+          const h = max > 0 ? Math.max(3, (total / max) * BAR_PLOT_PX[size ?? "default"]) : 3;
           // SUB-979's collision was position, not existence — the fixed label
           // bands hold a short bar's value above the axis fine, so it stays
           const valueLabel = showVals && total !== 0 ? fmtVal(total) : "";
@@ -443,11 +453,14 @@ function LineChart({
   points,
   bands,
   bandSlots,
+  size,
 }: {
   points: ChartPoint[];
   bands?: ChartBand[] | null;
   /** ramp slot per band, keyed on series identity (SUB-1062) — see BarChart */
   bandSlots?: number[];
+  /** bounded style token (SUB-969): `tall`, or absent for the default plot */
+  size?: ChartSize | null;
 }) {
   const { wrapRef, tip, show, hide } = useChartTip();
   const { slots, onKeyDown, tabIndexOf } = useRoving(points.length);
@@ -532,7 +545,9 @@ function LineChart({
 
   return (
     <div className="chart-wrap" ref={wrapRef}>
-      <div className="chart-line">
+      {/* the line plot is percentage-based, so the size token only has to
+          change the box's height — no coordinate maths moves (SUB-969) */}
+      <div className="chart-line" data-size={size ?? undefined}>
         <div className="chart-line-plot">
           <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
             {lines.map((line, bi) => (
@@ -689,7 +704,12 @@ function ChartSection({
             <ChartLegend bands={series.bands} bandSlots={bandSlots} />
           ) : null}
           {c.kind === "line" ? (
-            <LineChart points={series.points} bands={series.bands} bandSlots={bandSlots} />
+            <LineChart
+              points={series.points}
+              bands={series.bands}
+              bandSlots={bandSlots}
+              size={c.size}
+            />
           ) : (
             <BarChart
               points={series.points}
@@ -705,6 +725,7 @@ function ChartSection({
                   c.x.bucket === null &&
                   !timelikeKeys(series.points.map((p) => p.key)))
               }
+              size={c.size}
             />
           )}
           {/* the trim boundary is said in place, next to the plot it shortened,

@@ -183,6 +183,15 @@ export interface DoctorReport {
   findings: DoctorFinding[];
 }
 
+/** One drained `substrate://` link (SUB-1075). Exactly one field is set:
+    `path` is a note that survived validation AND exists in this vault;
+    `error` is already-worded text to show — a refused link, or one naming a
+    note this vault doesn't have. */
+export interface DeeplinkResolved {
+  path?: string | null;
+  error?: string | null;
+}
+
 /** The portable half of a mount, as `.vault/mounts.json` stores it: identity
     that syncs between machines. Deliberately no path — see `MountInfo`. */
 export interface Mount {

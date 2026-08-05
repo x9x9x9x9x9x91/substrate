@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -59,11 +59,25 @@ function fixture({ fence, fencePartially = false }: { fence: boolean; fenceParti
 }
 
 test("the real changelog.ts fences every private item (SUB-985)", () => {
-  const source = readFileSync(
-    resolve(dirname(fileURLToPath(import.meta.url)), "../src/lib/changelog.ts"),
-    "utf8"
-  );
-  assert.ok(/private:\s*true/.test(source), "fixture guard: the file should have private items");
+  const here = dirname(fileURLToPath(import.meta.url));
+  const source = readFileSync(resolve(here, "../src/lib/changelog.ts"), "utf8");
+  /* The guard exists so the scan below can't pass vacuously — but the public
+     mirror ships this test and NOT the material it guards: share-mirror.sh
+     strips every fenced private item out of changelog.ts, and deletes its own
+     tooling on the way past (SUB-1142). So the tooling's absence is the proof
+     that the strip ran, and there the guard asserts the stronger thing: the
+     strip left neither an item nor a marker behind. On any dev checkout
+     share-mirror.sh is present and the original guard is untouched, so a
+     private item that vanishes or loses its fence here still reds. */
+  if (existsSync(resolve(here, "share-mirror.sh"))) {
+    assert.ok(/private:\s*true/.test(source), "fixture guard: the file should have private items");
+  } else {
+    assert.ok(!/private:\s*true/.test(source), "the strip left a private item in the snapshot");
+    assert.ok(
+      !source.includes(START) && !source.includes(END),
+      "the strip left a fence marker in the snapshot"
+    );
+  }
   assert.deepEqual(privateItemProblems(source), []);
 });
 

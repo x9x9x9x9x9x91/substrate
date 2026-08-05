@@ -14,6 +14,9 @@ test("extractTitle: block marks strip, content stays", () => {
   assert.equal(extractTitle("3. an ordered item"), "an ordered item");
   assert.equal(extractTitle("> a quote"), "a quote");
   assert.equal(extractTitle("> [!warn] a callout"), "a callout");
+  // the accent tail (SUB-969) is a style token, never part of the title
+  assert.equal(extractTitle("> [!note|teal] an accented callout"), "an accented callout");
+  assert.equal(extractTitle("> [!note|chartreuse] an off-roster accent"), "an off-roster accent");
   assert.equal(extractTitle("> ## nested marks"), "nested marks");
 });
 

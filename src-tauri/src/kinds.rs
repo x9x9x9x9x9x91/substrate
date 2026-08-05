@@ -579,7 +579,7 @@ fn split_request_path(url_path: &str) -> Option<(String, String)> {
 /// validation on purpose: `%2e%2e%2f` has to be seen as `../` and refused,
 /// not passed through as a filename that happens not to exist today. Invalid
 /// escapes and any byte sequence that is not UTF-8 are `None`.
-fn percent_decode(seg: &str) -> Option<String> {
+pub(crate) fn percent_decode(seg: &str) -> Option<String> {
     if !seg.contains('%') {
         return Some(seg.to_string());
     }

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { isTauri, listen } from "../lib/tauri";
+import { deeplinkTakePending } from "../lib/ipc";
 import { hotkeyRejectedMessage, type HotkeyRejection } from "../lib/hotkey";
 import { dropClaimedNear } from "../lib/dragdrop";
 import { basename } from "../lib/files";
@@ -331,6 +332,39 @@ export function useVaultEvents(opts: {
       unlisten?.();
     };
   }, []);
+
+  // `substrate://note/…` links the OS handed the app (SUB-1075). The first
+  // drain is what tells Rust this window is ready, so it also collects
+  // anything that arrived during a cold start; after that every warm link
+  // announces itself with `deeplink:pending` and drains the same way.
+  //
+  // A link that named a note this vault doesn't have comes back as a message
+  // rather than a path — opening nothing is the one outcome the feature rules
+  // out, and App's opener would show an empty pane for a path with no note.
+  useEffect(() => {
+    let cancelled = false;
+    const drain = () => {
+      void deeplinkTakePending()
+        .then((items) => {
+          if (cancelled) return;
+          for (const item of items) {
+            if (item.path) openNoteRef.current(item.path);
+            else if (item.error) showToast(item.error);
+          }
+        })
+        .catch(() => undefined);
+    };
+    drain();
+    let unlisten: (() => void) | undefined;
+    listen("deeplink:pending", drain).then((un) => {
+      if (cancelled) un();
+      else unlisten = un;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [showToast]);
 
   return { openNoteRef };
 }

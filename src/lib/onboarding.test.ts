@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   actionFor,
   bootScreen,
+  disclosureFor,
   newVaultPath,
   type OnboardingStatus,
   type VaultCandidate,
@@ -22,6 +23,7 @@ const cand = (o: Partial<VaultCandidate>): VaultCandidate => ({
   is_vault: false,
   empty: false,
   nested_markdown: false,
+  has_marker: false,
   ...o,
 });
 
@@ -78,6 +80,33 @@ test("a folder that only looks vault-ish still demands consent", () => {
   // not-a-vault and must not short-circuit to "open"
   const a = actionFor(cand({ path: "/home/me/some-checkout", exists: true, empty: false, is_vault: false }));
   assert.equal(a.kind, "consent");
+});
+
+test("reopening a Substrate vault is not told files are about to be added", () => {
+  // SUB-1133: the disclosure gate was "not init", so the add-set line rendered
+  // on the plain reopen of a folder that already carries `.vault/` — where
+  // "Substrate will add its own files here" is simply false.
+  const c = cand({ path: "/home/me/Vault", is_vault: true, has_marker: true });
+  assert.equal(disclosureFor(c, actionFor(c)), "already");
+});
+
+test("a marker-less folder of loose notes still earns the add-set line", () => {
+  // two top-level notes are enough for "Open vault", but nothing of
+  // Substrate's is on disk yet — this pick really does write the set, so
+  // suppressing the disclosure for every `open` would have hidden it
+  const c = cand({ path: "/home/me/notes", is_vault: true, has_marker: false });
+  assert.equal(actionFor(c).kind, "open");
+  assert.equal(disclosureFor(c, actionFor(c)), "adds");
+});
+
+test("adoption keeps the disclosure, and the starter seed keeps its silence", () => {
+  const consented = cand({ path: "/home/me/Downloads", is_vault: false });
+  assert.equal(actionFor(consented).kind, "consent");
+  assert.equal(disclosureFor(consented, actionFor(consented)), "adds");
+
+  const fresh = cand({ path: "/home/me/fresh", exists: false, empty: true });
+  assert.equal(actionFor(fresh).kind, "init");
+  assert.equal(disclosureFor(fresh, actionFor(fresh)), null);
 });
 
 test("new vault path joins the parent and rejects escapes", () => {

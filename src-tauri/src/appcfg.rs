@@ -246,6 +246,13 @@ pub struct VaultCandidate {
     /// folder-organised notes vault isn't greeted as a stranger's folder.
     #[serde(default)]
     pub nested_markdown: bool,
+    /// The `.vault/` marker is already here — this folder has been a Substrate
+    /// vault before (SUB-1133). `is_vault` is NOT the same question: a plain
+    /// folder with two top-level notes also earns "Open vault", and adopting
+    /// that one really does add Substrate's files. Descriptive only: it
+    /// changes no verdict, just which sentence the picker owes the user.
+    #[serde(default)]
+    pub has_marker: bool,
 }
 
 pub fn inspect(p: &Path) -> VaultCandidate {
@@ -258,6 +265,7 @@ pub fn inspect(p: &Path) -> VaultCandidate {
         is_vault: is_dir && looks_like_vault_at(p, Confidence::Picked),
         empty: is_effectively_empty(p),
         nested_markdown: is_dir && has_nested_markdown(p),
+        has_marker: is_dir && p.join(VAULT_MARKER).is_dir(),
     }
 }
 
@@ -556,6 +564,34 @@ mod tests {
 
         let i = inspect(&t.path().join("nope"));
         assert!(!i.exists && !i.is_vault && i.empty);
+    }
+
+    /// SUB-1133: both of these earn the "Open vault" verb, but only one of
+    /// them has been a Substrate vault before. The picker's disclosure line
+    /// ("Substrate will add its own files here…") is true for the folder of
+    /// loose notes and false for the returning vault, so `inspect` has to say
+    /// which is which rather than leaving the UI to guess from `is_vault`.
+    #[test]
+    fn the_marker_separates_a_returning_vault_from_a_folder_of_loose_notes() {
+        let t = TempDir::new().unwrap();
+
+        let returning = vault_at(t.path());
+        let i = inspect(&returning);
+        assert!(i.is_vault && i.has_marker, "a `.vault/` folder is a returning vault: {i:?}");
+
+        let loose = t.path().join("Notes");
+        fs::create_dir_all(&loose).unwrap();
+        fs::write(loose.join("a.md"), "# a").unwrap();
+        fs::write(loose.join("b.md"), "# b").unwrap();
+        let i = inspect(&loose);
+        assert!(i.is_vault, "two top-level notes still open without consent: {i:?}");
+        assert!(!i.has_marker, "…but nothing of Substrate's is on disk yet: {i:?}");
+
+        // and a folder that is not a vault at all never claims the marker
+        let other = t.path().join("Docs2");
+        fs::create_dir_all(&other).unwrap();
+        fs::write(other.join("a.txt"), "x").unwrap();
+        assert!(!inspect(&other).has_marker);
     }
 
     /// SUB-1097: a folder-organised Obsidian vault — every note in a

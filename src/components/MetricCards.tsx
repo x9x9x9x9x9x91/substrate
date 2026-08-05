@@ -257,7 +257,10 @@ export function MetricCardStrip({
           // edge of one
           const cls = `dash-card${sharp.has(i) ? "" : " sunk"}${i % cols === 0 ? " row-start" : ""}`;
           return (
-            <div className={cls} key={i} title={title}>
+            // the accent is a NAME, never a colour (SUB-969): the attribute is
+            // all the renderer knows, and the ten rules in styles.css are the
+            // only place it becomes a hue. An absent accent emits no attribute.
+            <div className={cls} key={i} title={title} data-accent={card.accent}>
               <div className="dash-label">{card.label}</div>
               <div className="dash-card-eur">{v.text}</div>
               {v.miss && <div className="dash-card-miss">{v.miss}</div>}

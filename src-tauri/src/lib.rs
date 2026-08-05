@@ -2,6 +2,7 @@
 mod applog;
 mod appcfg;
 mod calendarfeed;
+mod deeplink;
 mod denyscope;
 #[cfg(target_os = "macos")]
 mod dragfix;
@@ -456,10 +457,29 @@ pub fn run() {
     // so the log has to be armed ahead of the first thing worth logging.
     applog::install_panic_hook();
     applog::startup();
-    let builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // SUB-1075: on Windows/Linux the OS delivers a `substrate://` link by
+    // launching the binary again with the URL as its only argument. The
+    // single-instance guard has to be the FIRST plugin so that second copy
+    // exits before it initialises anything; its `deep-link` feature hands the
+    // argument to the running app first, which is what turns the relaunch
+    // into a link. macOS needs none of this — LaunchServices keeps one
+    // instance and delivers the URL to it as `RunEvent::Opened`.
+    #[cfg(all(desktop, not(target_os = "macos")))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        // the URL (if this really was a link) has already been forwarded by
+        // the time this runs; all that's left is to surface the window
+        show_main(app);
+    }));
+    let builder = builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_notification::init());
+        .plugin(tauri_plugin_notification::init())
+        // OS-level `substrate://` scheme (SUB-1075). What actually registers
+        // it with the OS is `plugins.deep-link.desktop` in tauri.conf.json —
+        // Info.plist CFBundleURLTypes on macOS — so this only works from a
+        // packaged .app, never from `tauri dev` on mac.
+        .plugin(tauri_plugin_deep_link::init());
     #[cfg(desktop)]
     let builder = builder.plugin(
         tauri_plugin_global_shortcut::Builder::new()
@@ -778,6 +798,14 @@ pub fn run() {
                 capture.on_window_event(move |event| {
                     if let WindowEvent::Focused(false) = event {
                         capture_handle.hide().ok();
+                        // the blur-hide runs no frontend code, so the pending
+                        // `substrate://capture?text=` prefill is dropped here
+                        // instead — otherwise the next ⌥Space capture would
+                        // inherit a link's text (SUB-1075)
+                        capture_handle
+                            .app_handle()
+                            .state::<crate::deeplink::DeepLinks>()
+                            .clear_capture_prefill();
                     }
                 });
 
@@ -1106,6 +1134,27 @@ pub fn run() {
             let notify_handle = app.handle().clone();
             std::thread::spawn(move || notify::run(notify_handle));
             calendarfeed::run(app.handle().clone());
+
+            // `substrate://` links (SUB-1075). The listener goes up before any
+            // link can be replayed into it, and nothing is resolved here: the
+            // handler only validates and queues, so a cold-start link that
+            // beat the frontend is still waiting when the main window drains
+            // it (commands::deeplink::deeplink_take_pending).
+            app.manage(deeplink::DeepLinks::default());
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let link_handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        deeplink::handle_url(&link_handle, url.as_str());
+                    }
+                });
+                // Windows/Linux cold start: the very first instance is the one
+                // holding the URL in argv, and nothing has forwarded anything
+                // to it. (No-op on macOS, where argv never carries the link.)
+                #[cfg(desktop)]
+                app.deep_link().handle_cli_arguments(std::env::args());
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1246,6 +1295,9 @@ pub fn run() {
             agenda_open_note,
             agenda_open_capture,
             agenda_resize,
+            commands::deeplink::deeplink_take_pending,
+            commands::deeplink::deeplink_capture_prefill,
+            commands::deeplink::deeplink_clear_capture_prefill,
             history_snapshot,
             smoke::smoke_signal,
             smoke::smoke_exit,

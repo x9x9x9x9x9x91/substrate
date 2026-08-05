@@ -182,3 +182,28 @@ test("callout with no title keeps an empty title", () => {
   assert.equal(cards.callouts[0].title, "");
   assert.deepEqual(cards.callouts[0].body, ["body only"]);
 });
+
+test("a callout takes an accent after the kind", () => {
+  const blocks = parseHub("> [!note|teal] Ship\n> body\n> [!warn|Violet] Watch\n");
+  const cards = blocks[0];
+  if (cards.kind !== "cards") assert.fail("want cards");
+  assert.deepEqual(
+    cards.callouts.map((c) => [c.kind, c.title, c.accent]),
+    [
+      ["note", "Ship", "teal"],
+      ["warn", "Watch", "violet"],
+    ]
+  );
+  assert.deepEqual(cards.callouts[0].body, ["body"]);
+});
+
+test("an off-roster accent leaves a working callout, not a blockquote", () => {
+  for (const tail of ["chartreuse", "#14b8a6", "", "12px"]) {
+    const blocks = parseHub(`> [!note|${tail}] Still a note\n> body\n`);
+    const cards = blocks[0];
+    if (cards.kind !== "cards") assert.fail(`want cards for "${tail}"`);
+    assert.equal(cards.callouts[0].kind, "note");
+    assert.equal(cards.callouts[0].title, "Still a note");
+    assert.equal(cards.callouts[0].accent, undefined);
+  }
+});

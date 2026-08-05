@@ -66,6 +66,9 @@ git2 = { version = "0.20", default-features = false, features = ["https", "vendo
 # and extraction only reads the catalog and the content streams behind it.
 lofty = "0.24"
 lopdf = { version = "0.44", default-features = false }
+# substrate:// deep links (SUB-1075): the plugin owns scheme registration and
+# the OS open-url callback on every platform the app ships to.
+tauri-plugin-deep-link = "2.4.9"
 
 # tray + global shortcuts are desktop-only concepts; on iOS/Android the
 # feature/plugin don't exist, so they ride the desktop target cfg
@@ -79,6 +82,7 @@ tauri-plugin-process = "2"
 # terminal HUD (SUB-398) — a real PTY so full-screen TUIs (agent CLIs) render;
 # desktop-only like the tray: no shell to embed on iOS/Android
 portable-pty = "0.9"
+tauri-plugin-single-instance = { version = "2.4.3", features = ["deep-link"] }
 
 # Interactive macOS notifications (click + snooze actions) for SUB-21 — the
 # desktop API of tauri-plugin-notification is fire-and-forget, so due-date

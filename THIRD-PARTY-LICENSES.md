@@ -6,7 +6,7 @@ the third-party code the app bundles and ships:
 
 - the **63 npm packages** in the production dependency closure, compiled into
   the app's frontend bundle;
-- the **685 Rust crates** pinned by `src-tauri/Cargo.lock`, listed
+- the **696 Rust crates** pinned by `src-tauri/Cargo.lock`, listed
   conservatively — the lockfile is the whole pinned set, so build- and test-only
   crates are listed too rather than guessed away.
 
@@ -2227,7 +2227,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### Apache-2.0 OR MIT
 
-83 crates:
+85 crates:
 
 - aes-gcm 0.10.3 — crates.io
 - async-channel 2.5.0 — crates.io
@@ -2296,12 +2296,14 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - tauri-codegen 2.6.3 — crates.io
 - tauri-macros 2.6.3 — crates.io
 - tauri-plugin 2.6.3 — crates.io
+- tauri-plugin-deep-link 2.4.9 — crates.io
 - tauri-plugin-dialog 2.7.1 — crates.io
 - tauri-plugin-fs 2.5.1 — crates.io
 - tauri-plugin-global-shortcut 2.3.2 — crates.io
 - tauri-plugin-notification 2.3.3 — crates.io
 - tauri-plugin-opener 2.5.4 — crates.io
 - tauri-plugin-process 2.3.1 — crates.io
+- tauri-plugin-single-instance 2.4.3 — crates.io
 - tauri-plugin-updater 2.10.1 — crates.io
 - tauri-runtime 2.11.3 — crates.io
 - tauri-runtime-wry 2.11.4 — crates.io
@@ -2390,9 +2392,10 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### CC0-1.0
 
-1 crate:
+2 crates:
 
 - notify 8.2.0 — crates.io
+- tiny-keccak 2.0.2 — crates.io
 
 ### CC0-1.0 OR MIT-0 OR Apache-2.0
 
@@ -2420,7 +2423,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### MIT
 
-146 crates:
+149 crates:
 
 - atk 0.18.2 — crates.io
 - atk-sys 0.18.2 — crates.io
@@ -2434,6 +2437,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - cfg_aliases 0.1.1 — crates.io
 - combine 4.6.7 — crates.io
 - cookie-factory 0.3.3 — crates.io
+- crunchy 0.2.4 — crates.io
 - darling 0.23.0 — crates.io
 - darling_core 0.23.0 — crates.io
 - darling_macro 0.23.0 — crates.io
@@ -2499,6 +2503,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - objc2-foundation 0.3.2 — crates.io
 - open 5.4.0 — crates.io
 - openssl-sys 0.9.117 — crates.io
+- ordered-multimap 0.7.3 — crates.io
 - pango 0.18.3 — crates.io
 - pango-sys 0.18.0 — crates.io
 - phf 0.12.1 — crates.io
@@ -2519,6 +2524,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - rust-embed 8.12.0 — crates.io
 - rust-embed-impl 8.12.0 — crates.io
 - rust-embed-utils 8.12.0 — crates.io
+- rust-ini 0.21.3 — crates.io
 - schannel 0.1.29 — crates.io
 - schemars 0.8.22 — crates.io
 - schemars 0.9.0 — crates.io
@@ -2571,7 +2577,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### MIT OR Apache-2.0
 
-309 crates:
+314 crates:
 
 - aead 0.5.2 — crates.io
 - aes 0.8.4 — crates.io
@@ -2603,6 +2609,8 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - chrono-tz 0.10.4 — crates.io
 - cipher 0.4.4 — crates.io
 - cipher 0.5.2 — crates.io
+- const-random 0.1.18 — crates.io
+- const-random-macro 0.1.16 — crates.io
 - cookie 0.18.1 — crates.io
 - core-foundation 0.10.1 — crates.io
 - core-foundation-sys 0.8.7 — crates.io
@@ -2624,6 +2632,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - dirs 6.0.0 — crates.io
 - dirs-sys 0.5.0 — crates.io
 - displaydoc 0.2.6 — crates.io
+- dlv-list 0.5.2 — crates.io
 - dtoa 1.0.11 — crates.io
 - dyn-clone 1.0.20 — crates.io
 - embed_plist 1.2.2 — crates.io
@@ -2651,6 +2660,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - git2 0.20.4 — crates.io
 - glob 0.3.3 — crates.io
 - hashbrown 0.12.3 — crates.io
+- hashbrown 0.14.5 — crates.io
 - hashbrown 0.15.5 — crates.io
 - hashbrown 0.17.1 — crates.io
 - hashlink 0.10.0 — crates.io
@@ -2842,6 +2852,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - windows-link 0.1.3 — crates.io
 - windows-link 0.2.1 — crates.io
 - windows-numerics 0.2.0 — crates.io
+- windows-registry 0.5.3 — crates.io
 - windows-result 0.3.4 — crates.io
 - windows-result 0.4.1 — crates.io
 - windows-strings 0.4.2 — crates.io

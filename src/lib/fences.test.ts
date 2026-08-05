@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   BARE_MACHINE_FENCE_LANGS,
   TAILED_MACHINE_FENCE_LANGS,
+  isTailedBareFence,
   stripMachineFences,
 } from "./fences.ts";
 import { collectCardsFences } from "./metriccards.ts";
@@ -76,6 +77,26 @@ test("stripMachineFences blanks view/chart/progress/csv/formulas bodies (SUB-261
   assert.equal(out.split("\n").length, body.split("\n").length, "line count preserved");
 });
 
+test("stripMachineFences blanks a ```calendar body too (SUB-965)", () => {
+  const body = [
+    "Release plan.",
+    "",
+    "```calendar",
+    "source: release",
+    "date: released",
+    "query: status:mastering",
+    "```",
+    "",
+    "after",
+  ].join("\n");
+  const out = stripMachineFences(body);
+  for (const config of ["source", "released", "mastering", "```calendar"])
+    assert.ok(!out.includes(config), `${config} stripped`);
+  assert.ok(out.includes("Release plan."), "prose before survives");
+  assert.ok(out.includes("after"), "prose after survives");
+  assert.equal(out.split("\n").length, body.split("\n").length, "line count preserved");
+});
+
 test("stripMachineFences: user code fences stay searchable", () => {
   const body = "prose\n\n```ts\nconst mastering = 1;\n```\nafter\n";
   assert.equal(stripMachineFences(body), body, "untouched");
@@ -112,12 +133,14 @@ test("stripMachineFences: an info-string tail strips for live-dispatch langs (SU
     assert.ok(!out.includes("secret"), `config stripped for "${open}"`);
     assert.equal(out.split("\n").length, 5, "line count preserved");
   }
-  // csv/formulas parsers are strict bare-form: a tailed one renders as plain
-  // code and stays searchable prose — as does any tailed user code fence.
+  // csv/formulas/heatmap/calendar parsers are strict bare-form: a tailed one renders
+  // as plain code and stays searchable prose — as does any tailed user code
+  // fence.
   for (const prose of [
     "a\n```csv raw\nsecret,1\n```\nb",
     "a\n```formulas x\nsecret = A1\n```\nb",
     "a\n```heatmap year\nsecret: session\n```\nb",
+    "a\n```calendar month\nsecret: 1\n```\nb",
     "a\n```python foo\nsecret = 1\n```\nb",
   ]) {
     assert.equal(stripMachineFences(prose), prose, "tailed bare-form fence stays prose");
@@ -126,7 +149,7 @@ test("stripMachineFences: an info-string tail strips for live-dispatch langs (SU
 
 test("stripMachineFences: bare heatmap strips, tailed heatmap stays prose (SUB-966)", () => {
   // the two halves of the bare-form contract, on the fence this branch adds:
-  // the hub renders ONLY the bare opener live (HubDashboard's BARE_ONLY
+  // the hub renders ONLY the bare opener live (its isTailedBareFence
   // guard), so only the bare one may leave the index. Lockstep twin:
   // machine_fence_strip_covers_heatmap_fences in src-tauri/src/vault/mod.rs.
   const bare = "a\n```heatmap\nsource: session\ndate: logged\n```\nb";
@@ -233,4 +256,32 @@ test("stripMachineFences handles CRLF fences (SUB-913)", () => {
   assert.ok(out.includes("tail"), "tail kept");
   // newline-for-newline: line numbers must keep mapping
   assert.equal(out.split("\n").length, body.split("\n").length);
+});
+
+test("isTailedBareFence marks exactly the tailed bare-form openers (SUB-965)", () => {
+  // the predicate every first-word dispatcher asks before mounting a widget:
+  // true means "prose, render a code box", which is what the stripper above
+  // already assumes of these openers.
+  for (const [lang, tail] of [
+    ["calendar", "month"],
+    ["csv", "raw"],
+    ["formulas", "x"],
+    ["CALENDAR", "month"],
+  ] as const) {
+    assert.equal(isTailedBareFence(lang, tail), true, `${lang} ${tail} is prose`);
+  }
+  // a bare opener of the same languages is machine content, and so is any
+  // opener — tailed or not — of a live-dispatch or user language
+  for (const [lang, tail] of [
+    ["calendar", ""],
+    ["csv", ""],
+    ["formulas", ""],
+    ["calendar", "\r"], // a CRLF body's opener line, not a tail (SUB-913)
+    ["view", "table"],
+    ["chart", "compact"],
+    ["cards", "two-up"],
+    ["ts", "foo"],
+  ] as const) {
+    assert.equal(isTailedBareFence(lang, tail), false, `${lang} "${tail}" dispatches normally`);
+  }
 });

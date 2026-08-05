@@ -14,9 +14,9 @@ import { imageSource } from "../lib/assets";
 import { isImageName } from "../lib/artwork";
 import { wikiLinkDisplay } from "../lib/wikilinks";
 import { parseHub, type HubCallout } from "../lib/hub";
+import { isTailedBareFence } from "../lib/fences";
 import { embedQueryFor, parseViewSpec } from "../lib/embeds";
 import { collectCardsFences, parseCardsBlock, type CardsBlock } from "../lib/metriccards";
-import { BARE_MACHINE_FENCE_LANGS } from "../lib/fences";
 import { sharpCardIndices } from "../lib/dashboard";
 import { useFxRates } from "./useFx";
 import { DashHead, DashPrintButton } from "./DashHead";
@@ -24,6 +24,7 @@ import EmbedViewTable from "./EmbedViewTable";
 import ChartsDashboard from "./ChartsDashboard";
 import HeatmapDashboard from "./HeatmapDashboard";
 import ProgressDashboard from "./ProgressDashboard";
+import CalendarFenceDashboard from "./CalendarFenceDashboard";
 import { MetricCardStrip, useCardValues, type CardValue } from "./MetricCards";
 import { optionColor, OptionPill } from "./SelectMenu";
 
@@ -60,6 +61,15 @@ interface Ctx {
   /** the ```heatmap fence's inputs — same shape as `chart`, same rule: absent
       means the fence stays a code box */
   heatmap?: {
+    meta: NoteMeta;
+    notes: NoteMeta[];
+    schema: SchemaConfig;
+    vaultEpoch: number;
+    onOpenSource: (path: string) => void;
+  };
+  /** the ```calendar fence's inputs (SUB-965) — same shape as `chart`, since
+      the calendar dashboard is the same kind of embedded surface */
+  calendar?: {
     meta: NoteMeta;
     notes: NoteMeta[];
     schema: SchemaConfig;
@@ -220,10 +230,12 @@ function DashEmbed({ name }: { name: string }) {
 // the tail, and it decides for the bare-form languages: their parsers only
 // accept "```<lang>\n", so a tailed opener must fall through to a code box
 // here too — otherwise the hub draws a live widget whose config
-// stripMachineFences leaves in the search index (SUB-966; the SUB-899/SUB-983
-// leak class).
+// stripMachineFences leaves in the search index (SUB-966, SUB-965; the
+// SUB-899/SUB-983 leak class). The tail keeps its leading whitespace, so a
+// bare opener with a stray trailing space counts as tailed — which is exactly
+// what MACHINE_FENCE_RE does with it. `isTailedBareFence` (lib/fences.ts) is
+// the single predicate every surface asks.
 const FENCE_OPEN_RE = /^```(\S*)(\s[^`]*)?$/;
-const BARE_ONLY = new Set<string>(BARE_MACHINE_FENCE_LANGS);
 const FENCE_CLOSE_RE = /^```\s*$/;
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
 const HR_RE = /^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/;
@@ -313,6 +325,34 @@ function HubHeatmapFence({ inner, heatmap }: { inner: string; heatmap: NonNullab
   );
 }
 
+/** A ```calendar fence in a hub body (SUB-965): the fence's own month grid,
+    handed to CalendarFenceDashboard in embed mode — one parser
+    (lib/calendarfence.ts), one renderer, and recurrence expands here exactly
+    as it does on a standalone dashboard. Each fence keeps its own month
+    cursor, so paging one hub calendar leaves the others where they were. */
+function HubCalendarFence({
+  inner,
+  calendar,
+}: {
+  inner: string;
+  calendar: NonNullable<Ctx["calendar"]>;
+}) {
+  const body = useMemo(() => "```calendar\n" + inner + "\n```\n", [inner]);
+  return (
+    <div className="hub-calendar">
+      <CalendarFenceDashboard
+        meta={calendar.meta}
+        notes={calendar.notes}
+        body={body}
+        vaultEpoch={calendar.vaultEpoch}
+        schema={calendar.schema}
+        onOpenSource={calendar.onOpenSource}
+        embed
+      />
+    </div>
+  );
+}
+
 /** A ```progress fence in a hub body (SUB-967): the same goal thermometer the
     progress dashboard draws, in the section slot it was written into. Handed
     back to ProgressDashboard verbatim in embed mode — one parser
@@ -350,14 +390,21 @@ function HubCardsFence({ slot }: { slot: CardsSlot }) {
 
 /** The ctx for markdown nested inside a callout body or a plain quote (§5.2):
     that markdown is quoted TEXT, not a second dashboard surface, so a
-    ```chart, ```cards, ```heatmap or ```progress fence written there falls
-    through to a code box.
+    ```chart, ```cards, ```heatmap, ```progress or ```calendar fence written
+    there falls through to a code box.
     Dropping them all from the recursion's ctx is what does it — and it also
     keeps a nested cards fence from consuming a page slot that belongs to a
     real one. ```view keeps working, because an embedded table inside a card is
     still one table. */
 function nestedMarkdownCtx(ctx: Ctx): Ctx {
-  return { ...ctx, chart: undefined, cards: undefined, heatmap: undefined, progress: undefined };
+  return {
+    ...ctx,
+    chart: undefined,
+    cards: undefined,
+    heatmap: undefined,
+    progress: undefined,
+    calendar: undefined,
+  };
 }
 
 function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
@@ -393,11 +440,15 @@ function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
       i++; // closing fence (or EOF)
       const inner = code.join("\n");
       const lang = fence[1].toLowerCase();
-      // a tailed opener of a bare-form language is prose, not config: its own
-      // parser wouldn't read it, so neither does the hub (SUB-966)
-      const bareOnlyTail = fence[2] !== undefined && BARE_ONLY.has(lang);
+      // a tailed opener of a bare-form language (```calendar month, ```heatmap
+      // year) is prose whatever its first word says: its parser reads the bare
+      // form only, and search keeps such a block indexed — so mounting it live
+      // here would publish its config through the index (SUB-966, SUB-965
+      // review). Falls through to the code box, which is what
+      // stripMachineFences already assumes.
+      const bareOnly = isTailedBareFence(lang, fence[2] ?? "");
       // fences the hub renders live; anything else stays a code box
-      if (bareOnlyTail) {
+      if (bareOnly) {
         out.push(
           <pre className="hub-pre" key={k++}>
             <code>{inner}</code>
@@ -411,6 +462,8 @@ function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
         out.push(<HubHeatmapFence key={k++} inner={inner} heatmap={ctx.heatmap} />);
       } else if (lang === "progress" && ctx.progress !== undefined) {
         out.push(<HubProgressFence key={k++} inner={inner} progress={ctx.progress} />);
+      } else if (lang === "calendar" && ctx.calendar !== undefined) {
+        out.push(<HubCalendarFence key={k++} inner={inner} calendar={ctx.calendar} />);
       } else if (lang === "cards" && ctx.cards !== undefined) {
         // this chunk's n-th cards fence is the page's (base + n)-th — the
         // count is derived from position, never from a render-order counter,
@@ -566,7 +619,10 @@ function MarkdownChunk({ text, ctx }: { text: string; ctx: Ctx }) {
 function HubCard({ callout, ctx }: { callout: HubCallout; ctx: Ctx }) {
   const bodyCtx = useMemo(() => nestedMarkdownCtx(ctx), [ctx]);
   return (
-    <div className={`dash-card hub-card hub-card-${callout.kind}`}>
+    // accent overrides the kind's own rule hue (SUB-969) — a name off the
+    // roster never reaches here, so the attribute is absent and the callout
+    // reads exactly as an unaccented one
+    <div className={`dash-card hub-card hub-card-${callout.kind}`} data-accent={callout.accent}>
       <div className="hub-card-title">
         {callout.title !== "" ? <Inline text={callout.title} ctx={ctx} /> : callout.kind}
       </div>
@@ -636,6 +692,7 @@ export default function HubDashboard({
       chart: { meta, notes, schema, vaultEpoch, onOpenSource },
       heatmap: { meta, notes, schema, vaultEpoch, onOpenSource },
       progress: { meta, notes, schema, vaultEpoch, onOpenSource },
+      calendar: { meta, notes, schema, vaultEpoch, onOpenSource },
     }),
     [onFollowLink, schema, notes, savedViews, onOpenSource, meta, vaultEpoch]
   );

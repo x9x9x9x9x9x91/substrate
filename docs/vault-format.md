@@ -1230,6 +1230,7 @@ with arrow/Home/End navigation along the axis; tooltips never print.
 
 
 
+
 ### 5.6 View embeds — ` ```view ` fences
 
 A ` ```view ` fence renders a live, editable inline database table inside the
@@ -1705,8 +1706,8 @@ if (ctx.sheet) { /* use it */ } else { /* parse the fence yourself */ }
 ```
 
 A member added in a later build appears on `ctx` without changing `api`; a
-kind that checks before calling keeps running on both. `api` only moves when
-something existing changes shape or leaves.
+kind that checks before calling keeps running on both.
+`api` only moves when something existing changes shape or leaves.
 
 `ctx` is **ergonomics, not a boundary.** It exists so the common things are
 one call instead of twenty lines, not to constrain what a kind can reach — a
@@ -2471,7 +2472,9 @@ Per-database layout choice, same file discipline as schema.json:
   them) INSIDE the app retargets the entries instead, so the card keeps the
   slot it was dragged to; trashing leaves the entry alone — it is inert while
   the note is gone and picks its slot back up if the note is restored to the
-  same path. Entries keep their exact spelling, blanks aside: a path's leading
+  same path. When that path was taken over meanwhile, the restore comes back
+  under a numbered name and retargets the entry to it (SUB-1139), so the slot
+  follows the note rather than the path. Entries keep their exact spelling, blanks aside: a path's leading
   or trailing spaces are part of the filename. Deliberately NOT a note prop:
   an arrangement is a view's opinion, so it never touches the note files.
 - `grid` (SUB-607): optional; `true`/`false` pins this database's table

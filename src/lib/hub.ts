@@ -3,8 +3,9 @@
  *  home page without inventing any on-disk syntax:
  *
  *  - a `## ` heading becomes a section label,
- *  - a maximal run of consecutive callout blocks (`> [!note|warn|idea] Title`
- *    plus its `> ` continuation lines) becomes one row of cards — the columns,
+ *  - a maximal run of consecutive callout blocks (`> [!note|warn|idea] Title`,
+ *    optionally accented `> [!note|teal] Title`, plus its `> ` continuation
+ *    lines) becomes one row of cards — the columns,
  *  - everything else passes through as linear markdown chunks.
  *
  *  Callout recognition matches the editor exactly (Editor.tsx
@@ -13,6 +14,8 @@
  *  respected: a `> [!note]` line inside a ``` fence is never a callout.
  *  Pure parsing only — rendering lives in src/components/HubDashboard.tsx. */
 
+import { parseAccent, type AccentName } from "./styletokens.ts";
+
 export type CalloutKind = "note" | "warn" | "idea";
 
 export interface HubCallout {
@@ -20,6 +23,8 @@ export interface HubCallout {
   title: string;
   /** continuation lines with the `> ` quote prefix stripped */
   body: string[];
+  /** bounded style token (SUB-969): `> [!note|teal]`, absent if off-roster */
+  accent?: AccentName;
 }
 
 export type HubBlock =
@@ -27,8 +32,15 @@ export type HubBlock =
   | { kind: "cards"; callouts: HubCallout[] }
   | { kind: "markdown"; text: string };
 
-// same sources as Editor.tsx:118-119 — keep in lockstep
-const CALLOUT_HEADER_RE = /^(\s*>\s*\[!(note|warn|idea)\]\s*)/i;
+// same sources as Editor.tsx — keep in lockstep (both regexes there: the
+// callout header AND the block prefix the editor hides).
+//
+// The optional `|accent` tail (SUB-969) swallows ANY non-`]` text rather than
+// only roster names, so `> [!note|chartreuse]` is still a note callout with no
+// accent — an unhonorable style token must not demote a callout to a plain
+// blockquote. Group 1 stays the full prefix and group 2 the kind, which is
+// what both this parser and the editor's glyph replacement read.
+const CALLOUT_HEADER_RE = /^(\s*>\s*\[!(note|warn|idea)(?:\|([^\]]*))?\]\s*)/i;
 const QUOTE_PREFIX_RE = /^(\s*>\s?)/;
 
 // the opener takes a full info string (```rust ignore) — first word is the
@@ -87,7 +99,7 @@ export function parseHub(body: string): HubBlock[] {
           cbody.push(lines[i].replace(QUOTE_PREFIX_RE, ""));
           i++;
         }
-        callouts.push({ kind, title, body: cbody });
+        callouts.push({ kind, title, body: cbody, accent: parseAccent(header[3]) });
       }
       blocks.push({ kind: "cards", callouts });
       continue;

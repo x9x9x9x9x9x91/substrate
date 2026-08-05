@@ -12,6 +12,7 @@ import { dashboardSheets } from "../lib/dashboardSheets";
 import { useFxRates } from "./useFx";
 import { DashHead, DashPrintButton } from "./DashHead";
 import { KIND_API, type KindState } from "../lib/kinds";
+import { ACCENT_NAMES } from "../lib/styletokens";
 import {
   kindFileUrl,
   kindRuntimeCard,
@@ -393,6 +394,16 @@ function makeCtx(
       return { ...note.current, props: { ...note.current.props } };
     },
     css: KIND_CSS,
+    // Mood, bounded (SUB-969): the same roster of names a `cards` fence or a
+    // hub callout draws from, handed over so a kind can offer a choice instead
+    // of inventing a hex. A kind sets `data-accent="<name>"` on a sanctioned
+    // class and the app resolves the hue; an off-roster name simply doesn't
+    // paint, exactly as it doesn't in a fence.
+    // A COPY, like `note` above: `readonly` is compile-time only and vault code
+    // is a plain ES module, so handing the live array over would let one
+    // `.push()`/`.sort()` in a kind reorder the roster `typeTint()` hashes over
+    // and widen `tintVar`'s membership gate app-wide until reload.
+    accents: [...ACCENT_NAMES],
 
     notes: async (filter?: (n: NoteMeta) => boolean) => {
       const all = await vaultList();

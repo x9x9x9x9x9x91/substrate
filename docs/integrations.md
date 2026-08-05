@@ -265,6 +265,37 @@ A prop that parses but isn't in the schema won't be flagged at all — that's
 legal, not broken. If a row doesn't appear in a database view, the cause is
 almost always the `type:` string: matching is exact and case-sensitive.
 
+## Linking into the app: `substrate://`
+
+Files are how you get data in; `substrate://` links are how you point a human
+at it. Anything that can open a URL — a shell script, a note in another app, an
+HTML page, a calendar invite — can hand Substrate one of two:
+
+```sh
+open "substrate://note/Inbox/Some%20note.md"   # bring the app up on that note
+open "substrate://capture"                     # the ⌥Space capture box
+open "substrate://capture?text=call%20the%20studio"   # …prefilled
+```
+
+The note path is **vault-relative and percent-encoded**, ends in `.md`, and is
+resolved against the vault index — not the filesystem. The rules, in full:
+
+- Relative only. A leading `/`, a `..` segment in any spelling (literal,
+  `%2e%2e`), or a separator smuggled inside a segment (`%2f`, `\`) is refused.
+  Nothing outside the vault is reachable, by construction.
+- The app must be pointed at the vault that contains the note. A link is a
+  location within *the open vault*, not a way to switch vaults.
+- **A link that resolves to nothing still opens the app and says so.** A miss
+  is a message, never silence — so a stale link in somebody's notes reads as a
+  stale link, not as a broken app.
+- Unknown routes (`substrate://something-else`) are refused the same way. The
+  two above are the whole surface.
+
+Cold start is handled: a link that arrives while the app is launching queues
+until the vault is loaded, then opens. Scheme registration comes from the
+packaged app, so `substrate://` works once Substrate has been installed and
+launched at least once (not from a dev build).
+
 ## Existing integrations to read
 
 Two importers in this repo follow the pattern at real scale, and both are worth

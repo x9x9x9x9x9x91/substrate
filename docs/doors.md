@@ -18,6 +18,7 @@ doesn't exist — and that's a doc bug worth filing.
 | Cookbook recipes | Ready-made dashboards as plain files — copy a folder into the vault and it renders; `index.json` makes the install a one-line agent prompt. | [cookbook/README.md](../cookbook/README.md) |
 | The IPC surface | When the app is running and you want the engine's guarantees (link rewriting on rename, compare-and-swap writes), the app's own operations are the better door. | [vault-format §14](vault-format.md#14-the-ipc-surface-preferred-operations) |
 | Agent seed | Every vault carries a seeded `AGENTS.md` orienting any AI agent pointed at the folder — the format rules travel with the data. | [vault-format §12](vault-format.md#12-app-level-conventions) |
+| `substrate://` links | `substrate://note/<vault-relative path>.md` opens that note (app running or not); `substrate://capture[?text=…]` opens quick capture, optionally prefilled. Any tool that can open a URL can point a human at a note. | [Linking into the app](integrations.md#linking-into-the-app-substrate) |
 | Terminal HUD | ⌘⇧T embeds your own agent CLI (whatever command you configure in ⌘, Settings) in a persistent in-app terminal, cwd'd at the vault. | In-app: ⌘/ shortcut sheet, ⌘, Settings |
 
 ## Ways out
@@ -34,8 +35,6 @@ doesn't exist — and that's a doc bug worth filing.
 Decided and tracked, not yet built — each flips into the tables above when it
 ships:
 
-- **`substrate://` deeplinks** — `substrate://note/<path>` and
-  `substrate://capture`, so other tools can point at Substrate.
 - **CLI door** — headless scoped access to vault operations,
   sharing the MCP door's permission engine: one contract, not two.
 - **MCP door** — a permission-gated MCP server over the vault, for

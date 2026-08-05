@@ -101,6 +101,60 @@
   --dash-sentence: 400 13px/1.5 var(--font); /* prose, hints */
 }
 
+/* Bounded style tokens (SUB-969) — the ONLY place an author's accent name
+   becomes a colour. A board writes `accent: teal`, the renderer emits
+   `data-accent="teal"` after checking the name against the option roster
+   (src/lib/styletokens.ts), and these ten rules resolve it. Nothing else in
+   the app interpolates a name into a var(): an accent the theme doesn't know
+   matches no rule here, so the failure mode is an untinted surface. A fence
+   or card key never reaches the attribute with an off-roster name either —
+   but a custom kind (§5.8) writes its own DOM, so it CAN put an unvalidated
+   name on `data-accent`; the consumers below carry var() fallbacks so that
+   path lands on neutral rather than on inherited colour.
+
+   Ten rules rather than `var(--opt-` + name: a closed list is the contract.
+   Adding an eleventh accent means adding a hue to the palette on purpose,
+   which is exactly the decision the design system means to keep. */
+[data-accent="gray"] {
+  --accent-tint: var(--opt-gray);
+}
+
+[data-accent="blue"] {
+  --accent-tint: var(--opt-blue);
+}
+
+[data-accent="indigo"] {
+  --accent-tint: var(--opt-indigo);
+}
+
+[data-accent="violet"] {
+  --accent-tint: var(--opt-violet);
+}
+
+[data-accent="pink"] {
+  --accent-tint: var(--opt-pink);
+}
+
+[data-accent="red"] {
+  --accent-tint: var(--opt-red);
+}
+
+[data-accent="orange"] {
+  --accent-tint: var(--opt-orange);
+}
+
+[data-accent="yellow"] {
+  --accent-tint: var(--opt-yellow);
+}
+
+[data-accent="green"] {
+  --accent-tint: var(--opt-green);
+}
+
+[data-accent="teal"] {
+  --accent-tint: var(--opt-teal);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -2261,6 +2315,13 @@ button.empty-hint-fix:hover {
   font-style: normal;
 }
 
+/* an accented callout carries its mood on the left rule while it is being
+   written, matching how the hub board renders it (SUB-969). The glyph keeps
+   the kind hue: type and mood are two different marks. */
+.cm-editor .cm-line.cm-callout-line[data-accent] {
+  border-left-color: var(--accent-tint);
+}
+
 .cm-editor .cm-line.cm-callout-first {
   padding-top: 8px;
   border-top: 1px solid var(--border-soft);
@@ -4313,6 +4374,13 @@ body.agenda-window .palette:focus-visible {
   position: relative;
 }
 
+/* `size: tall` (SUB-969) — the only size token a chart fence can name. The
+   number lives here and in BAR_PLOT_PX (ChartsDashboard.tsx); a fence names
+   the token, never the height. */
+.dash-chart[data-size="tall"] {
+  min-height: 270px;
+}
+
 /* 1px axis the bars stand on — sits between the bars and the time-label row
    (label line-height 14px + 5px column gap) */
 .dash-chart::after {
@@ -4417,6 +4485,12 @@ body.agenda-window .palette:focus-visible {
   margin-top: 4px;
   padding-left: 40px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* the line plot's geometry is percentage-based, so `size: tall` (SUB-969) is
+   purely this box growing — the path, dots and hints follow */
+.chart-line[data-size="tall"] {
+  height: 250px;
 }
 
 .chart-line-plot {
@@ -5018,6 +5092,58 @@ body.agenda-window .palette:focus-visible {
   }
 }
 
+/* ── ```calendar fences (SUB-965) ── the Calendar pane's month grid, sized for
+   a dashboard section instead of a full pane. It reuses the pane's cell,
+   chip and pager classes verbatim (one visual language for one surface); only
+   the outer sizing differs, because the pane grid is a flex child that fills
+   the window and a fence has to declare its own height. */
+
+.calfence {
+  margin-bottom: 30px;
+}
+
+.calfence-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.calfence-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.calfence-month {
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* the grid rows are fixed rather than fractional: six rows of a flex-filled
+   pane would collapse to nothing inside a scrolling dashboard */
+.calfence-scroll {
+  flex: none;
+  border-top: 1px solid var(--border-soft);
+}
+
+.calfence-scroll .cal-grid.month {
+  grid-auto-rows: minmax(76px, auto);
+}
+
+/* narrow panes scroll the grid sideways rather than crush seven columns —
+   the same trade the pane makes, at the density a section can carry */
+.calfence-scroll > .cal-weekdays,
+.calfence-scroll > .cal-grid {
+  min-width: 560px;
+}
+
+/* the fence's chips open a note; they never drag */
+.calfence .cal-entry {
+  cursor: pointer;
+}
+
 /* the form is a section, not a box — its section label carries the frame */
 .dash-form {
   margin-top: 30px;
@@ -5257,6 +5383,14 @@ body.agenda-window .palette:focus-visible {
   border-left-color: var(--opt-violet);
 }
 
+/* an accent replaces the kind's default hue on the type rule (SUB-969): the
+   glyph-free hub card marks its type by position and title, so the rule is
+   free to carry the author's mood. Higher specificity than the three rules
+   above, so order in this file isn't load-bearing. */
+.hub-card[data-accent] {
+  border-left-color: var(--accent-tint);
+}
+
 .hub-card-title {
   font: var(--dash-label);
   letter-spacing: 0.08em;
@@ -5357,6 +5491,17 @@ body.agenda-window .palette:focus-visible {
 }
 .hub-progress .progress-fence:first-child {
   margin-top: 0;
+}
+
+/* a ```calendar fence (SUB-965) — same deal: the month grid brings its own
+   heading, pager and foot, so the wrapper owns only the gap. The section's own
+   bottom margin is dropped here; the wrapper spaces hub blocks uniformly. */
+.hub-calendar {
+  margin: 0 0 16px;
+}
+
+.hub-calendar .calfence {
+  margin-bottom: 0;
 }
 
 /* a ```cards fence's strip sits in the flow like the view tables do */
@@ -7772,6 +7917,42 @@ th.sheet-computed:hover {
 
 .metrics-cards .dash-card.sunk .dash-label {
   color: var(--text-4);
+}
+
+/* an accented card marks itself on the LABEL and its column rule, never on
+   the value (SUB-969). The value ramp above is the whole of principle 11's
+   two-sharp-values discipline — if an accent could reach `.dash-card-eur`,
+   a board that accents every card would read as a board with eight sharp
+   values, and the contrast that makes the important two findable would be
+   gone. So mood is expressible and hierarchy is not overridable: the accent
+   says what this card is ABOUT, `emph` still says which one matters. Same
+   treatment as a hub callout's type rule, so one token reads alike on both.
+   ORDER IS LOAD-BEARING: this pair ties the `.sunk` label rule above on
+   specificity (0,4,0), so the accent only wins by coming after it — keep it
+   below `.sunk`, and the fallbacks keep an off-roster name neutral. */
+.metrics-cards .dash-card[data-accent] .dash-label {
+  color: var(--accent-tint, var(--text-3));
+}
+
+.metrics-cards .dash-card[data-accent] {
+  /* inert on a .row-start tile, which carries no left border by design */
+  border-left-color: var(--accent-tint, var(--hair-soft));
+}
+
+/* A custom kind (§5.8) reaches mood the same bounded way a fence does: it puts
+   a roster NAME on data-accent and the map above resolves it. That is the
+   whole reason the token exists here — a kind's own style.css could paint any
+   hue it liked, and a kind that does drifts out of the theme the moment the
+   theme moves, while a kind that names `teal` follows it forever. A kind
+   writes its own DOM, so this is the one path an unvalidated name can reach
+   the attribute on: the fallbacks land that case on neutral rather than on
+   an inherited colour. */
+.kind-host .dash-card[data-accent] .dash-label {
+  color: var(--accent-tint, var(--text-3));
+}
+
+.kind-host .dash-card[data-accent] {
+  border-left-color: var(--accent-tint, var(--hair-soft));
 }
 
 .metrics-cards .dash-card {

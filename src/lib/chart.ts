@@ -38,6 +38,12 @@
 //   kind: line
 //   ```
 //
+// `size: tall` (SUB-969) is the one bounded style token a chart takes — a NAME
+// from a closed roster, never a height in px. An unknown name is simply not
+// honored (the chart draws at its default size) rather than failing the fence.
+// It rides on every binding above, style being orthogonal to where points
+// come from.
+//
 // Pure TS, no DOM/node imports: runs in the app and under `node --test`.
 
 import { parseStrictNumber } from "./aggregate.ts";
@@ -45,6 +51,7 @@ import { isIsoDate, MONTHS, todayIso, toIso } from "./dates.ts";
 import { isErr } from "./formula.ts";
 import { endOfLocalDay, isoDayOf, valueAt } from "./history-facts.ts";
 import { propSchemaFor } from "./schemalookup.ts";
+import { parseChartSize, type ChartSize } from "./styletokens.ts";
 import type { SheetEval, SheetModel } from "./sheet.ts";
 import type { FactLane, NoteMeta, SchemaConfig, SelectOption } from "./types.ts";
 import { foldedPropStr } from "./types.ts";
@@ -87,6 +94,9 @@ export type ChartBind =
 export type ChartConfig = {
   kind: ChartKind;
   title: string | null;
+  /** bounded style token (SUB-969): `size: tall`, or null for the default
+      plot. A name, never a height — see src/lib/styletokens.ts. */
+  size: ChartSize | null;
 } & ChartBind;
 
 /** A chart config known to use the row binding (has `x`/`y`). */
@@ -133,7 +143,17 @@ export interface ChartBand {
 
 // ---------- config parsing ----------
 
-const KNOWN_KEYS = new Set(["source", "x", "y", "kind", "title", "series", "by", "history"]);
+const KNOWN_KEYS = new Set([
+  "source",
+  "x",
+  "y",
+  "kind",
+  "title",
+  "series",
+  "by",
+  "history",
+  "size",
+]);
 const BUCKETS = new Set(["day", "week", "month"]);
 const REDUCERS = new Set(["last", "avg", "min", "max"]);
 
@@ -202,7 +222,16 @@ export function parseChartConfig(inner: string): ChartConfig {
   if (kindRaw !== "bar" && kindRaw !== "line") {
     throw new Error(`kind must be bar or line — got "${kv.get("kind")}"`);
   }
-  const head = { kind: kindRaw as ChartKind, title: kv.get("title") ?? null };
+  // `size` is a style token, not a binding (SUB-969): an off-roster value is a
+  // preference we can't honor, so it falls back to the default plot rather than
+  // failing a fence whose data is perfectly good. Bindings still throw. It sits
+  // on the shared head, above the binding split, so a `history:` chart takes
+  // the token on the same terms a row chart does.
+  const head = {
+    kind: kindRaw as ChartKind,
+    title: kv.get("title") ?? null,
+    size: parseChartSize(kv.get("size")) ?? null,
+  };
 
   // `history` is the time binding (SUB-832 §3.3): the fact IS the source and
   // the x axis IS time, so a fence carrying `source:` or `series:` too has

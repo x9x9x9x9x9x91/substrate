@@ -83,7 +83,8 @@ pub struct ViewPref {
     /// resting order, so notes created or renamed outside the app can't
     /// corrupt it. Renaming or moving a note IN the app retargets its entry
     /// (`move_card_order`), so the card keeps its slot; trashing leaves the
-    /// entry inert, and a restore to the same path picks the slot back up.
+    /// entry inert, and a restore picks the slot back up — to the same path
+    /// for free, or retargeted when the restore had to dedupe (SUB-1139).
     /// Absent = resting order.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub card_order: Option<Vec<String>>,
@@ -914,7 +915,9 @@ impl Engine {
     /// folder lane carries its whole subtree (`old_rel/…`), so a card keeps
     /// the slot the user dragged it to. Trashing deliberately does NOT touch
     /// the list — an entry naming no live note is inert on read, and restoring
-    /// the note to the same path hands the slot back for free.
+    /// the note to the same path hands the slot back for free. A restore that
+    /// has to dedupe (the path was reoccupied) does call this, with the name
+    /// the note actually got back (SUB-1139).
     ///
     /// The prefs are walked as raw JSON so a key a newer app wrote survives
     /// untouched; anything that isn't a `card_order` array is left alone. No

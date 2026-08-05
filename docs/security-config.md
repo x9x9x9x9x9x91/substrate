@@ -137,6 +137,40 @@ That port is hardcoded and coupled to `SUBSTRATE_DEV_PORT` in `vite.config.ts`
 dev server on another port only costs HMR:
 the page loads, live reload goes quiet. Keep the two in step when 1420 changes.
 
+## The `substrate://` scheme (`plugins.deep-link`)
+
+`plugins.deep-link.desktop.schemes` (SUB-1075) is a config surface with a real
+blast radius: it is what makes the bundler write `CFBundleURLTypes` into
+Info.plist (and the equivalent registry / `.desktop` entries elsewhere), so
+after install **anything on the machine — a web page, a mail client, another
+app — can hand this app a URL by opening it**. There is no prompt in that path.
+
+That is deliberate (the whole point of [the door](doors.md) is that other tools
+can point at a note), and it is why the safety lives in the handler rather than
+in the config:
+
+- **Nothing a link names is ever used as a filesystem path.** The note route
+  resolves its path against the loaded vault index (`Engine::meta`), so the
+  worst a valid link can do is open a note the user already has.
+- **Validation runs on the raw text, before parsing** (`src-tauri/src/deeplink.rs`).
+  `Url::parse` normalises `..` away — including the `%2e%2e` spelling — which
+  would otherwise turn `substrate://note/../../x.md` into an innocent-looking
+  `x.md`. A link that *asked* to climb out is refused rather than quietly
+  reinterpreted. Absolute paths, separators smuggled inside a segment (`%2f`,
+  `\`), control characters, and non-`.md` targets die in the same pass.
+- **Two routes exist and unknown ones are refused** — `note` and `capture`. The
+  scheme is not a generic command channel, and adding a route is a deliberate
+  act, not a config edit.
+- **`capture`'s `?text=` prefill is attacker-controlled**, so it is trimmed and
+  capped (4096 chars) and only ever lands in the capture *input* — a human still
+  presses Enter. Nothing a link carries is written to disk without that.
+
+Refusals are worded and shown, never silent: a link that resolves to nothing
+still brings the app up and says so, which is what keeps a stale link from
+reading as a broken app. Unit coverage for every rule above is in
+`deeplink.rs`'s test module; the OS-side registration itself is only exercised
+by a packaged build.
+
 ## Asset protocol scope
 
 The scope is broad on purpose, and that is a real tradeoff rather than an

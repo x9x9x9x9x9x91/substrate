@@ -302,3 +302,22 @@ test("no sheet-derived decimal count can exceed the card bound", () => {
     assert.doesNotThrow(() => fmtCard(v, "number", decimals));
   }
 });
+
+test("a card takes an accent off the option roster", () => {
+  assert.equal(one("- label: A\n  bind: S.a\n  accent: teal").accent, "teal");
+  assert.equal(one("- label: A\n  bind: S.a\n  accent: Violet").accent, "violet");
+  assert.equal(parseCards({ cards: [{ label: "A", bind: "S.a", accent: "green" }] })[0].accent, "green");
+});
+
+test("an off-roster accent is absent, never an error", () => {
+  // deliberately unlike a bad bind or format, which throw: a style token the
+  // theme can't honour is a preference, not a lie about the data (SUB-969)
+  for (const v of ["#14b8a6", "2px", "tealish", "red; content: 'x'"]) {
+    assert.equal(one(`- label: A\n  bind: S.a\n  accent: ${v}`).accent, undefined);
+  }
+  assert.equal(parseCards({ cards: [{ label: "A", bind: "S.a", accent: 7 }] })[0].accent, undefined);
+});
+
+test("names a duplicate accent even when neither value is on the roster", () => {
+  rejects("- label: A\n  bind: S.a\n  accent: nope\n  accent: teal", /duplicate key "accent"/);
+});

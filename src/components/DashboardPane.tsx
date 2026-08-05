@@ -20,6 +20,7 @@ import {
 import { parseChartBlocks } from "../lib/chart";
 import { resolveDashboardKind, resolveDispatchTail, type KindBundleInfo } from "../lib/kinds";
 import { parseHeatmapBlocks } from "../lib/heatmap";
+import { parseCalendarBlocks } from "../lib/calendarfence";
 import { resolveKindPane } from "../lib/kindpane";
 import { kindsList } from "../lib/ipc";
 import { DashHead } from "./DashHead";
@@ -27,6 +28,7 @@ import CustomKindPane from "./CustomKindPane";
 import MetricsDashboard from "./MetricsDashboard";
 import ChartsDashboard from "./ChartsDashboard";
 import HeatmapDashboard from "./HeatmapDashboard";
+import CalendarFenceDashboard from "./CalendarFenceDashboard";
 import HubDashboard from "./HubDashboard";
 import { useUsdEur } from "./useFx";
 import FoodDashboard from "./FoodDashboard";
@@ -557,10 +559,11 @@ function useNoteBody(path: string, vaultEpoch: number): string | null {
 }
 
 /** Default dashboards: a ```chart fence declares chart blocks (SUB-33), a
-    ```heatmap fence a year grid (SUB-966); without either the note is a yield
-    tracker (the original dashboard). A note carrying both leads with its
-    charts and hangs the heatmaps under them, so neither fence goes unrendered
-    for having been written second. Reached only by a note with NO `dashboard:`
+    ```heatmap fence a year grid (SUB-966), a ```calendar fence a month grid
+    (SUB-965); without any of them the note is a yield tracker (the original
+    dashboard). A note carrying both charts and heatmaps leads with its charts
+    and hangs the heatmaps under them, so neither fence goes unrendered for
+    having been written second. Reached only by a note with NO `dashboard:`
     prop (SUB-993) — a named-but-unknown kind gets the error card instead. */
 function ChartOrYield(props: DashboardPaneProps) {
   const body = useNoteBody(props.meta.path, props.vaultEpoch);
@@ -569,6 +572,8 @@ function ChartOrYield(props: DashboardPaneProps) {
   if (parseChartBlocks(body).length > 0)
     return <ChartsDashboard {...props} body={body} after={heatmapAfter(props, body)} />;
   if (heat) return <HeatmapDashboard {...props} body={body} />;
+  if (parseCalendarBlocks(body).length > 0)
+    return <CalendarFenceDashboard {...props} body={body} />;
   return <YieldDashboard {...props} />;
 }
 

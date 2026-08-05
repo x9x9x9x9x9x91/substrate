@@ -112,9 +112,14 @@ test("the picker says which files it will add before you commit", async ({ page 
   // from unfamiliar files appearing after the restart is the wrong way to
   // learn it. The list here has to be the whole add-set from
   // docs/user/import.md (SUB-1078), not just the visible root files.
+  // The folder is a marker-less one: two loose notes earn "Open vault"
+  // (SUB-1133), and adopting it does write the whole set.
   await bootFirstRun(page);
-  await page.getByLabel("Existing folder").fill("/home/me/Vault");
+  await page.getByLabel("Existing folder").fill("/home/me/loose-vault");
   await page.getByLabel("Existing folder").press("Enter");
+  await expect(page.getByTestId("onboarding-candidate").getByRole("button")).toHaveText(
+    "Open vault"
+  );
 
   const adds = page.getByTestId("onboarding-adds");
   await expect(adds).toContainText("Settings.md");
@@ -130,6 +135,25 @@ test("the picker says which files it will add before you commit", async ({ page 
   await expect(adds).not.toContainText("Nothing else is moved or changed");
 });
 
+test("reopening a vault is not promised files it already has", async ({ page }) => {
+  // SUB-1133: the gate was "not init", so this line rendered on the plain
+  // reopen of an already-adopted vault too — where `.vault/` and the setup
+  // files are already on disk and "Substrate will add its own files here" is
+  // false. Honest wording, and never both lines at once.
+  await bootFirstRun(page);
+  await page.getByLabel("Existing folder").fill("/home/me/Vault");
+  await page.getByLabel("Existing folder").press("Enter");
+
+  await expect(page.getByTestId("onboarding-candidate").getByRole("button")).toHaveText(
+    "Open vault"
+  );
+  await expect(page.getByTestId("onboarding-adds")).toHaveCount(0);
+  const already = page.getByTestId("onboarding-already");
+  await expect(already).toContainText("already a Substrate vault");
+  await expect(already).toContainText("adds nothing new");
+  await expect(already).not.toContainText("Substrate will add its own files here");
+});
+
 test("creating a fresh vault does not make the three-file promise", async ({ page }) => {
   // SUB-1098 review #1: a missing or empty folder is the `init` verb, which
   // runs the starter seed — Welcome.md, the example notes, the dashboards —
@@ -143,6 +167,7 @@ test("creating a fresh vault does not make the three-file promise", async ({ pag
   const cand = page.getByTestId("onboarding-candidate");
   await expect(cand.getByRole("button")).toHaveText("Create vault here");
   await expect(page.getByTestId("onboarding-adds")).toHaveCount(0);
+  await expect(page.getByTestId("onboarding-already")).toHaveCount(0);
 });
 
 test("a folder holding other files demands consent before initializing", async ({ page }) => {

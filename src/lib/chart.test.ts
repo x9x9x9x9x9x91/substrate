@@ -64,6 +64,25 @@ test("parse: categorical x (select prop), sum over number prop", () => {
   assert.deepEqual(c.y, { fn: "sum", prop: "amount" });
 });
 
+test("parse: size is a bounded token, absent by default (SUB-969)", () => {
+  assert.equal(parseRow("source: release\nx: status\ny: count\n").size, null);
+  assert.equal(parseRow("source: release\nx: status\ny: count\nsize: tall\n").size, "tall");
+  assert.equal(parseRow("source: release\nx: status\ny: count\nsize:  TALL \n").size, "tall");
+  // a summaries fence carries the token too — it rides `head`, not the binding
+  const summaries = parseChartConfig("source: {{Holdings}}\nseries: etf\nsize: tall\n");
+  assert.equal(summaries.size, "tall");
+});
+
+test("parse: an off-roster size is not honored, never an error (SUB-969)", () => {
+  // a style token the app can't honor is a preference, not a lie about the
+  // data: the chart draws at its default size rather than the fence failing
+  for (const raw of ["400px", "big", "huge", "12", "tallish", "tall; height: 9px"]) {
+    const c = parseRow(`source: release\nx: status\ny: count\nsize: ${raw}\n`);
+    assert.equal(c.size, null, raw);
+    assert.deepEqual(c.x, { prop: "status", bucket: null }, raw);
+  }
+});
+
 test("parse: comments and blank lines are skipped", () => {
   const c = parseRow("# a comment\n\nsource: release\nx: status\ny: count\n");
   assert.deepEqual(c.x, { prop: "status", bucket: null });
@@ -217,6 +236,7 @@ function cfg(over: Partial<RowChartConfig>): RowChartConfig {
     by: null,
     kind: "bar",
     title: null,
+    size: null,
     ...over,
   };
 }
@@ -1388,7 +1408,7 @@ test("chartIdentity: source and split fold case, like every other authored key",
 test("chartIdentity: a summary chart is identified by the points it names", () => {
   const sheet = { kind: "sheet", name: "Holdings" } as const;
   const summaries = (series: string[]) =>
-    chartIdentity({ source: sheet, kind: "bar", title: null, bind: "summaries", series });
+    chartIdentity({ source: sheet, kind: "bar", title: null, size: null, bind: "summaries", series });
   assert.equal(summaries(["Total", "Cash"]), summaries(["total", "cash"]));
   assert.notEqual(summaries(["Total", "Cash"]), summaries(["Total"]));
   // and it is never confused with the row-bound chart on the same sheet

@@ -18,7 +18,11 @@
  *      bind: "{{Holdings.total}}"
  *      format: eur
  *      emph: true
+ *      accent: teal
  *    ```
+ *
+ *  `accent` is a bounded style token (src/lib/styletokens.ts): an option-colour
+ *  name and nothing else, unknown names simply absent.
  *
  *  Pure TS, no DOM/node imports: runs in the app and under `node --test`.
  *  Resolution and rendering live in src/components/MetricCards.tsx. */
@@ -28,6 +32,7 @@ import { fmtMoney } from "./dashboard.ts";
 import { isErr, type Value } from "./formula.ts";
 import { byFoldedKey } from "./schemalookup.ts";
 import { formatValue } from "./sheet.ts";
+import { parseAccent, type AccentName } from "./styletokens.ts";
 
 export interface MetricCard {
   label: string;
@@ -36,6 +41,8 @@ export interface MetricCard {
   digits?: number;
   /** contrast discipline (principle 11): this card keeps the sharp voice */
   emph?: boolean;
+  /** bounded style token (SUB-969): an option-palette name, or absent */
+  accent?: AccentName;
 }
 
 /** Fraction digits a card may ask for. `Number.toLocaleString` rejects digits
@@ -92,6 +99,7 @@ export function parseCards(props: Record<string, unknown>): MetricCard[] {
       digits: clampCardDigits(o.digits),
       // anything but a literal true (absent, "yes", 1, garbage) is not emphasis
       emph: o.emph === true,
+      accent: parseAccent(o.accent),
     });
   }
   return out;
@@ -147,7 +155,7 @@ export function fmtCard(v: Value, format?: string, digits?: number): string {
 
 // ---------- ```cards fence parsing ----------
 
-const CARD_KEYS = new Set(["label", "bind", "format", "digits", "emph"]);
+const CARD_KEYS = new Set(["label", "bind", "format", "digits", "emph", "accent"]);
 export const CARD_FORMATS = ["eur", "usd", "number", "pct"];
 
 const ITEM_RE = /^(\s*)-\s+(.*)$/;
@@ -166,7 +174,9 @@ export function unquote(v: string): string {
 function assign(card: Partial<MetricCard>, rawKey: string, rawValue: string) {
   const key = rawKey.toLowerCase();
   if (!CARD_KEYS.has(key)) {
-    throw new Error(`unknown key "${rawKey}" — cards take label, bind, format, digits, emph`);
+    throw new Error(
+      `unknown key "${rawKey}" — cards take label, bind, format, digits, emph, accent`,
+    );
   }
   if (key in card) throw new Error(`duplicate key "${rawKey}" on one card`);
   const v = unquote(rawValue);
@@ -180,6 +190,13 @@ function assign(card: Partial<MetricCard>, rawKey: string, rawValue: string) {
   }
   if (key === "digits") {
     card.digits = parseCardDigits(v);
+    return;
+  }
+  if (key === "accent") {
+    // a style token, not a binding: an off-roster name is simply not honored
+    // (SUB-969). The key is still recorded so a second `accent:` line on the
+    // same card is caught as a duplicate like every other key.
+    card.accent = parseAccent(v);
     return;
   }
   const b = v.toLowerCase();

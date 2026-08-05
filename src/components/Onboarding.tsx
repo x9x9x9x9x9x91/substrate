@@ -7,7 +7,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { appRelaunch, onboardingSetAgent, vaultChoose, vaultDemo, vaultInspect } from "../lib/ipc";
-import { actionFor, newVaultPath, type ChoiceAction } from "../lib/onboarding";
+import {
+  actionFor,
+  disclosureFor,
+  newVaultPath,
+  type ChoiceAction,
+  type VaultCandidate,
+} from "../lib/onboarding";
 import { isTauri } from "../lib/tauri";
 
 interface OnboardingProps {
@@ -46,7 +52,9 @@ export default function Onboarding({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** an "open existing" candidate awaiting its verb */
-  const [candidate, setCandidate] = useState<{ path: string; action: ChoiceAction } | null>(null);
+  const [candidate, setCandidate] = useState<{ info: VaultCandidate; action: ChoiceAction } | null>(
+    null
+  );
   const [chosen, setChosen] = useState<string | null>(null);
   /** the agent command written to the new vault's Settings.md ("" = none yet) */
   const [agent, setAgent] = useState("");
@@ -112,7 +120,8 @@ export default function Onboarding({
       }
       setBusy(true);
       try {
-        setCandidate({ path: picked, action: actionFor(await vaultInspect(picked)) });
+        const info = await vaultInspect(picked);
+        setCandidate({ info, action: actionFor(info) });
         setError(null);
       } catch (e) {
         setError(String(e instanceof Error ? e.message : e));
@@ -128,7 +137,8 @@ export default function Onboarding({
     if (!path.trim()) return;
     setBusy(true);
     try {
-      setCandidate({ path, action: actionFor(await vaultInspect(path)) });
+      const info = await vaultInspect(path);
+      setCandidate({ info, action: actionFor(info) });
       setError(null);
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
@@ -296,14 +306,14 @@ export default function Onboarding({
           </div>
           {candidate && (
             <div className="onboarding-candidate" data-testid="onboarding-candidate">
-              <code className="onboarding-path">{candidate.path}</code>
+              <code className="onboarding-path">{candidate.info.path}</code>
               {candidate.action.kind === "consent" && (
                 <p className="onboarding-warning">{candidate.action.warning}</p>
               )}
               <button
                 className="onboarding-primary"
                 disabled={busy}
-                onClick={() => void select(candidate.path, candidate.action.kind === "consent")}
+                onClick={() => void select(candidate.info.path, candidate.action.kind === "consent")}
               >
                 {candidate.action.label}
               </button>
@@ -322,8 +332,21 @@ export default function Onboarding({
 
                   Adoption verbs only. `init` (empty or missing folder) runs the
                   starter seed instead — Welcome.md, the example notes, the
-                  dashboards — so this list would be wrong there too. */}
-              {candidate.action.kind !== "init" && (
+                  dashboards — so this list would be wrong there too. And not on
+                  the plain reopen of a folder that already carries `.vault/`
+                  (SUB-1133): there the set is already on disk, so announcing it
+                  as incoming is false. `disclosureFor` owns that split — a
+                  marker-less folder of two loose notes gets "Open vault" too,
+                  and adopting it really does write all of this. */}
+              {disclosureFor(candidate.info, candidate.action) === "already" && (
+                <p className="onboarding-hint" data-testid="onboarding-already">
+                  This folder is already a Substrate vault — <code>.vault/</code> and its setup
+                  files are here, so opening it adds nothing new; a missing{" "}
+                  <code>Settings.md</code>, <code>AGENTS.md</code> or <code>CLAUDE.md</code> is put
+                  back. Your own notes are never moved or changed.
+                </p>
+              )}
+              {disclosureFor(candidate.info, candidate.action) === "adds" && (
                 <p className="onboarding-hint" data-testid="onboarding-adds">
                   Substrate will add its own files here: <code>Settings.md</code>,{" "}
                   <code>AGENTS.md</code> and <code>CLAUDE.md</code>, an empty <code>Inbox/</code>,

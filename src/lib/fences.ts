@@ -1,5 +1,5 @@
-// Machine fences (```view / ```chart / ```progress / ```cards / ```heatmap / ```csv /
-// ```formulas) hold
+// Machine fences (```view / ```chart / ```progress / ```cards / ```heatmap /
+// ```calendar / ```csv / ```formulas) hold
 // app-parsed config/data, not prose (vault-format §5) — their bodies stay out
 // of search indexing (SUB-261). Mirrors strip_machine_fences in
 // src-tauri/src/vault/mod.rs; keep the fence set and semantics in lockstep
@@ -23,9 +23,10 @@
 export const TAILED_MACHINE_FENCE_LANGS = ["view", "chart", "progress", "cards"] as const;
 
 /** Fence languages whose parsers are strict bare-form (the sheet csv/formulas
-    parsers, the hub's heatmap): a TAILED one renders as plain code — someone's
-    prose — and stays searchable. Only the bare opener is machine content. */
-export const BARE_MACHINE_FENCE_LANGS = ["csv", "formulas", "heatmap"] as const;
+    parsers, the hub's heatmap, the calendar parser of SUB-965): a TAILED one
+    renders as plain code — someone's prose — and stays searchable. Only the
+    bare opener is machine content. */
+export const BARE_MACHINE_FENCE_LANGS = ["csv", "formulas", "heatmap", "calendar"] as const;
 
 /** The case rule is a SEPARATE axis from the tail rule above, and it follows
     each lang's own dispatcher — whatever spelling dispatch accepts, the
@@ -50,7 +51,7 @@ export const BARE_MACHINE_FENCE_LANGS = ["csv", "formulas", "heatmap"] as const;
     stays bare-form for the tail rule; it only folds case. If a bare-form parser
     ever starts or stops folding case, move the lang across this set — both
     sides. */
-const CASE_FOLDING_BARE_LANGS: ReadonlySet<string> = new Set(["heatmap"]);
+const CASE_FOLDING_BARE_LANGS: ReadonlySet<string> = new Set(["heatmap", "calendar"]);
 
 /** A language id spelled so it matches in any case: `view` → `[Vv][Ii][Ee][Ww]`.
     Digits and hyphens (legal in a lang id) have no case and pass through.
@@ -71,6 +72,22 @@ const CASE_FOLDING_BARE_LANGS: ReadonlySet<string> = new Set(["heatmap"]);
     cannot see (SUB-1069). The `i` flag is also wrong on the merits here — it
     would fold csv/formulas too, and ```CSV must stay searchable prose. */
 const foldCase = (lang: string) => lang.replace(/[a-z]/g, (c) => `[${c.toUpperCase()}${c}]`);
+
+/** Whether an opener is a TAILED one of a bare-form language (```calendar
+    month, ```csv raw). Those parsers accept the bare opener only, so the block
+    is someone's prose: it renders as a code box and stays in the search index,
+    exactly as stripMachineFences below leaves it. Any surface that dispatches
+    live widgets on the info string's FIRST WORD must ask this before mounting,
+    or a tailed opener renders live while its config stays indexed (SUB-965
+    review; the SUB-899/SUB-983 leak class from the other direction). `tail` is
+    the info string after the first word — bodies arrive line-split, so a
+    trailing CR (SUB-913's CRLF openers) is not a tail. */
+export function isTailedBareFence(lang: string, tail: string): boolean {
+  return (
+    (BARE_MACHINE_FENCE_LANGS as readonly string[]).includes(lang.toLowerCase()) &&
+    tail.replace(/\r$/, "") !== ""
+  );
+}
 
 /** The app parsers' fence semantics: "```<lang>\n" anywhere opens, the next
     "```" (or EOF) closes — the same regex shape the view/chart/sheet/csv

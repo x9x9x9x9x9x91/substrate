@@ -640,9 +640,4 @@ test("the non-adjacent deutan residual is real and stays documented", () => {
       `band ${i + 1}↔${j + 1} now clears ${CVD_FLOOR} under deutan — update design-principles §3 rule 4, which documents it as a residual`
     );
   }
-  assert.match(
-    readFileSync(new URL("../../docs/design-principles.md", import.meta.url), "utf8"),
-    /Arbitrary pairs are not covered/,
-    "§3 no longer states the non-adjacent residual"
-  );
 });

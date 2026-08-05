@@ -3277,6 +3277,11 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         // SUB-1097: a folder-organised notes vault — markdown only in
         // subfolders — still needs consent but earns the friendlier wording
         nested_markdown: exists && /obsidian|nested/i.test(path),
+        // SUB-1133: `.vault/` already on disk — a returning Substrate vault,
+        // where the add-set line would be false. A folder of loose notes
+        // (`two-notes`) reads as a vault too but has no marker, so adopting it
+        // really does write the set.
+        has_marker: isVault && !/two-notes|loose/i.test(path),
       };
     }
     case "vault_choose": {
@@ -5488,6 +5493,15 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       return null;
     case "agenda_open_capture":
       console.info("[mock] open capture from tray agenda");
+      return null;
+    // SUB-1075: in the browser mock nothing ever hands us a `substrate://`
+    // link — the scheme is registered with the OS around a packaged app — so
+    // the queue is always empty and the prefill always absent.
+    case "deeplink_take_pending":
+      return [];
+    case "deeplink_capture_prefill":
+      return null;
+    case "deeplink_clear_capture_prefill":
       return null;
     case "agenda_resize":
       // the real backend clamps this and re-anchors the popover under the tray
