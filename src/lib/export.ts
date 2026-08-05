@@ -9,6 +9,7 @@ import { buildHandoffDocument } from "./handoff";
 import { buildOneSheet, buildTableSheet } from "./onesheet";
 import { isImageName } from "./artwork";
 import { embedTarget } from "./wikilinks";
+import { dateLocale } from "./dateLocale";
 
 const EMBED_RE = /!\[\[([^[\]]+)\]\]/g;
 
@@ -169,7 +170,7 @@ export async function exportNoteOneSheet(meta: NoteMeta) {
     printed twin. */
 export async function exportDbPdf(dbType: string, columns: string[], rows: NoteMeta[]) {
   const name = dbType.charAt(0).toUpperCase() + dbType.slice(1);
-  const date = new Date().toLocaleDateString(undefined, {
+  const date = new Date().toLocaleDateString(dateLocale(), {
     day: "numeric",
     month: "short",
     year: "numeric",

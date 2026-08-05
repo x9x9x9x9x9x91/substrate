@@ -10,6 +10,7 @@ import { onboardingStatus, vaultRead } from "../lib/ipc";
 import ReflexesSettings from "./ReflexesSettings";
 import { normalizeNumberInput } from "../lib/aggregate";
 import { NUMBER_LOCALES, numberLocaleSample, numberLocaleSetting } from "../lib/numberLocale";
+import { DATE_LOCALES, dateLocaleSample } from "../lib/dateLocale";
 import { setPropUndoable } from "../lib/undoprops";
 import { useEdgeFade } from "../hooks/useEdgeFade";
 import KindsSettings from "./KindsSettings";
@@ -355,6 +356,13 @@ const FIELDS: Field[] = [
     hint: "how every number is written — table cells, calc lines, totals, dashboards, file sizes",
     kind: "choice",
     choices: NUMBER_LOCALES.map((l) => ({ value: l, label: `${numberLocaleSample(l)}  ·  ${l}` })),
+  },
+  {
+    key: "date-locale",
+    label: "Date format",
+    hint: "how every date and clock time is written — trash and asset rows, history stamps, list dates, time travel, dashboard poll lines, printed exports",
+    kind: "choice",
+    choices: DATE_LOCALES.map((l) => ({ value: l, label: `${dateLocaleSample(l)}  ·  ${l}` })),
   },
   /* SUB-834: the three requests that leave this machine, each with its own
      switch. Grouped under one heading so the answer to "what does this app

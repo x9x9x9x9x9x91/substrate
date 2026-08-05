@@ -3,6 +3,7 @@ import type { NoteMeta, TrashEntry } from "../lib/types";
 import { historyPurgeNote, historyPurgeNotes, vaultAssetsRestore, vaultAssetsTrashDelete, vaultTrashDelete, vaultTrashDeleteFolder, vaultTrashDeleteTemplate, vaultTrashEmpty, vaultTrashList, vaultTrashRestore, vaultTrashRestoreFolder, vaultTrashRestoreTemplate } from "../lib/ipc";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import { FolderIcon, ImageIcon, TrashIcon } from "./Icons";
+import { dateLocale } from "../lib/dateLocale";
 
 /** Kinds with no note history behind them: the purge-history lanes skip them.
     An asset was never tracked (SUB-479); a template is a `.vault/` file the
@@ -18,7 +19,7 @@ function fmtDeleted(ms: number): string {
   const d = new Date(ms);
   const opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
   if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
-  return `deleted ${d.toLocaleDateString(undefined, opts)}`;
+  return `deleted ${d.toLocaleDateString(dateLocale(), opts)}`;
 }
 
 /** Row sub-line: the parent folder when there is one ("Projects/" for

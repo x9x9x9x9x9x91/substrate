@@ -5,6 +5,7 @@ import { vaultAssetsDelete, vaultAssetsOrphaned, vaultRoot } from "../lib/ipc";
 import { assetBlobUrl } from "../lib/assets";
 import { isImageName } from "../lib/artwork";
 import { formatFileSize } from "../lib/display";
+import { dateLocale } from "../lib/dateLocale";
 import { ImageIcon, NoteIcon } from "./Icons";
 
 /** "Jun 12" — same locale shape the trash rows use for older dates. */
@@ -12,7 +13,7 @@ function fmtDate(ms: number): string {
   const d = new Date(ms);
   const opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
   if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
-  return d.toLocaleDateString(undefined, opts);
+  return d.toLocaleDateString(dateLocale(), opts);
 }
 
 /** 28px preview for image orphans (blob URLs are owned by lib/assets — revoked

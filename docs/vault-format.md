@@ -3512,8 +3512,8 @@ Plain notes the app treats specially — all optional, all just files:
     `4.2/min` rates and `3.2h` spans on the proxy, sync and feed surfaces —
     keep a dot decimal in every dialect: they are suffix shorthand rather than
     a number a reader would type back, and one character of precision is the
-    whole figure. And dates are not numbers: they do not follow this dial and
-    render in a fixed German shape wherever they carry a time of day.
+    whole figure. And dates are not numbers: they do not follow this dial at
+    all — they read `date-locale` below.
   - *Reading.* A number typed into a number-kind cell is read in the same
     dialect it was rendered in, so retyping what is on screen round-trips:
     under `en-US` `1,234.56` reads as 1234.56, under `de-CH` `1'234` reads as
@@ -3532,7 +3532,21 @@ Plain notes the app treats specially — all optional, all just files:
   key is still honored as a fallback when `number-locale` is absent, so vaults
   that set `intl` keep their en-style numbers, but nothing writes it any more.
 
-  Alongside it, the outbound-request switches, one per request the app can make, all
+  `date-locale` (SUB-1107, a BCP-47 tag from the same short list the number
+  dial offers — `de-DE`, the default, writes `31.01.2026, 14:05`; `de-CH` the
+  same; `en-GB` and `fr-FR` write `31/01/2026`; `en-US` writes `01/31/2026`
+  and is the one 12-hour clock), which is the only dial for the date dialect:
+  every rendered date and clock time reads it — trash and asset rows, note
+  history stamps, list date chips, time-travel points, dashboard poll lines
+  and the printed export header — through one shared binding. Unset or
+  unrecognized reads as `de-DE`. Unlike `number-locale` this is not a
+  no-op for existing vaults: the surfaces that formerly passed no locale
+  followed the operating system's, and two followed `en-GB`, so they move to
+  the vault's setting on first launch. It decides presentation only — nothing
+  on disk changes, journal note titles keep their own English format, and
+  date *values* in frontmatter stay ISO (§4).
+
+  Alongside them, the outbound-request switches, one per request the app can make, all
   default `true` and all turned off only by an explicit `false`:
   `net-link-titles` (a captured link asks that site for its page title — off
   still captures the note, it just keeps the bare URL as the title),

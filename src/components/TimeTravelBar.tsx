@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { NoteMeta, VaultHistoryPoint } from "../lib/types";
 import { ClockIcon, XIcon } from "./Icons";
+import { dateLocale } from "../lib/dateLocale";
 
 interface TimeTravelBarProps {
   points: VaultHistoryPoint[];
@@ -15,7 +16,7 @@ interface TimeTravelBarProps {
 }
 
 const exactTime = (ms: number) =>
-  new Intl.DateTimeFormat(undefined, {
+  new Intl.DateTimeFormat(dateLocale(), {
     year: "numeric",
     month: "short",
     day: "numeric",

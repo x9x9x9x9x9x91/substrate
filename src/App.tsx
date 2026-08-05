@@ -82,6 +82,7 @@ import {
   DEFAULT_APPEARANCE,
   parseAppearance,
 } from "./lib/appearance";
+import { DEFAULT_DATE_LOCALE, dateLocaleSetting, setDateLocale } from "./lib/dateLocale";
 import { applyWindowOpacity } from "./lib/vibrancy";
 import {
   historyEnter,
@@ -592,6 +593,10 @@ export default function App() {
           setNumberLocale(locale);
           setNumberLocaleState(locale);
         }
+        // SUB-1107: `date-locale` is a module binding, not React state — every
+        // date formatter in the app is module-scope or inline, and this read
+        // re-runs on vaultEpoch, which is also what repaints them.
+        setDateLocale(dateLocaleSetting(c.props));
       })
       .catch(() => {
         setTerminalActions([]);
@@ -609,6 +614,7 @@ export default function App() {
         // render never rewrites a file.
         setNumberLocale(DEFAULT_NUMBER_LOCALE);
         setNumberLocaleState(DEFAULT_NUMBER_LOCALE);
+        setDateLocale(DEFAULT_DATE_LOCALE);
       });
   }, [vaultEpoch]);
 

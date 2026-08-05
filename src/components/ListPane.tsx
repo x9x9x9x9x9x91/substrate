@@ -10,6 +10,7 @@ import { tagFolderSummary } from "../lib/tags";
 import { fileExt, fileKind } from "../lib/folderfiles";
 import { formatFileSize } from "../lib/display";
 import { useNumberLocale } from "../hooks/useNumberLocale";
+import { dateLocale } from "../lib/dateLocale";
 import InlineEdit from "./InlineEdit";
 import TypeIcon from "./TypeIcon";
 import { AudioPropButton } from "./AudioPropButton";
@@ -23,7 +24,7 @@ export function relDate(ms: number, now = Date.now()): string {
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`;
   if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d`;
-  return new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  return new Date(ms).toLocaleDateString(dateLocale(), { day: "numeric", month: "short" });
 }
 
 /** stable identity for the memoized FileRow's optional callbacks — an inline

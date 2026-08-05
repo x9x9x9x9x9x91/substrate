@@ -12,6 +12,7 @@ import { XIcon } from "./Icons";
 import DateMenu from "./DateMenu";
 import { anchorFrom, type AnchorRect } from "./SelectMenu";
 import { daysAgoIso, formatDateHuman, todayIso } from "../lib/dates";
+import { dateLocale } from "../lib/dateLocale";
 
 const CONFIRM_WORD = "purge";
 
@@ -24,7 +25,7 @@ function fmtWhen(ts: number): string {
     minute: "2-digit",
   };
   if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
-  return d.toLocaleString(undefined, opts);
+  return d.toLocaleString(dateLocale(), opts);
 }
 
 interface HistoryPanelProps {
