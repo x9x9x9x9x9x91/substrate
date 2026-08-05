@@ -10,8 +10,9 @@
  *
  * Two modes:
  *   (default)  rewrite CHANGELOG.md from CHANGELOG[]
- *   --check    exit 1 when the on-disk file differs from that render, or when
- *              the four version numbers disagree
+ *   --check    exit 1 when the on-disk file differs from that render, when the
+ *              five version numbers disagree, or when a `private: true` item
+ *              is not inside a share-mirror strip fence (SUB-985)
  *
  * The version check covers changelog.ts's newest entry, package.json,
  * src-tauri/tauri.conf.json, src-tauri/Cargo.toml and the `substrate` entry in
@@ -165,6 +166,230 @@ export function versionMismatch(versions: VersionSet): string | null {
   return `version sources disagree:\n${lines.join("\n")}`;
 }
 
+/* ── private-item fencing (SUB-985) ─────────────────────────────────────── */
+
+/**
+ * `private: true` items are filtered out of the rendered CHANGELOG.md and the
+ * stock in-app pane — but changelog.ts itself SHIPS in the public source
+ * mirror, so the only thing keeping a private item's prose out of the mirror
+ * is a share-mirror strip fence around it. share-mirror.sh's `--check` can
+ * validate fences that exist; it is structurally blind to a fence that was
+ * never added (v0.22.0 added three unfenced private items and `--check`
+ * passed). This scan closes that hole from the other side: it fails the unit
+ * suite — a required gate on every branch — when a private item sits outside
+ * a fenced region.
+ */
+/* Assembled rather than written out, and split before `strip` rather than
+   after: this file SHIPS in the mirror, so a whole marker on a line would be
+   read as a real fence by the strip pass (stripping the scanner out of the
+   snapshot it protects), and even the marker's PREFIX is a share-denylist
+   entry — the mirror refuses to ship any file that names it. Both traps are
+   only avoided if no literal `share-mirror` + `:strip` sits in the source. */
+const STRIP_START = `share-mirror:${"strip"}-start`;
+const STRIP_END = `share-mirror:${"strip"}-end`;
+
+/**
+ * Which lines share-mirror.sh's strip pass would remove, by the same rules its
+ * awk uses: marker lines go, so does everything between them, and markers must
+ * balance. Returns a per-line flag plus the first structural error, if any.
+ */
+export function scanFences(source: string): { stripped: boolean[]; error: string | null } {
+  const lines = source.split("\n");
+  const stripped = lines.map(() => false);
+  let depth = 0;
+  let error: string | null = null;
+  lines.forEach((line, index) => {
+    const at = index + 1;
+    if (line.includes(STRIP_START)) {
+      if (depth && !error) error = `nested ${STRIP_START} at line ${at}`;
+      depth = 1;
+      stripped[index] = true;
+      return;
+    }
+    if (line.includes(STRIP_END)) {
+      if (!depth && !error) error = `${STRIP_END} without a start at line ${at}`;
+      depth = 0;
+      stripped[index] = true;
+      return;
+    }
+    stripped[index] = depth === 1;
+  });
+  if (!error && depth) error = `unterminated ${STRIP_START} — the file's markers do not balance`;
+  return { stripped, error };
+}
+
+/**
+ * The source with string, comment and regex-free content blanked out but every
+ * offset and newline preserved, so brace matching cannot be fooled by a `{`
+ * inside an item's text or a comment.
+ */
+function blankLiterals(source: string): string {
+  let out = "";
+  let i = 0;
+  const keepNewlines = (text: string) => text.replace(/[^\n]/g, " ");
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === '"' || ch === "'" || ch === "`") {
+      const quote = ch;
+      out += ch;
+      i += 1;
+      while (i < source.length) {
+        if (source[i] === "\\") {
+          out += "  ";
+          i += 2;
+          continue;
+        }
+        if (source[i] === quote) {
+          out += quote;
+          i += 1;
+          break;
+        }
+        out += source[i] === "\n" ? "\n" : " ";
+        i += 1;
+      }
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "/") {
+      const end = source.indexOf("\n", i);
+      const stop = end === -1 ? source.length : end;
+      out += keepNewlines(source.slice(i, stop));
+      i = stop;
+      continue;
+    }
+    if (ch === "/" && source[i + 1] === "*") {
+      const end = source.indexOf("*/", i + 2);
+      const stop = end === -1 ? source.length : end + 2;
+      out += keepNewlines(source.slice(i, stop));
+      i = stop;
+      continue;
+    }
+    out += ch;
+    i += 1;
+  }
+  return out;
+}
+
+/**
+ * `blankLiterals` plus the one thing the brace walk still needs to read: a
+ * QUOTED property key. `{ "private": true }` is truthy at runtime and hidden
+ * in-app exactly like the bare form, but blanking wipes the key's characters,
+ * so the scan would sail past it. Keys are written back only where the blanked
+ * buffer still shows the literal's own quotes at both ends — an escaped
+ * `\"private\"` inside an item's prose stays blank, and so does prose that
+ * merely says `private: true`.
+ */
+function blankForScan(source: string): string {
+  const blanked = blankLiterals(source).split("");
+  const quotedKey = /(["'])([A-Za-z_$][\w$]*)\1(?=\s*:)/g;
+  let match: RegExpExecArray | null;
+  while ((match = quotedKey.exec(source)) !== null) {
+    const end = match.index + match[0].length - 1;
+    if (blanked[match.index] !== match[1] || blanked[end] !== match[1]) continue;
+    for (let i = 0; i < match[0].length; i += 1) blanked[match.index + i] = match[0][i];
+  }
+  return blanked.join("");
+}
+
+/** A `private: true` property, bare or quoted-key. */
+const PRIVATE_TRUE = /(?:\bprivate\b|(["'])private\1)\s*:\s*true\b/;
+
+/** Line number (1-based) for a character offset. */
+function lineOf(source: string, offset: number): number {
+  let line = 1;
+  for (let i = 0; i < offset; i += 1) if (source[i] === "\n") line += 1;
+  return line;
+}
+
+/**
+ * Every `private: true` item that would survive the mirror's strip pass, in
+ * whole: the check spans the item's entire object literal, not just its
+ * `private` line, so a fence that covers the flag but leaves the item's `text`
+ * behind is caught too (that shape strips into a syntax error, which only the
+ * slow `--verify` would otherwise notice).
+ */
+export function privateItemProblems(source: string, label = "src/lib/changelog.ts"): string[] {
+  const { stripped, error } = scanFences(source);
+  if (error) return [`${label}: ${error} (share-mirror.sh would refuse this file)`];
+
+  const blanked = blankForScan(source);
+  /* blankLiterals understands strings and comments but not regex literals, so
+     a `/…/` here would leave stray braces in the blanked buffer and skew every
+     span. changelog.ts is pure data and has none; this pins that. */
+  if (blanked.includes("/")) {
+    return [
+      `${label}: a \`/\` survives literal-blanking (line ${lineOf(source, blanked.indexOf("/"))}) — ` +
+        `the fence scan only understands strings and comments, so a regex literal ` +
+        `would skew item spans. Keep this file pure data.`,
+    ];
+  }
+  const blankedLines = blanked.split("\n");
+  const lines = source.split("\n");
+  const offsets: number[] = [];
+  let cursor = 0;
+  for (const line of lines) {
+    offsets.push(cursor);
+    cursor += line.length + 1;
+  }
+
+  const problems: string[] = [];
+  const seen = new Set<number>();
+  lines.forEach((_line, index) => {
+    // match the BLANKED line: the literal phrase in an item's prose or in a
+    // comment is not a private item
+    const flag = PRIVATE_TRUE.exec(blankedLines[index]);
+    if (!flag) return;
+
+    // walk back to the `{` that opens this item, then forward to its match —
+    // from the flag itself, not the line start, or a single-line item's own
+    // `{` is skipped and the span balloons to the enclosing release object
+    let depth = 0;
+    let open = -1;
+    for (let i = offsets[index] + flag.index - 1; i >= 0; i -= 1) {
+      const ch = blanked[i];
+      if (ch === "}") depth += 1;
+      else if (ch === "{") {
+        if (depth === 0) {
+          open = i;
+          break;
+        }
+        depth -= 1;
+      }
+    }
+    if (open === -1) {
+      problems.push(`${label}:${index + 1}: could not find the item enclosing this \`private: true\``);
+      return;
+    }
+    let close = blanked.length - 1;
+    depth = 0;
+    for (let i = open + 1; i < blanked.length; i += 1) {
+      const ch = blanked[i];
+      if (ch === "{") depth += 1;
+      else if (ch === "}") {
+        if (depth === 0) {
+          close = i;
+          break;
+        }
+        depth -= 1;
+      }
+    }
+
+    const first = lineOf(source, open);
+    const last = lineOf(source, close);
+    if (seen.has(first)) return;
+    seen.add(first);
+    const leaked: number[] = [];
+    for (let at = first; at <= last; at += 1) if (!stripped[at - 1]) leaked.push(at);
+    if (leaked.length === 0) return;
+    problems.push(
+      `${label}:${first}: a \`private: true\` item is not fully inside a share-mirror strip fence ` +
+        `(line${leaked.length > 1 ? "s" : ""} ${leaked.join(", ")} would ship).\n` +
+        `  changelog.ts ships in the public mirror, so wrap the item in\n` +
+        `  \`// ${STRIP_START}\` / \`// ${STRIP_END}\` or drop the \`private\` flag.`
+    );
+  });
+  return problems;
+}
+
 /* ── the gate ───────────────────────────────────────────────────────────── */
 
 export interface CheckResult {
@@ -172,12 +397,22 @@ export interface CheckResult {
   problems: string[];
 }
 
-/** Both halves of `--check`: rendered-vs-on-disk, and version agreement. */
+/**
+ * All three halves of `--check`: rendered-vs-on-disk, version agreement, and
+ * (SUB-985) every `private: true` item sitting inside a share-mirror fence.
+ */
 export function checkChangelog(root = ROOT): CheckResult {
   const problems: string[] = [];
 
   const mismatch = versionMismatch(readVersions(root));
   if (mismatch) problems.push(mismatch);
+
+  const changelogTs = resolve(root, "src/lib/changelog.ts");
+  try {
+    problems.push(...privateItemProblems(readFileSync(changelogTs, "utf8")));
+  } catch {
+    problems.push("src/lib/changelog.ts is missing — the private-item fence scan could not run");
+  }
 
   const expected = renderChangelog();
   let actual: string | null = null;
@@ -203,7 +438,8 @@ function main(argv: string[]): number {
     console.log(
       "usage: node scripts/gen-changelog.ts [--check]\n\n" +
         "  (no args)  rewrite CHANGELOG.md from src/lib/changelog.ts\n" +
-        "  --check    exit 1 if CHANGELOG.md is stale or the versions disagree"
+        "  --check    exit 1 if CHANGELOG.md is stale, the versions disagree, or a\n" +
+        "             private item is missing its share-mirror strip fence"
     );
     return 0;
   }

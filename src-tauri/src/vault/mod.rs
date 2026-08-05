@@ -119,9 +119,17 @@ pub struct FmState {
 /// every frontend reader lowercases the info string's first word before
 /// matching — ```View renders as a widget, so its config must leave the index
 /// as well, or a mixed-case fence's contents land in the search table while
-/// the widget renders (SUB-1104). csv/formulas keep exact case: their parsers
-/// match the literal opener, so ```CSV is a plain code box and stays
-/// searchable. The fold lives IN the pattern rather than on a RegexBuilder so
+/// the widget renders (SUB-1104). The case rule is a separate axis from the
+/// tail rule and follows each lang's OWN dispatcher: csv/formulas keep exact
+/// case because their parsers match the literal opener, so ```CSV is a plain
+/// code box and stays searchable — while heatmap folds case despite being
+/// bare-form, because the hub lowercases before dispatching and so renders a
+/// bare ```HeatMap live with its config still indexed (SUB-1128). heatmap's
+/// second reader (the dashboard pane) matches the literal opener; where two
+/// dispatchers disagree the strip follows the WIDEST, since stripping closes a
+/// real leak while the cost the other way is only that machine config stays
+/// out of search.
+/// The fold lives IN the pattern rather than on a RegexBuilder so
 /// the two sides stay comparable character for character. The obvious
 /// spelling `(?i:…)` — which this crate does support — is deliberately NOT
 /// used: the TS twin cannot have it (inline pattern modifiers are ES2025,
@@ -134,7 +142,7 @@ fn machine_fence_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
         Regex::new(
-            r"```(?:(?:[Vv][Ii][Ee][Ww]|[Cc][Hh][Aa][Rr][Tt]|[Pp][Rr][Oo][Gg][Rr][Ee][Ss][Ss]|[Cc][Aa][Rr][Dd][Ss])(?:[ \t][^`\n]*)?|csv|formulas|heatmap)\r?\n[\s\S]*?(?:```|\z)",
+            r"```(?:(?:[Vv][Ii][Ee][Ww]|[Cc][Hh][Aa][Rr][Tt]|[Pp][Rr][Oo][Gg][Rr][Ee][Ss][Ss]|[Cc][Aa][Rr][Dd][Ss])(?:[ \t][^`\n]*)?|csv|formulas|[Hh][Ee][Aa][Tt][Mm][Aa][Pp])\r?\n[\s\S]*?(?:```|\z)",
         )
             .unwrap()
     })
@@ -2498,6 +2506,10 @@ mod tests {
             "```CHART compact",
             "```Cards",
             "```CaRdS two-up",
+            // bare-form, but the hub dispatches it lowercased, so it folds too
+            // (SUB-1128) — bare openers only, no tail
+            "```HeatMap",
+            "```HEATMAP",
         ] {
             let body = format!("a\n{open}\nquery: secret\n```\nb");
             let out = strip_machine_fences(&body);
@@ -2509,6 +2521,11 @@ mod tests {
         for prose in ["a\n```CSV\nsecret,1\n```\nb", "a\n```Formulas\nsecret = A1\n```\nb"] {
             assert_eq!(strip_machine_fences(prose), prose, "mixed-case bare form stays prose");
         }
+        // heatmap keeps the OTHER half of its bare-form contract while folding
+        // case: a tailed opener is plain code the hub won't render, whatever
+        // its spelling, so it stays searchable (SUB-1128).
+        let tailed = "a\n```HeatMap year\nsecret: session\n```\nb";
+        assert_eq!(strip_machine_fences(tailed), tailed, "tailed mixed-case heatmap stays prose");
     }
 
     #[test]

@@ -16,7 +16,7 @@ Anytype, Logseq, and friends. It feeds the public site (`site/index.html`,
 - Claims must be checkable against the repo. Every line here should survive
   "don't trust the copy — read the source".
 
-*Graduated 2026-08-02 from the internal register (SUB-823), which was
+*Graduated 2026-08-02 from the internal register, which was
 reviewed that day against README, the full CHANGELOG (0.1→0.20), and current
 competitor state (Obsidian Bases 1.9/1.10, Anytype, Logseq DB split,
 Capacities, Affine).*

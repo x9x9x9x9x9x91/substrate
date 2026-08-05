@@ -1,13 +1,12 @@
-# Undo — app-wide design (SUB-443)
+# Undo — app-wide design
 
 Substrate's credo says **"Nothing is ever lost. Trash, history, restore — fearless
 by default; only explicit actions are permanent"** (`docs/vision.md:98`). Undo is
 where that credo is cashed out at the scale of a single mistake. Today it is
 cashed out four different ways on four surfaces and not at all everywhere else.
 
-This document is the design for one undo model. It is a spec, not a work list —
-`AGENTS.md` §"docs are specs/reference". Slice 1 (§6) is written so a lane can
-implement it from this file alone.
+This document is the design for one undo model. It is a spec, not a work list.
+Slice 1 (§6) is written so it can be implemented from this file alone.
 
 Every claim about current behaviour below is cited to code. Where the code and
 this doc disagree, the code wins and this doc gets fixed in the same merge.
@@ -68,7 +67,7 @@ action in the app.
 `vault_note_add_tags` is the one other frontmatter writer — a case-folded
 union on `tags:`, reached by dropping a note on a tag folder
 (`App.tsx` `onDropNoteTagFolder`). ✅ undo via `addTagsUndoable`
-(`undoprops.ts`, SUB-1025): the inverse restores the pre-write `tags:` list
+(`undoprops.ts`): the inverse restores the pre-write `tags:` list
 (never "remove what was added" — the drop may have added nothing), guarded
 like §6.2 so it refuses rather than clobbers if the tags moved since. A
 `tags:` value with no writable inverse (a nested map) records nothing — the
@@ -80,7 +79,7 @@ drop still lands, but that one action is not undoable.
 |---|---|---|---|---|---|
 | `vault_create` | `:164` | `create_full` `vault/mod.rs:1376` | New `.md`, auto-numbered on collision | ✅ returned path → trash it | ❌ (scratch-abandon hard-deletes silently, `App.tsx:1309-1331`) |
 | `vault_move` | `:532` | `move_note` `vault/mod.rs:1839` | `fs::rename` into another folder; filename and links untouched | ✅ prior folder. **The cleanest invertible structural op** | ❌ |
-| `vault_rename` | `:255` | `rename` `vault/mod.rs:1515` | Renames file **and rewrites `[[wikilinks]]` in every source note + relation props across notes** | 🟡 reverse sweep catches unrelated notes that already said `[[old]]`; can return `Err` *after* the rename landed (SUB-225, `vault/mod.rs:1568`; SUB-285, `:1676`) | ❌ |
+| `vault_rename` | `:255` | `rename` `vault/mod.rs:1515` | Renames file **and rewrites `[[wikilinks]]` in every source note + relation props across notes** | 🟡 reverse sweep catches unrelated notes that already said `[[old]]`; can return `Err` *after* the rename landed (`vault/mod.rs:1568`, `:1676`) | ❌ |
 | `vault_create_folder` | `:511` | `create_folder` `vault/mod.rs:1826` | `create_dir_all` | ✅ but capture which levels were new | ❌ |
 | `vault_rename_folder` | `:521` | `rename_folder` `vault/mod.rs:1875` | Dir rename + retargets `$folders` icons, schema `home`s, `$sidebar` | ✅ capture the *returned* rel (sanitizer may rewrite the requested name) | ❌ |
 | `vault_delete` (trash) | `commands/trash.rs:11` | `trash` `vault/trash.rs:184` | Note → `.trash/<ms>/<rel>` | ✅ the command **returns the trash id** (`Result<String,String>`), so the inverse is `vault_trash_restore(id)` | ✅ toast (`App.tsx:1517`) |
@@ -96,7 +95,7 @@ already concedes these are not row-invertible.
 
 | Command | lib.rs | What changes | Invertible |
 |---|---|---|---|
-| `vault_schema_set` | `:608` | One prop's schema in `.vault/schema.json` | ✅ prior `PropSchema` + type-entry-existed flag. **Caveat**: `notify` is `unwrap_or(keep)` and `notify_before` is `.or(keep_before)` (`vault/schema.rs`) — the inverse must pass `Some(old_notify)` and the old lead time explicitly, `Some(0)` where it was off (SUB-842) |
+| `vault_schema_set` | `:608` | One prop's schema in `.vault/schema.json` | ✅ prior `PropSchema` + type-entry-existed flag. **Caveat**: `notify` is `unwrap_or(keep)` and `notify_before` is `.or(keep_before)` (`vault/schema.rs`) — the inverse must pass `Some(old_notify)` and the old lead time explicitly, `Some(0)` where it was off |
 | `vault_schema_set_icon` | `:630` | Type icon | ✅ prior `DbIcon`; build from the *stored* value (emoji beats glyph, orphan tint drops) |
 | `vault_schema_home_set` | `:650` | Type home folder | ✅ prior `Option<String>`; the uniqueness check can make the inverse *fail* |
 | `vault_create_type` | `:664` | New type entry | ✅ remove the entry |
@@ -105,7 +104,7 @@ already concedes these are not row-invertible.
 | `vault_rename_prop` | `:705` | Renames a FM key across every note of the type; `skipped` notes already had the new key | ❌ `BulkSweep{notes,skipped}` only |
 | `vault_clear_prop` | `:720` | **Strips a FM key's value from every note of the type** + wipes it from the view pref | ❌ count only. The most data-lossy non-trash command |
 
-All four return the same `BulkSweep{notes, skipped, failed?}` (SUB-501). They
+All four return the same `BulkSweep{notes, skipped, failed?}`. They
 stop at the first note that fails to rewrite, and `failed` carries that error
 back **alongside** the partial count rather than rejecting the call — so a
 sweep that rewrote 40 of 60 notes says so instead of reporting only the error.
@@ -163,9 +162,9 @@ Undo-adjacent but not undo: TrashPane (`TrashPane.tsx:96-119`), HistoryPanel
 snapshot before schema sweeps but **exposes no UI to roll it back**, and swallows
 its own failure with `.catch(console.warn)` at `:1042`).
 
-The yield-board ⌘Z (SUB-323) is **live** — `DashboardPane.tsx:96-131`, two ref
+The yield-board ⌘Z is **live** — `DashboardPane.tsx:96-131`, two ref
 stacks of `{ body, claimed }` capped at 50, covered by `e2e/yieldundo.spec.ts`.
-The `yield-apr` archive (SUB-447) landed 2026-07-25 and was reverted the same
+The `yield-apr` archive landed 2026-07-25 and was reverted the same
 day (`e88cb5a`, merged as `d64d6d5`), restoring the kind and both specs;
 `FoodDashboard.tsx:219-220` notes the food stack is a copy of this design, not
 its successor.
@@ -203,15 +202,15 @@ neither the cheat sheet nor the hint panel.
 3. **Bulk commands return counts, not rows.** `vault_clear_prop`,
    `vault_rename_type`, `vault_delete_type`, `vault_rename_prop` — none say
    *which* notes changed or what the old values were. The four sweeps at least
-   report *how many* even when they die partway (`BulkSweep.failed`, SUB-501).
+   report *how many* even when they die partway (`BulkSweep.failed`).
 4. ~~**`vault_delete_folder` discards view-config.**~~ Closed: a folder delete
    parks icon, schema home, sidebar rows and keys in an `<id>.folder.json`
-   sidecar (SUB-480/SUB-499), and a note delete parks its pin and keys in an
-   `<id>.note.json` one (SUB-666). Both restore with yield-to-newer semantics —
+   sidecar, and a note delete parks its pin and keys in an
+   `<id>.note.json` one. Both restore with yield-to-newer semantics —
    see `docs/vault-format.md` §10.
 5. **Restore never overwrites**, so it numbers on collision (`vault/trash.rs:683`,
    `:822`) — "undo delete" is not guaranteed to restore the original path.
-6. **Extract-selection is split across two stacks** (SUB-591). The create
+6. **Extract-selection is split across two stacks**. The create
    records on the app stack (`NotePane.tsx` `extractToNote` → `recordCreate`);
    the `[[link]]` replacing the selected text rides CodeMirror history. Since
    `App.tsx` scopes the app stack's ⌘Z out of the editor (§1.8), one gesture
@@ -397,12 +396,12 @@ disk and leaves the window pointing at a path the vault no longer has.
 
 The failure is always the same shape, and it has now been found three times:
 
-- **SUB-768** — moving the open note out of the current scope, with no follow:
+- **The scope move** — moving the open note out of the current scope, with no follow:
   the selection-guard snaps the editor to a *neighbouring* note, and the next
   keystroke lands in it. The wrong-note editing trap.
-- **SUB-783** — undoing a rename applied the path change as a plain prop
+- **The rename undo** — undoing a rename applied the path change as a plain prop
   change, remounting the editor with no selection repair.
-- **SUB-1061** — the SUB-768 trap one keystroke later: the forward move
+- **The move's undo** — the wrong-note trap one keystroke later: the forward move
   followed, its undo didn't, so taking the move back re-opened exactly the bug
   the follow had closed.
 
@@ -417,7 +416,7 @@ takes a caller-supplied UI hook and calls it from *both* inverse directions:
 
 The note helpers deliberately do *not* fire on the forward call: the caller is
 already inside its own `.then` there, where it knows things the hook can't
-(SUB-768's `wasShown`, computed from the pre-move meta). The folder helper does
+(the `wasShown` flag, computed from the pre-move meta). The folder helper does
 fire forward, because dragging a folder has no such caller-side branch.
 
 **The hook must not close over render state.** The closure is recorded at
@@ -433,7 +432,7 @@ answer: the user has since navigated. Two safe forms, both in use:
   which must ask "is this note the open one, and was it on screen?" against the
   view as it stands at undo time.
 
-Everything else the forward path does still applies, including the SUB-72 trick:
+Everything else the forward path does still applies, including the seed-first trick:
 seed the moved meta into `notes` synchronously before switching the view, or the
 destination list has no row for the note yet and the guard snaps straight back.
 
@@ -443,7 +442,7 @@ destination list has no row for the note yet and the guard snaps straight back.
 
 This is where the design earns its keep. Substrate's vault is a shared surface:
 agents edit files live, sync pulls rewrite them, other editors are open. Undo is
-the operation most likely to write *stale* bytes, and SUB-287 proved it does so
+the operation most likely to write *stale* bytes, and the stale-buffer clobber proved it does so
 silently when uncoordinated.
 
 ### 3.1 What the seam looks like today — verified
@@ -451,7 +450,7 @@ silently when uncoordinated.
 **Watcher** (`vault/watch.rs:61-230`): `notify::recommended_watcher`, recursive on
 the vault root, with a **300 ms quiet-period debounce** that coalesces bursts
 (`vault/watch.rs:151`). A 45 s full-rescan poll loop is the degraded fallback when
-the watcher can't arm (SUB-157, `vault/watch.rs:52`, `:122`).
+the watcher can't arm (`vault/watch.rs:52`, `:122`).
 
 **The payload is empty.** `handle.emit("vault:changed", ())` — `lib.rs:682`. No
 paths, no mtimes, no hashes. Every downstream consumer treats it as a wholesale
@@ -481,7 +480,7 @@ frontmatter (`vault/mod.rs:1196-1199`), so an external FM-only edit never confli
 A conflict surfaces as a banner with reload-vs-overwrite (`NotePane.tsx:559-583`).
 Failures never drop text — `pending.current = p` is restored in the catch (`:348`).
 
-**The SUB-287 fix is one annotation** — `Editor.tsx:1253-1266`:
+**The stale-buffer fix is one annotation** — `Editor.tsx:1253-1266`:
 
 ```ts
 view.dispatch({
@@ -489,7 +488,7 @@ view.dispatch({
   selection: { anchor: head },
   // not the user's edit: keep it out of the undo history, or the next
   // ⌘Z reverts the adopt and autosaves the stale body over the
-  // external change (SUB-287). Earlier user edits stay undoable.
+  // external change. Earlier user edits stay undoable.
   annotations: [Transaction.addToHistory.of(false)],
 });
 ```
@@ -505,13 +504,13 @@ root — so open editors learn about a pull **only through the OS watcher**, on 
 tree, and nothing flushes the frontend's `pending` buffer before the pull runs
 (`VaultSyncPane.tsx:69-84` calls `vaultSyncPull()` directly).
 
-### 3.2 The consequence SUB-287 left standing
+### 3.2 The consequence that fix left standing
 
 The fix keeps pre-adopt user edits on the stack. So after an adopt, ⌘Z undoes
 *the user's last edit, applied against a document someone else rewrote*. In the
 e2e that is a no-op because there was no earlier edit. In general it is a
 CodeMirror change-set replayed onto a document whose offsets moved. **Nothing
-guards that today.** It is not the silent clobber SUB-287 fixed — the CAS guard
+guards that today.** It is not the silent clobber that fix removed — the CAS guard
 catches the write if the body diverged — but it is not coherent either.
 
 ### 3.3 Target design — the invalidation rule
@@ -520,7 +519,7 @@ catches the write if the body diverged — but it is not coherent either.
 > from a writer that is not this app's own action.**
 
 Not "on any external change" (too aggressive — an agent editing an unrelated note
-must not wipe the stack). Not "never" (that is the SUB-287 class of bug). The
+must not wipe the stack). Not "never" (that is the stale-buffer class of bug). The
 entry's `paths` field is the key.
 
 Implementation, in dependency order:
@@ -581,7 +580,7 @@ Three consequences worth stating plainly:
 1. **Adopts stay out of both stacks.** `Transaction.addToHistory.of(false)`
    handles CodeMirror; the app stack never sees an adopt because adopts are not
    user actions.
-2. **The residual SUB-287 hazard (§3.2) gets an explicit answer**: when an adopt
+2. **The residual stale-buffer hazard (§3.2) gets an explicit answer**: when an adopt
    lands in a buffer that has undoable user history, that history is *marked* —
    the next ⌘Z in that editor shows a one-line confirm ("This note changed on
    disk since your last edit. Undo anyway?") instead of silently replaying. This
@@ -625,7 +624,7 @@ Per the credo, each needs a named alternative recovery path.
 | `vault_sync_push` | publishes to a remote | remote-side; out of scope |
 | `vault_sync_pull` | git-level merge | the pre-pull snapshot (`commands/vaultsync.rs:99`) |
 | `vault_sync_set_remote` | stores a token that **cannot be read back** | re-enter the credential |
-| `vault_rename_type`, `vault_delete_type`, `vault_rename_prop`, `vault_clear_prop` | count-only returns (partial runs report the count with the error, SUB-501); a reverse sweep catches notes that legitimately already matched | `presweepSnapshot` (`App.tsx:1040-1044`) → HistoryPanel restore. **Needs the UI in §6.5** |
+| `vault_rename_type`, `vault_delete_type`, `vault_rename_prop`, `vault_clear_prop` | count-only returns (partial runs report the count with the error); a reverse sweep catches notes that legitimately already matched | `presweepSnapshot` (`App.tsx:1040-1044`) → HistoryPanel restore. **Needs the UI in §6.5** |
 | `mount_remove` with cleanup | trashes every sidecar of the mount + the empty database | the notes are in `.trash/` (`vault_trash_restore`); the mounted folder is never touched, and re-mounting the folder reattaches surviving sidecars by content identity |
 | `mount_rescan` | rewrites a derived index, not notes | re-run it; the mounted folder is read-only to Substrate |
 | `term::*`, `file_open`, and any machine-bridge dashboard command | external processes and machine state | n/a |
@@ -771,7 +770,7 @@ Clicking the toast and pressing ⌘Z must be the same operation, so the toast's
 15. Bulk-set status on 3 selected rows → ⌘Z → all 3 revert in one keystroke.
 16. Set a prop, then have `__mockEditNote` change that same note externally, emit
     `vault:changed` → ⌘Z is refused with "changed on disk" and the external value
-    survives. *(the SUB-287 pattern, at property granularity)*
+    survives. *(the stale-buffer pattern, at property granularity)*
 16b. An inverse that fails for a non-conflict reason is skipped, not retried
     forever: the next ⌘Z reaches the entry beneath it (§3.3d′).
 17. ⌘Z with focus in the editor undoes text, not the last property edit.
@@ -870,7 +869,7 @@ observes the filesystem rather than trying to be it.
 on two counts. Cost: a per-action whole-vault copy is unaffordable and a
 per-note copy is still large for a big note edited continuously. Correctness:
 restoring a whole-note snapshot clobbers concurrent external edits to the parts
-of the note the action never touched — the exact failure SUB-287 was about,
+of the note the action never touched — the exact stale-buffer failure,
 generalized. Narrow inverses are both cheaper and safer.
 
 **Persist the stack across restarts.** Rejected: an inverse recorded before quit
@@ -890,7 +889,7 @@ including by the undo action's own failure toast. It is a good notification and 
 bad undo. It stays as a discoverability affordance over the real stack.
 
 **A "conflict-free" undo that force-writes (`expected = null`).** Rejected
-outright: it is the SUB-287 bug promoted to a feature. An undo that can overwrite
+outright: it is the stale-buffer bug promoted to a feature. An undo that can overwrite
 someone else's edit fails the credo more badly than having no undo at all,
 because it destroys work the user never chose to touch.
 

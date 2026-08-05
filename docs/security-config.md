@@ -2,7 +2,7 @@
 
 Why `src-tauri/tauri.conf.json`'s `app.security` block looks the way it does.
 JSON takes no comments, so the reasoning lives here — change the config, change
-this file. Filed under SUB-427 (pre-public hardening pass).
+this file. Written during the pre-public hardening pass.
 
 The threat model this serves is in [SECURITY.md](../SECURITY.md): the webview is
 the boundary, and a note is untrusted content that can arrive by sync or import.
@@ -28,7 +28,7 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
   origin. This is the directive that matters: it is what stops a crafted note
   from executing anything.
 - **`substrate-kind:` / `http://substrate-kind.localhost` in `script-src` and
-  `connect-src`** (SUB-959) — the custom-kind scheme, and the only reason
+  `connect-src`** — the custom-kind scheme, and the only reason
   `script-src` is not bare `'self'`. Custom dashboard kinds are JS that lives in
   the vault (`.vault/kinds/<id>/`), so it cannot be bundled and cannot be
   `'self'`; a scheme handler is what lets it load *and* stay refusable. Two
@@ -65,10 +65,10 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
   `'unsafe-inline'`. So the packaged app (and only the packaged app — dev
   and e2e never see the nonce) silently dropped every one of those styles:
   CodeMirror rendered as an unstyled focusable box and every `style=`
-  attribute was dead (SUB-610, 0.16.0). Scoping the opt-out to `style-src`
+  attribute was dead (0.16.0). Scoping the opt-out to `style-src`
   alone keeps Tauri's script hashing on `script-src`, which is the directive
-  doing the security work. The real-app smoke lane (private repo) is the
-  regression net (SUB-612) — it runs the real bundle and fails if runtime
+  doing the security work. The real-app smoke run is the
+  regression net — it runs the real bundle and fails if runtime
   styles stop applying, so a future edit to this block can't ship blind
   again.
 - **`img-src` / `media-src` with `asset:` and `http://asset.localhost`** — the
@@ -85,10 +85,10 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
   outbound HTTP request the app makes goes through Rust (`src-tauri/src/net.rs`),
   where the SSRF guard can see it. Four do: link capture reads a page's title
   (`fetch_url_meta`); the finance surfaces read one USD→EUR rate from
-  frankfurter (`fetch_usd_eur`, command `fx_usd_eur` — SUB-667); "Send as
+  frankfurter (`fetch_usd_eur`, command `fx_usd_eur`); "Send as
   link" POSTs a sealed handoff payload to the user-configured relay
-  (`share_upload` — SUB-833), and a calendar subscription reads a user-added
-  remote ICS feed (`calendarfeed.rs` — SUB-821). Every user-controlled
+  (`share_upload`), and a calendar subscription reads a user-added
+  remote ICS feed (`calendarfeed.rs`). Every user-controlled
   destination rides `guard_url`; redirect-following reads re-check every hop,
   while handoff uploads refuse redirects. A synced vault therefore cannot
   point the app at the local network. Only the handoff request carries a
@@ -97,7 +97,7 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
   `#fragment` (`src/lib/handoff.ts`, `scripts/handoff-relay/`).
 
   Three of those four have an off switch in `Settings.md`, all default on and
-  grouped under "Outbound requests" in the ⌘, sheet (SUB-834):
+  grouped under "Outbound requests" in the ⌘, sheet:
   `net-link-titles`, `net-fx-rates`, `net-share-relay`. **Enforcement is at the
   app's request-initiating call sites**, not in `net.rs` — the engine makes a
   request only because something in the frontend asked it to, so a closed
@@ -128,13 +128,13 @@ looser about *where* kind code may come from — a bundle that runs in dev and
 404s in the shipped app is the worst possible failure mode here.
 
 `npm test` only proves this file and the config agree. Whether a CSP actually
-holds is a property of the packaged webview, and only the real-app smoke lane
-(`SMOKE_BUNDLE=1`, private repo — SUB-610/612) exercises it. A green gate run
+holds is a property of the packaged webview, and only the real-app smoke run
+(`SMOKE_BUNDLE=1`) exercises it. A green gate run
 is not evidence that a scheme or directive change works.
 
 That port is hardcoded and coupled to `SUBSTRATE_DEV_PORT` in `vite.config.ts`
 — JSON has no substitution, so the CSP cannot follow an override. Running the
-dev server on another port (the smoke lane, parallel worktrees) only costs HMR:
+dev server on another port only costs HMR:
 the page loads, live reload goes quiet. Keep the two in step when 1420 changes.
 
 ## Asset protocol scope
@@ -170,7 +170,7 @@ no matter what path a note asks for.
 Safari, Application Support, Containers, Group Containers, Mobile Documents —
 rather than wholesale, so the rest of `~/Library` stays reachable.
 
-`~/Library/Mobile Documents` was left allowed until SUB-780 because it is where
+`~/Library/Mobile Documents` was allowed in earlier versions because it is where
 an iCloud-synced vault lives. It is denied now: the same directory holds every
 other app's iCloud container (Notes, Keynote, 1Password's sync folder), and a
 note is untrusted input. **Known cost:** a vault kept inside iCloud Drive can no

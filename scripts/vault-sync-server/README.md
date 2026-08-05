@@ -190,7 +190,7 @@ refresh publishes the rewritten branch. A purge or trim on a sync CLIENT (the
 phone, or a second desktop using the app) is different: that device's pushes
 are rejected non-fast-forward for as long as the mirror still holds the old
 history, and the app never force-pushes. The push error says so and points
-here (SUB-713). Recovery is manual, on the Mac hosting the mirror:
+here. Recovery is manual, on the Mac hosting the mirror:
 
 1. Rescue anything that exists only in the old history — notes committed on
    another device that the rewritten device never pulled, and unsnapshotted
@@ -240,8 +240,8 @@ is an inert `StartInterval` job (900s) that runs the refresh with
 `--quiet-if-fresh`, which prints nothing and exits 0 when the mirror is already
 up to date, so the log only records real refreshes. Install it the same way as
 the server plist below: replace the `USERNAME` paths, copy it without the
-`.example` suffix, and load it only after the manual command succeeds. This lane
-does not install it.
+`.example` suffix, and load it only after the manual command succeeds. Nothing
+here installs it for you.
 
 Both plists point at a `node` binary directly, and these scripts are TypeScript
 run without a build step, so that binary must be **Node 22.18 or newer** (24+ or
@@ -310,7 +310,7 @@ because launchd does not inherit an interactive shell environment.
 </plist>
 ```
 
-This lane does not copy or load the plist. When it is intentionally installed,
+Nothing here copies or loads the plist. When it is intentionally installed,
 validate it with `plutil -lint`, then use `launchctl bootstrap` for the user's
 GUI domain. `launchctl bootout` stops and unloads it.
 

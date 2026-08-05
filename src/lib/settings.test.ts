@@ -8,6 +8,7 @@ import {
   netAllowed,
   numberFormatSetting,
   parseDbGrid,
+  parseTaskStaleChips,
   parseDropHint,
   parseModHud,
   parseShowAppFiles,
@@ -372,6 +373,18 @@ test("parseDbGrid: only an explicit false turns table grid lines off (SUB-607)",
   assert.equal(parseDbGrid({}), true);
   assert.equal(parseDbGrid({ "db-grid": true }), true);
   assert.equal(parseDbGrid({ "db-grid": "off" }), true);
+});
+
+test("parseTaskStaleChips: only an explicit false turns the age chips off (SUB-1125)", () => {
+  assert.equal(parseTaskStaleChips({ "task-stale-chips": false }), false);
+  assert.equal(parseTaskStaleChips({ "task-stale-chips": "false" }), false);
+  assert.equal(parseTaskStaleChips({ "task-stale-chips": " FALSE " }), false);
+  // cased spellings read like the documented key (SUB-924)
+  assert.equal(parseTaskStaleChips({ "Task-Stale-Chips": false }), false);
+  // default ON: an unset key, `true`, or a typo all keep the chips
+  assert.equal(parseTaskStaleChips({}), true);
+  assert.equal(parseTaskStaleChips({ "task-stale-chips": true }), true);
+  assert.equal(parseTaskStaleChips({ "task-stale-chips": "off" }), true);
 });
 
 test("parseShowAppFiles: only an explicit true reveals the app files (SUB-831)", () => {

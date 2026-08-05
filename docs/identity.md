@@ -1,6 +1,6 @@
-# Stable identity — relations and sync (SUB-437)
+# Stable identity — relations and sync
 
-**Status: spec, not built.** No engine code in this document's lane. Every
+**Status: spec, not built.** No engine code exists for it yet. Every
 current-behavior claim below is cited to `file:line` as it stands on
 `main` at 0.15.0.
 
@@ -9,7 +9,7 @@ current-behavior claim below is cited to `file:line` as it stands on
 Notes get an opaque, stable `id:` in frontmatter. **Relations and sync
 machinery resolve by that id; humans keep resolving by name.** Wikilinks do
 not change at all — `[[Gero]]` stays `[[Gero]]` forever, and its ambiguity
-stays a *reporting* problem for the vault doctor (SUB-432), not a resolution
+stays a *reporting* problem for the vault doctor, not a resolution
 problem. Ids are assigned lazily, so every note in an existing vault stays
 byte-identical until it actually participates in something that needs
 identity. The entire on-disk footprint is one line per participating note.
@@ -42,7 +42,7 @@ id: k3f9x2mq7ab1
 Alphabet: `0123456789abcdefghjkmnpqrstvwxyz` — Crockford's, which drops `i`,
 `l`, `o`, `u`. Generated from OS entropy, not from content, not from a clock.
 
-Justification, against the alternatives the brief names:
+Justification, against the alternatives:
 
 - **vs ULID (26 chars, time-sortable).** Sort-stability buys nothing here:
   nothing in the codebase sorts by id. `SavedView` already carries an
@@ -124,7 +124,7 @@ An id is written **only** by these triggers:
 And by nothing else. In particular:
 
 - **Not on index, open, read, or search.** Reading must never write.
-- **Not on sync.** The brief floats "lazily on first relation *or sync*
+- **Not on sync.** One tempting variant is "lazily on first relation *or sync*
   touch"; sync-triggered stamping is the one variant to reject outright. A
   stamp is a file write; a write during pull produces a new commit on the
   pulling device, for a file the user did not touch, on both devices
@@ -155,7 +155,7 @@ actually joined a structure, and the doctor never proposes it.
 
 **Notes whose frontmatter is unparseable or has duplicate keys cannot be
 stamped.** `edit_props` refuses on those blocks (`vault/mod.rs:2078`, via
-`parse_props_for_write`; SUB-215, `vault-format.md:97-99`). Such a note stays
+`parse_props_for_write`; `vault-format.md:97-99`). Such a note stays
 identity-less and resolves by title forever, and the doctor reports it. This
 is correct: a broken block is never silently normalized away.
 
@@ -325,7 +325,7 @@ logical operation as many writes: wikilink rewrites across every referring note
 (`1643`, `1672-1684`), the note's own frontmatter re-serialized
 (`1650-1670`), then reindex (`1686-1695`). Sources that can't be read or
 written are collected into `failed` and reported *after* the rename has
-already landed (`1709-1717`; SUB-225, SUB-285).
+already landed (`1709-1717`).
 
 With ids, the relation half of that fan-out stops being load-bearing.
 Rewriting the cached titles remains — it is cheap, already written, already
@@ -350,7 +350,7 @@ bugs, without changing the rename flow's shape.
 `type:` string.** Machinery references the id; humans and note frontmatter
 reference the name.
 
-This is a third option, deliberately, against the two the brief names:
+This is a third option, deliberately, against the two obvious ones:
 
 - **Notes carrying `type: k3f9x2mq7ab1`** would let a database rename touch
   only schema.json — a genuine sync win. Rejected anyway: `type:` is the
@@ -579,10 +579,8 @@ leaves alone.
   one into search finds nothing. Ids are not a user-facing addressing scheme.
 - **Wikilink ambiguity stays a reporting problem.** The winner remains
   unspecified for `[[…]]`, and the answer remains the **vault doctor's**
-  duplicate-title / title-stem-collision report (SUB-432, In Progress —
-  branch `sub/vault-doctor` is currently identical to `main`, so the report
-  does not exist in code yet). §2.2's rule-3 hardening applies to relation
-  values only.
+  duplicate-title / title-stem-collision report (not built yet). §2.2's
+  rule-3 hardening applies to relation values only.
 
 Why the split is coherent rather than arbitrary: **a wikilink is prose written
 by a human for a human; a relation value is a machine-maintained field in a
@@ -628,7 +626,7 @@ old one degrade to title (§1.5).
 ## 7. Rollout slices
 
 Independently shippable, each with its own test list, each sized for one
-worker lane. Slices 1–6 are sequential; slice 7 is independent of 2–6.
+sitting. Slices 1–6 are sequential; slice 7 is independent of 2–6.
 
 ### Slice 1 — id generation, index, `vault_resolve_id`
 
@@ -682,7 +680,7 @@ No user-visible behaviour change. Foundation only.
 idempotent and writes nothing on the second call (assert the existing
 `#[cfg(test)] note_writes` counter at `vault/mod.rs:2087-2090` is unchanged);
 `ensure_id` on an unparseable frontmatter block returns `Err` and leaves the
-file byte-identical (SUB-215 discipline, `vault/mod.rs:2078`); `ensure_id` on a
+file byte-identical (`vault/mod.rs:2078`); `ensure_id` on a
 note with no frontmatter creates the block with only `id:` in it.
 
 ### Slice 3 — relation values carry ids
@@ -716,7 +714,7 @@ resolves both.
 warning; the same with bare-title values still errors; an unwritable wikilink
 source still errors.
 
-### Slice 5 — doctor findings (lands into SUB-432)
+### Slice 5 — doctor findings
 
 - **Error:** duplicate id, both paths, "re-stamp this one" fix defaulting to
   the later-mtime file.
@@ -763,15 +761,15 @@ renders the error state rather than an empty table.
 
 ## 8. `docs/vault-format.md` diff plan
 
-**Not applied in this lane** — two other lanes are editing that file. These
-are the exact edits for the implementation lane.
+**Not applied yet** — these are the exact edits the implementation should
+make to that file.
 
 | Section | Edit |
 |---|---|
 | §2 *Props the app gives meaning to* (`:135-151`) | Add an `id` row to the reserved table. After `:151` ("Everything else is yours"), add a short paragraph: shape, lazy assignment, and the copy hazard. |
 | §2 *What the engine preserves vs normalizes* (`:82-103`) | Note that a prop edit may additionally stamp `id:` when the note becomes a relation target — a write can add one key the caller didn't ask for. |
 | §2 *`title:` and the filename* (`:105-133`) | The new-note skeleton at `:126-133` gains an `id:` line. |
-| §3 *Wikilinks* (`:155-172`) | One sentence: links never carry ids. The ambiguity note at `:160-163` stands, and gains a pointer to the doctor's report (SUB-432). |
+| §3 *Wikilinks* (`:155-172`) | One sentence: links never carry ids. The ambiguity note at `:160-163` stands, and gains a pointer to the doctor's report. |
 | §4 *Databases and prop values* (`:203-274`) | Mention that `type:` stays the human name while machinery keys on the schema `$id`. |
 | §6 *`.vault/schema.json`* (`:576-727`) | Document the reserved `$id` key on type entries; `PropSchema.target` stores a db id with name fallback. |
 | §6 *Relation properties* (`:728-768`) | The largest edit. New value grammar `Title ^id`; resolution order (§2.2); rename demoted to cosmetic; **rewrite `:745-746`** — "two target notes sharing a title are indistinguishable as values" is no longer true; `related()` matches ids. |

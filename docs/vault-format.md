@@ -42,7 +42,7 @@ target `demo-vault` (`bundle.resources` in `tauri.conf.json`; `vault_demo`
 resolves the same name, and dev builds fall back to the checkout). It is copied
 to `~/Documents/Substrate Demo` — a user-visible folder outside the
 asset-protocol deny list (app-data is denied, so assets a user added to a demo
-vault there could never load; SUB-645). A copy from before that move
+vault there could never load). A copy from before that move
 (`<app-data>/Demo Vault`) is migrated to the new location at launch, a stored
 vault choice pointing at it follows. A demo vault that already exists at the
 destination is refreshed conservatively rather than reset: `.vault/demo-seed.json`
@@ -83,7 +83,7 @@ yourself. Only `.md` files are notes; binary files (containing NUL) are skipped,
 invalid UTF-8 is read lossily. One explicit-path exception: `.vault/templates/`
 (§7) stays unindexed but can be read and written directly.
 
-**Loose files are visible without being indexed** (SUB-812): a folder view
+**Loose files are visible without being indexed**: a folder view
 lists the non-`.md` files sitting beside its notes — audio ones playable in
 place — through `vault_folder_files`, a lazy per-folder `read_dir` that runs
 when you open the folder. The index itself stays `.md`-only, so dropping a
@@ -123,7 +123,7 @@ artwork direction.
   BOM-writing editors still parse; the BOM is not written back.
 - Content is YAML and must parse to a **flat mapping** — anything else (scalar,
   list, invalid YAML) reads as zero props (`vault/mod.rs` `parse_props`). Reads are
-  always this lenient; WRITES are not (SUB-215): a present block that fails to
+  always this lenient; WRITES are not: a present block that fails to
   parse — or has duplicate top-level keys, which YAML would silently dedupe
   last-wins — makes every prop edit refuse with a `…is not valid YAML /
   has duplicate keys / is not a property map — fix it in the editor…` error
@@ -141,9 +141,9 @@ artwork direction.
 - **Body edits** (`vault_write_body`) preserve the frontmatter block **byte-verbatim**
   — order, quoting, comments — and replace only the body. A write to a **missing
   file fails** (`note no longer exists`) rather than resurrecting it body-only
-  (SUB-94); the `.vault/templates/` lane (§7) is the one create-through-write
+; the `.vault/templates/` lane (§7) is the one create-through-write
   exception. The optional `expectedBody` argument is an optimistic-concurrency
-  guard (SUB-93): when passed, the write is rejected with
+  guard: when passed, the write is rejected with
   `conflict: file changed on disk` if the body on disk no longer matches it
   (frontmatter-only changes don't trip it), so a stale editor buffer can never
   silently clobber an external edit.
@@ -154,13 +154,13 @@ artwork direction.
   or a mixed list is refused (`property values must be strings, numbers, bools,
   or string lists`). Removing
   the last prop removes the whole `---` block. Both lanes refuse when the
-  existing block is unparseable or has duplicate keys (§2, SUB-215) — a broken
+  existing block is unparseable or has duplicate keys (§2) — a broken
   block is never silently normalized away.
   Never depend on key order, comments, or hand-tuned quoting in frontmatter.
 - The app's prop editor only *authors* strings — the note menu's calendar opt-out
   is the one bool it writes. Numbers reach the write path on the read side only:
   `vault_set_prop` hands back the raw prior value, and undo writes that same
-  scalar back (SUB-477), so the write domain has to accept everything the read
+  scalar back, so the write domain has to accept everything the read
   domain can produce. A structured value (map, mixed list) is fully supported on
   disk but renders in the UI as its JSON text and cannot be written back.
 
@@ -177,7 +177,7 @@ artwork direction.
   whitespace runs collapse, empty → `Untitled`. So `Vessel: Songs/Live` becomes
   `Vessel Songs Live.md` with `title: 'Vessel: Songs/Live'`.
 - Two title shapes are rejected outright at rename/create — before any file
-  write, move, or link rewrite (`vault/mod.rs` `validate_note_title`, SUB-223): a
+  write, move, or link rewrite (`vault/mod.rs` `validate_note_title`): a
   sanitized stem starting with `.` (the note would fall under the hidden rule
   and vanish from the index) and any `[`/`]` in the title (rewritten
   `[[wikilinks]]` would corrupt). URL captures whose fetched title is rejected
@@ -201,7 +201,7 @@ type: release
 | `type` | database membership / app machinery (§4) |
 | `title` | display title when the filename can't carry it |
 | `created` | ISO day, written by the app on create |
-| `calendar` | `false` hides the note from the calendar (§4/§12, SUB-175); absent or any other value shows it |
+| `calendar` | `false` hides the note from the calendar (§4/§12); absent or any other value shows it |
 | `url` | source link on `type: reference` notes |
 | `artwork` | gallery cover: bare asset name, absolute/`~/` path, or `![[...]]`/`[[...]]` wrapper |
 | `dashboard` | dashboard renderer key on `type: dashboard` notes (§5.2) |
@@ -214,6 +214,7 @@ type: release
 | `areas`, `stale_days` | tasks dashboard area allowlist and stale-age threshold (§5.2) |
 | `view`, `sort` | tasks dashboard layout (`list`/`board`) and ordering (`urgency`/`priority`/`due`/`age`) (§5.2) |
 | `now`, `snoozed_until` | tasks board: pinned to the focus section / parked until a wake day, both board-scoped (§5.2) |
+| `stale` | tasks board: `never` exempts one task from age chips for good (§5.2) |
 | `tags` | tag list, unioned with the body's inline `#tags` (§3b) |
 
 Everything else is yours. Unknown props are preserved and shown as chips.
@@ -237,7 +238,7 @@ brackets, **no `[[target|alias]]` form** (the pipe becomes part of the name).
   `Sketchpad` works, §12).
 - Only body text is scanned — frontmatter never produces links. Backlinks use the
   same title/stem matching.
-- **Literal code is not link syntax** (SUB-495): a link inside a fenced block
+- **Literal code is not link syntax**: a link inside a fenced block
   (` ``` ` or `~~~`, any language) or an inline `` `code` `` span is documentation
   *about* the grammar, not a use of it. It is never indexed, never a backlink,
   never a `broken-link` finding, and a rename never rewrites it — matching what
@@ -346,7 +347,7 @@ what keeps these out:
 | `foo#bar`, `a_#b` | preceded by an alphanumeric / `_` |
 | `[[Note#heading]]`, `![[a#b]]` | wikilink and embed targets |
 | `](/path#frag)`, `https://x.test/#top`, `www.x.test/#top` | link destinations and bare URLs |
-| ` ```…#demo…``` `, `` `#demo` `` | fenced blocks and inline code — literal code is not tag syntax, the same rule links follow (§3, SUB-495). An unclosed fence swallows the rest of the body |
+| ` ```…#demo…``` `, `` `#demo` `` | fenced blocks and inline code — literal code is not tag syntax, the same rule links follow (§3). An unclosed fence swallows the rest of the body |
 
 **Case**: matching, grouping and dedupe are case-insensitive — `#Demo` and
 `#demo` are one tag. Display keeps the author's casing; where a tag appears in
@@ -375,11 +376,11 @@ the sidebar lists them all except `dashboard`, whose notes each get their own ro
 — in the Dashboards section, or in the Folders tree when filed outside the
 dashboards home folder (§5.2).
 A type registered in `.vault/schema.json` (§6) is also a database and lists in
-the sidebar even with zero notes — that's what "New database" writes (SUB-43).
+the sidebar even with zero notes — that's what "New database" writes.
 
-On disk the key stays `type:`; the UI presents it as “Database” (SUB-77 Option A).
+On disk the key stays `type:`; the UI presents it as “Database” (Option A).
 
-Database management (SUB-43, all engine-side, all guarded against
+Database management (all engine-side, all guarded against
 case-insensitive name collisions; every bulk note sweep is preceded by an
 explicit history snapshot — the safety rail):
 
@@ -418,8 +419,8 @@ Prop value forms (all plain YAML, all portable):
 ```yaml
 status: in review                      # string — the common case
 released: 2026-07-17                   # ISO day string — date-kind props (§6)
-starts: '2026-07-19 14:30'             # a date may carry a 24h time (SUB-270, §6)
-trip: 2026-09-01/2026-09-21            # a date may be a range: start/end (SUB-596, §6)
+starts: '2026-07-19 14:30'             # a date may carry a 24h time (§6)
+trip: 2026-09-01/2026-09-21            # a date may be a range: start/end (§6)
 contract: ~/Documents/deals/SMP-30.pdf # file-kind prop: link only, target never touched
 rating: 4                              # number (UI shows JSON text)
 in use: true                           # checkbox-kind prop (§6): YAML bool — checked
@@ -428,8 +429,8 @@ tags: [vinyl, promo]                   # list (JSON text in the UI — a schema'
 ```
 
 - Dates are `YYYY-MM-DD` strings, optionally suffixed with a space and
-  `HH:MM` (24h — `2026-07-19 14:30`; SUB-270; a single-digit hour — `9:30` —
-  is accepted on input and read as the padded form, SUB-714). Readers also
+  `HH:MM` (24h — `2026-07-19 14:30`; a single-digit hour — `9:30` —
+  is accepted on input and read as the padded form). Readers also
   tolerate `T` as the separator (`2026-07-19T14:30`), but app writes keep the
   padded space form canonical. Day-only values are the common
   case and behave identically everywhere; a timed value still lands on its
@@ -440,10 +441,10 @@ tags: [vinyl, promo]                   # list (JSON text in the UI — a schema'
   `created`/`updated`/`title`/`type`/`calendar`/`repeat`/`repeat_until`/`repeat_skip`
   and any prop on `dashboard`/`sheet` notes — an explicit `kind: "date"` in the
   schema always wins (`src/lib/calendar.ts`). A note carrying `calendar: false`
-  (bool or the string `"false"`) is hidden from the calendar entirely (SUB-175).
+  (bool or the string `"false"`) is hidden from the calendar entirely.
 - A date may also be a **range**: two of those values joined by `/`, the
   ISO-8601 interval form — `2026-09-01/2026-09-21`, or with times,
-  `2026-09-01 09:00/2026-09-03 17:00` (SUB-596). There is no separate prop
+  `2026-09-01 09:00/2026-09-03 17:00`. There is no separate prop
   kind; a range is a date-kind value with an end. Both halves must parse and
   the end may not precede the start, otherwise the value is not a date at all
   (Doctor flags it on a schema'd date prop, §11). A range **sorts by its
@@ -510,7 +511,7 @@ crypto = SUMIF(bucket, "crypto", value_eur)
 - Formula lines are `name = expression`; `#` starts a comment. Lines referencing
   columns per-row become computed columns; lines using aggregates or only
   summaries/cross-sheet values become named summaries.
-- **Blank lines inside the formulas fence are meaningful (SUB-939)**: they split
+- **Blank lines inside the formulas fence are meaningful**: they split
   it into blocks, and the app's summary bar shows the first block holding
   summaries while later ones collapse behind a toggle. Purely presentational —
   evaluation, classification and bindings ignore the grouping — but a writer
@@ -520,7 +521,7 @@ crypto = SUMIF(bucket, "crypto", value_eur)
   (`"Portfolio Tracker".total`); resolved by note title/stem, case-insensitive.
 - The full formula language (aggregates, `IF`, `ROUND`, `FX`) is specified in
   `docs/sheets-spec.md` — don't duplicate it here.
-- `FX("USD","EUR")` uses the frankfurter.dev rate, cached app-side (SUB-386)
+- `FX("USD","EUR")` uses the frankfurter.dev rate, cached app-side
   and refreshed live — the app never writes fx props into notes.
 
 ### 5.2 Dashboards — `dashboard:` key
@@ -535,7 +536,7 @@ created: 2026-07-17
 ---
 ```
 
-Where the row lives (SUB-466, SUB-605, SUB-1079): a dashboard note may sit in any
+Where the row lives: a dashboard note may sit in any
 folder, and its PATH decides which sidebar surface shows it. The app picks a
 "dashboards home" — a top-level `Dashboards/` folder is it whenever the vault has
 one, no matter how many dashboards live elsewhere; a vault without that folder
@@ -551,7 +552,7 @@ file and hands it to the other surface. No dashboard renders on both
 hidden surfaces (`Journal/`, `Dashboards/`) have no tree row to nest under, so
 those always stay section rows.
 
-Sidebar icon (SUB-391): each dashboard row renders a curated per-kind glyph
+Sidebar icon: each dashboard row renders a curated per-kind glyph
 (`src/lib/dbicons.ts` DASHBOARD_ICONS — `food`, `metrics`, `yield-apr`, `hub`,
 `feed`, `music-work`, `tasks`,
 plus any machine-specific kinds this build carries); an `icon:` prop overrides
@@ -571,13 +572,13 @@ tracker. So a charts dashboard needs no specific key, just the fences;
 `dashboard: charts` says the same thing by name.
 
 **Any other value renders an error card** naming the value and listing the
-kinds this build does dispatch (SUB-993) — the quiet inline posture a ` ```view `
+kinds this build does dispatch — the quiet inline posture a ` ```view `
 fence over an unknown database takes. A typo is never answered with a different
 dashboard: falling through to the yield tracker meant `dashboard: yeild-apr`
 silently rendered a financial tracker, snapshot form included, with no hint
 that the key was wrong.
 
-`tasks` (SUB-732; actions SUB-786; board v3 SUB-870) is a task interface over
+`tasks` is a task interface over
 task notes, led by due dates. Row clicks open the source note; the board also
 authors and writes task state through the standard paths (`vault_create` for
 the composer, `vault_set_prop` — undoable — for the rest): checkoff sets
@@ -590,7 +591,8 @@ Its dashboard note holds only optional config:
 type: dashboard
 dashboard: tasks
 areas: [Label, Studio] # YAML string list, or comma-separated scalar
-stale_days: 30         # positive whole number; default 30
+stale_days: 30         # positive whole number; default 30, and opts this
+                       # board into age chips whatever Settings says
 view: board            # `board` for the kanban view; default (or `list`) = the list
 sort: due              # `priority` | `due` | `age`; default (or `urgency`) = urgency
 ---
@@ -602,16 +604,16 @@ sort: due              # `priority` | `due` | `age`; default (or `urgency`) = ur
   the group order/label. Omitted means all areas, while a supplied empty list
   means none. Without an allowlist groups sort by name with missing `area`
   under `Unassigned` last.
-- **Sections (SUB-870)**: the board's spine is **Overdue**, **Due today**,
+- **Sections**: the board's spine is **Overdue**, **Due today**,
   **Now**, then the area groups, and an empty section is omitted rather than
   rendered blank. `due` is a strict `YYYY-MM-DD`, optionally with a trailing
-  ` HH:MM` (SUB-270) that buckets by its day; it places a row in Overdue
+  ` HH:MM` that buckets by its day; it places a row in Overdue
   (before today) or Due today, wherever its area is. Urgency outranks the pin:
   a `now: true` task that is overdue or due today shows in that section, not
   in Now. Everything else — upcoming and undated alike — stays in its area
   group. A missing or malformed `due` is simply no due date: never a finding,
   never a reason to move or hide the row.
-- **Ranking (SUB-870; sort switch SUB-933)**: the default order within every
+- **Ranking (sort switch)**: the default order within every
   section is due bucket (overdue → today → upcoming → none), then priority,
   then age, then title, then path — so input order never changes the board
   (`src/lib/tasksDashboard.ts`). Trimmed, case-insensitive `high` / `medium` /
@@ -619,7 +621,7 @@ sort: due              # `priority` | `due` | `age`; default (or `urgency`) = ur
   tiebreaker only; the `age × priority` rot score that ordered v2 is gone.
   `priority` renders as a pill in the schema's own option color, falling back
   to red / yellow / gray when the vault never schema'd the prop.
-- **Sort switch (SUB-933)**: the header's sort control re-ranks rows within
+- **Sort switch**: the header's sort control re-ranks rows within
   list sections and board columns alike. `urgency` is the default above;
   `priority`, `due` (soonest first, undated rows last), and `age` (oldest
   first) each lead with their dimension and keep the others as tiebreakers,
@@ -627,7 +629,7 @@ sort: due              # `priority` | `due` | `age`; default (or `urgency`) = ur
   The choice persists as a `sort` frontmatter prop on the dashboard note; the
   default clears the prop, and an unknown value falls back to `urgency`
   rather than blanking the board.
-- **Kanban view (SUB-933)**: the header's List | Board control flips the pane
+- **Kanban view**: the header's List | Board control flips the pane
   to one column per area, persisted as `view: board` on the dashboard note
   (the default `list` clears the prop). Columns follow the area allowlist's
   order — every listed area keeps a column even when empty, as a drop
@@ -644,12 +646,25 @@ sort: due              # `priority` | `due` | `age`; default (or `urgency`) = ur
   finding and no age. A dated task is stale at `age >= stale_days`; an
   invalid/non-positive threshold uses 30. Both findings are secondary
   diagnostics — amber chips beside a row, not its place on the board.
-- **Now (SUB-786)**: a task with `now: true` (YAML boolean, or the string
+- **Age chips are optional**: three levels, innermost wins.
+  (1) A task with `stale: never` — or `stale: false`, boolean or string, after
+  trim/case folding — is exempt for good, at any age, on any board: the row
+  sorts and counts as usual and simply carries no age finding, exactly like a
+  pin. Any other value, `true` and typos included, is ignored and the task ages
+  normally, so a mistyped key can never be what hides rot.
+  (2) A board that sets a usable `stale_days` has asked for age chips and keeps
+  them even when the global toggle is off; an unreadable threshold reads as
+  unset, so it neither opts in nor changes the 30-day fallback.
+  (3) Otherwise the `task-stale-chips` setting decides (§12), on by default.
+  Suppression covers the whole age family — `stale` and `undated` both, and the
+  `stale` flag on the row model with them — since opting out of age wants
+  neither.
+- **Now**: a task with `now: true` (YAML boolean, or the string
   `"true"` after trim/case folding) pins to a cross-area "Now" section, the
   hand-picked focus list, while nothing is due on it. Pinned rows never carry
   `stale`/`undated` findings: Now is chosen work, not rot. Unpinning removes
   the key. There is deliberately no cap.
-- **Snooze (SUB-786; round trip SUB-870)**: a task whose `snoozed_until` is a
+- **Snooze (round trip)**: a task whose `snoozed_until` is a
   strict future `YYYY-MM-DD` (local calendar) leaves the board for a collapsed
   **Snoozed** section listing each row with its wake day, soonest first;
   snoozed ≠ stale. Wake clears the prop and the row rejoins the board. Today,
@@ -657,13 +672,13 @@ sort: due              # `priority` | `due` | `age`; default (or `urgency`) = ur
   vanishing a row is the worst failure shape for a trust surface. The prop is
   board-scoped: database views, Today, and the calendar ignore it. The section
   is filled after the area allowlist, so off-board areas don't inflate it.
-- **Inline editing (SUB-870)**: a row's due chip and priority pill are the
+- **Inline editing**: a row's due chip and priority pill are the
   edit affordances for those props, writing `due` and `priority` through the
   same undoable path the verbs use. An unset value keeps a placeholder in the
   same cell, so the grid never shifts. Priority offers the schema's own
   options where the vault defines them, high/medium/low otherwise; the board
   never edits the schema itself.
-- **Quick-add (SUB-870)**: the composer creates a `task` note in the type's
+- **Quick-add**: the composer creates a `task` note in the type's
   home folder and seeds the schema's first non-completion `status` (else
   `todo`), today's `created`, when the board runs an allowlist its first
   `area`, and the optional `due` picked on the composer's own chip. The
@@ -673,7 +688,7 @@ sort: due              # `priority` | `due` | `age`; default (or `urgency`) = ur
   task lands in `Unassigned`, which an allowlist filters straight off the
   board, so a row created here would appear to vanish.
 
-`hub` (SUB-189) is the column-first home-page renderer. The body stays
+`hub` is the column-first home-page renderer. The body stays
 ordinary markdown — no on-disk column syntax — and the renderer lays it out
 as a hub:
 
@@ -692,7 +707,7 @@ The hub is read-only — "Open source note" drops into the editor, and the file
 stays plain markdown any editor can read (`src/lib/hub.ts`,
 `src/components/HubDashboard.tsx`).
 
-`food` (SUB-325) is a daily net-kcal tracker. Unlike the yield tracker it
+`food` is a daily net-kcal tracker. Unlike the yield tracker it
 does NOT own its data — the dashboard note holds only config props, and the
 rows live in a separate log sheet the pane reads and writes:
 
@@ -714,18 +729,18 @@ The log note is an ordinary sheet (§5.1) whose csv fence carries the columns
 free; `protein_g` optional. `date` is a local ISO day; `kcal` is net
 (negative rows = exercise); rows with a malformed date or non-numeric kcal
 are skipped, not errors. The pane appends quick-add rows inside the fence
-(creating fence + header when missing), dated its selected day (SUB-408 day
+(creating fence + header when missing), dated its selected day (day
 navigation — today by default), and deletes single rows by position;
 external writers may append the same way. Formulas in the log note stay
 untouched (`src/lib/food.ts`, `src/components/FoodDashboard.tsx`).
 
-The DB note (SUB-408) is a second ordinary sheet whose csv fence carries
+The DB note is a second ordinary sheet whose csv fence carries
 `name,kcal,per,protein` — same name-based, order-free matching. `per` is the
 basis the row's numbers are quoted at: `100g`, `100ml`, or `x` (per
 unit/piece; `unit` is accepted on read, written as `x`). `kcal` and the
 optional `protein` are per ONE basis; rows with an empty name, non-numeric
 kcal, or an unknown basis word are skipped. The optional `g` column
-(SUB-687; `g_per_unit` accepted on read, written as `g`) is grams per one
+(`g_per_unit` accepted on read, written as `g`) is grams per one
 unit on `x` rows — the piece↔gram bridge that lets autocomplete price
 gram-typed quantities against piece-based foods; it is ignored on
 `100g`/`100ml` rows and never inferred from the log. The pane upserts by
@@ -735,7 +750,7 @@ and surfaces never-logged foods; a missing DB note only dims the pane's
 Database section — logging keeps working (`src/lib/fooddb.ts`,
 `src/lib/foodsuggest.ts`).
 
-The weight note (SUB-707, `weight` prop, default "Weight Log") is a third
+The weight note (`weight` prop, default "Weight Log") is a third
 ordinary sheet, read-only to the pane: its csv fence carries `date,kg` —
 same name-based, case-insensitive, order-free matching, extra columns
 ignored. `date` is a local ISO day; rows with a malformed date or a
@@ -748,7 +763,7 @@ line bridges them — weight is continuous, unlike kcal where absent ≠ 0. A
 missing weight note means no overlay and no error chrome (`src/lib/weight.ts`,
 `src/components/FoodDashboard.tsx`).
 
-`feed` (SUB-518) is a curated newsfeed. Like `food` it does NOT own its data:
+`feed` is a curated newsfeed. Like `food` it does NOT own its data:
 the dashboard note holds only config props, and the items live in a separate
 sheet an external curator agent writes.
 
@@ -758,7 +773,7 @@ type: dashboard
 dashboard: feed
 items: News Items      # title/stem of the items sheet (default "News Items")
 curated: 2026-07-26 09:10   # optional; rendered verbatim; also parsed (leniently) for the
-                            # head's ~36h staleness dot — a parse failure stays neutral (SUB-699)
+                            # head's ~36h staleness dot — a parse failure stays neutral
 ---
 ```
 
@@ -781,7 +796,7 @@ round-trip byte-identical; clicking the active verdict clears it. A curator
 re-write between the pane's read and a click fails as a conflict and the pane
 re-reads disk truth (`src/lib/feed.ts`, `src/components/FeedDashboard.tsx`).
 
-`music-work` (SUB-595) is a read-only board over a production-tree index. Like
+`music-work` is a read-only board over a production-tree index. Like
 `food` and `feed` the dashboard note holds only config props; the rows live in
 a separate sheet an external tree scanner writes.
 
@@ -829,7 +844,7 @@ at,yield_usd,principal_usd
 - Append-only: the app adds rows inside the existing fence, or creates the fence
   at the end of the body when missing (`src/lib/dashboard.ts` `appendSnapshotToBody`).
   External writers should do the same — append, never rewrite history rows.
-- Claims (SUB-318): a `claimed_usd` prop on the note holds the cumulative
+- Claims: a `claimed_usd` prop on the note holds the cumulative
   claimed total. `yield_usd` in csv rows is ALWAYS cumulative (claimed +
   current venue balance) — the Claim button sets `claimed_usd` to the last
   row's total, and the log form adds `claimed_usd` to entered venue balances
@@ -898,7 +913,7 @@ or its folder is away, the card still shows the last-known number and says
 
 ### 5.5 Chart blocks — ` ```chart ` fences
 
-A ` ```chart ` fence inside a dashboard note declares one chart (SUB-33). Config
+A ` ```chart ` fence inside a dashboard note declares one chart. Config
 is hand-editable `key: value` text, one per line; `#` comments allowed:
 
 ````markdown
@@ -948,7 +963,7 @@ binding) or `series` (summary binding)):
   `2026-07-17`).
 - `y` — the reduction: `count` (rows per bucket), `sum:<prop>`, or `avg:<prop>`.
   The prop must hold numbers (numeric strings coerce).
-- `series` — the summary binding (SUB-745): a comma-separated list of a sheet's
+- `series` — the summary binding: a comma-separated list of a sheet's
   named summaries (`series: etf, crypto, cash`), each plotted as one point in
   fence order. Sheet sources only, and exclusive with `x`/`y` — a fence carrying
   both, or `series` on a database source, is a parse error. Names match
@@ -956,7 +971,7 @@ binding) or `series` (summary binding)):
   not a numeric summary on that sheet (a row column, a typo, an errored or
   non-numeric summary) errors the whole chart naming it, rather than dropping
   the point — a hand-named point set must not silently lose one.
-- `by` — optional series split (SUB-941): a prop or column whose distinct values
+- `by` — optional series split: a prop or column whose distinct values
   each become one series — stacked slices on a bar, one line each on a line
   chart, named by a legend above the plot. Row binding only, and exclusive with
   `series` (both name the series axis, so a fence carrying both is a parse
@@ -965,7 +980,7 @@ binding) or `series` (summary binding)):
   like a missing x, never gathered into an invented series; a `by` field absent
   from the whole source is named in the chart's binding error alongside x and y.
   The current neutral token ramp distinguishes two series. Three or more render
-  an in-place message pending the categorical-palette call in SUB-952/SUB-932.
+  an in-place message pending the categorical-palette call.
   A stacked bar accepts non-negative `sum`/`count` measures; use `kind: line`
   for averages or negative split values. A split's series encoding replaces
   schema hue on a categorical x-axis.
@@ -994,7 +1009,7 @@ with arrow/Home/End navigation along the axis; tooltips never print.
 ### 5.6 View embeds — ` ```view ` fences
 
 A ` ```view ` fence renders a live, editable inline database table inside the
-note editor (SUB-86, editable since SUB-796) — the hub-page primitive: prose plus a live cut of a database,
+note editor — the hub-page primitive: prose plus a live cut of a database,
 no navigation away. Config is hand-editable `key: value` text, one per line;
 `#` comments allowed:
 
@@ -1017,7 +1032,7 @@ Keys (`src/lib/embeds.ts`):
 
 - `type` — a database type (exact spelling, as in `type:` frontmatter).
 - `query` — optional; the same operator language as the database filter bar
-  (`status:live`, comma-OR `status:live,"in review"` (SUB-78), `due < 7d`,
+  (`status:live`, comma-OR `status:live,"in review"`, `due < 7d`,
   bare words match titles — `src/lib/query.ts`).
 - `view` — accepted, but only `table` renders in v1; any other value falls
   back to table.
@@ -1025,17 +1040,17 @@ Keys (`src/lib/embeds.ts`):
   case-insensitively; the pin's database, query and saved sort order drive the
   table. When present it wins over `type`/`query`; an explicit fence `sort:`
   overrides the saved order.
-- `sort` — optional (SUB-942); `sort: <prop>` ascending, `sort: <prop>:desc`
+- `sort` — optional; `sort: <prop>` ascending, `sort: <prop>:desc`
   descending (`asc`/`desc`, either case). The property is matched
   case-insensitively against the database's own columns, plus `title`. The
   ordering IS the database table's: a select column follows its declared
   option order, a number sorts numerically, a date chronologically, and
   missing values sort last in both directions.
-- `limit` — optional (SUB-942); a positive whole number of rows, applied
+- `limit` — optional; a positive whole number of rows, applied
   AFTER the query and AFTER the sort — so `sort: released:desc` + `limit: 5`
   means "the five newest". The table then says "5 of 23 rows — this view's
   limit" rather than implying five is all there is.
-- `columns` — optional (SUB-942); a comma-separated pick and order
+- `columns` — optional; a comma-separated pick and order
   (`columns: status, artist`), matched case-insensitively against the
   database's columns and still bounded by the surface's column cap. Wins over
   a `saved:` pin's own curated list.
@@ -1049,7 +1064,7 @@ renders a quiet inline error card ("Unknown database “x”", "Unknown key
 fence, and fixing the text fixes the card. Empty `sort:`, `limit:` and
 `columns:` values are malformed; while editing, the caret keeps the raw fence
 visible rather than flashing its error card.
-Unknown keys were silently ignored before SUB-942; a typo now says so.
+Unknown keys were silently ignored in earlier versions; a typo now says so.
 
 The table shows the title column plus the database's first four columns
 (`dbColumns`) — or exactly the `columns:` list — and at most 50 rows in the
@@ -1060,7 +1075,7 @@ match count, so the shown/total pair is honest either way. The header
 (database name + count) opens the full database; the title cell of a row opens
 its note.
 
-Editable (SUB-796). Every non-title cell edits in place with the database
+Editable. Every non-title cell edits in place with the database
 pane's own semantics: a checkbox toggles on click, select/multi/date/relation
 open their pickers, and text/number/url get an inline input that commits on
 blur or Enter and cancels on Escape. Writes go through the same undoable prop
@@ -1084,7 +1099,7 @@ editor's TEXT undo — prop-undo is surface-scoped (`docs/undo.md`), so undoing
 an inline cell edit needs focus outside the typing surface, same as a
 frontmatter edit.
 
-### 5.6a Workbook pages — `pages:` (SUB-464)
+### 5.6a Workbook pages — `pages:`
 
 Any dashboard may carry a `pages:` frontmatter list; when present (and
 non-empty) the pane renders an Excel-style tab strip at the BOTTOM and
@@ -1135,7 +1150,7 @@ pages:
 ### 5.7 Recurring calendar entries — `repeat` / `repeat_until` / `repeat_skip`
 
 A dated note repeats when its frontmatter carries a human-readable `repeat:`
-prop (SUB-174) — Notion-Calendar-style, no raw RRULE anywhere:
+prop — Notion-Calendar-style, no raw RRULE anywhere:
 
 ```yaml
 type: event
@@ -1179,7 +1194,7 @@ All three keys are reserved: they never count as calendar dates themselves,
 however date-shaped their values (`repeat_until` is the trap), and they ride
 along as ordinary frontmatter for any other tool.
 
-**Recurrence ignores ranges** (SUB-596). If a repeating note's date prop
+**Recurrence ignores ranges**. If a repeating note's date prop
 carries a range, the series expands from the span's **start** day and every
 occurrence is a single day — the end is not carried onto them, and the
 anchor's own multi-day bar is replaced by that first occurrence. A repeating
@@ -1398,7 +1413,7 @@ External writers: `.vault/kinds/` is app-owned. Write a bundle there only
 deliberately, and never touch the consent record — it is not in the vault by
 design.
 
-### 5.9 Calc lines — `= expression` (SUB-834)
+### 5.9 Calc lines — `= expression`
 
 A body line whose first non-space character is `=` (at most 3 leading spaces —
 markdown's own block threshold, so a 4-space-indented `= 1 + 1` stays a code
@@ -1546,7 +1561,7 @@ understand.
   they're read from disk on access, and a version stamp never triggers a
   config-changed event.
 
-**`.vault/backup/` also holds one non-format artifact** (SUB-1011). The
+**`.vault/backup/` also holds one non-format artifact**. The
 folders.json → mounts migration (§8) rewrites notes and config, so it needs a
 recovery point first. Normally that is a version-history snapshot — but a vault
 with history disabled (the user's own git repo, §11) can never have one, and
@@ -1681,16 +1696,16 @@ Exact shape — `{ "<type>": { "icon"?: <DbIcon>, "home"?: <folder path>, "<prop
 
 Type-entry fields:
 
-- `icon` — reserved key holding the database's icon (SUB-27), omitted when the
+- `icon` — reserved key holding the database's icon, omitted when the
   type has none (the UI then shows the auto-glyph: first letter in a rounded
   square). A user prop literally named `icon` is shadowed by it — the key is
   reserved. A type entry holding only an icon (no props) is valid and keeps the
   icon alive when every prop demotes out.
-- `home` — reserved key holding the database's home folder (SUB-85): a
+- `home` — reserved key holding the database's home folder: a
   vault-relative slash path, validated like any folder path on write
   (`vault/schema.rs` `set_schema_home`); blank or absent means no home. When set, the
   database nests into the sidebar Folders tree at that folder — the folder's
-  row keeps its on-disk name and gains a DB chip (SUB-611), clicking it opens
+  row keeps its on-disk name and gains a DB chip, clicking it opens
   the database view, new entries land there explicitly — and the database
   leaves the flat Databases section. Renaming the folder retargets the `home`
   (subtree included), trashing it clears the key (the database goes homeless
@@ -1723,39 +1738,39 @@ PropSchema fields:
   `src/styles.css`). An unknown color string is stored as-is and renders the
   default muted dot (`--text-3` fallback).
 - `kind` — omitted entirely for select props (free text with options);
-  `"text"` = explicit free text (SUB-43): a schema-registered text column that
+  `"text"` = explicit free text: a schema-registered text column that
   survives the demote rule, so the column shows for every entry even with no
-  values; `"date"` = ISO-day value (optionally carrying ` HH:MM`, SUB-270)
-  with a calendar picker (`notify` = macOS alert on the day; `notifyBefore` = an ADDITIONAL lead-time alert that many days earlier, SUB-842 — date-kind only, independent of `notify` so either may stand alone, 0/absent = off and anything longer than 365 clamps); `"file"` = path link (§4); `"relation"` = a typed link to
+  values; `"date"` = ISO-day value (optionally carrying ` HH:MM`)
+  with a calendar picker (`notify` = macOS alert on the day; `notifyBefore` = an ADDITIONAL lead-time alert that many days earlier — date-kind only, independent of `notify` so either may stand alone, 0/absent = off and anything longer than 365 clamps); `"file"` = path link (§4); `"relation"` = a typed link to
   entries of the database named by the entry's `"type"` key (stored as the
-  target's title/stem or a YAML list, rewritten on rename); `"multi"` (SUB-79)
+  target's title/stem or a YAML list, rewritten on rename); `"multi"`
   = a select with several values per note — options/colors exactly like
   select, but the note's value is a YAML string list (`format:\n  - Vinyl\n
   - Digital`), one value per option, each rendering its own dot. A scalar is
   legal for one value (`format: Vinyl`); an emptied list removes the prop,
   same as relation values. The picker toggles membership instead of
   replacing, and `key:value` filters match each list entry per value (§7's
-  OR syntax pairs naturally). `"url"` (SUB-172) = an external link: the value
+  OR syntax pairs naturally). `"url"` = an external link: the value
   is the plain URL string (no migration, no wrapper), rendered as a clickable
   link — display text is the stripped title (no scheme, no `www.`, no
   trailing slash; `urlDisplayTitle` in `src/lib/url.ts`), clicking opens the
   system browser, editing shows and edits the raw URL. `"email"` / `"phone"`
-  (SUB-181) = contact links: the value is the plain string exactly as typed
+  = contact links: the value is the plain string exactly as typed
   (no stripping — unlike url), rendered as a clickable link that opens
   `mailto:<value>` / `tel:<value>` with the OS handler; for `tel:`, spaces
   and dashes strip from the dialed number only, never from the displayed
-  value (`contactHref` in `src/lib/url.ts`). `"checkbox"` (SUB-173) = a
+  value (`contactHref` in `src/lib/url.ts`). `"checkbox"` = a
   boolean: checked stores the YAML scalar `true`; **absent/empty means
   unchecked — unchecking removes the prop rather than writing `false`**
   (keeps frontmatter clean; a stored `false` still reads as unchecked).
   Cells and note chips render a small check square that toggles on one
   click — no editor popup — and display surfaces read "✓" / blank.
-  `"number"` (SUB-188) = a numeric column: the value stays exactly what's
+  `"number"` = a numeric column: the value stays exactly what's
   stored today (a plain YAML scalar — string or number, no migration), the
   optional `format` field below shapes only the display; table cells
   right-align, editing shows the raw stored string, and a non-numeric
   value renders exactly as typed — never destroyed, never hidden.
-  `"rollup"` (SUB-678) = a DERIVED column, wired by the
+  `"rollup"` = a DERIVED column, wired by the
   `relation`/`prop`/`agg` fields below: follow a relation prop of the SAME
   database, aggregate one prop's values across the rows it links to. The
   value is computed on read and stored nowhere — no frontmatter value ever
@@ -1772,10 +1787,10 @@ PropSchema fields:
 - `format` — number-kind only: the display format, modeled the way relation
   models `type`. `"euro"` renders German-style `1.234,56 €` (dot thousands,
   comma decimals — 2 decimals only when the value has decimals, trailing
-  ` €`); `"percent"` (SUB-196) renders through the same de-DE path with a
+  ` €`); `"percent"` renders through the same de-DE path with a
   ` %` suffix — `8,5 %`, `1.250,25 %` (the stored number IS the percent —
   no ×100 math); `"plain"` is the default and stores
-  as absent (the key is omitted). Since SUB-834 the same field also names the
+  as absent (the key is omitted). The same field also names the
   column's UNIT: any `src/lib/units.ts` code is a valid value (`USD`, `GBP`,
   `kg`, `km`, `ms`, `BPM`, `LUFS`, …), and `euro`/`percent` stay forever as
   the on-disk aliases for `EUR` and `%` — one field, no migration. A cell
@@ -1792,7 +1807,7 @@ PropSchema fields:
   vocabulary is mirrored in `schema.rs`, kept in step with units.ts); a
   `format` arriving on a non-number kind drops.
 
-  Since SUB-834 the same field may equally name a **unit**: any code from the
+  The same field may equally name a **unit**: any code from the
   unit registry (`src/lib/units.ts`, mirrored as `UNIT_CODES` in
   `src-tauri/src/vault/schema.rs`) — `USD`, `GBP`, `CHF`, `kg`, `g`, `km`,
   `ms`, `BPM`, `LUFS`, `dB`, `%` and the rest. Codes are matched
@@ -1817,23 +1832,23 @@ PropSchema fields:
   is never silently summed. Because a quantity is a legal value here, the
   vault doctor (§14) does not flag `25 USD` in a number prop; real junk
   (`ask`, `25 furlongs`) is still flagged.
-- `relation` — rollup-kind only (SUB-678): the NAME of the relation prop on
+- `relation` — rollup-kind only: the NAME of the relation prop on
   the same database to follow (not a database name — the relation prop's own
   `type` names the related database). Required on write; it must already
   exist as a relation-kind prop of the same database (matched
   case-insensitively). Renaming that relation prop retargets the reference
   (same-database sweep); a `relation` arriving on any other kind drops.
-- `prop` — rollup-kind only (SUB-678): the prop on the RELATED database to
+- `prop` — rollup-kind only: the prop on the RELATED database to
   read. Required on write (any non-empty name — the related database's
   schema is not consulted). Renaming that target prop DOES retarget the
-  reference (SUB-740): every rollup that reads it through a relation pointing
+  reference: every rollup that reads it through a relation pointing
   at the renamed prop's database has its `prop` rewritten, case-folded — see
   the rollup sweeps below.
-- `agg` — rollup-kind only (SUB-678): the aggregation over the linked rows'
+- `agg` — rollup-kind only: the aggregation over the linked rows'
   values — `sum` | `avg` | `min` | `max` | `count`, the table footer's
-  Calculate vocabulary (SUB-74, `src/lib/aggregate.ts`). Refused on write
+  Calculate vocabulary (`src/lib/aggregate.ts`). Refused on write
   outside the vocabulary; an `agg` arriving on any other kind drops.
-- `description` — any kind, kindless select props included (SUB-191): a
+- `description` — any kind, kindless select props included: a
   one-line entry hint shown muted where values are typed (the property picker
   popup on a table cell, the note's chip editor). Notion-parity field —
   Notion property descriptions carry real entry guidance in live vaults.
@@ -1892,7 +1907,7 @@ contact:             # several targets (flow style parses too)
   without `type` still drives rename rewrites, but `related()` counts it only
   for untyped targets.
 
-### Rollup properties — derived columns, stored nowhere (SUB-678)
+### Rollup properties — derived columns, stored nowhere
 
 A rollup prop answers "what do the linked rows add up to" on every row of a
 database — e.g. a Releases row showing what the release earned by rolling
@@ -1931,7 +1946,7 @@ only the wiring; the VALUE is computed on read (in the frontend,
   database); renaming the rollup itself moves its schema entry like any
   prop; renaming the TARGET prop on the related database retargets `prop`
   on every rollup that reads it through a relation pointing at that database
-  (SUB-740) — including a rollup on the same database through a
+  — including a rollup on the same database through a
   self-relation. Both directions match case-insensitively, the way the
   evaluator resolves schema keys and `type:` values; a rollup whose relation
   targets a different database keeps its `prop` even when the renamed name
@@ -1956,7 +1971,7 @@ one also shows up as `corrupt-config` in the doctor, §15).
 - Keys are `<note path>|<prop>|<YYYY-MM-DD>` (the due date — the occurrence
   day for a recurring note); values are unix seconds — for `fired`, when it
   fired; for `snoozed`, quiet-until.
-- A **lead-time** alert (SUB-842, `notifyBefore: n`) keys as
+- A **lead-time** alert (`notifyBefore: n`) keys as
   `<note path>|<prop>|<YYYY-MM-DD>|lead` — the date stays the DUE date, not
   the day the alert fires, so the lead and the day-of alert of one occurrence
   carry distinct keys and fire independently. The trailing `lead` marker only
@@ -1980,9 +1995,9 @@ one also shows up as `corrupt-config` in the doctor, §15).
 - Dues that pass while the app isn't running do NOT fire late; the one
   late-fire is an explicit snooze expiring. A **missed lead day** likewise
   fires nothing — the day-of alert is the backstop, so a machine that was
-  asleep through the heads-up still gets told on the day (SUB-842). Snoozing moves the key from
+  asleep through the heads-up still gets told on the day. Snoozing moves the key from
   `fired` to `snoozed` (later today / tomorrow at the prop's fire time).
-- **A snooze that outlives its occurrence day still fires** (SUB-737):
+- **A snooze that outlives its occurrence day still fires**:
   "tomorrow" on a *weekly* deadline targets a day the series doesn't land
   on, so the scan also walks the `snoozed` map itself for expired entries
   and fires them off-series — an explicit snooze is a user request, not a
@@ -2003,15 +2018,15 @@ one also shows up as `corrupt-config` in the doctor, §15).
 - Entries whose due date is >14 days past are pruned on scan, keeping the
   file small. The file is device-local and **excluded from vault history**
   (§11, `.git/info/exclude`) — the scheduler writes it off the engine lock,
-  so tracking it let it dirty the tree mid-resolve (SUB-568).
-- Unknown top-level keys are preserved across app writes (SUB-433). The
+  so tracking it let it dirty the tree mid-resolve.
+- Unknown top-level keys are preserved across app writes. The
   file's format version lives in `.vault/format.json` (§5b); a version newer
   than the app knows makes the file read-only — the scheduler still honours
   what's on disk, it just stops persisting changes.
 
 ### `.vault/jobs-exit.json` — launchd exit-status rings
 
-Recent run outcomes for the jobs dashboard (`src-tauri/src/jobs.rs`, SUB-706):
+Recent run outcomes for the jobs dashboard (`src-tauri/src/jobs.rs`):
 the machine-local history that turns "the job's last exit was fine" into
 "3 of the last 5 runs failed". App-owned — external writers should leave it
 alone; a missing or corrupt file reads as empty state and the rings simply
@@ -2038,7 +2053,7 @@ rebuild from observation.
   run.
 - Device-local and **excluded from vault history** (§11) like
   `notifications.json` — it is written from the IPC poll outside the engine
-  lock. Unknown top-level keys are preserved across app writes (SUB-433).
+  lock. Unknown top-level keys are preserved across app writes.
 - Deliberately NOT versioned in `.vault/format.json` (§5b): the state is
   disposable and self-healing, so there is nothing to migrate and nothing a
   newer app could destroy that observation won't rebuild.
@@ -2069,25 +2084,25 @@ Per-database layout choice, same file discipline as schema.json:
 - `view`: one of `list`, `table`, `board`, `gallery` (anything else is rejected
   by the app).
 - `group_by`: optional; the prop a board groups its columns by. Omitted when unset.
-- `table_group_by` (SUB-184): optional; the prop a table groups its section
+- `table_group_by`: optional; the prop a table groups its section
   rows by. A separate key from `group_by` — a table never inherits the
   board's grouping and vice versa. Sections follow the schema's option order
   (unschema'd values after, alphabetically), the "No <prop>" section trails,
   empty sections don't render. Omitted when unset. `vault_rename_prop` /
   `vault_clear_prop` (§4) keep this key in sync like `group_by`.
-- `aggregations` (SUB-74): optional; the table layout's per-column footer
+- `aggregations`: optional; the table layout's per-column footer
   calculations — column name → one of `sum`, `avg`, `min`, `max`, `count`
   (`count` = non-empty cells; the rest parse cells as numbers and skip
   non-numeric ones). An absent column key means no calculation. Computed over
   the rows visible in the table (view filter applied). Omitted when empty.
   `vault_rename_prop` / `vault_clear_prop` (§4) keep these keys in sync —
   moved or dropped in place, so a footer never keys on a stale prop.
-- `sorts` (SUB-326): optional; the database's remembered sort — the same
+- `sorts`: optional; the database's remembered sort — the same
   ordered `{ "key", "dir": 1 | -1 }` list a saved view's `sorts` carries
   (validation matches: `dir` other than ±1 is rejected; an empty list stores
   as absent). Header clicks write it, so a sort survives navigating away.
   A saved view's own sort still overrides inside that pin.
-- `col_order` (SUB-949): optional; the TABLE's column order — the ordered prop
+- `col_order`: optional; the TABLE's column order — the ordered prop
   keys a header label drag left behind (a board's own column order is the
   group prop's option order, not this key). The Name column is frozen first
   and never appears here. On read the list is a preference, not the column
@@ -2102,19 +2117,19 @@ Per-database layout choice, same file discipline as schema.json:
   shown-list on re-save. `vault_rename_prop` / `vault_clear_prop` (§4) keep
   these entries in sync like `sorts`/`hidden` — renamed in place, dropped with
   the prop (an emptied list leaves the file).
-- `hidden` (SUB-326): optional; prop names hidden from the database's
+- `hidden`: optional; prop names hidden from the database's
   table/list columns (the header right-click checklist / a column caret's
   "Hide property"). Absent or empty = everything shows. Names are stored
   verbatim; entries naming no current column are inert but kept. The inverse
   of a pin's curated `columns` shown-list — a prop added later shows by
-  default here, stays hidden in a curated pin. Since SUB-642 this flat list
+  default here, stays hidden in a curated pin. This flat list
   is only the SEED a layout without its own `hidden_per_layout` set falls
-  back to on read — pre-SUB-642 files carry just it, feeding both layouts
+  back to on read — older files carry just it, feeding both layouts
   (backward compatible), and the first per-layout write replaces it.
   `vault_rename_prop` / `vault_clear_prop` (§4) keep `sorts` keys and
   `hidden` entries in sync like `group_by` — renamed in place, dropped with
   the prop (emptied lists leave the file).
-- `hidden_per_layout` (SUB-642): optional; `{ "table": [...], "list": [...] }`
+- `hidden_per_layout`: optional; `{ "table": [...], "list": [...] }`
   — column visibility curated independently per layout, so hiding a table
   column no longer rewrites every list row's subtitle and curating a list
   no longer strips the table. Each set sanitizes like the flat `hidden`
@@ -2125,20 +2140,20 @@ Per-database layout choice, same file discipline as schema.json:
   the new shape. Board/gallery have no curation UI and never carry a set.
   `vault_rename_prop` / `vault_clear_prop` (§4) sweep these entries like the
   flat list's.
-- `widths` (SUB-404): optional; table column widths in px, prop name →
+- `widths`: optional; table column widths in px, prop name →
   integer width (the header drag handles). The reserved `title` key sizes
   the Name column — real prop names never collide with it (it's not a
   column key). Zero-width entries are dropped on write; an emptied map
   stores as absent. Clamps (60–800px) are the UI's business — the engine
   stores what it's given.
-- `wrap` (SUB-404): optional; prop names whose table cells wrap instead of
+- `wrap`: optional; prop names whose table cells wrap instead of
   clipping to one line (a column caret's "Wrap text"; `title` names the
   Name column here too). Absent or empty = everything clips. Entries trim
   on write, empties drop.
   `vault_rename_prop` / `vault_clear_prop` (§4) carry `widths` keys and
   `wrap` entries along like `sorts`/`hidden` — renamed in place (an entry
   already at the new name wins), dropped with the prop.
-- `grid` (SUB-607): optional; `true`/`false` pins this database's table
+- `grid`: optional; `true`/`false` pins this database's table
   grid lines (vertical column rules) on or off, overriding the global
   `db-grid` setting (§12). Absent = follow the global. The UI clears the key
   when a toggle lands back on the global value, so a database without an
@@ -2150,22 +2165,22 @@ Keys starting with `$` are reserved — real database names never start with
 `$`, so they never collide with prefs in the flat map. Unknown reserved keys
 are ignored by readers and **ride along on writes** — including unknown keys
 inside a single database's pref, which are preserved when that pref is
-rewritten (SUB-433). Current reserved keys:
+rewritten. Current reserved keys:
 
 - `$sidebar` — sidebar section ordering and collapse state: `dashboards`
   (note paths) and `databases` (type names), each a drag-ordered array;
   entries not in the list append after, stale entries are dropped by the UI.
-  Since SUB-605 `dashboards` is ONE flat list shared by several surfaces, the
+  `dashboards` is ONE flat list shared by several surfaces, the
   same shape `folders` and `pins` use below: the Dashboards section's own rows
   are one group, and each content folder whose tree row hosts dashboards is
   another, so only relative order within a group matters. A dashboard note
   living OUTSIDE the dashboards home folder renders under its folder's row in
   the Folders tree instead of in the Dashboards section (never both), so moving
   a dashboard between folders can change which surface owns it — the entry
-  follows the path either way (SUB-466).
-  `dashgroups` (SUB-698) is the Dashboards section's second lane: a
+  follows the path either way.
+  `dashgroups` is the Dashboards section's second lane: a
   drag-ordered array of vault-relative FOLDER paths, one per subfolder GROUP
-  HEADER shown in that section (SUB-466). It is separate from `dashboards`
+  HEADER shown in that section. It is separate from `dashboards`
   because a group header orders against its sibling headers, never against
   the dashboard note rows — an array of strings like `folders`, with the same
   append-unlisted / drop-stale handling. Renaming or moving a group folder
@@ -2173,21 +2188,21 @@ rewritten (SUB-433). Current reserved keys:
   rows inside the folder along with it; trashing the folder drops them.
   Omitted (and read as empty) when nothing is ordered — a views.json written
   before this field existed loads unchanged.
-  `folders` (SUB-401, generalized by SUB-585) is the same shape for the
+  `folders` is the same shape for the
   Folders tree: ONE flat list of vault-relative folder paths at any depth —
   each sibling group (the roots, or one folder's children) reads its own
   members out of the list in order, so only relative order within a group
   matters and unlisted folders append alphabetically; a folder rename
   retargets its entries (subtree included), trashing a folder drops them
   (parked in the trash sidecar, restored with the folder — §10). `pins`
-  (SUB-410) lists pinned note paths, in row order — any note, database-typed
+  lists pinned note paths, in row order — any note, database-typed
   or not. A pinned note's row renders under its home folder's row in the
-  Folders tree (SUB-585); pins with no tree row (vault root, Journal,
+  Folders tree; pins with no tree row (vault root, Journal,
   Dashboards) render in the flat Pinned section. The list is again one flat
   order, each surface reading its own members in sequence. Renaming or moving
   a pinned note retargets its entry (a folder rename
   carries the pins inside along), trashing the note or its folder drops it,
-  and a path with no live note simply doesn't render. `keys` (SUB-467) maps a
+  and a path with no live note simply doesn't render. `keys` maps a
   user-assigned key token to the sidebar destination it opens — an object,
   written in sorted key order. Both token grammars belong to the frontend: the
   key is `"mod+<digit>"` or `"ctrl+<digit>"` today (`mod` = ⌘ or ⌃), and the
@@ -2199,35 +2214,35 @@ rewritten (SUB-433). Current reserved keys:
   and trashing a note or folder, deleting a saved view, or deleting a database
   drops the binding — the key token itself never changes, since the user
   assigned that key and keeps it. Omitted when nothing is assigned.
-  `collapsed` (SUB-70)
+  `collapsed`
   lists the chevron-collapsed sidebar sections —
   `"dashboards"`, `"pinned"`, `"databases"`, `"folders"` — plus one
   `"dbpins:<type>"` id per database whose saved-view pins are folded. Omitted
   when nothing is collapsed.
-- `$folders` — per-folder metadata (SUB-84), keyed by vault-relative folder
+- `$folders` — per-folder metadata, keyed by vault-relative folder
   path (slash-joined, as in the sidebar tree). Currently one field: `icon`,
-  a database icon in the SUB-27 model (`emoji` or curated `glyph` id,
+  a database icon (`emoji` or curated `glyph` id,
   optional muted `tint` name — same normalization: emoji wins over glyph,
   tint only with a mark, no mark removes the entry). A folder rename
   retargets its keys, subtree included; trashing a folder drops them (parked
   in the trash sidecar, restored with the folder — §10). An
   emptied `$folders` map drops the key from the file.
-- `$views` — saved views (SUB-18): an **ordered array** (pin order in the
+- `$views` — saved views: an **ordered array** (pin order in the
   sidebar) of named queries over one database. Fields: `id` (stable slug,
-  unique), `name`, `db` (type string), optional `query` (the SUB-7 operator
+  unique), `name`, `db` (type string), optional `query` (the operator
   syntax, stored verbatim — bare words match the note title; a comma-separated
-  value is an OR over one prop (SUB-78), e.g. `status:live,"in review"` —
+  value is an OR over one prop, e.g. `status:live,"in review"` —
   quote any segment containing a space or comma; date props also
-  take comparisons (SUB-66): `due < 7d` / `released >= 2026-01-01`, with `Nd`/
+  take comparisons: `due < 7d` / `released >= 2026-01-01`, with `Nd`/
   `Nw` durations measured from today), optional
   `sort` (`{ "key": <prop or "title">, "dir": 1 | -1 }`), optional `sorts`
-  (SUB-199: the full ordered key list of a multi-key sort — sorting is
+  (the full ordered key list of a multi-key sort — sorting is
   lexicographic over it, secondary keys are shift-clicked in the table
   header, the list caps at 3. Written only when 2+ keys are active; `sort`
   always mirrors the first key so older readers keep working, and readers
   treat a view as `sorts ?? (sort ? [sort] : [])`), optional `view` /
   `group_by` / `table_group_by` (layout and grouping overrides; absent falls
-  back to the database's own pref), optional `columns` (SUB-212: the ordered
+  back to the database's own pref), optional `columns` (the ordered
   property keys this view renders in table/list layouts, the title column
   always leading; absent = the database's default column union, keys naming
   no known column are ignored).
@@ -2235,7 +2250,7 @@ rewritten (SUB-433). Current reserved keys:
   id/name/db, unknown layouts, and `dir` values other than ±1 (in `sort` or
   any `sorts` entry).
 
-### Exported link folders — `.substrate-view` (SUB-810)
+### Exported link folders — `.substrate-view`
 
 A saved view can be **exported** as a real folder outside the vault whose
 entries are symlinks to the notes the view matches — so Finder, a sample
@@ -2270,7 +2285,7 @@ the background.
   by view id and carrying the vault path — never in the vault, because an
   export path is true for exactly one machine and `.vault/` syncs. Removing
   the pin drops the record; the folder on disk stays.
-- **The destination must be outside the vault** (SUB-1009). A link folder in
+- **The destination must be outside the vault**. A link folder in
   the vault is derived data in the one tree that syncs: the vault's git
   history would carry symlinks whose targets are absolute paths true on
   exactly one machine, so every other device restores them broken. The export
@@ -2296,12 +2311,12 @@ the background.
 
 ### `.vault/templates/<type>.md` — per-type entry templates
 
-One optional markdown file per database type (SUB-17): its frontmatter becomes
+One optional markdown file per database type: its frontmatter becomes
 create-time prop defaults, its body the starting body with `{{title}}` /
 `{{date}}` substituted (`src/lib/templates.ts`; `{{date}}` is the creation day,
-except calendar-created entries where it is the picked day, SUB-60). Hidden like
+except calendar-created entries where it is the picked day). Hidden like
 the rest of `.vault/` — never indexed, searched, or watched, so a template never
-pollutes its own database. **The one hidden-path exception (SUB-59):** the note
+pollutes its own database. **The one hidden-path exception:** the note
 commands (`vault_read` / `vault_write_body` / `vault_set_prop`) accept the
 explicit path `.vault/templates/<type>.md` (flat, `.md`) so templates edit
 in-app like any note; a write creates the dir and file on first use and
@@ -2348,7 +2363,7 @@ edited by hand (JSON array):
   dot-names are skipped.
 - `watch` — optional, default `false`. Opts the mount into the live watcher
   (below), and only takes effect on a machine where it is bound.
-- Any other key is preserved verbatim across app writes (SUB-433). The file's
+- Any other key is preserved verbatim across app writes. The file's
   format version lives in `.vault/format.json` under `mounts` (§5b); a version
   newer than the app knows makes the registry AND the per-mount indexes below
   read-only.
@@ -2538,7 +2553,7 @@ silent even though nothing errors.
   well it matched. Optional; default empty.
 - `icon` — optional sidebar glyph override, same shape as a database icon
   (§6). Absent = the tag glyph.
-- Any other key is preserved verbatim across app writes (SUB-433), and the
+- Any other key is preserved verbatim across app writes, and the
   file's format version lives in `.vault/format.json` (§5b) — a version newer
   than the app knows makes this one file read-only.
 
@@ -2582,10 +2597,10 @@ Delete = move into the trash, never unlink:
        └ deleted_ms  └ original vault-relative path, verbatim
 .trash/1752768000100/Projects/            ← a trashed folder: the whole subtree
 .trash/1752768000100/Projects.folder      ← marker naming it as one entry
-.trash/1752768000100/Projects.folder.json ← its parked view-config (SUB-480)
+.trash/1752768000100/Projects.folder.json ← its parked view-config
 .trash/1752768000000/Inbox/Capture anything.md.note.json
                                           ← a trashed note's parked sidebar
-                                            config (SUB-666)
+                                            config
 .trash/1752768000200/.assets/bounce.wav   ← a trashed asset (§9), name only
 .trash/1752768000300/.templates/release.md ← a deleted database's template (§8)
 ```
@@ -2597,12 +2612,12 @@ Delete = move into the trash, never unlink:
   entry — its notes list/restore/delete-forever with the folder, not
   individually. The marker lives next to the tree (never inside it), so restore
   stays a clean rename and nothing marker-shaped lands back in the vault.
-- **A trashed folder parks its view-config** (SUB-480) in a sibling
+- **A trashed folder parks its view-config** in a sibling
   `<id>.folder.json` sidecar, next to the marker for the same reason. Deleting
   a folder clears config that lives outside it — its `$folders` icon (subtree
   included), any schema `home` pointing into it, its `$sidebar.folders` row,
   the `$sidebar.pins` of notes inside, and every `$sidebar.keys` binding
-  targeting the folder or its subtree (SUB-499) — and the sidecar is what
+  targeting the folder or its subtree — and the sidecar is what
   restore reads to put all of it back. Shape:
 
   ```json
@@ -2627,10 +2642,10 @@ Delete = move into the trash, never unlink:
   restores. The sidecar is written best-effort at delete, is never listed as
   its own trash entry, and is purged on restore, on delete-forever, and with
   an orphan marker.
-- **A trashed note parks its sidebar config** (SUB-666) the same way, in a
+- **A trashed note parks its sidebar config** the same way, in a
   sibling `<id>.note.json` sidecar. Deleting a note clears its `$sidebar.pins`
-  row (SUB-410) and every `$sidebar.keys` binding pointing at it — `note:` and
-  `dash:` alike (SUB-467) — so the sidecar is what restore reads to put both
+  row and every `$sidebar.keys` binding pointing at it — `note:` and
+  `dash:` alike — so the sidecar is what restore reads to put both
   back. Only the pin's index and the key tokens are stored; the note's path is
   implicit, since restore knows where the note landed. Shape:
 
@@ -2661,7 +2676,7 @@ Delete = move into the trash, never unlink:
   reoccupied. Since assets carry no history, restoring or permanently deleting
   one has no history side effect, and empty-trash purges them with everything
   else.
-- **Templates trash into a `.templates/` mirror** the same way (SUB-781):
+- **Templates trash into a `.templates/` mirror** the same way:
   deleting a database moves its `.vault/templates/<stem>.md` into
   `.trash/<deleted_ms>/.templates/<stem>.md` instead of unlinking it. The
   dot-prefix keeps it out of the note walk, so it lists as its own trash kind
@@ -2693,7 +2708,7 @@ authored by `Substrate <substrate@local>`, or when nothing was committed yet;
 any other authorship leaves the repo foreign forever. A `.git` FILE (worktree
 pointer) is always foreign.
 
-**Second ownership marker (SUB-1018).** The sentinel is one file inside
+**Second ownership marker.** The sentinel is one file inside
 `.git`, and losing it used to be terminal. A vault that lost both its
 sentinel and its `.git/config` (partial restore, a copy tool that skipped
 them) commits its next snapshot under git's *implicit* machine identity —
@@ -2716,7 +2731,7 @@ same rule.
 - **Excluded** (via `.git/info/exclude`, written at init —
   `src-tauri/src/history.rs` `EXCLUDE_CONTENT`): `.assets/`, `.trash/`,
   `.DS_Store`, and the device-local state files written off the engine lock —
-  `.vault/notifications.json` (SUB-568) and `.vault/jobs-exit.json` (SUB-706).
+  `.vault/notifications.json` and `.vault/jobs-exit.json`.
   Everything else is tracked — notes, `.vault/schema.json`, `.vault/views.json`,
   `.vault/mounts.json` + `.vault/mounts/`, `.vault/folders.json`,
   `.vault/templates/`, `Settings.md`.
@@ -2731,8 +2746,7 @@ same rule.
   **Consequence, by design:** a vault pulled onto a second device has all its
   notes and none of its assets, so every `![[embed]]` resolves to nothing there.
   That is expected, not damage — the app renders those embeds as *"not on this
-  device"* rather than as broken links (SUB-444,
-  `src/lib/embedstate.ts`). Getting binaries onto another
+  device"* rather than as broken links (`src/lib/embedstate.ts`). Getting binaries onto another
   device is a separate job for a file-sync leg (§15), not for git.
 - **Restore** writes the old content over the file and snapshots immediately — a
   new commit on top, never a rewrite.
@@ -2745,8 +2759,7 @@ same rule.
   alive on disk. The next push simply runs with no baseline, as a first push.
 - **Background maintenance is pinned off.** Every time the app opens an owned
   vault it sets `maintenance.auto=false` and `gc.auto=0` in the vault's LOCAL
-  `.git/config` (idempotent; `src-tauri/src/history.rs` `History::new`,
-  SUB-603). Reason: `git commit` spawns a **detached** `git maintenance run
+  `.git/config` (idempotent; `src-tauri/src/history.rs` `History::new`). Reason: `git commit` spawns a **detached** `git maintenance run
   --auto` whose `repack -d -l --cruft` grandchild deletes every loose object
   and its fanout directory *asynchronously — after the commit already
   returned*. Two things break when it lands. (1) It races the libgit2 writes
@@ -2760,7 +2773,7 @@ same rule.
   `.git/substrate-sync-cert.der` — the pinned server certificate for the
   `substrate` remote (public material; the token never lives in the repo) —
   and `.git/substrate-sync-rewritten` — a marker any history purge/trim
-  writes (both engines' `finish_rewrite`, SUB-713) and the next successful
+  writes (both engines' `finish_rewrite`) and the next successful
   push deletes. While it stands, a rejected push is reported as "the remote
   still holds the old history" with the manual recovery steps
   (`scripts/vault-sync-server/README.md`, "After a client-side history
@@ -2829,14 +2842,14 @@ Plain notes the app treats specially — all optional, all just files:
   (default `alt+space`), `close-to-tray` (default `false`), and the ⌘⇧T terminal
   HUD's `terminal-command` (agent CLI typed into the fresh shell; empty = plain
   shell), `terminal-cwd` (start folder, `~` expands; empty = the vault folder),
-  `terminal-dock` (SUB-864, `bottom` or `right`, default `bottom`; anything else
+  `terminal-dock` (`bottom` or `right`, default `bottom`; anything else
   reads as `bottom`), `terminal-height` (window fraction `0.2`–`0.9`, default
   `0.45`, used when docked bottom) and `terminal-width` (window fraction
   `0.2`–`0.7`, default `0.38`, used when docked right) — both sizes are also
-  written by dragging the panel's inner edge (SUB-863), and each side keeps the
+  written by dragging the panel's inner edge, and each side keeps the
   size last chosen for it, so flipping the dock restores it; an out-of-range
   value typed into the note falls back to the default rather than clamping,
-  `terminal-font` (SUB-862, font family for the HUD terminal — one name or a
+  `terminal-font` (font family for the HUD terminal — one name or a
   comma-separated chain; names are normalized (quotes optional, spaced names
   quoted for you) and restricted to letters/digits/space/`_``.``-`, anything
   else is dropped; the app's mono stack is always appended, so a typo'd or
@@ -2850,10 +2863,15 @@ Plain notes the app treats specially — all optional, all just files:
   unfolding the shortcuts that would fire right now — same rule as
   `drop-hint`, only an explicit `false` hides it, so an unset key or a
   typo'd value keeps the affordance discoverable. Desktop only), `db-grid`
-  (SUB-607, default `true`; `false` turns off the
+  (default `true`; `false` turns off the
   vertical grid lines in database tables globally — a database's own
-  views.json `grid` override, §7, wins either way), `window-opacity`
-  (SUB-951, macOS desktop only, default `90`; how solid the window is over the
+  views.json `grid` override, §7, wins either way),
+  `task-stale-chips` (default `true`; `false` hides the tasks
+  board's `stale`/`undated` age chips — same explicit-`false` rule as
+  `drop-hint`. It is the global DEFAULT: a board with its own `stale_days`
+  (§5.2) keeps its chips, and a task with `stale: never` never wears one),
+  `window-opacity`
+  (macOS desktop only, default `90`; how solid the window is over the
   desktop in percent, `80`–`100` — the wallpaper shows through, blurred by
   macOS's own material rather than by a CSS filter over the notes, and `100`
   removes the material for exactly the old fully-solid window. Only the window
@@ -2861,11 +2879,11 @@ Plain notes the app treats specially — all optional, all just files:
   opaque so the depth hierarchy survives. An out-of-range or unparseable value
   falls back to `90` rather than clamping, and on every other platform the key
   is inert and the ⌘, sheet hides the slider), `show-agent-files`
-  (SUB-831, default `false`; only an explicit `true` lists the root
-  `AGENTS.md`/`CLAUDE.md` — and, since SUB-878, `Settings.md` itself — in the
+  (default `false`; only an explicit `true` lists the root
+  `AGENTS.md`/`CLAUDE.md` — and `Settings.md` itself — in the
   app's note surfaces; the key keeps its original name for existing vaults,
   the ⌘, sheet labels it "Show app files" — see the concealment entry below),
-  and the SUB-833 "Send as link" pair: `share-relay-url` (http(s) URL of the
+  and the "Send as link" pair: `share-relay-url` (http(s) URL of the
   handoff relay the encrypted copy uploads to; fresh settings notes seed
   `https://drop.substrate.zone`, and an existing note with no key uses that
   runtime default without being rewritten. `disabled` (what the Settings form
@@ -2874,11 +2892,11 @@ Plain notes the app treats specially — all optional, all just files:
   the hosted default and the self-hostable relay speak the same protocol — see
   `scripts/handoff-relay/README.md`) and
   `share-relay-token` (optional bearer token, only for relays that gate
-  uploads), and the SUB-955 appearance dials: `glow` (0–100, default `0`,
+  uploads), and the appearance dials: `glow` (0–100, default `0`,
   the bloom around dashboard chart strokes, dots and emphasised values —
   bars join above 70; `0` is the shipped look and switches the effect off
   entirely rather than drawing a zero-width one), `accent-tone` (`sky` —
-  the default and the shipped SUB-932 family — `teal`, `indigo` or
+  the default and the shipped family — `teal`, `indigo` or
   `violet`; picks the hue the dashboard accent family and the categorical
   series ramp wear, on screen and in print, while the state colours
   red/amber/green stay put) and `accent-tone-nudge` (−12..12 degrees of
@@ -2886,9 +2904,9 @@ Plain notes the app treats specially — all optional, all just files:
   bound is what keeps every ramp colour clear of 3:1 on both grounds).
   All three degrade to their default on any value the reader can't make
   sense of. Alongside them:
-  `number-format` (SUB-834, `de` — the default — writes `1.234,56`,
+  `number-format` (`de` — the default — writes `1.234,56`,
   `intl` writes `1,234.56`; an unset or unrecognized value reads as `de`), and
-  the SUB-834 outbound-request switches, one per request the app can make, all
+  the outbound-request switches, one per request the app can make, all
   default `true` and all turned off only by an explicit `false`:
   `net-link-titles` (a captured link asks that site for its page title — off
   still captures the note, it just keeps the bare URL as the title),
@@ -2901,12 +2919,12 @@ Plain notes the app treats specially — all optional, all just files:
   `docs/security-config.md`. Hot-reloaded
   within a second of saving; the ⌘, sheet is a typed form over the same keys.
   Unlike the other notes here it is not merely seeded on first run: the desktop
-  app writes it on launch whenever it is absent (SUB-473), so vaults predating
+  app writes it on launch whenever it is absent, so vaults predating
   the setting get one, and deleting it brings back the defaults. No write
   happens if `.vault/format.json` says a
   newer app owns the vault (§5b). Desktop-only, and skipped on a vault that has
   a sync remote — both for the same reasons as the `AGENTS.md` backfill below.
-  An existing note is split in two (SUB-973): **the frontmatter is never
+  An existing note is split in two: **the frontmatter is never
   touched** — those are the user's values, and a key they removed simply means
   "default" — while the **body**, which is the app's own per-key documentation
   and rots as settings are added, is refreshed under the known-revisions rule
@@ -2915,15 +2933,15 @@ Plain notes the app treats specially — all optional, all just files:
   user's entirely.
 - `AGENTS.md` (vault root) + `CLAUDE.md` + `.claude/skills/setup/SKILL.md` —
   the orientation the agent CLI in the ⌘⇧T terminal HUD reads about the vault
-  it is running inside (SUB-474): `AGENTS.md` is this format in one page,
+  it is running inside: `AGENTS.md` is this format in one page,
   `CLAUDE.md` is a one-paragraph pointer at it for agents that auto-load only
-  that filename (SUB-802), and `/setup` is a
+  that filename, and `/setup` is a
   skill that interviews the user and writes further skills fitted to their
   actual schema. Deliberately no other prebuilt skills — one that doesn't know
   the user's real types and folders proposes against an imagined schema.
   Both are written when **absent**, on every launch, not only on first run
   (`vault/seed.rs` `seed_agent_files`), so deleting one brings the shipped version
-  back. **Known revisions (SUB-973)**: `seed.rs` also embeds the full text of
+  back. **Known revisions**: `seed.rs` also embeds the full text of
   every revision of each of these files the app has ever shipped (`SEED_FILES`,
   with the historical ones frozen under `src/seed/revisions/`). On launch, a
   file whose text still matches *any* shipped revision is one nobody has
@@ -2963,7 +2981,7 @@ Plain notes the app treats specially — all optional, all just files:
   excludes only `.assets/`, `.trash/`, and `.DS_Store` — so a skill written on
   one device shows up on the others. `.claude/` is hidden (§1) and therefore
   never a note; `AGENTS.md` is an ordinary, frontmatter-less note in the index.
-  **In-app concealment (SUB-831; SUB-878 added `Settings.md`)**: the engine
+  **In-app concealment (added `Settings.md`)**: the engine
   indexes all three root files
   normally — external tools, Finder and sync see nothing special — but the
   app's own note surfaces (lists, palette, search, sidebar counts, wikilink
@@ -2983,12 +3001,11 @@ Plain notes the app treats specially — all optional, all just files:
 - `Calendar/` + `type: event` — standalone calendar entries file themselves here
   with a date prop (default `date: YYYY-MM-DD`). Databases keep their own folders;
   the calendar discovers their date props per §4. Per-note opt-out: `calendar:
-  false` hides a note from the calendar (the note's ⋯ menu writes/removes it,
-  SUB-175).
+  false` hides a note from the calendar (the note's ⋯ menu writes/removes it).
 - `type: reference` — a link captured from the clipboard: filed in `Inbox/` with
   `url:` prop; the title starts as the bare URL (scheme/`www.` stripped) until a
   fetched page title renames it.
-- `type: ableton-project` — the Ableton album pool (SUB-37): one row per project
+- `type: ableton-project` — the Ableton album pool: one row per project
   folder, written by the external `scripts/import-ableton.ts` (run by hand;
   `npm run import:ableton -- <pool>`). The source tree is strictly **read-only**
   — the script and the app only ever `stat` `.als` files, never parse, write,
@@ -3114,7 +3131,7 @@ constructed the app falls back to a 45s poll (`vault/watch.rs:52`) and says so v
 *bodies* are never cached (`Engine::read`, `vault/mod.rs:1067`, hits disk every
 call); only the metadata/link/FTS indexes lag, and only for that window.
 
-**Non-UTF-8 notes are readable but not writable (SUB-556).** The engine reads
+**Non-UTF-8 notes are readable but not writable.** The engine reads
 on two different lanes. The *display/index* lane is lossy (`read_lossy`,
 `src-tauri/src/vault/mod.rs:401`): invalid bytes become U+FFFD so a mangled file
 still lists, previews, and indexes instead of breaking the view — and a file
@@ -3168,7 +3185,7 @@ prefer (`src-tauri/src/lib.rs`, grouped):
 - Templates: `vault_template_read` `vault_template_list` — plus explicit-path
   `vault_read` / `vault_write_body` / `vault_set_prop` under `.vault/templates/`
   (§7) for editing a template in place
-- Databases (SUB-43): `vault_create_type` `vault_rename_type`
+- Databases: `vault_create_type` `vault_rename_type`
   `vault_delete_type` `vault_rename_prop` `vault_clear_prop` — bulk sweeps;
   take `history_snapshot` immediately before any of them rewrites notes
 - Vault folders: `vault_folders` `vault_create_folder` `vault_rename_folder`
@@ -3180,7 +3197,7 @@ prefer (`src-tauri/src/lib.rs`, grouped):
   is a mount's only write path into the vault, and every scan is read-only on
   the mounted folder
 - Files: `path_exists` `file_open` `file_reveal` `file_pick` `file_read_text`
-  `vault_folder_files` (SUB-812 — the loose files of ONE folder; see §1)
+  `vault_folder_files` (the loose files of ONE folder; see §1)
 - History: `history_status` `history_list` `history_diff` `history_restore`
   `history_snapshot` `history_purge_note` `history_purge_notes` `history_trim`
 - Windows: `agenda_open_note` `agenda_open_capture`

@@ -103,6 +103,7 @@ test("priority weights are case-insensitive and unknown priorities stay conserva
 test("stale threshold is inclusive; invalid settings use the documented default", () => {
   assert.deepEqual(tasksDashboardConfig({ stale_days: "14", areas: "A" }), {
     staleDays: 14,
+    staleChips: true,
     areas: ["A"],
     view: "list",
     sort: "urgency",
@@ -135,6 +136,98 @@ test("stale threshold is inclusive; invalid settings use the documented default"
       ["missing date", "undated"],
     ]
   );
+});
+
+/* SUB-1125 — some notes just aren't touched. Precedence, in order:
+   the per-note override wins over everything; a board's own `stale_days`
+   wins over the global toggle; the toggle is the default under both. */
+
+const findings = (model: ReturnType<typeof buildTasksDashboard>) =>
+  areaSections(model)
+    .flatMap((s) => s.rows)
+    .filter((row) => row.finding !== null)
+    .map((row) => [row.title, row.finding])
+    .sort();
+
+const AGE_NOTES = [
+  note("old", { type: "task", created: "2026-01-01" }),
+  note("fresh", { type: "task", created: "2026-07-31" }),
+  note("undated", { type: "task" }),
+];
+
+test("the global toggle off suppresses age findings board-wide (SUB-1125)", () => {
+  assert.deepEqual(findings(buildTasksDashboard(AGE_NOTES, {}, NOW, true)), [
+    ["old", "stale"],
+    ["undated", "undated"],
+  ]);
+
+  const off = buildTasksDashboard(AGE_NOTES, {}, NOW, false);
+  assert.deepEqual(findings(off), []);
+  // the flag follows the chip: the board must not claim rot it isn't showing
+  assert.deepEqual(
+    areaSections(off)
+      .flatMap((s) => s.rows)
+      .filter((row) => row.stale)
+      .map((row) => row.title),
+    []
+  );
+  assert.equal(off.config.staleChips, false);
+  // the rows themselves are untouched — this hides a diagnostic, never a task
+  assert.equal(off.total, 3);
+  assert.equal(
+    areaSections(off).flatMap((s) => s.rows).find((row) => row.title === "old")?.ageDays,
+    212
+  );
+});
+
+test("a board's own stale_days wins over the global toggle (SUB-1125)", () => {
+  const model = buildTasksDashboard(AGE_NOTES, { stale_days: 14 }, NOW, false);
+  assert.equal(model.config.staleChips, true);
+  assert.equal(model.config.staleDays, 14);
+  assert.deepEqual(findings(model), [
+    ["old", "stale"],
+    ["undated", "undated"],
+  ]);
+  // a typo isn't a request: it reads as unset, so the toggle still governs
+  // and the threshold falls back to the documented default
+  const typo = buildTasksDashboard(AGE_NOTES, { stale_days: "soon" }, NOW, false);
+  assert.equal(typo.config.staleChips, false);
+  assert.equal(typo.config.staleDays, DEFAULT_TASK_STALE_DAYS);
+  assert.deepEqual(findings(typo), []);
+});
+
+test("stale: never exempts one note for good, like a pin (SUB-1125)", () => {
+  const model = buildTasksDashboard(
+    [
+      note("evergreen", { type: "task", created: "2026-01-01", stale: "never" }),
+      note("evergreen-bool", { type: "task", created: "2026-01-01", stale: false }),
+      note("evergreen-undated", { type: "task", stale: "Never" }),
+      ...AGE_NOTES,
+    ],
+    // even with a board that has explicitly asked for chips at a tight
+    // threshold, the note's own opt-out is the last word
+    { stale_days: 7 },
+    NOW
+  );
+  assert.deepEqual(findings(model), [
+    ["old", "stale"],
+    ["undated", "undated"],
+  ]);
+  const rows = areaSections(model).flatMap((s) => s.rows);
+  assert.equal(rows.find((row) => row.title === "evergreen")?.stale, false);
+  assert.equal(rows.find((row) => row.title === "evergreen")?.ageDays, 212);
+  assert.equal(rows.length, 6);
+});
+
+test("an unreadable stale value ages normally (SUB-1125)", () => {
+  for (const value of ["yes", "nope", true, 0, 1, [], {}, null, undefined]) {
+    const model = buildTasksDashboard(
+      [note("old", { type: "task", created: "2026-01-01", stale: value })],
+      {},
+      NOW
+    );
+    assert.deepEqual(findings(model), [["old", "stale"]], `stale: ${JSON.stringify(value)}`);
+  }
 });
 
 test("now accepts YAML true and the string form, nothing else (SUB-786)", () => {
@@ -401,6 +494,7 @@ test("cased Areas/Stale_Days keys still configure (SUB-921)", () => {
   assert.deepEqual(tasksDashboardConfig({ Areas: "A", Stale_Days: "14" }), {
     areas: ["A"],
     staleDays: 14,
+    staleChips: true,
     view: "list",
     sort: "urgency",
   });

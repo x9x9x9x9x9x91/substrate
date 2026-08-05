@@ -270,6 +270,16 @@ export function parseDbGrid(props: Record<string, unknown>): boolean {
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 
+/** `task-stale-chips` — the `stale` / `undated` age chips on the Tasks board
+    (SUB-1125). Default ON, same rule as `drop-hint`: only an explicit `false`
+    turns them off. This is the GLOBAL DEFAULT — a board that sets its own
+    `stale_days` keeps its chips either way, and a task note with
+    `stale: never` never wears one. */
+export function parseTaskStaleChips(props: Record<string, unknown>): boolean {
+  const v = props[foldedPropKey(props, "task-stale-chips")];
+  return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
+}
+
 /** The vault-root files the app itself owns (SUB-831; Settings.md joined in
     SUB-878): the seeded agent orientation pair for the ⌘⇧T terminal's CLI,
     plus the settings note behind the ⌘, sheet. Concealed from the app's own

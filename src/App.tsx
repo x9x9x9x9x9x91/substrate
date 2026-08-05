@@ -70,6 +70,7 @@ import {
   parseDbGrid,
   parseModHud,
   parseShowAppFiles,
+  parseTaskStaleChips,
   parseTerminalActions,
   parseWindowOpacity,
   SETTINGS_PATH,
@@ -337,6 +338,10 @@ export default function App() {
   // SUB-607: `db-grid` in Settings.md — the global default for table grid
   // lines; a database's ViewPref `grid` overrides it either way
   const [dbGrid, setDbGrid] = useState(true);
+  // SUB-1125: `task-stale-chips` in Settings.md — the global default for the
+  // Tasks board's age chips; a board's own `stale_days` and a note's
+  // `stale: never` both override it
+  const [taskStaleChips, setTaskStaleChips] = useState(true);
   // SUB-834: `net-link-titles` in Settings.md — gates the page-title fetch
   // behind a pasted link. The capture itself is local and always happens, so
   // this only decides whether the engine then asks that site anything.
@@ -513,6 +518,7 @@ export default function App() {
         setTerminalActions(parseTerminalActions(c.props));
         setModHud(parseModHud(c.props));
         setDbGrid(parseDbGrid(c.props));
+        setTaskStaleChips(parseTaskStaleChips(c.props));
         setShowAppFiles(parseShowAppFiles(c.props));
         // SUB-955: the appearance dials land on the document element rather
         // than in React state — they are CSS inputs, nothing renders off
@@ -4372,6 +4378,7 @@ export default function App() {
             onCreateEntry={createEntry}
             pageStepRef={pageStepRef}
             dashUndo={dashUndo}
+            taskStaleChips={taskStaleChips}
           />
         </div>
       ) : view.kind === "today" ? (

@@ -41,7 +41,7 @@ and refreshes. No restart, no manual refresh, no "rescan" button.
 
 The app can't tell your write apart from its own by looking at the event — every
 app write comes back through the same watcher, so it attributes its own echo by
-path and time window (`src/lib/ownwrites.ts`, SUB-516). You don't have to do
+path and time window (`src/lib/ownwrites.ts`). You don't have to do
 anything about this; it's just why there is no "who wrote this" field.
 
 ## The one rule that matters: shape your writes as appends
@@ -79,7 +79,7 @@ remounts, and the caret is kept where it was (clamped to the new length rather
 than remapped, `Editor.tsx:1811-1825`). Nothing is lost and no banner appears —
 this is the good case, and the common one. The adopt is deliberately kept out of
 the undo history, so the user's next ⌘Z doesn't revert your change and autosave
-the stale body back over it (SUB-287).
+the stale body back over it.
 
 **The note is open and dirty (unsaved edits in the buffer).** Your write lands
 on disk immediately — nothing stops it. The app then **refuses its own next
@@ -97,8 +97,8 @@ equivalent, which is why rules 1–4 above are about write shape rather than
 locking.
 
 Regression coverage for the guard: `write_body_expected_body_guard`
-(`src-tauri/src/vault/mod.rs:2370`) and step 7 of the real-app smoke lane
-(`src/lib/smoke.ts:226-239`, see [smoke.md](smoke.md)).
+(`src-tauri/src/vault/mod.rs:2370`) and step 7 of the real-app smoke run
+(`src/lib/smoke.ts:226-239`).
 
 ## Writing a row
 
@@ -173,7 +173,7 @@ file is created. `--dry-run` prints without writing. If `.vault/schema.json`
 registers the type, unknown props and off-list select values print as warnings
 — the row is still written, and the schema is never touched. `VAULT_DIR` is
 required and has no default, on purpose: an unset target would mean the real
-vault (SUB-777).
+vault.
 
 Its deliberate limits: one note per run, scalar props only (a `[a, b]` list
 needs a raw write), and it will not overwrite. When the filename is taken it

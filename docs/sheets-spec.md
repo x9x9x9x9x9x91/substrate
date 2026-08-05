@@ -1,11 +1,11 @@
 # Sheets — formula tables
 
-Built in SUB-1: formula engine `src/lib/formula.ts`, sheet model `src/lib/sheet.ts`
+The pieces: formula engine `src/lib/formula.ts`, sheet model `src/lib/sheet.ts`
 (both tested via `npm test`), grid view `src/components/SheetGrid.tsx` (wired into
 `NotePane` for `type: sheet` notes), metrics renderer `src/components/MetricsDashboard.tsx`
 (dispatched from `DashboardPane` on `dashboard: metrics`).
-SUB-44 added v2: cross-sheet references in the engine, and formula rename/edit from
-the grid header. SUB-717 added date arithmetic (`date ± days`, `date − date`) and
+v2 added cross-sheet references in the engine, and formula rename/edit from
+the grid header. A later version added date arithmetic (`date ± days`, `date − date`) and
 the volatile `TODAY()`.
 
 Goal: spreadsheet-portfolio-tracker-class tables inside Vault — sum and math over rows, and
@@ -42,14 +42,14 @@ etf         = SUMIF(bucket, "etf", value_eur)
 - Lines with a bare name referencing column names → computed column (per row).
 - Lines whose right side uses aggregate functions → named summary values. The
   one exception is a `LOOKUP` whose key is row-shaped: it evaluates per row, so
-  its line stays a computed column (SUB-748, below).
+  its line stays a computed column (below).
 - A right side referencing nothing row-shaped is a summary too — that includes a
   bare constant (`ceiling = 25000`) or constant arithmetic (`annual = 2500 * 12`):
-  one named value in the summary bar, never repeated down the rows (SUB-715).
+  one named value in the summary bar, never repeated down the rows.
   Row scope stays data and computed columns only, so a per-row formula can't
   reference a constant by name — inline the literal there.
 - **Blank lines group the fence, and the summary bar reads that grouping
-  (SUB-939)**: lines separated by a blank line form blocks, and the FIRST block
+**: lines separated by a blank line form blocks, and the FIRST block
   holding summaries is the sheet's headline — the numbers the bar shows at a
   glance. Every later block collapses behind one `show all (N)` toggle, closed
   by default, so a finance sheet's helpers and intermediates stop competing with
@@ -71,14 +71,14 @@ etf         = SUMIF(bucket, "etf", value_eur)
 
 - Arithmetic `+ - * / ( )`, comparisons, string literals.
 - Row scope: any data or computed column by name.
-- **Identifiers are unicode letters (SUB-753)**: a name starts with a letter in
+- **Identifiers are unicode letters**: a name starts with a letter in
   any script or `_`, then letters, combining marks, digits and `_` — so `Größe`,
   `märz_total` and `价格` are referenceable, not just ASCII. Names still fold
   case-insensitively (`Größe` == `größe`), and a digit still can't start a name
   (a column called `2024` remains unreferenceable).
-- **Names fold case-insensitively, and a fold collision is an error (SUB-751)**:
+- **Names fold case-insensitively, and a fold collision is an error**:
   `price` and `PRICE` are the same name, so a sheet where two *different* names
-  fold onto one has no honest answer for what that name means. Before SUB-751
+  fold onto one has no honest answer for what that name means. In earlier versions
   the later binding silently won — `x = price * 2` over a `price,PRICE,units`
   CSV computed off the second column and `SUM(price)` returned its total, with
   no error anywhere. Three shapes collide, all same-sheet: two data columns,
@@ -99,12 +99,12 @@ etf         = SUMIF(bucket, "etf", value_eur)
     (`Price` declared, `PRICE` referenced) is not a collision — that is the
     case-insensitive lookup working as designed.
   - Cross-sheet member precedence (summary > computed > data, below) is
-    unchanged: it resolves one name across *kinds* on another sheet, and since
-    SUB-751 a same-sheet name that holds two kinds is a collision on that
+    unchanged: it resolves one name across *kinds* on another sheet, and a
+    same-sheet name that holds two kinds is a collision on that
     sheet rather than a silent pick.
 - Aggregates: `SUM, AVG, MIN, MAX, COUNT, SUMIF(col, match, valueCol), COUNTIF`,
-  `SUMPRODUCT(colA, colB, …)` (SUB-744), `LAST(col)` (SUB-716).
-- **`SUMPRODUCT(colA, colB, …)` (SUB-744)** multiplies the argument columns
+  `SUMPRODUCT(colA, colB, …)`, `LAST(col)`.
+- **`SUMPRODUCT(colA, colB, …)`** multiplies the argument columns
   row by row and sums the products, so a €-weighted average is one summary line
   instead of a helper column: `avg_price = SUMPRODUCT(price, value_eur) /
   SUMPRODUCT(value_eur)`. Any number of columns compose; a single column is just
@@ -112,12 +112,12 @@ etf         = SUMIF(bucket, "etf", value_eur)
   aggregates use: a row whose cells aren't *all* numeric contributes 0 — a blank
   weight means "no weight", and because the row drops out of numerator and
   denominator alike, the weighted-average idiom stays honest. Numeric strings
-  parse strictly (SUB-221), so `"1e3"` is text and zeroes its row. Error cells
+  parse strictly, so `"1e3"` is text and zeroes its row. Error cells
   propagate like every other aggregate, from any argument and any position.
   Columns must all be the same length — a mismatch is an error, never a silent
   truncation to the shortest column, because money math must not quietly drop
   rows.
-- **SUMIF/COUNTIF comparison criteria (SUB-743)**: the match argument may be a
+- **SUMIF/COUNTIF comparison criteria**: the match argument may be a
   string starting with `>=`, `<=`, `<>`, `>` or `<` — `COUNTIF(score, ">=1")`,
   `SUMIF(score, "<5", cost)`, `COUNTIF(score, "<>0")` — so a risk bucket is one
   line instead of an enumeration of `score_1 … score_10` (which broke on 0 and
@@ -125,30 +125,30 @@ etf         = SUMIF(bucket, "etf", value_eur)
   don't. A numeric operand (`">=1"`) compares numerically; a non-numeric one
   (`">=delta"`) compares as case-insensitive text. Blank cells never satisfy a
   comparison — including `<>` — matching the ordering-comparison rule elsewhere
-  in the language (SUB-238). A numeric comparator over a cell that isn't a
+  in the language. A numeric comparator over a cell that isn't a
   number is an error, not a silent skip; so is a criteria with no operand
   (`">="`). Any other match value — numbers, booleans, and strings that don't
   start with a comparator — keeps exact-match behaviour unchanged, so a literal
   cell like `"a>b"` still matches exactly.
-- **SUMIF/COUNTIF wildcard criteria (SUB-752)**: an exact-match *string* may use
+- **SUMIF/COUNTIF wildcard criteria**: an exact-match *string* may use
   Excel's wildcards — `*` for any run of characters (including none) and `?` for
   exactly one — so `COUNTIF(type, "ETF*")` counts every `ETF …` row and
   `COUNTIF(code, "a?b")` matches `axb` but neither `ab` nor `aXXb`. `~` escapes:
   `~*`, `~?` and `~~` are a literal star, question mark and tilde. Matching is
   case-insensitive, like every other exact match (`"etf*"` ≡ `"ETF*"`), and blank
   cells never match — not even `"*"` — following the blanks-don't-match rule the
-  rest of the language uses (SUB-238). Wildcards live only on the exact-match
-  path: comparison criteria (`">=1"`, SUB-743) parse first and are untouched, and
-  every added `(column, match)` pair (SUB-742) gets identical treatment.
+  rest of the language uses. Wildcards live only on the exact-match
+  path: comparison criteria (`">=1"`) parse first and are untouched, and
+  every added `(column, match)` pair gets identical treatment.
   A match string with no unescaped `*`/`?` keeps exact-match behaviour verbatim,
   numeric loose equality included. The tradeoff: a match string that *does*
   contain one is now a pattern, so `"a*b"` — which previously matched only the
   literal cell `a*b` — also matches `aXb`. That is Excel's behaviour and is
   intended; write `"a~*b"` when the literal star is what you mean.
 - `COUNTIF(x, "")` returns 0 over blank cells, because blanks never match `""`
-  (SUB-238); Excel counts blanks there. Use a comparison criteria or a computed
+; Excel counts blanks there. Use a comparison criteria or a computed
   flag column when you need a blank count.
-- **SUMIF/COUNTIF multiple criteria (SUB-742)**: extra `(column, match)` pairs
+- **SUMIF/COUNTIF multiple criteria**: extra `(column, match)` pairs
   append after the existing arguments — `COUNTIF(bucket, "etf", net_worth,
   "yes")`, `SUMIF(bucket, "etf", value_eur, net_worth, "yes")` — and a row must
   satisfy **every** pair to be counted or summed (AND, never OR). Each added
@@ -165,7 +165,7 @@ etf         = SUMIF(bucket, "etf", value_eur)
   `COUNTIF(col)` with no match keeps erroring as before. Criteria columns of
   different lengths are an error too, rather than a silent truncation — there is
   no honest row-by-row reading of a short column. The value column obeys the
-  same rule (SUB-1026): rows pair off criteria against values, so a value
+  same rule: rows pair off criteria against values, so a value
   column of another length — reachable via a cross-sheet reference — errors
   instead of silently reading its overhang as blank rows that sum to 0.
   Computed columns work as criteria columns anywhere, since they are ordinary
@@ -176,23 +176,23 @@ etf         = SUMIF(bucket, "etf", value_eur)
   propagate like every other aggregate; an all-empty column is an error, like MAX
   over an empty set. Works over data and computed columns, so a snapshot sheet
   (rows appended over time) reads its most recent row: `latest = LAST(total)`.
-- **`LOOKUP(key, keyColumn, valueColumn)` (SUB-741)**: the first row whose
+- **`LOOKUP(key, keyColumn, valueColumn)`**: the first row whose
   `keyColumn` matches `key`, that row's `valueColumn` cell, returned as-is (no
   coercion). Matching is the language's usual loose equality — numeric keys
   compare numerically, text case-insensitively — so `LOOKUP("usd", code, rate)`
   and `LOOKUP(2025, year, budget)` both work. "First" means stored row order,
   not the sorted view; duplicate keys are a data smell in your table, not an
   error — the earliest row simply wins. Either column may be a data or a
-  computed column. A blank key cell never matches (the SUB-238 rule), and a
+  computed column. A blank key cell never matches, and a
   blank `key` argument is an error. A miss is an **error**, never `0` or blank —
   same for a matched row whose value cell is empty — because a rates table that
   silently reads as zero is a money bug, not a gap. Combined with cross-sheet
   refs this is the FX shape: one `Rates` sheet, and one line pulls its rate —
   `usd_rate = LOOKUP("USD", Rates.code, Rates.rate)` — so an FX change is one
   edit in one table instead of an inlined rate per row.
-  **Row scope vs summary scope (SUB-748)**: the *key* argument decides which
+  **Row scope vs summary scope**: the *key* argument decides which
   one a LOOKUP line is. A key that reads nothing row-shaped — a constant or an
-  earlier summary — keeps the SUB-741 shape: the line is a **summary** and its
+  earlier summary — keeps the summary shape: the line is a **summary** and its
   result lives in the summary bar (`usd_rate = LOOKUP("USD", …)`). A key that
   is row-shaped — a data column or an earlier computed column of this sheet —
   makes the line a **computed column** instead, and the LOOKUP runs once per
@@ -212,7 +212,7 @@ etf         = SUMIF(bucket, "etf", value_eur)
 - Date arithmetic on ISO day cells and volatile `TODAY()` — see the dates
   section below.
 
-## v2 — cross-sheet references (SUB-44)
+## v2 — cross-sheet references
 
 - `SheetName.member` references another `type: sheet` note, resolved by title/stem
   (case-insensitive). Sheet names with spaces use quotes: `"Portfolio Tracker".total`.
@@ -224,7 +224,7 @@ etf         = SUMIF(bucket, "etf", value_eur)
   summaries and/or cross-sheet values) is a summary, so
   `grand_total = total + Cash.cash_total` lands in the summary bar and is bindable
   from dashboards. The same rule covers a right side with no references at all
-  (SUB-715): `ceiling = 25000` is a summary — a single named value, bindable from
+: `ceiling = 25000` is a summary — a single named value, bindable from
   dashboards (`{{Holdings.ceiling}}`) and other sheets, instead of a computed
   column repeating the constant on every row.
 - Cycles (A → B → A, or a sheet referencing itself by name) are detected per
@@ -234,7 +234,7 @@ etf         = SUMIF(bucket, "etf", value_eur)
 - The grid and metrics dashboards load referenced sheets lazily by name
   (dashboards load the transitive closure) and re-load on vault changes.
 
-## Dates and TODAY() (SUB-717)
+## Dates and TODAY()
 
 Date cells are ISO day strings (`2026-07-17`), the vault's date format. In `+`
 and `-` they act as dates on the local-day calendar — `src/lib/dates.ts` does
@@ -276,7 +276,7 @@ AVG(days_held)`.
 - Sheet notes open as a grid (like the DB list pane but real columns): editable data
   cells, computed columns read-only (dimmed), summary bar pinned below with the named
   aggregates. Tab/arrow navigation, Enter to edit. Add row/column inline.
-- **The summary bar is ranked, not a wrap (SUB-939).** Three rules, all of them
+- **The summary bar is ranked, not a wrap.** Three rules, all of them
   hierarchy through size, weight and spacing — the bar adds no color of its own:
   - **Two tiers.** The headline block (above) renders larger; `show all (N)`
     opens a second, quieter row with everything else. The toggle only exists
@@ -312,7 +312,7 @@ AVG(days_held)`.
 - A generic `metrics` dashboard renderer: frontmatter lists cards, each bound to a
   sheet summary → the portfolio dashboard becomes: sheet holds rows, dashboard shows
   totals/deltas.
-- Charts bind summaries too (SUB-745): a ` ```chart ` fence with
+- Charts bind summaries too: a ` ```chart ` fence with
   `series: etf, crypto, cash` instead of `x`/`y` plots those named summaries as
   single-value points, one per name in fence order. So a per-bucket COUNTIF/SUMIF
   set charts as-is — no bucket rows have to be materialized in the sheet to give
@@ -321,7 +321,7 @@ AVG(days_held)`.
   sheet errors the chart by name rather than dropping a point. Details in
   `docs/dashboards.md` → `charts`.
 
-## Prose reading sheets — live values (SUB-825)
+## Prose reading sheets — live values
 
 An inline code span of the exact form `` `= expr` `` (`=`, one space, then the
 expression) in any note body is a sheet formula, evaluated against the sheets it

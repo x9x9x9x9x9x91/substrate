@@ -34,6 +34,9 @@ interface TasksDashboardProps {
   onMutated: () => void;
   onToast?: (msg: string, action?: { label: string; run: () => void }) => void;
   onCreateEntry?: (dbType: string, title: string) => Promise<NoteMeta>;
+  /** Settings.md `task-stale-chips` (SUB-1125) — the global default for the
+      age chips. Omitted means on, matching the setting's own default. */
+  taskStaleChips?: boolean;
 }
 
 /* Tasks board v3 (SUB-870; mockup variant B "Sectioned",
@@ -135,6 +138,7 @@ export default function TasksDashboard({
   onMutated,
   onToast,
   onCreateEntry,
+  taskStaleChips = true,
 }: TasksDashboardProps) {
   // Age and due are local-calendar values, so a board left open across
   // midnight must cross both boundaries without waiting for a vault change.
@@ -162,8 +166,8 @@ export default function TasksDashboard({
   useEffect(() => setSort(parseTasksSort(byFoldedKey(meta.props, "sort"))), [meta.props]);
 
   const model = useMemo(
-    () => buildTasksDashboard(notes, { ...meta.props, view, sort }, now),
-    [notes, meta.props, view, sort, now]
+    () => buildTasksDashboard(notes, { ...meta.props, view, sort }, now, taskStaleChips),
+    [notes, meta.props, view, sort, now, taskStaleChips]
   );
 
   const undo = useUndo();

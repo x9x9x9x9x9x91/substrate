@@ -24,7 +24,7 @@ vault it opens, which you don't want inside this repo.)
 These read only the vault. They work anywhere.
 
 `metrics`, `charts` and `hub` also leave the app: the head's **Print** action
-(SUB-676) prints the live pane as designed — a workbook's *active* page, not
+prints the live pane as designed — a workbook's *active* page, not
 every page — through the same `@media print` surface notes use (Save as PDF
 lives in the dialog). The machine-specific kinds stay screen-only.
 
@@ -162,7 +162,7 @@ error like any other binding.
 
 The current neutral token ramp distinguishes two series. A split resolving to
 three or more renders an in-place message instead of repeating an ambiguous
-gray; SUB-952 carries the categorical-palette call under SUB-932. Stacked bars
+gray. Stacked bars
 accept non-negative `sum`/`count` measures; use a line chart for averages or
 negative split values. On a split bar the series encoding replaces any schema
 hue that the x-axis options would otherwise supply.
@@ -227,7 +227,7 @@ columns: status, artist
 ```
 ````
 
-A fence's `sort:`, `limit:` and `columns:` keys are all optional (SUB-942).
+A fence's `sort:`, `limit:` and `columns:` keys are all optional.
 `sort: <prop>` / `<prop>:desc` orders by the database table's own rules
 (declared select order, numeric numbers, chronological dates); `limit: N` cuts
 AFTER the query and the sort, so the pair above means "the five newest"; and
@@ -299,7 +299,7 @@ first — and inside a day the sheet's row order stays untouched, because that
 order is the curator's ranking. `blurb` says what it is, `why` says why it
 matters to you. `curated` is rendered verbatim as the head's meta — and parsed
 leniently for the head's state dot: a stamp older than ~36h reads as a warning
-`stale · <age>` instead of the item count (SUB-699); anything unparseable
+`stale · <age>` instead of the item count; anything unparseable
 stays neutral.
 
 The app writes **only** the `fb` column: ↑ / ↓ per item, clicking the active
@@ -381,7 +381,7 @@ skipped, and missing counts read as 0.
 
 ### `tasks` — the working board
 
-Reads every `type: task` note in the vault (SUB-786, reshaped in SUB-870). The
+Reads every `type: task` note in the vault. The
 board's spine, in render order: **Overdue**, **Due today**, the hand-picked
 **Now** list (`now: true` on the task), then a section per `area:`. Empty
 sections are omitted. Urgency outranks the pin — a pinned task that is overdue
@@ -400,16 +400,34 @@ still drives the secondary chips: a task past the stale threshold reads
 `stale`, one with no `created:` at all reads `undated`. Those are diagnostics,
 never a row's reason for being on the board — and pinned Now rows carry none,
 since they're already chosen. A pinned task wears a small pin glyph in that
-same chip slot instead (SUB-1109), on rows and on board cards: in the Board
+same chip slot instead, on rows and on board cards: in the Board
 view there is no **Now** heading to explain the missing chip, so the pin says
 "exempt, not overlooked" on the card face itself.
+
+Age chips are switchable, because staleness assumes every task wants touching
+and some notes just aren't. Three levels, innermost wins:
+
+1. **Per note** — `stale: never` (or `stale: false`) on a task exempts it for
+   good, at any age, on any board. It reads exactly like a pin: the row still
+   sorts and counts normally, it just carries no age chip. Any other value —
+   including `true`, including a typo — is ignored and the task ages as usual,
+   so a mistyped key can never be the thing that silently hides rot.
+2. **Per board** — a dashboard that sets its own `stale_days` has asked for age
+   chips explicitly, and keeps them even when the global toggle is off. An
+   unreadable `stale_days` is a typo rather than a request: it reads as unset,
+   so it neither turns chips on nor changes the 30-day fallback.
+3. **Globally** — `task-stale-chips: false` in `Settings.md` (the **Task age
+   chips** row in Settings) turns the chips off everywhere else. On by default.
+
+A board with chips off shows neither `stale` nor `undated`: both are age
+diagnostics, and opting out of age wants neither.
 
 Config is the dashboard note's own frontmatter, all optional:
 
 | prop | meaning |
 | --- | --- |
 | `areas` | area allowlist — comma-separated or a YAML list. Omit for every area; tasks without an `area:` group under Unassigned. |
-| `stale_days` | whole days before age alone chips a task (default 30). |
+| `stale_days` | whole days before age alone chips a task (default 30). Setting it also opts this board into age chips regardless of the global toggle. |
 
 ````markdown
 ---
@@ -445,11 +463,11 @@ before the first fence is written.
 A note with `type: dashboard` and **no `dashboard:` key at all** falls back by
 body content: ` ```chart ` fences → charts, otherwise the yield tracker. A key
 that *is* written but isn't a kind this build knows renders a small card naming
-it and listing the kinds that exist (SUB-993) — a typo shows you the typo,
+it and listing the kinds that exist — a typo shows you the typo,
 rather than quietly handing you a different dashboard.
 
 
-## Workbook pages — tabs at the bottom (SUB-464)
+## Workbook pages — tabs at the bottom
 
 Any dashboard can grow pages: add a `pages:` list to its frontmatter and the
 pane gains a sheet-tab strip at the bottom, like a spreadsheet. The first tab

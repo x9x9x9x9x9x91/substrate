@@ -34,11 +34,11 @@ doesn't exist — and that's a doc bug worth filing.
 Decided and tracked, not yet built — each flips into the tables above when it
 ships:
 
-- **`substrate://` deeplinks** (SUB-1075) — `substrate://note/<path>` and
+- **`substrate://` deeplinks** — `substrate://note/<path>` and
   `substrate://capture`, so other tools can point at Substrate.
-- **CLI door** (SUB-1076) — headless scoped access to vault operations,
+- **CLI door** — headless scoped access to vault operations,
   sharing the MCP door's permission engine: one contract, not two.
-- **MCP door** (SUB-838) — a permission-gated MCP server over the vault, for
+- **MCP door** — a permission-gated MCP server over the vault, for
   AI tools that can't read files.
 
 What is deliberately **not** planned — webhooks, an HTTP endpoint, a plugin

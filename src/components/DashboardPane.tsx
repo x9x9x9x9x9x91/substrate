@@ -60,6 +60,10 @@ interface DashboardPaneProps {
   /** SUB-490: registered-into while a board with a ⌘Z / ⌘⇧Z stack is mounted,
       so the shortcut HUD only advertises the chord where it actually fires */
   dashUndo?: DashUndoStore;
+  /** SUB-1125: Settings.md `task-stale-chips` — the global default for the
+      tasks board's age chips. Defaults on, like the setting itself, so an
+      embedded board rendered without it behaves as documented. */
+  taskStaleChips?: boolean;
 }
 
 /** Fixed-decimal numbers in the app's de-DE dialect (SUB-282): comma decimals,

@@ -212,6 +212,13 @@ const FIELDS: Field[] = [
     defaultOn: true,
   },
   {
+    key: "task-stale-chips",
+    label: "Task age chips",
+    hint: "the stale / undated chips on the Tasks board; a board with its own stale_days keeps them, and a task with stale: never never wears one",
+    kind: "bool",
+    defaultOn: true,
+  },
+  {
     key: "db-grid",
     label: "Table grid lines",
     hint: "vertical lines between database table columns; each database can override this in its ⋯ menu",

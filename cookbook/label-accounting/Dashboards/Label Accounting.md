@@ -27,6 +27,6 @@ pages:
   view: release
 created: 2026-07-25
 ---
-A label-accounting workbook (SUB-464): overview cards over the statement
+A label-accounting workbook: overview cards over the statement
 sheet, with the sheets themselves and the release database one tab away —
 the strip at the bottom switches pages, ⌃⇥ / ⌃⇧⇥ cycles them.

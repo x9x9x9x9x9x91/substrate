@@ -10,7 +10,12 @@ export const DEFAULT_TASK_STALE_DAYS = 30;
 export interface TasksDashboardConfig {
   /** null means every area; an empty supplied list means no areas */
   areas: string[] | null;
+  /** the resolved threshold, always a positive whole number of days */
   staleDays: number;
+  /** whether age findings render on this board at all (SUB-1125): the global
+      Settings default, overridden to on by a board that sets its own
+      `stale_days`. Per-note `stale: never` still wins over both. */
+  staleChips: boolean;
   view: TasksView;
   sort: TasksSort;
 }
@@ -108,13 +113,18 @@ function parseAreas(value: unknown): string[] | null {
   return areas;
 }
 
-function parseStaleDays(value: unknown): number {
+/** The board's own threshold, or null when it doesn't set a usable one. The
+    null carries meaning beyond the fallback (SUB-1125): a board that names a
+    threshold has asked for age chips, so it keeps them even when the global
+    Settings toggle is off. An unreadable value is a typo, not a request —
+    it reads as unset, and the resolved threshold falls back to 30. */
+function parseStaleDays(value: unknown): number | null {
   if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
   if (typeof value === "string" && /^\d+$/.test(value.trim())) {
     const parsed = Number(value.trim());
     if (Number.isSafeInteger(parsed) && parsed > 0) return parsed;
   }
-  return DEFAULT_TASK_STALE_DAYS;
+  return null;
 }
 
 /** The persisted view/sort props, folded like every other config value; an
@@ -137,10 +147,18 @@ export function parseTasksSort(value: unknown): TasksSort {
   }
 }
 
-export function tasksDashboardConfig(props: Record<string, unknown>): TasksDashboardConfig {
+/** `staleChipsDefault` is the global Settings toggle (SUB-1125), on unless
+    Settings.md turns it off. It is a DEFAULT: a board with its own
+    `stale_days` has asked for age chips explicitly and keeps them. */
+export function tasksDashboardConfig(
+  props: Record<string, unknown>,
+  staleChipsDefault = true
+): TasksDashboardConfig {
+  const staleDays = parseStaleDays(byFoldedKey(props, "stale_days"));
   return {
     areas: parseAreas(byFoldedKey(props, "areas")),
-    staleDays: parseStaleDays(byFoldedKey(props, "stale_days")),
+    staleDays: staleDays ?? DEFAULT_TASK_STALE_DAYS,
+    staleChips: staleDays !== null || staleChipsDefault,
     view: parseTasksView(byFoldedKey(props, "view")),
     sort: parseTasksSort(byFoldedKey(props, "sort")),
   };
@@ -206,6 +224,19 @@ export function taskDueBucket(dueDays: number | null): TaskDueBucket | null {
     "true" through prop round-trips; both count. Anything else is off. */
 export function taskIsNow(value: unknown): boolean {
   return value === true || clean(value)?.toLowerCase() === "true";
+}
+
+/** `stale: never` on a task note exempts it from age findings for good
+    (SUB-1125) — some notes just aren't touched, and a rot chip on one is
+    noise about a decision already made, exactly like a pinned Now row. A
+    boolean/string `false` reads the same way, since that is how the key gets
+    typed by hand. Anything else — including a typo and including `true` — is
+    ignored and the task ages normally: an unreadable value must never error,
+    and must never be the thing that silently hides rot. */
+export function taskStaleExempt(value: unknown): boolean {
+  if (value === false) return true;
+  const v = clean(value)?.toLowerCase();
+  return v === "never" || v === "false";
 }
 
 /** A task is snoozed while `snoozed_until` is a strict future YYYY-MM-DD
@@ -334,9 +365,10 @@ function compareSnoozed(a: TasksDashboardRow, b: TasksDashboardRow): number {
 export function buildTasksDashboard(
   notes: readonly NoteMeta[],
   dashboardProps: Record<string, unknown>,
-  now = new Date()
+  now = new Date(),
+  staleChipsDefault = true
 ): TasksDashboardModel {
-  const config = tasksDashboardConfig(dashboardProps);
+  const config = tasksDashboardConfig(dashboardProps, staleChipsDefault);
   const allowed = config.areas
     ? new Map(config.areas.map((area) => [area.toLowerCase(), area]))
     : null;
@@ -354,7 +386,11 @@ export function buildTasksDashboard(
 
     const ageDays = taskAgeDays(note.props.created, now);
     const priority = clean(note.props.priority);
-    const stale = ageDays !== null && ageDays >= config.staleDays;
+    // whether age is a diagnostic for THIS task: off globally (SUB-1125), or
+    // exempted on the note itself. `stale` follows the same gate as the chip
+    // so the flag never claims rot the board deliberately isn't reporting.
+    const ages = config.staleChips && !taskStaleExempt(note.props.stale);
+    const stale = ages && ageDays !== null && ageDays >= config.staleDays;
     const isNow = taskIsNow(note.props.now);
     const dueDays = taskDueDays(note.props.due, now);
     const row: TasksDashboardRow = {
@@ -370,8 +406,10 @@ export function buildTasksDashboard(
       dueBucket: taskDueBucket(dueDays),
       stale,
       // a pinned task carries no finding: Now is the chosen list, and rot
-      // chips there would just re-shame decisions already made
-      finding: isNow ? null : ageDays === null ? "undated" : stale ? "stale" : null,
+      // chips there would just re-shame decisions already made. `undated`
+      // rides the same switch as `stale` — both are age diagnostics, and a
+      // board (or a note) that has opted out of age wants neither.
+      finding: isNow || !ages ? null : ageDays === null ? "undated" : stale ? "stale" : null,
       now: isNow,
       snoozedUntil: null,
     };

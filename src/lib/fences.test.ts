@@ -158,6 +158,10 @@ test("stripMachineFences folds case exactly where dispatch does (SUB-1104)", () 
     "```CHART compact",
     "```Cards",
     "```CaRdS two-up",
+    // bare-form, but the hub lowercases before dispatching, so a bare mixed-case
+    // heatmap renders the live year grid and must leave the index (SUB-1128)
+    "```HeatMap",
+    "```HEATMAP",
   ]) {
     const out = stripMachineFences(`a\n${open}\nquery: secret\n\`\`\`\nb`);
     assert.ok(!out.includes("secret"), `config stripped for "${open}"`);
@@ -183,6 +187,16 @@ test("stripMachineFences folds case exactly where dispatch does (SUB-1104)", () 
   const upperFormulas = "a\n```Formulas\ntotal = SUM(a)\n```\nb";
   assert.equal(findFence(upperFormulas, "formulas"), null, "dispatch ignores mixed-case formulas");
   assert.equal(stripMachineFences(upperFormulas), upperFormulas, "so it stays searchable prose");
+
+  // heatmap is bare-form like csv/formulas but folds case like the tailed
+  // group, because its hub dispatcher lowercases (SUB-1128) — the two rules are
+  // separate axes. There is no dispatch-coupled assertion here the way there is
+  // for cards/csv: the reader that folds case is HubDashboard's renderMarkdown,
+  // a React component this suite cannot import, and heatmap.ts's
+  // parseHeatmapBlocks is the OTHER, case-sensitive reader — asserting against
+  // it would pin the narrower rule and re-open the leak.
+  const tailedMixed = "a\n```HeatMap year\nsource: session\n```\nb";
+  assert.equal(stripMachineFences(tailedMixed), tailedMixed, "tailed mixed-case heatmap is prose");
 });
 
 test("stripMachineFences handles CRLF fences (SUB-913)", () => {
