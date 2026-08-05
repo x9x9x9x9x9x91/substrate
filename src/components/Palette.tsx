@@ -304,11 +304,13 @@ export default function Palette({
   const setProp = useCallback(
     (note: NoteMeta, key: string, value: string | null) => {
       // SUB-477: undoable like every other property edit
+      // SUB-1149: the palette closes on apply, so a failed write has nowhere
+      // to show itself — report it on the app toast like every sibling surface
       setPropUndoable({ path: note.path, key, value, record: undo.record })
         .then(onMutated)
-        .catch(console.error);
+        .catch((e) => onToast(`couldn't set ${key} (${e})`));
     },
-    [onMutated, undo]
+    [onMutated, onToast, undo]
   );
 
   const rescanFolders = useCallback(() => {

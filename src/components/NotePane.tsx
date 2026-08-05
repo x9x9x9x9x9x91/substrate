@@ -3,6 +3,8 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { NoteMeta, FmState, NumberFormat, PropKind, PropSchema, PropValue, RelatedEntry, RollupConfig, SchemaConfig, SelectOption, TagCount } from "../lib/types";
 import { foldedPropKey, foldedPropStr, propStr } from "../lib/types";
+import type { PendingProps, PendingWrite } from "../lib/pendingprops";
+import { NO_PENDING, addPending, applyPendingTo, dropPending, prunePending, settlePending } from "../lib/pendingprops";
 import type { EmbedResult, ViewSpecResult } from "../lib/embeds";
 import {
   fileOpen,
@@ -304,7 +306,28 @@ function NotePane({
   // the sheets this note's inline `= expr` spans read (SUB-825) — same loader
   // and same vault-epoch invalidation the dashboard bindings use
   const liveSheets = useLiveValues(liveBody, vaultEpoch, meta.path, fxRatesState);
-  const [props, setProps] = useState<Record<string, unknown>>({});
+  const [diskProps, setDiskProps] = useState<Record<string, unknown>>({});
+  // SUB-1148: property writes in flight, laid over disk truth so a committed
+  // chip paints the frame it closes instead of a beat later, when the write
+  // resolves. Same overlay the database pane got in SUB-946 (lib/pendingprops)
+  // — `pending` above is the body-save buffer, an unrelated thing.
+  const [pendingProps, setPendingProps] = useState<PendingProps>(NO_PENDING);
+  const props = useMemo(
+    () => applyPendingTo(meta.path, diskProps, pendingProps),
+    [meta.path, diskProps, pendingProps]
+  );
+  // the note the overlay belongs to. Only this pane's own re-reads can retire
+  // an entry, and they carry the OPEN note alone — so switching notes has to
+  // abandon what's left rather than pin it over the next note's props.
+  const pendingPropsPath = useRef(meta.path);
+  useEffect(() => {
+    if (pendingPropsPath.current !== meta.path) {
+      pendingPropsPath.current = meta.path;
+      setPendingProps(NO_PENDING);
+      return;
+    }
+    setPendingProps((cur) => prunePending(cur, [{ path: meta.path, props: diskProps }]));
+  }, [meta.path, diskProps]);
   const [backlinks, setBacklinks] = useState<NoteMeta[]>([]);
   const [related, setRelated] = useState<RelatedEntry[]>([]);
   const [editingChip, setEditingChip] = useState<string | null>(null);
@@ -461,7 +484,7 @@ function NotePane({
             ghostPaths.current.delete(p.path);
             if (pathRef.current === p.path) {
               baseRef.current = { path: m.path, body: p.body };
-              setProps(m.props);
+              setDiskProps(m.props);
               // SUB-558: the write path clears this on success and the create
               // path never did — a retried create left the pill armed forever
               setSaveError(null);
@@ -662,7 +685,7 @@ function NotePane({
       vaultRead(path).then(
         (c) => {
           if (gone) return;
-          setProps(c.props);
+          setDiskProps(c.props);
           if (pending.current || saving.current > 0 || conflictRef.current) return;
           if (baseRef.current?.path === path && baseRef.current.body === c.body) return;
           baseRef.current = { path, body: c.body };
@@ -728,7 +751,7 @@ function NotePane({
     // note, and those flushed above.
     renameAliases.current.delete(path);
     if (isSealed && !sealedUnlocked) {
-      setProps({});
+      setDiskProps({});
       setBacklinks([]);
       setRelated([]);
       return () => {
@@ -751,7 +774,7 @@ function NotePane({
         setSaveError("this note's last save failed — the text below is unsaved");
       }
       setLoaded({ path, docPath: path, body: held ?? "" });
-      setProps({});
+      setDiskProps({});
       setBacklinks([]);
       setRelated([]);
       return () => {
@@ -762,7 +785,7 @@ function NotePane({
     vaultRead(path).then(
       (c) => {
         if (gone) return;
-        setProps(c.props);
+        setDiskProps(c.props);
         // SUB-549: this note was left with a failed write, and its text was
         // parked instead of dropped. Take it back: the editor opens on the
         // held text rather than the stale disk body, the retry pill is armed,
@@ -942,7 +965,7 @@ function NotePane({
         if (gone || pathRef.current !== path) return;
         // still clean? a keystroke may have landed while we re-read
         if (conflictRef.current || pending.current || saving.current > 0) return;
-        setProps((cur) => (JSON.stringify(cur) === JSON.stringify(c.props) ? cur : c.props));
+        setDiskProps((cur) => (JSON.stringify(cur) === JSON.stringify(c.props) ? cur : c.props));
         const base = baseRef.current;
         if (base?.path === path && base.body === c.body) return; // our own echo
         adoptDiskBody(path, c.body);
@@ -980,7 +1003,7 @@ function NotePane({
     vaultRead(path).then(
       (c) => {
         if (pathRef.current !== path) return;
-        setProps(c.props);
+        setDiskProps(c.props);
         adoptDiskBody(path, c.body);
       },
       // SUB-506: two-arg form for the SUB-504 reason — a trailing .catch would
@@ -1112,20 +1135,32 @@ function NotePane({
   // switch); App-level follow-ups keep their old unconditional behavior.
   const writeProp = (key: string, value: string | string[] | boolean | null) => {
     const path = meta.path;
-    const actualKey = foldedPropKey(props, key);
+    // SUB-1148: the note's own spelling comes off DISK, never off the
+    // optimistic composite — a pending clear deletes the key there, and the
+    // fallback would write the caller's spelling back as a second, differently
+    // cased key in the same file (the SUB-946 lesson).
+    const actualKey = foldedPropKey(diskProps, key);
+    // SUB-1148: paint it now; the write and its re-scan reconcile behind it
+    const optimistic: PendingWrite[] = [{ path, key: actualKey, value }];
+    setPendingProps((cur) => addPending(cur, optimistic));
     // SUB-477: undoable like every other property edit
     setPropUndoable({ path, key: actualKey, value, record: undo.record })
       .then((m) => {
+        setPendingProps((cur) => settlePending(cur, optimistic));
         if (pathRef.current === path) {
           failedProp.current = null;
           failedColumn.current = null;
           setPropError(null);
-          setProps(m.props);
+          setDiskProps(m.props);
         }
         if (actualKey.toLowerCase() === "type") onTyped?.(m);
         onMutated();
       })
       .catch((err) => {
+        // SUB-1148: the refused value rolls back on screen this frame — the
+        // pill below says why and IS the retry. Unconditional, like the
+        // settle: an entry for a note we've left is already gone.
+        setPendingProps((cur) => dropPending(cur, optimistic));
         if (pathRef.current !== path) return;
         failedProp.current = { key: actualKey, value };
         failedColumn.current = null;
@@ -1149,7 +1184,7 @@ function NotePane({
           failedProp.current = null;
           failedColumn.current = null;
           setPropError(null);
-          setProps(m.props);
+          setDiskProps(m.props);
         }
         onMutated();
       })
@@ -2126,7 +2161,7 @@ function NotePane({
               if (pathRef.current === meta.path) {
                 // the repaired block's props parse now — adopt them, and
                 // re-check health from disk so the banner clears on truth
-                setProps(m.props);
+                setDiskProps(m.props);
                 vaultFmRaw(meta.path)
                   .then((f) => setFmState(f))
                   .catch(() => setFmState(null));

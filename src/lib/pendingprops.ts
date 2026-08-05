@@ -142,7 +142,12 @@ export function dropPending(
     So a settled entry survives exactly one mismatching refresh and goes on
     the next. That bounds the overlay's life at two refreshes past its write
     while absorbing the in-flight refresh that is the actual race. */
-export function prunePending(cur: PendingProps, notes: readonly NoteMeta[]): PendingProps {
+export function prunePending(
+  cur: PendingProps,
+  /* the shape a refresh has to carry, nothing more: the database pane hands
+     its whole NoteMeta[], the note pane the one note it has open (SUB-1148) */
+  notes: readonly { path: string; props: Record<string, unknown> }[]
+): PendingProps {
   if (cur.size === 0) return cur;
   const byPath = new Map(notes.map((n) => [n.path, n]));
   let next: Map<string, PendingEntry> | null = null;
@@ -188,4 +193,24 @@ export function applyPending(notes: NoteMeta[], pending: PendingProps): NoteMeta
     return { ...n, props };
   });
   return touched ? out : notes;
+}
+
+/** Same overlay for a pane that holds ONE note's props rather than a list
+    (the note page, SUB-1148). Returns the input object untouched when this
+    note has nothing in flight, so an idle pane keeps its identity and every
+    memo hanging off `props` stays put. */
+export function applyPendingTo(
+  path: string,
+  props: Record<string, unknown>,
+  pending: PendingProps
+): Record<string, unknown> {
+  if (pending.size === 0) return props;
+  let out: Record<string, unknown> | null = null;
+  for (const e of pending.values()) {
+    if (e.path !== path) continue;
+    out ??= { ...props };
+    if (e.value === null) delete out[e.key];
+    else out[e.key] = e.value;
+  }
+  return out ?? props;
 }

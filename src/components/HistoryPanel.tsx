@@ -66,6 +66,9 @@ export default function HistoryPanel({
       .then((es) => {
         setEntries(es);
         setSelId((cur) => (cur && es.some((e) => e.id === cur) ? cur : es[0]?.id ?? null));
+        // a successful read retires the last error — no stale strip under a
+        // list that just loaded (a restore and a purge both reload)
+        setError(null);
       })
       .catch((e) => setError(String(e)));
   };
@@ -253,7 +256,12 @@ export default function HistoryPanel({
                 }}
               >
                 {entries === null ? (
-                  <div className="hist-empty">Loading…</div>
+                  /* an errored read renders the strip below — never a loading
+                     state that sticks forever; same DOM as the resolved state,
+                     so the list landing only swaps text (SUB-650) */
+                  error === null ? (
+                    <div className="hist-empty">Reading snapshots</div>
+                  ) : null
                 ) : entries.length === 0 ? (
                   <div className="hist-empty">
                     No snapshots yet — history builds up as you edit

@@ -37,6 +37,24 @@ test("shows on boot once the grace week is past, over nothing in progress", asyn
   await expect(nag.locator(":focus")).toHaveCount(0);
 });
 
+test("its innards are the shared dialog grammar, not a bespoke shell (SUB-1168)", async ({
+  page,
+}) => {
+  await boot(page, due());
+  const nag = page.locator(".donate-nag");
+  // the sentence and the action row are dbform primitives…
+  await expect(nag.locator(".dbform-note")).toContainText(
+    "€1 makes this message go away forever"
+  );
+  await expect(nag.locator(".dbform-foot")).toBeVisible();
+  // …and dismiss is the shared XIcon button, not a hand-rolled glyph
+  await expect(nag.locator(".dbform-x svg")).toBeVisible();
+  // the classes it used to roll itself are gone from the document entirely
+  for (const dead of [".donate-nag-body", ".donate-nag-close"]) {
+    await expect(page.locator(dead)).toHaveCount(0);
+  }
+});
+
 test("stays quiet inside the first week and inside the weekly interval", async ({ page }) => {
   await boot(page, { firstSeenAt: Date.now() - 1000, lastNagAt: null, dismissedForever: false });
   await expect(page.locator(".donate-nag")).toHaveCount(0);
@@ -61,7 +79,7 @@ test("Esc dismisses for the session; it comes back next boot", async ({ page }) 
 
 test("the close button dismisses for the session too", async ({ page }) => {
   await boot(page, due());
-  await page.locator(".donate-nag-close").click();
+  await page.locator(".donate-nag .dbform-x").click();
   await expect(page.locator(".donate-nag")).toHaveCount(0);
 });
 

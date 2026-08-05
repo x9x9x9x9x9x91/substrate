@@ -261,3 +261,66 @@ test("undo still takes back a cell edit and a board drag under a slow disk", asy
   await expect(inReview.locator(".db-card", { hasText: "Slow Bloom EP" })).toBeVisible();
   await expect(live.locator(".db-card", { hasText: "Slow Bloom EP" })).toHaveCount(0);
 });
+
+/* SUB-1148 — the same overlay on the note page. commitChip closes the editor
+   BEFORE the write starts, so a chip used to close showing its OLD value and
+   snap to the new one a beat later, when vault_set_prop resolved. */
+
+// cold open lands on the Notes scratch list; Welcome is a plain note whose
+// `created` chip edits as plain text (same boot as properr.spec)
+async function bootNote(page: Page) {
+  await page.goto("/");
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await expect(page.locator(".note-title")).toHaveValue("Welcome");
+}
+
+const createdChip = (page: Page) => page.locator(".chip", { hasText: "created" });
+
+async function editCreated(page: Page, value: string) {
+  await createdChip(page).click();
+  const input = page.locator(".chip-input");
+  await expect(input).toBeVisible();
+  await input.fill(value);
+  await input.press("Enter");
+}
+
+test("note page: a committed chip shows its new value before the write returns", async ({
+  page,
+}) => {
+  await slowDisk(page);
+  await bootNote(page);
+  await expect(createdChip(page)).toContainText("Jul 17, 2026");
+
+  const started = Date.now();
+  await editCreated(page, "2026-07-18");
+  // the closed chip carries the new value well inside the write's own latency
+  // — on the old await-then-repaint path it read "Jul 17, 2026" until disk
+  // answered, then snapped
+  await expect(createdChip(page)).toContainText("Jul 18, 2026", { timeout: SLOW_MS / 2 });
+  expect(Date.now() - started).toBeLessThan(SLOW_MS);
+
+  // …and it stays once the write lands and the re-read delivers disk truth —
+  // no flash back to the old date in between
+  await page.waitForTimeout(SLOW_MS);
+  await expect(createdChip(page)).toContainText("Jul 18, 2026");
+});
+
+test("note page: a refused chip write rolls back visibly and arms the retry pill", async ({
+  page,
+}) => {
+  await slowDisk(page);
+  await bootNote(page);
+  await page.evaluate(() => {
+    window.__mockFail = new Set(["vault_set_prop"]);
+  });
+
+  await editCreated(page, "2026-07-18");
+  // painted first…
+  await expect(createdChip(page)).toContainText("Jul 18, 2026", { timeout: SLOW_MS / 2 });
+  // …then the refusal arrives: the value rolls back on screen rather than
+  // sitting there looking saved, and the pill (SUB-240) says why and retries
+  const pill = page.locator(".save-error");
+  await expect(pill).toBeVisible();
+  await expect(pill).toHaveAttribute("title", /mock failure: vault_set_prop/);
+  await expect(createdChip(page)).toContainText("Jul 17, 2026");
+});

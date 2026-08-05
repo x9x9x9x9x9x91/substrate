@@ -23,9 +23,28 @@
      crosses rows. Same weight the dashboard rows have always used, named
      so the next dense table gets it right by default (SUB-531). */
   --hover-dense: rgba(255, 255, 255, 0.03);
+  /* the faintest raised surface: a control face at rest (checkbox, kbd chip),
+     a quiet state wash, a pre block. Same weight as --hover-dense and a
+     different job — making dense hover fainter should not repaint every
+     checkbox in the app, which is why this is its own name (SUB-1152). */
+  --surface-faint: rgba(255, 255, 255, 0.03);
+  /* the unfilled part of a bar or rail — progress tracks, quota bars, the
+     mastering range. A ground for a fill to sit on, not a hairline: it shares
+     --border-soft's weight today and answers to a different question. */
+  --track: rgba(255, 255, 255, 0.06);
+  /* the selected/active wash. Deliberately declared, not aliased to --border:
+     it happens to land on the same weight, but a hairline and a selection
+     wash are unrelated roles and a change to one shouldn't ride along on the
+     other (SUB-1152 — they were identical and nothing said whether that was
+     derivation or coincidence; it is coincidence). */
   --active: rgba(255, 255, 255, 0.09);
   --danger: #eb5757;
   --ok: #4cb782;
+  /* the attention amber (SUB-1151): "worth a look", between --ok and the
+     act-now --danger. It sat as two different hand-typed hexes on five
+     surfaces, each commented as THE amber; this is the one they all mean.
+     Not an --opt-* — those are user schema colours, chosen by the user. */
+  --warn: #d9a02b;
   /* pale tint of --ok for "progressing, not there yet" states (SUB-977) */
   --ok-soft: color-mix(in srgb, var(--ok) 55%, #fff);
   /* select-option dot palette — meaning-carrying marks only, never chrome;
@@ -2102,7 +2121,7 @@ button.empty-hint-fix:hover {
    must yield the markdown the file actually holds. */
 .cm-live-value {
   color: var(--text-1);
-  background: var(--bg-2);
+  background: var(--bg-panel);
   border-radius: 3px;
   padding: 0 0.2em;
   font-variant-numeric: tabular-nums;
@@ -2195,7 +2214,7 @@ button.empty-hint-fix:hover {
   margin: 0;
   border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-faint);
   cursor: pointer;
 }
 
@@ -2391,7 +2410,7 @@ button.empty-hint-fix:hover {
   vertical-align: -2px;
   border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-faint);
   cursor: pointer;
   transition:
     border-color 120ms ease-out,
@@ -3136,7 +3155,7 @@ button.empty-hint-fix:hover {
   border-radius: 4px;
   font-size: 10.5px;
   color: var(--text-2);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-faint);
 }
 
 /* Tray mini-agenda popover (SUB-30) — palette chrome, greyscale rows; color
@@ -5157,7 +5176,7 @@ body.agenda-window .palette:focus-visible {
   height: 6px;
   margin-top: 8px;
   border-radius: 3px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--track);
   overflow: hidden;
 }
 
@@ -5795,7 +5814,7 @@ body.agenda-window .palette:focus-visible {
 .hub-pre {
   margin: 0 0 12px;
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--surface-faint);
   border: 1px solid var(--border-soft);
   border-radius: 8px;
   font-family: var(--mono);
@@ -9217,7 +9236,7 @@ span.asset-thumb svg {
   padding: 8px 16px;
   font-size: 12px;
   color: var(--text-2);
-  background: var(--bg-2);
+  background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
 }
 
@@ -9231,14 +9250,14 @@ span.asset-thumb svg {
   padding: 3px 10px;
   font-size: 12px;
   color: var(--text-1);
-  background: var(--bg-1);
+  background: var(--bg-input);
   border: 1px solid var(--border);
   border-radius: 5px;
   cursor: pointer;
 }
 
 .mount-locate:hover {
-  background: var(--bg-3);
+  background: var(--bg-elevated);
 }
 
 /* a row whose file isn't in the folder any more — still listed, because what
@@ -13884,11 +13903,11 @@ body.col-resizing * {
 }
 
 /* dating the scanner isn't sure about — a mark on the job, not a column.
-   Same attention amber the coding board declares (--opt-* are user schema
-   colors, --danger is act-now; neither fits a soft data-quality mark). */
+   The attention amber (--warn): --opt-* are user schema colours and
+   --danger is act-now, neither fits a soft data-quality mark. */
 .mw-flag {
   margin-left: 5px;
-  color: #b08c3f;
+  color: var(--warn);
   cursor: help;
 }
 
@@ -14884,31 +14903,25 @@ body.termhud-resizing-ew .termhud {
   animation: toast-in 140ms ease-out;
 }
 
-.donate-nag-body {
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: var(--text-2);
-}
-
+/* The body and the action row are the shared dbform grammar (SUB-1168):
+   .dbform-note carries the sentence, .dbform-foot the row. Two deviations
+   only — the foot reads left-to-right (offer, opt-out, then dismiss pushed to
+   the far edge) rather than the dialogs' right-aligned button cluster, because
+   this row is one offer and a way out, not a decision to confirm. */
 .donate-nag-foot {
-  display: flex;
+  justify-content: flex-start;
   align-items: center;
   gap: 12px;
-  margin-top: 10px;
 }
 
+.donate-nag-foot .dbform-x {
+  margin-left: auto;
+}
+
+/* the offer rides .selmenu-btn; it is an anchor, so the only thing the shared
+   button idiom doesn't cover is the browser's default underline */
 .donate-nag-link {
-  flex-shrink: 0;
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  color: var(--text-1);
-  font-size: 12px;
-  font-weight: 500;
   text-decoration: none;
-  transition:
-    background-color 120ms ease-out,
-    border-color 120ms ease-out;
 }
 
 .donate-nag-link:hover {
@@ -14923,21 +14936,6 @@ body.termhud-resizing-ew .termhud {
   font-size: 11.5px;
   color: var(--text-3);
   cursor: pointer;
-}
-
-.donate-nag-close {
-  margin-left: auto;
-  flex-shrink: 0;
-  border: none;
-  background: transparent;
-  color: var(--text-3);
-  font-size: 12px;
-  cursor: pointer;
-  padding: 2px 4px;
-}
-
-.donate-nag-close:hover {
-  color: var(--text-1);
 }
 
 /* ── First-run onboarding (SUB-436) ───────────────────────────────────────

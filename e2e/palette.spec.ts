@@ -118,3 +118,39 @@ test("a garbage plain-text query still shows the No results banner (SUB-673)", a
   await expect(page.locator(".palette-item-label", { hasText: "Go to Release" })).toBeVisible();
   await expect(banner).toHaveCount(0);
 });
+
+// SUB-1149: the palette closes the instant a property applies, so a rejected
+// write used to vanish into console.error — the value never landed and nothing
+// on screen said so. The failure must reach the app toast, like every sibling
+// surface reports its own write failures.
+
+test("a rejected palette property write reports on the toast (SUB-1149)", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await page.evaluate(() => {
+    window.__mockFail = new Set(["vault_set_prop"]);
+  });
+
+  await page.keyboard.press("Meta+k");
+  await page.locator(".palette-input").fill("Slow Bloom");
+  const firstLabel = page.locator(".palette-results .palette-item .palette-item-label").first();
+  await expect(firstLabel).toHaveText("Slow Bloom EP");
+  await page.keyboard.press("Tab"); // → the note's actions stage
+  await page.locator(".palette-item", { hasText: "Set property…" }).click();
+
+  await page.locator(".palette-input").fill("status: shipped");
+  await page.locator(".palette-item", { hasText: "Set status: shipped" }).click();
+
+  // the palette is gone, so the toast is the only place the failure can land
+  await expect(page.locator(".palette-input")).toHaveCount(0);
+  const toast = page.locator(".toast");
+  await expect(toast).toBeVisible();
+  await expect(toast).toContainText("couldn't set status");
+  await expect(toast).toContainText("vault_set_prop");
+
+  // and the write really did not land — the note keeps the value it had
+  await page.evaluate(() => window.__mockFail?.clear());
+  expect(await page.evaluate(() => window.__mockPropOf?.("Slow Bloom EP.md", "status"))).toBe(
+    "in review"
+  );
+});

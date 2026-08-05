@@ -12,11 +12,18 @@ import {
   serializeNagState,
   shouldNag,
 } from "../lib/donate";
+import { XIcon } from "./Icons";
 
 /** The €1 nag (SUB-419) — a quiet banner, not a modal: it lands at the bottom
     of the window on app boot, never over work in progress, and never steals
     focus from the editor. Esc or the close button dismisses it for this
     session; the checkbox retires it for good.
+
+    Its innards ride the shared dialog grammar (SUB-1168) — dbform-note for the
+    sentence, dbform-foot for the action row, dbform-x + XIcon for dismiss — so
+    only the toast shell is its own. It deliberately does NOT compose `overlay`
+    the way the dbform dialogs do: a backdrop would put it on top of work in
+    progress, which is the one thing this surface must never do.
 
     Dormant unless the master switch (NAG_ENABLED in lib/donate.ts) is on —
     with it off this component decides "no" before touching storage, so a
@@ -62,10 +69,10 @@ export default function DonationNag() {
 
   return (
     <aside className="donate-nag" aria-label="Support Substrate">
-      <div className="donate-nag-body">{NAG_COPY}</div>
-      <div className="donate-nag-foot">
+      <div className="dbform-note">{NAG_COPY}</div>
+      <div className="dbform-foot donate-nag-foot">
         <a
-          className="donate-nag-link"
+          className="selmenu-btn donate-nag-link"
           href={DONATE_URL}
           target="_blank"
           rel="noreferrer"
@@ -81,13 +88,8 @@ export default function DonationNag() {
           <input type="checkbox" onChange={forever} />
           I donated (or just want this gone) — don't show this again.
         </label>
-        <button
-          type="button"
-          className="donate-nag-close"
-          aria-label="Dismiss"
-          onClick={() => setOpen(false)}
-        >
-          ✕
+        <button type="button" className="dbform-x" aria-label="Dismiss" onClick={() => setOpen(false)}>
+          <XIcon />
         </button>
       </div>
     </aside>

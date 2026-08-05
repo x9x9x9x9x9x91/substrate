@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   addPending,
   applyPending,
+  applyPendingTo,
   dropPending,
   NO_PENDING,
   prunePending,
@@ -178,4 +179,59 @@ test("a bulk set paints every row and rolls back only the refused ones", () => {
     shown.map((n) => n.props.Status),
     ["done", "todo"]
   );
+});
+
+/* SUB-1148 — the note page holds ONE note's props, not a list */
+
+const diskProps = { Status: "todo", Tags: ["a"] };
+
+test("applyPendingTo: nothing pending returns the very same object", () => {
+  assert.equal(applyPendingTo("a.md", diskProps, NO_PENDING), diskProps);
+});
+
+test("applyPendingTo: only this note's writes paint on it", () => {
+  const p = addPending(NO_PENDING, [{ path: "b.md", key: "Status", value: "done" }]);
+  // someone else's write in flight leaves this note's props identical
+  assert.equal(applyPendingTo("a.md", diskProps, p), diskProps);
+  assert.equal(applyPendingTo("b.md", diskProps, p).Status, "done");
+});
+
+test("applyPendingTo: a committed chip paints before the write lands", () => {
+  const w = [{ path: "a.md", key: "Status", value: "done" }];
+  const shown = applyPendingTo("a.md", diskProps, addPending(NO_PENDING, w));
+  assert.equal(shown.Status, "done");
+  // disk itself is untouched
+  assert.equal(diskProps.Status, "todo");
+});
+
+test("applyPendingTo: a null write paints the prop as absent (a removed chip)", () => {
+  const w = [{ path: "a.md", key: "Status", value: null }];
+  const shown = applyPendingTo("a.md", diskProps, addPending(NO_PENDING, w));
+  assert.equal("Status" in shown, false);
+});
+
+test("applyPendingTo: a refused write rolls the chip back visibly", () => {
+  const w = [{ path: "a.md", key: "Status", value: "done" }];
+  const p = dropPending(addPending(NO_PENDING, w), w);
+  assert.equal(applyPendingTo("a.md", diskProps, p).Status, "todo");
+});
+
+test("prunePending: the note pane's one-note refresh retires its entry", () => {
+  const w = [{ path: "a.md", key: "Status", value: "done" }];
+  let p = settlePending(addPending(NO_PENDING, w), w);
+  // the pane re-read and disk still says todo — absorbed, the paint stays
+  p = prunePending(p, [{ path: "a.md", props: diskProps }]);
+  assert.equal(applyPendingTo("a.md", diskProps, p).Status, "done");
+  // the write's own re-read carries it: the overlay retires, disk shows through
+  p = prunePending(p, [{ path: "a.md", props: { Status: "done" } }]);
+  assert.equal(p.size, 0);
+});
+
+test("a late refusal of a superseded chip edit leaves the newer paint alone", () => {
+  const first = [{ path: "a.md", key: "Status", value: "doing" }];
+  const second = [{ path: "a.md", key: "Status", value: "done" }];
+  let p = addPending(NO_PENDING, first);
+  p = addPending(p, second);
+  p = dropPending(p, first);
+  assert.equal(applyPendingTo("a.md", diskProps, p).Status, "done");
 });

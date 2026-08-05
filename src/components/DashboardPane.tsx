@@ -37,6 +37,7 @@ import MusicWorkDashboard from "./MusicWorkDashboard";
 import TasksDashboard from "./TasksDashboard";
 import WorkbookPane from "./WorkbookPane";
 import { parsePages } from "../lib/pages";
+import { DANGER, OK, WARN } from "../lib/tokens";
 import { useDashUndo, type DashUndoStore } from "./useDashUndo";
 
 interface DashboardPaneProps {
@@ -240,7 +241,7 @@ function YieldDashboard({
   const rate = fx?.usdEur ?? null;
   const eur = (usd: number | null) => (usd !== null && rate !== null ? usd * rate : null);
   const stateDot =
-    stats.stateLabel === "steady" ? "#4CB782" : stats.stateLabel === "wobbly" ? "#D9A02B" : "#EB5757";
+    stats.stateLabel === "steady" ? OK : stats.stateLabel === "wobbly" ? WARN : DANGER;
 
   const chartIntervals = intervals.slice(-12);
   const medRate = [...chartIntervals.map((iv) => iv.apr ?? 0)].sort((a, b) => a - b)[
