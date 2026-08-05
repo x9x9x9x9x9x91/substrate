@@ -36,6 +36,7 @@ import {
   summaryBar,
   updateSheetFormula,
   columnTakesNumberInput,
+  countPickKind,
   addSheetFormula,
   selectionStats,
   summaryFormulaError,
@@ -1668,6 +1669,67 @@ describe("SUB-937 — summary editor classification", () => {
   test("reports syntax errors honestly instead of calling them column formulas", () => {
     const err = summaryFormulaError(body, null, "broken", "SUM(a");
     assert.ok(err && err !== "that’s a column formula, not a summary", err ?? "missing error");
+  });
+});
+
+describe("SUB-944 — which Count a quick-pick prefills", () => {
+  // The grid asks about a whole grid column, data or computed: the same value
+  // list the cells render from.
+  const gridColumn = (body: string, c: number) => {
+    const ev = evaluateSheet(parseSheet(body), fx);
+    const dataCols = ev.headers.length;
+    return c < dataCols
+      ? ev.rows.map((r) => r[c])
+      : (ev.computed[c - dataCols]?.cells ?? []);
+  };
+
+  test("a column of text takes the wildcard COUNTIF", () => {
+    assert.equal(countPickKind(["yes", "yes", "no"]), "COUNTIF");
+  });
+
+  test("a column with numbers keeps COUNT, mixed columns too", () => {
+    assert.equal(countPickKind([10, 20, 30]), "COUNT");
+    // one number is enough — COUNT still has something honest to report
+    assert.equal(countPickKind(["n/a", 20, null]), "COUNT");
+    // strings that parse strictly are what COUNT itself counts (SUB-221)
+    assert.equal(countPickKind(["12", "n/a"]), "COUNT");
+    assert.equal(countPickKind(["1e3", "0x10"]), "COUNTIF", "those stay text");
+  });
+
+  test("an empty column keeps COUNT — no evidence, no switch", () => {
+    assert.equal(countPickKind([]), "COUNT");
+    assert.equal(countPickKind([null, undefined, "", "   "]), "COUNT");
+    // errors are not type evidence; COUNT preserves aggregate error propagation
+    assert.equal(countPickKind([ferr("boom"), null]), "COUNT");
+    // …but one real text cell beside them is still evidence
+    assert.equal(countPickKind([ferr("boom"), "eur"]), "COUNTIF");
+  });
+
+  test("booleans count as text, not as numbers", () => {
+    assert.equal(countPickKind([true, false]), "COUNTIF");
+  });
+
+  test("over a real sheet: text data column vs numeric one", () => {
+    const body = "```csv\nmonth,paid,rent\n2026-01,yes,1240\n2026-02,no,1290\n```\n";
+    assert.equal(countPickKind(gridColumn(body, 0)), "COUNTIF"); // month
+    assert.equal(countPickKind(gridColumn(body, 1)), "COUNTIF"); // paid
+    assert.equal(countPickKind(gridColumn(body, 2)), "COUNT"); // rent
+  });
+
+  test("over a real sheet: computed columns are judged by their values", () => {
+    const body =
+      "```csv\nunits,price,tag\n2,3,a\n4,5,b\n```\n\n```formulas\n" +
+      'line = units * price\nlabel = IF(units > 3, "big", "small")\n```\n';
+    // grid order: units(0) price(1) tag(2) | line(3) label(4)
+    assert.equal(countPickKind(gridColumn(body, 3)), "COUNT");
+    assert.equal(countPickKind(gridColumn(body, 4)), "COUNTIF");
+  });
+
+  test("the wildcard COUNTIF it points at counts every non-blank cell", () => {
+    const body =
+      '```csv\npaid\nyes\nno\n\nyes\n```\n\n```formulas\npaid_count = COUNTIF(paid, "*")\n```\n';
+    assert.equal(countPickKind(gridColumn(body, 0)), "COUNTIF");
+    assert.equal(findSummary(evaluateSheet(parseSheet(body), fx), "paid_count"), 3);
   });
 });
 

@@ -112,7 +112,8 @@ npx playwright install chromium # once, before the first browser test
 npm run e2e                  # Playwright smoke over the mock backend
 ```
 
-Developer docs: [dashboards](docs/dashboards.md) · [sheets](docs/sheets-spec.md) ·
+Developer docs: [architecture — where things live](docs/architecture.md) ·
+[dashboards](docs/dashboards.md) · [sheets](docs/sheets-spec.md) ·
 [vault format on disk](docs/vault-format.md) ·
 [integrating external tools](docs/integrations.md) ·
 [doors — every way in and out](docs/doors.md).
@@ -122,9 +123,8 @@ Developer docs: [dashboards](docs/dashboards.md) · [sheets](docs/sheets-spec.md
 Personal project, built for one person's daily use and shared as-is:
 macOS-first (an iOS build exists but is not distributed), no support promises.
 Releases are tagged and published as a notarized macOS DMG on the repo's
-releases page — see [docs/release-macos.md](docs/release-macos.md) for how one
-is cut. Issues and ideas are welcome; expect the roadmap to follow its owner's
-needs.
+releases page. Issues and ideas are welcome; expect the roadmap to follow its
+owner's needs.
 
 ## License
 

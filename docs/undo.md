@@ -1,12 +1,13 @@
 # Undo — app-wide design
 
 Substrate's credo says **"Nothing is ever lost. Trash, history, restore — fearless
-by default; only explicit actions are permanent"** (`docs/vision.md:98`). Undo is
+by default; only explicit actions are permanent"**. Undo is
 where that credo is cashed out at the scale of a single mistake. Today it is
 cashed out four different ways on four surfaces and not at all everywhere else.
 
-This document is the design for one undo model. It is a spec, not a work list.
-Slice 1 (§6) is written so it can be implemented from this file alone.
+This document is the design for one undo model. It is a spec, not a work list:
+it describes the model as it should be, not the order anyone builds it in.
+Slice 1 (§6) is written to be implementable from this file alone.
 
 Every claim about current behaviour below is cited to code. Where the code and
 this doc disagree, the code wins and this doc gets fixed in the same merge.
@@ -860,8 +861,9 @@ Bulk schema sweeps never join (§4).
 **Full event sourcing (log every mutation, rebuild state by replay).** Rejected:
 Substrate's source of truth is *the files*, not a log. Any log is immediately
 wrong the moment an agent or `rsync` touches the vault — which is a first-class
-scenario, not an edge case (`docs/vision.md`, agents-edit-the-vault). A log that
-can't see the writes that matter most is a liability that looks like a guarantee.
+scenario, not an edge case — agents editing the vault is a design premise. A
+log that can't see the writes that matter most is a liability that looks like a
+guarantee.
 Git history already is the durable log, and it has the right property: it
 observes the filesystem rather than trying to be it.
 

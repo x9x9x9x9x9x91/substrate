@@ -671,6 +671,40 @@ export function selectionStats(values: (Value | Cell | undefined)[]): SelectionS
   return { count, numeric, sum, avg: numeric > 0 ? sum / numeric : null };
 }
 
+/** Which Count the totals quick-pick should prefill for a column (SUB-944).
+ *
+ * COUNT means "how many numbers are here" — the language keeps that meaning,
+ * and nothing here changes it. But a quick-pick over a column of text (`paid`
+ * = yes/no, a month column, a name column) then prefills a formula that can
+ * only ever read 0, which looks like the feature is broken rather than like
+ * an honest answer. On such a column the pick prefills `COUNTIF(column, "*")`
+ * instead: the wildcard counts non-blank, non-error cells, whatever they hold.
+ *
+ * Evidence, not schema, decides — the same rule shape as
+ * columnTakesNumberInput:
+ *  - any numeric cell (a number, or a string that parses strictly as one,
+ *    which is what COUNT itself counts) → "COUNT". A mixed column keeps
+ *    numeric semantics; the input still takes the whole formula language.
+ *  - otherwise, at least one non-blank, non-error cell → "COUNTIF": values
+ *    are present, but nothing is numeric.
+ *  - no usable evidence — no rows, all blank, or all errors — → "COUNT".
+ *    Empty/blank columns read 0 either way, while an error-only column keeps
+ *    COUNT's existing error propagation instead of being silently flattened
+ *    to 0 by COUNTIF. */
+export function countPickKind(values: (Value | Cell | undefined)[]): "COUNT" | "COUNTIF" {
+  let nonBlank = false;
+  for (const v of values) {
+    if (v === null || v === undefined || isErr(v)) continue;
+    if (typeof v === "number") return "COUNT";
+    if (typeof v === "string") {
+      if (v.trim() === "") continue;
+      if (parseStrictNumber(v) !== null) return "COUNT";
+    }
+    nonBlank = true;
+  }
+  return nonBlank ? "COUNTIF" : "COUNT";
+}
+
 // ---------- display ----------
 
 /** Columns whose integers are labels, not quantities (SUB-633). A year or an

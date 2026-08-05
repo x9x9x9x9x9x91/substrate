@@ -274,7 +274,7 @@ AVG(days_held)`.
 ## Time travel — PROP() and AT() (SUB-832)
 
 Two functions read the vault outside this sheet, one of them outside today.
-Full design in `docs/time-travel-spec.md`.
+Full design in the time-travel query spec.
 
 - `PROP(<note path>, <key>)` → one frontmatter value on another note, as a
   scalar, in the present tense: `PROP("Assets/BTC.md", "price")`.
@@ -362,11 +362,14 @@ of `AT()` cells — `docs/dashboards.md` → `charts`.
   the footer, which is therefore only the leftovers. Several summaries over one column
   stack in that cell in fence order.
   Clicking an empty cell opens a `name = formula` editor with Sum/Avg/Min/Max/
-  Count quick-picks that prefill `name = FN(column)`; the input still accepts
-  the whole language (SUMIF, arithmetic, other summaries, cross-sheet refs) —
-  the picks are accelerators, not a ceiling. Clicking a filled cell edits that
-  line in place, right-click deletes it. Footer chips behave identically, and
-  a "+ summary" affordance appends a line. Every write is the same
+  Count quick-picks. Sum/Avg/Min/Max prefill `name = FN(column)`. Count is
+  value-aware: a column with non-blank, non-error values but no numeric cells
+  prefills `name = COUNTIF(column, "*")`; numeric, mixed, empty, and error-only
+  columns keep `name = COUNT(column)`. The input still accepts the whole language
+  (SUMIF, arithmetic, other summaries, cross-sheet refs) — the picks are
+  accelerators, not a ceiling. Clicking a filled cell edits that line in place,
+  right-click deletes it. Footer chips behave identically, and a "+ summary"
+  affordance appends a line. Every write is the same
   `name = expression` line in the ```formulas fence: nothing about the file
   format changes, and a sheet edited in-app stays a plain markdown note.
 - **Selection readout**: shift+arrow or shift+click extends a range

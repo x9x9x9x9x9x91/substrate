@@ -192,8 +192,8 @@ hand should never lie about a missing one.
 
 **Plotting a fact's own past (`history`).** `x`/`y` plot rows and `series` plots
 summaries; both read the vault *as it is now*. `history` plots one frontmatter
-fact's history instead — the chart half of time-travel queries (SUB-832,
-`docs/time-travel-spec.md` §3.3):
+fact's history instead — the chart half of time-travel queries (§3.3 of the
+time-travel query spec):
 
 ````markdown
 ```chart
@@ -528,6 +528,25 @@ keeps its pin's query. ⌃⇥ / ⌃⇧⇥
 cycle pages. The demo vault's `Label Accounting` workbook is the reference:
 metrics cards over a statements sheet, with the statement and splits sheets
 plus the release database one tab away. Full contract: `vault-format.md` §5.6a.
+
+## Adding a built-in kind
+
+Every kind above is built the same way, and the recipe is short enough to state
+in full: **one component, plus one line of dispatch in
+`src/components/DashboardPane.tsx`**. When the kind needs the OS — reading
+something outside the vault, talking to a service — that's **one Rust command in
+`src-tauri/src/lib.rs` plus a mock case in `src/lib/tauri.ts`**, so the
+browser/e2e lane keeps working without a Tauri build.
+
+A kind's name is written out in several inventories that must agree — the
+built-in registry, the dispatch chain, the icon table, the dispatch table in
+`docs/vault-format.md` §5.2 and the orientation file the app seeds into a new
+vault (`src-tauri/src/seed/AGENTS.md`) — so `scripts/check-kinds.ts` compares
+them and fails `npm test` on drift.
+Add the name everywhere in the same change.
+
+That is the shape for a kind that ships *in the app*. For one that lives in a
+vault instead, read on.
 
 ## Writing your own kind
 

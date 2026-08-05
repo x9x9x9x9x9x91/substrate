@@ -64,13 +64,13 @@ test("an empty totals cell writes a new summary; quick-picks prefill the input",
 
   await paid.locator(".sheet-total-add").click();
   await paid.locator(".sheet-fx-pick", { hasText: "Count" }).click();
-  await expect(paid.locator(".sheet-fx-input")).toHaveValue("paid_count = COUNT(paid)");
+  // `paid` holds yes/no, so Count prefills the wildcard COUNTIF (SUB-944):
+  // plain COUNT counts numbers and could only ever read 0 here
+  await expect(paid.locator(".sheet-fx-input")).toHaveValue('paid_count = COUNTIF(paid, "*")');
   await page.keyboard.press("Enter");
 
   await expect(totalsCell(page, 4)).toContainText("paid_count");
-  // COUNT counts numeric cells, and `paid` holds yes/no — an honest 0, which
-  // is exactly why the quick-picks are shortcuts and not the only way in
-  await expect(totalsCell(page, 4)).toContainText("0");
+  await expect(totalsCell(page, 4)).toContainText("6"); // six non-blank cells
   // it landed in the note body, not just this render: let the debounced save
   // flush, leave the note, and come back to a fresh read (no page reload —
   // that would reset the mock backend and prove nothing)
@@ -107,6 +107,38 @@ test("the summary editor refuses a row-shaped computed-column formula", async ({
     "column formula, not a summary"
   );
   await expect(page.locator(".sheet-computed", { hasText: "paid_double" })).toHaveCount(0);
+});
+
+test("Count follows the column: COUNT over numbers, wildcard COUNTIF over text", async ({
+  page,
+}) => {
+  // Holdings: asset(0) bucket(1) units(2) price_usd(3) | value_usd(4) value_eur(5).
+  // bucket holds etf/crypto, price_usd holds numbers; neither has a summary yet.
+  await page.goto("/");
+  await expect(page.locator(".side-item").first()).toBeVisible();
+  await openNote(page, "Holdings");
+  await expect(page.locator(".sheet-table")).toBeVisible();
+
+  const price = totalsCell(page, 3);
+  await price.locator(".sheet-total-add").click();
+  await price.locator(".sheet-fx-pick", { hasText: "Count" }).click();
+  await expect(price.locator(".sheet-fx-input")).toHaveValue("price_usd_count = COUNT(price_usd)");
+  await page.keyboard.press("Escape");
+
+  const bucket = totalsCell(page, 1);
+  await bucket.locator(".sheet-total-add").click();
+  await bucket.locator(".sheet-fx-pick", { hasText: "Count" }).click();
+  await expect(bucket.locator(".sheet-fx-input")).toHaveValue(
+    'bucket_count = COUNTIF(bucket, "*")'
+  );
+  // the other picks are untouched by SUB-944 — Sum still prefills SUM
+  await bucket.locator(".sheet-fx-pick", { hasText: "Sum" }).click();
+  await expect(bucket.locator(".sheet-fx-input")).toHaveValue("bucket_sum = SUM(bucket)");
+
+  await bucket.locator(".sheet-fx-pick", { hasText: "Count" }).click();
+  await page.keyboard.press("Enter");
+  await expect(totalsCell(page, 1)).toContainText("bucket_count");
+  await expect(totalsCell(page, 1)).toContainText("4"); // four non-blank cells
 });
 
 test("the input takes the whole formula language, not just the quick-picks", async ({ page }) => {

@@ -27,6 +27,10 @@ Practically:
 
 ## Style and tests
 
+If you don't know which part of the tree your change belongs in,
+[docs/architecture.md](docs/architecture.md) is the map — front end vs engine,
+the IPC boundary between them, and what the mock/e2e lane can and cannot prove.
+
 Match the code around what you touch — the codebase is fairly uniform, and the
 existing patterns are the style guide. Beyond that:
 

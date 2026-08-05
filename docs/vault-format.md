@@ -259,7 +259,7 @@ clear:
   per-item device-lock gating — it lives in the login keychain, readable while
   that keychain is unlocked, rather than only while the device is unlocked. The
   user-presence requirement still applies, so reading it still asks for Touch ID,
-  Face ID, or the passcode. See `docs/release-macos.md`.
+  Face ID, or the passcode. See the macOS release runbook.
 
 Locked sealed notes index only `path`, filename stem/title, folder and mtime. Their
 props and excerpt are empty; their body produces no FTS terms, links, backlinks,

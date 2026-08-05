@@ -12,6 +12,7 @@ import {
   addSheetFormula,
   addSheetRow,
   columnTakesNumberInput,
+  countPickKind,
   deleteSheetColumn,
   deleteSheetFormula,
   deleteSheetRow,
@@ -579,6 +580,21 @@ export default function SheetGrid({
     );
   };
 
+  /** Every value in a grid column, data or computed — the evidence the Count
+      quick-pick reads (SUB-944). */
+  const columnValues = (c: number) =>
+    Array.from({ length: rowCount }, (_, r) => cellValue(r, c));
+
+  /** The formula a quick-pick prefills for a column. All of them are
+      `FN(column)`, except Count when the column has non-blank, non-error values
+      but no numeric cells: it prefills the wildcard COUNTIF that counts those
+      cells instead (SUB-944). The input still takes the whole formula language
+      either way. */
+  const pickSrc = (fn: string, col: string, c: number) =>
+    fn === "COUNT" && countPickKind(columnValues(c)) === "COUNTIF"
+      ? `COUNTIF(${col}, "*")`
+      : `${fn}(${col})`;
+
   /** A quick-pick's suggested name: `cost_sum`, deduped against everything
       already bound on this sheet. */
   const pickName = (fn: string, col: string) => {
@@ -842,8 +858,12 @@ export default function SheetGrid({
       column — they prefill the input, which still accepts the whole formula
       language. */
   const summaryEditor = (ed: SummaryEdit) => {
-    const col = ed.col === null ? null : columnName(ed.col);
-    const picks = ed.name === null && col !== null && FORMULA_NAME_RE.test(col) ? col : null;
+    const c = ed.col;
+    const col = c === null ? null : columnName(c);
+    const picks =
+      ed.name === null && c !== null && col !== null && FORMULA_NAME_RE.test(col)
+        ? { name: col, c }
+        : null;
     /* A new footer line has no column and no quick-picks to copy from, so the
        placeholder shows the whole shape instead of naming its halves. */
     const hint = ed.name === null && !picks ? "total = SUM(column)" : "name = formula";
@@ -879,7 +899,7 @@ export default function SheetGrid({
                 onClick={() =>
                   setSumEdit({
                     ...ed,
-                    draft: `${pickName(fn, picks)} = ${fn}(${picks})`,
+                    draft: `${pickName(fn, picks.name)} = ${pickSrc(fn, picks.name, picks.c)}`,
                     err: null,
                   })
                 }

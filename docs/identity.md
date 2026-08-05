@@ -14,11 +14,10 @@ problem. Ids are assigned lazily, so every note in an existing vault stays
 byte-identical until it actually participates in something that needs
 identity. The entire on-disk footprint is one line per participating note.
 
-Why this and not more: `docs/vision.md:112` rules out CRDTs ("self-hosted /
-file-based, no CRDT complexity"), and `vision.md:113-116` commits sync payloads
-to end-to-end encryption — so there is no server that could hold an id→path
-index. Identity has to be *intrinsic to the file*. A frontmatter line is the
-smallest thing that is.
+Why this and not more: the project rules out CRDTs (it stays self-hosted and
+file-based, without CRDT complexity) and encrypts sync payloads end-to-end —
+so there is no server that could hold an id→path index. Identity has to be
+*intrinsic to the file*. A frontmatter line is the smallest thing that is.
 
 Why now: the reference vault this spec was measured against has **zero
 relation props** (`.vault/schema.json`: text, multi, date and checkbox props
