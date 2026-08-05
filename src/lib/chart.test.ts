@@ -2,8 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   aggregate,
+  assignBandSlots,
   bucketKey,
   bucketLabel,
+  chartIdentity,
   chartSourceDesc,
   chartTitle,
   dateOf,
@@ -17,6 +19,8 @@ import {
   summarySeries,
   historySeries,
   MAX_HISTORY_POINTS,
+  type BandSlotMemory,
+  type ChartConfig,
   type RowChartConfig,
 } from "./chart.ts";
 import { evaluateSheet, parseSheet } from "./sheet.ts";
@@ -1276,4 +1280,138 @@ test("history fence: title and footer speak the fact, not a source", () => {
   assert.equal(chartTitle(c), "Price per month");
   assert.equal(chartTitle(parseChartConfig("history: a.md#price\ny: avg")), "Avg price per day");
   assert.equal(chartSourceDesc(c), "history: Assets/BTC.md#price");
+});
+
+// ---------- band ramp slots (SUB-1062) ----------
+
+/** the ramp SUB-952 applies: five treatments, walked from the top */
+const RAMP = 5;
+const bandsOf = (...names: string[]) => names.map((name) => ({ name }));
+const slotsFor = (memory: BandSlotMemory, ...names: string[]) =>
+  assignBandSlots(bandsOf(...names), memory, RAMP);
+
+test("assignBandSlots: a first render walks the ramp in first-seen order (SUB-952 invariant)", () => {
+  const memory: BandSlotMemory = new Map();
+  assert.deepEqual(slotsFor(memory, "etf", "crypto", "cash", "bond"), [0, 1, 2, 3]);
+});
+
+test("assignBandSlots: dropping a series leaves the survivors' colours alone (SUB-1062)", () => {
+  const memory: BandSlotMemory = new Map();
+  slotsFor(memory, "etf", "crypto", "cash", "bond");
+  // the last `etf` row is deleted: the split now starts at crypto, but crypto
+  // is still crypto — under the old positional scheme every survivor moved up
+  assert.deepEqual(slotsFor(memory, "crypto", "cash", "bond"), [1, 2, 3]);
+  // and re-adding it does not disturb them either
+  assert.deepEqual(slotsFor(memory, "etf", "crypto", "cash", "bond"), [0, 1, 2, 3]);
+});
+
+test("assignBandSlots: adding a series never re-letters the ones already shown (SUB-1062)", () => {
+  const memory: BandSlotMemory = new Map();
+  slotsFor(memory, "etf", "crypto");
+  // a new category sorts first alphabetically and appears first in the split —
+  // it still takes the next free slot rather than pushing the others along
+  assert.deepEqual(slotsFor(memory, "bond", "etf", "crypto"), [2, 0, 1]);
+});
+
+test("assignBandSlots: the same series set is the same colours whatever the rows do", () => {
+  const rows = [
+    { released: "2026-05-04", g: "etf" },
+    { released: "2026-05-06", g: "crypto" },
+    { released: "2026-06-02", g: "cash" },
+  ];
+  const conf = cfg({ x: { prop: "released", bucket: "month" }, by: "g" });
+  const memory: BandSlotMemory = new Map();
+  const first = aggregate(rows, conf);
+  const before = assignBandSlots(first.bands!, memory, RAMP);
+  const colours = new Map(first.bands!.map((b, i) => [b.name, before[i]]));
+
+  // one more row in an existing series, and one series' only row deleted
+  const after = aggregate([...rows.slice(1), { released: "2026-06-11", g: "crypto" }], conf);
+  const slots = assignBandSlots(after.bands!, memory, RAMP);
+  after.bands!.forEach((b, i) => assert.equal(slots[i], colours.get(b.name), b.name));
+});
+
+test("assignBandSlots: a series is itself whatever case it is written in", () => {
+  const memory: BandSlotMemory = new Map();
+  slotsFor(memory, "ETF", "crypto");
+  assert.deepEqual(slotsFor(memory, "etf", "Crypto"), [0, 1]);
+});
+
+test("assignBandSlots: a full ramp of new series evicts the least recently present", () => {
+  const memory: BandSlotMemory = new Map();
+  slotsFor(memory, "a", "b", "c", "d", "e");
+  // nothing that was on screen is left; the ramp is walked from the top again
+  assert.deepEqual(slotsFor(memory, "v", "w", "x", "y", "z"), [0, 1, 2, 3, 4]);
+  // and the memory never grows past what the ramp can show
+  assert.equal(memory.size, RAMP);
+});
+
+test("assignBandSlots: an absent series holds its slot while the ramp has room", () => {
+  const memory: BandSlotMemory = new Map();
+  slotsFor(memory, "etf", "crypto");
+  // etf is filtered out of this render; gold takes a free slot, not etf's
+  assert.deepEqual(slotsFor(memory, "crypto", "gold"), [1, 2]);
+  assert.deepEqual(slotsFor(memory, "etf", "crypto", "gold"), [0, 1, 2]);
+});
+
+// ---------- chart identity (SUB-1062) ----------
+
+test("chartIdentity: the same split on the same source is the same chart", () => {
+  const a = cfg({ by: "bucket" });
+  // presentation is not identity: a retitle and a bar→line flip keep the
+  // colours the reader has already learned, and so does re-bucketing the axis
+  const b = cfg({ by: "bucket", title: "Value by quarter", kind: "line", x: { prop: "released", bucket: "day" } });
+  assert.equal(chartIdentity(a), chartIdentity(b));
+});
+
+test("chartIdentity: a different source or a different split is a different chart", () => {
+  const base = cfg({ by: "bucket" });
+  assert.notEqual(chartIdentity(base), chartIdentity(cfg({ by: "quarter" })));
+  assert.notEqual(chartIdentity(base), chartIdentity(cfg({ by: null })));
+  assert.notEqual(
+    chartIdentity(base),
+    chartIdentity(cfg({ by: "bucket", source: { kind: "sheet", name: "release" } }))
+  );
+  assert.notEqual(
+    chartIdentity(base),
+    chartIdentity(cfg({ by: "bucket", source: { kind: "db", type: "holding" } }))
+  );
+});
+
+test("chartIdentity: source and split fold case, like every other authored key", () => {
+  assert.equal(
+    chartIdentity(cfg({ by: "Bucket", source: { kind: "db", type: "Release" } })),
+    chartIdentity(cfg({ by: "bucket" }))
+  );
+});
+
+test("chartIdentity: a summary chart is identified by the points it names", () => {
+  const sheet = { kind: "sheet", name: "Holdings" } as const;
+  const summaries = (series: string[]) =>
+    chartIdentity({ source: sheet, kind: "bar", title: null, bind: "summaries", series });
+  assert.equal(summaries(["Total", "Cash"]), summaries(["total", "cash"]));
+  assert.notEqual(summaries(["Total", "Cash"]), summaries(["Total"]));
+  // and it is never confused with the row-bound chart on the same sheet
+  assert.notEqual(
+    summaries(["Total"]),
+    chartIdentity(cfg({ by: "bucket", source: { kind: "sheet", name: "Holdings" } }))
+  );
+});
+
+test("chartIdentity: a history chart is identified by the fact it plots", () => {
+  // a history fence has no source and no split, so identity has to be total
+  // over the binding itself: the prune effect calls this for EVERY block on a
+  // dashboard, and one unanswered variant throws the whole page away
+  const hist = (path: string, key: string, rest: Partial<ChartConfig> = {}) =>
+    chartIdentity({
+      kind: "line", title: null, bind: "history",
+      fact: { path, key }, x: "day", y: "last", ...rest,
+    } as ChartConfig);
+  assert.equal(hist("Assets/BTC.md", "price"), hist("assets/btc.md", "Price"));
+  // presentation and reduction are not identity, the fact is
+  assert.equal(hist("n.md", "w"), hist("n.md", "w", { kind: "bar", title: "Weight", x: "month", y: "avg" }));
+  assert.notEqual(hist("Assets/BTC.md", "price"), hist("Assets/ETH.md", "price"));
+  assert.notEqual(hist("Assets/BTC.md", "price"), hist("Assets/BTC.md", "supply"));
+  // and never collides with a row-bound chart naming the same words
+  assert.notEqual(hist("release", "bucket"), chartIdentity(cfg({ by: "bucket" })));
 });

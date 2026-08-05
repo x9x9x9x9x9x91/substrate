@@ -1,6 +1,18 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { flushSync } from "react-dom";
-import type { CalendarFeedSnapshot, NoteMeta, SchemaConfig } from "../lib/types";
+import type {
+  CalendarFeedSnapshot,
+  NoteMeta,
+  SchemaConfig,
+} from "../lib/types";
 import { isTyping, isTypingNow } from "../lib/dom";
 import {
   addDays,
@@ -45,9 +57,19 @@ import { useEdgeFade } from "../hooks/useEdgeFade";
 import { nextUndoId } from "../lib/undo";
 import { foldedPropKey, foldedPropStr, typeHome } from "../lib/types";
 import { typeSchemaFor } from "../lib/schemalookup";
-import { buildEntryBody, buildEntryProps, mergeEntryProp } from "../lib/templates";
+import {
+  buildEntryBody,
+  buildEntryProps,
+  mergeEntryProp,
+} from "../lib/templates";
 import { iconForType, iconsByType, tintVar, typeTint } from "../lib/dbicons";
-import { CalendarIcon, ChevronLeftIcon, ChevronRightIcon, NoteIcon, RepeatIcon } from "./Icons";
+import {
+  CalendarIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  NoteIcon,
+  RepeatIcon,
+} from "./Icons";
 import {
   compareExternalTime,
   externalEntries,
@@ -58,6 +80,7 @@ import ContextMenu, { type MenuItem } from "./ContextMenu";
 import TypeIcon from "./TypeIcon";
 import CalPeek from "./CalPeek";
 import { cardSubtitle } from "./DatabasePane";
+import { useNumberLocale } from "../hooks/useNumberLocale";
 import { useTodayIso } from "./useTodayIso";
 import CalendarFeedsMenu from "./CalendarFeedsMenu";
 import SwitchGroup from "./SwitchGroup";
@@ -91,8 +114,9 @@ type CalendarRenderEntry = CalEntry | ExternalCalEntry;
 /** Shared empty day, so a dayless cell keeps a stable identity. */
 const NO_ENTRIES: CalendarRenderEntry[] = [];
 
-const isExternalEntry = (entry: CalendarRenderEntry): entry is ExternalCalEntry =>
-  "feedUrl" in entry;
+const isExternalEntry = (
+  entry: CalendarRenderEntry,
+): entry is ExternalCalEntry => "feedUrl" in entry;
 
 /** SUB-521: the pane unmounts whenever an entry is opened (the note takes the
     view), so the two pieces of "where I was reading" have to live outside it.
@@ -147,6 +171,9 @@ export default function CalendarPane({
   onOpenJournal,
 }: CalendarPaneProps) {
   const undo = useUndo();
+  // the entry cards' subtitles carry formatted numbers (SUB-1092) — the dial
+  // is not threaded into this pane, so read it from the store
+  const numberLocale = useNumberLocale();
   // SUB-1001: the Upcoming rail is a fixed 168px against the viewport bottom,
   // so a full agenda cut its last row in half with nothing saying more was
   // below it.
@@ -158,10 +185,11 @@ export default function CalendarPane({
   // and starts fresh next launch. `layout` is a stated preference, so it
   // persists per window in localStorage, like the sidebar collapse (SUB-394).
   const [cursor, setCursor] = useState(
-    () => new Date(calSession.cursor ?? Date.now())
+    () => new Date(calSession.cursor ?? Date.now()),
   );
   const [layout, setLayout] = useState<"month" | "week">(() => readCalLayout());
-  const [feedSnapshot, setFeedSnapshot] = useState<CalendarFeedSnapshot>(EMPTY_FEEDS);
+  const [feedSnapshot, setFeedSnapshot] =
+    useState<CalendarFeedSnapshot>(EMPTY_FEEDS);
   const [feedsOpen, setFeedsOpen] = useState(false);
   const [feedReload, setFeedReload] = useState(0);
   useEffect(() => {
@@ -171,7 +199,11 @@ export default function CalendarPane({
     writeCalLayout(layout);
   }, [layout]);
   const [focusIso, setFocusIso] = useState<string | null>(null);
-  const [draft, setDraft] = useState<{ day: string; type: string; time?: string } | null>(null);
+  const [draft, setDraft] = useState<{
+    day: string;
+    type: string;
+    time?: string;
+  } | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
   const [drag, setDrag] = useState<{
     path: string;
@@ -194,17 +226,35 @@ export default function CalendarPane({
   // draft type picker: anchor rect while the SelectMenu is open (SUB-91)
   const [typeMenu, setTypeMenu] = useState<AnchorRect | null>(null);
   // entry-chip context menu + its Repeat… picker (SUB-174)
-  const [menu, setMenu] = useState<{ x: number; y: number; entry: CalEntry; anchor: AnchorRect } | null>(null);
-  const [repeatMenu, setRepeatMenu] = useState<{ entry: CalEntry; anchor: AnchorRect } | null>(null);
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    entry: CalEntry;
+    anchor: AnchorRect;
+  } | null>(null);
+  const [repeatMenu, setRepeatMenu] = useState<{
+    entry: CalEntry;
+    anchor: AnchorRect;
+  } | null>(null);
   // the entry peek: click a chip/card to edit it in place (Notion-Calendar
   // style). Tracked by identity — the live entry is re-derived from `entries`,
   // so a mutation that removes it (moved, skipped, renamed, trashed) closes
   // the popover instead of leaving it stale
-  const [peek, setPeek] = useState<{ path: string; prop: string; day: string; anchor: AnchorRect } | null>(null);
+  const [peek, setPeek] = useState<{
+    path: string;
+    prop: string;
+    day: string;
+    anchor: AnchorRect;
+  } | null>(null);
   // SUB-590: right-click on a day cell (not a chip — chips preventDefault
   // first) — the day's own create/navigate menu. `time` is set on the week
   // canvas, where the pointer names a slot, not just a day.
-  const [dayMenu, setDayMenu] = useState<{ x: number; y: number; iso: string; time?: string } | null>(null);
+  const [dayMenu, setDayMenu] = useState<{
+    x: number;
+    y: number;
+    iso: string;
+    time?: string;
+  } | null>(null);
   const seenSignal = useRef(newSignal);
   const gridRef = useRef<HTMLDivElement>(null);
   const draftInputRef = useRef<HTMLInputElement>(null);
@@ -246,7 +296,7 @@ export default function CalendarPane({
       layout === "month"
         ? monthGridDays(cursor.getFullYear(), cursor.getMonth())
         : weekDays(cursor),
-    [cursor, layout]
+    [cursor, layout],
   );
   const visible = useMemo(() => new Set(days.map(isoDay)), [days]);
 
@@ -278,7 +328,14 @@ export default function CalendarPane({
     return () => {
       live = false;
     };
-  }, [feedGridStart, feedGridEnd, feedUpcomingStart, feedUpcomingEnd, feedReload, onToast]);
+  }, [
+    feedGridStart,
+    feedGridEnd,
+    feedUpcomingStart,
+    feedUpcomingEnd,
+    feedReload,
+    onToast,
+  ]);
   useEffect(() => {
     let dead = false;
     let unlisten: (() => void)[] = [];
@@ -317,8 +374,15 @@ export default function CalendarPane({
   /** an entry's mark: the same badge Today wears — the database's TypeIcon,
       the quiet note glyph for untyped notes */
   const entryIcon = (e: CalEntry) =>
-    e.type ? <TypeIcon type={e.type} icon={iconForType(dbIcons, e.type)} size={12} /> : <NoteIcon size={12} />;
-  const noteByPath = useMemo(() => new Map(notes.map((n) => [n.path, n])), [notes]);
+    e.type ? (
+      <TypeIcon type={e.type} icon={iconForType(dbIcons, e.type)} size={12} />
+    ) : (
+      <NoteIcon size={12} />
+    );
+  const noteByPath = useMemo(
+    () => new Map(notes.map((n) => [n.path, n])),
+    [notes],
+  );
   const byDay = useMemo(() => {
     const map = new Map<string, CalEntry[]>();
     // keys stay day-only (e.day) — a timed entry's time never keys a bucket
@@ -329,11 +393,14 @@ export default function CalendarPane({
           // all-day first, then timed ascending (SUB-270), then type/title
           compareEntryTime(a, b) ||
           a.type.localeCompare(b.type) ||
-          a.title.localeCompare(b.title)
+          a.title.localeCompare(b.title),
       );
     return map;
   }, [entries]);
-  const external = useMemo(() => externalEntries(feedSnapshot.events), [feedSnapshot.events]);
+  const external = useMemo(
+    () => externalEntries(feedSnapshot.events),
+    [feedSnapshot.events],
+  );
   const externalByDay = useMemo(() => {
     const map = new Map<string, ExternalCalEntry[]>();
     for (const entry of external)
@@ -349,12 +416,13 @@ export default function CalendarPane({
       map.set(
         iso,
         [...(byDay.get(iso) ?? []), ...(externalByDay.get(iso) ?? [])].sort(
-          (a, b) => (a.time ?? "").localeCompare(b.time ?? "")
-        )
+          (a, b) => (a.time ?? "").localeCompare(b.time ?? ""),
+        ),
       );
     return map;
   }, [byDay, externalByDay]);
-  const renderItems = (iso: string): CalendarRenderEntry[] => mergedByDay.get(iso) ?? NO_ENTRIES;
+  const renderItems = (iso: string): CalendarRenderEntry[] =>
+    mergedByDay.get(iso) ?? NO_ENTRIES;
   const types = useMemo(() => calendarTypes(schema), [schema]);
 
   // opening the week (or paging into a new one) scrolls the canvas to the
@@ -389,10 +457,14 @@ export default function CalendarPane({
   const peekEntry = useMemo(
     () =>
       peek
-        ? entries.find((e) => e.path === peek.path && e.prop === peek.prop && e.day === peek.day) ??
-          null
+        ? (entries.find(
+            (e) =>
+              e.path === peek.path &&
+              e.prop === peek.prop &&
+              e.day === peek.day,
+          ) ?? null)
         : null,
-    [peek, entries]
+    [peek, entries],
   );
   useEffect(() => {
     if (peek && !peekEntry) setPeek(null);
@@ -406,7 +478,8 @@ export default function CalendarPane({
       span branch can't cross-light a series). */
   const selTarget = peek ?? menu?.entry ?? null;
   const isSelected = (e: CalEntry): boolean => {
-    if (!selTarget || selTarget.path !== e.path || selTarget.prop !== e.prop) return false;
+    if (!selTarget || selTarget.path !== e.path || selTarget.prop !== e.prop)
+      return false;
     if (selTarget.day === e.day) return true;
     return e.spanPos !== undefined && !e.repeating;
   };
@@ -419,7 +492,8 @@ export default function CalendarPane({
 
   /** ⌘←/→ — page months in month layout, weeks in week layout */
   const page = (n: number) => {
-    const step = (d: Date) => (layout === "month" ? addMonths(d, n) : addDays(d, 7 * n));
+    const step = (d: Date) =>
+      layout === "month" ? addMonths(d, n) : addDays(d, 7 * n);
     setCursor(step(cursor));
     setExpandedIso(null);
     // paging mid-drag would strand the drop highlight/ghost on cells that
@@ -494,8 +568,14 @@ export default function CalendarPane({
   useEffect(() => {
     if (!expandedIso) return;
     const onDown = (e: MouseEvent) => {
-      if (e.target instanceof HTMLElement && e.target.closest(".cal-peek, .selmenu")) return;
-      const cell = gridRef.current?.querySelector(`[data-iso="${expandedIso}"]`);
+      if (
+        e.target instanceof HTMLElement &&
+        e.target.closest(".cal-peek, .selmenu")
+      )
+        return;
+      const cell = gridRef.current?.querySelector(
+        `[data-iso="${expandedIso}"]`,
+      );
       if (cell && !cell.contains(e.target as Node)) setExpandedIso(null);
     };
     window.addEventListener("mousedown", onDown);
@@ -557,7 +637,10 @@ export default function CalendarPane({
      Blurs with no button down (Tab away, programmatic focus) commit inline
      like before. */
   const pointerHeld = useRef(false);
-  const pendingBlur = useRef<{ d: { day: string; type: string; time?: string }; title: string } | null>(null);
+  const pendingBlur = useRef<{
+    d: { day: string; type: string; time?: string };
+    title: string;
+  } | null>(null);
   // state mirrors, so the window-level flush never reads a stale closure
   const draftNow = useRef(draft);
   draftNow.current = draft;
@@ -566,7 +649,10 @@ export default function CalendarPane({
   /** the create half of a commit, decoupled from the state teardown
       (SUB-608): the deferred blur path creates from values captured at blur
       time, after the gesture that caused the blur has fully dispatched */
-  const createFromDraft = (d: { day: string; type: string; time?: string }, rawTitle: string) => {
+  const createFromDraft = (
+    d: { day: string; type: string; time?: string },
+    rawTitle: string,
+  ) => {
     const title = rawTitle.trim();
     const { day, type, time } = d;
     if (!title) return;
@@ -575,7 +661,7 @@ export default function CalendarPane({
     const folder = folderFor(type, notes, typeHome(typeSchema));
     const foldedType = type.toLowerCase();
     const typeNotes = notes.filter(
-      (n) => foldedPropStr(n.props, "type")?.toLowerCase() === foldedType
+      (n) => foldedPropStr(n.props, "type")?.toLowerCase() === foldedType,
     );
     // born complete (SUB-60): schema chips + template like the database
     // draft row; the picked day merges into the same create (no second
@@ -587,19 +673,27 @@ export default function CalendarPane({
           folder,
           type,
           mergeEntryProp(
-            buildEntryProps({ typeSchema, typeNotes, template: tpl, title, date: day }),
+            buildEntryProps({
+              typeSchema,
+              typeNotes,
+              template: tpl,
+              title,
+              date: day,
+            }),
             prop,
             // a canvas-slot draft is born timed (SUB-448); day cells stay day-only
-            time ? `${day} ${time}` : day
+            time ? `${day} ${time}` : day,
           ),
-          buildEntryBody(tpl, title, day)
-        )
+          buildEntryBody(tpl, title, day),
+        ),
       )
       .then(onMutated)
       // SUB-564: a refused create (a title holding [ or ]) used to die on the
       // console with the draft already cleared — no entry, no message
       .catch((err) =>
-        onToast?.(`couldn’t create “${title}” — ${err instanceof Error ? err.message : String(err)}`)
+        onToast?.(
+          `couldn’t create “${title}” — ${err instanceof Error ? err.message : String(err)}`,
+        ),
       );
   };
 
@@ -687,7 +781,9 @@ export default function CalendarPane({
   // SUB-240: a failed date/repeat write used to die on the console — surface
   // it on App's toast and re-sync, so the grid never implies the write landed
   const reportWriteFailure = (err: unknown) => {
-    onToast?.(`couldn’t save — ${err instanceof Error ? err.message : String(err)}`);
+    onToast?.(
+      `couldn’t save — ${err instanceof Error ? err.message : String(err)}`,
+    );
     onMutated();
   };
 
@@ -703,7 +799,7 @@ export default function CalendarPane({
   const dateValue = (
     day: string,
     time?: string | null,
-    end?: { day: string; time?: string } | null
+    end?: { day: string; time?: string } | null,
   ) => dateRangeValue(day, time, end);
 
   /** the end a spanning entry keeps when its start moves: the span holds its
@@ -718,7 +814,7 @@ export default function CalendarPane({
     prop: string,
     day: string,
     time?: string | null,
-    end?: { day: string; time?: string } | null
+    end?: { day: string; time?: string } | null,
   ) => {
     // SUB-477: the toast's Undo pops the entry cmd-Z would pop, by id, so the
     // two paths can't drift and undoing twice doesn't double-revert
@@ -781,7 +877,7 @@ export default function CalendarPane({
               endDay: stored.end.day,
               endTime: stored.end.time ?? undefined,
             },
-            picked.start
+            picked.start,
           )
         : null;
     moveEntryTo(e.path, e.prop, picked.start.day, picked.start.time, end);
@@ -795,7 +891,9 @@ export default function CalendarPane({
     // opened on a continuation day
     const stored = storedRange(e);
     const start = stored?.start.day ?? e.day;
-    const end = stored?.end ? { day: stored.end.day, time: stored.end.time ?? undefined } : null;
+    const end = stored?.end
+      ? { day: stored.end.day, time: stored.end.time ?? undefined }
+      : null;
     setPropUndoable({
       path: e.path,
       key: e.prop,
@@ -835,18 +933,23 @@ export default function CalendarPane({
       Day-only: a timed value ("2026-07-18 09:30") would never string-match
       e.day, wrongly reading every occurrence of a timed series as virtual */
   const anchorDayOf = (e: CalEntry): string | undefined =>
-    splitDayTime(foldedPropStr(noteByPath.get(e.path)?.props ?? {}, e.prop) ?? "")?.day;
+    splitDayTime(
+      foldedPropStr(noteByPath.get(e.path)?.props ?? {}, e.prop) ?? "",
+    )?.day;
 
   /** the note's stored value for this entry's prop, parsed (SUB-596). Write
       paths read the span from HERE rather than from the entry, because an
       entry is one covered day of a range and may not be its start. */
   const storedRange = (e: CalEntry) =>
-    splitDateRange(foldedPropStr(noteByPath.get(e.path)?.props ?? {}, e.prop) ?? "");
+    splitDateRange(
+      foldedPropStr(noteByPath.get(e.path)?.props ?? {}, e.prop) ?? "",
+    );
 
   /** is this entry a CONTINUATION day of a span (SUB-596) — a day the range
       covers that isn't its start? Those days are inert: the range moves by
       its start, so only the first day drags. */
-  const isSpanTail = (e: CalEntry) => e.spanPos !== undefined && e.spanPos !== "start";
+  const isSpanTail = (e: CalEntry) =>
+    e.spanPos !== undefined && e.spanPos !== "start";
 
   /** the overdue rule, shared by all three renderers (SUB-206/SUB-596): past
       day, deadline prop, non-repeating, not complete — and for a range, late
@@ -858,7 +961,9 @@ export default function CalendarPane({
     isDeadline(schema, e.type, e.prop);
 
   const entryTip = (e: CalEntry) =>
-    e.type && e.type.toLowerCase() !== "event" ? `${e.type} · ${e.title}` : e.title;
+    e.type && e.type.toLowerCase() !== "event"
+      ? `${e.type} · ${e.title}`
+      : e.title;
 
   /** span position as a class suffix (SUB-596): `cal-entry span start|mid|end`
       lets the CSS square the inner edges so consecutive days read as one bar
@@ -989,13 +1094,16 @@ export default function CalendarPane({
     if (e.repeating) {
       items.push(
         { label: "Skip this occurrence", onSelect: () => skipOccurrence(e) },
-        { label: "Delete this and following", onSelect: () => endSeriesBefore(e) },
+        {
+          label: "Delete this and following",
+          onSelect: () => endSeriesBefore(e),
+        },
         {
           label: "Delete all occurrences",
           danger: true,
           separatorAbove: true,
           onSelect: () => trashEntry(e),
-        }
+        },
       );
     } else {
       items.push({
@@ -1023,14 +1131,18 @@ export default function CalendarPane({
       setFocusIso(iso);
       // on the canvas the pointer names a slot — the menu's draft opens at
       // that time, like the double-click compose on the same surface
-      const time = timed ? minutesToTime(minuteAt(e.clientY, e.currentTarget)) : undefined;
+      const time = timed
+        ? minutesToTime(minuteAt(e.clientY, e.currentTarget))
+        : undefined;
       setDayMenu({ x: e.clientX, y: e.clientY, iso, time });
     },
   });
 
   const dayMenuItems = (iso: string, time?: string): MenuItem[] => [
     {
-      label: time ? `New entry at ${time}` : `New entry on ${humanDay(iso, today)}`,
+      label: time
+        ? `New entry at ${time}`
+        : `New entry on ${humanDay(iso, today)}`,
       icon: <NoteIcon />,
       onSelect: () => openDraft(iso, undefined, time),
     },
@@ -1062,7 +1174,10 @@ export default function CalendarPane({
   /** the peek's repeat row: the cadence label, a custom value verbatim
       ("every 2 weeks" matches no picker row), or "None" */
   const repeatText = (e: CalEntry): string => {
-    const raw = foldedPropStr(noteByPath.get(e.path)?.props ?? {}, "repeat")?.trim();
+    const raw = foldedPropStr(
+      noteByPath.get(e.path)?.props ?? {},
+      "repeat",
+    )?.trim();
     if (!raw) return "None";
     return repeatLabel(e) || raw;
   };
@@ -1076,116 +1191,118 @@ export default function CalendarPane({
       Both routes run this one body, so the composer/peek/control guards
       below are enforced identically no matter where focus is. */
   const onCalKey = (e: KeyboardEvent | ReactKeyboardEvent<HTMLElement>) => {
-      if (e.altKey) return;
-      if (isTyping(e.target)) return; // the composer input handles its own keys
-      // the peek (a body portal) owns its keys — its inputs revert on Esc,
-      // its rows/buttons keep the grid's n/t/1-9 shortcuts from firing
-      if (e.target instanceof HTMLElement && e.target.closest(".cal-peek")) return;
-      // Focused controls own their platform activation. Otherwise Calendar's
-      // bare-Enter shortcut cancels the button click and opens whichever item
-      // happens to lead the visually focused day (SUB-358).
-      const target = e.target instanceof HTMLElement ? e.target : null;
-      if (
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.altKey &&
-        !e.shiftKey &&
-        (e.key === "Enter" || e.key === " ") &&
-        target?.closest("button, a[href], [role='button'], summary")
-      )
-        return;
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod) {
-        if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-          e.preventDefault();
-          page(e.key === "ArrowLeft" ? -1 : 1);
-          requestColFocus();
-        }
-        return;
+    if (e.altKey) return;
+    if (isTyping(e.target)) return; // the composer input handles its own keys
+    // the peek (a body portal) owns its keys — its inputs revert on Esc,
+    // its rows/buttons keep the grid's n/t/1-9 shortcuts from firing
+    if (e.target instanceof HTMLElement && e.target.closest(".cal-peek"))
+      return;
+    // Focused controls own their platform activation. Otherwise Calendar's
+    // bare-Enter shortcut cancels the button click and opens whichever item
+    // happens to lead the visually focused day (SUB-358).
+    const target = e.target instanceof HTMLElement ? e.target : null;
+    if (
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.shiftKey &&
+      (e.key === "Enter" || e.key === " ") &&
+      target?.closest("button, a[href], [role='button'], summary")
+    )
+      return;
+    const mod = e.metaKey || e.ctrlKey;
+    if (mod) {
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        page(e.key === "ArrowLeft" ? -1 : 1);
+        requestColFocus();
       }
-      const k = e.key;
-      if (k === "ArrowLeft" || k === "h") {
-        e.preventDefault();
-        go(addDays(focusDate(), -1));
-        requestColFocus();
-      } else if (k === "ArrowRight" || k === "l") {
-        e.preventDefault();
-        go(addDays(focusDate(), 1));
-        requestColFocus();
-      } else if (layout === "week" && (k === "ArrowUp" || k === "ArrowDown")) {
-        // SUB-453: on the week surface ↑/↓ walk the focused day's canvas in
-        // half-hours (Shift = quarters) instead of paging a week — vertical
-        // IS time here. j/k keep the ±7-day step for anyone who wants it.
-        e.preventDefault();
-        const day = isoDay(focusDate());
-        if (focusIso !== day) setFocusIso(day);
-        requestColFocus();
-        const size = e.shiftKey ? SLOT_FINE : SLOT_STEP;
-        const step = size * (k === "ArrowUp" ? -1 : 1);
-        setSlotMin((cur) => {
-          if (cur === null) return SLOT_SEED;
-          // Clamp to the last slot of the ACTIVE step, not a fixed quarter: a
-          // plain ↓ that floored at 23:45 would put every later plain ↑ on a
-          // :15/:45 phase the user can't leave, and that phase rides straight
-          // into the composed note's time (SUB-453 review F1). The floor/ceiling
-          // never drags the cursor backwards — arriving at 23:45 on a Shift step
-          // and then pressing plain ↓ holds there rather than jumping up to
-          // 23:30, since a Down press must never move the cursor up.
-          const next = Math.min(Math.max(cur + step, 0), DAY_MIN - size);
-          return step > 0 ? Math.max(next, cur) : Math.min(next, cur);
-        });
-      } else if (k === "ArrowUp" || k === "k") {
-        e.preventDefault();
-        go(addDays(focusDate(), -7));
-        requestColFocus();
-      } else if (k === "ArrowDown" || k === "j") {
-        e.preventDefault();
-        go(addDays(focusDate(), 7));
-        requestColFocus();
-      } else if (k === "Enter") {
-        e.preventDefault();
-        // an armed time cursor composes at its slot — the keyboard twin of
-        // the canvas double-click (SUB-453)
-        if (slotMin !== null) openDraft(isoDay(focusDate()), undefined, minutesToTime(slotMin));
-        else {
-          // subscribed events are read-only chips with nothing to open, so
-          // Enter reaches past them for the first note of the day
-          const note = renderItems(isoDay(focusDate())).find(
-            (i): i is CalEntry => !isExternalEntry(i)
-          );
-          if (note) onOpenNote(note.path);
-          else openDraft(isoDay(focusDate()));
-        }
-      } else if (/^[1-9]$/.test(k)) {
-        // count what the day actually shows: with a feed merged in, the nth
-        // chip is not the nth vault note
-        const item = renderItems(isoDay(focusDate()))[Number(k) - 1];
-        if (item) {
-          e.preventDefault();
-          if (!isExternalEntry(item)) onOpenNote(item.path);
-        }
-      } else if (k === "n") {
-        e.preventDefault();
-        openDraft(isoDay(focusDate()));
-      } else if (k === "t") {
-        e.preventDefault();
-        go(today);
-        requestColFocus();
-      } else if (k === "Escape") {
-        if (draft) setDraft(null);
-        else if (peek) setPeek(null);
-        else if (expandedIso) setExpandedIso(null);
-        // the time cursor unwinds before the day focus does (SUB-453) — Esc
-        // out of "compose at 09:30", then out of the day. The rover falls
-        // back to today when no day is focused, so DOM focus must follow it —
-        // otherwise the :focus-visible ring keeps burning on the old column
-        // while the next ArrowDown arms today's (review, SUB-512)
-        else if (slotMin !== null) setSlotMin(null);
-        else if (focusIso) {
-          setFocusIso(null);
-          requestColFocus();
-        }
+      return;
+    }
+    const k = e.key;
+    if (k === "ArrowLeft" || k === "h") {
+      e.preventDefault();
+      go(addDays(focusDate(), -1));
+      requestColFocus();
+    } else if (k === "ArrowRight" || k === "l") {
+      e.preventDefault();
+      go(addDays(focusDate(), 1));
+      requestColFocus();
+    } else if (layout === "week" && (k === "ArrowUp" || k === "ArrowDown")) {
+      // SUB-453: on the week surface ↑/↓ walk the focused day's canvas in
+      // half-hours (Shift = quarters) instead of paging a week — vertical
+      // IS time here. j/k keep the ±7-day step for anyone who wants it.
+      e.preventDefault();
+      const day = isoDay(focusDate());
+      if (focusIso !== day) setFocusIso(day);
+      requestColFocus();
+      const size = e.shiftKey ? SLOT_FINE : SLOT_STEP;
+      const step = size * (k === "ArrowUp" ? -1 : 1);
+      setSlotMin((cur) => {
+        if (cur === null) return SLOT_SEED;
+        // Clamp to the last slot of the ACTIVE step, not a fixed quarter: a
+        // plain ↓ that floored at 23:45 would put every later plain ↑ on a
+        // :15/:45 phase the user can't leave, and that phase rides straight
+        // into the composed note's time (SUB-453 review F1). The floor/ceiling
+        // never drags the cursor backwards — arriving at 23:45 on a Shift step
+        // and then pressing plain ↓ holds there rather than jumping up to
+        // 23:30, since a Down press must never move the cursor up.
+        const next = Math.min(Math.max(cur + step, 0), DAY_MIN - size);
+        return step > 0 ? Math.max(next, cur) : Math.min(next, cur);
+      });
+    } else if (k === "ArrowUp" || k === "k") {
+      e.preventDefault();
+      go(addDays(focusDate(), -7));
+      requestColFocus();
+    } else if (k === "ArrowDown" || k === "j") {
+      e.preventDefault();
+      go(addDays(focusDate(), 7));
+      requestColFocus();
+    } else if (k === "Enter") {
+      e.preventDefault();
+      // an armed time cursor composes at its slot — the keyboard twin of
+      // the canvas double-click (SUB-453)
+      if (slotMin !== null)
+        openDraft(isoDay(focusDate()), undefined, minutesToTime(slotMin));
+      else {
+        // subscribed events are read-only chips with nothing to open, so
+        // Enter reaches past them for the first note of the day
+        const note = renderItems(isoDay(focusDate())).find(
+          (i): i is CalEntry => !isExternalEntry(i),
+        );
+        if (note) onOpenNote(note.path);
+        else openDraft(isoDay(focusDate()));
       }
+    } else if (/^[1-9]$/.test(k)) {
+      // count what the day actually shows: with a feed merged in, the nth
+      // chip is not the nth vault note
+      const item = renderItems(isoDay(focusDate()))[Number(k) - 1];
+      if (item) {
+        e.preventDefault();
+        if (!isExternalEntry(item)) onOpenNote(item.path);
+      }
+    } else if (k === "n") {
+      e.preventDefault();
+      openDraft(isoDay(focusDate()));
+    } else if (k === "t") {
+      e.preventDefault();
+      go(today);
+      requestColFocus();
+    } else if (k === "Escape") {
+      if (draft) setDraft(null);
+      else if (peek) setPeek(null);
+      else if (expandedIso) setExpandedIso(null);
+      // the time cursor unwinds before the day focus does (SUB-453) — Esc
+      // out of "compose at 09:30", then out of the day. The rover falls
+      // back to today when no day is focused, so DOM focus must follow it —
+      // otherwise the :focus-visible ring keeps burning on the old column
+      // while the next ArrowDown arms today's (review, SUB-512)
+      else if (slotMin !== null) setSlotMin(null);
+      else if (focusIso) {
+        setFocusIso(null);
+        requestColFocus();
+      }
+    }
   };
 
   // the window-level fallback. It skips events that already reached a canvas
@@ -1193,13 +1310,24 @@ export default function CalendarPane({
   // once (the element handler is the primary route).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLElement && e.target.closest(".cal-wk-col")) return;
+      if (e.target instanceof HTMLElement && e.target.closest(".cal-wk-col"))
+        return;
       onCalKey(e);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [days, focusIso, draft, mergedByDay, layout, cursor, onOpenNote, peek, slotMin]);
+  }, [
+    days,
+    focusIso,
+    draft,
+    mergedByDay,
+    layout,
+    cursor,
+    onOpenNote,
+    peek,
+    slotMin,
+  ]);
 
   // roving tabindex (SUB-512): real DOM focus follows the focused day when a
   // keyboard gesture asks for it, so the ring is where focus actually is and a
@@ -1210,10 +1338,15 @@ export default function CalendarPane({
     // ring truthful when Esc just cleared focusIso (review, SUB-512)
     const iso = focusIso ?? isoDay(visible.has(todayIso) ? today : days[0]);
     const el = canvasRef.current?.querySelector<HTMLElement>(
-      `.cal-wk-col[data-iso="${iso}"]`
+      `.cal-wk-col[data-iso="${iso}"]`,
     );
     // never yank focus out of the composer — a draft owns its input
-    if (el && el !== document.activeElement && !isTyping(document.activeElement)) el.focus();
+    if (
+      el &&
+      el !== document.activeElement &&
+      !isTyping(document.activeElement)
+    )
+      el.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colFocusReq, focusIso, layout]);
 
@@ -1221,18 +1354,23 @@ export default function CalendarPane({
   // (SUB-206) — the Today strip's "Show in Calendar" lands somewhere honest
   const overdue = useMemo(
     () => overdueEntries(notes, schema, todayIso),
-    [notes, schema, todayIso]
+    [notes, schema, todayIso],
   );
 
   const upcoming = (() => {
-    const out: { iso: string; label: string; items: CalendarRenderEntry[] }[] = [];
+    const out: { iso: string; label: string; items: CalendarRenderEntry[] }[] =
+      [];
     for (let i = 0; i < 14; i++) {
       const d = addDays(today, i);
       const iso = isoDay(d);
       const items = renderItems(iso);
       if (!items?.length) continue;
       const label =
-        i === 0 ? "Today" : i === 1 ? "Tomorrow" : `${WEEKDAYS[(d.getDay() + 6) % 7]} ${humanDay(iso, today)}`;
+        i === 0
+          ? "Today"
+          : i === 1
+            ? "Tomorrow"
+            : `${WEEKDAYS[(d.getDay() + 6) % 7]} ${humanDay(iso, today)}`;
       out.push({ iso, label, items });
     }
     return out;
@@ -1265,7 +1403,8 @@ export default function CalendarPane({
     // the date prop, shifting the whole series; virtual occurrences are inert.
     // A span's continuation days are inert for the same reason (SUB-596): the
     // range moves by its start
-    const isAnchor = (!e.repeating || e.day === anchorDayOf(e)) && !isSpanTail(e);
+    const isAnchor =
+      (!e.repeating || e.day === anchorDayOf(e)) && !isSpanTail(e);
     // an overdue deadline chip's one red mark is a --danger border-left
     // (SUB-206) — same rule as the agenda group: past day, deadline prop,
     // non-repeating, not complete (SUB-205). A range is late only once its
@@ -1277,7 +1416,9 @@ export default function CalendarPane({
         type="button"
         key={`${e.path}:${e.prop}:${e.day}`}
         className={`cal-entry${
-          drag?.path === e.path && drag.prop === e.prop && drag.day === e.day ? " dragging" : ""
+          drag?.path === e.path && drag.prop === e.prop && drag.day === e.day
+            ? " dragging"
+            : ""
         }${isOverdue ? " overdue" : ""}${entryDone(e) ? " done" : ""}${spanClass(e)}${isSelected(e) ? " selected" : ""}`}
         style={entryTintStyle(e)}
         draggable={isAnchor}
@@ -1286,7 +1427,14 @@ export default function CalendarPane({
         onDragStart={(ev) => {
           ev.dataTransfer.setData("text/plain", e.path);
           ev.dataTransfer.effectAllowed = "move";
-          setDrag({ path: e.path, prop: e.prop, day: e.day, time: e.time, endDay: e.endDay, endTime: e.endTime });
+          setDrag({
+            path: e.path,
+            prop: e.prop,
+            day: e.day,
+            time: e.time,
+            endDay: e.endDay,
+            endTime: e.endTime,
+          });
         }}
         onDragEnd={() => {
           setDrag(null);
@@ -1294,7 +1442,12 @@ export default function CalendarPane({
         }}
         onClick={(ev) => {
           ev.stopPropagation();
-          setPeek({ path: e.path, prop: e.prop, day: e.day, anchor: anchorFrom(ev.currentTarget) });
+          setPeek({
+            path: e.path,
+            prop: e.prop,
+            day: e.day,
+            anchor: anchorFrom(ev.currentTarget),
+          });
         }}
         onDoubleClick={(ev) => {
           // power path: straight to the note, skipping the peek
@@ -1304,7 +1457,12 @@ export default function CalendarPane({
         onContextMenu={(ev) => {
           ev.preventDefault();
           ev.stopPropagation();
-          setMenu({ x: ev.clientX, y: ev.clientY, entry: e, anchor: anchorFrom(ev.currentTarget) });
+          setMenu({
+            x: ev.clientX,
+            y: ev.clientY,
+            entry: e,
+            anchor: anchorFrom(ev.currentTarget),
+          });
         }}
       >
         {/* SUB-701: month chips are Notion-style lines — the type's color
@@ -1312,7 +1470,9 @@ export default function CalendarPane({
             entry); the icon language stays on the roomier week/agenda
             surfaces. A span needs no bar: its tinted fill IS the identity
             mark, and a bar would break the bar-runs-across-the-row read. */}
-        {e.spanPos === undefined && <span className="cal-entry-bar" aria-hidden="true" />}
+        {e.spanPos === undefined && (
+          <span className="cal-entry-bar" aria-hidden="true" />
+        )}
         {e.time && <span className="cal-entry-time">{e.time}</span>}
         <span className="cal-entry-title">{e.title}</span>
         {e.repeating && <RepeatIcon />}
@@ -1333,7 +1493,9 @@ export default function CalendarPane({
       onClick={(event) => event.stopPropagation()}
       onDoubleClick={(event) => event.stopPropagation()}
     >
-      {e.spanPos === undefined && <span className="cal-entry-bar" aria-hidden="true" />}
+      {e.spanPos === undefined && (
+        <span className="cal-entry-bar" aria-hidden="true" />
+      )}
       {e.time && <span className="cal-entry-time">{e.time}</span>}
       <span className="cal-entry-title">{e.title}</span>
       <span className="cal-external-mark" aria-hidden="true" />
@@ -1353,18 +1515,31 @@ export default function CalendarPane({
     // same drag rule as the month chip: only the series anchor moves, and a
     // span moves by its first day only (SUB-596) — pane-level drop handlers
     // key off the column's [data-iso] either way
-    const isAnchor = (!e.repeating || e.day === anchorDayOf(e)) && !isSpanTail(e);
+    const isAnchor =
+      (!e.repeating || e.day === anchorDayOf(e)) && !isSpanTail(e);
     // same overdue rule as the month chip (SUB-206/SUB-596)
     const isOverdue = entryOverdue(e);
     const tip = entryTip(e);
     const note = noteByPath.get(e.path);
-    const sub = note ? cardSubtitle(note, typeSchemaFor(schema, e.type) ?? {}) : null;
+    const sub = note
+      ? cardSubtitle(
+          note,
+          typeSchemaFor(schema, e.type) ?? {},
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          numberLocale,
+        )
+      : null;
     return (
       <button
         type="button"
         key={`${e.path}:${e.prop}:${e.day}`}
         className={`cal-entry${
-          drag?.path === e.path && drag.prop === e.prop && drag.day === e.day ? " dragging" : ""
+          drag?.path === e.path && drag.prop === e.prop && drag.day === e.day
+            ? " dragging"
+            : ""
         }${entryDone(e) ? " done" : ""}${spanClass(e)}${isSelected(e) ? " selected" : ""}`}
         style={entryTintStyle(e)}
         draggable={isAnchor}
@@ -1373,7 +1548,14 @@ export default function CalendarPane({
         onDragStart={(ev) => {
           ev.dataTransfer.setData("text/plain", e.path);
           ev.dataTransfer.effectAllowed = "move";
-          setDrag({ path: e.path, prop: e.prop, day: e.day, time: e.time, endDay: e.endDay, endTime: e.endTime });
+          setDrag({
+            path: e.path,
+            prop: e.prop,
+            day: e.day,
+            time: e.time,
+            endDay: e.endDay,
+            endTime: e.endTime,
+          });
         }}
         onDragEnd={() => {
           setDrag(null);
@@ -1381,7 +1563,12 @@ export default function CalendarPane({
         }}
         onClick={(ev) => {
           ev.stopPropagation();
-          setPeek({ path: e.path, prop: e.prop, day: e.day, anchor: anchorFrom(ev.currentTarget) });
+          setPeek({
+            path: e.path,
+            prop: e.prop,
+            day: e.day,
+            anchor: anchorFrom(ev.currentTarget),
+          });
         }}
         onDoubleClick={(ev) => {
           // power path: straight to the note, skipping the peek
@@ -1391,7 +1578,12 @@ export default function CalendarPane({
         onContextMenu={(ev) => {
           ev.preventDefault();
           ev.stopPropagation();
-          setMenu({ x: ev.clientX, y: ev.clientY, entry: e, anchor: anchorFrom(ev.currentTarget) });
+          setMenu({
+            x: ev.clientX,
+            y: ev.clientY,
+            entry: e,
+            anchor: anchorFrom(ev.currentTarget),
+          });
         }}
       >
         <span className="cal-wk-head">
@@ -1444,7 +1636,7 @@ export default function CalendarPane({
     // silently at 00:00 (defensive — splitDayTime and the canvas's HH_MM
     // agree today)
     const items = renderItems(iso).filter(
-      (e) => !e.time || timeToMinutes(e.time) === null
+      (e) => !e.time || timeToMinutes(e.time) === null,
     );
     const expanded = expandedIso === iso;
     const cap = expanded ? items.length : ALLDAY_CAP;
@@ -1501,7 +1693,11 @@ export default function CalendarPane({
           {/* same month-seam label as the month grid (SUB-701) */}
           <span
             className={
-              iso === todayIso ? "cal-today" : d.getDate() === 1 ? "cal-seam" : ""
+              iso === todayIso
+                ? "cal-today"
+                : d.getDate() === 1
+                  ? "cal-seam"
+                  : ""
             }
           >
             {iso === todayIso ? d.getDate() : cellDayLabel(d)}
@@ -1546,8 +1742,12 @@ export default function CalendarPane({
       tall as its same-day end time says (SUB-646) or a default hour without
       one, lane-split when entries overlap. Same interactions as every other
       entry surface. */
-  const canvasBlock = (e: CalEntry, box: { top: number; height: number; left: number; width: number }) => {
-    const isAnchor = (!e.repeating || e.day === anchorDayOf(e)) && !isSpanTail(e);
+  const canvasBlock = (
+    e: CalEntry,
+    box: { top: number; height: number; left: number; width: number },
+  ) => {
+    const isAnchor =
+      (!e.repeating || e.day === anchorDayOf(e)) && !isSpanTail(e);
     // same overdue rule as every other entry surface (SUB-206/SUB-596)
     const isOverdue = entryOverdue(e);
     const tip = entryTip(e);
@@ -1556,7 +1756,9 @@ export default function CalendarPane({
         type="button"
         key={`${e.path}:${e.prop}:${e.day}`}
         className={`cal-entry cal-wk-block${
-          drag?.path === e.path && drag.prop === e.prop && drag.day === e.day ? " dragging" : ""
+          drag?.path === e.path && drag.prop === e.prop && drag.day === e.day
+            ? " dragging"
+            : ""
         }${isOverdue ? " overdue" : ""}${entryDone(e) ? " done" : ""}${isSelected(e) ? " selected" : ""}`}
         style={{
           top: `${box.top}%`,
@@ -1571,7 +1773,14 @@ export default function CalendarPane({
         onDragStart={(ev) => {
           ev.dataTransfer.setData("text/plain", e.path);
           ev.dataTransfer.effectAllowed = "move";
-          setDrag({ path: e.path, prop: e.prop, day: e.day, time: e.time, endDay: e.endDay, endTime: e.endTime });
+          setDrag({
+            path: e.path,
+            prop: e.prop,
+            day: e.day,
+            time: e.time,
+            endDay: e.endDay,
+            endTime: e.endTime,
+          });
         }}
         onDragEnd={() => {
           setDrag(null);
@@ -1580,7 +1789,12 @@ export default function CalendarPane({
         }}
         onClick={(ev) => {
           ev.stopPropagation();
-          setPeek({ path: e.path, prop: e.prop, day: e.day, anchor: anchorFrom(ev.currentTarget) });
+          setPeek({
+            path: e.path,
+            prop: e.prop,
+            day: e.day,
+            anchor: anchorFrom(ev.currentTarget),
+          });
         }}
         onDoubleClick={(ev) => {
           // power path: straight to the note, skipping the peek
@@ -1590,7 +1804,12 @@ export default function CalendarPane({
         onContextMenu={(ev) => {
           ev.preventDefault();
           ev.stopPropagation();
-          setMenu({ x: ev.clientX, y: ev.clientY, entry: e, anchor: anchorFrom(ev.currentTarget) });
+          setMenu({
+            x: ev.clientX,
+            y: ev.clientY,
+            entry: e,
+            anchor: anchorFrom(ev.currentTarget),
+          });
         }}
       >
         <span className="cal-wk-head">
@@ -1605,7 +1824,7 @@ export default function CalendarPane({
 
   const externalCanvasBlock = (
     e: ExternalCalEntry,
-    box: { top: number; height: number; left: number; width: number }
+    box: { top: number; height: number; left: number; width: number },
   ) => (
     <button
       type="button"
@@ -1636,8 +1855,11 @@ export default function CalendarPane({
 
   const canvasItem = (
     entry: CalendarRenderEntry,
-    box: { top: number; height: number; left: number; width: number }
-  ) => isExternalEntry(entry) ? externalCanvasBlock(entry, box) : canvasBlock(entry, box);
+    box: { top: number; height: number; left: number; width: number },
+  ) =>
+    isExternalEntry(entry)
+      ? externalCanvasBlock(entry, box)
+      : canvasBlock(entry, box);
 
   /** minute-of-day under the pointer, snapped to the drop grid — the column
       IS 24h tall, so offset scales linearly */
@@ -1661,7 +1883,7 @@ export default function CalendarPane({
   const canvasColumn = (d: Date) => {
     const iso = isoDay(d);
     const timed = renderItems(iso).filter(
-      (e) => e.time && timeToMinutes(e.time) !== null
+      (e) => e.time && timeToMinutes(e.time) !== null,
     );
     // a same-day range shapes its own block (SUB-646) — height AND the
     // overlap math, so a 14:00 entry inside a 09:00–17:00 one lanes beside it.
@@ -1671,9 +1893,11 @@ export default function CalendarPane({
       timed.map((e) =>
         blockSpan(
           e.time ?? "",
-          e.endDay == null || e.endDay === e.day ? e.endTime ?? undefined : undefined
-        )
-      )
+          e.endDay == null || e.endDay === e.day
+            ? (e.endTime ?? undefined)
+            : undefined,
+        ),
+      ),
     );
     const cls = [
       "cal-wk-col",
@@ -1704,7 +1928,8 @@ export default function CalendarPane({
           // the keys agree with where focus actually is. Only the column
           // itself: React's onFocus bubbles, and focus landing on a child
           // (an entry block, the composer's input) must not re-target the day.
-          if (e.target === e.currentTarget && focusIso !== iso) setFocusIso(iso);
+          if (e.target === e.currentTarget && focusIso !== iso)
+            setFocusIso(iso);
         }}
         onKeyDown={onCalKey}
         onDoubleClick={(e) => {
@@ -1750,24 +1975,32 @@ export default function CalendarPane({
             height: ((boxes[i].end - boxes[i].start) / DAY_MIN) * 100,
             left: (boxes[i].lane / boxes[i].lanes) * 100,
             width: (1 / boxes[i].lanes) * 100,
-          })
+          }),
         )}
         {/* a canvas-born draft composes at its slot, not in the strip —
             the input floats where the entry will land */}
         {draft?.day === iso && draft.time && (
           <div
             className="cal-wk-draft"
-            style={{ top: `${((timeToMinutes(draft.time) ?? 0) / DAY_MIN) * 100}%` }}
+            style={{
+              top: `${((timeToMinutes(draft.time) ?? 0) / DAY_MIN) * 100}%`,
+            }}
             onDoubleClick={(e) => e.stopPropagation()}
           >
             {composer}
           </div>
         )}
         {iso === todayIso && (
-          <div className="cal-wk-now" style={{ top: `${(nowMin / DAY_MIN) * 100}%` }} />
+          <div
+            className="cal-wk-now"
+            style={{ top: `${(nowMin / DAY_MIN) * 100}%` }}
+          />
         )}
         {iso === dropIso && dropMin !== null && drag && (
-          <div className="cal-wk-ghost" style={{ top: `${(dropMin / DAY_MIN) * 100}%` }}>
+          <div
+            className="cal-wk-ghost"
+            style={{ top: `${(dropMin / DAY_MIN) * 100}%` }}
+          >
             <span>{minutesToTime(dropMin)}</span>
           </div>
         )}
@@ -1878,7 +2111,11 @@ export default function CalendarPane({
               it already orients harder than a month label could */}
           <span
             className={
-              iso === todayIso ? "cal-today" : d.getDate() === 1 ? "cal-seam" : ""
+              iso === todayIso
+                ? "cal-today"
+                : d.getDate() === 1
+                  ? "cal-seam"
+                  : ""
             }
           >
             {iso === todayIso ? d.getDate() : cellDayLabel(d)}
@@ -1923,7 +2160,9 @@ export default function CalendarPane({
     <div className="cal">
       <div className="list-head" data-tauri-drag-region>
         <span className="list-title">
-          {layout === "month" ? monthTitle(cursor.getFullYear(), cursor.getMonth()) : weekTitle()}
+          {layout === "month"
+            ? monthTitle(cursor.getFullYear(), cursor.getMonth())
+            : weekTitle()}
         </span>
         <div className="db-tools">
           <button
@@ -1933,17 +2172,35 @@ export default function CalendarPane({
           >
             Calendars
           </button>
-          <button className="db-new" onClick={() => openDraft(isoDay(focusDate()))} title="New entry (N)">
+          <button
+            className="db-new"
+            onClick={() => openDraft(isoDay(focusDate()))}
+            title="New entry (N)"
+          >
             New
           </button>
-          <button className="db-new cal-today" onClick={() => go(today)} title="Jump to today (T)">
+          <button
+            className="db-new cal-today"
+            onClick={() => go(today)}
+            title="Jump to today (T)"
+          >
             Today
           </button>
           <div className="cal-pager">
-            <button onClick={() => page(-1)} title={layout === "month" ? "Previous month (⌘←)" : "Previous week (⌘←)"}>
+            <button
+              onClick={() => page(-1)}
+              title={
+                layout === "month"
+                  ? "Previous month (⌘←)"
+                  : "Previous week (⌘←)"
+              }
+            >
               <ChevronLeftIcon />
             </button>
-            <button onClick={() => page(1)} title={layout === "month" ? "Next month (⌘→)" : "Next week (⌘→)"}>
+            <button
+              onClick={() => page(1)}
+              title={layout === "month" ? "Next month (⌘→)" : "Next week (⌘→)"}
+            >
               <ChevronRightIcon />
             </button>
           </div>
@@ -1970,7 +2227,9 @@ export default function CalendarPane({
       )}
       <div className="cal-grid-scroll">
         <div className={`cal-weekdays${layout === "week" ? " week" : ""}`}>
-          {layout === "week" && <span className="cal-wk-spacer" aria-hidden="true" />}
+          {layout === "week" && (
+            <span className="cal-wk-spacer" aria-hidden="true" />
+          )}
           {/* SUB-701: today's column header sharpens when today is on the
               grid — the second orientation mark Notion Calendar leans on
               (the circled day number alone is easy to lose in six rows) */}
@@ -1978,7 +2237,9 @@ export default function CalendarPane({
             <span
               key={w}
               className={
-                visible.has(todayIso) && (today.getDay() + 6) % 7 === i ? "cal-wd-today" : undefined
+                visible.has(todayIso) && (today.getDay() + 6) % 7 === i
+                  ? "cal-wd-today"
+                  : undefined
               }
             >
               {w}
@@ -1999,10 +2260,17 @@ export default function CalendarPane({
               {days.map(alldayCell)}
             </div>
             <div className="cal-wk-scroll" ref={weekScrollRef}>
-              <div className="cal-wk-canvas" ref={canvasRef} style={{ height: 24 * HOUR_PX }}>
+              <div
+                className="cal-wk-canvas"
+                ref={canvasRef}
+                style={{ height: 24 * HOUR_PX }}
+              >
                 <div className="cal-wk-gutter" aria-hidden="true">
                   {Array.from({ length: 23 }, (_, h) => (
-                    <span key={h + 1} style={{ top: `${((h + 1) / 24) * 100}%` }}>
+                    <span
+                      key={h + 1}
+                      style={{ top: `${((h + 1) / 24) * 100}%` }}
+                    >
                       {String(h + 1).padStart(2, "0")}:00
                     </span>
                   ))}
@@ -2015,7 +2283,10 @@ export default function CalendarPane({
       </div>
       <div className="cal-agenda">
         <div className="cal-agenda-head">Upcoming</div>
-        <div className={`cal-agenda-body${agendaFade.className}`} {...agendaFade.props}>
+        <div
+          className={`cal-agenda-body${agendaFade.className}`}
+          {...agendaFade.props}
+        >
           {/* SUB-206: past non-repeating deadlines pin to the top, oldest
               first — no overdue, no group (and no empty header) */}
           {overdue.length > 0 && (
@@ -2034,7 +2305,12 @@ export default function CalendarPane({
                       // needed most
                       ev.preventDefault();
                       ev.stopPropagation();
-                      setMenu({ x: ev.clientX, y: ev.clientY, entry: e, anchor: anchorFrom(ev.currentTarget) });
+                      setMenu({
+                        x: ev.clientX,
+                        y: ev.clientY,
+                        entry: e,
+                        anchor: anchorFrom(ev.currentTarget),
+                      });
                     }}
                     aria-label={e.title}
                   >
@@ -2050,7 +2326,9 @@ export default function CalendarPane({
             </div>
           )}
           {upcoming.length === 0 && overdue.length === 0 && (
-            <div className="cal-hint">Any note with a date property shows up here.</div>
+            <div className="cal-hint">
+              Any note with a date property shows up here.
+            </div>
           )}
           {upcoming.map((g) => (
             <div key={g.iso} className="cal-ag-row">
@@ -2074,7 +2352,9 @@ export default function CalendarPane({
                       aria-label={`${e.title}, external calendar ${e.feedName}`}
                     >
                       <CalendarIcon />
-                      {e.time && <span className="cal-entry-time">{e.time}</span>}
+                      {e.time && (
+                        <span className="cal-entry-time">{e.time}</span>
+                      )}
                       <span className="cal-entry-title">{e.title}</span>
                       <span className="cal-feed-badge">{e.feedName}</span>
                     </div>
@@ -2087,15 +2367,22 @@ export default function CalendarPane({
                       onContextMenu={(ev) => {
                         ev.preventDefault();
                         ev.stopPropagation();
-                        setMenu({ x: ev.clientX, y: ev.clientY, entry: e, anchor: anchorFrom(ev.currentTarget) });
+                        setMenu({
+                          x: ev.clientX,
+                          y: ev.clientY,
+                          entry: e,
+                          anchor: anchorFrom(ev.currentTarget),
+                        });
                       }}
                       aria-label={e.title}
                     >
                       {entryIcon(e)}
-                      {e.time && <span className="cal-entry-time">{e.time}</span>}
+                      {e.time && (
+                        <span className="cal-entry-time">{e.time}</span>
+                      )}
                       <span className="cal-entry-title">{e.title}</span>
                     </button>
-                  )
+                  ),
                 )}
               </div>
             </div>
@@ -2162,12 +2449,12 @@ export default function CalendarPane({
           note={noteByPath.get(peekEntry.path)}
           icon={entryIcon(peekEntry)}
           anchor={peek.anchor}
-          isOccurrence={!!peekEntry.repeating && peekEntry.day !== anchorDayOf(peekEntry)}
+          isOccurrence={
+            !!peekEntry.repeating && peekEntry.day !== anchorDayOf(peekEntry)
+          }
           repeatText={repeatText(peekEntry)}
           statusSchema={
-            peekEntry.type
-              ? statusSchemaFor(schema, peekEntry.type)
-              : undefined
+            peekEntry.type ? statusSchemaFor(schema, peekEntry.type) : undefined
           }
           suppressDismiss={repeatMenu !== null}
           onClose={() => setPeek(null)}

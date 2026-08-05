@@ -1,6 +1,7 @@
 /** Cell/card display formatting for prop values — pure, node-testable.
     Values stay raw in YAML; only the rendering is shaped here. */
 
+import { DEFAULT_NUMBER_LOCALE, numberLocale, type NumberLocale } from "./numberLocale.ts";
 import type { NoteMeta, NumberFormat, PropKind, PropSchema } from "./types.ts";
 import { foldedPropStr, propStr } from "./types.ts";
 import { cellInUnit, formatAgg, formatUnit, parseCellNumber } from "./aggregate.ts";
@@ -27,11 +28,11 @@ export function noteHint(n: NoteMeta): string | undefined {
 
 /** Number-kind display (SUB-188): the stored string parsed with the SAME
     coercion the footer aggregates use (`parseCellNumber` — src/lib/aggregate.ts),
-    so display and sums never disagree. `euro` renders German-style
-    `1.234,56 €` (dot thousands, comma decimals — 2 decimals only when the
-    value has decimals, trailing ` €`); `percent` (SUB-196) renders through
-    the same de-DE path with a ` %` suffix (`8,5 %` — the stored number IS
-    the percent, no ×100 math); `plain`/absent renders the number as stored.
+    so display and sums never disagree. `euro` renders in the
+    `locale` dialect with a trailing ` €` (`1.234,56 €` under the de-DE
+    default — 2 decimals only when the value has decimals); `percent`
+    (SUB-196) renders through the same path with a ` %` suffix (`8,5 %` —
+    the stored number IS the percent, no ×100 math); `plain`/absent renders the number as stored.
     Non-numeric junk renders exactly as typed — never destroy or hide data.
 
     Since SUB-834 the format may name any units.ts code, and a CELL may carry
@@ -45,7 +46,7 @@ export function formatNumber(
   v: string,
   format: NumberFormat | undefined,
   fx?: FxResolver,
-  style: "de" | "intl" = "de"
+  locale: NumberLocale = DEFAULT_NUMBER_LOCALE
 ): string {
   const unit = formatUnit(format);
   if (unit === null) return v;
@@ -55,7 +56,7 @@ export function formatNumber(
   // formatAgg (float noise, -0), then the dialect's grouping —
   // maximumFractionDigits alone keeps integers decimal-free ("1.234 €",
   // "12 %", "5 kg")
-  return formatQuantity(n, unit, style);
+  return formatQuantity(n, unit, locale);
 }
 
 /** No rates at all — what a cell sees when its caller has no resolver yet.
@@ -85,8 +86,10 @@ export function conversionNote(
   return asOf && asOf.trim() ? `${stored} · converted at ${asOf.trim()} rates` : `${stored} · converted`;
 }
 
-/** File-size humanizer (SUB-284): the app's de-DE dialect like formatNumber —
-    comma decimals ("4,2 KB", "1,3 MB"), same unit shape everywhere: plain
+/** File-size humanizer (SUB-284): the app's dialect like formatNumber, read
+    from the module binding rather than a prop because nothing threads one in
+    here ("4,2 KB", "1,3 MB" under the de-DE default), same unit shape
+    everywhere: plain
     bytes under 1 KB, one-decimal KB under 10, rounded KB past that,
     one-decimal MB. Shared by the Assets pane rows and the editor's asset
     chips (previously two identical en-style copies). */
@@ -94,9 +97,9 @@ export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) {
     const kb = bytes / 1024;
-    return `${kb < 10 ? kb.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : Math.round(kb)} KB`;
+    return `${kb < 10 ? kb.toLocaleString(numberLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : Math.round(kb)} KB`;
   }
-  return `${(bytes / (1024 * 1024)).toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MB`;
+  return `${(bytes / (1024 * 1024)).toLocaleString(numberLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })} MB`;
 }
 
 /** Column header label (SUB-255): the key stays verbatim except a capitalized
@@ -155,7 +158,7 @@ export function displayValue(
   kind: PropKind | undefined,
   format?: NumberFormat,
   fx?: FxResolver,
-  style: "de" | "intl" = "de"
+  locale: NumberLocale = DEFAULT_NUMBER_LOCALE
 ): string {
   if (kind === "date") return formatDateTimeHuman(v);
   // checkbox (SUB-173): checked reads "✓", unchecked blank (never "false") —
@@ -163,13 +166,13 @@ export function displayValue(
   if (kind === "checkbox") return v === "true" ? "✓" : "";
   // number (SUB-188): formatted from the raw stored string — junk passes
   // through exactly as typed, wrapper and all
-  if (kind === "number") return formatNumber(v, format, fx, style);
+  if (kind === "number") return formatNumber(v, format, fx, locale);
   // rollup (SUB-678): a derived number, never typed — render it in the app's
   // display dialect through the footer's own formatAgg, so cell and
   // calculation never disagree; a hand-authored junk value passes through
   if (kind === "rollup") {
     const n = parseCellNumber(v);
-    return n === null ? v : formatAgg(n, "sum", format, style);
+    return n === null ? v : formatAgg(n, "sum", format, locale);
   }
   const u = unwrapEmbed(v);
   if (kind === "file") return basename(u);

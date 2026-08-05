@@ -1,3 +1,4 @@
+import { DEFAULT_NUMBER_LOCALE, type NumberLocale } from "../lib/numberLocale";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { AggKind, DbIcon, DbLayout, NoteMeta, NumberFormat, PropKind, PropSchema, PropValue, RollupConfig, SavedView, SavedViewSort, SchemaConfig, SelectOption, ViewPref } from "../lib/types";
 import { foldedPropKey, foldedPropStr, typeHome } from "../lib/types";
@@ -15,7 +16,7 @@ import { aggregationKind, aggregateColumnsUnits, formatUnit, normalizeNumberInpu
 import { makeFxResolver } from "../lib/fx";
 import { useFxRates } from "./useFx";
 import { pathExists, vaultCreate, vaultTemplateRead } from "../lib/ipc";
-import { setPropUndoable, setPropUndoableBulk, type BulkPropResult, type PropWriter } from "../lib/undoprops";
+import { setPropUndoable, setPropUndoableBulk, type BulkPropResult, type PropWriter, type UndoRecorder } from "../lib/undoprops";
 import {
   addPending,
   applyPending,
@@ -49,6 +50,7 @@ import {
   bucketByProp,
   distinctNotes,
   extraValues,
+  orderedNotes,
   tableGroupBy,
   tableGroups,
 } from "../lib/dbgroup";
@@ -117,7 +119,7 @@ interface DatabasePaneProps {
       database's pref carries no `grid` override of its own */
   gridDefault: boolean;
   /** App-wide numeric display dialect (SUB-834). */
-  numberStyle?: "de" | "intl";
+  numberLocale?: NumberLocale;
   onPrefChange: (pref: ViewPref) => void;
   onOpenNote: (path: string) => void;
   /** right-click on any row/card — App's note context menu (SUB-108) */
@@ -200,7 +202,7 @@ export default function DatabasePane({
   newSignal,
   exportRef,
   gridDefault,
-  numberStyle = "de",
+  numberLocale = DEFAULT_NUMBER_LOCALE,
   onPrefChange,
   onOpenNote,
   onNoteMenu,
@@ -295,6 +297,7 @@ export default function DatabasePane({
       aggregations: normalizedPref?.aggregations,
       sorts: normalizedPref?.sorts,
       col_order: normalizedPref?.col_order,
+      card_order: normalizedPref?.card_order,
       hidden: normalizedPref?.hidden,
       hidden_per_layout: normalizedPref?.hidden_per_layout,
       widths: normalizedPref?.widths,
@@ -1003,27 +1006,33 @@ export default function DatabasePane({
     patchPref({ aggregations: Object.keys(next).length > 0 ? next : undefined });
   };
 
+  // SUB-948: an UNSORTED board rests in the order the user's own drags left
+  // (`card_order`); a sorted board's order IS its sort, so the hand order
+  // stays on disk and unread until the sort is cleared. One flat pref list
+  // arranges every column — `orderedNotes` ignores paths that aren't here.
+  const handOrder = sorts.length === 0 ? normalizedPref?.card_order : undefined;
   const boardCols = useMemo(() => {
     if (!groupBy) return [];
+    const arrange = (ns: NoteMeta[]) => orderedNotes(ns.sort(viewCmp), handOrder);
     const { none, take } = bucketByProp(visible, groupBy, typeSchema);
     // schema'd grouping: every defined option is a column in option order,
     // empty ones included (they're drop targets); unknown values follow
     const options = byFoldedKey(typeSchema, groupBy)?.options ?? [];
     const cols: { value: string | null; notes: NoteMeta[] }[] = [];
     for (const o of options) {
-      cols.push({ value: o.value, notes: take(o.value).sort(viewCmp) });
+      cols.push({ value: o.value, notes: arrange(take(o.value)) });
     }
     // SUB-106: unschema'd values form columns from the FULL note set, so a
     // filter that hides every card empties the column instead of deleting it
     for (const v of extraValues(dispNotes, groupBy, options, typeSchema)) {
-      cols.push({ value: v, notes: take(v).sort(viewCmp) });
+      cols.push({ value: v, notes: arrange(take(v)) });
     }
     // SUB-168: the "No …" column (drop target for clearing the prop) only
     // exists while at least one visible card actually lacks the prop — when
     // every card is grouped it would be a dead column leading the board
-    if (none.length > 0) cols.unshift({ value: null, notes: none.sort(viewCmp) });
+    if (none.length > 0) cols.unshift({ value: null, notes: arrange(none) });
     return cols;
-  }, [dispNotes, visible, groupBy, typeSchema, viewCmp]);
+  }, [dispNotes, visible, groupBy, typeSchema, viewCmp, handOrder]);
 
   const focusAt = (c: number, r: number): Focus | null => {
     const path = layout === "board" ? boardCols[c]?.notes[r]?.path : rows[r]?.path;
@@ -1601,6 +1610,7 @@ export default function DatabasePane({
     const path = dragPath;
     setDragPath(null);
     setDropCol(null);
+    setCardDropAt(null);
     if (!path || !groupBy) return;
     const note = notes.find((n) => n.path === path);
     const cur = foldedPropStr(note?.props ?? {}, groupBy) || null;
@@ -1616,13 +1626,64 @@ export default function DatabasePane({
               byFoldedKey(typeSchema, groupBy)?.kind,
               byFoldedKey(typeSchema, groupBy)?.format,
               undefined,
-              numberStyle
+              numberLocale
             );
       onToast?.(`“${note?.title ?? path}” → ${label}`, {
         label: "Undo",
         run: () => undo.runById(id),
       });
     });
+  };
+
+  /** SUB-948: within-column drag on an UNSORTED board. The live target is a
+      card path + a side — the 2px accent line the column paints between
+      cards — and the drop commits view-side order ONLY: no note is written,
+      so the vault format stays untouched by an arrangement. A sorted board
+      never sets this (its order is its sort); a cross-column drag keeps
+      going through `dropOn`'s prop write, unchanged. */
+  const [cardDropAt, setCardDropAt] = useState<{ path: string; after: boolean } | null>(null);
+  const dropCard = (target: string, after: boolean) => {
+    const path = dragPath;
+    setDragPath(null);
+    setDropCol(null);
+    setCardDropAt(null);
+    if (!path || path === target) return;
+    const prev = normalizedPref?.card_order;
+    // The move REWRITES the saved arrangement, so it has to start from that
+    // arrangement — not from what the board happens to be showing. Reading the
+    // rendered columns alone would hand `patchPref` a list holding only the
+    // notes that survived the current filter, and every hidden card's slot
+    // would be gone for good (the field is the whole board's order, and the
+    // write replaces it wholesale). So: the saved order leads, and every note
+    // it doesn't name follows in the view's resting order — which is exactly
+    // the sequence `orderedNotes` renders each column from, so this list is
+    // the board as it stands, hidden cards included, before the move.
+    const seen = new Set<string>();
+    const flat: string[] = [];
+    for (const p of [...(prev ?? []), ...[...dispNotes].sort(viewCmp).map((n) => n.path)]) {
+      if (seen.has(p)) continue;
+      seen.add(p);
+      flat.push(p);
+    }
+    const next = reorderIds(flat, path, target, after);
+    if (next.every((c, i) => c === flat[i])) return;
+    const id = nextUndoId();
+    patchPref({ card_order: next });
+    const title = notes.find((n) => n.path === path)?.title ?? path;
+    // the pre-minted id rides along so the toast's button and ⌘Z pop the
+    // SAME entry (SUB-477) — `record` takes it through the wider recorder type
+    const record: UndoRecorder = undo.record;
+    record({
+      id,
+      label: `Move “${title}”`,
+      scope: "vault",
+      at: Date.now(),
+      // no note changed — the move lives in the view's prefs alone
+      paths: [],
+      undo: async () => patchPref({ card_order: prev }),
+      redo: async () => patchPref({ card_order: next }),
+    });
+    onToast?.(`“${title}” moved`, { label: "Undo", run: () => undo.runById(id) });
   };
 
   // arrows / hjkl move cell/card focus; Enter opens the note (or edits a
@@ -2269,7 +2330,7 @@ export default function DatabasePane({
         typeSchema={typeSchema}
         fx={fxResolver}
         fxAsOf={fxRatesState?.asOf}
-        numberStyle={numberStyle}
+        numberLocale={numberLocale}
         openPath={openPath}
         lastWritten={lastWritten}
         bgMenuProps={bgMenuProps}
@@ -2289,6 +2350,10 @@ export default function DatabasePane({
         dropCol={dropCol}
         setDropCol={setDropCol}
         dropOn={dropOn}
+        handOrder={sorts.length === 0}
+        cardDropAt={cardDropAt}
+        setCardDropAt={setCardDropAt}
+        dropCard={dropCard}
         focusedCls={focusedCls}
         boardTabIndexFor={boardTabIndexFor}
         setFocus={setFocus}
@@ -2308,7 +2373,7 @@ export default function DatabasePane({
         typeSchema={typeSchema}
         fx={fxResolver}
         fxAsOf={fxRatesState?.asOf}
-        numberStyle={numberStyle}
+        numberLocale={numberLocale}
         openPath={openPath}
         bgMenuProps={bgMenuProps}
         head={head}
@@ -2334,7 +2399,7 @@ export default function DatabasePane({
         typeSchema={typeSchema}
         fx={fxResolver}
         fxAsOf={fxRatesState?.asOf}
-        numberStyle={numberStyle}
+        numberLocale={numberLocale}
         curated={curated}
         openPath={openPath}
         bgMenuProps={bgMenuProps}
@@ -2439,7 +2504,7 @@ export default function DatabasePane({
       aggResults={aggResults}
       fxAsOf={fxRatesState?.asOf}
       fx={fxResolver}
-      numberStyle={numberStyle}
+      numberLocale={numberLocale}
       bulkColMenu={bulkColMenu}
       setBulkColMenu={setBulkColMenu}
       bulkCheck={bulkCheck}

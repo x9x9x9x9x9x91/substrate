@@ -6,7 +6,6 @@ import {
   isAppFile,
   missingTerminalFonts,
   netAllowed,
-  numberFormatSetting,
   parseDbGrid,
   parseTaskStaleChips,
   parseDropHint,
@@ -457,14 +456,3 @@ test("netAllowed: the three switches are independent", () => {
   assert.equal(netAllowed(props, "share-relay"), true);
 });
 
-test("numberFormatSetting: de is the default, only `intl` switches (SUB-834)", () => {
-  assert.equal(numberFormatSetting({ "number-format": "intl" }), "intl");
-  assert.equal(numberFormatSetting({ "number-format": " INTL " }), "intl");
-  assert.equal(numberFormatSetting({ "number-format": "de" }), "de");
-  // an unset key or anything unrecognized keeps the shipped formatting, so no
-  // vault silently re-reads its numbers after an upgrade or a typo
-  assert.equal(numberFormatSetting({}), "de");
-  assert.equal(numberFormatSetting({ "number-format": "en-US" }), "de");
-  assert.equal(numberFormatSetting({ "number-format": true }), "de");
-  assert.equal(numberFormatSetting({ "number-format": 1 }), "de");
-});

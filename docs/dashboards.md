@@ -443,13 +443,15 @@ section, soonest wake first, so nothing vanishes silently.
 Inside every section rows sort by due bucket (overdue → today → upcoming → no
 due), then priority (`priority:` high 3, medium 2, low/unknown 1), then
 whole-day age from `created:`. Rot is the tiebreaker, not the headline. Age
-still drives the secondary chips: a task past the stale threshold reads
-`stale`, one with no `created:` at all reads `undated`. Those are diagnostics,
-never a row's reason for being on the board — and pinned Now rows carry none,
-since they're already chosen. A pinned task wears a small pin glyph in that
-same chip slot instead, on rows and on board cards: in the Board
-view there is no **Now** heading to explain the missing chip, so the pin says
-"exempt, not overlooked" on the card face itself.
+still drives the secondary chips, on list rows and board cards alike: a task
+past the stale threshold reads `stale`, one whose frontmatter has no `created:`
+date at all reads `undated` (that chip is about the created date, never a
+missing `due:`). Those are diagnostics, never a task's reason for being on the
+board — and pinned Now rows carry neither, since they're already chosen; the
+exact age lives in the hover title in both views. A pinned task wears a small
+pin glyph in that same chip slot instead, on rows and on board cards: in the
+Board view there is no **Now** heading to explain the missing chip, so the pin
+says "exempt, not overlooked" on the card face itself.
 
 Age chips are switchable, because staleness assumes every task wants touching
 and some notes just aren't. Three levels, innermost wins:

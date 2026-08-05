@@ -15,6 +15,12 @@ import {
   updateAggregation,
 } from "./aggregate.ts";
 import type { FxResolver } from "./formula.ts";
+import {
+  DEFAULT_NUMBER_LOCALE,
+  NUMBER_LOCALES,
+  numberLocale,
+  setNumberLocale,
+} from "./numberLocale.ts";
 
 test("sum adds numeric cells, ignores the rest", () => {
   assert.equal(aggregate("sum", ["8", "12", "6", "9", "7"]), 42);
@@ -135,7 +141,13 @@ test("normalizeNumberInput: de-DE decimals become canonical dot-decimal (SUB-636
   assert.equal(normalizeNumberInput("  8,5  "), "8.5");
   // and the whole point: they now parse and aggregate
   assert.equal(parseStrictNumber(normalizeNumberInput("1.234,56")), 1234.56);
-  assert.equal(aggregate("sum", ["1.234,56", "12,5"].map(normalizeNumberInput)), 1247.06);
+  assert.equal(
+    aggregate(
+      "sum",
+      ["1.234,56", "12,5"].map((s) => normalizeNumberInput(s))
+    ),
+    1247.06
+  );
 });
 
 test("normalizeNumberInput: dotted grouping resolves de, not en (SUB-636)", () => {
@@ -167,6 +179,57 @@ test("normalizeNumberInput: unreadable text is never rewritten (SUB-636)", () =>
   assert.equal(normalizeNumberInput("12,5 €"), "12,5 €");
   assert.equal(normalizeNumberInput("n/a"), "n/a");
   assert.equal(normalizeNumberInput(""), "");
+});
+
+test("normalizeNumberInput: reads the dial's dialect, not always German (SUB-1092)", () => {
+  // the corruption this fixes: under en-US the app renders 1234 as "1,234",
+  // and the German-only reader turned that back into 1.234 — a 1000× error
+  assert.equal(normalizeNumberInput("1,234", "en-US"), "1234");
+  assert.equal(normalizeNumberInput("1,234.56", "en-US"), "1234.56");
+  assert.equal(normalizeNumberInput("1,234,567", "en-GB"), "1234567");
+  // and the NaNs: neither shape matched any parser before, so the row fell
+  // out of every sum while count kept counting it
+  assert.equal(normalizeNumberInput("1'234", "de-CH"), "1234");
+  assert.equal(normalizeNumberInput("1\u2019234.56", "de-CH"), "1234.56"); // ICU's apostrophe
+  assert.equal(normalizeNumberInput("1 234,56", "fr-FR"), "1234.56"); // plain space
+  assert.equal(normalizeNumberInput("1\u202f234,56", "fr-FR"), "1234.56"); // ICU's narrow nbsp
+  assert.equal(normalizeNumberInput("1\u00a0234", "fr-FR"), "1234"); // nbsp
+});
+
+test("normalizeNumberInput: canonical storage text round-trips in every dialect (SUB-1092)", () => {
+  // whatever the dial says, the dot-decimal form on disk must survive a
+  // retype untouched — otherwise editing a cell rewrites its value
+  for (const l of NUMBER_LOCALES) {
+    assert.equal(normalizeNumberInput("1234.56", l), "1234.56", l);
+    assert.equal(normalizeNumberInput("1234", l), "1234", l);
+    assert.equal(normalizeNumberInput("0.123", l), "0.123", l);
+    assert.equal(normalizeNumberInput("-0.25", l), "-0.25", l);
+  }
+});
+
+test("normalizeNumberInput: another dialect's grouping is left alone (SUB-1092)", () => {
+  // never guess across dialects: "1'234" is not a de-DE number, so it stays
+  // text rather than becoming a number the user did not type
+  assert.equal(normalizeNumberInput("1'234", "de-DE"), "1'234");
+  assert.equal(normalizeNumberInput("1 234,56", "de-DE"), "1 234,56");
+  assert.equal(normalizeNumberInput("1.234,56", "en-US"), "1.234,56");
+  // …and the same text means different numbers in different dialects: fr
+  // reads "," as the decimal separator, en-US as grouping
+  assert.equal(normalizeNumberInput("1,234", "fr-FR"), "1.234");
+});
+
+test("normalizeNumberInput: the module binding is the default dialect (SUB-1092)", () => {
+  // the surfaces with no locale prop (sheet cells, editor widgets) read the
+  // binding App sets from Settings.md
+  assert.equal(numberLocale(), DEFAULT_NUMBER_LOCALE);
+  try {
+    setNumberLocale("en-US");
+    assert.equal(normalizeNumberInput("1,234"), "1234");
+    assert.equal(normalizeNumberInput("1.234"), "1.234"); // en-US: a decimal
+  } finally {
+    setNumberLocale(DEFAULT_NUMBER_LOCALE);
+  }
+  assert.equal(normalizeNumberInput("1.234"), "1234"); // de-DE again
 });
 
 // ---------- unit-aware columns (SUB-834) ----------
@@ -294,8 +357,8 @@ test("formatAgg renders any unit, euro/percent byte-identically (SUB-834)", () =
   // count stays bare on a unit column, as on a euro one
   assert.equal(formatAgg(5, "count", "kg"), "5");
   // the intl dialect swaps the separators, suffix unchanged
-  assert.equal(formatAgg(1234.5, "sum", "euro", "intl"), "1,234.5 €");
-  assert.equal(formatAgg(1234.5, "sum", "kg", "intl"), "1,234.5 kg");
+  assert.equal(formatAgg(1234.5, "sum", "euro", "en-US"), "1,234.5 €");
+  assert.equal(formatAgg(1234.5, "sum", "kg", "en-US"), "1,234.5 kg");
   // an unreadable format is unitless, never invented
   assert.equal(formatAgg(1234.5, "sum", "furlongs"), "1.234,5");
 });

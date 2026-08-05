@@ -13,6 +13,8 @@ import {
   type HandoffExpiry,
 } from "../lib/handoff";
 import { netAllowed, SETTINGS_PATH } from "../lib/settings";
+import type { NumberLocale } from "../lib/numberLocale";
+import { useNumberLocale } from "../hooks/useNumberLocale";
 
 /* "Send as link" (SUB-833): render → seal → upload, all before the relay
    sees a byte of plaintext. Rides the DbAdmin overlay/dbform idiom. The
@@ -21,9 +23,19 @@ import { netAllowed, SETTINGS_PATH } from "../lib/settings";
 
 const EXPIRY_ORDER: HandoffExpiry[] = ["burn", "1d", "7d", "30d"];
 
-function fmtBytes(n: number): string {
-  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+/* The sealed size, in the dial's dialect (SUB-1092). This was a third private
+   copy of the KB/MB humanizer, and the only one that always wrote a dot
+   decimal — so "1.4 MB" read English even under the German default. Kept local
+   rather than folded into display.ts's formatFileSize because the shapes
+   differ (this one floors at 1 KB and never shows bare bytes); what it must
+   not keep is a hardwired separator. */
+function fmtBytes(n: number, locale: NumberLocale): string {
+  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024)).toLocaleString(locale)} KB`;
+  const mb = (n / (1024 * 1024)).toLocaleString(locale, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+  return `${mb} MB`;
 }
 
 export default function SendLinkDialog({
@@ -33,6 +45,7 @@ export default function SendLinkDialog({
   meta: NoteMeta;
   onClose: () => void;
 }) {
+  const numberLocale = useNumberLocale();
   const [relay, setRelay] = useState<string | null>(null); // null = still loading settings
   const [relayToken, setRelayToken] = useState("");
   /** SUB-834: `net-share-relay` — the switch that closes this upload. Same
@@ -196,7 +209,7 @@ export default function SendLinkDialog({
             )}
             {size !== null && (
               <div className="dbform-note">
-                {fmtBytes(size)} sealed{sizeWarn ? " — large (inlined images); upload and open may be slow" : ""}
+                {fmtBytes(size, numberLocale)} sealed{sizeWarn ? " — large (inlined images); upload and open may be slow" : ""}
               </div>
             )}
             {err && <div className="dbform-err">{err}</div>}

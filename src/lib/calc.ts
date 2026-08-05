@@ -16,8 +16,7 @@
 import { normalizeNumberInput, parseStrictNumber } from "./aggregate.ts";
 import { IDENT_SRC, ferr, isErr, type FErr, type FxResolver } from "./formula.ts";
 import { convert, formatQuantity, parseQuantity, resolveUnit, type Quantity } from "./units.ts";
-
-export type NumberStyle = "de" | "intl";
+import type { NumberLocale } from "./numberLocale.ts";
 
 /** One line's answer. `display` is always renderable — the quiet dash when the
     line didn't work out — and `err` carries the reason for a hover title. */
@@ -426,7 +425,7 @@ function parseCalcLine(text: string): ParsedLine | null {
 export function evalCalcDoc(
   lines: string[],
   fx: FxResolver,
-  style: NumberStyle,
+  locale: NumberLocale,
   skipped: Set<number> = new Set()
 ): Map<number, CalcResult> {
   const results = new Map<number, CalcResult>();
@@ -451,7 +450,7 @@ export function evalCalcDoc(
       continue;
     }
     if (parsed.bind) scope.set(parsed.bind, value);
-    results.set(i, { display: formatQuantity(value.value, value.unit, style) });
+    results.set(i, { display: formatQuantity(value.value, value.unit, locale) });
   }
   return results;
 }

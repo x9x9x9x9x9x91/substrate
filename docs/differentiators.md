@@ -111,6 +111,12 @@ Capacities, Affine).*
   (`asFile()`) to reach a linked note's properties.
 - **Sheets** — plain-text formula tables: LOOKUP across sheets, SUMIF/COUNTIF
   with wildcards, SUMPRODUCT, date arithmetic, identifiers in any language.
+  The totals row is the sharp claim against Notion: a summary that describes
+  one column renders in that column's cell, and Sum/Avg/Min/Max/Count are
+  quick-picks over a real formula input — not the preset menu Notion's
+  aggregation row limits you to. Selecting a range reports its sum, average
+  and count without writing anything, and every summary edits in the grid
+  while the file stays a plain markdown note.
 - **Live values in prose** — an inline code span of the form `` `= expr` ``
   computes from your sheets and renders as the number, inside the sentence:
   "the label has `` `= Masters.count` `` releases". Read-only and volatile —
@@ -195,7 +201,8 @@ Capacities, Affine).*
   `dry_run` to rehearse. Cascades stop themselves (echo window, depth limit,
   per-rule cooldown, a breaker that pauses a rule that keeps failing).
   Automation you can read in a text file and audit after the fact.
-- **The long tail**: German-locale numbers, date ranges + times, board drag,
+- **The long tail**: pick-your-dialect numbers (`number-locale`, German by
+  default), date ranges + times, board drag,
   in-place cell edit, broken-frontmatter repair dialog, URL capture with
   credential stripping + background title enrichment, tray agenda popover,
   signed/notarized release pipeline.

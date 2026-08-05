@@ -10,6 +10,7 @@
 
 import { normalizeNumberInput, parseStrictNumber } from "./aggregate.ts";
 import { ferr, type FErr, type FxResolver } from "./formula.ts";
+import type { NumberLocale } from "./numberLocale.ts";
 
 export interface UnitDef {
   /** Canonical code, as stored and as `Quantity.unit` carries it. */
@@ -211,14 +212,18 @@ export function convert(q: Quantity, to: string, fx: FxResolver): number | FErr 
 
 // ---------- display ----------
 
-/** A quantity as text. "de" is the app's own dialect (1.234,56), "intl" the
-    en-US one (1,234.56) — both at most 2 fraction digits, pre-rounded like
+/** A quantity as text, in the user's number dialect (SUB-1092: de-DE
+    `1.234,56` by default, en-US `1,234.56` and the rest of NUMBER_LOCALES on
+    the `number-locale` key) — at most 2 fraction digits, pre-rounded like
     display.ts formatNumber so float noise (0.1 + 0.2) and -0 don't leak. The
+    locale arrives as an argument rather than off the module binding because
+    it is already threaded through props here, which keeps the render a pure
+    function of its inputs and repaints db cells when the setting changes. The
     unit contributes its suffix; a unit we don't know still gets spelled out
     rather than silently dropped. */
-export function formatQuantity(value: number, unit: string | null, style: "de" | "intl"): string {
+export function formatQuantity(value: number, unit: string | null, locale: NumberLocale): string {
   const r = Math.round(value * 100) / 100 || 0;
-  const s = r.toLocaleString(style === "de" ? "de-DE" : "en-US", { maximumFractionDigits: 2 });
+  const s = r.toLocaleString(locale, { maximumFractionDigits: 2 });
   if (unit === null) return s;
   const def = resolveUnit(unit);
   return `${s}${def ? def.suffix : ` ${unit}`}`;

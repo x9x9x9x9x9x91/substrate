@@ -87,9 +87,10 @@ import {
   isImageEmbed,
   liveValuesConfig,
 } from "../lib/editor-widgets";
-import { evalCalcDoc, fencedLines, isCalcLine, type NumberStyle } from "../lib/calc";
+import { evalCalcDoc, fencedLines, isCalcLine } from "../lib/calc";
 import { evalLiveExpr, liveExprMatches, type LiveExprMatch } from "../lib/livevalues";
 import type { DashboardSheetState } from "../lib/dashboardSheets";
+import { DEFAULT_NUMBER_LOCALE, type NumberLocale } from "../lib/numberLocale";
 import type { FxResolver } from "../lib/formula";
 import type { EmbedResult, ViewSpecResult } from "../lib/embeds";
 import type { NoteMeta, PropValue, TagCount } from "../lib/types";
@@ -932,8 +933,8 @@ function addCalcDecorations(
   // most notes have no calc lines at all — one cheap scan spares them the
   // fence walk and the evaluator entirely
   if (!lines.some(isCalcLine)) return;
-  const { style, fx } = state.facet(calcConfig);
-  const results = evalCalcDoc(lines, fx, style, fencedLines(lines));
+  const { locale, fx } = state.facet(calcConfig);
+  const results = evalCalcDoc(lines, fx, locale, fencedLines(lines));
   if (results.size === 0) return;
 
   for (const { from, to } of view.visibleRanges) {
@@ -1164,7 +1165,7 @@ function buildDecorations(view: EditorView): DecorationSet {
         ? new AudioWidget(target, epoch)
         : isImageEmbed(target)
           ? new ImageWidget(target, epoch)
-          : new FileWidget(target, epoch);
+          : new FileWidget(target, epoch, state.facet(calcConfig).locale);
       const sourceLine = state.doc.lineAt(start);
       const standalone = sourceLine.text.trim() === m[0];
       if (isAudioEmbed(target)) {
@@ -1244,7 +1245,12 @@ const livePreview = ViewPlugin.fromClass(
         // sheets arrive asynchronously and land by reconfiguring their facet —
         // a transaction that changes neither doc, selection nor viewport, so it
         // needs saying explicitly or a re-read sheet never reaches the prose
-        u.startState.facet(liveValuesConfig) !== u.state.facet(liveValuesConfig)
+        u.startState.facet(liveValuesConfig) !== u.state.facet(liveValuesConfig) ||
+        // the ⌘, number dialect arrives the same way (SUB-1092): a facet
+        // reconfigure with no doc, selection or viewport change. Calc results
+        // and file-chip sizes are both written in it, so without this the
+        // editor keeps rendering the previous dialect until the next keystroke
+        u.startState.facet(calcConfig).locale !== u.state.facet(calcConfig).locale
       ) {
         this.decorations = buildDecorations(u.view);
       }
@@ -1575,9 +1581,9 @@ interface EditorProps {
       later flushed it over the live file. Reconfigured through a compartment
       so entering/leaving the past never rebuilds the view. */
   readOnly?: boolean;
-  /** calc lines (SUB-834): the dialect their answers are formatted in — the
-      `number-format` setting. Defaults to the app's own de-DE. */
-  numberStyle?: NumberStyle;
+  /** calc lines (SUB-1092): the dialect their answers are formatted in — the
+      app-wide `number-locale` setting. Defaults to de-DE, as it does. */
+  numberLocale?: NumberLocale;
   /** calc lines (SUB-834): live FX for `25 USD in EUR`. Absent → currency
       conversions report a missing rate rather than inventing one. */
   calcFx?: FxResolver;
@@ -1616,7 +1622,7 @@ export default function Editor({
   onExtractNote,
   emptyHint,
   readOnly = false,
-  numberStyle,
+  numberLocale,
   calcFx,
   liveSheets,
 }: EditorProps) {
@@ -1661,7 +1667,7 @@ export default function Editor({
   const onEmbedCreateRelationRef = useRef(onEmbedCreateRelation);
   const vaultEpochRef = useRef(vaultEpoch);
   // read once at mount; the effect below keeps the live editor in step
-  const numberStyleRef = useRef(numberStyle);
+  const numberLocaleRef = useRef(numberLocale);
   const calcFxRef = useRef(calcFx);
   const liveSheetsRef = useRef(liveSheets);
   // the [[ completion source is provided once at mount — titles live behind
@@ -1689,7 +1695,7 @@ export default function Editor({
   embedRelationCandidatesRef.current = embedRelationCandidates;
   onEmbedCreateRelationRef.current = onEmbedCreateRelation;
   vaultEpochRef.current = vaultEpoch;
-  numberStyleRef.current = numberStyle;
+  numberLocaleRef.current = numberLocale;
   calcFxRef.current = calcFx;
   liveSheetsRef.current = liveSheets;
   noteTitlesRef.current = noteTitles;
@@ -1969,7 +1975,7 @@ export default function Editor({
         }),
         trackedPositions,
         calcCompartment.current.of(
-          calcConfig.of({ style: numberStyleRef.current ?? "de", fx: calcFxRef.current ?? (() => null) })
+          calcConfig.of({ locale: numberLocaleRef.current ?? DEFAULT_NUMBER_LOCALE, fx: calcFxRef.current ?? (() => null) })
         ),
         liveCompartment.current.of(
           liveValuesConfig.of({
@@ -2222,10 +2228,10 @@ export default function Editor({
     if (!view) return;
     view.dispatch({
       effects: calcCompartment.current.reconfigure(
-        calcConfig.of({ style: numberStyle ?? "de", fx: calcFx ?? (() => null) })
+        calcConfig.of({ locale: numberLocale ?? DEFAULT_NUMBER_LOCALE, fx: calcFx ?? (() => null) })
       ),
     });
-  }, [numberStyle, calcFx, docKey]);
+  }, [numberLocale, calcFx, docKey]);
 
   // Live values follow the same path (SUB-825): a fresh sheet map — the first
   // load landing, or a vault change re-evaluating the sheets a note reads —

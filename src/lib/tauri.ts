@@ -578,6 +578,19 @@ const mockNotes: MockNote[] = [
     body: "Portfolio tracker — rows are data; the formulas block computes columns and totals.\n\n```csv\nasset,bucket,units,price_usd\nGLOW,etf,1200,31.4\nBTC,crypto,4.1,64200\nARC,etf,80,92.5\nETH,crypto,9,3050\n```\n\n```formulas\nvalue_usd = units * price_usd\nvalue_eur = value_usd * FX(\"USD\",\"EUR\")\n\ntotal     = SUM(value_eur)\ncrypto    = SUMIF(bucket, \"crypto\", value_eur)\netf       = SUMIF(bucket, \"etf\", value_eur)\nrest      = total - crypto\npositions = COUNT(units)\nmax_pos   = MAX(value_eur)\ngrand_total = total + Cash.cash_total\n```\n",
   },
   {
+    // SUB-937 fixture: the fixed-costs shape — twelve named summaries, most
+    // of them describing one column, which is what fills the totals row and
+    // leaves the footer to the few that can't be placed.
+    path: "Fixed Costs.md",
+    stem: "Fixed Costs",
+    title: "Fixed Costs",
+    folder: "",
+    props: { type: "sheet", created: "2026-08-03" },
+    updated_ms: now - 70 * 60_000,
+    excerpt: "Monthly fixed costs — rent, studio, tools.",
+    body: "Monthly fixed costs. Rows are months; the formulas block totals each column.\n\n```csv\nmonth,rent_eur,studio_eur,tools_eur,paid\n2026-01,1240,320,88,yes\n2026-02,1240,320,112,yes\n2026-03,1240,355,64,yes\n2026-04,1290,355,151,yes\n2026-05,1290,355,96,no\n2026-06,1290,380,143,no\n```\n\n```formulas\nmonthly_eur = rent_eur + studio_eur + tools_eur\n\nrent_total    = SUM(rent_eur)\nrent_avg      = AVG(rent_eur)\nstudio_total  = SUM(studio_eur)\nstudio_avg    = AVG(studio_eur)\ntools_total   = SUM(tools_eur)\ntools_peak    = MAX(tools_eur)\ntools_low     = MIN(tools_eur)\nmonthly_total = SUM(monthly_eur)\nmonthly_avg   = AVG(monthly_eur)\nmonths        = COUNTIF(month, \"2026*\")\npaid_eur      = SUMIF(paid, \"yes\", monthly_eur)\nopen_eur      = monthly_total - paid_eur\nannual_plan   = 1290 * 12\n```\n",
+  },
+  {
     path: "Cash.md",
     stem: "Cash",
     title: "Cash",
@@ -1442,6 +1455,10 @@ for (let i = 0; i < DIARY.length; i++) {
    that board while still counting as one of the 17 seeded tasks every db-view
    spec pins. Three carry an area on purpose — one more overdue row, and two
    upcoming ones so the board's area groups render below its urgency spine. */
+/* `createdBack` overrides the shared FIXED_BASE created date with one relative
+   to today (SUB-1055): a task whose fixture role is "carries NO rot chip" has
+   to stay young as the calendar moves, or a fixed created date silently ages
+   past `stale_days` and turns the negative assertion red for good. */
 const DENSE_TASKS: {
   title: string;
   due: number;
@@ -1449,9 +1466,10 @@ const DENSE_TASKS: {
   line: string;
   area?: string;
   priority?: string;
+  createdBack?: number;
 }[] = [
   // overdue-adjacent: joined "Renew Bandcamp plan" in the overdue strip
-  { title: "Chase the test pressing approvals", due: -1, status: "doing", area: "Label", priority: "High", line: "Two plants answered, one still owes the green light." },
+  { title: "Chase the test pressing approvals", due: -1, status: "doing", area: "Label", priority: "High", createdBack: 3, line: "Two plants answered, one still owes the green light." },
   { title: "Update the Bandcamp payout details", due: -3, status: "todo", line: "New account since spring — check the split settings too." },
   { title: "Return the borrowed spring reverb", due: -8, status: "todo", line: "It lives on the drum bus until the bounce is done." },
   // a dense today (with the seeded task + both events: 7 dated entries)
@@ -1478,7 +1496,7 @@ for (const t of DENSE_TASKS) {
       type: "task",
       status: t.status,
       due: day(t.due),
-      created: FIXED_BASE,
+      created: t.createdBack === undefined ? FIXED_BASE : day(-t.createdBack),
       ...(t.area ? { area: t.area } : {}),
       ...(t.priority ? { priority: t.priority } : {}),
     },
@@ -5107,6 +5125,11 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const colOrder = (((args?.colOrder ?? args?.col_order) as string[] | null) ?? undefined)
         ?.map((c) => c.trim())
         .filter(Boolean);
+      // SUB-948: the board's hand order sanitizes the same way (note paths,
+      // never validated against the index — a stale path is ignored on read)
+      const cardOrder = (((args?.cardOrder ?? args?.card_order) as string[] | null) ?? undefined)
+        ?.map((c) => c.trim())
+        .filter(Boolean);
       // SUB-642: per-layout hidden sets sanitize like the flat list — entries
       // trim, empties drop, an empty set collapses to absent, and a sets
       // object with nothing left leaves the pref entirely
@@ -5138,6 +5161,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           (args?.aggregations as ViewsConfig[string]["aggregations"] | null) ?? undefined,
         sorts: sorts?.length ? sorts : undefined,
         col_order: colOrder?.length ? colOrder : undefined,
+        card_order: cardOrder?.length ? cardOrder : undefined,
         hidden: hidden?.length ? hidden : undefined,
         widths: Object.keys(widths).length ? widths : undefined,
         wrap: wrap?.length ? wrap : undefined,

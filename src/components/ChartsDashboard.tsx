@@ -1,3 +1,4 @@
+import { numberLocale } from "../lib/numberLocale";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { NoteMeta, SchemaConfig, SelectOption } from "../lib/types";
@@ -11,6 +12,8 @@ import { mountChartRows } from "../lib/mountdash";
 import { mountStatus } from "../lib/mounts";
 import {
   aggregate,
+  assignBandSlots,
+  chartIdentity,
   chartSourceDesc,
   chartTitle,
   dbRows,
@@ -21,6 +24,7 @@ import {
   timelikeKeys,
   xFractions,
   xSchemaOptions,
+  type BandSlotMemory,
   type ChartBand,
   type ChartBlock,
   type ChartConfig,
@@ -54,7 +58,7 @@ interface ChartsDashboardProps {
 
 /** full-precision value — tooltips keep every digit */
 function fmtFull(v: number): string {
-  return v.toLocaleString("de-DE", { maximumFractionDigits: 1 });
+  return v.toLocaleString(numberLocale(), { maximumFractionDigits: 1 });
 }
 
 /** axis hints and bar labels read compact (2026-07-20): millions as
@@ -63,15 +67,16 @@ function fmtFull(v: number): string {
 function fmtVal(v: number): string {
   const a = Math.abs(v);
   if (a >= 1_000_000)
-    return `${(v / 1_000_000).toLocaleString("de-DE", { maximumFractionDigits: 2 })}M`;
-  if (a >= 10_000) return `${Math.round(v / 1000).toLocaleString("de-DE")}k`;
+    return `${(v / 1_000_000).toLocaleString(numberLocale(), { maximumFractionDigits: 2 })}M`;
+  if (a >= 10_000) return `${Math.round(v / 1000).toLocaleString(numberLocale())}k`;
   return fmtFull(v);
 }
 
 /** One line of a tooltip: a value, plus the band it belongs to when the chart
-    is split (`by:`). `band` is the index in the chart's band list, not in the
-    tooltip — a band with no rows at this x is absent here but keeps its
-    treatment. */
+    is split (`by:`). `band` is the band's RAMP SLOT, not its index in the
+    tooltip nor in the band list — a band with no rows at this x is absent here
+    but keeps its treatment, and a band whose neighbours came and went keeps it
+    across renders too (SUB-1062). */
 interface TipRow {
   name: string | null;
   band: number;
@@ -166,7 +171,13 @@ function ChartTip({ tip }: { tip: TipState | null }) {
     name the same token. A sixth series stops with an honest
     message rather than repeating a hue; folding the tail into "Other" would
     have to re-reduce it, and an avg: or max: of an "Other" bucket is a
-    different number from any series it contains. */
+    different number from any series it contains.
+
+    Which series gets which slot is keyed on the series itself, not on where it
+    lands in the split (SUB-1062, `assignBandSlots` in lib/chart.ts): a chart's
+    first render walks the ramp from the top in first-seen order, and from then
+    on a series keeps its slot while it is on screen, however the rows around it
+    change. */
 const BAND_TREATMENTS = 5;
 
 function bandClass(i: number): string {
@@ -174,13 +185,16 @@ function bandClass(i: number): string {
 }
 
 /** Compact legend for a `by:` split — a swatch and the band's own value, in
-    band order, so the stack reads bottom-up as the legend reads left-right. */
-function ChartLegend({ bands }: { bands: ChartBand[] }) {
+    band order, so the stack reads bottom-up as the legend reads left-right.
+    Order is the split's; the swatch is the band's own ramp slot, so the two can
+    disagree after a series above disappears — the legend is still a true index
+    of what is drawn, and the colours are the ones the reader already learned. */
+function ChartLegend({ bands, bandSlots }: { bands: ChartBand[]; bandSlots: number[] }) {
   return (
     <div className="chart-legend">
       {bands.map((b, i) => (
         <span className="chart-legend-item" key={b.name}>
-          <span className={`chart-swatch ${bandClass(i)}`} />
+          <span className={`chart-swatch ${bandClass(bandSlots[i])}`} />
           {b.name}
         </span>
       ))}
@@ -235,18 +249,23 @@ const SERIES_RAMP = [
 function BarChart({
   points,
   bands,
+  bandSlots,
   xOptions,
   categorical,
 }: {
   points: ChartPoint[];
   /** `by:` split — each column stacks its bands bottom-up in band order */
   bands?: ChartBand[] | null;
+  /** ramp slot per band, keyed on series identity so a band keeps its colour
+      when its neighbours come and go (SUB-1062); falls back to band order */
+  bandSlots?: number[];
   xOptions?: SelectOption[];
   /** buckets are categories, not time — colour an unsplit axis with the ramp */
   categorical?: boolean;
 }) {
   const { wrapRef, tip, show, hide } = useChartTip();
   const { slots, onKeyDown, tabIndexOf } = useRoving(points.length);
+  const slotOf = (bi: number) => bandSlots?.[bi] ?? bi;
   const chartRef = useRef<HTMLDivElement>(null);
   const [labelEvery, setLabelEvery] = useState(1);
   useEffect(() => {
@@ -295,7 +314,12 @@ function BarChart({
   const rowsAt = (i: number): TipRow[] =>
     bands
       ? bands
-          .map((b, bi) => ({ name: b.name, band: bi, value: b.points[i]?.value ?? 0, n: b.points[i]?.n ?? 0 }))
+          .map((b, bi) => ({
+            name: b.name,
+            band: slotOf(bi),
+            value: b.points[i]?.value ?? 0,
+            n: b.points[i]?.n ?? 0,
+          }))
           .filter((r) => r.n > 0)
       : points[i].n > 0
         ? [{ name: null, band: 0, value: points[i].value, n: points[i].n }]
@@ -374,7 +398,7 @@ function BarChart({
                     if (v <= 0) return null;
                     return (
                       <div
-                        className={`dash-bar-slice ${bandClass(bi)}`}
+                        className={`dash-bar-slice ${bandClass(slotOf(bi))}`}
                         key={b.name}
                         style={{ flexGrow: v }}
                       />
@@ -415,9 +439,19 @@ const LABEL_FALLBACK_PX = 560;
     their real date gaps, categorical axes keep even index spacing. The plot
     insets right of a fixed 40px gutter that holds the hi/lo value hints at
     their y positions; a baseline runs under the whole chart. */
-function LineChart({ points, bands }: { points: ChartPoint[]; bands?: ChartBand[] | null }) {
+function LineChart({
+  points,
+  bands,
+  bandSlots,
+}: {
+  points: ChartPoint[];
+  bands?: ChartBand[] | null;
+  /** ramp slot per band, keyed on series identity (SUB-1062) — see BarChart */
+  bandSlots?: number[];
+}) {
   const { wrapRef, tip, show, hide } = useChartTip();
   const { slots, onKeyDown, tabIndexOf } = useRoving(points.length);
+  const slotOf = (bi: number) => bandSlots?.[bi] ?? bi;
   // `points` is the shared axis even when split: every band's keys are a subset
   // of it (lib/chart.ts builds bands from the final axis), so a band's point at
   // key k lands at the same x as every other band's.
@@ -491,7 +525,7 @@ function LineChart({ points, bands }: { points: ChartPoint[]; bands?: ChartBand[
     const out: TipRow[] = [];
     bands.forEach((b, bi) => {
       const hit = bandAt[bi].get(p.key);
-      if (hit) out.push({ name: b.name, band: bi, value: hit.value, n: hit.n });
+      if (hit) out.push({ name: b.name, band: slotOf(bi), value: hit.value, n: hit.n });
     });
     return out;
   };
@@ -504,7 +538,7 @@ function LineChart({ points, bands }: { points: ChartPoint[]; bands?: ChartBand[
             {lines.map((line, bi) => (
               <polyline
                 key={bi}
-                className={`chart-line-path ${bands ? bandClass(bi) : ""}`}
+                className={`chart-line-path ${bands ? bandClass(slotOf(bi)) : ""}`}
                 fill="none"
                 vectorEffect="non-scaling-stroke"
                 points={line.map(({ p, i }) => `${px(i)},${py(p.value)}`).join(" ")}
@@ -515,7 +549,7 @@ function LineChart({ points, bands }: { points: ChartPoint[]; bands?: ChartBand[
             line.map(({ p, i }) => (
               <span
                 key={`${bi}-${p.key}`}
-                className={`chart-dot ${bands ? bandClass(bi) : ""}`}
+                className={`chart-dot ${bands ? bandClass(slotOf(bi)) : ""}`}
                 style={{ left: `${px(i)}%`, top: `${py(p.value)}%` }}
                 aria-hidden="true"
               />
@@ -571,10 +605,14 @@ function ChartSection({
   xOptions,
   sourceDesc,
   notice,
+  memoryFor,
 }: {
   block: ChartBlock;
   series: ChartSeries | null;
   loadError: string | null;
+  /** this chart's band-slot memory, looked up by chart identity rather than by
+      the section's position on the dashboard (SUB-1062) */
+  memoryFor: (c: ChartConfig) => BandSlotMemory;
   /** schema options of a db-sourced categorical x prop — bars wear their hues */
   xOptions?: SelectOption[];
   /** provenance line when the source isn't a database or a sheet — a mount
@@ -600,6 +638,21 @@ function ChartSection({
       : c.kind === "bar" && series?.bands?.some((band) => band.points.some((p) => p.value < 0))
         ? "Stacked bars cannot represent negative split values — use kind: line."
         : null;
+  // Ramp slots belong to the chart, not to the rows behind it and not to where
+  // the fence sits on the page: `memoryFor` hands back the memory this CHART
+  // has been keeping (SUB-1062), so editing the source — a row added, a
+  // category's last row deleted — never re-letters the series still on screen,
+  // and deleting the fence above this one never hands this chart a stranger's
+  // colours. An over-full or invalid split paints no marks, so it claims no
+  // slots either.
+  // The memory is read and mutated during render on purpose: the colours have
+  // to be right in the first painted frame (an effect would paint one frame of
+  // wrong hues), and the assignment is idempotent — running it twice on the
+  // same bands, as StrictMode does, gives the same slots. A render React then
+  // throws away can only leave a slot held by a series that is no longer shown,
+  // which is what an absent series does anyway.
+  const bandSlots =
+    series?.bands && !splitError ? assignBandSlots(series.bands, memoryFor(c), BAND_TREATMENTS) : [];
   return (
     <div>
       <div className="dash-section-label">{chartTitle(c)}</div>
@@ -632,13 +685,16 @@ function ChartSection({
         <>
           {/* the legend sits above the plot: it names what the marks mean, so
               it has to be read before them, not after */}
-          {series.bands && series.bands.length > 0 ? <ChartLegend bands={series.bands} /> : null}
+          {series.bands && series.bands.length > 0 ? (
+            <ChartLegend bands={series.bands} bandSlots={bandSlots} />
+          ) : null}
           {c.kind === "line" ? (
-            <LineChart points={series.points} bands={series.bands} />
+            <LineChart points={series.points} bands={series.bands} bandSlots={bandSlots} />
           ) : (
             <BarChart
               points={series.points}
               bands={series.bands}
+              bandSlots={bandSlots}
               xOptions={xOptions}
               categorical={
                 // a text column of pre-bucketed calendar keys (the Spending
@@ -694,6 +750,32 @@ export default function ChartsDashboard({
     () => configOverride ? [{ config: configOverride, error: null }] : parseChartBlocks(body),
     [body, configOverride]
   );
+
+  // One band-slot memory per CHART, not per section (SUB-1062). The sections
+  // below are rendered from `blocks` by index, so a fence deleted above another
+  // hands its React instance — and, with it, anything that instance remembers —
+  // to the chart that slides up into its place. Keyed on chart identity the
+  // memory follows the chart instead, which is the whole contract of this
+  // issue one level up: what a series is coloured must not depend on what
+  // happened to something else.
+  const memories = useRef<Map<string, BandSlotMemory>>(new Map());
+  const memoryFor = (c: ChartConfig): BandSlotMemory => {
+    const id = chartIdentity(c);
+    let m = memories.current.get(id);
+    if (!m) {
+      m = new Map();
+      memories.current.set(id, m);
+    }
+    return m;
+  };
+  // Charts the note no longer holds stop being remembered — the registry is
+  // bounded by what is on the page, not by everything ever typed into it. An
+  // effect, so a chart that is only briefly gone (a fence mid-edit) still has
+  // its memory when it comes back within the same render pass.
+  useEffect(() => {
+    const live = new Set(blocks.map((b) => (b.config ? chartIdentity(b.config) : null)));
+    for (const id of [...memories.current.keys()]) if (!live.has(id)) memories.current.delete(id);
+  }, [blocks]);
   const sheetNames = useMemo(() => {
     const seen = new Map<string, string>();
     for (const b of blocks) {
@@ -875,6 +957,7 @@ export default function ChartsDashboard({
               xOptions={r.xOptions}
               sourceDesc={r.sourceDesc}
               notice={r.notice}
+              memoryFor={memoryFor}
             />
           );
         })}
@@ -910,6 +993,7 @@ export default function ChartsDashboard({
               xOptions={r.xOptions}
               sourceDesc={r.sourceDesc}
               notice={r.notice}
+              memoryFor={memoryFor}
             />
           );
         })}

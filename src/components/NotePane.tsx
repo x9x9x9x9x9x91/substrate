@@ -1,3 +1,4 @@
+import type { NumberLocale } from "../lib/numberLocale";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { NoteMeta, FmState, NumberFormat, PropKind, PropSchema, PropValue, RelatedEntry, RollupConfig, SchemaConfig, SelectOption, TagCount } from "../lib/types";
@@ -119,9 +120,9 @@ interface NotePaneProps {
   schema: SchemaConfig;
   usedValues: (dbType: string, key: string) => string[];
   vaultEpoch: number;
-  /** `number-format` (SUB-834): how the body editor's calc lines write
-      numbers; App reads it from Settings.md alongside the other switches. */
-  numberStyle?: "de" | "intl";
+  /** `number-locale` (SUB-1092): the dialect the body editor's calc lines
+      write numbers in — the app-wide one, read from Settings.md by App. */
+  numberLocale?: NumberLocale;
   /** SUB-516: the paths behind the current `vaultEpoch` bump, or null for
       "unknown — could be anything". */
   changedPaths?: string[] | null;
@@ -224,7 +225,7 @@ function NotePane({
   schema,
   usedValues,
   vaultEpoch,
-  numberStyle,
+  numberLocale,
   changedPaths = null,
   onSaveSchema,
   relationCandidates,
@@ -1575,7 +1576,7 @@ function NotePane({
                   : kind === "url"
                     ? urlDisplayTitle(v)
                     : kind === "number"
-                      ? formatNumber(v, pschema?.format, undefined, numberStyle)
+                      ? formatNumber(v, pschema?.format, undefined, numberLocale)
                       : v;
             // typed notes edit via the picker; untyped notes keep plain text —
             // except `type` itself, which always offers the known databases
@@ -2012,7 +2013,7 @@ function NotePane({
               onFollowLink={onFollowLink}
               onOpenTag={onOpenTag}
               tagUniverse={tagUniverse}
-              numberStyle={numberStyle}
+              numberLocale={numberLocale}
               calcFx={calcFx}
               liveSheets={liveSheets}
               noteTitles={noteTitles}

@@ -1754,8 +1754,9 @@ the expression the user typed, nothing else. `===` setext underlines and a lone
   the result's unit; the rest convert into it.
 - **Errors are quiet**: a line that can't compute shows a dim `–` with the
   reason on hover — never an error wall inside prose.
-- Results format per the `number-format` setting (§12): `de` `1.234,56`
-  (default) or `intl` `1,234.56`.
+- Results format per the `number-locale` setting (§12) — the same dial every
+  other number in the app reads: `de-DE` `1.234,56` (default), `en-US` /
+  `en-GB` `1,234.56`, `de-CH` `1'234.56`, `fr-FR` `1 234,56`.
 
 Agent note: calc lines are *read-time* sugar — an external writer never needs
 to compute or update anything. Write the expression, the app renders the
@@ -2089,10 +2090,11 @@ PropSchema fields:
   on write. Writing a relation without a target is refused; a `type` arriving
   on any other kind (or a kindless prop) drops on write.
 - `format` — number-kind only: the display format, modeled the way relation
-  models `type`. `"euro"` renders German-style `1.234,56 €` (dot thousands,
-  comma decimals — 2 decimals only when the value has decimals, trailing
-  ` €`); `"percent"` renders through the same de-DE path with a
-  ` %` suffix — `8,5 %`, `1.250,25 %` (the stored number IS the percent —
+  models `type`. `"euro"` renders the amount in the `number-locale` dialect
+  (§12) with a trailing ` €` — `1.234,56 €` under the de-DE default, 2
+  decimals only when the value has decimals; `"percent"` renders
+  through the same path with a ` %` suffix — `8,5 %`, `1.250,25 %` under
+  de-DE (the stored number IS the percent —
   no ×100 math); `"plain"` is the default and stores
   as absent (the key is omitted). The same field also names the
   column's UNIT: any `src/lib/units.ts` code is a valid value (`USD`, `GBP`,
@@ -2240,7 +2242,7 @@ only the wiring; the VALUE is computed on read (in the frontend,
   relation (or no numeric inputs) renders empty — the footer's
   label-without-value convention; `count` of zero links is `0`.
 - The derived cell is read-only (a computed value has no write path),
-  renders in the app's de-DE number dialect, and behaves like a numeric
+  renders in the app's number dialect (§12 `number-locale`), and behaves like a numeric
   column everywhere else: it can be footer-aggregated, numerically sorted,
   filtered, and exported. It never groups a board or table (a board drag
   writes the group prop).
@@ -2457,7 +2459,22 @@ Per-database layout choice, same file discipline as schema.json:
   `vault_rename_prop` / `vault_clear_prop` (§4) carry `widths` keys and
   `wrap` entries along like `sorts`/`hidden` — renamed in place (an entry
   already at the new name wins), dropped with the prop.
-- `grid`: optional; `true`/`false` pins this database's table
+- `card_order` (SUB-948): optional; the board's hand-arranged card order —
+  vault-relative note PATHS, one flat list covering every column (a column
+  reads its own members out of it in sequence, so only relative order within
+  a column matters). Written only by a within-column drag on an UNSORTED
+  board; a board with `sorts` keeps the list on disk and unread, because
+  there the sort owns the order. Entries naming no live note are inert but
+  kept, and a note the list doesn't name appends after the ones it does — so
+  a note created, renamed, or deleted outside the app costs at most its own
+  entry, never the arrangement. Renaming or moving a note (or a folder full of
+  them) INSIDE the app retargets the entries instead, so the card keeps the
+  slot it was dragged to; trashing leaves the entry alone — it is inert while
+  the note is gone and picks its slot back up if the note is restored to the
+  same path. Entries keep their exact spelling, blanks aside: a path's leading
+  or trailing spaces are part of the filename. Deliberately NOT a note prop:
+  an arrangement is a view's opinion, so it never touches the note files.
+- `grid` (SUB-607): optional; `true`/`false` pins this database's table
   grid lines (vertical column rules) on or off, overriding the global
   `db-grid` setting (§12). Absent = follow the global. The UI clears the key
   when a toggle lands back on the global value, so a database without an
@@ -3368,9 +3385,46 @@ Plain notes the app treats specially — all optional, all just files:
   bound is what keeps every ramp colour clear of 3:1 on both grounds).
   All three degrade to their default on any value the reader can't make
   sense of. Alongside them:
-  `number-format` (`de` — the default — writes `1.234,56`,
-  `intl` writes `1,234.56`; an unset or unrecognized value reads as `de`), and
-  the outbound-request switches, one per request the app can make, all
+
+  `number-locale` (a BCP-47 tag from a short list — `de-DE`, the
+  default, writes `1.234,56`; `en-US` and `en-GB` write `1,234.56`; `de-CH`
+  writes `1’234.56` with a typographic apostrophe, which is what ICU
+  emits; `fr-FR` writes `1 234,56` with a narrow no-break space), which is
+  the *only* dial for the number dialect. It moves both directions:
+
+  - *Writing.* Database cells, calc line results, aggregate totals, sheet
+    formulas, dashboard figures, chart labels and file sizes all render
+    through one shared formatter, so the picker and the app can't disagree.
+    Embedded view fences, heatmap squares and the on-disk sizes in the coding
+    and share surfaces are included — they read the dial at render time, and
+    changing the picker repaints them without a reload.
+    Three things stay pinned on purpose and are not dialect. API prices in the
+    token-cost view are always written the American way, because they are
+    dollars. Compact magnitudes and durations — the `1.2k` / `3.4M` counters,
+    `4.2/min` rates and `3.2h` spans on the proxy, sync and feed surfaces —
+    keep a dot decimal in every dialect: they are suffix shorthand rather than
+    a number a reader would type back, and one character of precision is the
+    whole figure. And dates are not numbers: they do not follow this dial and
+    render in a fixed German shape wherever they carry a time of day.
+  - *Reading.* A number typed into a number-kind cell is read in the same
+    dialect it was rendered in, so retyping what is on screen round-trips:
+    under `en-US` `1,234.56` reads as 1234.56, under `de-CH` `1'234` reads as
+    1234, under `fr-FR` `1 234,56` reads as 1234.56. The reader accepts the
+    keyboard forms of the group separators as well as the typographic ones
+    ICU renders (`'` for `’`, a plain or non-breaking space for ` `),
+    because that is what a keyboard and a paste actually produce. Text it
+    cannot read confidently in the current dialect is stored verbatim rather
+    than guessed at, and canonical dot-decimal storage text (`1234.56`) is
+    never rewritten under any dialect. Everything on disk stays canonical
+    dot-decimal — the dialect is a display and input convention only.
+
+  Unset or unrecognized reads as `de-DE`, so a vault that
+  never sets it renders exactly as before. It replaces `number-format`
+  (`de`/`intl`), which reached only calc lines and unit cells; that
+  key is still honored as a fallback when `number-locale` is absent, so vaults
+  that set `intl` keep their en-style numbers, but nothing writes it any more.
+
+  Alongside it, the outbound-request switches, one per request the app can make, all
   default `true` and all turned off only by an explicit `false`:
   `net-link-titles` (a captured link asks that site for its page title — off
   still captures the note, it just keeps the bare URL as the title),

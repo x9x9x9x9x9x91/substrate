@@ -476,3 +476,25 @@ test("tasks: a card's move menu re-areas it without a drag, by pointer and by ke
   ).toHaveCount(1);
   await expect(page.locator(".toast")).toContainText("Chase the test pressing approvals → Studio");
 });
+
+test("tasks: board cards carry the rot layer the list rows do (SUB-1055)", async ({ page }) => {
+  await openTasks(page);
+  await page.locator(".tasks-view button", { hasText: /^Board$/ }).click();
+
+  // the seeded 74-day-old task is the rot fixture: in the list it wears an
+  // amber "stale" chip, and the board dropped it entirely — a card could be
+  // two months dead and look identical to one filed this morning
+  const bandcamp = page.locator(".tasks-card", { hasText: "Renew Bandcamp plan" });
+  await expect(bandcamp.locator(".tasks-finding")).toHaveText("stale");
+
+  // it is a finding, not decoration: a task that is merely late carries none.
+  // Its `created` is seeded 3 days back RELATIVE to today, not at the seed's
+  // FIXED_BASE — a fixed date would drift past stale_days as the calendar
+  // moves and turn this negative case permanently red (SUB-1055 review)
+  const chase = page.locator(".tasks-card", { hasText: "Chase the test pressing approvals" });
+  await expect(chase.locator(".tasks-finding")).toHaveCount(0);
+
+  // age stays in the tooltip — no third number on a 240px meta line
+  await expect(bandcamp).toHaveAttribute("title", /Created 74 days ago/);
+  await expect(chase).toHaveAttribute("title", /Created 3 days ago/);
+});

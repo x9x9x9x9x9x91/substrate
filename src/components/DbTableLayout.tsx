@@ -1,3 +1,4 @@
+import type { NumberLocale } from "../lib/numberLocale";
 import { Fragment } from "react";
 import type { AggKind, NoteMeta, NumberFormat, PropKind, PropSchema, RollupConfig, SavedViewSort, SelectOption } from "../lib/types";
 import { foldedPropKey, foldedPropStr } from "../lib/types";
@@ -117,7 +118,7 @@ export default function DbTableLayout({
   aggResults,
   fxAsOf,
   fx,
-  numberStyle,
+  numberLocale,
   bulkColMenu,
   setBulkColMenu,
   bulkCheck,
@@ -248,7 +249,7 @@ export default function DbTableLayout({
   fx?: FxResolver;
   /** Number formatting the vault is set to (SUB-834) — footer figures follow
       the same convention as the cells above them. */
-  numberStyle: "de" | "intl";
+  numberLocale: NumberLocale;
   bulkColMenu: AnchorRect | null;
   setBulkColMenu: (v: AnchorRect | null) => void;
   bulkCheck: { key: string; anchor: AnchorRect } | null;
@@ -335,7 +336,7 @@ export default function DbTableLayout({
                 groupSchema?.kind,
                 groupSchema?.format,
                 fx,
-                numberStyle
+                numberLocale
               )}
               {converted && <span className="prop-conv" title={converted}>*</span>}
             </span>
@@ -671,7 +672,7 @@ export default function DbTableLayout({
                           </span>
                         ) : (
                           <OptionPill color={optionColor(copts, val)}>
-                            {displayValue(val, ckind, cschema?.format, fx, numberStyle)}
+                            {displayValue(val, ckind, cschema?.format, fx, numberLocale)}
                             {/* SUB-834: a cell rendered in the column's unit
                                 but STORED in another says so on hover — the
                                 file still holds exactly what was typed */}
@@ -849,7 +850,7 @@ export default function DbTableLayout({
                                   res,
                                   kind,
                                   byFoldedKey(typeSchema, c)?.format,
-                                  numberStyle
+                                  numberLocale
                                 )}
                                 {mark && (
                                   <span className="db-agg-mark" title={mark}>

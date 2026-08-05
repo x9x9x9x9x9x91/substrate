@@ -6,6 +6,7 @@ import {
   collectHistoryRefs,
   collectHistorySheetRefs,
   collectRefs,
+  describingRefs,
   evaluate,
   ferr,
   hasAggregate,
@@ -744,6 +745,50 @@ test("renameRefs rewrites idents, keeps strings/calls/dotted members/formatting"
 });
 
 // ---------- SUB-753: unicode identifiers ----------
+
+describe("describingRefs — what a summary is about (SUB-1013)", () => {
+  const d = (src: string) => {
+    const e = parseFormula(src);
+    assert.ok(!isErr(e), src);
+    return describingRefs(e);
+  };
+
+  test("a filtered sum describes the column it sums, not its criteria", () => {
+    assert.deepEqual(d('SUMIF(status, "open", value_eur)'), ["value_eur"]);
+    assert.deepEqual(d('SUMIF(status, "open", value_eur, region, "eu")'), ["value_eur"]);
+    // the two-arg form sums the criteria column itself
+    assert.deepEqual(d('SUMIF(value_eur, ">5")'), ["value_eur"]);
+    // a criteria ref is a modifier even when it is a column
+    assert.deepEqual(d("SUMIF(status, region, value_eur)"), ["value_eur"]);
+  });
+
+  test("COUNTIF describes every column it filters on, never its match values", () => {
+    assert.deepEqual(d('COUNTIF(status, "open")'), ["status"]);
+    assert.deepEqual(d('COUNTIF(status, "open", region, "eu")'), ["status", "region"]);
+    assert.deepEqual(d("COUNTIF(status, region)"), ["status"]);
+  });
+
+  test("everything else walks like collectRefs", () => {
+    for (const src of [
+      "SUM(a) + AVG(b)",
+      "SUM(Holdings.value_eur) + local",
+      "ROUND(SUM(a) / COUNT(b), 2)",
+      "-SUM(a)",
+      "IF(SUM(a) > 0, SUM(b), SUM(c))",
+      "SUMPRODUCT(units, price)",
+    ]) {
+      const e = parseFormula(src);
+      assert.ok(!isErr(e), src);
+      assert.deepEqual(describingRefs(e), collectRefs(e), src);
+    }
+  });
+
+  test("evaluation still reads the criteria columns it no longer describes", () => {
+    const e = parseFormula('SUMIF(bucket, "etf", value_eur)');
+    assert.ok(!isErr(e));
+    assert.deepEqual(collectRefs(e), ["bucket", "value_eur"]);
+  });
+});
 
 describe("SUB-753 unicode identifiers", () => {
   const scope = (o: Record<string, Value>): Scope => new Map(Object.entries(o));

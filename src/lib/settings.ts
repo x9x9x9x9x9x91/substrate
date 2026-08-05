@@ -325,16 +325,11 @@ export function netAllowed(props: Record<string, unknown>, feature: NetFeature):
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 
-/** How numbers are written: `de` = `1.234,56`, `intl` = `1,234.56`. */
-export type NumberFormat = "de" | "intl";
-
-/** `number-format` (SUB-834). Default `de` — the app's historic and shipped
-    formatting — so an unset key or an unrecognized value keeps every existing
-    vault reading exactly as it did. */
-export function numberFormatSetting(props: Record<string, unknown>): NumberFormat {
-  const v = props["number-format"];
-  return typeof v === "string" && v.trim().toLowerCase() === "intl" ? "intl" : "de";
-}
+/* `number-format` (SUB-834) used to be read here, as a two-value dialect
+   switch that reached only calc lines and unit cells. SUB-1092 replaced it
+   with `number-locale`, which every number surface honors; the retired key is
+   still read — as a fallback, once — in numberLocale.ts, so a vault that set
+   `intl` keeps its en-style numbers. Nothing else should parse either key. */
 
 /** `window-opacity` — how solid the app's own surfaces are over the desktop,
     in percent (SUB-951, macOS). The backend reads the same key to install or

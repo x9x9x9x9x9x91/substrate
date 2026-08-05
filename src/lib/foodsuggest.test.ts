@@ -12,6 +12,7 @@ import {
   suggestFoods,
 } from "./foodsuggest.ts";
 import { KCAL_MAX, parseFoodRows } from "./food.ts";
+import { DEFAULT_NUMBER_LOCALE, setNumberLocale } from "./numberLocale.ts";
 
 function rowsOf(lines: string[]) {
   return parseFoodRows(
@@ -29,6 +30,26 @@ test("parseFoodInput: trailing and leading quantity forms", () => {
   assert.deepEqual(parseFoodInput("100ml Milch"), { base: "Milch", qty: 100, unit: "ml" });
   assert.deepEqual(parseFoodInput("Milch 100 ml"), { base: "Milch", qty: 100, unit: "ml" });
   assert.deepEqual(parseFoodInput("1,5x Toast"), { base: "Toast", qty: 1.5, unit: "x" });
+});
+
+test("parseFoodInput: the quantity is read in the dial's dialect (SUB-1092)", () => {
+  // de-DE default: comma is the decimal
+  assert.deepEqual(parseFoodInput("Reis 1,5g"), { base: "Reis", qty: 1.5, unit: "g" });
+  try {
+    setNumberLocale("en-US");
+    // the same text under an English dial is fifteen hundred grams, not 1.5 —
+    // the comma groups there
+    assert.deepEqual(parseFoodInput("Rice 1,500g"), { base: "Rice", qty: 1500, unit: "g" });
+    // a comma before two digits is no group anywhere here; it stays a decimal
+    // rather than dropping the quantity off the row
+    assert.deepEqual(parseFoodInput("Rice 1,5g"), { base: "Rice", qty: 1.5, unit: "g" });
+    // the dot is the decimal under this dial and always was
+    assert.deepEqual(parseFoodInput("Rice 1.5g"), { base: "Rice", qty: 1.5, unit: "g" });
+  } finally {
+    setNumberLocale(DEFAULT_NUMBER_LOCALE);
+  }
+  // under de-DE the grouped reading is the dot instead
+  assert.deepEqual(parseFoodInput("Reis 1.500g"), { base: "Reis", qty: 1500, unit: "g" });
 });
 
 test("parseFoodInput: no quantity, bare trailing number stays a name", () => {

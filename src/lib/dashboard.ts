@@ -1,3 +1,4 @@
+import { numberLocale } from "./numberLocale.ts";
 import { daysInMonth, formatDateHuman, isIsoDate } from "./dates.ts";
 import { findFence } from "./sheet.ts";
 import { byFoldedKey } from "./schemalookup.ts";
@@ -215,7 +216,7 @@ export interface FxRate {
 export function fmtMoney(n: number | null, currency: "€" | "$", digits = 0): string {
   if (n === null || !isFinite(n)) return "—";
   return (
-    n.toLocaleString("de-DE", { minimumFractionDigits: digits, maximumFractionDigits: digits }) +
+    n.toLocaleString(numberLocale(), { minimumFractionDigits: digits, maximumFractionDigits: digits }) +
     " " +
     currency
   );
@@ -224,7 +225,7 @@ export function fmtMoney(n: number | null, currency: "€" | "$", digits = 0): s
 /** FX rate wherever it's quoted (SUB-282): de-DE like fmtMoney, always
     4 decimals ("0,8642") — a quote, not money, so no symbol attached. */
 export function fmtFx(rate: number): string {
-  return rate.toLocaleString("de-DE", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+  return rate.toLocaleString(numberLocale(), { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 }
 
 /** Design principle 11 — at most two sharp values per dashboard. Emphasis is

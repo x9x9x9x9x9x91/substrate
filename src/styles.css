@@ -6329,6 +6329,35 @@ body.agenda-window .palette:focus-visible {
   border-radius: 8px;
   background: var(--bg-elevated);
   cursor: grab;
+  /* SUB-948: the drop line below paints into the column's 6px gap from here;
+     the landing flash (.db-flashing) already assumed this position */
+  position: relative;
+}
+
+/* SUB-948: where a dragged card will land in an unsorted column — a 2px
+   accent line drawn in the gap ABOVE or BELOW this card. It is a
+   pseudo-element rather than a spacer element on purpose: a real node in the
+   column would add another 6px flex gap and shove every card down, so the
+   board would move while the pointer is aiming at it. Same accent-line
+   grammar as the table's column drag (.db-th-drop-before). */
+.db-card.db-drop-before::before,
+.db-card.db-drop-after::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.db-card.db-drop-before::before {
+  top: -4px;
+}
+
+.db-card.db-drop-after::after {
+  bottom: -4px;
 }
 
 .db-card:hover,
@@ -7183,6 +7212,13 @@ tr.db-draft-tr,
   color: var(--text-1);
 }
 
+/* Range selection (SUB-937) — a wash, not a second frame: the focused cell
+   keeps the accent outline as the one sharp mark in the range. */
+.sheet-cell.selected {
+  background: var(--accent-soft);
+  color: var(--text-1);
+}
+
 .sheet-num .sheet-cell,
 .sheet-num {
   text-align: right;
@@ -7301,6 +7337,156 @@ th.sheet-computed:hover {
   width: 100%;
 }
 
+/* Totals row (SUB-937) — the last row of the table, pinned to the bottom of
+   the scroll area so a long sheet keeps its totals in view. A summary whose
+   formula describes exactly one column lives here instead of in the footer. */
+
+.sheet-totals td {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  background: var(--bg-panel);
+  border-top: 1px solid var(--hair);
+  border-bottom: none;
+  vertical-align: top;
+}
+
+.sheet-totals-cell {
+  padding: 0;
+  position: relative;
+}
+
+/* The editor overlays its cell rather than living in it: a 220px input in a
+   narrow column would widen the column and shove the whole grid sideways for
+   the length of one edit (design-principles §4, geometry is constant). The
+   summaries underneath keep rendering, so the row never changes height. */
+/* the sticky cells share one z-index, so a later sibling (the spacer) would
+   paint over the overlay — the editing cell lifts above its row */
+.sheet-totals-cell.editing {
+  z-index: 4;
+}
+
+.sheet-totals-cell .sheet-fx-edit {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  z-index: 3;
+  background: var(--bg-elevated);
+  border-radius: var(--r);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.sheet-total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 5px 10px 6px;
+  font-family: var(--font);
+  cursor: pointer;
+}
+
+.sheet-total:hover {
+  background: var(--hover-dense);
+}
+
+.sheet-num .sheet-total {
+  align-items: flex-end;
+}
+
+.sheet-total-name {
+  font-size: 10.5px;
+  color: var(--text-4);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sheet-total-val {
+  font-size: 13px;
+  color: var(--text-1);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Quiet until pointed at — an always-visible + per column would be a button
+   per row (design-principles §6). */
+.sheet-total-add {
+  width: 100%;
+  min-height: 30px;
+  border: none;
+  background: transparent;
+  color: var(--text-4);
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.sheet-totals:hover .sheet-total-add,
+.sheet-total-add:hover,
+.sheet-total-add:focus-visible {
+  opacity: 1;
+}
+
+/* The shared `name = formula` editor — totals cell and footer chip. */
+.sheet-fx-edit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 4px 6px;
+}
+
+.sheet-fx-input {
+  border: none;
+  outline: none;
+  background: var(--bg-elevated);
+  color: var(--text-1);
+  font-size: 12px;
+  font-family: var(--font);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  padding: 3px 8px;
+  min-width: 220px;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+
+.sheet-fx-input.err {
+  box-shadow: inset 0 0 0 1.5px var(--danger);
+}
+
+.sheet-fx-picks {
+  display: flex;
+  gap: 2px;
+}
+
+.sheet-fx-pick {
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font);
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.sheet-fx-pick:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.sheet-fx-err {
+  font-size: 11px;
+  color: var(--danger);
+}
+
 .sheet-summary {
   flex: none;
   display: flex;
@@ -7314,20 +7500,35 @@ th.sheet-computed:hover {
 .sheet-sum-row {
   display: flex;
   align-items: baseline;
-  gap: 20px;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
-/* the expanded second tier (SUB-939): same chips, one step quieter and one
-   step tighter, so the headline row stays the thing the eye lands on */
-.sheet-sum-rest {
-  gap: 16px;
+/* Chips wrap inside their own track, so .sheet-meta keeps the right edge of
+   the first line instead of being pushed onto one of its own. */
+.sheet-sums {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 14px;
 }
 
 .sheet-sum {
   display: inline-flex;
   align-items: baseline;
-  gap: 7px;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  font-family: var(--font);
+  padding: 1px 4px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.sheet-sum:hover {
+  background: var(--hover-dense);
 }
 
 .sheet-sum-name {
@@ -7340,6 +7541,10 @@ th.sheet-computed:hover {
   font-weight: 620;
   color: var(--text-1);
   font-variant-numeric: tabular-nums;
+}
+
+.sheet-sum-rest {
+  gap: 16px;
 }
 
 .sheet-sum-quiet .sheet-sum-name {
@@ -7385,6 +7590,26 @@ th.sheet-computed:hover {
   white-space: nowrap;
 }
 
+.sheet-sum-add {
+  border: none;
+  background: transparent;
+  color: var(--text-4);
+  font-family: var(--font);
+  font-size: 11.5px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.sheet-sum-add:hover {
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+/* The "show all (N)" toggle over the summaries the bar folded away. */
 .sheet-sum-more {
   border: none;
   background: transparent;
@@ -7405,12 +7630,33 @@ th.sheet-computed:hover {
   color: var(--text-1);
 }
 
-.sheet-sum-hint {
+/* Transient selection readout — display only, never persisted. */
+.sheet-selstat {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.sheet-selstat-k {
+  font-size: 11px;
+  color: var(--text-4);
+}
+
+.sheet-selstat-v {
   font-size: 12px;
-  color: var(--text-3);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  margin-right: 7px;
+}
+
+.sheet-selstat-v:last-child {
+  margin-right: 0;
 }
 
 .sheet-meta {
+  flex: none;
   margin-left: auto;
   font-size: 11.5px;
   color: var(--text-3);
@@ -7438,7 +7684,10 @@ th.sheet-computed:hover {
 @media (prefers-reduced-motion: reduce) {
   .sheet-tool,
   .sheet-addcol-btn,
-  .sheet-addrow button {
+  .sheet-addrow button,
+  .sheet-total-add,
+  .sheet-fx-pick,
+  .sheet-sum-add {
     transition: none;
   }
 }

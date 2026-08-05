@@ -30,6 +30,7 @@
 import { canonicalColumn, dbColumns, effectiveColumns } from "./dbcolumns.ts";
 import { sortCmpFor } from "./dbsort.ts";
 import { displayValue } from "./display.ts";
+import { numberLocale } from "./numberLocale.ts";
 import { filterInherits, parseQuery } from "./query.ts";
 import {
   byFoldedKey,
@@ -491,7 +492,15 @@ export function embedQueryFor(
         const join = colJoins[i];
         if (join) return (resolver as JoinResolver).cellText(n, join);
         const v = foldedPropStr(n.props, c) ?? "";
-        return v ? displayValue(v, kinds[i], byFoldedKey(typeSchema, c)?.format) : "";
+        // the dial, not de-DE: an embedded view sits beside the database pane
+        // that renders the same rows, and two dialects on one screen is the
+        // exact failure the single seam exists to prevent (SUB-1092). Module
+        // binding rather than a threaded prop because nothing threads props
+        // into a fence snapshot; ViewWidget's identity carries the vault
+        // epoch, which a Settings.md write bumps, so the fence repaints.
+        return v
+          ? displayValue(v, kinds[i], byFoldedKey(typeSchema, c)?.format, undefined, numberLocale())
+          : "";
       }),
     })),
   };

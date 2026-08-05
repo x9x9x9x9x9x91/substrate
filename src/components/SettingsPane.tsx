@@ -9,6 +9,7 @@ import { Fragment, lazy, Suspense, useCallback, useEffect, useRef, useState } fr
 import { onboardingStatus, vaultRead } from "../lib/ipc";
 import ReflexesSettings from "./ReflexesSettings";
 import { normalizeNumberInput } from "../lib/aggregate";
+import { NUMBER_LOCALES, numberLocaleSample, numberLocaleSetting } from "../lib/numberLocale";
 import { setPropUndoable } from "../lib/undoprops";
 import { useEdgeFade } from "../hooks/useEdgeFade";
 import { useUndo } from "../lib/undoContext";
@@ -94,7 +95,7 @@ interface Field {
   /** text fields only: render as a password input (shoulder-surfing guard —
       the value still lives in Settings.md as plain frontmatter) */
   masked?: boolean;
-  /** choice fields only: the two options, first one the default an unset key
+  /** choice fields only: the options, first one the default an unset key
       reads as (SUB-834) */
   choices?: { value: string; label: string }[];
   /** heading this field opens (rendered above its row) — the list is flat and
@@ -187,10 +188,14 @@ function selectValue(f: Field, raw: string): string {
 }
 
 /** current option of a choice field: an unset or unrecognized value reads as
-    the first choice, matching how the parsers in `lib/settings.ts` default */
+    the first choice, matching how the parsers in `lib/settings.ts` default.
+    Matched on a trimmed case-fold, like `selectValue` — a hand-typed
+    `number-locale: en-us` is the value the app formats with (SUB-1092), so
+    the row has to show it selected rather than falling back to the default. */
 function choiceValue(f: Field, raw: string): string {
   const choices = f.choices ?? [];
-  return choices.some((c) => c.value === raw) ? raw : (choices[0]?.value ?? "");
+  const want = raw.trim().toLowerCase();
+  return choices.find((c) => c.value.toLowerCase() === want)?.value ?? choices[0]?.value ?? "";
 }
 
 const FIELDS: Field[] = [
@@ -338,15 +343,17 @@ const FIELDS: Field[] = [
     placeholder: "Sweep inbox: /inbox-sweep",
     kind: "multiline",
   },
+  /* SUB-1092: ONE dial for the number dialect. Its predecessor `number-format`
+     offered two values and reached only calc lines and unit cells while every
+     other surface stayed hardwired to German — the pane promised more than it
+     did. This key reaches all of them, and the labels are the locales' own
+     output (numberLocaleSample) so the row reads as the thing it changes. */
   {
-    key: "number-format",
+    key: "number-locale",
     label: "Number format",
-    hint: "how numbers are written in tables, calc lines and totals",
+    hint: "how every number is written — table cells, calc lines, totals, dashboards, file sizes",
     kind: "choice",
-    choices: [
-      { value: "de", label: "1.234,56" },
-      { value: "intl", label: "1,234.56" },
-    ],
+    choices: NUMBER_LOCALES.map((l) => ({ value: l, label: `${numberLocaleSample(l)}  ·  ${l}` })),
   },
   /* SUB-834: the three requests that leave this machine, each with its own
      switch. Grouped under one heading so the answer to "what does this app
@@ -480,6 +487,17 @@ export default function SettingsPane({
         const raw = c.props[foldedPropKey(c.props, f.key)];
         v[f.key] = fieldText(f, raw);
       }
+      // The number dial must report the locale the app is ACTUALLY rendering
+      // in (SUB-1092). With `number-locale` absent, fieldText falls back to
+      // the first choice — de-DE — but a vault still carrying the retired
+      // `number-format: intl` key renders en-US, so the row would show de-DE
+      // selected while the numbers say otherwise, and clicking the
+      // apparently-selected row would silently flip them. numberLocaleSetting
+      // is the same reader App uses, over the folded keys.
+      v["number-locale"] = numberLocaleSetting({
+        "number-locale": c.props[foldedPropKey(c.props, "number-locale")],
+        "number-format": c.props[foldedPropKey(c.props, "number-format")],
+      });
       setValues(v);
       setSaved(v);
       setMissing(false);

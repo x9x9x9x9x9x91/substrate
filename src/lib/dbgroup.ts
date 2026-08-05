@@ -126,6 +126,29 @@ export function distinctNotes(notes: NoteMeta[]): NoteMeta[] {
   return out;
 }
 
+/** Apply a board's hand order (SUB-948) to one column's notes. Mirrors
+    `orderedColumns`: the notes the order names lead, in its sequence; every
+    other note keeps the order it came in (the view's resting order) behind
+    them. Paths naming no note here are skipped, so an order carrying notes
+    from other columns — the field is one flat list for the whole board —
+    arranges each column without knowing about the split, and a note deleted
+    or renamed outside the app costs nothing but its own entry. */
+export function orderedNotes(notes: NoteMeta[], order: string[] | undefined): NoteMeta[] {
+  if (!order || order.length === 0) return notes;
+  const byPath = new Map(notes.map((n) => [n.path, n]));
+  const lead: NoteMeta[] = [];
+  const taken = new Set<string>();
+  for (const path of order) {
+    const n = byPath.get(path);
+    if (n && !taken.has(path)) {
+      lead.push(n);
+      taken.add(path);
+    }
+  }
+  if (lead.length === 0) return notes;
+  return [...lead, ...notes.filter((n) => !taken.has(n.path))];
+}
+
 /** The prop a table groups by (SUB-184): the saved pref when it still names
     a groupable column (multi-kind excluded, SUB-79; rollup excluded,
     SUB-678 — a derived column groups nothing), else ungrouped — unlike

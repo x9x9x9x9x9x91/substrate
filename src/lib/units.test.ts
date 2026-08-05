@@ -198,31 +198,31 @@ test("sameDimension groups convertible units and separates the rest", () => {
 // ---------- formatQuantity ----------
 
 test("formatQuantity renders the de-DE dialect with the unit suffix", () => {
-  assert.equal(formatQuantity(1234.56, "EUR", "de"), "1.234,56 €");
-  assert.equal(formatQuantity(1234.56, "kg", "de"), "1.234,56 kg");
-  assert.equal(formatQuantity(128, "BPM", "de"), "128 BPM");
-  assert.equal(formatQuantity(-14.2, "LUFS", "de"), "-14,2 LUFS");
-  assert.equal(formatQuantity(50, "%", "de"), "50 %");
+  assert.equal(formatQuantity(1234.56, "EUR", "de-DE"), "1.234,56 €");
+  assert.equal(formatQuantity(1234.56, "kg", "de-DE"), "1.234,56 kg");
+  assert.equal(formatQuantity(128, "BPM", "de-DE"), "128 BPM");
+  assert.equal(formatQuantity(-14.2, "LUFS", "de-DE"), "-14,2 LUFS");
+  assert.equal(formatQuantity(50, "%", "de-DE"), "50 %");
 });
 
-test("formatQuantity renders the intl dialect", () => {
-  assert.equal(formatQuantity(1234.56, "EUR", "intl"), "1,234.56 €");
-  assert.equal(formatQuantity(1234.56, "kg", "intl"), "1,234.56 kg");
-  assert.equal(formatQuantity(1000000, null, "intl"), "1,000,000");
+test("formatQuantity renders an en-US dialect", () => {
+  assert.equal(formatQuantity(1234.56, "EUR", "en-US"), "1,234.56 €");
+  assert.equal(formatQuantity(1234.56, "kg", "en-US"), "1,234.56 kg");
+  assert.equal(formatQuantity(1000000, null, "en-US"), "1,000,000");
 });
 
 test("formatQuantity leaves a unit-less number bare", () => {
-  assert.equal(formatQuantity(1234.5, null, "de"), "1.234,5");
-  assert.equal(formatQuantity(42, null, "de"), "42");
+  assert.equal(formatQuantity(1234.5, null, "de-DE"), "1.234,5");
+  assert.equal(formatQuantity(42, null, "de-DE"), "42");
 });
 
 test("formatQuantity pre-rounds float noise and normalizes -0", () => {
-  assert.equal(formatQuantity(0.1 + 0.2, null, "de"), "0,3");
-  assert.equal(formatQuantity(-0, "kg", "de"), "0 kg");
-  assert.equal(formatQuantity(-0.001, "kg", "de"), "0 kg");
-  assert.equal(formatQuantity(2.005, null, "intl"), "2.01");
+  assert.equal(formatQuantity(0.1 + 0.2, null, "de-DE"), "0,3");
+  assert.equal(formatQuantity(-0, "kg", "de-DE"), "0 kg");
+  assert.equal(formatQuantity(-0.001, "kg", "de-DE"), "0 kg");
+  assert.equal(formatQuantity(2.005, null, "en-US"), "2.01");
 });
 
 test("formatQuantity spells out a unit it doesn't know rather than dropping it", () => {
-  assert.equal(formatQuantity(5, "furlong", "de"), "5 furlong");
+  assert.equal(formatQuantity(5, "furlong", "de-DE"), "5 furlong");
 });

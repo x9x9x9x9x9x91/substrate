@@ -25,6 +25,7 @@ pub(crate) fn vault_views_set(
     wrap: Option<Vec<String>>,
     grid: Option<bool>,
     hidden_per_layout: Option<crate::vault::HiddenPerLayout>,
+    card_order: Option<Vec<String>>,
 ) -> Result<std::collections::HashMap<String, ViewPref>, String> {
     // .vault/ writes are invisible to the watcher, so mark for snapshot here
     dirty.mark();
@@ -41,6 +42,7 @@ pub(crate) fn vault_views_set(
         wrap,
         grid,
         hidden_per_layout,
+        card_order,
     )
 }
 

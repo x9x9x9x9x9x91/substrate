@@ -1,3 +1,4 @@
+import { numberLocale } from "../lib/numberLocale";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { NoteMeta } from "../lib/types";
@@ -65,7 +66,7 @@ const STATE_WORD: Record<DayState, string> = {
   over: "over ceiling",
 };
 
-const fmt = (v: number): string => v.toLocaleString("de-DE");
+const fmt = (v: number): string => v.toLocaleString(numberLocale());
 
 /** Percent-across-the-plot of column `i`'s centre, for the weight overlay
     (SUB-707): the strip's columns are equal flex children, so column centres
@@ -758,7 +759,7 @@ export default function FoodDashboard({
                         <span
                           className="food-weight-dot"
                           key={p.day}
-                          title={`${dayLabel(p.day)} · ${p.kg.toLocaleString("de-DE", { maximumFractionDigits: 1 })} kg`}
+                          title={`${dayLabel(p.day)} · ${p.kg.toLocaleString(numberLocale(), { maximumFractionDigits: 1 })} kg`}
                           onClick={() => setDayOffset(p.col - (d.days.length - 1))}
                           style={{
                             left: `${colX(p.col, d.days.length)}%`,
@@ -814,7 +815,7 @@ export default function FoodDashboard({
                               bottom: `${bottom}%`,
                             }}
                           >
-                            {p.kg.toLocaleString("de-DE", { maximumFractionDigits: 1 })}
+                            {p.kg.toLocaleString(numberLocale(), { maximumFractionDigits: 1 })}
                           </span>
                         );
                       })}
@@ -1194,7 +1195,7 @@ export default function FoodDashboard({
                 {/* the overlay has no axis, so the footer says what the line
                     is and over what range it's scaled */}
                 {weight !== null &&
-                  ` · weight line ${weight.min.toLocaleString("de-DE", { maximumFractionDigits: 1 })}–${weight.max.toLocaleString("de-DE", { maximumFractionDigits: 1 })} kg from ${weightName}`}
+                  ` · weight line ${weight.min.toLocaleString(numberLocale(), { maximumFractionDigits: 1 })}–${weight.max.toLocaleString(numberLocale(), { maximumFractionDigits: 1 })} kg from ${weightName}`}
               </div>
             </>
           )

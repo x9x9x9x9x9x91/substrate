@@ -2325,6 +2325,8 @@ impl Engine {
         self.move_sidebar_pin(rel, Some(&new_rel))?;
         // an assigned key is keyed by path too (SUB-467)
         self.move_sidebar_keys(rel, Some(&new_rel))?;
+        // so is a board card's hand-dragged slot (SUB-948)
+        self.move_card_order(rel, &new_rel)?;
         for src in &sources {
             if src != rel {
                 self.reindex_one(src);
@@ -2548,6 +2550,8 @@ impl Engine {
         // and so does an assigned key (SUB-467)
         self.move_sidebar_pin(rel, Some(&new_rel))?;
         self.move_sidebar_keys(rel, Some(&new_rel))?;
+        // …and the board slot the card was dragged to (SUB-948)
+        self.move_card_order(rel, &new_rel)?;
         self.notes.get(&new_rel).cloned().ok_or_else(|| "move failed".into())
     }
 
@@ -2599,6 +2603,8 @@ impl Engine {
         // (SUB-889) has to as well — otherwise renaming a sealed folder would
         // quietly leave the seal unconfirmed and unenforced.
         self.move_scope_trust(old_rel, Some(&new_rel))?;
+        // every board card inside the folder keeps its slot (SUB-948)
+        self.move_card_order(old_rel, &new_rel)?;
         Ok(new_rel)
     }
 
@@ -2660,6 +2666,8 @@ impl Engine {
         // (SUB-889) has to as well — otherwise renaming a sealed folder would
         // quietly leave the seal unconfirmed and unenforced.
         self.move_scope_trust(old_rel, Some(&new_rel))?;
+        // every board card inside the folder keeps its slot (SUB-948)
+        self.move_card_order(old_rel, &new_rel)?;
         Ok(new_rel)
     }
 
@@ -3480,7 +3488,7 @@ mod tests {
         e.rescan();
         e.write_body("Note.md", "v2\n", None).unwrap();
         e.set_prop("Note.md", "status", Some("live")).unwrap();
-        e.set_view_pref("release", "board", None, None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref("release", "board", None, None, None, None, None, None, None, None, None, None, None).unwrap();
         let raw = fs::read_to_string(dir.join("Note.md")).unwrap();
         assert!(raw.contains("v2") && raw.contains("status: live"), "write round-trips: {raw}");
         assert!(dir.join(ViewPref::REL_PATH).is_file(), "views.json written");
@@ -4821,6 +4829,7 @@ mod tests {
                 table: Some(vec!["status".to_string(), "artist".to_string()]),
                 list: Some(vec!["status".to_string()]),
             }),
+            None,
         )
         .unwrap();
 
@@ -5374,7 +5383,7 @@ mod tests {
             assert_eq!(crate::vaultfmt::on_disk_version(&dir, f), 1, "{}", f.key());
         }
         e.create_type("books", Vec::new()).unwrap();
-        e.set_view_pref("books", "table", None, None, None, None, None, None, None, None, None, None).unwrap();
+        e.set_view_pref("books", "table", None, None, None, None, None, None, None, None, None, None, None).unwrap();
         let side = crate::vaultfmt::read_sidecar(&dir);
         assert_eq!(side["schema"], serde_json::json!(1), "schema write stamped");
         assert_eq!(side["views"], serde_json::json!(1), "views write stamped");

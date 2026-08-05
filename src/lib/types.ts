@@ -327,6 +327,15 @@ export interface ViewPref {
       The Name column is frozen first and never appears here. Absent = the
       default order. */
   col_order?: string[];
+  /** the board's hand order (SUB-948) — note paths in the order a card drag
+      left them, for the whole board rather than per column, so a card keeps
+      its slot when its group changes. It lives here and NEVER as a prop in
+      the note file: the vault format stays untouched by a UI arrangement.
+      Only an UNSORTED board reads it (a sorted view's order is its sort).
+      Tolerant by construction: paths naming no note are ignored, and a note
+      the list doesn't mention appends after the ordered ones in resting
+      order — so a note created or renamed outside the app can't break it. */
+  card_order?: string[];
   /** table column widths in px (SUB-404), prop → width; the reserved `title`
       key sizes the Name column. Absent = every column auto-sizes. */
   widths?: Record<string, number>;

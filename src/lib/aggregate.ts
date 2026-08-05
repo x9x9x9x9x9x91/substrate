@@ -1,6 +1,12 @@
 import type { AggKind, NumberFormat } from "./types.ts";
 import type { FxResolver } from "./formula.ts";
 import { isErr } from "./formula.ts";
+import {
+  DEFAULT_NUMBER_LOCALE,
+  NUMBER_GRAMMARS,
+  numberLocale,
+  type NumberLocale,
+} from "./numberLocale.ts";
 import { convert, formatQuantity, parseQuantity, resolveUnit, sameDimension } from "./units.ts";
 
 // units.ts imports this module's number grammar (normalizeNumberInput,
@@ -28,45 +34,84 @@ export function parseStrictNumber(s: string): number | null {
   return Number(t);
 }
 
-/* German-typed number input (SUB-636). Display is de-DE everywhere
-   (formatNumber → "1.234,56 €"), but storage and every parser here are
-   canonical dot-decimal — so text typed back in the app's own dialect used to
-   either corrupt silently ("1.234" read as 1,234 → "1,23 €", a 1000× error
+/* Locale-typed number input (SUB-636, made locale-aware in SUB-1092). Display
+   goes through the number-locale dial ("1.234,56 €" in de-DE, "1,234.56" in
+   en-US, "1'234.56" in de-CH…), but storage and every parser here are
+   canonical dot-decimal — so text typed back in the app's OWN dialect would
+   either corrupt silently (de "1.234" read as 1,234 → "1,23 €", a 1000× error
    that still looks like money) or drop out of sums entirely ("1.234,56"
-   matches no parser, so aggregates skip the row while count counts it).
-   These normalize typed text at the commit boundary; YAML stays canonical.
+   matches no parser, so aggregates skip the row while count counts it). These
+   normalize typed text at the commit boundary; YAML stays canonical.
 
-   The grammar is deliberately narrow — dot is read as GROUPING only where a
-   de-DE reading is unambiguous or where the app itself produced that shape:
+   Before SUB-1092 the grammar was hardwired German, which moved the same bug
+   onto every other dial position: under en-US the app rendered 1234 as
+   "1,234" and read that back as 1.234, and "1'234"/"1 234,56" were NaN.
 
-     comma present  → comma is the decimal separator (de-DE has no other use
-                      for it). The integer part must be bare digits or
-                      well-formed 3-digit groups: "1.234,56"→1234.56,
-                      "12,5"→12.5, "-1.234,56"→-1234.56. "1.2.3,4" is neither
-                      → left alone.
-     no comma, dots → grouping ONLY for the exact shape de-DE rendering emits:
-                      1–3 leading digits with a non-zero head, then one or
-                      more ".ddd" groups. "1.234"→1234, "1.234.567"→1234567.
-                      This is the one genuinely ambiguous case (en 1.234 vs de
-                      1234) and it resolves to de, because that shape is what
-                      the app rendered into the cell the user is retyping.
-                      The non-zero head keeps en decimals like "0.123" out of
-                      it, and "1234.56"/"1.5" fail the group shape, so
-                      en-style decimals keep working untouched.
+   The grammar is per-locale and deliberately narrow — a group separator is
+   read as grouping only where that locale's reading is unambiguous or where
+   the app itself produced that shape:
+
+     decimal sep    → it splits. The integer part must be bare digits or
+       present        well-formed 3-digit groups of THIS locale's group
+                      separator: de-DE "1.234,56"→1234.56, "12,5"→12.5,
+                      en-US "1,234.56"→1234.56, fr-FR "1 234,56"→1234.56.
+                      "1.2.3,4" is neither → left alone.
+     no decimal sep,→ grouping ONLY for the exact shape this locale renders:
+       group seps     1–3 leading digits with a non-zero head, then one or
+                      more "sep+ddd" groups. de-DE "1.234"→1234, en-US
+                      "1,234"→1234, de-CH "1'234"→1234. de-DE's is the one
+                      genuinely ambiguous case (en 1.234 vs de 1234) and it
+                      still resolves to de, because that shape is what the app
+                      rendered into the cell the user is retyping. The
+                      non-zero head keeps decimals like "0.123" out of it, and
+                      "1234.56"/"1.5" fail the group shape — so under a
+                      dot-decimal locale canonical storage text round-trips
+                      untouched, as it must.
      anything else  → returned verbatim; a value we can't read confidently is
                       never rewritten. */
-const DE_DECIMAL_RE = /^([+-]?)(\d+|[1-9]\d{0,2}(?:\.\d{3})+),(\d+)$/;
-const DE_GROUPED_RE = /^([+-]?)([1-9]\d{0,2}(?:\.\d{3})+)$/;
 
-/** Typed cell text → canonical dot-decimal when it reads as a de-DE number,
-    else the text unchanged (trimmed). Only ever called for number-KIND
-    columns — other kinds must keep dots and commas verbatim. */
-export function normalizeNumberInput(s: string): string {
+function escRe(ch: string): string {
+  return ch.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
+}
+
+interface Grammar {
+  decimal: RegExp;
+  grouped: RegExp;
+  strip: RegExp;
+}
+
+const GRAMMARS = new Map<NumberLocale, Grammar>();
+
+function grammar(locale: NumberLocale): Grammar {
+  const hit = GRAMMARS.get(locale);
+  if (hit) return hit;
+  const g = NUMBER_GRAMMARS[locale];
+  const sep = `[${g.groups.map(escRe).join("")}]`;
+  const grouped = `[1-9]\\d{0,2}(?:${sep}\\d{3})+`;
+  const built: Grammar = {
+    decimal: new RegExp(`^([+-]?)(\\d+|${grouped})${escRe(g.decimal)}(\\d+)$`),
+    grouped: new RegExp(`^([+-]?)(${grouped})$`),
+    strip: new RegExp(sep, "g"),
+  };
+  GRAMMARS.set(locale, built);
+  return built;
+}
+
+/** Typed cell text → canonical dot-decimal when it reads as a number in
+    `locale`, else the text unchanged (trimmed). Only ever called for
+    number-KIND columns — other kinds must keep dots and commas verbatim.
+
+    `locale` defaults to the module binding (numberLocale.ts), i.e. whatever
+    the ⌘, dial last read out of Settings.md: the commit boundary is not
+    memoized, so the binding is always current by the time a keystroke lands.
+    Call sites that already hold the locale as a prop may pass it. */
+export function normalizeNumberInput(s: string, locale: NumberLocale = numberLocale()): string {
   const t = s.trim();
-  const dec = DE_DECIMAL_RE.exec(t);
-  if (dec) return `${dec[1]}${dec[2].replace(/\./g, "")}.${dec[3]}`;
-  const grouped = DE_GROUPED_RE.exec(t);
-  if (grouped) return `${grouped[1]}${grouped[2].replace(/\./g, "")}`;
+  const g = grammar(locale);
+  const dec = g.decimal.exec(t);
+  if (dec) return `${dec[1]}${dec[2].replace(g.strip, "")}.${dec[3]}`;
+  const grouped = g.grouped.exec(t);
+  if (grouped) return `${grouped[1]}${grouped[2].replace(g.strip, "")}`;
   return t;
 }
 
@@ -267,8 +312,9 @@ export function updateAggregation(
   return next;
 }
 
-/** Display form (SUB-245): German grouping with at most 2 decimals
-    ("1.234,5"), honoring the column's NumberFormat like the cells do
+/** Display form (SUB-245): the dial's grouping with at most 2 decimals
+    ("1.234,5" in de-DE, "1,234.5" in en-US), honoring the column's
+    NumberFormat like the cells do
     (display.ts formatNumber) — euro appends " €", percent " %", plain and
     schema-less columns stay bare. Since SUB-834 any units.ts code does the
     same through the unit's own suffix ("1.234,5 kg", "128 BPM"); euro and
@@ -276,15 +322,16 @@ export function updateAggregation(
     Count stays a plain integer: rows counted in a euro column are not euros.
     The pre-round kills float noise (0.1 + 0.2 → "0,3"); `|| 0` normalizes -0.
 
-    `style` picks the number dialect (SUB-834): "de" is the app's own
-    (1.234,56), "intl" the en-US one (1,234.56). It defaults to "de" so every
-    existing call site renders exactly as before. */
+    `locale` picks the number dialect. It arrived in SUB-834 as a two-value
+    "de"/"intl" flag and became a full BCP-47 tag from NUMBER_LOCALES in
+    SUB-1092; it still defaults to DEFAULT_NUMBER_LOCALE, so a call site that
+    threads nothing renders exactly as it always did. */
 export function formatAgg(
   n: number,
   kind: AggKind,
   format?: NumberFormat,
-  style: "de" | "intl" = "de"
+  locale: NumberLocale = DEFAULT_NUMBER_LOCALE
 ): string {
   const unit = kind === "count" ? null : formatUnit(format);
-  return formatQuantity(n, unit, style);
+  return formatQuantity(n, unit, locale);
 }

@@ -1,3 +1,4 @@
+import type { NumberLocale } from "../lib/numberLocale";
 import type { NoteMeta, PropSchema } from "../lib/types";
 import { NOTE_DRAG_MIME } from "../lib/sidebar";
 import { missingCls } from "../lib/mounts";
@@ -14,7 +15,7 @@ export default function DbListLayout({
   curated,
   fx,
   fxAsOf,
-  numberStyle,
+  numberLocale,
   openPath,
   bgMenuProps,
   head,
@@ -35,7 +36,7 @@ export default function DbListLayout({
   curated: string[] | undefined;
   fx?: FxResolver;
   fxAsOf?: string;
-  numberStyle: "de" | "intl";
+  numberLocale: NumberLocale;
   openPath: string | null;
   bgMenuProps: { onContextMenu: (e: React.MouseEvent) => void };
   head: React.ReactNode;
@@ -103,9 +104,9 @@ export default function DbListLayout({
               <span className="row-title">{n.title}</span>
               <span className="row-date">{relDate(n.updated_ms)}</span>
             </div>
-            {cardSubtitle(n, typeSchema, undefined, curated, fx, fxAsOf, numberStyle) && (
+            {cardSubtitle(n, typeSchema, undefined, curated, fx, fxAsOf, numberLocale) && (
               <span className="row-sub">
-                {cardSubtitle(n, typeSchema, undefined, curated, fx, fxAsOf, numberStyle)}
+                {cardSubtitle(n, typeSchema, undefined, curated, fx, fxAsOf, numberLocale)}
               </span>
             )}
           </div>

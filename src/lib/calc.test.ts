@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { CALC_ERR_DISPLAY, evalCalcDoc, fencedLines, hasExecutableCalcLine, isCalcLine } from "./calc.ts";
 import type { FxResolver } from "./formula.ts";
+import type { NumberLocale } from "./numberLocale.ts";
 
 // USD→EUR and GBP→EUR only; every other pair is "no rate", which is what the
 // error paths below exercise.
@@ -15,12 +16,12 @@ const fx: FxResolver = (from, to) => {
 const noFx: FxResolver = (from, to) => (from === to ? 1 : null);
 
 /** One document, one line's answer. */
-const calc = (body: string, line = 0, resolver: FxResolver = fx, style: "de" | "intl" = "de") =>
-  evalCalcDoc(body.split("\n"), resolver, style).get(line);
+const calc = (body: string, line = 0, resolver: FxResolver = fx, locale: NumberLocale = "de-DE") =>
+  evalCalcDoc(body.split("\n"), resolver, locale).get(line);
 
 /** The formatted display of a line, asserting it wasn't an error. */
-const shown = (body: string, line = 0, resolver: FxResolver = fx, style: "de" | "intl" = "de") => {
-  const r = calc(body, line, resolver, style);
+const shown = (body: string, line = 0, resolver: FxResolver = fx, locale: NumberLocale = "de-DE") => {
+  const r = calc(body, line, resolver, locale);
   assert.ok(r, `expected a calc result on line ${line}`);
   assert.equal(r.err, undefined, `unexpected error: ${r.err}`);
   return r.display;
@@ -56,7 +57,7 @@ test("isCalcLine ignores setext underlines and a lone =", () => {
 
 test("non-calc lines get no result at all", () => {
   const doc = ["a note", "x = 12", "", "1 + 1"];
-  const out = evalCalcDoc(doc, fx, "de");
+  const out = evalCalcDoc(doc, fx, "de-DE");
   assert.equal(out.size, 0);
 });
 
@@ -84,7 +85,7 @@ test("fences close only with the opener marker and at least its run length", () 
 
 test("skipped lines neither compute nor bind", () => {
   const lines = ["```", "= x: 5", "```", "= x + 1"];
-  const out = evalCalcDoc(lines, fx, "de", fencedLines(lines));
+  const out = evalCalcDoc(lines, fx, "de-DE", fencedLines(lines));
   assert.equal(out.has(1), false);
   assert.equal(out.get(3)?.err, "unknown name “x”");
 });
@@ -107,11 +108,11 @@ test("division by zero is a quiet error", () => {
 });
 
 test("number-suffix shorthand", () => {
-  assert.equal(shown("= 3.9M", 0, fx, "intl"), "3,900,000");
+  assert.equal(shown("= 3.9M", 0, fx, "en-US"), "3,900,000");
   assert.equal(shown("= 12k"), "12.000");
   assert.equal(shown("= 12K"), "12.000");
-  assert.equal(shown("= 2B", 0, fx, "intl"), "2,000,000,000");
-  assert.equal(shown("= 1.5M + 500k", 0, fx, "intl"), "2,000,000");
+  assert.equal(shown("= 2B", 0, fx, "en-US"), "2,000,000,000");
+  assert.equal(shown("= 1.5M + 500k", 0, fx, "en-US"), "2,000,000");
 });
 
 test("shorthand does not eat a unit that starts with the same letter", () => {
@@ -122,7 +123,7 @@ test("shorthand does not eat a unit that starts with the same letter", () => {
 test("German decimals parse", () => {
   assert.equal(shown("= 1.234,56 + 1"), "1.235,56");
   assert.equal(shown("= 12,5 * 2"), "25");
-  assert.equal(shown("= 1.234,56", 0, fx, "intl"), "1,234.56");
+  assert.equal(shown("= 1.234,56", 0, fx, "en-US"), "1,234.56");
 });
 
 test("junk inside a calc line is a quiet error, not a crash", () => {
@@ -161,8 +162,8 @@ test("multiplication and division carry the unit", () => {
 });
 
 test("currency symbols lead or trail their number", () => {
-  assert.equal(shown("= $25 + $5", 0, fx, "intl"), "30 $");
-  assert.equal(shown("= 25 USD + 5 USD", 0, fx, "intl"), "30 $");
+  assert.equal(shown("= $25 + $5", 0, fx, "en-US"), "30 $");
+  assert.equal(shown("= 25 USD + 5 USD", 0, fx, "en-US"), "30 $");
   assert.equal(shown("= € 1.234,56"), "1.234,56 €");
 });
 
@@ -309,13 +310,13 @@ test("an aggregate binds and converts like any other line", () => {
 
 // ---------- formatting ----------
 
-test("style picks the dialect of the result", () => {
-  assert.equal(shown("= 1234.5 + 0", 0, fx, "de"), "1.234,5");
-  assert.equal(shown("= 1234.5 + 0", 0, fx, "intl"), "1,234.5");
+test("the locale picks the dialect of the result", () => {
+  assert.equal(shown("= 1234.5 + 0", 0, fx, "de-DE"), "1.234,5");
+  assert.equal(shown("= 1234.5 + 0", 0, fx, "en-US"), "1,234.5");
 });
 
 test("float noise is rounded away", () => {
-  assert.equal(shown("= 0.1 + 0.2", 0, fx, "intl"), "0.3");
+  assert.equal(shown("= 0.1 + 0.2", 0, fx, "en-US"), "0.3");
 });
 
 // ---------- a realistic note ----------
@@ -333,7 +334,7 @@ test("a whole shopping-list note computes end to end", () => {
     "",
     "not a calc line",
   ];
-  const out = evalCalcDoc(doc, fx, "de");
+  const out = evalCalcDoc(doc, fx, "de-DE");
   assert.deepEqual([...out.keys()], [5, 6, 7]);
   assert.equal(out.get(5)?.display, "1.336,96 €");
   assert.equal(out.get(6)?.display, "254,02 €");

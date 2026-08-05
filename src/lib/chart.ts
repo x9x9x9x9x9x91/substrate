@@ -711,6 +711,151 @@ export function aggregate(
   return { points, skipped, missing, bands: banded };
 }
 
+// ---------- band ramp slots ----------
+
+/** What one chart remembers about its own `by:` split, across renders: which
+    ramp slot each series value holds. Folded value → slot. Insertion order is
+    least-recently-present first, so eviction has somewhere honest to start.
+    Owned by the chart that renders it and dies with it — nothing is persisted
+    to the vault. */
+export type BandSlotMemory = Map<string, number>;
+
+/** Which chart a `BandSlotMemory` belongs to (SUB-1062). A dashboard renders
+    its chart fences from a list, so nothing about a chart's POSITION there can
+    identify it: delete the first fence of two and the second slides up into the
+    first's place — and, keyed on position, would inherit the first's colour
+    memory and be recoloured around series it has never shown. Same bug class as
+    the one this issue kills, one level up.
+
+    The key is what decides which series a split can show — the source and the
+    `by:` prop (a summary chart names its points instead, and has no split at
+    all; a `history:` chart has no source AND no split — the fact IS its
+    subject, so its note and key are what it is). Presentation is deliberately
+    NOT in it: retitling a chart, or flipping it between bar and line, keeps the
+    colours the reader already learned. Nor are `x`/`y`, which change the
+    numbers a series is worth, never its identity.
+
+    Total over every binding by construction: each arm of `ChartBind` answers
+    here, so a new binding cannot silently fall through to a `source` that does
+    not exist on it — the prune effect in `ChartsDashboard` calls this for EVERY
+    block on the page, so an unhandled arm is a runtime throw on the whole
+    dashboard rather than one bad colour.
+
+    Two fences with the same source and the same split therefore share one
+    memory, which is the point rather than a collision: `done` should be the
+    same green in both charts on a dashboard that splits by status twice. The
+    cost is paid when they show DISJOINT slices of that split: three fences
+    filtered to two series each share one 5-slot memory, and a series absent
+    from the render that evicts it can come back wearing a different colour.
+    Sharing is still the better default — the same value reading the same in
+    two charts is what a reader checks first — and the eviction order (least
+    recently present) keeps the flap to splits that genuinely outrun the ramp.
+
+    Case is folded, like every other user-authored key in this file. */
+export function chartIdentity(c: ChartConfig): string {
+  if (c.bind === "history") return `history:${c.fact.path.toLowerCase()}#${c.fact.key.toLowerCase()}`;
+  const src = c.source.kind === "db" ? `db:${c.source.type.toLowerCase()}` : `sheet:${c.source.name.toLowerCase()}`;
+  if (c.bind === "summaries") return `${src}|summaries:${c.series.map((s) => s.toLowerCase()).join("\u0000")}`;
+  return `${src}|by:${(c.by ?? "").toLowerCase()}`;
+}
+
+/** Assign each band its ramp slot, keyed on the series' IDENTITY rather than
+    its position in the split (SUB-1062).
+
+    `aggregate()` builds bands in the data's first-seen order, so before this a
+    series' colour was a function of where it happened to fall: delete every
+    `etf` row and `crypto` — orange a moment ago — was redrawn in slot 1's blue.
+    Self-consistent within any one render (the legend always agreed with the
+    slices), wrong across renders, which is the only way a person reads a
+    dashboard chart they keep open.
+
+    The contract this holds: a series that was on screen a render ago keeps its
+    slot as long as it is still on screen, whatever happened to the rows around
+    it. A series the chart has never shown takes the lowest free slot, and NEW
+    series are served in first-appearance order — so a chart's very first render
+    (nothing remembered) still walks the ramp from slot 1 downward, which is
+    what SUB-952's fixed-order invariant asserts.
+
+    `memory` is mutated in place: it is the chart's, and this is the only writer.
+    Eviction: it never grows past `capacity`, and only a series that is ABSENT
+    from this render can be evicted — the least recently present one first. A
+    split that oscillates between more distinct values than the ramp has slots
+    will therefore eventually recolour something; there is no fix for that short
+    of an unbounded registry, and forgetting the series nobody has seen for
+    longest is the least surprising thing to forget.
+
+    Total by construction: with more bands than `capacity` the tail gets slots at
+    and above `capacity`, which no token styles. The render path stops a 6th
+    series with a message before it ever draws, so that tail is unreachable in
+    the app — it exists so this function has no undefined case. */
+export function assignBandSlots(
+  bands: readonly { name: string }[],
+  memory: BandSlotMemory,
+  capacity: number,
+): number[] {
+  const folded = bands.map((b) => b.name.toLowerCase());
+  const slots = new Array<number>(bands.length).fill(-1);
+  const taken = new Set<number>();
+
+  // 1. survivors first — a remembered series keeps the slot it is wearing
+  folded.forEach((name, i) => {
+    const slot = memory.get(name);
+    if (slot !== undefined && !taken.has(slot)) {
+      slots[i] = slot;
+      taken.add(slot);
+    }
+  });
+
+  // 2. then the new ones, in first-appearance order, lowest free slot each.
+  //    A slot still reserved by an absent series is not free until every
+  //    unreserved slot is gone — that is what keeps a series' colour through a
+  //    render where its rows happen to be filtered out.
+  const reserved = new Set<number>();
+  for (const [name, slot] of memory) if (!taken.has(slot) && !folded.includes(name)) reserved.add(slot);
+  let overflow = capacity;
+  folded.forEach((_name, i) => {
+    if (slots[i] !== -1) return;
+    let slot = -1;
+    for (let s = 0; s < capacity; s++) {
+      if (!taken.has(s) && !reserved.has(s)) {
+        slot = s;
+        break;
+      }
+    }
+    if (slot === -1) {
+      // every slot is spoken for; the oldest absent series gives one up
+      const stale = [...memory].find(([, s]) => reserved.has(s));
+      if (stale) {
+        memory.delete(stale[0]);
+        reserved.delete(stale[1]);
+        slot = stale[1];
+      } else {
+        slot = overflow++; // more bands than the ramp has slots — see docstring
+      }
+    }
+    slots[i] = slot;
+    taken.add(slot);
+  });
+
+  // 3. rewrite the memory so present series are the most recently seen, which
+  //    makes step 2's "oldest absent" the actual least-recently-present one
+  const absent = [...memory].filter(([name]) => !folded.includes(name));
+  memory.clear();
+  for (const [name, slot] of absent) if (!taken.has(slot)) memory.set(name, slot);
+  folded.forEach((name, i) => {
+    if (slots[i] < capacity) memory.set(name, slots[i]);
+  });
+  // backstop, unreachable today: step 3 only ever re-seeds entries holding
+  // distinct slots below `capacity`, so the map cannot outgrow the ramp. Kept
+  // so a future change to the seeding above degrades by forgetting the oldest
+  // rather than by growing without bound.
+  for (const name of [...memory.keys()]) {
+    if (memory.size <= capacity) break;
+    memory.delete(name);
+  }
+  return slots;
+}
+
 /** One point per named summary of a sheet (SUB-745): the summary binding, for
     charts whose buckets live in the summary bar rather than in rows (a
     per-bucket COUNTIF/SUMIF set). Names resolve case-insensitively, like every

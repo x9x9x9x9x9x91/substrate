@@ -27,6 +27,8 @@ import {
   type HeatmapDay,
   type HeatmapTally,
 } from "../lib/heatmap";
+import { numberLocale } from "../lib/numberLocale";
+import { useNumberLocale } from "../hooks/useNumberLocale";
 import { DashHead, DashPrintButton } from "./DashHead";
 import { dashboardSheets, type DashboardSheetState } from "../lib/dashboardSheets";
 import { useFxRates } from "./useFx";
@@ -43,9 +45,11 @@ interface HeatmapDashboardProps {
   embed?: boolean;
 }
 
-/** the app's de-DE dialect, full precision — a square's number is small */
+/** the dial's dialect, full precision — a square's number is small. The module
+    binding, like the charts dashboard's own figures: nothing threads a locale
+    this deep, and the plot subscribes to the dial so a change repaints. */
 function fmtNum(v: number): string {
-  return v.toLocaleString("de-DE", { maximumFractionDigits: 2 });
+  return v.toLocaleString(numberLocale(), { maximumFractionDigits: 2 });
 }
 
 /** What a square says, in the tooltip and to a screen reader. A `count` day
@@ -67,6 +71,11 @@ const WEEKDAYS = ["Mon", "", "Wed", "", "Fri", "", ""];
     source spans more than one, a legend, and a live readout that says what the
     cursor is on. */
 function HeatmapPlot({ config, tally }: { config: HeatmapConfig; tally: HeatmapTally }) {
+  // subscribe for the repaint, not the value: every number here goes through
+  // fmtNum's module binding, and the tooltip/legend strings are computed inside
+  // this component — without the subscription a dial change leaves the old
+  // dialect on screen until something unrelated re-renders (SUB-1092)
+  useNumberLocale();
   const gridId = useId();
   const gridRef = useRef<HTMLDivElement>(null);
   const years = useMemo(() => heatmapYears(tally), [tally]);

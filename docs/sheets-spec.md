@@ -349,6 +349,31 @@ of `AT()` cells — `docs/dashboards.md` → `charts`.
     the sheet's own formula lines. A cross-sheet total converted elsewhere
     carries its rate on the sheet that did the converting, next to the line
     that did it.
+- **Totals row**: a row pinned under the data rows, one cell per
+  column. A named summary whose formula's row-shaped references resolve to
+  exactly one data or computed column renders in that column's cell — muted
+  name over value — so `monthly_total = SUM(monthly_eur)` sits under
+  `monthly_eur`. A filtered sum describes the column it *sums*, not the column
+  it filters on: `open_eur = SUMIF(status, "open", value_eur)` sits
+  under `value_eur`, because the criteria are a modifier on the number rather
+  than what the number is about. `COUNTIF` counts rows, so it keeps sitting
+  under the column it filters. Everything the rule can't place (several
+  columns, a cross-sheet total, a bare constant, an ambiguous name) stays in
+  the footer, which is therefore only the leftovers. Several summaries over one column
+  stack in that cell in fence order.
+  Clicking an empty cell opens a `name = formula` editor with Sum/Avg/Min/Max/
+  Count quick-picks that prefill `name = FN(column)`; the input still accepts
+  the whole language (SUMIF, arithmetic, other summaries, cross-sheet refs) —
+  the picks are accelerators, not a ceiling. Clicking a filled cell edits that
+  line in place, right-click deletes it. Footer chips behave identically, and
+  a "+ summary" affordance appends a line. Every write is the same
+  `name = expression` line in the ```formulas fence: nothing about the file
+  format changes, and a sheet edited in-app stays a plain markdown note.
+- **Selection readout**: shift+arrow or shift+click extends a range
+  in the grid; its sum, average and count show next to the row/FX meta while
+  the range is held. Display only — never written to the note. Blank cells are
+  skipped, error cells count as cells but contribute no number, and a range
+  with no numbers reports the count alone.
 - Computed column headers edit the formula: double-click opens the line in fence form
   (`name = formula`); Enter applies, Esc cancels. A rename rewrites references on
   every other formula line (string literals, function names, and other sheets'

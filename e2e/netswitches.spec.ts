@@ -165,17 +165,17 @@ test("send-as-link off: the dialog names the switch instead of offering a send",
   await expect(dialog).toHaveCount(0);
 });
 
-test("number format is a two-option row that persists", async ({ page }) => {
+test("number format is a locale row that persists", async ({ page }) => {
   await openSettings(page);
 
   const group = page.getByRole("radiogroup", { name: "Number format" });
-  await expect(group.getByRole("radio", { name: "1.234,56" })).toHaveAttribute(
+  await expect(group.getByRole("radio", { name: /de-DE/ })).toHaveAttribute(
     "aria-checked",
-    "true" // `de` is the default
+    "true" // `de-DE` is the default
   );
 
-  await group.getByRole("radio", { name: "1,234.56" }).click();
-  await expect(group.getByRole("radio", { name: "1,234.56" })).toHaveAttribute(
+  await group.getByRole("radio", { name: /en-US/ }).click();
+  await expect(group.getByRole("radio", { name: /en-US/ })).toHaveAttribute(
     "aria-checked",
     "true"
   );
@@ -183,6 +183,6 @@ test("number format is a two-option row that persists", async ({ page }) => {
 
   await openSettings(page);
   await expect(
-    page.getByRole("radiogroup", { name: "Number format" }).getByRole("radio", { name: "1,234.56" })
+    page.getByRole("radiogroup", { name: "Number format" }).getByRole("radio", { name: /en-US/ })
   ).toHaveAttribute("aria-checked", "true");
 });

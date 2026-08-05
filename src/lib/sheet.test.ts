@@ -36,6 +36,10 @@ import {
   summaryBar,
   updateSheetFormula,
   columnTakesNumberInput,
+  addSheetFormula,
+  selectionStats,
+  summaryFormulaError,
+  totalsRow,
   type SheetModel,
 } from "./sheet.ts";
 import { makeHistoryResolver, type HistorySheetSnapshot } from "./history-facts.ts";
@@ -1509,6 +1513,231 @@ describe("SUB-939 — summary bar hierarchy, error rollup, FX stamp", () => {
     assert.equal(sheetUsesFx(sheet("total = SUM(units)\nbig = MAX(price_usd)")), false);
     // an unparsable line can't claim a rate either
     assert.equal(sheetUsesFx(sheet("total = SUM(")), false);
+  });
+});
+
+describe("SUB-937 — totals row placement", () => {
+  const place = (body: string) => {
+    const t = totalsRow(parseSheet(body));
+    return [...t.byColumn.entries()].map(([col, names]) => `${col}:${names.join(",")}`).sort();
+  };
+  // asset(0) bucket(1) units(2) price_usd(3) | value_usd(4) value_eur(5)
+  test("a single-column aggregate lands under its column", () => {
+    // total, crypto and etf are all sums OF value_eur; `rest` reads only
+    // other summaries and stays in the footer
+    assert.deepEqual(place(BODY), ["5:total,crypto,etf"]);
+  });
+
+  test("a filtered sum lands under the column it sums (SUB-1013)", () => {
+    const t = totalsRow(parseSheet(BODY));
+    // crypto/etf read bucket too, but they are sums OF value_eur — the
+    // criteria column is a modifier, not what the number is about
+    assert.equal(t.absorbed.has("crypto"), true);
+    assert.equal(t.absorbed.has("etf"), true);
+    assert.equal(t.absorbed.has("total"), true);
+    assert.equal(t.absorbed.has("rest"), false, "reads only summaries → footer");
+  });
+
+  test("SUMIF placement follows its value argument, not its filters", () => {
+    const csv = "```csv\nstatus,region,value_eur\nopen,eu,10\ndone,us,20\n```\n\n```formulas\n";
+    // status(0) region(1) value_eur(2)
+    // two-arg form sums the criteria column itself
+    assert.deepEqual(place(csv + 'own = SUMIF(value_eur, ">5")\n```\n'), ["2:own"]);
+    // three-arg form sums the third argument
+    assert.deepEqual(place(csv + 'open = SUMIF(status, "open", value_eur)\n```\n'), ["2:open"]);
+    // extra (column, match) pairs are more filters, not more value columns
+    assert.deepEqual(
+      place(csv + 'eu = SUMIF(status, "open", value_eur, region, "eu")\n```\n'),
+      ["2:eu"]
+    );
+    // a criteria column that happens to be a ref is still only a filter
+    assert.deepEqual(place(csv + "cmp = SUMIF(status, region, value_eur)\n```\n"), ["2:cmp"]);
+  });
+
+  test("COUNTIF still sits under the column it filters on", () => {
+    const csv = "```csv\nstatus,region,value_eur\nopen,eu,10\n```\n\n```formulas\n";
+    assert.deepEqual(place(csv + 'n = COUNTIF(status, "open")\n```\n'), ["0:n"]);
+    // two filter columns describe it equally → no single column → footer
+    assert.deepEqual(place(csv + 'n = COUNTIF(status, "open", region, "eu")\n```\n'), []);
+  });
+
+  test("a filtered sum combined with another column is still ambiguous", () => {
+    const csv = "```csv\nstatus,a,b\nopen,1,2\n```\n\n```formulas\n";
+    // one value column, arithmetic on top → still that column
+    assert.deepEqual(place(csv + 'monthly = SUMIF(status, "open", a) / 12\n```\n'), ["1:monthly"]);
+    // two different value columns → footer
+    assert.deepEqual(place(csv + 'both = SUMIF(status, "open", a) + SUM(b)\n```\n'), []);
+  });
+
+  test("a summary reading only other summaries stays in the footer", () => {
+    const body =
+      "```csv\na,b\n1,2\n3,4\n```\n\n```formulas\nsa = SUM(a)\nsb = SUM(b)\nboth = sa + sb\n```\n";
+    const t = totalsRow(parseSheet(body));
+    assert.deepEqual([...t.byColumn.entries()], [[0, ["sa"]], [1, ["sb"]]]);
+    assert.equal(t.absorbed.has("both"), false);
+  });
+
+  test("a constant summary has no column and stays in the footer", () => {
+    const body = "```csv\na\n1\n```\n\n```formulas\nceiling = 25000\nannual = 2500 * 12\n```\n";
+    const t = totalsRow(parseSheet(body));
+    assert.equal(t.byColumn.size, 0);
+    assert.equal(t.absorbed.size, 0);
+  });
+
+  test("a cross-sheet summary stays in the footer, mixed refs too", () => {
+    const body =
+      "```csv\nv\n1\n```\n\n```formulas\nt = SUM(v)\ng = SUM(v) + Cash.cash_total\nx = Cash.cash_total\n```\n";
+    const t = totalsRow(parseSheet(body));
+    // `g` reads one row-shaped column (v) plus a cross-sheet scalar — the
+    // cross ref is stripped, so it still describes v and lands there.
+    assert.deepEqual(t.byColumn.get(0), ["t", "g"]);
+    assert.equal(t.absorbed.has("x"), false);
+  });
+
+  test("several summaries over one column stack in fence order", () => {
+    const body =
+      "```csv\ncost\n10\n20\n```\n\n```formulas\ns = SUM(cost)\na = AVG(cost)\nm = MAX(cost)\n```\n";
+    assert.deepEqual(totalsRow(parseSheet(body)).byColumn.get(0), ["s", "a", "m"]);
+  });
+
+  test("a computed column's aggregate lands under the computed column", () => {
+    const body =
+      "```csv\nunits,price\n2,3\n4,5\n```\n\n```formulas\nline = units * price\ntotal = SUM(line)\n```\n";
+    // grid order: units(0) price(1) | line(2)
+    assert.deepEqual(totalsRow(parseSheet(body)).byColumn.get(2), ["total"]);
+  });
+
+  test("arithmetic on one column still describes that column", () => {
+    const body = "```csv\ncost\n10\n```\n\n```formulas\nnet = SUM(cost) * 1.19\n```\n";
+    assert.deepEqual(totalsRow(parseSheet(body)).byColumn.get(0), ["net"]);
+  });
+
+  test("an unparsable or ambiguous summary is never placed (SUB-751)", () => {
+    const bad = "```csv\na\n1\n```\n\n```formulas\nt = SUM(a\n```\n";
+    assert.equal(totalsRow(parseSheet(bad)).byColumn.size, 0);
+    // two columns folding to one name: neither the name nor a reference to it
+    // may resolve, so nothing lands in the totals row
+    const amb = "```csv\nprice,PRICE\n1,2\n```\n\n```formulas\nt = SUM(price)\n```\n";
+    assert.equal(totalsRow(parseSheet(amb)).byColumn.size, 0);
+    // a summary whose own name is ambiguous is refused too
+    const own = "```csv\na\n1\n```\n\n```formulas\nt = SUM(a)\nT = SUM(a)\n```\n";
+    assert.equal(totalsRow(parseSheet(own)).byColumn.size, 0);
+  });
+
+  test("computed columns are never placed — only summaries", () => {
+    const body = "```csv\nunits,price\n2,3\n```\n\n```formulas\nline = units * price\n```\n";
+    assert.equal(totalsRow(parseSheet(body)).byColumn.size, 0);
+  });
+
+  test("a reference to nothing on this sheet places nothing", () => {
+    const body = "```csv\na\n1\n```\n\n```formulas\nt = SUM(nope)\n```\n";
+    assert.equal(totalsRow(parseSheet(body)).byColumn.size, 0);
+  });
+});
+
+describe("SUB-937 — summary editor classification", () => {
+  const body =
+    "```csv\na,b\n1,2\n3,4\n```\n\n```formulas\ntotal = SUM(a)\nlater = SUM(b)\n```\n";
+
+  test("rejects row-shaped formulas instead of creating computed columns", () => {
+    assert.equal(
+      summaryFormulaError(body, null, "doubled", "a * 2"),
+      "that’s a column formula, not a summary"
+    );
+    assert.equal(
+      summaryFormulaError(body, "total", "total", "a + b"),
+      "that’s a column formula, not a summary"
+    );
+  });
+
+  test("keeps the full summary language available", () => {
+    assert.equal(summaryFormulaError(body, null, "filtered", 'SUMIF(a, ">1", b)'), null);
+    assert.equal(summaryFormulaError(body, null, "constant", "2500 * 12"), null);
+    assert.equal(summaryFormulaError(body, null, "cross", "Cash.cash_total + later"), null);
+  });
+
+  test("refuses a name the sheet already uses instead of silently dropping the add", () => {
+    for (const taken of ["total", "TOTAL", "a"]) {
+      const err = summaryFormulaError(body, null, taken, "SUM(b)");
+      assert.ok(err && err.includes("already used"), err ?? `${taken} validated as free`);
+    }
+    // A rename onto its own name is not a collision.
+    assert.equal(summaryFormulaError(body, "total", "total", "SUM(b)"), null);
+  });
+
+  test("reports syntax errors honestly instead of calling them column formulas", () => {
+    const err = summaryFormulaError(body, null, "broken", "SUM(a");
+    assert.ok(err && err !== "that’s a column formula, not a summary", err ?? "missing error");
+  });
+});
+
+describe("SUB-937 — addSheetFormula", () => {
+  test("appends to an existing fence, everything else byte-identical", () => {
+    const next = addSheetFormula(BODY, "avg_eur", "AVG(value_eur)");
+    assert.ok(next.includes("avg_eur = AVG(value_eur)"));
+    assert.ok(next.includes("Some prose that must survive edits."));
+    assert.ok(next.includes("rest        = total - crypto"), "existing lines untouched");
+    const m = parseSheet(next);
+    assert.deepEqual(m.errors, []);
+    const last = m.formulas[m.formulas.length - 1];
+    assert.equal(last.name, "avg_eur");
+    assert.equal(last.aggregate, true);
+  });
+
+  test("creates the fence after the csv block when there is none", () => {
+    const body = "intro\n\n```csv\na\n1\n2\n```\n\ntrailing prose\n";
+    const next = addSheetFormula(body, "t", "SUM(a)");
+    assert.ok(next.indexOf("```formulas") > next.indexOf("```csv"));
+    assert.ok(next.includes("trailing prose"), "prose below the csv survives");
+    const ev = evaluateSheet(parseSheet(next), fx);
+    assert.equal(findSummary(ev, "t"), 3);
+  });
+
+  test("appends above trailing blank lines instead of growing a gap", () => {
+    const body = "```csv\na\n1\n```\n\n```formulas\nx = SUM(a)\n\n```\n";
+    const next = addSheetFormula(body, "y", "MAX(a)");
+    assert.ok(next.includes("x = SUM(a)\ny = MAX(a)\n\n```"), next);
+  });
+
+  test("refuses collisions, bad names and empty right sides", () => {
+    assert.equal(addSheetFormula(BODY, "total", "SUM(units)"), BODY, "formula clash");
+    assert.equal(addSheetFormula(BODY, "UNITS", "SUM(units)"), BODY, "data column clash");
+    assert.equal(addSheetFormula(BODY, "not a name", "1"), BODY, "invalid ident");
+    assert.equal(addSheetFormula(BODY, "ok", "   "), BODY, "empty src");
+  });
+
+  test("round-trips with deleteSheetFormula", () => {
+    const added = addSheetFormula(BODY, "avg_eur", "AVG(value_eur)");
+    assert.equal(deleteSheetFormula(added, "avg_eur"), BODY);
+  });
+});
+
+describe("SUB-937 — selectionStats", () => {
+  test("sum/avg over numbers, count over everything non-blank", () => {
+    const s = selectionStats([1, 2, 3]);
+    assert.deepEqual([s.count, s.numeric, s.sum, s.avg], [3, 3, 6, 2]);
+  });
+
+  test("blanks are skipped, text counts but adds nothing", () => {
+    const s = selectionStats([1, null, "", "  ", "etf", 3]);
+    assert.equal(s.count, 3);
+    assert.equal(s.numeric, 2);
+    assert.equal(s.sum, 4);
+    assert.equal(s.avg, 2);
+  });
+
+  test("an all-text selection has no sum to report", () => {
+    const s = selectionStats(["a", "b"]);
+    assert.deepEqual([s.count, s.numeric, s.avg], [2, 0, null]);
+  });
+
+  test("an error cell counts as a cell but contributes no number", () => {
+    const s = selectionStats([10, ferr("boom"), 20]);
+    assert.deepEqual([s.count, s.numeric, s.sum], [3, 2, 30]);
+  });
+
+  test("an empty selection is empty, not zero-averaged", () => {
+    assert.deepEqual(selectionStats([]), { count: 0, numeric: 0, sum: 0, avg: null });
   });
 });
 

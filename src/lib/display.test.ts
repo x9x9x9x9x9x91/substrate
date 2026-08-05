@@ -220,8 +220,8 @@ test("formatNumber renders any unit column, euro/percent unchanged (SUB-834)", (
   assert.equal(formatNumber("1234.56", undefined), "1234.56");
   assert.equal(formatNumber("1234.56", "furlongs"), "1234.56");
   // the intl dialect swaps separators, suffix unchanged
-  assert.equal(formatNumber("1234.5", "euro", undefined, "intl"), "1,234.5 €");
-  assert.equal(formatNumber("1234.5", "kg", undefined, "intl"), "1,234.5 kg");
+  assert.equal(formatNumber("1234.5", "euro", undefined, "en-US"), "1,234.5 €");
+  assert.equal(formatNumber("1234.5", "kg", undefined, "en-US"), "1,234.5 kg");
 });
 
 test("a cell in a foreign unit renders converted into the column's (SUB-834)", () => {
@@ -288,7 +288,7 @@ test("displayValue threads the resolver to number cells (SUB-834)", () => {
   assert.equal(displayValue("500 g", "number", "kg", NO_FX), "0,5 kg");
   assert.equal(displayValue("128", "number", "BPM"), "128 BPM");
   // the dialect reaches the cell too
-  assert.equal(displayValue("1234.5", "number", "euro", FX, "intl"), "1,234.5 €");
+  assert.equal(displayValue("1234.5", "number", "euro", FX, "en-US"), "1,234.5 €");
   // a rollup renders through the footer's shape, unit included
   assert.equal(displayValue("2.5", "rollup", "kg"), "2,5 kg");
   // other kinds are untouched by any of it

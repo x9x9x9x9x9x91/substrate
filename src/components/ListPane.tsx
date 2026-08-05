@@ -9,6 +9,7 @@ import { displayTitle, JOURNAL_DIR } from "../lib/journal";
 import { tagFolderSummary } from "../lib/tags";
 import { fileExt, fileKind } from "../lib/folderfiles";
 import { formatFileSize } from "../lib/display";
+import { useNumberLocale } from "../hooks/useNumberLocale";
 import InlineEdit from "./InlineEdit";
 import TypeIcon from "./TypeIcon";
 import { AudioPropButton } from "./AudioPropButton";
@@ -192,6 +193,11 @@ const FileRow = memo(function FileRow({
   onOpen: (path: string) => void;
   onReveal: (path: string) => void;
 }) {
+  // The size string below is formatted in the ⌘, dial's dialect, which this
+  // row reads out of a module binding rather than a prop — and the row is
+  // memo'd, so its parent repainting after a settings change would not reach
+  // it (SUB-1092). Subscribing is what makes the dial move these rows.
+  useNumberLocale();
   const kind = fileKind(file);
   const ext = fileExt(file.name);
   // An audio row's keyboard surface is the play button it already carries, so

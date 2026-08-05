@@ -4030,6 +4030,7 @@ mod tests {
             engine
                 .set_view_pref(
                     "trips", "table", None, None, None, None, None, None, None, None, None, None,
+                    None,
                 )
                 .unwrap();
         }
@@ -4087,6 +4088,7 @@ mod tests {
             engine
                 .set_view_pref(
                     "trips", "table", None, None, None, None, None, None, None, None, None, None,
+                    None,
                 )
                 .unwrap();
         }

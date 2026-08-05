@@ -575,7 +575,8 @@ export const vaultViewsSet = (
   widths?: Record<string, number>,
   wrap?: string[],
   grid?: boolean,
-  hiddenPerLayout?: HiddenPerLayout
+  hiddenPerLayout?: HiddenPerLayout,
+  cardOrder?: string[]
 ) =>
   invoke<ViewsConfig>("vault_views_set", {
     db,
@@ -590,6 +591,7 @@ export const vaultViewsSet = (
     wrap: wrap ?? null,
     grid: grid ?? null,
     hiddenPerLayout: hiddenPerLayout ?? null,
+    cardOrder: cardOrder ?? null,
   });
 export const vaultFolders = () =>
   historyProjection

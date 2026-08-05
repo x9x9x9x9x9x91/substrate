@@ -10,6 +10,7 @@
 //
 // Pure TS, erasable syntax only — runs in the app and under `node --test`.
 
+import { normalizeNumberInput } from "./aggregate.ts";
 import { kcalInRange, type FoodRow } from "./food.ts";
 import type { FoodDbEntry } from "./fooddb.ts";
 
@@ -30,8 +31,21 @@ const TRAILING_RE = new RegExp(`^(.*\\S)\\s+(?:x\\s*(${NUM})|(${NUM})\\s*(x|g|ml
 // leading: "2x Eggs" / "x2 Eggs" / "100g Speck" / "3 Eggs" (bare count = x)
 const LEADING_RE = new RegExp(`^(?:x\\s*(${NUM})|(${NUM})\\s*(x|g|ml)?)\\s+(\\S.*)$`, "i");
 
+/** A typed quantity, read in the dial's dialect (SUB-1092). The comma was
+    assumed decimal here, so an en-US or en-GB user typing "Rice 1,500g" got
+    1.5 g of rice — a thousandfold error in a number they will act on.
+    `normalizeNumberInput` is the same reader every number-kind cell uses, so
+    the food field and a sheet cell agree on what a comma means.
+
+    Its grammar is stricter than this one's `NUM` token: a group separator only
+    reads as one in front of exactly three digits. "1,50" under en-US is
+    therefore neither a decimal nor a group, and normalizes to itself — the
+    old comma-as-decimal reading is kept for that case rather than dropping the
+    quantity, because under every dial here a comma before two digits is a
+    decimal somewhere and 1.5 is the only meaning anyone could have intended. */
 function num(s: string): number {
-  return Number(s.replace(",", "."));
+  const n = Number(normalizeNumberInput(s));
+  return Number.isNaN(n) ? Number(s.replace(",", ".")) : n;
 }
 
 /** Quantity-aware split of a food name. Trailing token wins over leading so

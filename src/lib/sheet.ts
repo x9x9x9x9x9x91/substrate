@@ -6,12 +6,14 @@
 import { parseStrictNumber } from "./aggregate.ts";
 import { todayIso } from "./dates.ts";
 import type { HistorySheetSnapshot } from "./history-facts.ts";
+import { numberLocale } from "./numberLocale.ts";
 import {
   callsFunction,
   collectCrossRefs,
   collectHistoryRefs,
   collectHistorySheetRefs,
   collectRefs,
+  describingRefs,
   evaluate,
   ferr,
   hasAggregate,
@@ -563,6 +565,112 @@ export function findSummary(ev: SheetEval, name: string): Value | FErr {
   return s ? s.value : ferr(`no summary “${name}” on this sheet`);
 }
 
+// ---------- totals row placement (SUB-937) ----------
+
+export interface TotalsRow {
+  /** grid column index → summary names, in fence order. Grid columns count
+      data headers first, then computed columns in fence order — the same
+      order SheetGrid renders. */
+  byColumn: Map<number, string[]>;
+  /** lowercased names the totals row took, so the footer can skip them. */
+  absorbed: Set<string>;
+}
+
+/** Which summaries belong in the in-grid totals row, and under which column.
+ *
+ * The rule is the formula's own references: strip cross-sheet refs and refs
+ * to other summaries, and what's left is the row-shaped set — the data and
+ * computed columns the line actually reads. Exactly one column in that set
+ * means the summary describes that column (`monthly_total = SUM(monthly_eur)`,
+ * `share = SUM(cost) / budget_total`), so it renders in that column's totals
+ * cell. Anything else — several columns, a cross-sheet total, a bare constant,
+ * a sheet-wide COUNT of nothing — has no single column to sit under and stays
+ * in the footer.
+ *
+ * "Reads" means `describingRefs`, not every ref: a conditional aggregate is
+ * about its value column, not its filters, so `SUMIF(status, "open", value_eur)`
+ * sits under `value_eur` (SUB-1013, answered Option A — the number IS a sum of
+ * that column; the filter is a modifier). COUNTIF keeps sitting under its
+ * filter column, because counting rows is all it does.
+ *
+ * Deliberately no fallback guess: a summary the heuristic can't place is
+ * visible in the footer, never dropped. Ambiguous (folded) names are refused
+ * on both sides — the summary's own name and the column it would land under —
+ * because SUB-751 already says nothing may resolve such a name to data.
+ *
+ * Several summaries may share one column (`sum` and `avg` of the same column);
+ * they stack in that cell in fence order rather than one silently winning. */
+export function totalsRow(model: SheetModel): TotalsRow {
+  const byColumn = new Map<number, string[]>();
+  const absorbed = new Set<string>();
+  const summaryNames = new Set(
+    model.formulas.filter((f) => f.aggregate).map((f) => f.name.toLowerCase())
+  );
+  const collisions = foldedCollisions(
+    model.headers,
+    model.formulas.map((f) => f.name)
+  );
+
+  // Grid column order: data headers, then computed columns in fence order.
+  const colIndex = new Map<string, number>();
+  model.headers.forEach((h, i) => {
+    const k = h.trim().toLowerCase();
+    if (k !== "" && !colIndex.has(k)) colIndex.set(k, i);
+  });
+  let next = model.headers.length;
+  for (const f of model.formulas) if (!f.aggregate) colIndex.set(f.name.toLowerCase(), next++);
+
+  for (const f of model.formulas) {
+    if (!f.aggregate || isErr(f.expr)) continue;
+    if (collisions.has(f.name.toLowerCase())) continue;
+    const rowRefs = new Set(
+      describingRefs(f.expr).filter((r) => !r.includes(".") && !summaryNames.has(r))
+    );
+    if (rowRefs.size !== 1) continue;
+    const only = [...rowRefs][0];
+    if (collisions.has(only)) continue;
+    const col = colIndex.get(only);
+    if (col === undefined) continue; // reference to nothing on this sheet
+    const at = byColumn.get(col);
+    if (at) at.push(f.name);
+    else byColumn.set(col, [f.name]);
+    absorbed.add(f.name.toLowerCase());
+  }
+  return { byColumn, absorbed };
+}
+
+// ---------- selection readout (SUB-937) ----------
+
+export interface SelectionStats {
+  /** non-blank cells in the selection, errors included */
+  count: number;
+  /** how many of those are numbers */
+  numeric: number;
+  sum: number;
+  /** mean over the numeric cells; null when there are none */
+  avg: number | null;
+}
+
+/** Sum/avg/count over a selected range — display only, never written back.
+    Blanks are skipped like every aggregate in the language (SUB-238); error
+    cells count as cells but contribute no number, so a range holding one bad
+    formula still reports the honest sum of the rest rather than nothing. */
+export function selectionStats(values: (Value | Cell | undefined)[]): SelectionStats {
+  let count = 0;
+  let numeric = 0;
+  let sum = 0;
+  for (const v of values) {
+    if (v === null || v === undefined) continue;
+    if (typeof v === "string" && v.trim() === "") continue;
+    count++;
+    if (typeof v === "number") {
+      numeric++;
+      sum += v;
+    }
+  }
+  return { count, numeric, sum, avg: numeric > 0 ? sum / numeric : null };
+}
+
 // ---------- display ----------
 
 /** Columns whose integers are labels, not quantities (SUB-633). A year or an
@@ -618,16 +726,10 @@ export function columnTakesNumberInput(
   return seen;
 }
 
-/** The one locale every sheet number renders in. It is de-DE for the same
- * reason every other surface is (SUB-282), and it lives in exactly one
- * binding here so the user-facing dial (SUB-1007: a `number-locale` Settings
- * key defaulting to de-DE) has a single seam to replace rather than a
- * per-call-site sweep. */
-const NUMBER_LOCALE = "de-DE";
-
-/** The one grid-wide number format (SUB-282: de-DE like every other surface):
- * dot thousands grouping, comma decimals; fractional values show exactly
- * 2 decimals, integers stay bare (1.234 — never 1.234,00).
+/** The one grid-wide number format, in the user's dialect (SUB-1092:
+ * `numberLocale()`, de-DE by default like every other surface, SUB-282):
+ * grouped thousands, 2 decimals for fractional values, integers bare
+ * (de-DE `1.234` — never `1.234,00`).
  *
  * Two exceptions drop the grouping for integers (SUB-633), because a number
  * that is really a name — a year, a port, a catalogue number — reads as a
@@ -644,16 +746,16 @@ const NUMBER_LOCALE = "de-DE";
  *    Header-name-driven and never value-driven, so a money or size column
  *    can't lose its grouping by accident.
  *
- * Five-digit-and-up quantities and all fractional values keep de-DE
+ * Five-digit-and-up quantities and all fractional values keep the locale's
  * grouping. Display-only: editing seeds from and writes back the raw csv
  * strings, so this output is never re-parsed. */
 export function formatNum(v: number, header?: string): string {
   if (Number.isInteger(v)) {
     const plain =
       Math.abs(v) < 10000 || (header !== undefined && isLabelColumn(header));
-    return plain ? String(v) : v.toLocaleString(NUMBER_LOCALE, { maximumFractionDigits: 0 });
+    return plain ? String(v) : v.toLocaleString(numberLocale(), { maximumFractionDigits: 0 });
   }
-  return v.toLocaleString(NUMBER_LOCALE, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return v.toLocaleString(numberLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /** How one grid column renders every number in it (SUB-1000).
@@ -735,7 +837,7 @@ export function sheetColumnFormats(ev: SheetEval): {
 /** One number in its column's format (SUB-1000) — the digits vary per row,
  * the grammar never does. */
 export function formatNumIn(v: number, fmt: ColumnFormat): string {
-  return v.toLocaleString(NUMBER_LOCALE, {
+  return v.toLocaleString(numberLocale(), {
     minimumFractionDigits: fmt.decimals,
     maximumFractionDigits: fmt.decimals,
     useGrouping: fmt.group,
@@ -1288,6 +1390,45 @@ export function deleteSheetFormula(body: string, name: string): string {
 
 // ---------- formula fence editing ----------
 
+/** Append one `name = src` line to the formulas fence (SUB-937: the totals
+    row's empty cells and the footer's "+ summary" both land here).
+    Creates the fence after the csv block when the sheet has none yet — a
+    sheet whose first summary is written in-app must not have to be opened in
+    source view first. No-op on an invalid name, an empty right side, or a
+    name that collides with a data column or an existing formula, mirroring
+    updateSheetFormula's refusals. */
+export function addSheetFormula(body: string, name: string, src: string): string {
+  const n = name.trim();
+  const s = src.trim();
+  if (!FORMULA_NAME_RE.test(n) || !s) return body;
+  const model = parseSheet(body);
+  const lower = n.toLowerCase();
+  if (
+    model.headers.some((h) => h.trim().toLowerCase() === lower) ||
+    model.formulas.some((f) => f.name.toLowerCase() === lower)
+  )
+    return body;
+  const line = `${n} = ${s}`;
+  const ff = findFence(body, "formulas");
+  if (!ff) {
+    const csv = findFence(body, "csv");
+    const block = "```formulas\n" + line + "\n```";
+    // After the csv fence when there is one, so the note keeps reading
+    // data-then-formulas like every hand-written sheet.
+    if (!csv) return body.trimEnd() + (body.trim() ? "\n\n" : "") + block + "\n";
+    const after = body.slice(csv.to);
+    return body.slice(0, csv.to) + "\n\n" + block + (after.trim() ? after : "\n");
+  }
+  const lines = splitFenceLines(ff.inner);
+  // A fence ending in blank lines keeps them below the new line rather than
+  // growing a gap on every append.
+  let at = lines.length;
+  while (at > 0 && lines[at - 1].trim() === "") at--;
+  lines.splice(at, 0, line);
+  const inner = "```formulas\n" + lines.join("\n") + "\n```";
+  return body.slice(0, ff.from) + inner + body.slice(ff.to);
+}
+
 // Update one formula line: rename its left side and/or replace its right side.
 // A rename also rewrites references on every other line (renameRefs keeps
 // string literals, function names, and other sheets' members untouched).
@@ -1323,4 +1464,42 @@ export function updateSheetFormula(
   });
   const inner = "```formulas\n" + lines.join("\n") + "\n```";
   return body.slice(0, ff.from) + inner + body.slice(ff.to);
+}
+
+/** Validate a totals/footer editor draft against the engine's real formula
+ * classification before writing it. The editor deliberately accepts the full
+ * formula language, but it creates named summaries only: a row-shaped formula
+ * belongs to a computed-column flow and must not silently appear in the grid.
+ *
+ * Build the exact candidate body and let parseSheet's order-independent
+ * fixpoint classify it. That keeps constants, cross-sheet expressions,
+ * aggregate arithmetic and references to later summaries working here under
+ * the same rules as hand-written fences. */
+export function summaryFormulaError(
+  body: string,
+  oldName: string | null,
+  newName: string,
+  newSrc: string
+): string | null {
+  const n = newName.trim().toLowerCase();
+  // A new line can't take a name the fence already uses: the append refuses
+  // silently, and validating the candidate would just re-check the line that
+  // is already there and call the add fine.
+  if (oldName === null) {
+    const taken = parseSheet(body);
+    if (
+      taken.headers.some((h) => h.trim().toLowerCase() === n) ||
+      taken.formulas.some((f) => f.name.toLowerCase() === n)
+    )
+      return `“${newName.trim()}” is already used on this sheet — pick another name`;
+  }
+  const candidate =
+    oldName === null
+      ? addSheetFormula(body, newName, newSrc)
+      : updateSheetFormula(body, oldName, newName, newSrc);
+  const formula = parseSheet(candidate).formulas.find((f) => f.name.toLowerCase() === n);
+  if (!formula) return "couldn’t validate that summary";
+  if (isErr(formula.expr)) return formula.expr.err;
+  if (!formula.aggregate) return "that’s a column formula, not a summary";
+  return null;
 }

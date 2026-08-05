@@ -1,3 +1,4 @@
+import { DEFAULT_NUMBER_LOCALE, numberLocaleSetting, setNumberLocale, type NumberLocale } from "./lib/numberLocale";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
 import { isTauri } from "./lib/tauri";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -67,7 +68,6 @@ import { migrateSessionFolds } from "./lib/foldsession";
 import {
   isAppFile,
   netAllowed,
-  numberFormatSetting,
   parseDbGrid,
   parseModHud,
   parseShowAppFiles,
@@ -356,10 +356,13 @@ export default function App() {
   // `net-share-relay`, the other request this app makes, is enforced inside
   // SendLinkDialog, which reads Settings.md for the relay URL anyway.
   const [netLinkTitles, setNetLinkTitles] = useState(true);
-  /** `number-format` (SUB-834): how calc lines and unit cells write numbers —
-      de `1.234,56` (default) or intl `1,234.56`. Rides the same settings read
-      below, so a toggle in the pane repaints on the next vaultEpoch bump. */
-  const [numberStyle, setNumberStyle] = useState<"de" | "intl">("de");
+  /** `number-locale` (SUB-1092): the one dialect every number in the app is
+      written in — de-DE `1.234,56` by default. Held as state as well as in the
+      numberLocale.ts binding: the surfaces that take it as a prop (db cells,
+      calc lines) then repaint on the next vaultEpoch bump rather than waiting
+      for whatever else happens to re-render them. Rides the settings read
+      below, so a pick in the ⌘, pane reaches both in the same pass. */
+  const [numberLocale, setNumberLocaleState] = useState<NumberLocale>(DEFAULT_NUMBER_LOCALE);
   /** SUB-492: the key picker opened from a sidebar row's "Assign key…" — its
       own state, so the parent menu can close itself around it */
   const [keyPicker, setKeyPicker] = useState<{ target: string; x: number; y: number } | null>(null);
@@ -576,7 +579,14 @@ export default function App() {
         if (!overtaken()) applyAppearance(document.documentElement, parseAppearance(c.props));
         applyWindowOpacity(parseWindowOpacity(c.props));
         setNetLinkTitles(netAllowed(c.props, "link-titles"));
-        setNumberStyle(numberFormatSetting(c.props));
+        // both seams from the one read: the binding for the module-scope
+        // formatters (sheet cells, file sizes, dashboards), the state for the
+        // props-threaded ones
+        {
+          const locale = numberLocaleSetting(c.props);
+          setNumberLocale(locale);
+          setNumberLocaleState(locale);
+        }
       })
       .catch(() => {
         setTerminalActions([]);
@@ -586,6 +596,14 @@ export default function App() {
         // (SUB-1122): the pane, not a failed read, is what the user is
         // holding, and the release repaints from the note either way.
         if (!overtaken()) applyAppearance(document.documentElement, DEFAULT_APPEARANCE);
+        // the number dialect falls back the same way and for the same reason
+        // (SUB-1092): a settings note we cannot read is not evidence for any
+        // particular dial, and showing the shipped default is both honest and
+        // recoverable — the next successful read restores the chosen dialect.
+        // Numbers stay canonical dot-decimal on disk throughout, so a fallback
+        // render never rewrites a file.
+        setNumberLocale(DEFAULT_NUMBER_LOCALE);
+        setNumberLocaleState(DEFAULT_NUMBER_LOCALE);
       });
   }, [vaultEpoch]);
 
@@ -1165,7 +1183,7 @@ export default function App() {
       const storedDb = viewsDbKey(db);
       setViewsConfig((cur) => ({ ...cur, [storedDb]: p }));
       persistViewsConfig(
-        () => vaultViewsSet(storedDb, p.view, p.group_by, p.table_group_by, p.aggregations, p.sorts, p.col_order, p.hidden, p.widths, p.wrap, p.grid, p.hidden_per_layout),
+        () => vaultViewsSet(storedDb, p.view, p.group_by, p.table_group_by, p.aggregations, p.sorts, p.col_order, p.hidden, p.widths, p.wrap, p.grid, p.hidden_per_layout, p.card_order),
         setViewsConfig,
         vaultViewsRead,
         "Couldn't save view settings"
@@ -4649,7 +4667,7 @@ export default function App() {
               newSignal={dbNewSeq}
               exportRef={dbExportRef}
               gridDefault={dbGrid}
-              numberStyle={numberStyle}
+              numberLocale={numberLocale}
               onPrefChange={(p) => setDbPref(view.type, p)}
               onOpenNote={openNote}
               onNoteMenu={onRowMenu}
@@ -4704,7 +4722,7 @@ export default function App() {
               newSignal={dbNewSeq}
               exportRef={dbExportRef}
               gridDefault={dbGrid}
-              numberStyle={numberStyle}
+              numberLocale={numberLocale}
               onPrefChange={setSvPref}
               onOpenNote={openNote}
               onNoteMenu={onRowMenu}
@@ -4749,7 +4767,7 @@ export default function App() {
                 schema={schema}
                 usedValues={usedValues}
                 vaultEpoch={vaultEpoch}
-                numberStyle={numberStyle}
+                numberLocale={numberLocale}
                 changedPaths={changedPaths}
                 onSaveSchema={saveSchemaProp}
                 relationCandidates={relCandidates}
@@ -4821,7 +4839,7 @@ export default function App() {
             schema={schema}
             usedValues={usedValues}
             vaultEpoch={vaultEpoch}
-            numberStyle={numberStyle}
+            numberLocale={numberLocale}
             changedPaths={changedPaths}
             onSaveSchema={saveSchemaProp}
             relationCandidates={relCandidates}

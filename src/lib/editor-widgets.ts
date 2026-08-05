@@ -23,7 +23,7 @@ import { missingEmbedKind, missingEmbedLabel } from "./embedstate.ts";
 import { isTauri } from "./tauri.ts";
 import { TASK_RE } from "./markdown.ts";
 import { normalizeNumberInput } from "./aggregate.ts";
-import type { NumberStyle } from "./calc.ts";
+import { DEFAULT_NUMBER_LOCALE, type NumberLocale } from "./numberLocale.ts";
 import type { FxResolver } from "./formula.ts";
 import type { DashboardSheetState } from "./dashboardSheets.ts";
 import { type CellModel } from "./cellmodel.ts";
@@ -341,12 +341,12 @@ export const embedHandlers = Facet.define<EmbedHandlers, EmbedHandlers>({
  * a resolver that quotes nothing, which makes a currency conversion say "no FX
  * rate" instead of showing a made-up figure. */
 export interface CalcConfig {
-  style: NumberStyle;
+  locale: NumberLocale;
   fx: FxResolver;
 }
 
 export const calcConfig = Facet.define<CalcConfig, CalcConfig>({
-  combine: (values) => values[0] ?? { style: "de", fx: () => null },
+  combine: (values) => values[0] ?? { locale: DEFAULT_NUMBER_LOCALE, fx: () => null },
 });
 
 /** What live values in prose need from the app (SUB-825): the sheets a note's
@@ -1574,13 +1574,17 @@ export class FileWidget extends WidgetType {
 
   constructor(
     readonly name: string,
-    readonly epoch: number
+    readonly epoch: number,
+    /** the ⌘, number dialect the size string was written in (SUB-1092) — part
+     * of the chip's identity, because a chip whose file is unchanged still has
+     * to be rewritten when the dial moves */
+    readonly locale: NumberLocale = DEFAULT_NUMBER_LOCALE
   ) {
     super();
   }
 
   eq(other: FileWidget) {
-    if (other.name !== this.name) return false;
+    if (other.name !== this.name || other.locale !== this.locale) return false;
     return !(this.failed || other.failed) || this.epoch === other.epoch;
   }
 

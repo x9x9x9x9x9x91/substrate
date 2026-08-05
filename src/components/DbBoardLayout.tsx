@@ -1,3 +1,4 @@
+import type { NumberLocale } from "../lib/numberLocale";
 import type { NoteMeta, PropSchema } from "../lib/types";
 import { displayValue } from "../lib/display";
 import { NOTE_DRAG_MIME } from "../lib/sidebar";
@@ -21,7 +22,7 @@ export default function DbBoardLayout({
   typeSchema,
   fx,
   fxAsOf,
-  numberStyle,
+  numberLocale,
   openPath,
   lastWritten,
   bgMenuProps,
@@ -41,6 +42,10 @@ export default function DbBoardLayout({
   dropCol,
   setDropCol,
   dropOn,
+  handOrder,
+  cardDropAt,
+  setCardDropAt,
+  dropCard,
   focusedCls,
   boardTabIndexFor,
   setFocus,
@@ -56,7 +61,7 @@ export default function DbBoardLayout({
   typeSchema: Record<string, PropSchema>;
   fx?: FxResolver;
   fxAsOf?: string;
-  numberStyle: "de" | "intl";
+  numberLocale: NumberLocale;
   openPath: string | null;
   /** SUB-945: the note a write just landed on, lit for one fade */
   lastWritten: { path: string; key: string; nonce: number } | null;
@@ -78,6 +83,15 @@ export default function DbBoardLayout({
   dropCol: string | null;
   setDropCol: (v: string | null | ((cur: string | null) => string | null)) => void;
   dropOn: (value: string | null) => void;
+  /** SUB-948: is this view UNSORTED? Only then does a within-column drag mean
+      anything — a sorted board's order IS its sort, so it shows no insertion
+      line (it would promise a slot the sort would immediately overrule) and
+      every drop goes through `dropOn`'s prop write as before. */
+  handOrder: boolean;
+  /** SUB-948: the card the pointer is landing on and which side of it */
+  cardDropAt: { path: string; after: boolean } | null;
+  setCardDropAt: (v: { path: string; after: boolean } | null) => void;
+  dropCard: (target: string, after: boolean) => void;
   focusedCls: (c: number, r: number) => string;
   boardTabIndexFor: (c: number, r: number) => number;
   setFocus: (f: Focus | null) => void;
@@ -136,6 +150,11 @@ export default function DbBoardLayout({
             col.value !== null && groupSchema?.kind === "number"
               ? conversionNote(col.value, groupSchema.format, fx, fxAsOf)
               : null;
+          // SUB-948: hand-ordering is a WITHIN-column gesture on an unsorted
+          // board. A card dragged in from elsewhere still changes its group
+          // (dropOn), so this column offers no insertion line for it — the
+          // line would name a slot the group write wouldn't honour.
+          const handHere = handOrder && dragPath !== null && col.notes.some((n) => n.path === dragPath);
           return (
             <div
               key={colKey}
@@ -144,10 +163,31 @@ export default function DbBoardLayout({
                 e.preventDefault();
                 e.dataTransfer.dropEffect = "move";
                 if (dropCol !== colKey) setDropCol(colKey);
+                // SUB-948: the empty tail under the last card belongs to the
+                // column too, so hovering it means "put it last". Cards paint
+                // their own slot and this handler runs after theirs (they
+                // don't stop the bubble), hence the card check.
+                if (!handHere || (e.target as HTMLElement).closest?.(".db-card")) return;
+                const last = col.notes[col.notes.length - 1];
+                if (last && (cardDropAt?.path !== last.path || !cardDropAt.after))
+                  setCardDropAt({ path: last.path, after: true });
               }}
-              onDragLeave={() => setDropCol((cur) => (cur === colKey ? null : cur))}
+              onDragLeave={(e) => {
+                // crossing into a card inside this column still fires the
+                // column's dragleave; without this the line flickers off and
+                // on for every card the pointer passes
+                if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                setDropCol((cur) => (cur === colKey ? null : cur));
+                setCardDropAt(null);
+              }}
               onDrop={(e) => {
                 e.preventDefault();
+                // a card's own drop ends there; reaching the column with a
+                // slot painted means the tail, which is a move, not a regroup
+                if (handHere && cardDropAt) {
+                  dropCard(cardDropAt.path, cardDropAt.after);
+                  return;
+                }
                 dropOn(col.value);
               }}
             >
@@ -155,7 +195,7 @@ export default function DbBoardLayout({
                 <span className={col.value === null ? "db-col-none" : undefined}>
                   {col.value !== null ? (
                     <OptionPill color={optionColor(groupSchema?.options, col.value)}>
-                      {displayValue(col.value, groupSchema?.kind, groupSchema?.format, fx, numberStyle)}
+                      {displayValue(col.value, groupSchema?.kind, groupSchema?.format, fx, numberLocale)}
                       {groupConversion && (
                         <span className="prop-conv" title={groupConversion}>*</span>
                       )}
@@ -179,7 +219,7 @@ export default function DbBoardLayout({
                     data-fc={ci}
                     data-fr={ri}
                     data-focus-path={n.path}
-                    className={`db-card${focusedCls(ci, ri)}${dragPath === n.path ? " dragging" : ""}${openPath === n.path ? " open" : ""}${lastWritten?.path === n.path ? " db-flashing" : ""}${missingCls(n)}`}
+                    className={`db-card${focusedCls(ci, ri)}${dragPath === n.path ? " dragging" : ""}${openPath === n.path ? " open" : ""}${lastWritten?.path === n.path ? " db-flashing" : ""}${handHere && cardDropAt?.path === n.path ? (cardDropAt.after ? " db-drop-after" : " db-drop-before") : ""}${missingCls(n)}`}
                     role="button"
                     aria-label={n.title}
                     tabIndex={boardTabIndexFor(ci, ri)}
@@ -212,6 +252,34 @@ export default function DbBoardLayout({
                     onDragEnd={() => {
                       setDragPath(null);
                       setDropCol(null);
+                      setCardDropAt(null);
+                    }}
+                    onDragOver={(e) => {
+                      if (!handHere) return;
+                      if (n.path === dragPath) {
+                        // over the card being dragged there is no slot to
+                        // name, and the line left from the card before it
+                        // would promise a move that isn't happening
+                        e.preventDefault();
+                        if (cardDropAt) setCardDropAt(null);
+                        return;
+                      }
+                      // the column's own dragOver keeps painting the accent;
+                      // this only adds WHERE in the column the card lands
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      const r = e.currentTarget.getBoundingClientRect();
+                      const after = e.clientY > r.top + r.height / 2;
+                      if (cardDropAt?.path !== n.path || cardDropAt.after !== after)
+                        setCardDropAt({ path: n.path, after });
+                    }}
+                    onDrop={(e) => {
+                      if (!handHere || n.path === dragPath) return;
+                      // the column's drop writes the group prop; a hand order
+                      // move must not also do that, so it ends here
+                      e.preventDefault();
+                      e.stopPropagation();
+                      dropCard(n.path, cardDropAt?.path === n.path ? cardDropAt.after : false);
                     }}
                     onClick={() => {
                       setFocus({ c: ci, r: ri, path: n.path });
@@ -229,9 +297,9 @@ export default function DbBoardLayout({
                       <span key={lastWritten.nonce} className="db-cell-flash" aria-hidden="true" />
                     )}
                     <span className="db-card-title">{n.title}</span>
-                    {cardSubtitle(n, typeSchema, groupBy, undefined, fx, fxAsOf, numberStyle) && (
+                    {cardSubtitle(n, typeSchema, groupBy, undefined, fx, fxAsOf, numberLocale) && (
                       <span className="row-sub">
-                        {cardSubtitle(n, typeSchema, groupBy, undefined, fx, fxAsOf, numberStyle)}
+                        {cardSubtitle(n, typeSchema, groupBy, undefined, fx, fxAsOf, numberLocale)}
                       </span>
                     )}
                   </div>

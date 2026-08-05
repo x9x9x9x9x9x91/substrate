@@ -4,6 +4,7 @@ import {
   bucketByProp,
   distinctNotes,
   extraValues,
+  orderedNotes,
   tableGroupBy,
   tableGroups,
 } from "./dbgroup.ts";
@@ -234,5 +235,33 @@ test("extraValues: a number column dedupes by value, first spelling wins (SUB-63
     extraValues(notes, "price", []),
     ["1200", "1200.00"],
     "text semantics unchanged without a schema"
+  );
+});
+
+test("orderedNotes: listed notes lead in order, the rest keep resting order (SUB-948)", () => {
+  const a = note("a", {});
+  const b = note("b", {});
+  const c = note("c", {});
+  assert.deepEqual(orderedNotes([a, b, c], undefined), [a, b, c], "no order = untouched");
+  assert.deepEqual(orderedNotes([a, b, c], []), [a, b, c], "an empty order = untouched");
+  assert.deepEqual(
+    orderedNotes([a, b, c], ["c.md", "a.md"]).map((n) => n.title),
+    ["c", "a", "b"],
+    "unlisted notes append behind the ordered ones"
+  );
+});
+
+test("orderedNotes: unknown paths cost nothing (SUB-948)", () => {
+  const a = note("a", {});
+  const b = note("b", {});
+  assert.deepEqual(
+    orderedNotes([a, b], ["gone.md", "b.md", "other-column.md", "b.md"]).map((n) => n.title),
+    ["b", "a"],
+    "missing paths, other columns' paths and duplicates are all skipped"
+  );
+  assert.deepEqual(
+    orderedNotes([a, b], ["gone.md"]),
+    [a, b],
+    "an order matching nothing here leaves the column alone"
   );
 });

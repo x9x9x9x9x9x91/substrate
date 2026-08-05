@@ -198,6 +198,46 @@ export function collectRefs(e: Expr, out: string[] = []): string[] {
   return out;
 }
 
+/** The columns a value *describes*, as opposed to every column it reads.
+ *
+ * Same walk as `collectRefs`, except that the conditional aggregates separate
+ * their value column from their filters: `SUMIF(status, "open", value_eur)` is
+ * a sum OF value_eur, filtered BY status — the criteria columns and the match
+ * values are modifiers, not what the number is about (SUB-1013, answered
+ * Option A). `SUMIF(col, match)` sums col itself, so col is its own value
+ * column. COUNTIF has no value column — it counts rows — so every filter
+ * column it names describes it equally, while its match values still don't.
+ * Every other call descends normally; evaluation keeps reading every ref.
+ *
+ * Used for totals-row placement (SUB-937): which column a summary sits under. */
+export function describingRefs(e: Expr, out: string[] = []): string[] {
+  switch (e.k) {
+    case "ref":
+      out.push(e.sheet ? `${e.sheet}.${e.name}` : e.name);
+      break;
+    case "call":
+      if (e.name === "SUMIF" && e.args.length >= 2) {
+        // evalAggregate sums args[2] when the extended form spells it, else
+        // args[0]; the trailing (column, match) pairs are pure filters.
+        describingRefs(e.args.length >= 3 ? e.args[2] : e.args[0], out);
+      } else if (e.name === "COUNTIF" && e.args.length >= 2) {
+        // COUNTIF(col, m, col2, m2, …): columns at the even positions.
+        for (let i = 0; i < e.args.length; i += 2) describingRefs(e.args[i], out);
+      } else {
+        for (const a of e.args) describingRefs(a, out);
+      }
+      break;
+    case "bin":
+      describingRefs(e.l, out);
+      describingRefs(e.r, out);
+      break;
+    case "neg":
+      describingRefs(e.e, out);
+      break;
+  }
+  return out;
+}
+
 export interface CrossRef {
   sheet: string;
   name: string;

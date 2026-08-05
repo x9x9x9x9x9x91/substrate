@@ -1,3 +1,4 @@
+import { DEFAULT_NUMBER_LOCALE, type NumberLocale } from "../lib/numberLocale";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -24,7 +25,7 @@ export function cardSubtitle(
   keys?: string[],
   fx?: FxResolver,
   fxAsOf?: string,
-  numberStyle: "de" | "intl" = "de"
+  numberLocale: NumberLocale = DEFAULT_NUMBER_LOCALE
 ): React.ReactNode {
   const parts: { key: string; text: string; color?: string; conversion?: string }[] = [];
   for (const key of keys ?? ["status", "cat#", "artist", "category"]) {
@@ -34,7 +35,7 @@ export function cardSubtitle(
     const propSchema = byFoldedKey(typeSchema, key);
     parts.push({
       key,
-      text: displayValue(v, propSchema?.kind, propSchema?.format, fx, numberStyle),
+      text: displayValue(v, propSchema?.kind, propSchema?.format, fx, numberLocale),
       color: optionColor(propSchema?.options, v),
       conversion:
         propSchema?.kind === "number"

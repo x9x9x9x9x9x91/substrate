@@ -12,6 +12,7 @@
 // skipped row rather than an error — the sheet stays hand-inspectable.
 // Pure TS, erasable syntax only — runs in the app and under `node --test`.
 
+import { numberLocale } from "./numberLocale.ts";
 import { findFence, parseCsv } from "./sheet.ts";
 
 export interface WorkJob {
@@ -194,7 +195,7 @@ export function groupWork(jobs: WorkJob[], view: WorkView): WorkGroup[] {
 export function fmtSizeMb(mb: number): string {
   if (!Number.isFinite(mb) || mb <= 0) return "—";
   if (mb < 1024) return `${Math.round(mb)} MB`;
-  return `${(mb / 1024).toLocaleString("de-DE", {
+  return `${(mb / 1024).toLocaleString(numberLocale(), {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   })} GB`;

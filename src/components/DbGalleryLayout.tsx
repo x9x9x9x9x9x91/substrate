@@ -1,3 +1,4 @@
+import type { NumberLocale } from "../lib/numberLocale";
 import type { DbIcon, NoteMeta, PropSchema } from "../lib/types";
 import { NOTE_DRAG_MIME } from "../lib/sidebar";
 import { missingCls } from "../lib/mounts";
@@ -15,7 +16,7 @@ export default function DbGalleryLayout({
   typeSchema,
   fx,
   fxAsOf,
-  numberStyle,
+  numberLocale,
   openPath,
   bgMenuProps,
   head,
@@ -37,7 +38,7 @@ export default function DbGalleryLayout({
   typeSchema: Record<string, PropSchema>;
   fx?: FxResolver;
   fxAsOf?: string;
-  numberStyle: "de" | "intl";
+  numberLocale: NumberLocale;
   openPath: string | null;
   bgMenuProps: { onContextMenu: (e: React.MouseEvent) => void };
   head: React.ReactNode;
@@ -115,9 +116,9 @@ export default function DbGalleryLayout({
                 ) : (
                   <span className="db-gcard-title">{n.title}</span>
                 )}
-                {cardSubtitle(n, typeSchema, undefined, undefined, fx, fxAsOf, numberStyle) && (
+                {cardSubtitle(n, typeSchema, undefined, undefined, fx, fxAsOf, numberLocale) && (
                   <span className="row-sub db-gsub">
-                    {cardSubtitle(n, typeSchema, undefined, undefined, fx, fxAsOf, numberStyle)}
+                    {cardSubtitle(n, typeSchema, undefined, undefined, fx, fxAsOf, numberLocale)}
                   </span>
                 )}
               </div>

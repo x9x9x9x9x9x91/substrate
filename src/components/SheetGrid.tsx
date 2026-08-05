@@ -9,6 +9,7 @@ import { useHistoryResolver } from "./useHistory";
 import { makeFxResolver, usdEurFrom } from "../lib/fx";
 import {
   addSheetColumn,
+  addSheetFormula,
   addSheetRow,
   columnTakesNumberInput,
   deleteSheetColumn,
@@ -21,6 +22,7 @@ import {
   moveSheetColumn,
   moveSheetRow,
   parseSheet,
+  selectionStats,
   setSheetCell,
   sheetColumnFormats,
   sheetHistoryRefs,
@@ -29,6 +31,8 @@ import {
   sheetUsesFx,
   sheetUsesHistory,
   summaryBar,
+  summaryFormulaError,
+  totalsRow,
   updateSheetFormula,
   type BarSummary,
   type SheetModel,
@@ -36,6 +40,7 @@ import {
 import {
   collectCrossRefs,
   ferr,
+  IDENT_SRC,
   isErr,
   type Cell,
   type FErr,
@@ -52,11 +57,33 @@ interface CellPos {
 }
 
 /** Right-click target in the grid (SUB-395): a data row, a data column
-    header, or a computed column header. */
+    header, a computed column header, or a named summary — in the totals row
+    or in the footer (SUB-937). */
 type GridMenu =
   | { kind: "row"; r: number; x: number; y: number }
   | { kind: "col"; name: string; c: number; x: number; y: number }
-  | { kind: "computed"; name: string; x: number; y: number };
+  | { kind: "computed"; name: string; x: number; y: number }
+  | { kind: "summary"; name: string; col: number | null; x: number; y: number };
+
+/** An open `name = formula` editor for a summary. `name: null` is a new line
+    being written — in a totals cell when `col` is set, in the footer when it
+    isn't. */
+interface SummaryEdit {
+  name: string | null;
+  col: number | null;
+  draft: string;
+  err: string | null;
+}
+
+/** Quick-picks are accelerators over the same input, never a ceiling: they
+    prefill `name = FN(col)` and leave the full formula language available
+    (SUMIF, arithmetic, other summaries, cross-sheet refs). */
+const QUICK_PICKS = ["SUM", "AVG", "MIN", "MAX", "COUNT"] as const;
+
+// `name = formula`, with the fence's own unicode identifier class (SUB-753) so
+// the editors accept every name the file format does — `Größe`, `märz_total`.
+const LINE_RE = new RegExp(`^(${IDENT_SRC})\\s*=\\s*(\\S[\\s\\S]*?)\\s*$`, "u");
+const FORMULA_NAME_RE = new RegExp(`^${IDENT_SRC}$`, "u");
 
 interface SheetGridProps {
   meta: NoteMeta;
@@ -98,6 +125,10 @@ export default function SheetGrid({
   const [body, setBody] = useState(initial);
   const { fx: rates } = useFxRates();
   const [focus, setFocus] = useState<CellPos | null>(null);
+  /** The other corner of a range selection (SUB-937). null = a single cell.
+      Display-only: nothing about a selection is ever written to the note. */
+  const [anchor, setAnchor] = useState<CellPos | null>(null);
+  const [sumEdit, setSumEdit] = useState<SummaryEdit | null>(null);
   const [editing, setEditing] = useState<(CellPos & { draft: string }) | null>(null);
   const [addingCol, setAddingCol] = useState(false);
   const [gridMenu, setGridMenu] = useState<GridMenu | null>(null);
@@ -119,6 +150,8 @@ export default function SheetGrid({
   editingRef.current = editing;
   const editColRef = useRef(editCol);
   editColRef.current = editCol;
+  const sumEditRef = useRef(sumEdit);
+  sumEditRef.current = sumEdit;
 
   const fxResolver: FxResolver = useMemo(() => makeFxResolver(rates), [rates]);
   // the footer still quotes the one pair it always did (SUB-834)
@@ -205,30 +238,72 @@ export default function SheetGrid({
   const cols = dataCols + ev.computed.length;
   const rowCount = ev.rows.length;
 
-  /* Summary bar (SUB-939): the fence's first summary-bearing group is the
-     headline, later groups sit behind one toggle, and summaries that broke
-     for one shared reason are spoken for by a single rollup chip. */
-  const bar = useMemo(() => summaryBar(ev.summaries), [ev]);
   /* Each chip in the grammar of the column it aggregates (SUB-1084) — a
      headerless chip fell back to the per-value rules SUB-1000 removed from
      the grid, so a total could render 7400 under a column showing 7.400. */
   const sumFmts = useMemo(() => sheetSummaryFormats(model, ev), [model, ev]);
   const usesFx = useMemo(() => sheetUsesFx(model), [model]);
-  const sumChip = (s: BarSummary, i: number, quiet: boolean) => {
-    const err = errMessage(s.value);
-    return (
-      <span
-        className={"sheet-sum" + (quiet ? " sheet-sum-quiet" : "")}
-        key={`${s.name}-${i}`}
-        title={err ?? undefined}
-      >
-        <span className="sheet-sum-name">{s.name}</span>
-        <span className={"sheet-sum-val" + (err ? " sheet-err" : "")}>
-          {formatSummary(s.value, sumFmts.get(s.name.toLowerCase()))}
-        </span>
-      </span>
-    );
+  /** A summary's value wherever it renders — totals row or footer chip — in
+      the grammar of the column it aggregates, falling back to the
+      header-aware per-value rules when it claims no column. */
+  const summaryText = (name: string, v: Value | Cell, header?: string) => {
+    const fmt = sumFmts.get(name.toLowerCase());
+    return fmt ? formatSummary(v, fmt) : formatValue(v, header);
   };
+  // Summaries that describe exactly one column render in the totals row under
+  // it; the footer keeps the rest.
+  const totals = useMemo(() => totalsRow(model), [model]);
+  const summaryValue = useMemo(
+    () => new Map(ev.summaries.map((s) => [s.name, s.value])),
+    [ev]
+  );
+  const footerSummaries = useMemo(
+    () => ev.summaries.filter((s) => !totals.absorbed.has(s.name.toLowerCase())),
+    [ev, totals]
+  );
+  /* Summary bar (SUB-939): the fence's first summary-bearing group is the
+     headline, later groups sit behind one toggle, and summaries that broke
+     for one shared reason are spoken for by a single rollup chip. */
+  const bar = useMemo(() => summaryBar(footerSummaries), [footerSummaries]);
+
+  /** A grid column's name: data header, then computed column. */
+  const columnName = (c: number) =>
+    c < dataCols ? model.headers[c] : (ev.computed[c - dataCols]?.name ?? "");
+
+  const cellValue = (r: number, c: number): Value | Cell | undefined =>
+    c < dataCols ? ev.rows[r]?.[c] : ev.computed[c - dataCols]?.cells[r];
+
+  /** The selected rectangle, and what it adds up to — only once it covers
+      more than one cell, so an ordinary focused cell reports nothing. */
+  const selection = useMemo(() => {
+    if (!focus || !anchor) return null;
+    const r0 = Math.min(focus.r, anchor.r);
+    const r1 = Math.max(focus.r, anchor.r);
+    const c0 = Math.min(focus.c, anchor.c);
+    const c1 = Math.max(focus.c, anchor.c);
+    if (r0 === r1 && c0 === c1) return null;
+    const values: (Value | Cell | undefined)[] = [];
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) values.push(cellValue(r, c));
+    // Sum/Avg speak the selected columns' grammar (SUB-1000/1084) when they
+    // agree on one; a selection straddling two different columns has no
+    // shared reading, so it keeps the per-value rules.
+    const fmtAt = (c: number) =>
+      c < dataCols ? colFmts.data[c] : colFmts.computed[c - dataCols];
+    let fmt: ReturnType<typeof fmtAt> | undefined = fmtAt(c0);
+    for (let c = c0 + 1; c <= c1 && fmt; c++) {
+      const f = fmtAt(c);
+      if (!f || f.decimals !== fmt.decimals || f.group !== fmt.group) fmt = undefined;
+    }
+    return { r0, r1, c0, c1, fmt, stats: selectionStats(values) };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus, anchor, ev, dataCols]);
+
+  const inSelection = (r: number, c: number) =>
+    !!selection &&
+    r >= selection.r0 &&
+    r <= selection.r1 &&
+    c >= selection.c0 &&
+    c <= selection.c1;
 
   /* a column reads numeric when every non-blank, non-error cell is a number —
      numeric headers right-align over their digits (SUB-137) */
@@ -247,6 +322,35 @@ export default function SheetGrid({
     [model]
   );
 
+  /** Source of any formula line, summary or computed column (SUB-937). */
+  const anyFormulaSrc = useCallback(
+    (name: string) =>
+      model.formulas.find((f) => f.name.toLowerCase() === name.toLowerCase())?.src ?? "",
+    [model]
+  );
+
+  /** The one `name = formula` check both editors run: shape, then the two
+      collisions the fence would silently accept. `keep` is the line being
+      edited, which may of course keep its own name. */
+  const parseLine = useCallback(
+    (draft: string, keep: string | null): { name: string; src: string } | { err: string } => {
+      const m = LINE_RE.exec(draft);
+      if (!m) return { err: "want: name = formula" };
+      const [, name, src] = m;
+      const lower = name.toLowerCase();
+      if (model.headers.some((h) => h.trim().toLowerCase() === lower))
+        return { err: `“${name}” is a data column` };
+      if (
+        model.formulas.some(
+          (f) => f.name.toLowerCase() === lower && f.name.toLowerCase() !== keep?.toLowerCase()
+        )
+      )
+        return { err: `“${name}” already exists` };
+      return { name, src };
+    },
+    [model]
+  );
+
   const applyBody = useCallback(
     (next: string) => {
       if (next === body) return;
@@ -257,19 +361,23 @@ export default function SheetGrid({
   );
 
   const move = useCallback(
-    (r: number, c: number) => {
+    (r: number, c: number, extend = false) => {
       pendingFocus.current = true;
+      // Extending keeps the corner the range started from; plain navigation
+      // drops it, so an ordinary arrow key always lands on a single cell.
+      setAnchor((a) => (extend ? (a ?? focus) : null));
       setFocus({
         r: Math.max(0, Math.min(r, rowCount - 1)),
         c: Math.max(0, Math.min(c, cols - 1)),
       });
     },
-    [rowCount, cols]
+    [rowCount, cols, focus]
   );
 
   const step = useCallback(
     (dir: 1 | -1) => {
       if (!focus || rowCount === 0 || cols === 0) return;
+      setAnchor(null);
       const idx = focus.r * cols + focus.c + dir;
       const clamped = Math.max(0, Math.min(idx, rowCount * cols - 1));
       pendingFocus.current = true;
@@ -284,7 +392,7 @@ export default function SheetGrid({
     if (editing || !focus || !pendingFocus.current) return;
     pendingFocus.current = false;
     cellRefs.current.get(`${focus.r}-${focus.c}`)?.focus();
-  }, [focus, editing, body]);
+  }, [focus, editing, body, sumEdit]);
 
   // Enter from the note list focuses the grid (App wires editorFocusRef here)
   useEffect(() => {
@@ -320,6 +428,7 @@ export default function SheetGrid({
 
   const startEdit = (r: number, c: number) => {
     if (c >= dataCols) return; // computed columns are read-only
+    setAnchor(null);
     pendingFocus.current = true;
     setEditing({ r, c, draft: model.rows[r][c] });
   };
@@ -382,20 +491,104 @@ export default function SheetGrid({
       if (discardOnErr) setEditCol(null);
       else setEditCol({ ...ed, err });
     };
-    const m = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(\S[\s\S]*?)\s*$/.exec(ed.draft);
-    if (!m) return fail("want: name = formula");
-    const [, name, src] = m;
-    const lower = name.toLowerCase();
-    if (model.headers.some((h) => h.toLowerCase() === lower))
-      return fail(`“${name}” is a data column`);
-    if (
-      model.formulas.some(
-        (f) => f.name.toLowerCase() === lower && f.name.toLowerCase() !== ed.name.toLowerCase()
-      )
-    )
-      return fail(`“${name}” already exists`);
+    const parsed = parseLine(ed.draft, ed.name);
+    if ("err" in parsed) return fail(parsed.err);
     setEditCol(null);
-    applyBody(updateSheetFormula(body, ed.name, name, src));
+    applyBody(updateSheetFormula(body, ed.name, parsed.name, parsed.src));
+  };
+
+  // Summary editing (SUB-937): the same one-line grammar as a computed column
+  // header, from the totals row or from a footer chip. A new line appends to
+  // the fence; an existing one is rewritten in place, renames included.
+  /* Closing the editor hands the keyboard back to the grid the way a cell
+     edit does (:395) — otherwise Enter or Esc drops focus on the document
+     body and the next arrow key goes nowhere. */
+  const closeSumEdit = () => {
+    if (focus) pendingFocus.current = true;
+    setSumEdit(null);
+  };
+
+  const commitSummary = (discardOnErr: boolean) => {
+    const ed = sumEditRef.current;
+    if (!ed) return;
+    const parsed = parseLine(ed.draft, ed.name);
+    if ("err" in parsed) {
+      if (discardOnErr) closeSumEdit();
+      else setSumEdit({ ...ed, err: parsed.err });
+      return;
+    }
+    const classificationError = summaryFormulaError(
+      body,
+      ed.name,
+      parsed.name,
+      parsed.src
+    );
+    if (classificationError) {
+      if (discardOnErr) closeSumEdit();
+      else setSumEdit({ ...ed, err: classificationError });
+      return;
+    }
+    closeSumEdit();
+    applyBody(
+      ed.name === null
+        ? addSheetFormula(body, parsed.name, parsed.src)
+        : updateSheetFormula(body, ed.name, parsed.name, parsed.src)
+    );
+  };
+
+  /* Past mode renders the sheet as it was — the summary affordances stay
+     readable, none of them write. */
+  const editSummary = (name: string, col: number | null) => {
+    if (readOnly) return;
+    setSumEdit({ name, col, draft: `${name} = ${anyFormulaSrc(name)}`, err: null });
+  };
+
+  const addSummary = (col: number | null) => {
+    if (readOnly) return;
+    setSumEdit({ name: null, col, draft: "", err: null });
+  };
+
+  const sumChip = (summary: BarSummary, index: number, quiet: boolean) => {
+    const err = errMessage(summary.value);
+    return (
+      <button
+        className={"sheet-sum" + (quiet ? " sheet-sum-quiet" : "")}
+        key={`${summary.name}-${index}`}
+        title={
+          err ??
+          `${summary.name} = ${anyFormulaSrc(summary.name)}${readOnly ? "" : " — click to edit"}`
+        }
+        onClick={() => editSummary(summary.name, null)}
+        onContextMenu={(event) => {
+          if (readOnly) return;
+          event.preventDefault();
+          setGridMenu({
+            kind: "summary",
+            name: summary.name,
+            col: null,
+            x: event.clientX,
+            y: event.clientY,
+          });
+        }}
+      >
+        <span className="sheet-sum-name">{summary.name}</span>
+        <span className={"sheet-sum-val" + (err ? " sheet-err" : "")}>
+          {summaryText(summary.name, summary.value)}
+        </span>
+      </button>
+    );
+  };
+
+  /** A quick-pick's suggested name: `cost_sum`, deduped against everything
+      already bound on this sheet. */
+  const pickName = (fn: string, col: string) => {
+    const taken = new Set([
+      ...model.headers.map((h) => h.trim().toLowerCase()),
+      ...model.formulas.map((f) => f.name.toLowerCase()),
+    ]);
+    const base = `${col}_${fn.toLowerCase()}`;
+    if (!taken.has(base.toLowerCase())) return base;
+    for (let i = 2; ; i++) if (!taken.has(`${base}_${i}`.toLowerCase())) return `${base}_${i}`;
   };
 
   // Row/column context menus (SUB-395). Every action funnels through
@@ -452,6 +645,17 @@ export default function SheetGrid({
         },
       ];
     }
+    if (m.kind === "summary") {
+      return [
+        { label: "Edit formula", onSelect: () => editSummary(m.name, m.col) },
+        {
+          label: "Delete summary",
+          danger: true,
+          separatorAbove: true,
+          onSelect: () => apply(deleteSheetFormula(body, m.name)),
+        },
+      ];
+    }
     return [
       {
         label: "Edit formula",
@@ -476,6 +680,11 @@ export default function SheetGrid({
 
   const onGridKeyDown = (e: React.KeyboardEvent) => {
     if (editing || !focus) return;
+    // The scroll surface also contains native controls in the add/totals
+    // rows. Their Enter/arrows belong to the control, never to whichever data
+    // cell was focused last; returning leaves native button keyboard clicks
+    // intact instead of opening or moving that stale cell.
+    if (!(e.target as HTMLElement).classList.contains("sheet-cell")) return;
     // bare-key nav only — modified keys belong to App's window listener
     // (⌘K palette …); same guard as DatabasePane's key surface (SUB-292)
     if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -483,26 +692,29 @@ export default function SheetGrid({
       e.preventDefault();
       e.stopPropagation(); // keep App's list navigation out of the grid
     };
+    // Shift+arrow extends the range selection (SUB-937); the vim keys stay
+    // plain single-cell navigation.
+    const ext = e.shiftKey;
     switch (e.key) {
       case "ArrowUp":
       case "k":
         stop();
-        move(focus.r - 1, focus.c);
+        move(focus.r - 1, focus.c, ext);
         break;
       case "ArrowDown":
       case "j":
         stop();
-        move(focus.r + 1, focus.c);
+        move(focus.r + 1, focus.c, ext);
         break;
       case "ArrowLeft":
       case "h":
         stop();
-        move(focus.r, focus.c - 1);
+        move(focus.r, focus.c - 1, ext);
         break;
       case "ArrowRight":
       case "l":
         stop();
-        move(focus.r, focus.c + 1);
+        move(focus.r, focus.c + 1, ext);
         break;
       case "Tab":
         stop();
@@ -520,6 +732,7 @@ export default function SheetGrid({
         stop();
         break;
       case "Escape":
+        setAnchor(null);
         (document.activeElement as HTMLElement | null)?.blur();
         break;
     }
@@ -528,6 +741,22 @@ export default function SheetGrid({
   const cellRef = (key: string) => (el: HTMLDivElement | null) => {
     if (el) cellRefs.current.set(key, el);
     else cellRefs.current.delete(key);
+  };
+
+  /** Shift+click extends the range from wherever the selection started;
+      a plain click collapses it back to one cell (SUB-937). preventDefault
+      keeps the browser from drawing its own text selection over the range —
+      the cell we focus ourselves right after. */
+  const onCellMouseDown = (r: number, c: number) => (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    if (e.shiftKey) {
+      e.preventDefault();
+      setAnchor((a) => a ?? focus ?? { r, c });
+      pendingFocus.current = true;
+      setFocus({ r, c });
+    } else {
+      setAnchor(null);
+    }
   };
 
   const dataCell = (r: number, c: number) => {
@@ -560,10 +789,13 @@ export default function SheetGrid({
           />
         ) : (
           <div
-            className={"sheet-cell" + (isFocused ? " focused" : "")}
+            className={
+              "sheet-cell" + (isFocused ? " focused" : "") + (inSelection(r, c) ? " selected" : "")
+            }
             tabIndex={isFocused ? 0 : -1}
             ref={cellRef(key)}
             onFocus={() => setFocus({ r, c })}
+            onMouseDown={onCellMouseDown(r, c)}
             onDoubleClick={() => startEdit(r, c)}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -586,16 +818,128 @@ export default function SheetGrid({
     return (
       <td key={c} className={typeof v === "number" ? "sheet-num" : ""}>
         <div
-          className={"sheet-cell sheet-computed" + (isFocused ? " focused" : "")}
+          className={
+            "sheet-cell sheet-computed" +
+            (isFocused ? " focused" : "") +
+            (inSelection(r, c) ? " selected" : "")
+          }
           tabIndex={isFocused ? 0 : -1}
           ref={cellRef(key)}
           onFocus={() => setFocus({ r, c })}
+          onMouseDown={onCellMouseDown(r, c)}
           title={err ?? `${name} = ${formulaSrc(name)}`}
         >
           <span className={err ? "sheet-err" : ""}>
             {formatValue(v, name, colFmts.computed[c - dataCols])}
           </span>
         </div>
+      </td>
+    );
+  };
+
+  /** The shared `name = formula` editor behind a totals cell and a footer
+      chip. Quick-picks only show when writing a NEW line under a referenceable
+      column — they prefill the input, which still accepts the whole formula
+      language. */
+  const summaryEditor = (ed: SummaryEdit) => {
+    const col = ed.col === null ? null : columnName(ed.col);
+    const picks = ed.name === null && col !== null && FORMULA_NAME_RE.test(col) ? col : null;
+    /* A new footer line has no column and no quick-picks to copy from, so the
+       placeholder shows the whole shape instead of naming its halves. */
+    const hint = ed.name === null && !picks ? "total = SUM(column)" : "name = formula";
+    return (
+      <div className="sheet-fx-edit">
+        <input
+          className={"sheet-fx-input" + (ed.err ? " err" : "")}
+          autoFocus
+          placeholder={hint}
+          title={ed.err ?? `${hint} — Enter applies, Esc cancels`}
+          value={ed.draft}
+          onChange={(e) => setSumEdit({ ...ed, draft: e.target.value, err: null })}
+          onBlur={() => commitSummary(true)}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commitSummary(false);
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              closeSumEdit();
+            }
+          }}
+        />
+        {picks && (
+          <div className="sheet-fx-picks">
+            {QUICK_PICKS.map((fn) => (
+              <button
+                key={fn}
+                className="sheet-fx-pick"
+                // mousedown would blur the input first and discard the draft
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() =>
+                  setSumEdit({
+                    ...ed,
+                    draft: `${pickName(fn, picks)} = ${fn}(${picks})`,
+                    err: null,
+                  })
+                }
+              >
+                {fn[0] + fn.slice(1).toLowerCase()}
+              </button>
+            ))}
+          </div>
+        )}
+        {ed.err && <span className="sheet-fx-err">{ed.err}</span>}
+      </div>
+    );
+  };
+
+  /** One summary in the totals row: its name, muted, over its value. */
+  const totalEntry = (name: string, c: number) => {
+    const v = summaryValue.get(name) ?? null;
+    const err = errMessage(v);
+    return (
+      <button
+        key={name}
+        className="sheet-total"
+        title={err ?? `${name} = ${anyFormulaSrc(name)}${readOnly ? "" : " — click to edit"}`}
+        onClick={() => editSummary(name, c)}
+        onContextMenu={(e) => {
+          if (readOnly) return;
+          e.preventDefault();
+          setGridMenu({ kind: "summary", name, col: c, x: e.clientX, y: e.clientY });
+        }}
+      >
+        <span className="sheet-total-name">{name}</span>
+        <span className={"sheet-total-val" + (err ? " sheet-err" : "")}>
+          {summaryText(name, v, columnName(c))}
+        </span>
+      </button>
+    );
+  };
+
+  const totalsCell = (c: number) => {
+    const names = totals.byColumn.get(c) ?? [];
+    const editing = sumEdit?.col === c;
+    const numeric = names.some((n) => typeof summaryValue.get(n) === "number");
+    return (
+      <td key={`t${c}`} className={
+          "sheet-totals-cell" + (numeric ? " sheet-num" : "") + (editing ? " editing" : "")
+        }>
+        {names.length > 0 ? (
+          names.map((n) => totalEntry(n, c))
+        ) : !readOnly ? (
+          <button
+            className="sheet-total-add"
+            title={`Summarize ${columnName(c)}`}
+            aria-label={`Summarize ${columnName(c)}`}
+            onClick={() => addSummary(c)}
+          >
+            +
+          </button>
+        ) : null}
+        {/* the editor draws over the cell, never in it — see styles.css */}
+        {editing && summaryEditor(sumEdit)}
       </td>
     );
   };
@@ -805,48 +1149,83 @@ export default function SheetGrid({
                 <button onClick={onAddRow}>+ row</button>
               </td>
             </tr>
+            {/* Totals row (SUB-937): pinned to the bottom of the scroll area,
+                one cell per column, holding the summaries that describe that
+                column. An empty cell writes a new one. */}
+            {model.hasCsv && cols > 0 && (
+              <tr className="sheet-totals">
+                {model.headers.map((_, c) => totalsCell(c))}
+                {ev.computed.map((_, c) => totalsCell(dataCols + c))}
+                <td className="sheet-spacer" />
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
       <div className="sheet-summary">
         <div className="sheet-sum-row">
-          {ev.summaries.length > 0 ? (
-            <>
-              {bar.headline.map((s, i) => sumChip(s, i, false))}
-              {bar.rollups.map((r, i) => (
-                <button
-                  className="sheet-sum sheet-sum-rollup"
-                  key={r.message ?? `mixed-${i}`}
-                  aria-expanded={showAll}
-                  aria-controls={summaryDetailsId}
-                  aria-label={`${r.message ?? `${r.names.length} summaries failed`}. ${
-                    r.message ? `Broke ${r.names.length} summaries` : "Different causes"
-                  }: ${r.names.join(", ")}`}
-                  title={(r.message ? r.message + "\n" : "") + r.names.join(", ")}
-                  onClick={toggleSummaryDetails}
-                >
-                  <span className="sheet-sum-why sheet-err">
-                    {r.message ?? `${r.names.length} summaries failed`}
+          {/* Only summaries the totals row could not place remain here. The
+              first formula group is sharp; later groups expand quietly. */}
+          <div className="sheet-sums">
+            {bar.headline.map((summary, index) => sumChip(summary, index, false))}
+            {bar.rollups.map((rollup, index) => (
+              <button
+                className="sheet-sum sheet-sum-rollup"
+                key={rollup.message ?? `mixed-${index}`}
+                aria-expanded={showAll}
+                aria-controls={summaryDetailsId}
+                aria-label={`${rollup.message ?? `${rollup.names.length} summaries failed`}. ${
+                  rollup.message ? `Broke ${rollup.names.length} summaries` : "Different causes"
+                }: ${rollup.names.join(", ")}`}
+                title={(rollup.message ? rollup.message + "\n" : "") + rollup.names.join(", ")}
+                onClick={toggleSummaryDetails}
+              >
+                <span className="sheet-sum-why sheet-err">
+                  {rollup.message ?? `${rollup.names.length} summaries failed`}
+                </span>
+                <span className="sheet-sum-count">
+                  {rollup.message ? `broke ${rollup.names.length} summaries` : "different causes"}
+                </span>
+              </button>
+            ))}
+            {bar.rest.length > 0 && (
+              <button
+                className="sheet-sum-more"
+                aria-expanded={showAll}
+                aria-controls={summaryDetailsId}
+                onClick={toggleSummaryDetails}
+              >
+                {showAll ? "hide" : `show all (${bar.rest.length})`}
+              </button>
+            )}
+            {sumEdit && sumEdit.col === null ? (
+              summaryEditor(sumEdit)
+            ) : !readOnly ? (
+              <button
+                className="sheet-sum-add"
+                title="Add a named summary to the formulas block"
+                onClick={() => addSummary(null)}
+              >
+                + summary
+              </button>
+            ) : null}
+          </div>
+          {selection && (
+            <span className="sheet-selstat">
+              {selection.stats.numeric > 0 && (
+                <>
+                  <span className="sheet-selstat-k">Sum</span>
+                  <span className="sheet-selstat-v">
+                    {formatSummary(selection.stats.sum, selection.fmt)}
                   </span>
-                  <span className="sheet-sum-count">
-                    {r.message ? `broke ${r.names.length} summaries` : "different causes"}
+                  <span className="sheet-selstat-k">Avg</span>
+                  <span className="sheet-selstat-v">
+                    {formatSummary(selection.stats.avg, selection.fmt)}
                   </span>
-                </button>
-              ))}
-              {bar.rest.length > 0 && (
-                <button
-                  className="sheet-sum-more"
-                  aria-expanded={showAll}
-                  aria-controls={summaryDetailsId}
-                  onClick={toggleSummaryDetails}
-                >
-                  {showAll ? "hide" : `show all (${bar.rest.length})`}
-                </button>
+                </>
               )}
-            </>
-          ) : (
-            <span className="sheet-sum-hint">
-              Named aggregates in the ```formulas block (SUM, SUMIF, …) appear here
+              <span className="sheet-selstat-k">Count</span>
+              <span className="sheet-selstat-v">{selection.stats.count}</span>
             </span>
           )}
           <span className="sheet-meta">
@@ -856,7 +1235,7 @@ export default function SheetGrid({
         </div>
         {showAll && bar.rest.length > 0 && (
           <div className="sheet-sum-row sheet-sum-rest" id={summaryDetailsId}>
-            {bar.rest.map((s, i) => sumChip(s, i, true))}
+            {bar.rest.map((summary, index) => sumChip(summary, index, true))}
           </div>
         )}
       </div>

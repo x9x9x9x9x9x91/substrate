@@ -573,7 +573,14 @@ export default function TasksDashboard({
   /** A kanban card (SUB-933): the row's content restacked for a 240px
       column — checkbox and title up top, the same due/priority edit chips
       below, the quiet verbs on hover. Urgency stays readable through the
-      chips' own hues; the card never moves columns for being late. */
+      chips' own hues; the card never moves columns for being late.
+
+      The rot layer rides along (SUB-1055): the same amber `tasks-finding`
+      chip the list row carries, in the same slot after priority, so a task
+      that has gone stale or has no created date says so in either view. Age
+      stays in the tooltip only — the list's `Nd` column is a scannable
+      gutter, but on a 240px card it would be a third number competing with
+      due and priority for the one meta line that fits. */
   const renderCard = (row: TasksDashboardRow) => {
     const done = completing.includes(row.path);
     const tint = priorityTint(row.priority);
@@ -682,6 +689,9 @@ export default function TasksDashboard({
             {row.priority ? <OptionPill color={tint}>{row.priority}</OptionPill> : "＋ priority"}
           </button>
           {row.now && <PinMark />}
+          {row.finding && (
+            <span className="tasks-finding">{row.finding === "stale" ? "stale" : "undated"}</span>
+          )}
           <span className="tasks-card-acts">
             <button type="button" className="tasks-act" onClick={() => setNow(row, !row.now)}>
               {row.now ? "Later" : "Now"}

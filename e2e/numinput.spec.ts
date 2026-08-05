@@ -94,14 +94,14 @@ test("a German-typed price lands in the footer Sum, not beside it", async ({ pag
   await expect(sum).toHaveText("14.323,06 €");
 });
 
-test("the intl setting reaches table cells, totals, board cards and gallery cards", async ({
+test("an en-US locale reaches table cells, totals, board cards and gallery cards", async ({
   page,
 }) => {
   await page.goto("/");
   await page.evaluate(() => window.__mockSetEchoOnWrites?.(true));
   await page.locator(".side-tools").getByRole("button", { name: "Settings" }).click();
   await page.getByRole("radiogroup", { name: "Number format" })
-    .getByRole("radio", { name: "1,234.56" })
+    .getByRole("radio", { name: /en-US/ })
     .click();
   await page.keyboard.press("Escape");
   await page.waitForTimeout(500);
@@ -124,6 +124,30 @@ test("the intl setting reaches table cells, totals, board cards and gallery card
   const nordvik = () =>
     page.locator("tr", { has: page.locator(".db-title-txt", { hasText: "Nordvik One" }) });
   await expect(nordvik().locator("td").nth(category)).toHaveText("1,234.56 €");
+
+  // …and the reader follows the dial too, not just the renderer: under en-US
+  // the comma groups and the dot decides the decimal, the exact mirror of the
+  // German case above. Without this the dial would be half a seam — the app
+  // would print 1,234.56 and then read the same text back as 1.23456.
+  const price = await colIndex(page, "price");
+  const priceCell = () => nordvik().locator("td").nth(price);
+  await priceCell().click();
+  const enInput = page.locator(".selmenu .selmenu-input");
+  await enInput.fill("1,234.56");
+  await enInput.press("Enter");
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".selmenu")).toHaveCount(0);
+  await expect(priceCell()).toHaveText("1,234.56 €");
+  // the stored value stayed canonical dot-decimal — the editor prefills it raw
+  await priceCell().click();
+  await expect(page.locator(".selmenu .selmenu-input")).toHaveValue("1234.56");
+  await page.locator(".selmenu .selmenu-input").press("Escape");
+  // grouping alone under en-US means one thousand, not 1.234
+  await priceCell().click();
+  await page.locator(".selmenu .selmenu-input").fill("1,234");
+  await page.locator(".selmenu .selmenu-input").press("Enter");
+  await page.keyboard.press("Escape");
+  await expect(priceCell()).toHaveText("1,234 €");
 
   await page.locator(".db-table th", { hasText: "category" }).locator(".db-th-caret").click();
   await page.locator(".colmenu .dots-item", { hasText: "Calculate…" }).click();

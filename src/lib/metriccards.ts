@@ -23,6 +23,7 @@
  *  Pure TS, no DOM/node imports: runs in the app and under `node --test`.
  *  Resolution and rendering live in src/components/MetricCards.tsx. */
 
+import { numberLocale } from "./numberLocale.ts";
 import { fmtMoney } from "./dashboard.ts";
 import { isErr, type Value } from "./formula.ts";
 import { byFoldedKey } from "./schemalookup.ts";
@@ -128,13 +129,13 @@ export function fmtCard(v: Value, format?: string, digits?: number): string {
     case "usd":
       return fmtMoney(v, "$", d ?? 0);
     case "number":
-      return v.toLocaleString("de-DE", {
+      return v.toLocaleString(numberLocale(), {
         minimumFractionDigits: d ?? 0,
         maximumFractionDigits: d ?? 2,
       });
     case "pct":
       return (
-        v.toLocaleString("de-DE", {
+        v.toLocaleString(numberLocale(), {
           minimumFractionDigits: d ?? 1,
           maximumFractionDigits: d ?? 1,
         }) + "%"

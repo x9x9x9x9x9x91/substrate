@@ -1,3 +1,4 @@
+import { numberLocale } from "../lib/numberLocale";
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import type { NoteMeta, SavedView, SchemaConfig } from "../lib/types";
 import { propStr } from "../lib/types";
@@ -71,7 +72,7 @@ interface DashboardPaneProps {
     The symbol always trails (fmtMoney's placement): one currency position per
     surface, the M rides the number as a magnitude suffix. */
 const fmtFixed = (v: number, digits: number): string =>
-  v.toLocaleString("de-DE", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  v.toLocaleString(numberLocale(), { minimumFractionDigits: digits, maximumFractionDigits: digits });
 
 function YieldDashboard({
   meta,

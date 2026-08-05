@@ -68,6 +68,9 @@ export function canonicalViewPref(pref: ViewPref, columns: string[]): ViewPref {
     key === undefined ? undefined : (canonicalColumn(columns, key) ?? key);
   const lists = (keys: string[] | undefined) =>
     keys === undefined ? undefined : canonicalColumnKeys(columns, keys);
+  // `...pref` carries card_order (SUB-948) through untouched on purpose: it
+  // holds note PATHS, not column keys, so column canonicalization would only
+  // corrupt it.
   return {
     ...pref,
     group_by: column(pref.group_by),
