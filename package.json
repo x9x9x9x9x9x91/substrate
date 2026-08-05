@@ -17,6 +17,7 @@
     "tauri": "bash scripts/lib/cargo-target.sh tauri",
     "check:ipc": "node scripts/check-ipc.ts",
     "check:kinds": "node scripts/check-kinds.ts",
+    "check:fences": "node scripts/check-fence-langs.ts",
     "hooks:install": "bash scripts/install-git-hooks.sh",
     "import:notion": "node scripts/import-notion.ts",
     "import:ableton": "node scripts/import-ableton.ts",

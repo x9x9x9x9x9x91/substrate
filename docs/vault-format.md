@@ -2415,8 +2415,9 @@ seen the folder still shows the rows, and every annotation on them.
 - `missing` — the index remembers the file and the last scan didn't find it.
   Such a row is kept and greyed, never dropped, and keeps its sidecar.
 - `extracted` / `extract_error` / `extract_tried` — what was read out of the
-  file itself (below). All three default and are omitted when empty, so an
-  index written before extraction existed reads back unchanged.
+  file itself (below). All of them default and are omitted when empty, so an
+  index written before extraction existed reads back unchanged. A document's
+  own body **text is not here** — see the machine-local store below.
 
 **Extracted columns** (`vault/extract.rs`, `vault/extractq.rs`): opening files
 is slow, so a scan never does it. The scan writes the index and returns;
@@ -2432,6 +2433,17 @@ is merged back into the index, which is how the board fills in behind a scan.
   keys at all. The file's own title is `media_title`, never `title` — `title`
   is the row's heading throughout the note pipeline and is dropped as a column
   name, so extracting into it would store a value nothing ever shows.
+- **Document text is machine-local and never in this file.** A PDF's own body
+  text is read on the same open that reads its page count, and it is stored
+  in the OS app-config dir — `mount-text/<id>.json`, beside `config.json` and
+  beside the mount's path binding — never in the vault. The reason is the
+  privacy line mounts are built on: this index syncs and is committed to
+  version history, while the text belongs to a file **outside** the vault, so
+  an excerpt kept here would put a copy of someone's contract or tax return on
+  the sync remote and keep it there forever. **The sync contract is
+  unchanged:** a machine without the mount bound gets rows, counts, titles and
+  extracted columns exactly as before, and no external file's text ever
+  reaches the sync remote or vault history.
 - `extract_error` — why that one file couldn't be read. The row survives with
   the value simply absent; a malformed file never fails the scan.
 - **Size caps.** Both parsers size buffers from numbers the file declares, and
@@ -2443,7 +2455,7 @@ is merged back into the index, which is how the board fills in behind a scan.
   on every later scan rather than being marked tried.
 - `extract_tried` — set once the file has been through the queue, however it
   went. It is what stops a file being re-opened on every scan, and it is
-  **the cache**: a rescan carries all three forward whenever the content
+  **the cache**: a rescan carries all of them forward whenever the content
   identity still matches, so an unchanged file is never read twice, across
   launches included. Content changing gives the row a new identity, which
   drops the carry-forward and re-offers the file. These columns are read-only
@@ -2459,6 +2471,49 @@ keeps its row and gets a fresh identity). Two files with identical content
 share an identity, so the match is one-to-one: each row claims its own
 previous entry and a duplicated file stays **two rows**, never collapses into
 one (`mount_scan_duplicate_content_stays_two_rows`).
+
+### `mount-text/<id>.json` — document text, machine-local, never synced
+
+One file per mount in the OS app-config dir (`vault/mounttext.rs`), holding
+what a document *said*. It is deliberately not vault data: the files it quotes
+live outside the vault, so their text stays on the one machine that can open
+them, next to the path binding that says where they are.
+
+```json
+{ "version": 1,
+  "files": {
+    "papers/spectral morphology.pdf":
+      { "identity": "b1e0…", "text": "Granular resynthesis of…", "truncated": true }
+  } }
+```
+
+- Keyed by the same `rel` the index uses, plus the `identity` the text was
+  read from — text whose identity no longer matches the indexed file describes
+  bytes that are gone, and reads as a miss rather than as stale text.
+- `truncated` — a cap ended the excerpt rather than the document ending it.
+  The text is capped twice on the way in — at 10 pages read and 4 KiB emitted,
+  whichever binds first. Word boundaries are kept where they exist; an
+  unbroken run of glyphs is cut on a character boundary. Only PDFs carry text
+  today; audio files contribute none.
+- `capped` — the file was read and its text dropped because the store was
+  full. The store is parsed and rewritten whole on every extraction batch, so
+  its size is work and not only disk: it holds **2 MiB** of text per mount,
+  roughly 500 documents at the 4 KiB cap. Recording the file even when its
+  text is dropped is what stops a full store re-offering the same files on
+  every scan forever.
+- **It is a cache.** Deleting the file, or losing the whole config dir, loses
+  nothing a rescan cannot rebuild; a machine that has never bound the mount
+  simply never has it.
+- **Migration.** The store starts empty — on a new machine, and on this one
+  after an upgrade from a version that had no text at all. Rows indexed before
+  it existed already carry `extract_tried`, and that flag keeps its old
+  meaning (the *columns* are cached). So a file that is `extract_tried` with
+  no store entry is offered to the queue **once more**, for its text only, and
+  the entry that reading leaves ends it — including when the document had no
+  text to give and when the reader failed outright, both of which record an
+  empty entry. The re-offer is narrowed to formats that carry text
+  (`extract::carries_text`), so upgrading with a 40,000-file sample library
+  mounted re-reads nothing.
 
 ### Sidecars — the note a row grows when you annotate it
 

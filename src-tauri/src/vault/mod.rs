@@ -344,6 +344,12 @@ pub struct Engine {
     db: Connection,
     fts: bool,
     link_re: Regex,
+    /// The app config dir, when the engine is running under the app: the one
+    /// place a machine keeps things that must NOT sync (SUB-1093). Mount path
+    /// bindings already live there; so does mount document text, because it
+    /// is the content of files outside the vault. `None` — tests, the
+    /// unconfigured first-run engine — simply stores no text.
+    local_dir: Option<PathBuf>,
     /// Test-only count of note-file writes through the create/prop-edit
     /// paths folder sync uses — lets sync tests assert write coalescing
     /// (SUB-61). Always 0 in non-test builds.
@@ -1020,6 +1026,15 @@ impl Engine {
         Self::build(root, false)
     }
 
+    /// Point the engine at this machine's config dir, which is where anything
+    /// that must not sync is kept (SUB-1093). Set once at boot; an engine
+    /// without it keeps no mount text, which is the safe direction — the
+    /// index, and therefore everything that syncs, is identical either way.
+    pub fn with_local_dir(mut self, dir: PathBuf) -> Self {
+        self.local_dir = Some(dir);
+        self
+    }
+
     fn build(root: PathBuf, scaffold: bool) -> Self {
         let fresh = !root.exists();
         if scaffold {
@@ -1068,14 +1083,25 @@ impl Engine {
             // the standalone vault, where nobody else can be writing, is
             // backfilled here.
             //
-            // Cost of that, worth naming (SUB-956 review, finding 5 —
-            // follow-up SUB-1110): a device joining a remote whose vault never
-            // carried these files ends up without them and never gets them
-            // back, because the branch that would fix it is the one this guard
-            // closes. Relaxing it is plausible now that SUB-956's belt adopts
-            // untouched-seed add/add conflicts — the exact shape SUB-473
-            // parked on — but that re-enables boot-time writes into every
-            // syncing vault, so it is its own round, not a line change here.
+            // The vault that syncs is not left without them, though: it gets
+            // them from the OTHER side of the pull instead (SUB-1110). A join
+            // that lands a remote which never carried these files ends with
+            // them missing here, and `gitsync::backfill_missing_app_files`
+            // writes them once the pull has settled — after a history exists,
+            // so it is neither the unrelated-history hazard above nor the
+            // boot-time collision this guard closes, and it covers the phone,
+            // which never reaches this desktop-only branch at all.
+            //
+            // The two paths do NOT treat a deleted file alike, and the
+            // difference is worth naming. The sync backfill asks the history
+            // whether this vault ever carried the path, so a file the user
+            // deleted stays deleted there. This boot backfill has no history to
+            // ask — `seed_or_refresh` sees only an absent path — so a
+            // standalone vault whose user deletes a seeded app file gets it
+            // back on the next launch. That is the same behaviour the boot seed
+            // has always had, and the standalone case is the one where nothing
+            // else can be writing, so a re-seed costs a delete rather than a
+            // conflict.
             #[cfg(desktop)]
             if !crate::vaultfmt::vault_written_by_newer_app(&root)
                 && !crate::gitsync::sync_configured(&root)
@@ -1102,6 +1128,7 @@ impl Engine {
             // a leading `!` makes it an asset embed (![[bounce.wav]]), not a
             // link — both the index and rename's rewrite skip those matches
             link_re: Regex::new(r"!?\[\[([^\[\]]+)\]\]").unwrap(),
+            local_dir: None,
             #[cfg(test)]
             note_writes: 0,
         };
@@ -2498,13 +2525,18 @@ mod extract;
 mod extractq;
 pub use extractq::{ExtractDone, ExtractJob, ExtractQueue};
 
+// Where a mounted document's text goes: this machine, never the vault
+// (SUB-1093).
+mod mounttext;
+
 mod seed;
 pub use seed::seed_new_vault;
 // `AGENTS_REL_PATH` is consumed through the façade by the property tests.
 #[cfg_attr(not(test), allow(unused_imports))]
 pub(crate) use seed::{
-    is_untouched_seed_content, remove_untouched_seed_files, seed_hash, set_terminal_command,
-    starter_note_paths, vault_holds_only_untouched_seeds, AGENTS_REL_PATH,
+    app_file_paths, is_untouched_seed_content, remove_untouched_seed_files, seed_app_file,
+    seed_hash, set_terminal_command, starter_note_paths, vault_holds_only_untouched_seeds,
+    AGENTS_REL_PATH,
 };
 use seed::{seed_agent_files, seed_settings};
 

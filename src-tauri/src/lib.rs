@@ -487,7 +487,10 @@ pub fn run() {
             // which would manufacture an unrelated root commit and conflicts.
             #[cfg(mobile)]
             std::fs::create_dir_all(&root).expect("could not create mobile vault dir");
-            let engine = if first_run { Engine::new_unconfigured(root) } else { Engine::new(root) };
+            let engine = if first_run { Engine::new_unconfigured(root) } else { Engine::new(root) }
+                // machine-local storage: mount document text, alongside the
+                // mount path bindings that already live here (SUB-1093)
+                .with_local_dir(config_dir.clone());
             let watch_root = engine.root.clone();
             let settings_root = watch_root.clone();
             let notify_root = watch_root.clone();

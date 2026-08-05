@@ -86,6 +86,32 @@ test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; 
   1 passed (402ms)
 `,
 
+  // The ios leg (SUB-1121): a cross-compile check, so its red shape is rustc's,
+  // verbatim from SUB-827's pre-fix state (ungated `crate::voice::*`).
+  // The leading warning is load-bearing: warnings carry `-->` arrows too and
+  // print first, so the location line has to be found relative to the error.
+  ios: `    Checking substrate v0.1.0 (/repo/src-tauri)
+warning: unused variable: \`tail\`
+  --> src/history.rs:20:17
+   |
+20 |         let (id, tail) = split(entry);
+   |                 ^^^^
+
+error[E0433]: failed to resolve: could not find \`voice\` in the crate root
+  --> src/commands/voice.rs:12:12
+   |
+12 |     crate::voice::start_capture()
+   |            ^^^^^ could not find \`voice\` in the crate root
+
+error[E0433]: failed to resolve: could not find \`voice\` in the crate root
+  --> src/commands/voice.rs:31:12
+   |
+31 |     crate::voice::stop_capture()
+   |            ^^^^^ could not find \`voice\` in the crate root
+
+error: could not compile \`substrate\` (lib) due to 2 previous errors
+`,
+
   lint: `
 /repo/src/lib/foo.ts
   1:7  error  'unusedVar' is assigned a value but never used  @typescript-eslint/no-unused-vars
@@ -97,8 +123,30 @@ test result: FAILED. 1 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; 
 
 /** A stub that replaces npm/npx/cargo: print the fixture for $GATE, exit $GATE_RC. */
 const TOOL_STUB = String.raw`#!/usr/bin/env bash
+# The ios leg asks cargo its version (to catch a cargo/rustc toolchain split)
+# before it asks cargo to build anything, so the stub answers that separately.
+if [[ "$1" == "--version" ]]; then echo "cargo $CARGO_VERSION (stub)"; exit 0; fi
 cat "$FIXTURE_DIR/$GATE.log"
 exit "$GATE_RC"
+`;
+
+// The ios leg probes its two prerequisites before compiling anything, and both
+// probes are real commands on the host — stubbed here so the leg's behaviour is
+// the machine's state under test, not this machine's Xcode install.
+// (IOS_TARGET_INSTALLED / IOS_SDK_PRESENT are always set by run(), so the stubs
+// read them unbraced — String.raw still interpolates ${...}.)
+const RUSTC_STUB = String.raw`#!/usr/bin/env bash
+# ios_check asks two things: the version (cross-checked against cargo's, since
+# a split there means the probe and the compile run on different toolchains)
+# and: rustc --print target-libdir --target aarch64-apple-ios
+if [[ "$1" == "--version" ]]; then echo "rustc $RUSTC_VERSION (stub)"; exit 0; fi
+[[ "$IOS_TARGET_INSTALLED" == 1 ]] || exit 1
+echo "$FIXTURE_DIR"   # any real directory stands in for the target's std libdir
+`;
+
+const XCRUN_STUB = String.raw`#!/usr/bin/env bash
+[[ "$IOS_SDK_PRESENT" == 1 ]] || exit 1
+echo /fake/iPhoneOS.sdk
 `;
 
 type Repo = { dir: string; bin: string; fixtures: string };
@@ -127,6 +175,10 @@ function makeRepo(dir: string): Repo {
     writeFileSync(join(bin, tool), TOOL_STUB);
     chmodSync(join(bin, tool), 0o755);
   }
+  for (const [tool, body] of [["rustc", RUSTC_STUB], ["xcrun", XCRUN_STUB]]) {
+    writeFileSync(join(bin, tool), body);
+    chmodSync(join(bin, tool), 0o755);
+  }
 
   const fixtures = join(dir, "fixtures");
   mkdirSync(fixtures);
@@ -137,7 +189,7 @@ function makeRepo(dir: string): Repo {
   return { dir: repo, bin, fixtures };
 }
 
-function run(repo: Repo, gate: string, rc: string) {
+function run(repo: Repo, gate: string, rc: string, env: Record<string, string> = {}) {
   return spawnSync("bash", [join(repo.dir, "scripts/verify-gates.sh"), "--only", gate], {
     cwd: repo.dir,
     env: {
@@ -146,6 +198,11 @@ function run(repo: Repo, gate: string, rc: string) {
       FIXTURE_DIR: repo.fixtures,
       GATE: gate,
       GATE_RC: rc,
+      IOS_TARGET_INSTALLED: "1",
+      IOS_SDK_PRESENT: "1",
+      CARGO_VERSION: "1.99.0",
+      RUSTC_VERSION: "1.99.0",
+      ...env,
     },
     encoding: "utf8",
   });
@@ -169,6 +226,8 @@ test("a red gate names the failing specs and the first error line", () => {
       test: [/✖ failing spec name here/, /✖ another failure/, /AssertionError \[ERR_ASSERTION\]: boom mismatch/],
       cargo: [/tests::broken_alpha/, /tests::broken_beta/, /panicked at src\/lib\.rs/],
       e2e: [/1\) \[chromium\] › e2e\/x\.spec\.ts:4:3 › Some Suite › fails loudly/, /Error: expect\(received\)/],
+      // …and the location printed must be the ERROR's, not the warning's.
+      ios: [/error\[E0433\]: failed to resolve/, /--> src\/commands\/voice\.rs:12:12/],
       lint: [/foo\.ts:1:7\s+error\s+'unusedVar'/, /foo\.ts:9:1\s+error\s+Unexpected console/],
     };
     for (const [gate, patterns] of Object.entries(expected)) {
@@ -233,6 +292,75 @@ test("the failing-name list is capped, and says how many it dropped", () => {
     const r = run(repo, "tsc", "1");
     assert.match(r.stdout, /… 4 more \(see log\)/, r.stdout);
     assert.ok(!r.stdout.includes("nope 10"), `cap not applied\n${r.stdout}`);
+  });
+});
+
+// SUB-1121. The ios leg is the only gate whose prerequisites are per-machine
+// operator setup, which makes "skip when unprepped" the tempting shape — and
+// the wrong one: a leg that skips itself reports green on a machine that
+// checked nothing, which is exactly the blindness the leg exists to close.
+test("an unprepped machine FAILS the ios leg and is told the command that fixes it", () => {
+  withRepo((repo) => {
+    const missingTarget = run(repo, "ios", "0", { IOS_TARGET_INSTALLED: "0" });
+    assert.equal(missingTarget.status, 1, `missing target must be red\n${missingTarget.stdout}`);
+    assert.match(missingTarget.stdout, /rustup target add aarch64-apple-ios/, missingTarget.stdout);
+    assert.match(missingTarget.stdout, /^ {2}ios {4}FAIL/m, missingTarget.stdout);
+
+    const missingSdk = run(repo, "ios", "0", { IOS_SDK_PRESENT: "0" });
+    assert.equal(missingSdk.status, 1, `missing iPhoneOS SDK must be red\n${missingSdk.stdout}`);
+    assert.match(missingSdk.stdout, /xcode-select -s \/Applications\/Xcode\.app/, missingSdk.stdout);
+  });
+});
+
+test("the ios probe refuses when cargo and rustc are on different toolchains", () => {
+  withRepo((repo) => {
+    // The probe asks rustc where the target's std lives; the compile runs
+    // through cargo. Split those and the answer is about the wrong toolchain —
+    // a green probe followed by a failing build, or the reverse. rustup ships
+    // the pair in lockstep, so unequal versions are the detectable signature.
+    const r = run(repo, "ios", "0", { RUSTC_VERSION: "1.71.0" });
+    assert.equal(r.status, 1, `a split toolchain must be red\n${r.stdout}`);
+    assert.match(r.stdout, /cargo is 1\.99\.0 but rustc is 1\.71\.0/, r.stdout);
+    assert.match(r.stdout, /machine not prepped/, r.stdout);
+  });
+});
+
+test("the ios probe follows $RUSTC, because that is the compiler cargo will use", () => {
+  withRepo((repo) => {
+    // cargo honours $RUSTC; a probe that ignores it answers for PATH's rustc
+    // and can refuse a machine that would have built perfectly well.
+    // A second rustc with its OWN prepped/unprepped switch, so the two can
+    // disagree — which is the only way to see WHICH one the leg asked.
+    const other = join(repo.bin, "rustc-elsewhere");
+    writeFileSync(other, RUSTC_STUB.replace(/IOS_TARGET_INSTALLED/g, "ELSEWHERE_INSTALLED"));
+    chmodSync(other, 0o755);
+    const r = run(repo, "ios", "0", { RUSTC: other, IOS_TARGET_INSTALLED: "0", ELSEWHERE_INSTALLED: "1" });
+    assert.equal(r.status, 0, `PATH's rustc is unprepped but $RUSTC's is, so the leg is green\n${r.stdout}`);
+
+    // …and the reverse: PATH's rustc is prepped, $RUSTC's is not, and the leg
+    // must refuse — the answer that counts is the one cargo would get.
+    const broken = run(repo, "ios", "0", { RUSTC: other, IOS_TARGET_INSTALLED: "1", ELSEWHERE_INSTALLED: "0" });
+    assert.equal(broken.status, 1, broken.stdout);
+    assert.match(broken.stdout, /rustup target add aarch64-apple-ios/, broken.stdout);
+  });
+});
+
+test("the ios location line points at the error, not at a warning printed before it", () => {
+  withRepo((repo) => {
+    // rustc prints warnings first and they carry `-->` arrows, so the naive
+    // "first arrow in the log" sends the reader to an unrelated file.
+    const r = run(repo, "ios", "1");
+    assert.ok(!r.stdout.includes("src/history.rs:20:17"), `warning location leaked\n${r.stdout}`);
+  });
+});
+
+test("the ios summary separates an unprepped machine from real compile errors", () => {
+  withRepo((repo) => {
+    // A handback quotes the table, so the table has to distinguish "operator
+    // fix" from "this branch does not build for iOS".
+    assert.match(run(repo, "ios", "0", { IOS_TARGET_INSTALLED: "0" }).stdout, /machine not prepped/);
+    assert.match(run(repo, "ios", "1").stdout, /\d+ aarch64-apple-ios compile errors/);
+    assert.match(run(repo, "ios", "0").stdout, /clean \(check-only, aarch64-apple-ios\)/);
   });
 });
 

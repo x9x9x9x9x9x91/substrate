@@ -56,11 +56,12 @@ ureq = "2"
 # parses and re-joins redirect targets itself (SUB-427 SSRF guard)
 url = "2"
 git2 = { version = "0.20", default-features = false, features = ["https", "vendored-libgit2", "vendored-openssl"] }
-# mount extraction (SUB-887): pure-Rust readers for the two file kinds a
-# mounted folder is most often full of. Metadata only — no decoding, no
-# rendering, no C toolchain, so the tree stays buildable everywhere the app
-# already builds. `lopdf` runs with default features off: its image/rayon/date
-# extras are for AUTHORING PDFs, and extraction only reads the catalog.
+# mount extraction (SUB-887, SUB-1093): pure-Rust readers for the two file
+# kinds a mounted folder is most often full of. Metadata, plus a capped run of
+# a PDF's own text — no image decoding, no rendering, no C toolchain, so the
+# tree stays buildable everywhere the app already builds. `lopdf` runs with
+# default features off: its image/rayon/date extras are for AUTHORING PDFs,
+# and extraction only reads the catalog and the content streams behind it.
 lofty = "0.24"
 lopdf = { version = "0.44", default-features = false }
 

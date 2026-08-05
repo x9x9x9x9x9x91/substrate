@@ -34,7 +34,7 @@
 //!   detached instead of waited on, so closing the app never blocks behind a
 //!   file being read.
 
-use super::extract::Extracted;
+use super::extract::Reading;
 use std::collections::{HashSet, VecDeque};
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
@@ -63,7 +63,7 @@ pub struct ExtractDone {
     pub mount: String,
     pub rel: String,
     pub identity: String,
-    pub result: Result<Extracted, String>,
+    pub result: Result<Reading, String>,
 }
 
 /// What the queue does with finished work: in the app, take the engine lock,
@@ -73,7 +73,7 @@ pub type Sink = Arc<dyn Fn(Vec<ExtractDone>) + Send + Sync>;
 
 /// How a file is read. Injectable for the same reason — the queue's job is
 /// scheduling, and its tests are about scheduling.
-pub type Reader = Arc<dyn Fn(&Path, &str) -> Result<Extracted, String> + Send + Sync>;
+pub type Reader = Arc<dyn Fn(&Path, &str) -> Result<Reading, String> + Send + Sync>;
 
 /// Workers. Two: enough that one stubborn file doesn't stall the rest,
 /// few enough that a rescan of a sample library doesn't saturate the disk
@@ -408,7 +408,7 @@ mod tests {
             sink,
             Arc::new(|_, _| {
                 std::thread::sleep(Duration::from_millis(40));
-                Ok(Extracted::new())
+                Ok(Reading::default())
             }),
         );
         let jobs: Vec<_> = (0..8).map(|i| job(&format!("f{i}.wav"))).collect();
@@ -433,7 +433,7 @@ mod tests {
                 if path.to_string_lossy().contains("tarpit") {
                     std::thread::sleep(Duration::from_millis(1500));
                 }
-                Ok(Extracted::new())
+                Ok(Reading::default())
             }),
         );
         // the slow one goes FIRST, so the fast rows can only finish if the
@@ -461,7 +461,7 @@ mod tests {
                 if path.to_string_lossy().contains("bad") {
                     return Err("unreadable".into());
                 }
-                Ok(Extracted::new())
+                Ok(Reading::default())
             }),
         );
         q.enqueue(vec![job("bad.wav"), job("good1.wav"), job("good2.wav")]);
@@ -483,7 +483,7 @@ mod tests {
             sink,
             Arc::new(move |_, _| {
                 let _held = blocked.lock().unwrap();
-                Ok(Extracted::new())
+                Ok(Reading::default())
             }),
         );
         // first enqueue puts one in flight and one waiting; a rescan landing
@@ -509,7 +509,7 @@ mod tests {
             sink,
             Arc::new(move |_, _| {
                 let _held = blocked.lock().unwrap();
-                Ok(Extracted::new())
+                Ok(Reading::default())
             }),
         );
         let flood: Vec<_> = (0..CAPACITY + 500).map(|i| job(&format!("f{i}.wav"))).collect();
@@ -529,7 +529,7 @@ mod tests {
             counted.fetch_add(1, Ordering::SeqCst);
             counted_files.fetch_add(batch.len(), Ordering::SeqCst);
         });
-        let q = ExtractQueue::with_reader(sink, Arc::new(|_, _| Ok(Extracted::new())));
+        let q = ExtractQueue::with_reader(sink, Arc::new(|_, _| Ok(Reading::default())));
         let n = BATCH * 4;
         q.enqueue((0..n).map(|i| job(&format!("f{i}.wav"))).collect());
         until("every file to be reported", || files.load(Ordering::SeqCst) == n);
@@ -559,7 +559,7 @@ mod tests {
                 panic!("the sink fell over on {rel}");
             }
         });
-        let q = ExtractQueue::with_reader(sink, Arc::new(|_, _| Ok(Extracted::new())));
+        let q = ExtractQueue::with_reader(sink, Arc::new(|_, _| Ok(Reading::default())));
 
         // enough poison to hit every worker, then ordinary work behind it
         q.enqueue((0..WORKERS * 2).map(|i| job(&format!("poison{i}.wav"))).collect());
@@ -581,7 +581,7 @@ mod tests {
                 panic!("sink down");
             }
         });
-        let q = ExtractQueue::with_reader(sink, Arc::new(|_, _| Ok(Extracted::new())));
+        let q = ExtractQueue::with_reader(sink, Arc::new(|_, _| Ok(Reading::default())));
         assert_eq!(q.enqueue(vec![job("cursed.wav")]), 1);
         until("the worker to come back from the panic", || q.alive() == WORKERS && q.idle());
 
@@ -601,7 +601,7 @@ mod tests {
                 if path.to_string_lossy().contains("boom") {
                     panic!("reader exploded");
                 }
-                Ok(Extracted::new())
+                Ok(Reading::default())
             }),
         );
         q.enqueue(vec![job("boom.wav")]);
@@ -619,7 +619,7 @@ mod tests {
             Arc::new(|_| {}),
             Arc::new(|_, _| {
                 std::thread::sleep(Duration::from_secs(20));
-                Ok(Extracted::new())
+                Ok(Reading::default())
             }),
         );
         q.enqueue((0..WORKERS).map(|i| job(&format!("slow{i}.wav"))).collect());
@@ -645,7 +645,7 @@ mod tests {
             sink,
             Arc::new(|_, _| {
                 std::thread::sleep(SHUTDOWN_GRACE * 4);
-                Ok(Extracted::new())
+                Ok(Reading::default())
             }),
         );
         q.enqueue((0..WORKERS).map(|i| job(&format!("slow{i}.wav"))).collect());
@@ -660,7 +660,7 @@ mod tests {
     #[test]
     fn dropping_the_queue_stops_its_workers() {
         let (sink, seen) = collector();
-        let q = ExtractQueue::with_reader(sink, Arc::new(|_, _| Ok(Extracted::new())));
+        let q = ExtractQueue::with_reader(sink, Arc::new(|_, _| Ok(Reading::default())));
         q.enqueue((0..200).map(|i| job(&format!("f{i}.wav"))).collect());
         drop(q); // waits briefly for free workers, then detaches
         let done = seen.lock().unwrap().len();

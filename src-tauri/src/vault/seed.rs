@@ -355,6 +355,39 @@ pub(crate) fn starter_note_paths() -> impl Iterator<Item = &'static str> {
     STARTER_NOTES.iter().map(|n| n.rel).chain(RETIRED_STARTER_NOTES.iter().map(|n| n.rel))
 }
 
+/// The other half of the same split: the app's own files — `Settings.md`, the
+/// agent door, its `CLAUDE.md` pointer, the `/setup` skill. Furniture a vault is
+/// supposed to have, as opposed to the demo notes [`starter_note_paths`] names.
+///
+/// What the post-pull backfill (SUB-1110) considers putting back when a join
+/// lands a remote that never carried them.
+pub(crate) fn app_file_paths() -> impl Iterator<Item = &'static str> {
+    SEED_FILES.iter().map(|f| f.rel).chain(std::iter::once(Settings::REL_PATH))
+}
+
+/// Seed one [`app_file_paths`] entry.
+///
+/// One path rather than all of them because the caller has already decided,
+/// path by path, which absences are the app's to fill and which are somebody's
+/// deletion (SUB-1110). A `rel` this app does not seed is a no-op.
+///
+/// It defers to the whole-vault seed rules — absent gets written, an untouched
+/// shipped revision gets refreshed, anything else is the user's — but only the
+/// first of those is reachable from the one caller there is: the sync backfill
+/// calls this exclusively for paths it has just found missing. The refresh arm
+/// comes free with `seed_or_refresh` and is left in place rather than
+/// special-cased away, so a future caller that does pass an existing path gets
+/// the same answer the boot seed would give it.
+pub(crate) fn seed_app_file(root: &Path, rel: &str) {
+    if rel == Settings::REL_PATH {
+        seed_settings(root);
+        return;
+    }
+    if let Some(f) = SEED_FILES.iter().find(|f| f.rel == rel) {
+        seed_or_refresh(&root.join(f.rel), f.current, f.revisions);
+    }
+}
+
 /// Is this vault-relative path device-local state rather than vault content?
 ///
 /// Derived from [`crate::history::EXCLUDE_CONTENT`] — the list that already

@@ -140,6 +140,11 @@ pub struct MountFile {
     /// "never opened", and it is cleared whenever the content changes.
     #[serde(default, skip_serializing_if = "is_false")]
     pub extract_tried: bool,
+    // A document's own body text is NOT here, deliberately (SUB-1093): this
+    // index is inside the vault, so it syncs and it is committed to history,
+    // and the text belongs to a file OUTSIDE the vault. It is kept on the
+    // machine that can read that file — `vault/mounttext.rs`, in the app
+    // config dir beside the mount's path binding.
 }
 
 /// The last-known index of one mount: what renders when the folder isn't
@@ -254,6 +259,12 @@ fn safe_id(id: &str) -> bool {
         && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
+/// A mount-relative path's extension, lowercased and without the dot — the
+/// form every `extract` question is asked in.
+fn rel_extension(rel: &str) -> String {
+    Path::new(rel).extension().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default()
+}
+
 fn index_rel_path(id: &str) -> String {
     format!("{MOUNTS_INDEX_REL_DIR}/{id}.json")
 }
@@ -346,6 +357,11 @@ fn row_of(f: &MountFile, note: Option<(&String, &NoteMeta)>) -> MountRow {
     // extracted values last: they describe the file, and the file is the
     // source of truth. `mount_annotate` refuses these names, so a collision
     // only exists for a sidecar written before the column did.
+    //
+    // A document's text reaches no row (SUB-1093): everything this loop
+    // inserts becomes a column, and a document's body is a search payload,
+    // not a cell — which is one of the two reasons it is not in the index at
+    // all.
     for (k, v) in &f.extracted {
         props.insert(k.clone(), v.clone());
     }
@@ -388,6 +404,28 @@ impl Engine {
         read_index(&self.root, id)
     }
 
+    /// This machine's text store dir, or `None` when there is none to use —
+    /// either the engine was built without a config dir, or a write into that
+    /// dir has already failed this session (`mounttext::is_available`) and
+    /// everything downstream of it, the backfill above all, is now work with
+    /// nowhere to land.
+    fn text_dir(&self) -> Option<&PathBuf> {
+        self.local_dir.as_ref().filter(|d| mounttext::is_available(d))
+    }
+
+    /// One document's text and whether it stopped at a cap — read on this
+    /// machine, kept on this machine (SUB-1093). `None` where the file has
+    /// never been read here, holds no text, or has changed since it was: all
+    /// three are "nothing to show", and the caller does not have to tell them
+    /// apart. `identity` is what makes it the *file's* text and not a stale
+    /// copy of what used to be there.
+    pub fn mount_text(&self, id: &str, rel: &str, identity: &str) -> Option<(String, bool)> {
+        let dir = self.text_dir()?;
+        let store = mounttext::read(dir, id);
+        let e = store.get(rel, identity)?;
+        (!e.text.is_empty()).then(|| (e.text.clone(), e.truncated))
+    }
+
     /// Files in this mount whose own metadata we have never read (SUB-887).
     ///
     /// Called right after a scan, with the folder's binding on this machine.
@@ -408,21 +446,38 @@ impl Engine {
     pub fn mount_extract_jobs(&self, id: &str, path: &Path) -> Vec<ExtractJob> {
         let root = resolve_mount_path(path);
         let mut out = Vec::new();
+        // What this machine has already read the text of (SUB-1093). Every
+        // file read here leaves an entry, empty ones included, so "no entry"
+        // means exactly "never read on this machine" — which is the state of
+        // every row indexed before the store existed, and of every row a
+        // second machine synced in. Those are re-offered once: the columns
+        // are already cached, the text is what the visit is for.
+        let store = self.text_dir().map(|d| mounttext::read(d, id));
         for f in self.mount_index(id).files {
             if out.len() >= EXTRACT_JOBS_PER_SCAN {
                 // the rest ride the next scan: an un-extracted file is
                 // indistinguishable from one never offered, so nothing is lost
                 break;
             }
-            if f.missing || f.extract_tried || f.identity.is_empty() {
+            if f.missing || f.identity.is_empty() {
                 continue;
             }
-            let extension = Path::new(&f.rel)
-                .extension()
-                .map(|s| s.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
+            let extension = rel_extension(&f.rel);
             if !super::extract::extractable(&extension) {
                 continue;
+            }
+            if f.extract_tried {
+                // The columns are cached and `extract_tried` still means what
+                // it always meant. The one thing that can be missing from an
+                // already-read row is text this machine has never had — a row
+                // from before the store existed, or one another machine
+                // indexed. Offer those once; the entry the reading leaves
+                // ends it, whether or not the file had any text to give.
+                let unread_here = super::extract::carries_text(&extension)
+                    && store.as_ref().is_some_and(|s| s.get(&f.rel, &f.identity).is_none());
+                if !unread_here {
+                    continue;
+                }
             }
             if f.size > super::extract::size_limit(&extension) {
                 continue;
@@ -455,6 +510,11 @@ impl Engine {
         for (id, batch) in by_mount {
             let mut index = read_index(&self.root, &id);
             let mut touched = false;
+            // this machine's half of the answer: document text, which never
+            // goes near the index (SUB-1093). `None` when the engine has no
+            // config dir — then the columns land and the text is dropped.
+            let mut store = self.text_dir().map(|d| mounttext::read(d, &id));
+            let mut store_touched = false;
             // rel → position, built once per mount rather than scanned once
             // per result: this runs under the engine lock, and a batch of 64
             // against a 40 000-file sample library is 2.5 M comparisons the
@@ -468,17 +528,53 @@ impl Engine {
                     continue;
                 }
                 f.extract_tried = true;
-                match done.result {
-                    Ok(values) => {
-                        f.extracted = values.into_iter().collect();
+                // Whatever the reader came back with, a file of a kind that
+                // can carry text has now been read on this machine —
+                // including one that turned out to hold no text and one that
+                // could not be opened at all. Both get a store entry, empty:
+                // absence of an entry is what the backfill treats as "never
+                // read here", so a PDF with no text to give must still leave
+                // a mark or it is offered again on every scan, forever.
+                //
+                // A kind that carries no text gets no entry at all, because
+                // the backfill never asks about it: marking them would put an
+                // entry per file into a store that is parsed and rewritten
+                // whole, and a sample library is 40 000 files whose text
+                // nothing will ever look for.
+                let (text, truncated) = match done.result {
+                    Ok(reading) => {
+                        f.extracted = reading.columns.into_iter().collect();
                         f.extract_error.clear();
+                        (reading.text, reading.text_truncated)
                     }
                     Err(e) => {
                         f.extracted.clear();
                         f.extract_error = e;
+                        (String::new(), false)
                     }
+                };
+                let carries_text = super::extract::carries_text(&rel_extension(&done.rel));
+                if let Some(s) = store.as_mut().filter(|_| carries_text) {
+                    s.put(&done.rel, &done.identity, text, truncated);
+                    store_touched = true;
                 }
                 touched = true;
+            }
+            if let (Some(dir), Some(s)) = (self.text_dir(), store.as_mut()) {
+                if store_touched {
+                    // the store follows the index: text for files the mount no
+                    // longer lists is text nothing can ever ask for
+                    s.retain_rels(&|rel| at.contains_key(rel));
+                    if let Err(e) = mounttext::write(dir, &id, s) {
+                        // a cache that could not be written costs a re-read,
+                        // not a row: the index write below is the one that
+                        // decides whether this batch counts. The failure also
+                        // latches the dir off for the session, so the re-read
+                        // it costs happens once rather than on every scan
+                        // until the app restarts.
+                        applog!("mount text not stored for {id}: {e}");
+                    }
+                }
             }
             if touched && write_index(&self.root, &id, &index).is_ok() {
                 changed.push(id);
@@ -540,6 +636,11 @@ impl Engine {
         write_mounts(&self.root, &mounts)?;
         if safe_id(id) {
             fs::remove_file(self.root.join(index_rel_path(id))).ok();
+            // and this machine's text for it, which the index was the only
+            // thing that could still name
+            if let Some(dir) = &self.local_dir {
+                mounttext::forget(dir, id);
+            }
         }
         if cleanup {
             let sidecars: Vec<String> =
@@ -649,6 +750,9 @@ impl Engine {
         for m in &gone {
             if safe_id(&m.id) {
                 fs::remove_file(self.root.join(index_rel_path(&m.id))).ok();
+                if let Some(dir) = &self.local_dir {
+                    mounttext::forget(dir, &m.id);
+                }
             }
         }
         Ok(())
@@ -2467,6 +2571,264 @@ mod tests {
         let _ = fs::remove_dir_all(&watched);
     }
 
+    /// An engine that has somewhere machine-local to put text, plus that
+    /// somewhere — which is what the app gives it (`lib.rs`) and what a bare
+    /// `temp_vault` deliberately does not.
+    fn vault_with_local(name: &str) -> (Engine, PathBuf, PathBuf) {
+        let (e, dir) = temp_vault(name);
+        let local = std::env::temp_dir().join(format!("vault-local-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&local);
+        fs::create_dir_all(&local).unwrap();
+        (e.with_local_dir(local.clone()), dir, local)
+    }
+
+    fn reading(text: &str, truncated: bool) -> super::super::extract::Reading {
+        super::super::extract::Reading {
+            columns: [("pages".to_string(), 12.into())]
+                .into_iter()
+                .collect::<super::super::extract::Extracted>(),
+            text: text.into(),
+            text_truncated: truncated,
+        }
+    }
+
+    fn apply_reading(
+        e: &mut Engine,
+        jobs: Vec<ExtractJob>,
+        r: &super::super::extract::Reading,
+    ) -> Vec<String> {
+        e.apply_extracted(
+            jobs.into_iter()
+                .map(|j| ExtractDone {
+                    result: Ok(r.clone()),
+                    mount: j.mount,
+                    rel: j.rel,
+                    identity: j.identity,
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn a_documents_text_is_kept_off_the_synced_index_and_off_the_board() {
+        let (mut e, dir, local) = vault_with_local("mtext");
+        let watched = temp_watched("mtext");
+        fs::write(watched.join("paper.pdf"), b"stand-in bytes: the reading is supplied below")
+            .unwrap();
+        let m = e.add_mount("Papers", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+
+        let jobs = e.mount_extract_jobs(&m.id, &watched);
+        assert_eq!(jobs.len(), 1);
+        apply_reading(&mut e, jobs, &reading("spectral resynthesis of a granular field", true));
+
+        let f = e.mount_index(&m.id).files.into_iter().find(|f| f.rel == "paper.pdf").unwrap();
+        assert!(f.extract_tried);
+        assert_eq!(
+            e.mount_text(&m.id, "paper.pdf", &f.identity),
+            Some(("spectral resynthesis of a granular field".to_string(), true)),
+            "the machine that read the file has its text"
+        );
+
+        // THE point of SUB-1093: the index syncs and is committed to history,
+        // and the text belongs to a file outside the vault. Not one word of
+        // it may be in there.
+        let on_disk = fs::read_to_string(e.root.join(index_rel_path(&m.id))).unwrap();
+        assert!(!on_disk.contains("spectral"), "text reached the synced index: {on_disk}");
+        assert!(on_disk.contains("paper.pdf"), "the row itself still syncs");
+        assert!(on_disk.contains("pages"), "and so do its columns");
+
+        // nor is it a column: everything in `extracted` becomes one, and a
+        // document's body is a search payload, not a cell
+        let row = e.mount_rows(&m.id).into_iter().find(|r| r.rel == "paper.pdf").unwrap();
+        assert_eq!(row.props.get("pages").and_then(|v| v.as_u64()), Some(12));
+        assert!(!row.props.contains_key("text"), "not a column: {row:?}");
+
+        // and the file is not opened again for text already read here
+        e.scan_mount(&m.id, &watched);
+        assert_eq!(e.mount_extract_jobs(&m.id, &watched).len(), 0, "cache hit");
+
+        // unmounting takes this machine's copy with it
+        e.remove_mount(&m.id, false).unwrap();
+        assert_eq!(e.mount_text(&m.id, "paper.pdf", &f.identity), None);
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&local);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    #[test]
+    fn a_row_indexed_before_this_machine_had_its_text_is_offered_once() {
+        let (mut e, dir, local) = vault_with_local("mbackfill");
+        let watched = temp_watched("mbackfill");
+        fs::write(watched.join("paper.pdf"), b"stand-in bytes").unwrap();
+        fs::write(watched.join("tone.wav"), super::super::extract::test_wav(44_100, 1, 44_100))
+            .unwrap();
+        let m = e.add_mount("Papers", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let jobs = e.mount_extract_jobs(&m.id, &watched);
+        assert_eq!(jobs.len(), 2, "both files are read the first time");
+        apply_reading(&mut e, jobs, &reading("the opening argument", false));
+
+        // Exactly the state an upgrade leaves, and the state a second machine
+        // syncing this index is in: rows marked `extract_tried`, columns
+        // cached, no text here. The store is a cache; deleting it is allowed.
+        fs::remove_dir_all(local.join(super::super::mounttext::MOUNT_TEXT_DIR)).unwrap();
+
+        e.scan_mount(&m.id, &watched);
+        let jobs = e.mount_extract_jobs(&m.id, &watched);
+        assert_eq!(
+            jobs.iter().map(|j| j.rel.as_str()).collect::<Vec<_>>(),
+            vec!["paper.pdf"],
+            "the document is re-offered for its text; the audio file, which has none, is not"
+        );
+        apply_reading(&mut e, jobs, &reading("the opening argument", false));
+        let f = e.mount_index(&m.id).files.into_iter().find(|f| f.rel == "paper.pdf").unwrap();
+        assert_eq!(
+            e.mount_text(&m.id, "paper.pdf", &f.identity),
+            Some(("the opening argument".to_string(), false))
+        );
+        // and having been read, it settles: no third offer
+        e.scan_mount(&m.id, &watched);
+        assert_eq!(e.mount_extract_jobs(&m.id, &watched).len(), 0);
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&local);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    #[test]
+    fn a_document_that_yields_no_text_is_not_offered_forever() {
+        let (mut e, dir, local) = vault_with_local("mnotext");
+        let watched = temp_watched("mnotext");
+        // a scan of the world's PDFs finds plenty with nothing to give:
+        // scanned pages, image-only exports, and files no reader can open
+        fs::write(watched.join("scan.pdf"), b"stand-in bytes").unwrap();
+        fs::write(watched.join("broken.pdf"), b"stand-in bytes too").unwrap();
+        let m = e.add_mount("Papers", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let jobs = e.mount_extract_jobs(&m.id, &watched);
+        assert_eq!(jobs.len(), 2);
+        e.apply_extracted(
+            jobs.into_iter()
+                .map(|j| ExtractDone {
+                    result: if j.rel == "broken.pdf" {
+                        Err("the file's own reader gave up on it".into())
+                    } else {
+                        Ok(reading("", false))
+                    },
+                    mount: j.mount,
+                    rel: j.rel,
+                    identity: j.identity,
+                })
+                .collect(),
+        );
+
+        // an empty reading and a failed one are both readings: the file was
+        // visited, and nothing here re-offers it on every scan for the rest
+        // of its life
+        e.scan_mount(&m.id, &watched);
+        assert_eq!(e.mount_extract_jobs(&m.id, &watched).len(), 0);
+        let f = e.mount_index(&m.id).files.into_iter().find(|f| f.rel == "scan.pdf").unwrap();
+        assert_eq!(e.mount_text(&m.id, "scan.pdf", &f.identity), None, "nothing to show");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&local);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+
+    #[test]
+    fn a_folder_of_files_that_carry_no_text_leaves_the_store_empty() {
+        // the sample library, which is the shape that broke this: 200 files
+        // (a real one is 40 000) whose kind has no text to give. An entry
+        // each would be a store parsed and rewritten whole on every batch,
+        // holding nothing but paths — and the backfill never asks about them,
+        // so not one of those entries would ever be read.
+        let (mut e, dir, local) = vault_with_local("mwavs");
+        let watched = temp_watched("mwavs");
+        for i in 0..200 {
+            // distinct lengths: identical bytes would be one content identity
+            // across 200 paths, which is a different scan story than this test
+            let wav = super::super::extract::test_wav(44_100, 1, 100 + i);
+            fs::write(watched.join(format!("hit-{i:03}.wav")), &wav).unwrap();
+        }
+        let m = e.add_mount("Samples", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let jobs = e.mount_extract_jobs(&m.id, &watched);
+        assert_eq!(jobs.len(), 200, "every file is read once for its columns");
+        // text supplied deliberately: even a reader that hands some back for
+        // a kind that carries none must not put it, or the gate is the
+        // reader's to keep rather than this code's
+        apply_reading(&mut e, jobs, &reading("audio has no body text", false));
+
+        let store = super::super::mounttext::read(&local, &m.id);
+        assert!(store.files.is_empty(), "text-less files reached the store: {}", store.files.len());
+        // and the columns still landed, and nothing is offered a second time
+        let row = e.mount_rows(&m.id).into_iter().find(|r| r.rel == "hit-000.wav").unwrap();
+        assert_eq!(row.props.get("pages").and_then(|v| v.as_u64()), Some(12));
+        e.scan_mount(&m.id, &watched);
+        assert_eq!(e.mount_extract_jobs(&m.id, &watched).len(), 0, "no entry, and no re-offer");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&local);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    #[test]
+    fn a_store_that_cannot_be_written_stops_being_asked_for() {
+        // a read-only or full config dir, faked by putting a file where the
+        // store's directory has to go. Without the latch this is an engine
+        // that re-opens every PDF it has ever indexed on every single scan,
+        // forever, to fail to record the reading again.
+        let (mut e, dir, local) = vault_with_local("mrostore");
+        let watched = temp_watched("mrostore");
+        fs::write(local.join(super::super::mounttext::MOUNT_TEXT_DIR), b"not a directory").unwrap();
+        fs::write(watched.join("paper.pdf"), b"stand-in bytes").unwrap();
+        let m = e.add_mount("Papers", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let jobs = e.mount_extract_jobs(&m.id, &watched);
+        assert_eq!(jobs.len(), 1, "the first read is owed regardless: the columns are wanted");
+        apply_reading(&mut e, jobs, &reading("an argument nothing can keep", false));
+
+        // the columns are in the index, which is the write that mattered
+        let row = e.mount_rows(&m.id).into_iter().find(|r| r.rel == "paper.pdf").unwrap();
+        assert_eq!(row.props.get("pages").and_then(|v| v.as_u64()), Some(12));
+        // and the text, which has nowhere to live, is not chased again
+        e.scan_mount(&m.id, &watched);
+        assert_eq!(
+            e.mount_extract_jobs(&m.id, &watched).len(),
+            0,
+            "an unwritable store re-offered its files"
+        );
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&local);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    #[test]
+    fn an_engine_with_nowhere_local_to_write_still_indexes_normally() {
+        // the unconfigured first-run engine, and every test that does not ask
+        // for a local dir: columns land, text is dropped, nothing loops
+        let (mut e, dir) = temp_vault("mnolocal");
+        let watched = temp_watched("mnolocal");
+        fs::write(watched.join("paper.pdf"), b"stand-in bytes").unwrap();
+        let m = e.add_mount("Papers", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let jobs = e.mount_extract_jobs(&m.id, &watched);
+        assert_eq!(jobs.len(), 1);
+        apply_reading(&mut e, jobs, &reading("dropped on the floor", true));
+
+        let row = e.mount_rows(&m.id).into_iter().find(|r| r.rel == "paper.pdf").unwrap();
+        assert_eq!(row.props.get("pages").and_then(|v| v.as_u64()), Some(12));
+        let f = e.mount_index(&m.id).files.into_iter().find(|f| f.rel == "paper.pdf").unwrap();
+        assert_eq!(e.mount_text(&m.id, "paper.pdf", &f.identity), None);
+        e.scan_mount(&m.id, &watched);
+        assert_eq!(
+            e.mount_extract_jobs(&m.id, &watched).len(),
+            0,
+            "no local store means no backfill, not an endless one"
+        );
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
     #[test]
     fn an_unchanged_file_is_never_opened_twice() {
         let (mut e, dir) = temp_vault("mcache");
@@ -2556,7 +2918,9 @@ mod tests {
         let changed = e.apply_extracted(
             jobs.into_iter()
                 .map(|j| ExtractDone {
-                    result: Ok([("duration".to_string(), 2.into())].into_iter().collect()),
+                    result: Ok(super::super::extract::Reading::from(
+                        [("duration".to_string(), 2.into())].into_iter().collect::<super::super::extract::Extracted>(),
+                    )),
                     mount: j.mount,
                     rel: j.rel,
                     identity: j.identity,

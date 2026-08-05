@@ -27,6 +27,11 @@ pub struct SyncReport {
     pub pushed: u32,
     pub pulled: u32,
     pub conflicted: Vec<String>,
+    /// The commit the vault is on when this operation returns. The app-file
+    /// backfill (SUB-1110) runs after the pull's inner phase has built this
+    /// report and commits on top, so the pull re-reads HEAD into this field
+    /// afterwards rather than leaving the Sync pane rendering a tip the vault
+    /// has already moved past.
     pub head: String,
     /// Vault-relative paths this pull actually rewrote in the working tree —
     /// the diff between the HEAD we came from and the one we landed on
@@ -702,9 +707,47 @@ pub fn sync_pull_gated<G>(
 }
 
 /// Everything a pull does to the local repository and working tree, from the
-/// clean-tree re-check to the checkout. Callers hold the write gate across
-/// this whole function.
+/// clean-tree re-check to the checkout, plus the app-file backfill that runs
+/// once the tree has settled. Callers hold the write gate across this whole
+/// function.
 fn pull_local_phase(
+    repo: &Repository,
+    fetched_branch: &str,
+    remote_oid: Oid,
+) -> Result<SyncReport, String> {
+    let mut report = pull_local_phase_inner(repo, fetched_branch, remote_oid)?;
+    // Only on a landing: a parked conflicted merge has checked nothing out, so
+    // there is no settled tree to reason about yet — the backfill runs on the
+    // pull that finally lands.
+    if report.conflicted.is_empty() {
+        let backfilled = backfill_missing_app_files(repo);
+        // These are working-tree writes exactly like a checkout's, so they
+        // belong in `changed` (SUB-1110): `announce_pull` emits `vault:pulled`
+        // only when that list is non-empty and hands it out as the payload, so
+        // a pull whose only writes are backfilled files would otherwise land
+        // Settings and every seed note and announce nothing — leaving the UI to
+        // the filesystem watcher's debounce, a different path with different
+        // timing. Merged through the same `BTreeSet` shape `changed_between`
+        // produces, so the list stays sorted and free of duplicates.
+        if !backfilled.is_empty() {
+            let mut paths: BTreeSet<String> = report.changed.into_iter().collect();
+            paths.extend(backfilled.into_iter().map(String::from));
+            report.changed = paths.into_iter().collect();
+            // …and the backfill's own commit is now the tree's tip, so re-read
+            // it into `head` (SUB-1110 r2, finding 5). The Sync pane renders
+            // `report.head` directly, and a backfill-only pull would otherwise
+            // show the commit the pull *resolved to* while the vault sits one
+            // commit ahead of it. Best-effort: if HEAD cannot be read the
+            // pull's own answer is still the honest one.
+            if let Ok(head) = repo.head().and_then(|h| h.peel_to_commit()) {
+                report.head = head.id().to_string();
+            }
+        }
+    }
+    Ok(report)
+}
+
+fn pull_local_phase_inner(
     repo: &Repository,
     fetched_branch: &str,
     remote_oid: Oid,
@@ -1025,6 +1068,14 @@ pub fn sync_resolve_finish(root: &Path) -> Result<SyncReport, String> {
 /// real fix means re-statting immediately before checkout and aborting on any
 /// new path; that changes conflict-resolution semantics and needs its own
 /// issue.
+///
+/// NO APP-FILE BACKFILL HERE, deliberately (SUB-1110): this path does its own
+/// merge and checkout and never reaches [`pull_local_phase`], so a first join
+/// whose pull *conflicts* finishes without the app files a joined vault would
+/// otherwise be given. The omission is narrow and self-healing — the backfill
+/// runs on every landing pull, including an up-to-date one, so the next pull
+/// puts them there. Backfilling here as well would mean writing seed text into
+/// a tree the user is still resolving by hand.
 pub fn sync_resolve_finish_gated<G>(
     root: &Path,
     gate: impl FnOnce() -> G,
@@ -1461,6 +1512,239 @@ fn drop_untouched_starter_notes(
             .map_err(|e| format!("vault sync could not drop the starter note {path}: {e}"))?;
     }
     Ok(())
+}
+
+/// How far back [`sync_history_ever_carried_within`] walks before it gives up and
+/// answers the safe way. A runaway guard, not a policy: no real vault reaches
+/// it, and a vault that does keeps its files exactly as they are.
+///
+/// The cost this bounds, stated honestly (SUB-1110): the walk stops at the
+/// first commit carrying the path, so a file deleted recently is cheap — but a
+/// file deleted *early* in a long history walks nearly the whole graph, and it
+/// does so per missing path, on every pull that reaches the backfill, since the
+/// answer is never cached. Worst case per pull is therefore
+/// `HISTORY_WALK_LIMIT` × the number of missing app files. That is a latency
+/// note rather than a hazard because pulls are user-initiated only —
+/// `vault_sync_pull` has exactly one caller in the app
+/// (`src/components/VaultSyncPane.tsx`, the Sync pane's button), with no poller
+/// and no timer behind it — so the walk can only run at human frequency, in a
+/// place where the user is already waiting on the network.
+const HISTORY_WALK_LIMIT: usize = 20_000;
+
+/// Put back the app's own files this vault ends up without after a join
+/// (SUB-1110).
+///
+/// **The rule, in one sentence:** once a pull has landed, every
+/// [`vault::app_file_paths`] entry missing from the vault is written from this
+/// build's seed — unless the sync history has ever carried that path, in which
+/// case its absence is somebody's deletion and is left alone.
+///
+/// The gap it closes. `Engine::new` backfills these files on boot, but skips
+/// any vault with sync configured (SUB-473: two devices each inventing the same
+/// file from different build seeds park an add/add conflict that refuses the
+/// whole merge). A device joining a remote whose vault never carried them
+/// therefore ended up without them permanently — the unborn arm above deletes
+/// the local seeds before checking the remote out, and the boot backfill that
+/// would put them back is the one that guard closes. Here the write happens
+/// *after* a pull instead of before one, which changes both halves of that
+/// bargain: SUB-473's collision now resolves itself, because two devices
+/// writing the same shipped text land byte-identical trees, and any older
+/// revision meeting a newer one is an add/add conflict whose local side is
+/// untouched seed text — exactly what `adopt_untouched_seed_conflicts` above
+/// takes theirs for. And it is not a boot-time write into a syncing vault: the
+/// history already exists, so it cannot make the first pull an
+/// unrelated-history merge, which is why this arm can run on mobile too where
+/// the boot backfill is `#[cfg(desktop)]`.
+///
+/// Starter notes are deliberately not in the set: they are demo content, and
+/// `drop_untouched_starter_notes` above spends its whole existence keeping them
+/// *out* of a joined vault.
+///
+/// What it writes it also **commits**, in the same breath. A pull refuses on a
+/// dirty tree, so leaving these files uncommitted would park the next pull
+/// until the auto-snapshot thread happened to run; committing them here keeps
+/// the invariant every other arm of the pull holds — it returns with the tree
+/// clean — and makes the backfill push-ready like any other note.
+///
+/// Not into a vault a NEWER build has written, either (SUB-1110 r2, finding 2).
+/// These files carry no format version of their own, so the question is taken
+/// at vault level exactly as the boot backfill takes it: if any versioned file
+/// says a newer Substrate owns this vault, this build does not add files to it
+/// behind that app's back. The concrete hazard the guard closes is a
+/// SEED_FILES path a future build stops shipping — `app_file_paths` has no
+/// retired-path notion, so without the guard every older build would see that
+/// path absent and never-carried, re-seed its own old text, commit it and push
+/// it back at the newer one, forever. `vault_written_by_newer_app` was
+/// `#[cfg(desktop)]` for this branch and is now compiled on both targets, on
+/// purpose: this arm runs on the phone, and a phone that skipped the guard
+/// would be the device doing the writing.
+///
+/// Best-effort, like every other seed write: a vault we cannot write into or
+/// commit in keeps exactly the tree the pull landed, and the next pull tries
+/// again. The undo is all-or-nothing, and that is a real cost worth naming —
+/// a failed commit discards the writes that DID succeed along with the ones
+/// that did not, so a vault missing four app files and able to write three of
+/// them ends the pull with none of them. Deliberate: partial state here is a
+/// half-furnished vault that still reports itself backfilled, and the next
+/// pull re-derives the whole answer from scratch anyway.
+///
+/// Returns the paths it actually wrote and committed, for the caller to fold
+/// into `SyncReport::changed` — an empty list on every arm that wrote nothing,
+/// including the ones that undid their own writes.
+fn backfill_missing_app_files(repo: &Repository) -> Vec<&'static str> {
+    backfill_missing_app_files_with(repo, HISTORY_WALK_LIMIT, commit_backfill)
+}
+
+/// The body of [`backfill_missing_app_files`]. `walk_limit` and `commit` are
+/// parameters for the same reason `seed_or_refresh_with` takes its hash: the
+/// arms that only fire on a huge history or a failing commit are the ones with
+/// no other way to reach them from a test.
+fn backfill_missing_app_files_with(
+    repo: &Repository,
+    walk_limit: usize,
+    commit: fn(&Repository, &[&str]) -> Result<(), String>,
+) -> Vec<&'static str> {
+    let Some(workdir) = repo.workdir() else { return Vec::new() };
+    // An unborn HEAD means no join has happened yet — nothing to reason about,
+    // and a write here is the pre-pull hazard the deferral exists to avoid.
+    if repo.head().is_err() {
+        return Vec::new();
+    }
+    if crate::vaultfmt::vault_written_by_newer_app(workdir) {
+        return Vec::new();
+    }
+    let mut wrote: Vec<&'static str> = Vec::new();
+    for rel in crate::vault::app_file_paths() {
+        // `symlink_metadata`, not `exists()`: a dangling symlink at a seeded
+        // path is the user's arrangement and reads as absent (SUB-973).
+        if fs::symlink_metadata(workdir.join(rel)).is_ok() {
+            continue;
+        }
+        if sync_history_ever_carried_within(repo, rel, walk_limit) {
+            continue;
+        }
+        crate::vault::seed_app_file(workdir, rel);
+        if fs::symlink_metadata(workdir.join(rel)).is_ok() {
+            wrote.push(rel);
+        }
+    }
+    if wrote.is_empty() {
+        return Vec::new();
+    }
+    if commit(repo, &wrote).is_err() {
+        // Undo rather than hand the next pull a tree it will refuse. Both
+        // halves matter (SUB-1110 r2, finding 1): the files go, AND anything
+        // staged for them is dropped. `working_tree_is_dirty` counts a staged
+        // phantom as dirty just like an untracked file does, so an un-reset
+        // index would make `ensure_clean_for_pull` refuse EVERY later pull
+        // until an auto-snapshot happened to run `add -A` over it — the
+        // opposite of the invariant this arm exists to keep. Only the paths
+        // this call wrote are dropped, never a blanket reset: they were absent
+        // from the working tree and never carried by the history, so none of
+        // them can be in HEAD, and un-staging them cannot turn into a staged
+        // deletion of somebody's file.
+        for rel in &wrote {
+            fs::remove_file(workdir.join(rel)).ok();
+        }
+        if let Ok(mut index) = repo.index() {
+            // Re-read first: the failure may have come from a commit path that
+            // had already persisted the index, and dropping entries from a
+            // stale in-memory copy would write that staleness back over it.
+            index.read(true).ok();
+            for rel in &wrote {
+                index.remove_path(Path::new(rel)).ok();
+            }
+            index.write().ok();
+        }
+        return Vec::new();
+    }
+    wrote
+}
+
+/// Commit exactly the backfilled paths onto the branch the pull just landed.
+///
+/// `add_path` per file rather than `add_all`: the only thing this commit is
+/// entitled to capture is what it wrote itself.
+///
+/// The on-disk index is written LAST, after the commit has landed (SUB-1110 r2,
+/// finding 1). Everything before it is in-memory or object-database work —
+/// `write_tree` reads the in-memory index and writes only blobs and trees — so
+/// nothing between here and the commit needs the staged state to be on disk,
+/// and persisting it early is what let a failure past this point strand staged
+/// entries for files the caller was about to delete again. The write does still
+/// have to happen on the success path: HEAD now carries these paths, and an
+/// index that does not would read as `INDEX_DELETED` — dirty — to the next
+/// `ensure_clean_for_pull`. If that last write is the thing that fails there is
+/// nothing left to undo, since the commit is already history, so it reports
+/// success and leaves the tidying to the next snapshot rather than sending the
+/// caller into an undo that would delete committed files.
+fn commit_backfill(repo: &Repository, paths: &[&str]) -> Result<(), String> {
+    let mut index = repo.index().map_err(|e| format!("vault sync index unavailable: {e}"))?;
+    for rel in paths {
+        index
+            .add_path(Path::new(rel))
+            .map_err(|e| format!("vault sync could not stage {rel}: {e}"))?;
+    }
+    let tree_oid =
+        index.write_tree().map_err(|e| format!("vault sync backfill tree failed: {e}"))?;
+    let tree =
+        repo.find_tree(tree_oid).map_err(|e| format!("vault sync backfill tree unavailable: {e}"))?;
+    let parent = repo
+        .head()
+        .and_then(|h| h.peel_to_commit())
+        .map_err(|e| format!("vault sync backfill parent unavailable: {e}"))?;
+    let who = repo
+        .signature()
+        .or_else(|_| Signature::now("Substrate", "substrate@local"))
+        .map_err(|e| format!("vault sync identity unavailable: {e}"))?;
+    repo.commit(Some("HEAD"), &who, &who, "restore app files", &tree, &[&parent])
+        .map_err(|e| format!("vault sync could not commit the app files: {e}"))?;
+    index.write().ok();
+    Ok(())
+}
+
+/// Has any commit reachable from HEAD held `rel`?
+///
+/// The question that separates "this remote never had the file" from "somebody
+/// deleted it" — the one distinction the backfill turns on, since resurrecting
+/// a deletion on every device is the failure SUB-956 was about.
+///
+/// Newest-first, stopping at the first commit that carries the path, so the
+/// deletion case — the one that repeats, because the file stays absent — costs
+/// only the commits back to the deletion. Cheap when that deletion is recent,
+/// and close to a full walk when it is old; see [`HISTORY_WALK_LIMIT`] for the
+/// bound and why the worst case is a latency note rather than a hazard. The
+/// exhaustive walk is also the never-carried case, and that one happens once:
+/// the backfill writes the file, the next snapshot commits it, and every later
+/// pull stops at the `symlink_metadata` above.
+///
+/// Anything that goes wrong — an unreadable object, the walk limit — answers
+/// `true`: leaving a file alone is always the recoverable mistake. A history
+/// rewrite (SUB-713) that drops the path entirely can leave this answering
+/// `false` for a file the user did once delete; the deletion then predates a
+/// history that no longer records it, and the file comes back, which is the
+/// same bargain a rewrite makes with everything else it removes.
+/// `limit` is a parameter rather than a constant read inside so a test can
+/// reach the give-up arm without building a twenty-thousand-commit history;
+/// every production caller passes [`HISTORY_WALK_LIMIT`].
+fn sync_history_ever_carried_within(repo: &Repository, rel: &str, limit: usize) -> bool {
+    let path = Path::new(rel);
+    let Ok(mut walk) = repo.revwalk() else { return true };
+    if walk.push_head().is_err() {
+        return true;
+    }
+    for (seen, oid) in walk.enumerate() {
+        if seen >= limit {
+            return true;
+        }
+        let Ok(oid) = oid else { return true };
+        let Ok(commit) = repo.find_commit(oid) else { return true };
+        let Ok(tree) = commit.tree() else { return true };
+        if tree.get_path(path).is_ok() {
+            return true;
+        }
+    }
+    false
 }
 
 /// Body diff mine → theirs. A missing side becomes an empty blob so a
@@ -2784,7 +3068,13 @@ mod tests {
         let pulled_oid = Oid::from_str(&report.head).unwrap();
         let repo = Repository::open(&local_root).unwrap();
         let final_commit = repo.head().unwrap().peel_to_commit().unwrap();
-        assert_eq!(final_commit.parent_id(0).unwrap(), pulled_oid);
+        // descendant, not child: the app-file backfill (SUB-1110) commits
+        // between the checkout and this snapshot. What matters is unchanged —
+        // the snapshot built on top of the pulled head instead of forking off it.
+        assert!(
+            repo.graph_descendant_of(final_commit.id(), pulled_oid).unwrap(),
+            "the snapshot did not land on top of the pulled head"
+        );
         assert_eq!(fs::read_to_string(local_root.join("Remote.md")).unwrap(), "from remote\n");
         assert_eq!(
             fs::read_to_string(local_root.join("Scratch.md")).unwrap(),
@@ -2979,8 +3269,10 @@ mod tests {
         assert_eq!(fs::read_to_string(b.join("Note.md")).unwrap(), "from a\n");
         fs::write(b.join("Note.md"), "from b\n").unwrap();
         assert!(history_b.snapshot("snapshot").unwrap());
-        assert_eq!(sync_push(&b, &credentials_b).unwrap().pushed, 1);
-        assert_eq!(sync_pull(&a, &credentials_a).unwrap().pulled, 1);
+        // two: this snapshot, plus b's backfill of the app files this bare
+        // remote was never seeded with (SUB-1110)
+        assert_eq!(sync_push(&b, &credentials_b).unwrap().pushed, 2);
+        assert_eq!(sync_pull(&a, &credentials_a).unwrap().pulled, 2);
         assert_eq!(fs::read_to_string(a.join("Note.md")).unwrap(), "from b\n");
     }
 
@@ -3398,7 +3690,9 @@ mod tests {
         // resume, and it can push back
         write_note(&b, "Inbox/After join.md", "written after joining\n");
         assert!(history_b.snapshot("snapshot").unwrap());
-        assert_eq!(sync_push(&b, &credentials_b).unwrap().pushed, 1);
+        // two: this snapshot, plus the commit that put back the app files this
+        // remote never carried (SUB-1110)
+        assert_eq!(sync_push(&b, &credentials_b).unwrap().pushed, 2);
     }
 
     /// Today's bad path, reproduced: HEAD already born on the seeds, exactly
@@ -3808,6 +4102,270 @@ mod tests {
         // the seeds themselves still went
         assert!(!b.join("Bookshelf.md").exists());
         assert!(!b.join("Welcome.md").exists());
+    }
+
+    /// SUB-1110. The remote is a real vault that never carried the app files —
+    /// an old-build or hand-made repo — so the join lands a tree without them
+    /// and the boot backfill can no longer help (sync is configured).
+    #[test]
+    fn a_join_backfills_the_app_files_a_remote_never_carried() {
+        let remote = populated_remote(&[("Projects/Album.md", "---\ntype: note\n---\nreal\n")]);
+        assert!(!remote.a.join("Settings.md").exists(), "the remote has no app files to send");
+        let (b, history_b) = fresh_seeded_vault(remote.scratch.path().join("b"));
+        let credentials_b = remote.scratch.path().join("config-b/sync.json");
+        configure(&b, &credentials_b, &remote.bare);
+        assert!(!history_b.snapshot("snapshot").unwrap());
+
+        let report = sync_pull(&b, &credentials_b).unwrap();
+
+        assert!(report.conflicted.is_empty(), "join conflicted: {:?}", report.conflicted);
+        assert!(b.join("Projects/Album.md").is_file(), "the remote's work landed");
+        for rel in crate::vault::app_file_paths() {
+            assert!(b.join(rel).is_file(), "{rel} was not backfilled after the join");
+        }
+        // demo notes stay out — the backfill is app furniture only
+        assert!(!b.join("Welcome.md").exists());
+        assert!(!b.join("Bookshelf.md").exists());
+        // and they are REPORTED, so `vault:pulled` carries them (SUB-1110
+        // review): the app must not have to wait for the watcher's debounce to
+        // learn about writes the pull itself made
+        for rel in crate::vault::app_file_paths() {
+            assert!(
+                report.changed.iter().any(|c| c == rel),
+                "{rel} was backfilled but missing from report.changed: {:?}",
+                report.changed
+            );
+        }
+        // the remote's own work is still in there, and the list stays sorted
+        // and deduplicated the way `changed_between` leaves it
+        assert!(report.changed.iter().any(|c| c == "Projects/Album.md"));
+        let mut sorted = report.changed.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted, report.changed, "changed is not sorted/deduplicated");
+        // the backfill committed itself, so the pull returns the clean tree the
+        // next pull needs — and the restored files are pushable vault content
+        assert_clean(&b);
+        assert!(!history_b.snapshot("snapshot").unwrap(), "the backfill left work uncommitted");
+        assert!(sync_push(&b, &credentials_b).unwrap().pushed >= 1);
+    }
+
+    /// The other side of the same rule: an app file the remote's history HAS
+    /// carried is absent because somebody deleted it, and no device may bring
+    /// it back — the failure SUB-956 exists to prevent.
+    #[test]
+    fn a_join_never_resurrects_an_app_file_the_remote_deleted() {
+        let remote = populated_remote(&[("Projects/Album.md", "---\ntype: note\n---\nreal\n")]);
+        // the remote once had the app files...
+        crate::vault::seed_app_file(&remote.a, "Settings.md");
+        crate::vault::seed_app_file(&remote.a, crate::vault::AGENTS_REL_PATH);
+        remote.history_a.snapshot("snapshot").unwrap();
+        // ...and the user deleted them
+        fs::remove_file(remote.a.join("Settings.md")).unwrap();
+        fs::remove_file(remote.a.join(crate::vault::AGENTS_REL_PATH)).unwrap();
+        remote.history_a.snapshot("snapshot").unwrap();
+        sync_push(&remote.a, &remote.credentials_a).unwrap();
+
+        let (b, history_b) = fresh_seeded_vault(remote.scratch.path().join("b"));
+        let credentials_b = remote.scratch.path().join("config-b/sync.json");
+        configure(&b, &credentials_b, &remote.bare);
+        assert!(!history_b.snapshot("snapshot").unwrap());
+
+        let report = sync_pull(&b, &credentials_b).unwrap();
+
+        assert!(report.conflicted.is_empty(), "join conflicted: {:?}", report.conflicted);
+        assert!(!b.join("Settings.md").exists(), "a deleted Settings.md came back");
+        assert!(
+            !b.join(crate::vault::AGENTS_REL_PATH).exists(),
+            "a deleted AGENTS.md came back"
+        );
+        // the files the remote never carried are still backfilled — the rule is
+        // per path, not per vault
+        assert!(b.join("CLAUDE.md").is_file());
+    }
+
+    /// And on an ordinary synced vault: deleting an app file locally, with the
+    /// deletion in this vault's own history, keeps it deleted across pulls.
+    #[test]
+    fn a_local_deletion_of_an_app_file_survives_later_pulls() {
+        let pair = paired_vaults(&[("Note.md", "base\n")]);
+        crate::vault::seed_app_file(&pair.b, "Settings.md");
+        pair.history_b.snapshot("snapshot").unwrap();
+        fs::remove_file(pair.b.join("Settings.md")).unwrap();
+        pair.history_b.snapshot("snapshot").unwrap();
+        sync_push(&pair.b, &pair.credentials_b).unwrap();
+        sync_pull(&pair.a, &pair.credentials_a).unwrap();
+
+        // a later pull that lands remote work must not take the deletion back
+        write_note(&pair.a, "Note.md", "remote edit\n");
+        pair.history_a.snapshot("snapshot").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+        sync_pull(&pair.b, &pair.credentials_b).unwrap();
+
+        assert!(!pair.b.join("Settings.md").exists(), "a deleted Settings.md came back");
+        assert_clean(&pair.b);
+    }
+
+    /// SUB-1110 review, finding 1's other half: a pull that lands nothing from
+    /// the remote and only backfills still reports its writes. Without them
+    /// `announce_pull` sees an empty `changed` and emits no `vault:pulled` at
+    /// all, so the files appear only when the watcher happens to notice.
+    #[test]
+    fn a_pull_that_only_backfills_still_reports_the_paths_it_wrote() {
+        // `a` pushed and never pulled, so it holds none of the app files and
+        // the shared history has never carried them
+        let pair = paired_vaults(&[("Note.md", "base\n")]);
+        for rel in crate::vault::app_file_paths() {
+            assert!(!pair.a.join(rel).exists(), "{rel} was there before the pull");
+        }
+
+        let report = sync_pull(&pair.a, &pair.credentials_a).unwrap();
+
+        assert_eq!(report.pulled, 0, "nothing to pull — the remote is where we left it");
+        let mut expected: Vec<String> =
+            crate::vault::app_file_paths().map(|r| r.to_string()).collect();
+        expected.sort();
+        assert_eq!(report.changed, expected, "an up-to-date pull reported the wrong writes");
+        assert_clean(&pair.a);
+    }
+
+    /// SUB-1110 r2, finding 1, first half: the commit path itself must not
+    /// persist a staged index it may never commit. An unborn HEAD is the
+    /// cheapest real failure past the staging step — `add_path` and
+    /// `write_tree` both succeed, the parent lookup does not.
+    #[test]
+    fn a_commit_that_fails_leaves_nothing_staged_on_disk() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("v");
+        fs::create_dir_all(&root).unwrap();
+        let repo = Repository::init(&root).unwrap();
+        fs::write(root.join("Note.md"), "note\n").unwrap();
+
+        assert!(commit_backfill(&repo, &["Note.md"]).is_err(), "an unborn HEAD has no parent");
+
+        let after = Repository::open(&root).unwrap();
+        assert_eq!(
+            after.index().unwrap().len(),
+            0,
+            "a commit that failed persisted its staged paths anyway"
+        );
+    }
+
+    /// Stage the paths and then fail, the way any commit-path failure looks to
+    /// the undo arm — including one that happens after another process, or an
+    /// earlier build, has already written the index to disk.
+    fn stage_then_fail(repo: &Repository, paths: &[&str]) -> Result<(), String> {
+        let mut index = repo.index().map_err(|e| e.to_string())?;
+        for rel in paths {
+            index.add_path(Path::new(rel)).map_err(|e| e.to_string())?;
+        }
+        index.write().map_err(|e| e.to_string())?;
+        Err("the commit failed".to_string())
+    }
+
+    /// SUB-1110 r2, finding 1, second half: whatever the commit left staged,
+    /// the undo puts back. The bug this pins is the pull AFTER the failure —
+    /// files removed but still staged reads as dirty, so `ensure_clean_for_pull`
+    /// refuses every later pull until an auto-snapshot happens to run `add -A`.
+    #[test]
+    fn a_backfill_whose_commit_fails_leaves_the_next_pull_a_clean_tree() {
+        // `a` pushed and never pulled: none of the app files are there and the
+        // shared history has never carried them, so the backfill wants them all
+        let pair = paired_vaults(&[("Note.md", "base\n")]);
+        let repo = Repository::open(&pair.a).unwrap();
+        ensure_clean_for_pull(&repo).expect("the vault was dirty before the backfill ran");
+
+        let wrote = backfill_missing_app_files_with(&repo, HISTORY_WALK_LIMIT, stage_then_fail);
+
+        assert!(wrote.is_empty(), "a failed commit must report no writes: {wrote:?}");
+        for rel in crate::vault::app_file_paths() {
+            assert!(!pair.a.join(rel).exists(), "{rel} survived the undo");
+        }
+        ensure_clean_for_pull(&repo)
+            .expect("a failed backfill left a tree the next pull refuses to touch");
+        // and the vault still works: the next pull backfills for real
+        let report = sync_pull(&pair.a, &pair.credentials_a).unwrap();
+        for rel in crate::vault::app_file_paths() {
+            assert!(pair.a.join(rel).is_file(), "{rel} was not backfilled on the retry");
+            assert!(report.changed.iter().any(|c| c == rel), "{rel} went unreported");
+        }
+        assert_clean(&pair.a);
+    }
+
+    /// SUB-1110 r2, finding 6. The walk's runaway guard answers the safe way:
+    /// a history too long to search reads as "carried", so nothing is written.
+    #[test]
+    fn a_history_past_the_walk_limit_backfills_nothing() {
+        let pair = paired_vaults(&[("Note.md", "base\n")]);
+        let repo = Repository::open(&pair.a).unwrap();
+        // the path is genuinely never-carried at the real limit...
+        assert!(!sync_history_ever_carried_within(&repo, "Settings.md", HISTORY_WALK_LIMIT));
+        // ...and reads as carried the moment the walk cannot finish
+        assert!(
+            sync_history_ever_carried_within(&repo, "Settings.md", 0),
+            "an exhausted walk must answer the recoverable way"
+        );
+
+        let wrote = backfill_missing_app_files_with(&repo, 0, commit_backfill);
+
+        assert!(wrote.is_empty(), "a walk that gave up still wrote files: {wrote:?}");
+        for rel in crate::vault::app_file_paths() {
+            assert!(!pair.a.join(rel).exists(), "{rel} was written past the walk limit");
+        }
+        ensure_clean_for_pull(&repo).expect("the give-up arm left the tree dirty");
+    }
+
+    /// SUB-1110 r2, finding 2. A vault a NEWER build has written is not one
+    /// this build adds files to — the same rule the boot backfill has always
+    /// followed, now on the sync path too. Without it, the first future build
+    /// that stops shipping a `SEED_FILES` path would have every older build
+    /// re-seed its own old text and push it back forever.
+    #[test]
+    fn a_vault_a_newer_app_has_written_is_not_backfilled() {
+        let pair = paired_vaults(&[("Note.md", "base\n")]);
+        fs::create_dir_all(pair.a.join(".vault")).unwrap();
+        fs::write(
+            pair.a.join(crate::vaultfmt::FORMAT_REL_PATH),
+            r#"{"schema": 99}"#,
+        )
+        .unwrap();
+        pair.history_a.snapshot("snapshot").unwrap();
+        let repo = Repository::open(&pair.a).unwrap();
+
+        let wrote = backfill_missing_app_files_with(&repo, HISTORY_WALK_LIMIT, commit_backfill);
+
+        assert!(wrote.is_empty(), "wrote into a newer app's vault: {wrote:?}");
+        for rel in crate::vault::app_file_paths() {
+            assert!(!pair.a.join(rel).exists(), "{rel} was seeded behind a newer app's back");
+        }
+        // and the whole pull path honours it, not just the helper
+        let report = sync_pull(&pair.a, &pair.credentials_a).unwrap();
+        assert!(
+            report.changed.is_empty(),
+            "the pull backfilled a newer app's vault: {:?}",
+            report.changed
+        );
+    }
+
+    /// The history question the rule turns on, on its own.
+    #[test]
+    fn sync_history_ever_carried_sees_a_path_a_later_commit_deleted() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("v");
+        fs::create_dir_all(&root).unwrap();
+        let history = owned(&root);
+        write_note(&root, "Kept.md", "kept\n");
+        write_note(&root, "Gone.md", "gone\n");
+        history.snapshot("snapshot").unwrap();
+        fs::remove_file(root.join("Gone.md")).unwrap();
+        history.snapshot("snapshot").unwrap();
+
+        let repo = Repository::open(&root).unwrap();
+        assert!(sync_history_ever_carried_within(&repo, "Kept.md", HISTORY_WALK_LIMIT));
+        assert!(sync_history_ever_carried_within(&repo, "Gone.md", HISTORY_WALK_LIMIT), "a deleted path is still history");
+        assert!(!sync_history_ever_carried_within(&repo, "Never.md", HISTORY_WALK_LIMIT));
+        // nested paths resolve through their tree, not just the root listing
+        assert!(!sync_history_ever_carried_within(&repo, ".claude/skills/setup/SKILL.md", HISTORY_WALK_LIMIT));
     }
 
     #[test]

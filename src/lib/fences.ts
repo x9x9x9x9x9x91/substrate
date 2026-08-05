@@ -90,8 +90,10 @@ const foldCase = (lang: string) => lang.replace(/[a-z]/g, (c) => `[${c.toUpperCa
     parses. See foldCase for why not `(?i…)` and why not the `i` flag.
 
     Lockstep twin: machine_fence_re in src-tauri/src/vault/mod.rs — the Rust
-    side mirrors these lists AND this spelling by hand; change both together. */
-const MACHINE_FENCE_RE = new RegExp(
+    side mirrors these lists AND this spelling by hand; change both together.
+    Exported for scripts/check-fence-langs.ts, which compares this pattern
+    against the Rust one and fails `npm test` when the two drift (SUB-1069). */
+export const MACHINE_FENCE_RE = new RegExp(
   "```(?:(?:" +
     TAILED_MACHINE_FENCE_LANGS.map(foldCase).join("|") +
     ")(?:[ \\t][^`\\n]*)?|" +

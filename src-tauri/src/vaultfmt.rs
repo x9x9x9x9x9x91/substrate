@@ -235,9 +235,12 @@ pub fn newer_message(file: VaultFile, found: u32) -> String {
 /// no sidecar entry to consult for those, so the conservative reading is "a
 /// newer app owns this vault, don't add files to it behind its back."
 ///
-/// Desktop-only: the backfills it guards are desktop-only, because the phone's
-/// vault arrives by sync rather than by seeding (see `Engine::new`).
-#[cfg(desktop)]
+/// Both targets, deliberately (SUB-1110): it was `#[cfg(desktop)]` while its
+/// only caller was the desktop-only boot backfill, but the post-pull backfill
+/// in `gitsync` runs on the phone too and asks the same question about the same
+/// unversioned files. The question itself has nothing target-specific in it —
+/// it reads the sidecar and compares numbers — and answering it only on desktop
+/// would mean the phone is the device that writes behind a newer app's back.
 pub fn vault_written_by_newer_app(root: &Path) -> bool {
     let sidecar = read_sidecar(root);
     VaultFile::ALL.iter().any(|f| version_of(&sidecar, *f) > f.current())

@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { stripMachineFences } from "./fences.ts";
+import {
+  BARE_MACHINE_FENCE_LANGS,
+  TAILED_MACHINE_FENCE_LANGS,
+  stripMachineFences,
+} from "./fences.ts";
 import { collectCardsFences } from "./metriccards.ts";
 import { findFence } from "./sheet.ts";
 
@@ -197,6 +201,28 @@ test("stripMachineFences folds case exactly where dispatch does (SUB-1104)", () 
   // it would pin the narrower rule and re-open the leak.
   const tailedMixed = "a\n```HeatMap year\nsource: session\n```\nb";
   assert.equal(stripMachineFences(tailedMixed), tailedMixed, "tailed mixed-case heatmap is prose");
+});
+
+test("every declared fence language behaves like its group (generated)", () => {
+  // Generated from the two exported lists, so a language added later is
+  // exercised without anyone remembering to extend the corpora above. What it
+  // is FOR is the group it landed in: the tailed/bare split is the thing
+  // scripts/check-fence-langs.ts compares across the TS/Rust lockstep, and a
+  // language filed under the wrong one strips differently in the two halves of
+  // the app (SUB-1069).
+  const fence = (open: string) => "a\n" + open + "\nsecret: 1\n```\nb";
+  const blanked = "a\n\n\n\nb"; // newline-for-newline: five lines in, five out
+  for (const lang of [...TAILED_MACHINE_FENCE_LANGS, ...BARE_MACHINE_FENCE_LANGS]) {
+    assert.equal(stripMachineFences(fence("```" + lang)), blanked, "bare " + lang + " strips");
+  }
+  for (const lang of TAILED_MACHINE_FENCE_LANGS) {
+    const body = fence("```" + lang + " wide");
+    assert.equal(stripMachineFences(body), blanked, "tailed " + lang + " strips");
+  }
+  for (const lang of BARE_MACHINE_FENCE_LANGS) {
+    const body = fence("```" + lang + " wide");
+    assert.equal(stripMachineFences(body), body, "tailed " + lang + " stays prose");
+  }
 });
 
 test("stripMachineFences handles CRLF fences (SUB-913)", () => {
