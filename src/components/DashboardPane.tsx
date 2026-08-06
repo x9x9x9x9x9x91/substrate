@@ -36,6 +36,7 @@ import FeedDashboard from "./FeedDashboard";
 import MusicWorkDashboard from "./MusicWorkDashboard";
 import TasksDashboard from "./TasksDashboard";
 import WorkbookPane from "./WorkbookPane";
+import type { EmbedEdit } from "./EmbedViewTable";
 import { parsePages } from "../lib/pages";
 import { DANGER, OK, WARN } from "../lib/tokens";
 import { useDashUndo, type DashUndoStore } from "./useDashUndo";
@@ -65,6 +66,10 @@ interface DashboardPaneProps {
   /** Registered-into while a board with a ⌘Z / ⌘⇧Z stack is mounted,
       so the shortcut HUD only advertises the chord where it actually fires */
   dashUndo?: DashUndoStore;
+  /** The write path a live ```view embed's cells commit through — the app's
+      own undoable prop write, the same one the editor fence uses. Omitted,
+      every embedded table stays read-only. */
+  embedEdit?: EmbedEdit;
   /** Settings.md `task-stale-chips` — the global default for the
       tasks board's age chips. Defaults on, like the setting itself, so an
       embedded board rendered without it behaves as documented. */
@@ -653,6 +658,7 @@ export default function DashboardPane(props: DashboardPaneProps) {
         onMutated={props.onMutated}
         onFollowLink={props.onFollowLink}
         onOpenView={props.onOpenView}
+        embedEdit={props.embedEdit}
         stepRef={props.pageStepRef}
         renderDashboard={(m) => <DashboardBody key={m.path} {...props} meta={m} />}
       >

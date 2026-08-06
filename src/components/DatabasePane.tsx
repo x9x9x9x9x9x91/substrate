@@ -87,6 +87,7 @@ import {
 export { cardSubtitle };
 import { ColumnsIcon, DbIcon as DbGlyphIcon, ExportIcon, EyeOffIcon, FilterIcon, PenIcon, PinIcon, PlusIcon, TrashIcon, XIcon } from "./Icons";
 import { BackButton } from "./BackButton";
+import EmptyState from "./EmptyState";
 
 interface DatabasePaneProps {
   dbType: string;
@@ -112,6 +113,13 @@ interface DatabasePaneProps {
   /** all database types — the schema editor's relation target picker */
   dbTypes: string[];
   openPath: string | null;
+  /** a row to put the view ON, asked for from outside the pane — a
+      global-search hit inside a mounted file's text opens its board, and a
+      board of 2,000 files that merely opens has not shown anyone anything.
+      Reuses the pane's own reveal path (pendingFocus → focus → scrollIntoView),
+      so a windowed table scrolls the row into view like any other reveal. `n`
+      changes per request, so asking twice for the same row reveals it twice. */
+  reveal?: { path: string; n: number } | null;
   /** bumped by App when ⌘N fires inside this database view */
   newSignal: number;
   /** App points this at the current view's CSV export so the palette can call it */
@@ -204,6 +212,7 @@ export default function DatabasePane({
   onCreateEntry,
   dbTypes,
   openPath,
+  reveal,
   newSignal,
   exportRef,
   gridDefault,
@@ -1137,6 +1146,22 @@ export default function DatabasePane({
     if (body.firstElementChild) ro.observe(body.firstElementChild);
     return () => ro.disconnect();
   }, [layout, dbType, filterEmpty]);
+
+  // a reveal asked for from outside enters the same queue a fresh
+  // note's does. Queued rather than applied: the rows a mount board shows
+  // arrive after the board itself, so the row named here is routinely not in
+  // `rows` yet on the render that asks for it.
+  //
+  // Keyed on the request count, never on the object: a board's rows are
+  // replaced wholesale on every refresh, so the caller's reveal is a fresh
+  // object each time an extraction finishes or a property is edited. Keyed on
+  // identity, this would re-queue the focus then and drag the user back to the
+  // row they arrived on, indefinitely.
+  const revealN = reveal?.n ?? 0;
+  useEffect(() => {
+    if (reveal) setPendingFocus(reveal.path);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revealN]);
 
   // once a just-created note shows up in the view, move focus onto its row/card
   useEffect(() => {
@@ -2220,8 +2245,9 @@ export default function DatabasePane({
   ) : null;
 
   const noMatch = filterEmpty ? (
-    <div className="empty">
-      <span>No matches</span>
+    /* the dead-end hint is its own control when it can fix the filter, so it
+       rides the shell's bespoke slot rather than the plain hint line */
+    <EmptyState icon={<FilterIcon />} title="No matches">
       {deadEndHint &&
         (deadEndHint.fixedQuery ? (
           <button
@@ -2235,7 +2261,7 @@ export default function DatabasePane({
         ) : (
           <span className="empty-hint">{deadEndHint.text}</span>
         ))}
-    </div>
+    </EmptyState>
   ) : null;
 
   const draftRow =
@@ -2371,14 +2397,12 @@ export default function DatabasePane({
         {draftRow ? (
           <div className="db-body db-list">{draftRow}</div>
         ) : (
-          <div className="empty">
-            <DbGlyphIcon />
-            <span>Nothing here yet</span>
-            <span className="empty-hint">Notes in the “{dbType}” database show up here</span>
-            <button className="empty-action" onClick={() => setNewTitle("")}>
-              New entry
-            </button>
-          </div>
+          <EmptyState
+            icon={<DbGlyphIcon />}
+            title="Nothing here yet"
+            hint={`Notes in the “${dbType}” database show up here`}
+            action={{ label: "New entry", onClick: () => setNewTitle("") }}
+          />
         )}
         {adminPop}
       </div>

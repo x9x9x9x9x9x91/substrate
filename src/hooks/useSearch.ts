@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { NoteMeta, View } from "../lib/types";
 import { propStr, viewKey } from "../lib/types";
+import { parseMountPath } from "../lib/mounts";
 
 /**
  * the search detour and its return trip: the query, the view a
@@ -18,6 +19,12 @@ export function useSearch(opts: {
   setDbNote: (p: string | null) => void;
   showMobileDetail: () => void;
   abandonScratch: (path: string) => Promise<void>;
+  /** a hit can name a file inside a mounted folder rather than a
+      note. Landing it belongs to App — it owns the mount views and the board's
+      reveal — so the hook hands the hit over and takes back the view it landed
+      on, or `false` when this machine has no such mount and there is nowhere
+      to go. */
+  openMountHit: (id: string, rel: string) => boolean;
 }) {
   const {
     notes,
@@ -29,6 +36,7 @@ export function useSearch(opts: {
     setDbNote,
     showMobileDetail,
     abandonScratch,
+    openMountHit,
   } = opts;
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -85,6 +93,17 @@ export function useSearch(opts: {
   // button edits them
   const openSearchHit = useCallback(
     (path: string, line: number) => {
+      // a mounted file's row, which has no note until someone
+      // annotates it — it goes home to its board, not into the editor. No
+      // return stash: the stash is spent the moment the landing view's open
+      // note isn't the hit (the effect below), and a board row is not an open
+      // note. Esc on the board is the board's ordinary Esc.
+      const mounted = parseMountPath(path);
+      if (mounted) {
+        if (!openMountHit(mounted.id, mounted.rel)) return;
+        showMobileDetail();
+        return;
+      }
       const note = notes.find((n) => n.path === path);
       if (note && propStr(note.props, "type") === "dashboard") {
         setView({ kind: "dashboard", path });
@@ -109,7 +128,7 @@ export function useSearch(opts: {
       setReveal((r) => ({ path, line, nonce: (r?.nonce ?? 0) + 1 }));
       setSearchReturn({ query: searchQuery, sel: { path, line }, view: home, note: path });
     },
-    [notes, searchQuery, showMobileDetail]
+    [notes, searchQuery, showMobileDetail, openMountHit]
   );
 
   // a reveal only applies to the note it was aimed at (it can be open in the

@@ -6,7 +6,13 @@
     embeds. Fidelity target is a clean printed page, not a spec parser. */
 
 import { isImageName } from "./artwork.ts";
-import { embedTarget, wikiLinkDisplay } from "./wikilinks.ts";
+import {
+  embedSize,
+  embedSizeStyle,
+  embedTarget,
+  wikiLinkDisplay,
+  type EmbedSize,
+} from "./wikilinks.ts";
 
 const ESC: Record<string, string> = {
   "&": "&amp;",
@@ -35,6 +41,17 @@ function unescapeHtml(s: string): string {
     renders the editor's "missing image" placeholder. */
 export type AssetSrc = (name: string) => string | undefined;
 
+/** An embed's size as a ready-to-concatenate ` style="…"` attribute, empty
+    when the embed asked for no size. The values are digits from
+    {@link embedSize}, so nothing here can carry markup out of the note. */
+function sizeAttr(size: EmbedSize | null): string {
+  const css = embedSizeStyle(size);
+  const parts: string[] = [];
+  if (css.maxWidth) parts.push(`max-width:${css.maxWidth}`);
+  if (css.maxHeight) parts.push(`max-height:${css.maxHeight}`);
+  return parts.length ? ` style="${parts.join(";")}"` : "";
+}
+
 function inline(raw: string, assetSrc: AssetSrc): string {
   // split out code spans first so no other rule fires inside them
   return raw
@@ -54,9 +71,11 @@ function inline(raw: string, assetSrc: AssetSrc): string {
           return `<span class="print-embed">embedded file · ${n}</span>`;
         }
         const src = assetSrc(raw);
-        return src
-          ? `<img src="${src}" alt="${n}">`
-          : `<span class="print-missing">missing image · ${n}</span>`;
+        if (!src) return `<span class="print-missing">missing image · ${n}</span>`;
+        // the author's `|300`-style size, as caps so the image still fits the
+        // page and keeps its ratio
+        const style = sizeAttr(embedSize(name));
+        return `<img src="${src}" alt="${n}"${style}>`;
       });
       // a link prints what it MEANS, not its syntax: the author's
       // display text when they wrote one, else the target with its anchor.

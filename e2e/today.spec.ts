@@ -163,6 +163,147 @@ test("rows carry the note context menu; Move to Trash works from Today (SUB-378)
   await expect(due.locator(".today-row", { hasText: "Renew Bandcamp plan" })).toHaveCount(0);
 });
 
+test("a dateless note reaches Today by palette, and the ⋯ menu takes it off (SUB-1162)", async ({
+  page,
+}) => {
+  // "Capture anything" carries no date at all, so it never surfaces as a
+  // candidate in any lane — before the verb left the pane it had no route
+  // onto Today whatsoever
+  await page.keyboard.press("Meta+k");
+  await page.locator(".palette-input").fill("Capture anything");
+  await page.locator(".palette-item", { hasText: "Capture anything" }).first().click();
+  await expect(page.locator(".note-title")).toHaveValue("Capture anything");
+  // the palette has to be gone before the next ⌘K, or the chord toggles the
+  // still-open one shut instead of reopening it
+  await expect(page.locator(".palette-input")).toHaveCount(0);
+  await expect(chip(page, "today")).toHaveCount(0);
+
+  await page.keyboard.press("Meta+k");
+  await page.locator(".palette-input").fill("Pick for today");
+  // the Commands row, not the "search for it" / "new note named it" rows
+  await page.getByRole("option", { name: "Pick for today", exact: true }).click();
+  await expect(chip(page, "today")).toHaveCount(1);
+  // the palette has to finish tearing down before the next chord, or the
+  // keypress lands on the node being removed and no shortcut ever sees it
+  await expect(page.locator(".palette-input")).toHaveCount(0);
+
+  await page.keyboard.press("Meta+1");
+  const picked = lane(page, "Picked for today");
+  await expect(picked.locator(".today-row", { hasText: "Capture anything" })).toBeVisible();
+
+  // and off again from the open note's ⋯ menu — the same action, the label
+  // flipped, on a surface that used to have no opinion about Today
+  await picked.locator(".today-row", { hasText: "Capture anything" }).click();
+  await page.locator('.note-tool[aria-label="Note actions"]').click();
+  await page.locator(".dots-item", { hasText: "Unpick from today" }).click();
+  await expect(chip(page, "today")).toHaveCount(0);
+
+  await page.keyboard.press("Meta+1");
+  await expect(lane(page, "Picked for today").locator(".today-quiet")).toHaveText(
+    "Nothing picked yet."
+  );
+});
+
+test("the pane's rows are one keyboard list across the lanes (SUB-1162)", async ({ page }) => {
+  const list = page.locator(".today-rows");
+  const rows = page.locator(".today-row");
+  await list.focus();
+
+  // j walks the flat list in the order the day reads — leftovers first
+  await page.keyboard.press("j");
+  await expect(rows.nth(0)).toHaveClass(/selected/);
+  await expect(rows.nth(0)).toContainText("Resequence the live set");
+  await expect(list).toHaveAttribute("aria-activedescendant", await rows.nth(0).getAttribute("id"));
+
+  // the pane takes the bare letters only: ⌘K is still the palette even with
+  // the list holding focus
+  await page.keyboard.press("Meta+k");
+  await expect(page.locator(".palette-input")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await list.focus();
+
+  // and crosses the lane boundary without a second key model
+  await page.keyboard.press("j");
+  await expect(rows.nth(1)).toHaveClass(/selected/);
+  await expect(rows.nth(0)).not.toHaveClass(/selected/);
+  await page.keyboard.press("k");
+  await expect(rows.nth(0)).toHaveClass(/selected/);
+
+  // p is the one verb: on the stale pick it rolls forward, exactly as Keep does
+  await page.keyboard.press("p");
+  await expect(lane(page, "Leftovers")).toHaveCount(0);
+  const picked = lane(page, "Picked for today");
+  const pickedRow = picked.locator(".today-row", { hasText: "Resequence the live set" });
+  await expect(pickedRow).toBeVisible();
+
+  /* and the highlight goes with the note, not with the slot.
+     No hover in between, deliberately: a pick moves its row across lanes at
+     CONSTANT total length, so a selection clamped on the row count never
+     notices and the highlight is left sitting on whatever shifted into the old
+     index — here, the first Scheduled row. */
+  await expect(pickedRow).toHaveClass(/selected/);
+  await expect(page.locator(".today-row.selected")).toHaveCount(1);
+  await expect(list).toHaveAttribute("aria-activedescendant", await pickedRow.getAttribute("id"));
+  await expect(rows.nth(0)).not.toHaveClass(/selected/);
+
+  // the mouse and the keyboard share the selection, and Backspace takes the
+  // row off today — never out of the vault
+  await pickedRow.hover();
+  await expect(pickedRow).toHaveClass(/selected/);
+  await page.keyboard.press("Backspace");
+  await expect(picked.locator(".today-quiet")).toHaveText("Nothing picked yet.");
+  // Backspace stayed the pane's key — it did not also walk the view history
+  await expect(page.locator(".today-pane")).toBeVisible();
+
+  // Enter opens the selected row's note, same route the click takes
+  await list.focus();
+  await page.keyboard.press("j");
+  const title = await rows.nth(0).locator(".today-row-title").textContent();
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".note-title")).toHaveValue(title ?? "");
+});
+
+test("⌫ only clears a row that carries a pick (SUB-1162)", async ({ page }) => {
+  // a real pick first, so the undo stack has something to answer with
+  const scheduled = lane(page, "Scheduled");
+  await scheduled
+    .locator(".today-row", { hasText: "Umbra listening session" })
+    .locator(".today-act", { hasText: "Pick" })
+    .click();
+  const picked = lane(page, "Picked for today");
+  await expect(picked.locator(".today-row", { hasText: "Umbra listening session" })).toBeVisible();
+
+  // a candidate that has never been picked: there is no pick prop to clear
+  const target = lane(page, "Due & overdue").locator(".today-row", {
+    hasText: "Approve SMP-030 artwork",
+  });
+  await page.locator(".today-rows").focus();
+  await target.hover();
+  await expect(target).toHaveClass(/selected/);
+  await page.keyboard.press("Backspace");
+
+  // the row stays where it is, and the pane keeps the key rather than letting
+  // bare ⌫ walk the view history out of Today
+  await expect(target).toBeVisible();
+  await expect(page.locator(".today-pane")).toBeVisible();
+
+  // and nothing landed on the undo stack: ⌘Z answers with the pick, the last
+  // real change. A null-over-null write would have burned the chord on an
+  // edit that changed nothing.
+  await page.keyboard.press("Meta+z");
+  await expect(scheduled.locator(".today-row", { hasText: "Umbra listening session" })).toBeVisible();
+  await expect(picked.locator(".today-row", { hasText: "Umbra listening session" })).toHaveCount(0);
+});
+
+test("Today rows offer Pick in the context menu (SUB-1162)", async ({ page }) => {
+  const row = lane(page, "Due & overdue").locator(".today-row", { hasText: "Renew Bandcamp plan" });
+  await row.click({ button: "right" });
+  await page.locator(".ctx-menu .ctx-item", { hasText: "Pick for today" }).click();
+  await expect(
+    lane(page, "Picked for today").locator(".today-row", { hasText: "Renew Bandcamp plan" })
+  ).toBeVisible();
+});
+
 test("entry points: sidebar row and palette command reach the surface", async ({ page }) => {
   // already on Today via the beforeEach ⌘1 — the sidebar row is the active one
   const sideToday = page.locator(".side-item", { hasText: /^Today/ });

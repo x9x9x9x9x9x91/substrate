@@ -27,11 +27,17 @@ import { convert, formatQuantity, parseQuantity, resolveUnit, sameDimension } fr
     accepts hex ("0x10"), binary ("0b101"), octal, exponents ("1e3") and
     Infinity; those stay text here, so a stray "Infinity" cell can't poison a
     SUM. Whitespace around the literal is ignored; anything else — empty
-    included — reads as null. */
+    included — reads as null.
+
+    The grammar alone doesn't keep Infinity out: a decimal literal
+    longer than ~309 digits is perfectly well-shaped and still overflows to
+    Infinity, which then poisons every sum and average it reaches. A value
+    that can't be represented is not a number here — it stays text. */
 export function parseStrictNumber(s: string): number | null {
   const t = s.trim();
   if (!/^[+-]?(\d+\.?\d*|\.\d+)$/.test(t)) return null;
-  return Number(t);
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
 }
 
 /* Locale-typed number input, made locale-aware. Display

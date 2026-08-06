@@ -108,7 +108,22 @@ test("a spaced info string still opens a fence — content below stays prose (SU
 test("a sized embed prints its image, not a missing placeholder (SUB-1102)", () => {
   const src = (n: string) => (n === "shot.png" ? "data:image/png;base64,AA" : undefined);
   const html = renderPrintBody("![[shot.png|300]] and ![[bounce.wav|left]]", src);
-  assert.match(html, /<img src="data:image\/png;base64,AA" alt="shot.png">/);
+  assert.match(html, /<img src="data:image\/png;base64,AA" alt="shot.png"/);
   assert.doesNotMatch(html, /missing image/);
   assert.match(html, /<span class="print-embed">embedded file · bounce.wav<\/span>/);
+});
+
+test("print honours the embed's size modifier, ignores the rest (SUB-1102)", () => {
+  const src = () => "data:image/png;base64,AA";
+  const width = renderPrintBody("![[shot.png|300]]", src);
+  assert.match(width, /style="max-width:300px"/);
+  assert.doesNotMatch(width, /max-height/, "a bare width leaves the height free");
+  const box = renderPrintBody("![[shot.png|300x200]]", src);
+  assert.match(box, /style="max-width:300px;max-height:200px"/);
+  // a float, and outright garbage, print the plain image — never an error
+  for (const md of ["![[shot.png|left]]", "![[shot.png|axb]]", "![[shot.png|-3]]"]) {
+    assert.doesNotMatch(renderPrintBody(md, src), /style=/, md);
+  }
+  // an absurd width clamps rather than blowing out the page
+  assert.match(renderPrintBody("![[shot.png|99999]]", src), /style="max-width:4096px"/);
 });

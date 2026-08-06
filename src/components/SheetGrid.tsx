@@ -58,7 +58,8 @@ import {
 } from "../lib/formula";
 import Editor from "./Editor";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
-import { NoteIcon } from "./Icons";
+import { NoteIcon, TableIcon } from "./Icons";
+import EmptyState from "./EmptyState";
 
 interface CellPos {
   r: number;
@@ -1136,11 +1137,14 @@ export default function SheetGrid({
     return (
       <div className="sheet">
         {toolbar}
-        <div className="sheet-empty">
-          <span>No data block yet</span>
-          <span className="empty-hint">
-            Add a column to start the grid, or write a ```csv block in source
-          </span>
+        {/* the add-column control is a two-state form (input while typing), so
+            it rides the shell's bespoke slot rather than the plain action */}
+        <EmptyState
+          className="sheet-empty"
+          icon={<TableIcon />}
+          title="No data block yet"
+          hint="Add a column to start the grid, or write a ```csv block in source"
+        >
           {addingCol ? (
             <input
               className="sheet-addcol-input"
@@ -1162,7 +1166,7 @@ export default function SheetGrid({
               + column
             </button>
           ) : null}
-        </div>
+        </EmptyState>
       </div>
     );
   }

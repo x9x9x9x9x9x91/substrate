@@ -90,7 +90,22 @@ const DOTTED_DATE_RE = /^(\d{1,2})\.(\d{1,2})\.(\d{4}|\d{2})$/;
 function expandYear(y: number): number {
   return y >= 100 ? y : y >= 69 ? 1900 + y : 2000 + y;
 }
-const ISO_SHAPED_RE = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s]|$)/;
+/* The whole string is anchored, not just the date prefix: a `T`/space separator
+   must be followed by a time-shaped remainder and nothing else. It used to end
+   at `(?:[T\s]|$)`, so "2026-07-17 definitely-not-a-time" matched on its first
+   11 characters and committed as a valid date. The time itself is deliberately
+   looser than the value grammar — a one-digit minute ("9:5") stays inside this
+   shape and falls through to day-only tolerance, which parseDateTimeLoose
+   relies on. The zone alternation covers the ISO forms (Z, ±HH, ±HHMM, ±HH:MM)
+   AND the named zones Date.parse itself accepts (GMT, UTC, UT and the US
+   abbreviations, optionally with an offset), because those must keep their
+   written date too: "2026-07-17 22:00:00 GMT" through Date.parse is
+   2026-07-18 in Europe/Berlin — the exact midnight shift the shaped branch
+   exists to prevent. Anything else after the time is rejected here; Date.parse
+   then returns NaN for it ("… 22:00:00 CEST", "… 22:00:00 lunch"), so the
+   rejection is the outcome either way. */
+const ISO_SHAPED_RE =
+  /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s]\d{1,2}:\d{1,2}(?::\d{1,2}(?:\.\d+)?)?\s*(?:Z|[+-]\d{1,2}(?::?\d{2})?|(?:GMT|UTC|UT|[ECMP][SD]T)(?:\s*[+-]\d{1,2}(?::?\d{2})?)?)?)?$/i;
 const MONTH_DAY_RE = /^([a-z]+)\s+(\d{1,2})(?:,?\s+(\d{4}))?$/i;
 const DAY_MONTH_RE = /^(\d{1,2})\s+([a-z]+)(?:,?\s+(\d{4}))?$/i;
 
@@ -118,6 +133,8 @@ function monthFromName(name: string): number | null {
     negative-offset timezones. Month-name forms are resolved by hand because
     Date.parse reads a trailing day number as a 2-digit year ("jul 17" →
     2001-07-17); with no year written they mean the CURRENT year.
+    An ISO-shaped date must be the WHOLE string apart from a time-shaped
+    remainder — trailing junk is rejected rather than silently ignored.
     Returns null when unparseable — including a Date.parse result on the
     engine's default year (≤ 2001) from yearless input, a silently-wrong
     answer. */

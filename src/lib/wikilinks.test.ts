@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   anchorLine,
+  embedSize,
+  embedSizeStyle,
   embedTarget,
   parseWikiLink,
   wikiLinkDisplay,
@@ -135,4 +137,43 @@ test("embedTarget: the display modifier is dropped, a # never is", () => {
   // link-in-place paths survive whole
   assert.equal(embedTarget("~/Music/mixdown.flac|300"), "~/Music/mixdown.flac");
   assert.equal(embedTarget("|300"), "");
+});
+
+test("embedSize: a bare number is a width, WxH is a box, everything else is ignored", () => {
+  // twin of embed_size in src-tauri/src/vault/mod.rs; keep the
+  // two tables identical, a divergence means the app and the engine disagree
+  // about how big a note's images are.
+  assert.deepEqual(embedSize("cover.png"), null);
+  assert.deepEqual(embedSize("cover.png|300"), { width: 300, height: null });
+  assert.deepEqual(embedSize("cover.png|300x200"), { width: 300, height: 200 });
+  assert.deepEqual(embedSize("cover.png|300X200"), { width: 300, height: 200 });
+  assert.deepEqual(embedSize("cover.png | 300 "), { width: 300, height: null });
+  // floats are recognised syntax Substrate declines to act on
+  assert.deepEqual(embedSize("cover.png|left"), null);
+  assert.deepEqual(embedSize("cover.png|right"), null);
+  // a float beside a width does not cost the width
+  assert.deepEqual(embedSize("cover.png|300|left"), { width: 300, height: null });
+  assert.deepEqual(embedSize("cover.png|left|300x200"), { width: 300, height: 200 });
+  // garbage is ignored, never an error
+  assert.deepEqual(embedSize("cover.png|axb"), null);
+  assert.deepEqual(embedSize("cover.png|300x"), null);
+  assert.deepEqual(embedSize("cover.png|x200"), null);
+  assert.deepEqual(embedSize("cover.png|3.5"), null);
+  assert.deepEqual(embedSize("cover.png|-3"), null);
+  assert.deepEqual(embedSize("cover.png|0"), null);
+  assert.deepEqual(embedSize("cover.png|0x0"), null);
+  assert.deepEqual(embedSize("cover.png|"), null);
+  assert.deepEqual(embedSize("cover.png|300x0"), null);
+  // an absurd number degrades to a big image, never a broken one
+  assert.deepEqual(embedSize("cover.png|99999"), { width: 4096, height: null });
+  assert.deepEqual(embedSize("cover.png|99999x99999"), { width: 4096, height: 4096 });
+});
+
+test("embedSizeStyle: caps only, so images scale and keep their ratio", () => {
+  assert.deepEqual(embedSizeStyle(null), {});
+  assert.deepEqual(embedSizeStyle({ width: 300, height: null }), { maxWidth: "300px" });
+  assert.deepEqual(embedSizeStyle({ width: 300, height: 200 }), {
+    maxWidth: "300px",
+    maxHeight: "200px",
+  });
 });

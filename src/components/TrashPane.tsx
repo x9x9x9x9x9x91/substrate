@@ -5,6 +5,7 @@ import ContextMenu, { type MenuItem } from "./ContextMenu";
 import { FolderIcon, ImageIcon, TrashIcon } from "./Icons";
 import { dateLocale } from "../lib/dateLocale";
 import { BackButton } from "./BackButton";
+import EmptyState from "./EmptyState";
 
 /** Kinds with no note history behind them: the purge-history lanes skip them.
     An asset was never tracked; a template is a `.vault/` file the
@@ -262,22 +263,18 @@ export default function TrashPane({ vaultEpoch, onRestored, onRestoredFolder }: 
              that sticks forever; same DOM as the resolved state, so the load
              landing only swaps text */
           error === null ? (
-            <div className="empty">
-              <TrashIcon />
-              <span>Loading trash</span>
-              <span className="empty-hint">
-                deleted notes and assets land here, recoverable until you empty them
-              </span>
-            </div>
+            <EmptyState
+              icon={<TrashIcon />}
+              title="Loading trash"
+              hint="deleted notes and assets land here, recoverable until you empty them"
+            />
           ) : null
         ) : entries.length === 0 ? (
-          <div className="empty">
-            <TrashIcon />
-            <span>Trash is empty</span>
-            <span className="empty-hint">
-              deleted notes and assets land here, recoverable until you empty them
-            </span>
-          </div>
+          <EmptyState
+            icon={<TrashIcon />}
+            title="Trash is empty"
+            hint="deleted notes and assets land here, recoverable until you empty them"
+          />
         ) : (
           entries.map((t) => (
             <div

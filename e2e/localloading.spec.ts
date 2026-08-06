@@ -56,6 +56,25 @@ test("the history list's loading frame is the list's own empty state", async ({ 
   await expect(page.locator(".hist-list .hist-empty")).toHaveCount(0);
 });
 
+test("the history loading strip stays minimal — no glyph, not the empty shell", async ({
+  page,
+}) => {
+  // This panel's empty states render through the shared EmptyState shell,
+  // whose glyph is a required prop. This strip is deliberately NOT one of
+  // them: it is a transient local-git-read flash, and is kept bare on
+  // purpose. Without this the shell's `.empty` wrapper and its icon can come
+  // back here and every other assertion still passes — `toHaveText` reads the
+  // same either way, because an svg contributes no text.
+  await page.evaluate(() => window.__mockSetLatency?.("history_list", 500));
+
+  await openHistory(page);
+
+  const strip = page.locator(".hist-list .hist-empty");
+  await expect(strip).toHaveText("Reading snapshots");
+  await expect(strip).not.toHaveClass(/(^|\s)empty(\s|$)/);
+  await expect(strip.locator("svg")).toHaveCount(0);
+});
+
 test("a failed snapshot read shows the error, not a loading state that sticks", async ({
   page,
 }) => {

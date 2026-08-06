@@ -12,6 +12,7 @@ dist
 dist-release/
 dist-ssr
 *.local
+/src-tauri/binaries/substrate-mcp-*
 
 # Editor directories and files
 .vscode/*

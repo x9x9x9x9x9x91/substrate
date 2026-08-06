@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom/client";
 import "@fontsource-variable/inter";
 import "./styles.css";
@@ -29,6 +29,11 @@ const isTauri = "__TAURI_INTERNALS__" in window;
 const MIN_HEIGHT = 160;
 const MAX_HEIGHT = 480;
 
+/* The pinned Capture row's identity in the selection model. It is not a note,
+   so it has no `path:prop` key of its own; the leading colon keeps it out of
+   reach of any real one (an item key always starts with a path). */
+const CAPTURE_KEY = ":capture";
+
 async function hideWindow(): Promise<void> {
   if (!isTauri) return;
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -52,8 +57,15 @@ function AgendaApp() {
      there is no query here for a selection to be "the answer" to), and the
      first ArrowDown lights row 1. Hover wins the same way it does there
      (Palette.tsx `onMouseMove` → selectIndex), so the pointer and the
-     keyboard can never disagree about which row Enter would open. */
-  const [sel, setSel] = useState(-1);
+     keyboard can never disagree about which row Enter would open.
+
+     The selection is a ROW, not a slot. A clamp on the row
+     COUNT only catches a list that got shorter — a reload that reorders the
+     day, or drops one entry while another arrives, leaves the count untouched
+     and silently moves the highlight onto a different note. Holding the row's
+     key and re-deriving the index each render covers both: the row's new slot
+     when it moved, and -1 when it is gone. */
+  const [selKey, setSelKey] = useState<string | null>(null);
 
   /* Fit the window to the card. A ResizeObserver rather than an
      effect on `payload`: the card also settles after the webfont loads and
@@ -110,18 +122,27 @@ function AgendaApp() {
     };
   }, [reload]);
 
-  // items + the Capture row, which always exists — so the last index is
-  // `count - 1` and the Capture row is `count - 1` too when it is reached
-  const rowCount = (payload?.items.length ?? 0) + 1;
+  /* Every row's identity, in render order: the agenda items (same key the
+     rows are React-keyed by) followed by the Capture row, which always
+     exists — so the last index is `count - 1` and the Capture row is
+     `count - 1` too when it is reached. */
+  const rowKeys = useMemo(
+    () => [...(payload?.items ?? []).map((it) => `${it.path}:${it.prop}`), CAPTURE_KEY],
+    [payload]
+  );
+  const rowCount = rowKeys.length;
 
-  /* A reload (vault:changed, tray re-show) can shorten the list under a
-     resting selection. Clamping to -1 rather than to the new last row: the
-     row that was selected is gone, and silently moving the highlight onto a
-     different note is exactly the class of bug the palette's select-by-id
-     avoids (Palette.tsx). Nothing selected is the honest state. */
-  useEffect(() => {
-    setSel((s) => (s >= rowCount ? -1 : s));
-  }, [rowCount]);
+  /* A reload (vault:changed, tray re-show) can reorder the day or drop the
+     selected entry out of it. Following the key rather than the index means
+     the highlight stays on the row the user chose when it merely moved, and
+     goes to nothing selected when it left — never onto a different note,
+     which is exactly the class of bug the palette's select-by-id avoids
+     (Palette.tsx). Nothing selected is the honest state. */
+  const sel = useMemo(
+    () => (selKey === null ? -1 : rowKeys.indexOf(selKey)),
+    [rowKeys, selKey]
+  );
+  const selectIdx = (i: number) => setSelKey(i >= 0 ? (rowKeys[i] ?? null) : null);
 
   // keep the selected row visible when arrow-keying past the fold
   useEffect(() => {
@@ -174,12 +195,12 @@ function AgendaApp() {
         // ⌃n/⌃p ride along with the arrows, as they do in the palette
         if (e.key === "ArrowDown" || (e.key === "n" && e.ctrlKey)) {
           e.preventDefault();
-          setSel((s) => Math.min(s + 1, rowCount - 1));
+          selectIdx(Math.min(sel + 1, rowCount - 1));
         } else if (e.key === "ArrowUp" || (e.key === "p" && e.ctrlKey)) {
           e.preventDefault();
           // stops at row 1 rather than walking back to "nothing selected" —
           // same floor the palette clamps to (Math.max(sel - 1, 0))
-          setSel((s) => Math.max(s - 1, 0));
+          selectIdx(Math.max(sel - 1, 0));
         } else if (e.key === "Enter" && sel >= 0) {
           e.preventDefault();
           openRow(sel);
@@ -229,7 +250,7 @@ function AgendaApp() {
               // mousemove, not mouseenter: a reload can insert rows
               // under a resting cursor, and mouseenter would hand selection to
               // whatever slid beneath it
-              onMouseMove={() => setSel(i)}
+              onMouseMove={() => selectIdx(i)}
               onClick={() => openItem(item.path)}
             >
               <span className={`agenda-dot${item.deadline ? " due" : ""}`} />
@@ -256,7 +277,7 @@ function AgendaApp() {
           data-idx={rowCount - 1}
           role="option"
           aria-selected={sel === rowCount - 1}
-          onMouseMove={() => setSel(rowCount - 1)}
+          onMouseMove={() => selectIdx(rowCount - 1)}
           onClick={openCapture}
         >
           <PlusIcon />

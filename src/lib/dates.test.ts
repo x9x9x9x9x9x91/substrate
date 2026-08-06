@@ -102,6 +102,44 @@ test("parseDateLoose: ISO datetimes keep their written date regardless of timezo
   assert.equal(parseDateLoose("2026-1-5"), "2026-01-05", "unpadded ISO-shaped");
 });
 
+test("parseDateLoose: junk after an ISO-shaped date is rejected", () => {
+  assert.equal(parseDateLoose("2026-07-17 definitely-not-a-time"), null);
+  assert.equal(parseDateLoose("2026-07-17 nonsense"), null);
+  assert.equal(parseDateLoose("2026-07-17Twhenever"), null);
+  assert.equal(parseDateLoose("2026-07-17T"), null, "a bare separator is not a time");
+  assert.equal(parseDateLoose("2026-07-17 14:30 and then some"), null, "junk after a time too");
+  // the shapes the tightening must keep parsing
+  assert.equal(parseDateLoose("2026-07-17"), "2026-07-17");
+  assert.equal(parseDateLoose("2026-07-17 14:30"), "2026-07-17");
+  assert.equal(parseDateLoose("2026-07-17T14:30"), "2026-07-17");
+  assert.equal(parseDateLoose("2026-07-17T22:00:00"), "2026-07-17", "seconds, no zone");
+  assert.equal(parseDateLoose("2026-07-17T22:00:00.500Z"), "2026-07-17", "fractional seconds");
+  assert.equal(parseDateLoose("2026-07-17T22:00:00+0200"), "2026-07-17", "compact zone");
+  assert.equal(parseDateLoose("2026-07-17 22:00:00 +02:00"), "2026-07-17", "spaced zone");
+  assert.equal(parseDateLoose("2026-07-19 9:5"), "2026-07-19", "loose time stays day-only");
+});
+
+test("parseDateLoose: named-zone datetimes keep their written date", () => {
+  // every spelling Date.parse accepts as a zone name — routed through it, a
+  // late-evening GMT time lands on the NEXT day in a positive-offset zone, so
+  // these have to stay on the shaped branch
+  assert.equal(parseDateLoose("2026-07-17 22:00:00 GMT"), "2026-07-17");
+  assert.equal(parseDateLoose("2026-07-17 22:00 GMT"), "2026-07-17", "no seconds");
+  assert.equal(parseDateLoose("2026-07-17 22:00:00 UTC"), "2026-07-17");
+  assert.equal(parseDateLoose("2026-07-17 22:00:00 UT"), "2026-07-17");
+  assert.equal(parseDateLoose("2026-07-17 22:00:00 utc"), "2026-07-17", "case-insensitive");
+  assert.equal(parseDateLoose("2026-07-17 22:00:00 PST"), "2026-07-17", "US abbreviations");
+  assert.equal(parseDateLoose("2026-07-17 22:00:00 EDT"), "2026-07-17");
+  assert.equal(parseDateLoose("2026-07-17T22:00:00 GMT"), "2026-07-17", "T separator too");
+  assert.equal(parseDateLoose("2026-07-17 22:00:00 GMT+0200"), "2026-07-17", "name + offset");
+  assert.equal(parseDateLoose("2026-07-17T22:00:00 UTC-05:00"), "2026-07-17");
+  // a name Date.parse does not know is junk, and stays rejected
+  assert.equal(parseDateLoose("2026-07-17 22:00:00 CEST"), null);
+  assert.equal(parseDateLoose("2026-07-17 22:00:00 lunch"), null);
+  // the date component is still validated behind a named zone
+  assert.equal(parseDateLoose("2026-02-30 22:00:00 GMT"), null);
+});
+
 test("monthGrid is a Monday-first 6-week grid", () => {
   const g = monthGrid(2026, 7); // July 2026 starts on a Wednesday
   assert.equal(g.length, 42);
@@ -227,4 +265,6 @@ test("parseDateTimeLoose: day-only input, garbage, and bad times", () => {
   // and so does a one-digit minute, which stays outside the time grammar
   assert.deepEqual(parseDateTimeLoose("2026-07-17T22:00:00Z"), { day: "2026-07-17", time: null });
   assert.deepEqual(parseDateTimeLoose("2026-07-19 9:5"), { day: "2026-07-19", time: null });
+  // junk trailing an ISO-shaped day no longer commits as that day
+  assert.equal(parseDateTimeLoose("2026-07-19 definitely-not-a-time"), null);
 });

@@ -28,6 +28,7 @@ import { exportSavedView, exportSummary, savedViewRows } from "./lib/viewexport"
 import { focusSoon } from "./lib/focussoon";
 import { dailyDateOf, dailyPath, journalOrder, JOURNAL_DIR } from "./lib/journal";
 import { todayIso } from "./lib/dates";
+import { isPickedToday, TODAY_PROP } from "./lib/today";
 import {
   propList,
   propListValue,
@@ -208,6 +209,7 @@ import KeyAssignHud from "./components/KeyAssignHud";
 import ModKeyHud, { type ModKeyHudCtx } from "./components/ModKeyHud";
 import InfoView from "./components/InfoView";
 import DonationNag from "./components/DonationNag";
+import TooltipHost from "./components/Tooltip";
 import TimeTravelBar from "./components/TimeTravelBar";
 import SettingsPane from "./components/SettingsPane";
 // lazy: TerminalHud is the only xterm.js importer, and the web/mock surface
@@ -227,6 +229,7 @@ import {
   UnmountDialog,
 } from "./components/DbAdmin";
 import { DbIcon as DbGlyphIcon, ExportIcon, FolderIcon, KeyboardIcon, MenuIcon, MountIcon, NoteActionGlyph, NoteIcon, PenIcon, PinIcon, PlusIcon, RepeatIcon, SidebarIcon, TrashIcon, XIcon, ChevronLeftIcon, ChevronUpIcon, ChevronDownIcon } from "./components/Icons";
+import EmptyState from "./components/EmptyState";
 import { useSidebarHidden } from "./hooks/useSidebarHidden";
 import { useZoom } from "./hooks/useZoom";
 import { useTerminalHud } from "./hooks/useTerminalHud";
@@ -1615,6 +1618,57 @@ export default function App() {
     return by;
   }, [activeMount, mountRowList]);
 
+  /** The mounted file a global-search hit named, on its way to its
+      board. `n` distinguishes two requests for the same row, so opening the
+      same hit twice reveals it twice. */
+  const [mountHit, setMountHit] = useState<{ id: string; rel: string; n: number } | null>(null);
+
+  /** Send a search hit that landed inside a mounted document to its board.
+      `false` when this machine has no such mount: the vault carries the index,
+      the machine carries the folder, so a hit can name a file that is real
+      elsewhere and absent here — saying so beats a board that opens empty. */
+  const openMountHit = useCallback(
+    (id: string, rel: string) => {
+      if (!mounts.some((m) => m.id === id)) {
+        showToast("That folder isn’t mounted on this machine");
+        return false;
+      }
+      setView({ kind: "mount", id });
+      setMountHit((h) => ({ id, rel, n: (h?.n ?? 0) + 1 }));
+      return true;
+    },
+    [mounts, showToast]
+  );
+
+  /** The row the board should put itself on, once its rows are in. A row with
+      a sidecar answers to the note's path and one without to the virtual path,
+      so which one to reveal is only knowable from the loaded rows — and they
+      arrive after the board does. Null until then, and null for a hit into
+      some other mount than the open one. */
+  const mountReveal = useMemo(() => {
+    if (!mountHit || !activeMount || activeMount.id !== mountHit.id) return null;
+    const row = mountRowList.find((r) => r.rel === mountHit.rel);
+    if (!row) return null;
+    return { path: row.note ?? `${MOUNT_SCHEME}${activeMount.id}/${row.rel}`, n: mountHit.n };
+  }, [mountHit, activeMount, mountRowList]);
+
+  /** Which row the board draws as open, kept apart from the request that put
+      it there. The request is spent the moment the board has it — held any
+      longer, every later rows fetch would hand the board the same one again
+      and drag the user back to the row they arrived on, and so would leaving
+      the board and coming back. The MARK has to outlive it, though: it is the
+      answer to "which file was I sent to", and it stays until something else
+      is opened. Kept per mount so another board never inherits it. */
+  const [mountOpen, setMountOpen] = useState<{ id: string; path: string } | null>(null);
+
+  /** The board queues the focus in its own effect, which runs before this
+      one, so the request is safe to retire here. */
+  useEffect(() => {
+    if (!mountReveal || !mountHit) return;
+    setMountOpen({ id: mountHit.id, path: mountReveal.path });
+    setMountHit(null);
+  }, [mountReveal, mountHit]);
+
   /** A mount row's property write. Ordinary notes go through
       vaultSetProp; a mount row can't, because the note it would write to may
       not exist until this very edit creates it. `mount_annotate` creates the
@@ -2089,6 +2143,29 @@ export default function App() {
     [undoApi, refresh, showToast]
   );
 
+  // the Today surface's one verb, from anywhere a note is: the row
+  // menu, the open note's ⋯, the palette. Deliberately the pane's own write
+  // (the ordinary `today` date prop through setPropUndoable), so one ⌘Z
+  // reverts a pick made out here exactly as it reverts one made in the pane,
+  // and a note with no dates at all — invisible to every candidate lane —
+  // can still be picked.
+  const togglePickToday = useCallback(
+    (path: string, pick: boolean) => {
+      setPropUndoable({
+        path,
+        key: TODAY_PROP,
+        value: pick ? todayIso() : null,
+        record: undoApi.record,
+      })
+        .then(() => refresh())
+        .catch((err) => {
+          showToast(`couldn’t save — ${err instanceof Error ? err.message : String(err)}`);
+          refresh();
+        });
+    },
+    [undoApi, refresh, showToast]
+  );
+
   // The fence's "+ New". A born-complete typed create like ⌘N's
   // (schema defaults + template), plus the fence's own equality filters seeded
   // on top so the new row actually belongs to the table it was added from.
@@ -2149,6 +2226,20 @@ export default function App() {
         .catch(reportCreateFailure(`create “${title}”`, title));
     },
     [createEntry, notes, undoApi, refresh, reportCreateFailure]
+  );
+
+  // The same write path, handed to the live ```view tables a hub, grid or
+  // workbook page renders. Dashboards were the one place a fence was
+  // read-only purely because nobody passed the handlers down; the handlers
+  // themselves are the editor fence's (undoable write, its failure toast).
+  const embedEdit = useMemo(
+    () => ({
+      setProp: embedSetProp,
+      usedValues,
+      relationCandidates: relCandidates,
+      createRelation: embedCreateRelation,
+    }),
+    [embedSetProp, usedValues, relCandidates, embedCreateRelation]
   );
 
   // "New sheet…": sheets are surfaces, not database entries, so the
@@ -3030,6 +3121,8 @@ export default function App() {
         exportOneSheet: () => afterOpenFlush(() => exportNoteOneSheet(n).catch(console.error)),
         sendAsLink: () => afterOpenFlush(() => setSendLink(n)),
         sealed: n.sealed,
+        togglePick: () => togglePickToday(n.path, !isPickedToday(n, todayIso())),
+        picked: isPickedToday(n, todayIso()),
         togglePin: () => setPinned(n.path, !pinnedPaths.includes(n.path)),
         pinned: pinnedPaths.includes(n.path),
         trash: () => trashNote(n.path),
@@ -3049,6 +3142,7 @@ export default function App() {
       copyAbsPath,
       revealRel,
       afterOpenFlush,
+      togglePickToday,
       setPinned,
       pinnedPaths,
     ]
@@ -3969,6 +4063,7 @@ export default function App() {
     setDbNote,
     showMobileDetail,
     abandonScratch,
+    openMountHit,
   });
 
   // land a followed `#anchor` on its heading. The note is open by
@@ -4535,6 +4630,9 @@ export default function App() {
         <div className="main">
           <SearchPane
             notes={notes}
+            // a hit inside a mounted file names no note — its mount is what
+            // makes it renderable
+            mounts={mounts}
             excludeAppFiles={!showAppFiles}
             query={searchQuery}
             setQuery={setSearchQuery}
@@ -4619,6 +4717,7 @@ export default function App() {
             pageStepRef={pageStepRef}
             dashUndo={dashUndo}
             taskStaleChips={taskStaleChips}
+            embedEdit={embedEdit}
           />
         </div>
       ) : view.kind === "today" ? (
@@ -4680,7 +4779,14 @@ export default function App() {
                 relationCandidates={relCandidates}
                 onCreateEntry={createEntry}
                 dbTypes={dbTypes}
-                openPath={null}
+                // the row a search hit arrived on — marked as the
+                // open one, and revealed (scrolled to, focused) once the
+                // board's rows are in
+                openPath={
+                  mountReveal?.path ??
+                  (mountOpen?.id === activeMount.id ? mountOpen.path : null)
+                }
+                reveal={mountReveal}
                 newSignal={0}
                 exportRef={dbExportRef}
                 gridDefault={dbGrid}
@@ -4711,10 +4817,13 @@ export default function App() {
             </div>
           ) : (
             <div className="db">
-              <div className="empty">
-                <span>Mounted folder not found</span>
-                <span className="empty-hint">It may have been unmounted in another window</span>
-              </div>
+              {/* No verb here yet: remounting is the Databases pane's verb, not
+                  one this pane can run — glyph + text until copy work lands. */}
+              <EmptyState
+                icon={<MountIcon />}
+                title="Mounted folder not found"
+                hint="It may have been unmounted in another window"
+              />
             </div>
           )}
         </div>
@@ -4824,10 +4933,13 @@ export default function App() {
             />
           ) : (
             <div className="db">
-              <div className="empty">
-                <span>Saved view not found</span>
-                <span className="empty-hint">The pin may have been removed outside the app</span>
-              </div>
+              {/* No verb here yet: the pin is gone, and re-pinning happens on
+                  the view it came from, so there is none to offer here. */}
+              <EmptyState
+                icon={<PinIcon />}
+                title="Saved view not found"
+                hint="The pin may have been removed outside the app"
+              />
             </div>
           )}
           {dbNoteMeta && (
@@ -4863,6 +4975,7 @@ export default function App() {
                 onMoveToFolder={startMoveToFolder}
                 onDuplicate={duplicateNote}
                 onSendAsLink={setSendLink}
+                onTogglePick={togglePickToday}
                 onTogglePin={setPinned}
                 pinned={pinnedPaths.includes(dbNoteMeta.path)}
                 flushRef={flushOpenRef}
@@ -4899,6 +5012,7 @@ export default function App() {
           onActivate={onListActivate}
           folderIcon={listFolderIcon}
           onNewHere={newInFolder}
+          onNewNote={createHere}
           tagFolders={tagFolders}
           mobile={mobile}
           files={folderFiles.files}
@@ -4937,6 +5051,7 @@ export default function App() {
             onMoveToFolder={startMoveToFolder}
             onDuplicate={duplicateNote}
             onSendAsLink={setSendLink}
+            onTogglePick={togglePickToday}
             onTogglePin={setPinned}
             pinned={pinnedPaths.includes(selectedMeta.path)}
             flushRef={flushOpenRef}
@@ -4956,10 +5071,14 @@ export default function App() {
           />
         ) : (
           <div className="note">
-            <div className="empty">
-              <span>No note selected</span>
-              <span className="empty-hint">⌘K to find something, ⌘N to capture</span>
-            </div>
+            <EmptyState
+              icon={<NoteIcon />}
+              title="No note selected"
+              hint="⌘K to find something, ⌘N to capture"
+              /* the ⌘K half of the hint, made clickable — same overlay the
+                 shortcut opens, under the shortcut registry's own label */
+              action={{ label: "Command palette", onClick: () => setOverlay("palette") }}
+            />
           </div>
         ))}
       </div>
@@ -4992,6 +5111,7 @@ export default function App() {
           onDuplicate={duplicateNote}
           onSendAsLink={setSendLink}
           onTrashNote={trashNote}
+          onTogglePick={togglePickToday}
           onTogglePin={setPinned}
           pinnedPaths={pinnedPaths}
           onRevealRel={revealRel}
@@ -5250,6 +5370,9 @@ export default function App() {
       {/* dormant unless NAG_ENABLED (src/lib/donate.ts) — renders nothing and
           touches no storage while the master switch is off */}
       <DonationNag />
+      {/* One bubble for every `tooltip()` in the tree — mounted here
+          so any pane can adopt it without mounting anything of its own */}
+      <TooltipHost />
       {toast && (
         <div className="toast" key={toast.id}>
           {toast.msg}

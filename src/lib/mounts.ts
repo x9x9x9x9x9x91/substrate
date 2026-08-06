@@ -55,7 +55,14 @@ export function rowMeta(mount: MountInfo, row: MountRow): NoteMeta {
     // the file's own mtime, so sorting by "updated" sorts by the reality the
     // mount reflects rather than by when someone last annotated it
     updated_ms: Date.parse(row.modified.replace(" ", "T")) || 0,
-    excerpt: "",
+    // the opening of the document itself, where this machine has read
+    // one — the same one line a note shows, and the same string the
+    // board's own filter matches on, so typing a phrase from inside a paper
+    // narrows to it. A reading that stopped at its cap still starts at the
+    // start, so the first line is never the misleading part; where the cut
+    // matters is a search of the body, and that is what `partial` marks on
+    // the hit itself.
+    excerpt: row.excerpt ?? "",
     // a mount row projects a file living OUTSIDE the vault; sealing is a vault
     // note's property, and nothing here has one
     sealed: false,
@@ -64,6 +71,51 @@ export function rowMeta(mount: MountInfo, row: MountRow): NoteMeta {
 
 export function rowMetas(mount: MountInfo, rows: MountRow[]): NoteMeta[] {
   return rows.map((r) => rowMeta(mount, r));
+}
+
+/** The list identity of a search hit that landed inside a mounted document's
+ * text.
+ *
+ * A mount row has no note until someone annotates it, so a hit on a
+ * `mount://` path has nothing in the loaded note set to join against — and
+ * a result pane that joins is a pane that silently drops the hit. This
+ * rebuilds the little a result row needs from the hit itself plus the mount
+ * the path names: the file's name as its title, the mount's name as its type
+ * badge.
+ *
+ * `null` for an ordinary vault path (join it normally) and for a mount id this
+ * machine has no mount for — a row that can't be named can't be opened either.
+ *
+ * `updated_ms` is 0 because a hit carries no mtime: sorting results by Updated
+ * therefore sinks mount rows below every note. The board itself sorts by the
+ * file's own mtime; only this projection is blind to it.
+ */
+export function searchHitMeta(
+  path: string,
+  title: string,
+  mounts: MountInfo[]
+): NoteMeta | null {
+  const parsed = parseMountPath(path);
+  if (!parsed) return null;
+  const mount = mounts.find((m) => m.id === parsed.id);
+  if (!mount) return null;
+  const name = title || parsed.rel.slice(parsed.rel.lastIndexOf("/") + 1);
+  const dot = name.lastIndexOf(".");
+  return {
+    path,
+    stem: name,
+    title: name,
+    folder: "",
+    props: {
+      type: mount.name,
+      name,
+      ...(dot > 0 ? { extension: name.slice(dot + 1) } : {}),
+    },
+    updated_ms: 0,
+    excerpt: "",
+    // the file lives outside the vault; sealing is a vault note's property
+    sealed: false,
+  };
 }
 
 /** Row class suffix for a mount row whose file isn't in the folder any more.

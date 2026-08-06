@@ -413,6 +413,8 @@ export function NoteActionGlyph({ name }: { name: NoteActionIcon }) {
       return <LinkIcon />;
     case "lock":
       return <LockIcon />;
+    case "today":
+      return <SunIcon />;
     case "calendar":
       return <CalendarIcon />;
     case "pin":

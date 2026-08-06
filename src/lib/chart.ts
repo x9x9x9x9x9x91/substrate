@@ -1008,7 +1008,7 @@ export function xFractions(keys: string[]): number[] {
 /** True when every key is a calendar key (ISO day, or YYYY-MM month). A text
     column carrying pre-bucketed dates — the Spending importer emits exactly
     this shape — is a time axis even though its bucket is null, so it must not
-    get categorical treatment (series ramp, unthinned labels). */
+    get categorical treatment (unthinned labels). */
 export function timelikeKeys(keys: string[]): boolean {
   return keys.length > 0 && keys.every((k) => dayNumber(k) !== null);
 }

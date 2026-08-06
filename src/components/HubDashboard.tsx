@@ -12,7 +12,13 @@ import { useNoteBody } from "../hooks/useNoteBody";
 import { isTauri } from "../lib/tauri";
 import { imageSource } from "../lib/assets";
 import { isImageName } from "../lib/artwork";
-import { embedTarget, wikiLinkDisplay } from "../lib/wikilinks";
+import {
+  embedSize,
+  embedSizeStyle,
+  embedTarget,
+  wikiLinkDisplay,
+  type EmbedSize,
+} from "../lib/wikilinks";
 import { parseHub, type HubCallout } from "../lib/hub";
 import { isTailedBareFence } from "../lib/fences";
 import { embedQueryFor, parseViewSpec } from "../lib/embeds";
@@ -20,14 +26,15 @@ import { collectCardsFences, parseCardsBlock, type CardsBlock } from "../lib/met
 import { sharpCardIndices } from "../lib/dashboard";
 import { useFxRates } from "./useFx";
 import { DashHead, DashPrintButton } from "./DashHead";
-import EmbedViewTable from "./EmbedViewTable";
+import EmbedViewTable, { type EmbedEdit } from "./EmbedViewTable";
 import ChartsDashboard from "./ChartsDashboard";
 import HeatmapDashboard from "./HeatmapDashboard";
 import ProgressDashboard from "./ProgressDashboard";
 import CalendarFenceDashboard from "./CalendarFenceDashboard";
 import { MetricCardStrip, useCardValues, type CardValue } from "./MetricCards";
 import TimelineFence from "./TimelineFence";
-import { optionColor, OptionPill } from "./SelectMenu";
+import { OptionPill } from "./SelectMenu";
+import { schemaPillColor } from "../lib/cellpill";
 
 interface HubDashboardProps {
   meta: NoteMeta;
@@ -39,6 +46,8 @@ interface HubDashboardProps {
   vaultEpoch: number;
   onOpenSource: (path: string) => void;
   onFollowLink?: (name: string) => void;
+  /** the write path a live ```view fence's cells commit through */
+  embedEdit?: EmbedEdit;
 }
 
 interface Ctx {
@@ -50,6 +59,7 @@ interface Ctx {
     schema: SchemaConfig;
     savedViews: SavedView[];
     onOpenSource: (path: string) => void;
+    embedEdit?: EmbedEdit;
   };
   /** the ```chart fence's inputs — the charts dashboard renders each fence */
   chart?: {
@@ -100,30 +110,6 @@ interface CardsSlot {
   cardValue: (i: number) => CardValue;
 }
 
-/** Schema pill color for a hub-table cell: a status cell here and the same
-    status in a database view must wear the same pill (design principle 4 —
-    one concept, one treatment). The table is markdown, so the match is by
-    column-header prop name across all type schemas, then by cell value —
-    several types may share a prop name (task.status vs release.status), so
-    the first schema whose OPTIONS actually hold the value decides. */
-function cellPillColor(
-  schema: SchemaConfig | undefined,
-  header: string,
-  value: string
-): string | undefined {
-  if (!schema) return undefined;
-  const want = header.trim().toLowerCase();
-  if (want === "" || value.trim() === "") return undefined;
-  for (const props of Object.values(schema)) {
-    for (const [name, ps] of Object.entries(props)) {
-      if (name.toLowerCase() !== want) continue;
-      const color = optionColor(ps.options, value);
-      if (color !== undefined) return color;
-    }
-  }
-  return undefined;
-}
-
 function openExternalLink(url: string) {
   if (isTauri) openUrl(url).catch(console.error);
 }
@@ -147,9 +133,9 @@ function Inline({ text, ctx }: { text: string; ctx: Ctx }): ReactNode {
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));
     if (m[1] !== undefined) {
-      // the name alone — a `|300`-style display modifier is a hint, not
-      // part of the filename
-      out.push(<DashEmbed key={k++} name={embedTarget(m[1])} />);
+      // the name alone — a `|300`-style display modifier is a size hint, not
+      // part of the filename; images honour it
+      out.push(<DashEmbed key={k++} name={embedTarget(m[1])} size={embedSize(m[1])} />);
     } else if (m[2] !== undefined) {
       // the link still FOLLOWS the whole inner text (the follower parses the
       // anchor off it); what it SHOWS is the author's display text
@@ -205,7 +191,7 @@ function Inline({ text, ctx }: { text: string; ctx: Ctx }): ReactNode {
  *  which streams via the asset protocol in Tauri and synthesizes in the mock
  *  gate); a miss renders the standard missing text. Audio and other files
  *  render the print idiom's named placeholder — no players in dashboards. */
-function DashEmbed({ name }: { name: string }) {
+function DashEmbed({ name, size = null }: { name: string; size?: EmbedSize | null }) {
   const image = isImageName(name);
   const [src, setSrc] = useState<string | null>(null);
   const [missing, setMissing] = useState(false);
@@ -229,7 +215,8 @@ function DashEmbed({ name }: { name: string }) {
   if (!image) return <span className="hub-embed">embedded file · {name}</span>;
   if (missing) return <span className="hub-missing">missing image · {name}</span>;
   if (!src) return null;
-  return <img className="hub-img" src={src} alt={name} />;
+  // caps only, so the image still shrinks to the card and keeps its ratio
+  return <img className="hub-img" src={src} alt={name} style={embedSizeStyle(size)} />;
 }
 
 /* ---- linear markdown chunks (print.ts block set, as React) --------------- */
@@ -286,7 +273,7 @@ function HubViewFence({
   if ("error" in result) return <div className="hub-view-err">{result.error}</div>;
   return (
     <div className="hub-view">
-      <EmbedViewTable result={result} onOpenSource={view.onOpenSource} />
+      <EmbedViewTable result={result} onOpenSource={view.onOpenSource} edit={view.embedEdit} />
     </div>
   );
 }
@@ -561,7 +548,7 @@ function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
                   // a plain cell that is a schema select value wears its
                   // option pill — the hub table and the database views speak
                   // one status language (design principle 4)
-                  const color = cellPillColor(ctx.schema, head[l] ?? "", c);
+                  const color = schemaPillColor(ctx.schema, head[l] ?? "", c);
                   return (
                     <td key={l}>
                       {color !== undefined ? (
@@ -661,6 +648,7 @@ export default function HubDashboard({
   vaultEpoch,
   onOpenSource,
   onFollowLink,
+  embedEdit,
 }: HubDashboardProps) {
   const body = useNoteBody(meta.path, vaultEpoch, meta.sealed);
 
@@ -699,13 +687,13 @@ export default function HubDashboard({
     () => ({
       onFollowLink,
       schema,
-      view: { notes, schema, savedViews: savedViews ?? [], onOpenSource },
+      view: { notes, schema, savedViews: savedViews ?? [], onOpenSource, embedEdit },
       chart: { meta, notes, schema, vaultEpoch, onOpenSource },
       heatmap: { meta, notes, schema, vaultEpoch, onOpenSource },
       progress: { meta, notes, schema, vaultEpoch, onOpenSource },
       calendar: { meta, notes, schema, vaultEpoch, onOpenSource },
     }),
-    [onFollowLink, schema, notes, savedViews, onOpenSource, meta, vaultEpoch]
+    [onFollowLink, schema, notes, savedViews, onOpenSource, meta, vaultEpoch, embedEdit]
   );
 
   // how many ```cards fences sit above each markdown chunk — the chunk's

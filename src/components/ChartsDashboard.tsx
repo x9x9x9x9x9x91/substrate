@@ -228,29 +228,24 @@ function useRoving(n: number) {
   return { slots, onKeyDown, tabIndexOf };
 }
 
-/** The dashboard accent family's series ramp (design principle 3):
-    the sky blues, #6cc0ec first. Fixed order, five entries, each
-    contrast-checked on both the dark ground and the print white — a
-    categorical chart cycles it so its buckets read as distinct without
-    inventing a hue per widget. A time axis is ONE series and never touches
-    this: it wears the plain accent. */
-const SERIES_RAMP = [
-  "var(--series-1)",
-  "var(--series-2)",
-  "var(--series-3)",
-  "var(--series-4)",
-  "var(--series-5)",
-];
-
 /** Bar chart in the dashboard idiom: flat columns, value on top, label below,
     tooltip on hover. For an unsplit chart, colour precedence is: a select x
-    axis keeps its schema hues; another categorical axis cycles the V1 series
-    ramp; a time axis stays one series in the plain accent. Split charts keep
-    their own band treatments. Values and labels thin out when crowded. */
-/** Bar height budget per size token. Keep in lockstep with the
-    `.dash-chart` min-heights in styles.css: each is its budget + the 50px the
-    axis rule, value line and time-label row take under the tallest bar. The
-    token picks from THIS table — a fence never names a pixel height. */
+    axis keeps its schema hues (those are authored per-option meanings, the
+    pill idiom, not a ramp); every other unsplit axis — categorical or time —
+    is ONE series and wears one colour, the accent family's first
+    (`--series-1`, which is `--accent`'s own value).
+
+    One series is one colour: an unsplit categorical axis used to cycle the
+    five-entry accent ramp, so ten spending categories arrived in five colours
+    that named nothing — colour claiming an identity the chart does not have.
+    "Which series is this?" is the `by:` split's question, and the categorical
+    `--band-*` ramp is its answer (design principle 3). Split charts keep their
+    own band treatments; values and labels thin out when crowded. */
+/** Bar height budget per size token. Keep in lockstep with
+    `--bar-plot` in styles.css, which is the same number: the stylesheet derives
+    the block's min-height and the max gridline's position from it, so the two
+    have to agree or the rule stops landing on a full-height bar's top edge.
+    The token picks from THIS table — a fence never names a pixel height. */
 const BAR_PLOT_PX: Record<"default" | ChartSize, number> = { default: 120, tall: 220 };
 
 function BarChart({
@@ -268,7 +263,7 @@ function BarChart({
       when its neighbours come and go; falls back to band order */
   bandSlots?: number[];
   xOptions?: SelectOption[];
-  /** buckets are categories, not time — colour an unsplit axis with the ramp */
+  /** buckets are categories, not time — every label is a name, so none thin */
   categorical?: boolean;
   /** bounded style token: `tall`, or absent for the default plot */
   size?: ChartSize | null;
@@ -278,26 +273,65 @@ function BarChart({
   const slotOf = (bi: number) => bandSlots?.[bi] ?? bi;
   const chartRef = useRef<HTMLDivElement>(null);
   const [labelEvery, setLabelEvery] = useState(1);
+  /** How wide the bar is, and how wide one glyph of the value label is, both
+      read off the painted chart. A value written on its bar is knocked out in
+      the surface's own colour, so a number wider than its fill is not merely
+      cramped — it is invisible (review). Two scalars rather than one object so
+      the equality guard below is by value and cannot loop the render.
+      `null` until the first measurement: nothing goes inset before the chart
+      has been measured, so an unreadable frame never paints. */
+  const [barWidth, setBarWidth] = useState<number | null>(null);
+  const [glyphWidth, setGlyphWidth] = useState<number | null>(null);
   useEffect(() => {
     const chart = chartRef.current;
-    // A category label is a name, not a tick on a continuum — hiding it makes
-    // its bar anonymous. Categorical axes keep every label
-    // (showLabel short-circuits), so only time axes measure and thin.
-    if (!chart || categorical) return;
+    if (!chart) return;
     const measure = () => {
-      const labels = Array.from(chart.querySelectorAll<HTMLElement>(".dash-bar-time"));
-      // Measure the token against its COLUMN, never against the label box: a
-      // kept label is sized to its own text (`is-roomy` → width: max-content),
-      // so dividing by the label's own width would read 1 for every label and
-      // collapse thinning to "keep everything" — a feedback loop through the
-      // class this very measurement decides (review).
-      const widestRatio = labels.reduce(
-        (ratio, label) =>
-          Math.max(ratio, label.scrollWidth / Math.max(1, label.parentElement?.clientWidth ?? 1)),
-        1
+      // A category label is a name, not a tick on a continuum — hiding it makes
+      // its bar anonymous. Categorical axes keep every label
+      // (showLabel short-circuits), so only time axes measure and thin.
+      if (!categorical) {
+        const labels = Array.from(chart.querySelectorAll<HTMLElement>(".dash-bar-time"));
+        // Measure the token against its COLUMN, never against the label box: a
+        // kept label is sized to its own text (`is-roomy` → width: max-content),
+        // so dividing by the label's own width would read 1 for every label and
+        // collapse thinning to "keep everything" — a feedback loop through the
+        // class this very measurement decides (review).
+        const widestRatio = labels.reduce(
+          (ratio, label) =>
+            Math.max(ratio, label.scrollWidth / Math.max(1, label.parentElement?.clientWidth ?? 1)),
+          1
+        );
+        const next = Math.max(1, Math.ceil(widestRatio));
+        setLabelEvery((current) => (current === next ? current : next));
+      }
+      // The bar's own width — not the column's. The fill is a little over half
+      // its band, so the column is the wrong ruler by 12–24px at this fixture's
+      // density, which is the whole of the bug. A bar's width does not depend
+      // on whether any label went inset, so reading it here is not a loop.
+      const bar = chart.querySelector<HTMLElement>(".dash-bar");
+      if (bar) {
+        const w = bar.getBoundingClientRect().width;
+        setBarWidth((current) => (current !== null && Math.abs(current - w) < 0.5 ? current : w));
+      }
+      // Per-glyph advance off the painted text, so the fit test is arithmetic
+      // on a string the renderer already holds instead of a measurement per
+      // label. The value font is monospaced, so one glyph is every glyph. The
+      // range is measured, not the box: a box clips, and its clipped width
+      // would feed the decision back through the class it decides.
+      const val = Array.from(chart.querySelectorAll<HTMLElement>(".dash-bar-val")).find(
+        (el) => (el.textContent ?? "").length > 0
       );
-      const next = Math.max(1, Math.ceil(widestRatio));
-      setLabelEvery((current) => (current === next ? current : next));
+      if (val) {
+        const text = val.textContent ?? "";
+        const range = document.createRange();
+        range.selectNodeContents(val);
+        const advance = range.getBoundingClientRect().width / text.length;
+        if (advance > 0) {
+          setGlyphWidth((current) =>
+            current !== null && Math.abs(current - advance) < 0.05 ? current : advance
+          );
+        }
+      }
     };
     const ro = new ResizeObserver(measure);
     ro.observe(chart);
@@ -311,6 +345,14 @@ function BarChart({
     : points.map((p) => p.value);
   const max = Math.max(0, ...totals);
   const showVals = points.length <= 12;
+  /** Does this number fit ON its bar? Knocked-out type that overhangs its fill
+      is painted background-on-background, so a label that does not fit is not
+      a cramped label — it is a missing one, and belongs above the mark where
+      it is laid down in ink. 4px keeps the number off both edges of the fill.
+      Unmeasured reads as "does not fit": withholding the inset treatment costs
+      a placement, granting it wrongly costs the number. */
+  const fitsOnBar = (label: string) =>
+    barWidth !== null && glyphWidth !== null && label.length * glyphWidth + 4 <= barWidth;
   const showLabel = (i: number) =>
     categorical ||
     i === 0 ||
@@ -336,7 +378,15 @@ function BarChart({
         : [];
   return (
     <div className="chart-wrap" ref={wrapRef}>
-      <div className="dash-chart" ref={chartRef} data-size={size ?? undefined}>
+      {/* `is-ruled` earns the single max gridline: this plot's scale
+          is its own tallest bar, so a line at full scale rules a real mark.
+          With nothing positive to draw there is no tallest bar and the rule
+          would fence off empty air, naming a scale the plot does not have. */}
+      <div
+        className={`dash-chart${max > 0 ? " is-ruled" : ""}`}
+        ref={chartRef}
+        data-size={size ?? undefined}
+      >
         {points.map((p, i) => {
           const rows = rowsAt(i);
           const empty = rows.length === 0;
@@ -349,28 +399,30 @@ function BarChart({
           // the collision was position, not existence — the fixed label
           // bands hold a short bar's value above the axis fine, so it stays
           const valueLabel = showVals && total !== 0 ? fmtVal(total) : "";
-          const tint = !bands && !empty
-            ? xOptions?.length
+          // the value is written on its bar, but only where the bar
+          // can hold it, in both directions: a 14px line needs a mark taller
+          // than itself, or the number hangs off the end of a stub and reads as
+          // belonging to the gap; and the number has to be no wider than the
+          // fill it is knocked out of, or it hangs off the SIDE and is painted
+          // in the background colour on the background — gone, not cramped
+          // (review). Failing either, the label keeps its old place above the
+          // mark, where it is ink on the surface and reads at any width.
+          const inset = h >= 22 && fitsOnBar(valueLabel);
+          // Only an authored schema hue overrides the one-series accent: a
+          // select x axis paints each bar its own option's colour because that
+          // colour already means something to the reader.
+          const tint =
+            !bands && !empty && xOptions?.length
               ? optionColorVar(optionColor(xOptions, p.label))
-              : categorical
-                ? SERIES_RAMP[i % SERIES_RAMP.length]
-                : undefined
-            : undefined;
-          // schema hues are saturated dot colours and get the pill's dose; the
-          // series ramp is already tuned to bar weight on both grounds.
+              : undefined;
+          // schema hues are saturated dot colours and get the pill's dose.
           const style = (
             tint
-              ? xOptions?.length
               ? {
                   height: h,
                   "--bar": `color-mix(in srgb, ${tint} 55%, transparent)`,
                   "--bar-hover": `color-mix(in srgb, ${tint} 72%, transparent)`,
                 }
-                : {
-                    height: h,
-                    "--bar": tint,
-                    "--bar-hover": `color-mix(in srgb, ${tint} 78%, #fff)`,
-                  }
               : { height: h }
           ) as CSSProperties;
           const onEnter = (e: { currentTarget: Element }) =>
@@ -393,7 +445,10 @@ function BarChart({
             >
               {/* an empty bucket is already said by the baseline tick — the "0"
                   label on top of it is the same statement twice */}
-              <span className="dash-bar-val" title={valueLabel || undefined}>
+              <span
+                className={`dash-bar-val${valueLabel && inset ? " is-inset" : ""}`}
+                title={valueLabel || undefined}
+              >
                 {valueLabel}
               </span>
               {bands ? (

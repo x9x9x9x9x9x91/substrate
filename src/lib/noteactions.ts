@@ -69,6 +69,7 @@ export type NoteActionIcon =
   | "export"
   | "share"
   | "lock"
+  | "today"
   | "calendar"
   | "pin"
   | "trash";
@@ -114,6 +115,13 @@ export interface NoteActionHandlers {
       REQUIRED: optional made "I forgot to pass it" and "this note is
       not sealed" the same value, and the gate below fails open on it. */
   sealed: boolean;
+  /** The Today surface's one verb, wherever the note is. Picking
+      writes the same `today` date prop the pane writes, so a note with no
+      dates at all — which never appears in a candidate lane and so could
+      never be picked from the pane — can be picked from its own row, its
+      open page, or the palette. `picked` flips the label. */
+  togglePick?: () => void;
+  picked?: boolean;
   /** the open note's per-note calendar opt-out; calendarHidden
       flips the label */
   toggleCalendar?: () => void;
@@ -155,6 +163,13 @@ export function buildNoteActions(h: NoteActionHandlers): NoteAction[] {
   if (h.lockNow) out.push({ id: "lock-now", label: "Lock now", icon: "lock", run: h.lockNow });
   if (h.unseal)
     out.push({ id: "unseal", label: "Remove seal…", icon: "lock", run: h.unseal });
+  if (h.togglePick)
+    out.push({
+      id: "pick",
+      label: h.picked ? "Unpick from today" : "Pick for today",
+      icon: "today",
+      run: h.togglePick,
+    });
   if (h.toggleCalendar)
     out.push({
       id: "calendar",

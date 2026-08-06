@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { NoteMeta, SchemaConfig } from "./types.ts";
-import { pickedDay, todayData, todayTitle, TODAY_PROP } from "./today.ts";
+import { isPickedToday, pickedDay, todayData, todayTitle, TODAY_PROP } from "./today.ts";
 
 function note(
   path: string,
@@ -51,6 +51,16 @@ test("pickedDay reads the pick prop, tolerating an optional time", () => {
   assert.equal(pickedDay(note("B.md", { today: `${TODAY} 09:00` })), TODAY);
   assert.equal(pickedDay(note("C.md", { today: "soon" })), null);
   assert.equal(pickedDay(note("D.md", { created: TODAY })), null);
+});
+
+test("isPickedToday answers for the day being shown, not for any pick (SUB-1162)", () => {
+  assert.equal(isPickedToday(note("A.md", { today: TODAY }), TODAY), true);
+  assert.equal(isPickedToday(note("B.md", { today: `${TODAY} 09:00` }), TODAY), true);
+  // yesterday's pick is a leftover, not a pick — the label must read "Pick",
+  // so the action rolls it forward instead of clearing it
+  assert.equal(isPickedToday(note("C.md", { today: "2026-07-16" }), TODAY), false);
+  // a note with no dates at all: pickable everywhere, picked nowhere yet
+  assert.equal(isPickedToday(note("D.md", { title: "Loose thought" }), TODAY), false);
 });
 
 test("scheduled holds today's plain entries, all-day first then timed (SUB-270)", () => {

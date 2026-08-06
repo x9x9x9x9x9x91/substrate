@@ -38,6 +38,13 @@ pub const MOUNTS_INDEX_REL_DIR: &str = ".vault/mounts";
 /// Vault folder holding sidecar notes, one subfolder per mount name.
 pub const MOUNTS_SHADOW_DIR: &str = "Mounts";
 
+/// Path scheme for a mount row that has no sidecar note — the row is a file,
+/// not a note, so it has no vault path to be keyed by. Mirrors
+/// `MOUNT_SCHEME` in `src/lib/mounts.ts`, which is where these paths are
+/// parsed back apart. A vault path is always relative and never carries a
+/// scheme, so the two can share one search index without ever colliding.
+pub const MOUNT_SCHEME: &str = "mount://";
+
 /// Prefix of the pre-migration backup an unsnapshottable vault gets instead
 /// of a history restore point: `.vault/backup/<prefix><stamp>/`.
 /// It sits under the same `.vault/backup/` the format migrations already use
@@ -178,6 +185,20 @@ pub struct MountRow {
     pub note: Option<String>,
     /// The sidecar's user-visible props (binding keys stripped).
     pub props: serde_json::Map<String, serde_json::Value>,
+    /// The opening of the document as this machine read it, the same one line
+    /// a note shows under its title. Empty for a file nothing was
+    /// read from — unreadable, unbound, or not yet queued.
+    ///
+    /// This is board OUTPUT, not index content: it is computed per call from
+    /// the machine-local text store and never written to `MountFile`, so the
+    /// fence the sidecar draws — a document's text is not synced and not a
+    /// column — is exactly where it was. It travels beside `props`, not inside it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub excerpt: String,
+    /// The reading this excerpt came from stopped at its page or byte cap, so
+    /// the document goes on past what was searched.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub excerpt_partial: bool,
 }
 
 /// Outcome of one mount's scan. `error` set means the folder itself couldn't
@@ -273,6 +294,15 @@ fn rel_extension(rel: &str) -> String {
 
 fn index_rel_path(id: &str) -> String {
     format!("{MOUNTS_INDEX_REL_DIR}/{id}.json")
+}
+
+/// One mount row's key in the search index — the same virtual path the board
+/// already keys an un-annotated row by, so a hit the engine returns is a path
+/// the UI can already open. Rows WITH a sidecar are keyed here too: a file's
+/// text and its annotation are two different documents, and a phrase in the
+/// PDF has to find the row whether or not someone has written about it.
+pub(super) fn mount_row_path(id: &str, rel: &str) -> String {
+    format!("{MOUNT_SCHEME}{id}/{rel}")
 }
 
 /// Copy a file, or a directory tree, verbatim. Used only to stage the
@@ -382,6 +412,11 @@ fn row_of(f: &MountFile, note: Option<(&String, &NoteMeta)>) -> MountRow {
         missing: f.missing,
         note: note.map(|(r, _)| r.clone()),
         props,
+        // filled by `mount_rows` from this machine's text store, which this
+        // function has no access to — and deliberately: the text is not part
+        // of what the index says about a file
+        excerpt: String::new(),
+        excerpt_partial: false,
     }
 }
 
@@ -443,6 +478,40 @@ impl Engine {
         if let Some(dir) = &self.local_dir {
             mounttext::forget(dir, id);
         }
+        // the rows stay searchable by name — what they lose is the body that
+        // is no longer readable from here
+        self.index_mount(id);
+    }
+
+    /// Follow moved files in this machine's text store.
+    ///
+    /// A file that moves inside its folder keeps its bytes, so the scan keeps
+    /// its row and its recorded reading and never offers it for extraction
+    /// again — but the store is keyed by path, so without this the text would
+    /// be orphaned under the old one: the document would drop out of search
+    /// the moment it was filed into a subfolder, and nothing short of editing
+    /// it would ever bring it back. Renames are rare, so the store is only
+    /// rewritten when one actually happened.
+    ///
+    /// Two passes, because a scan can report a swap (`a`→`b` and `b`→`a`) and
+    /// a one-pass move would have the second overwrite the first.
+    fn rekey_mount_text(&self, id: &str, renames: &[(String, String)]) {
+        if renames.is_empty() {
+            return;
+        }
+        let Some(dir) = self.text_dir().cloned() else { return };
+        let mut store = mounttext::read(&dir, id);
+        let moved: Vec<(&str, mounttext::TextEntry)> = renames
+            .iter()
+            .filter_map(|(was, now)| store.files.remove(was.as_str()).map(|e| (now.as_str(), e)))
+            .collect();
+        if moved.is_empty() {
+            return;
+        }
+        for (now, entry) in moved {
+            store.files.insert(now.to_string(), entry);
+        }
+        let _ = mounttext::write(&dir, id, &store);
     }
 
     /// Collect stores no mount in this vault can name, and answer how many
@@ -454,6 +523,94 @@ impl Engine {
         let Some(dir) = self.text_dir() else { return 0 };
         let live: BTreeSet<String> = self.mounts().into_iter().map(|m| m.id).collect();
         mounttext::collect(dir, &|id| live.contains(id))
+    }
+
+    /// Drop every row of one mount from the search index.
+    ///
+    /// Not [`deindex_note`](Engine::deindex_note): that one is keyed on the
+    /// note map and returns early for a path with no note, which is every
+    /// un-annotated mount row. Matched by `substr` rather than `LIKE` because
+    /// a mount id is free text — `_` is a single-character wildcard in a
+    /// `LIKE` pattern, and one id differing from another only there would
+    /// take the other mount's rows with it.
+    pub(super) fn deindex_mount(&self, id: &str) {
+        if !self.fts {
+            return;
+        }
+        let prefix = format!("{MOUNT_SCHEME}{id}/");
+        self.db
+            .execute(
+                "DELETE FROM notes_fts WHERE substr(path, 1, ?2) = ?1",
+                rusqlite::params![&prefix, prefix.chars().count() as i64],
+            )
+            .ok();
+    }
+
+    /// Feed one mount's files into the search index.
+    ///
+    /// A mounted file is findable by two things: its name, which the index
+    /// always carries, and its text, which only this machine has and only for
+    /// the kinds a reader could open. Both go into the same table
+    /// notes use, keyed by the row's virtual path — a search over a vault has
+    /// to rank a paper against a note, and two tables give two rank scales
+    /// that cannot be compared, only interleaved arbitrarily.
+    ///
+    /// The mount is replaced whole rather than appended to, so a rescan can
+    /// never leave a moved file findable under both its old path and its new
+    /// one. Files the folder no longer has (`missing`) stay indexed: their row
+    /// is still on the board, and losing a file is not a reason to lose the
+    /// annotation attached to it.
+    pub(super) fn index_mount(&self, id: &str) {
+        if !self.fts {
+            return;
+        }
+        self.deindex_mount(id);
+        // read once for the whole mount: the store is one JSON document per
+        // mount, and `mount_text` would re-parse it per file — 40 000 times
+        // for a sample library, under the engine lock
+        let store = self.text_dir().map(|d| mounttext::read(d, id));
+        let files = self.mount_index(id).files;
+        if files.is_empty() {
+            return;
+        }
+        self.db.execute_batch("BEGIN").ok();
+        for f in &files {
+            let entry = store.as_ref().and_then(|s| s.get(&f.rel, &f.identity));
+            let text = entry.map(|e| e.text.as_str()).unwrap_or_default();
+            // a document read to its cap: what follows the excerpt was never
+            // searched, so a miss on this row is not the same as the phrase
+            // being absent from the file, and the pane has to say so
+            let partial = entry.is_some_and(|e| e.truncated);
+            // the name as the board shows it, extension included: a file's
+            // kind is part of how it is looked for, and it is what tells two
+            // rows with the same stem apart in a result list
+            let name = Path::new(&f.rel)
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| f.rel.clone());
+            if let Ok(mut st) = self.db.prepare_cached(
+                "INSERT INTO notes_fts(path, title, body, partial) VALUES(?1, ?2, ?3, ?4)",
+            ) {
+                st.execute(rusqlite::params![
+                    mount_row_path(id, &f.rel),
+                    name,
+                    text,
+                    partial as i64
+                ])
+                .ok();
+            }
+        }
+        self.db.execute_batch("COMMIT").ok();
+    }
+
+    /// Every mount's rows, for the two moments the whole index is (re)built:
+    /// a rescan, which empties the table, and the engine learning where this
+    /// machine keeps its text, which is what turns name-only rows into
+    /// searchable documents.
+    pub(super) fn index_mounts(&self) {
+        for m in self.mounts() {
+            self.index_mount(&m.id);
+        }
     }
 
     /// Files in this mount whose own metadata we have never read.
@@ -607,6 +764,9 @@ impl Engine {
                 }
             }
             if touched && write_index(&self.root, &id, &index).is_ok() {
+                // the text these rows just gained is the whole point of
+                // extracting it — reindex now, not on the next rescan
+                self.index_mount(&id);
                 changed.push(id);
             }
         }
@@ -664,6 +824,8 @@ impl Engine {
         };
         let gone = mounts.remove(pos);
         write_mounts(&self.root, &mounts)?;
+        // rows that no longer exist must not keep answering searches
+        self.deindex_mount(id);
         if safe_id(id) {
             fs::remove_file(self.root.join(index_rel_path(id))).ok();
             // and this machine's text for it, which the index was the only
@@ -793,24 +955,72 @@ impl Engine {
         format!("{MOUNTS_SHADOW_DIR}/{}", sanitize_filename(&mount.name))
     }
 
-    /// Sealed notes sitting in a mount's shadow folder. A locked sealed note
-    /// indexes with NO props, so [`Engine::sidecars_of`] cannot see its
-    /// `mount` binding: its row reads unannotated and a second annotation
-    /// would file a DUPLICATE sidecar beside the one already there.
+    /// The filename stem `mount_annotate` gives the sidecar it files for a row.
+    fn sidecar_stem(rel: &str) -> String {
+        Path::new(rel)
+            .file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "file".into())
+    }
+
+    /// A sealed note that may already be this row's sidecar, by vault path.
     ///
-    /// Known limitation: a sidecar the user filed outside the shadow folder
-    /// and then sealed is invisible to this check too — nothing outside the
-    /// ciphertext records the binding (a known gap).
-    fn sealed_notes_shadowing_mount(&self, mount: &Mount) -> bool {
+    /// A locked sealed note indexes with NO props, so [`Engine::sidecars_of`]
+    /// cannot see its `mount` binding: its row reads unannotated and a second
+    /// annotation would file a DUPLICATE sidecar beside the one already there.
+    /// Nothing outside the ciphertext records the binding, so this is a
+    /// suspicion, not a lookup — it reads the two things a sealed note still
+    /// shows: where it sits and what it is called.
+    ///
+    /// A sealed note in the mount's own shadow folder is suspect because that
+    /// is where sidecars are filed. A sealed note ANYWHERE whose filename
+    /// could be the one this row's sidecar was given is suspect because that
+    /// is what a sidecar moved out of the shadow folder and then sealed looks
+    /// like — the move keeps the name, and the name is all that survives
+    /// sealing.
+    ///
+    /// Residual gap: a sidecar whose FILENAME no longer matches the row — the
+    /// user renamed it, or something else did — shows nothing to match on and
+    /// is still invisible. Closing that needs the binding recorded outside the
+    /// ciphertext, which nothing does today.
+    fn sealed_note_shadowing_row(&self, mount: &Mount, rel: &str) -> Option<String> {
         let prefix = format!("{}/", Self::mount_shadow_dir(mount));
-        self.notes.iter().any(|(rel, m)| m.sealed && rel.starts_with(&prefix))
+        // the filename the sidecar would get, not the row's raw stem: the two
+        // differ whenever the file's name needs sanitizing
+        let stem = sanitize_filename(&Self::sidecar_stem(rel));
+        self.notes
+            .iter()
+            .filter(|(path, m)| {
+                m.sealed && (path.starts_with(&prefix) || Self::same_created_name(&m.stem, &stem))
+            })
+            // `self.notes` is a HashMap, so an arbitrary pick would name a
+            // different note run to run: the mount's own shadow folder first,
+            // then the lowest path, so the refusal always reads the same
+            .min_by(|(a, _), (b, _)| {
+                b.starts_with(&prefix).cmp(&a.starts_with(&prefix)).then_with(|| a.cmp(b))
+            })
+            .map(|(path, _)| path.clone())
+    }
+
+    /// Whether a filename stem could be the one `create_full` gave a sidecar
+    /// filed under `stem`. Not equality: a second row sharing a basename gets
+    /// its name uniquified (`track` → `track 2`), so the whole collision
+    /// family has to count, or the suffixed sidecar stays invisible and gets
+    /// duplicated.
+    fn same_created_name(candidate: &str, stem: &str) -> bool {
+        if folded_eq(candidate, stem) {
+            return true;
+        }
+        let Some((head, suffix)) = candidate.rsplit_once(' ') else { return false };
+        !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit()) && folded_eq(head, stem)
     }
 
     /// Every sidecar note bound to one mount, keyed by its vault path.
     /// Sidecars are found by their `mount` prop rather than by folder, so a
     /// note the user filed elsewhere keeps working. Sealed notes carry no
     /// readable props, so they never appear here — see
-    /// [`Engine::sealed_notes_shadowing_mount`], which is what keeps
+    /// [`Engine::sealed_note_shadowing_row`], which is what keeps
     /// `mount_annotate` from duplicating one.
     pub(super) fn sidecars_of(&self, id: &str) -> BTreeMap<String, NoteMeta> {
         self.notes
@@ -844,6 +1054,9 @@ impl Engine {
         }
         let mut used: HashSet<&String> = HashSet::new();
         let mut rows: Vec<MountRow> = Vec::with_capacity(index.files.len());
+        // one read for the whole board: the store is a single JSON document
+        // per mount, and a per-row lookup would re-parse it once per file
+        let store = self.text_dir().map(|d| mounttext::read(d, id));
         for f in &index.files {
             let note = if f.identity.is_empty() {
                 by_rel.get(&f.rel).copied()
@@ -853,7 +1066,12 @@ impl Engine {
             if let Some(rel) = note {
                 used.insert(rel);
             }
-            rows.push(row_of(f, note.map(|r| (r, &sidecars[r]))));
+            let mut row = row_of(f, note.map(|r| (r, &sidecars[r])));
+            if let Some(entry) = store.as_ref().and_then(|s| s.get(&f.rel, &f.identity)) {
+                row.excerpt = make_excerpt(&entry.text);
+                row.excerpt_partial = entry.truncated;
+            }
+            rows.push(row);
         }
         // a sidecar whose file the index has never heard of — annotated on
         // another machine, or its index entry lost — is still a row
@@ -909,17 +1127,16 @@ impl Engine {
         let Some(value) = value else {
             return Err(format!("“{rel}” has no note yet"));
         };
-        // No sidecar was found — but a sealed one may be standing right there,
-        // unreadable. Creating a second note beside it would silently split
-        // the row's annotations in two, so refuse and say why.
-        if self.sealed_notes_shadowing_mount(&mount) {
+        // No sidecar was found — but a sealed one may already be this row's,
+        // unreadable. Creating a second note would silently split the row's
+        // annotations in two, so refuse and name the note in the way. Both
+        // the shadow-folder rule and the matching-name rule feed this.
+        if let Some(suspect) = self.sealed_note_shadowing_row(&mount, rel) {
             return Err(format!(
-                "annotations are unavailable while “{}” has sealed notes — a sealed sidecar cannot be read, so a new one would duplicate it",
-                mount.name
+                "annotations are unavailable while “{suspect}” is sealed — a sealed sidecar cannot be read, so a new one would duplicate it. Unseal it to annotate this row, or rename it if it belongs to something else."
             ));
         }
-        let stem = Path::new(rel).file_stem().map(|s| s.to_string_lossy().to_string());
-        let stem = stem.filter(|s| !s.is_empty()).unwrap_or_else(|| "file".into());
+        let stem = Self::sidecar_stem(rel);
         let folder = Self::mount_shadow_dir(&mount);
         // the bindings are strings, so they ride `create_full` — but the
         // user's first value can be any shape a prop takes (a checkbox sends a
@@ -1044,6 +1261,10 @@ impl Engine {
             by_rel.entry(f.rel.clone()).or_insert(i);
         }
         let mut claimed: HashSet<usize> = HashSet::new();
+        // (old rel, new rel) for every file that moved inside the folder —
+        // this machine's text store is keyed by path, and a moved file is
+        // never re-read (see `rekey_mount_text`)
+        let mut renames: Vec<(String, String)> = Vec::new();
 
         let files = walk_folder_files(&root, &mount.globs);
         stats.scanned = files.len();
@@ -1081,6 +1302,7 @@ impl Engine {
                 let was = &prior.files[i];
                 if was.rel != rel {
                     stats.renamed += 1;
+                    renames.push((was.rel.clone(), rel.clone()));
                 } else if was.size != md.len()
                     || was.modified != modified
                     || was.identity != identity
@@ -1137,6 +1359,11 @@ impl Engine {
         if let Err(e) = self.reattach_sidecars(id, &index) {
             stats.error = Some(e);
         }
+        self.rekey_mount_text(id, &renames);
+        // the index the search reads is this one — a file that moved, arrived
+        // or went missing has to be findable (or not) under the path the board
+        // now shows it at
+        self.index_mount(id);
         stats
     }
 
@@ -1842,6 +2069,173 @@ mod tests {
             1,
             "the refusal left no second sidecar behind"
         );
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// A sidecar the user filed away in an ordinary folder and then sealed is
+    /// the case the shadow-folder rule alone could not see: its `mount` prop
+    /// is inside the ciphertext, so the row reads unannotated and the next
+    /// annotation used to file a second note for the same file.
+    #[test]
+    fn annotating_refuses_rather_than_duplicating_a_sealed_sidecar_moved_out_of_the_shadow() {
+        let (mut e, dir) = temp_vault("msealedmoved");
+        let watched = temp_watched("msealedmoved");
+        fs::write(watched.join("track.als"), b"take one").unwrap();
+        let m = e.add_mount("Album Pool", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let sidecar =
+            e.mount_annotate(&m.id, "track.als", "status", Some("mixing".into())).unwrap();
+        assert_eq!(sidecar.path, "Mounts/Album Pool/track.md");
+
+        // filed away by hand, out of the shadow folder, then sealed
+        let moved = e.move_note(&sidecar.path, "Field Notes").unwrap().path;
+        assert_eq!(moved, "Field Notes/track.md");
+        e.seal_note(&moved, Some("correct horse")).unwrap();
+        e.lock_sealed_note(&moved);
+        assert!(e.meta(&moved).unwrap().sealed);
+        assert!(
+            e.mount_rows(&m.id).iter().all(|row| row.note.is_none()),
+            "the binding is inside the ciphertext, so the row reads unannotated"
+        );
+
+        let error = e.mount_annotate(&m.id, "track.als", "bpm", Some("140".into())).unwrap_err();
+        assert!(error.contains("sealed"), "the refusal names the cause: {error}");
+        assert!(error.contains(&moved), "the refusal names the note in the way: {error}");
+        assert!(
+            !dir.join("Mounts/Album Pool/track.md").exists(),
+            "the refusal left no duplicate sidecar behind"
+        );
+
+        // a row whose filename needs sanitizing is matched on the name its
+        // sidecar would actually get, not on the row's raw stem
+        fs::write(watched.join("mix?one.als"), b"take two").unwrap();
+        e.scan_mount(&m.id, &watched);
+        let second =
+            e.mount_annotate(&m.id, "mix?one.als", "status", Some("rough".into())).unwrap();
+        assert_eq!(second.path, "Mounts/Album Pool/mix one.md", "the sealed “track” did not block");
+        let second = e.move_note(&second.path, "Field Notes").unwrap().path;
+        e.seal_note(&second, Some("correct horse")).unwrap();
+        e.lock_sealed_note(&second);
+        let error = e.mount_annotate(&m.id, "mix?one.als", "bpm", Some("140".into())).unwrap_err();
+        assert!(error.contains(&second), "the refusal names the sanitized note: {error}");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// Two rows sharing a basename get sidecars whose names differ only by the
+    /// collision suffix `create_full` adds (`track` → `track 2`). Moved out of
+    /// the shadow folder and sealed, the suffixed one has to be seen too —
+    /// matching the clean name alone found nothing and filed a duplicate.
+    /// No user rename is involved.
+    #[test]
+    fn annotating_refuses_for_a_sealed_sidecar_carrying_a_collision_suffix() {
+        let (mut e, dir) = temp_vault("msealedsuffix");
+        let watched = temp_watched("msealedsuffix");
+        fs::write(watched.join("track.als"), b"take one").unwrap();
+        fs::write(watched.join("track.wav"), b"bounce").unwrap();
+        let m = e.add_mount("Album Pool", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let first = e.mount_annotate(&m.id, "track.als", "status", Some("mixing".into())).unwrap();
+        assert_eq!(first.path, "Mounts/Album Pool/track.md");
+        let second = e.mount_annotate(&m.id, "track.wav", "status", Some("rough".into())).unwrap();
+        assert_eq!(
+            second.path, "Mounts/Album Pool/track 2.md",
+            "the second row sharing a basename is uniquified"
+        );
+
+        // filed away by hand, out of the shadow folder, then sealed
+        let moved = e.move_note(&second.path, "Field Notes").unwrap().path;
+        assert_eq!(moved, "Field Notes/track 2.md");
+        e.seal_note(&moved, Some("correct horse")).unwrap();
+        e.lock_sealed_note(&moved);
+        assert!(
+            e.mount_rows(&m.id).iter().any(|row| row.rel == "track.wav" && row.note.is_none()),
+            "the binding is inside the ciphertext, so the row reads unannotated"
+        );
+
+        let error = e.mount_annotate(&m.id, "track.wav", "bpm", Some("140".into())).unwrap_err();
+        assert!(error.contains(&moved), "the refusal names the suffixed sidecar: {error}");
+        assert!(
+            !dir.join("Mounts/Album Pool/track 2.md").exists(),
+            "the refusal left no duplicate sidecar behind"
+        );
+
+        // with the row's own shadow folder sealed too, both notes match: the
+        // message names the shadow-folder one, the same way every run
+        e.seal_note(&first.path, Some("correct horse")).unwrap();
+        e.lock_sealed_note(&first.path);
+        for _ in 0..8 {
+            let error = e.mount_annotate(&m.id, "track.wav", "bpm", Some("140".into())).unwrap_err();
+            assert!(
+                error.contains(&first.path),
+                "the shadow-folder note is named, not an arbitrary match: {error}"
+            );
+        }
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// The widened check is a suspicion about one row, not a vault-wide stop:
+    /// an unrelated sealed note must not make a mount unannotatable.
+    #[test]
+    fn an_unrelated_sealed_note_does_not_block_annotation() {
+        let (mut e, dir) = temp_vault("msealedother");
+        let watched = temp_watched("msealedother");
+        fs::write(watched.join("track.als"), b"take one").unwrap();
+        let m = e.add_mount("Album Pool", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+
+        let private = e.create("Diary", "Field Notes", None).unwrap().path;
+        e.seal_note(&private, Some("correct horse")).unwrap();
+        e.lock_sealed_note(&private);
+        assert!(e.meta(&private).unwrap().sealed);
+
+        let meta = e.mount_annotate(&m.id, "track.als", "status", Some("mixing".into())).unwrap();
+        assert_eq!(meta.path, "Mounts/Album Pool/track.md");
+        let rows = e.mount_rows(&m.id);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].props.get("status").unwrap(), "mixing");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// Sealing hides the binding; unsealing gives it back. The props ride
+    /// inside the ciphertext, so the round trip must return the row to its
+    /// annotated state with nothing lost.
+    #[test]
+    fn a_sidecar_binding_survives_a_seal_and_unseal_round_trip() {
+        let (mut e, dir) = temp_vault("msealedtrip");
+        let watched = temp_watched("msealedtrip");
+        fs::write(watched.join("track.als"), b"take one").unwrap();
+        let m = e.add_mount("Album Pool", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let sidecar =
+            e.mount_annotate(&m.id, "track.als", "status", Some("mixing".into())).unwrap();
+        let moved = e.move_note(&sidecar.path, "Field Notes").unwrap().path;
+        let identity = prop_str(&e.meta(&moved).unwrap().props, "mount_identity").unwrap();
+
+        e.seal_note(&moved, Some("correct horse")).unwrap();
+        e.lock_sealed_note(&moved);
+        assert!(e.sidecars_of(&m.id).is_empty(), "sealed: the binding is unreadable");
+
+        e.unlock_sealed_note(&moved, Some("correct horse")).unwrap();
+        e.unseal_note(&moved).unwrap();
+        let meta = e.meta(&moved).unwrap();
+        assert!(!meta.sealed);
+        assert_eq!(prop_str(&meta.props, "mount").as_deref(), Some(m.id.as_str()));
+        assert_eq!(prop_str(&meta.props, "mount_file").as_deref(), Some("track.als"));
+        assert_eq!(prop_str(&meta.props, "mount_identity").as_deref(), Some(identity.as_str()));
+        assert_eq!(prop_str(&meta.props, "status").as_deref(), Some("mixing"));
+
+        let rows = e.mount_rows(&m.id);
+        assert_eq!(rows.len(), 1, "the sidecar rejoins its row, it does not add one");
+        assert_eq!(rows[0].note.as_deref(), Some(moved.as_str()));
+        assert_eq!(rows[0].props.get("status").unwrap(), "mixing");
+
+        // and annotation flows again through the same note
+        e.mount_annotate(&m.id, "track.als", "bpm", Some("140".into())).unwrap();
+        assert_eq!(e.notes_of_type("Album Pool").len(), 1, "still one note for one file");
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&watched);
     }
@@ -3190,6 +3584,284 @@ mod tests {
         assert_eq!(e.mount_extract_jobs(&m.id, &watched).len(), 1);
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// Paths of every search hit, in rank order — what the pane would list.
+    fn found(e: &Engine, q: &str) -> Vec<String> {
+        e.search_full(q, None, false).hits.into_iter().map(|h| h.path).collect()
+    }
+
+    /// The whole point of indexing a mount's text: a vault with papers in a
+    /// mount answers a phrase from page one, not "nothing found".
+    #[test]
+    fn a_phrase_inside_a_mounted_document_finds_its_row() {
+        let (mut e, dir, local) = vault_with_local("msearch");
+        let watched = temp_watched("msearch");
+        fs::write(watched.join("paper.pdf"), b"stand-in bytes").unwrap();
+        let m = e.add_mount("Papers", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let jobs = e.mount_extract_jobs(&m.id, &watched);
+        apply_reading(&mut e, jobs, &reading("spectral resynthesis of a granular field", false));
+
+        let hits = found(&e, "resynthesis");
+        assert_eq!(
+            hits,
+            vec![mount_row_path(&m.id, "paper.pdf")],
+            "the row is keyed by the virtual path the board opens"
+        );
+        // the name is searchable too — it is the row's title, and it is all a
+        // file the reader cannot open ever has
+        assert_eq!(found(&e, "paper"), vec![mount_row_path(&m.id, "paper.pdf")]);
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&local);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// A row shows the opening of its document, the way a note shows the
+    /// opening of its body — and says when that reading was only the front of
+    /// the file. The text reaches the row beside the columns, never as one.
+    #[test]
+    fn a_row_carries_its_documents_opening_line_without_becoming_a_column() {
+        let (mut e, dir, local) = vault_with_local("mexcerpt");
+        let watched = temp_watched("mexcerpt");
+        fs::write(watched.join("paper.pdf"), b"stand-in bytes").unwrap();
+        let m = e.add_mount("Papers", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let jobs = e.mount_extract_jobs(&m.id, &watched);
+        apply_reading(
+            &mut e,
+            jobs,
+            &reading("# Spectral resynthesis\n\nof a granular field", true),
+        );
+
+        let rows = e.mount_rows(&m.id);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].excerpt, "Spectral resynthesis",
+            "the row shows the document's opening line, heading marker stripped"
+        );
+        assert!(rows[0].excerpt_partial, "a capped reading says it was capped");
+        assert!(
+            !rows[0].props.contains_key("excerpt") && !rows[0].props.contains_key("text"),
+            "the text became a column"
+        );
+
+        // an unbound mount has no reading on this machine, and the row still
+        // renders — it just has nothing to say about the inside of the file
+        e.forget_mount_text(&m.id);
+        let rows = e.mount_rows(&m.id);
+        assert_eq!(rows[0].excerpt, "");
+        assert!(!rows[0].excerpt_partial);
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&local);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// A document read only to its cap answers for what was read, and the hit
+    /// says so: the pane must not present the front of a forty-page paper as
+    /// the whole of it, or a miss further down reads as the phrase being
+    /// absent from the file.
+    #[test]
+    fn a_hit_in_a_capped_document_says_the_reading_stopped_early() {
+        let (mut e, dir, local) = vault_with_local("mtrunc");
+        let watched = temp_watched("mtrunc");
+        fs::write(watched.join("long.pdf"), b"stand-in bytes").unwrap();
+        fs::write(watched.join("short.pdf"), b"other bytes").unwrap();
+        let m = e.add_mount("Papers", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        for job in e.mount_extract_jobs(&m.id, &watched) {
+            let truncated = job.rel == "long.pdf";
+            apply_reading(&mut e, vec![job], &reading("spectral resynthesis", truncated));
+        }
+
+        let hits = e.search_full("resynthesis", None, false).hits;
+        // sorted: the two rows carry the same body, so they tie on rank
+        let mut partial: Vec<(String, bool)> =
+            hits.into_iter().map(|h| (h.path, h.partial)).collect();
+        partial.sort();
+        assert_eq!(
+            partial,
+            vec![
+                (mount_row_path(&m.id, "long.pdf"), true),
+                (mount_row_path(&m.id, "short.pdf"), false),
+            ],
+            "only the capped document's hit is marked partial"
+        );
+
+        // a note's body IS the note, so nothing in the vault's own results
+        // ever claims to be an extract
+        fs::write(dir.join("note.md"), "spectral resynthesis").unwrap();
+        e.rescan();
+        assert!(
+            e.search_full("resynthesis", None, false)
+                .hits
+                .iter()
+                .any(|h| h.path == "note.md" && !h.partial),
+            "a note reported itself as a partial reading"
+        );
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&local);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// A rescan rewrites the mount's rows wholesale, so the index must be
+    /// replaced with them — appending would leave one file answering twice,
+    /// and a moved file answering under a path that no longer exists.
+    #[test]
+    fn rescanning_a_mount_replaces_its_rows_in_the_index() {
+        let (mut e, dir, local) = vault_with_local("mreindex");
+        let watched = temp_watched("mreindex");
+        fs::write(watched.join("paper.pdf"), b"stand-in bytes").unwrap();
+        let m = e.add_mount("Papers", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let jobs = e.mount_extract_jobs(&m.id, &watched);
+        apply_reading(&mut e, jobs, &reading("spectral resynthesis", false));
+
+        e.scan_mount(&m.id, &watched);
+        e.scan_mount(&m.id, &watched);
+        assert_eq!(found(&e, "resynthesis").len(), 1, "one file, one hit");
+
+        // moved inside the folder: findable where it is now, nowhere else
+        fs::create_dir_all(watched.join("read")).unwrap();
+        fs::rename(watched.join("paper.pdf"), watched.join("read/paper.pdf")).unwrap();
+        e.scan_mount(&m.id, &watched);
+        assert_eq!(found(&e, "resynthesis"), vec![mount_row_path(&m.id, "read/paper.pdf")]);
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&local);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// Rows that are gone must stop answering; rows whose text this machine
+    /// can no longer read keep their name, which is still true about them.
+    #[test]
+    fn unmounting_drops_the_rows_and_unbinding_drops_only_their_text() {
+        let (mut e, dir, local) = vault_with_local("mdrop");
+        let watched = temp_watched("mdrop");
+        fs::write(watched.join("paper.pdf"), b"stand-in bytes").unwrap();
+        let m = e.add_mount("Papers", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let jobs = e.mount_extract_jobs(&m.id, &watched);
+        apply_reading(&mut e, jobs, &reading("spectral resynthesis", false));
+
+        e.forget_mount_text(&m.id);
+        assert!(found(&e, "resynthesis").is_empty(), "text this machine cannot read still answers");
+        assert_eq!(found(&e, "paper"), vec![mount_row_path(&m.id, "paper.pdf")], "the row is still on the board");
+
+        e.remove_mount(&m.id, false).unwrap();
+        assert!(found(&e, "paper").is_empty(), "an unmounted folder still answers");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&local);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// The two engine-wide rebuilds. A rescan empties the whole table and
+    /// walks markdown, which never reaches a mounted file; and an engine
+    /// learns where this machine keeps text only after `build` has already
+    /// indexed the rows by name.
+    #[test]
+    fn a_rebuilt_index_still_carries_the_mounted_files() {
+        let (mut e, dir, local) = vault_with_local("mrebuild");
+        let watched = temp_watched("mrebuild");
+        fs::write(watched.join("paper.pdf"), b"stand-in bytes").unwrap();
+        let m = e.add_mount("Papers", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+        let jobs = e.mount_extract_jobs(&m.id, &watched);
+        apply_reading(&mut e, jobs, &reading("spectral resynthesis", false));
+
+        e.rescan();
+        assert_eq!(found(&e, "resynthesis"), vec![mount_row_path(&m.id, "paper.pdf")]);
+
+        // an engine built cold over the same vault: rows by name at build
+        // time, bodies the moment it is told where the text lives
+        let mut cold = Engine::new(dir.clone());
+        assert_eq!(found(&cold, "paper"), vec![mount_row_path(&m.id, "paper.pdf")], "name-only");
+        assert!(found(&cold, "resynthesis").is_empty(), "no text before a local dir");
+        cold = cold.with_local_dir(local.clone());
+        assert_eq!(found(&cold, "resynthesis"), vec![mount_row_path(&m.id, "paper.pdf")]);
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&local);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// Two mounts, and one id that is a `LIKE` prefix of the other only
+    /// because `_` is a wildcard there. Deleting one mount's rows must not
+    /// take the other's.
+    #[test]
+    fn one_mounts_rows_leave_without_another_mounts() {
+        let (mut e, dir, local) = vault_with_local("mtwo");
+        let a = temp_watched("mtwo-a");
+        let b = temp_watched("mtwo-b");
+        fs::write(a.join("alpha.pdf"), b"stand-in bytes").unwrap();
+        fs::write(b.join("beta.pdf"), b"stand-in bytes").unwrap();
+        let ma = e.add_mount("Papers", vec![], false).unwrap();
+        let mb = e.add_mount("Scores", vec![], false).unwrap();
+        e.scan_mount(&ma.id, &a);
+        e.scan_mount(&mb.id, &b);
+
+        e.remove_mount(&ma.id, false).unwrap();
+        // scoped to the removed mount's rows: the scaffolded vault has notes
+        // of its own, and one of them legitimately says "alpha"
+        let gone = mount_row_path(&ma.id, "");
+        assert!(
+            !found(&e, "alpha").iter().any(|p| p.starts_with(&gone)),
+            "a removed mount's rows stayed in the index"
+        );
+        assert_eq!(found(&e, "beta"), vec![mount_row_path(&mb.id, "beta.pdf")]);
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&local);
+        let _ = fs::remove_dir_all(&a);
+        let _ = fs::remove_dir_all(&b);
+    }
+
+    /// The same rule, on the pair of ids that actually distinguishes a prefix
+    /// delete from a `LIKE` one. Today's ids are UUIDs, which never contain an
+    /// underscore — but an id only has to survive `safe_id`, which allows one,
+    /// and a mounts file is a file a person can edit. Under `LIKE`, `a_c1d2`
+    /// is a pattern that matches `abc1d2`, and unmounting the first would
+    /// silently empty the second out of the index.
+    #[test]
+    fn a_mount_id_holding_an_underscore_deletes_only_its_own_rows() {
+        let (mut e, dir) = temp_vault("mwild");
+        let a = temp_watched("mwild-a");
+        let b = temp_watched("mwild-b");
+        fs::write(a.join("alphapaper.pdf"), b"stand-in bytes").unwrap();
+        fs::write(b.join("betapaper.pdf"), b"stand-in bytes").unwrap();
+        // ids chosen, not generated: the wildcard collision is the point
+        let mounts = vec![
+            Mount {
+                id: "a_c1d2".into(),
+                name: "Papers".into(),
+                globs: vec![],
+                watch: false,
+                extra: Default::default(),
+            },
+            Mount {
+                id: "abc1d2".into(),
+                name: "Scores".into(),
+                globs: vec![],
+                watch: false,
+                extra: Default::default(),
+            },
+        ];
+        write_mounts(&dir, &mounts).unwrap();
+        e.scan_mount("a_c1d2", &a);
+        e.scan_mount("abc1d2", &b);
+        assert_eq!(
+            found(&e, "betapaper"),
+            vec![mount_row_path("abc1d2", "betapaper.pdf")],
+            "indexed"
+        );
+
+        e.remove_mount("a_c1d2", false).unwrap();
+        assert!(found(&e, "alphapaper").is_empty(), "the unmounted rows stayed in the index");
+        assert_eq!(
+            found(&e, "betapaper"),
+            vec![mount_row_path("abc1d2", "betapaper.pdf")],
+            "the other mount's rows were taken with them"
+        );
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&a);
+        let _ = fs::remove_dir_all(&b);
     }
 
     #[test]

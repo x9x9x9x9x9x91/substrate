@@ -115,7 +115,7 @@ test("all-of-them plus an exclusion narrows the collection (SUB-818)", async ({ 
 
   // the rule is spelled out in words on the row, never as a query
   await expect(page.locator("[data-tagfolder] .side-destination")).toHaveAttribute(
-    "title",
+    "data-tip",
     "#demo and #live, but not #wip"
   );
 });

@@ -3,6 +3,7 @@ import type { DoctorFinding, DoctorKind, DoctorReport } from "../lib/types";
 import { vaultDoctor } from "../lib/ipc";
 import { NoteIcon, PulseIcon } from "./Icons";
 import { BackButton } from "./BackButton";
+import EmptyState from "./EmptyState";
 
 /** Group order and headings — the same order the engine sorts findings in,
     so the pane never reshuffles what the JSON already ordered. */
@@ -88,22 +89,18 @@ export default function DoctorPane({ vaultEpoch, onOpenNote }: DoctorPaneProps) 
              that sticks forever; same DOM as the resolved state, so the scan
              landing only swaps text */
           error === null ? (
-            <div className="empty">
-              <PulseIcon />
-              <span>Scanning the vault</span>
-              <span className="empty-hint">
-                checking every link, relation, embed and property
-              </span>
-            </div>
+            <EmptyState
+              icon={<PulseIcon />}
+              title="Scanning the vault"
+              hint="checking every link, relation, embed and property"
+            />
           ) : null
         ) : report.findings.length === 0 ? (
-          <div className="empty">
-            <PulseIcon />
-            <span>No problems found</span>
-            <span className="empty-hint">
-              every link, relation, embed and property in {report.notes} notes resolves
-            </span>
-          </div>
+          <EmptyState
+            icon={<PulseIcon />}
+            title="No problems found"
+            hint={`every link, relation, embed and property in ${report.notes} notes resolves`}
+          />
         ) : (
           groups.map(([kind, label, items]) => (
             <div key={kind} className="doctor-group">

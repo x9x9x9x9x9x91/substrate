@@ -17,6 +17,7 @@ import {
   type FolderNode,
 } from "../lib/sidebar";
 import { keyForTarget, keyLabel } from "../lib/keyassign";
+import { tooltip } from "./Tooltip";
 import { tagFolderSummary } from "../lib/tags";
 import InlineEdit from "./InlineEdit";
 import InfoView from "./InfoView";
@@ -407,7 +408,7 @@ function Sidebar({
       <span
         className="side-count side-shortcut side-key-chip"
         draggable
-        title={`${keyLabel(token)} — drag to move or drop on the key panel to clear`}
+        {...tooltip(`${keyLabel(token)} — drag to move or drop on the key panel to clear`, { label: false })}
         onDragStart={(e) => {
           e.stopPropagation();
           e.dataTransfer.setData(KEY_DRAG_MIME, token);
@@ -926,7 +927,7 @@ function Sidebar({
           onDoubleClick={() => onTagFolderEdit(f)}
           aria-label={f.name}
           aria-current={active ? "page" : undefined}
-          title={tagFolderSummary(f)}
+          {...tooltip(tagFolderSummary(f), { label: false })}
         >
           <TypeIcon type={f.name} icon={f.icon ?? { glyph: "tag" }} />
           <span className="side-label-text">{f.name}</span>
@@ -1009,7 +1010,7 @@ function Sidebar({
                   e.stopPropagation();
                   toggleCollapsed(node.path);
                 }}
-                title={open ? `Collapse ${node.name}` : `Expand ${node.name}`}
+                {...tooltip(open ? `Collapse ${node.name}` : `Expand ${node.name}`, { label: false })}
                 aria-label={open ? `Collapse ${node.name}` : `Expand ${node.name}`}
                 aria-expanded={open}
               >
@@ -1023,13 +1024,13 @@ function Sidebar({
               className="side-destination"
               onClick={() => onOpenDb(homeDb)}
               aria-label={node.name}
-              title={`Opens the ${dbLabel} database`}
+              {...tooltip(`Opens the ${dbLabel} database`, { label: false })}
               aria-current={key === `db:${homeDb}` ? "page" : undefined}
             >
               <TypeIcon type={homeDb} icon={iconForType(icons, homeDb)} />
               <span className="side-label-text">{node.name}</span>
               {mountDbs.has(homeDb.toLowerCase()) && (
-                <span className="side-mount" title="Mounted folder">
+                <span className="side-mount" {...tooltip("Mounted folder")}>
                   <MountIcon />
                 </span>
               )}
@@ -1067,7 +1068,7 @@ function Sidebar({
                 e.stopPropagation();
                 toggleCollapsed(node.path);
               }}
-              title={open ? `Collapse ${node.name}` : `Expand ${node.name}`}
+              {...tooltip(open ? `Collapse ${node.name}` : `Expand ${node.name}`, { label: false })}
               aria-label={open ? `Collapse ${node.name}` : `Expand ${node.name}`}
               aria-expanded={open}
             >
@@ -1138,7 +1139,7 @@ function Sidebar({
             <button
               className="sidebar-new"
               onClick={onToggleHidden}
-              title="Hide sidebar (⌘\)"
+              {...tooltip("Hide sidebar (⌘\\)", { label: false })}
               aria-label="Hide sidebar"
             >
               <SidebarIcon />
@@ -1147,7 +1148,7 @@ function Sidebar({
           <button
             className="sidebar-new sidebar-capture"
             onClick={onCapture}
-            title={mobile ? "New note" : "New note (⌘N)"}
+            {...tooltip(mobile ? "New note" : "New note (⌘N)")}
           >
             <PlusIcon />
           </button>
@@ -1180,7 +1181,7 @@ function Sidebar({
           type="button"
           className={`side-item${journalActive ? " active" : ""}${keyDropClass("journal")}`}
           onClick={onJournal}
-          title="Today's journal (⌘D)"
+          {...tooltip("Today's journal (⌘D)", { label: false })}
           aria-label="Journal"
           aria-current={journalActive ? "page" : undefined}
           onContextMenu={(e) => {
@@ -1215,7 +1216,7 @@ function Sidebar({
             type="button"
             className="side-section-toggle"
             onClick={() => onToggleCollapse("dashboards")}
-            title={dashboardsOpen ? "Collapse" : "Expand"}
+            {...tooltip(dashboardsOpen ? "Collapse" : "Expand", { label: false })}
             aria-expanded={dashboardsOpen}
           >
             <span className={`side-chevron${dashboardsOpen ? " open" : ""}`}>
@@ -1254,7 +1255,7 @@ function Sidebar({
                       type="button"
                       className={`side-chevron${open ? " open" : ""}`}
                       onClick={() => onToggleCollapse(gid)}
-                      title={open ? `Collapse ${g.name}` : `Expand ${g.name}`}
+                      {...tooltip(open ? `Collapse ${g.name}` : `Expand ${g.name}`, { label: false })}
                       aria-label={open ? `Collapse ${g.name}` : `Expand ${g.name}`}
                       aria-expanded={open}
                     >
@@ -1344,7 +1345,7 @@ function Sidebar({
                 type="button"
                 className="side-section-toggle"
                 onClick={() => onToggleCollapse("pinned")}
-                title={pinnedOpen ? "Collapse" : "Expand"}
+                {...tooltip(pinnedOpen ? "Collapse" : "Expand", { label: false })}
                 aria-expanded={pinnedOpen}
               >
                 <span className={`side-chevron${pinnedOpen ? " open" : ""}`}>
@@ -1362,7 +1363,7 @@ function Sidebar({
             type="button"
             className="side-section-toggle"
             onClick={() => onToggleCollapse("folders")}
-            title={foldersOpen ? "Collapse" : "Expand"}
+            {...tooltip(foldersOpen ? "Collapse" : "Expand", { label: false })}
             aria-expanded={foldersOpen}
           >
             <span className={`side-chevron${foldersOpen ? " open" : ""}`}>
@@ -1377,7 +1378,7 @@ function Sidebar({
               const r = e.currentTarget.getBoundingClientRect();
               onAddMenu(r.left, r.bottom);
             }}
-            title="New folder or database"
+            {...tooltip("New folder or database")}
           >
             <PlusIcon />
           </button>
@@ -1410,7 +1411,7 @@ function Sidebar({
                   <button
                     type="button"
                     className="side-tool-btn"
-                    title={viewingPast ? "Already viewing the past" : "Browse the vault's past"}
+                    {...tooltip(viewingPast ? "Already viewing the past" : "Browse the vault's past", { label: false })}
                     aria-label="Browse the vault's past"
                     disabled={viewingPast}
                     onClick={onOpenTimeTravel}
@@ -1420,7 +1421,7 @@ function Sidebar({
                   <button
                     type="button"
                     className="side-tool-btn"
-                    title="What's new"
+                    {...tooltip("What's new", { label: false })}
                     aria-label="What's new"
                     onClick={() => setView({ kind: "changelog" })}
                   >
@@ -1431,7 +1432,7 @@ function Sidebar({
                   <button
                     type="button"
                     className="side-tool-btn"
-                    title="Settings (⌘,)"
+                    {...tooltip("Settings (⌘,)", { label: false })}
                     aria-label="Settings"
                     onClick={onOpenSettings}
                   >

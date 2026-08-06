@@ -3,7 +3,7 @@ import { EditorView, WidgetType } from "@codemirror/view";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { assetBlobUrl, audioSource, loadPeaks, PEAKS_AUTO_MAX_BYTES, type AudioSource } from "./assets.ts";
 import { isImageName } from "./artwork.ts";
-import { wikiLinkDisplay } from "./wikilinks.ts";
+import { embedSizeStyle, wikiLinkDisplay, type EmbedSize } from "./wikilinks.ts";
 import {
   formatAnnotationTime,
   formatAudioAnnotation,
@@ -22,12 +22,12 @@ import {
 import { missingEmbedKind, missingEmbedLabel } from "./embedstate.ts";
 import { isTauri } from "./tauri.ts";
 import { TASK_RE } from "./markdown.ts";
-import { normalizeNumberInput } from "./aggregate.ts";
 import { DEFAULT_NUMBER_LOCALE, type NumberLocale } from "./numberLocale.ts";
 import type { FxResolver } from "./formula.ts";
 import type { DashboardSheetState } from "./dashboardSheets.ts";
 import { type CellModel } from "./cellmodel.ts";
 import {
+  commitCellText,
   isJoinedColumn,
   viewCellEditable,
   viewCellModel,
@@ -852,12 +852,6 @@ function liveProps(state: ViewWidgetState, path: string): Record<string, unknown
   return state.result.rows.find((r) => r.path === path)?.props ?? {};
 }
 
-/** A number column stores what the app can read back, not the
- * keystrokes — the same normalization the database pane commits through. */
-function commitCellText(value: string, model: CellModel): string {
-  return model.kind === "number" ? normalizeNumberInput(value) : value;
-}
-
 // embed routing by extension: audio renders the player, image the
 // inline <img>, any other extension a file chip. The intake lanes accept any
 // file type — these sets only pick the widget, they no longer gate intake.
@@ -1662,13 +1656,18 @@ export class ImageWidget extends WidgetType {
 
   constructor(
     readonly name: string,
-    readonly epoch: number
+    readonly epoch: number,
+    /** the `|300`-style size the author asked for, null when they asked for
+        none — a size change must rebuild the widget, hence `eq` */
+    readonly size: EmbedSize | null = null
   ) {
     super();
   }
 
   eq(other: ImageWidget) {
     if (other.name !== this.name) return false;
+    if (other.size?.width !== this.size?.width) return false;
+    if (other.size?.height !== this.size?.height) return false;
     return !(this.failed || other.failed) || this.epoch === other.epoch;
   }
 
@@ -1678,6 +1677,9 @@ export class ImageWidget extends WidgetType {
     const img = document.createElement("img");
     img.alt = this.name;
     img.draggable = false;
+    // caps, not fixed dimensions: the image scales down inside them and keeps
+    // its aspect ratio, and an unsized embed keeps the stylesheet's defaults
+    Object.assign(img.style, embedSizeStyle(this.size));
     wrap.appendChild(img);
     assetBlobUrl(this.name).then(
       (url) => {

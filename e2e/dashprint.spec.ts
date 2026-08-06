@@ -190,6 +190,14 @@ test("charts: bars and the line chart clone with their geometry", async ({ page 
   await expect(surface.locator(".chart-line-path").first()).toHaveCSS("filter", "none");
   await expect(surface.locator(".chart-dot").first()).toHaveCSS("filter", "none");
   await expect(surface.locator(".dash-bar").first()).toHaveCSS("filter", "none");
+  // A value written on its bar is knocked out of the fill in the surface's own
+  // colour. On paper the surface is white and the fill is a pale wash, so the
+  // dark ground's knockout would print white-on-white: the print sheet remaps
+  // it to ink. Geometry that only ever ran on screen is geometry nobody has
+  // checked (review).
+  const inset = surface.locator(".dash-bar-val.is-inset");
+  expect(await inset.count()).toBeGreaterThan(0);
+  await expect(inset.first()).toHaveCSS("color", "rgb(27, 30, 34)");
 });
 
 test("hub: cards, table and link text clone — links stay on paper as content", async ({
@@ -201,7 +209,7 @@ test("hub: cards, table and link text clone — links stay on paper as content",
 
   const surface = page.locator("#print-surface");
   await expect(surface.locator(".hub-cards .dash-card")).toHaveCount(3);
-  await expect(surface.locator(".hub-body .dash-table")).toHaveCount(1);
+  await expect(surface.locator(".hub-body .dash-table")).toHaveCount(2);
   // a card wikilink is a <button> on screen but content on paper — it clones
   // as text and stays visible under print media (the surface itself is
   // display:none on screen, so presence first, visibility after emulation)

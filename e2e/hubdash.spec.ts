@@ -37,7 +37,7 @@ test("hub renders the section label and one grid row of three kind-accented card
   // the linear flow after the cards: the paragraph and the table render
   // full-width, wikilinks live inside them
   await expect(page.locator(".hub-body .hub-p", { hasText: "linear flow" })).toBeVisible();
-  await expect(page.locator(".hub-body .dash-table")).toHaveCount(1);
+  await expect(page.locator(".hub-body .dash-table")).toHaveCount(2);
   await expect(
     page.locator(".hub-body .dash-table .dash-link", { hasText: "Slow Bloom EP" })
   ).toHaveCount(1);
@@ -113,7 +113,7 @@ test("a fence naming an unknown database fails in place, siblings unaffected", a
   await expect(err).toHaveText(/Unknown database/);
   // and the rest of the hub is untouched: cards, table, and the good fence
   await expect(page.locator(".dash-cards.hub-cards .dash-card")).toHaveCount(3);
-  await expect(page.locator(".hub-body .dash-table")).toHaveCount(1);
+  await expect(page.locator(".hub-body .dash-table")).toHaveCount(2);
   await expect(page.locator(".hub-body .hub-view .embed-view-table")).toHaveCount(1);
 });
 
@@ -124,7 +124,7 @@ test("one hub body renders markdown, cards, chart, view and timeline fences toge
 
   // markdown: the paragraph and the table from the top of the body
   await expect(page.locator(".hub-body .hub-p", { hasText: "linear flow" })).toBeVisible();
-  await expect(page.locator(".hub-body .dash-table")).toHaveCount(1);
+  await expect(page.locator(".hub-body .dash-table")).toHaveCount(2);
 
   // ```cards: the metrics strip, with the same cards the frontmatter form
   // would produce — resolved against the Holdings sheet, not fixture text
@@ -214,7 +214,7 @@ test("a malformed chart fence errors in place while its siblings render (SUB-964
   await expect(page.locator(".hub-body .metrics-strip .dash-card")).toHaveCount(3);
   await expect(page.locator(".hub-body .hub-chart .dash-bar-col").first()).toBeVisible();
   await expect(page.locator(".hub-body .hub-view .embed-view-table")).toHaveCount(1);
-  await expect(page.locator(".hub-body .dash-table")).toHaveCount(1);
+  await expect(page.locator(".hub-body .dash-table")).toHaveCount(2);
 });
 
 test("a timeline fence draws grouped bars, opens notes, and isolates malformed siblings (SUB-968)", async ({

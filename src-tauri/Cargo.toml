@@ -4,6 +4,7 @@ version = "0.22.0"
 description = "Substrate — local-first notes, databases, dashboards"
 license = "AGPL-3.0-only"
 edition = "2021"
+default-run = "substrate"
 
 [lib]
 name = "substrate_lib"

@@ -100,6 +100,39 @@ test("arrow keys move a selected row and Enter opens it (SUB-755)", async ({ pag
   await expect.poll(() => opened.length).toBe(1);
 });
 
+test("a reload keeps the highlight on the row the user chose (SUB-1162)", async ({ page }) => {
+  await page.goto("/agenda.html");
+  await expect(page.locator(".palette")).toBeVisible();
+  const rows = page.locator(".agenda-list .agenda-row");
+  await expect(rows.nth(1)).toBeVisible();
+
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  const chosen = await rows.nth(1).locator(".agenda-title").textContent();
+  const above = await rows.nth(0).locator(".agenda-title").textContent();
+  await expect(rows.nth(1)).toHaveClass(/selected/);
+
+  /* The day reloads with the entry ABOVE the selected one gone — an edit in
+     the main window, or the tray re-showing after one. The selection was an
+     index clamped on the row COUNT, which only notices a list that got
+     shorter than the index itself; here it stays in range and the highlight
+     silently slides onto the next note down. Following the
+     row's key instead moves the highlight with the row. */
+  const gone = (await page.evaluate((title) => {
+    const dump = window.__mockNotesDump?.() ?? [];
+    const hit = dump.find((n) => n.path.endsWith(`/${title}.md`) || n.path === `${title}.md`);
+    if (!hit) throw new Error(`no mock note titled ${title}`);
+    window.__mockDeleteNote?.(hit.path);
+    window.__mockEmit?.("vault:changed", [hit.path]);
+    return hit.path;
+  }, above)) as string;
+  expect(gone).toContain(above ?? "");
+
+  await expect(rows.nth(0).locator(".agenda-title")).toHaveText(chosen ?? "");
+  await expect(rows.nth(0)).toHaveClass(/selected/);
+  await expect(page.locator(".agenda-row.selected")).toHaveCount(1);
+});
+
 test("the agenda card never paints the browser focus ring (SUB-755)", async ({ page }) => {
   await page.goto("/agenda.html");
   const card = page.locator(".palette");

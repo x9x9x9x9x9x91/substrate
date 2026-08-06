@@ -63,6 +63,24 @@ month,total
 \`\`\`
 `;
 
+// Four categories in the same narrow board — the sparse end of the range,
+// where a bar is wide enough to carry its own number. Keeps the long
+// "1.582,4" so the inset treatment is proved on a value that does NOT fit at
+// the dense end, and a 90 stub so the height guard still has a case.
+const SPARSE = `---
+type: sheet
+title: Sparse
+---
+
+\`\`\`csv
+category,amount
+Rent,4000
+Studio Equipment,1582.4
+Coffee,90
+Travel,2000
+\`\`\`
+`;
+
 const OVERVIEW = `\`\`\`chart
 source: {{Holdings}}
 x: category
@@ -78,6 +96,14 @@ y: sum:total
 kind: bar
 title: Total spend by month
 \`\`\`
+
+\`\`\`chart
+source: {{Sparse}}
+x: category
+y: sum:amount
+kind: bar
+title: Few and wide
+\`\`\`
 `;
 
 async function openOverview(page: Page) {
@@ -85,13 +111,15 @@ async function openOverview(page: Page) {
   await page.goto("/");
   await expect(page.locator(".side-item").first()).toBeVisible();
   await page.evaluate(
-    ([sheet, monthly, overview]) => {
+    ([sheet, monthly, sparse, overview]) => {
       window.__mockEditNote!("Holdings.md", sheet);
       window.__mockCloneNote!("Holdings.md", "Monthly.md");
       window.__mockEditNote!("Monthly.md", monthly);
+      window.__mockCloneNote!("Holdings.md", "Sparse.md");
+      window.__mockEditNote!("Sparse.md", sparse);
       window.__mockEditNote!("Dashboards/Overview.md", overview);
     },
-    [SPEND, MONTHLY, OVERVIEW]
+    [SPEND, MONTHLY, SPARSE, OVERVIEW]
   );
   await page.locator(".side-item", { hasText: "Overview" }).click();
   await expect(page.locator(".dash-section-label", { hasText: "Where it goes" })).toBeVisible();
@@ -189,4 +217,156 @@ test("pre-bucketed month keys read as a time axis: thinned whole labels, one ser
     nodes.filter((node) => (node.querySelector(".dash-bar") as HTMLElement).style.getPropertyValue("--bar") !== "").length
   );
   expect(tinted).toBe(0);
+});
+
+// The ledger geometry itself — a bar that owns its band rather than
+// a pencil stroke marooned in it, never thinner than the capped geometry it
+// replaced, and one rule at full scale instead of a ladder of gridlines.
+test("a bar owns its band, never draws thinner than the old cap, and full scale is ruled once", async ({
+  page,
+}) => {
+  await openOverview(page);
+
+  const chart = chartOf(page, "Where it goes");
+  const bars = chart.locator(".dash-bar-col");
+
+  const geometry = await bars.evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const col = node.getBoundingClientRect();
+      const bar = node.querySelector(".dash-bar")!.getBoundingClientRect();
+      const value = node.querySelector(".dash-bar-val")!;
+      const box = value.getBoundingClientRect();
+      // painted ink, not the box: the box clips, and a clipped width would
+      // hide exactly the overhang this test is about
+      const range = document.createRange();
+      range.selectNodeContents(value);
+      const ink = range.getBoundingClientRect();
+      return {
+        share: bar.width / col.width,
+        width: bar.width,
+        colWidth: col.width,
+        radius: getComputedStyle(node.querySelector(".dash-bar")!).borderTopLeftRadius,
+        barTop: bar.top,
+        barBottom: bar.bottom,
+        barLeft: bar.left,
+        barRight: bar.right,
+        inset: value.classList.contains("is-inset"),
+        text: value.textContent ?? "",
+        inkWidth: ink.width,
+        valueTop: box.top,
+        valueBottom: box.bottom,
+      };
+    })
+  );
+
+  // over 40% of the band, never past the slab cap, and square ends throughout
+  expect(geometry.every((g) => g.share > 0.4 && g.share <= 1.001)).toBe(true);
+  expect(geometry.every((g) => g.width <= 72.5)).toBe(true);
+  expect(geometry.every((g) => g.radius === "0px")).toBe(true);
+  // …and never thinner than the 28px-capped geometry the ratio replaced: at a
+  // narrow band the ratio alone would draw half the old mark, so the old rule
+  // survives as the floor. This fixture sits below the crossover, so the floor
+  // is doing the work here rather than merely being present.
+  expect(geometry.every((g) => g.width >= Math.min(g.colWidth, 28) - 0.5)).toBe(true);
+  // …and this fixture sits below the crossover, so the floor is doing the work
+  // here rather than merely being present
+  expect(geometry.every((g) => g.width > g.colWidth * 0.52 + 0.5)).toBe(true);
+
+  // A number written on its bar is knocked out in the surface's own colour, so
+  // any ink hanging off the fill is painted background-on-background and is
+  // simply gone. Whatever the guard decides, no inset label may overhang.
+  for (const g of geometry.filter((g) => g.inset)) {
+    expect(g.inkWidth).toBeLessThanOrEqual(g.barRight - g.barLeft + 0.5);
+  }
+  // "1.582,4" inks wider than a bar at this density — it must NOT be inset,
+  // and must therefore still be laid down in ink rather than in the surface
+  // colour. (A background-coloured label is the bug; a clipped one is not.)
+  const longest = geometry.find((g) => g.text === "1.582,4")!;
+  expect(longest.inkWidth).toBeGreaterThan(longest.width);
+  expect(longest.inset).toBe(false);
+  const knockedOut = await chart.evaluate((el) => {
+    const probe = document.createElement("span");
+    probe.style.color = "var(--bg)";
+    el.appendChild(probe);
+    const c = getComputedStyle(probe).color;
+    probe.remove();
+    return c;
+  });
+  const longestColor = await chart
+    .locator(".dash-bar-col")
+    .nth(3)
+    .locator(".dash-bar-val")
+    .evaluate((el) => getComputedStyle(el).color);
+  expect(longestColor).not.toBe(knockedOut);
+
+  const tall = geometry[2];
+  // the 90 stub cannot hold a number, so its number stays above the mark
+  const stub = geometry[4];
+  expect(stub.valueBottom).toBeLessThanOrEqual(stub.barTop + 0.5);
+
+  // exactly one gridline, and it lands on the tallest bar's top edge
+  await expect(chart).toHaveClass(/is-ruled/);
+  const rule = await chart.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    const before = getComputedStyle(el, "::before");
+    return { bottom: r.bottom - parseFloat(before.bottom), width: parseFloat(before.width) };
+  });
+  expect(Math.abs(rule.bottom - tall.barTop)).toBeLessThan(1.5);
+  expect(rule.width).toBeGreaterThan(0);
+});
+
+// The other end of the same range: four categories in the same narrow board
+// give bars wide enough to carry their own numbers, so the inset treatment
+// has to actually happen — and has to stay inside the fill it is knocked out
+// of, for a long value as well as a short one.
+test("a bar wide enough wears its own value, inside its own fill", async ({ page }) => {
+  await openOverview(page);
+
+  const chart = chartOf(page, "Few and wide");
+  const geometry = await chart.locator(".dash-bar-col").evaluateAll((nodes) =>
+    nodes.map((node) => {
+      const bar = node.querySelector(".dash-bar")!.getBoundingClientRect();
+      const value = node.querySelector(".dash-bar-val")!;
+      const box = value.getBoundingClientRect();
+      const range = document.createRange();
+      range.selectNodeContents(value);
+      const ink = range.getBoundingClientRect();
+      return {
+        text: value.textContent ?? "",
+        inset: value.classList.contains("is-inset"),
+        barTop: bar.top,
+        barBottom: bar.bottom,
+        barLeft: bar.left,
+        barRight: bar.right,
+        inkLeft: ink.left,
+        inkRight: ink.right,
+        boxTop: box.top,
+        boxBottom: box.bottom,
+      };
+    })
+  );
+
+  // the tallest bar (Rent, 4.000) carries its number inside itself…
+  const tall = geometry[0];
+  expect(tall.inset).toBe(true);
+  expect(tall.boxTop).toBeGreaterThanOrEqual(tall.barTop - 0.5);
+  expect(tall.boxBottom).toBeLessThan(tall.barBottom);
+
+  // …and so does the long one, which is the value that could not fit at the
+  // dense end: room, not length, is what decides
+  const long = geometry[1];
+  expect(long.text).toBe("1.582,4");
+  expect(long.inset).toBe(true);
+
+  // every inset number is painted within the fill it is knocked out of
+  for (const g of geometry.filter((g) => g.inset)) {
+    expect(g.inkLeft).toBeGreaterThanOrEqual(g.barLeft - 0.5);
+    expect(g.inkRight).toBeLessThanOrEqual(g.barRight + 0.5);
+  }
+
+  // the 90 stub is too short to hold one however wide it is
+  const stub = geometry[2];
+  expect(stub.text).toBe("90");
+  expect(stub.inset).toBe(false);
+  expect(stub.boxBottom).toBeLessThanOrEqual(stub.barTop + 0.5);
 });

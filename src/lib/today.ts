@@ -48,6 +48,14 @@ export function pickedDay(n: NoteMeta): string | null {
   return splitDayTime(raw)?.day ?? null;
 }
 
+/** The state every Pick surface reads to decide its label. The
+    pane is no longer the only place the verb lives — the row menu, the open
+    note's ⋯ menu and the palette all ask this same question about the note
+    in hand, so "picked" means one thing everywhere. */
+export function isPickedToday(n: NoteMeta, today: string): boolean {
+  return pickedDay(n) === today;
+}
+
 export interface PickedItem {
   note: NoteMeta;
   /** the note's earliest timed entry today from its OTHER date props (a

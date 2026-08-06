@@ -34,7 +34,7 @@ import { daysAgoIso } from "./dates.ts";
 import { stripMachineFences } from "./fences.ts";
 import { noteTags, propTags, tagUniverse } from "./tags.ts";
 import { MOCK_FX, MOCK_FX_RATES } from "./fx.ts";
-import { MOUNT_EXTRACTED } from "./mounts.ts";
+import { MOUNT_EXTRACTED, MOUNT_SCHEME } from "./mounts.ts";
 import { noteOwnWrite } from "./ownwrites.ts";
 import { remapSavedQueryProperty } from "./query.ts";
 import { isSystemPropName } from "./schemalookup.ts";
@@ -363,6 +363,7 @@ function mockEnforceSealScope(note: MockNote): void {
   note.sealed = true;
   mockUnlockedSealed.delete(note.path);
 }
+let mockMcpGrants: { client: string; prefix: string; access: "read" | "write" }[] = [];
 
 /** local YYYY-MM-DD, `offset` days from today — keeps demo calendar entries
     near whatever day the app is opened */
@@ -740,6 +741,9 @@ const mockNotes: MockNote[] = [
     // callouts as side-by-side cards, the rest in linear flow. Old
     // updated_ms keeps it out of the Today recency grid; the title sorts
     // between Portfolio and Yield APR in the sidebar.
+    // `## People` also holds a hand-typed table of the same shape as the
+    // live one below it — the pill-parity fixture: the same role value,
+    // typed and queried, must wear the same pill.
     // The two trailing ```view fences are the fixture: `## People`
     // resolves against the four `type: contact` notes and renders a live
     // table, `## Broken` names a database that does not exist and must show
@@ -754,7 +758,7 @@ const mockNotes: MockNote[] = [
     body:
       "Label home — the pipeline at a glance.\n\n## Releases\n\n> [!note] In review\n> [[Slow Bloom EP]] is with the label for sequencing notes.\n> [!warn] Waiting on masters\n> [[Vessel Songs]] masters v2 are due back this week.\n> [!idea] Next up\n> [[Static Bouquet]] blue-series follow-up — pitch the live session.\n> ```chart\n> source: release\n> x: status\n> y: count\n> ```\n> ```cards\n> - label: Nested\n>   bind: {{Holdings.total}}\n> ```\n> ```progress\n> label: Nested goal\n> value: count\n> source: contact\n> target: 8\n> ```\n\nEverything below the cards renders in linear flow.\n\n| release | status |\n| --- | --- |\n| [[Slow Bloom EP]] | in review |\n| [[Vessel Songs]] | mastering |\n\n## Money\n\n> A quoted cards fence is quoted text, not a board:\n> ```cards\n> - label: Quoted\n>   bind: {{Holdings.total}}\n> ```\n\n```cards\n- label: Total value\n  bind: \"{{Holdings.total}}\"\n  format: eur\n  emph: true\n- label: Crypto\n  bind: \"{{Holdings.crypto}}\"\n  format: eur\n- label: Positions\n  bind: \"{{Holdings.positions}}\"\n  format: number\n```\n\n```chart\nsource: {{Holdings}}\nx: bucket\ny: sum:value_usd\nkind: bar\ntitle: Holdings by bucket\n```\n\n```progress\nlabel: Portfolio target\nvalue: {{Holdings.total}}\ntarget: 500000\nformat: eur\n" +
       `deadline: ${isoDay(45)}\n` +
-      "```\n\n## People\n\n```view\ntype: contact\nview: table\n```\n\n## Release arc\n\n```timeline\nsource: release\nstart: created\nend: released\nlabel: title\ngroup: status\n```\n\n## Broken\n\n```view\ntype: nosuchtype\n```\n\n```chart\nsource: release\nx: status\ny: nonsense\n```\n\n```progress\nlabel: Broken goal\nvalue: count\ntarget: 5\n```\n\n```timeline\nsource: release\nstart: created\n```\n",
+      "```\n\n## People\n\n| person | role |\n| --- | --- |\n| [[Gero]] | mix engineer |\n\n```view\ntype: contact\nview: table\n```\n\n## Release arc\n\n```timeline\nsource: release\nstart: created\nend: released\nlabel: title\ngroup: status\n```\n\n## Broken\n\n```view\ntype: nosuchtype\n```\n\n```chart\nsource: release\nx: status\ny: nonsense\n```\n\n```progress\nlabel: Broken goal\nvalue: count\ntarget: 5\n```\n\n```timeline\nsource: release\nstart: created\n```\n",
   },
   {
     // progress fence seed: a hub body can be only progress fences,
@@ -2403,6 +2407,14 @@ interface MockMountFile {
       scan; the mock has no bytes, so a PDF's page count is simply part of the
       fake file — enough for the board to prove extracted columns render. */
   extracted?: Record<string, unknown>;
+  /** The file's body text as the engine read it. Stored
+      beside the columns, never as one — the mock keeps it here for the same
+      reason the engine keeps it off `MountFile`. Absent for a file nothing
+      could be read out of. */
+  text?: string;
+  /** The read stopped at its page or byte cap, so the text above is the front
+      of the document and not the whole of it. */
+  text_truncated?: boolean;
 }
 let mockMounts: MockMount[] = [{ id: "mount-finance", name: "finance-doc", globs: [] }];
 const mockMountBindings: Record<string, string> = { "mount-finance": "~/Personal/Finance" };
@@ -2412,8 +2424,17 @@ const mockFolderFiles: {
   size: number;
   modified: string;
   extracted?: Record<string, unknown>;
+  text?: string;
+  text_truncated?: boolean;
 }[] = [
-  { name: "2026-01 Invoice Acme Mastering.pdf", size: 184211, modified: "2026-01-31 10:02", extracted: { pages: 2 } },
+  {
+    name: "2026-01 Invoice Acme Mastering.pdf",
+    size: 184211,
+    modified: "2026-01-31 10:02",
+    extracted: { pages: 2 },
+    // read whole: two pages are well inside the engine's cap
+    text: "Rechnung 2026-01\nAcme Mastering GmbH\nLeistung: Mastering von vier Titeln\nBetrag: 480,00 EUR",
+  },
   { name: "2026-02 Invoice Acme Mastering.pdf", size: 186004, modified: "2026-02-27 09:41", extracted: { pages: 2 } },
   { name: "2026-03 Invoice Acme Mastering.pdf", size: 183557, modified: "2026-03-31 11:15", extracted: { pages: 2 } },
   { name: "2026-07 Rechnung Umbra.pdf", size: 92814, modified: "2026-07-02 14:48", extracted: { pages: 1 } },
@@ -2422,6 +2443,10 @@ const mockFolderFiles: {
     size: 1204551,
     modified: "2026-05-11 16:22",
     extracted: { pages: 34, media_title: "Einkommensteuererklärung 2025" },
+    // thirty-four pages, read to the cap: what a search covers here is the
+    // opening, and the row has to say so
+    text: "Einkommensteuererklärung 2025\nAngaben zur Person\nEinkünfte aus selbständiger Arbeit\nSonderausgaben und außergewöhnliche Belastungen",
+    text_truncated: true,
   },
   { name: "2026-05 Kontoauszug.pdf", size: 88109, modified: "2026-06-03 08:30", extracted: { pages: 4 } },
   { name: "2026-06 Kontoauszug.pdf", size: 89012, modified: "2026-07-03 08:31", extracted: { pages: 4 } },
@@ -2450,6 +2475,8 @@ function mockDiskFiles(globs: string[]): MockMountFile[] {
       identity: mockIdentity(f.name),
       missing: false,
       ...(f.extracted ? { extracted: f.extracted } : {}),
+      ...(f.text ? { text: f.text } : {}),
+      ...(f.text_truncated ? { text_truncated: true } : {}),
     }));
 }
 /** Mirrors Engine::scan_mount: match the prior index by identity first, then
@@ -2511,6 +2538,14 @@ mockMountIndex["mount-finance"] = {
 /** Every sidecar bound to one mount, keyed by vault path — by the `mount`
     prop, not by folder, so a note filed elsewhere keeps working. */
 const mockSidecarsOf = (id: string) => mockNotes.filter((n) => n.props["mount"] === id);
+/** Mirrors Engine::make_excerpt (vault/mod.rs): the first non-empty line,
+    stripped of leading markdown marks and wiki brackets, capped at 120 chars
+    with an ellipsis when it ran longer. */
+function mockExcerpt(text: string): string {
+  const line = text.split("\n").find((l) => l.trim().length > 0) ?? "";
+  const clean = line.replace(/^[#>\-*\s]+/, "").replace(/\[\[|\]\]/g, "");
+  return clean.length > 120 ? `${clean.slice(0, 120)}…` : clean;
+}
 /** Mirrors Engine::mount_rows: index rows carrying their sidecar (identity
     first, then the recorded path), plus a row for every sidecar the index has
     never heard of — an annotation is never invisible. */
@@ -2529,6 +2564,10 @@ function mockMountRows(id: string): MountRow[] {
     identity: f.identity,
     ...(f.missing ? { missing: true } : {}),
     ...(note ? { note: note.path } : {}),
+    // the document's opening line as its preview, mirroring the
+    // engine's make_excerpt — beside the columns, never one of them
+    ...(f.text ? { excerpt: mockExcerpt(f.text) } : {}),
+    ...(f.text && f.text_truncated ? { excerpt_partial: true } : {}),
     props: {
       ...(note ? Object.fromEntries(Object.entries(note.props).filter(([k]) => !owned.has(k))) : {}),
       // extracted last, exactly as Engine::row_of merges them: the file is the
@@ -3338,6 +3377,46 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // a browser mock cannot restart a process; specs assert the call landed
       mockRelaunched = true;
       return null;
+    case "mcp_grants_list":
+      return mockMcpGrants.map((grant) => ({ ...grant }));
+    case "mcp_grant_pick": {
+      const client = String(args?.client ?? "").trim();
+      const access = args?.access === "write" ? "write" : "read";
+      if (!client) throw new Error("client name must not be empty");
+      const prefix = "Projects";
+      const existing = mockMcpGrants.find(
+        (grant) => grant.client === client && grant.prefix === prefix
+      );
+      if (existing) existing.access = access;
+      else mockMcpGrants.push({ client, prefix, access });
+      return mockMcpGrants.map((grant) => ({ ...grant }));
+    }
+    case "mcp_grant_revoke":
+      mockMcpGrants = mockMcpGrants.filter(
+        (grant) => !(grant.client === args?.client && grant.prefix === args?.prefix)
+      );
+      return mockMcpGrants.map((grant) => ({ ...grant }));
+    case "mcp_grants_revoke_all":
+      mockMcpGrants = [];
+      return [];
+    case "mcp_last_seen":
+      // The demo backend fakes a door that has already been talked to, like it
+      // fakes an installed sidecar — a fixed stamp so specs can assert on it.
+      return { name: "Claude Desktop", at: "2026-01-01T09:00:00+01:00" };
+    case "mcp_setup": {
+      const binary = "/Applications/Substrate.app/Contents/MacOS/substrate-mcp";
+      return {
+        binary_path: binary,
+        binary_available: true,
+        client_config_path:
+          "/Users/demo/Library/Application Support/Claude/claude_desktop_config.json",
+        claude_desktop_snippet: JSON.stringify(
+          { mcpServers: { substrate: { command: binary } } },
+          null,
+          2
+        ),
+      };
+    }
     case "vault_list":
       // Settings.md is indexed like the real engine indexes it —
       // the App-side app-file filter is what conceals it by default
@@ -4303,7 +4382,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         const hay = `${n.title}\n${body}`.toLowerCase();
         if (total > 0 && terms.every((t) => new RegExp(`(?<![\\p{L}\\p{N}_])${esc(t)}`, "iu").test(hay)))
           ranked.push({
-            hit: { path: n.path, title_parts: title.parts, total, matches },
+            hit: { path: n.path, title_parts: title.parts, total, matches, partial: false },
             titleHit: title.count > 0,
             offset:
               title.count > 0
@@ -4311,6 +4390,38 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
                 : mockFirstHit(body, terms, bound),
             path: n.path,
           });
+      }
+      // mounted files are indexed alongside notes — a vault whose
+      // papers live in a mount answers "nothing found" otherwise. Keyed by the
+      // virtual path, since a mount row has no note until it is annotated, and
+      // carrying `partial` so a document read only to its cap says so.
+      for (const [id, idx] of Object.entries(mockMountIndex)) {
+        if (!mockMounts.some((m) => m.id === id)) continue;
+        for (const f of idx.files) {
+          const path = `${MOUNT_SCHEME}${id}/${f.rel}`;
+          if (fullInScope !== null && !fullInScope.has(path)) continue;
+          const name = f.rel.split("/").pop() ?? f.rel;
+          const title = segment(name);
+          let total = title.count;
+          const matches = [];
+          const lines = (f.text ?? "").split("\n");
+          for (let i = 0; i < lines.length; i++) {
+            const seg = segment(lines[i]);
+            if (seg.count === 0) continue;
+            total += seg.count;
+            if (matches.length < 12) matches.push({ line: i + 1, parts: seg.parts });
+          }
+          const hay = `${name}\n${f.text ?? ""}`.toLowerCase();
+          if (total === 0 || !terms.every((t) => new RegExp(`(?<![\\p{L}\\p{N}_])${esc(t)}`, "iu").test(hay)))
+            continue;
+          ranked.push({
+            hit: { path, title_parts: title.parts, total, matches, partial: !!f.text_truncated },
+            titleHit: title.count > 0,
+            offset:
+              title.count > 0 ? mockFirstHit(name, terms, bound) : mockFirstHit(f.text ?? "", terms, bound),
+            path,
+          });
+        }
       }
       // rank before capping, or the cap picks by insertion order.
       // The count is of the whole match set, not the page — the UI

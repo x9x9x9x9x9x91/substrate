@@ -11,6 +11,7 @@ mod githist;
 mod gitsync;
 mod history;
 mod kinds;
+mod mcpdoor;
 mod net;
 mod notify;
 #[cfg(target_os = "macos")]
@@ -242,6 +243,7 @@ use commands::files::*;
 use commands::fx::*;
 use commands::history::*;
 use commands::kinds::*;
+use commands::mcp::*;
 use commands::mounts::*;
 use commands::notes::*;
 use commands::reflexes::*;
@@ -464,6 +466,14 @@ fn apply_settings(app: &tauri::AppHandle, root: &std::path::Path) {
         vibrancy::apply(app, settings.window_opacity);
     }
     rt.settings = settings;
+}
+
+/// Entry point of the `substrate-mcp` sidecar binary (src/bin/) — the MCP
+/// door's stdio server. Lives here because the bin target only
+/// re-exports it; everything real is in `mcpdoor::server`.
+#[cfg(not(mobile))]
+pub fn mcp_door_main() -> i32 {
+    mcpdoor::server::run()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1325,6 +1335,12 @@ pub fn run() {
             history_purge_notes,
             history_trim,
             history_status,
+            mcp_grants_list,
+            mcp_grant_pick,
+            mcp_grant_revoke,
+            mcp_grants_revoke_all,
+            mcp_last_seen,
+            mcp_setup,
             agenda_open_note,
             agenda_open_capture,
             agenda_resize,

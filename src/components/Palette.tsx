@@ -3,6 +3,8 @@ import type { DbIcon, NoteMeta, SearchHit, View } from "../lib/types";
 import { propStr } from "../lib/types";
 import { vaultRoot, vaultSearch, mountRescan } from "../lib/ipc";
 import { setPropUndoable } from "../lib/undoprops";
+import { isPickedToday } from "../lib/today";
+import { useTodayIso } from "./useTodayIso";
 import { useUndo } from "../lib/undoContext";
 import { createLatestGuard } from "../lib/latest";
 import { exportNoteMarkdown, exportNoteOneSheet, exportNotePdf } from "../lib/export";
@@ -50,6 +52,7 @@ import {
   TrashIcon,
   UndoIcon,
 } from "./Icons";
+import EmptyState from "./EmptyState";
 
 type Item = {
   id: string;
@@ -126,6 +129,10 @@ interface PaletteProps {
   onSendAsLink: (note: NoteMeta) => void;
   /** Trash the note via App's single path (flush + toast w/ Undo) */
   onTrashNote: (path: string) => void;
+  /** Pick the note for today (or unpick it) — the Today surface's
+      verb, reachable from the palette so a note with no dates at all, which
+      never surfaces as a candidate in the pane, can still be picked */
+  onTogglePick: (path: string, pick: boolean) => void;
   /** Pin/unpin a note in the sidebar's Pinned section */
   onTogglePin: (path: string, pinned: boolean) => void;
   /** the currently pinned note paths — flips the action's label */
@@ -187,6 +194,7 @@ export default function Palette({
   onDuplicate,
   onSendAsLink,
   onTrashNote,
+  onTogglePick,
   onTogglePin,
   pinnedPaths,
   onRevealRel,
@@ -205,6 +213,7 @@ export default function Palette({
   onOpenSettings,
 }: PaletteProps) {
   const undo = useUndo();
+  const todayIso = useTodayIso();
   const [q, setQ] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [stage, setStage] = useState<Stage>({ kind: "root" });
@@ -379,6 +388,8 @@ export default function Palette({
         exportOneSheet: () => exportNoteOneSheet(note).catch(console.error),
         sendAsLink: () => onSendAsLink(note),
         sealed: note.sealed,
+        togglePick: () => onTogglePick(note.path, !isPickedToday(note, todayIso)),
+        picked: isPickedToday(note, todayIso),
         togglePin: () => onTogglePin(note.path, !pinnedPaths.includes(note.path)),
         pinned: pinnedPaths.includes(note.path),
         trash: () => onTrashNote(note.path),
@@ -1004,6 +1015,23 @@ export default function Palette({
           dest: f.split("/").pop() ?? f,
           run: () => onSetView({ kind: "folder", path: f }),
         })),
+        // Pick the open note for today from anywhere. The pane can
+        // only offer Pick on notes that already carry a date, so this is the
+        // one route a dateless note has onto Today. Appended, not slotted in,
+        // so it composes with other in-flight command rows.
+        ...(current
+          ? [
+              {
+                id: "cmd:pick",
+                label: isPickedToday(current, todayIso)
+                  ? "Unpick from today"
+                  : "Pick for today",
+                icon: <SunIcon />,
+                section: "Commands",
+                run: () => onTogglePick(current.path, !isPickedToday(current, todayIso)),
+              },
+            ]
+          : []),
       ];
       // rank by fuzzy score (declaration order breaks ties); destinations in
       // the exact/prefix band render directly under Notes, above Content
@@ -1044,6 +1072,8 @@ export default function Palette({
     setProp,
     onTrashNote,
     onSendAsLink,
+    onTogglePick,
+    todayIso,
     onTogglePin,
     pinnedPaths,
     copyPath,
@@ -1301,9 +1331,7 @@ export default function Palette({
                 );
               })}
               {items.length === 0 && (
-                <div className="empty" role="status" style={{ height: 80 }}>
-                  <span>No matches</span>
-                </div>
+                <EmptyState icon={<SearchIcon />} title="No matches" role="status" style={{ height: 80 }} />
               )}
             </div>
             <div className="palette-foot">

@@ -115,6 +115,13 @@ kind: bar
 `sum:<prop>`, or `avg:<prop>`. A malformed fence renders its parse error in place
 and never breaks the others.
 
+`title` is not a caption above the chart — it *is* the chart's section label,
+set in the same voice and carrying the same hairline tail as any other section
+on the board. So a chart fence sitting under a markdown heading needs a title
+that says something the heading doesn't: `## Money` over `title: Holdings by
+bucket` reads as a section and its chart, while `## Holdings by bucket` over
+the same title prints the noun twice.
+
 **Charting a mounted folder.** A mount is a database, so `source` can name one
 and the chart plots the folder's live index — one row per file, with `name`,
 `extension`, `size`, `created`, `modified`, plus anything its sidecar notes

@@ -156,6 +156,19 @@ test("sortCmpFor: a number key sorts by value, not by digit-run collation", () =
     ]),
     ["num", "alsotext", "text", "blank"]
   );
+  // DESC keeps unorderable cells BEHIND the numbers — "largest first" must
+  // not lead with junk; the classification is direction-independent, like the
+  // missing-values rule (only the within-kind comparisons flip)
+  assert.deepEqual(
+    titles(desc, [
+      note("text", { balance: "see csv" }),
+      note("num", { balance: "100" }),
+      note("neg", { balance: "-3" }),
+      note("blank", {}),
+      note("alsotext", { balance: "n/a" }),
+    ]),
+    ["num", "neg", "text", "alsotext", "blank"]
+  );
   // integers still behave, and unschema'd keys keep the old collation
   const noSchema = sortCmpFor([{ key: "balance", dir: 1 }])!;
   assert.deepEqual(
@@ -221,7 +234,8 @@ test("sortCmpFor: a select key sorts by schema option order, not A→Z (SUB-309)
   // the option match ignores casing — a hand-typed "medium" sits at its option's slot
   const medLower = note("b2-med", { priority: "medium" });
   assert.deepEqual(titles(asc, [low, medLower, high]), ["a-high", "b2-med", "c-low"]);
-  // desc flips the valued order exactly like it flips localeCompare
+  // desc reverses the option order — every row here is a known option, so the
+  // whole column flips
   const desc = sortCmpFor([{ key: "priority", dir: -1 }], schema)!;
   assert.deepEqual(titles(desc, [high, med, low]), ["c-low", "b-med", "a-high"]);
 });
@@ -238,9 +252,21 @@ test("sortCmpFor: unschema'd select values trail the known options (SUB-309)", (
   // themselves (base-insensitive: blocker < Urgent) — missing values last
   const asc = sortCmpFor([{ key: "priority", dir: 1 }], schema)!;
   assert.deepEqual(titles(asc, [strayU, none, strayB, high]), ["a-high", "e-blocker", "d-urgent", "z-none"]);
-  // desc reverses the valued rows wholesale; only the missing row keeps its tail slot
+  // DESC keeps unschema'd values BEHIND the known options — "last option
+  // first" must not lead with junk. The classification is direction-independent
+  // like the missing-values rule; only the within-class comparisons flip, so
+  // the strays reverse among themselves (Urgent before blocker) and the
+  // missing row keeps its tail slot.
   const desc = sortCmpFor([{ key: "priority", dir: -1 }], schema)!;
-  assert.deepEqual(titles(desc, [high, none, strayB, strayU]), ["d-urgent", "e-blocker", "a-high", "z-none"]);
+  assert.deepEqual(titles(desc, [high, none, strayB, strayU]), ["a-high", "d-urgent", "e-blocker", "z-none"]);
+  // with several known options the desc order is option order reversed, then
+  // the strays, then missing
+  const med = note("b-med", { priority: "Medium" });
+  const low = note("c-low", { priority: "Low" });
+  assert.deepEqual(
+    titles(desc, [strayB, high, none, low, strayU, med]),
+    ["c-low", "b-med", "a-high", "d-urgent", "e-blocker", "z-none"]
+  );
 });
 
 test("sortCmpFor: non-select keys keep the lexicographic path even with a schema (SUB-309)", () => {

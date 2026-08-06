@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRightIcon, FileIcon, ImageIcon, LockIcon, NotesIcon, PlusIcon } from "./Icons";
+import EmptyState from "./EmptyState";
 import type { DbIcon, FolderFile, NoteMeta, TagFolder, View } from "../lib/types";
 import { propStr } from "../lib/types";
 import type { DbBlock } from "../lib/views";
@@ -31,6 +32,22 @@ export function relDate(ms: number, now = Date.now()): string {
 /** stable identity for the memoized FileRow's optional callbacks — an inline
     arrow per render would defeat the memo */
 const noop = () => {};
+
+/** What ⌘N actually does in the view the empty state is standing in. The hint
+    names a verb the button then runs, so it has to track `createHere`'s fork:
+    inside a folder the note is born there (in the Journal it is the day's
+    entry), inside a tag folder it lands in Inbox wearing the folder's tags,
+    and only elsewhere is it a plain Inbox capture. */
+function newHint(view: View): string {
+  if (view.kind === "notes") return "⌘N jots a new scratch note";
+  if (view.kind === "folder") {
+    return view.path === JOURNAL_DIR
+      ? "⌘N opens today’s journal entry"
+      : "⌘N creates a note in this folder";
+  }
+  if (view.kind === "tagfolder") return "⌘N captures a note into the Inbox, tagged for this folder";
+  return "⌘N captures a note into the Inbox";
+}
 
 /** The pane header's name for a view. `tagFolders` is only needed by the
     tagfolder kind — its name lives in the folder definition, not the view, so
@@ -304,6 +321,10 @@ interface ListPaneProps {
       Same fork ⌘N takes; the button is the only visible path on touch, where
       ⌘N doesn't exist. */
   onNewHere?: () => void;
+  /** The ⌘N command itself, so the empty state's hint about ⌘N has
+      a button running exactly what the shortcut runs (unlike `onNewHere`,
+      which is the folder header's fork and only exists in folder views). */
+  onNewNote?: () => void;
   /** Tag folder definitions — the header needs them to name a
       `tagfolder` view, which carries only an id. */
   tagFolders?: TagFolder[];
@@ -341,6 +362,7 @@ function ListPane({
   icons,
   onOpenDb,
   onNewHere,
+  onNewNote,
   tagFolders = [],
   mobile = false,
   files = [],
@@ -670,17 +692,13 @@ function ListPane({
         onScroll={windowed ? () => winSyncRef.current() : undefined}
       >
         {notes.length === 0 && blocks.length === 0 && files.length === 0 ? (
-          <div className="empty">
-            <NotesIcon />
-            <span>Nothing here</span>
-            <span className="empty-hint">
-              {mobile
-                ? "Open navigation and tap + to capture"
-                : view.kind === "notes"
-                  ? "⌘N jots a new scratch note"
-                  : "⌘N captures a note into the Inbox"}
-            </span>
-          </div>
+          <EmptyState
+            icon={<NotesIcon />}
+            title="Nothing here"
+            hint={mobile ? "Open navigation and tap + to capture" : newHint(view)}
+            /* the hint's own verb, made clickable — the same command ⌘N fires */
+            action={onNewNote ? { label: "New note", onClick: onNewNote } : undefined}
+          />
         ) : (
           <>
             {blocks.map((b) => (

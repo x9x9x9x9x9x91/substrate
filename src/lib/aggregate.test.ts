@@ -108,6 +108,24 @@ test("parseStrictNumber rejects hex/binary/octal/exponent/Infinity (SUB-221)", (
   assert.equal(aggregate("sum", ["10", "Infinity", "1e3", "0x10", "5"]), 15);
 });
 
+test("parseStrictNumber rejects literals that overflow to Infinity (SUB-1176)", () => {
+  // well-shaped by the grammar, unrepresentable as a double: Number() gives
+  // Infinity, which would poison every sum and average downstream
+  const overflow = "1".padEnd(310, "0");
+  assert.equal(Number(overflow), Infinity, "the literal really does overflow");
+  assert.equal(parseStrictNumber(overflow), null);
+  assert.equal(parseStrictNumber(`-${overflow}`), null, "negative overflow too");
+  assert.equal(parseStrictNumber(`${overflow}.5`), null, "decimal point doesn't help");
+  // just under the boundary still parses — the check rejects overflow, not size
+  const big = "1".padEnd(300, "0");
+  assert.equal(parseStrictNumber(big), Number(big));
+  assert.equal(parseStrictNumber("1.7976931348623157e308"), null, "exponents stay text");
+  // a huge cell drops out of the sum instead of turning it into Infinity
+  assert.equal(aggregate("sum", ["10", overflow, "5"]), 15);
+  assert.equal(aggregate("avg", ["10", overflow, "20"]), 15);
+  assert.equal(aggregate("max", ["10", overflow, "20"]), 20);
+});
+
 test("formatAgg renders de-DE grouping with ≤2 decimals (SUB-245)", () => {
   assert.equal(formatAgg(42, "sum"), "42");
   assert.equal(formatAgg(3.14159, "avg"), "3,14");

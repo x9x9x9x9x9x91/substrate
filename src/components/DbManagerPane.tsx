@@ -6,6 +6,7 @@ import { typeSchemaFor } from "../lib/schemalookup";
 import { mountSubtitle } from "../lib/mounts";
 import TypeIcon from "./TypeIcon";
 import { DbIcon as DbGlyphIcon, DotsIcon, MountIcon, PlusIcon } from "./Icons";
+import EmptyState from "./EmptyState";
 import { useEdgeFade } from "../hooks/useEdgeFade";
 import { BackButton } from "./BackButton";
 
@@ -60,16 +61,12 @@ export default function DbManagerPane({
       </div>
       <div className={`dbmgr-body${fade.className}`} {...fade.props}>
         {databases.length === 0 ? (
-          <div className="empty">
-            <DbGlyphIcon />
-            <span>No databases yet</span>
-            <span className="empty-hint">
-              a database is a typed collection of notes — releases, contacts, tasks
-            </span>
-            <button className="empty-action" onClick={onNewDatabase}>
-              New database
-            </button>
-          </div>
+          <EmptyState
+            icon={<DbGlyphIcon />}
+            title="No databases yet"
+            hint="a database is a typed collection of notes — releases, contacts, tasks"
+            action={{ label: "New database", onClick: onNewDatabase }}
+          />
         ) : (
           databases.map((d) => {
             const home = typeHome(typeSchemaFor(schema, d.type));

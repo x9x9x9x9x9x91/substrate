@@ -964,6 +964,54 @@ button.side-item {
   }
 }
 
+/* The hover tooltip. Same elevated card as every other floating
+   surface, sized down — it is a label, not a menu. Positioned by
+   src/components/Tooltip.tsx (fixed, viewport coords), so nothing here places
+   it. Above the menus, below the toast: a tooltip may describe a menu item,
+   but must never cover the thing the app is trying to tell you. Never a
+   pointer target — it sits where the pointer is heading. */
+.tooltip {
+  position: fixed;
+  z-index: 115;
+  max-width: 280px;
+  padding: 4px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  box-shadow:
+    0 6px 20px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  color: var(--text-1);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  animation: tip-in 90ms ease-out;
+}
+
+/* grows out of the trigger, like the menus */
+.tooltip.tip-bottom {
+  transform-origin: top center;
+}
+
+.tooltip.tip-top {
+  transform-origin: bottom center;
+}
+
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tooltip {
+    animation: none;
+  }
+}
+
 .ctx-item {
   display: flex;
   align-items: center;
@@ -4050,7 +4098,7 @@ body.agenda-window .palette:focus-visible {
      caps on true ultrawide */
   max-width: 1120px;
   margin: 0 auto;
-  padding: 34px clamp(20px, 4vw, 48px) 80px;
+  padding: 32px clamp(20px, 4vw, 48px) 80px;
   counter-reset: dashsect;
 }
 
@@ -4129,7 +4177,7 @@ body.agenda-window .palette:focus-visible {
 }
 
 .dash-hero {
-  margin-top: 26px;
+  margin-top: 24px;
 }
 
 .dash-label {
@@ -4159,21 +4207,25 @@ body.agenda-window .palette:focus-visible {
   margin-top: 6px;
 }
 
-/* stat tiles: a ruled row — column hairlines, no boxes */
+/* stat tiles: a ruled row — one hairline over each figure, no boxes.
+   The rule used to run down each tile's left edge, which only ever
+   divides tiles that share a row. This grid wraps (auto-fit), so the tile
+   that opened a wrapped row hung a rule in the gutter with nothing to its
+   left — `:first-child` only knew about row one. A rule ABOVE the figure is
+   the ledger's own gesture: it is the line a column of numbers is written
+   under, it is right in every row, and it needs no renderer to tell it where
+   a row begins. The gap separates tiles now; the padding is the rhythm
+   between the rule and the label under it. */
 .dash-metrics {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 24px 16px;
   margin-top: 24px;
 }
 
 .dash-metric {
-  padding: 0 16px;
-  border-left: 1px solid var(--hair-soft);
-}
-
-.dash-metric:first-child {
-  border-left: none;
-  padding-left: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--hair-soft);
 }
 
 .dash-metric .dash-value {
@@ -4206,7 +4258,7 @@ body.agenda-window .palette:focus-visible {
   letter-spacing: 0;
   text-transform: none;
   color: var(--text-2);
-  margin: 30px 0 12px;
+  margin: 32px 0 12px;
 }
 
 .dash-section-label::before {
@@ -4244,7 +4296,7 @@ body.agenda-window .palette:focus-visible {
 /* releases after the first get real air — the gap is what separates two
    releases more than any rule could */
 .chlog-release + .chlog-release .dash-section-label {
-  margin-top: 46px;
+  margin-top: 48px;
 }
 
 .chlog-release .dash-section-label > span:first-child {
@@ -4371,20 +4423,17 @@ body.agenda-window .palette:focus-visible {
 }
 
 
-/* "cards" are ruled tiles now — same anatomy as .dash-metrics */
+/* "cards" are ruled tiles — same anatomy as .dash-metrics: a hairline over
+   each figure rather than a box around it */
 .dash-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 24px 16px;
 }
 
 .dash-card {
-  padding: 0 16px;
-  border-left: 1px solid var(--hair-soft);
-}
-
-.dash-card:first-child {
-  border-left: none;
-  padding-left: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--hair-soft);
 }
 
 .dash-card-eur {
@@ -4414,11 +4463,24 @@ body.agenda-window .palette:focus-visible {
   position: relative;
 }
 
+/* `--bar-plot` is the tallest bar's height — the same number BAR_PLOT_PX holds
+   in ChartsDashboard.tsx, kept here so the max rule can be drawn at the top of
+   the plot without the renderer having to place it. `min-height` is that plot
+   plus the 19px the axis rule and time-label row take under every bar, plus
+   the block's own 8px of head room — 147 — rounded up to a flat 150; the value
+   labels ride INSIDE their bars and so cost the block nothing.
+   `--bar-w*` is the bar's width in one place: the fill and the value label
+   knocked out of it have to be the same box or the label paints its overhang
+   in the background colour on the background (review). */
 .dash-chart {
+  --bar-plot: 120px;
+  --bar-w: 52%;
+  --bar-w-floor: min(100%, 28px);
+  --bar-w-cap: 72px;
   display: flex;
   align-items: flex-end;
   gap: 12px;
-  min-height: 170px;
+  min-height: calc(var(--bar-plot) + 30px);
   padding: 8px 0 0;
   position: relative;
 }
@@ -4427,7 +4489,7 @@ body.agenda-window .palette:focus-visible {
    number lives here and in BAR_PLOT_PX (ChartsDashboard.tsx); a fence names
    the token, never the height. */
 .dash-chart[data-size="tall"] {
-  min-height: 270px;
+  --bar-plot: 220px;
 }
 
 /* 1px axis the bars stand on — sits between the bars and the time-label row
@@ -4442,6 +4504,25 @@ body.agenda-window .palette:focus-visible {
   pointer-events: none;
 }
 
+/* ONE gridline, at the max. A ledger rules the top of a column of
+   figures and leaves the middle alone: the reader needs to know where full
+   scale is, and every further line between it and the axis is chrome charging
+   rent. It rides the softer hairline so the axis stays the stronger of the
+   two, and it lands exactly on the tallest bar's top edge — `--bar-plot` above
+   the axis, which is where the renderer puts a bar at 100%. Only a plot whose
+   scale IS its tallest bar earns the rule, hence the marker class: the yield
+   pane borrows `.dash-chart` but scales against a rounded ceiling, so a line at
+   full scale there would rule empty air. */
+.dash-chart.is-ruled::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(19px + var(--bar-plot));
+  border-bottom: 1px solid var(--hair-soft);
+  pointer-events: none;
+}
+
 .dash-bar-col {
   flex: 1;
   min-width: 0;
@@ -4452,15 +4533,30 @@ body.agenda-window .palette:focus-visible {
   gap: 5px;
 }
 
+/* A bar owns a little over half its band. It used to be capped at
+   28px whatever the band was, so a four-category chart on a wide board drew
+   four pencil strokes marooned in 500px of gutter — the mark reading as an
+   accident of the layout rather than as the quantity. Half the band is the
+   ledger's own proportion: wide enough that the bar is the figure, with enough
+   air left that the columns never touch. The cap is the far end of the same
+   argument: past ~72px a three-point chart stops drawing bars and starts
+   drawing slabs, and the figure is lost in its own fill.
+   The ratio alone does NOT hold at every column count — below a ~54px band it
+   draws a thinner bar than the 28px-capped geometry it replaced, and a
+   20-column chart in a 490px plot lands at 6.8px, the same pencil stroke at
+   the other end of the range (review). So the old rule survives as the floor:
+   `min(100%, 28px)` is exactly what the bar used to be, and the ratio only
+   takes over once it is the wider of the two. */
 .dash-bar {
-  width: 100%;
-  max-width: 28px;
+  width: var(--bar-w, 52%);
+  min-width: var(--bar-w-floor, min(100%, 28px));
+  max-width: var(--bar-w-cap, 72px);
   border-radius: 0;
-  /* flat fill; --bar/--bar-hover carry the per-bar hue when the renderer has
-     one — the schema hue on a colored select axis (pill idiom), or the
-     accent series ramp on an uncolored categorical axis. The
-     fallback is the accent itself: a single-series chart is one series, so
-     it wears the family's first colour rather than reading as grey. */
+  /* flat fill; --bar/--bar-hover carry the per-bar hue only where the renderer
+     has an authored one — the schema hue on a colored select axis (pill
+     idiom). Everything else takes the fallback, the accent itself: an unsplit
+     chart is ONE series and wears one colour, rather than reading as grey or
+     cycling a ramp that names nothing. */
   background: var(--bar, var(--accent));
   min-height: 3px;
   transition: background 120ms ease-out;
@@ -4481,6 +4577,38 @@ body.agenda-window .palette:focus-visible {
   text-align: center;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The value belongs to the bar, so it is written ON it. Floating
+   above the mark, every label added 19px of band the chart then had to be tall
+   enough to hold, and a full-height bar pushed its own number out over the max
+   rule. Inset, the number sits where the quantity ends and the plot keeps its
+   declared height. The negative margin is the whole mechanism: it pulls the
+   bar (and everything under it) up past this box — 19px to close the label's
+   own band, 4 more for the inset — so the label lands just inside the bar's
+   top edge while both stay in normal flow.
+
+   Only a bar with room gets one, in BOTH directions: the renderer withholds
+   `is-inset` under 22px of height, where the number would hang off the end of a
+   stub, and again when the number is wider than the bar is — knocked-out type
+   that overhangs its fill is painted background-on-background and is simply
+   gone (review). The label then keeps its old place above the mark, where it
+   is laid down in ink and reads even when its column has to clip it.
+   The box is sized off the same `--bar-w*` as the fill rather than the column,
+   so that guard has a belt: anything the renderer misjudges clips at the bar's
+   edge instead of vanishing past it. The scope is `.dash-chart` because
+   `.dash-bar-val` is shared: the food plot places the same element by its own
+   rules, and must not inherit this one. */
+.dash-chart .dash-bar-val.is-inset {
+  position: relative;
+  z-index: 1;
+  width: var(--bar-w, 52%);
+  min-width: var(--bar-w-floor, min(100%, 28px));
+  max-width: var(--bar-w-cap, 72px);
+  margin-bottom: -23px;
+  /* on the fill, in the surface's own colour — the one place in the dashboard
+     where type is knocked out rather than laid down */
+  color: var(--bg);
 }
 
 .dash-bar-time {
@@ -4615,13 +4743,21 @@ body.agenda-window .palette:focus-visible {
   );
 }
 
+/* A line chart's axis names its marks for the same reason a bar chart's does,
+   so it says it in the same voice. These two used to be hand-rolled
+   sans at the label size while `.dash-bar-val` and `.dash-bar-time` — the bar
+   plot's exact equivalents — took `--dash-label` and its mono; two charts on
+   one board then labelled themselves in two typefaces. The size is unchanged;
+   only the voice is. Neither takes the label's uppercase or tracking, because
+   neither of the bar plot's does: an axis tick is a date or a figure being
+   read, not a heading being scanned. */
 .chart-line-hint {
   position: absolute;
   left: 0;
   width: 34px;
   text-align: right;
   transform: translateY(-50%);
-  font-size: 10.5px;
+  font: var(--dash-label);
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
   pointer-events: none;
@@ -4635,7 +4771,7 @@ body.agenda-window .palette:focus-visible {
   /* aligns with the plot, which insets right of the value gutter — a margin,
      not padding, so the children's containing block spans the plot width */
   margin: 6px 0 0 40px;
-  font-size: 10.5px;
+  font: var(--dash-label);
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
 }
@@ -5314,7 +5450,7 @@ body.agenda-window .palette:focus-visible {
 
 /* the form is a section, not a box — its section label carries the frame */
 .dash-form {
-  margin-top: 30px;
+  margin-top: 32px;
 }
 
 .dash-form-row {
@@ -5522,33 +5658,31 @@ body.agenda-window .palette:focus-visible {
      dash-inner measure (664px content), stacking 2/1 on narrower panes */
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   margin: 0 0 12px;
-  gap: 16px 0;
+  gap: 16px;
 }
 
-/* callout hue rides the tile's own column rule — every hub card keeps its
-   left rule (unlike stat tiles, where the first tile is flush) because the
-   rule is the callout's type mark, not just a divider */
+/* the callout's hue rides its own rule, so EVERY hub card is ruled — the type
+   mark is what the rule is for, and a card without one says nothing about its
+   type. The rule used to be a left edge on `:first-child` only, so
+   the three hue rules below painted the first callout and nothing else. */
 .hub-card {
   display: flex;
   flex-direction: column;
   gap: 6px;
-}
-
-.hub-card:first-child {
-  border-left: 1px solid var(--hair-soft);
-  padding-left: 16px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hair-soft);
 }
 
 .hub-card-note {
-  border-left-color: var(--opt-indigo);
+  border-top-color: var(--opt-indigo);
 }
 
 .hub-card-warn {
-  border-left-color: var(--opt-yellow);
+  border-top-color: var(--opt-yellow);
 }
 
 .hub-card-idea {
-  border-left-color: var(--opt-violet);
+  border-top-color: var(--opt-violet);
 }
 
 /* an accent replaces the kind's default hue on the type rule: the
@@ -5556,7 +5690,7 @@ body.agenda-window .palette:focus-visible {
    free to carry the author's mood. Higher specificity than the three rules
    above, so order in this file isn't load-bearing. */
 .hub-card[data-accent] {
-  border-left-color: var(--accent-tint);
+  border-top-color: var(--accent-tint);
 }
 
 .hub-card-title {
@@ -5594,7 +5728,7 @@ body.agenda-window .palette:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 30px 0 12px;
+  margin: 32px 0 12px;
   font: var(--dash-label);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -7411,10 +7545,26 @@ tr.db-draft-tr,
   padding-top: 6px;
 }
 
+/* the inline note inside a populated diff column ("No text changes") — not a
+   pane's empty state, so it stays a quiet strip rather than the shell */
 .hist-empty {
   padding: 18px 14px;
   color: var(--text-3);
   font-size: 12.5px;
+}
+
+/* Layout delta where the panel's empty states ride the shared shell.
+   The glyph steps down — this is a 260px column, not a pane — and the box sits
+   at the top of the list instead of centering in its scroll height. */
+.empty.hist-empty {
+  height: auto;
+  color: var(--text-2);
+}
+
+.empty.hist-empty > svg {
+  width: 22px;
+  height: 22px;
+  margin-bottom: 6px;
 }
 
 /* foreign-repo state: same quiet grey as the empty state, no chrome */
@@ -7422,11 +7572,6 @@ tr.db-draft-tr,
   width: 100%;
   padding: 26px 18px;
   line-height: 1.55;
-}
-
-.hist-disabled-sub {
-  margin-top: 3px;
-  font-size: 11.5px;
 }
 
 .hist-foot {
@@ -8149,15 +8294,16 @@ th.sheet-computed:hover {
   padding: 16px 18px 60px;
 }
 
-.sheet-empty {
+/* Layout delta on the shared `.empty` shell — it fills the sheet's remaining
+   height instead of claiming 100% of it, and opens the gap the add-column
+   control needs. Glyph, title and hint come from `.empty`, and so does the
+   text treatment: this state used to set its own `--text-3` at the inherited
+   weight, and now takes `.empty`'s `--text-2` at 500 — a step darker and
+   heavier, which is the point of the unification, not an oversight. */
+.empty.sheet-empty {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  height: auto;
   gap: 8px;
-  color: var(--text-3);
-  font-size: 13px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -8184,7 +8330,7 @@ th.sheet-computed:hover {
      keeps a squeezed pane from starving the mono values below legibility —
      below it the strip drops to two columns rather than truncate. */
   grid-template-columns: repeat(var(--metrics-cols, 4), minmax(0, 1fr));
-  row-gap: 26px;
+  row-gap: 24px;
 }
 
 /* the squeeze point is the pane, not the window (principle 4) — a sidebar can
@@ -8194,40 +8340,14 @@ th.sheet-computed:hover {
   container: metrics-strip / inline-size;
 }
 
-/* below ~560px of strip the mono values start colliding with their neighbour's
-   hairline: the block halves its columns rather than truncate. The row-start
-   class still marks every 1st/5th tile, so at two columns some interior tiles
-   keep a rule they'd otherwise drop — the hairline is a divider either way,
-   and the alternative (recomputing marks per breakpoint) would put layout
-   state back in JS. Only the left edge of the grid must stay unruled. */
+/* below ~560px of strip the mono values start colliding with their neighbour:
+   the block halves its columns rather than truncate. Each tile is ruled from
+   above, so the column count no longer changes which tiles are ruled — every
+   tile is, in every row, at every width. */
 @container metrics-strip (max-width: 560px) {
   .metrics-cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .metrics-cards .dash-card:nth-child(odd) {
-    border-left: none;
-    padding-left: 0;
-  }
-
-  .metrics-cards .dash-card:nth-child(even) {
-    border-left: 1px solid var(--hair-soft);
-    padding-left: 16px;
-  }
-}
-
-/* every row starts a fresh ruled run: the hairline separates tiles inside a
-   row, so the tile that opens a wrapped row must not carry a leading rule
-   (`:first-child` only ever knew about the first row). Which tiles those are
-   depends on the column count, which is data — so the renderer marks them. */
-.metrics-cards .dash-card {
-  border-left: 1px solid var(--hair-soft);
-  padding-left: 16px;
-}
-
-.metrics-cards .dash-card.row-start {
-  border-left: none;
-  padding-left: 0;
 }
 
 /* one baseline per card row (design principle 3): user-authored labels can
@@ -8245,16 +8365,24 @@ th.sheet-computed:hover {
   color: var(--accent-text);
 }
 
+/* Emphasis is two steps, not one. Sharp and sunk used to differ
+   only in hue, so the whole of principle 11's hierarchy rode on colour: a
+   greyscale print, a colour-blind reader, or a tone whose accent sits close
+   to --text-3 all got a board of eight equal figures. Weight carries the
+   same rank without a second hue, and the mono face makes it free — a
+   fixed-advance glyph is the same width at 400 as at 500, so no value
+   moves and no column re-measures. */
 .metrics-cards .dash-card.sunk .dash-card-eur {
   color: var(--text-3);
+  font-weight: 400;
 }
 
 .metrics-cards .dash-card.sunk .dash-label {
   color: var(--text-4);
 }
 
-/* an accented card marks itself on the LABEL and its column rule, never on
-   the value. The value ramp above is the whole of principle 11's
+/* an accented card marks itself on the LABEL and on the hairline it is ruled
+   under, never on the value. The value ramp above is the whole of principle 11's
    two-sharp-values discipline — if an accent could reach `.dash-card-eur`,
    a board that accents every card would read as a board with eight sharp
    values, and the contrast that makes the important two findable would be
@@ -8269,8 +8397,7 @@ th.sheet-computed:hover {
 }
 
 .metrics-cards .dash-card[data-accent] {
-  /* inert on a .row-start tile, which carries no left border by design */
-  border-left-color: var(--accent-tint, var(--hair-soft));
+  border-top-color: var(--accent-tint, var(--hair-soft));
 }
 
 /* A custom kind (§5.8) reaches mood the same bounded way a fence does: it puts
@@ -8286,7 +8413,7 @@ th.sheet-computed:hover {
 }
 
 .kind-host .dash-card[data-accent] {
-  border-left-color: var(--accent-tint, var(--hair-soft));
+  border-top-color: var(--accent-tint, var(--hair-soft));
 }
 
 .metrics-cards .dash-card {
@@ -10024,6 +10151,18 @@ span.asset-thumb svg {
   color: var(--text-3);
 }
 
+/* the file behind this hit was read only to its cap, so what the
+   search covered is its opening. Quiet by design — it qualifies the result,
+   it does not warn about it. */
+.search-partial {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-3);
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+  padding: 0 6px;
+}
+
 .search-count {
   margin-left: auto;
   flex: none;
@@ -10593,6 +10732,15 @@ span.asset-thumb svg {
   /* tinted bars keep their schema hue via the inline --bar */
   #print-surface .dash-bar {
     background: var(--bar, #9198a1);
+  }
+
+  /* The inset value knocks out of its bar. On screen the bar is a
+     lit accent and `--bg` is near-black, so the number reads dark on light; on
+     paper the bar is a mid grey and `--bg` is the page itself, which would
+     print white on grey. The ink flips with the surface, so it is named here
+     rather than inherited. */
+  #print-surface .dash-chart .dash-bar-val.is-inset {
+    color: #1b1e22;
   }
 
   /* a stack is drawn by its slices — the id-scoped rule above would otherwise
@@ -12992,10 +13140,19 @@ body.col-resizing * {
   margin-bottom: 10px;
 }
 
+/* the per-lane line on a PARTIALLY full day — an empty day collapses to one
+   `.empty` state instead */
 .today-quiet {
   padding: 2px 0;
   font-size: 12.5px;
   color: var(--text-3);
+}
+
+/* Layout delta on the shared shell — the column is already padded and
+   centered, so the state sits under the head rather than claiming height */
+.empty.today-empty {
+  height: auto;
+  padding: 64px 0 0;
 }
 
 .today-row {
@@ -13037,6 +13194,26 @@ body.col-resizing * {
 
 .today-row:active {
   background: var(--active);
+}
+
+/* The keyboard's selected row, mirroring the tray popover's
+   `.agenda-row.selected` — the same accent rail so one visual language covers
+   both Today surfaces. The listbox takes programmatic focus (it owns the key
+   model), so the selected row carries the visible state instead of a focus
+   ring around the whole column. */
+.today-rows:focus,
+.today-rows:focus-visible {
+  outline: none;
+}
+
+.today-row.selected {
+  background: var(--active);
+  color: var(--text-1);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.today-row.selected .today-act {
+  opacity: 1;
 }
 
 /* done/cancelled: the dim is the one mark — never strike+dim */
@@ -14670,7 +14847,7 @@ body.termhud-resizing-ew .termhud {
 /* ── Settings sheet (⌘,) ──────────────────────────── */
 
 .settings-sheet {
-  width: 520px;
+  width: 620px;
 }
 
 .settings-title {
@@ -14987,6 +15164,176 @@ body.termhud-resizing-ew .termhud {
   padding: 12px;
   font-size: 12.5px;
   color: var(--text-3);
+}
+
+/* MCP grants are machine permissions, not Settings.md fields. They live in
+   the same sheet but read as one bounded pane: grant controls, current
+   holders, then the client setup artifact. */
+.settings-section {
+  margin: 6px 12px 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.settings-section-head,
+.mcp-setup-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-section-title {
+  color: var(--text-1);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-raw:disabled,
+.mcp-grant-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.mcp-grant-builder {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.mcp-client-input {
+  width: 100%;
+}
+
+.mcp-grant-button {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--text-1);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mcp-grant-button:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.mcp-client-hint {
+  margin-top: 7px;
+}
+
+.mcp-client-hint code {
+  font-family: var(--mono);
+  color: var(--text-2);
+}
+
+.mcp-last-seen {
+  margin-top: 5px;
+}
+
+/* The whole point of this line is that the name is character-exact, so keep the
+   mono face and stop HTML from collapsing the padding that caused the mismatch. */
+.mcp-last-seen-name {
+  font-family: var(--mono);
+  color: var(--text-2);
+  white-space: pre-wrap;
+}
+
+.mcp-grant-list {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.mcp-grant,
+.mcp-empty {
+  min-height: 34px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mcp-grant {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mcp-empty {
+  display: flex;
+  align-items: center;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+
+.mcp-grant-copy {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(90px, 0.8fr) minmax(110px, 1.2fr) auto;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  font-size: 11.5px;
+}
+
+.mcp-grant-client,
+.mcp-grant-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-grant-client {
+  color: var(--text-1);
+}
+
+.mcp-grant-path,
+.mcp-path {
+  font-family: var(--mono);
+  color: var(--text-3);
+  word-break: break-all;
+}
+
+.mcp-grant-access {
+  color: var(--text-3);
+}
+
+.mcp-error {
+  margin-top: 8px;
+  color: var(--danger);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.mcp-setup {
+  margin-top: 12px;
+}
+
+.mcp-snippet {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  max-height: 132px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  color: var(--text-2);
+  font: var(--dash-data);
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+
+.mcp-setup > .mcp-path {
+  margin-top: 6px;
+}
+
+.mcp-setup-note {
+  margin-top: 4px;
 }
 
 /* The €1 donation nag. The toast's floating language — bottom of the

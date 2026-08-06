@@ -252,10 +252,9 @@ export function MetricCardStrip({
           // the binding is chrome, not content — tooltip only, merged
           // with any error title
           const title = v.title ? `${card.bind} — ${v.title}` : card.bind;
-          // the tile that opens a row drops its leading hairline — the
-          // rule divides tiles inside a row, it never fences the left
-          // edge of one
-          const cls = `dash-card${sharp.has(i) ? "" : " sunk"}${i % cols === 0 ? " row-start" : ""}`;
+          // every tile is ruled from above, so where a row starts
+          // is no longer the renderer's business — the stylesheet owns it
+          const cls = `dash-card${sharp.has(i) ? "" : " sunk"}`;
           return (
             // the accent is a NAME, never a colour: the attribute is
             // all the renderer knows, and the ten rules in styles.css are the

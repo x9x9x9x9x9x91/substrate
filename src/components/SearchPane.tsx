@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { FullSearchHit, NoteMeta, SearchMatch, SnippetPart } from "../lib/types";
+import type { FullSearchHit, MountInfo, NoteMeta, SearchMatch, SnippetPart } from "../lib/types";
 import { foldedPropStr } from "../lib/types";
+import { MOUNT_SCHEME, searchHitMeta } from "../lib/mounts";
 import { vaultSearchFull } from "../lib/ipc";
 import { createLatestGuard } from "../lib/latest";
 import {
@@ -13,6 +14,7 @@ import {
 import { dailyDateOf, displayTitle } from "../lib/journal";
 import { displayType } from "../lib/display";
 import { FilterIcon, NoteIcon, SearchIcon } from "./Icons";
+import EmptyState from "./EmptyState";
 import SwitchGroup from "./SwitchGroup";
 
 type SortMode = "relevance" | "updated";
@@ -25,6 +27,10 @@ interface Row {
 
 interface SearchPaneProps {
   notes: NoteMeta[];
+  /** a hit inside a mounted document's text names a `mount://` row,
+      which is in no note list — the mount it belongs to supplies its type
+      badge, and its absence here is what makes such a hit unrenderable */
+  mounts: MountInfo[];
   query: string;
   setQuery: (q: string) => void;
   onOpenMatch: (path: string, line: number) => void;
@@ -52,6 +58,7 @@ function Snippet({ parts }: { parts: SnippetPart[] }) {
 
 export default function SearchPane({
   notes,
+  mounts,
   query,
   setQuery,
   onOpenMatch,
@@ -166,10 +173,18 @@ export default function SearchPane({
 
   const groups = useMemo(() => {
     const byPath = new Map(notes.map((n) => [n.path, n]));
+    // a hit can name a mounted file rather than a note — an
+    // un-annotated mount row has no note to join against, so it is rebuilt
+    // from the hit and its mount. Everything downstream (filters, sort,
+    // rendering, open) then treats it like any other row.
+    const metaOf = (h: FullSearchHit): NoteMeta | undefined =>
+      byPath.get(h.path) ??
+      searchHitMeta(h.path, h.title_parts.map((p) => p.text).join(""), mounts) ??
+      undefined;
     let hits: FullSearchHit[];
     if (searchText) {
       hits = engineHits.filter((h) => {
-        const n = byPath.get(h.path);
+        const n = metaOf(h);
         return n !== undefined && (effFilters.length === 0 || matchesFilters(n, effFilters));
       });
     } else if (effFilters.length > 0) {
@@ -181,17 +196,19 @@ export default function SearchPane({
           title_parts: [{ text: displayTitle(n), hit: false }],
           total: 0,
           matches: [],
+          // these rows come from the loaded notes, never from a mount
+          partial: false,
         }));
     } else {
       hits = [];
     }
     const out = hits.flatMap((h) => {
-      const n = byPath.get(h.path);
+      const n = metaOf(h);
       return n ? [{ h, n }] : [];
     });
     if (sort === "updated") out.sort((a, b) => b.n.updated_ms - a.n.updated_ms);
     return out;
-  }, [engineHits, notes, searchText, effFilters, sort]);
+  }, [engineHits, notes, mounts, searchText, effFilters, sort]);
 
   const rows = useMemo(() => {
     const out: Row[] = [];
@@ -235,15 +252,25 @@ export default function SearchPane({
   // handed, so presenting it as the total under-reports (measured 3–4× on
   // broad queries). Say what the page actually is instead of inventing a
   // total the engine never sent.
+  // A page can now hold mounted files as well as notes, and calling
+  // a PDF a note in the one place the pane states a number is exactly the kind
+  // of small lie that makes a count untrustworthy. A page of pure notes still
+  // says "notes" — the vault's own vocabulary, unchanged where it is true.
+  const unit = (n: number) =>
+    groups.some((g) => g.h.path.startsWith(MOUNT_SCHEME))
+      ? n === 1
+        ? "result"
+        : "results"
+      : n === 1
+        ? "note"
+        : "notes";
   const stats = !searchText
     ? effFilters.length > 0
-      ? `${groups.length} ${groups.length === 1 ? "note" : "notes"}`
+      ? `${groups.length} ${unit(groups.length)}`
       : ""
     : truncated
-      ? `first ${groups.length} of ${engineResult.total} notes`
-      : `${totalMatches} ${totalMatches === 1 ? "match" : "matches"} in ${groups.length} ${
-          groups.length === 1 ? "note" : "notes"
-        }`;
+      ? `first ${groups.length} of ${engineResult.total} ${unit(engineResult.total)}`
+      : `${totalMatches} ${totalMatches === 1 ? "match" : "matches"} in ${groups.length} ${unit(groups.length)}`;
 
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -348,22 +375,31 @@ export default function SearchPane({
         ref={listRef}
       >
         {groups.length === 0 ? (
-          <div className="empty" role="status">
-            {truncated ? (
-              // the engine had more than it sent — "No results" would be a
-              // lie about notes that exist
-              <span>Showing none of {engineResult.total} matching notes — narrow the search</span>
-            ) : query.trim() ? (
-              <span>No results for “{query.trim()}”</span>
-            ) : (
-              <>
-                <span>Search the whole vault</span>
-                <span className="empty-hint">
-                  Content matches with context — narrow with type: folder: status:
-                </span>
-              </>
-            )}
-          </div>
+          /* No verb here yet, and deliberately so for the un-queried state:
+             the one action worth offering would be "focus the search box",
+             and the box is autoFocus'd — every path that reaches this state
+             leaves the caret already in it (the sort switches hand focus
+             straight back). A button that runs a no-op is worse than none.
+             The other two states — no results, and a truncated page — are
+             answers about the query, which only the input can change. */
+          <EmptyState
+            icon={<SearchIcon />}
+            role="status"
+            title={
+              truncated
+                ? // the engine had more than it sent — "No results" would be a
+                  // lie about notes that exist
+                  `Showing none of ${engineResult.total} matching notes — narrow the search`
+                : query.trim()
+                  ? `No results for “${query.trim()}”`
+                  : "Search the whole vault"
+            }
+            hint={
+              !truncated && !query.trim()
+                ? "Content matches with context — narrow with type: folder: status:"
+                : undefined
+            }
+          />
         ) : (
           groups.map(({ h, n }) => {
             const noteIdx = ++idx;
@@ -375,7 +411,7 @@ export default function SearchPane({
                   data-idx={noteIdx}
                   role="option"
                   aria-selected={sel === noteIdx}
-                  aria-label={`Open ${displayTitle(n)} at first match${type ? `, ${displayType(type)}` : ""}${h.total > 0 ? `, ${h.total} ${h.total === 1 ? "match" : "matches"}` : ""}`}
+                  aria-label={`Open ${displayTitle(n)} at first match${type ? `, ${displayType(type)}` : ""}${h.total > 0 ? `, ${h.total} ${h.total === 1 ? "match" : "matches"}` : ""}${h.partial ? ", only the beginning of this file was read" : ""}`}
                   className={`search-note-row${sel === noteIdx ? " selected" : ""}`}
                   onMouseEnter={() => setSel(noteIdx)}
                   onClick={() => onOpenMatch(h.path, h.matches[0]?.line ?? 1)}
@@ -391,6 +427,19 @@ export default function SearchPane({
                     {dailyDateOf(n.path) ? displayTitle(n) : <Snippet parts={h.title_parts} />}
                   </span>
                   {type && <span className="search-note-hint">{displayType(type)}</span>}
+                  {/* this file was read only to its page or byte cap,
+                      so the search covered its opening and nothing after it.
+                      Without saying so, a paper that goes on for forty pages
+                      presents its first two as the whole of itself, and a
+                      phrase further down reads as absent from the file. */}
+                  {h.partial && (
+                    <span
+                      className="search-partial"
+                      title="Only the beginning of this file was read — a search covers that much of it"
+                    >
+                      partly read
+                    </span>
+                  )}
                   {h.total > 0 && <span className="search-count">{h.total}</span>}
                 </div>
                 {h.matches.map((m: SearchMatch) => {

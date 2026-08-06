@@ -2,11 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { embedQueryFor, parseViewSpec } from "./embeds.ts";
 import {
+  commitCellText,
   isJoinedColumn,
   viewCellEditable,
   viewCellModel,
+  viewCellPaint,
   viewCellWritable,
 } from "./viewcell.ts";
+import type { CellModel } from "./cellmodel.ts";
 import type { EmbedResult } from "./embeds.ts";
 import type { NoteMeta, SchemaConfig } from "./types.ts";
 
@@ -36,7 +39,7 @@ const SCHEMA: SchemaConfig = {
   },
   master: {
     done: { options: [], kind: "checkbox" },
-    stage: { options: [] },
+    stage: { options: [{ value: "cut", color: "blue" }] },
     release: { options: [], kind: "relation", type: "release" },
   },
 };
@@ -127,4 +130,60 @@ test("an errored fence has no editable or writable cells at all", () => {
     false
   );
   assert.equal(isJoinedColumn(err, "anything"), false);
+});
+
+/* Paint. The surfaces that show a live table differ in whether a
+   write can land — a hub with the handlers, one without. What a value LOOKS
+   like must not differ with them, so these assertions are the read-only
+   render's coverage: `viewCellPaint` has no `edit` to vary, and a checkbox
+   answers "box" on the strength of the value alone. */
+
+test("a stored checkbox paints a BOX, not the string it is stored as", () => {
+  const r = query("type: master\ncolumns: done\n");
+  const props = propsOf(r, "Master A");
+  const paint = viewCellPaint(r, "done", "true", viewCellModel(r, props, "done"));
+  // the regression: a surface that skipped the model painted `c` — the raw
+  // "true" — while the surface next to it showed a checked box
+  assert.deepEqual(paint, { kind: "checkbox", checked: true });
+});
+
+test("an unchecked checkbox paints an empty box rather than nothing", () => {
+  const r = query("type: master\ncolumns: done\n");
+  // a row that never set the prop: absent reads as unchecked, and
+  // an unchecked cell is still a box to click
+  const paint = viewCellPaint(r, "done", "", viewCellModel(r, {}, "done"));
+  assert.deepEqual(paint, { kind: "checkbox", checked: false });
+});
+
+test("a schema option paints its pill, an unlisted value stays flat text", () => {
+  const r = query("type: master\ncolumns: stage\n");
+  const model = viewCellModel(r, propsOf(r, "Master A"), "stage");
+  assert.deepEqual(viewCellPaint(r, "stage", "cut", model), { kind: "pill", color: "blue" });
+  assert.deepEqual(viewCellPaint(r, "stage", "unlisted", model), { kind: "text" });
+  assert.deepEqual(viewCellPaint(r, "stage", "", model), { kind: "text" });
+});
+
+test("a joined cell paints flat — no box, no pill from THIS database", () => {
+  // the lookup targets a checkbox on `release`, but the value is another
+  // row's: painting a box here would claim a toggle this row
+  // cannot take
+  const r = query("type: master\ncolumns: release.approved\n");
+  const model = viewCellModel(r, propsOf(r, "Master A"), "release.approved");
+  assert.deepEqual(viewCellPaint(r, "release.approved", "true", model), { kind: "text" });
+});
+
+test("a typed number commits normalized, whatever surface typed it", () => {
+  // the editor fence and a hub embed share one normalizer, so
+  // "1.234,50" saved from either lands as the same stored number.
+  const cell = (kind: string | undefined): CellModel => ({
+    actualKey: "price",
+    val: "",
+    schema: undefined,
+    kind: kind as CellModel["kind"],
+    list: [],
+    checked: false,
+  });
+  assert.equal(commitCellText("1.234,50", cell("number")), "1234.50");
+  assert.equal(commitCellText("1.234,50", cell(undefined)), "1.234,50");
+  assert.equal(commitCellText("not a number", cell("number")), "not a number");
 });

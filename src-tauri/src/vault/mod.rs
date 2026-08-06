@@ -328,9 +328,9 @@ pub fn split_wikilink(inner: &str) -> (&str, Option<&str>, Option<&str>) {
 /// split, resolution looks for a file literally called `cover.png|300` and
 /// every reader reports a perfectly present image as missing.
 ///
-/// Substrate **accepts the modifier and currently ignores it** — nothing here
-/// commits to what a width or a float should mean; it only stops the hint from
-/// corrupting the name.
+/// Substrate **honours the size half** of the modifier (see [`embed_size`]) and
+/// ignores layout hints like `|left`; either way the hint never reaches the
+/// filename.
 ///
 /// Unlike [`split_wikilink`] this does NOT split on `#`: an embed target is a
 /// filename or a path, both of which may legally contain `#`, and an embed has
@@ -343,6 +343,80 @@ pub fn embed_target(inner: &str) -> &str {
         Some(i) => inner[..i].trim(),
         None => inner.trim(),
     }
+}
+
+/// The display size an embed's modifier asks for, in CSS pixels. `width` caps
+/// the rendered width; `height`, when the author wrote `WxH`, caps the height
+/// too — together they **box** the image, which scales to fit inside without
+/// distorting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmbedSize {
+    pub width: u32,
+    pub height: Option<u32>,
+}
+
+/// Nothing sane renders wider than this, and a typo (`![[a.png|30000]]`) should
+/// not blow the layout out — clamp rather than reject, so the embed still shows
+/// at a usable size.
+const MAX_EMBED_PX: u32 = 4096;
+
+/// The size an `![[file|modifier]]` embed asks to render at, or `None` when the
+/// modifier names none.
+///
+/// The grammar is Obsidian's, and it is deliberately tiny:
+/// - `|300` → max width 300px, aspect ratio preserved
+/// - `|300x200` → fit inside a 300×200 box, aspect ratio preserved
+/// - anything else — `|left`, `|right`, `|axb`, `|300x`, `|0`, `|-3`, an empty
+///   modifier — is **parsed and ignored**, never an error. Float hints in
+///   particular are recognised syntax Substrate declines to act on: no
+///   text-wrap layout is committed to.
+///
+/// A multi-part modifier (`|300|left`) is read segment by segment, first size
+/// wins, so a float sitting beside a width does not cost the width. Values are
+/// clamped to `[1, MAX_EMBED_PX]` — a garbage number degrades to a big image,
+/// never to a broken or absent one.
+///
+/// Twin of `embedSize` in `src/lib/wikilinks.ts` — the two must agree, or a
+/// note renders at one size in the app and another everywhere else.
+pub fn embed_size(inner: &str) -> Option<EmbedSize> {
+    let tail = inner.split_once('|')?.1;
+    for seg in tail.split('|') {
+        let seg = seg.trim();
+        if let Some((w, h)) = seg.split_once(['x', 'X']) {
+            match (clamp_px(w), clamp_px(h)) {
+                (Some(width), Some(height)) => {
+                    return Some(EmbedSize {
+                        width,
+                        height: Some(height),
+                    })
+                }
+                _ => continue,
+            }
+        }
+        if let Some(width) = clamp_px(seg) {
+            return Some(EmbedSize {
+                width,
+                height: None,
+            });
+        }
+    }
+    None
+}
+
+/// A digit run as a usable pixel count, or `None` when it names none (`0`, a
+/// non-digit, or a number too long to parse). Negatives never reach a value
+/// here — the `-` fails the digits-only parse, which is what makes `|-3` an
+/// ignored hint.
+fn clamp_px(s: &str) -> Option<u32> {
+    if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    // an overlong run overflows u32 rather than parsing — still a clamp case
+    let n = s.parse::<u64>().unwrap_or(u64::from(MAX_EMBED_PX));
+    if n < 1 {
+        return None;
+    }
+    Some(n.min(u64::from(MAX_EMBED_PX)) as u32)
 }
 
 /// The note name a wikilink addresses, normalized for matching: the target
@@ -985,6 +1059,20 @@ fn sanitize_filename(title: &str) -> String {
     }
 }
 
+/// The path [`Engine::create`] lands a fresh note on before de-duplication,
+/// for a folder that is already sanitized. Callers that must decide a create
+/// BEFORE it happens — the MCP door checks the destination against its grants
+/// (`mcpdoor::server::note_create`) — derive the candidate here rather than
+/// re-implementing the naming, so the two can't drift apart.
+pub(crate) fn first_note_rel(folder: &str, title: &str) -> String {
+    let name = sanitize_filename(title);
+    if folder.is_empty() {
+        format!("{name}.md")
+    } else {
+        format!("{folder}/{name}.md")
+    }
+}
+
 /// Filesystem identity used by per-database templates. Several legal
 /// database names can sanitize to the same stem (`A:B` / `A?B`), so callers
 /// must compare this in addition to the database's own folded identity.
@@ -1021,7 +1109,7 @@ fn validate_note_title(title: &str, slug: &str) -> Result<(), String> {
 /// components, each is filename-sanitized, empty components drop out. Hidden
 /// (dot-prefixed) and escaping components are rejected — the engine never
 /// touches what it can't index.
-fn sanitize_folder_rel(rel: &str) -> Result<String, String> {
+pub(crate) fn sanitize_folder_rel(rel: &str) -> Result<String, String> {
     let mut out: Vec<String> = Vec::new();
     for part in rel.split(['/', '\\']) {
         let part = part.trim();
@@ -1276,6 +1364,10 @@ impl Engine {
     /// index, and therefore everything that syncs, is identical either way.
     pub fn with_local_dir(mut self, dir: PathBuf) -> Self {
         self.local_dir = Some(dir);
+        // `build` already ran the rescan that indexes mounts, and at that point
+        // the engine did not yet know where this machine keeps document text —
+        // so those rows went in by name alone. Redo them now they have bodies.
+        self.index_mounts();
         self
     }
 
@@ -1360,7 +1452,13 @@ impl Engine {
         let db = Connection::open_in_memory().expect("sqlite");
         let fts = db
             .execute_batch(
-                "CREATE VIRTUAL TABLE notes_fts USING fts5(path UNINDEXED, title, body, tokenize='unicode61 remove_diacritics 2');",
+                // `partial` marks a row whose body is only the front of the
+                // real document — a mounted PDF read to its page or byte
+                // cap. Unindexed and empty for notes, whose body is
+                // the whole note. It rides here rather than in a side table
+                // so a hit knows how much of its source was ever searched
+                // without a second lookup per result.
+                "CREATE VIRTUAL TABLE notes_fts USING fts5(path UNINDEXED, title, body, partial UNINDEXED, tokenize='unicode61 remove_diacritics 2');",
             )
             .is_ok();
         let mut e = Engine {
@@ -1399,6 +1497,9 @@ impl Engine {
         if self.fts {
             self.db.execute_batch("COMMIT").ok();
         }
+        // the `DELETE` above emptied the table for mounted files too, and they
+        // are not markdown so the walk never reaches them
+        self.index_mounts();
     }
 
     /// Reconcile the index against paths the watcher saw change. Disk state
@@ -2401,11 +2502,7 @@ impl Engine {
             "" => String::new(),
             f => sanitize_folder_rel(f)?,
         };
-        let mut rel = if folder.is_empty() {
-            format!("{}.md", name)
-        } else {
-            format!("{}/{}.md", folder, name)
-        };
+        let mut rel = first_note_rel(&folder, title);
         let mut file = self.abs(&rel)?;
         let mut n = 2;
         while file.exists() {
@@ -4792,6 +4889,49 @@ mod tests {
         assert_eq!(embed_target("~/Music/mixdown.flac|300"), "~/Music/mixdown.flac");
         // a modifier with nothing in front names nothing
         assert_eq!(embed_target("|300"), "");
+    }
+
+    #[test]
+    fn embed_size_reads_a_width_or_a_box_and_ignores_everything_else() {
+        // twin of embedSize in src/lib/wikilinks.ts — keep the two
+        // tables identical, a divergence means the app and the engine disagree
+        // about how big a note's images are.
+        let w = |width| {
+            Some(EmbedSize {
+                width,
+                height: None,
+            })
+        };
+        let box_ = |width, height| {
+            Some(EmbedSize {
+                width,
+                height: Some(height),
+            })
+        };
+        assert_eq!(embed_size("cover.png"), None);
+        assert_eq!(embed_size("cover.png|300"), w(300));
+        assert_eq!(embed_size("cover.png|300x200"), box_(300, 200));
+        assert_eq!(embed_size("cover.png|300X200"), box_(300, 200));
+        assert_eq!(embed_size("cover.png | 300 "), w(300));
+        // floats are recognised syntax Substrate declines to act on
+        assert_eq!(embed_size("cover.png|left"), None);
+        assert_eq!(embed_size("cover.png|right"), None);
+        // a float beside a width does not cost the width
+        assert_eq!(embed_size("cover.png|300|left"), w(300));
+        assert_eq!(embed_size("cover.png|left|300x200"), box_(300, 200));
+        // garbage is ignored, never an error
+        assert_eq!(embed_size("cover.png|axb"), None);
+        assert_eq!(embed_size("cover.png|300x"), None);
+        assert_eq!(embed_size("cover.png|x200"), None);
+        assert_eq!(embed_size("cover.png|3.5"), None);
+        assert_eq!(embed_size("cover.png|-3"), None);
+        assert_eq!(embed_size("cover.png|0"), None);
+        assert_eq!(embed_size("cover.png|0x0"), None);
+        assert_eq!(embed_size("cover.png|"), None);
+        assert_eq!(embed_size("cover.png|300x0"), None);
+        // an absurd number degrades to a big image, never a broken one
+        assert_eq!(embed_size("cover.png|99999"), w(4096));
+        assert_eq!(embed_size("cover.png|99999x99999"), box_(4096, 4096));
     }
 
     #[test]

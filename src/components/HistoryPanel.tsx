@@ -8,7 +8,8 @@ import {
   historyStatus,
   historyTrim,
 } from "../lib/ipc";
-import { XIcon } from "./Icons";
+import { ClockIcon, XIcon } from "./Icons";
+import EmptyState from "./EmptyState";
 import DateMenu from "./DateMenu";
 import { anchorFrom, type AnchorRect } from "./SelectMenu";
 import { daysAgoIso, formatDateHuman, todayIso } from "../lib/dates";
@@ -209,18 +210,22 @@ export default function HistoryPanel({
 
         {status && !status.enabled ? (
           <div className="hist-body">
-            <div className="hist-empty hist-disabled">
-              {status.available ? (
-                <>
-                  <div>This vault has its own git history — Substrate history is off.</div>
-                  <div className="hist-disabled-sub">
-                    Your repository is untouched: no snapshots, no config, nothing written.
-                  </div>
-                </>
-              ) : (
-                <div>Version history is unavailable — git could not be initialized.</div>
-              )}
-            </div>
+            {/* No verb here yet: history is off in this vault, and nothing on
+                this panel could turn it on, so glyph + text. */}
+            <EmptyState
+              className="hist-empty hist-disabled"
+              icon={<ClockIcon />}
+              title={
+                status.available
+                  ? "This vault has its own git history — Substrate history is off."
+                  : "Version history is unavailable — git could not be initialized."
+              }
+              hint={
+                status.available
+                  ? "Your repository is untouched: no snapshots, no config, nothing written."
+                  : undefined
+              }
+            />
           </div>
         ) : mode === "browse" ? (
           <>
@@ -258,14 +263,21 @@ export default function HistoryPanel({
                 {entries === null ? (
                   /* an errored read renders the strip below — never a loading
                      state that sticks forever; same DOM as the resolved state,
-                     so the list landing only swaps text */
+                     so the list landing only swaps text.
+                     Deliberately NOT the EmptyState shell: this is a transient
+                     local-git-read flash, not an empty state, and the shell's
+                     glyph is a required prop — routing it through here would
+                     mean icon={null} and a spinner-ish glyph on a strip that is
+                     kept minimal on purpose. */
                   error === null ? (
                     <div className="hist-empty">Reading snapshots</div>
                   ) : null
                 ) : entries.length === 0 ? (
-                  <div className="hist-empty">
-                    No snapshots yet — history builds up as you edit
-                  </div>
+                  <EmptyState
+                    className="hist-empty"
+                    icon={<ClockIcon />}
+                    title="No snapshots yet — history builds up as you edit"
+                  />
                 ) : (
                   entries.map((e, i) => (
                     <div

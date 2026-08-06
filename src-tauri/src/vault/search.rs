@@ -37,6 +37,11 @@ pub struct FullSearchHit {
     pub title_parts: Vec<SnippetPart>,
     pub total: u32,
     pub matches: Vec<SearchMatch>,
+    /// This row's searched body is only the front of its source: a mounted
+    /// document read to its page or byte cap. Always false for a
+    /// note, whose body is the whole note. The pane has to say so — a miss
+    /// further down such a file is not the phrase being absent from it.
+    pub partial: bool,
 }
 
 /// A full-search page plus how much of the match set it represents.
@@ -187,6 +192,37 @@ fn app_files_clause(exclude: bool) -> String {
     )
 }
 
+/// Whether a mounted file answers a vault-wide search alongside notes in the
+/// search pane. THE FLIP: set this to `false` and mount rows are searchable
+/// only where the caller passes a scope naming them — the board's own filter —
+/// while everything else about indexing stays as it is. Nothing needs
+/// reindexing either way; the rows are in the table regardless, and this is
+/// the one predicate that decides whether a global query may see them.
+///
+/// True by default: a vault with two thousand papers in a mount that answers
+/// "no results" for a phrase on page one of forty of them is not a search.
+const MOUNT_HITS_IN_GLOBAL_SEARCH: bool = true;
+
+/// SQL twin of [`MOUNT_HITS_IN_GLOBAL_SEARCH`], appended to the FTS queries
+/// the same way the app-file clause is. Const-evaluated, so the excluded case
+/// costs nothing at runtime and the flip is a one-word edit. `_` is a `LIKE`
+/// wildcard, and the scheme has none, so a plain prefix match is exact here.
+const MOUNT_CLAUSE: &str = if MOUNT_HITS_IN_GLOBAL_SEARCH { "" } else { MOUNT_EXCLUDED };
+
+/// The prefix match itself. `_` is a `LIKE` wildcard and the scheme has none,
+/// so this is exact.
+const MOUNT_EXCLUDED: &str = " AND path NOT LIKE 'mount://%'";
+
+/// The palette has no row shape for a mounted file — it renders notes, and
+/// drops anything it cannot find a note for. So mount rows come out of the
+/// quick-search query unconditionally, whatever the pane-wide flag says, and
+/// they come out BEFORE the cap: left in, they would outrank notes for the
+/// thirty slots the engine returns and the client would filter them into
+/// nothing, leaving a palette that quietly stops finding notes. Same failure
+/// the app-file clause above exists to prevent. Mounted files are found from
+/// the search pane, which does render them.
+const QUICK_SEARCH_MOUNT_CLAUSE: &str = MOUNT_EXCLUDED;
+
 impl Engine {
     /// Load `scope` into the reusable `search_scope` temp table and return the
     /// `AND …` clause that restricts a query to it. The caller's
@@ -239,7 +275,8 @@ impl Engine {
             let app = app_files_clause(exclude_app_files);
             let sql = format!(
                 "SELECT path, snippet(notes_fts, 2, '', '', ' … ', 14) FROM notes_fts \
-                 WHERE notes_fts MATCH ?1{clause}{app} ORDER BY rank LIMIT 30"
+                 WHERE notes_fts MATCH ?1{clause}{app}{QUICK_SEARCH_MOUNT_CLAUSE} \
+                 ORDER BY rank LIMIT 30"
             );
             let mut stmt = match self.db.prepare(&sql) {
                 Ok(s) => s,
@@ -320,6 +357,8 @@ impl Engine {
                             parts: vec![SnippetPart { text: n.excerpt.clone(), hit: false }],
                         }]
                     },
+                    // this branch scans `self.notes`, which holds no mount rows
+                    partial: false,
                 })
                 .collect::<Vec<_>>();
             let truncated = (hits.len() as u32) < total_notes;
@@ -333,15 +372,19 @@ impl Engine {
         let total_notes: u32 = self
             .db
             .query_row(
-                &format!("SELECT COUNT(*) FROM notes_fts WHERE notes_fts MATCH ?1{clause}{app}"),
+                &format!(
+                    "SELECT COUNT(*) FROM notes_fts WHERE notes_fts MATCH ?1{clause}{app}{MOUNT_CLAUSE}"
+                ),
                 [&expr],
                 |r| r.get::<_, i64>(0),
             )
             .map(|n| n as u32)
             .unwrap_or(0);
+        // `partial` is column 3 and UNINDEXED, so appending it left the
+        // highlight() column indices (1 = title, 2 = body) exactly as they were
         let sql = format!(
-            "SELECT path, highlight(notes_fts, 1, ?2, ?3), highlight(notes_fts, 2, ?2, ?3) \
-             FROM notes_fts WHERE notes_fts MATCH ?1{clause}{app} ORDER BY rank LIMIT {}",
+            "SELECT path, highlight(notes_fts, 1, ?2, ?3), highlight(notes_fts, 2, ?2, ?3), partial \
+             FROM notes_fts WHERE notes_fts MATCH ?1{clause}{app}{MOUNT_CLAUSE} ORDER BY rank LIMIT {}",
             FULL_SEARCH_MAX_NOTES
         );
         let mut stmt = match self.db.prepare(&sql) {
@@ -351,12 +394,18 @@ impl Engine {
         let rows = stmt.query_map(
             rusqlite::params![expr, MARK_START.to_string(), MARK_END.to_string()],
             |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    // notes insert three columns, so theirs reads back NULL
+                    row.get::<_, Option<i64>>(3)?.unwrap_or(0) != 0,
+                ))
             },
         );
         let Ok(rows) = rows else { return empty() };
         let mut out = Vec::new();
-        for (path, title_hl, body_hl) in rows.flatten() {
+        for (path, title_hl, body_hl, partial) in rows.flatten() {
             let (title_parts, title_count) = parse_marked(&title_hl);
             let mut total = title_count;
             let mut matches = Vec::new();
@@ -374,7 +423,7 @@ impl Engine {
                 }
             }
             if total > 0 {
-                out.push(FullSearchHit { path, title_parts, total, matches });
+                out.push(FullSearchHit { path, title_parts, total, matches, partial });
             }
         }
         // `total_notes` counts MATCH rows; a row whose hits all landed in a
@@ -462,6 +511,41 @@ mod tests {
         let hits = e.search("pack", None, false);
         assert!(hits.iter().any(|h| h.path == "Lisbon.md"), "prefix search");
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A mount holding more files than the palette's page is wide, all of them
+    /// matching, must not crowd the notes out of it: the palette renders no
+    /// mount rows, so every one it is handed is a slot the user loses.
+    #[test]
+    fn mount_rows_never_take_the_quick_search_page() {
+        let (mut e, dir) = temp_vault("qsmount");
+        let watched = temp_watched("qsmount");
+        for i in 0..200 {
+            fs::write(watched.join(format!("spectral-{i}.pdf")), b"stand-in bytes").unwrap();
+        }
+        fs::write(dir.join("Spectral.md"), "---\ntype: note\n---\nspectral texture here\n")
+            .unwrap();
+        e.apply_changes(&[dir.join("Spectral.md")]);
+        let m = e.add_mount("Papers", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+
+        // indexed, and the search pane — which does render them — finds them
+        assert!(
+            e.search_full("spectral", None, false)
+                .hits
+                .iter()
+                .any(|h| h.path.starts_with("mount://")),
+            "mounted files are in the index"
+        );
+
+        let hits = e.search("spectral", None, false);
+        assert!(hits.iter().any(|h| h.path == "Spectral.md"), "the note still answers ⌘K");
+        assert!(
+            !hits.iter().any(|h| h.path.starts_with("mount://")),
+            "mount rows kept out of the page, not filtered off it afterwards"
+        );
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
     }
 
     #[test]

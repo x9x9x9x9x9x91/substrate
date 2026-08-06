@@ -5,6 +5,7 @@ import type { AggKind, DbIcon, NumberFormat, PropKind, RollupConfig, SelectOptio
 import type { HopDir } from "../lib/cellhop";
 import { optionColorVar, resolveIcon } from "../lib/dbicons";
 import { byFoldedKey } from "../lib/schemalookup";
+import { optionColor } from "../lib/cellpill";
 import { PlusIcon, XIcon } from "./Icons";
 import TypeIcon from "./TypeIcon";
 
@@ -28,9 +29,10 @@ export function OptionDot({ color }: { color?: string }) {
   return <span className="opt-dot" style={{ background: tint }} />;
 }
 
-export function optionColor(options: SelectOption[] | undefined, value: string): string | undefined {
-  return options?.find((o) => o.value.toLowerCase() === value.toLowerCase())?.color;
-}
+// the option-color lookup itself is pure and shared with the hub tables and
+// the live ```view cells (lib/cellpill.ts); re-exported here because every
+// pill-painting component already reaches for it next to OptionPill
+export { optionColor };
 
 /** A select value as a tinted pill — tinted ground + tinted text
     from the option color, so values read as marks on the neutral surfaces.

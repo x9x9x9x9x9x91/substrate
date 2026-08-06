@@ -171,6 +171,11 @@ Capacities, Affine).*
   relations/rollups don't transfer yet.
 - **Terminal HUD** (⌘⇧T) with PTY trust checks — a notes app that can host
   your shell.
+- **Scoped MCP door** — cloud-backed desktop AI clients can operate the vault
+  without receiving the whole filesystem: exact per-client, per-folder
+  read/write grants in Settings, live revoke/revoke-all, hard-denied app
+  config, and every AI write committed to history under its own author
+  identity. Local agents still use the files directly.
 - **Print** — dashboards/agenda produce clean paper layouts (0.18), and any
   note or database view exports as a *designed* PDF: a one-sheet (hero
   artwork + title + quiet fact rows + body — a press sheet straight from a
@@ -252,6 +257,8 @@ Capacities, Affine).*
   Current
   transport is authenticated git-over-HTTPS with a Keychain token. Never
   market encryption as shipped.
+- **Hosted handoff relay**: the handoff feature is shipped; a public hosted
+  relay is not. Until one exists, the self-host story leads.
 - **Known parity gaps — don't invite the comparison**: multi-column page
   layout, timeline view, PDF/doc embeds (image+audio only). Undo covers
   props + structural edits, not yet everything.

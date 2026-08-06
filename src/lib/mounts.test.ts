@@ -9,6 +9,7 @@ import {
   parseMountPath,
   rowMeta,
   rowMetas,
+  searchHitMeta,
   scanStatLine,
   scanSummary,
   sizeLabel,
@@ -186,4 +187,37 @@ test("sizeLabel humanizes, and stays blank for a file that isn't there", () => {
   assert.equal(sizeLabel(row({ size: 1536 })), "1,5 KB");
   assert.equal(sizeLabel(row({ size: 0, missing: true })), "");
   assert.equal(sizeLabel(row({ size: 2048, missing: true })), "2,0 KB");
+});
+
+test("searchHitMeta: a hit inside a mounted file gets a row of its own", () => {
+  const m = mount();
+  const hit = searchHitMeta(`${MOUNT_SCHEME}m1/papers/spectral.pdf`, "spectral.pdf", [m]);
+  assert.ok(hit);
+  assert.equal(hit.path, `${MOUNT_SCHEME}m1/papers/spectral.pdf`);
+  assert.equal(hit.title, "spectral.pdf");
+  // the mount's name is the row's type, exactly as on the board
+  assert.equal(hit.props.type, "Album Pool");
+  assert.equal(hit.props.extension, "pdf");
+  assert.equal(hit.sealed, false);
+});
+
+test("searchHitMeta: only mounted files, and only mounts this machine has", () => {
+  const m = mount();
+  // an ordinary note joins against the loaded notes — not this function's job
+  assert.equal(searchHitMeta("Papers/spectral.md", "spectral", [m]), null);
+  // the vault carries the index, the machine carries the folders: a hit can
+  // name a mount that isn't here, and a row nobody can open isn't shown
+  assert.equal(searchHitMeta(`${MOUNT_SCHEME}m9/papers/spectral.pdf`, "spectral.pdf", [m]), null);
+  assert.equal(searchHitMeta(`${MOUNT_SCHEME}m1/`, "", [m]), null);
+});
+
+test("searchHitMeta: an untitled hit falls back to the file's own name", () => {
+  const hit = searchHitMeta(`${MOUNT_SCHEME}m1/deep/nested/paper.pdf`, "", [mount()]);
+  assert.equal(hit?.title, "paper.pdf");
+  assert.equal(hit?.props.name, "paper.pdf");
+});
+
+test("searchHitMeta: a name without an extension claims none", () => {
+  const hit = searchHitMeta(`${MOUNT_SCHEME}m1/notes/README`, "README", [mount()]);
+  assert.equal(hit?.props.extension, undefined);
 });

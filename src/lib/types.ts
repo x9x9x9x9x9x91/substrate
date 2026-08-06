@@ -111,6 +111,12 @@ export interface FullSearchHit {
   title_parts: SnippetPart[];
   total: number;
   matches: SearchMatch[];
+  /** The searched body is only the front of the source: a mounted document
+      read to its page or byte cap. Always false for a note, whose
+      body is the whole note. A pane that doesn't say so lets the opening of a
+      forty-page paper pass for the whole of it — and a miss further down read
+      as the phrase being absent from the file. */
+  partial: boolean;
 }
 
 /** A full-search page plus how much of the match set it covers.
@@ -238,6 +244,14 @@ export interface MountRow {
       (duration, pages, tags…). Extraction happens behind a scan, so
       a row can arrive without them and gain them on the next refresh. */
   props: Record<string, unknown>;
+  /** The opening line of the document as this machine read it —
+      what a note shows under its title, for a file. Absent for anything
+      nothing was read from: a file with no text, an unbound mount, a reading
+      still queued. */
+  excerpt?: string;
+  /** That reading stopped at its cap, so the document continues past the
+      excerpt — and past what a search of it could ever have covered. */
+  excerpt_partial?: boolean;
 }
 
 /** Outcome of one mount's scan pass. `error` set means the folder itself

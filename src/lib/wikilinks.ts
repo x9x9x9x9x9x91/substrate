@@ -80,8 +80,9 @@ export function parseWikiLink(inner: string): WikiLinkParts {
     split every reader looks for a file literally called `cover.png|300` and
     renders a present image as missing.
 
-    Substrate ACCEPTS the modifier and currently IGNORES it — no width, no
-    float, nothing committed about what the hint should mean.
+    Substrate HONOURS the size half of the modifier (see `embedSize`) and
+    ignores layout hints like `|left`; either way the hint never reaches the
+    filename.
 
     Unlike `parseWikiLink` this does NOT split on `#`: an embed target is a
     filename or a path, both of which may legally contain `#`, and an embed has
@@ -92,6 +93,85 @@ export function parseWikiLink(inner: string): WikiLinkParts {
 export function embedTarget(inner: string): string {
   const pipe = inner.indexOf("|");
   return (pipe < 0 ? inner : inner.slice(0, pipe)).trim();
+}
+
+/** The display size an embed's modifier asks for, in CSS pixels. `width`
+    caps the rendered width; `height`, when the author wrote `WxH`, caps the
+    height too — together they BOX the image, which scales to fit inside
+    without distorting. */
+export interface EmbedSize {
+  width: number;
+  height: number | null;
+}
+
+/** Nothing sane renders wider than this, and a typo (`![[a.png|30000]]`)
+    should not blow the layout out — clamp rather than reject, so the embed
+    still shows at a usable size. */
+const MAX_EMBED_PX = 4096;
+
+const WIDTH_RE = /^(\d+)$/;
+const BOX_RE = /^(\d+)[xX](\d+)$/;
+
+/** The size an `![[file|modifier]]` embed asks to render at, or null when the
+    modifier names none.
+
+    The grammar is Obsidian's, and it is deliberately tiny:
+      - `|300`      → max width 300px, aspect ratio preserved
+      - `|300x200`  → fit inside a 300×200 box, aspect ratio preserved
+      - anything else — `|left`, `|right`, `|axb`, `|300x`, `|0`, `|-3`, an
+        empty modifier — is PARSED AND IGNORED, never an error. Float hints in
+        particular are recognised syntax Substrate declines to act on: no
+        text-wrap layout is committed to.
+
+    A multi-part modifier (`|300|left`) is read segment by segment, first size
+    wins, so a float sitting beside a width does not cost the width. Values are
+    clamped to [1, {@link MAX_EMBED_PX}] — a garbage number degrades to a big
+    image, never to a broken or absent one.
+
+    Twin of `embed_size` in `src-tauri/src/vault/mod.rs` — the two must agree,
+    or a note renders at one size in the app and another everywhere else. */
+export function embedSize(inner: string): EmbedSize | null {
+  const pipe = inner.indexOf("|");
+  if (pipe < 0) return null;
+  for (const raw of inner.slice(pipe + 1).split("|")) {
+    const seg = raw.trim();
+    const box = BOX_RE.exec(seg);
+    if (box) {
+      const w = clampPx(box[1]);
+      const h = clampPx(box[2]);
+      if (w && h) return { width: w, height: h };
+      continue;
+    }
+    const wide = WIDTH_RE.exec(seg);
+    if (wide) {
+      const w = clampPx(wide[1]);
+      if (w) return { width: w, height: null };
+    }
+  }
+  return null;
+}
+
+/** A digit run as a usable pixel count, or 0 when it names none (`0`, or a
+    number so long it overflows). Negatives never reach here — the `-` fails
+    the digits-only match, which is what makes `|-3` an ignored hint. */
+function clampPx(digits: string): number {
+  const n = Number(digits);
+  if (!Number.isFinite(n) || n < 1) return 0;
+  return Math.min(Math.round(n), MAX_EMBED_PX);
+}
+
+/** {@link embedSize} as the CSS an `<img>` needs to honour it: caps, never
+    fixed dimensions, so the image scales down inside its container and keeps
+    its aspect ratio. Empty for an unsized embed, which then falls back to the
+    stylesheet's defaults. */
+export function embedSizeStyle(size: EmbedSize | null): {
+  maxWidth?: string;
+  maxHeight?: string;
+} {
+  if (!size) return {};
+  return size.height === null
+    ? { maxWidth: `${size.width}px` }
+    : { maxWidth: `${size.width}px`, maxHeight: `${size.height}px` };
 }
 
 /** What a wikilink SHOWS: the alias when the author wrote one, else the

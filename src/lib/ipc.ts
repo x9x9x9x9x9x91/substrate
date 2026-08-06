@@ -139,6 +139,35 @@ export const vaultDemo = () => invoke<string>("vault_demo");
 export const onboardingSetAgent = (command: string) =>
   invoke<null>("onboarding_set_agent", { command });
 export const appRelaunch = () => invoke<null>("app_relaunch");
+/* scoped MCP door — per-machine config, never Settings.md */
+export type McpAccess = "read" | "write";
+export interface McpGrant {
+  client: string;
+  prefix: string;
+  access: McpAccess;
+}
+export interface McpSetup {
+  binary_path: string;
+  binary_available: boolean;
+  client_config_path: string;
+  claude_desktop_snippet: string;
+}
+export const mcpGrantsList = () => invoke<McpGrant[]>("mcp_grants_list");
+export const mcpGrantPick = (client: string, access: McpAccess) =>
+  invoke<McpGrant[]>("mcp_grant_pick", { client, access });
+export const mcpGrantRevoke = (client: string, prefix: string) =>
+  invoke<McpGrant[]>("mcp_grant_revoke", { client, prefix });
+export const mcpGrantsRevokeAll = () => invoke<McpGrant[]>("mcp_grants_revoke_all");
+export const mcpSetup = () => invoke<McpSetup>("mcp_setup");
+/** What the door heard the last client call itself. Grants match this string
+    exactly, so a stray space or a renamed product reads as "all grants live,
+    every call denied" — showing it back is the whole diagnosis. */
+export interface McpLastSeen {
+  name: string;
+  at: string;
+}
+export const mcpLastSeen = () => invoke<McpLastSeen | null>("mcp_last_seen");
+
 export const vaultList = () =>
   historyProjection
     ? Promise.resolve(projectedNotes.slice())
@@ -408,6 +437,9 @@ export const vaultSearchFull = (q: string, scope?: string[], excludeAppFiles?: b
       title_parts: highlightedParts(note.title, q),
       total: matchingLines.length + (note.title.toLocaleLowerCase().includes(needle) ? 1 : 0),
       matches: matchingLines.slice(0, 20),
+      // a projection searches the notes a snapshot holds, whole — mounted
+      // files are this machine's, not the snapshot's
+      partial: false,
     };
   });
   return Promise.resolve({ hits, total_notes: all.length, truncated: all.length > hits.length });

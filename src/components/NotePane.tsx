@@ -22,6 +22,8 @@ import {
   vaultWriteBody,
 } from "../lib/ipc";
 import { setPropUndoable } from "../lib/undoprops";
+import { isPickedToday } from "../lib/today";
+import { useTodayIso } from "./useTodayIso";
 import { renameUndoable, recordCreate } from "../lib/undostruct";
 import { onRenameAnnounce } from "../lib/renamebus";
 import { useUndo } from "../lib/undoContext";
@@ -65,7 +67,8 @@ import FileMenu from "./FileMenu";
 import RelationMenu from "./RelationMenu";
 import SelectMenu, { anchorFrom, MultiValues, optionColor, OptionPill, type AnchorRect } from "./SelectMenu";
 import DotsMenu from "./DotsMenu";
-import { BacklinkIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, LockIcon, NoteActionGlyph, XIcon } from "./Icons";
+import { BacklinkIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, FileIcon, LockIcon, NoteActionGlyph, XIcon } from "./Icons";
+import EmptyState from "./EmptyState";
 
 /** url/email/phone-kind chips open outside the app — the OS handler (browser,
     mail, phone) in Tauri, a new tab in the browser/mock lane (Editor's
@@ -192,6 +195,10 @@ interface NotePaneProps {
   onDuplicate?: (note: NoteMeta) => void;
   /** Open the Send-as-link dialog for this note */
   onSendAsLink?: (note: NoteMeta) => void;
+  /** Pick this note for today (or unpick it) from the ⋯ menu —
+      the Today surface's verb reaching the note that is open. The pane reads
+      the picked state off the note itself, so it needs no second prop. */
+  onTogglePick?: (path: string, pick: boolean) => void;
   /** Put this note in (or take it out of) the sidebar's Pinned
       section; `pinned` flips the ⋯ menu's label */
   onTogglePin?: (path: string, pinned: boolean) => void;
@@ -261,6 +268,7 @@ function NotePane({
   onMoveToFolder,
   onDuplicate,
   onSendAsLink,
+  onTogglePick,
   onTogglePin,
   pinned = false,
   flushRef,
@@ -279,6 +287,7 @@ function NotePane({
   readOnly = false,
 }: NotePaneProps) {
   const undo = useUndo();
+  const todayIso = useTodayIso();
   // docPath is the identity the mounted editor is keyed under (docKey). It
   // tracks path except across the pane's own title rename, where it keeps the
   // pre-rename value so the editor does NOT remount: the body didn't
@@ -1380,6 +1389,10 @@ function NotePane({
   const calendarValue = props[foldedPropKey(props, "calendar")];
   const calHidden = calendarValue === false || calendarValue === "false";
   const calToggleable = calHidden || entriesForNote({ ...meta, props }, schema).length > 0;
+  // read the pick off the live props, not off `meta` — the ⋯ menu's
+  // label must flip the moment the write lands, before the vault re-scan
+  // refreshes meta
+  const pickedToday = isPickedToday({ ...meta, props }, todayIso);
   // database identity icons for the type chip + type picker
   const dbIcons = useMemo(() => iconsByType(schema), [schema]);
   // a template shows its type as a fixed header — the filename is
@@ -1442,12 +1455,13 @@ function NotePane({
   if (missing) {
     return (
       <div className="note">
-        <div className="empty">
-          <span>This note’s file is gone</span>
-          <span className="empty-hint">
-            It was moved, deleted, or made unreadable outside Substrate
-          </span>
-        </div>
+        {/* No verb here yet: nothing in this state is recoverable from the app,
+            so there is no existing command to offer — glyph + text. */}
+        <EmptyState
+          icon={<FileIcon />}
+          title="This note’s file is gone"
+          hint="It was moved, deleted, or made unreadable outside Substrate"
+        />
       </div>
     );
   }
@@ -1526,6 +1540,8 @@ function NotePane({
         }
       : undefined,
     unseal: isSealed ? () => setSealedDialog("unseal") : undefined,
+    togglePick: onTogglePick ? () => onTogglePick(meta.path, !pickedToday) : undefined,
+    picked: pickedToday,
     toggleCalendar: calToggleable ? () => toggleCalendar(calHidden) : undefined,
     calendarHidden: calHidden,
     togglePin: onTogglePin ? () => onTogglePin(meta.path, !pinned) : undefined,

@@ -291,9 +291,9 @@ test("a real zero split bucket keeps an honest visible zero mark (SUB-954)", asy
   expect(splitFill).not.toBe("rgba(0, 0, 0, 0)");
 
   // The non-split form has always painted a real zero as its normal 3px bar.
-  // The exact fill differs between shapes (categorical plain
-  // bars wear the series ramp); the shared invariant is a visible, painted,
-  // not-row-empty mark in both.
+  // The exact fill differs between shapes — a split slice wears its band, an
+  // unsplit bar the one-series accent; the shared invariant is a visible,
+  // painted, not-row-empty mark in both.
   await openOverview(page, PLAIN, zeroRows);
   const plainCol = page.locator(".dash-bar-col").first();
   const plainZero = plainCol.locator(".dash-bar:not(.is-empty)");

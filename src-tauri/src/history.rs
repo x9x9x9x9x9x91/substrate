@@ -419,6 +419,49 @@ impl History {
         Ok(true)
     }
 
+    /// Stage ONLY the given paths and commit them under an explicit author
+    /// identity — the receipts primitive for MCP-originated writes: the door
+    /// commits each write as `Substrate MCP <mcp@local>` with the client name
+    /// in the message, and fences a user's uncommitted edit under the normal
+    /// identity first. Path-scoped staging is what keeps the attribution
+    /// honest — a plain `snapshot` here would sweep every unrelated dirty
+    /// file into the MCP-authored commit.
+    /// Committer stays the repo's configured `Substrate` identity; only the
+    /// author line carries who made the change. Foreign repo: no-op, like
+    /// every other mutation. Desktop-only, like the stdio server it serves.
+    #[cfg(not(mobile))]
+    pub fn commit_paths_as(
+        &self,
+        rels: &[&str],
+        author_name: &str,
+        author_email: &str,
+        message: &str,
+    ) -> Result<bool, String> {
+        if !self.enabled {
+            return Ok(false);
+        }
+        let mut add = vec!["add", "--"];
+        add.extend(rels);
+        let literal = [("GIT_LITERAL_PATHSPECS", "1")];
+        self.git_env(&add, &literal)?;
+        let mut status = vec!["status", "--porcelain", "--"];
+        status.extend(rels);
+        if self.git_env(&status, &literal)?.trim().is_empty() {
+            return Ok(false);
+        }
+        let mut commit = vec!["commit", "-q", "-m", message, "--only", "--"];
+        commit.extend(rels);
+        self.git_env(
+            &commit,
+            &[
+                ("GIT_LITERAL_PATHSPECS", "1"),
+                ("GIT_AUTHOR_NAME", author_name),
+                ("GIT_AUTHOR_EMAIL", author_email),
+            ],
+        )?;
+        Ok(true)
+    }
+
     /// Snapshot before a bulk sweep, reporting whether A RESTORE POINT EXISTS
     /// rather than whether a commit was made. `snapshot`'s false has
     /// two meanings and only one is dangerous: history disabled = no restore
@@ -1342,6 +1385,65 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir.canonicalize().unwrap()
+    }
+
+    #[test]
+    fn commit_paths_as_scopes_staging_and_overrides_only_the_author() {
+        let dir = user_repo("attrib");
+        let h = History::new(dir.clone()).unwrap();
+        fs::write(dir.join("a.md"), "one\n").unwrap();
+        fs::write(dir.join("b.md"), "unrelated dirt\n").unwrap();
+        assert!(h.commit_paths_as(&["a.md"], "Substrate MCP", "mcp@local", "mcp: edit").unwrap());
+        // author is the MCP identity, committer stays the repo's own
+        let head = user_git(&dir, &["log", "--format=%an <%ae>|%cn <%ce>|%s", "-1"]);
+        assert_eq!(head.trim(), "Substrate MCP <mcp@local>|Substrate <substrate@local>|mcp: edit");
+        // the unrelated dirty file did NOT ride into the attributed commit
+        let files = user_git(&dir, &["show", "--name-only", "--format=", "HEAD"]);
+        assert_eq!(files.trim(), "a.md");
+        assert!(user_git(&dir, &["status", "--porcelain"]).contains("b.md"));
+        // clean target path = no commit; adoption heuristics still treat the
+        // repo as Substrate's (author-only override, committer unchanged)
+        assert!(!h.commit_paths_as(&["a.md"], "Substrate MCP", "mcp@local", "again").unwrap());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commit_paths_as_treats_glob_characters_as_a_literal_filename() {
+        let dir = user_repo("attrib-literal");
+        let h = History::new(dir.clone()).unwrap();
+        fs::create_dir_all(dir.join("Notes")).unwrap();
+        fs::write(dir.join("Notes/*.md"), "literal\n").unwrap();
+        fs::write(dir.join("Notes/private.md"), "unrelated\n").unwrap();
+
+        assert!(h
+            .commit_paths_as(&["Notes/*.md"], "Substrate MCP", "mcp@local", "mcp: literal")
+            .unwrap());
+
+        let files = user_git(&dir, &["show", "--name-only", "--format=", "HEAD"]);
+        assert_eq!(files.trim(), "Notes/*.md", "pathspec syntax stayed literal");
+        assert!(
+            user_git(&dir, &["status", "--porcelain"]).contains("Notes/private.md"),
+            "the wildcard did not sweep a sibling into the receipt"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn commit_paths_as_is_a_noop_on_a_foreign_repo() {
+        let dir = user_repo("attribforeign");
+        user_git(&dir, &["init", "-q", "-b", "main"]);
+        user_git(&dir, &["config", "user.name", "Ada"]);
+        user_git(&dir, &["config", "user.email", "ada@example.com"]);
+        fs::write(dir.join("notes.md"), "mine\n").unwrap();
+        user_git(&dir, &["add", "-A", "."]);
+        user_git(&dir, &["commit", "-q", "-m", "ada's commit"]);
+        let h = History::new(dir.clone()).unwrap();
+        assert!(!h.is_enabled());
+        fs::write(dir.join("notes.md"), "changed\n").unwrap();
+        assert!(!h.commit_paths_as(&["notes.md"], "Substrate MCP", "mcp@local", "mcp").unwrap());
+        let log = user_git(&dir, &["log", "--format=%s"]);
+        assert_eq!(log.trim(), "ada's commit", "nothing committed in the user's repo");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

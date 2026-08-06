@@ -59,12 +59,22 @@ export function isoDay(d: Date): string {
   return `${d.getFullYear()}-${m}-${day}`;
 }
 
-/** Strict YYYY-MM-DD → local Date, rejecting impossible dates (2026-02-30). */
+/** Strict YYYY-MM-DD → local Date, rejecting impossible dates (2026-02-30).
+
+    The year is written back explicitly: the multi-arg Date
+    constructor applies JS's legacy two-digit-year rule to years 0–99, so
+    `new Date(99, 0, 1)` is 1999, not year 99. The round-trip check only
+    covered month and day, so "0099-01-01" came back as a Date in 1999 — off
+    by nineteen centuries and silently accepted. setFullYear undoes the
+    offset without disturbing the rollover the month/day check relies on, and
+    the year is now round-tripped too. */
 export function parseDay(s: string): Date | null {
   const m = ISO_DAY.exec(s);
   if (!m) return null;
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-  return d.getMonth() === Number(m[2]) - 1 && d.getDate() === Number(m[3]) ? d : null;
+  const [y, mo, day] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const d = new Date(y, mo - 1, day);
+  d.setFullYear(y);
+  return d.getFullYear() === y && d.getMonth() === mo - 1 && d.getDate() === day ? d : null;
 }
 
 /* A date prop value with an optional time-of-day: the ISO day,

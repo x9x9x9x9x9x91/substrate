@@ -123,3 +123,39 @@ test("a chart keeps its colours when the fence above it is deleted (SUB-1062)", 
   await expect(legendNames(page).nth(0)).toHaveText("Q1");
   expect(await swatches(page)).toEqual([RAMP[0], RAMP[1]]);
 });
+
+// an unsplit chart on the same source: four categories, no `by:`
+const NO_SPLIT = BY_QUARTER.replace("by: quarter\n", "");
+
+test("an unsplit categorical chart is one series in one colour (SUB-1074)", async ({ page }) => {
+  await openOverview(page, NO_SPLIT);
+  // four named categories and no legend — the split's question isn't asked
+  const bars = page.locator(".dash-bar");
+  await expect(bars).toHaveCount(4);
+  await expect(legendNames(page)).toHaveCount(0);
+
+  // Every bar wears the SAME colour, and it is the accent — not a walk down
+  // the accent ramp, which would spend four hues to say one thing. The ramp
+  // is the `by:` split's alphabet; this chart has nothing to spell with it.
+  const fills = await bars.evaluateAll((nodes) =>
+    nodes.map((n) => getComputedStyle(n).backgroundColor)
+  );
+  expect(new Set(fills).size).toBe(1);
+  const accent = await page
+    .locator(".dash-inner")
+    .first()
+    .evaluate((el) => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--accent)";
+      el.appendChild(probe);
+      const c = getComputedStyle(probe).color;
+      probe.remove();
+      return c;
+    });
+  expect(fills[0]).toBe(accent);
+  // and no bar carries an inline per-bar hue at all
+  const tinted = await bars.evaluateAll(
+    (nodes) => nodes.filter((n) => (n as HTMLElement).style.getPropertyValue("--bar") !== "").length
+  );
+  expect(tinted).toBe(0);
+});

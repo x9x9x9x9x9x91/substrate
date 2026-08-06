@@ -151,7 +151,10 @@ test("every executable entry point in scripts/ is guarded", () => {
   // A new script that forgets the guard is exactly how this defect returns.
   const entries = [
     "with-merge-lock.sh",
+    "push-gated-main.sh",
+    "merge-queue.sh",
     "install-git-hooks.sh",
+    "prepare-mcp-sidecar.sh",
     "verify-gates.sh",
     "verify-quarantine.sh",
   ];

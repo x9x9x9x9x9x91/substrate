@@ -63,6 +63,34 @@ test("parseDay rejects malformed and impossible dates", () => {
   assert.equal(parseDay(""), null);
 });
 
+test("parseDay keeps two-digit years in their own century (SUB-1177)", () => {
+  // the multi-arg Date constructor reads years 0–99 as 19xx; the round-trip
+  // check never looked at the year, so these came back off by 1900
+  const y99 = parseDay("0099-01-01");
+  assert.ok(y99);
+  assert.equal(y99.getFullYear(), 99);
+  assert.equal(y99.getMonth(), 0);
+  assert.equal(y99.getDate(), 1);
+  // (isoDay renders that year unpadded — "99-01-01"; a separate gap, and out
+  // of scope here: this branch touches parseDay only.)
+  const y0 = parseDay("0000-01-01");
+  assert.ok(y0);
+  assert.equal(y0.getFullYear(), 0);
+  const y26 = parseDay("0026-03-04");
+  assert.ok(y26);
+  assert.equal(y26.getFullYear(), 26);
+  assert.equal(y26.getMonth(), 2);
+  assert.equal(y26.getDate(), 4);
+  // impossible days stay rejected in the low-year range too
+  assert.equal(parseDay("0099-02-30"), null);
+  assert.equal(parseDay("0099-13-01"), null);
+  // ordinary years are untouched, leap day included
+  assert.equal(isoDay(parseDay("2024-02-29")!), "2024-02-29");
+  assert.equal(parseDay("2026-02-29"), null);
+  assert.equal(isoDay(parseDay("1899-12-31")!), "1899-12-31");
+  assert.equal(isoDay(parseDay("1900-01-01")!), "1900-01-01");
+});
+
 test("weeks start Monday; month grid covers only the month's weeks", () => {
   // 2026-07-17 is a Friday
   assert.equal(isoDay(startOfWeek(new Date(2026, 6, 17))), "2026-07-13");

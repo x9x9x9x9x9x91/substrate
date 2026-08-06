@@ -116,6 +116,7 @@ test("buildNoteActions: the full handler set yields the canonical order", () => 
     seal: noop,
     lockNow: noop,
     unseal: noop,
+    togglePick: noop,
     toggleCalendar: noop,
     togglePin: noop,
     trash: noop,
@@ -123,8 +124,27 @@ test("buildNoteActions: the full handler set yields the canonical order", () => 
   });
   assert.deepEqual(
     acts.map((a) => a.id),
-    ["open", "move", "rename", "duplicate", "prop", "copy", "reveal", "export-md", "export-pdf", "export-onesheet", "seal", "lock-now", "unseal", "calendar", "pin", "trash"]
+    ["open", "move", "rename", "duplicate", "prop", "copy", "reveal", "export-md", "export-pdf", "export-onesheet", "seal", "lock-now", "unseal", "pick", "calendar", "pin", "trash"]
   );
+});
+
+test("buildNoteActions: the pick label flips on picked (SUB-1162), never sealed-gated", () => {
+  const noop = () => {};
+  assert.deepEqual(
+    buildNoteActions({ togglePick: noop, sealed: false }).map((a) => [a.id, a.label, a.icon]),
+    [["pick", "Pick for today", "today"]]
+  );
+  assert.equal(
+    buildNoteActions({ togglePick: noop, picked: true, sealed: false })[0].label,
+    "Unpick from today"
+  );
+  // a pick writes a date prop on the note — it emits no plaintext, so a
+  // sealed note keeps its Pick exactly as it keeps "Hide from calendar"
+  assert.deepEqual(
+    buildNoteActions({ togglePick: noop, sealed: true }).map((a) => a.id),
+    ["pick"]
+  );
+  assert.equal(buildNoteActions({ togglePick: noop, sealed: false })[0].destructive, undefined);
 });
 
 test("buildNoteActions: sealed-note actions use the quiet lock lane", () => {

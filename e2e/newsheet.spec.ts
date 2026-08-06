@@ -18,9 +18,13 @@ test("palette New sheet: query becomes the title, grid opens empty", async ({ pa
 
   await expect(page.locator(".overlay")).toHaveCount(0);
   await expect(page.locator(".note-title")).toHaveValue("Body Log");
-  // empty state offers the grid starter
-  await expect(page.locator(".sheet-empty")).toBeVisible();
-  await page.locator(".sheet-empty .sheet-tool", { hasText: "+ column" }).click();
+  // empty state rides the shared shell — glyph, line, and the
+  // grid starter — so the assertion is on `.empty`, not the bare pane class
+  const sheetEmpty = page.locator(".empty.sheet-empty");
+  await expect(sheetEmpty).toBeVisible();
+  await expect(sheetEmpty.locator("svg")).toHaveCount(1);
+  await expect(sheetEmpty.locator(".empty-hint")).toContainText("Add a column");
+  await sheetEmpty.locator(".sheet-tool", { hasText: "+ column" }).click();
   await page.locator(".sheet-addcol-input").fill("weight_kg");
   await page.keyboard.press("Enter");
   await expect(page.locator(".sheet-table th", { hasText: "weight_kg" })).toBeVisible();
@@ -37,5 +41,5 @@ test("New sheet in a folder view lands the sheet in that folder", async ({ page 
   await page.locator(".palette-item", { hasText: "New sheet" }).click();
 
   await expect(page.locator(".note-title")).toHaveValue("Budget");
-  await expect(page.locator(".sheet-empty")).toBeVisible();
+  await expect(page.locator(".empty.sheet-empty")).toBeVisible();
 });

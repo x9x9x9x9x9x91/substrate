@@ -49,6 +49,7 @@ import {
 } from "../lib/appearance";
 import type { OnboardingStatus } from "../lib/onboarding";
 import { HOSTED_HANDOFF_RELAY_URL } from "../lib/handoff";
+import McpSettings from "./McpSettings";
 
 const Onboarding = lazy(() => import("./Onboarding"));
 
@@ -883,6 +884,7 @@ export default function SettingsPane({
               </button>
             )}
           </div>
+          <McpSettings onToast={onToast} />
           {missing && (
             <div className="settings-missing">
               No Settings.md in the vault — create it via “edit raw”.

@@ -17,7 +17,7 @@ import { vaultRead, vaultResolve, vaultWriteBody } from "../lib/ipc";
 import { parsePages, type PageEntry } from "../lib/pages";
 import { embedQueryFor, type EmbedResult } from "../lib/embeds";
 import { DashHead } from "./DashHead";
-import EmbedViewTable from "./EmbedViewTable";
+import EmbedViewTable, { type EmbedEdit } from "./EmbedViewTable";
 import SheetGrid from "./SheetGrid";
 
 export interface WorkbookProps {
@@ -31,6 +31,8 @@ export interface WorkbookProps {
   onFollowLink?: (name: string) => void;
   /** open a database / saved view full-screen (the embed click-through) */
   onOpenView?: (dbType: string, savedId?: string) => void;
+  /** the write path a view page's cells commit through */
+  embedEdit?: EmbedEdit;
   /** ⌃⇥ / ⌃⇧⇥ from the app-level dispatcher steps pages through this ref */
   stepRef?: MutableRefObject<((dir: 1 | -1) => void) | null>;
   /** page 0, rendered by the caller (the note's own dashboard kind) */
@@ -130,19 +132,22 @@ function SheetPage({
   );
 }
 
-/** A `view:`/`saved:` page — the read-only database cut, full-page caps. */
+/** A `view:`/`saved:` page — the database cut at full-page caps, cells editable
+    in place when the app hands down a write path. */
 function ViewPage({
   title,
   result,
   onOpenSource,
   sourcePath,
   onOpenView,
+  embedEdit,
 }: {
   title: string;
   result: EmbedResult;
   sourcePath: string;
   onOpenSource: (path: string) => void;
   onOpenView?: (dbType: string, savedId?: string) => void;
+  embedEdit?: EmbedEdit;
 }) {
   if ("error" in result) return <PageError label={title} error={result.error} />;
   return (
@@ -176,6 +181,7 @@ function ViewPage({
           result={result}
           onOpenSource={onOpenSource}
           className="wb-view-table"
+          edit={embedEdit}
         />
       </div>
     </div>
@@ -276,6 +282,7 @@ export default function WorkbookPane(props: WorkbookProps & {
         sourcePath={props.meta.path}
         onOpenSource={props.onOpenSource}
         onOpenView={props.onOpenView}
+        embedEdit={props.embedEdit}
       />
     );
 

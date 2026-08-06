@@ -8,6 +8,7 @@ import { formatFileSize } from "../lib/display";
 import { dateLocale } from "../lib/dateLocale";
 import { ImageIcon, NoteIcon } from "./Icons";
 import { BackButton } from "./BackButton";
+import EmptyState from "./EmptyState";
 
 /** "Jun 12" — same locale shape the trash rows use for older dates. */
 function fmtDate(ms: number): string {
@@ -151,22 +152,18 @@ export default function AssetsPane({ vaultEpoch }: AssetsPaneProps) {
              that sticks forever; same DOM as the resolved state, so the scan
              landing only swaps text */
           error === null ? (
-            <div className="empty">
-              <ImageIcon />
-              <span>Scanning .assets</span>
-              <span className="empty-hint">
-                checking every file in .assets/ against note embeds
-              </span>
-            </div>
+            <EmptyState
+              icon={<ImageIcon />}
+              title="Scanning .assets"
+              hint="checking every file in .assets/ against note embeds"
+            />
           ) : null
         ) : entries.length === 0 ? (
-          <div className="empty">
-            <ImageIcon />
-            <span>No orphaned assets</span>
-            <span className="empty-hint">
-              every file in .assets/ is still embedded in a note
-            </span>
-          </div>
+          <EmptyState
+            icon={<ImageIcon />}
+            title="No orphaned assets"
+            hint="every file in .assets/ is still embedded in a note"
+          />
         ) : (
           entries.map((a) => (
             <div

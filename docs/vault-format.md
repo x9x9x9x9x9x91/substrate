@@ -484,16 +484,37 @@ brackets. The inner text is `target#anchor|alias`, all three parts optional
 
 - The target may carry a **display modifier** past the first `|` —
   `![[cover.png|300]]`, `![[cover.png|300x200]]`, `![[cover.png|left]]` — the
-  size/layout hint of the Obsidian dialect these vaults are written in.
-  Substrate **accepts the modifier and currently ignores it**: nothing renders
-  at a width or floats, and no width is stored. It is stripped before
-  resolution, so the target is `cover.png` everywhere — rendering, the doctor,
-  export bundles and the `.assets/` orphan sweep alike. One parser, two copies:
-  `embed_target` (`vault/mod.rs`) and `embedTarget` (`src/lib/wikilinks.ts`).
-  Unlike a wikilink, an embed does **not** split on `#`: filenames and paths may
-  contain one, and an embed has no anchor. A file whose name genuinely contains
-  `|` is therefore unreachable by an embed — the grammar spends that character
-  on the modifier.
+  size/layout hint of the Obsidian dialect these vaults are written in. It is
+  stripped before resolution, so the target is `cover.png` everywhere —
+  rendering, the doctor, export bundles and the `.assets/` orphan sweep alike.
+  One parser, two copies: `embed_target` (`vault/mod.rs`) and `embedTarget`
+  (`src/lib/wikilinks.ts`). Unlike a wikilink, an embed does **not** split on
+  `#`: filenames and paths may contain one, and an embed has no anchor. A file
+  whose name genuinely contains `|` is therefore unreachable by an embed — the
+  grammar spends that character on the modifier.
+
+- **Size modifiers are honoured; layout modifiers are not.** The modifier's
+  grammar, parsed by `embed_size` (`vault/mod.rs`) / `embedSize`
+  (`src/lib/wikilinks.ts`) — the same twin-parser arrangement:
+
+  | modifier | meaning |
+  | --- | --- |
+  | `\|300` | max width 300 px, aspect ratio preserved |
+  | `\|300x200` (or `300X200`) | fit inside a 300×200 box, aspect ratio preserved |
+  | `\|left`, `\|right` | **parsed and ignored** — Substrate commits to no text-wrap layout |
+  | anything else (`\|axb`, `\|300x`, `\|0`, `\|-3`, empty) | parsed and ignored |
+
+  Sizes render as CSS **caps** (`max-width`/`max-height`), never fixed
+  dimensions, so an image still shrinks to fit a narrow window or page and is
+  never distorted; a `WxH` box contains rather than stretches. Values are
+  clamped to `[1, 4096]` px — an absurd number degrades to a big image, never a
+  broken one. A multi-part modifier is read segment by segment and the first
+  size wins, so `![[cover.png|300|left]]` renders at 300 px. **No modifier is
+  ever an error**: whatever it says, the embed still resolves and still renders.
+  Nothing is stored — the size lives in the note text and nowhere else. Applies
+  to image embeds on all three surfaces (editor, hub dashboards, print/PDF);
+  audio players, file chips and the one-sheet hero image ignore it — the hero
+  is a hoisted layout slot that owns its own dimensions.
 
 - Rendering is by extension: audio (`.wav .aif .aiff .mp3 .flac .m4a .ogg
   .opus .weba .webm`) renders an audio player (streams from disk); images
@@ -2953,15 +2974,37 @@ status: promising
 - A sidecar whose file the index no longer knows still gets a row, marked
   missing. An annotation is never invisible because a drive is unplugged.
 - Renaming a mount renames its schema type and moves `Mounts/<name>/` with it.
-- **Sealed sidecars block annotation for the whole mount** — accepted cost. A
-  locked sealed note cannot be read, so the engine cannot tell whether it is
-  the sidecar for the row being annotated; writing a new one would silently
-  duplicate it. So a *single* sealed note anywhere under `Mounts/<name>/`
-  makes annotating **every** row of that mount refuse, with a message naming
-  the cause (`mounts.rs::sealed_notes_shadowing_mount`). Unlocking the vault
-  for the session, or moving the sealed note out of the mount folder, clears
-  it. Refusing is deliberate: the alternative is a duplicate sidecar and two
-  divergent sets of props for one file.
+- **Sealed sidecars block annotation** — accepted cost. A locked sealed note
+  indexes with no props at all, so the engine cannot tell whether it is the
+  sidecar for the row being annotated; writing a new one would silently
+  duplicate it. Refusing is deliberate: the alternative is two divergent sets
+  of props for one file.
+
+  Nothing outside the ciphertext records the binding, so the block is a
+  suspicion drawn from the two things a sealed note still shows — where it
+  sits and what it is called (`mounts.rs::sealed_note_shadowing_row`):
+
+  - a sealed note *anywhere* under `Mounts/<name>/` makes annotating **every**
+    row of that mount refuse — that folder is where sidecars are filed;
+  - a sealed note *anywhere in the vault* whose filename could be the one this
+    row's sidecar was given makes **that row** refuse. This is the sidecar
+    moved out of the shadow folder by hand and then sealed: the move keeps the
+    name, and the name is all that survives sealing. The whole collision
+    family counts — a sidecar filed when a sibling already held the plain name
+    is uniquified (`track` → `track 2`), and the suffixed one has to be seen
+    too.
+
+  The refusal names the sealed note standing in the way. Unsealing it, or
+  renaming it out of the way, clears the block. Note that unlocking a sealed
+  note for the session does **not** clear it: the index entry stays propless
+  either way.
+
+  Residual gap: a sealed sidecar whose **filename no longer matches the row** —
+  the user renamed it, or anything else did — shows nothing to match
+  on and is still invisible — a second sidecar can be filed beside it. Closing
+  that needs the `mount` binding recorded outside the ciphertext, in an
+  authenticated carrier that does not itself leak which notes are sidecars of
+  which mount. No such carrier exists in the format today.
 
 ### Unbound, missing, and unmounting
 
@@ -3486,9 +3529,9 @@ Plain notes the app treats specially — all optional, all just files:
   bars join above 70; `0` is the shipped look and switches the effect off
   entirely rather than drawing a zero-width one), `accent-tone` (`sky` —
   the default and the shipped family — `teal`, `indigo` or
-  `violet`; picks the hue the dashboard accent family and the categorical
-  series ramp wear, on screen and in print, while the state colours
-  red/amber/green stay put) and `accent-tone-nudge` (−12..12 degrees of
+  `violet`; picks the hue the dashboard accent family wears, on
+  screen and in print, while the state colours red/amber/green and a `by:`
+  split's own categorical band ramp all stay put) and `accent-tone-nudge` (−12..12 degrees of
   hue offset around the chosen tone; out-of-range values clamp, and the
   bound is what keeps every ramp colour clear of 3:1 on both grounds).
   All three degrade to their default on any value the reader can't make

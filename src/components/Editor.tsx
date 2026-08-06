@@ -60,7 +60,13 @@ import { isTauri } from "../lib/tauri";
 import { claimDrop, dropClientPoint, dropHintText } from "../lib/dragdrop";
 import { shortcutCmKey } from "../lib/shortcuts";
 import { type PosTracker, trackPos, trackedPositions } from "../lib/trackpos";
-import { embedTarget, wikiLinkInsert, wikiLinkOptions, wikiLinkQuery } from "../lib/wikilinks";
+import {
+  embedSize,
+  embedTarget,
+  wikiLinkInsert,
+  wikiLinkOptions,
+  wikiLinkQuery,
+} from "../lib/wikilinks";
 import { inlineTagMatches, tagOptions, tagQuery } from "../lib/tags";
 import {
   fenceExit,
@@ -1175,12 +1181,12 @@ function buildDecorations(view: EditorView): DecorationSet {
       const line = state.doc.lineAt(start).number;
       if (focused && active.has(line)) continue;
       // the file alone — a `|300`-style display modifier is a size hint,
-      // accepted and (for now) ignored, never part of the name
+      // never part of the name; images honour it, everything else ignores it
       const target = embedTarget(m[1]);
       let widget = isAudioEmbed(target)
         ? new AudioWidget(target, epoch)
         : isImageEmbed(target)
-          ? new ImageWidget(target, epoch)
+          ? new ImageWidget(target, epoch, embedSize(m[1]))
           : new FileWidget(target, epoch, state.facet(calcConfig).locale);
       const sourceLine = state.doc.lineAt(start);
       const standalone = sourceLine.text.trim() === m[0];

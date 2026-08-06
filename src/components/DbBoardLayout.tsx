@@ -4,7 +4,8 @@ import { displayValue } from "../lib/display";
 import { NOTE_DRAG_MIME } from "../lib/sidebar";
 import { missingCls } from "../lib/mounts";
 import { optionColor, OptionPill } from "./SelectMenu";
-import { PlusIcon } from "./Icons";
+import { BoardIcon, PlusIcon } from "./Icons";
+import EmptyState from "./EmptyState";
 import { cardSubtitle, type Focus } from "./DbPaneShared";
 import { byFoldedKey } from "../lib/schemalookup";
 import type { FxResolver } from "../lib/formula";
@@ -106,10 +107,14 @@ export default function DbBoardLayout({
         {tabRow}
         {bar}
         {draftRow && <div className="db-list">{draftRow}</div>}
-        <div className="empty">
-          <span>Nothing to group by</span>
-          <span className="empty-hint">Add a property (e.g. status) on any note first</span>
-        </div>
+        {/* No verb here yet: the one the hint names — add a property — is the
+            ＋ form anchored to the header button in DatabasePane, and there is
+            no anchor-free way to raise it from here. */}
+        <EmptyState
+          icon={<BoardIcon />}
+          title="Nothing to group by"
+          hint="Add a property (e.g. status) on any note first"
+        />
         {adminPop}
       </div>
     );

@@ -40,16 +40,24 @@ function normalizeDateSortValue(v: string): string {
     `localeCompare` (numeric, base sensitivity). Returns null for an empty
     list, so callers can skip the sort pass entirely.
 
+    ONE POLICY for every typed key (number, rollup, select): a cell is first
+    CLASSIFIED — orderable by the column's own scheme, or not — and only then
+    compared. `dir` flips comparisons WITHIN a class; it never flips the
+    classification. So descending means "the orderable rows reversed", with
+    unorderable cells still behind them and genuinely-missing values still
+    last, exactly like the missing-values rule one paragraph up. Untyped keys
+    have a single class (everything collates), so there dir does flip the whole
+    column, like localeCompare.
+
     With `typeSchema` given, a key naming a single-select prop
     (kindless schema entry with options — `PropKind` carries no "select";
     kind = undefined + options IS the discriminator, SelectMenu derives its
     draft kind the same way) compares by the value's index in
     `schema.options` (case-insensitive), the order dbgroup already groups by.
-    Values outside the options list follow all known options, lexicographic
-    among themselves; `dir` flips every valued comparison exactly like it
-    flips localeCompare, so desc is the valued order reversed with missing
-    values still last. Multi-kind and every other kind stay lexicographic;
-    no schema (or a key without one) keeps the old behavior byte for byte.
+    Values outside the options list are the unorderable class: they follow all
+    known options in both directions, lexicographic among themselves.
+    Multi-kind and every other kind stay lexicographic; no schema (or a key
+    without one) keeps the old behavior byte for byte.
 
     A key whose schema says `kind: "number"` compares by numeric VALUE, using
     the same `parseStrictNumber` coercion the table footer's Sum/Min/Max
@@ -57,9 +65,10 @@ function normalizeDateSortValue(v: string): string {
     compares each RUN of digits as an integer, so place value is lost after
     the decimal point (1299.5 lands before 1299.45 — .5 vs .45 reads as 5 vs
     45) and "-" is punctuation rather than a sign (negatives order by
-    magnitude). A cell that isn't a number in a number column can't be ordered
-    against numbers: it trails all of them, collating among its own kind, and
-    still precedes genuinely-missing values. */
+    magnitude). A cell that isn't a number in a number column is the
+    unorderable class here: it trails all numbers in both directions,
+    collating among its own kind, and still precedes genuinely-missing
+    values. */
 export function sortCmpFor(
   sorts: SavedViewSort[],
   typeSchema?: Record<string, PropSchema>
@@ -104,15 +113,15 @@ export function sortCmpFor(
         const an = parseStrictNumber(av);
         const bn = parseStrictNumber(bv);
         if (an !== null && bn !== null) c = an < bn ? -1 : an > bn ? 1 : 0;
-        else if (an !== null) c = -1; // numbers before cells that aren't numbers
-        else if (bn !== null) c = 1;
+        else if (an !== null) return -1; // numbers before cells that aren't numbers
+        else if (bn !== null) return 1;
         else c = collate(av, bv);
       } else if (order) {
         const ai = order.get(av.toLowerCase());
         const bi = order.get(bv.toLowerCase());
         if (ai !== undefined && bi !== undefined) c = ai - bi;
-        else if (ai !== undefined) c = -1; // known options before unschema'd values
-        else if (bi !== undefined) c = 1;
+        else if (ai !== undefined) return -1; // known options before unschema'd values
+        else if (bi !== undefined) return 1;
         else c = collate(av, bv);
       } else {
         c = collate(av, bv);
