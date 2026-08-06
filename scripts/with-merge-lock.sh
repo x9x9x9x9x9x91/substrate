@@ -144,6 +144,13 @@ LOCK_DIR="$GITDIR/substrate-merge.lock"
 on_exit() {
   local rc=$?
   release
+  # A run killed mid-steal leaks the steal mutex otherwise, and the next
+  # FLAGLESS run then refuses outright ("could not take the merge lock") instead
+  # of stealing the stale lock it can plainly see: take_steal_lock clears a dead
+  # stealer's mutex but asks its caller to come back around, and a flagless
+  # caller has nowhere to come back around to. Defined below this handler, like
+  # release: bash resolves function names at call time, not at trap time.
+  drop_steal_lock
   clear_own_scratch
 }
 
@@ -387,26 +394,37 @@ drop_steal_lock() {
   fi
 }
 
-# Did this run ever hold the lock? Only a holder owes the unpushed-main warning
-# — a run that was refused on sight never merged anything, so blaming it for
-# commits an earlier session stranded would send the operator to the wrong log.
+# Did this run ever hold the lock? This gates the unpushed-main warning ONLY — a
+# run that was refused on sight never merged anything, so blaming it for commits
+# an earlier session stranded would send the operator to the wrong log. Whether
+# to REMOVE the lock is decided by ownership below, never by this flag: any flag
+# has to be assigned on some line after the claim, and a run killed in that gap
+# would hold the lock while believing it did not.
 HELD=0
 PRE_AHEAD=0
 
 release() {
-  [[ "$HELD" -eq 1 ]] || return 0
-  warn_unpushed_main || true
   local owner
   owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
-  # Only ever remove a lock we still own. A session whose lock was stolen out
-  # from under it would otherwise delete the CURRENT holder's lock on its way
-  # out and admit a third session mid-merge.
-  [[ "$owner" == "$$" ]] || return 0
-  # Leaving the lock standing on a failed evict is the safe failure: it still
-  # carries our pid, and the next session steals it once we are gone. Tearing
-  # it down in place instead would expose the empty state nothing else here has
-  # to reason about.
-  evict_dir "$LOCK_DIR" || true
+  if [[ "$owner" == "$$" ]]; then
+    # The lock names us, so we hold it — a fact that is true from the instant
+    # the lock exists, because the pid file arrives in the same rename as the
+    # directory. That is the whole reason ownership decides this and not a flag.
+    warn_unpushed_main || true
+    # Leaving the lock standing on a failed evict is the safe failure: it still
+    # carries our pid, and the next session steals it once we are gone. Tearing
+    # it down in place instead would expose the empty state nothing else here has
+    # to reason about.
+    evict_dir "$LOCK_DIR" || true
+    return 0
+  fi
+  # Not ours, or no longer ours. Never remove it: a session whose lock was
+  # stolen out from under it would otherwise delete the CURRENT holder's lock on
+  # its way out and admit a third session mid-merge. It did merge under the lock
+  # though, so it still owes the warning.
+  if [[ "$HELD" -eq 1 ]]; then
+    warn_unpushed_main || true
+  fi
 }
 
 # Removes the scratch names that carry our pid. Nothing else ever touches them,
@@ -421,9 +439,22 @@ clear_own_scratch() {
 
 # Returns 0 having taken the lock, 1 if the claim was lost.
 take_lock() {
-  claim_dir "$LOCK_DIR" || return 1
-  HELD=1
+  # Both of these are read BEFORE the claim on purpose. The count is a read-only
+  # git query, and a run that loses the claim never reads it back — while a run
+  # killed in the instant after the claim now still reports honestly, because
+  # there is no line between "the lock is ours" and the state describing it.
   PRE_AHEAD="$(main_ahead_count)"
+  claim_dir "$LOCK_DIR" || return 1
+  # Test seam. The instant right here used to leak the lock: it existed on disk
+  # while the flag that release consulted had not been assigned yet, so a signal
+  # landing in the gap freed nothing. It is a sub-millisecond window no test can
+  # aim at from outside — setting this to a whole number of seconds holds the run
+  # still inside it so a test can kill it there deliberately. Never set in normal
+  # use; ignored unless it parses as a positive integer.
+  if [[ "${WITH_MERGE_LOCK_TEST_PAUSE_AFTER_CLAIM:-}" =~ ^[1-9][0-9]*$ ]]; then
+    sleep "$WITH_MERGE_LOCK_TEST_PAUSE_AFTER_CLAIM"
+  fi
+  HELD=1
   return 0
 }
 
@@ -531,8 +562,8 @@ acquire() {
 # rename, so there is no instant where the lock exists and the trap does not —
 # arming it afterwards would leave exactly that window, and a run killed inside
 # it would strand the lock for the next session to steal. Arming it early is
-# free: release is a no-op unless HELD says this run got in, and the scratch
-# sweep only ever touches names carrying our own pid.
+# free: release only ever removes a lock whose pid file names this run, and the
+# scratch sweep only ever touches names carrying our own pid.
 trap on_exit EXIT
 
 acquire

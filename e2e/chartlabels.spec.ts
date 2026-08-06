@@ -81,6 +81,22 @@ Travel,2000
 \`\`\`
 `;
 
+// Every category at zero — the plot has no tallest bar, so it has no scale to
+// rule. Pins the `max > 0` gate on the gridline, which otherwise fences off
+// empty air and names a scale the data does not have.
+const ZEROED = `---
+type: sheet
+title: Zeroed
+---
+
+\`\`\`csv
+category,amount
+Rent,0
+Coffee,0
+Travel,0
+\`\`\`
+`;
+
 const OVERVIEW = `\`\`\`chart
 source: {{Holdings}}
 x: category
@@ -104,6 +120,14 @@ y: sum:amount
 kind: bar
 title: Few and wide
 \`\`\`
+
+\`\`\`chart
+source: {{Zeroed}}
+x: category
+y: sum:amount
+kind: bar
+title: Nothing yet
+\`\`\`
 `;
 
 async function openOverview(page: Page) {
@@ -111,15 +135,17 @@ async function openOverview(page: Page) {
   await page.goto("/");
   await expect(page.locator(".side-item").first()).toBeVisible();
   await page.evaluate(
-    ([sheet, monthly, sparse, overview]) => {
+    ([sheet, monthly, sparse, zeroed, overview]) => {
       window.__mockEditNote!("Holdings.md", sheet);
       window.__mockCloneNote!("Holdings.md", "Monthly.md");
       window.__mockEditNote!("Monthly.md", monthly);
       window.__mockCloneNote!("Holdings.md", "Sparse.md");
       window.__mockEditNote!("Sparse.md", sparse);
+      window.__mockCloneNote!("Holdings.md", "Zeroed.md");
+      window.__mockEditNote!("Zeroed.md", zeroed);
       window.__mockEditNote!("Dashboards/Overview.md", overview);
     },
-    [SPEND, MONTHLY, SPARSE, OVERVIEW]
+    [SPEND, MONTHLY, SPARSE, ZEROED, OVERVIEW]
   );
   await page.locator(".side-item", { hasText: "Overview" }).click();
   await expect(page.locator(".dash-section-label", { hasText: "Where it goes" })).toBeVisible();
@@ -274,10 +300,19 @@ test("a bar owns its band, never draws thinner than the old cap, and full scale 
 
   // A number written on its bar is knocked out in the surface's own colour, so
   // any ink hanging off the fill is painted background-on-background and is
-  // simply gone. Whatever the guard decides, no inset label may overhang.
-  for (const g of geometry.filter((g) => g.inset)) {
-    expect(g.inkWidth).toBeLessThanOrEqual(g.barRight - g.barLeft + 0.5);
-  }
+  // simply gone. Ten categories in this narrow board leave no bar wide enough
+  // to carry its own number, so the correct outcome here is that NOTHING goes
+  // inset — asserted directly, because a filtered loop over an empty set says
+  // nothing either way. The "no inset label overhangs" invariant is proved
+  // where insets actually exist, at the sparse fixture below.
+  expect(geometry.filter((g) => g.inset)).toEqual([]);
+
+  // ---- regression tripwires: the two assertions this whole test exists for.
+  // They both bit on the pre-fix renderer, which insets by height alone. Keep
+  // them: without `inset === false` the guard can silently go back to width-
+  // blind, and without the `var(--bg)` probe the label could be knocked out
+  // while still carrying no `is-inset` class. Neither is a redundant restating
+  // of the other, and neither may be "simplified" into a class check.
   // "1.582,4" inks wider than a bar at this density — it must NOT be inset,
   // and must therefore still be laid down in ink rather than in the surface
   // colour. (A background-coloured label is the bug; a clipped one is not.)
@@ -342,6 +377,9 @@ test("a bar wide enough wears its own value, inside its own fill", async ({ page
         inkRight: ink.right,
         boxTop: box.top,
         boxBottom: box.bottom,
+        boxLeft: box.left,
+        boxRight: box.right,
+        colWidth: node.getBoundingClientRect().width,
       };
     })
   );
@@ -359,9 +397,26 @@ test("a bar wide enough wears its own value, inside its own fill", async ({ page
   expect(long.inset).toBe(true);
 
   // every inset number is painted within the fill it is knocked out of
-  for (const g of geometry.filter((g) => g.inset)) {
+  const insets = geometry.filter((g) => g.inset);
+  expect(insets.length).toBeGreaterThan(0);
+  for (const g of insets) {
     expect(g.inkLeft).toBeGreaterThanOrEqual(g.barLeft - 0.5);
     expect(g.inkRight).toBeLessThanOrEqual(g.barRight + 0.5);
+  }
+
+  // The belt behind that guard: the label BOX is sized off the same width
+  // variables as the fill, not off its column, so anything the renderer
+  // misjudges clips at the bar's edge instead of painting past it in the
+  // surface colour. Ink alone cannot see this — a short number sits well
+  // inside either box — so measure the box against both the fill it belongs
+  // to and the (much wider) column it would inherit if those width lines went
+  // away. This is what bites if `.dash-bar-val.is-inset` loses its `--bar-w*`.
+  for (const g of insets) {
+    expect(g.boxRight - g.boxLeft).toBeLessThanOrEqual(g.barRight - g.barLeft + 0.5);
+    expect(g.boxLeft).toBeGreaterThanOrEqual(g.barLeft - 0.5);
+    expect(g.boxRight).toBeLessThanOrEqual(g.barRight + 0.5);
+    // and the column really is wider here, so the check has room to fail
+    expect(g.colWidth).toBeGreaterThan(g.barRight - g.barLeft + 1);
   }
 
   // the 90 stub is too short to hold one however wide it is
@@ -369,4 +424,17 @@ test("a bar wide enough wears its own value, inside its own fill", async ({ page
   expect(stub.text).toBe("90");
   expect(stub.inset).toBe(false);
   expect(stub.boxBottom).toBeLessThanOrEqual(stub.barTop + 0.5);
+});
+
+// The gridline is the plot's own scale drawn once, at its tallest bar. With
+// every value at zero there is no tallest bar and no scale, so the rule would
+// fence off empty air — the plot must go unruled.
+test("an all-zero plot has no scale, so it draws no rule", async ({ page }) => {
+  await openOverview(page);
+
+  const chart = chartOf(page, "Nothing yet");
+  await expect(chart.locator(".dash-bar-col")).toHaveCount(3);
+  await expect(chart).not.toHaveClass(/is-ruled/);
+  // the ruled fixture above proves the same class does appear when it is earned
+  await expect(chartOf(page, "Where it goes")).toHaveClass(/is-ruled/);
 });

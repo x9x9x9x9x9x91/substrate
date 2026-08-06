@@ -5,6 +5,7 @@ import {
   computeIntervals,
   fmtAtHuman,
   fmtMoney,
+  fmtMoneyMagnitude,
   fmtWindow,
   parseAt,
   parseSnapshotsFromBody,
@@ -126,6 +127,24 @@ test("fmtMoney renders a dash for missing or non-finite values", () => {
   assert.equal(fmtMoney(null, "€"), "—");
   assert.equal(fmtMoney(Infinity, "$"), "—");
   assert.equal(fmtMoney(NaN, "€", 2), "—");
+});
+
+test("fmtMoneyMagnitude picks the unit by magnitude, so a small principal keeps its digits (SUB-1183)", () => {
+  // the old fixed /1e6 divisor rendered a 13.690 € principal as "0,01M €"
+  assert.equal(fmtMoneyMagnitude(13690, "€"), "13.690 €");
+  assert.equal(fmtMoneyMagnitude(202.33, "€"), "202 €");
+  assert.equal(fmtMoneyMagnitude(0, "€"), "0 €");
+  assert.equal(fmtMoneyMagnitude(999999, "€"), "999.999 €");
+  // a million and up keeps the compact suffix the header strip was built for
+  assert.equal(fmtMoneyMagnitude(1000000, "€"), "1,00M €");
+  assert.equal(fmtMoneyMagnitude(3961234, "€"), "3,96M €");
+  assert.equal(fmtMoneyMagnitude(2500000, "$"), "2,50M $");
+});
+
+test("fmtMoneyMagnitude renders a dash for missing or non-finite values", () => {
+  assert.equal(fmtMoneyMagnitude(null, "€"), "—");
+  assert.equal(fmtMoneyMagnitude(Infinity, "€"), "—");
+  assert.equal(fmtMoneyMagnitude(NaN, "€"), "—");
 });
 
 test("parseSnapshotsFromBody: CRLF body finds the fence and parses rows (SUB-277)", () => {

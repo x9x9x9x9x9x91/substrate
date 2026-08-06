@@ -19,7 +19,10 @@
  * through props. App sets the binding from Settings.md on every settings
  * read, exactly like `applyAppearance` and `setNumberLocale`.
  *
- * Pure TS, no imports: every formatting module can depend on this one. */
+ * Pure TS on one import-free leaf (`types.ts`, for the case-folded key read):
+ * every formatting module can depend on this one without a cycle. */
+
+import { foldedPropKey } from "./types.ts";
 
 /** The dialects the picker offers — deliberately the same list as
  * NUMBER_LOCALES, so the two dials read as two halves of one choice rather
@@ -55,7 +58,7 @@ export function isDateLocale(v: unknown): v is DateLocale {
  * is a visible change, so it is stated here and in the closing evidence
  * rather than left to be discovered. */
 export function dateLocaleSetting(props: Record<string, unknown>): DateLocale {
-  const raw = props["date-locale"];
+  const raw = props[foldedPropKey(props, "date-locale")];
   if (typeof raw === "string") {
     const v = raw.trim();
     if (isDateLocale(v)) return v;

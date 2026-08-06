@@ -567,14 +567,39 @@ function serializeFilter(f: QueryFilter): string {
   return `${neg}${f.key} ${f.op} ${f.values[0] ?? ""}`;
 }
 
-/** Why a filter bar came up empty, in one line. Two heuristics, in
+/** Values one prop actually holds, lowercased key → original casing for
+    display (`folder` reads the note's folder instead of a prop). Notes
+    first, then the schema's select options, so a value in use wins the
+    spelling shown back to the reader. */
+function valuesInUse(
+  notes: NoteMeta[],
+  key: string,
+  typeSchema: Record<string, PropSchema>
+): Map<string, string> {
+  const existing = new Map<string, string>();
+  const add = (v: string) => {
+    if (v && !existing.has(v.toLowerCase())) existing.set(v.toLowerCase(), v);
+  };
+  for (const n of notes) {
+    if (key === "folder") add(n.folder);
+    else for (const v of propValues(n, key)) add(v);
+  }
+  for (const o of typeSchema[key]?.options ?? []) add(o.value);
+  return existing;
+}
+
+/** Why a filter bar came up empty, in one line. Three heuristics, in
     order: (a) a filter key the type doesn't have (`no property "statsu"`,
     trailing stub included — it can't start matching); (b) a filter's value
     plus the bare words after it re-joins to an existing value of that prop
     (`status:in` + `review` → `did you mean status:"in review"?`, clickable —
-    the rewrite keeps the query's other terms). `columns` is the type's
-    dbColumns union; values in use come from the notes plus the schema's
-    select options. Null when neither heuristic fires. */
+    the rewrite keeps the query's other terms); (c) a query that is nothing
+    but bare words, joined, is a value some prop actually holds
+    (`mixer` → `did you mean category:mixer?`) — bare words match titles
+    only, so typing a value you can see in a column otherwise dead-ends with
+    no way forward. `columns` is the type's dbColumns union; values in use
+    come from the notes plus the schema's select options. Null when no
+    heuristic fires. */
 export function filterDeadEndHint(
   notes: NoteMeta[],
   columns: string[],
@@ -597,17 +622,7 @@ export function filterDeadEndHint(
   if (words.length === 0) return null;
   for (const f of parsed.filters) {
     if (f.neg || (f.op ?? ":") !== ":" || f.values.length === 0) continue;
-    // values in use for this prop (folder reads the note's folder), original
-    // casing kept for display — notes first, then schema options
-    const existing = new Map<string, string>();
-    const add = (v: string) => {
-      if (v && !existing.has(v.toLowerCase())) existing.set(v.toLowerCase(), v);
-    };
-    for (const n of notes) {
-      if (f.key === "folder") add(n.folder);
-      else for (const v of propValues(n, f.key)) add(v);
-    }
-    for (const o of typeSchema[f.key]?.options ?? []) add(o.value);
+    const existing = valuesInUse(notes, f.key, typeSchema);
     if (existing.size === 0) continue;
     const base = f.values.join(" ");
     for (let k = 1; k <= words.length; k++) {
@@ -634,6 +649,21 @@ export function filterDeadEndHint(
         fixedQuery: parts.join(" "),
       };
     }
+  }
+
+  // (c) nothing but bare words, and together they spell a value some prop
+  // holds — bare words test the title alone, so this is the case where the
+  // reader typed something they can see in a column and got nothing back.
+  // Anything more structured (a filter, a half-typed stub, a quoted phrase)
+  // already searches props or is covered above, so it stays out.
+  if (parsed.filters.length > 0 || parsed.trailing || parsed.phrases.length > 0) return null;
+  const joined = words.join(" ");
+  // schema order, first hit only — one signpost, never a menu
+  for (const col of columns) {
+    const hit = valuesInUse(notes, col.toLowerCase(), typeSchema).get(joined);
+    if (!hit) continue;
+    const v = /[\s,]/.test(hit) ? `"${hit}"` : hit;
+    return { text: `did you mean ${col}:${v}?`, fixedQuery: `${col}:${v}` };
   }
   return null;
 }

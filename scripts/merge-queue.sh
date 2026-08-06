@@ -156,6 +156,94 @@ slug() { printf '%s' "$1" | sed 's|/|__|g'; }
 
 pid_alive() { kill -0 "$1" 2>/dev/null; }
 
+# The one place in this script that HOLDS something. `append` decides whether a
+# branch is already queued by reading the queue and then writing it, and nothing
+# in the filesystem makes that pair atomic; the consequences and why reconciling
+# after the fact cannot replace this are spelled out at the call site.
+#
+# Scope kept as small as the bug demands: taken by appenders only, never by the
+# train, and never around anything slower than one directory scan and one
+# rename. An appender therefore still cannot delay, wedge, or contend with a
+# running merge — it is not the merge lock and knows nothing about it.
+APPEND_LOCK="$QUEUE_DIR/append.lock"
+APPEND_LOCK_WAIT_SECONDS="${SUBSTRATE_MERGE_QUEUE_LOCK_WAIT:-10}"
+APPEND_LOCK_HELD=0
+
+# link(2) is the atomic create-if-absent primitive here: it fails when the name
+# exists, and — the part mkdir cannot do — the file it publishes already has its
+# contents. A reader therefore never sees a lock whose owner it cannot read,
+# which matters because the fallback for an unreadable owner would be file age,
+# and age is not a signal this queue can use (see CRASH SAFETY). flock(1) would
+# be the obvious tool and is not one: macOS does not ship it.
+append_lock_acquire() {
+  local mine="$TMP/append.lock.$$" owner gone deadline
+  printf '%s\n' "$$" >"$mine" || die "cannot write $mine"
+  deadline=$(( $(date -u +%s) + APPEND_LOCK_WAIT_SECONDS ))
+  while :; do
+    if ln "$mine" "$APPEND_LOCK" 2>/dev/null; then
+      rm -f "$mine"
+      APPEND_LOCK_HELD=1
+      return 0
+    fi
+    owner="$(cat "$APPEND_LOCK" 2>/dev/null || true)"
+    owner="${owner//[$'\n\r']/}"
+    if [[ "$owner" =~ ^[0-9]+$ ]] && ! pid_alive "$owner"; then
+      # An appender killed inside its critical section. Clearing that is a
+      # read ("is the owner dead?") followed by a write, so it is staged
+      # through a name nobody else can be holding and the owner is re-read
+      # after the move: two waiters racing the same corpse cannot then have
+      # the slower one delete a lock the faster one has already retaken.
+      #
+      # The residual this does NOT close, stated plainly: a lock RETAKEN
+      # between the death judgement and the mv can still be moved aside. If
+      # another waiter clears this corpse and a third appender acquires in
+      # that gap, the mv below moves a LIVE lock away; the re-read spots the
+      # mismatch and links it back, but mv and ln are not one operation, so
+      # the name is briefly free. Accepted: it needs an appender killed inside
+      # a section that takes microseconds AND a waiter preempted across the
+      # gap, which is far rarer than the duplicate this lock exists to stop.
+      # The release path is where that residual is contained — see there.
+      gone="$APPEND_LOCK.gone.$$"
+      rm -f "$gone"
+      if mv "$APPEND_LOCK" "$gone" 2>/dev/null; then
+        if [[ "$(cat "$gone" 2>/dev/null | tr -d '\n\r')" == "$owner" ]]; then
+          rm -f "$gone"
+          note "cleared an append lock left by dead pid $owner"
+        else
+          # Not the corpse we judged — put it back, unless someone took the
+          # name meanwhile, in which case the scrap is just litter.
+          ln "$gone" "$APPEND_LOCK" 2>/dev/null || true
+          rm -f "$gone"
+        fi
+      fi
+      continue
+    fi
+    if [[ "$(date -u +%s)" -ge "$deadline" ]]; then
+      rm -f "$mine"
+      die "another append has held $APPEND_LOCK for over ${APPEND_LOCK_WAIT_SECONDS}s (owner pid ${owner:-<unreadable>}) — refusing rather than queueing a possible duplicate a train would serve twice. If no append is running, remove that file and re-run."
+    fi
+    sleep 0.05
+  done
+}
+
+append_lock_release() {
+  [[ "$APPEND_LOCK_HELD" -eq 1 ]] || return 0
+  APPEND_LOCK_HELD=0
+  local owner
+  owner="$(cat "$APPEND_LOCK" 2>/dev/null | tr -d '\n\r' || true)"
+  # Only ever remove a lock we still own. The flag above records that this
+  # process once acquired, not that it still holds: an appender whose lock was
+  # moved aside by the dead-owner path would otherwise delete the CURRENT
+  # holder's lock on its way out and admit a second appender into the section
+  # this lock exists to keep single-file — the very duplicate it prevents.
+  [[ "$owner" == "$$" ]] || return 0
+  rm -f "$APPEND_LOCK"
+}
+# Every exit path releases, including die() and a bare `return 0` from the
+# duplicate check — a lock this script forgets to drop stalls every later
+# append by the full wait above.
+trap append_lock_release EXIT
+
 lock_holder() {
   local owner
   owner="$(cat "$LOCK_DIR/pid" 2>/dev/null || true)"
@@ -305,6 +393,30 @@ cmd_append() {
     return 0
   fi
 
+  # Everything from here to the commit rename is one decision — "this branch is
+  # not queued, therefore queue it" — and it has to be indivisible. Reading the
+  # queue and then writing to it is check-then-act: two appends of one branch in
+  # the same instant both read an empty queue and both land, and the loser's
+  # orphan is served to a train long after the winner merged.
+  #
+  # This used to be settled AFTER the commit rename instead: re-scan once both
+  # entries are visible and keep the lowest filename. That cannot work, and the
+  # reason is worth keeping. The re-scan is not a barrier — the earlier racer
+  # can run it before the later one commits, so it sees only itself and stays.
+  # And the tiebreak does not order what it claims to: ids are
+  # <epoch>-<seq>-<pid>-<slug>, two appends in the same second on an empty queue
+  # both compute seq=0, so lowest-filename decides on pid, which has nothing to
+  # do with who committed first. Whenever the later committer happened to hold
+  # the lower pid, both racers judged themselves the keeper and both stayed —
+  # observed under load, not theorised. Ordering after the fact needs an order
+  # the filenames do not carry, so the check is made atomic instead and the
+  # re-scan is gone.
+  #
+  # The git checks above stay outside: they are the slow part, they touch
+  # nothing another appender can see, and holding a lock across them would make
+  # a fetch-stalled appender everyone else's problem.
+  append_lock_acquire
+
   local existing
   existing="$(find_entry "$branch")"
   if [[ -n "$existing" ]]; then
@@ -355,34 +467,9 @@ cmd_append() {
   # The rename is the commit point: before it the entry does not exist for any
   # reader, after it the appender's own fate no longer matters.
   mv "$tmpfile" "$PENDING/$id.entry"
-
-  # The duplicate check above is check-then-act: two appends of one branch in
-  # the same instant both read an empty queue and both land, and the loser's
-  # orphan is served to a train long after the winner merged. The read cannot
-  # be made atomic, so it is re-run AFTER the commit point, when both entries
-  # are visible to both racers, and settled by a rule both compute the same
-  # way: lowest filename (= earliest append) wins, everyone else withdraws.
-  local dir other keeper=""
-  for dir in "$PENDING" "$CLAIMED"; do
-    while IFS= read -r other; do
-      [[ -n "$other" ]] || continue
-      [[ "$(entry_field "$other" branch)" == "$branch" ]] || continue
-      if [[ -z "$keeper" || "$(basename "$other")" < "$keeper" ]]; then
-        keeper="$(basename "$other")"
-      fi
-    done < <(entries_in "$dir")
-  done
-  if [[ -n "$keeper" && "$keeper" != "$id.entry" ]]; then
-    # Withdrawal is a rename out of pending/ for the same reason everything else
-    # here is: if a train claimed our entry in the microseconds since the commit
-    # point, the rename loses and we must not pretend we took it back.
-    if mv "$PENDING/$id.entry" "$TMP/$id.entry" 2>/dev/null; then
-      rm -f "$TMP/$id.entry"
-      note "$branch was queued concurrently ($keeper) — withdrew this duplicate entry"
-      return 0
-    fi
-    note "$branch was queued concurrently ($keeper) and this entry was claimed before it could be withdrawn — resolve one of the two with \`done\`/\`drop\`"
-  fi
+  # Released the instant the entry is visible — the reporting below reads the
+  # queue but decides nothing, so no other appender need wait for it.
+  append_lock_release
 
   local holder position
   holder="$(lock_holder)"
@@ -770,6 +857,18 @@ cmd_prune() {
     if [[ -n "$(find "$f" -mmin +60 2>/dev/null)" ]]; then
       rm -f "$f"; removed=$(( removed + 1 ))
     fi
+  done
+  # `.gone.<pid>` scraps are left by an appender killed between the rename and
+  # the removal that follows it. Dead owners only: a live owner's scrap may be
+  # on its way back to the lock name, and removing that destroys a lock rather
+  # than tidying up after one.
+  local owner
+  for f in "$APPEND_LOCK".gone.*; do
+    [[ -e "$f" ]] || continue
+    owner="${f##*.}"
+    [[ "$owner" =~ ^[1-9][0-9]*$ ]] || continue
+    if pid_alive "$owner"; then continue; fi
+    rm -f "$f"; removed=$(( removed + 1 ))
   done
   printf 'merge-queue: pruned %s file(s)\n' "$removed"
 }

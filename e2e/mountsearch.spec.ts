@@ -45,6 +45,25 @@ test("opening the hit lands on the mount board, on that row", async ({ page }) =
   await expect(open).toContainText("2026-01 Invoice Acme Mastering");
 });
 
+test("the arrival mark follows what the board opens next", async ({ page }) => {
+  // The mark answers "which file am I in" — so it belongs to the last row
+  // opened, not to the row a search happened to arrive on hours ago. Before
+  // this it was written once and never moved: an arrival left the board
+  // pointing at that row for the rest of the session, through every file
+  // opened after it.
+  await search(page, "Leistung");
+  await page.locator(".search-group", { hasText: "2026-01 Invoice Acme Mastering" }).click();
+  const open = page.locator(".db-table tbody tr.db-open");
+  await expect(open).toContainText("2026-01 Invoice Acme Mastering");
+
+  await page
+    .locator(".db-table tbody tr", { hasText: "Rechnung Umbra" })
+    .locator(".db-title")
+    .click();
+  await expect(open).toHaveCount(1);
+  await expect(open).toContainText("Rechnung Umbra");
+});
+
 test("a document read only to its cap says so, in the results and on the board", async ({
   page,
 }) => {

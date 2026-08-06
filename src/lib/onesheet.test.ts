@@ -127,6 +127,16 @@ test("buildOneSheet: byline falls back to type; no art, no facts, no body → he
   assert.ok(!html.includes("os-body"));
 });
 
+test("buildOneSheet: a hand-cased Artist key still bylines the release", () => {
+  const html = buildOneSheet({
+    title: "Bare",
+    props: { Type: "release", Artist: "chroma weather" },
+    body: "",
+    assetSrc: noAssets,
+  });
+  assert.match(html, /<div class="os-byline">chroma weather<\/div>/);
+});
+
 test("buildOneSheet: titles and prop values escape", () => {
   const html = buildOneSheet({
     title: "<b>Rock & Roll</b>",

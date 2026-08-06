@@ -26,6 +26,18 @@ test("number-locale is read as a BCP-47 tag from the list", () => {
   assert.equal(numberLocaleSetting({ "number-locale": "de-de" }), "de-DE");
 });
 
+test("a hand-edited Settings.md key is read whatever its casing", () => {
+  assert.equal(numberLocaleSetting({ "Number-Locale": "en-US" }), "en-US");
+  assert.equal(numberLocaleSetting({ "NUMBER-LOCALE": "fr-FR" }), "fr-FR");
+  // the retired narrower key folds too
+  assert.equal(numberLocaleSetting({ "Number-Format": "intl" }), "en-US");
+  // an exact key still wins when both spellings are in the file
+  assert.equal(
+    numberLocaleSetting({ "Number-Locale": "en-US", "number-locale": "de-CH" }),
+    "de-CH"
+  );
+});
+
 test("an unreadable value falls back to the default rather than erroring", () => {
   assert.equal(numberLocaleSetting({ "number-locale": "klingon" }), "de-DE");
   assert.equal(numberLocaleSetting({ "number-locale": "" }), "de-DE");

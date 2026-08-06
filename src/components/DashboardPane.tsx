@@ -1,7 +1,7 @@
 import { numberLocale } from "../lib/numberLocale";
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import type { NoteMeta, SavedView, SchemaConfig } from "../lib/types";
-import { propStr } from "../lib/types";
+import { foldedPropStr } from "../lib/types";
 import { vaultRead, vaultSetProp, vaultWriteBody } from "../lib/ipc";
 import { isTyping } from "../lib/dom";
 import {
@@ -12,6 +12,7 @@ import {
   fmtAtHuman,
   fmtFx,
   fmtMoney,
+  fmtMoneyMagnitude,
   fmtWindow,
   parseAt,
   parseSnapshotsFromBody,
@@ -303,9 +304,7 @@ function YieldDashboard({
           <div className="dash-metric">
             <div className="dash-label">Principal</div>
             <div className="dash-value">
-              {eur(stats.principalUsd) !== null
-                ? fmtFixed((eur(stats.principalUsd) as number) / 1e6, 2) + "M €"
-                : "—"}
+              {fmtMoneyMagnitude(eur(stats.principalUsd), "€")}
             </div>
           </div>
           <div className="dash-metric">
@@ -574,7 +573,7 @@ function ChartOrYield(props: DashboardPaneProps) {
 /** One dashboard note rendered by its dashboard: kind — the single dispatch
     both the plain pane and workbook pages go through. */
 function DashboardBody(props: DashboardPaneProps) {
-  const named = propStr(props.meta.props, "dashboard");
+  const named = foldedPropStr(props.meta.props, "dashboard");
   const resolved = resolveDashboardKind(named);
   // only a name the app doesn't render itself can be a vault-resident bundle
   const custom = resolved.dispatch === "unknown";

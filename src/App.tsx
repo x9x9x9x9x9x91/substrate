@@ -6,7 +6,7 @@ import { isTyping, isTypingNow } from "./lib/dom";
 import { MENU_SURFACES } from "./lib/menusurfaces";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { DbIcon, DbLayout, FolderListing, MountInfo, MountRow, MountScanStats, NewTypeProp, NoteMeta, NumberFormat, PropKind, PropValue, RollupConfig, SavedView, SavedViewSort, SealScopeInfo, SelectOption, SidebarOrder, TagFolder, VaultHistoryPoint, View, ViewPref } from "./lib/types";
-import { foldedPropKey, foldedPropStr, FUNCTIONAL_TYPES, propStr, typeHome, viewKey } from "./lib/types";
+import { foldedPropKey, foldedPropStr, FUNCTIONAL_TYPES, typeHome, viewKey } from "./lib/types";
 import { tagFolderApplyTags, tagFolderMatches, tagUniverse } from "./lib/tags";
 import { byFoldedKey, foldedObjectKey, isTypePropName, typeSchemaFor } from "./lib/schemalookup";
 import { folderDefaultIcon, iconForType, iconsByType } from "./lib/dbicons";
@@ -1626,7 +1626,13 @@ export default function App() {
   /** Send a search hit that landed inside a mounted document to its board.
       `false` when this machine has no such mount: the vault carries the index,
       the machine carries the folder, so a hit can name a file that is real
-      elsewhere and absent here — saying so beats a board that opens empty. */
+      elsewhere and absent here — saying so beats a board that opens empty.
+
+      The search pane never reaches that branch: it drops hits into absent
+      mounts before it draws them, deliberately, so nothing there can be
+      clicked. The notice is for the callers that hand over a name from
+      somewhere other than a rendered row — and for the narrow race where a
+      mount goes away between a row being drawn and being clicked. */
   const openMountHit = useCallback(
     (id: string, rel: string) => {
       if (!mounts.some((m) => m.id === id)) {
@@ -1668,6 +1674,30 @@ export default function App() {
     setMountOpen({ id: mountHit.id, path: mountReveal.path });
     setMountHit(null);
   }, [mountReveal, mountHit]);
+
+  /** The row set the board was showing when a request came in — see below. */
+  const mountHitRows = useRef<MountRow[] | null>(null);
+
+  /** …and the other end of the same request: one no board can answer. A hit
+      names a file the vault's index knows; the folder on this machine may not
+      hold it any more, and then no rows ever carry that name. Waiting on it
+      is not a wait that ends — it sits pending through the day, and the first
+      rescan that does turn the name up drags whatever board is open then onto
+      a row nobody asked for. So the board gets one answer: the first rows to
+      land after the request, which always come, because arriving re-enters the
+      board and that refetches. Rows without it retire it. */
+  useEffect(() => {
+    if (!mountHit) {
+      mountHitRows.current = null;
+      return;
+    }
+    // the board isn't on the requested mount yet; its rows are another mount's
+    if (activeMount?.id !== mountHit.id) return;
+    // the rows carry it — answered by `mountReveal`, not retired here
+    if (mountRowList.some((r) => r.rel === mountHit.rel)) return;
+    if (mountHitRows.current === null) mountHitRows.current = mountRowList;
+    else if (mountHitRows.current !== mountRowList) setMountHit(null);
+  }, [mountHit, activeMount, mountRowList]);
 
   /** A mount row's property write. Ordinary notes go through
       vaultSetProp; a mount row can't, because the note it would write to may
@@ -1756,12 +1786,21 @@ export default function App() {
       if (!activeMount) return;
       const row = mountRowByPath.get(path);
       if (!row) return;
+      // opening a row IS the something else the arrival mark waits for: the
+      // board marks what was last opened on it, and leaving the mark on the
+      // row a search sent the user to would have it still pointing there an
+      // hour and a dozen files later. Moved, not cleared — the mark's job is
+      // to have an answer to "which one am I in", and now that is this row.
+      const mark = () => setMountOpen({ id: activeMount.id, path });
       if (activeMount.path && !activeMount.missing && !row.missing) {
+        mark();
         fileOpen(`${activeMount.path}/${row.rel}`).catch((e) => showToast(String(e)));
         return;
       }
-      if (row.note) openNote(row.note);
-      else showToast(mountStatus(activeMount) ?? `${row.name} isn’t on this machine`);
+      if (row.note) {
+        mark();
+        openNote(row.note);
+      } else showToast(mountStatus(activeMount) ?? `${row.name} isn’t on this machine`);
     },
     [activeMount, mountRowByPath, openNote, showToast]
   );
@@ -2997,7 +3036,7 @@ export default function App() {
     () =>
       mobile
         ? orderedDashboards.filter(
-            (d) => !["sync", "music", "mastering"].includes(propStr(d.props, "dashboard") ?? ""),
+            (d) => !["sync", "music", "mastering"].includes(foldedPropStr(d.props, "dashboard") ?? ""),
           )
         : orderedDashboards,
     [mobile, orderedDashboards]

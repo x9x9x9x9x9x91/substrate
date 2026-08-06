@@ -642,12 +642,124 @@ test("two appends of one branch in the same instant leave exactly one entry", ()
     );
     assert.equal(res.status, 0);
 
-    // Both appends land — the duplicate check cannot be made atomic — so the
-    // loser has to notice and withdraw after the fact. Otherwise its orphan is
-    // served to a train long after the winner merged.
+    // The duplicate check is a read followed by a write, so it is taken under
+    // an append lock: without one, both racers read an empty queue and both
+    // land, and the loser's orphan is served to a train long after the winner
+    // merged. This asserts the property, not the mechanism — under load it is
+    // the assertion below that catches a check that is not actually atomic.
     assert.equal(entriesIn(pendingDir(rig)).length, 1, "one branch, one queue entry");
     assert.equal(queueOk(rig, "claim").stdout.trim(), "sub/foo");
     assert.equal(queueOk(rig, "claim").stdout.trim(), "", "and no second copy waiting behind it");
+  });
+});
+
+test("an append lock left by a dead appender is cleared by the next append", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    // Any invocation creates the queue dirs; the lock lives beside them.
+    queueOk(rig, "list");
+    const lock = join(rig.queue, "append.lock");
+    writeFileSync(lock, `${deadPid()}\n`);
+
+    const res = queueOk(rig, "append", "sub/foo");
+    assert.match(res.stderr, /dead pid/);
+    assert.equal(entriesIn(pendingDir(rig)).length, 1, "the append went through");
+    assert.equal(existsSync(lock), false, "and the corpse is gone, not inherited");
+  });
+});
+
+test("a normal append leaves no lock behind", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    queueOk(rig, "append", "sub/foo");
+    assert.equal(
+      existsSync(join(rig.queue, "append.lock")),
+      false,
+      "a lock the appender forgot to drop stalls every later append",
+    );
+  });
+});
+
+test("an append refuses rather than queue a duplicate past a lock that never frees", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    queueOk(rig, "list");
+    // Owned by this test runner: alive, so it is not a corpse to clear, and it
+    // will not free either. A duplicate entry is the failure being fixed here,
+    // so waiting out the bound and failing loudly beats queueing blind.
+    writeFileSync(join(rig.queue, "append.lock"), `${process.pid}\n`);
+
+    const res = spawnSync("bash", [join(rig.repo, "scripts/merge-queue.sh"), "append", "sub/foo"], {
+      cwd: rig.repo,
+      // The wait is bounded at ten seconds in production; a test that proves
+      // the bound exists should not sit through it.
+      env: { ...process.env, SUBSTRATE_MERGE_QUEUE_LOCK_WAIT: "1" },
+      encoding: "utf8",
+    });
+    assert.equal(res.status, 1);
+    assert.match(res.stderr, /held .*append\.lock/);
+    assert.equal(entriesIn(pendingDir(rig)).length, 0, "nothing queued behind the operator's back");
+  });
+});
+
+test("an appender whose lock was taken from under it leaves the new holder's lock alone", () => {
+  withRig((rig) => {
+    makeBranch(rig, "sub/foo");
+    const lock = join(rig.queue, "append.lock");
+
+    // The steal has to land INSIDE the critical section, which is microseconds
+    // wide — polling for it from here would pass whether or not the release is
+    // ownership-checked. So it is driven from within: a `git` on PATH that
+    // overwrites the lock the first time it is called while the lock exists,
+    // which is the `rev-parse` of the pinned sha, between acquire and release.
+    const shimDir = join(rig.repo, "shim");
+    mkdirSync(shimDir, { recursive: true });
+    const shim = join(shimDir, "git");
+    writeFileSync(
+      shim,
+      [
+        "#!/bin/bash",
+        'if [ "$1" = "rev-parse" ] && [ -f "$STEAL_LOCK" ]; then',
+        '  printf "%s\\n" "$STEAL_PID" > "$STEAL_LOCK"',
+        "fi",
+        'exec /usr/bin/git "$@"',
+        "",
+      ].join("\n"),
+    );
+    chmodSync(shim, 0o755);
+
+    const res = spawnSync("bash", [join(rig.repo, "scripts/merge-queue.sh"), "append", "sub/foo"], {
+      cwd: rig.repo,
+      env: {
+        ...process.env,
+        PATH: `${shimDir}:${process.env.PATH}`,
+        STEAL_LOCK: lock,
+        // Alive, so it reads as a holder rather than a corpse: this is a
+        // successor's live lock, and deleting it admits a second appender.
+        STEAL_PID: String(process.pid),
+      },
+      encoding: "utf8",
+    });
+
+    assert.equal(res.status, 0, `append failed: ${res.stderr}${res.stdout}`);
+    assert.equal(entriesIn(pendingDir(rig)).length, 1, "the append itself still went through");
+    assert.equal(existsSync(lock), true, "the successor's lock survives the loser's exit");
+    assert.equal(readFileSync(lock, "utf8").trim(), String(process.pid), "and still names its owner");
+  });
+});
+
+test("prune sweeps append-lock scraps left by dead clearers, not live ones", () => {
+  withRig((rig) => {
+    queueOk(rig, "list");
+    const dead = join(rig.queue, `append.lock.gone.${deadPid()}`);
+    const live = join(rig.queue, `append.lock.gone.${process.pid}`);
+    writeFileSync(dead, "1\n");
+    // A live owner's scrap may still be on its way back to the lock name.
+    writeFileSync(live, "1\n");
+
+    queueOk(rig, "prune");
+    assert.equal(existsSync(dead), false, "a scrap nothing will ever restore is litter");
+    assert.equal(existsSync(live), true, "removing this one would destroy a lock, not tidy one");
   });
 });
 

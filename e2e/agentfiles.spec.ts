@@ -110,8 +110,10 @@ test("search totals don't count concealed app files (SUB-907)", async ({ page })
   await expect(page.locator(".search-input")).toBeFocused();
   await page.locator(".search-input").fill("orientation");
   // 210 seeded + AGENTS.md = 211 engine matches; concealed, the total the
-  // header quotes must be the 210 the user can see
-  await expect(page.locator(".search-stats")).toHaveText("first 200 of 210 notes");
+  // header quotes must be the 210 the user can see. ("results", not "notes":
+  // this vault has a mount, and the engine's total counts mounted files as
+  // readily as notes — the number is what this test is about.)
+  await expect(page.locator(".search-stats")).toHaveText("first 200 of 210 results");
 });
 
 test("edit raw opens Settings.md while it stays concealed (SUB-878)", async ({ page }) => {

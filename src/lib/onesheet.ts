@@ -79,7 +79,7 @@ export function buildOneSheet(opts: {
 }): string {
   const hero = oneSheetHero(opts.props, opts.body, opts.assetSrc);
   const body = hero ? dropEmbedOnce(opts.body, hero.name) : opts.body;
-  const byline = propStr(opts.props, "artist") ?? foldedPropStr(opts.props, "type");
+  const byline = foldedPropStr(opts.props, "artist") ?? foldedPropStr(opts.props, "type");
   const facts = oneSheetFacts(opts.props);
   const factRows = facts
     .map(

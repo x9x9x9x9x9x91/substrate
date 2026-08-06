@@ -193,11 +193,17 @@ fn app_files_clause(exclude: bool) -> String {
 }
 
 /// Whether a mounted file answers a vault-wide search alongside notes in the
-/// search pane. THE FLIP: set this to `false` and mount rows are searchable
-/// only where the caller passes a scope naming them — the board's own filter —
-/// while everything else about indexing stays as it is. Nothing needs
-/// reindexing either way; the rows are in the table regardless, and this is
-/// the one predicate that decides whether a global query may see them.
+/// search pane. THE FLIP: set this to `false` and mount rows leave every query
+/// this predicate guards, scoped or not — the clause is ANDed AFTER the
+/// caller's scope, so a scope naming mount paths still comes back empty. The
+/// board that lists a mount's rows is no exception in the other direction
+/// either: it filters rows it already holds, on the client, rather than asking
+/// for a scoped search, so nothing is left that still sees them.
+///
+/// The rows stay in the table either way — nothing is reindexed — but the flip
+/// is not free: the tests that assert a phrase inside a mounted document finds
+/// its row go red with it. Turning it off is a change made together with them,
+/// not a switch flicked.
 ///
 /// True by default: a vault with two thousand papers in a mount that answers
 /// "no results" for a phrase on page one of forty of them is not a search.
@@ -205,8 +211,8 @@ const MOUNT_HITS_IN_GLOBAL_SEARCH: bool = true;
 
 /// SQL twin of [`MOUNT_HITS_IN_GLOBAL_SEARCH`], appended to the FTS queries
 /// the same way the app-file clause is. Const-evaluated, so the excluded case
-/// costs nothing at runtime and the flip is a one-word edit. `_` is a `LIKE`
-/// wildcard, and the scheme has none, so a plain prefix match is exact here.
+/// costs nothing at runtime. `_` is a `LIKE` wildcard, and the scheme has none,
+/// so a plain prefix match is exact here.
 const MOUNT_CLAUSE: &str = if MOUNT_HITS_IN_GLOBAL_SEARCH { "" } else { MOUNT_EXCLUDED };
 
 /// The prefix match itself. `_` is a `LIKE` wildcard and the scheme has none,

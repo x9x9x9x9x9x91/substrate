@@ -1,5 +1,5 @@
 import { numberLocale } from "../lib/numberLocale";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { NoteMeta, SchemaConfig, SelectOption } from "../lib/types";
 import { fmtFx } from "../lib/dashboard";
@@ -282,7 +282,13 @@ function BarChart({
       has been measured, so an unreadable frame never paints. */
   const [barWidth, setBarWidth] = useState<number | null>(null);
   const [glyphWidth, setGlyphWidth] = useState<number | null>(null);
-  useEffect(() => {
+  /* Measured before the browser paints, not after: unmeasured reads as "does
+     not fit", so a passive effect would let the first frame lay every number
+     above its mark and then snap the ones that fit down into their fills —
+     one visible jump of the whole band on every chart. A layout effect runs
+     between commit and paint, so the first frame a reader sees is already the
+     placed one. There is no server render of this view to opt out of. */
+  useLayoutEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
     const measure = () => {

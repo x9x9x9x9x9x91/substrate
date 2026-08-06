@@ -321,7 +321,7 @@ export type NetFeature = "link-titles" | "fx-rates" | "share-relay";
     typo'd value leaves the app behaving as documented rather than quietly
     losing a feature. */
 export function netAllowed(props: Record<string, unknown>, feature: NetFeature): boolean {
-  const v = props[`net-${feature}`];
+  const v = props[foldedPropKey(props, `net-${feature}`)];
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 

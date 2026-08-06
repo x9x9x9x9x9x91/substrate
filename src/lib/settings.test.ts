@@ -446,6 +446,16 @@ test("netAllowed: only an explicit false closes an outbound call (SUB-834)", () 
   }
 });
 
+test("netAllowed: a hand-cased switch key still closes the call", () => {
+  assert.equal(netAllowed({ "Net-Fx-Rates": false }, "fx-rates"), false);
+  assert.equal(netAllowed({ "NET-SHARE-RELAY": "false" }, "share-relay"), false);
+  // an exact key still wins when both spellings are in the file
+  assert.equal(
+    netAllowed({ "Net-Fx-Rates": false, "net-fx-rates": true }, "fx-rates"),
+    true
+  );
+});
+
 test("netAllowed: the three switches are independent", () => {
   // one closed toggle must not read as any other's state — the keys are
   // separate rows in Settings.md and a user turning off link titles keeps

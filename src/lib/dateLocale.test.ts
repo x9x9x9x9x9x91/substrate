@@ -26,6 +26,16 @@ test("date-locale is read as a BCP-47 tag from the list", () => {
   assert.equal(dateLocaleSetting({ "date-locale": "de-de" }), "de-DE");
 });
 
+test("a hand-edited Settings.md key is read whatever its casing", () => {
+  assert.equal(dateLocaleSetting({ "Date-Locale": "en-US" }), "en-US");
+  assert.equal(dateLocaleSetting({ "DATE-LOCALE": "fr-FR" }), "fr-FR");
+  // an exact key still wins when both spellings are in the file
+  assert.equal(
+    dateLocaleSetting({ "Date-Locale": "en-US", "date-locale": "de-CH" }),
+    "de-CH"
+  );
+});
+
 test("an unreadable value falls back to the default rather than erroring", () => {
   assert.equal(dateLocaleSetting({ "date-locale": "klingon" }), "de-DE");
   assert.equal(dateLocaleSetting({ "date-locale": "" }), "de-DE");

@@ -222,6 +222,27 @@ export function fmtMoney(n: number | null, currency: "€" | "$", digits = 0): s
   );
 }
 
+/** Money whose unit is picked by magnitude, for the header metrics that have
+    to stay short: a million and up keeps the compact "M" suffix ("3,96M €"),
+    anything smaller renders as plain grouped money in the voice of the metrics
+    beside it ("13.690 €"). A fixed millions divisor is what printed a 13.690 €
+    principal as "0,01M €" — the same ladder the chart axis labels climb, so a
+    small vault reads its own numbers instead of a rounded-away zero. */
+export function fmtMoneyMagnitude(n: number | null, currency: "€" | "$"): string {
+  if (n === null || !isFinite(n)) return "—";
+  if (Math.abs(n) >= 1_000_000) {
+    return (
+      (n / 1_000_000).toLocaleString(numberLocale(), {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }) +
+      "M " +
+      currency
+    );
+  }
+  return fmtMoney(n, currency, 0);
+}
+
 /** FX rate wherever it's quoted: de-DE like fmtMoney, always
     4 decimals ("0,8642") — a quote, not money, so no symbol attached. */
 export function fmtFx(rate: number): string {

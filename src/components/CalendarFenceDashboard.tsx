@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { NoteMeta, SchemaConfig } from "../lib/types";
-import { propStr } from "../lib/types";
+import { foldedPropStr } from "../lib/types";
 import { vaultRead, vaultResolve } from "../lib/ipc";
 import { evaluateSheet, parseSheet, type SheetEval, type SheetModel } from "../lib/sheet";
 import { collectCrossRefs, ferr, isErr, type FErr } from "../lib/formula";
@@ -267,7 +267,7 @@ export default function CalendarFenceDashboard({
             models.set(name.toLowerCase(), ferr(`no note named “${name}”`));
             continue;
           }
-          if (propStr(resolved.props, "type") !== "sheet") {
+          if (foldedPropStr(resolved.props, "type") !== "sheet") {
             models.set(name.toLowerCase(), ferr(`“${name}” is not a sheet`));
             continue;
           }

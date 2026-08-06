@@ -11,6 +11,7 @@ import {
   matchesFilters,
   parseQuery,
 } from "../lib/query";
+import { resultUnit, searchStats } from "../lib/searchstats";
 import { dailyDateOf, displayTitle } from "../lib/journal";
 import { displayType } from "../lib/display";
 import { FilterIcon, NoteIcon, SearchIcon } from "./Icons";
@@ -177,6 +178,12 @@ export default function SearchPane({
     // un-annotated mount row has no note to join against, so it is rebuilt
     // from the hit and its mount. Everything downstream (filters, sort,
     // rendering, open) then treats it like any other row.
+    // A hit whose mount this machine doesn't have is rebuilt from nothing and
+    // drops out here, silently and by design: the index travels with the
+    // vault, the folder does not, and a laptop without the drive attached
+    // would otherwise list rows it can neither preview nor open. The count
+    // above stays honest about them, and the missing-mount notice belongs to
+    // the places that DO name a mount — the board and its row menu.
     const metaOf = (h: FullSearchHit): NoteMeta | undefined =>
       byPath.get(h.path) ??
       searchHitMeta(h.path, h.title_parts.map((p) => p.text).join(""), mounts) ??
@@ -251,26 +258,21 @@ export default function SearchPane({
   // On a truncated page the match sum counts only the notes we were
   // handed, so presenting it as the total under-reports (measured 3–4× on
   // broad queries). Say what the page actually is instead of inventing a
-  // total the engine never sent.
-  // A page can now hold mounted files as well as notes, and calling
-  // a PDF a note in the one place the pane states a number is exactly the kind
-  // of small lie that makes a count untrustworthy. A page of pure notes still
-  // says "notes" — the vault's own vocabulary, unchanged where it is true.
-  const unit = (n: number) =>
-    groups.some((g) => g.h.path.startsWith(MOUNT_SCHEME))
-      ? n === 1
-        ? "result"
-        : "results"
-      : n === 1
-        ? "note"
-        : "notes";
-  const stats = !searchText
-    ? effFilters.length > 0
-      ? `${groups.length} ${unit(groups.length)}`
-      : ""
-    : truncated
-      ? `first ${groups.length} of ${engineResult.total} ${unit(engineResult.total)}`
-      : `${totalMatches} ${totalMatches === 1 ? "match" : "matches"} in ${groups.length} ${unit(groups.length)}`;
+  // total the engine never sent — `searchStats` owns that wording, and the
+  // wording of what the two numbers are called. The one thing it can't see
+  // from a count alone is whether mounted files are in play, which is why
+  // both halves of that are read off the page and the vault here.
+  const pageHasMountRow = groups.some((g) => g.h.path.startsWith(MOUNT_SCHEME));
+  const stats = searchStats({
+    searching: Boolean(searchText),
+    filtered: effFilters.length > 0,
+    groups: groups.length,
+    matches: totalMatches,
+    total: engineResult.total,
+    truncated,
+    pageHasMountRow,
+    vaultHasMounts: mounts.length > 0,
+  });
 
   const onKey = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
@@ -388,8 +390,9 @@ export default function SearchPane({
             title={
               truncated
                 ? // the engine had more than it sent — "No results" would be a
-                  // lie about notes that exist
-                  `Showing none of ${engineResult.total} matching notes — narrow the search`
+                  // lie about files that exist. Same count, same caveat as the
+                  // stats line: it holds mounted files as readily as notes.
+                  `Showing none of ${engineResult.total} matching ${resultUnit(engineResult.total, pageHasMountRow || mounts.length > 0)} — narrow the search`
                 : query.trim()
                   ? `No results for “${query.trim()}”`
                   : "Search the whole vault"

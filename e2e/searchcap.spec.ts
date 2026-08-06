@@ -54,7 +54,7 @@ test("a filtered query finds matches ranked past the engine's cap (SUB-566)", as
 
   // sanity: unfiltered, the query really does overflow the 200-note page
   await page.locator(".search-input").fill("quillon");
-  await expect(page.locator(".search-stats")).toContainText("of 222 notes");
+  await expect(page.locator(".search-stats")).toContainText("of 222 results");
 
   // filtered: all 12 inventory notes rank below the 210 title matches, so a
   // cap applied before the filter leaves zero of them on the page
@@ -68,8 +68,11 @@ test("the stats line owns up to a truncated page (SUB-566)", async ({ page }) =>
   await openSearch(page);
 
   await page.locator(".search-input").fill("quillon");
-  // never presents the page as the whole truth: 200 shown, 222 matched
-  await expect(page.locator(".search-stats")).toHaveText("first 200 of 222 notes");
+  // never presents the page as the whole truth: 200 shown, 222 matched. The
+  // engine's total counts mounted files too, and this vault has a mount, so
+  // that number can only honestly be called "results" — while the page below
+  // it, all notes, is still counted in notes.
+  await expect(page.locator(".search-stats")).toHaveText("first 200 of 222 results");
 
   // a match set that fits reports matches, not a truncation
   await page.locator(".search-input").fill("lisbon");

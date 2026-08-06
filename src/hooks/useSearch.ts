@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { NoteMeta, View } from "../lib/types";
-import { propStr, viewKey } from "../lib/types";
+import { foldedPropStr, viewKey } from "../lib/types";
 import { parseMountPath } from "../lib/mounts";
 
 /**
@@ -105,11 +105,11 @@ export function useSearch(opts: {
         return;
       }
       const note = notes.find((n) => n.path === path);
-      if (note && propStr(note.props, "type") === "dashboard") {
+      if (note && foldedPropStr(note.props, "type") === "dashboard") {
         setView({ kind: "dashboard", path });
         return;
       }
-      const type = note ? propStr(note.props, "type") : undefined;
+      const type = note ? foldedPropStr(note.props, "type") : undefined;
       let home: View;
       if (note && type) {
         home = { kind: "db", type };

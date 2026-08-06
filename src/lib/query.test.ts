@@ -662,7 +662,7 @@ test("completeFilter lexes non-ASCII keys (SUB-219)", () => {
   assert.equal(completeFilter("Fällig < 20", "fällig", "2026-08-01", "<="), "fällig <= 2026-08-01 ");
 });
 
-/* Dead-end hints — the two heuristics under a filter bar's zero rows */
+/* Dead-end hints — the three heuristics under a filter bar's zero rows */
 const HINT_COLS = ["status", "cat#", "artist", "category", "created"];
 const HINT_NOTES = [
   note("Slow Bloom EP", { type: "release", status: "in review", "cat#": "SMP-030" }),
@@ -757,6 +757,65 @@ test("filterDeadEndHint: heuristic (b) stays quiet outside its shape (SUB-266)",
     filterDeadEndHint(HINT_NOTES, [...HINT_COLS, "due"], HINT_SCHEMA, "due < 7d extra"),
     null
   );
+});
+
+/* Bare words match titles only, so a value read straight off a column
+   dead-ends — heuristic (c) hands back the filter that would have worked. */
+const INV_COLS = ["category", "vendor", "status"];
+const INV_NOTES = [
+  note("Xone:96", { category: "mixer", vendor: "Allen & Heath", status: "in service" }),
+  note("Model 1", { category: "Mixer", vendor: "Playdifferently" }),
+  note("SP-404", { category: "sampler", vendor: "Roland" }),
+];
+
+test("filterDeadEndHint: a bare word that is a prop value suggests the filter (SUB-1184)", () => {
+  assert.deepEqual(filterDeadEndHint(INV_NOTES, INV_COLS, {}, "mixer"), {
+    text: "did you mean category:mixer?",
+    fixedQuery: "category:mixer",
+  });
+  // the stored casing of the first note carrying it is what reads back
+  assert.deepEqual(filterDeadEndHint(INV_NOTES, INV_COLS, {}, "MIXER"), {
+    text: "did you mean category:mixer?",
+    fixedQuery: "category:mixer",
+  });
+  // a value only the schema's options know counts as existing, same as (b)
+  assert.deepEqual(
+    filterDeadEndHint(INV_NOTES, INV_COLS, { category: { options: [{ value: "monitor" }] } }, "monitor"),
+    { text: "did you mean category:monitor?", fixedQuery: "category:monitor" }
+  );
+});
+
+test("filterDeadEndHint: bare words re-join into a multi-word value (SUB-1184)", () => {
+  assert.deepEqual(filterDeadEndHint(INV_NOTES, INV_COLS, {}, "in service"), {
+    text: 'did you mean status:"in service"?',
+    fixedQuery: 'status:"in service"',
+  });
+  // every word has to belong to the value — a stray word is a real miss
+  assert.equal(filterDeadEndHint(INV_NOTES, INV_COLS, {}, "in service now"), null);
+});
+
+test("filterDeadEndHint: several keys match → first in schema order, one suggestion (SUB-1184)", () => {
+  const notes = [note("A", { category: "roland", vendor: "Roland" })];
+  assert.deepEqual(filterDeadEndHint(notes, INV_COLS, {}, "roland"), {
+    text: "did you mean category:roland?",
+    fixedQuery: "category:roland",
+  });
+  // column order is the schema order the hint follows
+  assert.deepEqual(filterDeadEndHint(notes, ["vendor", "category"], {}, "roland"), {
+    text: "did you mean vendor:Roland?",
+    fixedQuery: "vendor:Roland",
+  });
+});
+
+test("filterDeadEndHint: heuristic (c) stays quiet outside its shape (SUB-1184)", () => {
+  // a word matching nothing anywhere keeps the plain "No matches"
+  assert.equal(filterDeadEndHint(INV_NOTES, INV_COLS, {}, "theremin"), null);
+  // anything more structured than bare words is (a)/(b)'s business
+  // a query carrying a filter is (a)/(b)'s business — the words there belong
+  // to that filter's value, not to a fresh key of their own
+  assert.equal(filterDeadEndHint(INV_NOTES, INV_COLS, {}, "status:live mixer"), null);
+  assert.equal(filterDeadEndHint(INV_NOTES, INV_COLS, {}, '"mixer"'), null);
+  assert.equal(filterDeadEndHint(INV_NOTES, INV_COLS, {}, ""), null);
 });
 
 test("filterDeadEndHint: folder is a known key whose values are folders (SUB-266)", () => {

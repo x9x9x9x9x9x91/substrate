@@ -17,7 +17,10 @@
  *    `applyAppearance` — those surfaces are children of that read, so they
  *    repaint in the same pass.
  *
- * Pure TS, no imports: every formatting module can depend on this one. */
+ * Pure TS on one import-free leaf (`types.ts`, for the case-folded key read):
+ * every formatting module can depend on this one without a cycle. */
+
+import { foldedPropKey } from "./types.ts";
 
 /** The dialects the picker offers. One per real grammar family rather than a
  * long ISO list: dot-grouped comma-decimal (de-DE), apostrophe-grouped
@@ -45,7 +48,7 @@ export function isNumberLocale(v: unknown): v is NumberLocale {
  * the default rather than erroring — a typo must not cost a user their
  * numbers. `number-locale` always wins when both are present. */
 export function numberLocaleSetting(props: Record<string, unknown>): NumberLocale {
-  const raw = props["number-locale"];
+  const raw = props[foldedPropKey(props, "number-locale")];
   if (typeof raw === "string") {
     const v = raw.trim();
     if (isNumberLocale(v)) return v;
@@ -54,7 +57,7 @@ export function numberLocaleSetting(props: Record<string, unknown>): NumberLocal
     const hit = NUMBER_LOCALES.find((l) => l.toLowerCase() === lower);
     if (hit) return hit;
   }
-  const legacy = props["number-format"];
+  const legacy = props[foldedPropKey(props, "number-format")];
   if (typeof legacy === "string" && legacy.trim().toLowerCase() === "intl") return "en-US";
   return DEFAULT_NUMBER_LOCALE;
 }
