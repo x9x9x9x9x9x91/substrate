@@ -94,6 +94,10 @@ export default function DateMenu({
     const nm = m + delta;
     const yy = nm < 1 ? y - 1 : nm > 12 ? y + 1 : y;
     const mm = nm < 1 ? 12 : nm > 12 ? 1 : nm;
+    // keep the keyboard target visible when paging, clamping dates such as
+    // the 31st to the target month's last day
+    const day = Math.min(Number(cursor.slice(8, 10)), new Date(yy, mm, 0).getDate());
+    setCursor(`${yy}-${String(mm).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
     setYm([yy, mm]);
   };
 

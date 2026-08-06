@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import type { NoteMeta, PropSchema } from "../lib/types";
 import { propStr } from "../lib/types";
 import type { CalEntry } from "../lib/calendar";
+import { splitDateRange } from "../lib/calendar";
+import { formatDateHuman } from "../lib/dates";
 import { formatDateTimeHuman } from "../lib/display";
 import DateMenu from "./DateMenu";
 import SelectMenu, { anchorFrom, optionColor, OptionPill, type AnchorRect } from "./SelectMenu";
@@ -43,6 +45,11 @@ interface CalPeekProps {
   onClearDate: () => void;
   /** null = all-day (the time part of the value is dropped) */
   onSetTime: (time: string | null) => void;
+  /** the range's END time — null drops the end, leaving a plain
+      start. The pane clamps an end at or before the start rather than flipping
+      the pair, so it returns the time actually stored, which the field shows
+      in place of the rejected one. */
+  onSetEnd: (time: string | null) => string | null;
   onSetStatus: (v: string | null) => void;
   onRepeatPick: (anchor: AnchorRect) => void;
   onSkip: () => void;
@@ -70,6 +77,7 @@ export default function CalPeek({
   onMoveDate,
   onClearDate,
   onSetTime,
+  onSetEnd,
   onSetStatus,
   onRepeatPick,
   onSkip,
@@ -78,6 +86,7 @@ export default function CalPeek({
 }: CalPeekProps) {
   const [titleDraft, setTitleDraft] = useState(entry.title);
   const [timeDraft, setTimeDraft] = useState(entry.time ?? "");
+  const [endDraft, setEndDraft] = useState("");
   const [dateMenu, setDateMenu] = useState<AnchorRect | null>(null);
   const [statusMenu, setStatusMenu] = useState<AnchorRect | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
@@ -88,6 +97,16 @@ export default function CalPeek({
   // a committed time lands on the next refresh — pick it up, but never fight
   // an in-progress edit (the input shows the normalized value once committed)
   useEffect(() => setTimeDraft(entry.time ?? ""), [entry.time]);
+
+  // the range's END, read off the note's stored value rather than
+  // the entry: the peek can open on any day a span covers, and the value is
+  // the truth both this row and the write path work from. A drag on the
+  // block's bottom edge commits through the same pane handler, so a resize
+  // shows up here on the next refresh.
+  const stored = splitDateRange(rawValue);
+  const endDay = stored?.end?.day ?? null;
+  const endTime = stored?.end?.time ?? null;
+  useEffect(() => setEndDraft(endTime ?? ""), [endTime]);
 
   // outside press closes — except while a sub-picker (date/status, or the
   // pane's repeat menu) owns the layer; those portals sit outside this box.
@@ -155,6 +174,26 @@ export default function CalPeek({
     const t = `${m[1].padStart(2, "0")}:${m[2]}`;
     setTimeDraft(t);
     if (t !== entry.time) onSetTime(t);
+  };
+
+  const commitEnd = () => {
+    const raw = endDraft.trim();
+    // empty = no end: the value loses its range and is a plain start again
+    if (!raw) {
+      if (endTime) onSetEnd(null);
+      setEndDraft("");
+      return;
+    }
+    const m = TIME_RE.exec(raw);
+    if (!m || Number(m[1]) > 23) {
+      setEndDraft(endTime ?? "");
+      return;
+    }
+    const t = `${m[1].padStart(2, "0")}:${m[2]}`;
+    // the field shows what was STORED, not what was typed: an end at or
+    // before the start comes back clamped to the first slot after it, and a
+    // row still reading "00:15" under a 06:15 date would be a plain lie
+    setEndDraft((t !== endTime ? onSetEnd(t) : endTime) ?? "");
   };
 
   // Beside the entry, Notion-Calendar style: to the RIGHT of the
@@ -237,6 +276,40 @@ export default function CalPeek({
                 }}
               />
             </div>
+            {/* how long it runs — the typed twin of the week
+                canvas's bottom-edge drag. Only for a timed start: an end time
+                on an all-day entry would describe nothing, and a multi-day
+                all-day span's closing DAY is the date row's job. When the end
+                falls on a later day the day is shown beside the field, so
+                "09:00" can't read as this morning. */}
+            {entry.time && (
+              <div className="cal-peek-row">
+                <span className="cal-peek-key">Ends</span>
+                <input
+                  className="cal-peek-end"
+                  value={endDraft}
+                  placeholder="—"
+                  onChange={(e) => setEndDraft(e.target.value)}
+                  onBlur={commitEnd}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      commitEnd();
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      setEndDraft(endTime ?? "");
+                      e.currentTarget.blur();
+                    }
+                    e.stopPropagation();
+                  }}
+                />
+                {endDay && endDay !== (stored?.start.day ?? entry.day) && (
+                  <span className="cal-peek-endday">
+                    {formatDateHuman(endDay)}
+                  </span>
+                )}
+              </div>
+            )}
           </>
         ) : (
           <>

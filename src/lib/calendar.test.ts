@@ -8,8 +8,10 @@ import {
   calendarEntriesForWindows,
   calendarTypes,
   cellDayLabel,
+  clampedRangeEnd,
   datePropFor,
   dateRangeValue,
+  dayColumn,
   entriesForNote,
   folderFor,
   humanDay,
@@ -75,6 +77,18 @@ test("weeks start Monday; month grid covers only the month's weeks", () => {
     "2026-07-13", "2026-07-14", "2026-07-15", "2026-07-16",
     "2026-07-17", "2026-07-18", "2026-07-19",
   ]);
+});
+
+test("Day is the week canvas's column set with one day in it (SUB-1170)", () => {
+  const col = dayColumn(new Date(2026, 6, 17, 14, 30));
+  assert.equal(col.length, 1);
+  assert.equal(isoDay(col[0]), "2026-07-17");
+  // normalized to midnight like weekDays/monthGridDays, so the canvas's
+  // per-column time maths start from the same place in either layout
+  assert.equal(col[0].getHours(), 0);
+  assert.equal(col[0].getMinutes(), 0);
+  // and it steps across a month boundary without any month logic
+  assert.equal(isoDay(dayColumn(addDays(new Date(2026, 6, 31), 1))[0]), "2026-08-01");
 });
 
 test("month grid sizes to 4–6 weeks as the month lands (SUB-248)", () => {
@@ -1006,4 +1020,68 @@ test("overdueEntries: a timed past deadline counts, sorted all-day first then by
 test("datePropFor: a prop holding timed values still counts as the type's date prop", () => {
   const notes = [note("a.md", { type: "task", due: "2026-07-20 14:00" })];
   assert.equal(datePropFor("task", notes, {}), "due");
+});
+
+test("clampedRangeEnd: an end at or before its start settles on the next slot (SUB-1171)", () => {
+  const start = { day: "2026-08-10", time: "09:00" };
+  // a resize dragged up past the start — clamped to one snap step, never flipped
+  assert.deepEqual(clampedRangeEnd(start, { day: "2026-08-10", time: "07:00" }), {
+    day: "2026-08-10",
+    time: "09:15",
+  });
+  // exactly on the start is still too short
+  assert.deepEqual(clampedRangeEnd(start, { day: "2026-08-10", time: "09:00" }), {
+    day: "2026-08-10",
+    time: "09:15",
+  });
+  // one step out is already legal and passes through untouched
+  assert.deepEqual(clampedRangeEnd(start, { day: "2026-08-10", time: "09:15" }), {
+    day: "2026-08-10",
+    time: "09:15",
+  });
+  // a later day is legal even at an earlier clock time
+  assert.deepEqual(clampedRangeEnd(start, { day: "2026-08-11", time: "02:00" }), {
+    day: "2026-08-11",
+    time: "02:00",
+  });
+  // an earlier day never survives — it collapses onto the start's own day
+  assert.deepEqual(clampedRangeEnd(start, { day: "2026-08-09", time: "23:00" }), {
+    day: "2026-08-10",
+    time: "09:15",
+  });
+});
+
+test("clampedRangeEnd: the floor rolls past midnight when the start is late (SUB-1171)", () => {
+  assert.deepEqual(
+    clampedRangeEnd({ day: "2026-08-10", time: "23:55" }, { day: "2026-08-10", time: "23:00" }),
+    { day: "2026-08-11", time: "00:10" }
+  );
+  // the clamped value round-trips as a real range
+  const v = dateRangeValue("2026-08-10", "23:55", { day: "2026-08-11", time: "00:10" });
+  assert.equal(v, "2026-08-10 23:55/2026-08-11 00:10");
+  assert.ok(splitDateRange(v));
+});
+
+test("clampedRangeEnd: day-only endpoints clamp by day alone (SUB-1171)", () => {
+  // no times to compare — a later day stands, an earlier one collapses
+  assert.deepEqual(clampedRangeEnd({ day: "2026-08-10" }, { day: "2026-08-12" }), {
+    day: "2026-08-12",
+    time: undefined,
+  });
+  assert.deepEqual(clampedRangeEnd({ day: "2026-08-10" }, { day: "2026-08-08" }), {
+    day: "2026-08-10",
+    time: undefined,
+  });
+  // an unparseable day can't be reasoned about — the start's day is the safe answer
+  assert.deepEqual(clampedRangeEnd({ day: "nonsense", time: "09:00" }, { day: "2026-08-10" }), {
+    day: "nonsense",
+    time: undefined,
+  });
+});
+
+test("clampedRangeEnd: a custom minimum honours the caller's grid (SUB-1171)", () => {
+  assert.deepEqual(
+    clampedRangeEnd({ day: "2026-08-10", time: "09:00" }, { day: "2026-08-10", time: "08:00" }, 30),
+    { day: "2026-08-10", time: "09:30" }
+  );
 });

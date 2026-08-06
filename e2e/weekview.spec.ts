@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 // Week is a time grid — a pinned all-day strip of entry
 // cards (.cal-grid.week .cal-day[data-iso]) over a scrollable 24h canvas
@@ -231,4 +231,127 @@ test("week paging steps seven days (buttons and ⌘←/→)", async ({ page }) =
 
   await page.keyboard.press("Meta+ArrowRight");
   await expect(firstCol).toHaveAttribute("data-iso", addDaysIso(startIso!, 7));
+});
+
+/** the block's height as a fraction of its day column — 1/24 is one hour */
+async function heightFrac(block: Locator): Promise<number> {
+  return block.evaluate((el) => {
+    const b = el.getBoundingClientRect();
+    const c = el.parentElement!.getBoundingClientRect();
+    return b.height / c.height;
+  });
+}
+
+/** the peek's "Ends" field — the typed twin of the bottom-edge drag */
+function endsField(page: Page) {
+  return page.locator(".cal-peek-end");
+}
+
+/** Esc out of the peek: the first press inside a field only reverts and
+    blurs it, so keep pressing until the popover is actually gone */
+async function closePeek(page: Page) {
+  for (let i = 0; i < 3 && (await page.locator(".cal-peek").count()) > 0; i++) {
+    await page.keyboard.press("Escape");
+  }
+  await expect(page.locator(".cal-peek")).toHaveCount(0);
+}
+
+test("drag a block's bottom edge sets the event's end (SUB-1171)", async ({ page }) => {
+  // the canvas opens scrolled to the afternoon — pin it to 00:00 so a
+  // percentage of the column height is a real on-screen point
+  await page.locator(".cal-wk-scroll").evaluate((el) => (el.scrollTop = 0));
+  const col = page.locator(`.cal-wk-col[data-iso="${isoDay(0)}"]`);
+  const box = (await col.boundingBox())!;
+
+  // compose a timed probe early in the day so the block AND the slot it gets
+  // dragged to both sit inside the viewport (never touches fixtures)
+  await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height * 0.1);
+  const draft = page.locator(".cal-wk-draft .cal-draft-input");
+  await expect(draft).toBeVisible();
+  await draft.fill("Resize probe");
+  await draft.press("Enter");
+  const block = col.locator(".cal-wk-block", { hasText: "Resize probe" });
+  await expect(block).toBeVisible();
+  const start = (await block.locator(".cal-entry-time").textContent())!;
+  expect(start).toMatch(/^0[12]:(00|15|30|45)$/);
+  // no end yet → the default one-hour block
+  expect(await heightFrac(block)).toBeCloseTo(1 / 24, 2);
+
+  // drag the grip down to ~20% of the day (≈ 04:45): the block grows, the
+  // START stays exactly where it was
+  await block.locator(".cal-wk-grip").dragTo(col, {
+    targetPosition: { x: box.width / 2, y: box.height * 0.2 },
+  });
+  await expect.poll(() => heightFrac(block)).toBeGreaterThan(2 / 24);
+  await expect(block.locator(".cal-entry-time")).toHaveText(start);
+
+  // the end persisted onto the note's value — the peek reads it back, on the
+  // move-drag's quarter-hour grid and strictly after the start
+  await block.click();
+  await expect(page.locator(".cal-peek")).toBeVisible();
+  await expect(endsField(page)).toHaveValue(/^\d{2}:(00|15|30|45)$/);
+  const dragged = await endsField(page).inputValue();
+  expect(dragged > start).toBe(true);
+  await closePeek(page);
+
+  // dragged UP past its own start, the end clamps to the first slot after it
+  // — never flipping the event around
+  await block.locator(".cal-wk-grip").dragTo(col, {
+    targetPosition: { x: box.width / 2, y: box.height * 0.05 },
+  });
+  await expect.poll(() => heightFrac(block)).toBeLessThan(1 / 24);
+  await expect(block.locator(".cal-entry-time")).toHaveText(start);
+  await block.click();
+  await expect(page.locator(".cal-peek")).toBeVisible();
+  await expect(endsField(page)).toHaveValue(/^\d{2}:(00|15|30|45)$/);
+  const clamped = await endsField(page).inputValue();
+  const min = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  expect(min(clamped) - min(start)).toBe(15);
+});
+
+test("the peek's Ends field writes the duration, clamping a reversed pair (SUB-1171)", async ({
+  page,
+}) => {
+  await page.locator(".cal-wk-scroll").evaluate((el) => (el.scrollTop = 0));
+  const col = page.locator(`.cal-wk-col[data-iso="${isoDay(0)}"]`);
+  const box = (await col.boundingBox())!;
+  await page.mouse.dblclick(box.x + box.width / 2, box.y + box.height * 0.25);
+  const draft = page.locator(".cal-wk-draft .cal-draft-input");
+  await expect(draft).toBeVisible();
+  await draft.fill("Ends field probe");
+  await draft.press("Enter");
+  const block = col.locator(".cal-wk-block", { hasText: "Ends field probe" });
+  await expect(block).toBeVisible();
+  const start = (await block.locator(".cal-entry-time").textContent())!;
+
+  // a typed end three hours out: empty to begin with, then the block wears it
+  await block.click();
+  await expect(page.locator(".cal-peek")).toBeVisible();
+  await expect(endsField(page)).toHaveValue("");
+  const hh = String(Number(start.slice(0, 2)) + 3).padStart(2, "0");
+  await endsField(page).fill(`${hh}:30`);
+  await endsField(page).press("Enter");
+  await closePeek(page);
+  await expect.poll(() => heightFrac(block)).toBeGreaterThan(2.5 / 24);
+
+  // an end BEFORE the start comes back as the first slot after it — the field
+  // shows what was actually committed, in place, and the start never moved
+  await block.click();
+  await expect(endsField(page)).toHaveValue(`${hh}:30`);
+  await endsField(page).fill("00:15");
+  await endsField(page).press("Enter");
+  const min = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  const clamped = await endsField(page).inputValue();
+  expect(min(clamped) - min(start)).toBe(15);
+  await expect(block.locator(".cal-entry-time")).toHaveText(start);
+  // and it survives a reopen — the clamp was stored, not just displayed
+  await closePeek(page);
+  await block.click();
+  await expect(endsField(page)).toHaveValue(clamped);
+
+  // emptying the field drops the end entirely — back to the default hour
+  await endsField(page).fill("");
+  await endsField(page).press("Enter");
+  await closePeek(page);
+  await expect.poll(() => heightFrac(block)).toBeCloseTo(1 / 24, 2);
 });

@@ -54,6 +54,47 @@ test("filters to open tasks with case/whitespace-insensitive type and completion
   assert.equal(areaSections(model)[0]?.rows[0]?.title, "open");
 });
 
+test("reads task note properties case-insensitively", () => {
+  const model = buildTasksDashboard(
+    [
+      note("cased", {
+        Type: "task",
+        Status: "todo",
+        Created: "2026-07-30",
+        Due: "2026-08-01",
+        Priority: "high",
+        Area: "Studio",
+      }),
+      note("done", { Type: "task", Status: "done" }),
+      note("pinned", { type: "task", Now: true }),
+      note("parked", { type: "task", Snoozed_Until: "2026-09-01" }),
+    ],
+    {},
+    NOW
+  );
+
+  const cased = sectionNamed(model, "Due today")?.rows[0];
+  assert.deepEqual(
+    cased && {
+      title: cased.title,
+      area: cased.area,
+      priority: cased.priority,
+      created: cased.created,
+      due: cased.due,
+    },
+    {
+      title: "cased",
+      area: "Studio",
+      priority: "high",
+      created: "2026-07-30",
+      due: "2026-08-01",
+    }
+  );
+  assert.deepEqual(sectionNamed(model, "Now")?.rows.map((row) => row.title), ["pinned"]);
+  assert.deepEqual(model.snoozedRows.map((row) => row.title), ["parked"]);
+  assert.equal(model.total, 2);
+});
+
 test("area allowlist accepts YAML lists or comma text, matches case-insensitively, and orders groups", () => {
   const notes = [
     note("studio", { type: "task", area: "studio", created: "2026-07-01" }),

@@ -171,6 +171,40 @@ export function shiftedRangeEnd(
   return { day: isoDay(addDays(end, deltaDays)), time: span.endTime ?? undefined };
 }
 
+/** Shortest event a resize can leave behind — one snap step of the
+    canvas grid, so a drag or a typed end that lands at or before the start
+    settles on the next grid line. */
+export const MIN_RANGE_MIN = 15;
+
+/** The end a resize commits, never before its start. Dragging an
+    event's bottom edge up past its own top — or typing an earlier end in the
+    peek — must not turn the event inside out: dateRangeValue SWAPS a reversed
+    pair, which would silently move the start instead, so every resize path
+    clamps here first. A reversed timed pair lands `minMinutes` after the
+    start, rolling into the next day when the start sits near midnight; when
+    either endpoint is day-only there is nothing finer than whole days to
+    compare, so an earlier end simply collapses onto the start's day. */
+export function clampedRangeEnd(
+  start: { day: string; time?: string | null },
+  end: { day: string; time?: string | null },
+  minMinutes = MIN_RANGE_MIN
+): { day: string; time?: string } {
+  const from = parseDay(start.day);
+  const target = parseDay(end.day);
+  const endTime = end.time ?? undefined;
+  if (!from || !target) return { day: start.day, time: endTime };
+  const dayDelta = Math.round((target.getTime() - from.getTime()) / 86400000);
+  const startMin = start.time ? timeToMinutes(start.time) : null;
+  const endMin = end.time ? timeToMinutes(end.time) : null;
+  if (startMin === null || endMin === null) {
+    return { day: dayDelta < 0 ? start.day : end.day, time: endTime };
+  }
+  const floor = startMin + minMinutes;
+  if (dayDelta * DAY_MIN + endMin >= floor) return { day: end.day, time: endTime };
+  const roll = Math.floor(floor / DAY_MIN);
+  return { day: isoDay(addDays(from, roll)), time: minutesToTime(floor - roll * DAY_MIN) };
+}
+
 /** Parse a date prop value, range-aware. The grammar is the date value,
     optionally followed by `/` and a second one (the ISO-8601
     interval form): `2026-09-01/2026-09-21`, `2026-09-01 09:00/2026-09-03 17:00`.
@@ -265,6 +299,14 @@ export function monthGridDays(year: number, month0: number): Date[] {
 export function weekDays(d: Date): Date[] {
   const first = startOfWeek(d);
   return Array.from({ length: 7 }, (_, i) => addDays(first, i));
+}
+
+/** The Day layout's column set: Day IS the week canvas at one
+    column, so it hands back the same shape the canvas already consumes — a
+    Date[] — carrying the cursor's day, normalized to midnight like
+    weekDays/monthGridDays do. */
+export function dayColumn(d: Date): Date[] {
+  return [new Date(d.getFullYear(), d.getMonth(), d.getDate())];
 }
 
 const MONTHS = [

@@ -154,6 +154,30 @@ test("a start without a deadline, or after it, is named", () => {
   );
 });
 
+test("a fence takes an accent off the option roster, folded like every key", () => {
+  assert.equal(parseProgressConfig("value: {{S.a}}\ntarget: 3\naccent: teal").accent, "teal");
+  assert.equal(parseProgressConfig("value: {{S.a}}\ntarget: 3\nAccent: Violet").accent, "violet");
+  assert.equal(parseProgressConfig('value: {{S.a}}\ntarget: 3\naccent: " green "').accent, "green");
+});
+
+test("an off-roster accent is absent, never an error", () => {
+  // a wrong preference is not a wrong number: the fence still renders
+  for (const v of ["mauve", "#14b8a6", "2px", "tealish", "var(--opt-red)"]) {
+    const c = parseProgressConfig(`value: {{S.a}}\ntarget: 3\naccent: ${v}`);
+    assert.equal(c.accent, undefined, v);
+    assert.deepEqual(c.target, { kind: "number", n: 3 });
+  }
+});
+
+test("an absent accent leaves the key off the config entirely", () => {
+  assert.equal("accent" in parseProgressConfig("value: {{S.a}}\ntarget: 3"), false);
+  assert.equal("accent" in parseProgressConfig("value: {{S.a}}\ntarget: 3\naccent: mauve"), false);
+});
+
+test("names a duplicate accent even when neither value is on the roster", () => {
+  rejects("value: {{S.a}}\ntarget: 3\naccent: nope\naccent: teal", /duplicate key "accent"/);
+});
+
 // ---------- blocks ----------
 
 const FENCE = (inner: string) => "```progress\n" + inner + "\n```\n";

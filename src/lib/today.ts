@@ -8,7 +8,7 @@
    renderer; this module is the unit-tested half. */
 
 import type { NoteMeta, SchemaConfig } from "./types.ts";
-import { propStr } from "./types.ts";
+import { foldedPropStr } from "./types.ts";
 import {
   calendarEntries,
   compareEntryTime,
@@ -43,7 +43,7 @@ export const TODAY_PROP = "today";
 /** The day a note is picked for, when its `today` prop carries a valid day —
     an optional time parses but never keys the pick. */
 export function pickedDay(n: NoteMeta): string | null {
-  const raw = propStr(n.props, TODAY_PROP);
+  const raw = foldedPropStr(n.props, TODAY_PROP);
   if (!raw) return null;
   return splitDayTime(raw)?.day ?? null;
 }
@@ -107,7 +107,7 @@ export function todayData(notes: NoteMeta[], schema: SchemaConfig, today: string
   const timeByPath = new Map<string, string>();
   for (const e of calendarEntries(notes, schema, { start: today, end: today })) {
     // the pick prop never feeds the candidate lanes — its entry IS the pick
-    if (e.prop === TODAY_PROP) continue;
+    if (e.prop.toLowerCase() === TODAY_PROP) continue;
     if (e.day === today && e.time) {
       const cur = timeByPath.get(e.path);
       if (cur === undefined || e.time < cur) timeByPath.set(e.path, e.time);

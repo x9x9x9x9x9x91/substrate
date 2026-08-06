@@ -1,6 +1,6 @@
 import { isComplete } from "./calendar.ts";
 import { byFoldedKey } from "./schemalookup.ts";
-import type { NoteMeta } from "./types.ts";
+import { foldedPropKey, foldedPropStr, type NoteMeta } from "./types.ts";
 
 /** `stale_days` is deliberately conservative: a task gets a full month before
     age alone raises it from the quiet layer. Dashboard frontmatter can opt into
@@ -374,34 +374,38 @@ export function buildTasksDashboard(
     : null;
   const rows: TasksDashboardRow[] = [];
   const snoozedRows: TasksDashboardRow[] = [];
+  const foldedProp = (props: Record<string, unknown>, key: string) =>
+    props[foldedPropKey(props, key)];
 
   for (const note of notes) {
-    if (clean(note.props.type)?.toLowerCase() !== "task") continue;
-    const status = clean(note.props.status) ?? undefined;
+    if (clean(foldedPropStr(note.props, "type"))?.toLowerCase() !== "task") continue;
+    const status = clean(foldedPropStr(note.props, "status")) ?? undefined;
     if (isComplete(status)) continue;
 
-    const sourceArea = clean(note.props.area) ?? "Unassigned";
+    const sourceArea = clean(foldedPropStr(note.props, "area")) ?? "Unassigned";
     const area = allowed ? allowed.get(sourceArea.toLowerCase()) : sourceArea;
     if (!area) continue;
 
-    const ageDays = taskAgeDays(note.props.created, now);
-    const priority = clean(note.props.priority);
+    const created = foldedPropStr(note.props, "created");
+    const due = foldedPropStr(note.props, "due");
+    const priority = clean(foldedPropStr(note.props, "priority"));
+    const ageDays = taskAgeDays(created, now);
     // whether age is a diagnostic for THIS task: off globally, or
     // exempted on the note itself. `stale` follows the same gate as the chip
     // so the flag never claims rot the board deliberately isn't reporting.
-    const ages = config.staleChips && !taskStaleExempt(note.props.stale);
+    const ages = config.staleChips && !taskStaleExempt(foldedProp(note.props, "stale"));
     const stale = ages && ageDays !== null && ageDays >= config.staleDays;
-    const isNow = taskIsNow(note.props.now);
-    const dueDays = taskDueDays(note.props.due, now);
+    const isNow = taskIsNow(foldedProp(note.props, "now"));
+    const dueDays = taskDueDays(due, now);
     const row: TasksDashboardRow = {
       path: note.path,
       title: note.title,
       area,
       priority,
       priorityWeight: taskPriorityWeight(priority),
-      created: clean(note.props.created),
+      created: clean(created),
       ageDays,
-      due: dueDays === null ? null : (dayPart(note.props.due)?.iso ?? null),
+      due: dueDays === null ? null : (dayPart(due)?.iso ?? null),
       dueDays,
       dueBucket: taskDueBucket(dueDays),
       stale,
@@ -414,8 +418,9 @@ export function buildTasksDashboard(
       snoozedUntil: null,
     };
 
-    if (taskIsSnoozed(note.props.snoozed_until, now)) {
-      snoozedRows.push({ ...row, snoozedUntil: dayPart(note.props.snoozed_until)?.iso ?? null });
+    const snoozedUntil = foldedPropStr(note.props, "snoozed_until");
+    if (taskIsSnoozed(snoozedUntil, now)) {
+      snoozedRows.push({ ...row, snoozedUntil: dayPart(snoozedUntil)?.iso ?? null });
       continue;
     }
     rows.push(row);

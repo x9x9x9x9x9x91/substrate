@@ -170,3 +170,23 @@ test("an undated vault renders three quiet lanes, not a crash", () => {
   assert.deepEqual(d.picked, []);
   assert.deepEqual(d.leftovers, []);
 });
+
+test("a hand-cased Today: prop still reads as a pick", () => {
+  // every other prop surface folds key case (the folded-prop convention); the pick
+  // must too, or a cased key shows the note on the calendar but never in the
+  // Picked lane
+  assert.equal(pickedDay(note("A.md", { Today: TODAY })), TODAY);
+  const d = todayData([note("Notes/Plan.md", { Today: TODAY }, 0, "Notes")], schema, TODAY);
+  assert.deepEqual(
+    d.picked.map((p) => p.note.title),
+    ["Plan"],
+    "the cased pick lands in the Picked lane"
+  );
+  assert.equal(d.scheduled.length, 0, "the pick prop never feeds Scheduled, whatever its casing");
+  const stale = todayData([note("Notes/Old.md", { Today: "2026-07-15" }, 0, "Notes")], schema, TODAY);
+  assert.deepEqual(
+    stale.leftovers.map((l) => `${l.note.title}:${l.day}`),
+    ["Old:2026-07-15"],
+    "a cased stale pick surfaces as a leftover"
+  );
+});

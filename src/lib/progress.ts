@@ -26,6 +26,12 @@
  *  embed path. `target` takes a positive number or the same bind form, and
  *  `format`/`digits` are the metric card's, applied by the card's own
  *  formatter: one bind grammar and one number voice across every surface.
+ *  `accent` is the card's too — a bounded style token (src/lib/styletokens.ts),
+ *  a roster NAME and never a colour, off-roster reading as absent rather than
+ *  as an error (a wrong preference is not a wrong number). It tints the
+ *  fence's label; the bar itself stays
+ *  neutral, because a goal bar is a flow bar and one hue never carries two
+ *  meanings (design principle 4).
  *
  *  Pace (`deadline:`) is deliberately narrow. Nothing on disk records what a
  *  summary or a row count was yesterday, so "ahead/behind at the current
@@ -46,6 +52,7 @@ import { parseSource, type ChartSource } from "./chart.ts";
 import { daysBetween, isIsoDate } from "./dates.ts";
 import { embedQueryFor } from "./embeds.ts";
 import { bindSheets, CARD_FORMATS, fmtCard, parseBind, unquote } from "./metriccards.ts";
+import { parseAccent, type AccentName } from "./styletokens.ts";
 import type { NoteMeta, SchemaConfig } from "./types.ts";
 
 /** Either side of the thermometer: a sheet summary, or a row count. */
@@ -64,6 +71,8 @@ export interface ProgressConfig {
   start: string | null;
   format?: string;
   digits?: number;
+  /** Bounded style token: a roster name, or absent */
+  accent?: AccentName;
 }
 
 /** One parsed fence: its config or a human-readable error — the chart-block
@@ -86,6 +95,7 @@ const KNOWN_KEYS = new Set([
   "start",
   "format",
   "digits",
+  "accent",
 ]);
 
 const NUMBER_RE = /^-?\d+(?:\.\d+)?$/;
@@ -155,6 +165,10 @@ export function parseProgressConfig(inner: string): ProgressConfig {
   if (format !== undefined && !CARD_FORMATS.includes(format)) {
     throw new Error(`unknown format "${kv.get("format")}" — want ${CARD_FORMATS.join(", ")}`);
   }
+  // a style token, not a binding: an off-roster name is simply not honored.
+  // The key still goes through the shared parse loop above, so a
+  // second `accent:` line is caught as a duplicate like every other key.
+  const accent = parseAccent(kv.get("accent"));
   const deadline = kv.has("deadline") ? parseDay("deadline", kv.get("deadline")!) : null;
   const start = kv.has("start") ? parseDay("start", kv.get("start")!) : null;
   // a start with no deadline has no line to sit on — the pace read is the
@@ -174,6 +188,7 @@ export function parseProgressConfig(inner: string): ProgressConfig {
     start,
     ...(format !== undefined ? { format } : {}),
     ...(digitsRaw !== undefined ? { digits: Number(digitsRaw) } : {}),
+    ...(accent !== undefined ? { accent } : {}),
   };
 }
 

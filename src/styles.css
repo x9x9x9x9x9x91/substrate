@@ -5194,6 +5194,15 @@ body.agenda-window .palette:focus-visible {
   gap: 12px;
 }
 
+/* an accented fence tints its LABEL only — the same treatment a
+   metric card's `accent:` gets, so one token reads alike on a card and on a
+   thermometer. Deliberately not the bar: the fill stays neutral grayscale by
+   the rule below, so the hue says what the goal is about while the bar keeps
+   saying how far along it is. The fallback keeps an unresolved name neutral. */
+.progress-fence[data-accent] .dash-label {
+  color: var(--accent-tint, var(--text-3));
+}
+
 /* the percent is the same statement as the bar, so it stays a hint, not a
    second headline — the reading below carries the value/target voice */
 .progress-pct {
@@ -11267,11 +11276,13 @@ span.asset-thumb svg {
 /* Readability follows the pane, not the window breakpoint: the desktop rail
    can leave Calendar narrower than seven useful columns at tablet widths. */
 /* 816 = the old 770 + the week surface's 46px hour gutter, so the seven day
-   columns keep their readable width in both layouts */
+   columns keep their readable width in both layouts. The canvas
+   sets --cal-cols, so Day asks for one column's worth of floor instead of
+   seven and stops scrolling horizontally at ordinary widths. */
 .cal-grid-scroll > .cal-weekdays,
 .cal-grid-scroll > .cal-grid,
 .cal-grid-scroll > .cal-wk-scroll {
-  min-width: 816px;
+  min-width: calc(46px + var(--cal-cols, 7) * 110px);
 }
 
 .cal-weekdays {
@@ -11311,10 +11322,11 @@ span.asset-thumb svg {
 
 /* week surface: a pinned all-day strip over a scrollable 24h
    canvas. Strip and canvas share the column template — a left gutter the
-   hour labels live in, then the seven days. */
+   hour labels live in, then the days. How many days is the one
+   thing Day changes, and it arrives as --cal-cols from the pane. */
 .cal-weekdays.week,
 .cal-grid.week {
-  grid-template-columns: 46px repeat(7, 1fr);
+  grid-template-columns: 46px repeat(var(--cal-cols, 7), 1fr);
 }
 
 .cal-weekdays.week {
@@ -11347,7 +11359,7 @@ span.asset-thumb svg {
 .cal-wk-canvas {
   position: relative;
   display: grid;
-  grid-template-columns: 46px repeat(7, 1fr);
+  grid-template-columns: 46px repeat(var(--cal-cols, 7), 1fr);
   /* hour lines across the full canvas — the grid promises the geometry, so
      one repeating gradient beats 23 rule elements */
   background-image: linear-gradient(
@@ -11464,6 +11476,42 @@ span.asset-thumb svg {
   line-height: 1.25;
   white-space: normal;
   overflow: hidden;
+}
+
+/* the duration grip: a band along the block's bottom edge, wide
+   enough to grab on a 30-minute block without swallowing the block's own
+   drag-to-move surface. Invisible until the pointer is on the block, then a
+   short centred bar in the entry's own tint — the same "grab here" language
+   as a window edge. It sits above the block's text, so a grab near the
+   bottom always resizes rather than starting a move. */
+.cal-wk-grip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 7px;
+  z-index: 2;
+  cursor: ns-resize;
+}
+
+.cal-wk-grip::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  width: 22px;
+  max-width: 60%;
+  height: 2px;
+  transform: translateX(-50%);
+  border-radius: 1px;
+  background: var(--entry-tint, var(--border-strong));
+  opacity: 0;
+  transition: opacity 90ms ease-out;
+}
+
+.cal-entry.cal-wk-block:hover > .cal-wk-grip::after,
+.cal-wk-grip:hover::after {
+  opacity: 0.85;
 }
 
 /* an overdue timed block wears the red leading edge — through
@@ -12010,7 +12058,11 @@ button.cal-peek-row:hover {
   color: var(--text-3);
 }
 
-.cal-peek-time {
+/* the Ends field is its own class, not a second .cal-peek-time: that selector
+   means "the Time row's input" everywhere, and two of them would make it
+   ambiguous */
+.cal-peek-time,
+.cal-peek-end {
   flex: 1;
   min-width: 0;
   border: none;
@@ -12021,6 +12073,15 @@ button.cal-peek-row:hover {
   font-variant-numeric: tabular-nums;
   text-align: right;
   outline: none;
+}
+
+/* the end's day, shown beside the Ends field only when it isn't the start's
+   — a bare "09:00" on a two-day event would read as day one */
+.cal-peek-endday {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
 }
 
 .cal-peek-foot {
@@ -14257,11 +14318,14 @@ body.col-resizing * {
     display: none;
   }
 
+  /* 886 = 840 + the week gutter — day columns keep their width. Day view:
+     scaled by the column count, and floored at the viewport so Day's single
+     column fills the phone rather than sitting in a 166px sliver. */
   .cal-grid-scroll > .cal-weekdays,
   .cal-grid-scroll > .cal-grid,
   .cal-grid-scroll > .cal-wk-scroll {
-    width: 886px; /* 840 + the week gutter — day columns keep their width */
-    min-width: 886px;
+    width: max(100%, calc(46px + var(--cal-cols, 7) * 120px));
+    min-width: max(100%, calc(46px + var(--cal-cols, 7) * 120px));
   }
 
   .row {

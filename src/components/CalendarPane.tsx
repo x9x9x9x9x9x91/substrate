@@ -20,9 +20,11 @@ import {
   calendarEntriesForWindows,
   calendarTypes,
   cellDayLabel,
+  clampedRangeEnd,
   compareEntryTime,
   datePropFor,
   dateRangeValue,
+  dayColumn,
   entryEndDay,
   folderFor,
   humanDay,
@@ -126,11 +128,23 @@ const isExternalEntry = (
     scroll offset, not a setting — and only outlives the mount. */
 const CAL_LAYOUT_KEY = "substrate.calLayout";
 
-function readCalLayout(): "month" | "week" {
-  return localStorage.getItem(CAL_LAYOUT_KEY) === "week" ? "week" : "month";
+/** Month, and the timed canvas at seven columns or one. Day is not
+    a third surface: it is the week canvas with a one-day column set. */
+type CalLayout = "month" | "week" | "day";
+
+/** the switcher's labels, in the order it shows them */
+const LAYOUT_LABELS: Record<CalLayout, string> = {
+  month: "Month",
+  week: "Week",
+  day: "Day",
+};
+
+function readCalLayout(): CalLayout {
+  const stored = localStorage.getItem(CAL_LAYOUT_KEY);
+  return stored === "week" || stored === "day" ? stored : "month";
 }
 
-function writeCalLayout(l: "month" | "week"): void {
+function writeCalLayout(l: CalLayout): void {
   localStorage.setItem(CAL_LAYOUT_KEY, l);
 }
 
@@ -188,7 +202,12 @@ export default function CalendarPane({
   const [cursor, setCursor] = useState(
     () => new Date(calSession.cursor ?? Date.now()),
   );
-  const [layout, setLayout] = useState<"month" | "week">(() => readCalLayout());
+  const [layout, setLayout] = useState<CalLayout>(() => readCalLayout());
+  /** every gate that used to ask "is this the week?" asks "is this
+      the timed canvas?" instead. Week and Day are the same surface — the only
+      difference is how many columns `days` holds — so nothing below this line
+      forks per layout, it reads the column set. */
+  const onCanvas = layout !== "month";
   const [feedSnapshot, setFeedSnapshot] =
     useState<CalendarFeedSnapshot>(EMPTY_FEEDS);
   const [feedsOpen, setFeedsOpen] = useState(false);
@@ -215,6 +234,9 @@ export default function CalendarPane({
         range rather than collapsing it to the new start day */
     endDay?: string;
     endTime?: string;
+    /** a bottom-edge RESIZE, not a move: the same drag machinery,
+        but the drop rewrites the range's END and holds the start where it is */
+    resize?: boolean;
   } | null>(null);
   const [dropIso, setDropIso] = useState<string | null>(null);
   // canvas drag hover: the snapped drop minute, for the time-ghost line
@@ -282,7 +304,7 @@ export default function CalendarPane({
     return n.getHours() * 60 + n.getMinutes();
   });
   useEffect(() => {
-    if (layout !== "week") return;
+    if (!onCanvas) return;
     const tick = () => {
       const n = new Date();
       setNowMin(n.getHours() * 60 + n.getMinutes());
@@ -290,13 +312,17 @@ export default function CalendarPane({
     tick();
     const id = window.setInterval(tick, 60_000);
     return () => window.clearInterval(id);
-  }, [layout]);
+  }, [onCanvas]);
 
+  // the one place a layout decides anything about the canvas: how many columns
+  // it gets. Everything downstream reads `days`.
   const days = useMemo(
     () =>
       layout === "month"
         ? monthGridDays(cursor.getFullYear(), cursor.getMonth())
-        : weekDays(cursor),
+        : layout === "day"
+          ? dayColumn(cursor)
+          : weekDays(cursor),
     [cursor, layout],
   );
   const visible = useMemo(() => new Set(days.map(isoDay)), [days]);
@@ -426,14 +452,15 @@ export default function CalendarPane({
     mergedByDay.get(iso) ?? NO_ENTRIES;
   const types = useMemo(() => calendarTypes(schema), [schema]);
 
-  // opening the week (or paging into a new one) scrolls the canvas to the
-  // day's action: an hour above the week's earliest timed entry, else
-  // 08:00. One-shot per week: a week whose entries hadn't loaded yet
-  // anchors again when they land (byDay is in the deps), but once anchored
-  // with data, later vault mutations never re-scroll under the user.
+  // opening the canvas (or paging it) scrolls to the columns' action: an hour
+  // above the earliest timed entry on screen, else 08:00. One-shot per column
+  // set — keyed by its first day, so it re-anchors per week in Week and per
+  // day in Day. A span whose entries hadn't loaded yet anchors
+  // again when they land (byDay is in the deps), but once anchored with data,
+  // later vault mutations never re-scroll under the user.
   const anchoredWeek = useRef<string | null>(null);
   useEffect(() => {
-    if (layout !== "week") {
+    if (!onCanvas) {
       anchoredWeek.current = null;
       return;
     }
@@ -451,7 +478,7 @@ export default function CalendarPane({
     const target = first === Infinity ? 8 * 60 : Math.max(first - 60, 0);
     el.scrollTop = (target / 60) * HOUR_PX;
     if (byDay.size > 0) anchoredWeek.current = weekKey;
-  }, [layout, days, byDay]);
+  }, [onCanvas, days, byDay]);
 
   // the peek's live entry, re-derived on every refresh — gone (moved day,
   // skipped occurrence, rename's new path, trash) means the popover closes
@@ -491,10 +518,12 @@ export default function CalendarPane({
     if (!visible.has(isoDay(d))) setCursor(d);
   };
 
-  /** ⌘←/→ — page months in month layout, weeks in week layout */
+  /** ⌘←/→ — pages by whatever unit is on screen: a month, a week, a day */
   const page = (n: number) => {
     const step = (d: Date) =>
-      layout === "month" ? addMonths(d, n) : addDays(d, 7 * n);
+      layout === "month"
+        ? addMonths(d, n)
+        : addDays(d, (layout === "day" ? 1 : 7) * n);
     setCursor(step(cursor));
     setExpandedIso(null);
     // paging mid-drag would strand the drop highlight/ghost on cells that
@@ -548,8 +577,8 @@ export default function CalendarPane({
   // focused day is always still visible afterwards and the cursor rides with it
   // ⌘→ must not silently disarm a cursor the user just placed.
   useEffect(() => {
-    if (layout !== "week" || !focusIso) setSlotMin(null);
-  }, [layout, focusIso]);
+    if (!onCanvas || !focusIso) setSlotMin(null);
+  }, [onCanvas, focusIso]);
 
   // …and follows itself into view: moving the cursor scrolls the canvas so the
   // highlighted slot stays visible on a 1150px surface
@@ -816,11 +845,20 @@ export default function CalendarPane({
     day: string,
     time?: string | null,
     end?: { day: string; time?: string } | null,
+    /** what the toast and the undo entry are called — a resize names the new
+        end, not the (unchanged) start day. Defaults to the move
+        wording. */
+    label?: string,
+    /** skip the toast, still record the undo step: the peek's own rows show
+        their result in place, so announcing it twice is noise
+        (matching the time row) */
+    quiet?: boolean,
   ) => {
     // The toast's Undo pops the entry cmd-Z would pop, by id, so the
     // two paths can't drift and undoing twice doesn't double-revert
     const id = nextUndoId();
     const title = noteByPath.get(path)?.title ?? path;
+    const text = label ?? `“${title}” → ${formatDateHuman(day)}`;
     // a timed value keeps its time across a reschedule; a span
     // keeps its end, shifted by the same delta
     setPropUndoable({
@@ -829,16 +867,88 @@ export default function CalendarPane({
       value: dateValue(day, time, end),
       id,
       record: undo.record,
-      label: `“${title}” → ${formatDateHuman(day)}`,
+      label: text,
     })
       .then(() => {
         onMutated();
-        onToast?.(`“${title}” → ${formatDateHuman(day)}`, {
+        if (quiet) return;
+        onToast?.(text, {
           label: "Undo",
           run: () => undo.runById(id),
         });
       })
       .catch(reportWriteFailure);
+  };
+
+  /** The label a duration change wears: the interval itself when it stays
+      inside one day, the closing day otherwise. */
+  const resizeLabel = (
+    title: string,
+    start: { day: string; time?: string | null },
+    end: { day: string; time?: string },
+  ) =>
+    end.day === start.day && start.time && end.time
+      ? `“${title}” → ${start.time}–${end.time}`
+      : `“${title}” → ends ${formatDateHuman(end.day)}${end.time ? ` ${end.time}` : ""}`;
+
+  /** Set an entry's range END, holding its start. Both duration
+      paths — the block's bottom-edge drag and the peek's end-time field —
+      land here, so they share one write, one clamp and one undo shape.
+      `time` null drops the end again (back to a plain single date).
+
+      The start comes off the note's STORED value, never the rendered entry:
+      the peek can open on any day a span covers, and the value is what the
+      write has to rebuild. `clampedRangeEnd` runs first because
+      `dateRangeValue` would otherwise SWAP a reversed pair — quietly moving
+      the start instead of refusing, which is the one thing a resize must
+      never do.
+
+      Returns the end that was actually stored, so a caller with a text field
+      can show the clamped value instead of the rejected one the user typed. */
+  const setEntryEnd = (
+    /** the peek passes its entry; the resize drag passes its own state, which
+        carries the same path/prop/day/time — either identifies the value */
+    e: { path: string; prop: string; day: string; time?: string | null },
+    end: { day: string; time?: string } | null,
+    quiet?: boolean,
+  ): { day: string; time?: string } | null => {
+    const stored = storedRange(e);
+    const start = stored?.start ?? { day: e.day, time: e.time ?? null };
+    const next = end ? clampedRangeEnd(start, end) : null;
+    const cur = stored?.end;
+    // no-op when nothing actually moves (a drag that lands back on its own
+    // edge, an unchanged typed value) — no write, no toast, no undo entry
+    if (
+      (next?.day ?? null) === (cur?.day ?? null) &&
+      (next?.time ?? null) === (cur?.time ?? null)
+    )
+      return next;
+    const title = noteByPath.get(e.path)?.title ?? e.path;
+    moveEntryTo(
+      e.path,
+      e.prop,
+      start.day,
+      start.time,
+      next,
+      next
+        ? resizeLabel(title, start, next)
+        : `“${title}” → ${formatDateHuman(start.day)}`,
+      quiet,
+    );
+    return next;
+  };
+
+  /** the peek's Ends row: a typed end time, quiet like the time row beside it
+      The DAY it lands on is the span's existing end day, so
+      retiming the far end of a two-day event doesn't drag it back to day one;
+      a single-day event's end stays on its own day.
+
+      Hands the stored end time back to the field: a reversed value comes home
+      clamped, and the row must never sit there showing what was refused. */
+  const setPeekEnd = (e: CalEntry, time: string | null): string | null => {
+    const stored = storedRange(e);
+    const day = stored?.end?.day ?? stored?.start.day ?? e.day;
+    return setEntryEnd(e, time ? { day, time } : null, true)?.time ?? null;
   };
 
   /** Drop targets differ in what they do to the value's time:
@@ -850,11 +960,28 @@ export default function CalendarPane({
     setDrag(null);
     setDropIso(null);
     if (!d) return;
+    // a bottom-edge resize released anywhere but the timed canvas does
+    // nothing — the all-day strip and month cells have no end to
+    // aim at, and silently MOVING the event there would be a nasty surprise
+    if (d.resize) return;
     const next = time === undefined ? d.time : (time ?? undefined);
     if (d.day === day && (d.time ?? null) === (next ?? null)) return;
     // a span moves whole: the end travels with the start, holding
     // the duration to the minute on a timed canvas drop
     moveEntryTo(d.path, d.prop, day, next, shiftedEnd(d, { day, time: next }));
+  };
+
+  /** A bottom-edge resize dropped on the timed canvas: the same
+      drag state, the same snapped minute the move path uses, but the value's
+      END follows the pointer while the start stays put. Returns false when
+      the release wasn't a resize, so the canvas can fall through to a move. */
+  const resizeDropOn = (day: string, time: string): boolean => {
+    const d = drag;
+    if (!d?.resize) return false;
+    setDrag(null);
+    setDropIso(null);
+    setEntryEnd(d, { day, time });
+    return true;
   };
 
   /* ----- entry peek writes — the same IPC the drag/chip paths use ----- */
@@ -941,7 +1068,7 @@ export default function CalendarPane({
   /** the note's stored value for this entry's prop, parsed. Write
       paths read the span from HERE rather than from the entry, because an
       entry is one covered day of a range and may not be its start. */
-  const storedRange = (e: CalEntry) =>
+  const storedRange = (e: { path: string; prop: string }) =>
     splitDateRange(
       foldedPropStr(noteByPath.get(e.path)?.props ?? {}, e.prop) ?? "",
     );
@@ -1229,8 +1356,8 @@ export default function CalendarPane({
       e.preventDefault();
       go(addDays(focusDate(), 1));
       requestColFocus();
-    } else if (layout === "week" && (k === "ArrowUp" || k === "ArrowDown")) {
-      // on the week surface ↑/↓ walk the focused day's canvas in
+    } else if (onCanvas && (k === "ArrowUp" || k === "ArrowDown")) {
+      // on the timed canvas ↑/↓ walk the focused day's canvas in
       // half-hours (Shift = quarters) instead of paging a week — vertical
       // IS time here. j/k keep the ±7-day step for anyone who wants it.
       e.preventDefault();
@@ -1334,7 +1461,7 @@ export default function CalendarPane({
   // keyboard gesture asks for it, so the ring is where focus actually is and a
   // screen reader announces the column it lands on.
   useEffect(() => {
-    if (colFocusReq === 0 || layout !== "week") return;
+    if (colFocusReq === 0 || !onCanvas) return;
     // focusDate()'s fallback (today, else the first visible day) keeps the
     // ring truthful when Esc just cleared focusIso (review)
     const iso = focusIso ?? isoDay(visible.has(todayIso) ? today : days[0]);
@@ -1349,7 +1476,7 @@ export default function CalendarPane({
     )
       el.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colFocusReq, focusIso, layout]);
+  }, [colFocusReq, focusIso, onCanvas]);
 
   // past non-repeating deadlines pin an Overdue group atop the agenda
   // the Today strip's "Show in Calendar" lands somewhere honest
@@ -1397,6 +1524,17 @@ export default function CalendarPane({
         ? String(last.getDate())
         : humanDay(isoDay(last), today);
     return `${f} – ${l}, ${y}`;
+  };
+
+  /** Day's title — the weekday the column header would carry, its date, and
+      the year the week range also always spells out. humanDay
+      already appends a foreign year, so only the current one is added. */
+  const dayTitle = () => {
+    const d = days[0];
+    const label = dayLabel(isoDay(d));
+    return d.getFullYear() === today.getFullYear()
+      ? `${label}, ${d.getFullYear()}`
+      : label;
   };
 
   const entryChip = (e: CalEntry) => {
@@ -1749,6 +1887,12 @@ export default function CalendarPane({
   ) => {
     const isAnchor =
       (!e.repeating || e.day === anchorDayOf(e)) && !isSpanTail(e);
+    // the bottom edge is grabbable only where it means something:
+    // on the block that owns the value, and only while the event lives inside
+    // one day. A multi-day span's start block paints a default hour, so its
+    // bottom edge isn't the event's end — dragging it would be a lie; those
+    // ends move through the peek's date row instead.
+    const canResize = isAnchor && (e.endDay == null || e.endDay === e.day);
     // same overdue rule as every other entry surface
     const isOverdue = entryOverdue(e);
     const tip = entryTip(e);
@@ -1819,6 +1963,39 @@ export default function CalendarPane({
           {e.repeating && <RepeatIcon />}
         </span>
         <span className="cal-entry-title">{e.title}</span>
+        {/* the duration grip: a thin band on the block's bottom
+            edge, dragged with the very machinery that moves an event — same
+            drag state, same quarter-hour snap, same ghost line, same undoable
+            write — only the drop rewrites the range's END. Pointer-only and
+            hidden from assistive tech on purpose: the keyboard path to a
+            duration is the peek's Ends field, which is a typed time rather
+            than a pixel. `stopPropagation` on dragstart keeps the parent
+            block's move-drag from firing too. */}
+        {canResize && (
+          <span
+            className="cal-wk-grip"
+            aria-hidden="true"
+            title="Drag to set the end time"
+            draggable
+            onDragStart={(ev) => {
+              ev.stopPropagation();
+              ev.dataTransfer.setData("text/plain", e.path);
+              ev.dataTransfer.effectAllowed = "move";
+              setDrag({
+                path: e.path,
+                prop: e.prop,
+                day: e.day,
+                time: e.time,
+                endDay: e.endDay,
+                endTime: e.endTime,
+                resize: true,
+              });
+            }}
+            // a grab that never became a drag must not open the peek behind it
+            onClick={(ev) => ev.stopPropagation()}
+            onDoubleClick={(ev) => ev.stopPropagation()}
+          />
+        )}
       </button>
     );
   };
@@ -1950,6 +2127,9 @@ export default function CalendarPane({
         onDrop={(e) => {
           e.preventDefault();
           const min = minuteAt(e.clientY, e.currentTarget);
+          // a bottom-edge drag rewrites the END here; anything
+          // else is the ordinary move-to-this-slot drop
+          if (resizeDropOn(iso, minutesToTime(min))) return;
           dropOn(iso, minutesToTime(min));
         }}
       >
@@ -2164,7 +2344,9 @@ export default function CalendarPane({
         <span className="list-title">
           {layout === "month"
             ? monthTitle(cursor.getFullYear(), cursor.getMonth())
-            : weekTitle()}
+            : layout === "day"
+              ? dayTitle()
+              : weekTitle()}
         </span>
         <div className="db-tools">
           <button
@@ -2191,29 +2373,22 @@ export default function CalendarPane({
           <div className="cal-pager">
             <button
               onClick={() => page(-1)}
-              title={
-                layout === "month"
-                  ? "Previous month (⌘←)"
-                  : "Previous week (⌘←)"
-              }
+              title={`Previous ${layout} (⌘←)`}
             >
               <ChevronLeftIcon />
             </button>
-            <button
-              onClick={() => page(1)}
-              title={layout === "month" ? "Next month (⌘→)" : "Next week (⌘→)"}
-            >
+            <button onClick={() => page(1)} title={`Next ${layout} (⌘→)`}>
               <ChevronRightIcon />
             </button>
           </div>
           <SwitchGroup className="cal-layouts" label="Calendar layout">
-            {(["month", "week"] as const).map((l) => (
+            {(["month", "week", "day"] as const).map((l) => (
               <button
                 key={l}
                 className={layout === l ? "active" : undefined}
                 onClick={() => setLayout(l)}
               >
-                {l === "month" ? "Month" : "Week"}
+                {LAYOUT_LABELS[l]}
               </button>
             ))}
           </SwitchGroup>
@@ -2227,24 +2402,43 @@ export default function CalendarPane({
           onToast={onToast}
         />
       )}
-      <div className="cal-grid-scroll">
-        <div className={`cal-weekdays${layout === "week" ? " week" : ""}`}>
-          {layout === "week" && (
-            <span className="cal-wk-spacer" aria-hidden="true" />
-          )}
-          {/* Today's column header sharpens when today is on the
+      {/* one custom property carries the canvas's column count to
+          all three of its rows (header, all-day strip, timed canvas), so Day
+          is Week with `--cal-cols: 1` rather than a second surface. Month
+          keeps the property unset and its own seven-column template. */}
+      <div
+        className="cal-grid-scroll"
+        style={
+          onCanvas
+            ? ({ "--cal-cols": days.length } as CSSProperties)
+            : undefined
+        }
+      >
+        <div className={`cal-weekdays${onCanvas ? " week" : ""}`}>
+          {onCanvas && <span className="cal-wk-spacer" aria-hidden="true" />}
+          {/* today's column header sharpens when today is on the
               grid — the second orientation mark Notion Calendar leans on
-              (the circled day number alone is easy to lose in six rows) */}
-          {WEEKDAYS.map((w, i) => (
+              (the circled day number alone is easy to lose in six rows).
+              Month names the seven weekdays once for six rows of cells; the
+              canvas names its own columns, which is the same seven in Week
+              and just the one in Day. */}
+          {(layout === "month"
+            ? WEEKDAYS.map((w, i) => ({ key: w, label: w, weekday: i }))
+            : days.map((d) => ({
+                key: isoDay(d),
+                label: WEEKDAYS[(d.getDay() + 6) % 7],
+                weekday: (d.getDay() + 6) % 7,
+              }))
+          ).map(({ key, label, weekday }) => (
             <span
-              key={w}
+              key={key}
               className={
-                visible.has(todayIso) && (today.getDay() + 6) % 7 === i
+                visible.has(todayIso) && (today.getDay() + 6) % 7 === weekday
                   ? "cal-wd-today"
                   : undefined
               }
             >
-              {w}
+              {label}
             </span>
           ))}
         </div>
@@ -2474,6 +2668,7 @@ export default function CalendarPane({
               .catch(reportWriteFailure)
           }
           onSetTime={(t) => setEntryTime(peekEntry, t)}
+          onSetEnd={(t) => setPeekEnd(peekEntry, t)}
           onSetStatus={(v) => setEntryStatus(peekEntry, v)}
           onRepeatPick={(anchor) => setRepeatMenu({ entry: peekEntry, anchor })}
           onSkip={() => skipOccurrence(peekEntry)}

@@ -72,6 +72,11 @@ function ProgressSection({
   }
   const c: ProgressConfig = block.config;
   const label = progressLabel(c);
+  // the fence's root carries the roster NAME; [data-accent] in styles.css is
+  // the only place it becomes a colour (the bounded-style-token rule). Absent
+  // for an off-roster name, which the parser already dropped — React omits
+  // the attribute.
+  const accent = c.accent;
   const err = value.error ?? target.error;
   const loading = err === null && (value.n === null || target.n === null);
 
@@ -86,7 +91,7 @@ function ProgressSection({
 
   if (err !== null) {
     return (
-      <div className="progress-fence">
+      <div className="progress-fence" data-accent={accent}>
         {head}
         <div className="progress-err">{err}</div>
       </div>
@@ -94,7 +99,7 @@ function ProgressSection({
   }
   if (loading || value.n === null || target.n === null) {
     return (
-      <div className="progress-fence">
+      <div className="progress-fence" data-accent={accent}>
         {head}
         <div className="progress-foot">…</div>
       </div>
@@ -109,7 +114,7 @@ function ProgressSection({
       : paceText(progressPace(value.n, target.n, c.deadline, c.start, today), c.format, c.digits);
 
   return (
-    <div className="progress-fence">
+    <div className="progress-fence" data-accent={accent}>
       {head}
       {/* the bar is a picture of the number beside it — the text is the
           accessible reading, so the track itself is aria-hidden and the
