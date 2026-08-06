@@ -317,9 +317,19 @@ atomic write). Use those two modules instead of re-deriving the rules.
 
 ## What this is not
 
-There is no HTTP endpoint, no watch-mode daemon, no webhook, and no plugin
-lifecycle — none of these are planned, because each one is a second API that
-can disagree with the files. When the app is *running* and you want the engine's
+There is no HTTP endpoint, no webhook, and no plugin lifecycle — none of these
+are planned, because each one is a second API that can disagree with the files.
+
+Two doors do exist beside the files, and neither is an exception to that rule:
+the MCP door for AI clients and the CLI door for scripts are the *same*
+sidecar, spawned per call, speaking to the same scoped operation layer.
+They add a permission boundary — a folder is invisible until you grant it in
+Settings — rather than a second definition of what a note is, and every write
+lands as an ordinary file with a git receipt. One contract, not two: the CLI
+door has no permission logic of its own to drift from the MCP door's. Nothing
+listens on a port and nothing runs between calls.
+
+When the app is *running* and you want the engine's
 own guarantees — link rewriting on rename, snapshot batching, the
 compare-and-swap — the IPC surface
 ([§14](vault-format.md#14-the-ipc-surface-preferred-operations)) is the better

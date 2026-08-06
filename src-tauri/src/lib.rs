@@ -471,9 +471,19 @@ fn apply_settings(app: &tauri::AppHandle, root: &std::path::Path) {
 /// Entry point of the `substrate-mcp` sidecar binary (src/bin/) — the MCP
 /// door's stdio server. Lives here because the bin target only
 /// re-exports it; everything real is in `mcpdoor::server`.
+///
+/// No arguments means an MCP client spawned it: serve the protocol over
+/// stdio, exactly as before. Arguments mean a script is calling: run one
+/// scoped operation and exit (`mcpdoor::cli`). Same binary, same grants —
+/// the headless caller is not a second door.
 #[cfg(not(mobile))]
 pub fn mcp_door_main() -> i32 {
-    mcpdoor::server::run()
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.is_empty() {
+        mcpdoor::server::run()
+    } else {
+        mcpdoor::cli::run(argv)
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

@@ -89,8 +89,19 @@ const ROOT_WRITE_DENY: &[&str] = &["AGENTS.md", "CLAUDE.md"];
 impl ScopeSet {
     /// Read the scope set; a missing or unparsable file is an empty set —
     /// the door fails closed, never open.
+    ///
+    /// Grants `save` would have rejected are dropped rather than honoured.
+    /// A hand-edited file is the only way one can exist, and the shape that
+    /// matters is an empty client name: a caller whose own name fails
+    /// validation is left holding the empty name too, and would otherwise
+    /// match such a grant exactly. Deciding reads the loaded set, editing
+    /// reads the raw file — so Settings still shows and round-trips a row it
+    /// will not act on, instead of silently erasing it.
     pub fn load(cfg_dir: &Path) -> Self {
-        Self::load_for_edit(cfg_dir).unwrap_or_default()
+        let mut set = Self::load_for_edit(cfg_dir).unwrap_or_default();
+        set.grants
+            .retain(|g| validate_client(&g.client).is_ok() && validate_prefix(&g.prefix).is_ok());
+        set
     }
 
     /// Read for a Settings mutation. The server deliberately turns corrupt
@@ -463,6 +474,34 @@ mod tests {
         assert!(ScopeSet::load(t.path()).is_empty());
         fs::write(t.path().join(SCOPES_FILE), "not json").unwrap();
         assert!(ScopeSet::load(t.path()).is_empty());
+    }
+
+    #[test]
+    fn a_hand_edited_grant_that_save_would_reject_is_not_honoured() {
+        let t = tempfile::tempdir().unwrap();
+        // Only a text editor can produce this: an empty client name, which
+        // is exactly the name a caller is left with when its own name fails
+        // validation. Without the load-time drop the two meet and match.
+        fs::write(
+            t.path().join(SCOPES_FILE),
+            r#"{"grants":[{"client":"","prefix":"Notes","access":"read"},
+                          {"client":"GoodName","prefix":"Notes/","access":"read"},
+                          {"client":"Real","prefix":"Notes","access":"read"}]}"#,
+        )
+        .unwrap();
+        let loaded = ScopeSet::load(t.path());
+        assert_eq!(loaded.grants.len(), 1, "only the valid grant survives: {loaded:?}");
+        for caller in ["", "Bad\u{7}Name", " padded ", &"x".repeat(200)] {
+            assert_eq!(
+                loaded.for_client(caller).decide_rel("Notes/a.md"),
+                Decision::Deny,
+                "caller {caller:?} matched a grant no editor could have written"
+            );
+        }
+        assert_eq!(loaded.for_client("Real").decide_rel("Notes/a.md"), Decision::Allow(Access::Read));
+        // the editor still sees the file as written, so granting cannot
+        // quietly delete the rows it refuses to act on
+        assert_eq!(ScopeSet::load_for_edit(t.path()).unwrap().grants.len(), 3);
     }
 
     #[test]

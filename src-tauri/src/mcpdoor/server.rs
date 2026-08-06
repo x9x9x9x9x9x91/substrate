@@ -35,7 +35,7 @@ use crate::history::History;
 use crate::vault::{first_note_rel, sanitize_folder_rel, Engine};
 
 /// MCP protocol revision this server implements.
-const PROTOCOL_VERSION: &str = "2025-06-18";
+pub(super) const PROTOCOL_VERSION: &str = "2025-06-18";
 
 /// The distinct author identity of MCP-originated commits — receipts must be
 /// able to answer "who set this value" with "an MCP client", not "the app".
@@ -171,14 +171,14 @@ impl Door {
                 if let Some(name) =
                     params.get("clientInfo").and_then(|c| c.get("name")).and_then(Value::as_str)
                 {
-                    // Recorded before it is judged: a name that fails
-                    // validation, or matches no grant, is exactly the case the
-                    // pane has to be able to show back.
-                    lastseen::record(&self.cfg_dir, name);
                     // Match the Settings value exactly. Invalid input stays
                     // uninitialized rather than being trimmed/sanitized into
-                    // the identity of a different configured client.
+                    // the identity of a different configured client — and it
+                    // is not recorded either: the last-seen row is what the
+                    // grant pane shows a user deciding whom to trust, so only
+                    // names that could ever match a grant get written there.
                     if validate_client(name).is_ok() {
+                        lastseen::record(&self.cfg_dir, name);
                         self.client = name.to_string();
                     }
                 }
@@ -489,7 +489,7 @@ fn bundle_identifier() -> Option<String> {
 /// writes `mcp-scopes.json` and `config.json`. The sidecar has no Tauri
 /// handle, so the platform paths are mirrored here.
 /// `SUBSTRATE_CONFIG_DIR` overrides for tests and dev runs.
-fn config_dir() -> Option<PathBuf> {
+pub(super) fn config_dir() -> Option<PathBuf> {
     if let Some(d) = std::env::var_os("SUBSTRATE_CONFIG_DIR") {
         if !d.is_empty() {
             return Some(PathBuf::from(d));
@@ -517,7 +517,7 @@ fn config_dir() -> Option<PathBuf> {
 /// Same resolution order as the app (`appcfg::resolve_vault`): `VAULT_DIR`
 /// env, then the stored choice, then an existing `~/Vault`. First run —
 /// no vault anywhere — is a refusal: the sidecar never picks a vault.
-fn resolve_root(cfg_dir: &Path) -> Option<PathBuf> {
+pub(super) fn resolve_root(cfg_dir: &Path) -> Option<PathBuf> {
     let env_vault = std::env::var("VAULT_DIR").ok();
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
@@ -925,10 +925,13 @@ mod tests {
         door.handle(&padded).unwrap();
         assert!(door.client.is_empty(), "invalid input was normalized into a grant identity");
         assert_eq!(door.handle(&call).unwrap()["result"]["isError"], true);
-        // The rejected name is exactly what the pane has to show back: without
-        // it, a padded identity is a door that denies everything and says why
-        // to nobody.
-        assert_eq!(super::lastseen::load(&cfg).unwrap().name, " TestClient ");
+        // A name that can never match a grant does not get written to the row
+        // the grant pane renders: that row is a trust surface, not a log of
+        // whatever bytes a local process sent.
+        assert!(
+            super::lastseen::load(&cfg).is_none(),
+            "an invalid client name reached the file the grant pane shows"
+        );
 
         let exact = json!({
             "jsonrpc":"2.0", "id":3, "method":"initialize",
@@ -936,10 +939,16 @@ mod tests {
         });
         door.handle(&exact).unwrap();
         assert_eq!(door.handle(&call).unwrap()["result"]["isError"], false);
+        assert_eq!(super::lastseen::load(&cfg).unwrap().name, "TestClient");
 
         door.handle(&padded).unwrap();
         assert!(door.client.is_empty(), "invalid re-initialize retained the prior grant identity");
         assert_eq!(door.handle(&call).unwrap()["result"]["isError"], true);
+        assert_eq!(
+            super::lastseen::load(&cfg).unwrap().name,
+            "TestClient",
+            "an invalid re-initialize overwrote the last valid client in the pane"
+        );
     }
 
     #[test]

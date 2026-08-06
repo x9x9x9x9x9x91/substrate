@@ -153,6 +153,7 @@ test("every executable entry point in scripts/ is guarded", () => {
     "with-merge-lock.sh",
     "push-gated-main.sh",
     "merge-queue.sh",
+    "train-preflight.sh",
     "install-git-hooks.sh",
     "prepare-mcp-sidecar.sh",
     "verify-gates.sh",
