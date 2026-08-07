@@ -276,19 +276,32 @@ fn at_most_one<'a>(
     }
 }
 
-/// Why the door is shut before a call is even built, if it is. Both shapes
-/// fail closed and both exit 2, but they need opposite fixes: an unreadable
-/// grant file still holds the operator's grants, so telling them to re-grant
-/// folders would send them to repair something that is not broken.
+/// Why the door is shut before a call is even built, if it is. All three
+/// shapes fail closed and all three exit 2, but they need different fixes:
+/// an unreadable grant file still holds the operator's grants, so telling
+/// them to re-grant folders would send them to repair something that is not
+/// broken — and a readable file whose every row is malformed is a third
+/// case again, where granting one more folder in Settings would fail too
+/// (`save` validates the whole set) and the repair is the bad rows.
 fn closed_door(cfg_dir: &std::path::Path) -> Option<String> {
-    if let Err(e) = ScopeSet::load_for_edit(cfg_dir) {
-        return Some(format!(
-            "the shared-folder list could not be read — the door stays closed ({e}; {} in {})",
-            super::scope::SCOPES_FILE,
-            cfg_dir.display()
-        ));
-    }
+    let raw = match ScopeSet::load_for_edit(cfg_dir) {
+        Ok(raw) => raw,
+        Err(e) => {
+            return Some(format!(
+                "the shared-folder list could not be read — the door stays closed ({e}; {} in {})",
+                super::scope::SCOPES_FILE,
+                cfg_dir.display()
+            ))
+        }
+    };
     if ScopeSet::load(cfg_dir).is_empty() {
+        if !raw.grants.is_empty() {
+            return Some(format!(
+                "every shared-folder entry is malformed and none of them grant anything — the door stays closed (remove them in Substrate's MCP settings — Revoke all clears them — or repair the file by hand; granting in Substrate will fail until you do; {} in {})",
+                super::scope::SCOPES_FILE,
+                cfg_dir.display()
+            ));
+        }
         return Some(format!(
             "no folders are shared — the door stays closed (grant folders in Substrate first; {} in {})",
             super::scope::SCOPES_FILE,
@@ -622,27 +635,89 @@ mod tests {
         let _ = fs::remove_dir_all(root.parent().unwrap());
     }
 
+    #[test]
+    fn a_store_of_only_invalid_rows_is_not_reported_as_an_empty_one() {
+        let (root, cfg) = setup("allinvalid", &[("Notes", Access::Read)]);
+        // a hand-edited row `save` would reject: the empty client name, the
+        // one shape a caller could otherwise match by failing validation too
+        fs::write(
+            cfg.join(crate::mcpdoor::scope::SCOPES_FILE),
+            r#"{"grants":[{"client":"","prefix":"Notes","access":"read"}]}"#,
+        )
+        .unwrap();
+        let (code, _out, err) = cli(&cfg, &root, &["read", "Notes/a.md", "--client", CLIENT], "");
+        assert_eq!(code, 2, "{err}");
+        assert!(err.contains("malformed"), "the reason names the real fix: {err}");
+        assert!(
+            !err.contains("no folders are shared"),
+            "an operator sent to grant a folder that granting cannot fix: {err}"
+        );
+        assert!(
+            !err.contains("could not be read"),
+            "the file parsed fine — only its rows are bad: {err}"
+        );
+        let _ = fs::remove_dir_all(root.parent().unwrap());
+    }
+
     /// `run()` resolves the config dir, the vault and the client name from
     /// process-global environment. Setting those in-process would race the
     /// rest of the suite — which reads `HOME` too — so each case runs in a
     /// child copy of this test binary with the environment stated in full.
+    ///
+    /// The wait is bounded: every case here answers in well under a second,
+    /// so a child still alive after [`CHILD_TIMEOUT`] is a door that blocked
+    /// on something — a prompt, a lock, a read that never returns. Left
+    /// unbounded that hangs the whole suite with no failing test to point at,
+    /// which reads as an infrastructure stall rather than the regression it
+    /// is; killing it and failing names the case that stopped answering.
     fn run_child(argv: &[&str], env: &[(&str, Option<&str>)]) -> (i32, String) {
+        const CHILD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
         let mut cmd = std::process::Command::new(std::env::current_exe().unwrap());
         cmd.args(["--exact", "mcpdoor::cli::tests::run_entry_child", "--ignored", "--nocapture"])
             .env("MCP_CLI_ARGV", argv.join("\u{1f}"))
-            .stdin(std::process::Stdio::null());
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
         for (key, value) in env {
             match value {
                 Some(v) => cmd.env(key, v),
                 None => cmd.env_remove(key),
             };
         }
-        let out = cmd.output().unwrap();
-        let text = format!(
-            "{}{}",
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        );
+        let mut child = cmd.spawn().unwrap();
+        // Drain both pipes on their own threads: a child that fills one while
+        // we sleep on the other would block for reasons of our own making,
+        // and the timeout below would blame the door for it.
+        let mut out_pipe = child.stdout.take().unwrap();
+        let mut err_pipe = child.stderr.take().unwrap();
+        let reader = |pipe: &mut dyn Read| {
+            let mut buf = Vec::new();
+            let _ = pipe.read_to_end(&mut buf);
+            String::from_utf8_lossy(&buf).into_owned()
+        };
+        let (out_reader, err_reader) = std::thread::scope(|s| {
+            let o = s.spawn(move || reader(&mut out_pipe));
+            let e = s.spawn(move || reader(&mut err_pipe));
+
+            let deadline = std::time::Instant::now() + CHILD_TIMEOUT;
+            loop {
+                match child.try_wait().unwrap() {
+                    Some(_) => break,
+                    None if std::time::Instant::now() >= deadline => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        panic!(
+                            "the door never answered `{}` within {CHILD_TIMEOUT:?} — killed it",
+                            argv.join(" ")
+                        );
+                    }
+                    None => std::thread::sleep(std::time::Duration::from_millis(10)),
+                }
+            }
+            (o.join().unwrap(), e.join().unwrap())
+        });
+        let text = format!("{out_reader}{err_reader}");
         let code = text
             .lines()
             .find_map(|l| l.strip_prefix("EXIT="))

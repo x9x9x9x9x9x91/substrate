@@ -95,8 +95,17 @@ impl ScopeSet {
     /// matters is an empty client name: a caller whose own name fails
     /// validation is left holding the empty name too, and would otherwise
     /// match such a grant exactly. Deciding reads the loaded set, editing
-    /// reads the raw file — so Settings still shows and round-trips a row it
-    /// will not act on, instead of silently erasing it.
+    /// reads the raw file — so Settings still SHOWS such a row instead of
+    /// silently erasing it, and no decision ever honours it.
+    ///
+    /// Showing is not round-tripping: `save` validates what is still in the
+    /// set, so while an invalid row sits in the file, adding a grant and
+    /// revoking a *valid* row fail with that row's error — but revoking the
+    /// invalid row itself succeeds once it is the last invalid one, and
+    /// Revoke all always succeeds, because both drop rows before saving.
+    /// Visible-and-inert is the deliberate half; a pane restricted to
+    /// removal is the price, and the door staying shut is the right side to
+    /// fail on.
     pub fn load(cfg_dir: &Path) -> Self {
         let mut set = Self::load_for_edit(cfg_dir).unwrap_or_default();
         set.grants

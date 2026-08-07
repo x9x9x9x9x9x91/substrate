@@ -127,6 +127,52 @@ test("intrinsic columns are the read-only ones", () => {
   assert.equal(isIntrinsic("status"), false);
 });
 
+test("a hand-cased intrinsic is still the file's column, not a writable one", () => {
+  // the guard reads a name typed by a person — into a sidecar or a column
+  // heading — so its casing means nothing. An exact-case test let `Name` and
+  // `Size` past, and a value typed there shadows the file's own column on
+  // that one row; `Duration` past it is overwritten by the next extraction.
+  for (const p of ["Name", "SIZE", "Extension", "Created", "Modified", "Missing"]) {
+    assert.equal(isIntrinsic(p), true, p);
+  }
+  for (const p of ["Duration", "Sample_Rate", "Artist", "Media_Title", "PAGES"]) {
+    assert.equal(isIntrinsic(p), true, p);
+  }
+  // folding widens the guard, it does not swallow ordinary props
+  assert.equal(isIntrinsic("Status"), false);
+  assert.equal(isIntrinsic("Names"), false);
+});
+
+test("a hand-cased binding or type prop never leaks onto the row as a column", () => {
+  // a sidecar edited by hand can spell `Type:` or `Mount:`; matched
+  // exact-case they arrived as user columns beside the ones the row already
+  // supplies — two `type` columns differing only in a capital letter
+  const m = rowMeta(
+    mount(),
+    row({
+      note: "Mounts/Album Pool/track.md",
+      props: { Mount: "m1", Mount_File: "takes/track.als", MOUNT_IDENTITY: "abc123", Type: "typed by hand", status: "done" },
+    })
+  );
+  assert.deepEqual(m.props, {
+    type: "Album Pool",
+    name: "track.als",
+    extension: "als",
+    size: 4096,
+    created: "2026-07-20",
+    modified: "2026-08-01 14:30",
+    status: "done",
+  });
+});
+
+test("folding the owned props leaves a user prop that merely starts like one", () => {
+  // `Mounted` and `Types` are somebody's own columns — the fold matches whole
+  // names, so widening the binding filter must not eat them
+  const m = rowMeta(mount(), row({ note: "n.md", props: { Mounted: "2026-08-01", Types: "stem" } }));
+  assert.equal(m.props.Mounted, "2026-08-01");
+  assert.equal(m.props.Types, "stem");
+});
+
 test("extracted column names survive dbColumns", () => {
   // `title` is dropped by name there, which is why a file's own title is
   // `media_title` — a column the board never renders is worse than no column

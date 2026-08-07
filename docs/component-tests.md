@@ -29,9 +29,16 @@ focus, scrolling, keyboard routing, window chrome, multi-pane interaction.
 ## Writing one
 
 Component tests live in `src/lib/*.test.ts` — `scripts/run-node-tests.ts`
-takes explicit roots and `src/components` is not one of them. They are plain
-`.ts` and build elements with `createElement`, so the test file itself needs
-no JSX transform.
+takes explicit roots and `src/components` is not one of them. Name the file
+`<surface>.component.test.ts`, which is what separates them from the plain
+unit tests sharing that directory. They are plain `.ts` and build elements
+with `createElement`, so the test file itself needs no JSX transform.
+
+One file on its own runs as:
+
+```sh
+VAULT_DIR=/tmp/vault-test node --test src/lib/<file>.component.test.ts
+```
 
 `src/lib/workbookPane.component.test.ts` is the worked example. The shape:
 
@@ -41,8 +48,23 @@ import { after, before, test } from "node:test";
 import { createElement as h } from "react";
 import { mockBackend, renderComponent } from "./componentHarness.ts";
 import type { MockWindow } from "./componentHarness.ts";
+import type { NoteMeta } from "./types.ts";
 
 let win: MockWindow;
+
+/** the note the surface is handed — a NoteMeta, not the file on disk */
+function fixtureMeta(): NoteMeta {
+  return {
+    path: "Fixture.md",
+    stem: "Fixture",
+    title: "Fixture",
+    folder: "",
+    props: { Type: "Sheet" },
+    updated_ms: Date.now(),
+    excerpt: "",
+    sealed: false,
+  };
+}
 
 before(async () => {
   win = await mockBackend();
@@ -55,7 +77,7 @@ after(() => win.__mockDeleteNote("Fixture.md"));
 
 test("renders the grid for a sheet", async (t) => {
   const { default: Surface } = await import("../components/Surface.tsx");
-  const r = await renderComponent(t, h(Surface, { meta, vaultEpoch: 0 }));
+  const r = await renderComponent(t, h(Surface, { meta: fixtureMeta(), vaultEpoch: 0 }));
 
   await r.click(".some-tab");
   assert.ok(r.one(".sheet-table"));
@@ -167,7 +189,6 @@ no snapshot framework, no second test runner.
   that stages either seam needs a turn that actually outlasts the timer
   (`await act(async () => new Promise((done) => setTimeout(done, ms)))` with
   `ms` past the configured delay), or it is flaky by construction.
-- **Mirror check.** A component test inherits its subject's mirror status: a
-  test of an excluded surface belongs in `scripts/share-exclude.txt` too, or
-  the shared tree ships a test importing a file that isn't there. Run
-  `bash scripts/share-mirror.sh <ref> --check` before pushing.
+- **`click()` is the only interaction the harness synthesizes.** Typing,
+  focus, and keyboard events aren't built — a test that needs them belongs in
+  the browser spec.

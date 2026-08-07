@@ -19,8 +19,15 @@ export function parseMountPath(path: string): { id: string; rel: string } | null
 }
 
 /** Props the engine owns on a sidecar: the binding keys plus the intrinsics
-    the index carries. Never shown as user props — the row supplies them. */
+    the index carries. Never shown as user props — the row supplies them.
+
+    Matched case-insensitively, like every other read of a hand-authored key:
+    a sidecar written by hand can spell one `Type:` or `Mount:`, and an
+    exact-case test lets that spelling through as a user column beside the
+    row's own. The names are lowercase here, so `isOwned` folds the candidate. */
 const OWNED = new Set(["mount", "mount_file", "mount_identity", "type"]);
+
+const isOwned = (prop: string): boolean => OWNED.has(prop.toLowerCase());
 
 /** One mount row as the note pipeline wants it.
  *
@@ -50,7 +57,7 @@ export function rowMeta(mount: MountInfo, row: MountRow): NoteMeta {
       created: row.created,
       modified: row.modified,
       ...(row.missing ? { missing: "true" } : {}),
-      ...Object.fromEntries(Object.entries(row.props).filter(([k]) => !OWNED.has(k))),
+      ...Object.fromEntries(Object.entries(row.props).filter(([k]) => !isOwned(k))),
     },
     // the file's own mtime, so sorting by "updated" sorts by the reality the
     // mount reflects rather than by when someone last annotated it
@@ -151,11 +158,23 @@ export const MOUNT_EXTRACTED = [
   "pages",
 ] as const;
 
+/** Whether a column belongs to the file rather than to whoever is annotating
+    it — the read-only test the board's cell editor asks before allowing a
+    write.
+
+    Folded, because the name being tested comes from a hand-authored sidecar
+    or a typed column heading, where casing carries no meaning: an exact-case
+    test lets `Size` or `Duration` through, and the value then either shadows
+    the file's own column on that row or is overwritten by the next
+    extraction. Both lists above are lowercase by construction, so folding the
+    candidate is the whole comparison — the same rule the engine's write guard
+    already applies to the extracted names. */
 export function isIntrinsic(prop: string): boolean {
+  const folded = prop.toLowerCase();
   return (
-    (MOUNT_INTRINSICS as readonly string[]).includes(prop) ||
-    (MOUNT_EXTRACTED as readonly string[]).includes(prop) ||
-    prop === "missing"
+    (MOUNT_INTRINSICS as readonly string[]).includes(folded) ||
+    (MOUNT_EXTRACTED as readonly string[]).includes(folded) ||
+    folded === "missing"
   );
 }
 

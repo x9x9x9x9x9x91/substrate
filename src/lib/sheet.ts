@@ -138,6 +138,14 @@ export function findFence(body: string, lang: string): Fence | null {
 
 // ---------- CSV ----------
 
+// An unterminated quote consumes the rest of the text: once a cell opens a
+// quote and never closes it, commas and newlines are literal content, so every
+// row below fuses into that one cell. Quote state only opens on a `"` at the
+// START of a cell (see the in-cell rule below), so a stray quote mid-cell is
+// harmless. Known and accepted — the writers here are machine-appended logs
+// and serializeCsv, which never emit an unterminated quote — but it is why a
+// stray `"` at the start of a cell in a hand-edited sheet truncates the table
+// from that point down.
 export function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];

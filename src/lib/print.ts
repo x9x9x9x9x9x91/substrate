@@ -102,8 +102,10 @@ function inline(raw: string, assetSrc: AssetSrc): string {
 
 export function renderPrintBody(md: string, assetSrc: AssetSrc): string {
   // a printed note may have come from anywhere (a paste, a synced file), so
-  // CRLF is normalized here rather than in the scanner — the hub's bodies
-  // arrive normalized already and must keep scanning "\n" only
+  // CRLF is normalized here rather than in the scanner — CRLF is the caller's
+  // business: the scanner splits on "\n" only, and the hub hands note bodies
+  // over verbatim, so a stray "\r" rides along there rather than being
+  // swallowed. Print is the caller that chooses to strip it.
   const blocks = scanMdBlocks(md.replace(/\r\n/g, "\n"), { splitListsOnMarkerFlip: true });
   const out: string[] = [];
   for (const block of blocks) {

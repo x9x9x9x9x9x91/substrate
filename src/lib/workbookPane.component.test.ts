@@ -115,7 +115,7 @@ test("routes a note page to the grid when the target's Type is cased", async (t)
   );
 
   await r.click(r.all(".wb-tab")[1]);
-  assert.equal(r.all(".wb-page-err").length, 0);
+  assert.doesNotMatch(r.text(), /can’t render/);
   assert.ok(r.one(".sheet-table"), "a sheet page renders the editable grid");
   // the grid is over the clone's rows, not an empty shell
   assert.match(r.text(), /2026-07-01/);
@@ -130,7 +130,7 @@ test("routes a note page to renderDashboard when the target is a cased dashboard
 
   await r.click(r.all(".wb-tab")[1]);
   assert.equal(r.one(".probe-dashboard")?.textContent, "dashboard for Goals Cased");
-  assert.equal(r.all(".wb-page-err").length, 0);
+  assert.doesNotMatch(r.text(), /can’t render/);
 });
 
 test("a page pointing at neither kind fails in place, not across the strip", async (t) => {
@@ -154,6 +154,6 @@ test("a page pointing at neither kind fails in place, not across the strip", asy
   assert.match(r.text(), /is not a sheet or dashboard/);
   // the sibling page still works — the error didn't take the workbook down
   await r.click(r.all(".wb-tab")[2]);
-  assert.equal(r.all(".wb-page-err").length, 0);
+  assert.doesNotMatch(r.text(), /can’t render/);
   assert.ok(r.one(".sheet-table"));
 });
