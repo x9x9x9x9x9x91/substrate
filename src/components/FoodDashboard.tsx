@@ -632,6 +632,20 @@ export default function FoodDashboard({
                   </div>
                 </div>
                 <div className="dash-metric">
+                  <div className="dash-label">30-day avg</div>
+                  <div
+                    className="dash-value"
+                    style={d.avg30 !== null ? { color: STATE_COLOR[d.avg30State] } : undefined}
+                  >
+                    {d.avg30 !== null ? fmt(Math.round(d.avg30)) : "—"}
+                  </div>
+                  {/* the log is younger than the window, so say how many days
+                      the mean actually stands on */}
+                  {d.avg30 !== null && (
+                    <div className="dash-metric-sub">{d.daysLogged30}/30 logged</div>
+                  )}
+                </div>
+                <div className="dash-metric">
                   <div className="dash-label">week vs goal</div>
                   {/* Σ net − logged days × floor: the week's running distance
                       from goal pace, same logged-days lens as the average —

@@ -1,7 +1,8 @@
 // Food log data for the `dashboard: food` renderer: one pure pass
 // over the log sheet's csv fence shaping everything the pane shows — the focus
 // day's net kcal against the 1900–2300 band (today unless the pane
-// navigated), the 7-day average, the 14-day day strip, and the repeat chips.
+// navigated), the 7- and 30-day averages, the 14-day day strip, and the
+// repeat chips.
 // The pane stays a dumb renderer; this module is the unit-tested half (the
 // today.ts split).
 //
@@ -64,6 +65,11 @@ export interface FoodData {
   /** how many of the last 7 days have at least one row */
   daysLogged7: number;
   avg7State: DayState;
+  /** mean of daily net totals over logged days in [today-29, today] */
+  avg30: number | null;
+  /** how many of the last 30 days have at least one row */
+  daysLogged30: number;
+  avg30State: DayState;
   /** [today-13, today] ascending — the day strip */
   days: FoodDay[];
 }
@@ -181,8 +187,8 @@ export function removeFoodEntry(body: string, idx: number): string {
 
 /** Everything the food pane shows, from the log body + the dashboard note's
     band props. `focus` is the day the hero/rows describe (day
-    navigation) — default today; avg7, weekDelta and the 14-day strip stay
-    anchored to the real `today` either way. Read-only display data. */
+    navigation) — default today; avg7, avg30, weekDelta and the 14-day strip
+    stay anchored to the real `today` either way. Read-only display data. */
 export function foodData(
   body: string,
   today: string,
@@ -202,17 +208,23 @@ export function foodData(
   const focusProtein = focusRows.reduce((s, r) => s + Math.max(0, r.protein ?? 0), 0);
   const focusBurn = focusRows.reduce((s, r) => s + (r.kcal < 0 ? -r.kcal : 0), 0);
 
-  // 7-day average over logged days only — an unlogged day is "forgot", and
+  // window averages over logged days only — an unlogged day is "forgot", and
   // averaging in zeros would flatter the number the cut steers on
-  let sum7 = 0;
-  let daysLogged7 = 0;
-  for (let i = 0; i < 7; i++) {
-    const day = shiftDate(today, -i);
-    if ((byDay.get(day) ?? []).length === 0) continue;
-    sum7 += dayTotal(day);
-    daysLogged7++;
-  }
+  const windowStats = (len: number): { sum: number; logged: number } => {
+    let sum = 0;
+    let logged = 0;
+    for (let i = 0; i < len; i++) {
+      const day = shiftDate(today, -i);
+      if ((byDay.get(day) ?? []).length === 0) continue;
+      sum += dayTotal(day);
+      logged++;
+    }
+    return { sum, logged };
+  };
+  const { sum: sum7, logged: daysLogged7 } = windowStats(7);
   const avg7 = daysLogged7 > 0 ? sum7 / daysLogged7 : null;
+  const { sum: sum30, logged: daysLogged30 } = windowStats(30);
+  const avg30 = daysLogged30 > 0 ? sum30 / daysLogged30 : null;
 
   const days: FoodDay[] = [];
   for (let i = 13; i >= 0; i--) {
@@ -244,6 +256,9 @@ export function foodData(
     avg7,
     daysLogged7,
     avg7State: avg7 === null ? "empty" : bandState(avg7, floor, ceiling),
+    avg30,
+    daysLogged30,
+    avg30State: avg30 === null ? "empty" : bandState(avg30, floor, ceiling),
     days,
   };
 }

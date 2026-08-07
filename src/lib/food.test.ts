@@ -131,6 +131,29 @@ test("foodData: avg7 null with nothing in the window", () => {
   assert.equal(d.avg7State, "empty");
 });
 
+test("foodData: avg30 covers logged days only, wider than avg7", () => {
+  const d = foodData(
+    // 07-10 is outside the 7-day window but inside the 30-day one;
+    // 06-20 is outside both
+    bodyWith(["2026-07-21,A,2000,", "2026-07-19,B,2100,", "2026-07-10,C,1000,", "2026-06-20,Old,9999,"]),
+    "2026-07-21",
+    FLOOR,
+    CEIL
+  );
+  assert.equal(d.daysLogged7, 2);
+  assert.equal(d.avg7, 2050);
+  assert.equal(d.daysLogged30, 3);
+  assert.equal(d.avg30, 1700); // (2000 + 2100 + 1000) / 3
+  assert.equal(d.avg30State, "under"); // vs the 1900–2300 test band
+});
+
+test("foodData: avg30 null with nothing in the window", () => {
+  const d = foodData(bodyWith(["2026-06-01,Old,1000,"]), "2026-07-21", FLOOR, CEIL);
+  assert.equal(d.avg30, null);
+  assert.equal(d.daysLogged30, 0);
+  assert.equal(d.avg30State, "empty");
+});
+
 test("foodData: 14-day strip, ascending, empty days present with n=0", () => {
   const d = foodData(bodyWith(["2026-07-21,A,2400,"]), "2026-07-21", FLOOR, CEIL);
   assert.equal(d.days.length, 14);
