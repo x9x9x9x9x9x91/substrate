@@ -229,6 +229,7 @@ import {
   UnmountDialog,
 } from "./components/DbAdmin";
 import { DbIcon as DbGlyphIcon, ExportIcon, FolderIcon, KeyboardIcon, MenuIcon, MountIcon, NoteActionGlyph, NoteIcon, PenIcon, PinIcon, PlusIcon, RepeatIcon, SidebarIcon, TrashIcon, XIcon, ChevronLeftIcon, ChevronUpIcon, ChevronDownIcon } from "./components/Icons";
+import { HeroNote } from "./components/HeroIcons";
 import EmptyState from "./components/EmptyState";
 import { useSidebarHidden } from "./hooks/useSidebarHidden";
 import { useZoom } from "./hooks/useZoom";
@@ -5123,7 +5124,7 @@ export default function App() {
         ) : (
           <div className="note">
             <EmptyState
-              icon={<NoteIcon />}
+              icon={<HeroNote />}
               title="No note selected"
               hint="⌘K to find something, ⌘N to capture"
               /* the ⌘K half of the hint, made clickable — same overlay the

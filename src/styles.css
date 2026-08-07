@@ -1312,6 +1312,17 @@ html.vibrancy .main {
   margin-bottom: 10px;
 }
 
+/* The rule above scales a 16-viewBox chrome glyph to 30px, which renders its
+   1.4 stroke at 2.63px — twice the weight of the same glyph in the sidebar. A
+   hero mark (components/HeroIcons.tsx) is drawn at 48 and rendered at 44, so it
+   opts OUT of that scaling: 1.5 at 0.917 scale is 1.375px, optically level with
+   15px chrome. */
+.empty > svg.hero-mark {
+  width: 44px;
+  height: 44px;
+  margin-bottom: 14px;
+}
+
 .empty-hint {
   font-size: 12px;
   font-weight: 400;

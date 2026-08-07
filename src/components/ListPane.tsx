@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRightIcon, FileIcon, ImageIcon, LockIcon, NotesIcon, PlusIcon } from "./Icons";
+import { ChevronRightIcon, FileIcon, ImageIcon, LockIcon, PlusIcon } from "./Icons";
+import { HeroNotes } from "./HeroIcons";
 import EmptyState from "./EmptyState";
 import type { DbIcon, FolderFile, NoteMeta, TagFolder, View } from "../lib/types";
 import { propStr } from "../lib/types";
@@ -693,7 +694,7 @@ function ListPane({
       >
         {notes.length === 0 && blocks.length === 0 && files.length === 0 ? (
           <EmptyState
-            icon={<NotesIcon />}
+            icon={<HeroNotes />}
             title="Nothing here"
             hint={mobile ? "Open navigation and tap + to capture" : newHint(view)}
             /* the hint's own verb, made clickable — the same command ⌘N fires */

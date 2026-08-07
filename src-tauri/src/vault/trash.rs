@@ -1213,6 +1213,10 @@ mod tests {
     fn trash_delete_and_empty_are_permanent() {
         let (mut e, dir) = temp_vault("perm");
         e.trash("Dolomites.md").unwrap();
+        // Distinct ticks, or "newest first" is unassertable: two separate
+        // deletions in one ms share a `deleted_ms`, and the pane's
+        // `deleted_ms DESC, path ASC` order then puts Dolomites ahead.
+        std::thread::sleep(std::time::Duration::from_millis(2));
         e.trash("Kyoto.md").unwrap();
         let entries = e.trash_list();
         assert_eq!(entries.len(), 2);

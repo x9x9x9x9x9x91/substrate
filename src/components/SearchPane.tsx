@@ -15,6 +15,7 @@ import { resultUnit, searchStats } from "../lib/searchstats";
 import { dailyDateOf, displayTitle } from "../lib/journal";
 import { displayType } from "../lib/display";
 import { FilterIcon, NoteIcon, SearchIcon } from "./Icons";
+import { HeroSearch } from "./HeroIcons";
 import EmptyState from "./EmptyState";
 import SwitchGroup from "./SwitchGroup";
 
@@ -385,7 +386,7 @@ export default function SearchPane({
              The other two states — no results, and a truncated page — are
              answers about the query, which only the input can change. */
           <EmptyState
-            icon={<SearchIcon />}
+            icon={<HeroSearch />}
             role="status"
             title={
               truncated

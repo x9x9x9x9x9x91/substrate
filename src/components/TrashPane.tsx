@@ -3,6 +3,7 @@ import type { NoteMeta, TrashEntry } from "../lib/types";
 import { historyPurgeNote, historyPurgeNotes, vaultAssetsRestore, vaultAssetsTrashDelete, vaultTrashDelete, vaultTrashDeleteFolder, vaultTrashDeleteTemplate, vaultTrashEmpty, vaultTrashList, vaultTrashRestore, vaultTrashRestoreFolder, vaultTrashRestoreTemplate } from "../lib/ipc";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
 import { FolderIcon, ImageIcon, TrashIcon } from "./Icons";
+import { HeroTrash } from "./HeroIcons";
 import { dateLocale } from "../lib/dateLocale";
 import { BackButton } from "./BackButton";
 import EmptyState from "./EmptyState";
@@ -271,7 +272,7 @@ export default function TrashPane({ vaultEpoch, onRestored, onRestoredFolder }: 
           ) : null
         ) : entries.length === 0 ? (
           <EmptyState
-            icon={<TrashIcon />}
+            icon={<HeroTrash />}
             title="Trash is empty"
             hint="deleted notes and assets land here, recoverable until you empty them"
           />
