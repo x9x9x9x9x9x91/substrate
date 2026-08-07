@@ -427,7 +427,12 @@ export function parseTsInvokes(src: string, label: string): TsInvoke[] {
 /** Commands the mock backend's dispatch switch handles. */
 export function parseMockCases(src: string, label: string): string[] {
   const code = blankNonCode(src);
-  const anchor = code.indexOf("function mockDispatch");
+  /* Exact name, not a prefix: `function mockDispatch` also matches
+     mockDispatchAfterLatency, which is declared first. That only ever worked
+     because the wrapper carries no switch of its own — the day it grows one,
+     or the day dispatch moves below another mockDispatch* helper, a prefix
+     anchor would parse the wrong function's cases and pass quietly. */
+  const anchor = code.search(/\bfunction\s+mockDispatch\s*\(/);
   if (anchor === -1) throw new Error(`${label}: mockDispatch not found — the mock moved`);
   const sw = code.indexOf("switch", anchor);
   if (sw === -1) throw new Error(`${label}: mockDispatch has no switch statement`);

@@ -66,6 +66,56 @@ test("parseSnapshotsFromBody: unparseable rows are skipped", () => {
   assert.equal(snapshots[0].atRaw, "2026-07-17");
 });
 
+// ---------- the shared note-table reader, read positionally ----------
+// The snapshot log rides readNoteTable like every other table-backed pane,
+// but it is positional and its header row is optional. These pin the shapes
+// that distinguish it from a header-named table.
+
+test("parseSnapshotsFromBody: a fence with no header row reads every row", () => {
+  const body = ["# dash", "", "```csv", "2026-07-17,1,100", "2026-07-18,2.5,100", "```", ""].join("\n");
+  const { snapshots } = parseSnapshotsFromBody(body);
+  assert.deepEqual(
+    snapshots.map((s) => s.atRaw),
+    ["2026-07-17", "2026-07-18"]
+  );
+});
+
+test("parseSnapshotsFromBody: the at,… header row is dropped, not counted", () => {
+  // it survives no filter of its own — "at" simply never parses as a date, so
+  // the header and a junk row leave by the same door
+  const withHeader = parseSnapshotsFromBody(bodyWith(["2026-07-17,1,100"])).snapshots;
+  const without = parseSnapshotsFromBody(
+    ["```csv", "2026-07-17,1,100", "```"].join("\n")
+  ).snapshots;
+  assert.equal(withHeader.length, 1);
+  assert.deepEqual(withHeader, without);
+});
+
+test("parseSnapshotsFromBody: ragged rows are skipped, whole rows survive", () => {
+  const { snapshots } = parseSnapshotsFromBody(
+    bodyWith(["2026-07-17,1", "2026-07-18", "", "2026-07-19,3,100,extra", "2026-07-20,4,100"])
+  );
+  assert.deepEqual(
+    snapshots.map((s) => s.atRaw),
+    ["2026-07-19", "2026-07-20"] // a 4th cell is surplus, not a defect
+  );
+});
+
+test("parseSnapshotsFromBody: a headerless CRLF fence parses (SUB-277)", () => {
+  const body = "# dash\r\n\r\n```csv\r\n2026-07-17,1,100\r\n2026-07-18,2.5,100\r\n```\r\n";
+  const { snapshots, fence } = parseSnapshotsFromBody(body);
+  assert.equal(snapshots.length, 2);
+  assert.ok(fence && body.slice(fence.from, fence.to).endsWith("\r\n```"));
+});
+
+test("parseSnapshotsFromBody: padded cells parse and atRaw comes back trimmed", () => {
+  const { snapshots } = parseSnapshotsFromBody(bodyWith([" 2026-07-17 , 1 , 100 "]));
+  assert.equal(snapshots.length, 1);
+  assert.equal(snapshots[0].atRaw, "2026-07-17");
+  assert.equal(snapshots[0].yieldUsd, 1);
+  assert.equal(fmtAtHuman(snapshots[0].atRaw), "Jul 17, 2026");
+});
+
 test("fmtAtHuman: datetime drops the year, keeps the clock (SUB-250)", () => {
   assert.equal(fmtAtHuman("2026-07-17 14:18"), "Jul 17, 14:18");
   assert.equal(fmtAtHuman("2026-07-17T14:18"), "Jul 17, 14:18");

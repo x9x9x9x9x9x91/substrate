@@ -30,6 +30,42 @@ const noScrollAnchorPlugin = (): Plugin => ({
     ),
 });
 
+/* The mock fixture is a dev-only demo vault (~1500 lines of seed notes) that
+   the packaged app can never reach: there, `isTauri` is true, so mockDispatch
+   and the `window.__mock*` seam never run. It shipped anyway, because
+   tauri.ts imports it plainly — and it has to keep importing it plainly, since
+   the dev server, `node --test` and the e2e harness all read the fixtures
+   synchronously. So the swap happens at the module level instead of the call
+   level: a BUILD resolves ./mockseeds.ts to mockseeds.stub.ts, which exports
+   the same names as empty collections. Dev and test resolve the real file.
+
+   The swap is asserted, not hoped for: if a build ever finishes without one,
+   the plugin fails the build rather than let the fixture creep back in. */
+const stripMockSeedsPlugin = (): Plugin => {
+  const real = fileURLToPath(new URL("./src/lib/mockseeds.ts", import.meta.url));
+  const stub = fileURLToPath(new URL("./src/lib/mockseeds.stub.ts", import.meta.url));
+  let swapped = false;
+  return {
+    name: "substrate-strip-mock-seeds",
+    apply: "build",
+    enforce: "pre",
+    async resolveId(source, importer, options) {
+      if (importer === undefined || !source.includes("mockseeds")) return null;
+      const resolved = await this.resolve(source, importer, options);
+      if (!resolved || resolved.id !== real) return null;
+      swapped = true;
+      return stub;
+    },
+    buildEnd(err) {
+      if (err || swapped) return;
+      throw new Error(
+        "substrate-strip-mock-seeds: nothing imported src/lib/mockseeds.ts — " +
+          "if the fixture import moved, point this plugin at it; if it is gone, drop the plugin."
+      );
+    },
+  };
+};
+
 const input = (page: string) => fileURLToPath(new URL(page, import.meta.url));
 
 /* Worktrees carry no node_modules of their own — imports (e.g. the Inter
@@ -56,7 +92,7 @@ const port = Number(process.env.SUBSTRATE_DEV_PORT || 1420);
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react(), ...(noScrollAnchor ? [noScrollAnchorPlugin()] : [])],
+  plugins: [react(), stripMockSeedsPlugin(), ...(noScrollAnchor ? [noScrollAnchorPlugin()] : [])],
 
   // Multi-page: main window + the floating quick-capture and tray-agenda windows.
   build: {

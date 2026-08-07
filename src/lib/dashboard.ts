@@ -1,6 +1,6 @@
 import { numberLocale } from "./numberLocale.ts";
 import { daysInMonth, formatDateHuman, isIsoDate } from "./dates.ts";
-import { findFence } from "./sheet.ts";
+import { readNoteTable } from "./notetable.ts";
 import { byFoldedKey } from "./schemalookup.ts";
 
 export interface Snapshot {
@@ -57,26 +57,30 @@ export interface YieldStats {
 
 const MIN_PER_YEAR = 365 * 24 * 60;
 
+/** The snapshot series is read through the shared note-table reader, but with
+    its own row rule: this table is POSITIONAL, not header-named. A snapshot
+    fence may carry an `at,yield_usd,principal_usd` header or no header at all
+    (hand-started logs do), so nothing here may treat the first parsed row as a
+    header — `allRows()` hands back every row, header included, and the guards
+    below drop whatever doesn't read as a snapshot. The header row survives that
+    filter only if "at" parses as a date, which it never does. */
 export function parseSnapshotsFromBody(body: string): { snapshots: Snapshot[]; fence: { from: number; to: number } | null } {
-  /** The shared quote-aware finder: the old lazy regex missed CRLF
-      fences entirely and ended the fence early on a ``` inside a quoted cell,
-      which made fence.to point into row data and corrupted appends. */
-  const csv = findFence(body, "csv");
-  if (!csv) return { snapshots: [], fence: null };
+  const table = readNoteTable(body);
+  if (!table) return { snapshots: [], fence: null };
   const snapshots: Snapshot[] = [];
-  for (const line of csv.inner.split("\n")) {
-    const t = line.trim();
-    if (!t || t.startsWith("at,")) continue;
-    const parts = t.split(",");
-    if (parts.length < 3) continue;
-    const at = parseAt(parts[0]);
-    const yieldUsd = parseFloat(parts[1]);
-    const principalUsd = parseFloat(parts[2]);
+  for (const row of table.allRows()) {
+    if (row.length < 3) continue;
+    const atRaw = table.text(row, 0);
+    const at = parseAt(atRaw);
+    // parseFloat, not Number: a trailing unit or stray text after the number
+    // has always been tolerated here and rows in the wild rely on it
+    const yieldUsd = parseFloat(table.raw(row, 1));
+    const principalUsd = parseFloat(table.raw(row, 2));
     if (isNaN(at.getTime()) || isNaN(yieldUsd) || isNaN(principalUsd)) continue;
-    snapshots.push({ at, atRaw: parts[0], yieldUsd, principalUsd });
+    snapshots.push({ at, atRaw, yieldUsd, principalUsd });
   }
   snapshots.sort((a, b) => a.at.getTime() - b.at.getTime());
-  return { snapshots, fence: { from: csv.from, to: csv.to } };
+  return { snapshots, fence: { from: table.fence.from, to: table.fence.to } };
 }
 
 export function fmtAt(d: Date): string {

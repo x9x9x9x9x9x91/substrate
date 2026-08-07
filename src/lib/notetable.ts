@@ -10,6 +10,12 @@
 //     position in `rows`, which is the delete/write handle panes persist
 //   * cells are returned as written; `text` trims for display, `raw` doesn't
 //     (number parsing tolerances differ per pane and stay the pane's own)
+//
+// Not every table here is header-named: the yield-snapshot log is positional
+// and its header row is optional, so it reads `allRows()` and filters rows by
+// what parses instead of by column name. That is why the header row is kept
+// available rather than swallowed — a reader that must not assume one still
+// gets every row.
 // Pure TS, erasable syntax only — runs in the app and under `node --test`.
 
 import { findFence, parseCsv, type Fence } from "./sheet.ts";

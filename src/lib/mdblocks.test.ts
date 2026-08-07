@@ -159,8 +159,9 @@ test("everything else scans identically under both readings", () => {
 });
 
 test("CRLF is the caller's business — the scanner splits on \\n only", () => {
-  // print normalizes before calling; the hub's bodies arrive normalized. A
-  // stray \r therefore rides along in the text rather than being swallowed.
+  // print normalizes its input first (print.ts strips \r\n); the hub hands the
+  // note body over verbatim. A stray \r therefore rides along in the text
+  // rather than being swallowed — whoever cares about it owns the strip.
   const [block] = scanMdBlocks("plain\r\n", PRINT);
   assert.deepEqual(block.kind === "para" ? block.lines : null, ["plain\r"]);
 });
