@@ -174,6 +174,7 @@ if [[ "$LOCAL_MAIN" != "$GATED" ]]; then
   exit 1
 fi
 
+
 # Ask the REMOTE, not the local tracking ref. `refs/remotes/<remote>/main` is
 # a cache: if it is stale-equal — the remote was rewound, or a previous run
 # wrote it and its push was later undone — trusting it reports "nothing to
