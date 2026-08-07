@@ -48,7 +48,10 @@ the first browser test, install its browser with `npx playwright install chromiu
 
 New behavior wants a test at the level it lives at: a pure function gets a node
 test, a vault/engine change gets a Rust test, a user-visible flow gets an e2e
-spec. A change to the on-disk vault format also updates
+spec. What one component renders from given data sits between the last two —
+`src/lib/componentHarness.ts` renders a real `.tsx` surface inside `npm test`,
+against the same mock backend; see
+[docs/component-tests.md](docs/component-tests.md). A change to the on-disk vault format also updates
 [docs/vault-format.md](docs/vault-format.md) in the same change — that file is
 the format's contract, not a description of it.
 
