@@ -8,7 +8,7 @@
 // only logged days get a dot.
 // Pure TS, erasable syntax only — runs in the app and under `node --test`.
 
-import { findFence, parseCsv } from "./sheet.ts";
+import { readNoteTable } from "./notetable.ts";
 import { normalizeNumberInput, parseStrictNumber } from "./aggregate.ts";
 
 export interface WeightRow {
@@ -55,31 +55,23 @@ export const MIN_SPAN_KG = 1;
     don't ride the plot's edges. */
 const PAD_FRAC = 0.2;
 
-function headerIdx(headers: string[], name: string): number {
-  return headers.findIndex((h) => h.trim().toLowerCase() === name);
-}
-
 /** All well-formed rows of the weight sheet's csv fence, log order. Rows with
     a malformed date or a non-numeric / out-of-range kg are skipped, not
     errors — the sheet stays hand-editable, same tolerance as the food log. */
 export function parseWeightRows(body: string): WeightRow[] {
-  const fence = findFence(body, "csv");
-  if (!fence) return [];
-  const rows = parseCsv(fence.inner);
-  if (rows.length === 0) return [];
-  const headers = rows[0];
-  const di = headerIdx(headers, "date");
-  const ki = headerIdx(headers, "kg");
+  const table = readNoteTable(body);
+  if (!table) return [];
+  const di = table.col("date");
+  const ki = table.col("kg");
   if (di < 0 || ki < 0) return [];
   const out: WeightRow[] = [];
-  for (let r = 1; r < rows.length; r++) {
-    const cells = rows[r];
-    const date = (cells[di] ?? "").trim();
+  for (const cells of table.rows) {
+    const date = table.text(cells, di);
     // strict parse like the food log: "7e1" is skipped text, never
     // a 70 kg weigh-in
     // Hand edits type the app's own de-DE display dialect ("72,5"), which the
     // strict parser alone reads as text — fold it first.
-    const kg = parseStrictNumber(normalizeNumberInput(cells[ki] ?? ""));
+    const kg = parseStrictNumber(normalizeNumberInput(table.raw(cells, ki)));
     if (!DAY_RE.test(date) || kg === null || !kgInRange(kg)) continue;
     out.push({ date, kg });
   }

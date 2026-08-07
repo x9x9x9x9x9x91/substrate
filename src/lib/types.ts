@@ -851,6 +851,15 @@ export function foldedPropStr(props: Record<string, unknown>, key: string): stri
   return propStr(props, foldedPropKey(props, key));
 }
 
+/** A note's database type as the engine matches it: folded key, folded and
+    trimmed VALUE. `type: Sheet` and `type: sheet ` are one type — the word is
+    typed by hand into frontmatter, so its casing carries no meaning, and a
+    surface comparing the raw string to a literal turns a capital letter into
+    "not a sheet". Undefined when the note declares no type. */
+export function foldedTypeName(props: Record<string, unknown>): string | undefined {
+  return foldedPropStr(props, "type")?.trim().toLowerCase() || undefined;
+}
+
 /** The home folder on one type's schema entry, validated — like
     typeIcon the reserved `home` key rides inside the flat prop map typed as
     `Record<string, PropSchema>`. Anything malformed reads as no home. */

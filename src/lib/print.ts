@@ -6,6 +6,7 @@
     embeds. Fidelity target is a clean printed page, not a spec parser. */
 
 import { isImageName } from "./artwork.ts";
+import { scanMdBlocks } from "./mdblocks.ts";
 import {
   embedSize,
   embedSizeStyle,
@@ -99,113 +100,42 @@ function inline(raw: string, assetSrc: AssetSrc): string {
     .join("");
 }
 
-function tableRow(line: string): string[] {
-  return line
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((c) => c.trim());
-}
-
-const isTableDivider = (l: string) => /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(l) && l.includes("-");
-
 export function renderPrintBody(md: string, assetSrc: AssetSrc): string {
-  const lines = md.replace(/\r\n/g, "\n").split("\n");
+  // a printed note may have come from anywhere (a paste, a synced file), so
+  // CRLF is normalized here rather than in the scanner — the hub's bodies
+  // arrive normalized already and must keep scanning "\n" only
+  const blocks = scanMdBlocks(md.replace(/\r\n/g, "\n"), { splitListsOnMarkerFlip: true });
   const out: string[] = [];
-  let i = 0;
-  const para: string[] = [];
-  const flushPara = () => {
-    if (para.length) {
-      out.push(`<p>${para.map((l) => inline(l, assetSrc)).join("<br>")}</p>`);
-      para.length = 0;
-    }
-  };
-  while (i < lines.length) {
-    const line = lines[i];
-    // opener accepts a full info string (```rust ignore, ```js title=x) —
-    // only the closing ``` is bare, so a spaced info string must not demote
-    // the opener to prose and promote its closer to an opener
-    const fence = line.match(/^```(\S*)(?:\s[^`]*)?$/);
-    if (fence) {
-      flushPara();
-      const code: string[] = [];
-      i++;
-      while (i < lines.length && !/^```\s*$/.test(lines[i])) code.push(lines[i++]);
-      i++; // closing fence (or EOF)
-      out.push(`<pre><code>${escapeHtml(code.join("\n"))}</code></pre>`);
-      continue;
-    }
-    const heading = line.match(/^(#{1,6})\s+(.*)$/);
-    if (heading) {
-      flushPara();
-      const h = heading[1].length;
-      out.push(`<h${h}>${inline(heading[2], assetSrc)}</h${h}>`);
-      i++;
-      continue;
-    }
-    if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) {
-      flushPara();
+  for (const block of blocks) {
+    if (block.kind === "fence") {
+      // print has no live widgets: every fence, machine or not, prints as the
+      // code box the note's author typed
+      out.push(`<pre><code>${escapeHtml(block.inner)}</code></pre>`);
+    } else if (block.kind === "heading") {
+      out.push(`<h${block.level}>${inline(block.text, assetSrc)}</h${block.level}>`);
+    } else if (block.kind === "hr") {
       out.push("<hr>");
-      i++;
-      continue;
-    }
-    if (/^\s*>/.test(line)) {
-      flushPara();
-      const quote: string[] = [];
-      while (i < lines.length && /^\s*>/.test(lines[i]))
-        quote.push(lines[i++].replace(/^\s*>\s?/, ""));
-      out.push(`<blockquote>${renderPrintBody(quote.join("\n"), assetSrc)}</blockquote>`);
-      continue;
-    }
-    if (line.includes("|") && i + 1 < lines.length && isTableDivider(lines[i + 1])) {
-      flushPara();
-      const head = tableRow(line);
-      i += 2;
-      const body: string[][] = [];
-      while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "")
-        body.push(tableRow(lines[i++]));
-      const th = head.map((c) => `<th>${inline(c, assetSrc)}</th>`).join("");
-      const trs = body
+    } else if (block.kind === "quote") {
+      out.push(`<blockquote>${renderPrintBody(block.inner, assetSrc)}</blockquote>`);
+    } else if (block.kind === "table") {
+      const th = block.head.map((c) => `<th>${inline(c, assetSrc)}</th>`).join("");
+      const trs = block.rows
         .map((r) => `<tr>${r.map((c) => `<td>${inline(c, assetSrc)}</td>`).join("")}</tr>`)
         .join("");
       out.push(`<table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`);
-      continue;
+    } else if (block.kind === "list") {
+      const items = block.items
+        .map((item) =>
+          item.done === null
+            ? `<li>${inline(item.text, assetSrc)}</li>`
+            : `<li class="print-task${item.done ? " done" : ""}"><span class="print-box">${item.done ? "✓" : ""}</span>${inline(item.text, assetSrc)}</li>`
+        )
+        .join("");
+      const tag = block.ordered ? "ol" : "ul";
+      out.push(`<${tag}>${items}</${tag}>`);
+    } else {
+      out.push(`<p>${block.lines.map((l) => inline(l, assetSrc)).join("<br>")}</p>`);
     }
-    const list = line.match(/^\s*(?:([-*+])|(\d+)[.)])\s+(.*)$/);
-    if (list) {
-      flushPara();
-      const ordered = list[2] !== undefined;
-      const items: string[] = [];
-      while (i < lines.length) {
-        const m = lines[i].match(/^\s*(?:([-*+])|\d+[.)])\s+(.*)$/);
-        if (!m) break;
-        // a marker-kind flip (bullets → numbers or back) starts a new list of
-        // the right tag; consuming it here would strip the numbering
-        if ((m[1] === undefined) !== ordered) break;
-        const task = m[2].match(/^\[([ xX])\]\s+(.*)$/);
-        if (task) {
-          const done = task[1] !== " ";
-          items.push(
-            `<li class="print-task${done ? " done" : ""}"><span class="print-box">${done ? "✓" : ""}</span>${inline(task[2], assetSrc)}</li>`
-          );
-        } else {
-          items.push(`<li>${inline(m[2], assetSrc)}</li>`);
-        }
-        i++;
-      }
-      const tag = ordered ? "ol" : "ul";
-      out.push(`<${tag}>${items.join("")}</${tag}>`);
-      continue;
-    }
-    if (line.trim() === "") {
-      flushPara();
-      i++;
-      continue;
-    }
-    para.push(line);
-    i++;
   }
-  flushPara();
   return out.join("\n");
 }

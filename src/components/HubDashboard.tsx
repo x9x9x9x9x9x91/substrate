@@ -21,6 +21,7 @@ import {
 } from "../lib/wikilinks";
 import { parseHub, type HubCallout } from "../lib/hub";
 import { isTailedBareFence } from "../lib/fences";
+import { scanMdBlocks } from "../lib/mdblocks";
 import { embedQueryFor, parseViewSpec } from "../lib/embeds";
 import { collectCardsFences, parseCardsBlock, type CardsBlock } from "../lib/metriccards";
 import { sharpCardIndices } from "../lib/dashboard";
@@ -221,37 +222,6 @@ function DashEmbed({ name, size = null }: { name: string; size?: EmbedSize | nul
 
 /* ---- linear markdown chunks (print.ts block set, as React) --------------- */
 
-// opener accepts a full info string; group 1 stays the first word, the same
-// "first word decides" read as the editor's isViewFence. Group 2 is
-// the tail, and it decides for the bare-form languages: their parsers only
-// accept "```<lang>\n", so a tailed opener must fall through to a code box
-// here too — otherwise the hub draws a live widget whose config
-// stripMachineFences leaves in the search index (the machine-fence
-// leak class). The tail keeps its leading whitespace, so a
-// bare opener with a stray trailing space counts as tailed — which is exactly
-// what MACHINE_FENCE_RE does with it. `isTailedBareFence` (lib/fences.ts) is
-// the single predicate every surface asks.
-const FENCE_OPEN_RE = /^```(\S*)(\s[^`]*)?$/;
-const FENCE_CLOSE_RE = /^```\s*$/;
-const HEADING_RE = /^(#{1,6})\s+(.*)$/;
-const HR_RE = /^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/;
-const QUOTE_RE = /^\s*>/;
-const QUOTE_STRIP_RE = /^\s*>\s?/;
-const LIST_RE = /^\s*(?:([-*+])|(\d+)[.)])\s+(.*)$/;
-const LIST_ITEM_RE = /^\s*(?:[-*+]|\d+[.)])\s+(.*)$/;
-const TASK_BODY_RE = /^\[([ xX])\]\s+(.*)$/;
-
-function tableRow(line: string): string[] {
-  return line
-    .trim()
-    .replace(/^\|/, "")
-    .replace(/\|$/, "")
-    .split("|")
-    .map((c) => c.trim());
-}
-
-const isTableDivider = (l: string) => /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(l) && l.includes("-");
-
 /** A ```view fence in a hub body: the same live database table the
     editor's inline widget and a workbook view page show, read-only, sitting in
     the section slot it was written into. A fence that resolves to an error
@@ -406,17 +376,18 @@ function nestedMarkdownCtx(ctx: Ctx): Ctx {
 }
 
 function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
-  const lines = md.split("\n");
+  // the hub keeps consuming a run of list lines across a marker-kind flip:
+  // its items carry no marker of their own, so splitting the run would only
+  // change how many <ul>s the section holds
+  const blocks = scanMdBlocks(md, { splitListsOnMarkerFlip: false });
   const out: ReactNode[] = [];
   let k = 0;
-  let i = 0;
   let cardsSeen = 0;
-  const para: string[] = [];
-  const flushPara = () => {
-    if (para.length) {
+  for (const block of blocks) {
+    if (block.kind === "para") {
       out.push(
         <p className="hub-p" key={k++}>
-          {para.map((l, j) => (
+          {block.lines.map((l, j) => (
             <Fragment key={j}>
               {j > 0 && <br />}
               <Inline text={l} ctx={ctx} />
@@ -424,26 +395,17 @@ function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
           ))}
         </p>
       );
-      para.length = 0;
+      continue;
     }
-  };
-  while (i < lines.length) {
-    const line = lines[i];
-    const fence = FENCE_OPEN_RE.exec(line);
-    if (fence) {
-      flushPara();
-      const code: string[] = [];
-      i++;
-      while (i < lines.length && !FENCE_CLOSE_RE.test(lines[i])) code.push(lines[i++]);
-      i++; // closing fence (or EOF)
-      const inner = code.join("\n");
-      const lang = fence[1].toLowerCase();
+    if (block.kind === "fence") {
+      const inner = block.inner;
+      const lang = block.lang.toLowerCase();
       // a tailed opener of a bare-form language (```calendar month, ```heatmap
       // year) is prose whatever its first word says: its parser reads the bare
       // form only, and search keeps such a block indexed — so mounting it live
       // here would publish its config through the index. Falls through to the code box, which is what
       // stripMachineFences already assumes.
-      const bareOnly = isTailedBareFence(lang, fence[2] ?? "");
+      const bareOnly = isTailedBareFence(lang, block.tail);
       // fences the hub renders live; anything else stays a code box
       if (bareOnly) {
         out.push(
@@ -494,42 +456,30 @@ function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
       }
       continue;
     }
-    const heading = HEADING_RE.exec(line);
-    if (heading) {
-      flushPara();
+    if (block.kind === "heading") {
+      // one heading voice on the hub: a section's own `##` must not out-shout
+      // the section title above it, so the level is read and dropped
       out.push(
         <div className="hub-heading" key={k++}>
-          <Inline text={heading[2]} ctx={ctx} />
+          <Inline text={block.text} ctx={ctx} />
         </div>
       );
-      i++;
       continue;
     }
-    if (HR_RE.test(line)) {
-      flushPara();
+    if (block.kind === "hr") {
       out.push(<hr className="hub-hr" key={k++} />);
-      i++;
       continue;
     }
-    if (QUOTE_RE.test(line)) {
-      flushPara();
-      const quote: string[] = [];
-      while (i < lines.length && QUOTE_RE.test(lines[i]))
-        quote.push(lines[i++].replace(QUOTE_STRIP_RE, ""));
+    if (block.kind === "quote") {
       out.push(
         <blockquote className="hub-quote" key={k++}>
-          {renderBlocks(quote.join("\n"), nestedMarkdownCtx(ctx))}
+          {renderBlocks(block.inner, nestedMarkdownCtx(ctx))}
         </blockquote>
       );
       continue;
     }
-    if (line.includes("|") && i + 1 < lines.length && isTableDivider(lines[i + 1])) {
-      flushPara();
-      const head = tableRow(line);
-      i += 2;
-      const rows: string[][] = [];
-      while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "")
-        rows.push(tableRow(lines[i++]));
+    if (block.kind === "table") {
+      const head = block.head;
       out.push(
         <table className="dash-table" key={k++}>
           <thead>
@@ -542,7 +492,7 @@ function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, j) => (
+            {block.rows.map((r, j) => (
               <tr key={j}>
                 {r.map((c, l) => {
                   // a plain cell that is a schema select value wears its
@@ -566,56 +516,33 @@ function renderBlocks(md: string, ctx: Ctx): ReactNode[] {
       );
       continue;
     }
-    if (LIST_RE.test(line)) {
-      flushPara();
-      const ordered = LIST_RE.exec(line)?.[2] !== undefined;
-      const items: ReactNode[] = [];
-      while (i < lines.length) {
-        const m = LIST_ITEM_RE.exec(lines[i]);
-        if (!m) break;
-        const task = TASK_BODY_RE.exec(m[1]);
-        if (task) {
-          // read-only in v1 — the source note is the editing surface
-          const done = task[1] !== " ";
-          items.push(
-            <li className={`hub-task${done ? " done" : ""}`} key={items.length}>
-              <input type="checkbox" checked={done} disabled readOnly />
-              <span className="hub-task-text">
-                <Inline text={task[2]} ctx={ctx} />
-              </span>
-            </li>
-          );
-        } else {
-          items.push(
-            <li key={items.length}>
-              <Inline text={m[1]} ctx={ctx} />
-            </li>
-          );
-        }
-        i++;
-      }
-      out.push(
-        ordered ? (
-          <ol className="hub-list" key={k++}>
-            {items}
-          </ol>
-        ) : (
-          <ul className="hub-list" key={k++}>
-            {items}
-          </ul>
-        )
-      );
-      continue;
-    }
-    if (line.trim() === "") {
-      flushPara();
-      i++;
-      continue;
-    }
-    para.push(line);
-    i++;
+    const items = block.items.map((item, j) =>
+      item.done === null ? (
+        <li key={j}>
+          <Inline text={item.text} ctx={ctx} />
+        </li>
+      ) : (
+        // read-only in v1 — the source note is the editing surface
+        <li className={`hub-task${item.done ? " done" : ""}`} key={j}>
+          <input type="checkbox" checked={item.done} disabled readOnly />
+          <span className="hub-task-text">
+            <Inline text={item.text} ctx={ctx} />
+          </span>
+        </li>
+      )
+    );
+    out.push(
+      block.ordered ? (
+        <ol className="hub-list" key={k++}>
+          {items}
+        </ol>
+      ) : (
+        <ul className="hub-list" key={k++}>
+          {items}
+        </ul>
+      )
+    );
   }
-  flushPara();
   return out;
 }
 

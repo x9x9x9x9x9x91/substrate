@@ -13,7 +13,7 @@
 // Pure TS, erasable syntax only — runs in the app and under `node --test`.
 
 import { numberLocale } from "./numberLocale.ts";
-import { findFence, parseCsv } from "./sheet.ts";
+import { readNoteTable } from "./notetable.ts";
 
 export interface WorkJob {
   /** top-level tree bucket: MASTERING, MIXING, OWN WORK, … */
@@ -44,12 +44,6 @@ export function isWorkView(v: string): v is WorkView {
   return v === "year" || v === "artist" || v === "category";
 }
 
-// header lookup is name-based and case-insensitive so column order in the
-// sheet stays free — the scanner may grow columns without breaking the pane
-function headerIdx(headers: string[], name: string): number {
-  return headers.findIndex((h) => h.trim().toLowerCase() === name);
-}
-
 const YEAR_RE = /^\d{4}$/;
 
 function num(raw: string): number {
@@ -60,39 +54,38 @@ function num(raw: string): number {
 /** Every well-formed row of the Work Index sheet, in the sheet's own order.
     A row is skipped when it has no job name or no 4-digit year — those are the
     two fields every view groups or labels by. Missing counts read as 0 rather
-    than dropping the job: a 0-byte job is still work that happened. */
+    than dropping the job: a 0-byte job is still work that happened.
+
+    Column lookup is name-based and case-insensitive so column order in the
+    sheet stays free — the scanner may grow columns without breaking the pane. */
 export function parseWorkJobs(body: string): WorkJob[] {
-  const fence = findFence(body, "csv");
-  if (!fence) return [];
-  const rows = parseCsv(fence.inner);
-  if (rows.length === 0) return [];
-  const headers = rows[0];
-  const ji = headerIdx(headers, "job");
-  const yi = headerIdx(headers, "year");
+  const table = readNoteTable(body);
+  if (!table) return [];
+  const ji = table.col("job");
+  const yi = table.col("year");
   if (ji < 0 || yi < 0) return [];
-  const ci = headerIdx(headers, "category");
-  const cli = headerIdx(headers, "client");
-  const li = headerIdx(headers, "last_active");
-  const fi = headerIdx(headers, "files");
-  const si = headerIdx(headers, "size_mb");
-  const fli = headerIdx(headers, "flags");
-  const cell = (cells: string[], i: number) => (i >= 0 ? (cells[i] ?? "").trim() : "");
+  const ci = table.col("category");
+  const cli = table.col("client");
+  const li = table.col("last_active");
+  const fi = table.col("files");
+  const si = table.col("size_mb");
+  const fli = table.col("flags");
   const out: WorkJob[] = [];
-  for (let r = 1; r < rows.length; r++) {
-    const cells = rows[r];
-    const job = cell(cells, ji);
-    const year = cell(cells, yi);
+  for (let r = 0; r < table.rows.length; r++) {
+    const cells = table.rows[r];
+    const job = table.text(cells, ji);
+    const year = table.text(cells, yi);
     if (job === "" || !YEAR_RE.test(year)) continue;
     out.push({
-      category: cell(cells, ci),
-      client: cell(cells, cli),
+      category: table.text(cells, ci),
+      client: table.text(cells, cli),
       job,
       year,
-      lastActive: cell(cells, li),
-      files: num(cell(cells, fi)),
-      sizeMb: num(cell(cells, si)),
-      flags: cell(cells, fli),
-      idx: r - 1,
+      lastActive: table.text(cells, li),
+      files: num(table.text(cells, fi)),
+      sizeMb: num(table.text(cells, si)),
+      flags: table.text(cells, fli),
+      idx: r,
     });
   }
   return out;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { NoteMeta } from "../lib/types";
-import { foldedPropStr } from "../lib/types";
+import { foldedTypeName } from "../lib/types";
 import { vaultRead, vaultResolve } from "../lib/ipc";
 import {
   columnNotifyOf,
@@ -214,7 +214,7 @@ export default function SheetGrid({
             map.set(name, ferr(`“${name}” is sealed`));
             continue;
           }
-          if (foldedPropStr(resolved.props, "type") !== "sheet") {
+          if (foldedTypeName(resolved.props) !== "sheet") {
             map.set(name, ferr(`“${name}” is not a sheet`));
             continue;
           }

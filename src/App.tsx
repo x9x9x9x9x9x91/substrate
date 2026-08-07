@@ -1750,12 +1750,21 @@ export default function App() {
         activeMount.path && !activeMount.missing && !row.missing
           ? `${activeMount.path}/${row.rel}`
           : null;
+      // the menu's open lanes are the same arrival as clicking the row, so
+      // they move the board's mark the same way — otherwise opening from the
+      // menu leaves the mark on whatever was opened before it, and the board
+      // answers "which one am I in" with a file the reader left long ago.
+      const mark = () => setMountOpen({ id: activeMount.id, path });
       const items: MenuItem[] = [
         {
           label: "Open file",
           icon: <MountIcon />,
           disabled: !abs,
-          onSelect: () => abs && fileOpen(abs).catch((e) => showToast(String(e))),
+          onSelect: () => {
+            if (!abs) return;
+            mark();
+            fileOpen(abs).catch((e) => showToast(String(e)));
+          },
         },
         {
           label: "Reveal in Finder",
@@ -1769,7 +1778,10 @@ export default function App() {
           label: "Open note",
           icon: <NoteIcon />,
           separatorAbove: true,
-          onSelect: () => openNote(row.note!),
+          onSelect: () => {
+            mark();
+            openNote(row.note!);
+          },
         });
       }
       setMenu({ x, y, items });

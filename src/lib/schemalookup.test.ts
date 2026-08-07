@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { SchemaConfig } from "./types.ts";
-import { foldedPropKey, foldedPropStr } from "./types.ts";
+import { foldedPropKey, foldedPropStr, foldedTypeName } from "./types.ts";
 import {
   byFoldedKey,
   foldedObjectKey,
@@ -63,4 +63,17 @@ test("built-in and reserved identities fold without broad near-matches", () => {
       false,
       key
     );
+});
+
+test("foldedTypeName folds the type VALUE, not just its key (SUB-1187)", () => {
+  // surfaces that dispatch on the type word compare it to a lowercase literal;
+  // `Type: Sheet` and `type: sheet ` name the same database
+  assert.equal(foldedTypeName({ Type: "Sheet" }), "sheet");
+  assert.equal(foldedTypeName({ type: " sheet " }), "sheet");
+  assert.equal(foldedTypeName({ type: "Dashboard" }), "dashboard");
+  // no type and a blank one both read as "no type declared"
+  assert.equal(foldedTypeName({}), undefined);
+  assert.equal(foldedTypeName({ type: "   " }), undefined);
+  // a scalar reads as the word it prints, exactly as every other prop does
+  assert.equal(foldedTypeName({ type: 3 }), "3");
 });

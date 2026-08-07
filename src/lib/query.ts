@@ -2,6 +2,7 @@ import { durationFrom, isIsoDate, todayIso } from "./dates.ts";
 import { splitDateRange } from "./calendar.ts";
 import { parseStrictNumber } from "./aggregate.ts";
 import { foldedPropKey } from "./types.ts";
+import { byFoldedKey } from "./schemalookup.ts";
 import type { NoteMeta, PropSchema } from "./types.ts";
 
 /** The schema a query is read against, when the caller has one — a database
@@ -584,7 +585,10 @@ function valuesInUse(
     if (key === "folder") add(n.folder);
     else for (const v of propValues(n, key)) add(v);
   }
-  for (const o of typeSchema[key]?.options ?? []) add(o.value);
+  // folded: `key` arrives lowercased from the parse, while schema keys keep
+  // the spelling they were authored with — a prop declared `Category` would
+  // otherwise contribute none of its select options to the hint
+  for (const o of byFoldedKey(typeSchema, key)?.options ?? []) add(o.value);
   return existing;
 }
 
@@ -658,8 +662,11 @@ export function filterDeadEndHint(
   // already searches props or is covered above, so it stays out.
   if (parsed.filters.length > 0 || parsed.trailing || parsed.phrases.length > 0) return null;
   const joined = words.join(" ");
-  // schema order, first hit only — one signpost, never a menu
-  for (const col of columns) {
+  // schema order, first hit only — one signpost, never a menu. `folder` comes
+  // last and is not a column: it filters like one (heuristic (a) already
+  // knows it, and valuesInUse reads the note's folder for it), so typing a
+  // folder's name bare dead-ended with no way forward while `folder:…` worked.
+  for (const col of [...columns, "folder"]) {
     const hit = valuesInUse(notes, col.toLowerCase(), typeSchema).get(joined);
     if (!hit) continue;
     const v = /[\s,]/.test(hit) ? `"${hit}"` : hit;

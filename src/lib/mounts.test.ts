@@ -14,6 +14,7 @@ import {
   scanSummary,
   sizeLabel,
 } from "./mounts.ts";
+import { foldedPropKey } from "./types.ts";
 import type { MountInfo, MountRow, MountScanStats } from "./types.ts";
 
 const mount = (over: Partial<MountInfo> = {}): MountInfo => ({
@@ -220,4 +221,15 @@ test("searchHitMeta: an untitled hit falls back to the file's own name", () => {
 test("searchHitMeta: a name without an extension claims none", () => {
   const hit = searchHitMeta(`${MOUNT_SCHEME}m1/notes/README`, "README", [mount()]);
   assert.equal(hit?.props.extension, undefined);
+});
+
+test("a hand-cased sidecar prop keeps its own spelling on the row (SUB-1187)", () => {
+  // the board reads columns case-insensitively but writes back under the
+  // spelling it found on disk — so the found spelling has to survive the
+  // projection, or an annotation lands as a second differently-cased copy
+  const m = rowMeta(mount(), row({ props: { Role: "lead", mount: "m1" } }));
+  assert.equal(m.props.Role, "lead");
+  assert.equal(foldedPropKey(m.props, "role"), "Role");
+  // an intrinsic the sidecar doesn't claim still answers under its own name
+  assert.equal(foldedPropKey(m.props, "Extension"), "extension");
 });

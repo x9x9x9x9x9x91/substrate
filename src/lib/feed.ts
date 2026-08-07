@@ -11,7 +11,8 @@
 // intra-day order IS the curator's ranking, so it must never be re-sorted.
 // Pure TS, erasable syntax only — runs in the app and under `node --test`.
 
-import { findFence, parseCsv, setSheetCell } from "./sheet.ts";
+import { setSheetCell } from "./sheet.ts";
+import { readNoteTable } from "./notetable.ts";
 import { fmtDur } from "./syncstory.ts";
 
 /** "" = no verdict yet; the app cycles through these three. */
@@ -35,12 +36,6 @@ export interface FeedItem {
   idx: number;
 }
 
-// header lookup is name-based and case-insensitive so column order in the sheet
-// stays free; everything but date+title is optional
-function headerIdx(headers: string[], name: string): number {
-  return headers.findIndex((h) => h.trim().toLowerCase() === name);
-}
-
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function asFeedback(raw: string): Feedback {
@@ -56,39 +51,38 @@ export function isOpenableUrl(url: string): boolean {
 
 /** Every well-formed row of the items sheet, in stream order: date DESC with
     the sheet's row order preserved inside each day. Rows with a malformed date
-    or an empty title are skipped, not errors — the sheet stays hand-editable. */
+    or an empty title are skipped, not errors — the sheet stays hand-editable.
+
+    Column lookup is name-based and case-insensitive so column order in the
+    sheet stays free; everything but date+title is optional. */
 export function parseFeedItems(body: string): FeedItem[] {
-  const fence = findFence(body, "csv");
-  if (!fence) return [];
-  const rows = parseCsv(fence.inner);
-  if (rows.length === 0) return [];
-  const headers = rows[0];
-  const di = headerIdx(headers, "date");
-  const ti = headerIdx(headers, "title");
+  const table = readNoteTable(body);
+  if (!table) return [];
+  const di = table.col("date");
+  const ti = table.col("title");
   if (di < 0 || ti < 0) return [];
-  const topi = headerIdx(headers, "topic");
-  const si = headerIdx(headers, "source");
-  const ui = headerIdx(headers, "url");
-  const bi = headerIdx(headers, "blurb");
-  const wi = headerIdx(headers, "why");
-  const fi = headerIdx(headers, "fb");
-  const cell = (cells: string[], i: number) => (i >= 0 ? (cells[i] ?? "").trim() : "");
+  const topi = table.col("topic");
+  const si = table.col("source");
+  const ui = table.col("url");
+  const bi = table.col("blurb");
+  const wi = table.col("why");
+  const fi = table.col("fb");
   const out: FeedItem[] = [];
-  for (let r = 1; r < rows.length; r++) {
-    const cells = rows[r];
-    const date = cell(cells, di);
-    const title = cell(cells, ti);
+  for (let r = 0; r < table.rows.length; r++) {
+    const cells = table.rows[r];
+    const date = table.text(cells, di);
+    const title = table.text(cells, ti);
     if (!DAY_RE.test(date) || title === "") continue;
     out.push({
       date,
-      topic: cell(cells, topi),
+      topic: table.text(cells, topi),
       title,
-      source: cell(cells, si),
-      url: cell(cells, ui),
-      blurb: cell(cells, bi),
-      why: cell(cells, wi),
-      fb: asFeedback(cell(cells, fi)),
-      idx: r - 1,
+      source: table.text(cells, si),
+      url: table.text(cells, ui),
+      blurb: table.text(cells, bi),
+      why: table.text(cells, wi),
+      fb: asFeedback(table.text(cells, fi)),
+      idx: r,
     });
   }
   // stable sort: equal dates keep the curator's ranking
@@ -147,13 +141,13 @@ export function setFeedback(
   idx: number,
   clicked: "up" | "down",
 ): { next: string; expected: string } {
-  const fence = findFence(body, "csv");
-  if (!fence) return { next: body, expected: body };
-  const rows = parseCsv(fence.inner);
-  if (rows.length === 0) return { next: body, expected: body };
-  const fi = headerIdx(rows[0], "fb");
+  const table = readNoteTable(body);
+  if (!table) return { next: body, expected: body };
+  const fi = table.col("fb");
   if (fi < 0) return { next: body, expected: body };
-  const row = rows[idx + 1];
+  // read against the sheet rows, not the data rows: setSheetCell takes the
+  // data-row index, so the +1 offset stays on this side of the call
+  const row = table.allRows()[idx + 1];
   if (row === undefined) return { next: body, expected: body };
   const next = cycleFeedback(asFeedback(row[fi] ?? ""), clicked);
   return { next: setSheetCell(body, idx, fi, next), expected: body };

@@ -930,3 +930,26 @@ test("remapSavedQueryProperty follows JS tokenization and Unicode lowercasing", 
   assert.equal(remapSavedQueryProperty("ǆς:yes drift", "ǅΣ", "titlecase", false), "titlecase:yes drift");
   assert.equal(remapSavedQueryProperty("aςʰ:yes drift", "AΣʰ", "ignorable", false), "ignorable:yes drift");
 });
+
+test("filterDeadEndHint: a schema prop's options count under any casing (SUB-1187)", () => {
+  // the parse lowercases filter keys; the schema keeps the spelling it was
+  // authored with, so `Category` used to contribute none of its options
+  const schema = { Category: { options: [{ value: "field recorder" }] } };
+  assert.deepEqual(filterDeadEndHint(INV_NOTES, INV_COLS, schema, "category:field recorder"), {
+    text: 'did you mean category:"field recorder"?',
+    fixedQuery: 'category:"field recorder"',
+  });
+});
+
+test("filterDeadEndHint: a folder's name typed bare suggests folder: (SUB-1187)", () => {
+  const filed = [{ ...note("Xone:96", { category: "mixer" }), folder: "Gear/Mixers" }];
+  assert.deepEqual(filterDeadEndHint(filed, INV_COLS, {}, "Gear/Mixers"), {
+    text: "did you mean folder:Gear/Mixers?",
+    fixedQuery: "folder:Gear/Mixers",
+  });
+  // a real column still wins: folder is tried last, not first
+  assert.deepEqual(filterDeadEndHint(filed, INV_COLS, {}, "mixer"), {
+    text: "did you mean category:mixer?",
+    fixedQuery: "category:mixer",
+  });
+});

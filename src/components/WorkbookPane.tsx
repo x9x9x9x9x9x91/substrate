@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import type { NoteMeta, SavedView, SchemaConfig } from "../lib/types";
-import { foldedPropStr } from "../lib/types";
+import { foldedPropStr, foldedTypeName } from "../lib/types";
 import { vaultRead, vaultResolve, vaultWriteBody } from "../lib/ipc";
 import { parsePages, type PageEntry } from "../lib/pages";
 import { embedQueryFor, type EmbedResult } from "../lib/embeds";
@@ -213,7 +213,7 @@ function NotePage(props: {
   if (target === null) return <PageError label={entry.label} error={`no note named “${entry.note}”`} />;
   if (target.path === props.workbookPath)
     return <PageError label={entry.label} error="a page can’t point at its own workbook" />;
-  const type = foldedPropStr(target.props, "type");
+  const type = foldedTypeName(target.props);
   if (type === "sheet")
     return (
       <SheetPage

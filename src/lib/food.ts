@@ -10,7 +10,8 @@
 // eating", not a win.
 // Pure TS, erasable syntax only — runs in the app and under `node --test`.
 
-import { findFence, parseCsv, replaceCsvRows } from "./sheet.ts";
+import { replaceCsvRows } from "./sheet.ts";
+import { headerIndex, readNoteTable } from "./notetable.ts";
 import { normalizeNumberInput, parseStrictNumber } from "./aggregate.ts";
 import { shiftDate } from "./dates.ts";
 
@@ -84,12 +85,6 @@ export function bandState(total: number, floor: number, ceiling: number): DaySta
   return "under";
 }
 
-// header lookup is name-based and case-insensitive so column order in the
-// sheet stays free; `protein_g` is optional (early rows won't have it)
-function headerIdx(headers: string[], name: string): number {
-  return headers.findIndex((h) => h.trim().toLowerCase() === name);
-}
-
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Upper sanity bound on a single entry's kcal. Generous for any
@@ -106,30 +101,28 @@ export function kcalInRange(n: number): boolean {
 
 /** All well-formed rows of the log sheet's csv fence, log order. Rows with a
     malformed date or non-numeric kcal are skipped, not errors — the sheet
-    stays hand-editable. */
+    stays hand-editable. Columns match by name in any order, and `protein_g`
+    is optional (early rows won't have it). */
 export function parseFoodRows(body: string): FoodRow[] {
-  const fence = findFence(body, "csv");
-  if (!fence) return [];
-  const rows = parseCsv(fence.inner);
-  if (rows.length === 0) return [];
-  const headers = rows[0];
-  const di = headerIdx(headers, "date");
-  const fi = headerIdx(headers, "food");
-  const ki = headerIdx(headers, "kcal");
-  const pi = headerIdx(headers, "protein_g");
+  const table = readNoteTable(body);
+  if (!table) return [];
+  const di = table.col("date");
+  const fi = table.col("food");
+  const ki = table.col("kcal");
+  const pi = table.col("protein_g");
   if (di < 0 || ki < 0) return [];
   const out: FoodRow[] = [];
-  for (let r = 1; r < rows.length; r++) {
-    const cells = rows[r];
-    const date = (cells[di] ?? "").trim();
+  for (let r = 0; r < table.rows.length; r++) {
+    const cells = table.rows[r];
+    const date = table.text(cells, di);
     // strict parse like sheet cells: "1e3"/"0x10"/"Infinity" are
     // skipped text, never 1000 kcal
     // Hand edits type the app's own de-DE display dialect ("1.234"), which
     // the strict parser alone reads as text — fold it first.
-    const kcal = parseStrictNumber(normalizeNumberInput(cells[ki] ?? ""));
+    const kcal = parseStrictNumber(normalizeNumberInput(table.raw(cells, ki)));
     if (!DAY_RE.test(date) || kcal === null) continue;
-    const protein = pi >= 0 ? parseStrictNumber(normalizeNumberInput(cells[pi] ?? "")) : null;
-    out.push({ date, food: (fi >= 0 ? cells[fi] ?? "" : "").trim(), kcal, protein, idx: r - 1 });
+    const protein = pi >= 0 ? parseStrictNumber(normalizeNumberInput(table.raw(cells, pi))) : null;
+    out.push({ date, food: table.text(cells, fi), kcal, protein, idx: r });
   }
   return out;
 }
@@ -149,15 +142,15 @@ const CSV_HEADER = ["date", "food", "kcal", "protein_g"];
     the EXISTING header, and a missing protein_g column is added (with its
     value) rather than silently dropped. */
 export function appendFoodEntry(body: string, e: FoodEntry): string {
-  const fence = findFence(body, "csv");
-  const parsed = fence ? parseCsv(fence.inner) : [];
+  const table = readNoteTable(body);
+  const parsed = table ? table.allRows() : [];
   // blank lines parse as [""] rows; drop them so a whitespace-only fence
   // reads as empty and a hand-added leading blank line doesn't get mistaken
   // for the header (which would orphan the real rows below it)
   const rows = parsed.filter((r) => r.some((c) => c.trim() !== ""));
   if (rows.length === 0) rows.push([...CSV_HEADER]);
   const headers = rows[0];
-  if (e.protein !== null && headerIdx(headers, "protein_g") < 0) headers.push("protein_g");
+  if (e.protein !== null && headerIndex(headers, "protein_g") < 0) headers.push("protein_g");
   const cells = headers.map((h) => {
     switch (h.trim().toLowerCase()) {
       case "date":
@@ -179,12 +172,11 @@ export function appendFoodEntry(body: string, e: FoodEntry): string {
 /** Body with data row `idx` (header excluded) removed; unchanged when the
     index is stale — the vault may have moved under the pane. */
 export function removeFoodEntry(body: string, idx: number): string {
-  const fence = findFence(body, "csv");
-  if (!fence) return body;
-  const rows = parseCsv(fence.inner);
-  if (idx < 0 || idx + 1 >= rows.length) return body;
-  rows.splice(idx + 1, 1);
-  return replaceCsvRows(body, rows);
+  const table = readNoteTable(body);
+  if (!table) return body;
+  if (idx < 0 || idx >= table.rows.length) return body;
+  table.rows.splice(idx, 1);
+  return replaceCsvRows(body, table.allRows());
 }
 
 /** Everything the food pane shows, from the log body + the dashboard note's
