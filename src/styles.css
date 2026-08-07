@@ -15409,10 +15409,24 @@ body.termhud-resizing-ew .termhud {
   max-width: 520px;
 }
 
+/* The product mark, above the title. This is the one surface that
+   opens cold — no chrome, no vault, nothing else on screen — so it is also
+   the one place the icon does the work the credo asks of it: sets the tone
+   before a word is read. 56px: large enough for the cut rune to resolve,
+   small enough that it reads as a mark rather than a splash. */
+.onboarding-mark {
+  display: block;
+  margin-bottom: 20px;
+}
+
+/* A real headline, not a bolder sentence. The old 15px/500 landed
+   within a step of the 13px lede under it, so the sheet opened on a stack of
+   near-equal lines with nothing to enter at. */
 .onboarding-title {
-  font: 500 15px/1.3 var(--font);
+  font: 600 24px/1.25 var(--font);
+  letter-spacing: -0.01em;
   color: var(--text-1);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .onboarding-lede {

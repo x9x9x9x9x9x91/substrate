@@ -19,8 +19,8 @@ doesn't exist — and that's a doc bug worth filing.
 | The IPC surface | When the app is running and you want the engine's guarantees (link rewriting on rename, compare-and-swap writes), the app's own operations are the better door. | [vault-format §14](vault-format.md#14-the-ipc-surface-preferred-operations) |
 | Agent seed | Every vault carries a seeded `AGENTS.md` orienting any AI agent pointed at the folder — the format rules travel with the data. | [vault-format §12](vault-format.md#12-app-level-conventions) |
 | `substrate://` links | `substrate://note/<vault-relative path>.md` opens that note (app running or not); `substrate://capture[?text=…]` opens quick capture, optionally prefilled. Any tool that can open a URL can point a human at a note. | [Linking into the app](integrations.md#linking-into-the-app-substrate) |
-| MCP door | A permission-gated MCP server over the vault, for AI tools that can't read files: the client spawns the `substrate-mcp` sidecar, and only folders you granted in Settings are visible. Writes are receipt-stamped. | In-app: ⌘, Settings → MCP (installed path + client snippet) |
-| CLI door | The same sidecar, called headlessly: `substrate-mcp <command> --client NAME` performs one scoped operation and exits, for scripts and cron. Same grants, same refusals, same receipts as the MCP door — one contract, not two. | `substrate-mcp --help` · grant the client name in ⌘, Settings first |
+| MCP door | A permission-gated MCP server over the vault, for AI tools that can't read files: the client spawns the `substrate-mcp` sidecar, and only folders you granted in Settings are visible. Writes are receipt-stamped. | [MCP door](mcp-door.md) · in-app: ⌘, Settings → MCP (installed path + client snippet) |
+| CLI door | The same sidecar, called headlessly: `substrate-mcp <command> --client NAME` performs one scoped operation and exits, for scripts and cron. Same grants, same refusals, same receipts as the MCP door — one contract, not two. | [Headless callers](mcp-door.md#headless-callers--the-cli-door) · `substrate-mcp --help` · grant the client name in ⌘, Settings first |
 | Terminal HUD | ⌘⇧T embeds your own agent CLI (whatever command you configure in ⌘, Settings) in a persistent in-app terminal, cwd'd at the vault. | In-app: ⌘/ shortcut sheet, ⌘, Settings |
 
 ## Ways out
@@ -32,6 +32,10 @@ doesn't exist — and that's a doc bug worth filing.
 | Vault sync | Push/pull the vault's built-in Git history to an HTTPS remote you configure. Nothing is sent until you set a remote and choose Push. | [Sync and security](user/sync-and-security.md) |
 | Send as link | One note, encrypted on your Mac, shared through a relay; the key stays in the link fragment. | [Sync and security §What connects to the network](user/sync-and-security.md#what-connects-to-the-network) |
 
+Both doors share one contract — threat model, scope engine, receipts, and the
+headless recipe — written up in [MCP door](mcp-door.md): the
+[setup snippet](mcp-door.md#setup-phase-1) for MCP clients and
+[Headless callers](mcp-door.md#headless-callers--the-cli-door) for the CLI.
 
 ## Not planned
 

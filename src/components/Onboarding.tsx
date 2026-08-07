@@ -15,6 +15,7 @@ import {
   type VaultCandidate,
 } from "../lib/onboarding";
 import { isTauri } from "../lib/tauri";
+import AppMark from "./AppMark";
 
 interface OnboardingProps {
   /** `~/Vault` — the default parent for a new vault */
@@ -237,6 +238,12 @@ export default function Onboarding({
   return (
     <div className="onboarding" data-testid={switching ? "vault-switch" : "onboarding"}>
       <div className="onboarding-sheet">
+        {/* The mark leads the first screen a new user ever sees, and only
+            that one. Switch mode is an overlay over a running app that has
+            already identified itself, and the "Vault ready" step above is a
+            confirmation whose job is the restart button — a product mark on
+            either is chrome, not tone. */}
+        {!switching && <AppMark className="onboarding-mark" />}
         <h1 className="onboarding-title">{switching ? "Switch vault" : "Choose a vault"}</h1>
         <p className="onboarding-lede">
           {switching
