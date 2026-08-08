@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import { check, type DownloadEvent, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { isTauri } from "../lib/tauri";
 import type { ToastAction, ToastOpts } from "./useToast";
@@ -12,8 +12,9 @@ const RECHECK_MS = 12 * 60 * 60 * 1000;
 /**
  * In-app updater. Quiet by design — a check that finds nothing, or
  * fails (offline, GitHub down, iOS where the plugin isn't registered), says
- * nothing. Something new → sticky toast with an Install action; install runs
- * in the background and lands in a sticky "Restart now" toast.
+ * nothing. Something new → sticky toast with an Install action; install
+ * replaces that offer with a sticky progress toast and lands in a sticky
+ * "Restart now" toast.
  *
  * The toast slot is shared with every routine 4s message, so a sticky offer
  * CAN be displaced at any moment. The
@@ -46,11 +47,47 @@ export function useUpdater(
         { sticky: true }
       );
 
+    /* Download progress, in the same sticky slot the offer occupied. The
+       plugin reports chunk lengths, not a running total, so the total is
+       accumulated here; `contentLength` is optional (a server that omits
+       Content-Length), and MB downloaded is the honest fallback — a percentage
+       of an unknown whole would be invented. showToast re-renders the slot, so
+       it is called only when the rendered label would actually change. */
+    const progressToast = (update: Update) => {
+      let total: number | undefined;
+      let downloaded = 0;
+      // undefined, not "": the first render carries no detail yet, and it is
+      // the one that has to replace the offer toast
+      let shown: string | undefined;
+      const render = (detail: string) => {
+        if (detail === shown) return;
+        shown = detail;
+        showToast(`Downloading Substrate ${update.version}…${detail}`, undefined, {
+          sticky: true,
+        });
+      };
+      render("");
+      return (event: DownloadEvent) => {
+        if (disposed) return;
+        if (event.event === "Started") {
+          total = event.data.contentLength;
+          return;
+        }
+        if (event.event !== "Progress") return;
+        downloaded += event.data.chunkLength;
+        render(
+          total !== undefined && total > 0
+            ? ` ${Math.min(100, Math.floor((downloaded / total) * 100))}%`
+            : ` ${(downloaded / 1_000_000).toFixed(1)} MB`
+        );
+      };
+    };
+
     const install = (update: Update) => {
       if (busy.current) return;
       busy.current = true;
       update
-        .downloadAndInstall()
+        .downloadAndInstall(progressToast(update))
         // no close() after success: install frees both rids rust-side
         .then(() => {
           staged.current = update.version;
