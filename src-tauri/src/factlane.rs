@@ -16,14 +16,89 @@
 
 use serde::Serialize;
 
+/// Who made a change, as far as the commit can say (receipts spec §4.4). A
+/// closed set: the render rule reads the commit's author first, then its
+/// subject, and every commit lands in exactly one of these — including the
+/// ones written before Substrate had any conventions at all, which land in
+/// `App` and read as "In the app".
+///
+/// This is the SEMANTIC actor. The personal wording ("You", "Claude (via
+/// MCP)") is the frontend's business; the enum never carries display text.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", content = "name", rename_all = "snake_case")]
+pub enum Actor {
+    /// Substrate itself: an auto-snapshot, a seal, a restore — or any commit
+    /// from before the conventions existed. The stated cost of no migration
+    /// (§4.4): pre-convention app edits and outside edits are indistinguishable
+    /// here, and stay so.
+    App,
+    /// The MCP door, carrying the client name parsed out of the subject
+    /// (`mcp: {tool} {rel} ({client})`). Empty when the subject predates the
+    /// client suffix or is otherwise unparseable.
+    Mcp(String),
+    /// A vault sync merge.
+    Sync,
+    /// One write inside a labelled bulk operation (`bulk: …` subjects, §4.2).
+    /// Read-side only in v1 — nothing in this tree writes that subject yet.
+    Bulk,
+    /// An edit made outside Substrate, self-declared by the snapshot's
+    /// `external:` trailer (§4.3). Reserved: the trailer is slice 4, so no
+    /// commit in this tree maps here yet.
+    External,
+    /// Some other git identity entirely — a user's own repo, a script, another
+    /// tool. Carries the author verbatim.
+    ExternalTool(String),
+}
+
+/// The §4.4 render rule, keyed on author then subject. `author` is the commit
+/// author's display name, `author_email` its email, `subject` the commit's
+/// first line.
+pub fn actor_for(author: &str, author_email: &str, subject: &str) -> Actor {
+    if author_email == "mcp@local" {
+        return Actor::Mcp(mcp_client(subject));
+    }
+    // gitsync appends conflict counts to the merge subject
+    if subject.starts_with("vault sync merge") {
+        return Actor::Sync;
+    }
+    if subject.starts_with("bulk: ") {
+        return Actor::Bulk;
+    }
+    if author_email == "substrate@local" {
+        return Actor::App;
+    }
+    let who = if author.trim().is_empty() { author_email } else { author };
+    Actor::ExternalTool(who.to_string())
+}
+
+/// The client name out of an MCP door subject — `mcp: {tool} {rel} ({client})`.
+/// The relative path can itself contain parentheses, so the trailing group is
+/// the one that counts, and only when the subject actually ends in one.
+fn mcp_client(subject: &str) -> String {
+    let Some(rest) = subject.strip_suffix(')') else {
+        return String::new();
+    };
+    match rest.rfind('(') {
+        Some(i) => rest[i + 1..].trim().to_string(),
+        None => String::new(),
+    }
+}
+
 /// One moment a fact took a new value. `value` is None where the note or the
 /// key did not exist at that snapshot (a deletion is a real point on the lane:
 /// the fact stopped having a value then).
+///
+/// `actor` and `subject` are the receipt half (§7): who changed it, and the raw
+/// commit subject behind that verdict. Both come free off the commit object the
+/// lane walk already holds — receipts add zero extra git reads. `value_at` and
+/// every time-travel caller ignore them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct FactPoint {
     pub commit: String,
     pub ts_ms: u64,
     pub value: Option<String>,
+    pub actor: Actor,
+    pub subject: String,
 }
 
 /// Every change of one fact, oldest first, plus the boundary before which this
@@ -132,7 +207,13 @@ mod tests {
     use super::*;
 
     fn pt(ts_ms: u64, value: Option<&str>) -> FactPoint {
-        FactPoint { commit: format!("c{ts_ms}"), ts_ms, value: value.map(str::to_string) }
+        FactPoint {
+            commit: format!("c{ts_ms}"),
+            ts_ms,
+            value: value.map(str::to_string),
+            actor: Actor::App,
+            subject: "snapshot".into(),
+        }
     }
 
     fn lane(points: Vec<FactPoint>, oldest: Option<u64>) -> FactLane {
@@ -211,5 +292,84 @@ mod tests {
         assert_eq!(fact_value(&props, "missing"), None);
         assert_eq!(fact_value(&props, "tags").as_deref(), Some("a, b"));
         assert_eq!(fact_value(&props, "blank"), None);
+    }
+
+    // §4.4 render rules — author first, then subject. Fixtures mirror the
+    // conventions table in §4 (one per writer that exists today).
+
+    #[test]
+    fn mcp_door_commits_carry_their_client() {
+        assert_eq!(
+            actor_for("Substrate MCP", "mcp@local", "mcp: note_write Health/Weight.md (Claude)"),
+            Actor::Mcp("Claude".into())
+        );
+        // a path with its own parentheses: the TRAILING group is the client
+        assert_eq!(
+            actor_for("Substrate MCP", "mcp@local", "mcp: note_write Trips/Rome (2024).md (Cursor)"),
+            Actor::Mcp("Cursor".into())
+        );
+        // an older door commit with no client suffix still reads as MCP
+        assert_eq!(
+            actor_for("Substrate MCP", "mcp@local", "mcp: note_write Health/Weight.md"),
+            Actor::Mcp(String::new())
+        );
+    }
+
+    #[test]
+    fn sync_merges_read_as_sync() {
+        assert_eq!(actor_for("Substrate", "substrate@local", "vault sync merge"), Actor::Sync);
+        // gitsync appends conflict counts
+        assert_eq!(
+            actor_for("Substrate", "substrate@local", "vault sync merge (2 conflicts)"),
+            Actor::Sync
+        );
+    }
+
+    #[test]
+    fn labeled_app_commits_are_still_the_app() {
+        for subject in [
+            "snapshot",
+            "snapshot (quit)",
+            "snapshot before MCP edit",
+            "seal Health/Weight.md",
+            "restore Health/Weight.md",
+            "external edit to Health/Weight.md before restore",
+        ] {
+            assert_eq!(
+                actor_for("Substrate", "substrate@local", subject),
+                Actor::App,
+                "subject: {subject}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_bulk_subject_reads_as_bulk() {
+        assert_eq!(actor_for("Substrate", "substrate@local", "bulk: rename tag"), Actor::Bulk);
+    }
+
+    #[test]
+    fn a_foreign_author_is_an_external_tool() {
+        assert_eq!(
+            actor_for("Robin", "robin@example.com", "fix typo"),
+            Actor::ExternalTool("Robin".into())
+        );
+        // no display name: the email is the best name there is
+        assert_eq!(
+            actor_for("", "scripts@ci", "nightly import"),
+            Actor::ExternalTool("scripts@ci".into())
+        );
+    }
+
+    #[test]
+    fn actor_serializes_as_a_tagged_kind() {
+        let json = |a: Actor| serde_json::to_string(&a).unwrap();
+        assert_eq!(json(Actor::App), r#"{"kind":"app"}"#);
+        assert_eq!(json(Actor::Sync), r#"{"kind":"sync"}"#);
+        assert_eq!(json(Actor::Mcp("Claude".into())), r#"{"kind":"mcp","name":"Claude"}"#);
+        assert_eq!(
+            json(Actor::ExternalTool("Robin".into())),
+            r#"{"kind":"external_tool","name":"Robin"}"#
+        );
     }
 }

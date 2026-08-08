@@ -24,6 +24,8 @@ const lane = (points: [string, string | null][], oldest: string | null): FactLan
     commit: `c${i}`,
     ts_ms: noon(iso),
     value,
+    actor: { kind: "app" as const },
+    subject: "snapshot",
   })),
   oldest_ts_ms: oldest === null ? null : noon(oldest),
 });

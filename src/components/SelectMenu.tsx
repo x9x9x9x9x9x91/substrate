@@ -189,6 +189,9 @@ interface SelectMenuProps {
   rollupPropsFor?: (relation: string) => string[];
   /** rollup kind only: the current wiring, for the editor prefill */
   rollup?: RollupConfig;
+  /** one quiet line under the picker list — the chip editor's last-change
+      receipt (receipts spec §6), which is also the keyboard path to the peek */
+  footer?: React.ReactNode;
   onClose: () => void;
 }
 
@@ -320,6 +323,7 @@ export default function SelectMenu({
   rollupRelations,
   rollupPropsFor,
   rollup,
+  footer,
   onClose,
 }: SelectMenuProps) {
   // multi kind: picks toggle membership instead of replacing, the
@@ -1151,6 +1155,7 @@ export default function SelectMenu({
                 );
               })}
             </div>
+            {footer}
           </>
         );
         return cell ? <div className="selmenu-cell-panel">{body}</div> : body;

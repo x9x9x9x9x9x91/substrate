@@ -659,13 +659,28 @@ export interface HistoryEntry {
   dels: number;
 }
 
+/** Who changed a fact, as far as the commit can say (receipts spec §4.4). The
+    closed set the backend maps every commit into — semantic, never display
+    text: the personal wording ("You", "Claude (via MCP)") is `actorText`'s
+    business (`src/lib/receipts.ts`). */
+export type Actor =
+  | { kind: "app" }
+  | { kind: "mcp"; name: string }
+  | { kind: "sync" }
+  | { kind: "bulk" }
+  | { kind: "external" }
+  | { kind: "external_tool"; name: string };
+
 /** One moment a fact took a new value. `value` is null where the note or the
     key did not exist then — a deletion is a real point on the lane, not a gap
-    the previous value carries across. */
+    the previous value carries across. `actor` and `subject` are the receipt
+    half (§7): who changed it, and the raw commit subject behind that verdict. */
 export interface FactPoint {
   commit: string;
   ts_ms: number;
   value: string | null;
+  actor: Actor;
+  subject: string;
 }
 
 /** Every change of one frontmatter fact across vault history, oldest first.

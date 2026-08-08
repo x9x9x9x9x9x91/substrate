@@ -133,6 +133,8 @@ interface DatabasePaneProps {
   onOpenNote: (path: string) => void;
   /** right-click on any row/card — App's note context menu */
   onNoteMenu: (path: string, x: number, y: number) => void;
+  /** right-click on a value cell (receipts spec §6) — passed through to the table */
+  onCellMenu?: (path: string, key: string, x: number, y: number) => void;
   /** The table bulk bar's Move to Trash — App owns the per-note
       fan-out, the one refresh, and the summary toast with Undo */
   onTrashNotes: (paths: string[]) => void;
@@ -220,6 +222,7 @@ export default function DatabasePane({
   onPrefChange,
   onOpenNote,
   onNoteMenu,
+  onCellMenu,
   onTrashNotes,
   onMutated,
   initialQuery,
@@ -2566,6 +2569,7 @@ export default function DatabasePane({
       plainCellClick={plainCellClick}
       onOpenNote={onOpenNote}
       onNoteMenu={onNoteMenu}
+      onCellMenu={onCellMenu}
       onTrashNotes={onTrashNotes}
       sel={sel}
       writeFailed={writeFailed}

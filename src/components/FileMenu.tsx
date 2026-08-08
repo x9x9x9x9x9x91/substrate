@@ -7,6 +7,9 @@ import type { HopDir } from "../lib/cellhop";
 
 interface FileMenuProps {
   anchor: AnchorRect;
+  /** one quiet line at the foot — the chip editor's last-change receipt
+      (receipts spec §6), which is also the keyboard path to the peek */
+  footer?: React.ReactNode;
   /** current value — a path (absolute or ~/…), possibly dangling */
   value: string;
   /** does the target exist? null while unknown */
@@ -40,6 +43,7 @@ export default function FileMenu({
   onClear,
   onEditSchema,
   onClose,
+  footer,
 }: FileMenuProps) {
   // A type-to-replace keystroke starts the path text
   const [text, setText] = useState(seed ?? "");
@@ -175,6 +179,7 @@ export default function FileMenu({
           </div>
         ))}
       </div>
+      {footer}
     </div>
   );
 

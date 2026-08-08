@@ -1163,7 +1163,13 @@ function lane(oldest: string | null, pts: [string, string | null][] = []) {
   return {
     path: "Assets/BTC.md",
     key: "price",
-    points: pts.map(([d, value]) => ({ ts_ms: at(d), value, commit: d })),
+    points: pts.map(([d, value]) => ({
+    ts_ms: at(d),
+    value,
+    commit: d,
+    actor: { kind: "app" as const },
+    subject: "snapshot",
+  })),
     oldest_ts_ms: oldest === null ? null : at(oldest),
   };
 }

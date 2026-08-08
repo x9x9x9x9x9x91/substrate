@@ -1843,9 +1843,9 @@ describe("SUB-832 — the history seam through a sheet", () => {
     path: "Health/Weight.md",
     key: "weight",
     points: [
-      { commit: "aaa", ts_ms: at("2026-01-10"), value: "84" },
-      { commit: "bbb", ts_ms: at("2026-02-10"), value: "82" },
-      { commit: "ccc", ts_ms: at("2026-02-28"), value: "81" },
+      { commit: "aaa", ts_ms: at("2026-01-10"), value: "84", actor: { kind: "app" }, subject: "snapshot" },
+      { commit: "bbb", ts_ms: at("2026-02-10"), value: "82", actor: { kind: "app" }, subject: "snapshot" },
+      { commit: "ccc", ts_ms: at("2026-02-28"), value: "81", actor: { kind: "app" }, subject: "snapshot" },
     ],
     oldest_ts_ms: at("2026-01-05"),
   };

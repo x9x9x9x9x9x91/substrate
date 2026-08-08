@@ -426,7 +426,21 @@ fn fact_lane_in(
             }
             Err(_) => None,
         };
-        readings.push(FactPoint { commit: entry.id.clone(), ts_ms: entry.ts_ms, value });
+        // the receipt half (receipts spec §3): the commit object is already in
+        // hand, so who-changed-it costs no extra git read
+        let author = commit.author();
+        let actor = crate::factlane::actor_for(
+            author.name().unwrap_or_default(),
+            author.email().unwrap_or_default(),
+            &entry.subject,
+        );
+        readings.push(FactPoint {
+            commit: entry.id.clone(),
+            ts_ms: entry.ts_ms,
+            value,
+            actor,
+            subject: entry.subject.clone(),
+        });
     }
     // A topological walk is not a chronological one: a merged or imported
     // history can hand back a commit dated before its own ancestors. `collapse`

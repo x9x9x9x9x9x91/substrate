@@ -90,6 +90,7 @@ export default function DbTableLayout({
   plainCellClick,
   onOpenNote,
   onNoteMenu,
+  onCellMenu,
   onTrashNotes,
   sel,
   writeFailed,
@@ -191,6 +192,9 @@ export default function DbTableLayout({
   plainCellClick: (path: string, go: () => void) => void;
   onOpenNote: (path: string) => void;
   onNoteMenu: (path: string, x: number, y: number) => void;
+  /** right-click on a value cell — the cell IS a (note, key) fact, so its menu
+      leads with that fact's receipts (receipts spec §6) */
+  onCellMenu?: (path: string, key: string, x: number, y: number) => void;
   onTrashNotes: (paths: string[]) => void;
   sel: ReadonlySet<string>;
   /** Notes a bulk write was refused on, each mapped to what the
@@ -634,6 +638,15 @@ export default function DbTableLayout({
                           setFocus({ c: i + 1, r, path: n.path });
                       }}
                       title={(ckind === "file" || ckind === "url" || ckind === "email" || ckind === "phone") && val ? val : undefined}
+                      onContextMenu={(e) => {
+                        if (!onCellMenu) return;
+                        // the row menu is on the <tr>; this cell's own menu
+                        // carries it plus the fact's receipts, so stop the
+                        // bubble rather than show both
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onCellMenu(n.path, actualKey || c, e.clientX, e.clientY);
+                      }}
                       onClick={(e) => {
                         // Same selection-gesture branch as the title
                         // cell — a modified click never toggles/starts an edit

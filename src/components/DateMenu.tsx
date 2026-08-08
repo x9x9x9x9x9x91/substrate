@@ -14,6 +14,9 @@ import type { HopDir } from "../lib/cellhop";
 
 interface DateMenuProps {
   anchor: AnchorRect;
+  /** one quiet line at the foot — the chip editor's last-change receipt
+      (receipts spec §6), which is also the keyboard path to the peek */
+  footer?: React.ReactNode;
   /** current value — ISO day with an optional ` HH:MM`, or any
       leftover free text */
   value: string;
@@ -48,6 +51,7 @@ export default function DateMenu({
   onEditSchema,
   aboveOverlay,
   onClose,
+  footer,
 }: DateMenuProps) {
   // A type-to-replace keystroke lands in the parse input, so the
   // date reads as typed-over rather than picked from the grid
@@ -321,6 +325,7 @@ export default function DateMenu({
           </button>
         )}
       </div>
+      {footer}
     </div>
   );
 

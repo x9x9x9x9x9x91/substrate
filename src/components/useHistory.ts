@@ -199,6 +199,14 @@ export function useHistoryLanes(
   return { ready: current.ready, notes: current.notes, lanes: current.lanes };
 }
 
+/** Warm one fact's lane before anything renders it — the receipts hover-intent
+    prefetch (receipts spec §5): pointing at a chip's clock glyph starts the revwalk,
+    so the click that follows ~100-300ms later lands on data instead of on a
+    spinner. Same ask-once store, so a prefetch a peek then repeats is free. */
+export function prefetchFact(path: string, key: string, vaultEpoch: number): void {
+  ensureHistory([{ path, key }], [], vaultEpoch);
+}
+
 /** Last prefetch failure, for a surface that wants to say history is stale
     rather than quietly showing "not loaded yet" cells forever (the same
     lesson, one subsystem over). */

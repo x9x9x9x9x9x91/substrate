@@ -4466,12 +4466,27 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
               : String(raw);
         const num = value === null ? null : Number(value);
         const older = num !== null && Number.isFinite(num) ? String(Math.round(num * 0.8)) : value;
+        // each point carries its receipt (receipts spec §7) — the two mock writers
+        // are the MCP door and the app itself, so a receipts surface has both
+        // actor shapes to render without the vault having to be real
         const points =
           value === null
             ? []
             : [
-                { ts_ms: now - 27 * 3_600_000, value: older, commit: "vault-snap-2" },
-                { ts_ms: now - 3 * 3_600_000, value, commit: "vault-snap-1" },
+                {
+                  ts_ms: now - 27 * 3_600_000,
+                  value: older,
+                  commit: "vault-snap-2",
+                  actor: { kind: "mcp", name: "Claude" },
+                  subject: `mcp: note_write ${r.path} (Claude)`,
+                },
+                {
+                  ts_ms: now - 3 * 3_600_000,
+                  value,
+                  commit: "vault-snap-1",
+                  actor: { kind: "app" },
+                  subject: "snapshot",
+                },
               ];
         return { path: r.path, key: r.key, points, oldest_ts_ms: now - 27 * 3_600_000 };
       });

@@ -211,6 +211,7 @@ import InfoView from "./components/InfoView";
 import DonationNag from "./components/DonationNag";
 import TooltipHost from "./components/Tooltip";
 import TimeTravelBar from "./components/TimeTravelBar";
+import ReceiptsPeek from "./components/ReceiptsPeek";
 import SettingsPane from "./components/SettingsPane";
 // lazy: TerminalHud is the only xterm.js importer, and the web/mock surface
 // (e2e) never renders it — code-splitting keeps xterm's parse cost out of
@@ -228,7 +229,7 @@ import {
   StripPropDialog,
   UnmountDialog,
 } from "./components/DbAdmin";
-import { DbIcon as DbGlyphIcon, ExportIcon, FolderIcon, KeyboardIcon, MenuIcon, MountIcon, NoteActionGlyph, NoteIcon, PenIcon, PinIcon, PlusIcon, RepeatIcon, SidebarIcon, TrashIcon, XIcon, ChevronLeftIcon, ChevronUpIcon, ChevronDownIcon } from "./components/Icons";
+import { ClockIcon, DbIcon as DbGlyphIcon, ExportIcon, FolderIcon, KeyboardIcon, MenuIcon, MountIcon, NoteActionGlyph, NoteIcon, PenIcon, PinIcon, PlusIcon, RepeatIcon, SidebarIcon, TrashIcon, XIcon, ChevronLeftIcon, ChevronUpIcon, ChevronDownIcon } from "./components/Icons";
 import { HeroNote } from "./components/HeroIcons";
 import EmptyState from "./components/EmptyState";
 import { useSidebarHidden } from "./hooks/useSidebarHidden";
@@ -3950,10 +3951,58 @@ export default function App() {
     ]
   );
 
+  /** Receipts (spec §6): the fact a peek is open on, anchored at its chip
+      or cell. App owns it because a receipt row is a door into the scrubber,
+      which is App's to open — and because chips and db cells reach the same
+      surface. */
+  const [receipts, setReceipts] = useState<{ path: string; key: string; anchor: AnchorRect } | null>(
+    null
+  );
+  /** the peek's "Open note history" door — the pane owns that panel, so App
+      names the note and bumps a nonce */
+  const [historyFor, setHistoryFor] = useState<{ path: string; nonce: number } | null>(null);
+  const historyNonce = useRef(0);
+
+  /** a receipt row was clicked: scrub the vault to that snapshot (§6) */
+  const scrubToCommit = useCallback(
+    async (commit: string) => {
+      setReceipts(null);
+      await openTimeTravel();
+      await selectTimePoint(commit);
+    },
+    [openTimeTravel, selectTimePoint]
+  );
+
   const onRowMenu = useCallback(
     (path: string, x: number, y: number) => {
       const n = notes.find((n) => n.path === path);
       if (n) setMenu({ x, y, items: noteMenuItems(n) });
+    },
+    [notes, noteMenuItems]
+  );
+
+  /** Right-click on a database cell: the row's own actions, with the cell's
+      receipts on top — a cell IS a (note, key) fact, and this is its only
+      pointer-and-keyboard reachable door (receipts spec §6). */
+  const onCellMenu = useCallback(
+    (path: string, key: string, x: number, y: number) => {
+      const n = notes.find((n) => n.path === path);
+      if (!n) return;
+      const rows = noteMenuItems(n).map((item, i) =>
+        i === 0 ? { ...item, separatorAbove: true } : item
+      );
+      setMenu({
+        x,
+        y,
+        items: [
+          {
+            label: "Receipts",
+            icon: <ClockIcon />,
+            onSelect: () => setReceipts({ path, key, anchor: { left: x, top: y, bottom: y } }),
+          },
+          ...rows,
+        ],
+      });
     },
     [notes, noteMenuItems]
   );
@@ -4905,6 +4954,7 @@ export default function App() {
               onPrefChange={(p) => setDbPref(view.type, p)}
               onOpenNote={openNote}
               onNoteMenu={onRowMenu}
+              onCellMenu={onCellMenu}
               onTrashNotes={trashNotes}
               onMutated={refresh}
               onSaveView={(name, capture) => saveView(view.type, name, capture)}
@@ -4960,6 +5010,7 @@ export default function App() {
               onPrefChange={setSvPref}
               onOpenNote={openNote}
               onNoteMenu={onRowMenu}
+              onCellMenu={onCellMenu}
               onTrashNotes={trashNotes}
               onMutated={refresh}
               initialQuery={activeSaved.query}
@@ -5041,6 +5092,10 @@ export default function App() {
                 onRowRevealed={clearSheetReveal}
                 onToast={showToast}
                 readOnly={timePoint !== null}
+                onReceipts={(key, anchor) =>
+                  setReceipts({ path: dbNoteMeta.path, key, anchor })
+                }
+                openHistoryFor={historyFor}
               />
             </div>
           )}
@@ -5120,6 +5175,8 @@ export default function App() {
             onRowRevealed={clearSheetReveal}
             onToast={showToast}
             readOnly={timePoint !== null}
+            onReceipts={(key, anchor) => setReceipts({ path: selectedMeta.path, key, anchor })}
+            openHistoryFor={historyFor}
           />
         ) : (
           <div className="note">
@@ -5368,6 +5425,24 @@ export default function App() {
           The component renders nothing until a folder row starts a queue. */}
       <MiniPlayer />
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
+      {/* the receipts peek (spec §6) — one at a time, anchored on whatever
+          chip or cell asked for it */}
+      {receipts && (
+        <ReceiptsPeek
+          path={receipts.path}
+          factKey={receipts.key}
+          anchor={receipts.anchor}
+          vaultEpoch={vaultEpoch}
+          onClose={() => setReceipts(null)}
+          onScrub={(commit) => void scrubToCommit(commit)}
+          onOpenHistory={() => {
+            setReceipts(null);
+            setSelected(receipts.path);
+            historyNonce.current += 1;
+            setHistoryFor({ path: receipts.path, nonce: historyNonce.current });
+          }}
+        />
+      )}
       {/* The second stage of the row menu's key lane */}
       {keyPicker && (
         <ContextMenu

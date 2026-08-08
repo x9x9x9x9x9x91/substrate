@@ -66,6 +66,8 @@ import DateMenu from "./DateMenu";
 import FileMenu from "./FileMenu";
 import RelationMenu from "./RelationMenu";
 import SelectMenu, { anchorFrom, MultiValues, optionColor, OptionPill, type AnchorRect } from "./SelectMenu";
+import { ChipReceiptLine } from "./ReceiptsPeek";
+import { prefetchFact } from "./useHistory";
 import DotsMenu from "./DotsMenu";
 import { BacklinkIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, FileIcon, LockIcon, NoteActionGlyph, XIcon } from "./Icons";
 import EmptyState from "./EmptyState";
@@ -238,6 +240,13 @@ interface NotePaneProps {
       editor is read-only for the duration (the app-root input guard misses
       CodeMirror's own keymap commands). */
   readOnly?: boolean;
+  /** Receipts (spec §6): a chip asked who changed this fact — App owns
+      the peek, because a row in it scrubs the whole vault. Absent means the
+      surface offers no receipts (the glyph and the editor line stay away). */
+  onReceipts?: (key: string, anchor: AnchorRect) => void;
+  /** The receipts peek's "Open note history" landed on this note — App
+      bumps the nonce, the pane opens its own history panel. */
+  openHistoryFor?: { path: string; nonce: number } | null;
 }
 
 function NotePane({
@@ -285,6 +294,8 @@ function NotePane({
   onRowRevealed,
   onToast,
   readOnly = false,
+  onReceipts,
+  openHistoryFor = null,
 }: NotePaneProps) {
   const undo = useUndo();
   const todayIso = useTodayIso();
@@ -372,6 +383,15 @@ function NotePane({
   const [fmState, setFmState] = useState<FmState | null>(null);
   const [fmRepair, setFmRepair] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  // the receipts peek's footer door: App names the note and bumps a nonce,
+  // and the pane opens the same history panel its clock button does
+  const historyNonce = useRef<number | null>(null);
+  useEffect(() => {
+    if (!openHistoryFor || openHistoryFor.path !== meta.path) return;
+    if (historyNonce.current === openHistoryFor.nonce) return;
+    historyNonce.current = openHistoryFor.nonce;
+    setShowHistory(true);
+  }, [openHistoryFor, meta.path]);
   const [reloadNonce, setReloadNonce] = useState(0);
   const [sealedUnlocked, setSealedUnlocked] = useState(false);
   const [sealedOverride, setSealedOverride] = useState<boolean | null>(null);
@@ -1329,6 +1349,23 @@ function NotePane({
       .catch(console.error);
   };
 
+  // Receipts address a fact by its REAL frontmatter key — the chip may be
+  // showing a schema row whose key differs in case from the one on disk
+  // (receipts spec §1: the lane is keyed on (path, key)).
+  const factKeyOf = (k: string) => foldedPropKey(props, k);
+  const chipReceiptFooter = (k: string) =>
+    onReceipts ? (
+      <ChipReceiptLine
+        path={meta.path}
+        factKey={factKeyOf(k)}
+        vaultEpoch={vaultEpoch}
+        onOpen={(a) => {
+          setEditingChip(null);
+          onReceipts(factKeyOf(k), a);
+        }}
+      />
+    ) : undefined;
+
   const commitAdd = (el?: Element) => {
     const idx = chipDraft.indexOf(":");
     const key = idx < 1 ? chipDraft.trim() : chipDraft.slice(0, idx).trim();
@@ -1759,6 +1796,7 @@ function NotePane({
                     removeChip(k);
                   }}
                   onSaveSchema={() => {}}
+                  footer={chipReceiptFooter(k)}
                   onClose={() => setEditingChip(null)}
                 />
               ) : schemaEditChip === k ? (
@@ -1803,6 +1841,7 @@ function NotePane({
                     removeChip(k);
                   }}
                   onEditSchema={() => setSchemaEditChip(k)}
+                  footer={chipReceiptFooter(k)}
                   onClose={() => setEditingChip(null)}
                 />
               ) : kind === "date" ? (
@@ -1815,6 +1854,7 @@ function NotePane({
                     removeChip(k);
                   }}
                   onEditSchema={() => setSchemaEditChip(k)}
+                  footer={chipReceiptFooter(k)}
                   onClose={() => setEditingChip(null)}
                 />
               ) : kind === "file" ? (
@@ -1828,6 +1868,7 @@ function NotePane({
                     removeChip(k);
                   }}
                   onEditSchema={() => setSchemaEditChip(k)}
+                  footer={chipReceiptFooter(k)}
                   onClose={() => setEditingChip(null)}
                 />
               ) : (
@@ -1859,6 +1900,7 @@ function NotePane({
                     removeChip(k);
                   }}
                   onSaveSchema={(o, nk, nf, nb, t, f, d, r) => onSaveSchema(noteType, k, o, nk, nf, nb, t, f, d, r)}
+                  footer={chipReceiptFooter(k)}
                   onClose={() => setEditingChip(null)}
                 />
               );
@@ -1942,6 +1984,29 @@ function NotePane({
                   <span className="prop-val chip-val" aria-hidden="true">
                     <span className={`prop-check${checked ? " on" : ""}`} aria-label={checked ? "Checked" : "Unchecked"} />
                   </span>
+                {onReceipts && !ghost && (
+                  <button
+                    type="button"
+                    className="chip-clock"
+                    // pointer-only on purpose: the row's tab stops are its
+                    // primary action and its remove button, and the keyboard
+                    // door to the same peek is the chip editor's own
+                    // last-change line (spec §6)
+                    tabIndex={-1}
+                    aria-label={`Who changed ${k}`}
+                    title="Who changed this, and when"
+                    // hover intent warms the lane (§5) so the click that
+                    // follows lands on data rather than on a spinner
+                    onPointerEnter={() => prefetchFact(meta.path, factKeyOf(k), vaultEpoch)}
+                    onFocus={() => prefetchFact(meta.path, factKeyOf(k), vaultEpoch)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onReceipts(factKeyOf(k), anchorFrom(e.currentTarget));
+                    }}
+                  >
+                    <ClockIcon />
+                  </button>
+                )}
                   <button
                     type="button"
                     className="chip-x"
@@ -2063,6 +2128,29 @@ function NotePane({
                 {/* born-empty schema rows: a quiet affordance — the
                     chip-val itself stays empty (e2e contract) */}
                 {!v && <span className="prop-empty" aria-hidden="true">Empty</span>}
+                {onReceipts && !ghost && (
+                  <button
+                    type="button"
+                    className="chip-clock"
+                    // pointer-only on purpose: the row's tab stops are its
+                    // primary action and its remove button, and the keyboard
+                    // door to the same peek is the chip editor's own
+                    // last-change line (spec §6)
+                    tabIndex={-1}
+                    aria-label={`Who changed ${k}`}
+                    title="Who changed this, and when"
+                    // hover intent warms the lane (§5) so the click that
+                    // follows lands on data rather than on a spinner
+                    onPointerEnter={() => prefetchFact(meta.path, factKeyOf(k), vaultEpoch)}
+                    onFocus={() => prefetchFact(meta.path, factKeyOf(k), vaultEpoch)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onReceipts(factKeyOf(k), anchorFrom(e.currentTarget));
+                    }}
+                  >
+                    <ClockIcon />
+                  </button>
+                )}
                 <button
                   type="button"
                   className="chip-x"

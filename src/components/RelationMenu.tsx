@@ -14,6 +14,9 @@ type Row =
 
 interface RelationMenuProps {
   anchor: AnchorRect;
+  /** one quiet line at the foot — the chip editor's last-change receipt
+      (receipts spec §6), which is also the keyboard path to the peek */
+  footer?: React.ReactNode;
   /** current targets (stored titles) */
   values: string[];
   /** bulk bar only: one quiet line under the filter input stating
@@ -60,6 +63,7 @@ export default function RelationMenu({
   onClear,
   onEditSchema,
   onClose,
+  footer,
 }: RelationMenuProps) {
   // The keystroke that opened the picker is already its filter
   const [query, setQuery] = useState(seed ?? "");
@@ -233,6 +237,7 @@ export default function RelationMenu({
           </div>
         ))}
       </div>
+      {footer}
     </div>
   );
 
