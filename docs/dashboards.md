@@ -486,6 +486,8 @@ Config is the dashboard note's own frontmatter, all optional:
 | --- | --- |
 | `areas` | area allowlist — comma-separated or a YAML list. Omit for every area; tasks without an `area:` group under Unassigned. |
 | `stale_days` | whole days before age alone chips a task (default 30). Setting it also opts this board into age chips regardless of the global toggle. |
+| `view` | `board` for the kanban view; the default (or `list`) is the list. Written by the header's List/Board control, not by hand — flipping back to the default clears the prop. |
+| `sort` | `priority`, `due` or `age`; the default (or `urgency`) is urgency. Written by the header's sort control the same way; an unknown value falls back to urgency rather than blanking the board. |
 
 ````markdown
 ---
@@ -626,7 +628,8 @@ export default {
 `el` is yours to fill; the app draws the header above it. `ctx.css` hands you
 the app's own class names, so a kind that renders through them picks up the
 current theme instead of inventing a second look — the full roster and the
-missing-key rule are in the contract ([vault-format.md §5.8](vault-format.md)).
+missing-key rule are in the contract
+([vault-format.md §5.8](vault-format.md#58-custom-kind-bundles--vaultkindsid)).
 `ctx.onChange` is the redraw
 signal — `mount` runs once, and the returned function is your cleanup on
 unmount. `el` stays the same element across redraws while your `innerHTML`
@@ -687,14 +690,14 @@ precisely when you most want to withdraw it.
 
 **Your code is vault content, so version history covers it.** A bundle under
 `.vault/kinds/` is snapshotted exactly like a note: history excludes only
-`.assets/`, `.trash/`, `.DS_Store` and two device-local `.vault` JSONs, and
-nothing in that list is your folder. An overwritten or deleted bundle is
+`.assets/`, `.trash/`, `.DS_Store` and the three device-local `.vault` JSONs,
+and nothing in that list is your folder. An overwritten or deleted bundle is
 recoverable from history — an afternoon's work on a board is never one sync
 glitch or one stray write away from gone. Keep your bundle in the vault and it
 travels with the vault's own guarantees; no separate backup step is implied.
 
 Full contract, including the manifest grammar, the hash layout and every ctx
-member: [vault-format.md §5.8](vault-format.md).
+member: [vault-format.md §5.8](vault-format.md#58-custom-kind-bundles--vaultkindsid).
 
 ## Creating one in-app
 

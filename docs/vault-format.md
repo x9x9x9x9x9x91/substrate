@@ -140,7 +140,7 @@ artwork direction.
 - Scalars keep their YAML types: `created: 2026-07-17` stays a string (serde_yaml
   has no timestamp type), `close-to-tray: false` is a bool, `rating: 4` is a
   number, lists and maps are allowed (the metrics dashboard's `cards:` is a
-  list of maps, §5.3).
+  list of maps, §5.4).
 
 ### What the engine preserves vs normalizes
 
@@ -212,7 +212,7 @@ type: release
 | `artwork` | gallery cover: bare asset name, absolute/`~/` path, or `![[...]]`/`[[...]]` wrapper |
 | `dashboard` | dashboard renderer key on `type: dashboard` notes (§5.2) |
 | `icon` | dashboard sidebar icon override (§5.2): a curated glyph id or an emoji |
-| `cards` | metrics dashboard card list (§5.3) |
+| `cards` | metrics dashboard card list (§5.4) |
 | `claimed_usd` | yield dashboard: cumulative claimed total, set by the Claim button (§5.3) |
 | `log`, `db`, `weight`, `floor`, `ceiling` | food dashboard config: log-sheet, food-DB and weight-sheet names, net-kcal band (§5.2) |
 | `items`, `curated` | feed dashboard config: items-sheet name, and the curator's own last-run stamp, rendered verbatim (§5.2) |
@@ -857,8 +857,8 @@ Dispatch (`src/components/DashboardPane.tsx` `DashboardBody`) — a fixed key se
 These public kinds are dispatched: `metrics` → the metrics cards renderer (§5.4);
 `yield-apr` → the yield tracker (§5.3); `hub` → the hub renderer (below);
 `food` → the food log tracker (below); `feed` → the curated newsfeed (below);
-`music-work` → the work-index board (below); `tasks` → the read-only task
-attention board (below); `charts` → the chart-fence dashboard (§5.5), whether
+`music-work` → the work-index board (below); `tasks` → the task attention
+board (below); `charts` → the chart-fence dashboard (§5.5), whether
 or not the body actually holds a fence.
 **A missing `dashboard` prop looks at the body** — one or more ` ```chart `
 fences makes it a charts dashboard (§5.5), none falls back to the yield
@@ -1790,12 +1790,12 @@ or `ctx.toast`.
 | `ctx.el` | `Element` | The same element passed as the first argument, for convenience. |
 | `ctx.note` | `{ path, title, props, body }` | The dashboard note the kind is mounted in: its vault path, title, frontmatter props and raw body. |
 | `ctx.css` | `Record<string, string>` | Sanctioned class names, the full api-1 roster: `dash-metrics`, `dash-metric`, `dash-metric-sub`, `dash-label`, `dash-value`, `dash-sub`, `dash-hero`, `dash-table`, `dash-card`, `dash-cards`, `dash-section-label`, `dash-link`, `dash-foot`. Rendering through these is how a kind speaks in the app's voice and follows its theme; a kind may also ship its own `style.css`. A key not in the map reads as `undefined` — interpolated straight into a template string that becomes `class="undefined"` — so look keys up defensively (`ctx.css["dash-hero"] ?? ""`) and put anything the roster doesn't cover on your own prefixed classes. |
-| `ctx.notes(filter?)` | `⇒ Promise<NoteMeta[]>` | The note index — path, stem, title, folder, props, `updated_ms`, excerpt. The optional filter is a plain predicate, `(n) => boolean`, applied per note: `ctx.notes((n) => n.props.type === "gear")`. |
-| `ctx.read(path)` | `⇒ Promise<…>` | One note's frontmatter and body. |
-| `ctx.sheet(title)` | `⇒ Promise<…>` | A sheet fence, parsed and evaluated — headers, typed rows, computed columns — so a kind doesn't reimplement the sheet grammar (§5.6). |
-| `ctx.setProp(path, key, value, expected)` | `⇒ Promise<…>` | Write one frontmatter property. |
-| `ctx.writeBody(path, body, expectedBody)` | `⇒ Promise<…>` | Replace a note's body. |
-| `ctx.create(…)` | `⇒ Promise<NoteMeta>` | Create a note — title, folder, type, props, body. |
+| `ctx.notes(filter?)` | `⇒ Promise<NoteMeta[]>` | The note index — path, stem, title, folder, props, `updated_ms`, excerpt, `tags` (inline `#hashtags` unioned with the `tags:` prop, deduplicated; optional, so absent on older projections) and `sealed`. **A kind that renders note bodies must read `sealed`**: it says the note is whole-file encrypted on disk, and vault code that ignores it is one more surface emitting plaintext the user sealed. The optional filter is a plain predicate, `(n) => boolean`, applied per note: `ctx.notes((n) => n.props.type === "gear")`. |
+| `ctx.read(path)` | `⇒ Promise<{ body, props }>` | One note's raw body and its frontmatter props. |
+| `ctx.sheet(title)` | `⇒ Promise<…>` | A sheet fence, parsed and evaluated — headers, typed rows, computed columns, named summaries — so a kind doesn't reimplement the sheet grammar (§5.1). |
+| `ctx.setProp(path, key, value, expected)` | `⇒ Promise<{ meta, prior }>` | Write one frontmatter property; resolves the note's updated meta plus the value that was there before. |
+| `ctx.writeBody(path, body, expectedBody)` | `⇒ Promise<NoteMeta>` | Replace a note's body; resolves the note's updated meta. |
+| `ctx.create(title, folder?, type?, props?, body?)` | `⇒ Promise<NoteMeta>` | Create a note. Positional, and everything after the title is optional. `props` is a list of **pairs**, not an object — `[["area", "Studio"], ["priority", "high"]]` — the shape `vault_create` itself takes (§14). |
 | `ctx.onChange(cb)` | `⇒ unsub` | Subscribe to vault changes; call the returned function to unsubscribe. This is the redraw signal. The callback gets no arguments — it says "something changed", not what — and changes may arrive in bursts, so an async redraw should drop stale responses (a generation counter) rather than assume one event per draw. |
 | `ctx.openNote(path)` | `⇒ void` | Open a note in the app, the way a row click does. |
 | `ctx.toast(msg, action?)` | `⇒ void` | The app's single toast slot; the optional action is a `{ label, run }` button. |
@@ -1817,6 +1817,16 @@ app's own IPC wrappers (`vault_write_body`'s `expected_body` CAS, §13.1;
 `vaultSetProp`'s `expected`, `src/lib/ipc.ts`), so a kind inherits the
 existing conflict guards and undo semantics for free rather than growing a
 second, weaker set.
+
+**A conflict is not the only rejection.** `ctx.sheet(title)` rejects when no
+sheet by that title exists, and re-throws the sheet's own parse error when it
+has one, rather than resolving to an empty table a kind would render as zeroes.
+`setProp` and `writeBody` reject on a missing or malformed guard — `expected`
+that isn't a `{ value }` object, an `expectedBody` that isn't a string — and
+they reject *before* any IPC: the check lives in ctx, so a kind that forgot the
+guard never reaches disk to find out. All of it arrives the same way a conflict
+does, as a rejected promise, so one `catch` per call covers the family; only
+what you tell the user differs.
 
 **ctx grows additively inside an api version**, so kinds **feature-check**
 rather than bump:
@@ -3699,8 +3709,9 @@ Plain notes the app treats specially — all optional, all just files:
   The backfill is **desktop-only**: the phone's
   vault container is pre-created before the engine starts, so a local write
   there would turn the first sync pull into an unrelated-histories merge. On
-  mobile these files arrive with everything else through git sync (§11), which
-  excludes only `.assets/`, `.trash/`, and `.DS_Store` — so a skill written on
+  mobile these files arrive with everything else through git sync (§11), whose
+  exclude list — `.assets/`, `.trash/`, `.DS_Store` and the three device-local
+  `.vault` JSONs — holds nothing of theirs, so a skill written on
   one device shows up on the others. `.claude/` is hidden (§1) and therefore
   never a note; `AGENTS.md` is an ordinary, frontmatter-less note in the index.
   **In-app concealment (added `Settings.md`)**: the engine

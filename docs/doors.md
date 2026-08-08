@@ -23,6 +23,11 @@ doesn't exist — and that's a doc bug worth filing.
 | CLI door | The same sidecar, called headlessly: `substrate-mcp <command> --client NAME` performs one scoped operation and exits, for scripts and cron. Same grants, same refusals, same receipts as the MCP door — one contract, not two. | [Headless callers](mcp-door.md#headless-callers--the-cli-door) · `substrate-mcp --help` · grant the client name in ⌘, Settings first |
 | Terminal HUD | ⌘⇧T embeds your own agent CLI (whatever command you configure in ⌘, Settings) in a persistent in-app terminal, cwd'd at the vault. | In-app: ⌘/ shortcut sheet, ⌘, Settings |
 
+The MCP door and the CLI door share one contract — threat model, scope engine,
+receipts, and the headless recipe — written up in [MCP door](mcp-door.md): the
+[setup snippet](mcp-door.md#setup-phase-1) for MCP clients and
+[Headless callers](mcp-door.md#headless-callers--the-cli-door) for the CLI.
+
 ## Ways out
 
 | Door | What it is | Contract / recipe |
@@ -31,11 +36,6 @@ doesn't exist — and that's a doc bug worth filing.
 | Export | Per-note Markdown (with assets) and PDF, per-database CSV of the current view, and link folders that mirror a saved view into Finder — plus the uninstall story. | [Export and uninstall](user/export-and-uninstall.md) |
 | Vault sync | Push/pull the vault's built-in Git history to an HTTPS remote you configure. Nothing is sent until you set a remote and choose Push. | [Sync and security](user/sync-and-security.md) |
 | Send as link | One note, encrypted on your Mac, shared through a relay; the key stays in the link fragment. | [Sync and security §What connects to the network](user/sync-and-security.md#what-connects-to-the-network) |
-
-Both doors share one contract — threat model, scope engine, receipts, and the
-headless recipe — written up in [MCP door](mcp-door.md): the
-[setup snippet](mcp-door.md#setup-phase-1) for MCP clients and
-[Headless callers](mcp-door.md#headless-callers--the-cli-door) for the CLI.
 
 ## Not planned
 

@@ -25,26 +25,20 @@ key and the note is just a note again.
 ## Frontmatter rules that bite
 
 - The block must start at byte 0 (`---`), close with a `---` line, and parse as
-  a YAML **mapping**. Anything else at the top level — a scalar, a list, invalid
-  YAML — reads as zero props and the note silently leaves its database. Values
-  may be nested: lists and maps are fine (dashboard config like `cards:` and
-  `pages:` depends on them).
+  a **flat** YAML mapping. Nested mappings make the note read as zero props —
+  it silently leaves its database.
 - **Broken or duplicate-key frontmatter locks the note out of the app's own
   property edits.** If you hand-write frontmatter, keep it boring.
-- Property edits and renames re-serialize the **whole** frontmatter block: keys
-  come out **alphabetically sorted** and quoting normalized — never depend on
-  key order, and don't put comments there. Body edits leave the block
-  byte-verbatim.
+- The app re-serializes frontmatter on edits: keys come out **alphabetically
+  sorted** and quoting normalized. Never depend on key order, and don't put
+  comments there.
 - Lists are YAML string lists (`- item` under the key). Checkboxes store `true`;
   unchecked means the key is **removed**, never `false`.
-- `created`, `title`, `type`, `calendar`, `repeat*` are app-meaningful. So is
-  `tags`: an ordinary string list in YAML, but the app unions it with inline
-  `#tags` from the body, and tag folders group notes by it.
-- Wikilinks work in the **body only** — `[[Note title]]`, with an optional
-  `#heading` anchor and `|alias` display text (`[[Note#Plan|the plan]]`). The
-  target resolves **case-insensitively** against a note's title or filename
-  stem. Frontmatter never produces links. `![[cover.png]]` is an asset embed
-  instead, resolved against `.assets/`.
+- `created`, `title`, `type`, `calendar`, `repeat*` are app-meaningful. `tags`
+  is not special — it's an ordinary list.
+- Wikilinks work in the **body only** — `[[Note title]]`, matching a note's
+  exact title or filename, no `|alias` form. Frontmatter never produces links.
+  `![[cover.png]]` is an asset embed instead, resolved against `.assets/`.
 - Literal code is not link syntax: a `[[link]]` inside a fenced block or an
   inline code span is an example, not a link — it is never indexed and a
   rename never rewrites it. That is how this file names the syntax safely.
@@ -52,11 +46,10 @@ key and the note is just a note again.
 ## Property kinds
 
 When a type is registered in the schema, each property may declare a `kind`:
-`text` (default), `date`, `number`, `checkbox`, `multi`, `relation`, `rollup`,
-`url`, `email`, `phone`, `file`. A text property with `options` renders as a
-select. Dates are `YYYY-MM-DD`, optionally ` HH:MM`. Relations store the target
-note's **title**, not a path; a `rollup` is a derived, read-only column over a
-relation's targets.
+`text` (default), `date`, `number`, `checkbox`, `multi`, `relation`, `url`,
+`email`, `phone`, `file`. A text property with `options` renders as a select.
+Dates are `YYYY-MM-DD`, optionally ` HH:MM`. Relations store the target note's
+**title**, not a path.
 
 ## Dashboards, sheets and views
 
@@ -93,9 +86,8 @@ backticks:
 - `saved` — alternative one-key form naming a pinned view by id or name; when
   present it wins over `type`/`query`.
 
-An unknown key or a malformed value shows a quiet inline error card instead of
-breaking the note — a typo says so rather than being silently ignored. Every
-fence in a body renders its own table.
+Unknown keys are ignored, every fence in a body renders its own table, and a
+malformed one shows a quiet inline error card instead of breaking the note.
 
 For the rest of the format — sheets and the formula language, the yield
 dashboard's csv snapshots, the metrics dashboard's `cards:` bindings, chart
@@ -188,8 +180,7 @@ vault:
 - `schema.json` — every database and its property definitions. **Read this
   first**: it tells you the real types and property names in use.
 - `views.json` — layout preferences, sidebar order, saved views.
-- `mounts.json` — folders on disk mounted in as databases (the live registry;
-  a `folders.json` beside it is the legacy form the app migrates from).
+- `folders.json` — external on-disk folders mirrored in as read-only stub notes.
 - `format.json` — format versions. **Never bump it**; a version above the app's
   makes that file read-only in Substrate.
 

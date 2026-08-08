@@ -632,7 +632,7 @@ pub(crate) const SEED_FILES: &[SeedFile] = &[
     SeedFile {
         rel: AGENTS_REL_PATH,
         current: include_str!("../seed/AGENTS.md"),
-        // legacy shipped seeds (v0.16.0-v0.22.0), then r1
+        // legacy shipped seeds (v0.16.0-v0.23a), then r2
         // Keep every distinct revision: an untouched vault may still hold any one.
         revisions: &[
             include_str!("../seed/revisions/agents-v0.16.md"),
@@ -641,6 +641,7 @@ pub(crate) const SEED_FILES: &[SeedFile] = &[
             include_str!("../seed/revisions/agents-v0.22.md"),
             include_str!("../seed/revisions/agents-v0.23.md"),
             include_str!("../seed/revisions/agents-v0.23a.md"),
+            include_str!("../seed/revisions/agents-v0.23b.md"),
             include_str!("../seed/AGENTS.md"),
         ],
     },
@@ -1000,6 +1001,7 @@ mod tests {
                     0x8e8c_be80_3589_fb9d,
                     0xa744_b690_eef8_7aec,
                     0xc651_7021_0189_440e,
+                    0x12d7_8f30_1519_1f30,
                 ],
             ),
             (CLAUDE_REL_PATH, &[0xa5e2_3bfd_dbde_1340]),

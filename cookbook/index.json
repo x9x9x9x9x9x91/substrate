@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-08-02",
+  "updated": "2026-08-08",
   "about": "Substrate dashboard cookbook — copyable surface recipes. Each recipe is a folder of plain markdown files: the dashboard note plus every sheet, database note, or contact it binds to, so a copied recipe renders with numbers on the first open. Install = copy the recipe's files into your vault (keep the Dashboards/ nesting or don't — folders never decide database membership). An agent can read any recipe and adapt the sample rows, formulas, and card binds to your real data.",
   "recipes": [
     {

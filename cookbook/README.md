@@ -24,7 +24,7 @@ one-line prompt.
 | [`news-feed/`](news-feed) | feed | agent-curated newsfeed; your ↑/↓ feed the curator back |
 | [`home-hub/`](home-hub) | hub | a designed home page from ordinary markdown |
 | [`release-charts/`](release-charts) | charts | bar charts over a database and a sheet |
-| [`label-accounting/`](label-accounting) | metrics + pages | a workbook: cards, sheets, and a database as bottom tabs |
+| [`label-accounting/`](label-accounting) | metrics | a workbook: cards, sheets, and a database as bottom tabs |
 | [`music-work/`](music-work) | music-work | years of work pivoted from one scanner-written sheet |
 | [`annual-report/`](annual-report) | metrics | the year in cards + charts, printable as a designed PDF |
 
