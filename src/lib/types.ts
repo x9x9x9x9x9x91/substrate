@@ -667,7 +667,7 @@ export type Actor =
   | { kind: "app" }
   | { kind: "mcp"; name: string }
   | { kind: "sync" }
-  | { kind: "bulk" }
+  | { kind: "bulk"; name: string }
   | { kind: "external" }
   | { kind: "external_tool"; name: string };
 

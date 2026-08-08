@@ -1,8 +1,32 @@
 //! Schema: databases, their properties, icons and folder mappings.
 
 use crate::vault::{BulkSweep, NewTypeProp, SchemaConfig, SelectOption};
-use crate::{AppState, SnapDirty};
+use crate::{AppState, HistoryState, SnapDirty};
 use tauri::State;
+
+/// Commit a finished sweep under the `bulk:` subject convention (receipts spec
+/// §4.2), so a receipt on a swept note names the run that swept it instead of
+/// falling back to the app.
+///
+/// Two things this deliberately does NOT do. It never fails the sweep: the
+/// notes are already rewritten, and a vault whose history is off (a foreign
+/// repo) or whose commit did not land must still hear what happened — the
+/// deferred auto-snapshot is the safety net, exactly as before. And it runs
+/// even for a sweep that stopped partway, because a partial sweep still wrote
+/// notes and those writes need their receipt.
+fn bulk_commit(h: &State<HistoryState>, summary: String) {
+    if let Some(hist) = h.0.lock().unwrap().as_ref() {
+        let _ = hist.snapshot(&format!("bulk: {summary}"));
+    }
+}
+
+fn notes(n: usize) -> &'static str {
+    if n == 1 {
+        "note"
+    } else {
+        "notes"
+    }
+}
 
 #[tauri::command]
 pub(crate) fn vault_schema_read(state: State<AppState>) -> SchemaConfig {
@@ -100,11 +124,17 @@ pub(crate) fn vault_create_type(
 pub(crate) fn vault_rename_type(
     state: State<AppState>,
     dirty: State<SnapDirty>,
+    h: State<HistoryState>,
     old: String,
     new: String,
 ) -> Result<BulkSweep, String> {
     dirty.mark();
-    state.0.lock().unwrap().rename_type(&old, &new)
+    let sweep = state.0.lock().unwrap().rename_type(&old, &new)?;
+    bulk_commit(
+        &h,
+        format!("renamed database “{old}” to “{new}” ({} {})", sweep.notes, notes(sweep.notes)),
+    );
+    Ok(sweep)
 }
 
 /// Delete a database: either strip `type:` from its notes (`trash_notes`
@@ -114,11 +144,17 @@ pub(crate) fn vault_rename_type(
 pub(crate) fn vault_delete_type(
     state: State<AppState>,
     dirty: State<SnapDirty>,
+    h: State<HistoryState>,
     db_type: String,
     trash_notes: bool,
 ) -> Result<BulkSweep, String> {
     dirty.mark();
-    state.0.lock().unwrap().delete_type(&db_type, trash_notes)
+    let sweep = state.0.lock().unwrap().delete_type(&db_type, trash_notes)?;
+    let n = sweep.notes;
+    // trashed and kept are materially different outcomes, so the receipt says which
+    let fate = if trash_notes { "to Trash" } else { "kept" };
+    bulk_commit(&h, format!("deleted database “{db_type}” — {n} {} {fate}", notes(n)));
+    Ok(sweep)
 }
 
 /// Rename one property: schema key move + bulk frontmatter key rewrite
@@ -127,12 +163,19 @@ pub(crate) fn vault_delete_type(
 pub(crate) fn vault_rename_prop(
     state: State<AppState>,
     dirty: State<SnapDirty>,
+    h: State<HistoryState>,
     db_type: String,
     old: String,
     new: String,
 ) -> Result<BulkSweep, String> {
     dirty.mark();
-    state.0.lock().unwrap().rename_prop(&db_type, &old, &new)
+    let sweep = state.0.lock().unwrap().rename_prop(&db_type, &old, &new)?;
+    let n = sweep.notes;
+    bulk_commit(
+        &h,
+        format!("renamed property “{old}” to “{new}” in “{db_type}” ({n} {})", notes(n)),
+    );
+    Ok(sweep)
 }
 
 /// Clean a removed property out of saved metadata, optionally stripping its
@@ -142,11 +185,17 @@ pub(crate) fn vault_rename_prop(
 pub(crate) fn vault_clear_prop(
     state: State<AppState>,
     dirty: State<SnapDirty>,
+    h: State<HistoryState>,
     db_type: String,
     prop: String,
     was_number: bool,
     strip_values: bool,
 ) -> Result<BulkSweep, String> {
     dirty.mark();
-    state.0.lock().unwrap().clear_prop(&db_type, &prop, was_number, strip_values)
+    let sweep = state.0.lock().unwrap().clear_prop(&db_type, &prop, was_number, strip_values)?;
+    let n = sweep.notes;
+    // without strip_values no note was touched at all — say so rather than "(0 notes)"
+    let scope = if strip_values { format!("({n} {})", notes(n)) } else { "(schema only)".into() };
+    bulk_commit(&h, format!("removed property “{prop}” from “{db_type}” {scope}"));
+    Ok(sweep)
 }

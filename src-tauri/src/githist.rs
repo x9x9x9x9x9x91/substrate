@@ -433,6 +433,7 @@ fn fact_lane_in(
             author.name().unwrap_or_default(),
             author.email().unwrap_or_default(),
             &entry.subject,
+            commit.message().unwrap_or(&entry.subject),
         );
         readings.push(FactPoint {
             commit: entry.id.clone(),
@@ -2090,6 +2091,34 @@ mod tests {
         assert_eq!(value_at(&lane, noon_ms("2026-02-15")), FactAnswer::Value("70".into()));
         // after the delete the fact has no value — and does not carry forward
         assert_eq!(value_at(&lane, noon_ms("2026-04-01")), FactAnswer::Absent);
+    }
+
+    #[test]
+    fn fact_lane_reads_the_bulk_subject_and_the_tool_trailer() {
+        use crate::factlane::Actor;
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        let history = history_vault(&root);
+
+        fs::write(root.join("Weight.md"), weight_note("70", "start")).unwrap();
+        dated_snapshot(&root, "snapshot", "2026-01-01T12:00:00+00:00");
+        fs::write(root.join("Weight.md"), weight_note("71", "swept")).unwrap();
+        dated_snapshot(&root, "bulk: renamed property “kg” to “weight” (4 notes)", "2026-02-01T12:00:00+00:00");
+        // an outside writer that committed for itself and said which tool it is
+        fs::write(root.join("Weight.md"), weight_note("72", "imported")).unwrap();
+        dated_snapshot(&root, "import\n\nSubstrate-Tool: Obsidian", "2026-03-01T12:00:00+00:00");
+
+        let lane = history.fact_lane("Weight.md", "weight").unwrap();
+        assert_eq!(
+            lane.points.iter().map(|p| p.actor.clone()).collect::<Vec<_>>(),
+            vec![
+                Actor::App,
+                Actor::Bulk("renamed property “kg” to “weight” (4 notes)".into()),
+                Actor::ExternalTool("Obsidian".into()),
+            ]
+        );
+        // the raw subject stays the first line — the trailer lives in the body
+        assert_eq!(lane.points[2].subject, "import");
     }
 
     #[test]

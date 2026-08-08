@@ -38,22 +38,35 @@ pub enum Actor {
     Mcp(String),
     /// A vault sync merge.
     Sync,
-    /// One write inside a labelled bulk operation (`bulk: …` subjects, §4.2).
-    /// Read-side only in v1 — nothing in this tree writes that subject yet.
-    Bulk,
-    /// An edit made outside Substrate, self-declared by the snapshot's
-    /// `external:` trailer (§4.3). Reserved: the trailer is slice 4, so no
-    /// commit in this tree maps here yet.
+    /// One write inside a labelled bulk operation (`bulk: …` subjects, §4.2),
+    /// carrying the run's own summary — a receipt for a swept note names the
+    /// run that swept it, not the app.
+    Bulk(String),
+    /// An edit made outside Substrate, self-declared but unnamed. Reserved: the
+    /// `Substrate-Tool:` trailer (§4.3) always carries a name, so it maps to
+    /// `ExternalTool` and nothing in this tree lands here yet.
     External,
-    /// Some other git identity entirely — a user's own repo, a script, another
-    /// tool. Carries the author verbatim.
+    /// Some other tool entirely — a user's own repo, a script, an editor.
+    /// Carries the name it declared in the `Substrate-Tool:` trailer, or, with
+    /// no trailer, the commit author verbatim.
     ExternalTool(String),
 }
 
-/// The §4.4 render rule, keyed on author then subject. `author` is the commit
-/// author's display name, `author_email` its email, `subject` the commit's
-/// first line.
-pub fn actor_for(author: &str, author_email: &str, subject: &str) -> Actor {
+/// The trailer an outside writer adds to a commit it makes in the vault repo
+/// itself, to say which tool it is (§4.3). Substrate never writes it.
+pub const TOOL_TRAILER: &str = "Substrate-Tool:";
+
+/// The §4.4 render rule, keyed on trailer, then author, then subject. `author`
+/// is the commit author's display name, `author_email` its email, `subject` the
+/// commit's first line, `message` its whole message (the trailer lives in the
+/// body).
+pub fn actor_for(author: &str, author_email: &str, subject: &str, message: &str) -> Actor {
+    // A self-declaration outranks every guess below it: a tool committing to
+    // the vault repo can inherit any author git hands it, including the user's
+    // own, and the name it gave itself is the more specific truth (§4.3).
+    if let Some(tool) = tool_trailer(message) {
+        return Actor::ExternalTool(tool);
+    }
     if author_email == "mcp@local" {
         return Actor::Mcp(mcp_client(subject));
     }
@@ -61,14 +74,34 @@ pub fn actor_for(author: &str, author_email: &str, subject: &str) -> Actor {
     if subject.starts_with("vault sync merge") {
         return Actor::Sync;
     }
-    if subject.starts_with("bulk: ") {
-        return Actor::Bulk;
+    if let Some(run) = subject.strip_prefix("bulk: ") {
+        return Actor::Bulk(run.trim().to_string());
     }
     if author_email == "substrate@local" {
         return Actor::App;
     }
     let who = if author.trim().is_empty() { author_email } else { author };
     Actor::ExternalTool(who.to_string())
+}
+
+/// The tool name out of a `Substrate-Tool: <name>` trailer. Body lines only —
+/// a subject that merely mentions the trailer is prose, not a declaration — and
+/// the last one wins, the way git reads a repeated trailer. A trailer with no
+/// name declares nothing, so it falls through to the normal rules.
+fn tool_trailer(message: &str) -> Option<String> {
+    message
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let line = line.trim();
+            let key = line.get(..TOOL_TRAILER.len())?;
+            if !key.eq_ignore_ascii_case(TOOL_TRAILER) {
+                return None;
+            }
+            let name = line[TOOL_TRAILER.len()..].trim();
+            (!name.is_empty()).then(|| name.to_string())
+        })
+        .last()
 }
 
 /// The client name out of an MCP door subject — `mcp: {tool} {rel} ({client})`.
@@ -297,30 +330,36 @@ mod tests {
     // §4.4 render rules — author first, then subject. Fixtures mirror the
     // conventions table in §4 (one per writer that exists today).
 
+    /// A commit whose message is just its subject — the shape of every writer
+    /// in the §4 table.
+    fn actor_of(author: &str, email: &str, subject: &str) -> Actor {
+        actor_for(author, email, subject, subject)
+    }
+
     #[test]
     fn mcp_door_commits_carry_their_client() {
         assert_eq!(
-            actor_for("Substrate MCP", "mcp@local", "mcp: note_write Health/Weight.md (Claude)"),
+            actor_of("Substrate MCP", "mcp@local", "mcp: note_write Health/Weight.md (Claude)"),
             Actor::Mcp("Claude".into())
         );
         // a path with its own parentheses: the TRAILING group is the client
         assert_eq!(
-            actor_for("Substrate MCP", "mcp@local", "mcp: note_write Trips/Rome (2024).md (Cursor)"),
+            actor_of("Substrate MCP", "mcp@local", "mcp: note_write Trips/Rome (2024).md (Cursor)"),
             Actor::Mcp("Cursor".into())
         );
         // an older door commit with no client suffix still reads as MCP
         assert_eq!(
-            actor_for("Substrate MCP", "mcp@local", "mcp: note_write Health/Weight.md"),
+            actor_of("Substrate MCP", "mcp@local", "mcp: note_write Health/Weight.md"),
             Actor::Mcp(String::new())
         );
     }
 
     #[test]
     fn sync_merges_read_as_sync() {
-        assert_eq!(actor_for("Substrate", "substrate@local", "vault sync merge"), Actor::Sync);
+        assert_eq!(actor_of("Substrate", "substrate@local", "vault sync merge"), Actor::Sync);
         // gitsync appends conflict counts
         assert_eq!(
-            actor_for("Substrate", "substrate@local", "vault sync merge (2 conflicts)"),
+            actor_of("Substrate", "substrate@local", "vault sync merge (2 conflicts)"),
             Actor::Sync
         );
     }
@@ -336,7 +375,7 @@ mod tests {
             "external edit to Health/Weight.md before restore",
         ] {
             assert_eq!(
-                actor_for("Substrate", "substrate@local", subject),
+                actor_of("Substrate", "substrate@local", subject),
                 Actor::App,
                 "subject: {subject}"
             );
@@ -344,20 +383,75 @@ mod tests {
     }
 
     #[test]
-    fn a_bulk_subject_reads_as_bulk() {
-        assert_eq!(actor_for("Substrate", "substrate@local", "bulk: rename tag"), Actor::Bulk);
+    fn a_bulk_subject_carries_its_run_summary() {
+        assert_eq!(
+            actor_of("Substrate", "substrate@local", "bulk: renamed database “Books” to “Reading” (3 notes)"),
+            Actor::Bulk("renamed database “Books” to “Reading” (3 notes)".into())
+        );
+        // a bare prefix is still a bulk run, just one that can only say so
+        assert_eq!(actor_of("Substrate", "substrate@local", "bulk: "), Actor::Bulk(String::new()));
+        // "bulk" without the separator is somebody's own commit, not ours
+        assert_eq!(
+            actor_of("Robin", "robin@example.com", "bulk rename by hand"),
+            Actor::ExternalTool("Robin".into())
+        );
     }
 
     #[test]
     fn a_foreign_author_is_an_external_tool() {
         assert_eq!(
-            actor_for("Robin", "robin@example.com", "fix typo"),
+            actor_of("Robin", "robin@example.com", "fix typo"),
             Actor::ExternalTool("Robin".into())
         );
         // no display name: the email is the best name there is
         assert_eq!(
-            actor_for("", "scripts@ci", "nightly import"),
+            actor_of("", "scripts@ci", "nightly import"),
             Actor::ExternalTool("scripts@ci".into())
+        );
+    }
+
+    // §4.3 — the `Substrate-Tool:` trailer an outside writer adds to name itself.
+
+    #[test]
+    fn a_tool_trailer_names_the_writer() {
+        assert_eq!(
+            actor_for("Robin", "robin@example.com", "sync inbox", "sync inbox\n\nSubstrate-Tool: Obsidian\n"),
+            Actor::ExternalTool("Obsidian".into())
+        );
+        // the trailer beats even Substrate's own identity: a tool that copied
+        // the repo's author config is still that tool
+        assert_eq!(
+            actor_for("Substrate", "substrate@local", "snapshot", "snapshot\n\nSubstrate-Tool: importer\n"),
+            Actor::ExternalTool("importer".into())
+        );
+        // git reads trailer keys case-insensitively, and the last one wins
+        assert_eq!(
+            actor_for("Robin", "robin@example.com", "edit", "edit\n\nsubstrate-tool: First\nSubstrate-Tool: Last\n"),
+            Actor::ExternalTool("Last".into())
+        );
+    }
+
+    #[test]
+    fn a_trailer_that_declares_nothing_falls_through() {
+        // in the subject it is prose, not a declaration
+        assert_eq!(
+            actor_for(
+                "Substrate",
+                "substrate@local",
+                "snapshot Substrate-Tool: Obsidian",
+                "snapshot Substrate-Tool: Obsidian",
+            ),
+            Actor::App
+        );
+        // an empty name says who as poorly as no trailer at all
+        assert_eq!(
+            actor_for("Substrate", "substrate@local", "snapshot", "snapshot\n\nSubstrate-Tool:   \n"),
+            Actor::App
+        );
+        // and a body without one is the ordinary case
+        assert_eq!(
+            actor_for("Substrate", "substrate@local", "snapshot", "snapshot\n\nsome body text\n"),
+            Actor::App
         );
     }
 
@@ -367,6 +461,10 @@ mod tests {
         assert_eq!(json(Actor::App), r#"{"kind":"app"}"#);
         assert_eq!(json(Actor::Sync), r#"{"kind":"sync"}"#);
         assert_eq!(json(Actor::Mcp("Claude".into())), r#"{"kind":"mcp","name":"Claude"}"#);
+        assert_eq!(
+            json(Actor::Bulk("renamed 3 notes".into())),
+            r#"{"kind":"bulk","name":"renamed 3 notes"}"#
+        );
         assert_eq!(
             json(Actor::ExternalTool("Robin".into())),
             r#"{"kind":"external_tool","name":"Robin"}"#

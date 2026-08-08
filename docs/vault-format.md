@@ -3358,7 +3358,10 @@ same rule.
 - **Snapshots** land as commits: one baseline at app launch, then after activity
   (the vault quiet for 120s, or a 600s continuous editing stretch, checked every
   15s), and a final one at quit. A clean tree never commits. Labels: `snapshot`,
-  `snapshot (quit)`, `restore <path>`, `snapshot (history trimmed)`.
+  `snapshot (quit)`, `restore <path>`, `snapshot (history trimmed)`, and
+  `bulk: <run summary>` for a schema sweep, which commits its own work so the
+  notes it rewrote carry a receipt naming the run
+  (`src-tauri/src/commands/schema.rs`).
 - **Excluded** (via `.git/info/exclude`, written at init —
   `src-tauri/src/history.rs` `EXCLUDE_CONTENT`): `.assets/`, `.trash/`,
   `.DS_Store`, and the device-local state files written off the engine lock —
@@ -3412,6 +3415,22 @@ same rule.
   rewrite") instead of raw git wording.
 - External writers: **never touch `.git/`** — no commits, no config, no excludes.
   Your file writes are picked up and snapshotted by the app itself.
+- **`Substrate-Tool: <name>` — the one thing a writer that does commit should
+  say.** A tool that owns the repository itself (a user's own git workflow, an
+  importer, a script) is outside the rule above and gets no attribution from
+  the author line alone, which git may set to the user's own name — or to
+  Substrate's, if it copied the repo config. Adding the trailer to the commit
+  **body** (not the subject) names the writer, and receipts show that name
+  instead of guessing from the author. Read-only: Substrate never writes this
+  trailer, never requires it, and a commit without it still gets a receipt —
+  just a vaguer one. The key is matched case-insensitively and the last
+  occurrence wins, as git reads a repeated trailer.
+
+  ```
+  import from Things
+
+  Substrate-Tool: Things Importer
+  ```
 
 ### Sync conflicts and how they resolve
 
@@ -3745,7 +3764,9 @@ external write races an open editor.
 6. **Filenames follow titles.** Create with the final title. If you rename a file
    directly, update the `[[links]]` yourself — or use the IPC rename, which
    rewrites them vault-wide.
-7. **Never write inside `.git/`** (app-owned), and treat `.trash/` as read-only.
+7. **Never write inside `.git/`** (app-owned) — a tool that owns the repo itself
+   is the exception, and should name itself with a `Substrate-Tool: <name>`
+   commit trailer (§11) so receipts can credit it. Treat `.trash/` as read-only.
    Drop files into `.assets/` only by its naming rules (§9) — via IPC when possible.
 8. **Stay out of hidden paths** unless you mean it: nothing under a `.` component
    is indexed, searched, or watched.

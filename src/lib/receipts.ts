@@ -27,8 +27,12 @@ const isAppSubject = (subject: string) =>
 /** How one change point names its author, in the app's personal wording
     (spec §4.4): "You" for this app, the client name for
     an MCP write, "sync" for a merge, "external edit" for a self-declared
-    outside write, "external tool (<author>)" for a foreign git identity — and
-    "In the app" for history written before Substrate had any conventions. */
+    outside write, the tool's own name for a write that came from outside
+    Substrate — and "In the app" for history written before Substrate had any
+    conventions.
+
+    A bulk row names the run rather than repeating "You" across every note it
+    swept: the reader's question about a swept fact is which sweep did it. */
 export function actorText(actor: Actor, subject = ""): string {
   switch (actor.kind) {
     case "app":
@@ -38,11 +42,12 @@ export function actorText(actor: Actor, subject = ""): string {
     case "sync":
       return "sync";
     case "bulk":
-      return "You";
+      // a run that could not say what it did is still a run of yours
+      return actor.name ? `You — ${actor.name}` : "You";
     case "external":
       return "external edit";
     case "external_tool":
-      return `external tool (${actor.name})`;
+      return actor.name;
   }
 }
 
