@@ -93,7 +93,8 @@
     },
     "macOS": {
       "signingIdentity": null,
-      "hardenedRuntime": true
+      "hardenedRuntime": true,
+      "minimumSystemVersion": "10.15"
     },
     "iOS": {
       "developmentTeam": null
