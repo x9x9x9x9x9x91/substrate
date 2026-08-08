@@ -3,6 +3,59 @@
 <!-- Generated from src/lib/changelog.ts by scripts/gen-changelog.ts.
      Edit that file, then run `node scripts/gen-changelog.ts`. -->
 
+## 0.23.0 — 2026-08-08 — Every fact shows its receipts, and agents get a proper front door
+
+### Highlights
+
+- Receipts: every property remembers who set it. Hover a chip and a small clock appears
+  — click it for the value's history, each change as value, author and time ("You",
+  "Claude (via MCP)", an outside tool by name), newest first. Click a row to jump time
+  travel to that exact moment; the footer links the note's full history and always says
+  how far back the record goes.
+- Agents get a front door: a built-in MCP server — with a headless CLI twin — lets
+  Claude and other assistants read and write the vault through the app's own rules,
+  never behind its back. You grant each client its folders in Settings and revoke them
+  there; a client without a grant cannot connect at all. The door's manual ships with
+  the public repo.
+
+### New
+
+- The calendar gains a day view — one day, laid out by hour, alongside month and week —
+  and events stretch: drag an event's edge to set how long it runs, or set an end time
+  in the peek.
+- Today grew into its job: notes can be picked into the day from other lists, dateless
+  notes can be picked at all, and the whole pane drives from the keyboard.
+- Notes grow tags: #hashtags typed in prose and a tags: property both count, and tag
+  folders in the sidebar collect every note carrying theirs — saved queries you never
+  have to write.
+- Prose can compute: an inline code span opening with = renders its answer in place (`=
+  Masters.count` reads as a number inside the sentence), and numbers understand units —
+  columns carry one, sums and averages respect it, and 25 USD in EUR is an expression,
+  not a search.
+- A folder of audio plays as a playlist, and a mini-player keeps it going while you work
+  anywhere else in the app.
+- Reach, in both directions: substrate:// links open the app from anywhere onto a note
+  or a prefilled capture box; search sees into mounted folders; sheets gain a totals
+  row, filtered sums, and column notifications that open the sheet at the row that
+  fired; property kinds can ship as bundles inside the vault; dashboards compose on a
+  grid; a settings dial picks the one locale every date renders in; and a glow dial with
+  curated accent tones joins Settings.
+
+### Improved
+
+- The design refresh: the big empty states draw purpose-made hero marks in the app's
+  lit-slab language, onboarding leads with the product mark, hover copy on the main
+  surfaces moved into instant styled tooltips, the front-door empties offer their one
+  clear action as a real button, live database embeds on hub pages edit like the
+  editor's own tables, and back and undo gained mouse paths.
+
+### Fixed
+
+- Fixes with names: dashboards paint from the snapshot they already hold instead of
+  flashing blank; a failed bulk write says which notes failed and why; property edits
+  from the palette report their errors; editing a chip shows the new value immediately
+  instead of snapping back; and mounted folders behave on case-insensitive disks.
+
 ## 0.22.0 — 2026-08-03 — Time travel for the whole vault, and a calendar that follows your feeds
 
 ### Highlights
