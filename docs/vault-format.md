@@ -845,7 +845,13 @@ Sidebar icon: each dashboard row renders a curated per-kind glyph
 `feed`, `music-work`, `tasks`,
 plus any machine-specific kinds this build carries); an `icon:` prop overrides
 it (a curated glyph id, anything else treated as an emoji), and kinds without a
-mark keep the generic chart glyph.
+mark keep the generic chart glyph. The curated glyph ids (`src/lib/dbicons.ts`
+`GLYPHS`): `music`, `mic`, `disc`, `sliders`, `wrench`, `calendar`, `cart`,
+`book`, `bookmark`, `heart`, `star`, `home`, `folder`, `archive`, `inbox`,
+`pen`, `tag`, `image`, `user`, `users`, `globe`, `pin`, `coffee`, `leaf`,
+`bulb`, `zap`, `clock`, `briefcase`, `gift`, `camera`, `code`, `dumbbell`,
+`wallet`, `gamepad`, `plane`, `database`, `chart`, `grid`, `shirt`,
+`utensils`, `flame`, `download`, `refresh`.
 
 Dispatch (`src/components/DashboardPane.tsx` `DashboardBody`) — a fixed key set.
 These public kinds are dispatched: `metrics` → the metrics cards renderer (§5.4);
@@ -1638,6 +1644,12 @@ grammar is the intersection of what is unambiguous in all three.
   path join. A leading dot would hide the code that runs; a control character
   would let a filename carry the `0x0A` the bundle hash joins names with, so
   two different bundles could share one digest.
+- `style`, when named, is fetched and injected as a `<style>` element inside
+  the kind's pane — **document-global CSS scope, not a shadow root** — so
+  prefix every selector with something yours (`gear-`) and avoid bare element
+  selectors; an unprefixed rule styles the rest of the app for as long as the
+  pane is open. The element is removed on unmount, and a style that fails to
+  load is not fatal: the kind mounts unstyled rather than not at all.
 - `icon` (optional) resolves through the curated glyph set (§5.2); `author`
   (optional) is shown on the enable card.
 
@@ -1746,7 +1758,11 @@ export default {
 the kind owns outright. Its return value, when it returns one, is a cleanup
 function run on unmount — detach listeners and cancel timers there. The kind
 does **not** re-mount on every vault change: it subscribes with `ctx.onChange`
-and redraws itself.
+and redraws itself. `el` itself is stable across those redraws — only its
+children are replaced when a kind redraws with `innerHTML` — so the pattern
+for interactive kinds is one delegated listener bound on `el` in `mount`
+(with `data-` attributes carrying the target), not per-child listeners that
+die with every redraw.
 
 The **host renders the head**. A kind draws its body only; the title bar, the
 source-note button and the state dot are the app's, so every dashboard —
@@ -1773,23 +1789,27 @@ or `ctx.toast`.
 | `ctx.api` | `number` | The contract version actually handed over — what the kind got, not what it asked for. |
 | `ctx.el` | `Element` | The same element passed as the first argument, for convenience. |
 | `ctx.note` | `{ path, title, props, body }` | The dashboard note the kind is mounted in: its vault path, title, frontmatter props and raw body. |
-| `ctx.css` | `Record<string, string>` | Sanctioned class names — `dash-metrics`, `dash-metric`, `dash-label`, `dash-value`, `dash-table`, `dash-card`, `dash-section-label` and friends. Rendering through these is how a kind speaks in the app's voice and follows its theme; a kind may also ship its own `style.css`. |
-| `ctx.notes(filter?)` | `⇒ Promise<NoteMeta[]>` | The note index — path, stem, title, folder, props, `updated_ms`, excerpt. The optional filter narrows it. |
+| `ctx.css` | `Record<string, string>` | Sanctioned class names, the full api-1 roster: `dash-metrics`, `dash-metric`, `dash-metric-sub`, `dash-label`, `dash-value`, `dash-sub`, `dash-hero`, `dash-table`, `dash-card`, `dash-cards`, `dash-section-label`, `dash-link`, `dash-foot`. Rendering through these is how a kind speaks in the app's voice and follows its theme; a kind may also ship its own `style.css`. A key not in the map reads as `undefined` — interpolated straight into a template string that becomes `class="undefined"` — so look keys up defensively (`ctx.css["dash-hero"] ?? ""`) and put anything the roster doesn't cover on your own prefixed classes. |
+| `ctx.notes(filter?)` | `⇒ Promise<NoteMeta[]>` | The note index — path, stem, title, folder, props, `updated_ms`, excerpt. The optional filter is a plain predicate, `(n) => boolean`, applied per note: `ctx.notes((n) => n.props.type === "gear")`. |
 | `ctx.read(path)` | `⇒ Promise<…>` | One note's frontmatter and body. |
 | `ctx.sheet(title)` | `⇒ Promise<…>` | A sheet fence, parsed and evaluated — headers, typed rows, computed columns — so a kind doesn't reimplement the sheet grammar (§5.6). |
 | `ctx.setProp(path, key, value, expected)` | `⇒ Promise<…>` | Write one frontmatter property. |
 | `ctx.writeBody(path, body, expectedBody)` | `⇒ Promise<…>` | Replace a note's body. |
 | `ctx.create(…)` | `⇒ Promise<NoteMeta>` | Create a note — title, folder, type, props, body. |
-| `ctx.onChange(cb)` | `⇒ unsub` | Subscribe to vault changes; call the returned function to unsubscribe. This is the redraw signal. |
+| `ctx.onChange(cb)` | `⇒ unsub` | Subscribe to vault changes; call the returned function to unsubscribe. This is the redraw signal. The callback gets no arguments — it says "something changed", not what — and changes may arrive in bursts, so an async redraw should drop stale responses (a generation counter) rather than assume one event per draw. |
 | `ctx.openNote(path)` | `⇒ void` | Open a note in the app, the way a row click does. |
 | `ctx.toast(msg, action?)` | `⇒ void` | The app's single toast slot; the optional action is a `{ label, run }` button. |
-| `ctx.setState(s \| null)` | `⇒ void` | Feed the head's state dot — `{ color, label }` shows it, `null` keeps it quiet. |
+| `ctx.setState(s \| null)` | `⇒ void` | Feed the head's state dot — `{ color, label }` shows it, `null` keeps it quiet. `color` is any CSS color, painted as the dot's background; omit it for a label with no dot. |
 
 **`expected` and `expectedBody` are required on writes.** Both are
 compare-and-swap guards: the write is refused with a conflict rather than
 applied when the value on disk has changed since the kind read it
 (`expected: { value }`, `{ value: null }` = "expected absent"; `expectedBody`
-is the body the kind believes is there). The app itself may write
+is the body the kind believes is there). **A refusal is a rejected promise** —
+`try/catch` the call, tell the user (`ctx.toast`), and redraw from a fresh
+read; a resolved promise means the write landed. A successful write also fires
+the kind's own `ctx.onChange` like any other vault change, so make redraws
+idempotent rather than special-casing your own writes. The app itself may write
 unconditionally in places where it knows it holds the only copy; a kind never
 does — an unconditional write from vault-resident code is a clobber of
 whatever the user or another surface did in between. Reads and writes ride the

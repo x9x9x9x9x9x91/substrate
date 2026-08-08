@@ -625,17 +625,26 @@ export default {
 
 `el` is yours to fill; the app draws the header above it. `ctx.css` hands you
 the app's own class names, so a kind that renders through them picks up the
-current theme instead of inventing a second look. `ctx.onChange` is the redraw
+current theme instead of inventing a second look — the full roster and the
+missing-key rule are in the contract ([vault-format.md §5.8](vault-format.md)).
+`ctx.onChange` is the redraw
 signal — `mount` runs once, and the returned function is your cleanup on
-unmount. `ctx.setState({ color, label })` lights the dot in the header;
-`null` keeps it quiet.
+unmount. `el` stays the same element across redraws while your `innerHTML`
+replaces its children, so wire clicks as one delegated listener on `el`, not
+on children that vanish with the next draw. `ctx.setState({ color, label })`
+lights the dot in the header — `color` is any CSS color; `null` keeps it
+quiet.
 
-Beyond `notes()`, ctx gives you `read(path)`, `sheet(title)` (a parsed,
+Beyond `notes()` (whose optional argument is a plain predicate:
+`ctx.notes((n) => n.props.type === "gear")`), ctx gives you `read(path)`,
+`sheet(title)` (a parsed,
 evaluated sheet fence), `create(…)`, `openNote(path)`, `toast(msg, action?)`
 and the two writes. **Writes take a compare-and-swap guard and it isn't
 optional** — `setProp(path, key, value, expected)` and
 `writeBody(path, body, expectedBody)` refuse rather than overwrite when the
-note changed since you read it. Check before calling anything you're not sure
+note changed since you read it; the refusal is a rejected promise, so catch
+it, toast, and redraw from a fresh read. Check before calling anything you're
+not sure
 this build has (`if (ctx.sheet) …`): ctx gains members without bumping `api`.
 
 **Enabling it is a deliberate act.** A kind runs with the same access as
