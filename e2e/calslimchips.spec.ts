@@ -49,6 +49,14 @@ test("month chips are lines: identity bar, no icon; timed entries keep their tim
     .evaluate((el) => getComputedStyle(el).backgroundColor);
   expect(eventBar).not.toEqual(taskBar);
 
+  // a chip answers the pointer — the month grid's transparent base used to
+  // swallow the shared hover and leave the surface dead under the cursor
+  const idleBg = await event.evaluate((el) => getComputedStyle(el).backgroundColor);
+  await event.hover();
+  await expect
+    .poll(() => event.evaluate((el) => getComputedStyle(el).backgroundColor))
+    .not.toBe(idleBg);
+
   // week cards keep the icon language (the room argument cuts the other way)
   await page.locator(".cal .db-switch button", { hasText: "Week" }).click();
   await expect(page.locator(".cal-grid.week")).toBeVisible();

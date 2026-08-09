@@ -64,6 +64,27 @@ test("calendar Upcoming rail: fade gated on the rail's own overflow", async ({ p
   await expect(rail).not.toHaveClass(/edge-more-y/);
 });
 
+test("expanded month cell: fade gated on the cell's own overflow", async ({ page }) => {
+  await page.goto("/");
+  await page.locator(".side-item", { hasText: "Calendar" }).first().click();
+  await expect(page.locator(".cal-grid.month")).toBeVisible();
+
+  // today's fixture day holds enough entries to overflow its cell once
+  // expanded — that overflow is what the fade must mark
+  await page.locator(".cal-more").first().click();
+  const cell = page.locator(".cal-day.expanded");
+  await expect(cell).toBeVisible();
+  const dims = await cell.evaluate((el) => ({ sh: el.scrollHeight, ch: el.clientHeight }));
+  expect(dims.sh).toBeGreaterThan(dims.ch);
+
+  await expect(cell).toHaveClass(/edge-more-y/);
+  expect(await cell.evaluate((el) => getComputedStyle(el).maskImage)).not.toBe("none");
+
+  // bottom stop: the last entry row renders crisp
+  await toBottom(page, ".cal-day.expanded");
+  await expect(cell).not.toHaveClass(/edge-more-y/);
+});
+
 test("charts dashboard: bottom fade while charts continue past the pane", async ({ page }) => {
   await page.goto("/");
   await page

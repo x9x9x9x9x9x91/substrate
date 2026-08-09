@@ -193,6 +193,12 @@ export default function CalendarPane({
   // so a full agenda cut its last row in half with nothing saying more was
   // below it.
   const agendaFade = useEdgeFade<HTMLDivElement>();
+  // An expanded "+N more" cell scrolls its full list (`.cal-day.expanded`),
+  // and a 9-entry day clips rows mid-glyph at the cell's bottom border with
+  // nothing saying more is there — the same defect the shared gate exists
+  // for. One instance is enough: expandedIso is single-valued, and the
+  // callback ref re-attaches as expansion moves between cells.
+  const expandedFade = useEdgeFade<HTMLDivElement>();
   // Opening an entry unmounts the pane (the note takes the view), so
   // both of these have to outlive the mount or coming back — ⌫, or the sidebar
   // — silently resets the calendar you were reading. `cursor` is session
@@ -2255,7 +2261,10 @@ export default function CalendarPane({
       <div
         key={iso}
         data-iso={iso}
-        className={cls}
+        className={`${cls}${expanded ? expandedFade.className : ""}`}
+        // the fade's ref/onScroll only ride the one expanded cell — a
+        // collapsed cell hides overflow behind "+N more", not a scroll edge
+        {...(expanded ? expandedFade.props : {})}
         // The month cell had the same anonymous-div shape as the week
         // strip — only its day-number button was named, which names the button,
         // not the day. Same `group` treatment, same reason it isn't `gridcell`

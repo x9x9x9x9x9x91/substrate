@@ -11911,6 +11911,13 @@ span.asset-thumb svg {
   background: transparent;
 }
 
+/* the transparent base above outweighs the shared .cal-entry:hover, so month
+   chips need their own — same token, same feedback as every other entry
+   surface (external/selected keep winning via their later rules) */
+.cal-grid.month .cal-entry:hover {
+  background: var(--active);
+}
+
 /* the identity bar: 3×12, rounded, the entry's --entry-tint (set inline by
    the component from typeTint). Overdue re-colors it --danger below — one
    mark, one meaning at a time. */
