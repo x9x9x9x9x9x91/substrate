@@ -217,3 +217,37 @@ test("list + gallery bodies: fade gated on the view's own overflow (SUB-1212)", 
   await expect(small).not.toHaveClass(/edge-more-y/);
   expect(await small.evaluate((el) => getComputedStyle(el).maskImage)).toBe("none");
 });
+
+test("Today's day scroller: fade gated on the day's own overflow (SUB-1215)", async ({
+  page,
+}) => {
+  // short window: the fixture day (three lanes, ~14 rows) overflows
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await page.goto("/");
+  await page.locator(".side-item", { hasText: "Today" }).click();
+  const day = page.locator(".today-scroll");
+  await expect(day).toBeVisible();
+
+  const dims = await day.evaluate((el) => ({ sh: el.scrollHeight, ch: el.clientHeight }));
+  expect(dims.sh).toBeGreaterThan(dims.ch);
+
+  // top: more below, nothing clipped above
+  await expect(day).toHaveClass(/edge-more-y/);
+  await expect(day).not.toHaveClass(/edge-scrolled-y/);
+  expect(await day.evaluate((el) => getComputedStyle(el).maskImage)).not.toBe("none");
+
+  // bottom stop: the last lane renders crisp
+  await toBottom(page, ".today-scroll");
+  await expect(day).not.toHaveClass(/edge-more-y/);
+  expect(await day.evaluate((el) => getComputedStyle(el).maskImage)).toBe(
+    "linear-gradient(rgba(0, 0, 0, 0), rgb(0, 0, 0) 14px)",
+  );
+
+  // a day that fits its window fades neither end
+  await page.setViewportSize({ width: 1280, height: 1200 });
+  await expect(day).not.toHaveClass(/edge-more-y/);
+  await expect(day).not.toHaveClass(/edge-scrolled-y/);
+  const fits = await day.evaluate((el) => ({ sh: el.scrollHeight, ch: el.clientHeight }));
+  expect(fits.sh).toBeLessThanOrEqual(fits.ch + 1);
+  expect(await day.evaluate((el) => getComputedStyle(el).maskImage)).toBe("none");
+});

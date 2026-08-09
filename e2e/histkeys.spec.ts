@@ -95,9 +95,24 @@ test("trim date picks through DateMenu; a future date is refused inline", async 
   const dateBtn = page.locator(".hist-purge-date");
   const menu = page.locator(".datemenu");
 
-  // open, pick (grid), commit — today lands on the button, no error
+  // open, pick (grid), commit — today lands on the button, no error.
+  // The menu opens on the stored value's month (~30 days back); today's
+  // cell only appears in that grid while the two months' 42-cell windows
+  // overlap, so step forward to today's month before picking — the pick
+  // must not depend on where in the month the run happens to fall.
+  const monthsLong = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+  ];
+  const todayMonthLabel = `${monthsLong[now.getMonth()]} ${now.getFullYear()}`;
   await dateBtn.click();
   await expect(menu).toBeVisible();
+  for (let hops = 0; hops < 2; hops++) {
+    const shown = await menu.locator(".datemenu-month").textContent();
+    if (shown === todayMonthLabel) break;
+    await menu.getByTitle("Next month").click();
+  }
+  await expect(menu.locator(".datemenu-month")).toHaveText(todayMonthLabel);
   await menu.locator(".datemenu-day.today").click();
   await expect(menu).toHaveCount(0);
   await expect(dateBtn).toHaveText(todayHuman);

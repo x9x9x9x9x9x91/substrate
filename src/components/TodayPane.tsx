@@ -8,6 +8,7 @@ import { iconForType } from "../lib/dbicons";
 import { setPropUndoable } from "../lib/undoprops";
 import { useUndo } from "../lib/undoContext";
 import { useTodayIso } from "./useTodayIso";
+import { useEdgeFade } from "../hooks/useEdgeFade";
 import TypeIcon from "./TypeIcon";
 import { NoteIcon, SunIcon } from "./Icons";
 import EmptyState from "./EmptyState";
@@ -233,6 +234,10 @@ export default function TodayPane({
   // focus, so a long-lived window never shows yesterday
   const iso = useTodayIso();
   const data = useMemo(() => todayData(notes, schema, iso), [notes, schema, iso]);
+  // A short window overflows the day and hard-clipped rows at both scroll
+  // stops with nothing saying more was there — the same defect the shared
+  // gate exists for; Today was the last row-list surface off it.
+  const fade = useEdgeFade<HTMLDivElement>();
 
   // the one verb, both directions — the write mirrors CalendarPane's
   // reschedule: the pane owns its mutation, failures land on App's toast and
@@ -380,7 +385,7 @@ export default function TodayPane({
 
   return (
     <div className="today-pane">
-      <div className="today-scroll">
+      <div className={`today-scroll${fade.className}`} {...fade.props}>
         <div className="today-col">
           <div className="today-head" data-tauri-drag-region>
             <div className="today-head-main">
