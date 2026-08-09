@@ -77,3 +77,14 @@ test("property ordering keeps exact spelling authoritative over folded duplicate
   const schema: Record<string, PropSchema> = { status: { options: [] } };
   assert.deepEqual(orderedPropKeys(props, schema), ["type", "status", "Status", "Type"]);
 });
+
+test("notion_id is importer bookkeeping, never a row", () => {
+  const props = { type: "inventory", status: "in repair", notion_id: "1a06c096-c147-81ce", created: "c" };
+  assert.deepEqual(orderedPropKeys(props, { status: { options: [] } }), [
+    "type",
+    "status",
+    "created",
+  ]);
+  // folded spelling gets the same treatment
+  assert.deepEqual(orderedPropKeys({ Notion_ID: "x", mood: "m" }), ["mood"]);
+});

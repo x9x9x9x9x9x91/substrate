@@ -29,6 +29,10 @@ export function orderedPropKeys(
     return found;
   };
   take("title");
+  // notion_id is the importer's dedupe stamp (import-notion.ts) — pure
+  // bookkeeping on every migrated row, never a data row (same rule as
+  // dbColumns' column union)
+  take("notion_id");
   const out: string[] = [];
   const type = take("type");
   if (type !== undefined) out.push(type);
