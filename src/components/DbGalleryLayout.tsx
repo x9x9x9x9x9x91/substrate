@@ -6,6 +6,7 @@ import { audioPropTarget } from "../lib/display";
 import { AudioPropButton } from "./AudioPropButton";
 import { cardSubtitle, GalleryCover, type Focus } from "./DbPaneShared";
 import type { FxResolver } from "../lib/formula";
+import { useEdgeFade } from "../hooks/useEdgeFade";
 
 /** The gallery layout (split out of DatabasePane): cover-led cards
     in a grid. DatabasePane still owns the state and callbacks. */
@@ -54,12 +55,22 @@ export default function DbGalleryLayout({
   onOpenNote: (path: string) => void;
   onNoteMenu: (path: string, x: number, y: number) => void;
 }) {
+  /* DatabasePane owns bodyRef (focus restore, keyboard nav), so the fade's
+     callback ref merges with it rather than replacing it */
+  const fade = useEdgeFade<HTMLDivElement>();
   return (
     <div className="db" {...bgMenuProps}>
       {head}
       {tabRow}
       {bar}
-      <div className="db-body db-gallery" ref={bodyRef}>
+      <div
+        className={`db-body db-gallery${fade.className}`}
+        ref={(node) => {
+          bodyRef.current = node;
+          fade.props.ref(node);
+        }}
+        onScroll={fade.props.onScroll}
+      >
         {draftRow}
         {noMatch}
         {rows.map((n, r) => {

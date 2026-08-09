@@ -5,6 +5,7 @@ import { missingCls } from "../lib/mounts";
 import { relDate } from "./ListPane";
 import { cardSubtitle, type Focus } from "./DbPaneShared";
 import type { FxResolver } from "../lib/formula";
+import { useEdgeFade } from "../hooks/useEdgeFade";
 
 /** The list layout (split out of DatabasePane): one row per note
     with its relative update date and subtitle. DatabasePane still owns the
@@ -52,12 +53,22 @@ export default function DbListLayout({
   onOpenNote: (path: string) => void;
   onNoteMenu: (path: string, x: number, y: number) => void;
 }) {
+  /* DatabasePane owns bodyRef (focus restore, keyboard nav), so the fade's
+     callback ref merges with it rather than replacing it */
+  const fade = useEdgeFade<HTMLDivElement>();
   return (
     <div className="db" {...bgMenuProps}>
       {head}
       {tabRow}
       {bar}
-      <div className="db-body db-list" ref={bodyRef}>
+      <div
+        className={`db-body db-list${fade.className}`}
+        ref={(node) => {
+          bodyRef.current = node;
+          fade.props.ref(node);
+        }}
+        onScroll={fade.props.onScroll}
+      >
         {draftRow}
         {noMatch}
         {rows.map((n, r) => (

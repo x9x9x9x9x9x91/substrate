@@ -169,3 +169,51 @@ test("board column body: fade gated on the column's own overflow (SUB-1211)", as
   await expect(relBody).not.toHaveClass(/edge-more-y/);
   expect(await relBody.evaluate((el) => getComputedStyle(el).maskImage)).toBe("none");
 });
+
+test("list + gallery bodies: fade gated on the view's own overflow (SUB-1212)", async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  // 260 perf rows overflow any viewport in both layouts
+  await page.goto("/?perfdb=260");
+  await openDb(page, "Plugin");
+  await page.locator('.db-switch button[title="List"]').click();
+  const list = page.locator(".db-body.db-list");
+  await expect(list).toBeVisible();
+
+  const listDims = await list.evaluate((el) => ({ sh: el.scrollHeight, ch: el.clientHeight }));
+  expect(listDims.sh).toBeGreaterThan(listDims.ch);
+
+  // top: more below, nothing clipped above
+  await expect(list).toHaveClass(/edge-more-y/);
+  await expect(list).not.toHaveClass(/edge-scrolled-y/);
+  expect(await list.evaluate((el) => getComputedStyle(el).maskImage)).not.toBe("none");
+
+  // bottom stop: the last row renders crisp
+  await toBottom(page, ".db-body.db-list");
+  await expect(list).not.toHaveClass(/edge-more-y/);
+  expect(await list.evaluate((el) => getComputedStyle(el).maskImage)).toBe(
+    "linear-gradient(rgba(0, 0, 0, 0), rgb(0, 0, 0) 14px)",
+  );
+
+  // gallery: same gate on the same fixture
+  await page.locator('.db-switch button[title="Gallery"]').click();
+  const gal = page.locator(".db-body.db-gallery");
+  await expect(gal).toBeVisible();
+  const galDims = await gal.evaluate((el) => ({ sh: el.scrollHeight, ch: el.clientHeight }));
+  expect(galDims.sh).toBeGreaterThan(galDims.ch);
+  await expect(gal).toHaveClass(/edge-more-y/);
+  await toBottom(page, ".db-body.db-gallery");
+  await expect(gal).not.toHaveClass(/edge-more-y/);
+
+  // a list that fits its pane fades neither end (mock Contact db: 4 rows)
+  await page.goto("/");
+  await openDb(page, "Contact");
+  await page.locator('.db-switch button[title="List"]').click();
+  const small = page.locator(".db-body.db-list");
+  await expect(small).toBeVisible();
+  const smallDims = await small.evaluate((el) => ({ sh: el.scrollHeight, ch: el.clientHeight }));
+  expect(smallDims.sh).toBeLessThanOrEqual(smallDims.ch + 1);
+  await expect(small).not.toHaveClass(/edge-more-y/);
+  expect(await small.evaluate((el) => getComputedStyle(el).maskImage)).toBe("none");
+});
