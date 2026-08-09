@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { openDb } from "./nav";
 
 // The shared vertical edge fade. One gate — useEdgeFade() plus
 // .edge-fade-y in styles.css — now serves the settings sheet, the calendar's
@@ -128,4 +129,43 @@ test("database manager: fades only at the heights where the list overflows", asy
   await expect(body).not.toHaveClass(/edge-more-y/);
   await expect(body).not.toHaveClass(/edge-scrolled-y/);
   expect(await body.evaluate((el) => getComputedStyle(el).maskImage)).toBe("none");
+});
+
+test("board column body: fade gated on the column's own overflow (SUB-1211)", async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  // 260 perf rows put ~87 cards in each status column — far past one screen
+  await page.goto("/?perfdb=260");
+  await openDb(page, "Plugin");
+  await page.locator('.db-switch button[title="Board"]').click();
+  await expect(page.locator(".db-board")).toBeVisible();
+
+  const body = page.locator(".db-col-body").first();
+  const dims = await body.evaluate((el) => ({ sh: el.scrollHeight, ch: el.clientHeight }));
+  expect(dims.sh).toBeGreaterThan(dims.ch);
+
+  // top: more below, nothing clipped above
+  await expect(body).toHaveClass(/edge-more-y/);
+  await expect(body).not.toHaveClass(/edge-scrolled-y/);
+  expect(await body.evaluate((el) => getComputedStyle(el).maskImage)).not.toBe("none");
+
+  // bottom stop: the last card (and the + New button) render crisp
+  await toBottom(page, ".db-col-body >> nth=0");
+  await expect(body).not.toHaveClass(/edge-more-y/);
+  expect(await body.evaluate((el) => getComputedStyle(el).maskImage)).toBe(
+    "linear-gradient(rgba(0, 0, 0, 0), rgb(0, 0, 0) 14px)",
+  );
+
+  // a column that fits (the draft-only view after filtering to nothing is
+  // overkill here — assert on the mock's Release board instead, whose
+  // columns hold a handful of cards each)
+  await openDb(page, "Release");
+  await page.locator('.db-switch button[title="Board"]').click();
+  const relBody = page.locator(".db-col-body").first();
+  await expect(relBody).toBeVisible();
+  const relDims = await relBody.evaluate((el) => ({ sh: el.scrollHeight, ch: el.clientHeight }));
+  expect(relDims.sh).toBeLessThanOrEqual(relDims.ch + 1);
+  await expect(relBody).not.toHaveClass(/edge-more-y/);
+  expect(await relBody.evaluate((el) => getComputedStyle(el).maskImage)).toBe("none");
 });

@@ -10,6 +10,20 @@ import { cardSubtitle, type Focus } from "./DbPaneShared";
 import { byFoldedKey } from "../lib/schemalookup";
 import type { FxResolver } from "../lib/formula";
 import { conversionNote } from "../lib/display";
+import { useEdgeFade } from "../hooks/useEdgeFade";
+
+/* A column body is its own component only because every column scrolls
+   independently and useEdgeFade is one gate per scroller — a hook can't
+   live inside the columns' .map(). An 87-card column hard-clipped cards
+   mid-glyph at both stops with nothing saying more existed. */
+function ColBody({ children }: { children: React.ReactNode }) {
+  const fade = useEdgeFade<HTMLDivElement>();
+  return (
+    <div className={`db-col-body${fade.className}`} {...fade.props}>
+      {children}
+    </div>
+  );
+}
 
 /** The board layout (split out of DatabasePane): one column per
     group value, draggable cards, the per-column draft and its New button.
@@ -211,7 +225,7 @@ export default function DbBoardLayout({
                 </span>
                 <span className="list-count">{col.notes.length}</span>
               </div>
-              <div className="db-col-body">
+              <ColBody>
                 {draftColKey === colKey && (
                   <div className="db-card db-draft">{draftInput}</div>
                 )}
@@ -321,7 +335,7 @@ export default function DbBoardLayout({
                 >
                   <PlusIcon /> New
                 </button>
-              </div>
+              </ColBody>
             </div>
           );
         })}
