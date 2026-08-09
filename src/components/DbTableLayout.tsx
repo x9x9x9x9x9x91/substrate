@@ -848,7 +848,7 @@ export default function DbTableLayout({
               space, like every other row action */}
           <tfoot>
               <tr>
-                <td className="db-agg-cell db-agg-title">{tallied.length} rows</td>
+                <td className="db-agg-cell db-agg-title">{tallied.length === 1 ? "1 row" : `${tallied.length} rows`}</td>
                 {shown.map((c) => {
                   const kind = aggregationKind(aggs, c);
                   const agg = kind ? aggResults[c] : undefined;

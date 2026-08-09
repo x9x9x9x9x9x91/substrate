@@ -10,6 +10,7 @@ import { foldedPropKey, foldedPropStr, FUNCTIONAL_TYPES, typeHome, viewKey } fro
 import { tagFolderApplyTags, tagFolderMatches, tagUniverse } from "./lib/tags";
 import { byFoldedKey, foldedObjectKey, isTypePropName, typeSchemaFor } from "./lib/schemalookup";
 import { folderDefaultIcon, iconForType, iconsByType } from "./lib/dbicons";
+import { dbTypesByRecency } from "./lib/dbRecency";
 import { looksLikeUrl } from "./lib/url";
 import { anchorLine, parseWikiLink } from "./lib/wikilinks";
 import { displayColLabel } from "./lib/display";
@@ -2003,6 +2004,9 @@ export default function App() {
   );
 
   const dbTypes = useMemo(() => databases.map((d) => d.type), [databases]);
+
+  // the same set, ranked for filing rather than for size — see dbRecency.ts
+  const dbTypesRecent = useMemo(() => dbTypesByRecency(notes, dbTypes), [notes, dbTypes]);
 
   // create-new inline from a relation picker: lands in the target type's
   // home folder when one is set, else where most of it already
@@ -5061,6 +5065,7 @@ export default function App() {
                 relationCandidates={relCandidates}
                 onCreateEntry={createEntry}
                 dbTypes={dbTypes}
+                dbTypesRecent={dbTypesRecent}
                 onFollowLink={followLink}
                 noteTitles={noteTitles}
                 onOpenTag={openTag}
@@ -5141,6 +5146,7 @@ export default function App() {
             relationCandidates={relCandidates}
             onCreateEntry={createEntry}
             dbTypes={dbTypes}
+            dbTypesRecent={dbTypesRecent}
             onFollowLink={followLink}
             noteTitles={noteTitles}
             onOpenTag={openTag}

@@ -3,7 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { AggKind, DbIcon, NumberFormat, PropKind, RollupConfig, SelectOption } from "../lib/types";
 import type { HopDir } from "../lib/cellhop";
-import { optionColorVar, resolveIcon } from "../lib/dbicons";
+import { optionColorVar } from "../lib/dbicons";
 import { byFoldedKey } from "../lib/schemalookup";
 import { optionColor } from "../lib/cellpill";
 import { PlusIcon, XIcon } from "./Icons";
@@ -668,7 +668,10 @@ export default function SelectMenu({
       case "used":
         return (
           <>
-            {valueIcons && resolveIcon(r.value, byFoldedKey(valueIcons, r.value)) && (
+            {/* TypeIcon falls back to the type's initial on its own, so an
+                icon-carrying list never leaves a row glyphless and its label
+                out of line with the rest */}
+            {valueIcons && (
               <TypeIcon type={r.value} icon={byFoldedKey(valueIcons, r.value)} size={13} />
             )}
             <span className="selmenu-val">{r.value}</span>

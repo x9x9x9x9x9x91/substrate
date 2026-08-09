@@ -158,6 +158,9 @@ interface NotePaneProps {
   onCreateEntry: (dbType: string, title: string) => Promise<NoteMeta>;
   /** all database types — the schema editor's relation target picker */
   dbTypes: string[];
+  /** the same types ranked most-recently-filed first — the "which database
+      does this note belong to" pickers only; other lists keep `dbTypes` */
+  dbTypesRecent?: string[];
   onFollowLink: (name: string) => void;
   /** all note titles — [[ wikilink completion in the body editor */
   noteTitles: string[];
@@ -260,6 +263,7 @@ function NotePane({
   relationCandidates,
   onCreateEntry,
   dbTypes,
+  dbTypesRecent,
   onFollowLink,
   noteTitles,
   onOpenTag,
@@ -1785,7 +1789,7 @@ function NotePane({
                   anchor={chipAnchor}
                   value={v}
                   options={[]}
-                  used={dbTypes}
+                  used={isType ? (dbTypesRecent ?? dbTypes) : dbTypes}
                   canEditSchema={false}
                   label={isType ? "Pick a database" : `Pick ${k}`}
                   listHeading={isType ? "Databases" : undefined}
@@ -2203,7 +2207,7 @@ function NotePane({
               anchor={chipAnchor}
               value={noteType ?? ""}
               options={[]}
-              used={dbTypes}
+              used={dbTypesRecent ?? dbTypes}
               canEditSchema={false}
               label="Pick a database"
               listHeading="Databases"
