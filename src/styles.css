@@ -3219,6 +3219,16 @@ button.empty-hint-fix:hover {
   text-overflow: ellipsis;
 }
 
+/* the palette speaks the search pane's match language — same tokens as
+   .search-snippet mark, so the two retrieval surfaces agree */
+.palette-item-label mark,
+.palette-item-snippet mark {
+  background: var(--accent-soft);
+  color: var(--text-1);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
 .palette-hint {
   margin-left: auto;
   flex: none;

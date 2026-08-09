@@ -15,6 +15,51 @@ export const NO_MATCH = -1;
  */
 const MIN_MATCH = -0.5;
 
+/** One matched span of the target, as UTF-16 indices ready for slicing. */
+export interface MatchRun {
+  start: number;
+  end: number;
+}
+
+/**
+ * WHERE the query threads through the target — the ranges `fuzzyScore`'s
+ * branches match, so the palette can mark them. Null when the query does not
+ * match (or is empty — nothing to mark). Mirrors the scoring branches:
+ * a substring hit is one run; a subsequence hit is the greedy first-occurrence
+ * scan, adjacent characters merged into runs. The substring branch indexes the
+ * lowercased strings and slices the original — the same idiom as the search
+ * pane's highlighter; the subsequence branch walks the original per code point
+ * so surrogate pairs (emoji) keep their indices exact.
+ */
+export function fuzzyMatchRuns(query: string, target: string): MatchRun[] | null {
+  const q = query.toLowerCase();
+  if (!q) return null;
+  const t = target.toLowerCase();
+  // the substring fast path indexes the LOWERED strings and slices the
+  // original — only sound while lowercasing is length-preserving (İ isn't:
+  // it lowers to two units and every later index skews). Rare enough to
+  // just fall through to the per-char walk, which never mixes coordinates.
+  if (t.length === target.length && q.length === query.length) {
+    const idx = t.indexOf(q);
+    if (idx >= 0) return [{ start: idx, end: idx + q.length }];
+  }
+  const qArr = Array.from(q);
+  let qi = 0;
+  const runs: MatchRun[] = [];
+  let u = 0;
+  for (const ch of Array.from(target)) {
+    if (qi < qArr.length && ch.toLowerCase() === qArr[qi]) {
+      const end = u + ch.length;
+      const last = runs[runs.length - 1];
+      if (last && last.end === u) last.end = end;
+      else runs.push({ start: u, end });
+      qi++;
+    }
+    u += ch.length;
+  }
+  return qi === qArr.length ? runs : null;
+}
+
 export function fuzzyScore(query: string, target: string): number {
   const q = query.toLowerCase();
   const t = target.toLowerCase();

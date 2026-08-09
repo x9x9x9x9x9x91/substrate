@@ -119,6 +119,40 @@ test("a garbage plain-text query still shows the No results banner (SUB-673)", a
   await expect(banner).toHaveCount(0);
 });
 
+// The palette answers "why did this row match?" the same way full
+// search does: matched substrings wear <mark>. Title rows mark the
+// query's thread through the label; Content rows mark the engine's word-prefix
+// hits in the snippet. Fallback rows echo the query, so they never mark.
+
+test("palette rows mark the matched substring like the search pane (SUB-1205)", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await page.keyboard.press("Meta+k");
+  await page.locator(".palette-input").fill("vessel");
+
+  // title row: the substring run is marked, casing preserved
+  const noteRow = page.locator(".palette-item", {
+    has: page.locator(".palette-item-label", { hasText: "Vessel Songs" }),
+  }).first();
+  await expect(noteRow.locator(".palette-item-label mark")).toHaveText("Vessel");
+
+  // content row: a body-matched hit marks the whole engine token in its
+  // snippet ("masters" for the query "master"), never the title
+  await page.locator(".palette-input").fill("masters");
+  const contentRow = page.locator(".palette-item", {
+    has: page.locator(".palette-item-snippet"),
+  }).first();
+  await expect(contentRow.locator(".palette-item-snippet mark").first()).toHaveText(/^masters/i);
+
+  // fallback rows echo the query rather than match it — no marks
+  await page.locator(".palette-input").fill("zzzqqqxyz");
+  const fallbackRow = page.locator(".palette-item", {
+    has: page.locator(".palette-item-label", { hasText: "New note “zzzqqqxyz”" }),
+  });
+  await expect(fallbackRow).toBeVisible();
+  await expect(fallbackRow.locator("mark")).toHaveCount(0);
+});
+
 // The palette closes the instant a property applies, so a rejected
 // write used to vanish into console.error — the value never landed and nothing
 // on screen said so. The failure must reach the app toast, like every sibling

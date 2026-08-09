@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import {
   HOIST_MIN,
   hoistAboveContent,
+  markLabel,
+  markSnippet,
   onlyFallbacks,
+  partsFromRuns,
   queryVariants,
   rankCommands,
   rankScore,
@@ -224,4 +227,63 @@ test("onlyFallbacks: a non-echoing command is a real hit", () => {
 
 test("onlyFallbacks: an empty list is not 'no results' (still loading)", () => {
   assert.equal(onlyFallbacks([]), false);
+});
+
+/**
+ * Palette rows mark why they matched, in the search pane's
+ * part language (alternating plain/hit runs).
+ */
+test("markLabel: substring match marks the run, original casing kept", () => {
+  const parts = markLabel("mast", "Master Vessel Songs v3");
+  assert.ok(parts);
+  assert.deepEqual(parts![0], { text: "Mast", hit: true });
+  assert.equal(parts!.map((p) => p.text).join(""), "Master Vessel Songs v3");
+});
+
+test("markLabel: synonym rewrite marks the real command label", () => {
+  // people type "create database", the label says "New database…" — the
+  // rewrite is what ranked it, so the rewrite is what marks it
+  const parts = markLabel("create database", "New database…");
+  assert.ok(parts, "the rewrite must thread through the label");
+  assert.ok(parts!.some((p) => p.hit), "at least one marked run");
+  assert.equal(parts!.map((p) => p.text).join(""), "New database…");
+});
+
+test("markLabel: no thread through the visible label → null (render plain)", () => {
+  // a row can rank via its bare dest name or a daily's stem face while the
+  // VISIBLE label never threads — null says "render plain", never guess
+  assert.equal(markLabel("xyz", "Go to Release"), null);
+  assert.equal(markLabel("", "anything"), null);
+});
+
+test("markSnippet: engine word-prefix language — whole token marked", () => {
+  const parts = markSnippet("mast", "Two masters in, one artwork out");
+  assert.ok(parts);
+  const hit = parts!.filter((p) => p.hit);
+  assert.deepEqual(hit, [{ text: "masters", hit: true }]);
+  assert.equal(parts!.map((p) => p.text).join(""), "Two masters in, one artwork out");
+});
+
+test("markSnippet: every query token marks, mid-word never does", () => {
+  const parts = markSnippet("art out", "Two masters in, one artwork out");
+  assert.ok(parts);
+  const hits = parts!.filter((p) => p.hit).map((p) => p.text);
+  assert.deepEqual(hits, ["artwork", "out"]);
+  // "ast" is mid-word in "masters" — the FTS tokenizer only prefix-matches
+  assert.equal(markSnippet("ast", "Two masters in"), null);
+});
+
+test("markSnippet: regex metachars in the query stay literal", () => {
+  const parts = markSnippet("c++", "notes on c++ builds");
+  assert.ok(parts, "an escaped query must not throw or miss");
+  assert.ok(parts!.some((p) => p.hit));
+});
+
+test("partsFromRuns: runs at the edges keep the whole text", () => {
+  assert.deepEqual(partsFromRuns("abc", [{ start: 0, end: 3 }]), [{ text: "abc", hit: true }]);
+  assert.deepEqual(partsFromRuns("abc", [{ start: 1, end: 2 }]), [
+    { text: "a", hit: false },
+    { text: "b", hit: true },
+    { text: "c", hit: false },
+  ]);
 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import type { DbIcon, NoteMeta, SearchHit, View } from "../lib/types";
+import type { DbIcon, NoteMeta, SearchHit, SnippetPart, View } from "../lib/types";
 import { propStr } from "../lib/types";
 import { vaultRoot, vaultSearch, mountRescan } from "../lib/ipc";
 import { setPropUndoable } from "../lib/undoprops";
@@ -14,7 +14,14 @@ import { scanSummary } from "../lib/mounts";
 import { NO_MATCH, fuzzyScore } from "../lib/fuzzy";
 import { noteHint } from "../lib/display";
 import { displayTitle } from "../lib/journal";
-import { hoistAboveContent, onlyFallbacks, rankCommands, synFuzzyScore } from "../lib/palette";
+import {
+  hoistAboveContent,
+  markLabel,
+  markSnippet,
+  onlyFallbacks,
+  rankCommands,
+  synFuzzyScore,
+} from "../lib/palette";
 import { looksLikeUrl, urlDisplayTitle } from "../lib/url";
 import { templateTypeOptions } from "../lib/templates";
 import { iconForType } from "../lib/dbicons";
@@ -76,6 +83,18 @@ type Item = {
   fallback?: true;
   run: () => void;
 };
+
+/** Alternating plain/hit runs as text + <mark> — the search pane's match
+    language, worn by palette rows too. */
+function MarkedText({ parts }: { parts: SnippetPart[] }) {
+  return (
+    <>
+      {parts.map((p, i) =>
+        p.hit ? <mark key={i}>{p.text}</mark> : <span key={i}>{p.text}</span>
+      )}
+    </>
+  );
+}
 
 type Stage =
   | { kind: "root" }
@@ -1300,6 +1319,22 @@ export default function Palette({
                     <div className="palette-section" id={sectionId}>{group.section}</div>
                     {group.items.map((item, localIndex) => {
                       const i = group.start + localIndex;
+                      // mark WHY the row matched, in the search pane's own
+                      // <mark> language. Root stage only — that is
+                      // the retrieval surface; fallback rows echo the query
+                      // rather than match it, so they stay plain. A snippet
+                      // row matched by its BODY: mark the snippet, leave the
+                      // title alone (title letters that happen to thread are
+                      // noise, not the reason). Note rows ranked against
+                      // searchText (filters stripped), command rows against
+                      // the raw query — mark with what ranked.
+                      const snippetParts = item.snippet
+                        ? markSnippet(searchText, item.snippet)
+                        : null;
+                      const labelParts =
+                        stage.kind === "root" && !item.fallback && !item.snippet
+                          ? markLabel(item.note ? searchText : q, item.label)
+                          : null;
                       return (
                         <div
                           key={item.id}
@@ -1319,9 +1354,13 @@ export default function Palette({
                           onClick={() => run(item)}
                         >
                           {item.icon}
-                          <span className="palette-item-label">{item.label}</span>
+                          <span className="palette-item-label">
+                            {labelParts ? <MarkedText parts={labelParts} /> : item.label}
+                          </span>
                           {item.snippet && (
-                            <span className="palette-item-snippet">{item.snippet}</span>
+                            <span className="palette-item-snippet">
+                              {snippetParts ? <MarkedText parts={snippetParts} /> : item.snippet}
+                            </span>
                           )}
                           {item.hint && <span className="palette-hint">{item.hint}</span>}
                         </div>

@@ -10,7 +10,8 @@
  * Notion/Linear-style. Notes keep the very top: an exact note-title match is
  * never buried by a destination.
  */
-import { NO_MATCH, fuzzyScore } from "./fuzzy.ts";
+import { NO_MATCH, fuzzyMatchRuns, fuzzyScore } from "./fuzzy.ts";
+import type { SnippetPart } from "./types.ts";
 
 /** exact/prefix band: prefix matches score 1000 - len (>= 700 for sane names) */
 export const HOIST_MIN = 700;
@@ -103,6 +104,70 @@ export function rankCommands<T extends Rankable>(
  */
 export function onlyFallbacks<T extends { fallback?: boolean }>(items: T[]): boolean {
   return items.length > 0 && items.every((i) => i.fallback === true);
+}
+
+/** Slice `text` into alternating plain/hit parts along match runs — the
+    bridge from fuzzy match positions to the search pane's part language. */
+export function partsFromRuns(
+  text: string,
+  runs: { start: number; end: number }[],
+): SnippetPart[] {
+  const parts: SnippetPart[] = [];
+  let at = 0;
+  for (const r of runs) {
+    if (r.start > at) parts.push({ text: text.slice(at, r.start), hit: false });
+    parts.push({ text: text.slice(r.start, r.end), hit: true });
+    at = r.end;
+  }
+  if (at < text.length) parts.push({ text: text.slice(at), hit: false });
+  return parts;
+}
+
+/**
+ * Label parts for a ranked row: the first query variant that threads through
+ * the label wins, so the synonym rewrite is what marks "New database…" for
+ * "create database". Null = no variant threads through the VISIBLE label
+ * (the row matched via its bare `dest` name, or a daily matched by its stem
+ * face) — render plain rather than guess.
+ */
+export function markLabel(q: string, label: string): SnippetPart[] | null {
+  const query = q.trim();
+  if (!query) return null;
+  for (const v of queryVariants(query)) {
+    const runs = fuzzyMatchRuns(v, label);
+    if (runs && runs.length) return partsFromRuns(label, runs);
+  }
+  return null;
+}
+
+/**
+ * Snippet parts in the engine's own match language: every whitespace token
+ * word-prefix-matches (fts_match_expr appends `*`), and FTS5 highlight()
+ * wraps the whole matched token — so a query "mast" marks all of "masters",
+ * exactly as the search pane shows it. Null when nothing in the snippet
+ * matches (the hit was elsewhere in the body).
+ */
+export function markSnippet(searchText: string, snippet: string): SnippetPart[] | null {
+  const terms = searchText.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!terms.length) return null;
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(
+    `(?<![\\p{L}\\p{N}_])(?:${terms.map(esc).join("|")})[\\p{L}\\p{N}_]*`,
+    "giu",
+  );
+  const parts: SnippetPart[] = [];
+  let last = 0;
+  let hits = 0;
+  for (const m of snippet.matchAll(re)) {
+    const at = m.index ?? 0;
+    if (at > last) parts.push({ text: snippet.slice(last, at), hit: false });
+    parts.push({ text: m[0], hit: true });
+    hits += 1;
+    last = at + m[0].length;
+  }
+  if (!hits) return null;
+  if (last < snippet.length) parts.push({ text: snippet.slice(last), hit: false });
+  return parts;
 }
 
 /**
