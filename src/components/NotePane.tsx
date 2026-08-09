@@ -2332,7 +2332,8 @@ function NotePane({
           relatedGroups(related).map((g) => (
             <div className="backlinks related" key={g.dbType}>
               <div className="backlinks-label">
-                {g.entries.length} {pluralType(g.dbType, g.entries.length)} point here
+                {g.entries.length} {pluralType(g.dbType, g.entries.length)}{" "}
+                {g.entries.length === 1 ? "points" : "point"} here
               </div>
               {g.entries.map((r) => (
                 <button
