@@ -3535,6 +3535,13 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const dbType = mockFoldedKey(mockSchema, requestedDbType) ?? requestedDbType;
       const prop = mockFoldedKey(mockSchema[dbType] ?? {}, requestedProp) ?? requestedProp;
       if (!dbType || !prop) throw new Error("database and property must be non-empty");
+      // a mount's binding props are the engine's — mirrors
+      // Engine::check_binding_prop
+      if (
+        ["mount", "mount_file", "mount_identity"].includes(prop.toLowerCase()) &&
+        mockMounts.some((m) => m.name.trim().toLowerCase() === dbType.toLowerCase())
+      )
+        throw new Error(`“${prop}” is set by the mount`);
       const kind = ((args?.kind as PropKind | null) ?? undefined) || undefined;
       if (kind && kind !== "text" && kind !== "date" && kind !== "file" && kind !== "relation" && kind !== "multi" && kind !== "url" && kind !== "email" && kind !== "phone" && kind !== "checkbox" && kind !== "number" && kind !== "rollup")
         throw new Error(`unknown property kind “${kind}”`);

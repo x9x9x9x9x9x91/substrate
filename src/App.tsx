@@ -1357,9 +1357,12 @@ export default function App() {
       const storedProp = schemaPropKey(dbType, prop);
       vaultSchemaSet(storedDb, storedProp, options, kind ?? undefined, notify, notifyBefore, target, format, description, rollup)
         .then(setSchema)
-        .catch(console.error);
+        // engine refusals ("a rollup property needs a relation to follow",
+        // "“mount” is set by the mount") must reach the user — the editor has
+        // already closed by the time this rejects
+        .catch((e) => showToast(String(e)));
     },
-    [schemaDbKey, schemaPropKey]
+    [schemaDbKey, schemaPropKey, showToast]
   );
 
   // per-type database icons ride the same schema.json, under the
@@ -4880,7 +4883,7 @@ export default function App() {
                 icon={iconForType(dbIcons, activeMount.name)}
                 onSaveIcon={(ic) => saveSchemaIcon(activeMount.name, ic)}
                 usedValues={(key) => usedValues(activeMount.name, key)}
-                onSaveSchema={(prop, opts, kind, notify, target, format, description, rollup) => saveSchemaProp(activeMount.name, prop, opts, kind, notify, target, format, description, rollup)}
+                onSaveSchema={(prop, opts, kind, notify, notifyBefore, target, format, description, rollup) => saveSchemaProp(activeMount.name, prop, opts, kind, notify, notifyBefore, target, format, description, rollup)}
                 relationCandidates={relCandidates}
                 onCreateEntry={createEntry}
                 dbTypes={dbTypes}
