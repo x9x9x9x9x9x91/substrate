@@ -1370,7 +1370,7 @@ function NotePane({
       />
     ) : undefined;
 
-  const commitAdd = (el?: Element) => {
+  const commitAdd = (el?: Element, viaEnter = false) => {
     const idx = chipDraft.indexOf(":");
     const key = idx < 1 ? chipDraft.trim() : chipDraft.slice(0, idx).trim();
     const value = idx < 1 ? "" : chipDraft.slice(idx + 1).trim();
@@ -1380,6 +1380,13 @@ function NotePane({
       setAddingChip(false);
       setChipAnchor(anchorFrom(el));
       setTypePick(true);
+      return;
+    }
+    // Enter on a bare key (or `key:`) is a commit gesture mid-format, not a
+    // cancel: morph the draft to `key: ` so the value types in place —
+    // discarding here silently ate the typed key. Blur and Escape still cancel.
+    if (viaEnter && key && !value) {
+      setChipDraft(`${key}: `);
       return;
     }
     setChipDraft("");
@@ -2181,7 +2188,7 @@ function NotePane({
                 onChange={(e) => setChipDraft(e.target.value)}
                 onBlur={(e) => commitAdd(e.currentTarget)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") commitAdd(e.currentTarget);
+                  if (e.key === "Enter") commitAdd(e.currentTarget, true);
                   if (e.key === "Escape") {
                     setAddingChip(false);
                     setChipDraft("");

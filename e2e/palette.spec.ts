@@ -188,3 +188,37 @@ test("a rejected palette property write reports on the toast (SUB-1149)", async 
     "in review"
   );
 });
+
+// The palette's structural actions close the overlay before their promise
+// settles, so an engine refusal (rename collision, duplicate folder) has
+// nowhere to land but the app toast — before the fix it went to
+// console.error and the note silently kept its old name.
+
+test("a refused palette rename reports on the toast (SUB-1214)", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
+
+  await page.keyboard.press("Meta+k");
+  await page.locator(".palette-input").fill("Vessel Songs");
+  const firstLabel = page.locator(".palette-results .palette-item .palette-item-label").first();
+  await expect(firstLabel).toHaveText("Vessel Songs");
+  await page.keyboard.press("Tab"); // → the note's actions stage
+  await page.locator(".palette-item", { hasText: "Rename…" }).click();
+
+  // collide with an existing root note — the engine refuses this rename
+  await page.locator(".palette-input").fill("Slow Bloom EP");
+  await page.locator(".palette-item", { hasText: "Rename to" }).click();
+
+  // the palette is gone, so the toast is the only place the refusal can land
+  await expect(page.locator(".palette-input")).toHaveCount(0);
+  const toast = page.locator(".toast");
+  await expect(toast).toBeVisible();
+  await expect(toast).toContainText("already exists");
+
+  // and the rename really did not land
+  await page.keyboard.press("Meta+k");
+  await page.locator(".palette-input").fill("Vessel Songs");
+  await expect(
+    page.locator(".palette-results .palette-item .palette-item-label").first()
+  ).toHaveText("Vessel Songs");
+});

@@ -5222,10 +5222,10 @@ export default function App() {
           onOpenNote={openNote}
           onSetView={navigateFromMobileChrome}
           onCreate={createOrCapture}
-          onCreateFolder={(path) => createFolder(path).catch(console.error)}
+          onCreateFolder={(path) => createFolder(path).catch((e) => showToast(String(e)))}
           onMoveNote={(path, folder) => moveNote(path, folder).catch((e) => showToast(String(e)))}
-          onRenameNote={(path, title) => renameNote(path, title).catch(console.error)}
-          onRenameFolder={(path, name) => renameFolder(path, name).catch(console.error)}
+          onRenameNote={(path, title) => renameNote(path, title).catch((e) => showToast(String(e)))}
+          onRenameFolder={(path, name) => renameFolder(path, name).catch((e) => showToast(String(e)))}
           onDuplicate={duplicateNote}
           onSendAsLink={setSendLink}
           onTrashNote={trashNote}
