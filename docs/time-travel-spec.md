@@ -230,7 +230,10 @@ expression. Therefore:
 Two, both registered in `SCALAR_FNS` (`formula.ts:68`) — neither is an aggregate,
 neither reads row scope.
 
-**`PROP(path, key)`** — a frontmatter key on another note, as a scalar. Present
+**`PROP(path, key)`** — a frontmatter key on another note, as a scalar. The key
+binds case-folded, exact spelling first — the same identity rule as every live
+prop read, applied per historical blob, so a key whose casing changed
+mid-history stays one continuous fact rather than reading as a deletion. Present
 value by default; the as-of value when it appears inside `AT()`. This is the
 addressing the pitch's "weight curve from a frontmatter key" requires, and the
 language has none today: sheets read CSV fences, dashboards bind `{{Sheet.member}}`

@@ -102,6 +102,15 @@ test("presentValue: renders lists joined, and treats empty as absent", () => {
   assert.deepEqual(presentValue(props, "missing"), { kind: "absent" });
 });
 
+test("presentValue: binds the key case-folded, exact spelling first", () => {
+  // a hand-cased key still answers — same identity rule as every live read
+  assert.deepEqual(presentValue({ Weight: 76 }, "weight"), { kind: "value", value: "76" });
+  // case-only duplicates: exact spelling wins, mirroring foldedPropKey
+  const dup = { Weight: 1, weight: 2 };
+  assert.deepEqual(presentValue(dup, "weight"), { kind: "value", value: "2" });
+  assert.deepEqual(presentValue(dup, "Weight"), { kind: "value", value: "1" });
+});
+
 test("makeHistoryResolver: a path with no note today is an error in both tenses", () => {
   const r = makeHistoryResolver([note("Health/Weight.md", { weight: 80 })], [
     lane([["2026-01-10", "80"]], "2026-01-01"),

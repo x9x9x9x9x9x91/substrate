@@ -5,6 +5,7 @@
 
 import type { HistoryLookup, HistoryResolver } from "./formula.ts";
 import { isIsoDate, toIso } from "./dates.ts";
+import { foldedPropKey } from "./types.ts";
 import type { FactLane, HistorySheetsAt, NoteMeta } from "./types.ts";
 
 /** The last instant of local day `D` — the moment `AT(D, …)` reads at
@@ -91,10 +92,14 @@ export function valueAt(lane: FactLane, instantMs: number): HistoryLookup {
 
 /** One live frontmatter value, rendered the way a lane renders a historical one
     (`factlane::fact_value`) so `PROP(n, k)` and `AT(TODAY(), PROP(n, k))` cannot
-    disagree about the same value. Absent and empty are the same answer: blank. */
+    disagree about the same value. Absent and empty are the same answer: blank.
+    The key binds case-folded, exact first (`foldedPropKey`) — the same identity
+    rule as every live prop read, and the same fold `fact_value` applies to each
+    historical blob, so the two tenses cannot disagree over casing either. */
 export function presentValue(props: Record<string, unknown>, key: string): HistoryLookup {
-  if (!Object.prototype.hasOwnProperty.call(props, key)) return { kind: "absent" };
-  const v = props[key];
+  const actual = foldedPropKey(props, key);
+  if (!Object.prototype.hasOwnProperty.call(props, actual)) return { kind: "absent" };
+  const v = props[actual];
   if (v === null || v === undefined) return { kind: "absent" };
   const text = Array.isArray(v) ? v.map((x) => String(x)).join(", ") : String(v);
   return text.trim() === "" ? { kind: "absent" } : { kind: "value", value: text };

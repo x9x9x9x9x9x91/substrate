@@ -210,13 +210,22 @@ pub fn collapse(readings: Vec<FactPoint>) -> Vec<FactPoint> {
 /// non-numeric value is returned as-is, §2.3); every other scalar renders as
 /// its JSON form so `72.4` and `true` round-trip unambiguously. An explicit
 /// null is the same as absent — the key is there but holds nothing.
+///
+/// The key binds case-folded, exact spelling first — the same identity rule
+/// every live prop read uses (`folded_prop_key`). Folding happens per
+/// historical blob: a lane whose key changed casing mid-history (`weight:` →
+/// `Weight:`) stays one continuous fact instead of reading the older stretch
+/// as a deletion.
 pub fn fact_value(props: &serde_json::Map<String, serde_json::Value>, key: &str) -> Option<String> {
+    let key = crate::vault::folded_prop_key(props, key).unwrap_or(key);
     let text = match props.get(key) {
         None | Some(serde_json::Value::Null) => return None,
         Some(serde_json::Value::String(s)) => s.clone(),
-        // A list prop (tags, relations) reads as its joined members, the way the
-        // app renders one live (`propStr`, src/lib/types.ts) — so a fact's past
-        // and its present cannot disagree about the same value.
+        // A list prop (tags, relations) reads as its joined members, mirroring
+        // `presentValue` (src/lib/history-facts.ts) member for member — so a
+        // fact's past and its present cannot disagree about the same value.
+        // (`propStr` JSON-prints a mixed-type list instead; the two tenses
+        // agree with each other, which is the invariant that matters here.)
         Some(serde_json::Value::Array(items)) => items
             .iter()
             .map(|v| match v {
@@ -308,6 +317,38 @@ mod tests {
         assert_eq!(
             points.iter().map(|p| (p.ts_ms, p.value.clone())).collect::<Vec<_>>(),
             vec![(20, Some("70".into())), (40, Some("71".into())), (50, None),]
+        );
+    }
+
+    #[test]
+    fn fact_value_binds_the_key_case_folded_exact_first() {
+        // a hand-cased key still answers — the identity rule of every live read
+        let cased: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(r#"{"Weight": 76}"#).unwrap();
+        assert_eq!(fact_value(&cased, "weight").as_deref(), Some("76"));
+        // case-only duplicates: exact spelling wins, same as folded_prop_key
+        let dup: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(r#"{"Weight": 1, "weight": 2}"#).unwrap();
+        assert_eq!(fact_value(&dup, "weight").as_deref(), Some("2"));
+        assert_eq!(fact_value(&dup, "Weight").as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn a_casing_change_mid_history_is_not_a_deletion() {
+        // the collapse a lane walk produces when the key went weight: → Weight:
+        // between snapshots — each blob folds on its own, so the fact flows on
+        let old: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(r#"{"weight": 70}"#).unwrap();
+        let new: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(r#"{"Weight": 71}"#).unwrap();
+        let readings = vec![
+            FactPoint { value: fact_value(&old, "weight"), ..pt(100, None) },
+            FactPoint { value: fact_value(&new, "weight"), ..pt(200, None) },
+        ];
+        let points = collapse(readings);
+        assert_eq!(
+            points.iter().map(|p| (p.ts_ms, p.value.clone())).collect::<Vec<_>>(),
+            vec![(100, Some("70".into())), (200, Some("71".into()))]
         );
     }
 
