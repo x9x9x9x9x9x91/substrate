@@ -57,7 +57,7 @@ test("number cell: German-typed value round-trips through the app's own display"
   await page.locator(".selmenu .selmenu-input").fill("12,5");
   await page.locator(".selmenu .selmenu-input").press("Enter");
   await page.keyboard.press("Escape");
-  await expect(cell()).toHaveText("12,5 €");
+  await expect(cell()).toHaveText("12,50 €");
 
   // en-style input still works untouched
   await cell().click();
@@ -76,7 +76,13 @@ test("a German-typed price lands in the footer Sum, not beside it", async ({ pag
   await page.locator(".colmenu .dots-item", { hasText: "Calculate…" }).click();
   await page.locator(".colmenu .dots-item", { hasText: /^Sum$/ }).click();
   const sum = page.locator('.db-agg-cell[data-col="price"] .db-agg-value');
-  await expect(sum).toHaveText("13.424,5 €");
+  // the junk "ask" cell dropped out of the figure — the footer says so
+  // instead of passing for a full total
+  await expect(sum).toHaveText("13.424,50 €*");
+  await expect(page.locator('.db-agg-cell[data-col="price"] .db-agg-mark')).toHaveAttribute(
+    "title",
+    "1 cell not counted — not a number"
+  );
 
   // retype Nordvik One (336) in the app's own dialect. Pre-fix this dropped
   // out of the sum entirely — 1.234,56 matched no parser, so the footer read
@@ -90,8 +96,8 @@ test("a German-typed price lands in the footer Sum, not beside it", async ({ pag
   await page.locator(".selmenu .selmenu-input").fill("1.234,56");
   await page.locator(".selmenu .selmenu-input").press("Enter");
   await expect(cell).toHaveText("1.234,56 €");
-  // 13424.5 - 336 + 1234.56
-  await expect(sum).toHaveText("14.323,06 €");
+  // 13424.5 - 336 + 1234.56 — the "ask" cell is still out, marker stays
+  await expect(sum).toHaveText("14.323,06 €*");
 });
 
 test("an en-US locale reaches table cells, totals, board cards and gallery cards", async ({
@@ -152,7 +158,8 @@ test("an en-US locale reaches table cells, totals, board cards and gallery cards
   await page.locator(".db-table th", { hasText: "category" }).locator(".db-th-caret").click();
   await page.locator(".colmenu .dots-item", { hasText: "Calculate…" }).click();
   await page.locator(".colmenu .dots-item", { hasText: /^Sum$/ }).click();
-  await expect(page.locator('.db-agg-cell[data-col="category"] .db-agg-value')).toHaveText(
+  // every other row's category is text — the sum is one cell plus a marker
+  await expect(page.locator('.db-agg-cell[data-col="category"] .db-agg-value')).toContainText(
     "1,234.56 €"
   );
 
@@ -180,9 +187,9 @@ test("note property chips normalize German-typed numbers too", async ({ page }) 
   const input = page.locator(".selmenu .selmenu-input");
   await input.fill("2.499,90");
   await input.press("Enter");
-  // stored canonical → the chip re-renders through formatNumber (which drops
-  // the trailing zero, like every other euro cell)
-  await expect(chip.locator(".chip-val")).toHaveText("2.499,9 €");
+  // stored canonical → the chip re-renders through formatNumber (a
+  // fractional euro shows both cents, like every other euro cell)
+  await expect(chip.locator(".chip-val")).toHaveText("2.499,90 €");
 });
 
 test("non-number cells keep dotted/comma text verbatim", async ({ page }) => {

@@ -137,7 +137,7 @@ test("formatAgg renders de-DE grouping with ≤2 decimals (SUB-245)", () => {
 });
 
 test("formatAgg honors the column's NumberFormat like the cells do (SUB-245)", () => {
-  assert.equal(formatAgg(1234.5, "sum", "euro"), "1.234,5 €");
+  assert.equal(formatAgg(1234.5, "sum", "euro"), "1.234,50 €");
   assert.equal(formatAgg(42, "avg", "euro"), "42 €");
   assert.equal(formatAgg(8.5, "avg", "percent"), "8,5 %");
   assert.equal(formatAgg(12, "max", "percent"), "12 %");
@@ -364,18 +364,19 @@ test("aggregateUnits leaves count alone — rows are not euros (SUB-834)", () =>
 });
 
 test("formatAgg renders any unit, euro/percent byte-identically (SUB-834)", () => {
-  // the historical two render exactly as they did before units landed
-  assert.equal(formatAgg(1234.5, "sum", "euro"), "1.234,5 €");
+  // euro/percent still route through EUR and % — a fractional euro sum
+  // shows both cents like the cells do
+  assert.equal(formatAgg(1234.5, "sum", "euro"), "1.234,50 €");
   assert.equal(formatAgg(8.5, "avg", "percent"), "8,5 %");
   // and the widened vocabulary rides the same de-DE dialect
-  assert.equal(formatAgg(1234.5, "sum", "USD"), "1.234,5 $");
+  assert.equal(formatAgg(1234.5, "sum", "USD"), "1.234,50 $");
   assert.equal(formatAgg(3.5, "sum", "kg"), "3,5 kg");
   assert.equal(formatAgg(128, "avg", "BPM"), "128 BPM");
   assert.equal(formatAgg(-14.2, "min", "LUFS"), "-14,2 LUFS");
   // count stays bare on a unit column, as on a euro one
   assert.equal(formatAgg(5, "count", "kg"), "5");
   // the intl dialect swaps the separators, suffix unchanged
-  assert.equal(formatAgg(1234.5, "sum", "euro", "en-US"), "1,234.5 €");
+  assert.equal(formatAgg(1234.5, "sum", "euro", "en-US"), "1,234.50 €");
   assert.equal(formatAgg(1234.5, "sum", "kg", "en-US"), "1,234.5 kg");
   // an unreadable format is unitless, never invented
   assert.equal(formatAgg(1234.5, "sum", "furlongs"), "1.234,5");
@@ -383,7 +384,7 @@ test("formatAgg renders any unit, euro/percent byte-identically (SUB-834)", () =
 
 test("aggMarker says what a mixed figure actually did (SUB-834)", () => {
   const mark = (converted: string[], skipped: string[], asOf?: string) =>
-    aggMarker({ value: 1, converted, skipped }, asOf);
+    aggMarker({ value: 1, converted, skipped, unparsed: 0 }, asOf);
   assert.equal(mark(["USD"], [], "2026-08-03"), "Converted USD at 2026-08-03 rates");
   assert.equal(mark(["GBP", "USD"], [], "2026-08-03"), "Converted GBP, USD at 2026-08-03 rates");
   // no date to claim → no date clause, rather than a rate we can't date
@@ -398,7 +399,34 @@ test("aggMarker says what a mixed figure actually did (SUB-834)", () => {
   // a figure that needs no marker gets none — no asterisk on a clean column
   assert.equal(mark([], []), null);
   assert.equal(aggMarker(undefined), null);
-  assert.equal(aggMarker({ value: null, converted: [], skipped: [] }), null);
+  assert.equal(aggMarker({ value: null, converted: [], skipped: [], unparsed: 0 }), null);
+});
+
+test("a text cell in a numeric column marks the figure instead of vanishing", () => {
+  // the finance-walk shape: a euro column with one "see csv" row — the Sum
+  // must say a cell was left out, not pass for a full total
+  const got = aggregateUnits("sum", ["4213.55", "see csv", "978.21"], "EUR", FX);
+  assert.equal(got.value, 5191.76);
+  assert.equal(got.unparsed, 1);
+  assert.equal(aggMarker(got), "1 cell not counted — not a number");
+  // plural, and stacking after a unit skip
+  const two = aggregateUnits("sum", ["10", "ask", "tbd"], "EUR", FX);
+  assert.equal(two.unparsed, 2);
+  assert.equal(aggMarker(two), "2 cells not counted — not numbers");
+  const mixed = aggregateUnits("sum", ["10", "5 kg", "ask"], "EUR", FX);
+  assert.equal(aggMarker(mixed), "Skipped kg — not convertible · 1 cell not counted — not a number");
+  // a unitless number column owes the same honesty
+  const plain = aggregateUnits("avg", ["2", "junk", "4"], null, FX);
+  assert.equal(plain.value, 3);
+  assert.equal(plain.unparsed, 1);
+  // count counts non-empty cells text included — nothing is left out, no marker
+  const count = aggregateUnits("count", ["2", "junk", ""], "EUR", FX);
+  assert.equal(count.value, 2);
+  assert.equal(aggMarker(count), null);
+  // empty cells are absent values, not junk — a sparse column stays unmarked
+  const sparse = aggregateUnits("sum", ["2", "", "4"], "EUR", FX);
+  assert.equal(sparse.unparsed, 0);
+  assert.equal(aggMarker(sparse), null);
 });
 
 test("aggregateColumnsUnits folds each column in its own unit (SUB-834)", () => {

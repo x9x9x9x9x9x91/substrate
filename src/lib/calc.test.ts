@@ -176,7 +176,7 @@ test("currency addition converts through fx", () => {
 // ---------- `in <unit>` ----------
 
 test("trailing `in` converts the whole expression", () => {
-  assert.equal(shown("= 25 USD in EUR"), "22,5 €");
+  assert.equal(shown("= 25 USD in EUR"), "22,50 €");
   assert.equal(shown("= 5 kg in g"), "5.000 g");
   assert.equal(shown("= 1 kg + 1 kg in g"), "2.000 g");
   assert.equal(shown("= 90 min in h"), "1,5 h");

@@ -163,12 +163,17 @@ export function formatUnit(format: NumberFormat | undefined): string | null {
     `aggregate`. `converted` names the foreign units that were converted into
     it, sorted, so the footer can mark the figure instead of quietly mixing
     currencies. `skipped` names the units that could NOT join: a different
-    dimension, or a currency with no rate. Both empty = the figure is as
-    honest as a single-unit column's. */
+    dimension, or a currency with no rate. `unparsed` counts the non-empty
+    cells that held no number at all ("see csv", "ask") — they drop out of
+    sum/avg/min/max just like foreign units do, so the figure owes them the
+    same marker; count is untouched (it counts non-empty cells, text
+    included). All three empty/zero = the figure is as honest as a clean
+    single-unit column's. */
 export interface UnitAgg {
   value: number | null;
   converted: string[];
   skipped: string[];
+  unparsed: number;
 }
 
 /** One cell as a number in `unit`, with the foreign unit it came
@@ -212,23 +217,33 @@ export function aggregateUnits(
   unit: string | null,
   fx: FxResolver
 ): UnitAgg {
-  if (kind === "count" || unit === null) {
-    return { value: aggregate(kind, values), converted: [], skipped: [] };
+  if (kind === "count") {
+    // count counts non-empty cells, text included — nothing is left out
+    return { value: aggregate(kind, values), converted: [], skipped: [], unparsed: 0 };
+  }
+  if (unit === null) {
+    // a plain number column skips text cells exactly like a unit column
+    // does — the figure owes them the same honesty
+    const unparsed = values.filter((v) => v.trim() !== "" && parseCellNumber(v) === null).length;
+    return { value: aggregate(kind, values), converted: [], skipped: [], unparsed };
   }
   const nums: number[] = [];
   const converted = new Set<string>();
   const skipped = new Set<string>();
+  let unparsed = 0;
   for (const v of values) {
     if (v.trim() === "") continue;
     const c = cellInUnit(v, unit, fx);
     if (c.n === null) {
+      // a foreign unit is named; unit-less junk ("see csv") is counted
       if (c.from) skipped.add(c.from);
+      else unparsed += 1;
       continue;
     }
     if (c.from) converted.add(c.from);
     nums.push(c.n);
   }
-  const marks = { converted: [...converted].sort(), skipped: [...skipped].sort() };
+  const marks = { converted: [...converted].sort(), skipped: [...skipped].sort(), unparsed };
   if (nums.length === 0) return { value: null, ...marks };
   switch (kind) {
     case "sum":
@@ -244,11 +259,13 @@ export function aggregateUnits(
 
 /** The footer marker's hover text: what a mixed-unit aggregation
     actually did, so a converted figure never passes for a plain total. null
-    when the figure needs no marker — nothing converted and nothing skipped,
-    which is every unitless column and every column whose rows all share the
-    column's unit. `asOf` dates the rates when it's known. */
+    when the figure needs no marker — nothing converted, nothing skipped and
+    nothing unparsed, which is every column whose rows all fed the figure.
+    `asOf` dates the rates when it's known. */
 export function aggMarker(agg: UnitAgg | undefined, asOf?: string): string | null {
-  if (!agg || (agg.converted.length === 0 && agg.skipped.length === 0)) return null;
+  if (!agg || (agg.converted.length === 0 && agg.skipped.length === 0 && agg.unparsed === 0)) {
+    return null;
+  }
   const parts: string[] = [];
   if (agg.converted.length > 0) {
     const at = asOf && asOf.trim() ? ` at ${asOf.trim()} rates` : "";
@@ -256,6 +273,9 @@ export function aggMarker(agg: UnitAgg | undefined, asOf?: string): string | nul
   }
   // the honest half: naming what was LEFT OUT matters more than what came in
   if (agg.skipped.length > 0) parts.push(`Skipped ${agg.skipped.join(", ")} — not convertible`);
+  if (agg.unparsed > 0) {
+    parts.push(agg.unparsed === 1 ? "1 cell not counted — not a number" : `${agg.unparsed} cells not counted — not numbers`);
+  }
   return parts.join(" · ");
 }
 

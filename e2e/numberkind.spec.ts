@@ -17,9 +17,9 @@ test.beforeEach(async ({ page }) => {
 test("euro column renders German-formatted and right-aligned (SUB-188)", async ({ page }) => {
   // thousands get the dot, decimals the comma — integers stay decimal-free
   await expect(page.locator(".db-cell-txt.cell-num", { hasText: "1.295 €" })).toHaveCount(1);
-  await expect(page.locator(".db-cell-txt.cell-num", { hasText: "199,5 €" })).toHaveCount(1);
+  await expect(page.locator(".db-cell-txt.cell-num", { hasText: "199,50 €" })).toHaveCount(1);
   await expect(page.locator(".db-cell-txt.cell-num", { hasText: "336 €" })).toHaveCount(1);
-  await expect(page.locator(".db-cell-txt.cell-num", { hasText: "1.569,5 €" })).toHaveCount(1);
+  await expect(page.locator(".db-cell-txt.cell-num", { hasText: "1.569,50 €" })).toHaveCount(1);
   // numbers column-scan: every price cell right-aligns, text cells don't
   const cell = page.locator(".db-cell-txt.cell-num", { hasText: "1.295 €" });
   await expect(cell).toHaveCSS("text-align", "right");
@@ -29,14 +29,14 @@ test("euro column renders German-formatted and right-aligned (SUB-188)", async (
 
 test("editing a number cell shows the raw stored string and saves (SUB-188)", async ({ page }) => {
   const row = page.locator("tr", { has: page.locator(".db-title-txt", { hasText: "Aeon Driftbox" }) });
-  await expect(row.locator(".cell-num")).toHaveText("199,5 €");
+  await expect(row.locator(".cell-num")).toHaveText("199,50 €");
   await row.locator(".cell-num").click();
 
-  // the picker lists values in use raw — "199.5", never "199,5 €"
+  // the picker lists values in use raw — "199.5", never "199,50 €"
   const menu = page.locator(".selmenu");
   await expect(menu).toBeVisible();
   await expect(menu).toContainText("199.5");
-  await expect(menu).not.toContainText("199,5 €");
+  await expect(menu).not.toContainText("199,50 €");
 
   // type a new raw value, Enter commits — the cell re-renders formatted
   await menu.locator(".selmenu-input").fill("2599");

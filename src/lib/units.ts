@@ -223,8 +223,16 @@ export function convert(q: Quantity, to: string, fx: FxResolver): number | FErr 
     rather than silently dropped. */
 export function formatQuantity(value: number, unit: string | null, locale: NumberLocale): string {
   const r = Math.round(value * 100) / 100 || 0;
-  const s = r.toLocaleString(locale, { maximumFractionDigits: 2 });
-  if (unit === null) return s;
+  if (unit === null) return r.toLocaleString(locale, { maximumFractionDigits: 2 });
   const def = resolveUnit(unit);
+  // A currency amount with cents renders both digits — "942,30 €" never sits
+  // in a money column as "942,3 €" beside "5.102,74 €". Whole amounts keep
+  // the documented no-forced-",00" rule ("1.299 €"), and non-currency units
+  // keep their natural precision ("-14,2 LUFS").
+  const money = def?.dimension === "currency" && !Number.isInteger(r);
+  const s = r.toLocaleString(locale, {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: money ? 2 : 0,
+  });
   return `${s}${def ? def.suffix : ` ${unit}`}`;
 }

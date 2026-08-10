@@ -116,12 +116,14 @@ test("formatFileSize renders de-DE sizes across the unit boundaries (SUB-284)", 
 });
 
 test("displayValue formats number-kind values by display format (SUB-188)", () => {
-  // euro: German grouping — dot thousands, comma decimals, 2 decimals only
-  // when the value has decimals (no forced ",00"), trailing " €"
+  // euro: German grouping — dot thousands, comma decimals, trailing " €".
+  // A fractional amount always shows both cents ("349,50", never "349,5"
+  // beside "5.102,74" in the same column); a whole amount stays decimal-free
+  // (no forced ",00")
   assert.equal(displayValue("1299", "number", "euro"), "1.299 €");
   assert.equal(displayValue("1234.56", "number", "euro"), "1.234,56 €");
-  assert.equal(displayValue("349.5", "number", "euro"), "349,5 €");
-  assert.equal(displayValue("-1234.5", "number", "euro"), "-1.234,5 €");
+  assert.equal(displayValue("349.5", "number", "euro"), "349,50 €");
+  assert.equal(displayValue("-1234.5", "number", "euro"), "-1.234,50 €");
   // percent: same de-DE path as euro — the stored number IS the
   // percent (no ×100 math), German grouping + " %"
   assert.equal(displayValue("12", "number", "percent"), "12 %");
@@ -210,7 +212,8 @@ test("formatNumber renders any unit column, euro/percent unchanged (SUB-834)", (
   assert.equal(formatNumber("1234.56", "euro"), "1.234,56 €");
   assert.equal(formatNumber("8.5", "percent"), "8,5 %");
   // …and every other code renders through its own suffix
-  assert.equal(formatNumber("1234.5", "USD"), "1.234,5 $");
+  // currency: a fractional amount shows both cents
+  assert.equal(formatNumber("1234.5", "USD"), "1.234,50 $");
   assert.equal(formatNumber("2.5", "kg"), "2,5 kg");
   assert.equal(formatNumber("128", "BPM"), "128 BPM");
   assert.equal(formatNumber("-14.2", "LUFS"), "-14,2 LUFS");
@@ -220,7 +223,7 @@ test("formatNumber renders any unit column, euro/percent unchanged (SUB-834)", (
   assert.equal(formatNumber("1234.56", undefined), "1234.56");
   assert.equal(formatNumber("1234.56", "furlongs"), "1234.56");
   // the intl dialect swaps separators, suffix unchanged
-  assert.equal(formatNumber("1234.5", "euro", undefined, "en-US"), "1,234.5 €");
+  assert.equal(formatNumber("1234.5", "euro", undefined, "en-US"), "1,234.50 €");
   assert.equal(formatNumber("1234.5", "kg", undefined, "en-US"), "1,234.5 kg");
 });
 
@@ -288,7 +291,7 @@ test("displayValue threads the resolver to number cells (SUB-834)", () => {
   assert.equal(displayValue("500 g", "number", "kg", NO_FX), "0,5 kg");
   assert.equal(displayValue("128", "number", "BPM"), "128 BPM");
   // the dialect reaches the cell too
-  assert.equal(displayValue("1234.5", "number", "euro", FX, "en-US"), "1,234.5 €");
+  assert.equal(displayValue("1234.5", "number", "euro", FX, "en-US"), "1,234.50 €");
   // a rollup renders through the footer's shape, unit included
   assert.equal(displayValue("2.5", "rollup", "kg"), "2,5 kg");
   // other kinds are untouched by any of it

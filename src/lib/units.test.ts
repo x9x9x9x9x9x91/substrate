@@ -199,6 +199,12 @@ test("sameDimension groups convertible units and separates the rest", () => {
 
 test("formatQuantity renders the de-DE dialect with the unit suffix", () => {
   assert.equal(formatQuantity(1234.56, "EUR", "de-DE"), "1.234,56 €");
+  // a fractional currency amount shows both cents; whole stays bare
+  assert.equal(formatQuantity(942.3, "EUR", "de-DE"), "942,30 €");
+  assert.equal(formatQuantity(-486.2, "EUR", "de-DE"), "-486,20 €");
+  assert.equal(formatQuantity(1299, "EUR", "de-DE"), "1.299 €");
+  // non-currency units keep their natural precision
+  assert.equal(formatQuantity(2.5, "kg", "de-DE"), "2,5 kg");
   assert.equal(formatQuantity(1234.56, "kg", "de-DE"), "1.234,56 kg");
   assert.equal(formatQuantity(128, "BPM", "de-DE"), "128 BPM");
   assert.equal(formatQuantity(-14.2, "LUFS", "de-DE"), "-14,2 LUFS");
