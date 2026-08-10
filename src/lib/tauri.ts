@@ -3014,14 +3014,33 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     }
     case "vault_search": {
       // mirrors the engine's FTS5 semantics (fts_match_expr): every whitespace
-      // query token must prefix-match some word in the title or body, where a
-      // word is an alphanumeric run like the FTS tokenizer produces — so a
-      // mid-word substring misses and scattered multi-word tokens hit.
+      // query token becomes a quoted prefix PHRASE — unicode61 splits it into
+      // word runs, so `bc-2025q4-00352` means the runs `bc 2025q4 00352`
+      // CONSECUTIVE in one field with the last run a prefix. Plain tokens keep
+      // the old word-prefix behavior (a one-run phrase); a mid-word substring
+      // still misses; phrases never span title/body/props, like FTS columns.
       // machine-fence bodies are stripped like the engine's index
       const tokens = ((args?.q as string) ?? "").toLowerCase().split(/\s+/).filter(Boolean);
       if (tokens.length === 0) return [];
       const words = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
       const bound = "[\\p{L}\\p{N}]";
+      const phrases = tokens.map(words);
+      // a punctuation-only token has no runs — FTS's empty phrase matches
+      // nothing, and neither did the old whole-token prefix test
+      const hasPhrase = (field: string[], runs: string[]): boolean => {
+        if (runs.length === 0) return false;
+        const last = runs.length - 1;
+        for (let i = 0; i + last < field.length; i++) {
+          let ok = true;
+          for (let j = 0; j < last; j++)
+            if (field[i + j] !== runs[j]) {
+              ok = false;
+              break;
+            }
+          if (ok && field[i + last].startsWith(runs[last])) return true;
+        }
+        return false;
+      };
       // scope: the caller's structured filters, as a path allow-list.
       // Applied before the cap, exactly like the engine's `path IN (…)` clause —
       // otherwise the cap picks from the unfiltered set and filtered matches
@@ -3035,9 +3054,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         .filter((n) => !(skipAppFiles && isAppFile(n.path)))
         .filter((n) => inScope === null || inScope.has(n.path))
         .filter((n) => {
-          // prop values answer alongside title/body, like the engine's index
-          const hay = words(`${n.title}\n${stripMachineFences(n.body)}\n${mockPropsSearchText(n.props)}`);
-          return tokens.every((t) => hay.some((w) => w.startsWith(t)));
+          // prop values answer alongside title/body, like the engine's index —
+          // per column, so a phrase never spans the title/body/props seams
+          const fields = [words(n.title), words(stripMachineFences(n.body)), words(mockPropsSearchText(n.props))];
+          return phrases.every((runs) => fields.some((f) => hasPhrase(f, runs)));
         })
         // rank before capping, or the cap picks by insertion order
         .map((n) => {

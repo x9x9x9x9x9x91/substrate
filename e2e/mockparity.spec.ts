@@ -43,3 +43,26 @@ test("list row excerpt follows the edited body (SUB-290)", async ({ page }) => {
   // the row subtitle shows the engine-computed excerpt of the NEW body
   await expect(row(page, "Welcome").locator(".row-sub")).toHaveText(marker);
 });
+
+// The engine's fts_match_expr quotes each query token as a prefix phrase, so
+// unicode61 finds hyphenated identifiers (statement numbers, cat#s) as
+// consecutive word runs. The mock kept the token whole against word-split hay
+// and could never match one — the palette said "no results" for identifiers
+// the real app finds, and every walk judging retrieval through the mock
+// inherited that blind spot.
+test("palette finds a hyphenated statement number like the engine (SUB-1221)", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await page.keyboard.press("Meta+k");
+  // the Ledger's seeded Bandcamp 2025 Q4 row carries stmt BC-2025Q4-00352 in
+  // its "statement no" prop — exactly the copied-from-an-email shape
+  await page.locator(".palette-input").fill("BC-2025Q4-00352");
+  await expect(
+    page.locator(".palette-item", { hasText: "Bandcamp 2025 Q4" })
+  ).toBeVisible();
+  // a cat# from the releases fixture goes through the same tokenizer
+  await page.locator(".palette-input").fill("SMP-030");
+  await expect(
+    page.locator(".palette-item", { hasText: "Slow Bloom" })
+  ).toBeVisible();
+});

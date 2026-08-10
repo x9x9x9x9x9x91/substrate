@@ -536,6 +536,64 @@ test("search orders by match, not by insertion order (SUB-519)", async () => {
   }
 });
 
+test("hyphenated identifiers search like the engine's prefix phrases (SUB-1221)", async () => {
+  // fts_match_expr quotes each whitespace token, so unicode61 reads
+  // `bc-2025q4-00352` as the CONSECUTIVE runs `bc 2025q4 00352` with the last
+  // one a prefix. The mock used to keep the hyphenated token whole and could
+  // never match it against word-split hay — statement numbers and cat#s were
+  // findable in the real app but not in the mock's quick search.
+  const hits = async (q: string) =>
+    (await invoke<{ path: string }[]>("vault_search", { q })).map((h) => h.path);
+
+  await invoke("vault_create", {
+    title: "Stmt Parity 1221",
+    folder: "Stmt1221",
+    body: "statement zq1221bc-2025q4-00352 filed after the returns window\n",
+  });
+  // consecutive runs elsewhere in the body, in the wrong order
+  await invoke("vault_create", {
+    title: "Stmt Scrambled 1221",
+    folder: "Stmt1221",
+    body: "runs out of order: 2025q4 zq1221bc 00352\n",
+  });
+  // the runs present but never consecutive
+  await invoke("vault_create", {
+    title: "Stmt Scattered 1221",
+    folder: "Stmt1221",
+    body: "zq1221bc alone, then 2025q4 later, then 00352 last\n",
+  });
+
+  const one = ["Stmt1221/Stmt Parity 1221.md"];
+  assert.deepEqual(await hits("zq1221bc-2025q4-00352"), one, "full identifier hits its note only");
+  assert.deepEqual(await hits("zq1221bc-2025q4-003"), one, "last run prefix-matches");
+  assert.deepEqual(await hits("ZQ1221BC-2025Q4-00352"), one, "case-insensitive like the tokenizer");
+  // the reversed identifier finds the note carrying the runs in THAT order
+  // (Scrambled has `2025q4 zq1221bc` consecutive) — never the Parity note
+  assert.deepEqual(
+    await hits("2025q4-zq1221bc"),
+    ["Stmt1221/Stmt Scrambled 1221.md"],
+    "run order is the phrase order"
+  );
+  // `"…-2025"*` is a prefix PHRASE: the trailing run prefix-matches 2025q4,
+  // exactly like typing the identifier from an email cut short mid-segment
+  assert.deepEqual(await hits("zq1221bc-2025"), one, "a truncated trailing run still prefix-matches");
+
+  // a phrase never spans the title/body seam — FTS phrases live in one column
+  await invoke("vault_create", {
+    title: "Seam Ends zq1221bc",
+    folder: "Stmt1221",
+    body: "2025q4 opens the body\n",
+  });
+  assert.deepEqual(await hits("zq1221bc-2025q4-00352"), one, "title/body seam is not a phrase bridge");
+
+  // plain tokens keep the old semantics: scattered word-prefix matches hit
+  const scattered = await hits("zq1221bc 00352");
+  assert.ok(
+    scattered.includes("Stmt1221/Stmt Scattered 1221.md"),
+    "separate whitespace tokens still match scattered words"
+  );
+});
+
 /* A structural op names BOTH sides of itself as its own write. The
    engine renames on disk and the watcher emits the vacated rel in the same
    burst; before this, only the destination was recorded, so the old path's
