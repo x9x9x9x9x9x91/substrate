@@ -704,6 +704,27 @@ export default function SelectMenu({
   // names the property; without a caller label the list heading stands in
   const pickerName = label ?? listHeading ?? "Pick a value";
 
+  // A kind change destroys schema facets the moment Save lands: the save
+  // below hands `[]` for every kind but select/multi, and drops the format
+  // for everything but number — the engine mirrors both
+  // (Engine::set_schema_prop). Schema edits are NOT on the undo stack and the
+  // editor re-reads the CURRENT schema on mount, so "change it back" cannot
+  // restore them. Name the loss here, at the moment of decision;
+  // Save stays enabled — informed consent, not a block.
+  const currentKind: DraftKind = kind ?? (options.length > 0 ? "select" : "text");
+  const draftKindLabel = KIND_LABELS.find(([k]) => k === draftKind)?.[1] ?? draftKind;
+  const dropsOptions =
+    options.length > 0 && draftKind !== "select" && draftKind !== "multi";
+  const dropsColors = options.some((o) => o.color);
+  // a non-plain format is the whole facet — plain stores as absent anyway
+  const dropsFormat = !!format && format !== "plain" && draftKind !== "number";
+  // the curated picker labels the common formats (€, %); free-form unit
+  // codes read as stored
+  const formatLabel = FORMAT_LABELS.find(([f]) => f === format)?.[1] ?? format;
+  // schema-level check only — the menu cannot see cell data, and the warning
+  // is about the transition, not about which rows happen to be filled
+  const hidesValues = draftKind === "checkbox" && currentKind !== "checkbox";
+
   const menu = editing ? (
     <div className="selmenu" style={style} ref={boxRef} onClick={stop} onKeyDown={stop}>
       <div className="selmenu-edit-head">{editTitle ?? "Property"}</div>
@@ -999,6 +1020,24 @@ export default function SelectMenu({
           onKeyDown={(e) => e.stopPropagation()}
         />
       </div>
+      {dropsOptions && (
+        <div className="selmenu-warn">
+          Saving as {draftKindLabel} removes {options.length}{" "}
+          {options.length === 1 ? "option" : "options"}
+          {dropsColors && (options.length === 1 ? " and its color" : " and their colors")}
+        </div>
+      )}
+      {dropsFormat && (
+        <div className="selmenu-warn">
+          Saving as {draftKindLabel} removes the {formatLabel} format
+        </div>
+      )}
+      {hidesValues && (
+        <div className="selmenu-warn">
+          Existing values will hide behind unchecked boxes — ticking one overwrites the
+          value.
+        </div>
+      )}
       <div className="selmenu-foot">
         <button
           className="selmenu-btn"

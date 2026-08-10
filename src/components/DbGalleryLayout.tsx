@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import type { NumberLocale } from "../lib/numberLocale";
 import type { DbIcon, NoteMeta, PropSchema } from "../lib/types";
 import { NOTE_DRAG_MIME } from "../lib/sidebar";
@@ -56,8 +57,19 @@ export default function DbGalleryLayout({
   onNoteMenu: (path: string, x: number, y: number) => void;
 }) {
   /* DatabasePane owns bodyRef (focus restore, keyboard nav), so the fade's
-     callback ref merges with it rather than replacing it */
+     callback ref merges with it rather than replacing it. The merge is
+     memoised: an inline closure hands React a new ref identity every render,
+     which detaches and re-attaches the node — a wasted pass in which every
+     un-windowed card rebuilds before React bails on the identical output. */
   const fade = useEdgeFade<HTMLDivElement>();
+  const fadeRef = fade.props.ref;
+  const mergedRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      bodyRef.current = node;
+      fadeRef(node);
+    },
+    [bodyRef, fadeRef]
+  );
   return (
     <div className="db" {...bgMenuProps}>
       {head}
@@ -65,10 +77,7 @@ export default function DbGalleryLayout({
       {bar}
       <div
         className={`db-body db-gallery${fade.className}`}
-        ref={(node) => {
-          bodyRef.current = node;
-          fade.props.ref(node);
-        }}
+        ref={mergedRef}
         onScroll={fade.props.onScroll}
       >
         {draftRow}

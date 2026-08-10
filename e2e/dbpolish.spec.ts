@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { openDb, openFilter } from "./nav";
 
 // Design-contract cleanups: the database pane's geometry has to hold
@@ -207,4 +207,47 @@ test("bulk bar keeps its closing frame before the timer unmounts it (SUB-945)", 
   await page.locator(".bulkbar-x").click();
   await expect(page.locator(".bulkbar.closing")).toBeVisible({ timeout: 80 });
   await expect(page.locator(".bulkbar")).toHaveCount(0);
+});
+
+/** Where the walked-to cell sits against the two sticky bands it can hide
+    under: the header lid on top, the aggregation footer below. */
+async function bandClearance(page: Page) {
+  return page.evaluate(() => {
+    const cell = document.activeElement!.getBoundingClientRect();
+    const head = document.querySelector(".db-table thead th")!.getBoundingClientRect();
+    const foot = document.querySelector(".db-table tfoot td")!.getBoundingClientRect();
+    return { cellTop: cell.top, cellBottom: cell.bottom, headBottom: head.bottom, footTop: foot.top };
+  });
+}
+
+// The table's own keyboard walk had no clearance for its
+// sticky bands: `scrollIntoView({block:"nearest"})` counts the scrollport's
+// edges, and the header and the aggregation footer are painted over rows at
+// exactly those edges. So the row you just arrowed onto rendered underneath
+// them — opaquely, panel-on-panel, not dimmed. `scroll-padding` on the body
+// tells the browser where the readable box really starts and ends.
+
+test("arrow-walking a table lands rows clear of both sticky bands (SUB-1224)", async ({ page }) => {
+  // 40 rows in a short window: the table scrolls, but stays under the
+  // windowing threshold (WIN_MIN = 60) so the walk runs the plain
+  // scrollIntoView branch — the windowed one compensates by hand already
+  await page.setViewportSize({ width: 1280, height: 560 });
+  await page.goto("/?perfdb=40");
+  await openDb(page, "Plugin");
+  const cells = page.locator('.db-table [data-fc="0"]');
+  await expect(cells).toHaveCount(40);
+
+  // down to the last row: scrollIntoView aligns it with the scrollport
+  // BOTTOM, which is the footer's lane
+  await cells.first().focus();
+  for (let i = 0; i < 39; i++) await page.keyboard.press("ArrowDown");
+  await expect(page.locator('.db-table [data-fc="0"][data-fr="39"]')).toBeFocused();
+  const low = await bandClearance(page);
+  expect(low.cellBottom).toBeLessThanOrEqual(low.footTop + 0.5);
+
+  // and back up, where the same call aligns with the TOP — the header's lane
+  for (let i = 0; i < 30; i++) await page.keyboard.press("ArrowUp");
+  await expect(page.locator('.db-table [data-fc="0"][data-fr="9"]')).toBeFocused();
+  const high = await bandClearance(page);
+  expect(high.cellTop).toBeGreaterThanOrEqual(high.headBottom - 0.5);
 });

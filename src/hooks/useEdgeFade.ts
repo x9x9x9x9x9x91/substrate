@@ -33,6 +33,24 @@ export function useEdgeFade<T extends HTMLElement = HTMLDivElement>() {
     setMore(el.scrollTop < el.scrollHeight - el.clientHeight - 1);
   }, [el]);
 
+  // The gate state belongs to the node, so it is re-taken at every attach and
+  // dropped at every detach. One hook instance can serve a scroller that MOVES
+  // — the calendar's expanded month cell rides a single instance as expansion
+  // travels between days — and carrying the old cell's `scrolled/more` across
+  // the swap paints the next cell's fade from the previous cell's overflow
+  // until the post-attach gate lands a frame later.
+  //
+  // Measuring here rather than merely clearing is what keeps that honest for
+  // callers whose merged ref is an inline closure (a new ref identity every
+  // render, so React detaches and re-attaches the SAME node): clearing alone
+  // would blank the fade on every render and never restore it, because `el`
+  // never changes and the effect below never re-runs.
+  const ref = useCallback((node: T | null) => {
+    setEl(node);
+    setScrolled(!!node && node.scrollTop > 0);
+    setMore(!!node && node.scrollTop < node.scrollHeight - node.clientHeight - 1);
+  }, []);
+
   useEffect(() => {
     if (!el) return;
     // first gate a frame later: setState synchronously inside an effect
@@ -52,6 +70,6 @@ export function useEdgeFade<T extends HTMLElement = HTMLDivElement>() {
 
   return {
     className: ` edge-fade-y${scrolled ? " edge-scrolled-y" : ""}${more ? " edge-more-y" : ""}`,
-    props: { ref: setEl as (node: T | null) => void, onScroll: sync },
+    props: { ref, onScroll: sync },
   };
 }

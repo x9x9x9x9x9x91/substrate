@@ -256,6 +256,18 @@ test("arrow-walking to the last row lands it clear of the bottom fade (SUB-1218)
   await expect(page.locator(".palette-item-snippet").first()).toBeVisible();
 
   const rows = page.locator(".palette-results .palette-item");
+  // the batch lands over more than one paint, so the first snippet appearing
+  // does not mean the list has stopped growing: take the count only once two
+  // consecutive reads agree, or the walk is sized to a list that outgrew it
+  let prev = -1;
+  await expect
+    .poll(async () => {
+      const n = await rows.count();
+      const settled = n > 0 && n === prev;
+      prev = n;
+      return settled;
+    })
+    .toBe(true);
   const count = await rows.count();
   for (let i = 0; i < count + 2; i++) await page.keyboard.press("ArrowDown");
 
@@ -281,8 +293,12 @@ test("arrow-walking to the last row lands it clear of the bottom fade (SUB-1218)
 });
 
 // Cold ⌘K with a note open painted "Commands" twice: the Pick row was
-// appended after the Folders spread, and sections group by contiguity.
-// A section name appears once.
+// appended after the Folders spread, and sections group by contiguity — one
+// header per run, which is the intended shape (a header labels the rows under
+// it, not every row of that kind anywhere in the list). So this is a claim
+// about the cold-open ORDER, not about grouping in general: cold ⌘K must emit
+// each section as a single run, hence each name once. A query whose ranking
+// genuinely interleaves two sections would repaint both names, correctly.
 
 test("cold-open palette sections are unique (SUB-1218)", async ({ page }) => {
   await page.goto("/");

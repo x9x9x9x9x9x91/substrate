@@ -682,10 +682,13 @@ button.side-item {
   );
 }
 
-/* The same gate, generalised. Five surfaces were clipping content
+/* The same gate, generalised. Surfaces were clipping content
    mid-glyph at a container edge with nothing saying more was there; rather
-   than five bespoke fades, any scroller opting in via useEdgeFade() gets this
-   one. Depths match the sidebar (14px in, 20px out) so every fade in the app
+   than a bespoke fade each, any scroller opting in via useEdgeFade() gets this
+   one — a dozen call sites by now, across settings, Today, the charts
+   dashboard, the database manager, the palette, the shortcut overlay, the
+   calendar (agenda and expanded cell) and the db board/list/gallery bodies.
+   The list moves; `grep -rn useEdgeFade src/components` is the current one. Depths match the sidebar (14px in, 20px out) so every fade in the app
    reads the same. Mask, not scrim: no background token, no theme coupling.
    scroll-padding mirrors the band depths: keyboard walks land rows via
    scrollIntoView(nearest), which otherwise aligns the selected row flush
@@ -6419,6 +6422,30 @@ body.agenda-window .palette:focus-visible {
   overflow: auto;
 }
 
+/* keyboard-walk clearance under the table's two sticky bands. The
+   walk moves focus with scrollIntoView({block:"nearest"}), which reads the
+   scrollport's own edges — and the header lid and the aggregation footer are
+   painted over rows sitting at exactly those edges, opaquely. Growing each
+   cell's own scroll box by the band above or below it makes "nearest" mean
+   the readable box. The values are the bands as they measure: header 36.5px
+   (8px padding twice around a 10.5/1.4 label, on its hairline), footer
+   27.5px (one 12px row on its own).
+   This is scroll-margin on the cells, not scroll-padding on the scroller,
+   and the difference is load-bearing: padding the scroller shrinks the
+   readable box for EVERY reveal, including the sticky header's own — which
+   sits flush at the top edge, so a padded box declares it permanently
+   half-hidden and anything scrolling it into view (tabbing to a sort
+   button, a click's own scroll-into-view) yanks the table to a scroll
+   offset nowhere near the row the user was on. That broke the windowed
+   re-sort reveal outright. scroll-margin only speaks for the
+   thing being revealed, so the bands keep their own geometry.
+   Only the table view has bands: list, gallery and board share .db-body and
+   must keep landing flush. */
+.db-table tbody td {
+  scroll-margin-top: 37px;
+  scroll-margin-bottom: 28px;
+}
+
 /* the right-edge fade says more columns hide past the edge
    gates it on actual scrollability: gone at max scroll so the last column
    renders crisp, and absent entirely when the table fits its pane. The board
@@ -7820,6 +7847,22 @@ tr.db-draft-tr,
   flex: 1;
   min-height: 0;
   overflow: auto;
+}
+
+/* the cell cursor moves by focusing a cell, and the browser scrolls it to
+   the nearest edge of the scrollport — where the column header is painted,
+   opaque and sticky. Growing the cell's own scroll box by the header's
+   height (7px twice around a 12px label, on its hairline) makes "nearest"
+   mean the readable top. The totals row is sticky at the bottom too, but its
+   height is its content's: a stack of summaries in one cell can outgrow the
+   scrollport itself, so there is no honest constant to clear it by.
+   scroll-margin here, not scroll-padding on .sheet-scroll, for the reason
+   spelled out over .db-table tbody td: a padded scrollport also declares the
+   sticky header itself half-hidden, and the header holds focusable inputs
+   (rename a computed column, add a column) whose focus would then jerk the
+   sheet to an unrelated scroll offset. */
+.sheet-table tbody .sheet-cell {
+  scroll-margin-top: 34px;
 }
 
 .sheet-table {
@@ -9545,6 +9588,16 @@ span.asset-thumb svg {
   font-size: 11px;
   line-height: 1.4;
   color: var(--text-3);
+}
+
+/* the destructive-save line above the foot: the kind hint's metrics in the
+   attention amber — a facet is about to be deleted with no undo.
+   Not danger red: Save is still the right move often enough. */
+.selmenu-warn {
+  padding: 4px 12px 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--warn);
 }
 
 /* the property description as an entry hint: one muted line under

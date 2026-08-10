@@ -52,3 +52,35 @@ test("⌘K reaches the palette from a focused grid cell; bare k still navs (SUB-
   await expect(cell(page, 0, 0)).toHaveClass(/focused/);
   await expect(cell(page, 0, 0)).toBeFocused();
 });
+
+// The grid moves its cursor by focusing the cell, and the browser
+// scrolls the newly focused cell to the nearest scrollport edge. The sheet's
+// column header is painted over that top edge, opaquely — so stepping the
+// cursor UP inside a scrolled sheet put the cell exactly under the header.
+// `scroll-padding-top` on the scroller tells the browser where its readable
+// top really is.
+
+test("stepping the cell cursor up lands it clear of the sticky header (SUB-1224)", async ({
+  page,
+}) => {
+  // short enough that the rows overflow their scroller: the walk only has an
+  // edge to hide under once the sheet actually scrolls
+  await page.setViewportSize({ width: 1100, height: 420 });
+  await openSheet(page);
+  const rows = await page.locator(".sheet-table tbody tr").count();
+
+  await cell(page, 0, 0).focus();
+  for (let i = 0; i < rows + 3; i++) await page.keyboard.press("ArrowDown");
+  // back up two rows — far enough to scroll, not far enough to reach the top
+  // of the sheet, where the header stands above the rows anyway
+  for (let i = 0; i < 2; i++) await page.keyboard.press("ArrowUp");
+
+  const geom = await page.evaluate(() => {
+    const scroller = document.querySelector(".sheet-scroll") as HTMLElement;
+    const head = document.querySelector(".sheet-table th")!.getBoundingClientRect();
+    const cur = document.activeElement!.getBoundingClientRect();
+    return { scrollTop: scroller.scrollTop, cellTop: cur.top, headBottom: head.bottom };
+  });
+  expect(geom.scrollTop).toBeGreaterThan(0);
+  expect(geom.cellTop).toBeGreaterThanOrEqual(geom.headBottom - 0.5);
+});

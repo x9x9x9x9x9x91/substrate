@@ -2,9 +2,13 @@ import { expect, test, type Page } from "@playwright/test";
 import { openDb } from "./nav";
 
 // The shared vertical edge fade. One gate — useEdgeFade() plus
-// .edge-fade-y in styles.css — now serves the settings sheet, the calendar's
-// Upcoming rail, the charts dashboard and the database manager, replacing what
-// would otherwise have been four bespoke fades. Same contract as the table edges and the
+// .edge-fade-y in styles.css — serves every scroller that opts in: a dozen
+// call sites by now, across settings, Today, the charts dashboard, the
+// database manager, the palette, the shortcut overlay, the calendar (agenda
+// and expanded cell) and the db board/list/gallery bodies. The list moves;
+// `grep -rn useEdgeFade src/components` is the current one, and the tests
+// below cover a representative slice of it rather than each in turn.
+// Same contract as the table edges and the
 // sidebar tree: .edge-more-y paints only while the scroller can move
 // down, .edge-scrolled-y only while it is off the top stop, so the row at a
 // stop always renders crisp and a surface that fits fades neither end.
@@ -84,6 +88,16 @@ test("expanded month cell: fade gated on the cell's own overflow", async ({ page
   // bottom stop: the last entry row renders crisp
   await toBottom(page, ".cal-day.expanded");
   await expect(cell).not.toHaveClass(/edge-more-y/);
+
+  // the other half of the gate: a month row tall enough to hold
+  // the whole list leaves the cell fading neither end — no mask at all, not
+  // a mask that happens to be transparent nowhere
+  await page.setViewportSize({ width: 1280, height: 1800 });
+  await expect(cell).not.toHaveClass(/edge-more-y/);
+  await expect(cell).not.toHaveClass(/edge-scrolled-y/);
+  const fits = await cell.evaluate((el) => ({ sh: el.scrollHeight, ch: el.clientHeight }));
+  expect(fits.sh).toBeLessThanOrEqual(fits.ch + 1);
+  expect(await cell.evaluate((el) => getComputedStyle(el).maskImage)).toBe("none");
 });
 
 test("charts dashboard: bottom fade while charts continue past the pane", async ({ page }) => {
