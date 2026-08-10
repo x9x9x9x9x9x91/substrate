@@ -296,3 +296,16 @@ test("cold-open palette sections are unique (SUB-1218)", async ({ page }) => {
   expect(sections.length).toBeGreaterThan(0);
   expect(new Set(sections).size).toBe(sections.length);
 });
+
+test("a property-only hit says it matched in properties (SUB-1222)", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await page.keyboard.press("Meta+k");
+  // "1k petals" is the artist prop on Vessel Songs — its body never says it
+  await page.locator(".palette-input").fill("petals");
+  const row = page.locator(".palette-item", { hasText: "Vessel Songs" });
+  await expect(row).toBeVisible();
+  await expect(row.locator(".palette-hint")).toHaveText("in properties");
+  // the snippet is the value that matched, marked — not unrelated body prose
+  await expect(row.locator(".palette-item-snippet mark").first()).toHaveText(/petals/i);
+});

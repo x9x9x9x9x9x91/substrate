@@ -18,7 +18,14 @@ const APP_SUBJECTS = [
   "seal ",
   "restore ",
   "external edit to ",
-  "before vault time travel",
+  // every presweep fence the app takes before a destructive run names itself
+  // "before <what is about to happen>" — the time-travel fence (App.tsx), the
+  // four schema sweeps, the unmount fence, the mounts migration (lib.rs).
+  // Matching the prefix rather than the five literals keeps a fence added
+  // later out of the pre-convention bucket; the cost is that a user's own
+  // pre-convention commit starting "before " reads as "You", which is the
+  // same class of guess every entry in this list makes.
+  "before ",
 ];
 
 const isAppSubject = (subject: string) =>

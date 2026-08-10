@@ -273,6 +273,30 @@ test("markSnippet: every query token marks, mid-word never does", () => {
   assert.equal(markSnippet("ast", "Two masters in"), null);
 });
 
+test("markSnippet: accents read the way the tokenizer reads them", () => {
+  // the FTS tokenizer runs `remove_diacritics 2`, so "cafe" is what matched
+  // "café" in the first place — a literal mark leaves the row plain while the
+  // full-search pane highlights the same hit
+  const parts = markSnippet("cafe", "the café by the lake");
+  assert.ok(parts, "an accent-folded query must still mark");
+  assert.deepEqual(parts!.filter((p) => p.hit), [{ text: "café", hit: true }]);
+  assert.equal(parts!.map((p) => p.text).join(""), "the café by the lake");
+
+  // both directions: an accented query marks the plain word
+  const back = markSnippet("café", "the cafe by the lake");
+  assert.ok(back);
+  assert.deepEqual(back!.filter((p) => p.hit), [{ text: "cafe", hit: true }]);
+
+  // decomposed text (e + combining acute) marks whole, accent included
+  const nfd = markSnippet("cafe", "the cafe\u0301 by the lake");
+  assert.ok(nfd);
+  assert.deepEqual(nfd!.filter((p) => p.hit), [{ text: "cafe\u0301", hit: true }]);
+  assert.equal(nfd!.map((p) => p.text).join(""), "the cafe\u0301 by the lake");
+
+  // folding never invents a hit where the tokenizer has none
+  assert.equal(markSnippet("cafe", "the tearoom by the lake"), null);
+});
+
 test("markSnippet: regex metachars in the query stay literal", () => {
   const parts = markSnippet("c++", "notes on c++ builds");
   assert.ok(parts, "an escaped query must not throw or miss");

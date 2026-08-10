@@ -3440,7 +3440,7 @@ mod schema;
 #[allow(unused_imports)]
 pub use schema::{
     BulkSweep, NewTypeProp, PropSchema, RollupSet, SchemaConfig, SelectOption, TypeSchema,
-    AGG_KINDS, NUMBER_FORMATS, PROP_KINDS, SCHEMA_REL_PATH,
+    AGG_KINDS, BULK_CONFIG_PATHS, NUMBER_FORMATS, PROP_KINDS, SCHEMA_REL_PATH,
 };
 
 mod search;

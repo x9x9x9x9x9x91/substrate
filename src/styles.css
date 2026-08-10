@@ -10221,6 +10221,23 @@ span.asset-thumb svg {
   background: var(--active);
 }
 
+/* the property value a hit matched in. Same shape as a match line so the
+   marks read the same, without its cursor: there is no line to open at. */
+.search-prop-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 10px 4px 32px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.search-prop-label {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+
 .search-line-no {
   flex: none;
   min-width: 26px;

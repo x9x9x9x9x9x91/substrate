@@ -30,7 +30,9 @@ import type {
   VaultSyncStatus,
   ViewsConfig,
 } from "./types.ts";
+import { foldedPropKey } from "./types.ts";
 import { stripMachineFences } from "./fences.ts";
+import { foldDiacritics, foldWithMap } from "./fold.ts";
 import { noteTags, propTags, tagUniverse } from "./tags.ts";
 import { MOCK_FX, MOCK_FX_RATES } from "./fx.ts";
 import { MOUNT_EXTRACTED, MOUNT_SCHEME } from "./mounts.ts";
@@ -1878,9 +1880,11 @@ const SEARCH_MAX_HITS = 30;
 const FULL_SEARCH_MAX_NOTES = 200;
 
 /** The word runs a text splits into, the way the FTS tokenizer sees it:
-    alphanumeric runs, lowercased, punctuation dropped. */
+    alphanumeric runs, lowercased, punctuation dropped, accents folded — the
+    index is built with `remove_diacritics 2`, so "cafe" and "café" are one
+    word to it and have to be here too. */
 function mockSearchWords(s: string): string[] {
-  return s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  return foldDiacritics(s.toLowerCase()).split(/[^\p{L}\p{N}]+/u).filter(Boolean);
 }
 
 /** Does `field`'s run sequence contain `runs` consecutively, with the last run
@@ -1905,12 +1909,18 @@ function mockHasPhrase(field: string[], runs: string[]): boolean {
 
 /** Char offset of the first word-start match of any token, or `Infinity`.
     `starts` is the matcher's own word-boundary class, so each command ranks
-    by exactly the rule it filtered with. */
+    by exactly the rule it filtered with. Both sides fold, like the index: a
+    note that matched on "café" ranks by where that word sits, instead of
+    falling to the bottom as an offset-less miss. */
 function mockFirstHit(text: string, tokens: string[], starts: string): number {
   if (tokens.length === 0) return Infinity;
   const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const m = new RegExp(`(?<!${starts})(?:${tokens.map(esc).join("|")})`, "iu").exec(text);
-  return m ? m.index : Infinity;
+  const { folded, map } = foldWithMap(text);
+  const m = new RegExp(
+    `(?<!${starts})(?:${tokens.map((t) => esc(foldDiacritics(t))).join("|")})`,
+    "iu",
+  ).exec(folded);
+  return m ? map[m.index] : Infinity;
 }
 
 /** Sort key for both mock search commands — see the note above. */
@@ -3089,7 +3099,21 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         })
         .sort(mockRank)
         .slice(0, SEARCH_MAX_HITS)
-        .map(({ note: n }) => ({ path: n.path, snippet: n.excerpt || n.body.slice(0, 80) }));
+        .map(({ note: n }) => {
+          // which column marked, in the engine's own terms: a hit that landed
+          // ONLY in the props carries the value it matched, because the body
+          // snippet below it marks nothing and explains nothing
+          const propsText = mockPropsSearchText(n.props);
+          const marked = (text: string) =>
+            phrases.some((runs) => mockHasPhrase(mockSearchWords(text), runs));
+          const propOnly =
+            marked(propsText) && !marked(n.title) && !marked(stripMachineFences(n.body));
+          return {
+            path: n.path,
+            snippet: n.excerpt || n.body.slice(0, 80),
+            prop_snippet: propOnly ? propsText : null,
+          };
+        });
     }
     case "vault_search_full": {
       // approximates the engine: word-prefix tokens, whole word highlighted.
@@ -3122,16 +3146,23 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         `(?<![\\p{L}\\p{N}_])(?:${fullPhrases.map(alt).join("|")})[\\p{L}\\p{N}_]*`,
         "giu"
       );
+      // matching runs on the accent-folded text and the parts are cut out of
+      // the ORIGINAL through the index map: the phrases are already folded
+      // (mockSearchWords), so "cafe" highlights "café" — accent included — the
+      // way `remove_diacritics 2` found it, and the parts still concatenate
+      // back to exactly the line that was passed in
       const segment = (text: string): { parts: { text: string; hit: boolean }[]; count: number } => {
         const parts: { text: string; hit: boolean }[] = [];
+        const { folded, map } = foldWithMap(text);
         let count = 0;
         let last = 0;
-        for (const m of text.matchAll(res)) {
-          const at = m.index ?? 0;
+        for (const m of folded.matchAll(res)) {
+          const at = map[m.index ?? 0];
+          const end = map[(m.index ?? 0) + m[0].length];
           if (at > last) parts.push({ text: text.slice(last, at), hit: false });
-          parts.push({ text: m[0], hit: true });
+          parts.push({ text: text.slice(at, end), hit: true });
           count += 1;
-          last = at + m[0].length;
+          last = end;
         }
         if (last < text.length) parts.push({ text: text.slice(last), hit: false });
         return { parts, count };
@@ -3153,16 +3184,25 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           total += seg.count;
           if (matches.length < 12) matches.push({ line: i + 1, parts: seg.parts });
         }
-        // prop-value hits count toward the total (no body line to show —
-        // the note header carries them), mirroring the engine's props column
+        // prop-value hits count toward the total and bring the marked value
+        // with them — a prop has no body line to show, and a count with
+        // nothing visible under it never says why the note came back
         const propsText = mockPropsSearchText(n.props);
-        total += segment(propsText).count;
+        const propSeg = segment(propsText);
+        total += propSeg.count;
         // AND semantics like FTS: every term must appear somewhere in the note,
         // per column, so a phrase never spans the title/body/props seams
         const fields = [mockSearchWords(n.title), mockSearchWords(body), mockSearchWords(propsText)];
         if (total > 0 && fullPhrases.every((runs) => fields.some((f) => mockHasPhrase(f, runs))))
           ranked.push({
-            hit: { path: n.path, title_parts: title.parts, total, matches, partial: false },
+            hit: {
+              path: n.path,
+              title_parts: title.parts,
+              total,
+              matches,
+              partial: false,
+              prop_parts: propSeg.count > 0 ? propSeg.parts : [],
+            },
             titleHit: title.count > 0,
             offset:
               title.count > 0
@@ -3195,7 +3235,15 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           if (total === 0 || !fullPhrases.every((runs) => fileFields.some((f2) => mockHasPhrase(f2, runs))))
             continue;
           ranked.push({
-            hit: { path, title_parts: title.parts, total, matches, partial: !!f.text_truncated },
+            hit: {
+              path,
+              title_parts: title.parts,
+              total,
+              matches,
+              partial: !!f.text_truncated,
+              // a mounted file has no frontmatter — nothing to mark
+              prop_parts: [],
+            },
             titleHit: title.count > 0,
             offset:
               title.count > 0 ? mockFirstHit(name, terms, bound) : mockFirstHit(f.text ?? "", terms, bound),
@@ -4538,7 +4586,11 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const refs = (args?.refs ?? []) as { path: string; key: string }[];
       return refs.map((r) => {
         const n = mockNotes.find((m) => m.path === r.path);
-        const raw = n?.props?.[r.key];
+        // the key binds case-folded, exact first, the way `fact_value` folds
+        // every historical blob (factlane.rs) — a mock that only answered the
+        // exact spelling made `PROP(n, "Weight")` look like an absent fact
+        const props = n?.props ?? {};
+        const raw = props[foldedPropKey(props, r.key)];
         const value =
           raw === null || raw === undefined
             ? null

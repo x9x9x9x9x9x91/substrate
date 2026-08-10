@@ -12,6 +12,12 @@ use super::*;
 pub struct SearchHit {
     pub path: String,
     pub snippet: String,
+    /// The matching prop VALUE, when the note matched ONLY in its properties.
+    /// The body snippet then shows whatever the note opens with, which marks
+    /// nothing and explains nothing — this is the text that actually answered
+    /// the query. `None` whenever the title or body matched too: those explain
+    /// themselves.
+    pub prop_snippet: Option<String>,
 }
 
 /// One run of snippet text; `hit` marks a matched token.
@@ -42,6 +48,10 @@ pub struct FullSearchHit {
     /// note, whose body is the whole note. The pane has to say so — a miss
     /// further down such a file is not the phrase being absent from it.
     pub partial: bool,
+    /// The note's matching prop values, marked — empty when no prop matched.
+    /// A prop hit has no body line to show, so without this the pane counted
+    /// it in the total and then showed nothing that matched.
+    pub prop_parts: Vec<SnippetPart>,
 }
 
 /// A full-search page plus how much of the match set it represents.
@@ -87,6 +97,11 @@ const SNIPPET_LEAD_KEEP: usize = 56;
 const SNIPPET_LINE_MAX: usize = 240;
 
 /// Parse highlight() output into text/hit segments; returns the hit count.
+/// The text a marked column reads as with the markers taken back out.
+fn strip_marks(s: &str) -> String {
+    s.chars().filter(|c| *c != MARK_START && *c != MARK_END).collect()
+}
+
 fn parse_marked(s: &str) -> (Vec<SnippetPart>, u32) {
     let mut parts: Vec<SnippetPart> = Vec::new();
     let mut buf = String::new();
@@ -279,8 +294,15 @@ impl Engine {
         if self.fts {
             let Ok(clause) = self.apply_scope(scope) else { return Vec::new() };
             let app = app_files_clause(exclude_app_files);
+            // title (1) and props (4) come back marked purely to read WHERE the
+            // match landed: a note whose only hit is a prop value would
+            // otherwise return its opening body prose, which marks nothing. The
+            // markers are stripped before the snippet ships, so the row text is
+            // exactly what the unmarked snippet() call used to return.
             let sql = format!(
-                "SELECT path, snippet(notes_fts, 2, '', '', ' … ', 14) FROM notes_fts \
+                "SELECT path, snippet(notes_fts, 2, ?2, ?3, ' … ', 14), \
+                 highlight(notes_fts, 1, ?2, ?3), snippet(notes_fts, 4, ?2, ?3, ' … ', 14) \
+                 FROM notes_fts \
                  WHERE notes_fts MATCH ?1{clause}{app}{QUICK_SEARCH_MOUNT_CLAUSE} \
                  ORDER BY rank LIMIT 30"
             );
@@ -288,9 +310,23 @@ impl Engine {
                 Ok(s) => s,
                 Err(_) => return Vec::new(),
             };
-            let rows = stmt.query_map([fts_match_expr(q)], |row| {
-                Ok(SearchHit { path: row.get(0)?, snippet: row.get(1)? })
-            });
+            let rows = stmt.query_map(
+                rusqlite::params![fts_match_expr(q), MARK_START.to_string(), MARK_END.to_string()],
+                |row| {
+                    let body_hl: String = row.get(1)?;
+                    let title_hl: String = row.get(2)?;
+                    // mount rows carry no props, so the column reads through Option
+                    let props_hl: String = row.get::<_, Option<String>>(3)?.unwrap_or_default();
+                    let prop_only = props_hl.contains(MARK_START)
+                        && !body_hl.contains(MARK_START)
+                        && !title_hl.contains(MARK_START);
+                    Ok(SearchHit {
+                        path: row.get(0)?,
+                        snippet: strip_marks(&body_hl),
+                        prop_snippet: prop_only.then(|| strip_marks(&props_hl)),
+                    })
+                },
+            );
             match rows {
                 Ok(r) => r.flatten().collect(),
                 Err(_) => Vec::new(),
@@ -307,7 +343,17 @@ impl Engine {
                         || props_search_text(&n.props).to_lowercase().contains(&ql)
                 })
                 .take(30)
-                .map(|n| SearchHit { path: n.path.clone(), snippet: n.excerpt.clone() })
+                .map(|n| {
+                    let props = props_search_text(&n.props);
+                    let prop_only = props.to_lowercase().contains(&ql)
+                        && !n.title.to_lowercase().contains(&ql)
+                        && !n.excerpt.to_lowercase().contains(&ql);
+                    SearchHit {
+                        path: n.path.clone(),
+                        snippet: n.excerpt.clone(),
+                        prop_snippet: prop_only.then_some(props),
+                    }
+                })
                 .collect()
         }
     }
@@ -369,6 +415,8 @@ impl Engine {
                     },
                     // this branch scans `self.notes`, which holds no mount rows
                     partial: false,
+                    // no FTS means no highlight() — this branch marks nothing
+                    prop_parts: Vec::new(),
                 })
                 .collect::<Vec<_>>();
             let truncated = (hits.len() as u32) < total_notes;
@@ -442,12 +490,14 @@ impl Engine {
             // prop-value hits count toward the total so a props-only match
             // survives the `total > 0` gate — the hit renders as its note
             // header, which opens the note where the props are on screen
+            let mut prop_parts = Vec::new();
             if props_hl.contains(MARK_START) {
-                let (_, count) = parse_marked(&props_hl);
+                let (parts, count) = parse_marked(&props_hl);
                 total += count;
+                prop_parts = trim_parts(parts);
             }
             if total > 0 {
-                out.push(FullSearchHit { path, title_parts, total, matches, partial });
+                out.push(FullSearchHit { path, title_parts, total, matches, partial, prop_parts });
             }
         }
         // `total_notes` counts MATCH rows; a row whose hits all landed in a
@@ -826,6 +876,49 @@ mod tests {
             e.search("4c9f21ab", None, false).iter().all(|h| h.path != "Migrated.md"),
             "the hidden notion_id stamp is not searchable"
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A prop-only hit has to say WHERE it matched. Quick search showed the
+    /// note's leading body prose with nothing marked in it, and full search a
+    /// count with no visible text — both doors answered "why did this come
+    /// back?" with silence. The matching prop value rides along now: quick
+    /// search swaps it in for the body snippet, full search marks it.
+    #[test]
+    fn prop_only_hits_show_the_matching_value() {
+        let (mut e, dir) = temp_vault("proponly");
+        fs::write(
+            dir.join("Annelies.md"),
+            "---\ntype: contact\nrole: radio plugger\n---\nPlugs the roster's singles.\n",
+        )
+        .unwrap();
+        e.apply_changes(&[dir.join("Annelies.md")]);
+
+        let hits = e.search("plugger", None, false);
+        let hit = hits.iter().find(|h| h.path == "Annelies.md").expect("quick search hits");
+        let prop = hit.prop_snippet.as_deref().expect("a prop-only hit names the value it matched");
+        assert!(prop.contains("radio plugger"), "the prop value itself, not body prose: {prop}");
+
+        // a body match explains itself — the prop label is for prop-ONLY hits
+        let body = e.search("roster", None, false);
+        let body = body.iter().find(|h| h.path == "Annelies.md").expect("body hit");
+        assert_eq!(body.prop_snippet, None, "a body hit keeps its body snippet");
+
+        let full = e.search_full("plugger", None, false);
+        let fh = full.hits.iter().find(|h| h.path == "Annelies.md").expect("full search hits");
+        assert!(fh.matches.is_empty(), "a prop hit still invents no body line");
+        assert!(
+            fh.prop_parts.iter().any(|p| p.hit && p.text.to_lowercase().contains("plugger")),
+            "the matched prop value comes back marked"
+        );
+        assert!(
+            fh.prop_parts.iter().map(|p| p.text.as_str()).collect::<String>().contains("radio"),
+            "the value reads whole, mark and all"
+        );
+
+        let bfull = e.search_full("roster", None, false);
+        let bh = bfull.hits.iter().find(|h| h.path == "Annelies.md").expect("full body hit");
+        assert!(bh.prop_parts.is_empty(), "no prop matched — no prop row");
         let _ = fs::remove_dir_all(&dir);
     }
 

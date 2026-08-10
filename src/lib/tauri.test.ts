@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type {
+  FactLane,
   NoteMeta,
   TrashEntry,
   RelatedEntry,
@@ -726,6 +727,108 @@ test("full search highlights a matched phrase, not just its first run (SUB-1226)
   assert.deepEqual(p.matches[0].parts[1], { text: "zq1226hi", hit: true });
 });
 
+test("accented text answers an unaccented query, and highlights (SUB-1222)", async () => {
+  // the FTS table is built with `remove_diacritics 2`: "cafe" and "café" are one
+  // word to the index, so both search doors must find the note AND show why —
+  // a literal match leaves the accented word plain in the row while the engine
+  // counts it as a hit.
+  await invoke("vault_create", {
+    title: "Accent 1222",
+    folder: "Accent1222",
+    body: "the zq1222café by the lake\n",
+  });
+  await invoke("vault_create", {
+    title: "Accent Plain 1222",
+    folder: "Accent1222",
+    body: "the zq1222cafe by the lake\n",
+  });
+  const both = ["Accent1222/Accent 1222.md", "Accent1222/Accent Plain 1222.md"];
+  const paths = (r: unknown) => {
+    const list = Array.isArray(r) ? r : (r as { hits: unknown[] }).hits;
+    return list.map((h) => (h as { path: string }).path).sort();
+  };
+  // both commands, both directions: accents are invisible to the tokenizer
+  for (const cmd of ["vault_search", "vault_search_full"]) {
+    assert.deepEqual(paths(await invoke<unknown>(cmd, { q: "zq1222cafe" })), both, `${cmd}: plain query`);
+    assert.deepEqual(paths(await invoke<unknown>(cmd, { q: "zq1222café" })), both, `${cmd}: accented query`);
+  }
+
+  // and the accented word is marked WHOLE — the accent rides inside the hit,
+  // and the unmarked runs still rebuild the line exactly
+  const res = await invoke<{
+    hits: { path: string; matches: { parts: { text: string; hit: boolean }[] }[] }[];
+  }>("vault_search_full", { q: "zq1222cafe" });
+  const hit = res.hits.find((h) => h.path === "Accent1222/Accent 1222.md");
+  assert.ok(hit, "the accented note is in the page");
+  assert.deepEqual(
+    hit.matches[0].parts,
+    [
+      { text: "the ", hit: false },
+      { text: "zq1222café", hit: true },
+      { text: " by the lake", hit: false },
+    ],
+    "the accented word is one highlighted run"
+  );
+});
+
+test("a prop-only hit says which value matched (SUB-1222)", async () => {
+  // the note's body never mentions the query, so quick search showed its
+  // opening prose with nothing marked and full search a count with no visible
+  // text — neither door answered "why did this come back?". The matching prop
+  // value rides along now: quick search swaps it in, full search marks it.
+  const note = await invoke<NoteMeta>("vault_create", {
+    title: "Annelies 1222",
+    folder: "Prop1222",
+    body: "Plugs the zq1222roster singles.\n",
+  });
+  await invoke("vault_set_prop", { path: note.path, key: "role", value: "zq1222plugger radio" });
+
+  const quick = await invoke<{ path: string; snippet: string; prop_snippet: string | null }[]>(
+    "vault_search",
+    { q: "zq1222plugger" }
+  );
+  const q = quick.find((h) => h.path === note.path);
+  assert.ok(q, "quick search finds the prop hit");
+  assert.ok(
+    q.prop_snippet?.includes("zq1222plugger radio"),
+    `the prop value itself, not body prose: ${q.prop_snippet}`
+  );
+
+  // a body hit explains itself — the prop snippet is for prop-ONLY hits
+  const body = await invoke<{ path: string; prop_snippet: string | null }[]>("vault_search", {
+    q: "zq1222roster",
+  });
+  assert.equal(body.find((h) => h.path === note.path)?.prop_snippet ?? null, null);
+
+  type Full = {
+    hits: {
+      path: string;
+      matches: unknown[];
+      prop_parts: { text: string; hit: boolean }[];
+    }[];
+  };
+  const full = await invoke<Full>("vault_search_full", { q: "zq1222plugger" });
+  const f = full.hits.find((h) => h.path === note.path);
+  assert.ok(f, "full search finds the prop hit");
+  assert.equal(f.matches.length, 0, "a prop hit still invents no body line");
+  assert.deepEqual(
+    f.prop_parts.filter((p) => p.hit),
+    [{ text: "zq1222plugger", hit: true }],
+    "the matched value comes back marked"
+  );
+  assert.ok(
+    f.prop_parts.map((p) => p.text).join("").includes("radio"),
+    "the value reads whole, mark and all"
+  );
+
+  const bfull = await invoke<Full>("vault_search_full", { q: "zq1222roster" });
+  assert.deepEqual(
+    bfull.hits.find((h) => h.path === note.path)?.prop_parts,
+    [],
+    "no prop matched — no prop row"
+  );
+});
+
 /* A structural op names BOTH sides of itself as its own write. The
    engine renames on disk and the watcher emits the vacated rel in the same
    burst; before this, only the destination was recorded, so the old path's
@@ -1099,4 +1202,26 @@ test("sheet_set_column_notify keeps a sheet's columns map like the engine (SUB-8
   // the engine's own wording (vault/mod.rs set_sheet_column_notify) — asserting
   // the mock's private phrasing would let the two drift unnoticed
   await assert.rejects(set("  ", true, null), /column name is required/);
+});
+
+test("mock history_facts binds the prop key case-folded, like the engine", async () => {
+  // `fact_value` folds the key on every historical blob (factlane.rs), so a
+  // mock answering only the exact spelling greened a dashboard where
+  // `PROP(n, "Created")` reads as a fact that was never written.
+  const notes = await invoke<NoteMeta[]>("vault_list");
+  const note = notes.find((n) => n.path === "Welcome.md");
+  assert.ok(note, "the mock vault seeds Welcome.md");
+  const [exact] = await invoke<FactLane[]>("history_facts", {
+    refs: [{ path: note.path, key: "created" }],
+  });
+  const [cased] = await invoke<FactLane[]>("history_facts", {
+    refs: [{ path: note.path, key: "CREATED" }],
+  });
+  assert.ok(exact.points.length > 0, "the exact spelling answers");
+  assert.deepEqual(
+    cased.points.map((p) => p.value),
+    exact.points.map((p) => p.value),
+  );
+  // the lane still echoes the key as asked for, like the engine's ref echo
+  assert.equal(cased.key, "CREATED");
 });

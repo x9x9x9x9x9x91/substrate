@@ -91,6 +91,11 @@ export interface FmState {
 export interface SearchHit {
   path: string;
   snippet: string;
+  /** The matching prop VALUE, when the note matched only in its properties.
+      `snippet` then holds whatever the note opens with, which marks nothing
+      and explains nothing — this is the text that answered the query. Null
+      whenever the title or body matched too: those explain themselves. */
+  prop_snippet: string | null;
 }
 
 /** One run of snippet text; `hit` marks a matched token. */
@@ -117,6 +122,10 @@ export interface FullSearchHit {
       forty-page paper pass for the whole of it — and a miss further down read
       as the phrase being absent from the file. */
   partial: boolean;
+  /** The note's matching prop values, marked — empty when no prop matched.
+      A prop hit has no body line to render, so without it the pane counted
+      the hit and then showed nothing that matched. */
+  prop_parts: SnippetPart[];
 }
 
 /** A full-search page plus how much of the match set it covers.

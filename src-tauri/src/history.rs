@@ -419,6 +419,64 @@ impl History {
         Ok(true)
     }
 
+    /// Stage ONLY the given paths and commit them under the repo's own
+    /// identity — the same path-scoped honesty [`commit_paths_as`] gives an
+    /// MCP write, for a run that knows what it touched. A bulk sweep uses it
+    /// so its `bulk:` commit holds the notes it swept and nothing else: with
+    /// a whole-tree `snapshot`, an edit someone else was making while the
+    /// sweep ran would land in the same commit and every receipt on it would
+    /// read as the run's doing.
+    ///
+    /// A pathspec that names nothing — a config file this vault never wrote,
+    /// a note the deferral left untracked — is dropped before git sees it,
+    /// because `git add` treats an unmatched pathspec as a fatal error and
+    /// this must never fail the sweep. Returns whether a commit was created.
+    /// Foreign repo, or the first-join deferral: no-op, like `snapshot`.
+    #[cfg(not(mobile))]
+    pub fn snapshot_paths(&self, rels: &[String], label: &str) -> Result<bool, String> {
+        if !self.enabled || self.defer_first_snapshot() {
+            return Ok(false);
+        }
+        let literal = [("GIT_LITERAL_PATHSPECS", "1")];
+        let on_disk = |rel: &String| self.root.join(rel).exists();
+        // a path that is gone can still be worth staging — a trashed note, a
+        // template the rename moved away — but only if git already tracks it
+        let gone: Vec<&str> = rels.iter().filter(|r| !on_disk(r)).map(String::as_str).collect();
+        let mut live: Vec<&str> = rels.iter().filter(|r| on_disk(r)).map(String::as_str).collect();
+        if !gone.is_empty() {
+            let mut ls = vec!["ls-files", "-z", "--"];
+            ls.extend(gone.iter().copied());
+            let tracked = self.git_env(&ls, &literal)?;
+            live.extend(gone.into_iter().filter(|rel| {
+                tracked.split('\0').any(|t| t == *rel || t.starts_with(&format!("{rel}/")))
+            }));
+        }
+        if live.is_empty() {
+            return Ok(false);
+        }
+        let mut add = vec!["add", "--"];
+        add.extend(&live);
+        self.git_env(&add, &literal)?;
+        let mut status = vec!["status", "--porcelain", "--"];
+        status.extend(&live);
+        if self.git_env(&status, &literal)?.trim().is_empty() {
+            return Ok(false);
+        }
+        let mut commit = vec!["commit", "-q", "-m", label, "--only", "--"];
+        commit.extend(&live);
+        self.git_env(&commit, &literal)?;
+        Ok(true)
+    }
+
+    /// Whole-tree fallback for mobile, which has no path-scoped git of its
+    /// own: the misattribution this scoping prevents is a desktop concern
+    /// (concurrent outside editors on the same folder), and a wrong commit
+    /// shape here would be worse than a wide one.
+    #[cfg(mobile)]
+    pub fn snapshot_paths(&self, _rels: &[String], label: &str) -> Result<bool, String> {
+        self.snapshot(label)
+    }
+
     /// Stage ONLY the given paths and commit them under an explicit author
     /// identity — the receipts primitive for MCP-originated writes: the door
     /// commits each write as `Substrate MCP <mcp@local>` with the client name
@@ -1404,6 +1462,53 @@ mod tests {
         // clean target path = no commit; adoption heuristics still treat the
         // repo as Substrate's (author-only override, committer unchanged)
         assert!(!h.commit_paths_as(&["a.md"], "Substrate MCP", "mcp@local", "again").unwrap());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A bulk sweep's commit must hold the sweep and nothing else. Before
+    /// path scoping, `bulk_commit` staged the whole tree, so a note somebody
+    /// was editing in another app while the sweep ran landed in the same
+    /// commit — and every receipt on that note then read as the sweep's doing.
+    #[test]
+    fn snapshot_paths_commits_only_the_swept_paths_and_leaves_foreign_dirt_dirty() {
+        let dir = user_repo("sweep-scope");
+        let h = History::new(dir.clone()).unwrap();
+        fs::create_dir_all(dir.join("Inbox")).unwrap();
+        fs::create_dir_all(dir.join(".vault")).unwrap();
+        fs::write(dir.join("Inbox/A.md"), "swept\n").unwrap();
+        fs::write(dir.join("Inbox/Gone.md"), "about to be trashed\n").unwrap();
+        fs::write(dir.join(".vault/schema.json"), "{}\n").unwrap();
+        assert!(h.snapshot("seed").unwrap());
+
+        // the sweep rewrites A and trashes Gone, while another editor saves a
+        // note of its own and a sync lands a pull — both untracked so far
+        fs::write(dir.join("Inbox/A.md"), "swept again\n").unwrap();
+        fs::remove_file(dir.join("Inbox/Gone.md")).unwrap();
+        fs::write(dir.join(".vault/schema.json"), "{\"books\":{}}\n").unwrap();
+        fs::write(dir.join("Inbox/Foreign.md"), "somebody else was typing\n").unwrap();
+
+        let swept = vec![
+            "Inbox/A.md".to_string(),
+            "Inbox/Gone.md".to_string(),
+            ".vault/schema.json".to_string(),
+            // a config path this vault never wrote: an unmatched pathspec is
+            // fatal to `git add`, and the sweep must never fail on it
+            ".vault/mounts.json".to_string(),
+        ];
+        assert!(h.snapshot_paths(&swept, "bulk: renamed database").unwrap());
+
+        let files = user_git(&dir, &["show", "--name-only", "--format=", "HEAD"]);
+        let mut named: Vec<&str> = files.split_whitespace().collect();
+        named.sort_unstable();
+        assert_eq!(named, [".vault/schema.json", "Inbox/A.md", "Inbox/Gone.md"]);
+        assert_eq!(user_git(&dir, &["log", "--format=%s", "-1"]).trim(), "bulk: renamed database");
+        assert!(
+            user_git(&dir, &["status", "--porcelain"]).contains("Inbox/Foreign.md"),
+            "the concurrent edit stays uncommitted, to get its own honest commit"
+        );
+
+        // nothing left to stage under those paths = no empty commit
+        assert!(!h.snapshot_paths(&swept, "bulk: again").unwrap());
         let _ = fs::remove_dir_all(&dir);
     }
 

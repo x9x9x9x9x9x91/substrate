@@ -29,6 +29,18 @@ test("app rows separate this app's own conventions from history that predates th
   assert.equal(actorText({ kind: "app" }, "snapshot"), "You");
   assert.equal(actorText({ kind: "app" }, "seal Health/Weight.md"), "You");
   assert.equal(actorText({ kind: "app" }, "initial import"), "In the app");
+  // the presweep fences the app takes before a destructive run (App.tsx,
+  // lib.rs) are app-made, whatever the run is called
+  assert.equal(actorText({ kind: "app" }, "before vault time travel"), "You");
+  assert.equal(actorText({ kind: "app" }, "before rename database Books"), "You");
+  assert.equal(actorText({ kind: "app" }, "before delete database Books"), "You");
+  assert.equal(actorText({ kind: "app" }, "before rename property Books.author"), "You");
+  assert.equal(actorText({ kind: "app" }, "before strip Books.author values"), "You");
+  assert.equal(actorText({ kind: "app" }, "before unmounting Camera"), "You");
+  assert.equal(actorText({ kind: "app" }, "before mounts migration"), "You");
+  // the prefix is a prefix, not a substring: a commit that merely mentions it
+  // stays in the pre-convention bucket
+  assert.equal(actorText({ kind: "app" }, "cleanup before release"), "In the app");
   assert.equal(actorText({ kind: "mcp", name: "Claude" }), "Claude (via MCP)");
   assert.equal(actorText({ kind: "mcp", name: "" }), "via MCP");
   assert.equal(actorText({ kind: "sync" }), "sync");

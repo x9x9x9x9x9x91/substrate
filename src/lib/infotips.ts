@@ -302,6 +302,13 @@ export const TIPS: TipEntry[] = [
     },
   },
   {
+    selector: ".search-prop-row",
+    tip: {
+      title: "Matching property",
+      body: "The query matched a property value on this note rather than its body text.",
+    },
+  },
+  {
     selector: ".search-sort button",
     tip: (element) => ({
       title: elementLabel(element, "Result order"),

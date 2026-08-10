@@ -206,6 +206,8 @@ export default function SearchPane({
           matches: [],
           // these rows come from the loaded notes, never from a mount
           partial: false,
+          // an operators-only query matched no text at all — nothing to mark
+          prop_parts: [],
         }));
     } else {
       hits = [];
@@ -446,6 +448,19 @@ export default function SearchPane({
                   )}
                   {h.total > 0 && <span className="search-count">{h.total}</span>}
                 </div>
+                {/* the query landed in a property value. The body snippets
+                    below mark nothing of it, and a note that matched ONLY in
+                    its properties would otherwise show a hit count over text
+                    that never says why — this row is the answer, named. It is
+                    not selectable: there is no line in the file to open at. */}
+                {h.prop_parts.length > 0 && (
+                  <div className="search-prop-row">
+                    <span className="search-prop-label">properties</span>
+                    <span className="search-snippet">
+                      <Snippet parts={h.prop_parts} />
+                    </span>
+                  </div>
+                )}
                 {h.matches.map((m: SearchMatch) => {
                   const matchIdx = ++idx;
                   return (

@@ -1074,25 +1074,31 @@ function NotePane({
   // Backlinks and related live in OTHER notes' bodies and props, so the
   // mount-load fetch goes stale the moment somebody else's note changes —
   // an external editor unlinking the open note left the panel claiming the
-  // old count until remount (probe-stalelinks). No changedPaths gate here:
-  // a bump naming another path is exactly a candidate link edit, an unnamed
-  // bump is the engine's rescan, and even an own-path bump can move the
-  // related list (an external `type:` edit re-aims which relations target
-  // this note). Both are index reads, cheap at epoch cadence, and unlike
-  // the body lane there is no buffer to guard — the panels are display-only.
-  // A failed re-read keeps the current list: the path didn't change, so the
-  // shown entries are the last known truth, not another note's leftovers.
+  // old count until remount (probe-stalelinks). The body lane's changedPaths
+  // gate would be wrong here as a whole: a bump naming another path is exactly
+  // a candidate link edit, an unnamed bump is the engine's rescan, and an
+  // own-path bump can still move the RELATED list (our own `type:` or a link
+  // we just typed re-aims it) — so related refetches on every bump. Backlinks
+  // are the half that can be gated: they live entirely in other notes' bodies,
+  // so a bump naming nothing but this note — every one of our own autosaves —
+  // cannot have moved them, and the round trip is pure noise. Both are index
+  // reads, cheap at epoch cadence, and unlike the body lane there is no buffer
+  // to guard: the panels are display-only, so a save in flight is no reason to
+  // skip. A failed re-read keeps the current list: the path didn't change, so
+  // the shown entries are the last known truth, not another note's leftovers.
   useEffect(() => {
     if (!loaded || loaded.path !== meta.path) return;
     if (ghost || (isSealed && !sealedUnlocked)) return;
     if (missingRef.current || fileGoneRef.current) return;
     let gone = false;
     const path = meta.path;
-    vaultBacklinks(path)
-      .then((b) => {
-        if (!gone && pathRef.current === path) setBacklinks(b);
-      })
-      .catch(() => {});
+    const ownWriteOnly = !!changedPaths && changedPaths.length > 0 && changedPaths.every((p) => p === path);
+    if (!ownWriteOnly)
+      vaultBacklinks(path)
+        .then((b) => {
+          if (!gone && pathRef.current === path) setBacklinks(b);
+        })
+        .catch(() => {});
     vaultRelated(path)
       .then((r) => {
         if (!gone && pathRef.current === path) setRelated(r);

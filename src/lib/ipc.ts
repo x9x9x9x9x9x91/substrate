@@ -417,6 +417,8 @@ export const vaultSearch = (q: string, scope?: string[], excludeAppFiles?: boole
       snippet: historyProjection?.contents[note.path]?.body.split("\n").find((line) =>
         line.toLocaleLowerCase().includes(q.trim().toLocaleLowerCase()),
       ) ?? note.title,
+      // a projection searches title and body text only — no props to name
+      prop_snippet: null,
     })),
   );
 };
@@ -440,6 +442,8 @@ export const vaultSearchFull = (q: string, scope?: string[], excludeAppFiles?: b
       // a projection searches the notes a snapshot holds, whole — mounted
       // files are this machine's, not the snapshot's
       partial: false,
+      // …and it never matched a prop, so there is none to show
+      prop_parts: [],
     };
   });
   return Promise.resolve({ hits, total_notes: all.length, truncated: all.length > hits.length });

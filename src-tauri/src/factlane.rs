@@ -221,11 +221,16 @@ pub fn fact_value(props: &serde_json::Map<String, serde_json::Value>, key: &str)
     let text = match props.get(key) {
         None | Some(serde_json::Value::Null) => return None,
         Some(serde_json::Value::String(s)) => s.clone(),
-        // A list prop (tags, relations) reads as its joined members, mirroring
-        // `presentValue` (src/lib/history-facts.ts) member for member — so a
-        // fact's past and its present cannot disagree about the same value.
-        // (`propStr` JSON-prints a mixed-type list instead; the two tenses
-        // agree with each other, which is the invariant that matters here.)
+        // A list prop (tags, relations) reads as its joined members. For the
+        // lists a vault actually holds — strings — that is character for
+        // character what `presentValue` (src/lib/history-facts.ts) renders
+        // live, so a fact's past and its present cannot disagree about the
+        // same value. The two renderers do part ways on members no schema
+        // produces: a member that is itself an object or a list JSON-prints
+        // here and reads as JS `String(x)` there (`[object Object]`, and a
+        // nested list flattened to its own join). Aligning them would mean
+        // teaching one of the two to lie; naming the gap is the honest half.
+        // (`propStr` JSON-prints a mixed-type list whole instead.)
         Some(serde_json::Value::Array(items)) => items
             .iter()
             .map(|v| match v {
@@ -331,6 +336,20 @@ mod tests {
             serde_json::from_str(r#"{"Weight": 1, "weight": 2}"#).unwrap();
         assert_eq!(fact_value(&dup, "weight").as_deref(), Some("2"));
         assert_eq!(fact_value(&dup, "Weight").as_deref(), Some("1"));
+    }
+
+    #[test]
+    fn a_list_reads_as_its_joined_members_and_only_string_members_match_the_live_read() {
+        // the lists a vault holds: string members, joined — character for
+        // character what `presentValue` renders live
+        let tags: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(r#"{"tags": ["ambient", "field"]}"#).unwrap();
+        assert_eq!(fact_value(&tags, "tags").as_deref(), Some("ambient, field"));
+        // members no schema produces: pinned as what this renderer does, not as
+        // parity — the live read says "[object Object]" and "1,2" for these
+        let odd: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(r#"{"tags": [{"a": 1}, [1, 2]]}"#).unwrap();
+        assert_eq!(fact_value(&odd, "tags").as_deref(), Some(r#"{"a":1}, [1,2]"#));
     }
 
     #[test]

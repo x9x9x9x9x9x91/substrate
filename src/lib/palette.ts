@@ -10,6 +10,7 @@
  * Notion/Linear-style. Notes keep the very top: an exact note-title match is
  * never buried by a destination.
  */
+import { foldDiacritics, foldWithMap } from "./fold.ts";
 import { NO_MATCH, fuzzyMatchRuns, fuzzyScore } from "./fuzzy.ts";
 import type { SnippetPart } from "./types.ts";
 
@@ -144,26 +145,31 @@ export function markLabel(q: string, label: string): SnippetPart[] | null {
  * Snippet parts in the engine's own match language: every whitespace token
  * word-prefix-matches (fts_match_expr appends `*`), and FTS5 highlight()
  * wraps the whole matched token — so a query "mast" marks all of "masters",
- * exactly as the search pane shows it. Null when nothing in the snippet
+ * exactly as the search pane shows it. Accents fold on both sides, because
+ * `remove_diacritics 2` is what let "cafe" match "café" in the first place —
+ * matching runs on the folded text and the marks are cut out of the original,
+ * so the accented word is marked whole. Null when nothing in the snippet
  * matches (the hit was elsewhere in the body).
  */
 export function markSnippet(searchText: string, snippet: string): SnippetPart[] | null {
-  const terms = searchText.toLowerCase().split(/\s+/).filter(Boolean);
+  const terms = foldDiacritics(searchText.toLowerCase()).split(/\s+/).filter(Boolean);
   if (!terms.length) return null;
   const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = new RegExp(
     `(?<![\\p{L}\\p{N}_])(?:${terms.map(esc).join("|")})[\\p{L}\\p{N}_]*`,
     "giu",
   );
+  const { folded, map } = foldWithMap(snippet);
   const parts: SnippetPart[] = [];
   let last = 0;
   let hits = 0;
-  for (const m of snippet.matchAll(re)) {
-    const at = m.index ?? 0;
+  for (const m of folded.matchAll(re)) {
+    const at = map[m.index ?? 0];
+    const end = map[(m.index ?? 0) + m[0].length];
     if (at > last) parts.push({ text: snippet.slice(last, at), hit: false });
-    parts.push({ text: m[0], hit: true });
+    parts.push({ text: snippet.slice(at, end), hit: true });
     hits += 1;
-    last = at + m[0].length;
+    last = end;
   }
   if (!hits) return null;
   if (last < snippet.length) parts.push({ text: snippet.slice(last), hit: false });

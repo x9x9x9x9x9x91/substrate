@@ -128,13 +128,40 @@ pub struct RollupSet {
 /// runs, which is exactly the on-disk state the old `?`-propagation left
 /// behind: N notes rewritten, the database or property still on its old
 /// name. `skipped` is only ever non-zero for `rename_prop`.
+///
+/// `paths` names the notes the sweep actually rewrote — one entry per note
+/// counted by `notes`, in sweep order. It exists so the run's history commit
+/// can stage exactly what it touched (`commands::schema::bulk_commit`): a
+/// whole-tree stage would sign a concurrent edit somebody else was making
+/// with this run's name. It stays out of the IPC payload (`serde(skip)`) —
+/// the frontend classifies a sweep's echo by unnamed reach on purpose
+/// (src/lib/tauri.ts), and a nameable reach there would let the sweep's own
+/// writes read as somebody else's.
 #[derive(Clone, Debug, Default, Serialize, PartialEq)]
 pub struct BulkSweep {
     pub notes: usize,
     pub skipped: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub failed: Option<String>,
+    #[serde(skip)]
+    pub paths: Vec<String>,
 }
+
+/// The app's own files a bulk sweep writes after its notes: the schema key,
+/// the views pref and sidebar order, the folder-sync mappings, the mount
+/// registry and its index, and the type's template. Staged with the swept
+/// notes so a run's commit is the whole run — restoring it puts the notes and
+/// the schema that describes them back together. Directories are listed as
+/// directories: a template rename or trashing is an add and a removal inside
+/// one.
+pub const BULK_CONFIG_PATHS: [&str; 6] = [
+    SCHEMA_REL_PATH,
+    ViewPref::REL_PATH,
+    FOLDERS_REL_PATH,
+    MOUNTS_REL_PATH,
+    super::mounts::MOUNTS_INDEX_REL_DIR,
+    TEMPLATES_REL_DIR,
+];
 
 /// Known property kinds. `text` is the explicit form of free text — it lets
 /// a schema-registered text column exist with no options, which the demote
@@ -723,6 +750,7 @@ impl Engine {
                 return Ok(sweep);
             }
             sweep.notes += 1;
+            sweep.paths.push(rel);
         }
 
         // From here on every note of the type is already re-serialized and
@@ -828,6 +856,9 @@ impl Engine {
                 return Ok(sweep);
             }
             sweep.notes += 1;
+            // trashed or stripped, the note's own path is what changed on
+            // disk — the trash copy itself is git-excluded (history.rs)
+            sweep.paths.push(rel);
         }
 
         // From here on the notes have already moved. Every remaining failure is
@@ -982,6 +1013,7 @@ impl Engine {
                 return Ok(sweep);
             }
             sweep.notes += 1;
+            sweep.paths.push(rel);
         }
 
         // From here on every rewritten note is already durable. Every
@@ -1190,6 +1222,7 @@ impl Engine {
                     return Ok(sweep);
                 }
                 sweep.notes += 1;
+                sweep.paths.push(rel);
             }
         }
         // From here on every stripped note is already durable. Every
@@ -1648,7 +1681,11 @@ mod tests {
         let sweep = e.rename_type("books", "library").unwrap();
         assert_eq!(
             sweep,
-            BulkSweep { notes: 2, ..Default::default() },
+            BulkSweep {
+                notes: 2,
+                paths: vec!["Inbox/Dune.md".into(), "Inbox/Hobbit.md".into()],
+                ..Default::default()
+            },
             "only the type's own notes rewritten"
         );
         let types: Vec<String> =
@@ -1714,7 +1751,14 @@ mod tests {
 
         // keep-notes mode: type stripped, files stay
         let sweep = e.delete_type("books", false).unwrap();
-        assert_eq!(sweep, BulkSweep { notes: 2, ..Default::default() });
+        assert_eq!(
+            sweep,
+            BulkSweep {
+                notes: 2,
+                paths: vec!["Inbox/A.md".into(), "Inbox/B.md".into()],
+                ..Default::default()
+            }
+        );
         let metas = e.list();
         assert!(metas.iter().all(|m| prop_str(&m.props, "type").as_deref() != Some("books")));
         let a = metas.iter().find(|m| m.stem == "A").unwrap();
@@ -1729,7 +1773,11 @@ mod tests {
 
         // trash mode: notes move to .trash, recoverable
         let sweep = e.delete_type("films", true).unwrap();
-        assert_eq!(sweep, BulkSweep { notes: 1, ..Default::default() });
+        assert_eq!(
+            sweep,
+            BulkSweep { notes: 1, paths: vec!["Inbox/C.md".into()], ..Default::default() },
+            "the swept path is where the note was, not the git-excluded trash copy"
+        );
         assert!(!dir.join("Inbox/C.md").exists());
         assert!(e.list().iter().all(|m| m.stem != "C"));
         assert!(e.trash_list().iter().any(|t| t.title == "C"));
@@ -1919,7 +1967,10 @@ mod tests {
         .unwrap();
 
         let sweep = e.rename_prop("books", "author", "writer").unwrap();
-        assert_eq!(sweep, BulkSweep { notes: 1, skipped: 1, failed: None });
+        assert_eq!(
+            sweep,
+            BulkSweep { notes: 1, skipped: 1, failed: None, paths: vec!["Inbox/A.md".into()] }
+        );
         let a = e.meta("Inbox/A.md").unwrap();
         assert_eq!(prop_str(&a.props, "writer").as_deref(), Some("Herbert"));
         assert!(!a.props.contains_key("author"));
@@ -2005,7 +2056,11 @@ mod tests {
         .unwrap();
 
         let sweep = e.clear_prop("books", "author", false, true).unwrap();
-        assert_eq!(sweep, BulkSweep { notes: 1, ..Default::default() }, "B has no value to strip");
+        assert_eq!(
+            sweep,
+            BulkSweep { notes: 1, paths: vec!["Inbox/A.md".into()], ..Default::default() },
+            "B has no value to strip"
+        );
         assert!(!e.meta("Inbox/A.md").unwrap().props.contains_key("author"));
         assert_eq!(
             prop_str(&e.meta("Inbox/C.md").unwrap().props, "author").as_deref(),
@@ -2687,12 +2742,18 @@ mod tests {
             .unwrap();
 
         let sweep = e.rename_prop("books", "author", "writer").unwrap();
-        assert_eq!(sweep, BulkSweep { notes: 1, skipped: 0, failed: None });
+        assert_eq!(
+            sweep,
+            BulkSweep { notes: 1, skipped: 0, failed: None, paths: vec!["Inbox/A.md".into()] }
+        );
         let a = fs::read_to_string(dir.join("Inbox/A.md")).unwrap();
         assert!(a.contains("writer: Le Guin") && !a.contains("author:"), "{a}");
 
         let sweep = e.clear_prop("books", "writer", false, true).unwrap();
-        assert_eq!(sweep, BulkSweep { notes: 1, skipped: 0, failed: None });
+        assert_eq!(
+            sweep,
+            BulkSweep { notes: 1, skipped: 0, failed: None, paths: vec!["Inbox/A.md".into()] }
+        );
         assert!(!fs::read_to_string(dir.join("Inbox/A.md")).unwrap().contains("writer:"));
         let _ = fs::remove_dir_all(&dir);
     }

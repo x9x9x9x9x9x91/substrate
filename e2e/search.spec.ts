@@ -60,3 +60,21 @@ test("result rows carry the note context menu (SUB-378)", async ({ page }) => {
   await expect(menu).toHaveCount(0);
   await expect(page.locator(".search-note-row", { hasText: "Gero" })).toBeVisible();
 });
+
+test("a property-only hit shows the value that matched (SUB-1222)", async ({ page }) => {
+  await openSearch(page);
+  // "1k petals" is the artist prop on Vessel Songs — its body never says it
+  await page.locator(".search-input").fill("petals");
+  const group = page.locator(".search-group", { hasText: "Vessel Songs" });
+  await expect(group).toBeVisible();
+  const prop = group.locator(".search-prop-row");
+  await expect(prop.locator(".search-prop-label")).toHaveText("properties");
+  await expect(prop.locator("mark").first()).toHaveText(/petals/i);
+  // it explains the hit, it does not pretend to be a line in the file
+  await expect(group.locator(".search-match-row")).toHaveCount(0);
+
+  // a body hit explains itself — no property row over it
+  await page.locator(".search-input").fill("lisbon");
+  await expect(page.locator(".search-group", { hasText: "Gero" })).toBeVisible();
+  await expect(page.locator(".search-prop-row")).toHaveCount(0);
+});

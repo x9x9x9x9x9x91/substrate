@@ -1,6 +1,6 @@
 //! Schema: databases, their properties, icons and folder mappings.
 
-use crate::vault::{BulkSweep, NewTypeProp, SchemaConfig, SelectOption};
+use crate::vault::{BulkSweep, NewTypeProp, SchemaConfig, SelectOption, BULK_CONFIG_PATHS};
 use crate::{AppState, HistoryState, SnapDirty};
 use tauri::State;
 
@@ -8,15 +8,26 @@ use tauri::State;
 /// §4.2), so a receipt on a swept note names the run that swept it instead of
 /// falling back to the app.
 ///
+/// Stages the notes the sweep actually rewrote plus the app's own files it
+/// keeps in step (`BULK_CONFIG_PATHS`) — never the whole tree. A vault folder
+/// is shared ground: an editor saving a note elsewhere, or a sync landing a
+/// pull, while the sweep runs leaves that file dirty, and a whole-tree stage
+/// would put it in this commit under this run's name. Every receipt on it
+/// would then read "You — renamed database …" for a change the run never
+/// made. Foreign dirt stays dirty and gets its own honest commit from the
+/// auto-snapshot.
+///
 /// Two things this deliberately does NOT do. It never fails the sweep: the
 /// notes are already rewritten, and a vault whose history is off (a foreign
 /// repo) or whose commit did not land must still hear what happened — the
 /// deferred auto-snapshot is the safety net, exactly as before. And it runs
 /// even for a sweep that stopped partway, because a partial sweep still wrote
 /// notes and those writes need their receipt.
-fn bulk_commit(h: &State<HistoryState>, summary: String) {
+fn bulk_commit(h: &State<HistoryState>, sweep: &BulkSweep, summary: String) {
     if let Some(hist) = h.0.lock().unwrap().as_ref() {
-        let _ = hist.snapshot(&format!("bulk: {summary}"));
+        let mut rels = sweep.paths.clone();
+        rels.extend(BULK_CONFIG_PATHS.iter().map(|p| p.to_string()));
+        let _ = hist.snapshot_paths(&rels, &format!("bulk: {summary}"));
     }
 }
 
@@ -132,6 +143,7 @@ pub(crate) fn vault_rename_type(
     let sweep = state.0.lock().unwrap().rename_type(&old, &new)?;
     bulk_commit(
         &h,
+        &sweep,
         format!("renamed database “{old}” to “{new}” ({} {})", sweep.notes, notes(sweep.notes)),
     );
     Ok(sweep)
@@ -153,7 +165,7 @@ pub(crate) fn vault_delete_type(
     let n = sweep.notes;
     // trashed and kept are materially different outcomes, so the receipt says which
     let fate = if trash_notes { "to Trash" } else { "kept" };
-    bulk_commit(&h, format!("deleted database “{db_type}” — {n} {} {fate}", notes(n)));
+    bulk_commit(&h, &sweep, format!("deleted database “{db_type}” — {n} {} {fate}", notes(n)));
     Ok(sweep)
 }
 
@@ -173,6 +185,7 @@ pub(crate) fn vault_rename_prop(
     let n = sweep.notes;
     bulk_commit(
         &h,
+        &sweep,
         format!("renamed property “{old}” to “{new}” in “{db_type}” ({n} {})", notes(n)),
     );
     Ok(sweep)
@@ -196,6 +209,6 @@ pub(crate) fn vault_clear_prop(
     let n = sweep.notes;
     // without strip_values no note was touched at all — say so rather than "(0 notes)"
     let scope = if strip_values { format!("({n} {})", notes(n)) } else { "(schema only)".into() };
-    bulk_commit(&h, format!("removed property “{prop}” from “{db_type}” {scope}"));
+    bulk_commit(&h, &sweep, format!("removed property “{prop}” from “{db_type}” {scope}"));
     Ok(sweep)
 }

@@ -748,7 +748,11 @@ export default function Palette({
           label: displayTitle(n),
           icon: <SearchIcon />,
           section: "Content",
-          snippet: h.snippet,
+          // a hit that landed only in a property value marks nothing in the
+          // body — the opening prose would sit there explaining nothing. Show
+          // the value that answered the query, and say where it came from.
+          snippet: h.prop_snippet ?? h.snippet,
+          hint: h.prop_snippet ? "in properties" : undefined,
           note: n,
           run: () => openNote(n),
         });
