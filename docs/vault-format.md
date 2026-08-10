@@ -846,7 +846,8 @@ Sidebar icon: each dashboard row renders a curated per-kind glyph
 plus any machine-specific kinds this build carries); an `icon:` prop overrides
 it (a curated glyph id, anything else treated as an emoji), and kinds without a
 mark keep the generic chart glyph. The curated glyph ids (`src/lib/dbicons.ts`
-`GLYPHS`): `music`, `mic`, `disc`, `sliders`, `wrench`, `calendar`, `cart`,
+`GLYPHS`): `music`, `mic`, `disc`, `sliders`, `wrench`, `check-square`,
+`calendar`, `cart`,
 `book`, `bookmark`, `heart`, `star`, `home`, `folder`, `archive`, `inbox`,
 `pen`, `tag`, `image`, `user`, `users`, `globe`, `pin`, `coffee`, `leaf`,
 `bulb`, `zap`, `clock`, `briefcase`, `gift`, `camera`, `code`, `dumbbell`,
@@ -3395,8 +3396,13 @@ same rule.
 - **Excluded** (via `.git/info/exclude`, written at init —
   `src-tauri/src/history.rs` `EXCLUDE_CONTENT`): `.assets/`, `.trash/`,
   `.DS_Store`, and the device-local state files written off the engine lock —
-  `.vault/notifications.json`, `.vault/jobs-exit.json`, and
-  `.vault/seal-conversion.json` (SUB-889's local interruption journal).
+  `.vault/notifications.json`, `.vault/jobs-exit.json`,
+  `.vault/seal-conversion.json` (the local interruption journal), and
+  `.vault/seal-trust.json`, which is device-local by security requirement
+  rather than convenience: it records which seal markers this device
+  confirmed, so syncing it would hand a remote writer the very
+  seal-confirmation approval the gate exists to withhold
+  (`src-tauri/src/history.rs`).
   Everything else is tracked — notes, `.vault/schema.json`, `.vault/views.json`,
   `.vault/mounts.json` + `.vault/mounts/`, `.vault/folders.json`,
   `.vault/templates/`, `Settings.md`.
@@ -3710,7 +3716,7 @@ Plain notes the app treats specially — all optional, all just files:
   vault container is pre-created before the engine starts, so a local write
   there would turn the first sync pull into an unrelated-histories merge. On
   mobile these files arrive with everything else through git sync (§11), whose
-  exclude list — `.assets/`, `.trash/`, `.DS_Store` and the three device-local
+  exclude list — `.assets/`, `.trash/`, `.DS_Store` and the four device-local
   `.vault` JSONs — holds nothing of theirs, so a skill written on
   one device shows up on the others. `.claude/` is hidden (§1) and therefore
   never a note; `AGENTS.md` is an ordinary, frontmatter-less note in the index.

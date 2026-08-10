@@ -654,9 +654,10 @@ pub(crate) const SEED_FILES: &[SeedFile] = &[
     SeedFile {
         rel: SETUP_SKILL_REL_PATH,
         current: include_str!("../seed/setup-skill.md"),
-        // legacy shipped seed (v0.16.0-v0.21.0), then r1
+        // legacy shipped seeds (v0.16.0-v0.23.0), then r2
         revisions: &[
             include_str!("../seed/revisions/setup-skill-v0.16.md"),
+            include_str!("../seed/revisions/setup-skill-v0.23.md"),
             include_str!("../seed/setup-skill.md"),
         ],
     },
@@ -987,9 +988,9 @@ mod tests {
         // or reordering any predecessor fail. When a seed changes, append its
         // new hash to both the production table and this pinned history;
         // changing an existing entry is never valid. (The AGENTS.md column was
-        // re-pinned once,'s follow-up: the hash is taken over the
-        // canonical form now — see `normalize` — which moved every entry that
-        // names the bundle identifier without changing what any of them mean.)
+        // re-pinned once, when the hash moved to the canonical form — see
+        // `normalize` — which changed every entry that names the bundle
+        // identifier without changing what any of them mean.)
         const PINNED_SEED_REVISIONS: &[(&str, &[u64])] = &[
             (
                 AGENTS_REL_PATH,
@@ -1005,7 +1006,10 @@ mod tests {
                 ],
             ),
             (CLAUDE_REL_PATH, &[0xa5e2_3bfd_dbde_1340]),
-            (SETUP_SKILL_REL_PATH, &[0xfc2a_3b78_9d1d_a0e0, 0x39d9_5503_e12c_30f9]),
+            (
+                SETUP_SKILL_REL_PATH,
+                &[0xfc2a_3b78_9d1d_a0e0, 0x39d9_5503_e12c_30f9, 0xee55_54a9_4202_5c93],
+            ),
         ];
         // Same contract for the starter notes. The
         // history is what lets a vault seeded by an older build be recognized

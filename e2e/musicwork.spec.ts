@@ -74,6 +74,24 @@ test("music-work: uncertain dating is a chip on the job, with the reason in the 
   );
 });
 
+test("music-work: the board fills its pane rather than sitting in a narrow column", async ({
+  page,
+}) => {
+  await openBoard(page);
+  const board = (await page.locator(".mw-board").boundingBox())!;
+  // `.dash-inner` is the pane the board lives in; its own padding is the only
+  // gap that belongs there, so the board is compared against the content box
+  const pane = (await page.locator(".dash-inner").boundingBox())!;
+  const padding = await page.locator(".dash-inner").evaluate((el) => {
+    const s = getComputedStyle(el);
+    return parseFloat(s.paddingLeft) + parseFloat(s.paddingRight);
+  });
+  const content = pane.width - padding;
+  // an earlier `max-width: 760px` left oceans of side space at this viewport;
+  // rounding is the only slack allowed, not a cap
+  expect(board.width).toBeGreaterThan(content - 1);
+});
+
 test("music-work: a missing index sheet reads as a calm empty state", async ({ page }) => {
   await page.goto("/");
   await page.evaluate(() => window.__mockDeleteNote?.("Work Index.md"));

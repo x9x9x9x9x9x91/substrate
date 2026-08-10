@@ -6,6 +6,10 @@ import {
   parseBuiltInKinds,
   parseDispatch,
   parseDocKinds,
+  parseDocGlyphIds,
+  parseDocExcludedVaultJsons,
+  parseDocLocalJsonCounts,
+  parseExcludedVaultJsons,
   parseGlyphIds,
   parseIcons,
   stripFlags,
@@ -190,6 +194,61 @@ test("parseDocKinds throws when the prose it anchors on was reworded", () => {
   assert.throws(() => parseDocKinds("only these are dispatched: none.\n**Any other key", o), /empty/);
 });
 
+/* ── the glyph roster and the exclude list ──────────────────────────────── */
+
+const ROSTER = "prop overrides it. The curated glyph ids (`src/lib/dbicons.ts`\n`GLYPHS`): `wallet`, `check-square`,\n`refresh`.\n\nDispatch (…)";
+
+test("parseDocGlyphIds reads the roster sentence in its printed order", () => {
+  assert.deepEqual(parseDocGlyphIds(ROSTER, "t"), ["wallet", "check-square", "refresh"]);
+});
+
+test("parseDocGlyphIds throws when the sentence it anchors on moved", () => {
+  assert.throws(() => parseDocGlyphIds(ROSTER.replace("curated glyph ids", "glyphs on offer"), "t"), /anchor/);
+  assert.throws(() => parseDocGlyphIds("The curated glyph ids are gone", "t"), /does not end/);
+});
+
+const EXCLUDE_RS = `
+pub(crate) const EXCLUDE_CONTENT: &str =
+    ".assets/\\n.trash/\\n.DS_Store\\n.vault/notifications.json\\n.vault/seal-trust.json\\n";
+`;
+
+test("parseExcludedVaultJsons takes the .vault JSONs, not the directories", () => {
+  assert.deepEqual(parseExcludedVaultJsons(EXCLUDE_RS, "t"), [
+    ".vault/notifications.json",
+    ".vault/seal-trust.json",
+  ]);
+});
+
+test("parseExcludedVaultJsons throws rather than skipping a constant it cannot find", () => {
+  assert.throws(() => parseExcludedVaultJsons("// nothing here", "t"), /not found/);
+  assert.throws(
+    () => parseExcludedVaultJsons(EXCLUDE_RS.replace(/\.vault\/[a-z-]+\.json/g, ".assets/x"), "t"),
+    /names no \.vault JSONs/
+  );
+});
+
+const EXCLUDE_DOC = [
+  "- **Excluded** (via `.git/info/exclude`, written at init —",
+  "  `src-tauri/src/history.rs` `EXCLUDE_CONTENT`): `.assets/`, `.trash/`,",
+  "  `.DS_Store`, and `.vault/notifications.json` and `.vault/seal-trust.json`.",
+  "  Everything else is tracked — notes, `.vault/schema.json`.",
+].join("\n");
+
+test("parseDocExcludedVaultJsons reads the bullet's own enumeration", () => {
+  assert.deepEqual(parseDocExcludedVaultJsons(EXCLUDE_DOC, "t"), [
+    ".vault/notifications.json",
+    ".vault/seal-trust.json",
+  ]);
+  // `.vault/schema.json` is past the closing anchor — tracked, not excluded
+  assert.throws(() => parseDocExcludedVaultJsons(EXCLUDE_DOC.replace("Everything else is tracked", "and so on"), "t"), /closing anchor/);
+});
+
+test("parseDocLocalJsonCounts finds every by-size summary of that list", () => {
+  const t = "the three device-local `.vault` JSONs … and the four device-local .vault JSONs";
+  assert.deepEqual(parseDocLocalJsonCounts(t), ["three", "four"]);
+  assert.deepEqual(parseDocLocalJsonCounts("no summary here"), []);
+});
+
 /* ── cross-check ────────────────────────────────────────────────────────── */
 
 /** A tiny five-inventory tree that agrees with itself. */
@@ -211,7 +270,11 @@ function agreeing(): Inventories {
     // the published tables carry the reserved name too; the icon list does not
     formatDispatch: new Map([["metrics", false], ["ledger", true], ["charts", false]]),
     formatIcons: new Map([["metrics", false], ["ledger", true]]),
+    formatGlyphRoster: ["wallet", "refresh"],
     seedAgents: new Map([["metrics", false], ["charts", false]]),
+    excludedVaultJsons: [".vault/notifications.json", ".vault/seal-trust.json"],
+    formatExcludedVaultJsons: [".vault/notifications.json", ".vault/seal-trust.json"],
+    localJsonCounts: [{ label: "docs/vault-format.md", words: ["two"] }],
   };
 }
 
@@ -306,6 +369,38 @@ test("crossCheck: both doc lists are held to what the code actually does", () =>
   assert.match(problemsOf((inv) => inv.formatDispatch.delete("metrics")), /dispatch table: missing "metrics"/);
   assert.match(problemsOf((inv) => inv.formatDispatch.set("ghost", false)), /which is not there/);
   assert.match(problemsOf((inv) => inv.formatIcons.delete("metrics")), /icon list: missing "metrics"/);
+});
+
+test("crossCheck: the glyph roster is held to GLYPHS, order included", () => {
+  assert.match(
+    problemsOf((inv) => inv.formatGlyphRoster.splice(0, 1)),
+    /glyph roster: missing "wallet"/
+  );
+  assert.match(
+    problemsOf((inv) => inv.formatGlyphRoster.push("check-square")),
+    /glyph roster: lists "check-square", which is not there/
+  );
+  // the roster is the picker grid's order, so a reshuffle misdescribes it too
+  assert.match(
+    problemsOf((inv) => inv.formatGlyphRoster.reverse()),
+    /glyph roster: names the right entries in a different order/
+  );
+});
+
+test("crossCheck: the exclude list and its by-size summaries follow EXCLUDE_CONTENT", () => {
+  assert.match(
+    problemsOf((inv) => inv.formatExcludedVaultJsons.pop()),
+    /exclude list: missing "\.vault\/seal-trust\.json"/
+  );
+  assert.match(
+    problemsOf((inv) => inv.formatExcludedVaultJsons.push(".vault/gone.json")),
+    /exclude list: lists "\.vault\/gone\.json", which is not there/
+  );
+  // the count is the copy that goes stale silently: nothing about "three" looks wrong
+  assert.match(
+    problemsOf((inv) => (inv.localJsonCounts[0].words = ["three"])),
+    /says "the three device-local .* excludes 2 of them — say "two"/
+  );
 });
 
 test("crossCheck: the seeded AGENTS.md is held to the PUBLIC kinds, and only those", () => {

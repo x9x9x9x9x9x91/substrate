@@ -290,6 +290,77 @@ export function parseDocKinds(
   return out;
 }
 
+/**
+ * The prose roster of curated glyph ids, in the order it prints them.
+ *
+ * A separate parser from `parseDocKinds` because this list is not a kind
+ * inventory: it carries no privacy flags (every glyph ships to the mirror) and
+ * its ids are compared against `GLYPHS` rather than against the dispatch chain.
+ * Order is kept because the roster is the picker grid's order (`GLYPH_IDS`),
+ * and a roster that lists the right names in the wrong places still misdescribes
+ * the picker.
+ */
+export function parseDocGlyphIds(text: string, label = "docs/vault-format.md §5.2 glyph roster"): string[] {
+  const anchor = "curated glyph ids";
+  const from = text.indexOf(anchor);
+  if (from === -1) throw new Error(`${label}: anchor ${JSON.stringify(anchor)} not found — the prose was reworded`);
+  // the roster is one sentence: it ends at the first period outside the backticks
+  const to = text.indexOf("`.\n", from);
+  if (to === -1) throw new Error(`${label}: the roster does not end in a backticked id — the prose was reworded`);
+  const out = [...text.slice(from, to + 1).matchAll(/`([a-z0-9][a-z0-9-]*)`/g)].map((m) => m[1]);
+  // the anchor sentence names the source symbols before the list itself
+  const list = out.filter((id) => id !== "GLYPHS");
+  if (list.length === 0) throw new Error(`${label}: the roster parsed as empty`);
+  return list;
+}
+
+/**
+ * The `.vault/*.json` paths `EXCLUDE_CONTENT` keeps out of history.
+ *
+ * Rust rather than TypeScript, which no other inventory here reads — but the
+ * drift class is identical (a hand-written prose list against a constant), the
+ * doc side is a sentence in the same file §5.2 already guards, and a second
+ * script existing only to parse one Rust string literal would be the same
+ * inventory in one more place.
+ */
+export function parseExcludedVaultJsons(src: string, label = "src-tauri/src/history.rs"): string[] {
+  const m = /pub\(crate\) const EXCLUDE_CONTENT: &str =\s*("(?:[^"\\]|\\.)*")\s*;/.exec(src);
+  if (!m) throw new Error(`${label}: EXCLUDE_CONTENT not found or not a single string literal`);
+  const lines = m[1].slice(1, -1).split("\\n");
+  const out = lines.filter((l) => l.startsWith(".vault/") && l.endsWith(".json"));
+  if (out.length === 0) throw new Error(`${label}: EXCLUDE_CONTENT names no .vault JSONs`);
+  return out;
+}
+
+/** The same paths as the doc bullet spells them out. */
+export function parseDocExcludedVaultJsons(
+  text: string,
+  label = "docs/vault-format.md §11 exclude list"
+): string[] {
+  const anchor = "`src-tauri/src/history.rs` `EXCLUDE_CONTENT`)";
+  const from = text.indexOf(anchor);
+  if (from === -1) throw new Error(`${label}: anchor ${JSON.stringify(anchor)} not found — the prose was reworded`);
+  const to = text.indexOf("Everything else is tracked", from);
+  if (to === -1) throw new Error(`${label}: closing anchor not found after the list`);
+  const out = [...text.slice(from, to).matchAll(/`(\.vault\/[a-z0-9-]+\.json)`/g)].map((m) => m[1]);
+  if (out.length === 0) throw new Error(`${label}: the exclude list parsed as empty`);
+  return out;
+}
+
+/** Number words the prose counts those JSONs with, up to a roster nobody will write out. */
+const COUNT_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight"];
+
+/**
+ * Every "the N device-local `.vault` JSONs" claim in a doc, with its word.
+ *
+ * The count is a second, looser copy of the enumeration: prose elsewhere
+ * summarises the list by size instead of repeating it, and that summary is
+ * what went stale when the fourth file landed.
+ */
+export function parseDocLocalJsonCounts(text: string): string[] {
+  return [...text.matchAll(/the ([a-z]+) device-local\s+`?\.vault`? JSONs/g)].map((m) => m[1]);
+}
+
 /* ── cross-check ────────────────────────────────────────────────────────── */
 
 export interface Inventories {
@@ -299,7 +370,11 @@ export interface Inventories {
   glyphIds: Set<string>;
   formatDispatch: KindMap;
   formatIcons: KindMap;
+  formatGlyphRoster: string[];
   seedAgents: KindMap;
+  excludedVaultJsons: string[];
+  formatExcludedVaultJsons: string[];
+  localJsonCounts: { label: string; words: string[] }[];
 }
 
 const show = (ks: Iterable<string>) => [...ks].map((k) => `"${k}"`).join(", ");
@@ -319,6 +394,24 @@ function compare(problems: string[], label: string, want: KindMap, got: KindMap,
           isPrivate ? "drop it from one file only" : "leak it"
         }`
     );
+  }
+}
+
+/**
+ * An ordered, flagless roster against the constant it publishes.
+ *
+ * Order counts here in a way it does not for the kind inventories: both lists
+ * this checks are read as sequences — the glyph roster mirrors the picker grid,
+ * the exclude list mirrors the file git actually writes — so a reordering is a
+ * doc that describes something the reader will not see.
+ */
+function compareList(problems: string[], label: string, want: string[], got: string[], fix: string): void {
+  const missing = want.filter((k) => !got.includes(k));
+  const extra = got.filter((k) => !want.includes(k));
+  if (missing.length) problems.push(`${label}: missing ${show(missing)} — ${fix}`);
+  if (extra.length) problems.push(`${label}: lists ${show(extra)}, which is not there — ${fix}`);
+  if (!missing.length && !extra.length && want.join("\u0000") !== got.join("\u0000")) {
+    problems.push(`${label}: names the right entries in a different order than the source — ${fix}`);
   }
 }
 
@@ -418,6 +511,35 @@ export function crossCheck(inv: Inventories): string[] {
   compare(problems, "docs/vault-format.md §5.2 icon list", iconKinds, inv.formatIcons,
     "it names the DASHBOARD_ICONS set");
 
+  compareList(
+    problems,
+    "docs/vault-format.md §5.2 glyph roster",
+    [...glyphIds],
+    inv.formatGlyphRoster,
+    "it is the published set of ids an `icon:` prop may name, in picker order"
+  );
+
+  compareList(
+    problems,
+    "docs/vault-format.md §11 exclude list",
+    inv.excludedVaultJsons,
+    inv.formatExcludedVaultJsons,
+    "it enumerates EXCLUDE_CONTENT's device-local `.vault` JSONs"
+  );
+
+  // The prose also summarises that same list by size in other sections, and a
+  // count is what goes stale silently: nothing about "three" looks wrong.
+  const want = COUNT_WORDS[inv.excludedVaultJsons.length];
+  for (const { label, words } of inv.localJsonCounts) {
+    for (const w of words) {
+      if (w === want) continue;
+      problems.push(
+        `${label}: says "the ${w} device-local \`.vault\` JSONs", but EXCLUDE_CONTENT excludes ` +
+          `${inv.excludedVaultJsons.length} of them — say "${want ?? inv.excludedVaultJsons.length}"`
+      );
+    }
+  }
+
   // The seeded orientation file is written into every new vault, public and
   // private builds alike, and carries no strip regions — so it lists exactly
   // the PUBLIC half of the documented set and stays silent about the rest.
@@ -443,7 +565,15 @@ const read = (p: string) => readFileSync(resolve(ROOT, p), "utf8");
 export function collect(): Inventories {
   const dbicons = read("src/lib/dbicons.ts");
   const vaultFormat = read("docs/vault-format.md");
+  const dashboards = read("docs/dashboards.md");
   return {
+    excludedVaultJsons: parseExcludedVaultJsons(read("src-tauri/src/history.rs")),
+    formatExcludedVaultJsons: parseDocExcludedVaultJsons(vaultFormat),
+    formatGlyphRoster: parseDocGlyphIds(vaultFormat),
+    localJsonCounts: [
+      { label: "docs/vault-format.md", words: parseDocLocalJsonCounts(vaultFormat) },
+      { label: "docs/dashboards.md", words: parseDocLocalJsonCounts(dashboards) },
+    ],
     builtIn: parseBuiltInKinds(read("src/lib/kinds.ts")),
     dispatch: parseDispatch(read("src/components/DashboardPane.tsx")),
     icons: parseIcons(dbicons),

@@ -690,7 +690,7 @@ precisely when you most want to withdraw it.
 
 **Your code is vault content, so version history covers it.** A bundle under
 `.vault/kinds/` is snapshotted exactly like a note: history excludes only
-`.assets/`, `.trash/`, `.DS_Store` and the three device-local `.vault` JSONs,
+`.assets/`, `.trash/`, `.DS_Store` and the four device-local `.vault` JSONs,
 and nothing in that list is your folder. An overwritten or deleted bundle is
 recoverable from history — an afternoon's work on a board is never one sync
 glitch or one stray write away from gone. Keep your bundle in the vault and it

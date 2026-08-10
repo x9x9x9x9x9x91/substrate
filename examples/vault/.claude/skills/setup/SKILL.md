@@ -20,7 +20,9 @@ Never propose against an imagined schema. Gather, quietly:
 
 - `.vault/schema.json` — the real databases and their property names, kinds, and
   select options. This is the backbone of everything you generate.
-- `.vault/folders.json` — external folders mirrored in (may not exist).
+- `.vault/mounts.json` — folders on disk mounted in as databases; the live
+  registry (may not exist). A `.vault/folders.json` beside it is the legacy
+  form the app migrates from, and is empty once that migration has run.
 - `.vault/views.json` — sidebar order and saved views; tells you what the user
   actually looks at.
 - Top-level folders, and how many notes are in each.
