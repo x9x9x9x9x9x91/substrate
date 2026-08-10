@@ -1071,6 +1071,39 @@ function NotePane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vaultEpoch]);
 
+  // Backlinks and related live in OTHER notes' bodies and props, so the
+  // mount-load fetch goes stale the moment somebody else's note changes —
+  // an external editor unlinking the open note left the panel claiming the
+  // old count until remount (probe-stalelinks). No changedPaths gate here:
+  // a bump naming another path is exactly a candidate link edit, an unnamed
+  // bump is the engine's rescan, and even an own-path bump can move the
+  // related list (an external `type:` edit re-aims which relations target
+  // this note). Both are index reads, cheap at epoch cadence, and unlike
+  // the body lane there is no buffer to guard — the panels are display-only.
+  // A failed re-read keeps the current list: the path didn't change, so the
+  // shown entries are the last known truth, not another note's leftovers.
+  useEffect(() => {
+    if (!loaded || loaded.path !== meta.path) return;
+    if (ghost || (isSealed && !sealedUnlocked)) return;
+    if (missingRef.current || fileGoneRef.current) return;
+    let gone = false;
+    const path = meta.path;
+    vaultBacklinks(path)
+      .then((b) => {
+        if (!gone && pathRef.current === path) setBacklinks(b);
+      })
+      .catch(() => {});
+    vaultRelated(path)
+      .then((r) => {
+        if (!gone && pathRef.current === path) setRelated(r);
+      })
+      .catch(() => {});
+    return () => {
+      gone = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vaultEpoch]);
+
   // conflict banner actions: take the disk version, or win over it
   const reloadFromDisk = () => {
     window.clearTimeout(saveTimer.current);

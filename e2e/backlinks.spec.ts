@@ -51,3 +51,31 @@ test("backlink and related-note rows expose native keyboard controls (SUB-352)",
   await related.press("Space");
   await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Slow Bloom EP");
 });
+
+// Backlinks derive from OTHER notes' bodies, so an external edit
+// over there must reach the open note's panel — pre-fix it only refreshed on
+// remount, and the panel asserted a link that no longer existed until the
+// note was closed and reopened.
+test("an external link edit reaches the open note's backlinks panel (SUB-1217)", async ({
+  page,
+}) => {
+  await boot(page);
+  await openNote(page, "Slow Bloom EP");
+  const panel = page.locator(".backlinks:not(.related)");
+  await expect(panel.getByRole("button", { name: "Welcome", exact: true })).toBeVisible();
+
+  // an editor outside the app rewrites Welcome without its wikilinks; the
+  // watcher reports the change naming that path — not the open note's
+  await page.evaluate(() => {
+    window.__mockEditNote("Welcome.md", "All the links are gone now.\n");
+    window.__mockEmit?.("vault:changed", ["Welcome.md"]);
+  });
+  await expect(panel.getByRole("button", { name: "Welcome", exact: true })).toHaveCount(0);
+
+  // additive direction: a link written elsewhere surfaces while still open
+  await page.evaluate(() => {
+    window.__mockEditNote("Gero.md", "Mix engineer. Now also on [[Slow Bloom EP]].\n");
+    window.__mockEmit?.("vault:changed", ["Gero.md"]);
+  });
+  await expect(panel.getByRole("button", { name: "Gero", exact: true })).toBeVisible();
+});
