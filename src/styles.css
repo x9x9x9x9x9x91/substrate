@@ -686,7 +686,16 @@ button.side-item {
    mid-glyph at a container edge with nothing saying more was there; rather
    than five bespoke fades, any scroller opting in via useEdgeFade() gets this
    one. Depths match the sidebar (14px in, 20px out) so every fade in the app
-   reads the same. Mask, not scrim: no background token, no theme coupling. */
+   reads the same. Mask, not scrim: no background token, no theme coupling.
+   scroll-padding mirrors the band depths: keyboard walks land rows via
+   scrollIntoView(nearest), which otherwise aligns the selected row flush
+   with the scrollport edge — inside the fade, dissolving the one row the
+   user is on whenever trailing padding keeps the gate open. */
+.edge-fade-y {
+  scroll-padding-top: 14px;
+  scroll-padding-bottom: 20px;
+}
+
 .edge-fade-y.edge-more-y {
   -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 20px), transparent);
   mask-image: linear-gradient(to bottom, black calc(100% - 20px), transparent);

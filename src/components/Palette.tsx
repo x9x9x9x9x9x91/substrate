@@ -1025,19 +1025,11 @@ export default function Palette({
             run: () => onSetView({ kind: "db", type: db.type }),
           };
         }),
-        ...folders.map((f) => ({
-          id: `cmd:folder:${f}`,
-          label: f,
-          icon: <FolderIcon />,
-          section: "Folders",
-          folder: f,
-          dest: f.split("/").pop() ?? f,
-          run: () => onSetView({ kind: "folder", path: f }),
-        })),
         // Pick the open note for today from anywhere. The pane can
         // only offer Pick on notes that already carry a date, so this is the
-        // one route a dateless note has onto Today. Appended, not slotted in,
-        // so it composes with other in-flight command rows.
+        // one route a dateless note has onto Today. Rides ahead of the
+        // Folders spread: itemSections groups by contiguity, so a Commands
+        // row after Folders painted a second "Commands" header on cold open.
         ...(current
           ? [
               {
@@ -1051,6 +1043,15 @@ export default function Palette({
               },
             ]
           : []),
+        ...folders.map((f) => ({
+          id: `cmd:folder:${f}`,
+          label: f,
+          icon: <FolderIcon />,
+          section: "Folders",
+          folder: f,
+          dest: f.split("/").pop() ?? f,
+          run: () => onSetView({ kind: "folder", path: f }),
+        })),
       ];
       // rank by fuzzy score (declaration order breaks ties); destinations in
       // the exact/prefix band render directly under Notes, above Content

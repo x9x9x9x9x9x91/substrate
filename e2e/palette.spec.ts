@@ -239,3 +239,60 @@ test("a prop-only fact surfaces its note in the palette", async ({ page }) => {
     page.locator(".palette-item", { hasText: "Annelies Verbeek" })
   ).toBeVisible();
 });
+
+// The bottom edge fade tells you more rows exist — but scrollIntoView's
+// default aligns a keyboard-selected row flush with the scrollport bottom,
+// and the trailing clearance padding keeps the fade gate open there, so the
+// walk's landing row sat half-dissolved in the mask band. scroll-padding on
+// .edge-fade-y makes keyboard walks land clear of both bands.
+
+test("arrow-walking to the last row lands it clear of the bottom fade (SUB-1218)", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await page.keyboard.press("Meta+k");
+  await page.locator(".palette-input").fill("release");
+  // wait past the debounced Content batch — counting before it arrives
+  // walks a shorter list and never reaches the true last row
+  await expect(page.locator(".palette-item-snippet").first()).toBeVisible();
+
+  const rows = page.locator(".palette-results .palette-item");
+  const count = await rows.count();
+  for (let i = 0; i < count + 2; i++) await page.keyboard.press("ArrowDown");
+
+  const selected = page.locator(".palette-item.selected");
+  await expect(selected).toHaveCount(1);
+  // the walk really landed on the LAST row — the geometry below is about it
+  await expect(rows.last()).toHaveClass(/selected/);
+  const geom = await page.evaluate(() => {
+    const r = document.querySelector(".palette-results")!;
+    const sel = document.querySelector(".palette-item.selected")!;
+    const rb = r.getBoundingClientRect();
+    const sb = sel.getBoundingClientRect();
+    return {
+      fadeOpen: r.className.includes("edge-more-y"),
+      rowBottom: sb.bottom,
+      fadeBandTop: rb.bottom - 20,
+    };
+  });
+  // the fade is still telling the truth (clearance padding remains below)…
+  expect(geom.fadeOpen).toBe(true);
+  // …but the selected row sits fully above the 20px band it used to dissolve in
+  expect(geom.rowBottom).toBeLessThanOrEqual(geom.fadeBandTop + 0.5);
+});
+
+// Cold ⌘K with a note open painted "Commands" twice: the Pick row was
+// appended after the Folders spread, and sections group by contiguity.
+// A section name appears once.
+
+test("cold-open palette sections are unique (SUB-1218)", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
+  // open a note so the Pick/Actions command rows exist
+  await page.locator(".list .row", { has: page.getByText("Welcome", { exact: true }) }).click();
+  await page.keyboard.press("Meta+k");
+  await expect(page.locator(".palette-item").first()).toBeVisible();
+
+  const sections = await page.locator(".palette-section").allInnerTexts();
+  expect(sections.length).toBeGreaterThan(0);
+  expect(new Set(sections).size).toBe(sections.length);
+});
