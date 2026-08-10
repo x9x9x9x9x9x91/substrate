@@ -7136,6 +7136,26 @@ body.agenda-window .palette:focus-visible {
   grid-column: 1 / -1;
 }
 
+/* The no-matches state renders inside the scroller, and it speaks for the
+   whole pane, not for one card: as an ordinary grid child it landed in the
+   first cell, a column-wide fragment against the top-left corner. With no
+   cards to place, the grid steps aside so the state can claim the pane the
+   way it does in the board. The shell's own height:100% measures the padding
+   box, which would leave the scroller permanently scrollable by its padding —
+   stretch owns the height here instead. */
+.db-gallery:has(> .empty) {
+  display: flex;
+  /* column, so an open draft row still sits above the state at its own
+     height rather than beside it */
+  flex-direction: column;
+}
+
+.db-gallery > .empty {
+  flex: 1;
+  align-self: stretch;
+  height: auto;
+}
+
 .db-gcard {
   display: flex;
   flex-direction: column;
