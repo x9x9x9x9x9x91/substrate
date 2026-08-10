@@ -61,6 +61,22 @@ test("a count fence counts the database the same way a view fence does", async (
   await expect(count.locator(".progress-foot")).toHaveCount(0);
 });
 
+test("a fence-only hub heads with its block count, not \"0 sections · 0 cards\"", async ({
+  page,
+}) => {
+  await openGoals(page);
+
+  // Goals has no ## sections and no callout cards — only progress fences.
+  // The head must count what exists instead of greeting with two zeros.
+  await expect(page.locator(".dash-state")).toHaveText("3 blocks");
+
+  // a hub with sections and cards keeps its counts, zero segments dropped
+  await page.locator(".side-item", { hasText: "Umbra Home" }).click();
+  await expect(page.locator(".dash-title")).toHaveText("Umbra Home");
+  await expect(page.locator(".dash-state")).toHaveText(/sections · .*cards/);
+  await expect(page.locator(".dash-state")).not.toContainText("0 sections");
+});
+
 test("a malformed fence errors in place while its siblings render", async ({ page }) => {
   await openGoals(page);
 

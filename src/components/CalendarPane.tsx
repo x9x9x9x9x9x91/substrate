@@ -482,7 +482,10 @@ export default function CalendarPane({
       }
     }
     const target = first === Infinity ? 8 * 60 : Math.max(first - 60, 0);
-    el.scrollTop = (target / 60) * HOUR_PX;
+    // back off by half a gutter label: the labels center on their hour line
+    // (translateY(-50%)), so scrolling the line flush to the top clips the
+    // anchor hour's label in half
+    el.scrollTop = Math.max((target / 60) * HOUR_PX - 8, 0);
     if (byDay.size > 0) anchoredWeek.current = weekKey;
   }, [onCanvas, days, byDay]);
 

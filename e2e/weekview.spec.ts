@@ -96,6 +96,19 @@ test("timed entries render as canvas blocks positioned by their time", async ({ 
   // the canvas opens scrolled to the week's action, not pinned at 00:00
   const scrollTop = await page.locator(".cal-wk-scroll").evaluate((el) => el.scrollTop);
   expect(scrollTop).toBeGreaterThan(0);
+
+  // …and the anchor hour's gutter label lands whole: the labels center on
+  // their hour line, so a flush scroll would clip the first one in half
+  const clip = await page.locator(".cal-wk-scroll").evaluate((el) => {
+    const top = el.getBoundingClientRect().top;
+    let worst = 0;
+    for (const s of el.querySelectorAll(".cal-wk-gutter span")) {
+      const r = s.getBoundingClientRect();
+      if (r.bottom > top && r.top < top + 40) worst = Math.max(worst, top - r.top);
+    }
+    return worst;
+  });
+  expect(clip).toBeLessThanOrEqual(0.5);
 });
 
 test("week cards peek on click, open their note on double-click, keep the entry menu", async ({

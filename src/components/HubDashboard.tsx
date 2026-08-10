@@ -640,17 +640,26 @@ export default function HubDashboard({
 
   const cardCount = blocks.reduce((n, b) => n + (b.kind === "cards" ? b.callouts.length : 0), 0);
   const sectionCount = blocks.filter((b) => b.kind === "section").length;
+  // a fence-only hub (e.g. three ```progress meters, no ## and no callouts)
+  // must not greet with "0 sections · 0 cards" over a pane full of content —
+  // count only what exists, fall back to the fence count, or say nothing
+  const fenceCount = blocks.reduce(
+    (n, b) => n + (b.kind === "markdown" ? (b.text.match(/^```\S/gm)?.length ?? 0) : 0),
+    0
+  );
+  const headParts = [
+    sectionCount > 0 && `${sectionCount} ${sectionCount === 1 ? "section" : "sections"}`,
+    cardCount > 0 && `${cardCount} ${cardCount === 1 ? "card" : "cards"}`,
+  ].filter((p): p is string => Boolean(p));
+  if (headParts.length === 0 && fenceCount > 0)
+    headParts.push(`${fenceCount} ${fenceCount === 1 ? "block" : "blocks"}`);
 
   return (
     <div className="note">
       <div className="dash-inner">
         <DashHead
           title={meta.title}
-          state={{
-            label: `${sectionCount} ${sectionCount === 1 ? "section" : "sections"} · ${cardCount} ${
-              cardCount === 1 ? "card" : "cards"
-            }`,
-          }}
+          state={headParts.length > 0 ? { label: headParts.join(" · ") } : null}
           actions={<DashPrintButton />}
           sourcePath={meta.path}
           onOpenSource={onOpenSource}
