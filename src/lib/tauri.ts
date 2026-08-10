@@ -1894,6 +1894,20 @@ function mockRank(a: MockSearchRank, b: MockSearchRank): number {
   return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 }
 
+/** The frontmatter prop VALUES a note is searchable by — the engine's
+    props_search_text twin: scalar strings + string lists, space-joined;
+    keys, `type` and `title` stay out. */
+function mockPropsSearchText(props: Record<string, unknown>): string {
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(props)) {
+    const kl = k.toLowerCase();
+    if (kl === "type" || kl === "title") continue;
+    if (typeof v === "string") out.push(v);
+    else if (Array.isArray(v)) for (const s of v) if (typeof s === "string") out.push(s);
+  }
+  return out.join(" ");
+}
+
 type MockSearchRank = { titleHit: boolean; offset: number; path: string };
 
 function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
@@ -3021,12 +3035,13 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         .filter((n) => !(skipAppFiles && isAppFile(n.path)))
         .filter((n) => inScope === null || inScope.has(n.path))
         .filter((n) => {
-          const hay = words(`${n.title}\n${stripMachineFences(n.body)}`);
+          // prop values answer alongside title/body, like the engine's index
+          const hay = words(`${n.title}\n${stripMachineFences(n.body)}\n${mockPropsSearchText(n.props)}`);
           return tokens.every((t) => hay.some((w) => w.startsWith(t)));
         })
         // rank before capping, or the cap picks by insertion order
         .map((n) => {
-          const body = stripMachineFences(n.body);
+          const body = `${stripMachineFences(n.body)}\n${mockPropsSearchText(n.props)}`;
           const titleAt = mockFirstHit(n.title, tokens, bound);
           return {
             note: n,
@@ -3085,8 +3100,12 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           total += seg.count;
           if (matches.length < 12) matches.push({ line: i + 1, parts: seg.parts });
         }
+        // prop-value hits count toward the total (no body line to show —
+        // the note header carries them), mirroring the engine's props column
+        const propsText = mockPropsSearchText(n.props);
+        total += segment(propsText).count;
         // AND semantics like FTS: every term must appear somewhere in the note
-        const hay = `${n.title}\n${body}`.toLowerCase();
+        const hay = `${n.title}\n${body}\n${propsText}`.toLowerCase();
         if (total > 0 && terms.every((t) => new RegExp(`(?<![\\p{L}\\p{N}_])${esc(t)}`, "iu").test(hay)))
           ranked.push({
             hit: { path: n.path, title_parts: title.parts, total, matches, partial: false },
@@ -3094,7 +3113,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
             offset:
               title.count > 0
                 ? mockFirstHit(n.title, terms, bound)
-                : mockFirstHit(body, terms, bound),
+                : mockFirstHit(`${body}\n${propsText}`, terms, bound),
             path: n.path,
           });
       }

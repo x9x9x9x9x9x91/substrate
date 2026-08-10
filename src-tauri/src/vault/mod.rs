@@ -440,6 +440,40 @@ fn strip_machine_fences(body: &str) -> String {
         .into_owned()
 }
 
+/// The frontmatter prop VALUES a note is searchable by — scalar strings and
+/// string lists, space-joined. Keys stay out (they are the filter syntax's
+/// vocabulary, not content), as does `type` (the database name is a palette
+/// destination, not a fact about the note) and `title` (already the title
+/// column). What this feeds exists so "radio plugger" finds the contact whose
+/// role SAYS so, not just notes whose prose happens to restate it.
+fn props_search_text(props: &serde_json::Map<String, serde_json::Value>) -> String {
+    let mut out = String::new();
+    for (k, v) in props {
+        let kl = k.to_lowercase();
+        if kl == "type" || kl == "title" {
+            continue;
+        }
+        match v {
+            serde_json::Value::String(s) => {
+                if !out.is_empty() {
+                    out.push(' ');
+                }
+                out.push_str(s);
+            }
+            serde_json::Value::Array(items) => {
+                for s in items.iter().filter_map(serde_json::Value::as_str) {
+                    if !out.is_empty() {
+                        out.push(' ');
+                    }
+                    out.push_str(s);
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// The frontend's strict numeric cell grammar (`aggregate.ts`
 /// parseStrictNumber) — anything else is text as far as a number prop goes.
 fn strict_number_re() -> &'static Regex {
@@ -1458,7 +1492,14 @@ impl Engine {
                 // the whole note. It rides here rather than in a side table
                 // so a hit knows how much of its source was ever searched
                 // without a second lookup per result.
-                "CREATE VIRTUAL TABLE notes_fts USING fts5(path UNINDEXED, title, body, partial UNINDEXED, tokenize='unicode61 remove_diacritics 2');",
+                //
+                // `props` holds the note's frontmatter prop values
+                // (props_search_text) so a fact that lives only in a prop —
+                // a contact's role, a release's format — answers plain-text
+                // search. Appended AFTER `partial` on purpose: highlight()
+                // and snippet() address columns by index, and 1 = title,
+                // 2 = body stay exactly where every query expects them.
+                "CREATE VIRTUAL TABLE notes_fts USING fts5(path UNINDEXED, title, body, partial UNINDEXED, props, tokenize='unicode61 remove_diacritics 2');",
             )
             .is_ok();
         let mut e = Engine {
@@ -1755,13 +1796,18 @@ impl Engine {
             self.links.push((rel.clone(), target));
         }
         if self.fts {
-            if let Ok(mut stmt) = self
-                .db
-                .prepare_cached("INSERT INTO notes_fts(path, title, body) VALUES(?1, ?2, ?3)")
-            {
+            if let Ok(mut stmt) = self.db.prepare_cached(
+                "INSERT INTO notes_fts(path, title, body, props) VALUES(?1, ?2, ?3, ?4)",
+            ) {
                 // machine-fence bodies (```view/```chart/```csv/```formulas)
                 // are config/data, not searchable prose
-                stmt.execute(rusqlite::params![rel, title, strip_machine_fences(body)]).ok();
+                stmt.execute(rusqlite::params![
+                    rel,
+                    title,
+                    strip_machine_fences(body),
+                    props_search_text(&props)
+                ])
+                .ok();
             }
         }
         let tags = tags::note_tags(&props, body);

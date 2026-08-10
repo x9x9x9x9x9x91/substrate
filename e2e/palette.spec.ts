@@ -222,3 +222,20 @@ test("a refused palette rename reports on the toast (SUB-1214)", async ({ page }
     page.locator(".palette-results .palette-item .palette-item-label").first()
   ).toHaveText("Vessel Songs");
 });
+
+// A fact that lives only in frontmatter answers plain-text search. The
+// people-walk that surfaced this typed a contact's ROLE into ⌘K and got an
+// artist whose body prose restates the phrase — while the contact whose
+// `role:` prop says it never appeared: the index held title + body only.
+
+test("a prop-only fact surfaces its note in the palette", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await page.keyboard.press("Meta+k");
+  // Annelies Verbeek carries role: radio plugger in props alone — her body
+  // says "Plugs the roster's singles", never the phrase itself
+  await page.locator(".palette-input").fill("radio plugger");
+  await expect(
+    page.locator(".palette-item", { hasText: "Annelies Verbeek" })
+  ).toBeVisible();
+});

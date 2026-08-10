@@ -302,7 +302,9 @@ impl Engine {
                 .filter(|n| !(exclude_app_files && is_app_file(&n.path)))
                 .filter(|n| scope.is_none_or(|s| s.iter().any(|p| p == &n.path)))
                 .filter(|n| {
-                    n.title.to_lowercase().contains(&ql) || n.excerpt.to_lowercase().contains(&ql)
+                    n.title.to_lowercase().contains(&ql)
+                        || n.excerpt.to_lowercase().contains(&ql)
+                        || props_search_text(&n.props).to_lowercase().contains(&ql)
                 })
                 .take(30)
                 .map(|n| SearchHit { path: n.path.clone(), snippet: n.excerpt.clone() })
@@ -344,7 +346,9 @@ impl Engine {
                 .filter(|n| !(exclude_app_files && is_app_file(&n.path)))
                 .filter(|n| scope.is_none_or(|s| s.iter().any(|p| p == &n.path)))
                 .filter(|n| {
-                    n.title.to_lowercase().contains(&ql) || n.excerpt.to_lowercase().contains(&ql)
+                    n.title.to_lowercase().contains(&ql)
+                        || n.excerpt.to_lowercase().contains(&ql)
+                        || props_search_text(&n.props).to_lowercase().contains(&ql)
                 })
                 .collect();
             let total_notes = all.len() as u32;
@@ -387,9 +391,14 @@ impl Engine {
             .map(|n| n as u32)
             .unwrap_or(0);
         // `partial` is column 3 and UNINDEXED, so appending it left the
-        // highlight() column indices (1 = title, 2 = body) exactly as they were
+        // highlight() column indices (1 = title, 2 = body) exactly as they
+        // were; `props` (column 4) rides the same trick. Its highlight is
+        // read for the COUNT only — a prop value has no body line to render,
+        // so a props-only hit surfaces as its note header with the match
+        // total, never as a fake line number.
         let sql = format!(
-            "SELECT path, highlight(notes_fts, 1, ?2, ?3), highlight(notes_fts, 2, ?2, ?3), partial \
+            "SELECT path, highlight(notes_fts, 1, ?2, ?3), highlight(notes_fts, 2, ?2, ?3), partial, \
+             highlight(notes_fts, 4, ?2, ?3) \
              FROM notes_fts WHERE notes_fts MATCH ?1{clause}{app}{MOUNT_CLAUSE} ORDER BY rank LIMIT {}",
             FULL_SEARCH_MAX_NOTES
         );
@@ -404,14 +413,16 @@ impl Engine {
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
-                    // notes insert three columns, so theirs reads back NULL
+                    // mount rows insert four columns, so both their `partial`
+                    // and a note's absent `props` read back through Option
                     row.get::<_, Option<i64>>(3)?.unwrap_or(0) != 0,
+                    row.get::<_, Option<String>>(4)?.unwrap_or_default(),
                 ))
             },
         );
         let Ok(rows) = rows else { return empty() };
         let mut out = Vec::new();
-        for (path, title_hl, body_hl, partial) in rows.flatten() {
+        for (path, title_hl, body_hl, partial, props_hl) in rows.flatten() {
             let (title_parts, title_count) = parse_marked(&title_hl);
             let mut total = title_count;
             let mut matches = Vec::new();
@@ -427,6 +438,13 @@ impl Engine {
                 if matches.len() < FULL_SEARCH_MAX_LINES {
                     matches.push(SearchMatch { line: (i + 1) as u32, parts: trim_parts(parts) });
                 }
+            }
+            // prop-value hits count toward the total so a props-only match
+            // survives the `total > 0` gate — the hit renders as its note
+            // header, which opens the note where the props are on screen
+            if props_hl.contains(MARK_START) {
+                let (_, count) = parse_marked(&props_hl);
+                total += count;
             }
             if total > 0 {
                 out.push(FullSearchHit { path, title_parts, total, matches, partial });
@@ -739,6 +757,44 @@ mod tests {
             "a tailed code fence stays searchable prose"
         );
         assert!(e.search("trail", None, false).iter().any(|h| h.path == "Tailed.md"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A fact that lives only in a prop answers plain-text search: the
+    /// people-walk found ⌘K "radio plugger" returning an artist whose BODY
+    /// restates the role while the contact whose `role:` prop says it never
+    /// surfaced. Both search doors must hit the prop-only note, and the
+    /// full-search hit carries the match in its total even though a prop has
+    /// no body line to render.
+    #[test]
+    fn prop_values_answer_search() {
+        let (mut e, dir) = temp_vault("propsearch");
+        fs::write(
+            dir.join("Annelies.md"),
+            "---\ntype: contact\nrole: radio plugger\nformat:\n  - Vinyl\n  - Digital\n---\nPlugs the roster's singles.\n",
+        )
+        .unwrap();
+        e.apply_changes(&[dir.join("Annelies.md")]);
+
+        let hits = e.search("radio plugger", None, false);
+        assert!(hits.iter().any(|h| h.path == "Annelies.md"), "quick search hits the prop value");
+
+        let full = e.search_full("radio plugger", None, false);
+        let hit = full.hits.iter().find(|h| h.path == "Annelies.md");
+        let hit = hit.expect("full search hits the prop value");
+        assert!(hit.total >= 1, "prop match counts toward the note's total");
+        assert!(hit.matches.is_empty(), "a prop hit invents no body line");
+
+        // list values are searchable too, item by item
+        assert!(
+            e.search("vinyl", None, false).iter().any(|h| h.path == "Annelies.md"),
+            "list prop values are indexed"
+        );
+        // keys are filter vocabulary, not content — `role` itself must miss
+        assert!(
+            e.search("role", None, false).iter().all(|h| h.path != "Annelies.md"),
+            "prop KEYS stay out of the index"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
