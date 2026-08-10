@@ -211,6 +211,16 @@ test("formatQuantity renders the de-DE dialect with the unit suffix", () => {
   assert.equal(formatQuantity(50, "%", "de-DE"), "50 %");
 });
 
+test("formatQuantity leaves a zero-decimal currency unpadded", () => {
+  // the yen has no minor unit — "1.234,50 ¥" is not money anyone can pay, so
+  // the forced-cents rule that keeps "942,30 €" honest must not reach it
+  assert.equal(formatQuantity(1234.5, "JPY", "de-DE"), "1.234,5 ¥");
+  assert.equal(formatQuantity(1234, "JPY", "de-DE"), "1.234 ¥");
+  assert.equal(formatQuantity(942.3, "JPY", "en-US"), "942.3 ¥");
+  // the minor-unit currencies beside it are untouched
+  assert.equal(formatQuantity(1234.5, "USD", "de-DE"), "1.234,50 $");
+});
+
 test("formatQuantity renders an en-US dialect", () => {
   assert.equal(formatQuantity(1234.56, "EUR", "en-US"), "1,234.56 €");
   assert.equal(formatQuantity(1234.56, "kg", "en-US"), "1,234.56 kg");

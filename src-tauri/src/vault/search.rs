@@ -795,6 +795,37 @@ mod tests {
             e.search("role", None, false).iter().all(|h| h.path != "Annelies.md"),
             "prop KEYS stay out of the index"
         );
+
+        // numbers and booleans are values a user reads in the table and would
+        // type into the search box — a year prop must answer its own year, and
+        // a checkbox its own word.
+        fs::write(
+            dir.join("Pressing.md"),
+            "---\ntype: release\nyear: 2025\ntracks: 8\nin use: true\n---\nA pressing.\n",
+        )
+        .unwrap();
+        e.apply_changes(&[dir.join("Pressing.md")]);
+        assert!(
+            e.search("2025", None, false).iter().any(|h| h.path == "Pressing.md"),
+            "number prop values are indexed"
+        );
+        assert!(
+            e.search("true", None, false).iter().any(|h| h.path == "Pressing.md"),
+            "bool prop values are indexed"
+        );
+
+        // the importer's dedupe stamp is hidden from every surface, so a hit on
+        // it would be a result the user cannot see the reason for
+        fs::write(
+            dir.join("Migrated.md"),
+            "---\ntype: release\nnotion_id: 4c9f21ab-77de-4e10-9a55-2b6d0e3f81ce\n---\nMigrated row.\n",
+        )
+        .unwrap();
+        e.apply_changes(&[dir.join("Migrated.md")]);
+        assert!(
+            e.search("4c9f21ab", None, false).iter().all(|h| h.path != "Migrated.md"),
+            "the hidden notion_id stamp is not searchable"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

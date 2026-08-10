@@ -100,6 +100,32 @@ test("a German-typed price lands in the footer Sum, not beside it", async ({ pag
   await expect(sum).toHaveText("14.323,06 €*");
 });
 
+test("a column with no numbers at all still says why its Sum is blank", async ({ page }) => {
+  await page.goto("/");
+  // location holds prose only ("Studio A") — a numeric column whose every
+  // cell is text. The footer used to show a bare "Sum" beside nothing, so the
+  // silence read as "no rows" rather than "nothing here is a number".
+  await page.evaluate(() => {
+    window.__mockEditSchema?.("inventory", {
+      location: { options: [], kind: "number", format: "euro" },
+    });
+    window.__mockEmit?.("vault:config-changed");
+  });
+  await openDb(page, "Inventory");
+
+  await page.locator(".db-table th", { hasText: "location" }).locator(".db-th-caret").click();
+  await page.locator(".colmenu .dots-item", { hasText: "Calculate…" }).click();
+  await page.locator(".colmenu .dots-item", { hasText: /^Sum$/ }).click();
+
+  const cell = page.locator('.db-agg-cell[data-col="location"]');
+  await expect(cell.locator(".db-agg-kind")).toHaveText("Sum");
+  await expect(cell.locator(".db-agg-value")).toHaveCount(0);
+  await expect(cell.locator(".db-agg-mark")).toHaveAttribute(
+    "title",
+    "10 cells not counted — not numbers"
+  );
+});
+
 test("an en-US locale reaches table cells, totals, board cards and gallery cards", async ({
   page,
 }) => {

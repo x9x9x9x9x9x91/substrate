@@ -360,11 +360,22 @@ export default function Palette({
       .catch((e) => onToast(e instanceof Error ? e.message : String(e)));
   }, [onMutated, onToast]);
 
-  const copyPath = useCallback((note: NoteMeta) => {
-    absPath(note.path)
-      .then((p) => navigator.clipboard.writeText(p))
-      .catch(console.error);
-  }, []);
+  // a copy or an export that fails says so: these used to reject into the
+  // console, so the palette closed on a path that was never on the clipboard
+  // and a file that was never written looked exactly like a success
+  const toastError = useCallback(
+    (e: unknown) => onToast(e instanceof Error ? e.message : String(e)),
+    [onToast]
+  );
+
+  const copyPath = useCallback(
+    (note: NoteMeta) => {
+      absPath(note.path)
+        .then((p) => navigator.clipboard.writeText(p))
+        .catch(toastError);
+    },
+    [toastError]
+  );
 
   const revealNote = useCallback(
     (note: NoteMeta) => {
@@ -402,9 +413,9 @@ export default function Palette({
         setProperty: () => enterStage({ kind: "setprop", note }),
         copyPath: () => copyPath(note),
         reveal: () => revealNote(note),
-        exportMarkdown: () => exportNoteMarkdown(note).catch(console.error),
-        exportPdf: () => exportNotePdf(note).catch(console.error),
-        exportOneSheet: () => exportNoteOneSheet(note).catch(console.error),
+        exportMarkdown: () => exportNoteMarkdown(note).catch(toastError),
+        exportPdf: () => exportNotePdf(note).catch(toastError),
+        exportOneSheet: () => exportNoteOneSheet(note).catch(toastError),
         sendAsLink: () => onSendAsLink(note),
         sealed: note.sealed,
         togglePick: () => onTogglePick(note.path, !isPickedToday(note, todayIso)),
@@ -1098,6 +1109,7 @@ export default function Palette({
     pinnedPaths,
     copyPath,
     revealNote,
+    toastError,
     rescanFolders,
     onToggleTerminal,
     onTerminalRun,

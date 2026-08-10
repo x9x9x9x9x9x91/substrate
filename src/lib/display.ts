@@ -53,9 +53,10 @@ export function formatNumber(
   const { n } = cellInUnit(v, unit, fx ?? NO_FX);
   if (n === null) return v;
   // euro and percent and every other unit: pre-round like
-  // formatAgg (float noise, -0), then the dialect's grouping —
-  // maximumFractionDigits alone keeps integers decimal-free ("1.234 €",
-  // "12 %", "5 kg")
+  // formatAgg (float noise, -0), then the dialect's grouping. Integers stay
+  // decimal-free ("1.234 €", "12 %", "5 kg"); a fractional amount in a
+  // minor-unit currency gets both cents from formatQuantity's
+  // minimumFractionDigits ("942,30 €")
   return formatQuantity(n, unit, locale);
 }
 

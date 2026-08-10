@@ -1877,6 +1877,32 @@ function mockRescanChanged(result: unknown): boolean {
 const SEARCH_MAX_HITS = 30;
 const FULL_SEARCH_MAX_NOTES = 200;
 
+/** The word runs a text splits into, the way the FTS tokenizer sees it:
+    alphanumeric runs, lowercased, punctuation dropped. */
+function mockSearchWords(s: string): string[] {
+  return s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+}
+
+/** Does `field`'s run sequence contain `runs` consecutively, with the last run
+    matched as a prefix? The engine quotes every whitespace query token
+    (fts_match_expr), so `bc-2025q4-00352` is the prefix PHRASE `bc 2025q4
+    00352*` rather than one opaque word — a plain token is just a one-run
+    phrase, and a punctuation-only token has no runs and so matches nothing. */
+function mockHasPhrase(field: string[], runs: string[]): boolean {
+  if (runs.length === 0) return false;
+  const last = runs.length - 1;
+  for (let i = 0; i + last < field.length; i++) {
+    let ok = true;
+    for (let j = 0; j < last; j++)
+      if (field[i + j] !== runs[j]) {
+        ok = false;
+        break;
+      }
+    if (ok && field[i + last].startsWith(runs[last])) return true;
+  }
+  return false;
+}
+
 /** Char offset of the first word-start match of any token, or `Infinity`.
     `starts` is the matcher's own word-boundary class, so each command ranks
     by exactly the rule it filtered with. */
@@ -1895,15 +1921,19 @@ function mockRank(a: MockSearchRank, b: MockSearchRank): number {
 }
 
 /** The frontmatter prop VALUES a note is searchable by — the engine's
-    props_search_text twin: scalar strings + string lists, space-joined;
-    keys, `type` and `title` stay out. */
+    props_search_text twin: scalars (strings, numbers, bools) + their lists,
+    space-joined; keys, `type`, `title` and `notion_id` stay out (the last is
+    hidden from every surface, so a hit on it is a result the user cannot see
+    the reason for). Objects and nested lists stay out — nothing renders them. */
 function mockPropsSearchText(props: Record<string, unknown>): string {
   const out: string[] = [];
+  const scalar = (v: unknown) =>
+    typeof v === "string" || typeof v === "number" || typeof v === "boolean";
   for (const [k, v] of Object.entries(props)) {
     const kl = k.toLowerCase();
-    if (kl === "type" || kl === "title") continue;
-    if (typeof v === "string") out.push(v);
-    else if (Array.isArray(v)) for (const s of v) if (typeof s === "string") out.push(s);
+    if (kl === "type" || kl === "title" || kl === "notion_id") continue;
+    if (scalar(v)) out.push(String(v));
+    else if (Array.isArray(v)) for (const item of v) if (scalar(item)) out.push(String(item));
   }
   return out.join(" ");
 }
@@ -3022,25 +3052,8 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // machine-fence bodies are stripped like the engine's index
       const tokens = ((args?.q as string) ?? "").toLowerCase().split(/\s+/).filter(Boolean);
       if (tokens.length === 0) return [];
-      const words = (s: string) => s.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
       const bound = "[\\p{L}\\p{N}]";
-      const phrases = tokens.map(words);
-      // a punctuation-only token has no runs — FTS's empty phrase matches
-      // nothing, and neither did the old whole-token prefix test
-      const hasPhrase = (field: string[], runs: string[]): boolean => {
-        if (runs.length === 0) return false;
-        const last = runs.length - 1;
-        for (let i = 0; i + last < field.length; i++) {
-          let ok = true;
-          for (let j = 0; j < last; j++)
-            if (field[i + j] !== runs[j]) {
-              ok = false;
-              break;
-            }
-          if (ok && field[i + last].startsWith(runs[last])) return true;
-        }
-        return false;
-      };
+      const phrases = tokens.map(mockSearchWords);
       // scope: the caller's structured filters, as a path allow-list.
       // Applied before the cap, exactly like the engine's `path IN (…)` clause —
       // otherwise the cap picks from the unfiltered set and filtered matches
@@ -3056,8 +3069,12 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         .filter((n) => {
           // prop values answer alongside title/body, like the engine's index —
           // per column, so a phrase never spans the title/body/props seams
-          const fields = [words(n.title), words(stripMachineFences(n.body)), words(mockPropsSearchText(n.props))];
-          return phrases.every((runs) => fields.some((f) => hasPhrase(f, runs)));
+          const fields = [
+            mockSearchWords(n.title),
+            mockSearchWords(stripMachineFences(n.body)),
+            mockSearchWords(mockPropsSearchText(n.props)),
+          ];
+          return phrases.every((runs) => fields.some((f) => mockHasPhrase(f, runs)));
         })
         // rank before capping, or the cap picks by insertion order
         .map((n) => {
@@ -3075,12 +3092,21 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         .map(({ note: n }) => ({ path: n.path, snippet: n.excerpt || n.body.slice(0, 80) }));
     }
     case "vault_search_full": {
-      // approximates the engine: word-prefix tokens, whole word highlighted
+      // approximates the engine: word-prefix tokens, whole word highlighted.
+      // A token is the same quoted prefix phrase the quick search reads, so a
+      // hyphenated identifier matches its runs consecutively here too — the two
+      // commands used to disagree about the same query, and the one the results
+      // pane runs was the stricter of the pair.
       const terms = ((args?.q as string) ?? "")
         .toLowerCase()
         .split(/\s+/)
         .filter(Boolean);
       if (terms.length === 0) return { hits: [], total_notes: 0, truncated: false };
+      const fullPhrases = terms.map(mockSearchWords);
+      // a punctuation-only token has no runs: FTS's empty phrase matches
+      // nothing, so the whole query does too rather than matching everything
+      if (fullPhrases.some((runs) => runs.length === 0))
+        return { hits: [], total_notes: 0, truncated: false };
       // scope: path allow-list applied before the cap, like the engine
       const fullScope = (args?.scope as string[] | undefined) ?? null;
       const fullInScope = fullScope ? new Set(fullScope) : null;
@@ -3088,7 +3114,14 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // total_notes/truncated never speak for files the user can't see
       const fullSkipAppFiles = (args?.excludeAppFiles as boolean | undefined) ?? false;
       const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      const res = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${terms.map(esc).join("|")})[\\p{L}\\p{N}_]*`, "giu");
+      // one alternative per phrase: its runs in order, whatever punctuation the
+      // text separates them with, and the last run's whole word highlighted.
+      // A plain token is a single run, so its highlight is unchanged.
+      const alt = (runs: string[]) => runs.map(esc).join("[^\\p{L}\\p{N}]+");
+      const res = new RegExp(
+        `(?<![\\p{L}\\p{N}_])(?:${fullPhrases.map(alt).join("|")})[\\p{L}\\p{N}_]*`,
+        "giu"
+      );
       const segment = (text: string): { parts: { text: string; hit: boolean }[]; count: number } => {
         const parts: { text: string; hit: boolean }[] = [];
         let count = 0;
@@ -3124,9 +3157,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         // the note header carries them), mirroring the engine's props column
         const propsText = mockPropsSearchText(n.props);
         total += segment(propsText).count;
-        // AND semantics like FTS: every term must appear somewhere in the note
-        const hay = `${n.title}\n${body}\n${propsText}`.toLowerCase();
-        if (total > 0 && terms.every((t) => new RegExp(`(?<![\\p{L}\\p{N}_])${esc(t)}`, "iu").test(hay)))
+        // AND semantics like FTS: every term must appear somewhere in the note,
+        // per column, so a phrase never spans the title/body/props seams
+        const fields = [mockSearchWords(n.title), mockSearchWords(body), mockSearchWords(propsText)];
+        if (total > 0 && fullPhrases.every((runs) => fields.some((f) => mockHasPhrase(f, runs))))
           ranked.push({
             hit: { path: n.path, title_parts: title.parts, total, matches, partial: false },
             titleHit: title.count > 0,
@@ -3157,8 +3191,8 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
             total += seg.count;
             if (matches.length < 12) matches.push({ line: i + 1, parts: seg.parts });
           }
-          const hay = `${name}\n${f.text ?? ""}`.toLowerCase();
-          if (total === 0 || !terms.every((t) => new RegExp(`(?<![\\p{L}\\p{N}_])${esc(t)}`, "iu").test(hay)))
+          const fileFields = [mockSearchWords(name), mockSearchWords(f.text ?? "")];
+          if (total === 0 || !fullPhrases.every((runs) => fileFields.some((f2) => mockHasPhrase(f2, runs))))
             continue;
           ranked.push({
             hit: { path, title_parts: title.parts, total, matches, partial: !!f.text_truncated },
@@ -3575,9 +3609,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const prop = mockFoldedKey(mockSchema[dbType] ?? {}, requestedProp) ?? requestedProp;
       if (!dbType || !prop) throw new Error("database and property must be non-empty");
       // a mount's binding props are the engine's — mirrors
-      // Engine::check_binding_prop
+      // Engine::check_binding_prop, which trims before it folds, so a padded
+      // prop name is caught here too rather than slipping past the mock
       if (
-        ["mount", "mount_file", "mount_identity"].includes(prop.toLowerCase()) &&
+        ["mount", "mount_file", "mount_identity"].includes(prop.trim().toLowerCase()) &&
         mockMounts.some((m) => m.name.trim().toLowerCase() === dbType.toLowerCase())
       )
         throw new Error(`“${prop}” is set by the mount`);

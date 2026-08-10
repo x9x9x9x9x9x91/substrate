@@ -440,32 +440,41 @@ fn strip_machine_fences(body: &str) -> String {
         .into_owned()
 }
 
-/// The frontmatter prop VALUES a note is searchable by — scalar strings and
-/// string lists, space-joined. Keys stay out (they are the filter syntax's
-/// vocabulary, not content), as does `type` (the database name is a palette
-/// destination, not a fact about the note) and `title` (already the title
-/// column). What this feeds exists so "radio plugger" finds the contact whose
-/// role SAYS so, not just notes whose prose happens to restate it.
+/// The frontmatter prop VALUES a note is searchable by — scalars (strings,
+/// numbers, bools) and their lists, space-joined. Keys stay out (they are the
+/// filter syntax's vocabulary, not content), as does `type` (the database name
+/// is a palette destination, not a fact about the note), `title` (already the
+/// title column) and `notion_id` (the importer's dedupe stamp, hidden from
+/// every surface — a hit the user cannot see the reason for is a lie about why
+/// the note came back). Objects and nested lists stay out too: nothing renders
+/// them, so nothing there is a value a user could have read and typed. What
+/// this feeds exists so "radio plugger" finds the contact whose role SAYS so,
+/// not just notes whose prose happens to restate it.
 fn props_search_text(props: &serde_json::Map<String, serde_json::Value>) -> String {
     let mut out = String::new();
+    let mut push = |s: &str| {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(s);
+    };
     for (k, v) in props {
         let kl = k.to_lowercase();
-        if kl == "type" || kl == "title" {
+        if kl == "type" || kl == "title" || kl == "notion_id" {
             continue;
         }
         match v {
-            serde_json::Value::String(s) => {
-                if !out.is_empty() {
-                    out.push(' ');
-                }
-                out.push_str(s);
-            }
+            serde_json::Value::String(s) => push(s),
+            serde_json::Value::Number(n) => push(&n.to_string()),
+            serde_json::Value::Bool(b) => push(if *b { "true" } else { "false" }),
             serde_json::Value::Array(items) => {
-                for s in items.iter().filter_map(serde_json::Value::as_str) {
-                    if !out.is_empty() {
-                        out.push(' ');
+                for item in items {
+                    match item {
+                        serde_json::Value::String(s) => push(s),
+                        serde_json::Value::Number(n) => push(&n.to_string()),
+                        serde_json::Value::Bool(b) => push(if *b { "true" } else { "false" }),
+                        _ => {}
                     }
-                    out.push_str(s);
                 }
             }
             _ => {}

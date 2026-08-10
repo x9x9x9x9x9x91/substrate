@@ -1405,7 +1405,10 @@ function NotePane({
 
   const commitAdd = (el?: Element, viaEnter = false) => {
     const idx = chipDraft.indexOf(":");
-    const key = idx < 1 ? chipDraft.trim() : chipDraft.slice(0, idx).trim();
+    // leading colons belong to no key — a draft typed as `:foo` is a mistyped
+    // key, and folding them in made Enter re-append `: ` forever instead of
+    // reaching the committable `key: value` shape
+    const key = (idx < 1 ? chipDraft : chipDraft.slice(0, idx)).replace(/^:+/, "").trim();
     const value = idx < 1 ? "" : chipDraft.slice(idx + 1).trim();
     // bare `type` (or `type:`) opens the database picker instead of free text
     if (key.toLowerCase() === "type" && !value && el) {

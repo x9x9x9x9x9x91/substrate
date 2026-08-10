@@ -44,6 +44,16 @@ test("bare key + Enter morphs to `key: ` and commits with the value (SUB-1213)",
   await expect(input).toBeVisible();
   await expect(input).toHaveValue("condition: ");
 
+  // a draft that opens with a colon is a mistyped key, not a key named ":".
+  // It used to fold the whole draft into the key and re-append ": " on every
+  // Enter (":foo" → ":foo: " → ":foo:: "), so the draft never reached a
+  // committable shape.
+  await input.fill(":foo");
+  await input.press("Enter");
+  await expect(input).toHaveValue("foo: ");
+  await input.press("Enter");
+  await expect(input).toHaveValue("foo: ");
+
   // Escape still cancels the whole draft
   await input.press("Escape");
   await expect(page.locator(".chip-input")).toHaveCount(0);

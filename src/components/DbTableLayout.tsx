@@ -891,6 +891,15 @@ export default function DbTableLayout({
                                 )}
                               </span>
                             )}
+                            {/* no figure at all, but cells were left out: the
+                                marker carries the only explanation there is, so
+                                a column of text says so instead of showing a
+                                bare "Sum" beside nothing */}
+                            {res == null && mark && (
+                              <span className="db-agg-mark" title={mark}>
+                                *
+                              </span>
+                            )}
                           </>
                         ) : (
                           <span className="db-agg-ghost">Calc</span>

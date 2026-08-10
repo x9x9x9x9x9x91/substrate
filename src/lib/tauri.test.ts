@@ -594,6 +594,138 @@ test("hyphenated identifiers search like the engine's prefix phrases (SUB-1221)"
   );
 });
 
+/* Mock parity for the engine's props_search_text: what a user READS in a prop
+   cell is what they can type into the search box. Numbers and bools are values
+   like any other, while the importer's notion_id stamp is hidden on every
+   surface — a hit on it would be a result whose reason the user cannot see. */
+test("prop values are searchable except the hidden import stamp", async () => {
+  const pressing = await invoke<NoteMeta>("vault_create", {
+    title: "Propsearch1222 Pressing",
+    folder: "Propsearch1222",
+  });
+  await invoke("vault_set_prop", { path: pressing.path, key: "year", value: 2025 });
+  await invoke("vault_set_prop", { path: pressing.path, key: "in use", value: true });
+  await invoke("vault_set_prop", {
+    path: pressing.path,
+    key: "notion_id",
+    value: "4c9f21ab-77de-4e10-9a55-2b6d0e3f81ce",
+  });
+
+  const paths = (r: unknown) => {
+    const list = Array.isArray(r) ? r : (r as { hits: unknown[] }).hits;
+    return list.map((h) => (h as { path: string }).path);
+  };
+  for (const cmd of ["vault_search", "vault_search_full"]) {
+    assert.ok(
+      paths(await invoke<unknown>(cmd, { q: "2025" })).includes(pressing.path),
+      `${cmd}: a number prop answers its own value`
+    );
+    assert.ok(
+      paths(await invoke<unknown>(cmd, { q: "true" })).includes(pressing.path),
+      `${cmd}: a bool prop answers its own word`
+    );
+    assert.ok(
+      !paths(await invoke<unknown>(cmd, { q: "4c9f21ab" })).includes(pressing.path),
+      `${cmd}: the hidden notion_id stamp is not searchable`
+    );
+  }
+});
+
+test("hyphenated identifiers search like the engine's prefix phrases (SUB-1226)", async () => {
+  // fts_match_expr quotes each whitespace token, so unicode61 reads
+  // `bc-2025q4-00352` as the CONSECUTIVE runs `bc 2025q4 00352` with the last
+  // one a prefix. The mock used to keep the hyphenated token whole against
+  // word-split hay — statement numbers and cat#s findable in the real app
+  // returned nothing, and the two mock commands disagreed with each other.
+  const paths = (r: unknown) => {
+    const list = Array.isArray(r) ? r : (r as { hits: unknown[] }).hits;
+    return list.map((h) => (h as { path: string }).path);
+  };
+  const hits = async (cmd: string, q: string) => paths(await invoke<unknown>(cmd, { q }));
+
+  await invoke("vault_create", {
+    title: "Stmt Parity 1226",
+    folder: "Stmt1226",
+    body: "statement zq1226bc-2025q4-00352 filed after the returns window\n",
+  });
+  // the same runs, in the wrong order
+  await invoke("vault_create", {
+    title: "Stmt Scrambled 1226",
+    folder: "Stmt1226",
+    body: "runs out of order: 2025q4 zq1226bc 00352\n",
+  });
+  // the runs all present, but never consecutive
+  await invoke("vault_create", {
+    title: "Stmt Scattered 1226",
+    folder: "Stmt1226",
+    body: "zq1226bc alone, then 2025q4 later, then 00352 last\n",
+  });
+  // a phrase never spans the title/body seam — FTS phrases live in one column
+  await invoke("vault_create", {
+    title: "Seam Ends zq1226bc",
+    folder: "Stmt1226",
+    body: "2025q4 opens the body\n",
+  });
+
+  const one = ["Stmt1226/Stmt Parity 1226.md"];
+  // both commands answer the same question the same way — the quick search
+  // feeding the palette and the full search feeding the results pane
+  for (const cmd of ["vault_search", "vault_search_full"]) {
+    assert.deepEqual(await hits(cmd, "zq1226bc-2025q4-00352"), one, `${cmd}: full identifier`);
+    assert.deepEqual(await hits(cmd, "zq1226bc-2025q4-003"), one, `${cmd}: last run prefix-matches`);
+    assert.deepEqual(await hits(cmd, "ZQ1226BC-2025Q4-00352"), one, `${cmd}: case-insensitive`);
+    // `"…-2025"*` is a prefix PHRASE: the trailing run prefix-matches 2025q4,
+    // like typing an identifier from an email cut short mid-segment
+    assert.deepEqual(await hits(cmd, "zq1226bc-2025"), one, `${cmd}: truncated trailing run`);
+    // the reversed identifier finds the note carrying the runs in THAT order
+    assert.deepEqual(
+      await hits(cmd, "2025q4-zq1226bc"),
+      ["Stmt1226/Stmt Scrambled 1226.md"],
+      `${cmd}: run order is the phrase order`
+    );
+    // plain tokens keep the old semantics: scattered word-prefix matches hit
+    assert.ok(
+      (await hits(cmd, "zq1226bc 00352")).includes("Stmt1226/Stmt Scattered 1226.md"),
+      `${cmd}: separate whitespace tokens still match scattered words`
+    );
+  }
+});
+
+test("full search highlights a matched phrase, not just its first run (SUB-1226)", async () => {
+  // the results pane underlines what matched. A phrase that matched across
+  // runs is one hit spanning the punctuation, so the identifier reads as the
+  // single thing the user typed rather than a lone fragment of it.
+  await invoke("vault_create", {
+    title: "Hilite 1226",
+    folder: "Hilite1226",
+    body: "ref zq1226hi-88a done\n",
+  });
+  const res = await invoke<{ hits: { path: string; matches: { parts: { text: string; hit: boolean }[] }[] }[] }>(
+    "vault_search_full",
+    { q: "zq1226hi-88a" }
+  );
+  const hit = res.hits.find((h) => h.path === "Hilite1226/Hilite 1226.md");
+  assert.ok(hit, "the note is in the page");
+  assert.deepEqual(
+    hit.matches[0].parts,
+    [
+      { text: "ref ", hit: false },
+      { text: "zq1226hi-88a", hit: true },
+      { text: " done", hit: false },
+    ],
+    "the whole identifier is one highlighted run"
+  );
+
+  // a plain token still highlights the whole word it prefix-matched
+  const plain = await invoke<{ hits: { path: string; matches: { parts: { text: string; hit: boolean }[] }[] }[] }>(
+    "vault_search_full",
+    { q: "zq1226hi" }
+  );
+  const p = plain.hits.find((h) => h.path === "Hilite1226/Hilite 1226.md");
+  assert.ok(p, "the note is in the page for the plain token too");
+  assert.deepEqual(p.matches[0].parts[1], { text: "zq1226hi", hit: true });
+});
+
 /* A structural op names BOTH sides of itself as its own write. The
    engine renames on disk and the watcher emits the vacated rel in the same
    burst; before this, only the destination was recorded, so the old path's

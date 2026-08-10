@@ -112,6 +112,12 @@ const UNITS: UnitDef[] = [
   { code: "%", dimension: "none", factor: 1, aliases: ["percent", "pct", "prozent"], suffix: " %" },
 ];
 
+/* Currencies with no minor unit: a fraction of one is not an amount anyone
+   can pay, so the forced-two-decimal display rule skips them and their
+   fractional values render with whatever precision they carry. Only the codes
+   the registry above actually knows belong here — the yen is the one. */
+const ZERO_DECIMAL_CURRENCIES = new Set(["JPY"]);
+
 // Lowercase match form → definition. A duplicate alias is a registry bug with
 // no honest resolution (whichever unit wins, the other silently stops being
 // typeable), so it throws at load instead of picking a winner.
@@ -227,9 +233,11 @@ export function formatQuantity(value: number, unit: string | null, locale: Numbe
   const def = resolveUnit(unit);
   // A currency amount with cents renders both digits — "942,30 €" never sits
   // in a money column as "942,3 €" beside "5.102,74 €". Whole amounts keep
-  // the documented no-forced-",00" rule ("1.299 €"), and non-currency units
-  // keep their natural precision ("-14,2 LUFS").
-  const money = def?.dimension === "currency" && !Number.isInteger(r);
+  // the documented no-forced-",00" rule ("1.299 €"), currencies with no minor
+  // unit are exempt entirely (see ZERO_DECIMAL_CURRENCIES), and non-currency
+  // units keep their natural precision ("-14,2 LUFS").
+  const money =
+    def?.dimension === "currency" && !ZERO_DECIMAL_CURRENCIES.has(def.code) && !Number.isInteger(r);
   const s = r.toLocaleString(locale, {
     maximumFractionDigits: 2,
     minimumFractionDigits: money ? 2 : 0,
