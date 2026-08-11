@@ -3,6 +3,56 @@
 <!-- Generated from src/lib/changelog.ts by scripts/gen-changelog.ts.
      Edit that file, then run `node scripts/gen-changelog.ts`. -->
 
+## 0.24.0 — 2026-08-11 — Search reads your properties, and bulk edits sign their work
+
+### Highlights
+
+- Search reaches into properties: plain-text search now answers from property values —
+  text, numbers, even checkboxes — a property-only hit shows the value that matched and
+  says so, and the ⌘K palette marks exactly what matched, accents and all, in the same
+  match language as full search.
+- Bulk sweeps sign their work: a sweep that touches many notes commits under its own run
+  summary — receipts and time travel name the run instead of blaming each note on an
+  anonymous edit — and an outside tool writing through the agent door is credited as
+  itself.
+
+### New
+
+- Changing a property's type warns before it costs you: the schema editor names what a
+  retype will destroy — select options and their colors, a number's format, the risk a
+  checkbox conversion overwrites values — before you press Save.
+
+### Improved
+
+- Installing an update shows its download progressing — a slow fetch is no longer a
+  click that looks dead.
+- Filing pickers rank by recency: the databases you touched last come first, instead of
+  the biggest ones — and menu rows that carry an icon always draw it.
+- Scrolling got soft edges everywhere: board columns, list and gallery views and Today's
+  day scroller fade at the scroll stops instead of clipping mid-glyph, keyboard walks —
+  the ⌘K palette's included — land rows clear of sticky headers, footers and the fades,
+  the palette stopped painting a duplicate section header on cold open, and the Music
+  Work board uses its full pane width.
+- Calendar craft: month chips answer hover, an expanded day cell fades like everything
+  else, the week view's opening scroll clears the first hour label, and hub head counts
+  stopped over-promising.
+
+### Fixed
+
+- Money tells the truth: footer sums say how many text cells they skipped, fractional
+  currencies show both cents, the yen keeps its zero-decimal precision, an all-text
+  numeric column keeps its footer marker — and a footer counts "1 row", not "1 rows".
+- History answers the question you asked: fact keys match case-insensitively in both
+  tenses — history queries, receipts and live reads now agree — and a bulk sweep records
+  only the notes it actually swept.
+- Fixes with names: the + property chip keeps a bare-key draft — Enter turns it into a
+  real key instead of eating it; backlinks refresh while you watch, stop re-fetching on
+  your own autosaves, and their header counts right; palette actions, failed copies and
+  schema-save refusals surface as toasts instead of console lines; rollups survive being
+  configured on a mounted database; the hidden import stamp neither poses as a property
+  row nor answers search; and an empty gallery result says so across the pane, not
+  inside one cell.
+
 ## 0.23.0 — 2026-08-08 — Every fact shows its receipts, and agents get a proper front door
 
 ### Highlights
