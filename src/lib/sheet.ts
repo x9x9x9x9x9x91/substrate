@@ -1236,7 +1236,7 @@ export function makeHistorySheetValue(
     }
 
     const loadModel = (name: string): SheetModel | FErr => {
-      const k = `${date} ${name.toLowerCase()}`;
+      const k = `${date}\0${name.toLowerCase()}`;
       const hit = models.get(k);
       if (hit) return hit;
       const n = matchHistoryNote(snap.notes, name);

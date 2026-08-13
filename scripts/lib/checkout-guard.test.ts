@@ -152,6 +152,7 @@ test("every executable entry point in scripts/ is guarded", () => {
   const entries = [
     "with-merge-lock.sh",
     "push-gated-main.sh",
+    "lane-prepush.sh",
     "merge-queue.sh",
     "train-preflight.sh",
     "install-git-hooks.sh",

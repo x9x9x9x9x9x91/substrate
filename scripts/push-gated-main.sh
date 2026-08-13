@@ -9,6 +9,11 @@
 #          <run the gate suite on "$GATED"> &&
 #          scripts/push-gated-main.sh "$GATED"'
 #
+# <gated-sha> is an object name, full or abbreviated — an abbreviation is
+# resolved here, so a land recipe can carry the short sha it recorded and let
+# execution time do the expanding. What it is NOT is a ref: `main`, `HEAD`, a
+# tag and every alias of them are refused on purpose (see the refusal below).
+#
 # The hole this closes, from the 2026-08-04 drain: batch B12 gated green at
 # d11d6294, and between the gate run and the push a DIFFERENT session
 # committed docs straight onto main in .worktrees/_main. The batch then ran
@@ -130,9 +135,43 @@ if [[ "$(git rev-parse -q --symbolic-full-name "$GATED_ARG" 2>/dev/null || true)
   refuse_moving_name
 fi
 
+# An abbreviation resolves here — the caller need not carry a full object name
+# around, which is the point: a hex string that names NOTHING here is almost
+# always a sha someone typed out by expanding a remembered short one. The head
+# is real, the tail invented, and the two spellings are indistinguishable
+# until git refuses one — two landings burned merge-lock cycles on exactly
+# that (2026-08-08, and a staged land on 2026-08-10). So the refusal does the
+# resolving the caller skipped: it names the commit the real prefix points at
+# and hands back the one-liner that would have got the sha right.
 GATED="$(git rev-parse -q --verify "${GATED_ARG}^{commit}" 2>/dev/null || true)"
 if [[ -z "$GATED" ]]; then
-  printf 'push-gated-main: %s is not a commit in this repository.\n' "$GATED_ARG" >&2
+  prefix_hit=""
+  prefix=""
+  candidates="$(git rev-parse --disambiguate="$GATED_ARG" 2>/dev/null | wc -l | tr -d ' ')"
+  if [[ "${candidates:-0}" -lt 2 ]]; then
+    for (( len = ${#GATED_ARG} - 1; len >= 7; len-- )); do
+      prefix="${GATED_ARG:0:len}"
+      prefix_hit="$(git rev-parse -q --verify "${prefix}^{commit}" 2>/dev/null || true)"
+      [[ -n "$prefix_hit" ]] && break
+    done
+    [[ -n "$prefix_hit" ]] || prefix=""
+  fi
+  {
+    printf 'push-gated-main: %s is not a commit in this repository.\n' "$GATED_ARG"
+    if [[ "${candidates:-0}" -ge 2 ]]; then
+      printf '  %s objects here start with it and it narrows to no single\n' "$candidates"
+      printf '  commit. Pass more characters, or resolve it and pass the result.\n'
+    elif [[ -n "$prefix_hit" ]]; then
+      printf '  Its first %s characters DO name a commit here (%s), so the tail\n' \
+        "${#prefix}" "$(git rev-parse --short "$prefix_hit")"
+      printf '  reads as hand-expanded from a remembered short sha rather than\n'
+      printf '  resolved. Nothing can tell those apart before they fail.\n'
+    fi
+    printf '  Record the ABBREVIATION and resolve it at execution time — never\n'
+    printf '  type a full sha out from a remembered short one:\n'
+    printf '      GATED=$(git rev-parse %s)\n' "${prefix:-<abbrev>}"
+    printf '      scripts/push-gated-main.sh "$GATED"\n'
+  } >&2
   exit 1
 fi
 

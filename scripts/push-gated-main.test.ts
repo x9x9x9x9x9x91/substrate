@@ -345,6 +345,52 @@ test("refuses a sha this repository does not have", () => {
     const res = run(rig, "0".repeat(40));
     assert.equal(res.status, 1);
     assert.match(res.stderr, /is not a commit in this repository/);
+    assert.match(res.stderr, /git rev-parse <abbrev>/, "the refusal must hand back the resolving recipe");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an abbreviated sha is resolved here rather than refused", () => {
+  // Recipes and tick comments record short shas; making the caller carry a
+  // full object name is what produced the hand-expansions below. The short
+  // spelling is a fixed object name, not a moving one, so it is safe to
+  // resolve — and resolving it at execution time is the whole fix.
+  const dir = mkdtempSync(join(tmpdir(), "substrate-push-gated-"));
+  try {
+    const rig = makeRig(dir);
+    const gated = commit(rig, "merged sub/foo");
+
+    const res = run(rig, gated.slice(0, 9));
+
+    assert.equal(res.status, 0, res.stderr);
+    assert.equal(remoteMain(rig), gated, "the abbreviation must land the full commit");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("names the real prefix when a full sha was hand-expanded from a short one", () => {
+  // The 2026-08-08 landing and the 2026-08-10 staged land both died here: a
+  // remembered short sha typed out to 40 characters, tail invented. Head real,
+  // tail wrong — so the refusal points at the commit the head names and prints
+  // the rev-parse line that would have produced the right sha.
+  const dir = mkdtempSync(join(tmpdir(), "substrate-push-gated-"));
+  try {
+    const rig = makeRig(dir);
+    const before = remoteMain(rig);
+    const gated = commit(rig, "merged sub/foo");
+    const head = gated.slice(0, 9);
+    // Shift every tail digit, so the invented tail cannot collide with the real one.
+    const tail = [...gated.slice(9)].map((c) => "123456789abcdef0"["0123456789abcdef".indexOf(c)]).join("");
+
+    const res = run(rig, head + tail);
+
+    assert.equal(res.status, 1);
+    assert.match(res.stderr, /is not a commit in this repository/);
+    assert.match(res.stderr, /Its first 9 characters DO name a commit here/);
+    assert.match(res.stderr, new RegExp(`git rev-parse ${head}`), "the recipe must quote the real prefix");
+    assert.equal(remoteMain(rig), before, "nothing may reach the remote");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

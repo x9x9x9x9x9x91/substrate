@@ -55,7 +55,7 @@ test("open with the wrong key fails loudly, not with garbage output", async () =
 });
 
 test("open rejects a non-handoff payload by magic before touching the key", async () => {
-  const junk = new TextEncoder().encode("PK definitely a zip");
+  const junk = new TextEncoder().encode("PK\x03\x04 definitely a zip");
   await assert.rejects(
     () => openHandoff(junk, toBase64Url(new Uint8Array(KEY_BYTES))),
     /not a handoff payload/
