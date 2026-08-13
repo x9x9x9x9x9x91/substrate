@@ -280,6 +280,16 @@ export function parseTaskStaleChips(props: Record<string, unknown>): boolean {
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 
+/** `auto-sync` — the timer lane of vault sync: push once edits settle, pull
+    on open/focus and on a slow interval. Default ON, same rule as
+    `drop-hint`: only an explicit `false` parks it, and the Sync pane's
+    Push/Pull buttons work either way. Meaningless without a remote — the
+    lane no-ops on an unconfigured vault regardless of this flag. */
+export function parseAutoSync(props: Record<string, unknown>): boolean {
+  const v = props[foldedPropKey(props, "auto-sync")];
+  return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
+}
+
 /** The vault-root files the app itself owns (Settings.md joined): the seeded
     agent orientation pair for the ⌘⇧T terminal's CLI,
     plus the settings note behind the ⌘, sheet. Concealed from the app's own

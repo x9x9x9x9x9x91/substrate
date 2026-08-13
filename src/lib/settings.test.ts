@@ -6,6 +6,7 @@ import {
   isAppFile,
   missingTerminalFonts,
   netAllowed,
+  parseAutoSync,
   parseDbGrid,
   parseTaskStaleChips,
   parseDropHint,
@@ -384,6 +385,17 @@ test("parseTaskStaleChips: only an explicit false turns the age chips off (SUB-1
   assert.equal(parseTaskStaleChips({}), true);
   assert.equal(parseTaskStaleChips({ "task-stale-chips": true }), true);
   assert.equal(parseTaskStaleChips({ "task-stale-chips": "off" }), true);
+});
+
+test("parseAutoSync: only an explicit false parks the timer lane (SUB-1235)", () => {
+  assert.equal(parseAutoSync({ "auto-sync": false }), false);
+  assert.equal(parseAutoSync({ "auto-sync": "false" }), false);
+  assert.equal(parseAutoSync({ "auto-sync": " FALSE " }), false);
+  assert.equal(parseAutoSync({ "Auto-Sync": false }), false);
+  // default ON once a remote is configured: unset, `true`, or a typo
+  assert.equal(parseAutoSync({}), true);
+  assert.equal(parseAutoSync({ "auto-sync": true }), true);
+  assert.equal(parseAutoSync({ "auto-sync": "off" }), true);
 });
 
 test("parseShowAppFiles: only an explicit true reveals the app files (SUB-831)", () => {

@@ -8,6 +8,9 @@ import {
   vaultSyncStatus,
 } from "../lib/ipc";
 import { resetSyncConfigured } from "../lib/embedstate";
+import { setPropUndoable } from "../lib/undoprops";
+import { useUndo } from "../lib/undoContext";
+import { SETTINGS_PATH } from "../lib/settings";
 import { BackButton } from "./BackButton";
 
 type SyncAction = "push" | "pull";
@@ -45,7 +48,16 @@ function Result({ report }: { report: SyncReport }) {
   );
 }
 
-export default function VaultSyncPane() {
+export default function VaultSyncPane({
+  autoSync = true,
+  onAutoSyncChange,
+}: {
+  autoSync?: boolean;
+  /** the toggle's value owner (App) — the mock lane has no watcher to echo
+      the Settings.md write back as a vault epoch, so the pane hands the new
+      value up directly after a successful one */
+  onAutoSyncChange?: (on: boolean) => void;
+}) {
   const [status, setStatus] = useState<VaultSyncStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -57,6 +69,7 @@ export default function VaultSyncPane() {
   const [remoteSaved, setRemoteSaved] = useState(false);
   // Remounts the conflict surface so it re-reads git after every sync command.
   const [conflictNonce, setConflictNonce] = useState(0);
+  const undo = useUndo();
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -118,6 +131,24 @@ export default function VaultSyncPane() {
   };
 
   const configured = status?.configured === true;
+
+  // The value lives in Settings.md frontmatter (`auto-sync`, default ON);
+  // App re-reads it off the vault epoch this write bumps, so the switch
+  // repaints from the note like every other settings toggle.
+  const toggleAutoSync = () => {
+    const next = !autoSync;
+    setActionError(null);
+    void setPropUndoable({
+      path: SETTINGS_PATH,
+      key: "auto-sync",
+      // settings bools persist as strings, same as the ⌘, sheet's switches
+      value: next ? "true" : "false",
+      label: next ? "Auto-sync on" : "Auto-sync off",
+      record: undo.record,
+    })
+      .then(() => onAutoSyncChange?.(next))
+      .catch((error) => setActionError(errorText(error)));
+  };
   const report = status?.last_result ?? null;
   const visibleStatusError = actionError ?? statusError ?? status?.last_error ?? null;
   // From the repository, not from this session's last result: after
@@ -213,6 +244,30 @@ export default function VaultSyncPane() {
               </div>
             )}
           </section>
+
+          {configured && (
+            <section className="vault-sync-card" aria-labelledby="vault-sync-auto-title">
+              <div className="vault-sync-card-head vault-sync-remote-head">
+                <div>
+                  <h2 id="vault-sync-auto-title">Auto-sync</h2>
+                  <p>
+                    Push when edits settle; pull on open, on focus, and every few minutes.
+                    Conflicts always wait for you — the lane pauses until they are resolved.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={autoSync}
+                  aria-label="Auto-sync"
+                  className={`settings-switch${autoSync ? " on" : ""}`}
+                  onClick={toggleAutoSync}
+                >
+                  <span className="settings-knob" />
+                </button>
+              </div>
+            </section>
+          )}
 
           {configured && (
             <SyncConflicts

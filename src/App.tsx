@@ -71,6 +71,7 @@ import { migrateSessionFolds } from "./lib/foldsession";
 import {
   isAppFile,
   netAllowed,
+  parseAutoSync,
   parseDbGrid,
   parseModHud,
   parseShowAppFiles,
@@ -240,6 +241,7 @@ import { useMobileLayout } from "./hooks/useMobileLayout";
 import { useUndoStack } from "./hooks/useUndoStack";
 import { useViewHistory } from "./hooks/useViewHistory";
 import { useVaultEvents, type SheetRowTarget } from "./hooks/useVaultEvents";
+import { useAutoSync } from "./hooks/useAutoSync";
 import { useShortcutRouter } from "./hooks/useShortcutRouter";
 import { useToast } from "./hooks/useToast";
 import { useUpdater } from "./hooks/useUpdater";
@@ -358,6 +360,9 @@ export default function App() {
   // Tasks board's age chips; a board's own `stale_days` and a note's
   // `stale: never` both override it
   const [taskStaleChips, setTaskStaleChips] = useState(true);
+  // `auto-sync` in Settings.md — the timer lane of vault sync (push on
+  // settle, pull on open/focus/interval). Inert without a remote.
+  const [autoSync, setAutoSync] = useState(true);
   // `net-link-titles` in Settings.md — gates the page-title fetch
   // behind a pasted link. The capture itself is local and always happens, so
   // this only decides whether the engine then asks that site anything.
@@ -579,6 +584,7 @@ export default function App() {
         setModHud(parseModHud(c.props));
         setDbGrid(parseDbGrid(c.props));
         setTaskStaleChips(parseTaskStaleChips(c.props));
+        setAutoSync(parseAutoSync(c.props));
         setShowAppFiles(parseShowAppFiles(c.props));
         // The appearance dials land on the document element rather
         // than in React state — they are CSS inputs, nothing renders off
@@ -673,6 +679,9 @@ export default function App() {
     setVaultEpoch,
     lastOwnRefreshRef,
   });
+
+  // the timer lane of vault sync — push on settle, pull on open/focus/interval
+  useAutoSync(autoSync);
 
   // types with at least one note (dashboard excluded) — the single source of
   // truth for which types are databases: the sidebar unions
@@ -4773,7 +4782,7 @@ export default function App() {
         </div>
       ) : view.kind === "vaultsync" ? (
         <div className="main">
-          <VaultSyncPane />
+          <VaultSyncPane autoSync={autoSync} onAutoSyncChange={setAutoSync} />
         </div>
       ) : view.kind === "changelog" ? (
         <div className="main">

@@ -9,11 +9,11 @@ use git2::{
     RepositoryInitOptions, Signature, StatusOptions,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::io::Write;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub(crate) const REMOTE: &str = "substrate";
 #[cfg(all(any(target_os = "macos", target_os = "ios"), not(test)))]
@@ -659,33 +659,96 @@ pub fn sync_push_gated<G>(
     Ok(report(pushed, 0, Vec::new(), local_oid))
 }
 
-/// Ungated pull — the app always goes through [`sync_pull_gated`]; this is the
-/// plain form tests use.
+/// Ungated pull with no snapshot in between — the plain form tests use; the
+/// app goes through [`sync_pull_with_snapshot`].
 #[cfg(test)]
 pub fn sync_pull(root: &Path, credentials_path: &Path) -> Result<SyncReport, String> {
     sync_pull_gated(root, credentials_path, || ())
 }
 
-/// Fetch and integrate the current remote branch, with the caller's write gate
-/// around the LOCAL phase only. A three-way merge is built in memory; a
-/// conflicted index is inspected and then dropped, leaving the repository's
-/// real index, HEAD, and working tree untouched.
-///
-/// `gate` is called after the network fetch has completed and returns a guard
-/// (in the app: history and engine `MutexGuard`s, in that order) held for the
-/// whole local phase — the clean-tree re-check, merge, checkout, and branch
-/// update. Nothing can write through the engine or move HEAD through history
-/// between those steps, so the pull either applies cleanly or refuses; it can
-/// no longer half-apply over a concurrent edit or snapshot.
+/// [`sync_pull_with_snapshot`] with the snapshot step left out — the shape a
+/// pull had before the snapshot became conditional, kept for the tests that
+/// exercise the gate itself.
+#[cfg(test)]
 pub fn sync_pull_gated<G>(
     root: &Path,
     credentials_path: &Path,
     gate: impl FnOnce() -> G,
 ) -> Result<SyncReport, String> {
+    sync_pull_with_snapshot(root, credentials_path, || Ok(()), gate)
+}
+
+/// A whole pull: fetch, then the caller's pre-checkout snapshot, then
+/// integrate under the caller's write gate.
+///
+/// The snapshot runs ONLY when the fetch brought something this vault does not
+/// already have. It exists to protect edits a checkout would overwrite, so a
+/// pull that will check nothing out owes none — and taking one anyway is not
+/// free: with a timer driving pulls it minted a "snapshot (sync)" commit every
+/// interval, cutting a stretch of writing into timer-sized pieces and
+/// mislabelling each one as a sync's doing.
+///
+/// The two steps live here rather than in the caller so the ordering stays in
+/// one place: the snapshot has to run after the network leg (it is the thing
+/// that makes a mid-edit vault pullable at all) and before the gate (it takes
+/// the same history lock the gate holds). A fetch that brought nothing returns
+/// right there, without the snapshot and without the gate — which is also what
+/// keeps a mid-edit vault quiet, since the local phase refuses a dirty tree
+/// and the snapshot that would have cleaned it is exactly what was skipped.
+///
+/// What the idle tick still owes is the app-file backfill, which is about this
+/// vault rather than the remote's commit — see [`sync_pull_idle_gated`].
+pub fn sync_pull_with_snapshot<G>(
+    root: &Path,
+    credentials_path: &Path,
+    snapshot: impl FnOnce() -> Result<(), String>,
+    gate: impl FnOnce() -> G,
+) -> Result<SyncReport, String> {
+    let fetched = sync_pull_fetch(root, credentials_path)?;
+    if fetched.brings_nothing() {
+        return sync_pull_idle_gated(root, fetched, gate);
+    }
+    snapshot()?;
+    sync_pull_integrate_gated(root, fetched, gate)
+}
+
+/// What a fetch found, handed from the network phase to the local one.
+pub struct PullFetch {
+    branch: String,
+    remote_oid: Oid,
+    local_oid: Option<Oid>,
+    integrated: bool,
+}
+
+impl PullFetch {
+    /// The fetched tip is already reachable from this vault's HEAD: every arm
+    /// of the local phase would answer "nothing to do" without checking
+    /// anything out.
+    ///
+    /// Reachability, not HEAD equality — during active editing the local
+    /// snapshot thread runs HEAD ahead of the remote constantly, and those
+    /// pulls check nothing out either. Equality alone would have left the
+    /// common case snapshotting on every tick.
+    pub fn brings_nothing(&self) -> bool {
+        self.integrated
+    }
+
+    /// The report the local phase's up-to-date arms would have produced.
+    fn unchanged_report(&self) -> SyncReport {
+        report(0, 0, Vec::new(), self.local_oid.unwrap_or(self.remote_oid))
+    }
+}
+
+/// The network half of a pull: fetch the tracked branch and work out whether
+/// it brought anything new.
+///
+/// There is deliberately no clean-tree pre-check here. One used to run before
+/// the fetch as a cheap refusal, but the snapshot that CLEANS a mid-edit tree
+/// now runs *after* this function — a pre-check here would refuse exactly the
+/// vault the snapshot is about to make pullable. The check that guards the
+/// checkout is unchanged, under the gate in [`pull_local_phase`].
+pub fn sync_pull_fetch(root: &Path, credentials_path: &Path) -> Result<PullFetch, String> {
     let repo = owned_repo(root)?;
-    // Cheap pre-check so an obviously dirty tree fails before we hit the
-    // network; the check that actually guards the checkout runs under `gate`.
-    ensure_clean_for_pull(&repo)?;
     let (branch, _) = current_branch_state(&repo)?;
     let auth = read_auth(root, credentials_path)?;
     let mut remote = configured_remote(&repo)?;
@@ -702,8 +765,67 @@ pub fn sync_pull_gated<G>(
         .map(|c| c.id())
         .map_err(|e| format!("vault sync remote branch {branch} unavailable: {e}"))?;
 
+    // HEAD is re-read after the fetch — a snapshot can land during one.
+    let local_oid = current_branch_state(&repo)?.1;
+    let integrated = match local_oid {
+        // An unreadable graph answers "there is something to do": that costs
+        // one snapshot, and the local phase decides for itself either way.
+        Some(local) => {
+            local == remote_oid || repo.graph_descendant_of(local, remote_oid).unwrap_or(false)
+        }
+        // Unborn HEAD is the first join, which always checks out.
+        None => false,
+    };
+    Ok(PullFetch { branch, remote_oid, local_oid, integrated })
+}
+
+/// The local half of a pull, with the caller's write gate around all of it. A
+/// three-way merge is built in memory; a conflicted index is inspected and
+/// then dropped, leaving the repository's real index, HEAD, and working tree
+/// untouched.
+///
+/// `gate` returns a guard (in the app: history and engine `MutexGuard`s, in
+/// that order) held for the whole local phase — the clean-tree re-check,
+/// merge, checkout, and branch update. Nothing can write through the engine or
+/// move HEAD through history between those steps, so the pull either applies
+/// cleanly or refuses; it can no longer half-apply over a concurrent edit or
+/// snapshot.
+pub fn sync_pull_integrate_gated<G>(
+    root: &Path,
+    fetched: PullFetch,
+    gate: impl FnOnce() -> G,
+) -> Result<SyncReport, String> {
+    let repo = owned_repo(root)?;
     let _guard = gate();
-    pull_local_phase(&repo, &branch, remote_oid)
+    pull_local_phase(&repo, &fetched.branch, fetched.remote_oid)
+}
+
+/// The local work a pull still owes when the fetch brought nothing: the
+/// app-file backfill, under the same write gate the integrating path holds.
+///
+/// It is here rather than skipped because the idle pull is the only thing
+/// that ever retries it — a vault whose backfill failed mid-write has no
+/// other way back, and one that has never held those files reaches them on
+/// the first tick after its join rather than on the next remote commit.
+///
+/// The merge machinery is what an idle tick skips, and with it the clean-tree
+/// refusal: a mid-edit vault is not a pull the user needs told about, and the
+/// snapshot that would have cleaned the tree is precisely what this path does
+/// not take. So a dirty tree defers the backfill to the next tick instead of
+/// failing the pull — the backfill's own commit would otherwise write a tree
+/// holding the pre-edit content of whatever is still being typed.
+fn sync_pull_idle_gated<G>(
+    root: &Path,
+    fetched: PullFetch,
+    gate: impl FnOnce() -> G,
+) -> Result<SyncReport, String> {
+    let repo = owned_repo(root)?;
+    let _guard = gate();
+    let report = fetched.unchanged_report();
+    if working_tree_is_dirty(&repo).unwrap_or(true) {
+        return Ok(report);
+    }
+    Ok(apply_backfill(&repo, report))
 }
 
 /// Everything a pull does to the local repository and working tree, from the
@@ -715,36 +837,44 @@ fn pull_local_phase(
     fetched_branch: &str,
     remote_oid: Oid,
 ) -> Result<SyncReport, String> {
-    let mut report = pull_local_phase_inner(repo, fetched_branch, remote_oid)?;
+    let report = pull_local_phase_inner(repo, fetched_branch, remote_oid)?;
     // Only on a landing: a parked conflicted merge has checked nothing out, so
     // there is no settled tree to reason about yet — the backfill runs on the
     // pull that finally lands.
     if report.conflicted.is_empty() {
-        let backfilled = backfill_missing_app_files(repo);
-        // These are working-tree writes exactly like a checkout's, so they
-        // belong in `changed`: `announce_pull` emits `vault:pulled`
-        // only when that list is non-empty and hands it out as the payload, so
-        // a pull whose only writes are backfilled files would otherwise land
-        // Settings and every seed note and announce nothing — leaving the UI to
-        // the filesystem watcher's debounce, a different path with different
-        // timing. Merged through the same `BTreeSet` shape `changed_between`
-        // produces, so the list stays sorted and free of duplicates.
-        if !backfilled.is_empty() {
-            let mut paths: BTreeSet<String> = report.changed.into_iter().collect();
-            paths.extend(backfilled.into_iter().map(String::from));
-            report.changed = paths.into_iter().collect();
-            // …and the backfill's own commit is now the tree's tip, so re-read
-            // it into `head` (r2, finding 5). The Sync pane renders
-            // `report.head` directly, and a backfill-only pull would otherwise
-            // show the commit the pull *resolved to* while the vault sits one
-            // commit ahead of it. Best-effort: if HEAD cannot be read the
-            // pull's own answer is still the honest one.
-            if let Ok(head) = repo.head().and_then(|h| h.peel_to_commit()) {
-                report.head = head.id().to_string();
-            }
-        }
+        return Ok(apply_backfill(repo, report));
     }
     Ok(report)
+}
+
+/// Put the app's own files back and fold what that wrote into `report`.
+/// Shared by the pull that integrated something and the idle one, which owes
+/// the backfill and nothing else.
+fn apply_backfill(repo: &Repository, mut report: SyncReport) -> SyncReport {
+    let backfilled = backfill_missing_app_files(repo);
+    // These are working-tree writes exactly like a checkout's, so they
+    // belong in `changed`: `announce_pull` emits `vault:pulled`
+    // only when that list is non-empty and hands it out as the payload, so
+    // a pull whose only writes are backfilled files would otherwise land
+    // Settings and every seed note and announce nothing — leaving the UI to
+    // the filesystem watcher's debounce, a different path with different
+    // timing. Merged through the same `BTreeSet` shape `changed_between`
+    // produces, so the list stays sorted and free of duplicates.
+    if !backfilled.is_empty() {
+        let mut paths: BTreeSet<String> = report.changed.into_iter().collect();
+        paths.extend(backfilled.into_iter().map(String::from));
+        report.changed = paths.into_iter().collect();
+        // …and the backfill's own commit is now the tree's tip, so re-read
+        // it into `head` (r2, finding 5). The Sync pane renders
+        // `report.head` directly, and a backfill-only pull would otherwise
+        // show the commit the pull *resolved to* while the vault sits one
+        // commit ahead of it. Best-effort: if HEAD cannot be read the
+        // pull's own answer is still the honest one.
+        if let Ok(head) = repo.head().and_then(|h| h.peel_to_commit()) {
+            report.head = head.id().to_string();
+        }
+    }
+    report
 }
 
 fn pull_local_phase_inner(
@@ -1521,15 +1651,34 @@ fn drop_untouched_starter_notes(
 /// The cost this bounds, stated honestly: the walk stops at the
 /// first commit carrying the path, so a file deleted recently is cheap — but a
 /// file deleted *early* in a long history walks nearly the whole graph, and it
-/// does so per missing path, on every pull that reaches the backfill, since the
-/// answer is never cached. Worst case per pull is therefore
-/// `HISTORY_WALK_LIMIT` × the number of missing app files. That is a latency
-/// note rather than a hazard because pulls are user-initiated only —
-/// `vault_sync_pull` has exactly one caller in the app
-/// (`src/components/VaultSyncPane.tsx`, the Sync pane's button), with no poller
-/// and no timer behind it — so the walk can only run at human frequency, in a
-/// place where the user is already waiting on the network.
+/// does so per missing path. That used to be a latency note rather than a
+/// hazard while pulls were user-initiated only; the auto-sync lane pulls on a
+/// timer now, so the per-path answer is cached against the HEAD it was
+/// computed at (see [`CARRIED_CACHE`]) and the repeated worst case is bounded
+/// by how often history moves, not by how often the timer fires.
 const HISTORY_WALK_LIMIT: usize = 20_000;
+
+/// The answers [`sync_history_ever_carried_within`] gives, keyed by the HEAD
+/// they were computed against. A deliberately deleted app file stays missing,
+/// so without this every pull re-walks the whole graph back to its deletion;
+/// with auto-pull on a timer that is a fixed cost per interval forever. A new
+/// commit is the only thing that can change an answer, so a HEAD key is the
+/// whole invalidation story — fetch, snapshot, restore all move it.
+///
+/// Only a COMPLETED walk is cached. Every failure arm of the walk answers
+/// `true` — the recoverable mistake — but that is a fallback, not a fact about
+/// this history: one unreadable object would otherwise pin "carried" for this
+/// HEAD and suppress the backfill until a commit moves it.
+///
+/// (workdir, path, HEAD oid, walk limit): the limit rides the key because a
+/// walk that reached the limit and an exhaustive one are different truths, and
+/// tests reach the give-up arm with a small limit on histories production
+/// reads at the full bound. Bounded and cleared whole rather than pruned:
+/// entries are cheap to rebuild, and the working set is a handful of app-file
+/// paths per HEAD.
+type CarriedKey = (std::path::PathBuf, String, String, usize);
+static CARRIED_CACHE: OnceLock<Mutex<HashMap<CarriedKey, bool>>> = OnceLock::new();
+const CARRIED_CACHE_MAX: usize = 256;
 
 /// Put back the app's own files this vault ends up without after a join
 ///
@@ -1712,14 +1861,17 @@ fn commit_backfill(repo: &Repository, paths: &[&str]) -> Result<(), String> {
 /// Newest-first, stopping at the first commit that carries the path, so the
 /// deletion case — the one that repeats, because the file stays absent — costs
 /// only the commits back to the deletion. Cheap when that deletion is recent,
-/// and close to a full walk when it is old; see [`HISTORY_WALK_LIMIT`] for the
-/// bound and why the worst case is a latency note rather than a hazard. The
-/// exhaustive walk is also the never-carried case, and that one happens once:
-/// the backfill writes the file, the next snapshot commits it, and every later
-/// pull stops at the `symlink_metadata` above.
+/// and close to a full walk when it is old — and the full-walk case repeats on
+/// every pull, because the file stays absent. That repeat is what
+/// [`CARRIED_CACHE`] absorbs now that a timer can drive pulls; see
+/// [`HISTORY_WALK_LIMIT`] for the bound. The exhaustive walk is also the
+/// never-carried case, and that one happens once: the backfill writes the
+/// file, the next snapshot commits it, and every later pull stops at the
+/// `symlink_metadata` above.
 ///
 /// Anything that goes wrong — an unreadable object, the walk limit — answers
-/// `true`: leaving a file alone is always the recoverable mistake. A history
+/// `true`: leaving a file alone is always the recoverable mistake. That
+/// fallback is not cached, only a completed walk is. A history
 /// rewrite that drops the path entirely can leave this answering
 /// `false` for a file the user did once delete; the deletion then predates a
 /// history that no longer records it, and the file comes back, which is the
@@ -1728,23 +1880,68 @@ fn commit_backfill(repo: &Repository, paths: &[&str]) -> Result<(), String> {
 /// reach the give-up arm without building a twenty-thousand-commit history;
 /// every production caller passes [`HISTORY_WALK_LIMIT`].
 fn sync_history_ever_carried_within(repo: &Repository, rel: &str, limit: usize) -> bool {
-    let path = Path::new(rel);
-    let Ok(mut walk) = repo.revwalk() else { return true };
-    if walk.push_head().is_err() {
-        return true;
+    let cache = CARRIED_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    carried_within_cached(repo, rel, limit, cache)
+}
+
+/// The body of [`sync_history_ever_carried_within`], against whichever cache
+/// the caller names. Production passes the process-wide [`CARRIED_CACHE`];
+/// tests pass their own map, so an assertion about what was cached describes
+/// this test's walks and nothing else — the shared one is filled by every
+/// sibling test in the binary and cleared wholesale at [`CARRIED_CACHE_MAX`].
+fn carried_within_cached(
+    repo: &Repository,
+    rel: &str,
+    limit: usize,
+    cache: &Mutex<HashMap<CarriedKey, bool>>,
+) -> bool {
+    // An answer is reusable only while HEAD stands still: a fetched commit,
+    // a snapshot, a restore — anything that can change the answer moves HEAD
+    // first. Bare or unborn repositories cache nothing.
+    let key = match (repo.workdir(), repo.head().ok().and_then(|h| h.target())) {
+        (Some(dir), Some(oid)) => Some((dir.to_path_buf(), rel.to_string(), oid.to_string(), limit)),
+        _ => None,
+    };
+    if let Some(key) = &key {
+        if let Some(&hit) = cache.lock().unwrap().get(key) {
+            return hit;
+        }
     }
+    let walked = walk_for_path(repo, Path::new(rel), limit);
+    // A walk that gave up answers the safe way but learned nothing worth
+    // keeping — see [`CARRIED_CACHE`].
+    if let (Some(key), Some(answer)) = (key, walked) {
+        let mut cache = cache.lock().unwrap();
+        if cache.len() >= CARRIED_CACHE_MAX {
+            cache.clear();
+        }
+        cache.insert(key, answer);
+    }
+    walked.unwrap_or(true)
+}
+
+/// The walk itself, uncached: newest-first from HEAD, stopping at the first
+/// commit whose tree carries `path`.
+///
+/// `Some(answer)` is what the history said. `None` is a walk that gave up —
+/// an unreadable object, the limit — and its caller still answers `true`, the
+/// recoverable mistake, but must not remember it: the next attempt may read
+/// the object fine, and a remembered give-up would keep the backfill off a
+/// file that is genuinely missing for as long as HEAD stands still.
+fn walk_for_path(repo: &Repository, path: &Path, limit: usize) -> Option<bool> {
+    let mut walk = repo.revwalk().ok()?;
+    walk.push_head().ok()?;
     for (seen, oid) in walk.enumerate() {
         if seen >= limit {
-            return true;
+            return None;
         }
-        let Ok(oid) = oid else { return true };
-        let Ok(commit) = repo.find_commit(oid) else { return true };
-        let Ok(tree) = commit.tree() else { return true };
+        let commit = repo.find_commit(oid.ok()?).ok()?;
+        let tree = commit.tree().ok()?;
         if tree.get_path(path).is_ok() {
-            return true;
+            return Some(true);
         }
     }
-    false
+    Some(false)
 }
 
 /// Body diff mine → theirs. A missing side becomes an empty blob so a
@@ -2721,6 +2918,98 @@ mod tests {
         write_note(&pair.b, "Other.md", "local only\n");
         pair.history_b.snapshot("snapshot").unwrap();
         assert!(sync_push(&pair.b, &pair.credentials_b).unwrap().changed.is_empty());
+    }
+
+    fn commit_count(root: &Path) -> usize {
+        let repo = Repository::open(root).unwrap();
+        let mut walk = repo.revwalk().unwrap();
+        walk.push_head().unwrap();
+        walk.count()
+    }
+
+    /// A pull that will check nothing out owes no pre-checkout snapshot — and
+    /// with a timer driving pulls every few minutes, taking one anyway cut a
+    /// stretch of writing into interval-sized commits and labelled each of
+    /// them a sync's doing. The fetch decides; the snapshot rides the answer.
+    #[test]
+    fn a_pull_that_fetches_nothing_new_takes_no_snapshot() {
+        let pair = paired_vaults(&[("Note.md", "base\n")]);
+        let before = commit_count(&pair.b);
+        let snapshots = std::cell::Cell::new(0);
+
+        let pull = |dirty: bool| {
+            if dirty {
+                write_note(&pair.b, "Note.md", "still typing\n");
+            }
+            sync_pull_with_snapshot(
+                &pair.b,
+                &pair.credentials_b,
+                || {
+                    snapshots.set(snapshots.get() + 1);
+                    pair.history_b.snapshot("snapshot (sync)").map(|_| ())
+                },
+                || (),
+            )
+        };
+
+        // b is level with the remote — the remote tip is already its own
+        let report = pull(false).unwrap();
+        assert_eq!(snapshots.get(), 0, "an idle pull snapshotted anyway");
+        assert_eq!(commit_count(&pair.b), before, "an idle pull minted a commit");
+        assert!(report.changed.is_empty());
+        assert_eq!(report.pulled, 0);
+
+        // …and a vault mid-edit is the same answer, not a refusal: the local
+        // phase would reject the dirty tree, and skipping the snapshot is
+        // exactly why it must not be reached
+        let report = pull(true).unwrap();
+        assert_eq!(snapshots.get(), 0, "a mid-edit idle pull snapshotted");
+        assert_eq!(commit_count(&pair.b), before);
+        assert!(report.changed.is_empty());
+
+        // local snapshots running ahead of the remote is still "nothing to
+        // integrate" — this is the shape a vault has all through active
+        // editing, and HEAD equality alone would have missed it
+        pair.history_b.snapshot("snapshot").unwrap();
+        let ahead = commit_count(&pair.b);
+        assert!(ahead > before);
+        pull(false).unwrap();
+        assert_eq!(snapshots.get(), 0, "a pull whose remote is an ancestor snapshotted");
+        assert_eq!(commit_count(&pair.b), ahead);
+    }
+
+    /// The other half: a pull that WILL check out still snapshots first, so
+    /// the edits the checkout is about to overwrite are committed before it
+    /// runs. That is the whole reason the snapshot exists.
+    #[test]
+    fn a_pull_with_remote_movement_snapshots_before_the_checkout() {
+        let pair = paired_vaults(&[("Note.md", "base\n")]);
+        write_note(&pair.a, "Note.md", "remote edit\n");
+        pair.history_a.snapshot("snapshot").unwrap();
+        sync_push(&pair.a, &pair.credentials_a).unwrap();
+
+        // an unsaved local edit to a different file, the thing at risk
+        write_note(&pair.b, "Other.md", "typed just now\n");
+        let snapshots = std::cell::Cell::new(0);
+        let report = sync_pull_with_snapshot(
+            &pair.b,
+            &pair.credentials_b,
+            || {
+                snapshots.set(snapshots.get() + 1);
+                // the checkout has not run yet: the remote's edit is still
+                // absent from the working tree at snapshot time
+                assert_eq!(fs::read_to_string(pair.b.join("Note.md")).unwrap(), "base\n");
+                pair.history_b.snapshot("snapshot (sync)").map(|_| ())
+            },
+            || (),
+        )
+        .unwrap();
+
+        assert_eq!(snapshots.get(), 1, "the pull checked out without snapshotting first");
+        assert_eq!(report.changed, vec!["Note.md".to_string()]);
+        assert_eq!(fs::read_to_string(pair.b.join("Note.md")).unwrap(), "remote edit\n");
+        // and the edit that was loose in the tree survived the checkout
+        assert_eq!(fs::read_to_string(pair.b.join("Other.md")).unwrap(), "typed just now\n");
     }
 
     /// A merge pull reports the files the merge commit moved relative to the
@@ -4366,6 +4655,80 @@ mod tests {
             ".claude/skills/setup/SKILL.md",
             HISTORY_WALK_LIMIT
         ));
+    }
+
+    /// The per-HEAD answer cache auto-pull makes necessary: an answer is
+    /// reused while HEAD stands still and re-derived once a commit moves it —
+    /// a stale answer must never survive the history that changes it.
+    ///
+    /// Against a cache of its own, not the process-wide one: every sibling
+    /// test in this binary fills that map and it is cleared whole at
+    /// `CARRIED_CACHE_MAX`, so an assertion about its contents would describe
+    /// the suite's shape rather than this test's walks.
+    #[test]
+    fn sync_history_ever_carried_caches_per_head() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("v");
+        fs::create_dir_all(&root).unwrap();
+        let history = owned(&root);
+        write_note(&root, "Other.md", "other\n");
+        history.snapshot("snapshot").unwrap();
+        let cache = Mutex::new(HashMap::new());
+
+        let repo = Repository::open(&root).unwrap();
+        assert!(!carried_within_cached(&repo, "Late.md", HISTORY_WALK_LIMIT, &cache));
+        // the walk ran once and parked its answer under (workdir, path, HEAD)
+        let key = (
+            repo.workdir().unwrap().to_path_buf(),
+            "Late.md".to_string(),
+            repo.head().unwrap().target().unwrap().to_string(),
+            HISTORY_WALK_LIMIT,
+        );
+        assert_eq!(
+            cache.lock().unwrap().get(&key),
+            Some(&false),
+            "the walk's answer was not cached"
+        );
+        // a same-HEAD re-read returns the cached answer
+        assert!(!carried_within_cached(&repo, "Late.md", HISTORY_WALK_LIMIT, &cache));
+
+        // a commit that changes the answer moves HEAD, and the old entry
+        // must miss: the path is now history, not "never carried"
+        write_note(&root, "Late.md", "late\n");
+        history.snapshot("snapshot").unwrap();
+        let repo = Repository::open(&root).unwrap();
+        assert!(
+            carried_within_cached(&repo, "Late.md", HISTORY_WALK_LIMIT, &cache),
+            "a cached answer survived the commit that changed it"
+        );
+    }
+
+    /// A walk that gave up answers the safe way but must not be remembered.
+    /// The give-up arms are transient — an unreadable object, a walk that ran
+    /// out of budget — and caching one pins "carried" for this whole HEAD,
+    /// which is the backfill deciding a genuinely missing app file was
+    /// somebody's deletion and leaving the vault without it.
+    #[test]
+    fn a_walk_that_gave_up_is_answered_safely_but_not_cached() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("v");
+        fs::create_dir_all(&root).unwrap();
+        let history = owned(&root);
+        write_note(&root, "Other.md", "other\n");
+        history.snapshot("snapshot").unwrap();
+        let cache = Mutex::new(HashMap::new());
+        let repo = Repository::open(&root).unwrap();
+
+        // limit 0 gives up on the first commit it is handed
+        assert!(
+            carried_within_cached(&repo, "Late.md", 0, &cache),
+            "a give-up must answer the recoverable way"
+        );
+        assert!(cache.lock().unwrap().is_empty(), "a give-up answer was cached");
+
+        // the completed walk over the same path disagrees, and IS cached
+        assert!(!carried_within_cached(&repo, "Late.md", HISTORY_WALK_LIMIT, &cache));
+        assert_eq!(cache.lock().unwrap().len(), 1);
     }
 
     #[test]

@@ -59,12 +59,46 @@ struct HistoryState(Mutex<Option<History>>);
 struct VaultSyncState {
     credentials_path: std::path::PathBuf,
     last: Mutex<VaultSyncLast>,
+    /// One network git leg at a time. Auto-sync runs push/pull on a timer
+    /// now, so a tick can meet a button click; the local phases already
+    /// serialize on the history/engine gates, but the fetch/push stretch
+    /// between them is unlocked, and two of those race on the same refs.
+    op: Mutex<()>,
+    /// The auto lane's quiet backoff: how long it has been failing.
+    auto_fail: Mutex<AutoFail>,
 }
 
 #[derive(Default)]
 struct VaultSyncLast {
     result: Option<SyncReport>,
     error: Option<String>,
+}
+
+/// How long the auto-sync lane keeps a failure to itself before recording it
+/// as the sync pane's `last_error`. A phone without signal or a laptop
+/// asleep fails every tick, and none of those is news — "offline is quiet"
+/// means one miss never surfaces; a lane that has kept failing for hours
+/// does.
+const AUTO_SYNC_FAIL_SURFACE_AFTER: Duration = Duration::from_secs(2 * 60 * 60);
+
+#[derive(Default)]
+struct AutoFail {
+    /// When the current unbroken run of auto-lane failures began.
+    since: Option<Instant>,
+}
+
+impl AutoFail {
+    /// Record one failed auto attempt; true when it should surface to the
+    /// pane. `now` is a parameter so the boundary is testable without
+    /// sleeping.
+    fn note_failure(&mut self, now: Instant) -> bool {
+        now.duration_since(*self.since.get_or_insert(now)) >= AUTO_SYNC_FAIL_SURFACE_AFTER
+    }
+
+    /// Any success — auto or button — ends the run: connectivity is back.
+    fn note_success(&mut self) {
+        self.since = None;
+    }
 }
 
 /// Tracks vault activity so auto-snapshots batch a stretch of editing into
@@ -776,6 +810,8 @@ pub fn run() {
                     .expect("no app config dir")
                     .join("vault-sync.json"),
                 last: Mutex::new(VaultSyncLast::default()),
+                op: Mutex::new(()),
+                auto_fail: Mutex::new(AutoFail::default()),
             });
             app.manage(SnapDirty(Mutex::new(None)));
             app.manage(reflexes::ReflexState::load(&reflex_root));
@@ -1466,5 +1502,31 @@ mod tests {
                 "which": "capture"
             })
         );
+    }
+
+    /// The auto lane's quiet rule: one failure says nothing, a failure run
+    /// older than the surface-after window does, and any success resets it.
+    #[test]
+    fn auto_fail_stays_quiet_until_the_run_is_hours_old() {
+        use super::{AutoFail, AUTO_SYNC_FAIL_SURFACE_AFTER};
+        use std::time::{Duration, Instant};
+        let mut fail = AutoFail::default();
+        let t0 = Instant::now();
+        assert!(!fail.note_failure(t0), "the first miss surfaced");
+        assert!(
+            !fail.note_failure(t0 + Duration::from_secs(60 * 60)),
+            "an hour of misses surfaced"
+        );
+        assert!(
+            fail.note_failure(t0 + AUTO_SYNC_FAIL_SURFACE_AFTER),
+            "a run at the window stayed quiet"
+        );
+        assert!(
+            fail.note_failure(t0 + AUTO_SYNC_FAIL_SURFACE_AFTER + Duration::from_secs(300)),
+            "a run past the window went quiet again"
+        );
+
+        fail.note_success();
+        assert!(!fail.note_failure(t0 + Duration::from_secs(10 * 60 * 60)), "a success did not reset the run");
     }
 }

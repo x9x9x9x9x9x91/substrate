@@ -3,7 +3,8 @@
 
 use crate::commands::history::with_history;
 use crate::gitsync::{self, SyncReport};
-use crate::{blocking, AppState, HistoryState, VaultSyncLast, VaultSyncState};
+use crate::{blocking, AppState, AutoFail, HistoryState, VaultSyncLast, VaultSyncState};
+use std::time::Instant;
 use tauri::{Emitter, Manager, State};
 
 #[derive(serde::Serialize)]
@@ -23,7 +24,10 @@ pub(crate) fn sync_root(state: &State<AppState>) -> std::path::PathBuf {
 }
 
 pub(crate) fn record_sync(state: &State<VaultSyncState>, result: &Result<SyncReport, String>) {
-    let mut last = state.last.lock().unwrap();
+    record_last(&mut state.last.lock().unwrap(), result);
+}
+
+fn record_last(last: &mut VaultSyncLast, result: &Result<SyncReport, String>) {
     match result {
         Ok(report) => {
             last.result = Some(report.clone());
@@ -33,6 +37,67 @@ pub(crate) fn record_sync(state: &State<VaultSyncState>, result: &Result<SyncRep
             last.result = None;
             last.error = Some(error.clone());
         }
+    }
+}
+
+/// Where a failed attempt came from, which decides whether the auto lane may
+/// keep quiet about it.
+///
+/// The quiet window is for a device that cannot reach its remote, and for
+/// nothing else. A failure whose consequence is LOCAL has to reach the pane on
+/// the spot: the one that exists today is inherited sealing failing to remove
+/// its plaintext from this vault's own history, and silence there means the
+/// user is never told that sealed content is sitting in their local history —
+/// permanently, because the next successful tick clears the failure run.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum FailureClass {
+    /// Could not reach or exchange with the remote.
+    Transport,
+    /// The remote leg worked; something on this machine did not.
+    Local,
+}
+
+/// The recording rule that separates the timer lane from the button. A manual
+/// attempt always lands in the pane's last record, failure included. An auto
+/// attempt records its successes — but a transport failure stays quiet until
+/// the lane has been failing continuously for hours, so an offline device
+/// never repaints the pane "Error" over a nap.
+pub(crate) fn record_outcome(
+    state: &State<VaultSyncState>,
+    result: &Result<SyncReport, String>,
+    auto: bool,
+    class: FailureClass,
+) {
+    let mut last = state.last.lock().unwrap();
+    let mut fail = state.auto_fail.lock().unwrap();
+    record_outcome_into(&mut last, &mut fail, result, auto, class, Instant::now());
+}
+
+/// [`record_outcome`] over plain state, so the rule is testable without an app.
+///
+/// A [`FailureClass::Local`] failure is outside the quiet window's bargain
+/// entirely: it records on its first occurrence, on either lane. It also
+/// leaves the failure run alone in both directions — the run tracks whether
+/// the remote is reachable, and an attempt that got far enough to fail locally
+/// answered that question neither way.
+pub(crate) fn record_outcome_into(
+    last: &mut VaultSyncLast,
+    fail: &mut AutoFail,
+    result: &Result<SyncReport, String>,
+    auto: bool,
+    class: FailureClass,
+    now: Instant,
+) {
+    let record = match result {
+        Ok(_) => {
+            fail.note_success();
+            true
+        }
+        Err(_) if !auto || class == FailureClass::Local => true,
+        Err(_) => fail.note_failure(now),
+    };
+    if record {
+        record_last(last, result);
     }
 }
 
@@ -73,42 +138,65 @@ pub(crate) fn vault_sync_set_remote(
 }
 
 // async: a push is a snapshot plus network git — seconds on a slow link.
+// `origin: Some("auto")` marks a timer-driven attempt (quiet failure rule,
+// see record_outcome); the button passes nothing.
 #[tauri::command]
-pub(crate) async fn vault_sync_push(app: tauri::AppHandle) -> Result<SyncReport, String> {
+pub(crate) async fn vault_sync_push(
+    app: tauri::AppHandle,
+    origin: Option<String>,
+) -> Result<SyncReport, String> {
     blocking(move || {
         let state: State<AppState> = app.state();
         let history: State<HistoryState> = app.state();
         let sync: State<VaultSyncState> = app.state();
+        // One network leg at a time — before the history gate, so lock order
+        // stays op → history → engine in every sync command. Poison-tolerant:
+        // it guards no data, and one panicked sync must not brick every later
+        // one for the life of the process.
+        let _op = sync.op.lock().unwrap_or_else(|e| e.into_inner());
         with_history(&history, |hist| hist.snapshot("snapshot (sync)"))?;
         // Gate: the engine mutex is held only while the working tree is
         // inspected, never across the network push.
         let result = gitsync::sync_push_gated(&sync_root(&state), &sync.credentials_path, || {
             state.0.lock().unwrap()
         });
-        record_sync(&sync, &result);
+        record_outcome(&sync, &result, origin.as_deref() == Some("auto"), FailureClass::Transport);
         result
     })
     .await?
 }
 
 // async for the same reason as push (network git off the IPC thread).
+// `origin: Some("auto")` marks a timer-driven attempt, same as push.
 #[tauri::command]
-pub(crate) async fn vault_sync_pull(app: tauri::AppHandle) -> Result<SyncReport, String> {
+pub(crate) async fn vault_sync_pull(
+    app: tauri::AppHandle,
+    origin: Option<String>,
+) -> Result<SyncReport, String> {
     blocking(move || {
         let state: State<AppState> = app.state();
         let history: State<HistoryState> = app.state();
         let sync: State<VaultSyncState> = app.state();
-        // Protect edits made since the last idle snapshot before replacing files.
-        with_history(&history, |hist| hist.snapshot("snapshot (sync)"))?;
+        // Same one-network-leg gate as push, taken first for lock order, and
+        // poison-tolerant for the same reason.
+        let _op = sync.op.lock().unwrap_or_else(|e| e.into_inner());
+        // Fetch, then protect edits made since the last idle snapshot — but
+        // only when the fetch brought something a checkout would overwrite.
         // Gate: history first, then engine (the repo-wide lock order), held
         // through the whole local phase. The fetch stays unlocked, but neither
         // an auto-snapshot nor a vault write can land between the final HEAD /
         // clean checks and checkout + branch update.
-        let mut result = gitsync::sync_pull_gated(&sync_root(&state), &sync.credentials_path, || {
-            let history = history.0.lock().unwrap();
-            let engine = state.0.lock().unwrap();
-            (history, engine)
-        });
+        let mut class = FailureClass::Transport;
+        let mut result = gitsync::sync_pull_with_snapshot(
+            &sync_root(&state),
+            &sync.credentials_path,
+            || with_history(&history, |hist| hist.snapshot("snapshot (sync)")).map(|_| ()),
+            || {
+                let history = history.0.lock().unwrap();
+                let engine = state.0.lock().unwrap();
+                (history, engine)
+            },
+        );
         if let Ok(report) = &result {
             if !report.changed.is_empty() {
                 // The remote commit may come from an old/non-cooperating
@@ -141,6 +229,10 @@ pub(crate) async fn vault_sync_pull(app: tauri::AppHandle) -> Result<SyncReport,
                         // so undo/editor state invalidates correctly, but never
                         // report the privacy cleanup as a successful pull.
                         app.emit("vault:pulled", report.changed.clone()).ok();
+                        // …and never let the timer lane's quiet window swallow
+                        // it either: the remote leg worked, and what failed
+                        // left plaintext in this machine's own history.
+                        class = FailureClass::Local;
                         result = Err(format!(
                             "sync landed, but inherited sealing could not remove its plaintext local history: {error}"
                         ));
@@ -148,7 +240,7 @@ pub(crate) async fn vault_sync_pull(app: tauri::AppHandle) -> Result<SyncReport,
                 }
             }
         }
-        record_sync(&sync, &result);
+        record_outcome(&sync, &result, origin.as_deref() == Some("auto"), class);
         announce_pull(&app, &result);
         result
     })
@@ -250,4 +342,92 @@ pub(crate) fn vault_sync_resolve_finish(
     // Finishing a resolution checks a merge out exactly like a pull does.
     announce_pull(&app, &result);
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{record_outcome_into, FailureClass};
+    use crate::gitsync::SyncReport;
+    use crate::{AutoFail, VaultSyncLast};
+    use std::time::{Duration, Instant};
+
+    fn ok() -> Result<SyncReport, String> {
+        Ok(SyncReport {
+            pushed: 0,
+            pulled: 1,
+            conflicted: Vec::new(),
+            head: "0".repeat(40),
+            changed: vec!["Note.md".to_string()],
+        })
+    }
+
+    fn sealing_failed() -> Result<SyncReport, String> {
+        Err("sync landed, but inherited sealing could not remove its plaintext local history: \
+             disk full"
+            .to_string())
+    }
+
+    /// The privacy-class failure the quiet window must never cover. It is
+    /// local, not transport: the pull reached the remote and checked its
+    /// commit out, and what failed left sealed plaintext in this machine's own
+    /// history. A user who is never told cannot go and remove it — and under
+    /// the transport rule the next successful tick would clear the run and the
+    /// record with it, so the news would be gone for good.
+    #[test]
+    fn an_auto_pulls_sealing_cleanup_failure_records_at_once() {
+        let mut last = VaultSyncLast::default();
+        let mut fail = AutoFail::default();
+        let t0 = Instant::now();
+
+        record_outcome_into(&mut last, &mut fail, &sealing_failed(), true, FailureClass::Local, t0);
+        assert_eq!(
+            last.error.as_deref(),
+            Some(
+                "sync landed, but inherited sealing could not remove its plaintext local \
+                 history: disk full"
+            ),
+            "the auto lane kept a local privacy failure to itself"
+        );
+        assert!(last.result.is_none());
+
+        // …and it stays told: a later success is the only thing that clears it
+        record_outcome_into(
+            &mut last,
+            &mut fail,
+            &ok(),
+            true,
+            FailureClass::Transport,
+            t0 + Duration::from_secs(300),
+        );
+        assert!(last.error.is_none());
+    }
+
+    /// The other half of the same rule, unchanged: a transport miss on the
+    /// auto lane stays quiet until the run is hours old, and a manual attempt
+    /// never waits at all.
+    #[test]
+    fn an_auto_transport_failure_still_waits_out_the_quiet_window() {
+        let mut last = VaultSyncLast::default();
+        let mut fail = AutoFail::default();
+        let t0 = Instant::now();
+        let offline: Result<SyncReport, String> = Err("vault sync fetch failed: no route".into());
+
+        record_outcome_into(&mut last, &mut fail, &offline, true, FailureClass::Transport, t0);
+        assert!(last.error.is_none(), "one offline tick repainted the pane");
+
+        record_outcome_into(
+            &mut last,
+            &mut fail,
+            &offline,
+            true,
+            FailureClass::Transport,
+            t0 + crate::AUTO_SYNC_FAIL_SURFACE_AFTER,
+        );
+        assert!(last.error.is_some(), "hours of failure stayed quiet");
+
+        let mut last = VaultSyncLast::default();
+        let mut fail = AutoFail::default();
+        record_outcome_into(&mut last, &mut fail, &offline, false, FailureClass::Transport, t0);
+        assert!(last.error.is_some(), "a button press hid its own failure");
+    }
 }

@@ -510,8 +510,14 @@ export const vaultAssetsTrashDelete = (id: string) =>
   invoke<void>("vault_assets_trash_delete", { id });
 /** Read-only integrity scan — reports, never repairs. */
 export const vaultDoctor = () => invoke<DoctorReport>("vault_doctor");
-export const vaultSyncPush = () => invoke<SyncReport>("vault_sync_push");
-export const vaultSyncPull = () => invoke<SyncReport>("vault_sync_pull");
+export const vaultSyncPush = (origin?: "auto") =>
+  origin
+    ? invoke<SyncReport>("vault_sync_push", { origin })
+    : invoke<SyncReport>("vault_sync_push");
+export const vaultSyncPull = (origin?: "auto") =>
+  origin
+    ? invoke<SyncReport>("vault_sync_pull", { origin })
+    : invoke<SyncReport>("vault_sync_pull");
 export const vaultSyncStatus = () => invoke<VaultSyncStatus>("vault_sync_status");
 /** Raw tokens use HTTP Basic as the password; prefix with `Bearer ` or pass
     an explicit `Basic ` authorization value when the endpoint requires it.

@@ -3557,6 +3557,10 @@ Plain notes the app treats specially — all optional, all just files:
   board's `stale`/`undated` age chips — same explicit-`false` rule as
   `drop-hint`. It is the global DEFAULT: a board with its own `stale_days`
   (§5.2) keeps its chips, and a task with `stale: never` never wears one),
+  `auto-sync` (default `true`; `false` parks the vault-sync timer lane —
+  push when edits settle, pull on open/focus and every few minutes — while
+  the Sync pane's Push/Pull buttons keep working either way. Inert until a
+  remote is configured, and a parked conflict pauses it regardless),
   `window-opacity`
   (macOS desktop only, default `90`; how solid the window is over the
   desktop in percent, `80`–`100` — the wallpaper shows through, blurred by

@@ -69,7 +69,9 @@ Capacities, Affine).*
   no whole-vault view; vs Notion: per-page, cloud. Plus atomic,
   power-loss-durable vault writes (temp → fsync → rename → fsync dir).
 - **Local-first, no account, no cloud requirement** — sync (0.11) is
-  push/pull against your own server, HTTPS + keychain token, self-hosted;
+  automatic push/pull against your own server (push once edits settle, pull
+  on open/focus/interval; conflicts always park for you), HTTPS + keychain
+  token, self-hosted;
   the E2E-encrypted design is committed (see In flight). **Open source,
   AGPL** (0.19) — the trust argument Notion structurally can't make.
 - **Sealed notes and inherited private zones, unreadable even to local agents** —

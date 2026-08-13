@@ -13,8 +13,17 @@ needs encryption at rest. The fuller threat model is in
   Releases. GitHub sees an ordinary request from your connection; no vault
   content is included. Download and installation happen only after you choose
   **Install** in the update toast.
-- **Vault sync:** nothing is sent until you configure an HTTPS Git remote and
-  choose **Push** or **Pull**. Push sends the vault content tracked by its local
+- **Vault sync:** nothing is sent until you configure an HTTPS Git remote.
+  From then on sync is automatic (default on; one switch in the Sync pane):
+  Substrate pushes shortly after your edits settle and pulls when the app
+  opens, when the window regains focus, and every few minutes while it runs.
+  The pane's **Push** and **Pull** buttons always work manually — one sync runs
+  at a time, so a click while an automatic push or pull is still going waits for
+  it to finish, which on a slow connection can be a few seconds. A conflict is
+  never resolved for you — it parks in the Sync pane, automatic sync pauses,
+  and the lane stays quiet about everything else: an unreachable remote is
+  retried silently, and only a failure that persists for hours shows in the
+  pane. Push sends the vault content tracked by its local
   history: notes, `Settings.md`, and most `.vault` configuration. Embedded
   `.assets`, recoverable `.trash`, and device-only notification state are not
   part of this Git sync. The remote URL is stored in the vault's local Git

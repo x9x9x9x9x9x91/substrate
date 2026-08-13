@@ -67,6 +67,7 @@ let historyReadOnly = false;
 export const setHistoryReadOnly = (active: boolean) => {
   historyReadOnly = active;
 };
+export const isHistoryReadOnly = () => historyReadOnly;
 
 /* The guard is an ALLOW-list, not a deny-list. The first shape only
    denied `history_*`/`vault_*` plus three names, so every other family passed
@@ -299,6 +300,28 @@ declare global {
         happened in this session — the state a restart leaves behind, where
         the engine still has the merge but no last result to report */
     __mockParkConflicts?: () => void;
+    /** what the next mock `vault_sync_pull` does: park the seeded conflict
+        (the default) or land a clean pull listing `changed` paths — which,
+        like the engine's announce_pull, re-emits as `vault:pulled` */
+    __mockSetPull?: (plan: { conflicted: boolean; changed?: string[] }) => void;
+    /** the pull plan a spec needs staged BEFORE the app mounts (an auto-sync
+        boot pull fires before page.evaluate can) — set via addInitScript */
+    __mockBootPull?: { conflicted: boolean; changed?: string[] };
+    /** boot with sync already configured — the state a returning device is
+        in. Read once at mock init, so this too is an addInitScript seam */
+    __mockSyncConfigured?: boolean;
+    /** timing overrides for the auto-sync scheduler — the real debounce is
+        two minutes, which no spec should wait out */
+    __mockAutoSync?: {
+      pushDebounceMs?: number;
+      pushMaxDirtyMs?: number;
+      pullIntervalMs?: number;
+      focusGapMs?: number;
+    };
+    /** the ordered sync commands the mock has run ("vault_sync_push" /
+        "vault_sync_pull") — how a spec proves the auto lane fired (or,
+        parked on a conflict, stopped firing) without waiting on network */
+    __mockSyncCalls?: () => string[];
     /** unbind a mount on "this machine" without touching its index — the
         other-machine board a dashboard has to keep charting from.
         Pass a folder path to bind it somewhere instead; a path containing
@@ -1471,10 +1494,23 @@ const mockTrash: (TrashEntry & {
 // on every status call, so the mock derives it from the parked
 // conflict state instead of from the last command's result.
 let mockVaultSyncStatus: Omit<VaultSyncStatus, "conflicted"> = {
-  configured: false,
+  // a returning device boots configured; a spec stages that with
+  // addInitScript, before the app (and its auto-sync lane) mounts
+  configured: window.__mockSyncConfigured === true,
   last_result: null,
   last_error: null,
 };
+
+/** What the next `vault_sync_pull` does. The seed default stays conflicted
+    so the existing sync-pane specs keep their three-way material; a spec
+    that needs a clean pull (the auto-sync lane's steady state) stages one. */
+let mockPullPlan: { conflicted: boolean; changed?: string[] } = window.__mockBootPull ?? {
+  conflicted: true,
+};
+
+/** Sync commands run, in order — the observable the auto-sync specs assert
+    on, since the lane's whole job is firing (or not firing) these. */
+const mockSyncCalls: string[] = [];
 
 /** A parked conflicted pull, in the shape gitsync::sync_conflicts returns.
     Rebuilt whenever the mock pull conflicts, so the resolution surface has
@@ -3553,6 +3589,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     }
     case "vault_sync_push": {
       if (!mockVaultSyncStatus.configured) throw new Error("vault sync remote is not configured");
+      mockSyncCalls.push("vault_sync_push");
       const report: SyncReport = {
         pushed: 2,
         pulled: 0,
@@ -3566,20 +3603,36 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     }
     case "vault_sync_pull": {
       if (!mockVaultSyncStatus.configured) throw new Error("vault sync remote is not configured");
-      const report: SyncReport = {
+      mockSyncCalls.push("vault_sync_pull");
+      if (mockPullPlan.conflicted) {
+        const report: SyncReport = {
+          pushed: 0,
+          pulled: 3,
+          // engine parity: conflict_paths returns a BTreeSet, so this
+          // list is sorted, not pull-order
+          conflicted: ["Journal/2026-07-22.md", "Projects/Release plan.md"].sort(),
+          head: "91c0f17ab4d2",
+          // engine parity: this pull conflicts, so it parks the merge
+          // instead of checking anything out — nothing on disk moved
+          changed: [],
+        };
+        mockVaultSyncStatus = { configured: true, last_result: report, last_error: null };
+        mockConflicts = mockConflictSeed();
+        return report;
+      }
+      const changed = [...(mockPullPlan.changed ?? [])].sort();
+      const clean: SyncReport = {
         pushed: 0,
-        pulled: 3,
-        // engine parity: conflict_paths returns a BTreeSet, so this
-        // list is sorted, not pull-order
-        conflicted: ["Journal/2026-07-22.md", "Projects/Release plan.md"].sort(),
-        head: "91c0f17ab4d2",
-        // engine parity: this pull conflicts, so it parks the merge
-        // instead of checking anything out — nothing on disk moved
-        changed: [],
+        pulled: changed.length,
+        conflicted: [],
+        head: "c1ea9d2f4b08",
+        changed,
       };
-      mockVaultSyncStatus = { configured: true, last_result: report, last_error: null };
-      mockConflicts = mockConflictSeed();
-      return report;
+      mockVaultSyncStatus = { configured: true, last_result: clean, last_error: null };
+      // engine parity: announce_pull emits vault:pulled for a real checkout —
+      // an auto-pull's invalidation rides the same event
+      if (changed.length > 0) window.__mockEmit?.("vault:pulled", changed);
+      return clean;
     }
     case "vault_sync_conflicts":
       return mockConflictView();
@@ -4758,6 +4811,20 @@ const rawInvoke: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T> 
   ? tauriInvoke
   : (mockInvoke as <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>);
 
+/* "This app just wrote the vault", said synchronously at the invoke return —
+   not a watcher's debounce later. The auto-sync push debounce rides this for
+   our own writes (plus vault:changed for everyone else's), because the mock
+   lane has no watcher to echo them back, and waiting on the real one's
+   attribution dance would couple the scheduler to its timing. */
+type VaultWriteListener = () => void;
+const vaultWriteListeners = new Set<VaultWriteListener>();
+export const onVaultWrite = (fn: VaultWriteListener): (() => void) => {
+  vaultWriteListeners.add(fn);
+  return () => {
+    vaultWriteListeners.delete(fn);
+  };
+};
+
 export const invoke = async <T,>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
   if (blockedByHistoryMode(cmd)) {
     throw new Error("viewing the past is read-only — return to the present to make changes");
@@ -4767,6 +4834,7 @@ export const invoke = async <T,>(cmd: string, args?: Record<string, unknown>): P
   // need attributing; a template or asset write never returns to us at all
   if (WATCHED_WRITE_COMMANDS.has(cmd) && !templateStem(args?.path)) {
     noteOwnWrite(writtenPathsFor(cmd, args, result));
+    for (const fn of vaultWriteListeners) fn();
   }
   return result;
 };
@@ -5019,6 +5087,10 @@ if (!isTauri) {
   window.__mockParkConflicts = () => {
     mockConflicts = mockConflictSeed();
   };
+  window.__mockSetPull = (plan) => {
+    mockPullPlan = plan;
+  };
+  window.__mockSyncCalls = () => [...mockSyncCalls];
   // The other-machine board. The index stays exactly as the machine
   // holding the folder left it — only this machine's binding goes — so a
   // dashboard over the mount still has rows to chart.
