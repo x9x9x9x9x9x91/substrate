@@ -75,6 +75,7 @@ column. `emph: true` marks a card as one
 of the board's anchors — at most two stay sharp, everything else sinks to the
 quiet voice (design principle 11). `FX("USD","EUR")` in formulas uses a
 live rate cached on the sheet's own `fx_rate`/`fx_date` props.
+`accent: teal` tints a card — see **Style tokens** below.
 
 A bind can also name a [mount](vault-format.md#8-vaultmountsjson--mounted-folders-reality-mounts) instead of a sheet, and read the
 mounted folder's live index: `{{Ableton projects.count}}` for how many project
@@ -113,7 +114,8 @@ kind: bar
 
 `x` is a prop, or `prop:day|week|month` for date bucketing; `y` is `count`,
 `sum:<prop>`, or `avg:<prop>`. A malformed fence renders its parse error in place
-and never breaks the others.
+and never breaks the others. `size: tall` gives one chart more room — see
+**Style tokens** below.
 
 `title` is not a caption above the chart — it *is* the chart's section label,
 set in the same voice and carrying the same hairline tail as any other section
@@ -293,6 +295,8 @@ a summary reads identically on a card and on a bar — or the literal `count` ov
 a `source` database with an optional `query` in the ` ```view ` grammar, which
 reports the total that query matches. `target` is a positive number or a bind,
 and `format`/`digits` are the metrics card's formats.
+`accent: <name>` tints the goal's label and not its bar — see **Style tokens**
+below.
 
 ````markdown
 ---
@@ -472,7 +476,7 @@ required to have a truthful note-opening action. See vault-format §5.5d.
 
 The ` ```cards ` fence takes the same card items a metrics dashboard's `cards:`
 frontmatter list takes — `label` and `bind` required, `format` (`eur`, `usd`,
-`number`, `pct`), `digits` and `emph` optional — and binds resolve
+`number`, `pct`), `digits`, `emph` and `accent` optional — and binds resolve
 identically, `{{Sheet.summary}}` against a sheet note. The ` ```chart ` fence
 takes the same keys its own dashboard's fences take, over the same sources, and
 the ` ```progress ` fence takes the goal keys above, over the same source
@@ -721,6 +725,38 @@ rather than quietly handing you a different dashboard.
 ` ```calendar ` fences fall back to the month grids the same way.
 
 
+## Style tokens — `accent` and `size`
+
+A dashboard can set mood, and only mood. Two tokens exist, both **names from a
+closed list** — never a hex value, a pixel value, a font, or arbitrary CSS. The
+design system owns taste; a board picks from what it offers.
+
+- **`accent: <name>`** on a metric card or a hub callout (`> [!note|teal]
+  Title`). The names are the ten your select options and status pills already
+  use: `gray`, `blue`, `indigo`, `violet`, `pink`, `red`, `orange`, `yellow`,
+  `green`, `teal`. It tints the card's label and its rule — mood, not state,
+  and never the number itself, so the value ramp keeps its contrast.
+- **`size: tall`** on a ` ```chart ` fence. The one size name a chart can ask
+  for; how tall `tall` is stays the app's call.
+- The same `accent` name rides the other card surfaces: a ` ```cards ` fence
+  card, and a ` ```progress ` fence, where it tints the goal's label and leaves
+  the bar neutral.
+
+Accent and `emph` are independent: hue says what a card is *about*, `emph` says
+which card *matters*. Accenting everything therefore can't quietly spend the
+board's two sharp values.
+
+**An unknown token name renders as absent — never an error.** `accent: mauve`,
+`accent: "#14b8a6"` or `size: 400px` leave the card or chart looking exactly as
+it would with no token at all, and the board keeps rendering. That is deliberate
+and it is the one place fences are lenient: a wrong `bind` is a lie about your
+data and still fails loudly, while a wrong colour is only a preference nobody
+can honour.
+
+Because the names resolve through the theme, a board that asks for `teal`
+follows the theme when the theme moves — including the accent-tone settings.
+A vault-resident kind gets the same roster as `ctx.accents` and reaches mood
+the same way: `data-accent="<name>"` on a sanctioned class.
 
 ## Workbook pages — tabs at the bottom
 

@@ -1000,12 +1000,17 @@ as a hub:
 - a ` ```timeline ` fence renders live rather than as a code box, full-width
   where it sits, laying database notes with start/end date properties onto the
   horizontal time view of §5.5d;
+- a callout may name one accent after its kind — `> [!note|teal] Title` — from
+  the same roster §5.4's `accent:` card key takes (SUB-969); the name recolours
+  the card's rule (and the same line in the editor) while the kind glyph keeps
+  its own hue. An off-roster name is simply not honoured: the line stays a note
+  callout rather than degrading to a plain blockquote;
 - these fences render live rather than as code boxes, full-width where they
   sit: ` ```view ` embeds a database table exactly as §5.6 defines it,
   ` ```chart ` plots exactly as §5.5 defines it, and ` ```cards ` renders the
   metrics card row from a YAML list of the same card
   items §5.4's `cards:` frontmatter takes — `label` and `bind` required,
-  `format`/`digits`/`emph` optional, binds resolving the same
+  `format`/`digits`/`emph`/`accent` optional, binds resolving the same
   `{{Sheet.summary}}` way:
 
   ````markdown
@@ -1223,6 +1228,15 @@ cards:
   card as one of the board's sharp anchors — at most two, first two in card
   order if more are flagged; with none flagged the first card is sharp.
   Unflagged cards render in the quiet voice (design principle 11).
+- `accent`: optional, one **name** from the shared option palette — `gray`,
+  `blue`, `indigo`, `violet`, `pink`, `red`, `orange`, `yellow`, `green`,
+  `teal` (the palette select options and status pills already draw from). It
+  tints the card's label and the hairline it is ruled under: mood, not state. Never a hex, a
+  px value, a font or arbitrary CSS — a name off the roster reads as absent,
+  exactly like an unrecognised `emph` value, and never errors the card. Accent
+  and `emph` are independent: hue says what a card is about, `emph` says which
+  one matters, so accenting every card cannot spend the board's two sharp
+  values.
 
 A bind whose name is a **mount** (§8) reads that mount's live index instead of
 a sheet — `bind: "{{Album pool.count}}"` — with no change to the grammar: the
@@ -1351,6 +1365,12 @@ binding) or `series` (summary binding)):
   for averages or negative split values. A split's series encoding replaces
   schema hue on a categorical x-axis.
 - `kind` — `bar` (default) | `line`.
+- `size` — optional bounded style token (SUB-969): `tall`, or absent for the
+  default plot. A NAME from a closed roster, never a height — a fence cannot
+  name pixels, and the app owns what `tall` measures. Unlike every binding key
+  above, an unknown value is not a parse error: the chart draws at its default
+  size, because a preference we can't honour must not fail a fence whose data
+  is fine.
 - `title` — optional; derived when absent (`Release per month`,
   `Sum of value_eur by asset`, `Holdings summaries`); a `by` split appends
   `, split by <field>`.
@@ -1464,6 +1484,14 @@ Keys (`src/lib/progress.ts`; `value` and `target` required):
 | `start`    | `YYYY-MM-DD` the value stood at **zero** — the ahead/behind anchor        |
 | `format`   | as §5.4: `eur`, `usd`, `number`, `pct`                                   |
 | `digits`   | as §5.4                                                                   |
+| `accent`   | as §5.4: one **name** off the option roster; off-roster reads as absent   |
+
+`accent` is the one key that degrades silently rather than erroring the fence
+(the Style tokens section of `docs/dashboards.md` states the rule): a wrong
+bind is a lie about the data and still fails loudly, a wrong colour is only a
+preference nobody can honour. It tints the goal's **label** — never the bar,
+which stays neutral so the fill keeps saying how far along the goal is and the
+hue only says what the goal is about.
 
 `value: count` reports the **total** the query matches, not a page of it — the
 same number the equivalent ` ```view ` fence's table counts, resolved through the
@@ -2077,6 +2105,7 @@ or `ctx.toast`.
 | `ctx.el` | `Element` | The same element passed as the first argument, for convenience. |
 | `ctx.note` | `{ path, title, props, body }` | The dashboard note the kind is mounted in: its vault path, title, frontmatter props and raw body. |
 | `ctx.css` | `Record<string, string>` | Sanctioned class names, the full api-1 roster: `dash-metrics`, `dash-metric`, `dash-metric-sub`, `dash-label`, `dash-value`, `dash-sub`, `dash-hero`, `dash-table`, `dash-card`, `dash-cards`, `dash-section-label`, `dash-link`, `dash-foot`. Rendering through these is how a kind speaks in the app's voice and follows its theme; a kind may also ship its own `style.css`. A key not in the map reads as `undefined` — interpolated straight into a template string that becomes `class="undefined"` — so look keys up defensively (`ctx.css["dash-hero"] ?? ""`) and put anything the roster doesn't cover on your own prefixed classes. |
+| `ctx.accents` | `readonly string[]` | The accent roster — `gray`, `blue`, `indigo`, `violet`, `pink`, `red`, `orange`, `yellow`, `green`, `teal`. Put one on `data-accent` on a `dash-card` and the app resolves the hue — that is the one sanctioned class wired for it; an off-roster name paints nothing. Named mood, not CSS: a kind that names `teal` follows the theme when the theme moves. Added inside api 1, so **feature-check it** (`ctx.accents ?? []`) — a build older than SUB-969 mounts the same kind with the member absent. |
 | `ctx.notes(filter?)` | `⇒ Promise<NoteMeta[]>` | The note index — path, stem, title, folder, props, `updated_ms`, excerpt, `tags` (inline `#hashtags` unioned with the `tags:` prop, deduplicated; optional, so absent on older projections) and `sealed`. **A kind that renders note bodies must read `sealed`**: it says the note is whole-file encrypted on disk, and vault code that ignores it is one more surface emitting plaintext the user sealed. The optional filter is a plain predicate, `(n) => boolean`, applied per note: `ctx.notes((n) => n.props.type === "gear")`. |
 | `ctx.read(path)` | `⇒ Promise<{ body, props }>` | One note's raw body and its frontmatter props. |
 | `ctx.sheet(title)` | `⇒ Promise<…>` | A sheet fence, parsed and evaluated — headers, typed rows, computed columns, named summaries — so a kind doesn't reimplement the sheet grammar (§5.1). |
@@ -2123,8 +2152,9 @@ if (ctx.sheet) { /* use it */ } else { /* parse the fence yourself */ }
 ```
 
 A member added in a later build appears on `ctx` without changing `api`; a
-kind that checks before calling keeps running on both.
-`api` only moves when something existing changes shape or leaves.
+kind that checks before calling keeps running on both. `ctx.accents` is the
+first member to arrive this way. `api` only moves when something existing
+changes shape or leaves.
 
 `ctx` is **ergonomics, not a boundary.** It exists so the common things are
 one call instead of twenty lines, not to constrain what a kind can reach — a
