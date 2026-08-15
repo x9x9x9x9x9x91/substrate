@@ -865,6 +865,8 @@ or not the body actually holds a fence.
 fences makes it a charts dashboard (§5.5), none falls back to the yield
 tracker. So a charts dashboard needs no specific key, just the fences;
 `dashboard: charts` says the same thing by name.
+One or more ` ```calendar ` fences makes it a calendar dashboard (§5.5c) the
+same way, and needs no specific key either.
 
 **Any other value renders an error card** naming the value and listing the
 kinds this build does dispatch — the quiet inline posture a ` ```view `
@@ -998,11 +1000,46 @@ as a hub:
 - a ` ```timeline ` fence renders live rather than as a code box, full-width
   where it sits, laying database notes with start/end date properties onto the
   horizontal time view of §5.5d;
+- these fences render live rather than as code boxes, full-width where they
+  sit: ` ```view ` embeds a database table exactly as §5.6 defines it,
+  ` ```chart ` plots exactly as §5.5 defines it, and ` ```cards ` renders the
+  metrics card row from a YAML list of the same card
+  items §5.4's `cards:` frontmatter takes — `label` and `bind` required,
+  `format`/`digits`/`emph` optional, binds resolving the same
+  `{{Sheet.summary}}` way:
+
+  ````markdown
+  ```cards
+  - label: Total value
+    bind: "{{Holdings.total}}"
+    format: eur
+    emph: true
+  - label: Positions
+    bind: "{{Holdings.positions}}"
+    format: number
+  ```
+  ````
+
+  The `emph` cap is **page-wide**, not per fence: a hub's cards fences are read
+  as one list, so the page spends at most two sharp values however many fences
+  it carries. A fence that doesn't parse (unknown key, duplicate key, bad
+  `format`/`digits`/`emph`, a card missing `label` or `bind`, an empty list)
+  renders its error sentence in place and leaves every sibling block alone —
+  same idiom as a malformed `view`/`chart` fence. A ` ```cards ` fence inside a
+  callout body or a plain quote is not a card row; it stays a code box, and it
+  takes no slot in the page-wide list (the same is true of a quoted
+  ` ```chart `, ` ```progress ` or ` ```calendar `).
+- a ` ```progress ` fence draws a goal thermometer exactly as §5.5b defines it,
+  over the same binds the cards take, and a ` ```calendar ` fence draws the
+  month grid exactly as §5.5c defines it;
 - everything else (paragraphs, lists, checkboxes, tables, `![[image]]`
   embeds, fences, plain quotes) renders full-width in linear flow between
   card rows. Checkboxes are display-only; audio/file embeds render their
   `embedded file · <name>` placeholder.
 
+Blocks render in document order — prose, headings, callout rows and the live
+fences interleave freely, so one hub body composes a whole dashboard
+declaratively.
 
 The hub is read-only — "Open source note" drops into the editor, and the file
 stays plain markdown any editor can read (`src/lib/hub.ts`,
@@ -1212,6 +1249,33 @@ Mount bindings are per machine (§8): on a machine where the mount isn't bound,
 or its folder is away, the card still shows the last-known number and says
 "not on this machine" / "folder not found" underneath — never a blank board.
 
+The same card items also appear as a ` ```cards ` body fence on a hub page
+(§5.2) — one schema, one binding path, one formatter
+(`src/lib/metriccards.ts`, `src/components/MetricCards.tsx`). The two paths
+differ deliberately in how strictly they read a malformed card: the **fence**
+validates strictly and names the mistake in place (an unknown key, `format` or
+out-of-range `digits` is an error where the fence sits), because it is
+hand-written body text a person edits and expects feedback on, while this
+**frontmatter** path stays lenient (an incomplete card is dropped, an unknown
+`format` renders the raw value, out-of-range `digits` clamps), because
+frontmatter is machine-written as often as hand-written and a whole dashboard
+should not blank out over one bad key.
+
+The split is by SURFACE, not by key: every hand-authored card surface reads a
+value the same strict way, through one reader for `digits`
+(`parseCardDigits`), so they refuse the same values with the same words — and
+the two lenient paths, frontmatter parsing and the formatter's own last-resort
+guard, clamp with the same `clampCardDigits`. A card object built by any other
+path still cannot reach `toLocaleString` out of range.
+
+Behavior change to know about when reading an older vault: a hand-authored
+` ```cards ` fence carrying `digits: 9` (or any value past 8) used to render,
+silently clamped to 8; it is now a named parse error, and because the
+fence stops at the first bad card the whole strip renders that message in place
+of its cards until the value is corrected. The bound itself is unchanged — 0–8
+has always been what the docs promised — so only a fence that was already
+outside it is affected. Frontmatter `cards:` still clamps, so a dashboard's
+own card list is untouched.
 
 ### 5.5 Chart blocks — ` ```chart ` fences
 
@@ -1296,6 +1360,7 @@ a non-numeric y are skipped (reported as a skip count); date axes sort ascending
 categorical axes keep first-appearance order. A dashboard renders every ` ```chart `
 fence in body order; a malformed fence renders its parse error in place — it never
 breaks the others, and fixing the text fixes the chart.
+Hub bodies host the same fence with the same parser and renderer (§5.2).
 
 Every series of a `by` split shares the chart's x axis: a bar series carries the
 whole (zero-filled) axis so stacks line up, and a line series omits keys it has
@@ -1356,7 +1421,136 @@ both chart and heatmap fences renders its charts first and its heatmaps under
 them. Hub bodies host the fence too (§5.2). A malformed fence renders its parse
 error in place and leaves its siblings alone.
 
+### 5.5b Progress fences — ` ```progress `
 
+A ` ```progress ` fence declares one goal: a number, the number it should reach,
+and optionally the day it is due. Config is hand-editable `key: value` text, one
+per line; `#` comments allowed, values may be quoted:
+
+````markdown
+---
+type: dashboard
+dashboard: hub
+---
+
+```progress
+label: Portfolio target
+value: {{Holdings.total}}
+target: 500000
+format: eur
+deadline: 2026-12-31
+start: 2026-01-01
+```
+
+```progress
+label: Signups
+value: count
+source: signup
+query: status:confirmed
+target: 100
+```
+````
+
+Keys (`src/lib/progress.ts`; `value` and `target` required):
+
+| key        | meaning                                                                  |
+| ---------- | ------------------------------------------------------------------------ |
+| `label`    | optional goal name; otherwise derived from `value`                       |
+| `value`    | `{{Sheet.summary}}` — the same bind §5.4 defines — or the literal `count` |
+| `source`   | with `value: count`: the database to count (a `type` name)               |
+| `query`    | with `value: count`: optional filter, the ` ```view ` query grammar (§5.6) |
+| `target`   | a positive number, or a `{{Sheet.summary}}` bind                          |
+| `deadline` | `YYYY-MM-DD` — turns on the pace line                                    |
+| `start`    | `YYYY-MM-DD` the value stood at **zero** — the ahead/behind anchor        |
+| `format`   | as §5.4: `eur`, `usd`, `number`, `pct`                                   |
+| `digits`   | as §5.4                                                                   |
+
+`value: count` reports the **total** the query matches, not a page of it — the
+same number the equivalent ` ```view ` fence's table counts, resolved through the
+same path. Binds resolve through the metric card's own loader, so a summary
+reads identically on a card and on a thermometer. The bar clamps at 100 %; the
+percent text does not, so 120 % of a target says so.
+
+**Pace is deliberately narrow.** Nothing on disk records what a summary or a row
+count was yesterday, so "ahead of schedule" is only honest when the fence says
+where the line starts:
+
+- with `start:` — a straight line runs from 0 on the start day to `target` on
+  the deadline, and the fence reports the distance from it ("behind by 13.000 €
+  · 44 days left"). Before the start day and after the deadline the line does not
+  extrapolate: it ends where it ends.
+- without `start:` — **no ahead/behind claim at all**. The fence reports the days
+  left and the per-day rate still required, both of which follow from today's
+  value alone.
+
+`start` without `deadline` is an error, as is a `start` on or after the deadline.
+Date math is calendar-pure (`src/lib/dates.ts` `daysBetween`), so a reading can't
+drift across a DST boundary.
+
+A fence that doesn't parse — unknown or duplicate key, `value` that is neither
+`count` nor a bind, `count` without a `source`, `source`/`query` on a bound
+value, a non-positive `target`, a malformed date, an unknown `format` — renders
+its error sentence in place and leaves every sibling block alone, same idiom as a
+malformed `view`/`chart`/`cards` fence. So does an unreadable bind or an unknown
+database at render time.
+
+Surface: a hub body (§5.2) hosts progress fences; a hub whose body is one fence
+is the standalone form. A ` ```progress ` fence inside a plain quote or a callout
+body is quoted text and stays a code box — the same rule the ` ```chart ` and
+` ```cards ` fences follow. Like them it is a machine fence: its config
+lines stay out of the search index, tail and all.
+
+### 5.5c Calendar blocks — ` ```calendar ` fences
+
+A ` ```calendar ` fence inside a dashboard note declares one month grid over a
+date property. Config is the same hand-editable `key: value` text the
+chart fence takes, one per line, `#` comments allowed:
+
+````markdown
+---
+type: dashboard
+---
+
+```calendar
+source: release
+date: released
+query: status:mastering
+```
+````
+
+Keys (`src/lib/calendarfence.ts`; `source` and `date` required):
+
+- `source` — a database type (`release`), or `{{Sheet Name}}` for a sheet, read
+  exactly as §5.5's `source` is.
+- `date` — the date property (database) or column (sheet) the grid places
+  entries on. Matched case-insensitively. A name no note of the type carries
+  and the schema does not declare as a date errors the fence naming it, with
+  the date props it does have — an empty month is never a stand-in for a typo.
+- `label` — optional: the property/column each chip reads instead of the note
+  title (a sheet without one reads its first column). A label absent from the
+  whole source errors the same way; a note whose label value is empty falls
+  back to its title rather than erroring.
+- `query` — optional, database sources only: the same operator language as the
+  database filter bar (`src/lib/query.ts`, §5.6's `query`), narrowing which
+  notes reach the grid. On a `{{Sheet}}`
+  source it is a parse error, not a silent no-op. Binding checks run against
+  the whole type, never the query result, so an over-narrow filter reads as an
+  empty month and a misspelled property still reads as an error.
+
+Semantics: entries sit on their day, ordered all-day-first then by time then by
+title — the Calendar pane's own order. A chip opens its note (a `{{Sheet}}`
+chip opens the sheet: a row is not a note). **Recurrence is honoured**: a
+database source expands `repeat` / `repeat_until` / `repeat_skip` (§5.7)
+through the same `calendarEntries` the Calendar pane uses, bounded by the drawn
+month's window, so occurrences stay virtual and nothing is materialized. A
+sheet source has no notes and therefore no recurrence — one row, one day.
+
+A dashboard renders every ` ```calendar ` fence in body order, each with its own
+month cursor (paging one leaves the others where they are); a malformed fence
+renders its parse error in place and never breaks the others. Hub bodies host
+the same fence with the same parser and renderer (§5.2). A tailed opener
+(` ```calendar month `) is not a fence: the parser reads the bare form only, so
+it renders as a code box and stays in the search index like any prose.
 
 ### 5.5d Timeline blocks — ` ```timeline ` fences
 

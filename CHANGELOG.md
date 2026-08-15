@@ -88,8 +88,9 @@
   or a prefilled capture box; search sees into mounted folders; sheets gain a totals
   row, filtered sums, and column notifications that open the sheet at the row that
   fired; property kinds can ship as bundles inside the vault; dashboards compose on a
-  grid; a settings dial picks the one locale every date renders in; and a glow dial with
-  curated accent tones joins Settings.
+  grid; hub notes render calendar and timeline fences, a month grid and a date-axis arc
+  drawn live from the data they query; a settings dial picks the one locale every date
+  renders in; and a glow dial with curated accent tones joins Settings.
 
 ### Improved
 

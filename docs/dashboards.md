@@ -284,16 +284,15 @@ either way, whether the note names `dashboard: charts` or names no kind at all
 and is read by body content. A malformed fence renders its parse error in place
 and never breaks the others.
 
+### Progress fences — goal thermometers
 
-
-### `hub` — a designed home page
-
-The body stays ordinary markdown; the renderer lays it out. `## ` headings become
-section labels, a run of consecutive callouts (no blank lines between them)
-becomes a side-by-side card row, and ` ```view ` fences embed live database
-tables between them. A ` ```heatmap ` fence draws its year of days there too,
-exactly as it does on a heatmap dashboard, and a ` ```timeline ` fence draws
-database items with a start/end arc on a horizontal date axis.
+One ` ```progress ` fence per goal; the body can hold several. `label` is
+optional (otherwise derived from `value`). `value` is either
+a `{{Sheet.summary}}` bind — resolved by the metrics dashboard's own loader, so
+a summary reads identically on a card and on a bar — or the literal `count` over
+a `source` database with an optional `query` in the ` ```view ` grammar, which
+reports the total that query matches. `target` is a positive number or a bind,
+and `format`/`digits` are the metrics card's formats.
 
 ````markdown
 ---
@@ -301,6 +300,96 @@ type: dashboard
 dashboard: hub
 ---
 
+```progress
+label: Portfolio target
+value: {{Holdings.total}}
+target: 500000
+format: eur
+deadline: 2026-12-31
+start: 2026-01-01
+```
+
+```progress
+label: Signups
+value: count
+source: signup
+query: status:confirmed
+target: 100
+```
+````
+
+**The pace line only claims what the vault can back.** Nothing on disk records
+what a summary or a row count was yesterday, so "ahead of schedule" needs the
+fence to say where the line starts. With `start:` — the day the value stood at
+zero — a straight line runs from 0 to `target` on the deadline and the fence
+reports the distance from it ("behind by 13.000 € · 44 days left"). Without it,
+a `deadline` still gives days left and the per-day rate required from here, and
+the fence makes no ahead/behind claim at all. `start` without a `deadline`, or
+on/after it, is a parse error; so are an unknown key, a `value` that is neither
+`count` nor a bind, `count` without a `source`, `source`/`query` on a bound
+value, a non-positive `target` and a malformed date. Each errors where it sits
+and never breaks its siblings.
+
+The bar clamps at 100 %; the percent text does not, so overshooting a target
+says so. Hub bodies host the same fence with the same parser and renderer.
+
+### `calendar` fences — a month grid over any date property
+
+One ` ```calendar ` fence per grid; the body can hold several, and a body that
+carries them needs no `dashboard:` key. `source` is a database type or
+`{{Sheet Name}}`, `date` names the date property (or sheet column) the entries
+sit on.
+
+````markdown
+---
+type: dashboard
+---
+
+```calendar
+source: release
+date: released
+query: status:mastering
+```
+````
+
+Optional `label` picks the property each chip reads instead of the note title;
+optional `query` is the database filter-bar language (a `query` on a sheet
+source is a parse error — a sheet has no filter bar). Each fence keeps its own
+month cursor, so paging one calendar leaves the others where they were, and a
+malformed fence renders its parse error in place without touching its siblings.
+
+Clicking an entry opens its note. **Repeating notes expand in the grid**:
+`repeat` / `repeat_until` / `repeat_skip` are read by the same engine the
+Calendar pane uses, so a weekly note fills the month it is viewed in without
+anything being written to disk. A `{{Sheet}}` source has no notes and so no
+recurrence — one row, one day, and every chip opens the sheet.
+
+A tailed opener (` ```calendar month `) is not a fence anywhere: the parser
+reads the bare form only, so it renders as a code box and stays searchable
+prose.
+
+### `hub` — a designed home page
+
+The body stays ordinary markdown; the renderer lays it out. `## ` headings become
+section labels, a run of consecutive callouts (no blank lines between them)
+becomes a side-by-side card row, and ` ```view `, ` ```chart `, ` ```cards `,
+` ```progress ` and ` ```calendar ` fences render live between them: a `view`
+embeds a database table, a `chart` plots exactly as it does on a charts
+dashboard, `cards` shows the metrics dashboard's stat-card row, `progress`
+draws a goal thermometer, and `calendar` draws the month grid described above.
+A ` ```heatmap ` fence draws its year of days there too, exactly as it does on a
+heatmap dashboard, and a ` ```timeline ` fence draws database items with a
+start/end arc on a horizontal date axis.
+Prose, headings, callout rows and fences render in the order they were written,
+interleaved however you like — a hub is a canvas, not a fixed slot layout.
+
+````markdown
+---
+type: dashboard
+dashboard: hub
+---
+
+Label home — the week at a glance.
 
 ## Now
 
@@ -311,6 +400,28 @@ dashboard: hub
 > [!idea] Later
 > Try the granular chain on the outro.
 
+## Money
+
+```cards
+- label: Total value
+  bind: "{{Holdings.total}}"
+  format: eur
+  emph: true
+- label: Crypto
+  bind: "{{Holdings.crypto}}"
+  format: eur
+- label: Positions
+  bind: "{{Holdings.positions}}"
+  format: number
+```
+
+```chart
+source: {{Holdings}}
+x: bucket
+y: sum:value_eur
+kind: bar
+title: Holdings by bucket
+```
 
 ## Releases in flight
 
@@ -359,6 +470,22 @@ one group pack onto subtracks, and each bar/dot opens its source note. Its
 source is a database type in v1 (not a sheet), because every rendered item is
 required to have a truthful note-opening action. See vault-format §5.5d.
 
+The ` ```cards ` fence takes the same card items a metrics dashboard's `cards:`
+frontmatter list takes — `label` and `bind` required, `format` (`eur`, `usd`,
+`number`, `pct`), `digits` and `emph` optional — and binds resolve
+identically, `{{Sheet.summary}}` against a sheet note. The ` ```chart ` fence
+takes the same keys its own dashboard's fences take, over the same sources, and
+the ` ```progress ` fence takes the goal keys above, over the same source
+contracts.
+
+Emphasis is capped across the **whole page**, not per fence: a hub spends at
+most two sharp values however many ` ```cards ` fences it carries, so `emph` on
+a third card is ignored rather than flattening the page's contrast.
+
+A fence that doesn't parse says what's wrong where it sits — an unknown key, a
+bad `format`, a card missing its `bind` — and everything around it still
+renders. A fence in a language the hub doesn't render (` ```csv `, ` ```rust `)
+stays a code box, as does a ` ```cards ` fence inside a callout body.
 
 ### `food` — daily net-kcal tracker
 
@@ -591,6 +718,7 @@ dashboard (beside charts they hang under them), otherwise the yield tracker. A k
 that *is* written but isn't a kind this build knows renders a small card naming
 it and listing the kinds that exist (SUB-993) — a typo shows you the typo,
 rather than quietly handing you a different dashboard.
+` ```calendar ` fences fall back to the month grids the same way.
 
 
 

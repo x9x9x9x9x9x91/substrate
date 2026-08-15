@@ -142,9 +142,17 @@ Capacities, Affine).*
   **timelines** (a database's notes laid on a horizontal date axis from their
   own start/end props — missing ends are milestones, values of a chosen prop
   become lanes, overlaps pack onto subtracks, and every bar opens its note),
-  hub
-  pages (prose + live embedded views), food/kcal tracking (quantity grammar —
-  "200g oats" logs itself, weight-curve overlay), tasks (an urgency-led board:
+  goal thermometers (a ` ```progress ` fence puts a sheet summary or a live
+  database count against a target, with a pace line that only claims
+  ahead/behind when the fence anchors where the line starts — no invented
+  history), month grids (a ` ```calendar ` fence draws any database's date
+  property as a month, recurrence expanded the way the Calendar pane expands
+  it, with nothing materialized on disk), hub pages (one markdown body mixing
+  prose, headings, callout card rows and live ` ```view ` / ` ```chart ` /
+  ` ```progress ` / ` ```calendar ` / ` ```cards ` fences in any order — a
+  dashboard composed by writing it, no code),
+  food/kcal tracking (quantity grammar — "200g oats" logs itself,
+  weight-curve overlay), tasks (an urgency-led board:
   Overdue/Due today sections, quick-add, checkoff with a real undo, Now/Later,
   snooze round trip, a kanban view by area with drag-to-recategorize, and a
   sort switch — urgency/priority/due/age), news feed with agent curator, plus

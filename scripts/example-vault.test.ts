@@ -8,6 +8,7 @@ import { isErr, type FxResolver } from "../src/lib/formula.ts";
 import { parseChartBlocks } from "../src/lib/chart.ts";
 import { parseHub } from "../src/lib/hub.ts";
 import { parseViewSpec } from "../src/lib/embeds.ts";
+import { collectCardsFences, parseBind, parseCardsBlock } from "../src/lib/metriccards.ts";
 import { parseFoodRows } from "../src/lib/food.ts";
 import { parseFoodDb } from "../src/lib/fooddb.ts";
 import { isOpenableUrl, parseFeedItems } from "../src/lib/feed.ts";
@@ -269,6 +270,38 @@ test("Release Charts fences parse clean and name real sources", () => {
     const src = b.config.source;
     if (src.kind === "db") assert.ok(dbTypes.has(src.type), `chart over unknown database "${src.type}"`);
     else assert.ok(loadSheet(src.name), `chart over unknown sheet "${src.name}"`);
+  }
+});
+
+test("Home hub's cards and chart fences parse and bind to the bundled sheet", () => {
+  const n = byStem("Home");
+  assert.ok(n, "Dashboards/Home.md missing");
+  const model = loadSheet("Holdings");
+  assert.ok(model, "Holdings sheet missing — the hub's cards and chart read it");
+  const ev = evaluateSheet(model, fx);
+
+  const fences = collectCardsFences(n.body);
+  assert.equal(fences.length, 1, "hub should carry one ```cards fence");
+  for (const inner of fences) {
+    const block = parseCardsBlock(inner);
+    assert.equal(block.error, null, `cards fence error: ${block.error}`);
+    assert.ok(block.cards.length >= 2, "cards fence should show at least 2 cards");
+    for (const card of block.cards) {
+      const bind = parseBind(card.bind);
+      assert.ok(bind, `card "${card.label}" has an unparseable bind`);
+      assert.equal(bind.sheet, "Holdings", `card bind targets unknown sheet "${bind.sheet}"`);
+      assert.ok(!isErr(findSummary(ev, bind.name)), `bind {{Holdings.${bind.name}}} resolves no summary`);
+    }
+  }
+
+  const charts = parseChartBlocks(n.body);
+  assert.equal(charts.length, 1, "hub should carry one ```chart fence");
+  for (const b of charts) {
+    assert.equal(b.error, null, `chart fence error: ${b.error}`);
+    assert.ok(b.config, "chart fence produced no config");
+    assert.ok(b.config.bind !== "history", "chart fence should name a source");
+    const src = b.config.source;
+    assert.ok(src.kind === "sheet" && loadSheet(src.name), "hub chart should read the bundled sheet");
   }
 });
 

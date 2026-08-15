@@ -12,6 +12,26 @@ created: 2026-07-23
 > [!idea] Later
 > [[Fern Static]] — try the field recordings as a bed under everything.
 
+## Money
+
+```cards
+- label: Total value
+  bind: "{{Holdings.total}}"
+  format: usd
+  emph: true
+- label: Crypto
+  bind: "{{Holdings.crypto}}"
+  format: usd
+```
+
+```chart
+source: {{Holdings}}
+x: bucket
+y: sum:value_usd
+kind: bar
+title: Value by bucket
+```
+
 ## In flight
 
 ```view
