@@ -4,16 +4,22 @@ import type { NoteMeta, PropSchema } from "./types.ts";
 import {
   compareTarget,
   completeFilter,
+  completeKey,
   filterCompletions,
   filterDeadEndHint,
   filterInherits,
   filterLabel,
+  keyCompletions,
   matchesFilters,
   parseQuery,
+  QUERY_SYNTAX,
   remapSavedQueryProperty,
   resolveCompare,
   textWords,
 } from "./query.ts";
+/* the syntax panel's two text rows claim where a match is looked for, and
+   only the pane's real matcher can answer that */
+import { filterByQuery } from "./views.ts";
 
 /* A fixed "today" keeps the relative-duration assertions deterministic —
    2026-07-17 is a Friday, so week math crosses a month boundary below. */
@@ -939,6 +945,155 @@ test("filterDeadEndHint: a schema prop's options count under any casing (SUB-118
     text: 'did you mean category:"field recorder"?',
     fixedQuery: 'category:"field recorder"',
   });
+});
+
+/* The syntax panel promises one operator class per row. Each example is
+   parsed back here and asserted to land in the class its row claims — so a
+   grammar change that strands a row turns this file red instead of shipping a
+   panel that teaches syntax the parser no longer has. The coverage check
+   below is what makes a new row arrive with its own assertion. */
+
+/** titles of the notes an example actually keeps — the whole matcher a filter
+    bar runs, not just the parse, for the rows whose labels claim WHERE a
+    match is looked for */
+function hits(query: string, notes: NoteMeta[], schema?: Record<string, PropSchema>): string[] {
+  return filterByQuery(notes, query, TODAY, schema).map((n) => n.title);
+}
+
+const SYNTAX_CHECKS: Record<string, (example: string) => void> = {
+  // The two text rows are pinned through filterByQuery, not through the parse:
+  // they are the only rows whose labels make a claim about WHERE a match is
+  // looked for, and the parse cannot answer that. `hits` below is the real
+  // matcher every filter bar runs.
+  words: (q) => {
+    assert.deepEqual(parseQuery(q, TODAY).filters, [], "no filter — this is the bare-word path");
+    const titled = note("Night Drive");
+    assert.deepEqual(hits(q, [titled]), ["Night Drive"], "both words, in the title, any case");
+    // the row says "the title", and means it: nothing else is even consulted
+    const elsewhere = { ...note("Untitled"), excerpt: "a night drive through it" };
+    assert.deepEqual(hits(q, [elsewhere]), [], "the excerpt does not answer bare words");
+    const propped = note("Untitled", { theme: "night drive" });
+    assert.deepEqual(hits(q, [propped]), [], "nor does a property value");
+    assert.deepEqual(hits(q, [note("Night")]), [], "every word has to land");
+  },
+  phrase: (q) => {
+    assert.deepEqual(parseQuery(q, TODAY).phrases, ["night drive"], "quotes stripped");
+    // the three places the haystack is actually built from
+    const titled = note("Night Drive dub");
+    const excerpted = { ...note("Untitled A"), excerpt: "opens on a night drive" };
+    const propped = note("Untitled B", { theme: "Night Drive" });
+    assert.deepEqual(
+      hits(q, [titled, excerpted, propped]),
+      ["Night Drive dub", "Untitled A", "Untitled B"],
+      "title, preview and properties all answer — which is exactly what the row claims"
+    );
+    // and the limit the row must not overclaim past: a body the excerpt
+    // stopped short of is not in the haystack at all
+    const deep = { ...note("Untitled C"), excerpt: "opens on something else" };
+    assert.deepEqual(hits(q, [deep]), [], "no body beyond the excerpt is searched");
+    // the phrase stays whole — a plain word split would match this one
+    assert.deepEqual(hits(q, [note("Drive by night")]), [], "the words in the other order miss");
+  },
+  keyValue: (q) => {
+    assert.deepEqual(parseQuery(`${q} `, TODAY).filters, [{ key: "status", values: ["live"] }]);
+    // the row says "is (or starts with)"
+    const f = parseQuery("status:re ", TODAY).filters;
+    assert.equal(matchesFilters(note("n", { status: "released" }), f, TODAY), true);
+  },
+  or: (q) => {
+    const f = parseQuery(`${q} `, TODAY).filters;
+    assert.deepEqual(f, [{ key: "status", values: ["live", "mixing"] }]);
+    assert.equal(matchesFilters(note("n", { status: "mixing" }), f, TODAY), true, "second value hits");
+    assert.equal(matchesFilters(note("n", { status: "done" }), f, TODAY), false);
+  },
+  quotedValue: (q) => {
+    const f = parseQuery(`${q} `, TODAY).filters;
+    assert.deepEqual(f, [{ key: "status", values: ["in review"] }], "the space stays inside one value");
+    assert.equal(matchesFilters(note("n", { status: "In review" }), f, TODAY), true);
+  },
+  negation: (q) => {
+    const f = parseQuery(`${q} `, TODAY).filters;
+    assert.deepEqual(f, [{ key: "status", values: ["done"], neg: true }]);
+    assert.equal(matchesFilters(note("n", { status: "done" }), f, TODAY), false);
+    assert.equal(matchesFilters(note("n", { status: "live" }), f, TODAY), true);
+  },
+  duration: (q) => {
+    const f = parseQuery(`${q} `, TODAY).filters;
+    assert.deepEqual(f, [{ key: "due", values: ["2w"], op: "<" }]);
+    // 2w from 2026-07-17 is 2026-07-31 — a nearer day satisfies it, a later one doesn't
+    assert.equal(matchesFilters(note("n", { due: "2026-07-20" }), f, TODAY), true);
+    assert.equal(matchesFilters(note("n", { due: "2026-08-20" }), f, TODAY), false);
+  },
+  isoDate: (q) => {
+    const f = parseQuery(`${q} `, TODAY).filters;
+    assert.deepEqual(f, [{ key: "released", values: ["2026-01-01"], op: ">=" }]);
+    assert.equal(matchesFilters(note("n", { released: "2026-01-01" }), f, TODAY), true, "inclusive");
+    assert.equal(matchesFilters(note("n", { released: "2025-12-31" }), f, TODAY), false);
+  },
+  number: (q) => {
+    const f = parseQuery(`${q} `, TODAY, PRICE_SCHEMA).filters;
+    assert.deepEqual(f, [{ key: "price", values: ["500"], op: ">" }]);
+    const hits = (v: string) => matchesFilters(note("n", { price: v }), f, TODAY, PRICE_SCHEMA);
+    assert.equal(hits("1200"), true);
+    assert.equal(hits("120.5"), false, "numeric, not lexicographic");
+  },
+  folder: (q) => {
+    const f = parseQuery(`${q} `, TODAY).filters;
+    assert.deepEqual(f, [{ key: "folder", values: ["projects"] }]);
+    const filed = { ...note("n"), folder: "Projects" };
+    assert.equal(matchesFilters(filed, f, TODAY), true);
+    assert.equal(matchesFilters(note("n"), f, TODAY), false, "an unfiled note is not in it");
+  },
+};
+
+test("QUERY_SYNTAX: every advertised class has an assertion", () => {
+  assert.deepEqual(
+    QUERY_SYNTAX.map((r) => r.id).sort(),
+    Object.keys(SYNTAX_CHECKS).sort(),
+    "a row without a check teaches syntax nothing verifies"
+  );
+  for (const row of QUERY_SYNTAX) {
+    assert.ok(row.label.trim(), `${row.id} needs a label`);
+    assert.ok(row.example.trim(), `${row.id} needs an example`);
+  }
+});
+
+for (const row of QUERY_SYNTAX) {
+  test(`QUERY_SYNTAX: "${row.example}" parses as ${row.id}`, () => {
+    SYNTAX_CHECKS[row.id](row.example);
+  });
+}
+
+test("keyCompletions: a bare word offers the property keys it opens", () => {
+  const cols = ["Status", "Stage", "Due", "Price"];
+  assert.deepEqual(keyCompletions(cols, "sta"), ["Status", "Stage"], "prefix, original spelling");
+  assert.deepEqual(keyCompletions(cols, "STA"), ["Status", "Stage"], "the word folds case");
+  assert.deepEqual(keyCompletions(cols, "status"), ["Status"], "a whole key still completes");
+  assert.deepEqual(keyCompletions(cols, "fol"), ["folder"], "folder filters like a column");
+  assert.deepEqual(keyCompletions(cols, "zzz"), [], "no key, no chips");
+});
+
+test("keyCompletions: only a word still being typed qualifies", () => {
+  const cols = ["Status", "Due"];
+  assert.deepEqual(keyCompletions(cols, ""), []);
+  assert.deepEqual(keyCompletions(cols, "sta "), [], "a finished word is not the cursor's");
+  assert.deepEqual(keyCompletions(cols, "status:li"), [], "past the colon is the value's business");
+  assert.deepEqual(keyCompletions(cols, "due <"), [], "a comparison stub, likewise");
+  assert.deepEqual(keyCompletions(cols, "Status: du"), [], "a spaced value is still the value's");
+  assert.deepEqual(keyCompletions(cols, '"sta'), [], "an open quote says phrase, not property");
+  assert.deepEqual(keyCompletions(cols, "https://example.com/sta"), [], "a pasted URL is never a key");
+  assert.deepEqual(keyCompletions(cols, "-sta"), ["Status"], "a negated word opens the same keys");
+  assert.deepEqual(keyCompletions(cols, "due < 7d sta"), ["Status"], "the LAST word is the cursor's");
+});
+
+test("completeKey: the trailing word becomes key:, negation intact", () => {
+  assert.equal(completeKey("sta", "Status"), "Status:");
+  assert.equal(completeKey("due < 7d sta", "Status"), "due < 7d Status:");
+  assert.equal(completeKey("-sta", "Status"), "-Status:");
+  // no trailing space: the value is typed next, and the result is a live stub
+  const p = parseQuery(completeKey("sta", "Status"));
+  assert.equal(p.trailing?.key, "status");
+  assert.equal(p.trailing?.partial, "");
 });
 
 test("filterDeadEndHint: a folder's name typed bare suggests folder: (SUB-1187)", () => {

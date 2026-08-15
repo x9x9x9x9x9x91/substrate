@@ -29,8 +29,8 @@ import {
 } from "../lib/pendingprops";
 import { useUndo } from "../lib/undoContext";
 import { nextUndoId } from "../lib/undo";
-import { completeFilter, filterCompletions, filterDeadEndHint, filterInherits, filterLabel, matchesFilters, parseQuery } from "../lib/query";
-import { filterByQuery } from "../lib/views";
+import { completeFilter, completeKey, filterCompletions, filterDeadEndHint, filterInherits, filterLabel, keyCompletions, matchesFilters, parseQuery } from "../lib/query";
+import { filterByQuery, saveViewHint } from "../lib/views";
 import { exportDbCsv, exportDbPdf } from "../lib/export";
 import { todayIso } from "../lib/dates";
 import { displayColLabel, displayValue } from "../lib/display";
@@ -73,6 +73,7 @@ import {
   ColumnsMenu,
   colWidthRule,
   EMPTY_SEL,
+  FilterSyntax,
   LAYOUT_ICON,
   MAX_COL_W,
   MIN_COL_W,
@@ -837,9 +838,18 @@ export default function DatabasePane({
       : dispNotes;
     return filterCompletions(source, parsedQuery.trailing.key, parsedQuery.trailing.partial);
   }, [dispNotes, parsedQuery, typeSchema]);
+  // Before any operator is typed there is nothing for the value chips to
+  // complete, and a bare word is the one thing every reader types first — so
+  // it offers the property KEYS it could open ("sta" → "status:"). The
+  // function bails on its own once the query reaches an operator, which is
+  // where `completions` above takes back over.
+  const keyHints = useMemo(() => keyCompletions(columns, query), [columns, query]);
 
   // placeholder teaches the filter syntax with a real example from this
-  // database's schema — a made-up key would just mislead
+  // database's schema — a made-up key would just mislead. `folder:` rides
+  // along verbatim: it is the one key that is real in every database (it
+  // filters on placement, not on a prop), and naming it here matches the
+  // search pane, which has always listed it
   const filterHint = useMemo(() => {
     for (const [key, schema] of Object.entries(typeSchema)) {
       // the type's record also carries reserved db metadata (icon/home) that
@@ -847,9 +857,9 @@ export default function DatabasePane({
       // it, and this loop crashed every db view on vaults with icons (0.8.0)
       if (!schema || typeof schema !== "object" || !Array.isArray(schema.options)) continue;
       const first = schema.options[0]?.value;
-      if (first && !/\s/.test(first)) return `Filter — try ${key}:${first}`;
+      if (first && !/\s/.test(first)) return `Filter — try ${key}:${first} or folder:`;
     }
-    return "Filter…";
+    return "Filter — try folder:";
   }, [typeSchema]);
 
   // lexicographic over the key list: key 1 decides, ties fall
@@ -2155,6 +2165,10 @@ export default function DatabasePane({
         <InlineEdit
           initial={saveViewSeed ?? ""}
           placeholder="Name this view…"
+          /* saving upserts by name, and the field opens seeded with the open
+             pin's — so the common press REPLACES a pin rather than adding one.
+             Say so while the name still matches. */
+          hint={(typed) => saveViewHint(savedViews, dbType, typed)}
           onCommit={(name) => {
             setNamingView(false);
             onSaveView(name, { query: query.trim(), sorts, view: layout, groupBy, tableGroupBy: tableGroup, columns: colCapture });
@@ -2177,6 +2191,10 @@ export default function DatabasePane({
                 setQuery(
                   completeFilter(query, parsedQuery.trailing.key, completions[0], parsedQuery.trailing.op)
                 );
+              } else if (e.key === "Tab" && keyHints.length > 0) {
+                // same key, one rung earlier: the word becomes the operator
+                e.preventDefault();
+                setQuery(completeKey(query, keyHints[0]));
               } else if (e.key === "Escape") {
                 e.preventDefault();
                 if (query) setQuery("");
@@ -2188,6 +2206,9 @@ export default function DatabasePane({
               }
             }}
           />
+          {/* The grammar, on demand. Unlike Save/Clear it never fades: what
+              you can type is the question you have BEFORE there is a query */}
+          <FilterSyntax />
           {/* Both actions stay mounted at their full size — they used
               to appear with the first keystroke, which re-laid-out the row the
               cursor was sitting in (design-principles.md 4). They fade in with
@@ -2218,8 +2239,12 @@ export default function DatabasePane({
     </div>
   );
 
-  const completionRow =
-    !namingView && filterFocused && parsedQuery.trailing && completions.length > 0 ? (
+  // One chip row, two rungs of the same ladder: with an operator typed the
+  // chips are that property's VALUES, and before one they are the property
+  // KEYS the word could open. Values win when both could apply — the reader
+  // has already committed to a key by then.
+  const completionRow = !(namingView || !filterFocused) ? (
+    parsedQuery.trailing && completions.length > 0 ? (
       <div className="search-completions">
         {completions.map((v) => (
           <button
@@ -2235,7 +2260,21 @@ export default function DatabasePane({
           </button>
         ))}
       </div>
-    ) : null;
+    ) : keyHints.length > 0 ? (
+      <div className="search-completions db-key-completions">
+        {keyHints.map((k) => (
+          <button
+            key={k}
+            className="search-completion"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setQuery(completeKey(query, k))}
+          >
+            {k}:
+          </button>
+        ))}
+      </div>
+    ) : null
+  ) : null;
 
   // The completion chips hang off the filter row instead of sitting
   // in the column flow — a band that opens and closes as you type used to

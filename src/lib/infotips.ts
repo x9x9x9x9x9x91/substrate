@@ -85,6 +85,14 @@ const STATIC_VIEW_TIPS: Record<View["kind"], InfoTip> = {
   },
 };
 
+/** Every view kind, read off the record above rather than written out again.
+    The record is typed `Record<View["kind"], InfoTip>`, so the compiler already
+    refuses a kind that has no tip; a second hand-kept list adds no guarantee
+    and only has a way to go stale — the one this replaces was six kinds
+    behind. Exported so the copy tests sweep every kind's prose, including the
+    ones added after they were written. */
+export const VIEW_KINDS = Object.keys(STATIC_VIEW_TIPS) as View["kind"][];
+
 function cleanText(value: string | null | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim();
 }
@@ -403,7 +411,14 @@ export const TIPS: TipEntry[] = [
     selector: ".db-filter-input",
     tip: {
       title: "Database filter",
-      body: "Filter the current database with words, property:value expressions, and supported operators.",
+      body: "Filter the current database with words, property:value expressions, and supported operators. The ? beside the field lists every one of them.",
+    },
+  },
+  {
+    selector: ".db-syntax-btn",
+    tip: {
+      title: "Filter syntax",
+      body: "Every operator the filter understands, one example each — matching a property, any-of lists, quoted values, negation, date and number comparisons, and folders.",
     },
   },
   {
@@ -697,7 +712,7 @@ export const TIPS: TipEntry[] = [
     selector: ".cm-editor",
     tip: {
       title: "Note editor",
-      body: "Write the note body in Markdown. Changes save automatically, and [[ opens note-link completion.",
+      body: "Write the note body in Markdown. Changes save automatically, [[ opens note-link completion, and / at the start of a line lists the insertions.",
     },
   },
   /* spreadsheet notes */
@@ -1069,10 +1084,26 @@ export const TIPS: TipEntry[] = [
     },
   },
   {
+    selector: ".hub-view",
+    tip: {
+      title: "Embedded view",
+      body: "A live database query rendered inside this note. It follows the database, so rows appear and leave as the entries change.",
+    },
+  },
+  {
     selector: ".proxy-quota-bar",
     tip: {
       title: "Quota used",
       body: "How much of the current window's allowance is spent, and when it resets.",
+    },
+  },
+  {
+    // the hero is shared chrome (`dash-hero`), so the day's own figure needs
+    // its own entry ahead of it
+    selector: ".food-hero",
+    tip: {
+      title: "Today's balance",
+      body: "What the day's entries add up to against the goal and the ceiling, with anything burned already taken off.",
     },
   },
   {
@@ -1117,11 +1148,118 @@ export const TIPS: TipEntry[] = [
       body: "One day in the trend. Its height is the day's total against your target band.",
     },
   },
+  /* tasks board */
+  {
+    selector: ".tasks-check",
+    tip: {
+      title: "Mark done",
+      body: "Tick the task off in its own note. The row leaves the board once that write lands.",
+    },
+  },
+  {
+    selector: ".tasks-act",
+    tip: (element) => ({
+      title: elementLabel(element, "Task action"),
+      body: "Pull the task into Now, push it back to later, park it until a day you choose, or wake a parked one.",
+    }),
+  },
+  {
+    // `dash-form` is worn by the quick-add as well, and its wording is about a
+    // day this board does not have — the specific class has to come first.
+    selector: ".tasks-compose",
+    tip: {
+      title: "Add a task",
+      body: "Type a title and press Enter to create the task. The chip beside it dates the new task as it is written.",
+    },
+  },
+  {
+    selector: ".tasks-row, .tasks-card",
+    tip: (element) => ({
+      title: elementLabel(element.querySelector(".tasks-title") ?? element, "Task"),
+      body: "One open task. Due date and priority are edited here directly; the title opens its note.",
+    }),
+  },
+  {
+    selector: ".tasks-col",
+    tip: (element) => ({
+      title: elementLabel(element.querySelector(".tasks-col-name") ?? element, "Board column"),
+      body: "Tasks filed under one area. Drop a card here to move it into that area.",
+    }),
+  },
+  {
+    selector: ".tasks-group-head",
+    tip: (element) => ({
+      title: elementLabel(element.querySelector(".tasks-group-name") ?? element, "Task group"),
+      body: "Tasks gathered by how pressing they are, with the number in this band.",
+    }),
+  },
+  /* curated feed */
+  {
+    selector: ".feed-vote",
+    tip: {
+      title: "Rate this item",
+      body: "Write an up or a down into the items sheet, where the next curation reads it back.",
+    },
+  },
+  {
+    selector: ".feed-chip",
+    tip: (element) => ({
+      title: elementLabel(element, "Topic filter"),
+      body: "Show only items on this topic. The first chip clears the filter again.",
+    }),
+  },
+  {
+    selector: ".feed-item",
+    tip: (element) => ({
+      title: elementLabel(element.querySelector(".feed-title") ?? element, "Feed item"),
+      body: "One curated entry. A title carrying a link opens it in your browser.",
+    }),
+  },
+  /* music work index */
+  {
+    selector: ".mw-filter",
+    tip: {
+      title: "Filter jobs",
+      body: "Narrow the board to jobs whose artist or name matches what you type.",
+    },
+  },
+  {
+    selector: ".mw-grouphead",
+    tip: (element) => ({
+      title: elementLabel(element.querySelector(".mw-grouplabel") ?? element, "Group"),
+      body: "Jobs collected under one value of the axis in use, with their count and size on disk.",
+    }),
+  },
+  {
+    selector: ".mw-job",
+    tip: (element) => ({
+      title: elementLabel(element.querySelector(".mw-name") ?? element, "Indexed job"),
+      body: "One project folder as the scan last found it. This board only reads — nothing here writes to the folder.",
+    }),
+  },
+  {
+    // the two-click arm sits inside the snapshot form, so it comes before it
+    selector: ".dash-claim",
+    tip: {
+      title: "Claim balance",
+      body: "Click once to arm, once more to record the balance as taken. Figures entered later add on top of it.",
+    },
+  },
+  {
+    // worn by the food log, the accrual board and any vault kind that asks for
+    // it, so this stays true of a headline figure in general — the boards that
+    // can say something sharper have their own entry above.
+    selector: ".dash-hero",
+    tip: {
+      title: "Headline figure",
+      body: "The one number this board leads with, worked out from the data below it. The line underneath says how it stands.",
+    },
+  },
   {
     selector: ".dash-form",
     tip: {
       title: "Add entry",
-      body: "Record a new line for the selected day. Enter saves it and clears the form.",
+      body: "Record a new line on this board. Enter saves it and readies the form for the next one.",
     },
   },
   {
@@ -1130,6 +1268,27 @@ export const TIPS: TipEntry[] = [
       title: elementLabel(element.querySelector(".dash-label") ?? element, "Metric"),
       body: "A single figure read from the dashboard's source data.",
     }),
+  },
+  {
+    selector: ".metrics-strip",
+    tip: {
+      title: "Metric cards",
+      body: "The figures this surface leads with. Each card shows what its binding reads out of a sheet, so the cards follow the sheet.",
+    },
+  },
+  {
+    selector: ".chart-line-slot",
+    tip: {
+      title: "Data point",
+      body: "Point at a slot to read the exact values behind it, and how many rows they were drawn from.",
+    },
+  },
+  {
+    selector: ".chart-legend",
+    tip: {
+      title: "Series",
+      body: "Which colour stands for which series in the plot beside it.",
+    },
   },
   {
     selector: ".dash-chart, .chart-line",

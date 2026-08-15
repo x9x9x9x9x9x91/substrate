@@ -135,6 +135,27 @@ export function findViewByName(
   );
 }
 
+/** What saving under this name would do, for the save-view control's muted
+    note: `Updates “Weekly”` when the typed name already names a pin of this
+    database, null when it would be a new one. Saving upserts by name
+    (App's saveView), and the field arrives pre-seeded with the open pin's
+    name — so the overwrite is both the common case and the only way to edit
+    a pin's query, and it used to look exactly like pinning a new view.
+
+    Matching folds case, but the save then stores the name as TYPED — so a
+    differently-spelled match renames the pin as well as replacing it, and the
+    note shows both spellings (`Updates “Weekly” → “weekly”`). Quoting only
+    the stored one would hide the rename; quoting only the typed one would
+    hide which pin is being replaced. */
+export function saveViewHint(views: SavedView[], db: string, typed: string): string | null {
+  const existing = findViewByName(views, db, typed);
+  if (!existing) return null;
+  const renamed = typed.trim();
+  return renamed === existing.name
+    ? `Updates “${existing.name}”`
+    : `Updates “${existing.name}” → “${renamed}”`;
+}
+
 /** Pins in sidebar order: pins nest under their database, databases
     in sidebar order, array order within each database — the exact sequence
     ⌘5…⌘9 follows. Where a pin RENDERS splits on its database's home:

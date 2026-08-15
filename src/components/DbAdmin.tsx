@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
-import type { MountInfo, MountScanStats, NewTypeProp, PropKind } from "../lib/types";
+import type { MountInfo, MountScanStats, NewPropKind, NewTypeProp } from "../lib/types";
 import { filePick } from "../lib/ipc";
 import { scanStatLine } from "../lib/mounts";
 import {
   CSV_IMPORT_LARGE,
+  CSV_KINDS,
+  csvCellValue,
   csvColumns,
   csvEntries,
   csvSafeColumns,
+  csvSampleCell,
+  csvSelectOptions,
   dbNameFromFile,
   type CsvEntry,
+  type CsvKind,
 } from "../lib/csvimport";
+import { numberLocale, numberLocaleSample } from "../lib/numberLocale";
 import { PlusIcon, XIcon } from "./Icons";
 import SelectMenu, { anchorFrom, type AnchorRect } from "./SelectMenu";
 
@@ -55,8 +61,12 @@ function Card({
   );
 }
 
-const PROP_KIND_OPTIONS: { value: PropKind; label: string }[] = [
+/** Every property kind, with the labels every picker in the app uses. The
+    two lists below are cuts of this one, so a kind reads the same wherever
+    it is offered. */
+const KIND_OPTIONS: { value: NewPropKind; label: string }[] = [
   { value: "text", label: "Text" },
+  { value: "select", label: "Select" },
   { value: "multi", label: "Multi-select" },
   { value: "date", label: "Date" },
   { value: "file", label: "File" },
@@ -68,9 +78,37 @@ const PROP_KIND_OPTIONS: { value: PropKind; label: string }[] = [
   { value: "number", label: "Number" },
 ];
 
+/** The kinds a property can be given before any note exists — two out.
+
+    `select` is out because the FORMAT cannot hold an empty one. A select
+    column is a kindless entry with options, and options are the whole of it:
+    with none, the schema editor resolves the entry back to Text
+    (SelectMenu's `kind ?? (options.length > 0 ? "select" : "text")`), and the
+    engine reads optionless-and-kindless as the absence of a property — saving
+    that shape through the schema editor REMOVES the column. A database being
+    created has no values yet for options to come from, so a select offered
+    here could only ever be a text column wearing the word, with a delete
+    waiting behind it. Options come from values in use: the editor's option
+    list prefills from them, and a cell's promote row adds one at a time.
+
+    `rollup` is out because it aggregates across a relation, and a database
+    being created has none to follow. */
+const PROP_KIND_OPTIONS = KIND_OPTIONS.filter((k) => k.value !== "select");
+
+/** The kinds a CSV column can be imported as, in the same order and under
+    the same labels — the reasoning for the omissions lives with CSV_KINDS,
+    next to the parsing they'd need. `select` IS offered here, and means it:
+    an import knows the column's values, so it creates the column with those
+    values as its options rather than as a text column to convert later. */
+const CSV_KIND_OPTIONS = KIND_OPTIONS.filter((k) =>
+  (CSV_KINDS as readonly string[]).includes(k.value)
+);
+
+const kindLabel = (kind: NewPropKind | undefined) =>
+  KIND_OPTIONS.find((k) => k.value === (kind ?? "text"))?.label ?? "Text";
+
 /** "＋ New database": a name (becomes the `type`) plus optional initial
-    properties with kinds. Select-kind props are shaped afterwards from any
-    cell picker — options need a note to hang values on anyway. */
+    properties with kinds. */
 export function NewDatabaseDialog({
   dbTypes,
   onCreate,
@@ -147,7 +185,7 @@ export function NewDatabaseDialog({
                   setMenu({ row: i, which: "kind", anchor: anchorFrom(e.currentTarget) })
                 }
               >
-                {PROP_KIND_OPTIONS.find((k) => k.value === (p.kind ?? "text"))?.label ?? "Text"}
+                {kindLabel(p.kind ?? undefined)}
               </button>
               {p.kind === "relation" && (
                 <button
@@ -193,8 +231,7 @@ export function NewDatabaseDialog({
           anchor={menu.anchor}
           value={
             menu.which === "kind"
-              ? (PROP_KIND_OPTIONS.find((k) => k.value === (props[menu.row]?.kind ?? "text"))
-                  ?.label ?? "Text")
+              ? kindLabel(props[menu.row]?.kind ?? undefined)
               : (props[menu.row]?.target ?? "")
           }
           label={menu.which === "kind" ? "Property type" : "Target database"}
@@ -231,10 +268,17 @@ export function NewDatabaseDialog({
 
 /** "Import CSV as database…": a picked CSV becomes a new database.
     Name it, say whether the first row is headers, and choose the columns to
-    bring — the first included column becomes each entry's title, the rest
-    become text props; blank rows are skipped. The type is created through
-    the same path as "New database" (vault_create_type), entries through the
-    same vault_create as any note. */
+    bring and what each one becomes — the first included column becomes each
+    entry's title, the rest become props of the kind picked beside them
+    (text unless changed, which is what every column used to be); blank rows
+    are skipped. The kind rides all the way through: it shapes the created
+    schema AND how each cell is stored (csvCellValue), so a date column
+    arrives readable by the calendar and a number column adds up. A select
+    column also carries its vocabulary — the column's own distinct values
+    become its options, so it is a select on arrival rather than a text
+    column to convert. The type is created through the same path as
+    "New database" (vault_create_type), entries through the same vault_create
+    as any note. */
 export function CsvImportDialog({
   fileName,
   rows,
@@ -251,6 +295,12 @@ export function CsvImportDialog({
   const [headers, setHeaders] = useState(true);
   /** excluded column indices — everything starts included */
   const [excluded, setExcluded] = useState<Set<number>>(new Set());
+  /** chosen kinds by column index — absent reads as text. Keyed by index
+      rather than by name so a headers toggle, which renames every column,
+      doesn't scatter the choices. */
+  const [kinds, setKinds] = useState<Record<number, CsvKind>>({});
+  /** the open kind picker — a SelectMenu anchored at its row's button */
+  const [kindMenu, setKindMenu] = useState<{ row: number; anchor: AnchorRect } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -259,8 +309,11 @@ export function CsvImportDialog({
   // get suffixed rather than silently emptying a column or aborting the import
   // on submit. The rows below show these, not the raw ones.
   const picked = useMemo(
-    () => csvSafeColumns(columns.map((c, i) => ({ ...c, include: !excluded.has(i) }))),
-    [columns, excluded],
+    () =>
+      csvSafeColumns(
+        columns.map((c, i) => ({ ...c, include: !excluded.has(i), kind: kinds[i] })),
+      ),
+    [columns, excluded, kinds],
   );
   const entries = useMemo(() => csvEntries(rows, headers, picked), [rows, headers, picked]);
   const titleIdx = columns.findIndex((_, i) => !excluded.has(i));
@@ -276,6 +329,22 @@ export function CsvImportDialog({
       return next;
     });
 
+  /* Previews, for the two kinds that rewrite the cell. Only those two: the
+     rest store what the row already shows, so a preview would be an arrow
+     between a value and itself. The title column is exempt (its text becomes
+     the note's title untouched), and so is an excluded one. */
+  const previewed = (i: number) =>
+    i !== titleIdx && !excluded.has(i) && (kinds[i] === "date" || kinds[i] === "number");
+  const sampleOf = (i: number) => (previewed(i) ? csvSampleCell(rows, headers, i) : "");
+  const storedSampleOf = (i: number) => csvCellValue(sampleOf(i), kinds[i]);
+  const numberCols = columns.filter((_, i) => previewed(i) && kinds[i] === "number").length;
+  const selectCols = columns.filter(
+    (_, i) => i !== titleIdx && !excluded.has(i) && kinds[i] === "select"
+  ).length;
+  // the dial the number parse will actually use, in the dial's own dialect
+  const locale = numberLocale();
+  const localeSample = numberLocaleSample(locale);
+
   const ready = name.trim().length > 0 && includedCount > 0 && entries.length > 0;
 
   const submit = () => {
@@ -284,7 +353,18 @@ export function CsvImportDialog({
     setErr(null);
     const props: NewTypeProp[] = picked
       .filter((_, i) => i !== titleIdx && !excluded.has(i))
-      .map((c) => ({ name: c.name, kind: "text", target: null }));
+      .map((c) => ({
+        name: c.name,
+        kind: c.kind ?? "text",
+        target: null,
+        // a select IS its options, and this is the one create that knows
+        // them: the column's own values, derived the way the schema editor
+        // derives its option list from values in use
+        options:
+          c.kind === "select"
+            ? csvSelectOptions(entries, c.name).map((value) => ({ value }))
+            : null,
+      }));
     onImport(name.trim(), props, entries).catch((e) => {
       setErr(String(e));
       setBusy(false);
@@ -313,14 +393,41 @@ export function CsvImportDialog({
           First row is headers
         </button>
         {columns.map((_, i) => (
-          <button key={i} className="dbform-colrow" onClick={() => toggle(i)}>
-            <span
-              className={`prop-check${excluded.has(i) ? "" : " on"}`}
-              aria-label={excluded.has(i) ? "Unchecked" : "Checked"}
-            />
-            <span className="dbform-colname">{picked[i].name}</span>
-            {i === titleIdx && <span className="dbform-coltitle">title</span>}
-          </button>
+          <div key={i} className="dbform-colline">
+            <button className="dbform-colrow" onClick={() => toggle(i)}>
+              <span
+                className={`prop-check${excluded.has(i) ? "" : " on"}`}
+                aria-label={excluded.has(i) ? "Unchecked" : "Checked"}
+              />
+              <span className="dbform-colname">{picked[i].name}</span>
+            </button>
+            {/* the title column becomes the note's title, and an excluded
+                one becomes nothing at all — neither has a kind to pick */}
+            {i === titleIdx ? (
+              <span className="dbform-coltitle">title</span>
+            ) : (
+              !excluded.has(i) && (
+                <button
+                  type="button"
+                  className="dbform-select dbform-colkind"
+                  title={`Import “${picked[i].name}” as…`}
+                  onClick={(e) => setKindMenu({ row: i, anchor: anchorFrom(e.currentTarget) })}
+                >
+                  {kindLabel(kinds[i])}
+                </button>
+              )
+            )}
+            {/* Dates and numbers are the two kinds that REWRITE the cell, and
+                both read it through a dialect: a US "1,234" under the German
+                dial stores as 1.234, a slash date resolves month-first. Show
+                the column's first real cell against what it will store, so a
+                misread is visible here rather than in 500 rows afterwards. */}
+            {sampleOf(i) && (
+              <span className="dbform-colsample" title={`${sampleOf(i)} is stored as ${storedSampleOf(i)}`}>
+                {sampleOf(i)} → {storedSampleOf(i)}
+              </span>
+            )}
+          </div>
         ))}
       </div>
       <div className="dbform-note">
@@ -329,6 +436,9 @@ export function CsvImportDialog({
           : `${entries.length} ${entries.length === 1 ? "row" : "rows"} — the first included column becomes the title.`}
         {renamed > 0 &&
           ` ${renamed === 1 ? "One column was" : `${renamed} columns were`} renamed — that name is already taken.`}
+        {numberCols > 0 && ` Numbers are read in your ${locale} format (${localeSample}).`}
+        {selectCols > 0 &&
+          ` ${selectCols === 1 ? "The select column takes its" : "Select columns take their"} distinct values as options.`}
       </div>
       {err && <div className="dbform-err">{err}</div>}
       <div className="dbform-foot">
@@ -343,6 +453,27 @@ export function CsvImportDialog({
           Import {entries.length} {entries.length === 1 ? "entry" : "entries"}
         </button>
       </div>
+      {kindMenu && (
+        <SelectMenu
+          anchor={kindMenu.anchor}
+          value={kindLabel(kinds[kindMenu.row])}
+          label="Import as"
+          options={CSV_KIND_OPTIONS.map((k) => ({ value: k.label }))}
+          used={[]}
+          canEditSchema={false}
+          aboveOverlay
+          onCommit={(v) => {
+            setKindMenu(null);
+            // the menu lists kind LABELS; an unmatched free-text commit is
+            // no kind at all — close without changing
+            const kind = CSV_KIND_OPTIONS.find((k) => k.label === v)?.value as CsvKind | undefined;
+            if (!kind) return;
+            setKinds((cur) => ({ ...cur, [kindMenu.row]: kind }));
+          }}
+          onSaveSchema={() => {}}
+          onClose={() => setKindMenu(null)}
+        />
+      )}
     </Card>
   );
 }

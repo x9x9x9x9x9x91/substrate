@@ -40,12 +40,36 @@ test.beforeEach(async ({ page }) => {
   await expect(lines).toHaveCount(before + 1);
 });
 
-test("/ at line start opens the menu with all four commands", async ({ page }) => {
+test("/ at line start opens the menu with every command", async ({ page }) => {
   await page.keyboard.type("/");
   await expect(page.locator(menu)).toBeVisible();
-  for (const label of ["/view", "/date", "/task", "/asset"]) {
+  for (const label of [
+    "/view",
+    "/date",
+    "/task",
+    "/asset",
+    "/chart",
+    "/csv",
+    "/formulas",
+    "/cards",
+    "/heatmap",
+    "/calendar",
+    "/progress",
+    "/timeline",
+  ]) {
     await expect(page.locator(`${menu} .cm-completionLabel`, { hasText: label })).toBeVisible();
   }
+});
+
+test("/chart inserts the fence scaffold with the cursor on source:", async ({ page }) => {
+  await page.keyboard.type("/char");
+  await accept(page, "/chart");
+  // the scaffold carries the chart parser's required keys; the cursor sits at
+  // the end of the source: line, so typing continues into the first value
+  await page.keyboard.type("release");
+  await expect
+    .poll(() => page.evaluate(() => window.__mockBodyOf!("Inbox/Capture anything.md")))
+    .toContain("```chart\nsource: release\nx: \ny: count\n```");
 });
 
 test("/ mid-line after text opens nothing", async ({ page }) => {

@@ -12,7 +12,7 @@
  */
 import { foldDiacritics, foldWithMap } from "./fold.ts";
 import { NO_MATCH, fuzzyMatchRuns, fuzzyScore } from "./fuzzy.ts";
-import type { SnippetPart } from "./types.ts";
+import type { SnippetPart, View } from "./types.ts";
 
 /** exact/prefix band: prefix matches score 1000 - len (>= 700 for sane names) */
 export const HOIST_MIN = 700;
@@ -174,6 +174,104 @@ export function markSnippet(searchText: string, snippet: string): SnippetPart[] 
   if (!hits) return null;
   if (last < snippet.length) parts.push({ text: snippet.slice(last), hit: false });
   return parts;
+}
+
+/* ── the fixed-destination catalogue ─────────────────────────────────────── */
+
+/** What this machine offers, for destinations that only exist on some of
+    them. The palette hands one of these to `when`. */
+export interface ViewCommandCtx {
+  /** a local proxy answered the boot probe */
+  proxyAvailable: boolean;
+}
+
+/**
+ * One destination that is always the same place — a view with nothing to
+ * parameterize. Data rather than JSX so the row set is readable without
+ * rendering: the drift test below compares it against the `View` union, which
+ * is what stops the catalogue from quietly losing a whole surface again
+ * (Calendar, Vault sync and What's new each had a key or a glyph and no row).
+ */
+export interface ViewCommand {
+  /** palette row id */
+  id: string;
+  /** the row's own words */
+  label: string;
+  /** bare destination name for ranking ("Today" for "Go to Today"); absent
+      on rows that read as an operation rather than a place */
+  dest?: string;
+  view: View;
+  /** shortcut registry id whose first combo labels the row — never a
+      hand-typed keycap, which is how the redo row came to print a chord the
+      sheet spelled the other way round */
+  shortcut?: string;
+  /** rows that only exist on some machines, gated exactly as their sidebar
+      row is */
+  when?: (ctx: ViewCommandCtx) => boolean;
+}
+
+/** Declaration order is the palette's browse order, and it breaks ranking
+    ties — keep the everyday jumps on top. */
+export const FIXED_VIEW_COMMANDS: ViewCommand[] = [
+  { id: "cmd:today", label: "Go to Today", dest: "Today", view: { kind: "today" }, shortcut: "view-today" },
+  { id: "cmd:notes", label: "Go to Notes", dest: "Notes", view: { kind: "notes" }, shortcut: "view-notes" },
+  { id: "cmd:all", label: "Go to All notes", dest: "All notes", view: { kind: "all" }, shortcut: "view-all" },
+  {
+    id: "cmd:calendar",
+    label: "Go to Calendar",
+    dest: "Calendar",
+    view: { kind: "calendar" },
+    shortcut: "view-calendar",
+  },
+  {
+    id: "cmd:dbmanager",
+    label: "Go to All databases",
+    dest: "All databases",
+    view: { kind: "dbmanager" },
+  },
+  // The search pane, from a palette with nothing typed yet. "See all
+  // results…" only appears once there IS a query, so an empty palette had no
+  // route to search at all.
+  { id: "cmd:search", label: "Search notes", dest: "Search", view: { kind: "search" }, shortcut: "search" },
+  { id: "cmd:trash", label: "Open Trash", dest: "Trash", view: { kind: "trash" } },
+  { id: "cmd:assets", label: "Clean up orphaned assets…", view: { kind: "assets" } },
+  { id: "cmd:doctor", label: "Vault doctor", dest: "Vault doctor", view: { kind: "doctor" } },
+  { id: "cmd:vaultsync", label: "Vault sync", dest: "Vault sync", view: { kind: "vaultsync" } },
+  // the sidebar's sparkle glyph, in words — the glyph carries its name in a
+  // tooltip only, so nothing about it is searchable
+  { id: "cmd:changelog", label: "What's new", dest: "What's new", view: { kind: "changelog" } },
+];
+
+/** How the palette produces a parameterized destination.
+    - `"row"`: the component names that view kind itself, one row per thing.
+    - `"opener"`: it hands a database name to the app's opener, which decides
+      between the database view and the mount view — so a mount is reachable
+      without the palette knowing what a mount is. */
+export type GeneratedBy = "row" | "opener";
+
+/**
+ * The view kinds that name a specific thing, each with the way the palette
+ * generates it. Listed rather than inferred: the drift test demands every kind
+ * in the `View` union be either a fixed row above or named here, so a new
+ * parameterized surface has to say out loud how the palette reaches it — and
+ * the VALUES are checked against the component source too, so an entry
+ * claiming a row that no longer exists fails rather than reading as true.
+ */
+export const GENERATED_VIEW_KINDS: Record<string, GeneratedBy> = {
+  db: "opener",
+  mount: "opener",
+  saved: "row",
+  dashboard: "row",
+  folder: "row",
+  tagfolder: "row",
+  tag: "row",
+};
+
+/** Registry ids the catalogue prints keycaps for — the drift test resolves
+    each against the shortcut registry, so a renamed binding fails the suite
+    instead of throwing in front of a user. */
+export function paletteShortcutIds(): string[] {
+  return FIXED_VIEW_COMMANDS.flatMap((c) => (c.shortcut ? [c.shortcut] : []));
 }
 
 /**

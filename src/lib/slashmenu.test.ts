@@ -93,16 +93,29 @@ test("fence identity comes off the tree, not a backward ``` scan", () => {
   assert.equal(typeQueryAt("type: rel"), null);
 });
 
-test("slashOptions: all four on a bare slash, fuzzy-narrowed after", () => {
+test("slashOptions: everything on a bare slash, fuzzy-narrowed after", () => {
   assert.deepEqual(
     slashOptions("").map((c) => c.name),
-    ["asset", "date", "task", "view"]
+    [
+      "asset",
+      "calendar",
+      "cards",
+      "chart",
+      "csv",
+      "date",
+      "formulas",
+      "heatmap",
+      "progress",
+      "task",
+      "timeline",
+      "view",
+    ]
   );
   assert.deepEqual(
     slashOptions("vi").map((c) => c.name),
     ["view"]
   );
-  // "a" is a substring of asset (prefix), date and task — prefix ranks first
+  // "a" is a substring of several names — the prefix match ranks first
   assert.equal(slashOptions("a")[0].name, "asset");
   assert.deepEqual(slashOptions("zzz"), []);
 });
@@ -125,6 +138,35 @@ test("slashCommands: insert text and cursor land where the next keystroke goes",
   const asset = by("asset");
   assert.equal(asset.insert, "![[]]");
   assert.equal(asset.insert.slice(0, asset.cursor), "![[");
+});
+
+test("fence scaffolds: well-formed fences, cursor on the first value, fenceExit walks out", () => {
+  // every command that inserts a fence, without naming them one by one — so
+  // this holds for whatever set of fences a given build of the app carries
+  const fences = slashCommands().filter((c) => c.insert.startsWith("```"));
+  assert.ok(fences.length >= 4);
+  for (const cmd of fences) {
+    // opener names the command, closer on its own line
+    assert.ok(cmd.insert.startsWith("```" + cmd.name + "\n"), cmd.name);
+    assert.ok(cmd.insert.endsWith("\n```"), cmd.name);
+    // the cursor sits at the end of the first body line — typing continues
+    // into the first config value, never into the opener or a later key
+    const rest = cmd.insert.slice(cmd.cursor);
+    assert.ok(rest === "\n```" || rest.startsWith("\n"), cmd.name);
+    assert.ok(!cmd.insert.slice(0, cmd.cursor).endsWith("`"), cmd.name);
+    // and the remainder is exactly what fenceExit knows how to step out of
+    assert.ok(fenceExit(rest), cmd.name);
+  }
+
+  // one public exemplar pinned exactly: the chart parser requires source, x, y
+  const chart = slashCommands().find((c) => c.name === "chart")!;
+  assert.equal(chart.insert, "```chart\nsource: \nx: \ny: count\n```");
+  assert.equal(chart.insert.slice(0, chart.cursor), "```chart\nsource: ");
+
+  // and one bare-form fence: heatmap requires source, date, value
+  const heatmap = slashCommands().find((c) => c.name === "heatmap")!;
+  assert.equal(heatmap.insert, "```heatmap\nsource: \ndate: \nvalue: count\n```");
+  assert.equal(heatmap.insert.slice(0, heatmap.cursor), "```heatmap\nsource: ");
 });
 
 test("viewTypeQuery: only the type: line, and only in a view fence", () => {

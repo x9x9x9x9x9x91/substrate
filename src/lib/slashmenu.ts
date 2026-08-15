@@ -64,6 +64,22 @@ export interface SlashCommand {
   cursor: number;
 }
 
+/** A fence scaffold: `body` lines between the ```lang fences, cursor at the
+    end of the FIRST body line — the first config value, so accepting the
+    command and typing continues straight into the fence's one blank the
+    parser needs filled. The body is each parser's required keys (plus a
+    universal default where one exists, like `value: count`), so the fence's
+    own error sentence — which names exactly the missing key — guides the rest. */
+function fenceCommand(name: string, detail: string, body: string[]): SlashCommand {
+  const head = "```" + name + "\n" + body[0];
+  return {
+    name,
+    detail,
+    insert: "```" + name + "\n" + body.join("\n") + "\n```",
+    cursor: head.length,
+  };
+}
+
 /** Insert text is built per accept so `/date` is the day you accept it, not
     the day the module loaded. */
 export function slashCommands(): SlashCommand[] {
@@ -81,11 +97,21 @@ export function slashCommands(): SlashCommand[] {
     // asset embeds are `![[name]]` (vault-format §5.4) — cursor between the
     // brackets, ready for the name
     { name: "asset", detail: "embed a file", insert: "![[]]", cursor: 3 },
+    // the machine fences (vault-format §5) — scaffolds carry each parser's
+    // required keys so nobody recalls fence grammar from memory
+    fenceCommand("chart", "chart over a database or sheet", ["source: ", "x: ", "y: count"]),
+    fenceCommand("csv", "sheet data rows", [""]),
+    fenceCommand("formulas", "sheet formulas", [""]),
+    fenceCommand("cards", "stat-card row", ["- label: ", "  bind: "]),
+    fenceCommand("heatmap", "year-of-days grid", ["source: ", "date: ", "value: count"]),
+    fenceCommand("calendar", "month grid", ["source: ", "date: "]),
+    fenceCommand("progress", "goal thermometer", ["label: ", "value: ", "target: "]),
+    fenceCommand("timeline", "date-axis lanes", ["source: ", "start: ", "label: "]),
   ];
 }
 
 /** Commands ranked for the popup: fuzzy score descending, alphabetical
-    tiebreak, misses dropped. An empty query lists all four in a stable
+    tiebreak, misses dropped. An empty query lists everything in a stable
     order (fuzzyScore("") is flat, the tiebreak sorts). */
 export function slashOptions(query: string): SlashCommand[] {
   const out: { cmd: SlashCommand; score: number }[] = [];

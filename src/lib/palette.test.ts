@@ -1,17 +1,27 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { blankNonCode } from "../../scripts/check-ipc.ts";
 import {
+  FIXED_VIEW_COMMANDS,
+  GENERATED_VIEW_KINDS,
   HOIST_MIN,
   hoistAboveContent,
   markLabel,
   markSnippet,
   onlyFallbacks,
+  paletteShortcutIds,
   partsFromRuns,
   queryVariants,
   rankCommands,
   rankScore,
   synFuzzyScore,
 } from "./palette.ts";
+import { shortcutById, shortcutKeyLabel } from "./shortcuts.ts";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 type Row = { id: string; label: string; section: string; dest?: string };
 const row = (id: string, section: string, label = id, dest?: string): Row => ({
@@ -310,4 +320,147 @@ test("partsFromRuns: runs at the edges keep the whole text", () => {
     { text: "b", hit: true },
     { text: "c", hit: false },
   ]);
+});
+
+/* ── catalogue drift ──────────────────────────────────────────────────────
+   The palette's destination list used to be hand-maintained JSX with nothing
+   watching it, and it lost whole surfaces that way: Calendar had ⌘4 and no
+   row, the journal had ⌘D and no row, Vault sync and What's new had sidebar
+   glyphs and no row, saved views and tags had no keyboard route at all. These
+   re-derive the truth from the two files that own it — the `View` union and
+   the shortcut registry — so the next surface cannot go missing quietly. */
+
+/** Every `kind:` in the `View` union, read out of the source. Matching runs
+    on the comment- and string-blanked copy so prose in the union's doc
+    comments cannot invent a kind, and each name is then cut out of the
+    ORIGINAL at the offset that matched — blanking hollows string bodies out,
+    it does not remove them. Kinds behind share-mirror fences need no special
+    case: the palette catalogue fences the same ones, so both sides strip
+    together. */
+function viewKinds(): string[] {
+  const src = readFileSync(resolve(HERE, "types.ts"), "utf8");
+  const code = blankNonCode(src, "ts");
+  const from = code.indexOf("export type View =");
+  assert.ok(from !== -1, "the View union moved or was renamed");
+  // the union ends at its first `;` OUTSIDE a member's braces — the `;`
+  // separating `kind` from `type` in `{ kind: "db"; type: string }` is not it
+  let to = -1;
+  let depth = 0;
+  for (let i = from; i < code.length; i++) {
+    if (code[i] === "{") depth += 1;
+    else if (code[i] === "}") depth -= 1;
+    else if (code[i] === ";" && depth === 0) {
+      to = i;
+      break;
+    }
+  }
+  assert.ok(to !== -1, "the View union has no terminator");
+  const kinds: string[] = [];
+  for (const m of code.slice(from, to).matchAll(/kind:\s*"[^"]*"/g)) {
+    const at = from + (m.index ?? 0) + m[0].indexOf('"') + 1;
+    kinds.push(src.slice(at, src.indexOf('"', at)));
+  }
+  assert.ok(kinds.length > 5, "the View union parsed to almost nothing");
+  assert.ok(kinds.every((k) => /^[a-z]+$/.test(k)), `unparsed view kind: ${kinds}`);
+  return kinds;
+}
+
+test("every view kind is either a fixed palette row or a named generator", () => {
+  const fixed = new Set<string>(FIXED_VIEW_COMMANDS.map((c) => c.view.kind));
+  const missing = viewKinds().filter((k) => !fixed.has(k) && !(k in GENERATED_VIEW_KINDS));
+  assert.deepEqual(
+    missing,
+    [],
+    `view kinds with no palette route: ${missing.join(", ")} — add a row to ` +
+      "FIXED_VIEW_COMMANDS, or name the rows that generate it in GENERATED_VIEW_KINDS"
+  );
+});
+
+test("the catalogue names no view kind the union dropped", () => {
+  const kinds = new Set(viewKinds());
+  const stale = [
+    ...FIXED_VIEW_COMMANDS.map((c) => c.view.kind),
+    ...Object.keys(GENERATED_VIEW_KINDS),
+  ].filter((k) => !kinds.has(k));
+  assert.deepEqual(stale, [], `palette rows for kinds the View union no longer has: ${stale}`);
+});
+
+test("each generated kind is generated the way it claims to be", () => {
+  const src = readFileSync(resolve(HERE, "..", "components", "Palette.tsx"), "utf8");
+  for (const [kind, how] of Object.entries(GENERATED_VIEW_KINDS)) {
+    if (how === "row") {
+      assert.match(src, new RegExp(`kind: "${kind}"`), `no palette row builds a ${kind} view`);
+    } else {
+      // the opener resolves database-or-mount, so neither kind is named here
+      assert.doesNotMatch(
+        src,
+        new RegExp(`kind: "${kind}"`),
+        `${kind} claims the opener but the palette builds the view itself`
+      );
+    }
+  }
+  // and the opener really is the door the database rows take
+  assert.match(src, /run: \(\) => onOpenDb\(/);
+});
+
+test("no fixed destination is listed twice", () => {
+  const ids = FIXED_VIEW_COMMANDS.map((c) => c.id);
+  assert.equal(new Set(ids).size, ids.length, "duplicate palette row id");
+  const kinds = FIXED_VIEW_COMMANDS.map((c) => c.view.kind);
+  assert.equal(new Set(kinds).size, kinds.length, "two rows for one destination");
+});
+
+/** Every registry id the palette asks for a keycap, from BOTH sources: the
+    catalogue's own `shortcut` fields and the ids written inline at the rows
+    that aren't catalogue entries (undo, redo, the terminal toggle…). The
+    inline half is read out of the component source rather than re-listed
+    here, so a row added tomorrow is covered without anyone remembering to
+    add it — the failure being guarded against is a lookup that THROWS, and
+    it throws inside the palette's own render, which takes the whole overlay
+    down with it. */
+function paletteKeycapIds(): string[] {
+  const src = readFileSync(resolve(HERE, "..", "components", "Palette.tsx"), "utf8");
+  const calls = [...src.matchAll(/shortcutKeyLabel\("([^"]+)"\)/g)].map((m) => m[1]);
+  // A call whose id is not a literal would read as zero call sites here and
+  // pass in silence, so count the bare occurrences and demand they match.
+  // Two occurrences are neither: the import, and the one lookup that reads a
+  // catalogue entry's own field — that one is covered by paletteShortcutIds
+  // below, and it is asserted by its exact text so it cannot quietly become
+  // some other variable the sweep would then be blind to.
+  assert.match(src, /hint: shortcutKeyLabel\(c\.shortcut\)/);
+  const occurrences = [...src.matchAll(/shortcutKeyLabel\b/g)].length - 2;
+  assert.equal(
+    calls.length,
+    occurrences,
+    "a keycap lookup in Palette.tsx does not pass a literal id — this test cannot see it"
+  );
+  assert.ok(calls.length >= 7, "the keycap call sites vanished — did the regex go stale?");
+  return [...new Set([...paletteShortcutIds(), ...calls])];
+}
+
+test("every keycap the palette prints resolves in the shortcut registry", () => {
+  for (const id of paletteKeycapIds()) {
+    // throws on an unknown id, which is the failure this test exists to catch
+    // before a render does it in front of someone
+    assert.ok(shortcutKeyLabel(id).length > 0, `${id} has no printable combo`);
+  }
+});
+
+test("the keycap sweep sees the rows outside the catalogue", () => {
+  // the catalogue's own fields would pass the test above on their own; these
+  // are the inline ones, which is the half that had no cover
+  const ids = paletteKeycapIds();
+  for (const id of ["undo", "redo", "new-note", "terminal-toggle", "settings-open"]) {
+    assert.ok(ids.includes(id), `the sweep missed the ${id} row`);
+  }
+});
+
+test("a derived keycap matches the sheet's own spelling", () => {
+  // the drift that started this: the redo row printed ⇧⌘Z while the sheet
+  // spelled it the other way round. Derivation makes one of them impossible.
+  const redo = shortcutById("redo");
+  assert.ok(redo);
+  assert.ok(redo!.keys.startsWith(shortcutKeyLabel("redo")));
+  // and the keycap stays one combo, not the sheet's "… / ⌃Y" pair
+  assert.doesNotMatch(shortcutKeyLabel("redo"), /\//);
 });

@@ -568,6 +568,46 @@ audio: bounce.wav
   offer the composer; repair or remove the raw fence before adding annotations,
   so existing comments can never be stranded behind a newly inserted fence.
 
+### Editor conveniences
+
+Three affordances in the editor write **ordinary markdown**, not a Substrate
+grammar. They are listed here because the toolbar and the selection menu offer
+them, not because the format gained anything: a note carrying them opens
+unchanged in any other markdown editor, and an external writer that produces
+the same text gets the same rendering.
+
+- **Strikethrough** — `~~text~~`. The toolbar's `S` toggles the delimiters
+  around the selection, adding them or stripping them back off, exactly as the
+  bold and italic buttons do with `**` and `*`. The editor draws the span
+  struck through and printing emits `<s>`. Nothing else treats it specially:
+  the text inside stays ordinary prose, so a wikilink or a `#tag` written
+  inside struck text still indexes and still counts.
+- **Inline links** — `[text](url)`, standard markdown, for destinations
+  **outside** the vault. A link to another note is a wikilink (above), and
+  only wikilinks are graph edges — a markdown link to a note is not a
+  backlink, not a rename target, and not a `broken-link` finding. The
+  toolbar's `link` wraps the selection and seeds the destination with a bare
+  `https://`, left selected so the real URL is typed straight over it: what
+  it inserts is a link the author has not finished, not a live one. Pressed
+  again with a whole link selected, it unwraps back to the label. A rendered
+  link follows a plain click and opens in the OS browser; on the line being
+  edited, where the raw syntax shows, a plain click only places the cursor
+  and ⌘-click follows.
+- **Extract selection into new note** — the selection menu's action, whose
+  output is a wikilink. The selected chunk becomes a NEW untyped note in the
+  SAME folder as the note it came from, and the selection is replaced in
+  place by a `[[link]]` to it. The proposed title is the selection's first
+  non-blank line with block marks (hashes, bullets, quote chevrons, callout
+  headers) and inline marks stripped, whitespace collapsed, sentence-final
+  punctuation dropped, capped at 60 characters and cut back to a word
+  boundary when one sits in the second half of that span; an empty or
+  all-marks selection falls back to `Untitled`, and the engine's own
+  create-time sanitize and dedupe (§2) may adjust it again — the link is
+  always written from the created note's REAL title, never the proposed one.
+  If the note is switched away or the text moves while the create is in
+  flight, the new note still lands and a toast says so: the extraction is
+  never silently lost, only left unlinked.
+
 ## 3b. Tags
 
 A note's tags come from **two sources, unioned** — an inline `#tag` in the
@@ -2836,7 +2876,7 @@ Per-database layout choice, same file discipline as schema.json:
 {
   "release": { "view": "board", "group_by": "status", "sorts": [{ "key": "released", "dir": -1 }], "hidden": ["notion_id"] },
   "gear": { "view": "table", "table_group_by": "category", "aggregations": { "price": "sum", "manual": "count" }, "col_order": ["category", "price"] },
-  "$sidebar": { "dashboards": ["Dashboards/Portfolio.md"], "databases": ["gear", "release"], "collapsed": ["folders", "dbpins:release"], "folders": ["Projects", "Inbox"], "dashgroups": ["Dashboards/Money"], "pins": ["Inbox/Studio setup.md"], "keys": { "ctrl+1": "today", "mod+2": "dash:Dashboards/Portfolio.md", "mod+3": "db:gear" } },
+  "$sidebar": { "dashboards": ["Dashboards/Portfolio.md"], "collapsed": ["folders", "dashgroup:Dashboards/Money"], "folders": ["Projects", "Inbox"], "dashgroups": ["Dashboards/Money"], "pins": ["Inbox/Studio setup.md"], "keys": { "ctrl+1": "today", "mod+2": "dash:Dashboards/Portfolio.md", "mod+3": "db:gear" } },
   "$folders": { "Life": { "icon": { "emoji": "🌱" } }, "Life/Admin": { "icon": { "glyph": "folder", "tint": "teal" } } },
   "$views": [
     {
@@ -2955,8 +2995,15 @@ inside a single database's pref, which are preserved when that pref is
 rewritten. Current reserved keys:
 
 - `$sidebar` — sidebar section ordering and collapse state: `dashboards`
-  (note paths) and `databases` (type names), each a drag-ordered array;
-  entries not in the list append after, stale entries are dropped by the UI.
+  is a drag-ordered array of note paths; entries not in the list append after,
+  stale entries are dropped by the UI. `databases` (type names) is the same
+  shape but **legacy — preserved, no longer written**: it ordered a flat
+  Databases section the sidebar does not have any more, each database now
+  reaching its rows through its home folder. The engine still carries the
+  field, round-trips it whole, and still retargets its entries when a database
+  is renamed or deleted, so an older file keeps its order intact — but no UI
+  writes it, and a vault started today never grows one. Read it as history,
+  never as a description of the sidebar in front of you.
   `dashboards` is ONE flat list shared by several surfaces, the
   same shape `folders` and `pins` use below: the Dashboards section's own rows
   are one group, and each content folder whose tree row hosts dashboards is
@@ -3002,10 +3049,28 @@ rewritten. Current reserved keys:
   drops the binding — the key token itself never changes, since the user
   assigned that key and keeps it. Omitted when nothing is assigned.
   `collapsed`
-  lists the chevron-collapsed sidebar sections —
-  `"dashboards"`, `"pinned"`, `"databases"`, `"folders"` — plus one
-  `"dbpins:<type>"` id per database whose saved-view pins are folded. Omitted
-  when nothing is collapsed.
+  lists the chevron-collapsed sidebar rows, in two shapes. Three are section
+  ids — `"dashboards"`, `"pinned"`, `"folders"`; the fourth entry shape is
+  `"dashgroup:<folder>"`, one per folded subfolder GROUP HEADER in the
+  Dashboards section (the `dashgroups` rows above), the folder path spelled
+  the same way. A group id follows its folder on rename, subtree included,
+  and is dropped when the folder is trashed. It is also dropped on the next
+  collapse write once its group retires — the last dashboard leaving a
+  subfolder retires the header, and a surviving id would silently re-fold
+  that folder if a dashboard ever moved back in. Folder rows in the Folders
+  TREE collapse too, but that state is session-local by design and is not
+  written here: only the top-level sections and the dashboard groups persist.
+  Omitted when nothing is collapsed.
+  Three ids are **historical** — read (and preserved) but never written, so
+  they appear only in files an older build touched: `"databases"`, the
+  retired flat Databases section; `"dbpins:<type>"`, one per database whose
+  saved-view pins were folded, from before pinned views moved to a section of
+  their own; and `"savedviews"`, from when that section itself carried a
+  chevron. All three ride along untouched on write, the way any unrecognized
+  entry does — with two wrinkles worth knowing: renaming a database does NOT
+  retarget a `"dbpins:"` id (only `databases` and `keys` are remapped), and
+  pinning a saved view actively strips `"savedviews"` from the list, so a
+  freshly pinned view can never land inside a folded section.
 - `$folders` — per-folder metadata, keyed by vault-relative folder
   path (slash-joined, as in the sidebar tree). Currently one field: `icon`,
   a database icon (`emoji` or curated `glyph` id,

@@ -497,6 +497,85 @@ export function filterInherits(filters: QueryFilter[]): [string, string][] {
   return out;
 }
 
+/** One operator class of the filter grammar, with a query that exercises it.
+    The parser above is the ground truth; this is the reader's copy of it, and
+    `query.test.ts` parses every example back to check the two still agree. */
+export interface SyntaxClass {
+  /** stable handle — the test's coverage check keys on it */
+  id: string;
+  /** what this class does, in the reader's words */
+  label: string;
+  example: string;
+}
+
+/** Every operator class the filter bar understands, in the order a reader
+    meets them: bare text first, then the property operators, then the
+    comparisons. One example each — literal, not schema-derived: this is the
+    grammar, while the filter placeholder and the completion chips are where a
+    reader sees their own property names. */
+export const QUERY_SYNTAX: SyntaxClass[] = [
+  { id: "words", label: "Words match the title", example: "night drive" },
+  // NOT "anywhere in the entry": the haystack a phrase is matched against is
+  // the title, the excerpt and the prop values (`filterByQuery` in views.ts),
+  // and an excerpt is the document's opening line, capped. A phrase deep in a
+  // long body does not match, so the row must not promise it does.
+  { id: "phrase", label: "Phrase in the title, preview or properties", example: '"night drive"' },
+  { id: "keyValue", label: "Property is (or starts with)", example: "status:live" },
+  { id: "or", label: "Any one of several values", example: "status:live,mixing" },
+  { id: "quotedValue", label: "Value containing a space", example: 'status:"in review"' },
+  { id: "negation", label: "Everything but", example: "-status:done" },
+  { id: "duration", label: "Date within a duration of today", example: "due < 2w" },
+  { id: "isoDate", label: "Date against a day", example: "released >= 2026-01-01" },
+  { id: "number", label: "Number column over or under", example: "price > 500" },
+  { id: "folder", label: "Entries in a folder", example: "folder:Projects" },
+];
+
+/** The two facts the examples above cannot show: the full operator set, and
+    what a duration is measured from. */
+export const QUERY_SYNTAX_FOOT =
+  "Comparisons take < > <= >= ; durations are Nd / Nw from today.";
+
+/** Property keys a bare word at the cursor could be opening, as filter
+    prefixes — typing `sta` offers `status:`, so the grammar is reachable
+    without already knowing it. `folder` joins the schema's keys because it
+    filters like one.
+
+    Read off the RAW trailing run of non-space, not off a token: the same
+    span `completeKey` rewrites, so whatever is offered here is exactly what a
+    pick replaces. That is also what keeps a still-open quote out — `"sta`
+    tokenizes to the bare word `sta`, but the reader has already said "phrase",
+    and a completion would silently eat the quote. A key charclass then
+    excludes everything that has reached an operator or a path (`status:li`,
+    `due <`, `https://…/sta`), and a trailing stub `parseQuery` is already
+    completing (`status: mas`, whose value sits in the next token) bails out —
+    that one is the value chips' to answer, not this. */
+export function keyCompletions(keys: string[], q: string): string[] {
+  // no cursor in the last word — it is finished, not being typed
+  if (!q || /\s$/.test(q)) return [];
+  const raw = /\S*$/.exec(q)?.[0] ?? "";
+  const body = raw.length > 1 && raw.startsWith("-") ? raw.slice(1) : raw;
+  if (!KEY_RE.test(body)) return [];
+  if (parseQuery(q).trailing !== null) return [];
+  const partial = body.toLowerCase();
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const key of [...keys, "folder"]) {
+    const lower = key.toLowerCase();
+    if (!lower.startsWith(partial) || seen.has(lower)) continue;
+    seen.add(lower);
+    out.push(key);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
+/** Rebuild the query with the trailing bare word completed to `key:`. No
+    trailing space, unlike `completeFilter` — the value comes next. A `-`
+    prefix survives, since it negates the filter this word is opening. */
+export function completeKey(q: string, key: string): string {
+  return q.replace(/(-?)\S*$/, (_all, neg: string) => `${neg}${key}:`);
+}
+
 /** Distinct completion values for a partially typed operator, recency-ordered. */
 export function filterCompletions(
   notes: NoteMeta[],

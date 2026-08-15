@@ -738,17 +738,20 @@ export default function App() {
       whether a database IS one (the sidebar's glyph) */
   const mountDbNames = useMemo(() => new Set(mountByType.keys()), [mountByType]);
 
-  /** Open a database by name, landing on the mount view when that name is a
-      mounted folder. Every "open this database" path goes through
-      here, so a mount is reachable from the manager, the sidebar and the
-      palette without any of them knowing what a mount is. */
-  const openDatabase = useCallback(
-    (type: string) => {
+  /** Where a database name really goes: its mount view when the name is a
+      mounted folder, its database view otherwise. Every "open this database"
+      path resolves through here, so a mount is reachable from the manager,
+      the sidebar and the palette without any of them knowing what a mount
+      is — the callers differ only in what else their navigation does. */
+  const viewForDb = useCallback(
+    (type: string): View => {
       const mount = mountByType.get(type.toLowerCase());
-      setView(mount ? { kind: "mount", id: mount.id } : { kind: "db", type });
+      return mount ? { kind: "mount", id: mount.id } : { kind: "db", type };
     },
     [mountByType]
   );
+
+  const openDatabase = useCallback((type: string) => setView(viewForDb(type)), [viewForDb]);
 
   /** the mount the current view is about, or null */
   const activeMount = useMemo(
@@ -3001,9 +3004,10 @@ export default function App() {
     ]
   );
 
-  // chevron-collapsible sidebar sections: the id is a section name
-  // ("dashboards" | "databases" | "folders") or a pin group ("dbpins:<type>");
-  // state persists in `.vault/views.json` under `$sidebar.collapsed`
+  // chevron-collapsible sidebar rows: the id is a section name
+  // ("dashboards" | "pinned" | "folders") or a Dashboards subfolder group
+  // ("dashgroup:<folder>"); state persists in `.vault/views.json` under
+  // `$sidebar.collapsed`
   // The `dashgroup:<folder>` ids the sidebar can actually render right
   // now — a group exists only while some dashboard lives in that subfolder
   const dashGroupIds = useMemo(
@@ -5219,6 +5223,9 @@ export default function App() {
           icons={dbIcons}
           dashboards={mobileDashboards}
           folders={folders}
+          savedViews={savedViews}
+          tagFolders={tagFolders}
+          tags={tagCounts}
           current={selectedMeta}
           startStage={paletteStart}
           templateTypes={templateTypes}
@@ -5230,6 +5237,15 @@ export default function App() {
           onClose={closePalette}
           onOpenNote={openNote}
           onSetView={navigateFromMobileChrome}
+          /* the same resolution the sidebar's rows take, through the palette's
+             own navigation — which also closes the mobile chrome behind it */
+          onOpenDb={(type) => navigateFromMobileChrome(viewForDb(type))}
+          onOpenJournal={onSidebarJournal}
+          /* already in the past: the sidebar glyph is disabled for the same
+             reason, and a second departure snapshot from there is meaningless */
+          onOpenTimeTravel={timePoint !== null ? null : openTimeTravel}
+          onOpenShortcuts={mobile ? null : () => setShortcutsOpen(true)}
+          onAssignKeys={mobile ? null : () => setKeyAssignOpen(true)}
           onCreate={createOrCapture}
           onCreateFolder={(path) => createFolder(path).catch((e) => showToast(String(e)))}
           onMoveNote={(path, folder) => moveNote(path, folder).catch((e) => showToast(String(e)))}

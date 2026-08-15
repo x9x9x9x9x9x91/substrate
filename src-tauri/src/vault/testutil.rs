@@ -36,6 +36,18 @@ pub(crate) fn new_prop(name: &str, kind: Option<&str>, target: Option<&str>) -> 
         name: name.into(),
         kind: kind.map(String::from),
         target: target.map(String::from),
+        options: None,
+    }
+}
+
+/// `new_prop` carrying a value vocabulary — what a select column is created
+/// with (a CSV import passes the column's own values).
+pub(crate) fn new_prop_opts(name: &str, kind: Option<&str>, values: &[&str]) -> NewTypeProp {
+    NewTypeProp {
+        name: name.into(),
+        kind: kind.map(String::from),
+        target: None,
+        options: Some(values.iter().map(|v| opt(v, None)).collect()),
     }
 }
 

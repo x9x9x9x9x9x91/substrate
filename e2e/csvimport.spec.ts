@@ -31,9 +31,13 @@ test("import CSV as database: column choices, empty-row skip, entries land", asy
   await pickCsv(page, "qa sheet.csv", CSV);
 
   const form = page.locator(".dbform");
-  // a column row by its name cell (rows also carry the "title" marker text)
+  // a column's toggle row by its name cell; the "title" marker and the kind
+  // button sit BESIDE the row inside its .dbform-colline (a button can't nest
+  // in the toggle button), so marker assertions scope to the line, not the row
   const colRow = (name: string) =>
     form.locator(".dbform-colrow", { has: page.locator(".dbform-colname", { hasText: name }) });
+  const colLine = (name: string) =>
+    form.locator(".dbform-colline", { has: page.locator(".dbform-colname", { hasText: name }) });
   await expect(form).toBeVisible();
   // name prefilled from the filename; headers on → named columns, first is
   // marked as the title; the blank row never counts
@@ -50,7 +54,7 @@ test("import CSV as database: column choices, empty-row skip, entries land", asy
 
   // excluding the first column promotes the next one to title
   await colRow("title").click();
-  await expect(colRow("status").locator(".dbform-coltitle")).toHaveText("title");
+  await expect(colLine("status").locator(".dbform-coltitle")).toHaveText("title");
   await colRow("title").click();
   // drop the "skip me" column from the import
   await colRow("skip me").click();

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { TIPS, infoTipForElement, infoTipForView } from "./infotips.ts";
+import { TIPS, VIEW_KINDS, infoTipForElement, infoTipForView } from "./infotips.ts";
 import type { View } from "./types.ts";
 
 /* The project has no jsdom (and no test that needs one), so the resolver is
@@ -110,23 +110,16 @@ class Stub {
 /** the stub stands in for Element; the resolver only uses the members above */
 const el = (init: StubInit) => new Stub(init) as unknown as Element;
 
-const VIEW_KINDS: View["kind"][] = [
-  "notes",
-  "all",
-  "folder",
-  "today",
-  "calendar",
-  "search",
-  "db",
-  "saved",
-  "dashboard",
-  "dbmanager",
-  "vaultsync",
-  "trash",
-  "assets",
-];
-
 /* ---------- structure of the registry ---------- */
+
+test("the view-kind list is the tip record's own keys, so it cannot go stale", () => {
+  // a spot check on the derivation, not a second inventory: these four are
+  // the kinds a hand-written list had already lost
+  for (const kind of ["tagfolder", "tag", "mount", "changelog"]) {
+    assert.ok(VIEW_KINDS.includes(kind as View["kind"]), `${kind} missing from VIEW_KINDS`);
+  }
+  assert.equal(new Set(VIEW_KINDS).size, VIEW_KINDS.length, "a kind is listed twice");
+});
 
 test("every tip entry has a non-empty title and body", () => {
   for (const entry of TIPS) {
@@ -218,6 +211,68 @@ test("shared classnames resolve to the specific control, not the generic one", (
   assert.equal(infoTipForElement(today)?.title, "Jump to today");
   assert.equal(infoTipForElement(newDb)?.title, "New database");
   assert.equal(infoTipForElement(newEntry)?.title, "New database entry");
+});
+
+test("the tasks quick-add is not described as the day-scoped form it shares a class with", () => {
+  // the compose form wears `dash-form tasks-compose`; the day-scoped copy
+  // belongs to the food log's form, which has no day-free variant
+  const input = new Stub({ tag: "input", classes: ["tasks-compose-input"] });
+  const submit = new Stub({ tag: "button", classes: ["dash-add"] });
+  const compose = new Stub({
+    tag: "form",
+    classes: ["dash-form", "tasks-compose"],
+    children: [input, submit],
+  });
+  new Stub({ classes: ["dash-inner", "tasks-compact"], children: [compose] });
+
+  const plain = el({ tag: "form", classes: ["dash-form"] });
+  for (const node of [compose, input, submit]) {
+    const tip = infoTipForElement(node as unknown as Element);
+    assert.equal(tip?.title, "Add a task", "the quick-add resolves to its own entry");
+    assert.doesNotMatch(tip?.body ?? "", /selected day/i);
+  }
+  // the shared class keeps its own tip for the boards that do use it
+  assert.equal(infoTipForElement(plain)?.title, "Add entry");
+});
+
+test("a dashboard control resolves to its own pane's tip, not the shared dashboard chrome", () => {
+  const vote = new Stub({ tag: "button", classes: ["feed-vote"] });
+  const item = new Stub({ tag: "article", classes: ["feed-item"], children: [vote] });
+  new Stub({ classes: ["dash-inner"], children: [item] });
+  assert.equal(infoTipForElement(vote as unknown as Element)?.title, "Rate this item");
+
+  // the claim button sits inside the snapshot form and must beat it
+  const claim = new Stub({ tag: "button", classes: ["dash-claim"] });
+  new Stub({ classes: ["dash-form"], children: [claim] });
+  assert.equal(infoTipForElement(claim as unknown as Element)?.title, "Claim balance");
+
+  // a chart slot beats the chart it is plotted in
+  const slot = new Stub({ classes: ["chart-line-slot"] });
+  new Stub({ classes: ["chart-line"], children: [slot] });
+  assert.equal(infoTipForElement(slot as unknown as Element)?.title, "Data point");
+
+  // a metric card keeps the per-card tip inside the strip
+  const card = new Stub({ classes: ["dash-card"] });
+  new Stub({ classes: ["metrics-strip"], children: [card] });
+  assert.equal(infoTipForElement(card as unknown as Element)?.title, "Metric");
+});
+
+
+test("a hero reads as its own board's, not as the board that first got a tip", () => {
+  const food = new Stub({ classes: ["dash-hero", "food-hero"] });
+  const label = new Stub({ classes: ["dash-label"], text: "net kcal today" });
+  const foodInner = new Stub({ classes: ["dash-apr"], text: "1820" });
+  food.children = [label, foodInner];
+  for (const c of food.children) c.parent = food;
+  const foodTip = infoTipForElement(food as unknown as Element);
+  assert.equal(foodTip?.title, "Today's balance");
+
+  // the bare class is worn by the accrual board and by vault kind bundles, so
+  // it has to stay true of a headline figure in general
+  const shared = infoTipForElement(el({ classes: ["dash-hero"] }));
+  assert.equal(shared?.title, "Headline figure");
+  assert.doesNotMatch(shared?.body ?? "", /snapshot|steady/i);
+  assert.notEqual(foodTip?.body, shared?.body);
 });
 
 test("deleting in Assets is described as permanent, unlike the Trash", () => {

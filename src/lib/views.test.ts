@@ -9,6 +9,7 @@ import {
   newViewId,
   partitionDbEntries,
   pinsInSidebarOrder,
+  saveViewHint,
   scratchNotes,
 } from "./views.ts";
 import { shiftDate, todayIso } from "./dates.ts";
@@ -155,6 +156,21 @@ test("findViewByName matches case-insensitively within the same db only", () => 
   assert.equal(findViewByName(pins, "gear", "live")?.id, "live-2");
   assert.equal(findViewByName(pins, "task", "live"), undefined);
   assert.equal(findViewByName(pins, "release", "other"), undefined);
+});
+
+test("saveViewHint names the pin a same-name save would replace", () => {
+  // saving upserts by name, so this press REPLACES the pin — and the field
+  // opens seeded with the open pin's name, making that the common press
+  assert.equal(saveViewHint(pins, "release", "Live"), "Updates “Live”");
+  assert.equal(saveViewHint(pins, "release", " Live "), "Updates “Live”");
+  // matching folds case but the save stores the name as typed, so a
+  // differently-spelled match RENAMES the pin too — both spellings show
+  assert.equal(saveViewHint(pins, "release", " live "), "Updates “Live” → “live”");
+  assert.equal(saveViewHint(pins, "release", "LIVE"), "Updates “Live” → “LIVE”");
+  // a name of another database's pin is a new pin here
+  assert.equal(saveViewHint(pins, "task", "Live"), null);
+  assert.equal(saveViewHint(pins, "release", "Live 2"), null);
+  assert.equal(saveViewHint(pins, "release", ""), null);
 });
 
 test("newViewId slugifies and dedupes with a numeric suffix", () => {

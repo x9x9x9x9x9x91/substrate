@@ -139,6 +139,16 @@ export const FilterIcon = () => (
   </svg>
 );
 
+/** Circled question mark — "what can I type here". The dot follows
+    WarnIcon's, so the two circled glyphs read as one pair. */
+export const HelpIcon = () => (
+  <svg {...base} width={13} height={13}>
+    <circle cx="8" cy="8" r="6" />
+    <path d="M6.3 6.3a1.75 1.75 0 1 1 1.7 2.1v.9" />
+    <path d="M8 11.2v.2" />
+  </svg>
+);
+
 /** Struck-through eye — "Hide property". */
 export const EyeOffIcon = () => (
   <svg {...base}>

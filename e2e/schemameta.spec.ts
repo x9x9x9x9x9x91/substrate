@@ -29,7 +29,7 @@ test("db pane renders when the schema carries icon/home metadata (0.8.0 crash)",
   await expect(page.locator(".db-table tbody tr")).toHaveCount(1);
   await expect(page.locator(".db-filter-input")).toHaveAttribute(
     "placeholder",
-    "Filter — try status:Active"
+    "Filter — try status:Active or folder:"
   );
 });
 

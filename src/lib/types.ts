@@ -626,12 +626,27 @@ export interface TagCount {
     typeHome. */
 export type SchemaConfig = Record<string, Record<string, PropSchema>>;
 
+/** The kind vocabulary a create-database call may name. Wider than
+    PropKind by exactly one word: a select column is a kindless schema entry
+    with options, so it has no PropKind to ride, and every surface that offers
+    it — the schema editor's own picker included — spells it "select". The
+    engine turns that back into the stored absence.
+
+    Options are what make a select one: with none, every reader here resolves
+    the entry back to text, and the engine reads it as a property that isn't
+    there. So only a create that can NAME the options may use this kind — a
+    CSV import, whose columns arrive with their values. */
+export type NewPropKind = PropKind | "select";
+
 /** One initial property in a create-database call: name + kind, `target`
-    naming the pointed-at database for relation kinds. */
+    naming the pointed-at database for relation kinds, `options` the value
+    vocabulary of a select or multi column (dropped for every other kind,
+    exactly as a schema edit drops it). */
 export interface NewTypeProp {
   name: string;
-  kind?: PropKind | null;
+  kind?: NewPropKind | null;
   target?: string | null;
+  options?: SelectOption[] | null;
 }
 
 /** Outcome of a bulk note sweep (database rename/delete, property

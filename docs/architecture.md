@@ -72,7 +72,11 @@ being true is itself reported as drift, so the file cannot rot quietly.
 
 Dashboard kinds are guarded the same way: `scripts/check-kinds.ts` compares the
 set of `dashboard:` values across the built-in registry, the dispatch chain, the
-icon table and the docs.
+icon table and the docs. `scripts/check-infotips.ts` guards what the info view
+can say about them — every kind declares the controls on its pane that deserve
+prose, and the check holds that declaration against the tip registry, against
+the markup the pane still renders, and against the kind's privacy, so a pane
+cannot ship explaining itself only as "a dashboard".
 
 ## The mock lane
 

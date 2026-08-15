@@ -12,6 +12,7 @@ import type {
   MountInfo,
   MountRow,
   MountScanStats,
+  NewPropKind,
   NewTypeProp,
   NoteMeta,
   NumberFormat,
@@ -3837,8 +3838,8 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           throw new Error("“home” is reserved for the database home folder");
         if (Object.keys(entry).some((k) => k.toLowerCase() === pname.toLowerCase()))
           throw new Error(`duplicate property “${pname}”`);
-        const kind = ((p.kind as PropKind | null) ?? null) || "text";
-        if (!["text", "date", "file", "relation", "multi", "url", "email", "phone", "checkbox", "number", "rollup"].includes(kind))
+        const kind = ((p.kind as NewPropKind | null) ?? null) || "text";
+        if (!["text", "select", "date", "file", "relation", "multi", "url", "email", "phone", "checkbox", "number", "rollup"].includes(kind))
           throw new Error(`unknown property kind “${kind}”`);
         // mirrors Engine::create_type: a rollup's wiring doesn't fit this
         // call — it's added to an existing database via vault_schema_set
@@ -3847,7 +3848,24 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         const target = (p.target ?? "").trim();
         if (kind === "relation" && !target)
           throw new Error(`relation property “${pname}” needs a target database`);
-        entry[pname] = { options: [], kind, ...(kind === "relation" ? { type: target } : {}) };
+        // mirrors Engine::create_type: "select" names the KINDLESS entry a
+        // select is made of — storing it as a kind would leave a column no
+        // editor knows how to read — and its options ARE it. They normalize
+        // like a schema edit's (trimmed, blanks out, case-insensitive dupes
+        // gone) and belong to select and multi only
+        const seenOpt = new Set<string>();
+        const options: SelectOption[] = [];
+        if (kind === "select" || kind === "multi")
+          for (const o of p.options ?? []) {
+            const value = (o.value ?? "").trim();
+            if (!value || seenOpt.has(value.toLowerCase())) continue;
+            seenOpt.add(value.toLowerCase());
+            options.push(o.color?.trim() ? { value, color: o.color } : { value });
+          }
+        entry[pname] =
+          kind === "select"
+            ? { options }
+            : { options, kind, ...(kind === "relation" ? { type: target } : {}) };
       }
       mockSchema[name] = entry;
       return mockSchemaRead();

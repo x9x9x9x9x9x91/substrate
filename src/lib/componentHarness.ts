@@ -180,6 +180,15 @@ if (typeof win.ResizeObserver !== "function") {
   win.ResizeObserver = ResizeObserverStub;
   target.ResizeObserver = ResizeObserverStub;
 }
+/* Nor scrollIntoView, which jsdom leaves off Element entirely — any surface
+   that keeps a selected row in view (SelectMenu on open, the panes' reveal)
+   throws on mount without it. A no-op, for the same reason as the two above:
+   scrolling is not what a component test is checking. */
+const elementProto = (dom.window as unknown as { Element: { prototype: Record<string, unknown> } })
+  .Element.prototype;
+if (typeof elementProto.scrollIntoView !== "function") {
+  elementProto.scrollIntoView = () => {};
+}
 /* React 19 refuses to run `act` without this flag and warns without it. */
 target.IS_REACT_ACT_ENVIRONMENT = true;
 

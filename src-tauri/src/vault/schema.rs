@@ -97,11 +97,36 @@ pub struct PropSchema {
 /// `relation` and ignored otherwise. `rollup` is refused here — its wiring
 /// (relation/prop/agg) only fits through `set_schema_prop`, on a database
 /// whose relation prop already exists.
+///
+/// `options` is the value vocabulary of a `select` or `multi` column, and is
+/// dropped for every other kind exactly as `set_schema_prop` drops it. A
+/// create that can supply them is what makes `select` usable here: options
+/// ARE the select, and a caller with no values to name has none.
 #[derive(Clone, Debug, serde::Deserialize)]
 pub struct NewTypeProp {
     pub name: String,
     pub kind: Option<String>,
     pub target: Option<String>,
+    #[serde(default)]
+    pub options: Option<Vec<SelectOption>>,
+}
+
+/// A property's option list as the schema stores it: trimmed, blanks
+/// dropped, deduped case-insensitively keeping the first spelling, order
+/// otherwise the caller's. Shared by both write paths so a select built by a
+/// create and one built by a schema edit are the same entry.
+pub(crate) fn normalized_options(options: Vec<SelectOption>) -> Vec<SelectOption> {
+    let mut seen = HashSet::new();
+    options
+        .into_iter()
+        .filter_map(|o| {
+            let value = o.value.trim().to_string();
+            if value.is_empty() || !seen.insert(value.to_lowercase()) {
+                return None;
+            }
+            Some(SelectOption { value, color: o.color.filter(|c| !c.trim().is_empty()) })
+        })
+        .collect()
 }
 
 /// Rollup kind only: the wiring of a derived rollup column, as
@@ -384,22 +409,12 @@ impl Engine {
         // trimmed, empty stores as absent
         let description =
             description.as_deref().map(str::trim).filter(|d| !d.is_empty()).map(|d| d.to_string());
-        let mut seen = HashSet::new();
         // multi keeps its options (a select with list values); every other
         // explicit kind has none
         let options: Vec<SelectOption> = if kind.is_some() && kind.as_deref() != Some("multi") {
             Vec::new()
         } else {
-            options
-                .into_iter()
-                .filter_map(|o| {
-                    let value = o.value.trim().to_string();
-                    if value.is_empty() || !seen.insert(value.to_lowercase()) {
-                        return None;
-                    }
-                    Some(SelectOption { value, color: o.color.filter(|c| !c.trim().is_empty()) })
-                })
-                .collect()
+            normalized_options(options)
         };
         let mut map = self.schema();
         let db_type = folded_hash_key(&map, db_type).unwrap_or(db_type).to_string();
@@ -636,6 +651,9 @@ impl Engine {
     /// empty-props entry is fine, schema-registered types list in the
     /// sidebar even with zero notes — plus any initial properties. Nothing
     /// else is written; a database only gets notes when entries are created.
+    /// A property's kind is a PROP_KINDS name, `"select"` for the kindless
+    /// entry a select is made of — which is worth naming only with the
+    /// `options` that are it — or absent for text.
     pub fn create_type(&self, name: &str, props: Vec<NewTypeProp>) -> Result<SchemaConfig, String> {
         let name = name.trim();
         self.check_type_name(name, None)?;
@@ -658,6 +676,15 @@ impl Engine {
             }
             let kind = match p.kind.as_deref().map(str::trim).filter(|k| !k.is_empty()) {
                 None => Some("text".to_string()),
+                // "select" is a kindless entry with options — PROP_KINDS
+                // carries no such kind, so the create call spells the name out
+                // and the schema stores the absence. Its `options` are not
+                // decoration: they ARE the select. Without them the frontend
+                // resolves the entry back to text and set_schema_prop reads
+                // optionless-and-kindless as a removal (the demote rule
+                // above), so a caller naming this kind is expected to name
+                // the values with it — a CSV import passes the column's own.
+                Some("select") => None,
                 // a rollup's wiring (relation/prop/agg) doesn't fit this call
                 // — it is added to an existing database via set_schema_prop
                 Some("rollup") => {
@@ -675,10 +702,18 @@ impl Engine {
                 }
                 _ => None,
             };
+            // same rule as set_schema_prop: a vocabulary belongs to select
+            // (kindless) and multi, and is dropped for every other kind
+            let options = match p.options {
+                Some(o) if kind.is_none() || kind.as_deref() == Some("multi") => {
+                    normalized_options(o)
+                }
+                _ => Vec::new(),
+            };
             entry.insert(
                 pname.to_string(),
                 PropSchema {
-                    options: Vec::new(),
+                    options,
                     kind,
                     notify: false,
                     notify_before: None,
@@ -1438,6 +1473,9 @@ mod tests {
                     new_prop("author", None, None),
                     new_prop("read", Some("date"), None),
                     new_prop("series", Some("relation"), Some("Series")),
+                    new_prop_opts("shelf", Some("select"), &["Read", " to read ", "", "READ"]),
+                    new_prop_opts("tags", Some("multi"), &["ambient", "club"]),
+                    new_prop_opts("pages", Some("number"), &["100"]),
                 ],
             )
             .unwrap();
@@ -1445,7 +1483,50 @@ mod tests {
         assert_eq!(books["author"].kind.as_deref(), Some("text"), "absent kind = explicit text");
         assert_eq!(books["read"].kind.as_deref(), Some("date"));
         assert_eq!(books["series"].target.as_deref(), Some("Series"));
+        // a select column is the kindless entry its options hang on — storing
+        // "select" as a kind would make it a column no editor knows
+        assert_eq!(books["shelf"].kind, None, "select is stored as no kind at all");
+        // …and the options arrive normalized exactly as a schema edit would
+        // leave them: trimmed, blanks dropped, case-insensitive dupes gone
+        assert_eq!(
+            books["shelf"].options.iter().map(|o| o.value.as_str()).collect::<Vec<_>>(),
+            ["Read", "to read"]
+        );
+        assert_eq!(
+            books["tags"].options.iter().map(|o| o.value.as_str()).collect::<Vec<_>>(),
+            ["ambient", "club"],
+            "multi keeps its vocabulary too"
+        );
+        assert!(books["pages"].options.is_empty(), "every other kind drops one, like a schema edit");
         assert!(e.schema().contains_key("Books"), "persisted across reads");
+
+        // The trap this guards: a select IS its options, and set_schema_prop
+        // reads optionless-and-kindless as a removal. A created select must
+        // therefore survive the schema editor's own save of the same entry —
+        // if it arrived empty, that save would delete the column.
+        let saved = e
+            .set_schema_prop(
+                "Books",
+                "shelf",
+                books["shelf"].options.clone(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(
+            saved["Books"].props["shelf"]
+                .options
+                .iter()
+                .map(|o| o.value.as_str())
+                .collect::<Vec<_>>(),
+            ["Read", "to read"],
+            "the round trip keeps the column and its vocabulary"
+        );
 
         // an empty database (no initial props) registers too — that's what
         // lists it in the sidebar with zero notes

@@ -934,6 +934,21 @@ export function matchShortcut(e: KeyEventLike, ctx: ShortcutCtx): Shortcut | nul
   return null;
 }
 
+/** The keycap a palette row prints for its binding — the entry's FIRST combo,
+    which is the primary one everywhere else too (`shortcutCmKey` takes the
+    same one, and `keys` leads with it). One combo, not the sheet's full
+    `keys`: a palette row has space for a keycap, not for "⌘⇧Z / ⌃Y".
+
+    Throws on an id the registry doesn't carry, like `shortcutCmKey` — a row
+    naming a binding that isn't there is a bug to see, not a hint to drop
+    silently. `paletteShortcutIds` in palette.ts is checked against the
+    registry by test, so the catalogue can't reach a user with a bad id. */
+export function shortcutKeyLabel(id: string): string {
+  const s = shortcutById(id);
+  if (!s || s.combos.length === 0) throw new Error(`unknown shortcut: ${id}`);
+  return comboLabel(s.combos[0]);
+}
+
 /** CodeMirror key name for a registry entry's first combo ("Mod-b"), so the
     editor keymap consumes the same source of truth the sheet renders. */
 export function shortcutCmKey(id: string): string {

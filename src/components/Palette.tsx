@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import type { DbIcon, NoteMeta, SearchHit, SnippetPart, View } from "../lib/types";
+import type { DbIcon, NoteMeta, SavedView, SearchHit, SnippetPart, TagCount, TagFolder, View } from "../lib/types";
 import { propStr } from "../lib/types";
 import { vaultRoot, vaultSearch, mountRescan } from "../lib/ipc";
 import { setPropUndoable } from "../lib/undoprops";
@@ -15,6 +15,7 @@ import { NO_MATCH, fuzzyScore } from "../lib/fuzzy";
 import { noteHint } from "../lib/display";
 import { displayTitle } from "../lib/journal";
 import {
+  FIXED_VIEW_COMMANDS,
   hoistAboveContent,
   markLabel,
   markSnippet,
@@ -22,6 +23,7 @@ import {
   rankCommands,
   synFuzzyScore,
 } from "../lib/palette";
+import { shortcutKeyLabel } from "../lib/shortcuts";
 import { looksLikeUrl, urlDisplayTitle } from "../lib/url";
 import { templateTypeOptions } from "../lib/templates";
 import { iconForType } from "../lib/dbicons";
@@ -35,6 +37,8 @@ import {
 } from "../lib/query";
 import TypeIcon from "./TypeIcon";
 import {
+  BookIcon,
+  CalendarIcon,
   ChartIcon,
   ClockIcon,
   DbIcon as DbGlyphIcon,
@@ -43,16 +47,20 @@ import {
   FolderIcon,
   GearIcon,
   ImageIcon,
+  KeyboardIcon,
   PulseIcon,
   LinkIcon,
   NoteActionGlyph,
   NoteIcon,
   NotesIcon,
   PenIcon,
+  PinIcon,
   PlusIcon,
   RedoIcon,
   SearchIcon,
+  SparkleIcon,
   SunIcon,
+  SyncIcon,
   TableIcon,
   TagIcon,
   TerminalIcon,
@@ -122,6 +130,24 @@ interface PaletteProps {
   icons: Record<string, DbIcon>;
   dashboards: NoteMeta[];
   folders: string[];
+  /** saved views in sidebar order — every one a destination, including the
+      sixth onward, which the ⌘5…⌘9 pin keys never reach */
+  savedViews: SavedView[];
+  /** tag folders, the saved-query siblings of real folders */
+  tagFolders: TagFolder[];
+  /** every tag in the vault, most-used first — a tag is a destination whether
+      or not anyone ever saved a folder for it */
+  tags: TagCount[];
+  /** A local proxy answered the boot probe — gates the destination row for
+      it. OPTIONAL on purpose, and the one thing on this component that must
+      not be tightened: the surface it gates is machine-private, so the pass
+      from App sits inside share-mirror fences and is not there at all in the
+      shared tree. Optional plus a `false` default keeps THIS file identical
+      on both sides — a required prop would need its own fences here, in the
+      destructure, in the deps and at the read, and any one of those drifting
+      out of step breaks the shared tree's build in a way the mirror's own
+      --check does not look for. */
+  proxyAvailable?: boolean;
   current: NoteMeta | null;
   startStage?: StartStage | null;
   /** types with a `.vault/templates/<type>.md` note */
@@ -137,6 +163,20 @@ interface PaletteProps {
   onClose: () => void;
   onOpenNote: (path: string) => void;
   onSetView: (v: View) => void;
+  /** open a database by name — a mounted folder lands on its mount view, so
+      the palette reaches a mount without knowing what one is */
+  onOpenDb: (type: string) => void;
+  /** open today's journal note — the ⌘D surface, which is not the picked-notes
+      Today view "Go to Today" opens */
+  onOpenJournal: () => void;
+  /** summon the vault's history bar; null while a past state is already on
+      screen, where the sidebar glyph is disabled for the same reason */
+  onOpenTimeTravel: (() => void) | null;
+  /** the ⌘/ cheat sheet; null on mobile, which doesn't render it */
+  onOpenShortcuts: (() => void) | null;
+  /** the key-assign HUD, whose only other door is a button inside the
+      cheat sheet; null on mobile, which doesn't render it */
+  onAssignKeys: (() => void) | null;
   onCreate: (title: string) => void;
   onCreateFolder: (path: string) => void;
   onMoveNote: (path: string, folder: string) => void;
@@ -168,7 +208,9 @@ interface PaletteProps {
   /** pick a CSV and open the import dialog */
   onImportCsv: () => void;
   onSwitchCapture: () => void;
-  onOpenSearch: (seed: string) => void;
+  /** open the search pane — with a seed query, or with no argument to leave
+      whatever was last searched in place, which is what the ⌘⇧F chord does */
+  onOpenSearch: (seed?: string) => void;
   onMutated: () => void;
   /** transient result feedback (folder rescan and friends) */
   onToast: (msg: string) => void;
@@ -188,6 +230,43 @@ async function absPath(rel: string): Promise<string> {
   return `${root}/${rel}`;
 }
 
+/** How many tags the empty palette lists before a query narrows them. */
+const TAG_BROWSE_MAX = 20;
+
+/** The glyph a fixed destination wears, keyed by row id — the one part of the
+    catalogue that has to stay here, since `src/lib` holds no JSX. Each is the
+    mark that destination already carries in the sidebar. */
+function viewCommandIcon(id: string): React.ReactNode {
+  switch (id) {
+    case "cmd:today":
+      return <SunIcon />;
+    case "cmd:notes":
+      return <NotesIcon />;
+    case "cmd:all":
+      return <NoteIcon />;
+    case "cmd:calendar":
+      return <CalendarIcon />;
+    case "cmd:search":
+      return <SearchIcon />;
+    case "cmd:dbmanager":
+      return <DbGlyphIcon />;
+    case "cmd:trash":
+      return <TrashIcon />;
+    case "cmd:assets":
+      return <ImageIcon />;
+    case "cmd:doctor":
+      return <PulseIcon />;
+    case "cmd:vaultsync":
+      return <SyncIcon />;
+    case "cmd:changelog":
+      return <SparkleIcon />;
+    // a destination added to the catalogue and not to this switch still gets
+    // a row — it just wears the generic database mark until someone picks one
+    default:
+      return <DbGlyphIcon />;
+  }
+}
+
 export default function Palette({
   mode,
   notes,
@@ -196,6 +275,11 @@ export default function Palette({
   icons,
   dashboards,
   folders,
+  savedViews,
+  tagFolders,
+  tags,
+  // absent wherever the surface it gates is — see the prop's own note
+  proxyAvailable = false,
   current,
   startStage,
   templateTypes,
@@ -205,6 +289,11 @@ export default function Palette({
   onClose,
   onOpenNote,
   onSetView,
+  onOpenDb,
+  onOpenJournal,
+  onOpenTimeTravel,
+  onOpenShortcuts,
+  onAssignKeys,
   onCreate,
   onCreateFolder,
   onMoveNote,
@@ -790,7 +879,7 @@ export default function Palette({
         label: `See all results${searchText ? ` for “${searchText}”` : ""}…`,
         icon: <SearchIcon />,
         section: "Search",
-        hint: "⌘⇧F",
+        hint: shortcutKeyLabel("search"),
         fallback: true,
         run: () => onOpenSearch(q),
       });
@@ -816,7 +905,7 @@ export default function Palette({
           label: q.trim() ? `New note “${q.trim()}”` : "New note…",
           icon: <PlusIcon />,
           section: "Commands",
-          hint: "⌘N",
+          hint: shortcutKeyLabel("new-note"),
           fallback: true,
           run: () => (q.trim() ? onCreate(q.trim()) : onSwitchCapture()),
         },
@@ -885,7 +974,7 @@ export default function Palette({
                 label: `Undo ${undoCommand.label}`,
                 icon: <UndoIcon />,
                 section: "Commands",
-                hint: "⌘Z",
+                hint: shortcutKeyLabel("undo"),
                 run: undoCommand.run,
               },
             ]
@@ -897,7 +986,7 @@ export default function Palette({
                 label: `Redo ${redoCommand.label}`,
                 icon: <RedoIcon />,
                 section: "Commands",
-                hint: "⇧⌘Z",
+                hint: shortcutKeyLabel("redo"),
                 run: redoCommand.run,
               },
             ]
@@ -930,7 +1019,7 @@ export default function Palette({
                 label: "Toggle terminal",
                 icon: <TerminalIcon />,
                 section: "Commands",
-                hint: "⌘⇧T",
+                hint: shortcutKeyLabel("terminal-toggle"),
                 run: onToggleTerminal,
               },
             ]
@@ -954,67 +1043,87 @@ export default function Palette({
           label: "Settings…",
           icon: <GearIcon />,
           section: "Commands",
-          hint: "⌘,",
+          hint: shortcutKeyLabel("settings-open"),
           run: onOpenSettings,
         },
-        {
-          id: "cmd:today",
-          label: "Go to Today",
-          icon: <SunIcon />,
+        // Every fixed destination, from the one catalogue a drift test can
+        // read. Rows that need a door of their own rather than a plain
+        // navigation are named below.
+        ...FIXED_VIEW_COMMANDS.filter(
+          (c) =>
+            (c.when?.({ proxyAvailable }) ?? true) &&
+            // Once something is typed, "See all results…" IS the search row and
+            // it carries the query across. Two rows printing one keycap and
+            // doing different things with the query is worse than one, so the
+            // generic row stands down and browse mode keeps it.
+            !(c.view.kind === "search" && searchText)
+        ).map((c) => ({
+          id: c.id,
+          label: c.label,
+          icon: viewCommandIcon(c.id),
           section: "Commands",
-          hint: "⌘1",
-          dest: "Today",
-          run: () => onSetView({ kind: "today" }),
-        },
+          ...(c.dest ? { dest: c.dest } : {}),
+          ...(c.shortcut ? { hint: shortcutKeyLabel(c.shortcut) } : {}),
+          // No seed, so the pane opens on whatever was last searched — what
+          // the chord this row prints does. And through the pane's own door,
+          // which stashes the view Esc comes back to; setting the view
+          // directly lands there with no way back.
+          run: c.view.kind === "search" ? () => onOpenSearch() : () => onSetView(c.view),
+        })),
+        // Today's journal — the ⌘D surface, and deliberately NOT where "Go to
+        // Today" lands: that one opens the picked-notes view. The pair being
+        // two different places is exactly why the journal needed a row rather
+        // than being read into the one above it.
         {
-          id: "cmd:notes",
-          label: "Go to Notes",
-          icon: <NotesIcon />,
+          id: "cmd:journal",
+          label: "Open today's journal",
+          icon: <BookIcon />,
           section: "Commands",
-          hint: "⌘2",
-          dest: "Notes",
-          run: () => onSetView({ kind: "notes" }),
+          hint: shortcutKeyLabel("journal-today"),
+          dest: "Journal",
+          run: onOpenJournal,
         },
-        {
-          id: "cmd:all",
-          label: "Go to All notes",
-          icon: <NoteIcon />,
-          section: "Commands",
-          hint: "⌘3",
-          dest: "All notes",
-          run: () => onSetView({ kind: "all" }),
-        },
-        {
-          id: "cmd:dbmanager",
-          label: "Go to All databases",
-          icon: <DbGlyphIcon />,
-          section: "Commands",
-          dest: "All databases",
-          run: () => onSetView({ kind: "dbmanager" }),
-        },
-        {
-          id: "cmd:trash",
-          label: "Open Trash",
-          icon: <TrashIcon />,
-          section: "Commands",
-          dest: "Trash",
-          run: () => onSetView({ kind: "trash" }),
-        },
-        {
-          id: "cmd:assets",
-          label: "Clean up orphaned assets…",
-          icon: <ImageIcon />,
-          section: "Commands",
-          run: () => onSetView({ kind: "assets" }),
-        },
-        {
-          id: "cmd:doctor",
-          label: "Vault doctor",
-          icon: <PulseIcon />,
-          section: "Commands",
-          dest: "Vault doctor",
-          run: () => onSetView({ kind: "doctor" }),
-        },
+        // The vault's own history, which until now was an unlabelled clock
+        // glyph in the sidebar footer — nothing about it was searchable, and
+        // no key reached it. Absent while a past state is already on screen.
+        ...(onOpenTimeTravel
+          ? [
+              {
+                id: "cmd:timetravel",
+                label: "Browse the vault's past",
+                icon: <ClockIcon />,
+                section: "Commands",
+                dest: "Time travel",
+                run: onOpenTimeTravel,
+              },
+            ]
+          : []),
+        ...(onOpenShortcuts
+          ? [
+              {
+                id: "cmd:shortcuts",
+                label: "Keyboard shortcuts",
+                icon: <KeyboardIcon />,
+                section: "Commands",
+                hint: shortcutKeyLabel("shortcuts-cmd"),
+                dest: "Keyboard shortcuts",
+                run: onOpenShortcuts,
+              },
+            ]
+          : []),
+        // the key HUD's only other door is a button inside the sheet above —
+        // so someone who never opens the sheet never learns keys are assignable
+        ...(onAssignKeys
+          ? [
+              {
+                id: "cmd:assignkeys",
+                label: "Assign keys to sidebar rows…",
+                icon: <KeyboardIcon />,
+                section: "Commands",
+                run: onAssignKeys,
+              },
+            ]
+          : []),
         // with a query, a dashboard that already surfaced as a note row
         // would list twice — both rows open the rendered surface —
         // so the command copy is dropped. The empty-query browse
@@ -1037,9 +1146,30 @@ export default function Palette({
             icon: <TypeIcon type={db.type} icon={iconForType(icons, db.type)} />,
             section: "Commands",
             dest: name,
-            run: () => onSetView({ kind: "db", type: db.type }),
+            // through the app's one open-a-database door rather than straight
+            // to the database view: a mounted folder's name IS a database
+            // type, and only that door knows to land on the mount instead
+            run: () => onOpenDb(db.type),
           };
         }),
+        // Saved views, which had no palette route at all and no key past the
+        // fifth pin. Same destination a click on the sidebar row reaches.
+        ...savedViews.map((v) => ({
+          id: `cmd:saved:${v.id}`,
+          label: `Go to ${v.name}`,
+          icon: <PinIcon />,
+          section: "Commands",
+          dest: v.name,
+          run: () => onSetView({ kind: "saved", id: v.id }),
+        })),
+        ...tagFolders.map((f) => ({
+          id: `cmd:tagfolder:${f.id}`,
+          label: `Go to ${f.name}`,
+          icon: <TypeIcon type={f.name} icon={f.icon ?? { glyph: "tag" }} />,
+          section: "Commands",
+          dest: f.name,
+          run: () => onSetView({ kind: "tagfolder", id: f.id }),
+        })),
         // Pick the open note for today from anywhere. The pane can
         // only offer Pick on notes that already carry a date, so this is the
         // one route a dateless note has onto Today. Rides ahead of the
@@ -1067,6 +1197,23 @@ export default function Palette({
           dest: f.split("/").pop() ?? f,
           run: () => onSetView({ kind: "folder", path: f }),
         })),
+        // Every tag is a collection whether or not anyone saved a folder for
+        // it, and clicking one inside a note was the only way to open it.
+        // Their own section, after Folders: the same KIND of destination.
+        //
+        // Capped in browse mode only. A mature vault carries hundreds of
+        // tags and the cold-open list is meant to be readable, so it shows
+        // the most-used ones (the list arrives count-ordered); type anything
+        // and every tag is back in play, because ranking is what finds the
+        // rare one and a cap there would hide it for good.
+        ...(searchText ? tags : tags.slice(0, TAG_BROWSE_MAX)).map((t) => ({
+          id: `cmd:tag:${t.tag}`,
+          label: `#${t.tag}`,
+          icon: <TagIcon />,
+          section: "Tags",
+          dest: t.tag,
+          run: () => onSetView({ kind: "tag", tag: t.tag }),
+        })),
       ];
       // rank by fuzzy score (declaration order breaks ties); destinations in
       // the exact/prefix band render directly under Notes, above Content
@@ -1087,11 +1234,20 @@ export default function Palette({
     icons,
     dashboards,
     folders,
+    savedViews,
+    tagFolders,
+    tags,
+    proxyAvailable,
     current,
     templateTypes,
     onExportCsv,
     openNote,
     onSetView,
+    onOpenDb,
+    onOpenJournal,
+    onOpenTimeTravel,
+    onOpenShortcuts,
+    onAssignKeys,
     onCreate,
     onCreateFolder,
     onMoveNote,

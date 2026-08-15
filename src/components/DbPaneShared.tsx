@@ -11,7 +11,8 @@ import { isTauri } from "../lib/tauri";
 import { coverSource } from "../lib/assets";
 import { optionColor, OptionDot, type AnchorRect } from "./SelectMenu";
 import TypeIcon from "./TypeIcon";
-import { BoardIcon, ColumnsIcon, GalleryIcon, ListIcon, TableIcon } from "./Icons";
+import { BoardIcon, ColumnsIcon, GalleryIcon, HelpIcon, ListIcon, TableIcon } from "./Icons";
+import { QUERY_SYNTAX, QUERY_SYNTAX_FOOT } from "../lib/query";
 
 /** Card/list subtitle: the notable props joined with " · ". A part whose
     value matches a colored schema option leads with that option's dot,
@@ -255,6 +256,69 @@ export function ColumnsMenu({
               </button>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The filter bar's syntax reference: a quiet ? beside the query input
+    folding out one row per operator class, each with an example. The grammar
+    supports ten classes and the placeholder can only ever name one, so
+    everything past `key:value` used to live in the format doc.
+
+    On demand, never printed — design-principles §5 keeps explanations out of
+    the page itself, and this is the same fold-out KeyHints is for keyboard
+    chords. Same open/close idiom as ColumnsMenu (toggle, outside click,
+    Escape); Escape is captured and stopped so it closes the panel instead of
+    reaching the input, where it would clear the query. The trigger suppresses
+    mousedown to keep the input's focus (the .db-filter-save idiom); the panel
+    deliberately does not, since suppressing it there would also kill text
+    selection, and an example is something a reader drags across to copy. */
+export function FilterSyntax() {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey, true);
+    };
+  }, [open]);
+
+  return (
+    <div className="db-syntax" ref={wrapRef}>
+      <button
+        className={`db-syntax-btn${open ? " active" : ""}`}
+        title="Filter syntax"
+        aria-label="Filter syntax"
+        aria-expanded={open}
+        onMouseDown={(e) => e.preventDefault() /* keep the input's focus */}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <HelpIcon />
+      </button>
+      {open && (
+        <div className="db-syntax-panel">
+          {QUERY_SYNTAX.map((row) => (
+            <div className="db-syntax-row" key={row.id}>
+              <span className="db-syntax-label">{row.label}</span>
+              <code className="db-syntax-example">{row.example}</code>
+            </div>
+          ))}
+          <div className="db-syntax-foot">{QUERY_SYNTAX_FOOT}</div>
         </div>
       )}
     </div>

@@ -325,3 +325,50 @@ test("a property-only hit says it matched in properties (SUB-1222)", async ({ pa
   // the snippet is the value that matched, marked — not unrelated body prose
   await expect(row.locator(".palette-item-snippet mark").first()).toHaveText(/petals/i);
 });
+
+// One search row at a time. The palette carries two: a plain destination row
+// on the empty palette, and "See all results…" once there is a query to carry
+// across. Both print the same chord, so showing both at once would be one
+// keycap over two rows that do different things with what was typed.
+
+test("the browse palette offers Search, and a query hands it to See all results", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await page.keyboard.press("Meta+k");
+
+  // browse mode: the destination row is the only route to the search pane
+  await expect(page.locator(".palette-item-label", { hasText: /^Search notes$/ })).toHaveCount(1);
+  await expect(
+    page.locator(".palette-item-label", { hasText: /^See all results/ })
+  ).toHaveCount(0);
+
+  await page.locator(".palette-input").fill("petals");
+
+  // and with a query it stands down for the row that carries the query
+  await expect(page.locator(".palette-item-label", { hasText: /^Search notes$/ })).toHaveCount(0);
+  await expect(
+    page.locator(".palette-item-label", { hasText: "See all results for “petals”…" })
+  ).toHaveCount(1);
+});
+
+// The row prints ⌘⇧F, so it must behave like ⌘⇧F: open the pane and leave the
+// last search standing. Seeding it with an empty string would clear it.
+
+test("the Search row opens the pane without clearing the last search", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
+
+  // leave a real search behind first
+  await page.keyboard.press("Meta+Shift+f");
+  await page.locator(".search-input").fill("petals");
+  await expect(page.locator(".search-input")).toHaveValue("petals");
+  await page.keyboard.press("Escape");
+
+  await page.keyboard.press("Meta+k");
+  // the label, not the row: a row's text carries its keycap too
+  await page.locator(".palette-item-label", { hasText: /^Search notes$/ }).click();
+
+  await expect(page.locator(".search-input")).toHaveValue("petals");
+});
