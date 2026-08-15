@@ -243,6 +243,46 @@ this slice takes a note path only — a sheet summary's past (`{{Sheet}}#member`
 is not a chart address yet, so plot it by reading it into a fact or charting
 the sheet in the present tense.
 
+### `heatmap` — a year of days over a database or sheet
+
+One ` ```heatmap ` fence per grid; the body can hold several. A heatmap asks one
+question — how much, per day, across a year — so it takes no `kind`, no `title`
+and no axis, and it picks its own year: the latest one the data reaches.
+
+````markdown
+```heatmap
+source: session
+date: logged
+value: count
+query: status:done
+```
+
+```heatmap
+source: {{Studio Log}}
+date: day
+value: sum:minutes
+```
+````
+
+`source` is a database type or `{{Sheet Name}}`, exactly as a chart's is.
+`date` is the date prop/column the squares sit on (a time suffix is ignored, so
+`2026-07-17 10:28` lands on its day). `value` is `count` or `sum:<prop>` — no
+`avg`, which answers a different question than an intensity grid asks. `query`
+is the filter bar's own query language and is database-only; on a sheet it is a
+named error, not a silent no-op.
+
+Intensity quarters the shown year's heaviest day into four steps of the same
+quiet greyscale the charts use — nothing here is color-coded. Every day of the
+year is a square, and the grid is a **single tab stop**: arrows walk it (up/down
+a day, left/right a week), Home/End jump to the year's ends, and a live readout
+under the grid says what the cursor is on. A source spanning several years puts
+a year switch above it.
+
+A note whose fences are heatmaps opens as a heatmap dashboard; a note carrying
+charts too leads with the charts and hangs the heatmaps under them — the same
+either way, whether the note names `dashboard: charts` or names no kind at all
+and is read by body content. A malformed fence renders its parse error in place
+and never breaks the others.
 
 
 
@@ -251,7 +291,9 @@ the sheet in the present tense.
 The body stays ordinary markdown; the renderer lays it out. `## ` headings become
 section labels, a run of consecutive callouts (no blank lines between them)
 becomes a side-by-side card row, and ` ```view ` fences embed live database
-tables between them.
+tables between them. A ` ```heatmap ` fence draws its year of days there too,
+exactly as it does on a heatmap dashboard, and a ` ```timeline ` fence draws
+database items with a start/end arc on a horizontal date axis.
 
 ````markdown
 ---
@@ -281,6 +323,20 @@ limit: 5
 columns: status, artist
 ```
 
+```heatmap
+source: release
+date: released
+value: count
+```
+
+```timeline
+source: release
+start: started
+end: delivery
+label: title
+group: stage
+query: status:mastering
+```
 ````
 
 A fence's `sort:`, `limit:` and `columns:` keys are all optional.
@@ -293,6 +349,15 @@ limit" for your own `limit:`, "open the database for the rest" when the
 surface's safety cap is what clipped it. An unknown key or a malformed value
 renders a quiet error card in place of that one table, never taking the rest of
 the page down. Full key list: `docs/vault-format.md` §5.6.
+
+The ` ```heatmap ` fence takes the same keys a heatmap dashboard's fences take,
+over the same sources.
+
+The ` ```timeline ` fence takes `source`, `start` and `label`, with optional
+`end`, `group` and `query`. Missing ends are milestones; overlapping items in
+one group pack onto subtracks, and each bar/dot opens its source note. Its
+source is a database type in v1 (not a sheet), because every rendered item is
+required to have a truthful note-opening action. See vault-format §5.5d.
 
 
 ### `food` — daily net-kcal tracker
@@ -521,7 +586,8 @@ at,yield_usd,principal_usd
 before the first fence is written.
 
 A note with `type: dashboard` and **no `dashboard:` key at all** falls back by
-body content: ` ```chart ` fences → charts, otherwise the yield tracker. A key
+body content: ` ```chart ` fences → charts, ` ```heatmap ` fences → the heatmap
+dashboard (beside charts they hang under them), otherwise the yield tracker. A key
 that *is* written but isn't a kind this build knows renders a small card naming
 it and listing the kinds that exist (SUB-993) — a typo shows you the typo,
 rather than quietly handing you a different dashboard.

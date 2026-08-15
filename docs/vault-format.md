@@ -992,6 +992,12 @@ as a hub:
   plus its `> ` continuation lines — the editor's ordinary callout syntax,
   kind case-insensitive) renders as cards side by side in a responsive grid —
   the columns, with a muted kind accent (note/warn/idea);
+- a ` ```heatmap ` fence renders live rather than as a code box, full-width
+  where it sits, drawing its year of days exactly as §5.5a defines it. A
+  quoted one — inside a callout body or a plain blockquote — stays a code box;
+- a ` ```timeline ` fence renders live rather than as a code box, full-width
+  where it sits, laying database notes with start/end date properties onto the
+  horizontal time view of §5.5d;
 - everything else (paragraphs, lists, checkboxes, tables, `![[image]]`
   embeds, fences, plain quotes) renders full-width in linear flow between
   card rows. Checkboxes are display-only; audio/file embeds render their
@@ -1300,9 +1306,95 @@ Hover or focus any bar or point for a tooltip with the exact value, the x label,
 and — on a split chart — every series at that x. Each chart is a single tab stop
 with arrow/Home/End navigation along the axis; tooltips never print.
 
+### 5.5a Heatmap blocks — ` ```heatmap ` fences
+
+A ` ```heatmap ` fence declares one year of day squares — the
+contribution-graph read of a database or a sheet. Same hand-editable
+`key: value` text, same `#` comments, same in-place error idiom as §5.5:
+
+````markdown
+```heatmap
+source: session
+date: logged
+value: count
+query: status:done
+```
+
+```heatmap
+source: {{Studio Log}}
+date: day
+value: sum:minutes
+```
+````
+
+Keys (`src/lib/heatmap.ts`; `source`, `date` and `value` all required):
+
+- `source` — a database type, or `{{Sheet Name}}` for a sheet. Reads exactly
+  what §5.5's `source` reads (data rows plus computed columns on a sheet).
+- `date` — the date property/column each row is stamped with. The leading ISO
+  day of the cell counts, so `2026-07-17 10:28` lands on `2026-07-17`; a row
+  with no readable date is skipped and reported.
+- `value` — `count` (rows that day) or `sum:<prop>` over a numeric property.
+  No `avg`: an average per day answers a different question than an intensity
+  grid asks.
+- `query` — optional, **database sources only**: the §7 filter-bar query
+  language (`filterByQuery`), the same parse and matching the filter bar and
+  the ` ```view ` fence use, resolved against the type's schema. A `query` on a
+  sheet source is a named error rather than a silent no-op.
+
+There is no `kind`, no `title` and no axis to configure — a heatmap is one
+question. The **year is derived, never declared**: the fence shows the latest
+year carrying a matching date (this year when the source is empty), so it keeps
+saying something true as the vault moves past it, and a source spanning several
+years offers a year switch. Intensity quarters the shown year's heaviest day
+into four levels; a day summing to zero reads empty even when rows landed on
+it, and the square still reports them. Every day of the year gets a square, so
+hover, tooltips and the keyboard reach the whole grid.
+
+A note carrying heatmap fences opens as a heatmap dashboard; a note carrying
+both chart and heatmap fences renders its charts first and its heatmaps under
+them. Hub bodies host the fence too (§5.2). A malformed fence renders its parse
+error in place and leaves its siblings alone.
 
 
 
+### 5.5d Timeline blocks — ` ```timeline ` fences
+
+A ` ```timeline ` fence in a hub body lays notes from one database onto a
+horizontal date axis. Config is strict `key: value` text, one per
+line; blank lines and `#` comments are ignored:
+
+````markdown
+```timeline
+source: release
+start: recording_start
+end: release_date
+label: title
+group: stage
+query: status:active
+```
+````
+
+- `source` — required database type, matched case-insensitively. Timeline v1
+  reads note databases only; a `{{Sheet}}` binding is an error rather than a
+  sheet drawing bars that cannot open a source note.
+- `start` — required date property. A valid leading ISO day is used from a
+  day or date-time value.
+- `end` — optional date property. A missing value makes that note a milestone
+  dot; a valid value makes an inclusive bar. Written invalid dates and ranges
+  whose end precedes their start are skipped and counted.
+- `label` — required property naming the item. `title` addresses the note
+  title directly; an empty value falls back to the title.
+- `group` — optional property whose values become lanes. Missing values land
+  in `Other`; overlapping items within a lane pack onto quiet subtracks.
+- `query` — optional, with the database filter bar's existing query semantics.
+
+Clicking a bar or milestone opens its note. The axis chooses weekly, monthly,
+or quarterly tick density from the data span and shows a today line only when
+today falls inside the visible extent. Unknown keys, missing required keys,
+unknown databases, and property names absent from the source render an error
+where that fence sits without disturbing sibling blocks. The body remains
+ordinary markdown (`src/lib/timeline.ts`, `src/components/TimelineFence.tsx`).
 
 ### 5.6 View embeds — ` ```view ` fences
 

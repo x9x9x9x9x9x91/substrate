@@ -135,7 +135,14 @@ Capacities, Affine).*
   numbers are dumb floats; Obsidian needs a plugin stack for half of this.
   Every outbound call this rides (the rates fetch) has an off switch in
   Settings.
-- **Dashboards as a mini-app platform** — metrics/stat cards, charts, hub
+- **Dashboards as a mini-app platform** — metrics/stat cards, charts,
+  contribution-style **heatmaps** (a year of day squares over any date
+  property of a database or sheet, `count` or `sum:`, keyboard-walkable and
+  self-dating — the year is derived from the data, never declared),
+  **timelines** (a database's notes laid on a horizontal date axis from their
+  own start/end props — missing ends are milestones, values of a chosen prop
+  become lanes, overlaps pack onto subtracks, and every bar opens its note),
+  hub
   pages (prose + live embedded views), food/kcal tracking (quantity grammar —
   "200g oats" logs itself, weight-curve overlay), tasks (an urgency-led board:
   Overdue/Due today sections, quick-add, checkoff with a real undo, Now/Later,
@@ -262,7 +269,7 @@ Capacities, Affine).*
 - **Hosted handoff relay**: the handoff feature is shipped; a public hosted
   relay is not. Until one exists, the self-host story leads.
 - **Known parity gaps — don't invite the comparison**: multi-column page
-  layout, timeline view, PDF/doc embeds (image+audio only). Undo covers
+  layout, PDF/doc embeds (image+audio only). Undo covers
   props + structural edits, not yet everything.
 
 ## Planned (roadmap material — clearly marked, never advertised as shipped)
