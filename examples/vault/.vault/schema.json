@@ -9,6 +9,7 @@
         { "value": "sketch", "color": "gray" }
       ]
     },
+    "recording_start": { "options": [], "kind": "date" },
     "released": { "options": [], "kind": "date" },
     "format": {
       "options": [{ "value": "Vinyl", "color": "violet" }, { "value": "Digital" }],

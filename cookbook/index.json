@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-08-15",
+  "updated": "2026-08-16",
   "about": "Substrate dashboard cookbook — copyable surface recipes. Each recipe is a folder of plain markdown files: the dashboard note plus every sheet, database note, or contact it binds to, so a copied recipe renders with numbers on the first open. Install = copy the recipe's files into your vault (keep the Dashboards/ nesting or don't — folders never decide database membership). An agent can read any recipe and adapt the sample rows, formulas, and card binds to your real data.",
   "recipes": [
     {
@@ -133,6 +133,33 @@
       "expects": { "sheets": [], "databases": [] },
       "files": ["Dashboards/Coding.md"],
       "shot": "shots/coding.png"
+    },
+    {
+      "id": "studio-year",
+      "title": "Studio year",
+      "kind": "heatmap",
+      "blurb": "Two year grids over one log sheet — one square per day, shaded by how long you sat down, then by how often. The year comes from the rows, not from a setting, so the grid keeps telling the truth as the log grows.",
+      "adapt": "Log your own sessions in Studio Log.md — a date column and a number column is the whole contract; point date: and value: at them (value: count needs no number at all).",
+      "expects": { "sheets": ["Studio Log"], "databases": [] },
+      "files": ["Dashboards/Studio Year.md", "Studio Log.md"],
+      "shot": "shots/studio-year.png"
+    },
+    {
+      "id": "release-arc",
+      "title": "Release arc",
+      "kind": "timeline",
+      "blurb": "Every release as a bar from the day recording started to the day it shipped, lanes grouped by status; a release with no end date is a dot rather than a bar, so nothing is claimed about when it lands. A second fence narrows the same data to what actually shipped.",
+      "adapt": "Give your own type two date props (here recording_start and released) and point start:/end: at them; group: buckets the lanes and query: filters the fence.",
+      "expects": { "sheets": [], "databases": ["release"] },
+      "files": [
+        "Dashboards/Release Arc.md",
+        "Releases/Night Circuit.md",
+        "Releases/Fern Static.md",
+        "Releases/Slow Bloom EP.md",
+        "Releases/Halide.md",
+        "Releases/Paper Kite.md"
+      ],
+      "shot": "shots/release-arc.png"
     }
   ]
 }

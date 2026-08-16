@@ -27,9 +27,10 @@ function split(raw: string): { fm: string; body: string } {
   return { fm: m[1], body: m[2] };
 }
 
-/** The recipes' props: scalars plus `cards:`/`pages:` block lists of scalar
-    maps. Same deliberately-narrow parser as seedflagship.spec — a recipe
-    growing a shape this can't express should throw here, not render wrong. */
+/** The recipes' props: scalars, `cards:`/`pages:` block lists of scalar maps,
+    and plain scalar lists (a release's `format:`). Same deliberately-narrow
+    parser as seedflagship.spec — a recipe growing a shape this can't express
+    should throw here, not render wrong. */
 function parseProps(fm: string): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const lines = fm.split("\n");
@@ -49,19 +50,25 @@ function parseProps(fm: string): Record<string, unknown> {
       i++;
       continue;
     }
-    const list: Record<string, string>[] = [];
+    const list: (Record<string, string> | string)[] = [];
     i++;
     // entries may sit at column 0 (`- label: …`) or indented — the vault's
     // YAML allows both; continuations are always indented
     while (i < lines.length && (/^\s+/.test(lines[i]) || /^- /.test(lines[i]))) {
       const item = /^\s*-\s*([A-Za-z][\w-]*):\s*(.*)$/.exec(lines[i]);
+      const scalar = /^\s*-\s*(\S.*?)\s*$/.exec(lines[i]);
       if (item) {
         list.push({ [item[1]]: unquote(item[2].trim()) });
+      } else if (scalar) {
+        // a bare list value — `format:` on a release is two of these
+        list.push(unquote(scalar[1]));
       } else {
         const cont = /^\s+([A-Za-z][\w-]*):\s*(.*)$/.exec(lines[i]);
         if (!cont) throw new Error(`unparsed list line: ${lines[i]}`);
         if (list.length === 0) throw new Error(`list continuation before any entry: ${lines[i]}`);
-        list[list.length - 1][cont[1]] = unquote(cont[2].trim());
+        const last = list[list.length - 1];
+        if (typeof last === "string") throw new Error(`map continuation after a bare list value: ${lines[i]}`);
+        last[cont[1]] = unquote(cont[2].trim());
       }
       i++;
     }
@@ -94,7 +101,10 @@ async function installNote(page: Page, target: string, raw: string, cloneFrom?: 
       w.__mockBodyOf(targetPath as string); // throws if the target is missing
       w.__mockEditNote(targetPath as string, nextBody as string);
       // clear the fixture props a recipe might not re-declare, then install
-      for (const k of ["cards", "pages", "dashboard", "log", "db", "floor", "ceiling", "items", "curated", "index", "scanned", "fx_rate", "fx_date", "claimed_usd"]) {
+      for (const k of ["cards", "pages", "dashboard", "log", "db", "floor", "ceiling", "items", "curated", "index", "scanned", "fx_rate", "fx_date", "claimed_usd",
+        // release-row props — a cloned release fixture must not lend its own
+        // dates to a recipe note that deliberately leaves one out
+        "status", "recording_start", "released", "format", "contact", "link", "artist", "artwork", "cat#", "tracks"]) {
         w.__mockEditProp(targetPath as string, k, null);
       }
       for (const [k, v] of Object.entries(nextProps as Record<string, unknown>)) {
@@ -277,6 +287,60 @@ const SHOTS: Shot[] = [
     ready: async (page) => {
       await expect(page.locator(".coding2-row")).toHaveCount(4);
       await expect(page.locator(".coding2-row").first()).not.toHaveClass(/quiet/);
+    },
+  },
+  {
+    id: "studio-year",
+    nav: "Studio Year",
+    installs: [
+      { file: "Dashboards/Studio Year.md", target: "Dashboards/Studio Year.md", cloneFrom: "Dashboards/Umbra Home.md" },
+      { file: "Studio Log.md", target: "Studio Log.md", cloneFrom: "Holdings.md" },
+    ],
+    ready: async (page) => {
+      // both grids, both filled — a heatmap that resolved no rows still draws
+      // its weeks, so the proof is shaded squares, not squares
+      await expect(page.locator(".hub-heatmap .heatmap")).toHaveCount(2);
+      await expect(page.locator(".hub-heatmap .heatmap-week").first()).toBeVisible();
+      expect(await page.locator('.hub-heatmap .heatmap-week [data-level="4"]').count()).toBeGreaterThan(0);
+      await expect(page.locator(".chart-err")).toHaveCount(0);
+    },
+  },
+  {
+    id: "release-arc",
+    nav: "Release Arc",
+    installs: [
+      { file: "Dashboards/Release Arc.md", target: "Dashboards/Release Arc.md", cloneFrom: "Dashboards/Umbra Home.md" },
+      { file: "Releases/Night Circuit.md", target: "Releases/Night Circuit.md", cloneFrom: "Slow Bloom EP.md" },
+      { file: "Releases/Fern Static.md", target: "Releases/Fern Static.md", cloneFrom: "Slow Bloom EP.md" },
+      { file: "Releases/Slow Bloom EP.md", target: "Releases/Slow Bloom EP.md", cloneFrom: "Slow Bloom EP.md" },
+      { file: "Releases/Halide.md", target: "Releases/Halide.md", cloneFrom: "Slow Bloom EP.md" },
+      { file: "Releases/Paper Kite.md", target: "Releases/Paper Kite.md", cloneFrom: "Slow Bloom EP.md" },
+    ],
+    ready: async (page) => {
+      await expect(page.locator(".hub-timeline")).toHaveCount(2);
+      await expect(page.locator(".hub-timeline-err")).toHaveCount(0);
+      await expect(page.locator(".hub-timeline-empty")).toHaveCount(0);
+      // first fence: four dated releases as bars plus Fern Static as a dot;
+      // second: the three live ones — the recipe's point is that both fences
+      // read the same notes, so both kinds of mark must be on screen
+      expect(await page.locator(".hub-timeline-bar").count()).toBeGreaterThanOrEqual(7);
+      expect(await page.locator(".hub-timeline-milestone").count()).toBeGreaterThan(0);
+    },
+    post: async (page) => {
+      // the mock roster's own undated releases would read as "5 skipped" in
+      // the head — a count the recipe's files don't explain. Drop them so the
+      // shot's head counts only what the recipe ships.
+      await page.evaluate(() => {
+        const w = window as unknown as {
+          __mockDeleteNote: (p: string) => void;
+          __mockEmit: (e: string) => void;
+        };
+        for (const p of ["Slow Bloom EP.md", "Static Bouquet.md", "Vessel Songs.md", "Fern Palace.md", "Glass Havens.md"]) {
+          w.__mockDeleteNote(p);
+        }
+        w.__mockEmit("vault:changed");
+      });
+      await expect(page.locator(".hub-timeline-head", { hasText: "skipped" })).toHaveCount(0);
     },
   },
 ];

@@ -5,7 +5,15 @@ import { join, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { evaluateSheet, findSummary, parseSheet } from "../src/lib/sheet.ts";
 import { isErr, type FxResolver } from "../src/lib/formula.ts";
-import { parseChartBlocks } from "../src/lib/chart.ts";
+import { parseChartBlocks, sheetRows } from "../src/lib/chart.ts";
+import {
+  heatmapGrid,
+  heatmapYears,
+  parseHeatmapBlocks,
+  pickHeatmapYear,
+  tallyHeatmap,
+} from "../src/lib/heatmap.ts";
+import { parseTimelineConfig, timelineData } from "../src/lib/timeline.ts";
 import { parseHub } from "../src/lib/hub.ts";
 import { parseViewSpec } from "../src/lib/embeds.ts";
 import { collectCardsFences, parseBind, parseCardsBlock } from "../src/lib/metriccards.ts";
@@ -14,7 +22,7 @@ import { parseFoodDb } from "../src/lib/fooddb.ts";
 import { isOpenableUrl, parseFeedItems } from "../src/lib/feed.ts";
 import { parseSnapshotsFromBody } from "../src/lib/dashboard.ts";
 import { buildTasksDashboard } from "../src/lib/tasksDashboard.ts";
-import type { NoteMeta } from "../src/lib/types.ts";
+import type { NoteMeta, SchemaConfig } from "../src/lib/types.ts";
 import { GLYPH_IDS, ICON_TINTS } from "../src/lib/dbicons.ts";
 import { BUILT_IN_KINDS } from "../src/lib/kinds.ts";
 
@@ -193,7 +201,7 @@ test("the seed's documented view example parses to the keys it claims (SUB-474)"
 test("dashboard kinds are ones the app dispatches", () => {
   const kinds = BUILT_IN_KINDS;
   const dashboards = notes.filter((n) => n.props["type"] === "dashboard");
-  assert.equal(dashboards.length, 12);
+  assert.equal(dashboards.length, 14);
   for (const n of dashboards) {
     const k = n.props["dashboard"];
     assert.ok(typeof k === "string" && kinds.has(k), `${n.path}: unknown dashboard kind "${k}"`);
@@ -271,6 +279,83 @@ test("Release Charts fences parse clean and name real sources", () => {
     if (src.kind === "db") assert.ok(dbTypes.has(src.type), `chart over unknown database "${src.type}"`);
     else assert.ok(loadSheet(src.name), `chart over unknown sheet "${src.name}"`);
   }
+});
+
+test("Studio Year's heatmap fences tally the bundled session log (SUB-1241)", () => {
+  const n = byStem("Studio Year");
+  assert.ok(n, "Dashboards/Studio Year.md missing");
+  const model = loadSheet("Studio Log");
+  assert.ok(model, "Studio Log sheet missing — both grids read it");
+  const rows = sheetRows(model, evaluateSheet(model, fx));
+  assert.equal(rows.length, 134);
+
+  const blocks = parseHeatmapBlocks(n.body);
+  assert.equal(blocks.length, 2, "the year carries a minutes grid and a sessions grid");
+  assert.deepEqual(
+    blocks.map((b) => b.config?.value.fn),
+    ["sum", "count"]
+  );
+  for (const b of blocks) {
+    assert.equal(b.error, null, `heatmap fence error: ${b.error}`);
+    assert.ok(b.config, "heatmap fence produced no config");
+    assert.equal(b.config.source.kind, "sheet", "both grids read the bundled sheet");
+    const tally = tallyHeatmap(rows, b.config);
+    assert.equal(tally.missing, null, `heatmap binds a column the sheet lacks: ${tally.missing}`);
+    assert.equal(tally.skipped, 0, "every logged row should land on a readable day");
+    // The log straddles a year end on purpose, so the year picker has something
+    // to pick and the grid isn't the only year that exists.
+    assert.deepEqual(heatmapYears(tally), [2025, 2026]);
+    assert.equal(pickHeatmapYear(tally, "2026-08-16"), 2026);
+  }
+
+  const sum = heatmapGrid(tallyHeatmap(rows, blocks[0].config!), 2026);
+  assert.equal(sum.active, 106);
+  assert.equal(sum.total, 15765);
+  assert.equal(sum.max, 330);
+  const count = heatmapGrid(tallyHeatmap(rows, blocks[1].config!), 2026);
+  assert.equal(count.active, 106);
+  assert.equal(count.max, 2, "a doubled-up day is what gives the count grid its top level");
+});
+
+test("Release Arc's timeline fences span the demo releases (SUB-1241)", () => {
+  const n = byStem("Release Arc");
+  assert.ok(n, "Dashboards/Release Arc.md missing");
+  const releases: NoteMeta[] = notes
+    .filter((r) => r.props["type"] === "release")
+    .map((r) => ({
+      path: r.path,
+      stem: r.stem,
+      title: r.stem,
+      folder: r.path.split("/").slice(0, -1).join("/"),
+      props: r.props,
+      updated_ms: 0,
+      excerpt: "",
+      sealed: false,
+    }));
+  assert.equal(releases.length, 5, `expected the demo release set, found ${releases.length}`);
+
+  const inners = [...n.body.matchAll(/```timeline\r?\n([\s\S]*?)```/g)].map((m) => m[1]);
+  assert.equal(inners.length, 2, "the arc carries the whole run and a shipped-only cut");
+
+  const arc = timelineData(parseTimelineConfig(inners[0]), releases, schema as SchemaConfig);
+  assert.equal(arc.error, null, `timeline error: ${arc.error}`);
+  assert.equal(arc.skipped, 0, "every release should carry a readable recording_start");
+  assert.equal(arc.items.length, 5);
+  // Fern Static has no `released` date yet: a milestone dot at its start, not a
+  // bar claiming a ship date nobody has committed to.
+  const fern = arc.items.find((i) => i.label === "Fern Static");
+  assert.ok(fern, "Fern Static missing from the arc");
+  assert.equal(fern.end, null);
+  assert.deepEqual(
+    [...new Set(arc.items.map((i) => i.group))].sort(),
+    ["live", "mastering", "sketch"],
+    "the arc groups by status, so every demo status should show as a lane"
+  );
+
+  const shipped = timelineData(parseTimelineConfig(inners[1]), releases, schema as SchemaConfig);
+  assert.equal(shipped.error, null, `timeline error: ${shipped.error}`);
+  assert.equal(shipped.items.length, 3, "status:live narrows the run to the shipped three");
+  for (const item of shipped.items) assert.ok(item.end, `${item.label} shipped but has no end`);
 });
 
 test("Home hub's cards and chart fences parse and bind to the bundled sheet", () => {

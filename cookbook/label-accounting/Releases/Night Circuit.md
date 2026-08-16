@@ -1,6 +1,7 @@
 ---
 type: release
 status: mastering
+recording_start: 2026-04-02
 released: 2026-09-11
 format: Digital
 contact: Juno Marek

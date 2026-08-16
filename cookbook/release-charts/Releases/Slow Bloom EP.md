@@ -1,6 +1,7 @@
 ---
 type: release
 status: live
+recording_start: 2025-11-04
 released: 2026-05-30
 format:
 - Vinyl
