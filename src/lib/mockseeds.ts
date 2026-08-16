@@ -543,6 +543,62 @@ export const mockNotes: MockNote[] = [
     body: "A read-only attention view over task notes. Configure its area allowlist and stale threshold in this note's frontmatter.\n",
   },
   {
+    // tax dashboard seed: `dashboard: tax` — config props and the ordinary
+    // card bindings, over the two sheets below. Both are written outside the
+    // app (the aggregates by whatever keeps the books, the missing-evidence
+    // snapshot by an exporter reading them), so the pane never writes.
+    path: "Dashboards/Tax Readiness.md",
+    stem: "Tax Readiness",
+    title: "Tax Readiness",
+    folder: "Dashboards",
+    props: {
+      type: "dashboard",
+      dashboard: "tax",
+      sheet: "Tax 2026",
+      missing: "Tax Missing",
+      stale_hours: 240,
+      cards: [
+        { label: "Income YTD", bind: "{{Tax 2026.income_ytd}}", format: "eur", emph: true },
+        { label: "Profit YTD", bind: "{{Tax 2026.profit_ytd}}", format: "eur", emph: true },
+        { label: "Business expenses", bind: "{{Tax 2026.expenses_ytd}}", format: "eur" },
+        { label: "Equipment", bind: "{{Tax 2026.equipment_ytd}}", format: "eur" },
+        { label: "Home office", bind: "{{Tax 2026.home_office_ytd}}", format: "eur" },
+        { label: "Rental", bind: "{{Tax 2026.rental_ytd}}", format: "eur" },
+        { label: "Partnership", bind: "{{Tax 2026.partnership_ytd}}", format: "eur" },
+        { label: "Threshold headroom", bind: "{{Tax 2026.threshold_headroom}}", format: "eur" },
+        { label: "Documents", bind: "{{Tax 2026.documents}}", format: "number" },
+      ],
+      created: "2026-08-03",
+    },
+    updated_ms: now - 9 * 86_400_000,
+    excerpt: "Category totals and the documents still owed before the tax year closes.",
+    body: "How ready the tax year is to hand over. Totals come from the aggregates sheet, the checklist from an exported snapshot of the workbook — the workbook stays canonical.\n",
+  },
+  {
+    path: "Tax 2026.md",
+    stem: "Tax 2026",
+    title: "Tax 2026",
+    folder: "",
+    props: { type: "sheet", created: "2026-08-03" },
+    updated_ms: now - 3 * 86_400_000,
+    excerpt: "Tax-year aggregates by category — rows, amounts, and the named totals.",
+    body: "Tax-year aggregates. The dashboard binds its cards to the summaries below.\n\n```csv\ncategory,sheet,rows,amount_eur,basis\nIncome,Income,38,21400,Business\nBusiness expenses,Expenses,52,9260,Business\nEquipment,Expenses,11,1840,Business\nHome office,Expenses,12,2100,Personal\nRental,Rental,17,7300,Property\nPartnership,Partnership,9,4100,Partnership\n```\n\n```formulas\nincome_ytd = SUMIF(category, \"Income\", amount_eur)\nexpenses_ytd = SUMIF(category, \"Business expenses\", amount_eur)\nprofit_ytd = income_ytd - expenses_ytd\nthreshold_headroom = 25000 - income_ytd\nequipment_ytd = SUMIF(category, \"Equipment\", amount_eur)\nhome_office_ytd = SUMIF(category, \"Home office\", amount_eur)\nrental_ytd = SUMIF(category, \"Rental\", amount_eur)\npartnership_ytd = SUMIF(category, \"Partnership\", amount_eur)\ndocuments = SUM(rows)\n```\n",
+  },
+  {
+    path: "Tax Missing.md",
+    stem: "Tax Missing",
+    title: "Tax Missing",
+    folder: "",
+    props: {
+      type: "sheet",
+      exported: new Date(now - 6 * 3_600_000).toISOString(),
+      created: "2026-08-03",
+    },
+    updated_ms: now - 6 * 3_600_000,
+    excerpt: "Rows still missing evidence — exported from the books.",
+    body: "Documents still owed, exported from wherever the books live. The app only reads this sheet.\n\n```csv\nsheet,name,date,missing\nExpenses,Studio rent — March,2026-03-01,Receipt no.\nExpenses,Interface repair,2026-05-14,Document Filed; Receipt\nExpenses,Domain renewal,,Receipt no.\nIncome,Mastering — Fern Static,2026-04-08,Invoice PDF\nRental,Boiler service,2026-02-19,Receipt\n```\n",
+  },
+  {
     // food dashboard seed: `dashboard: food` — config props only,
     // rows live in the Food Log sheet below. Old updated_ms keeps it out of
     // the Today recency grid.

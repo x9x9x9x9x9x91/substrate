@@ -355,6 +355,23 @@ const SHOTS: Shot[] = [
       await expect(page.locator(".jobs-chip")).not.toHaveCount(0);
     },
   },
+  {
+    id: "tax",
+    nav: "Tax Readiness",
+    installs: [
+      { file: "Dashboards/Tax Readiness.md", target: "Dashboards/Tax Readiness.md" },
+      { file: "Tax 2026.md", target: "Tax 2026.md" },
+      { file: "Tax Missing.md", target: "Tax Missing.md" },
+    ],
+    ready: async (page) => {
+      await expect(page.locator(".metrics-cards .dash-card")).toHaveCount(9);
+      await expect(page.locator(".dash-card-miss")).toHaveCount(0);
+      await expect(page.locator(".tax-row")).toHaveCount(5);
+      // the recipe's own stale_hours outlives its literal `exported:` stamp,
+      // so the shipped sample opens trusted rather than warning about its age
+      await expect(page.locator(".tax-alert")).toHaveCount(0);
+    },
+  },
 ];
 
 mkdirSync(OUT, { recursive: true });

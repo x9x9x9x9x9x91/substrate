@@ -71,6 +71,7 @@ pub const BUILT_IN_KINDS: &[&str] = &[
     "feed",
     "music-work",
     "tasks",
+    "tax",
     "charts",
 ];
 

@@ -133,6 +133,9 @@
   block, quiet fact rows) and a clean database table sheet.
 - Browse the dashboard cookbook inside the app and install any recipe into your vault
   with one click.
+- A tax-readiness dashboard over two sheets shows where the year stands — category
+  totals, the receipts still owed, and a plain verdict on whether it is fit to hand
+  over.
 
 ### Improved
 
@@ -143,13 +146,13 @@
 
 - The app stopped being picky about typed input: German-style decimals (1,5) are
   understood in sheet grids, hand-edited log rows, settings and the terminal-size box,
-  and frontmatter and Settings.md keys are no longer case-sensitive — queries, filters,
-  rollups, charts, dashboards and notification schedules read Status and status alike.
+  frontmatter and Settings.md keys are no longer case-sensitive — queries, filters,
+  rollups, charts, dashboards and notification schedules read Status and status alike —
+  and notification times accept single-digit hours (9:00), with a hand-edited
+  out-of-range lead time no longer silently stopping the reminder scheduler.
 - Edge-case markdown now survives everywhere it renders: link URLs containing
   parentheses stay intact, notes saved with Windows line endings show their views and
   charts, and numbered lists that follow bullet lists keep their numbering in print.
-- Notification times accept single-digit hours (9:00), and a hand-edited out-of-range
-  lead time can no longer silently stop the reminder scheduler.
 
 ## 0.21.0 — 2026-08-03 — Send a note as a link, and a tasks board that knows what's urgent
 

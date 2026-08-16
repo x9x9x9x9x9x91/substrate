@@ -749,6 +749,92 @@ it and listing the kinds that exist (SUB-993) — a typo shows you the typo,
 rather than quietly handing you a different dashboard.
 ` ```calendar ` fences fall back to the month grids the same way.
 
+### `tax` — tax-year readiness
+
+Read-only over two sheets: the year's aggregates, and a snapshot of rows still
+missing evidence that an external exporter regenerates from wherever the books
+live. The app writes to neither — the books stay canonical. The board answers
+one question, "is this year fit to hand over": the totals up top, a category
+table under them, and a checklist of the documents still owed. It carries the
+head's **Print** action, which is the point — this is the surface you print and
+hand to whoever does the filing.
+
+The board knows nothing about any one country's filing. Its cards are the
+ordinary `cards:` bindings (the same `cards:` list [`metrics`](#metrics--stat-cards-over-a-sheet) uses),
+so the totals a year is judged on — and what they are called — are the note's
+decision; the sample below is one freelancer's shape, not a schema.
+
+The readiness dot is green when nothing is missing and the snapshot is fresh,
+amber while documents are outstanding, and red only when the snapshot itself
+can't be trusted (unreadable, or an export stamp that is missing, invalid, in
+the future, or older than `stale_hours`). Missing paperwork is ordinary work in
+progress, so it never reddens the board.
+
+````markdown
+---
+type: dashboard
+dashboard: tax
+sheet: Tax 2026
+missing: Tax Missing
+stale_hours: 240
+cards:
+  - label: Income YTD
+    bind: "{{Tax 2026.income_ytd}}"
+    format: eur
+    emph: true
+  - label: Profit YTD
+    bind: "{{Tax 2026.profit_ytd}}"
+    format: eur
+    emph: true
+  - label: Documents
+    bind: "{{Tax 2026.documents}}"
+    format: number
+---
+````
+
+````markdown
+---
+type: sheet
+title: Tax 2026
+---
+
+```csv
+category,sheet,rows,amount_eur,basis
+Income,Income,38,21400,Business
+Business expenses,Expenses,52,9260,Business
+Equipment,Expenses,0,0,Business
+```
+
+```formulas
+income_ytd = SUMIF(category, "Income", amount_eur)
+expenses_ytd = SUMIF(category, "Business expenses", amount_eur)
+profit_ytd = income_ytd - expenses_ytd
+documents = SUM(rows)
+```
+````
+
+````markdown
+---
+type: sheet
+title: Tax Missing
+exported: 2026-08-03T06:00:00Z
+---
+
+```csv
+sheet,name,date,missing
+Expenses,Studio rent — March,2026-03-01,Receipt no.
+Expenses,Interface repair,2026-05-14,Document Filed; Receipt
+Expenses,Domain renewal,,Receipt no.
+```
+````
+
+A card bound to a summary the sheet doesn't define says so on the card, so a
+half-configured year still shows what it has. In the snapshot, `missing` is a
+semicolon-joined list of the evidence fields still outstanding; a row with no
+name or no missing fields is skipped rather than raised, and the checklist sorts
+by sheet, then date (undated last), then name. Full contract:
+[vault-format.md §5.2](vault-format.md).
+
 ## Kinds over the machine
 
 These read state *outside* the vault, so they only light up on a machine that

@@ -170,6 +170,16 @@
       "expects": { "sheets": [], "databases": [] },
       "files": ["Dashboards/Jobs.md"],
       "shot": "shots/jobs.png"
+    },
+    {
+      "id": "tax",
+      "title": "Tax readiness",
+      "kind": "tax",
+      "blurb": "Is the tax year fit to hand over? Category totals from an aggregates sheet, cards you bind to your own summaries, a checklist of the receipts still owed from an exported snapshot, and one plain verdict. Read-only over both sheets — whatever keeps your books stays canonical — and the head's Print action is the page you hand to whoever files.",
+      "adapt": "Point sheet:/missing: at your own two sheets, rename the categories and summaries to whatever your filing is judged on and repoint the cards: bindings at them (at most two emph: true), and have whatever holds the books re-export the missing-evidence snapshot with a fresh exported: stamp.",
+      "expects": { "sheets": ["Tax 2026", "Tax Missing"], "databases": [] },
+      "files": ["Dashboards/Tax Readiness.md", "Tax 2026.md", "Tax Missing.md"],
+      "shot": "shots/tax.png"
     }
   ]
 }

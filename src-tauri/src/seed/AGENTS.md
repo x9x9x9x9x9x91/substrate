@@ -62,7 +62,7 @@ relation's targets.
 
 A **dashboard** is a note with `type: dashboard`. A `dashboard:` prop names the
 renderer, and the public built-ins are: `metrics`, `yield-apr`, `hub`, `food`,
-`feed`, `music-work`, `tasks`, `sync`, `coding`, `jobs`, `charts`.
+`feed`, `music-work`, `tasks`, `sync`, `coding`, `jobs`, `tax`, `charts`.
 `dashboard: charts` always selects the chart-fence renderer. With no
 `dashboard:` prop, the app scans the body: one or more ` ```chart ` fences
 select charts, and none falls back to the yield tracker. A present but

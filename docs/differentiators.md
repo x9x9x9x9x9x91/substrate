@@ -158,8 +158,12 @@ Capacities, Affine).*
   sort switch — urgency/priority/due/age), news feed with agent curator,
   repo health (every git repo under a folder you name, ranked by what needs
   doing — dirty files, stale unmerged lanes, ahead/behind — read-only and
-  never networked), plus
-  **workbook pages** —
+  never networked),
+  tax-year readiness (two sheets an external exporter owns become category
+  totals, a checklist of the documents still owed, and a plain
+  fit-to-hand-over verdict — read-only, and printable as the sheet you hand to
+  whoever files),
+  plus **workbook pages** —
   any dashboard grows spreadsheet-style bottom tabs (sheet grid / dashboard /
   database cut).
   Machine-specific dashboard kinds built for one vault are deliberately not
