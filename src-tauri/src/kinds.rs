@@ -66,7 +66,6 @@ pub const BUILT_IN_KINDS: &[&str] = &[
     "sync",
     "hub",
     "food",
-    "coding",
     "feed",
     "music-work",
     "tasks",

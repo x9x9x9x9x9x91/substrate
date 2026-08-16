@@ -451,26 +451,6 @@ export const mockNotes: MockNote[] = [
     body: "Backup-sync control surface. The dashboard reads the machine's live sync state — per-leg status, direction sweeps, launchd automation — so there is nothing to edit in this prose.\n",
   },
   {
-    // coding dashboard seed: `dashboard: coding` — the CodingDashboard reads
-    // the scan root's per-repo git health over IPC (the coding_scan mock lane
-    // below), so the body is prose only. `root` is spelled out at its default
-    // so the seed doubles as the example of the prop. Old updated_ms keeps it
-    // out of the Today recency grid.
-    path: "Dashboards/Coding.md",
-    stem: "Coding",
-    title: "Coding",
-    folder: "Dashboards",
-    props: {
-      type: "dashboard",
-      dashboard: "coding",
-      created: "2026-07-21",
-      root: "~/Coding",
-    },
-    updated_ms: now - 9 * 86_400_000,
-    excerpt: "Per-repo git health for ~/Coding — dirty, lanes, ahead/behind.",
-    body: "Per-repo git health for every project under ~/Coding. Point `root:` at another folder to scan it instead. The dashboard shells out to git over IPC, so there is nothing to edit in this prose.\n",
-  },
-  {
     // tasks dashboard seed: a read-only cut of task notes. Areas is
     // an allowlist (YAML lists and comma text both work); stale_days controls
     // when age raises a row out of the quiet layer.

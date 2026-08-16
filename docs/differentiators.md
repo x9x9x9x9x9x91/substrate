@@ -155,10 +155,7 @@ Capacities, Affine).*
   weight-curve overlay), tasks (an urgency-led board:
   Overdue/Due today sections, quick-add, checkoff with a real undo, Now/Later,
   snooze round trip, a kanban view by area with drag-to-recategorize, and a
-  sort switch — urgency/priority/due/age), news feed with agent curator,
-  repo health (every git repo under a folder you name, ranked by what needs
-  doing — dirty files, stale unmerged lanes, ahead/behind — read-only and
-  never networked), plus
+  sort switch — urgency/priority/due/age), news feed with agent curator, plus
   **workbook pages** —
   any dashboard grows spreadsheet-style bottom tabs (sheet grid / dashboard /
   database cut).

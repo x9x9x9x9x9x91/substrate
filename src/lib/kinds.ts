@@ -34,7 +34,6 @@ export const BUILT_IN_KINDS: ReadonlySet<string> = new Set([
   "sync",
   "hub",
   "food",
-  "coding",
   "feed",
   "music-work",
   "tasks",

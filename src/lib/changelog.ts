@@ -525,10 +525,6 @@ export const CHANGELOG: ChangelogRelease[] = [
         text: "The sidebar de-nests saved views, wears curated folder and dashboard icons, and drops the Sketchpad entry — Notes now lists only untyped, unfiled notes.",
         kind: "improved",
       },
-      {
-        text: "The coding dashboard aligns lane age, behind-count, and commit age to shared rails.",
-        kind: "fixed",
-      },
     ],
   },
   {
@@ -607,10 +603,6 @@ export const CHANGELOG: ChangelogRelease[] = [
       },
       {
         text: "A calorie surface: log meals against a daily band, with undo, a day strip, and a seven-day average.",
-        kind: "new",
-      },
-      {
-        text: "A coding dashboard listing your repositories sorted by what needs attention.",
         kind: "new",
       },
       {

@@ -123,16 +123,6 @@
       "expects": { "sheets": [], "databases": [] },
       "files": ["Dashboards/Sync.md"],
       "shot": "shots/sync.png"
-    },
-    {
-      "id": "coding",
-      "title": "Repo health",
-      "kind": "coding",
-      "blurb": "Every git repo under one folder as a table sorted by what needs doing: dirty files, unmerged branches with the oldest one's age, extra worktrees, ahead/behind. Read-only and never networked — git read verbs only.",
-      "adapt": "Point root: at the folder your projects live in; the table is the scan, so there is no sample data to replace.",
-      "expects": { "sheets": [], "databases": [] },
-      "files": ["Dashboards/Coding.md"],
-      "shot": "shots/coding.png"
     }
   ]
 }

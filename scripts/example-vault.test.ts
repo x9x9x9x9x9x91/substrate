@@ -122,7 +122,7 @@ test("the seeded agent door matches editable-view and recoverable-asset contract
   assert.doesNotMatch(seed, /view fence[^\n]*live, read-only/);
   assert.doesNotMatch(seed, /Deleting one is permanent/);
   assert.doesNotMatch(seed, /machine-specific kinds/);
-  assert.match(seed, /`tasks`, `sync`, `coding`, `charts`/);
+  assert.match(seed, /`tasks`, `sync`, `charts`/);
   assert.match(seed, /unknown value shows an “unknown kind” card/);
   assert.doesNotMatch(seed, /dashboard: charts` is a conventional label/);
 });
@@ -193,7 +193,7 @@ test("the seed's documented view example parses to the keys it claims (SUB-474)"
 test("dashboard kinds are ones the app dispatches", () => {
   const kinds = BUILT_IN_KINDS;
   const dashboards = notes.filter((n) => n.props["type"] === "dashboard");
-  assert.equal(dashboards.length, 12);
+  assert.equal(dashboards.length, 11);
   for (const n of dashboards) {
     const k = n.props["dashboard"];
     assert.ok(typeof k === "string" && kinds.has(k), `${n.path}: unknown dashboard kind "${k}"`);

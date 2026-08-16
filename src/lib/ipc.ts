@@ -2,7 +2,6 @@ import { invoke, setHistoryReadOnly } from "./tauri.ts";
 import { isAppFile, SETTINGS_PATH } from "./settings.ts";
 import type { KindBundleInfo } from "./kinds.ts";
 import type { ReflexReceipt, ReflexStatus } from "./reflexes.ts";
-import type { CodingScan } from "./codingScan.ts";
 import type { OnboardingStatus, VaultCandidate } from "./onboarding.ts";
 import type {
   AggKind,
@@ -663,11 +662,6 @@ export const syncSleepRead = () => invoke<boolean | null>("sync_sleep_read");
 /** Flip keep-awake (sudo -n pmset -a disablesleep); resolves to the
     read-back-verified state. */
 export const syncSleepSet = (on: boolean) => invoke<boolean>("sync_sleep_set", { on });
-/** Per-repo git health under a scan root (coding dashboard). `root` is the
-    note's `root:` prop — null scans the default ~/Coding. force=true bypasses
-    the backend's 1h scan cache (the refresh button). */
-export const codingScan = (force: boolean, root?: string | null) =>
-  invoke<CodingScan>("coding_scan", { force, root: root ?? null });
 export const fileOpen = (path: string) => invoke<void>("file_open", { path });
 export const fileReveal = (path: string) => invoke<void>("file_reveal", { path });
 export const filePick = (dir: boolean, extensions?: string[]) =>

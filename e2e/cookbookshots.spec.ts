@@ -268,17 +268,6 @@ const SHOTS: Shot[] = [
       await expect(page.locator(".sync-empty")).toHaveCount(0);
     },
   },
-  {
-    id: "coding",
-    nav: "Coding",
-    // the table is the scan, so the recipe binds no sheets — only the
-    // dashboard note, whose `root:` the mock scan lane echoes back
-    installs: [{ file: "Dashboards/Coding.md", target: "Dashboards/Coding.md" }],
-    ready: async (page) => {
-      await expect(page.locator(".coding2-row")).toHaveCount(4);
-      await expect(page.locator(".coding2-row").first()).not.toHaveClass(/quiet/);
-    },
-  },
 ];
 
 mkdirSync(OUT, { recursive: true });

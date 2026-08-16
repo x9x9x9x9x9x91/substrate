@@ -237,7 +237,6 @@ test("dashboardIcon: icon prop wins, then the per-kind mark, else undefined (SUB
   for (const kind of [
     "food",
     "sync",
-    "coding",
     "metrics",
     "yield-apr",
     "hub",

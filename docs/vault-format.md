@@ -215,7 +215,6 @@ type: release
 | `cards` | metrics dashboard card list (§5.4) |
 | `claimed_usd` | yield dashboard: cumulative claimed total, set by the Claim button (§5.3) |
 | `log`, `db`, `weight`, `floor`, `ceiling` | food dashboard config: log-sheet, food-DB and weight-sheet names, net-kcal band (§5.2) |
-| `root` | coding dashboard: the folder of projects to scan, one level deep — `~/…` expands, an absolute path is taken as given, a bare name reads against your home folder (and can't climb out of it), and absent means `~/Coding`. Denied stores render the empty state (§5.2) |
 | `items`, `curated` | feed dashboard config: items-sheet name, and the curator's own last-run stamp, rendered verbatim (§5.2) |
 | `index`, `scanned` | music-work dashboard config: work-index sheet name, and the scanner's own last-run stamp, rendered verbatim (§5.2) |
 | `areas`, `stale_days` | tasks dashboard area allowlist and stale-age threshold (§5.2) |
@@ -883,7 +882,7 @@ those always stay section rows.
 
 Sidebar icon: each dashboard row renders a curated per-kind glyph
 (`src/lib/dbicons.ts` DASHBOARD_ICONS — `food`, `metrics`, `yield-apr`, `hub`,
-`feed`, `music-work`, `tasks`, `sync`, `coding`,
+`feed`, `music-work`, `tasks`, `sync`,
 plus any machine-specific kinds this build carries); an `icon:` prop overrides
 it (a curated glyph id, anything else treated as an emoji), and kinds without a
 mark keep the generic chart glyph. The curated glyph ids (`src/lib/dbicons.ts`
@@ -900,10 +899,9 @@ These public kinds are dispatched: `metrics` → the metrics cards renderer (§5
 `yield-apr` → the yield tracker (§5.3); `hub` → the hub renderer (below);
 `food` → the food log tracker (below); `feed` → the curated newsfeed (below);
 `music-work` → the work-index board (below); `tasks` → the task attention
-board (below); `coding` → the repo-health table over the scan root its `root:`
-prop names (default `~/Coding`); `charts` → the chart-fence dashboard (§5.5),
-whether or not the body actually holds a fence; `sync` → the sync control
-surface (below).
+board (below); `charts` → the chart-fence dashboard (§5.5), whether
+or not the body actually holds a fence; `sync` → the sync control surface
+(below).
 **A missing `dashboard` prop looks at the body** — one or more ` ```chart `
 fences makes it a charts dashboard (§5.5), none falls back to the yield
 tracker. So a charts dashboard needs no specific key, just the fences;

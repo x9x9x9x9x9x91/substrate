@@ -1091,7 +1091,7 @@ export const TIPS: TipEntry[] = [
     },
   },
   {
-    selector: ".sync-run-all, .sync-run, .sync-verify, .coding-refresh",
+    selector: ".sync-run-all, .sync-run, .sync-verify",
     tip: (element) => ({
       title: elementLabel(element, "Run now"),
       body: "Start this job immediately instead of waiting for its schedule.",
@@ -1119,7 +1119,7 @@ export const TIPS: TipEntry[] = [
     }),
   },
   {
-    selector: ".sync-errlog, .coding-err, .sync-action-err",
+    selector: ".sync-errlog, .sync-action-err",
     tip: {
       title: "Last error",
       body: "The tail of the failing run's output, kept so you can see why it stopped.",

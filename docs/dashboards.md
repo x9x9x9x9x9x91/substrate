@@ -806,56 +806,6 @@ render as "—" or "never" rather than blanking the pane:
 The remote names (`offsite` here) are the directions a Run button can start;
 leg keys are `LegName:remote`, split on the last colon.
 
-### `coding` — per-repo git health
-
-One row per project under a folder of repositories: a state dot, the repo name
-and its current branch over the last commit subject, then chips for what needs
-doing — dirty files, unmerged local branches (with the oldest one's age), extra
-worktrees, and ahead/behind against `origin/<integration branch>`. Rows that
-need attention (dirty, behind, harbouring a 4+ day old unmerged branch, or
-broken) sort to the top in full contrast; quiet repos dim below them. Directories
-that aren't git repos are listed at the foot with their size and last touch.
-
-Strictly read-only, and never networked: the scan shells out to `git -C <repo>`
-read verbs only — `status`, `log`, `branch`, `worktree`, `rev-list` — so an
-ahead/behind count is measured against the `origin/…` ref your last fetch left
-behind, not a fresh one. Read-only is enforced, not just intended: every call
-carries `--no-optional-locks`, so a rescan landing while you are mid-rebase
-can't take `.git/index.lock` out from under you, and `-c core.fsmonitor=`, so a
-repo that arrived as an archive rather than a clone can't have the scan run a
-command out of its own config. A repo git can't read shows its error on the row
-and the rest of the table still renders.
-
-The full scan is seconds-slow (sizing the directories dominates), so the result
-is cached for an hour, per root. Mount reads the cache; the head's **↻ rescan**
-forces a fresh walk. Sizing shares a 20-second budget across the whole scan — a
-very wide root stops there rather than walking for minutes, and the footer says
-the sizes are partial when it does.
-
-| prop | meaning |
-| --- | --- |
-| `root` | folder to scan, one level deep — every child directory is a row. `~/…` expands, an absolute path is taken as given, and a bare name is read against your home folder. Defaults to `~/Coding`. |
-
-A `root` is note text, and note text syncs between devices, so it answers to the
-app's deny list: the credential and application stores an `asset:` link may
-never open (`~/.ssh`, `~/.config`, `~/Library/Application Support`, …) are not
-scannable either, and a bare name can't climb out of your home folder with
-`..`. A refused root renders as an empty pane, not an error.
-
-The integration branch a repo's unmerged branches are counted against is `main`
-if that local branch exists, else `master`, else whatever is checked out — a
-convention, not a setting.
-
-```markdown
----
-type: dashboard
-dashboard: coding
-root: ~/Coding
----
-
-Per-repo git health. Nothing here is editable — the table is the scan.
-```
-
 
 ## Style tokens — `accent` and `size`
 
