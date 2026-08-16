@@ -376,6 +376,10 @@
 - The sidebar de-nests saved views, wears curated folder and dashboard icons, and drops
   the Sketchpad entry — Notes now lists only untyped, unfiled notes.
 
+### Fixed
+
+- The coding dashboard aligns lane age, behind-count, and commit age to shared rails.
+
 ## 0.13.0 — 2026-07-23 — New sheet, collapsible sidebar
 
 ### New
@@ -428,6 +432,7 @@
 
 - A calorie surface: log meals against a daily band, with undo, a day strip, and a
   seven-day average.
+- A coding dashboard listing your repositories sorted by what needs attention.
 - Databases remember per-database column visibility and sort order.
 - The yield board gains a two-click Claim with full undo history.
 

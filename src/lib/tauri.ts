@@ -131,6 +131,7 @@ const HISTORY_MODE_COMMANDS = new Set([
   /* dashboard reads (external state, never vault writes) — these render live
      numbers while browsing the past, which is honest: they are not vault
      content and the projection has never claimed to cover them */
+  "coding_scan",
   "sync_state_read",
   "sync_runs",
   "sync_launchd_read",
@@ -1870,6 +1871,95 @@ const MOCK_RUN_MS = 1200;
 /** keep-awake flag — starts on, like the real machine */
 let mockSyncSleepDisabled = true;
 
+/* coding dashboard fixture: four repos covering the attention
+   sort — substrate is dirty + behind + harbours a 9d-old unmerged lane
+   (floats first), granulate-engine is quiet on dev/main, m8-sketches is
+   quiet and oldest, old-maxpatches is the broken row — plus one non-git dir
+   in `others`. Stamps are relative to the module `now`, so relative ages
+   render stable words in e2e. */
+const mockCodingUnix = (sAgo: number) => Math.floor((now - sAgo * 1000) / 1000);
+const mockCodingScan = {
+  scanned_unix: mockCodingUnix(12 * 60),
+  dir: "~/Coding",
+  missing: false,
+  denied: false,
+  sizes_partial: false,
+  repos: [
+    {
+      name: "substrate",
+      disk_bytes: 2_617_000_000,
+      current_branch: "sub/coding-dashboard",
+      dirty_files: 3,
+      last_commit_unix: mockCodingUnix(2 * 3600),
+      last_commit_subject: "feat: coding dashboard scan",
+      branch_total: 6,
+      integration_branch: "main",
+      lanes_unmerged: 2,
+      lanes_oldest_unix: mockCodingUnix(9 * 86_400),
+      worktree_count: 2,
+      ahead: 4,
+      behind: 1,
+      error: null,
+    },
+    {
+      name: "granulate-engine",
+      disk_bytes: 41_900_000_000,
+      current_branch: "dev/main",
+      dirty_files: 0,
+      last_commit_unix: mockCodingUnix(26 * 3600),
+      last_commit_subject: "fix: sampler voice stealing",
+      branch_total: 3,
+      integration_branch: "dev/main",
+      lanes_unmerged: 0,
+      lanes_oldest_unix: null,
+      worktree_count: 0,
+      ahead: 0,
+      behind: 0,
+      error: null,
+    },
+    {
+      name: "m8-sketches",
+      disk_bytes: 812_000_000,
+      current_branch: "main",
+      dirty_files: 0,
+      last_commit_unix: mockCodingUnix(21 * 86_400),
+      last_commit_subject: "wip: table groove experiments",
+      branch_total: 1,
+      integration_branch: "main",
+      lanes_unmerged: 0,
+      lanes_oldest_unix: null,
+      worktree_count: 0,
+      ahead: null,
+      behind: null,
+      error: null,
+    },
+    {
+      // a repo git can't read: the error replaces the subject line and the
+      // counts stay unshown (they were never scanned, they are not zero)
+      name: "old-maxpatches",
+      disk_bytes: 96_000_000,
+      current_branch: "—",
+      dirty_files: 0,
+      last_commit_unix: null,
+      last_commit_subject: "",
+      branch_total: 0,
+      integration_branch: "main",
+      lanes_unmerged: 0,
+      lanes_oldest_unix: null,
+      worktree_count: 0,
+      ahead: null,
+      behind: null,
+      error: "fatal: not a git repository (or any parent up to mount point)",
+    },
+  ],
+  others: [
+    {
+      name: "assets-scratch",
+      disk_bytes: 5_300_000_000,
+      newest_mtime_unix: mockCodingUnix(5 * 86_400),
+    },
+  ],
+};
 
 /** newest-first, ties broken by id — engine parity: the Rust
     registries are HashMaps, so `runs()` sorts `started_ms DESC` then `id ASC`
@@ -4440,6 +4530,28 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         // the fixture estate has a runner on disk, so the Run buttons are
         // live — unless a spec asks for the estate that has none
         can_run: window.__mockSyncNoRunner !== true,
+      };
+    }
+    case "coding_scan": {
+      // force only bypasses the real backend's cache — the fixture is static.
+      // `root` is echoed back as `dir` the way coding::scan reports the root
+      // it walked, so a note that names one sees its own path in the pane.
+      // engine parity: coding::scan walks read_dir with
+      // `entries.sort_by_key(|e| e.file_name())` and fills both lists from
+      // that one loop, so repos AND others arrive sorted by directory name.
+      // The fixture is written in attention-sort narrative order (substrate,
+      // granulate-engine, m8-sketches) for readability; sorting here is what
+      // makes the parity structural. It changes nothing on screen —
+      // CodingDashboard re-sorts repos through sortCodingRepos — but it means
+      // a fixture edit can't silently invent an order the engine can't produce.
+      const byName = (a: { name: string }, b: { name: string }) =>
+        a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
+      const root = typeof args?.root === "string" ? args.root.trim() : "";
+      return {
+        ...mockCodingScan,
+        dir: root || mockCodingScan.dir,
+        repos: [...mockCodingScan.repos].sort(byName),
+        others: [...mockCodingScan.others].sort(byName),
       };
     }
     case "sync_launchd_read":

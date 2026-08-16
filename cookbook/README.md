@@ -28,6 +28,7 @@ one-line prompt.
 | [`music-work/`](music-work) | music-work | years of work pivoted from one scanner-written sheet |
 | [`annual-report/`](annual-report) | metrics | the year in cards + charts, printable as a designed PDF |
 | [`sync/`](sync) | sync | a control surface over whatever already syncs your files |
+| [`coding/`](coding) | coding | every repo under one folder, sorted by what needs doing |
 
 Screenshots live in [`shots/`](shots) — each is the recipe's own files
 rendered in the app, captured by `e2e/cookbookshots.spec.ts`.

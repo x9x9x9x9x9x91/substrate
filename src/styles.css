@@ -6153,6 +6153,10 @@ body.agenda-window .palette:focus-visible {
   cursor: default;
 }
 
+/* Shared dashboard chrome the coding board reuses: its rescan button, busy
+   spinner and empty-state line are all these classes. They are named for the
+   sync manager that introduced them — the name is history, the rules are
+   generic. */
 .sync-btn {
   display: inline-flex;
   align-items: center;
@@ -6279,6 +6283,8 @@ body.agenda-window .palette:focus-visible {
   word-break: break-all;
 }
 
+/* the quiet centred line a dashboard shows instead of a table when there is
+   nothing to draw yet — loading, empty, missing or refused root. */
 .sync-empty {
   margin-top: 48px;
   text-align: center;
@@ -6286,6 +6292,175 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-3);
 }
 
+/* Coding dashboard (dashboard: coding) — per-repo git
+   health as two-line rows: dot | name + branch over the last commit subject |
+   chips | commit age. Attention rows sit in the normal foreground, quiet
+   repos dim. Only non-zero facts get a chip, so a healthy repo is two lines
+   of text and nothing else. */
+
+/* the attention amber is --warn; this block only gives it a local
+   name, inherited by the dot and the warn chips, plus the hair weight the
+   board draws it at. It used to declare its own hex here — a second amber
+   that drifted from the one the other dashboards' chips used. */
+.coding-compact {
+  --coding-attn: var(--warn);
+  --coding-attn-hair: rgba(217, 160, 43, 0.4);
+  --coding-dot-quiet: rgba(255, 255, 255, 0.18);
+}
+
+.coding2-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto 90px;
+  gap: 12px;
+  align-items: start;
+  padding: 8px 8px;
+  border-radius: var(--r);
+  font: var(--dash-data);
+}
+
+.coding2-row:hover {
+  background: var(--hover-dense);
+}
+
+.coding2-row > .dash-dot {
+  margin-top: 5px;
+  background: var(--coding-attn);
+}
+
+.coding2-row.quiet > .dash-dot {
+  background: var(--coding-dot-quiet);
+}
+
+.coding2-row.quiet .coding2-sub {
+  color: var(--text-4);
+}
+
+/* a broken repo replaces its subject line with the git error */
+.coding2-sub.coding-err,
+.coding2-row.quiet .coding2-sub.coding-err {
+  color: var(--danger);
+}
+
+.coding2-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.coding2-top {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* the branch sheds width first; the repo name is the row's identity and
+   stays whole until it has to ellipsis on its own */
+.coding2-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+  font-weight: 550;
+}
+
+.coding2-branch {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coding2-sub {
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coding2-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 1px;
+}
+
+.coding2-chip {
+  padding: 1px 7px;
+  border: 1px solid var(--hair-soft);
+  border-radius: 9px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.coding2-chip.warn {
+  color: var(--coding-attn);
+  border-color: var(--coding-attn-hair);
+}
+
+/* pinned so the age rail holds when a chipless repo leaves column 3 empty */
+.coding2-age {
+  grid-column: 4;
+  text-align: right;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+}
+
+.coding-rows {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+  /* the row's squeeze point is the pane, not the window — at a 760px viewport
+     the sidebar leaves ~545px here and the name starves to one letter while
+     the media query (which only sees 760) stays silent. So the narrow form is
+     a container query on the actual row width. */
+  container-type: inline-size;
+}
+
+/* below ~700px of pane the chips can no longer share the line with the name
+   block: they wrap onto their own line underneath it, the age keeps the
+   top-right corner, and the name column gets a hard floor so the repo
+   identity can never be squeezed to nothing. */
+@container (max-width: 700px) {
+  .coding2-row {
+    grid-template-columns: 14px minmax(120px, 1fr) auto;
+    column-gap: 10px;
+    row-gap: 6px;
+    padding-bottom: 10px;
+  }
+
+  /* row 2, under the name block; absent entirely when a repo has no chips,
+     so a clean repo keeps its two-line height */
+  .coding2-chips {
+    grid-column: 2 / -1;
+    margin-top: 0;
+  }
+
+  .coding2-age {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
+.coding-others {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 18px;
+  padding: 0 8px;
+  font: var(--dash-data);
+  color: var(--text-3);
+}
+
+.coding-others-label {
+  font-weight: 500;
+}
 
 
 /* Hub dashboard (dashboard: hub) — ordinary markdown laid out as a

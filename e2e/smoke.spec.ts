@@ -299,6 +299,7 @@ test("sidebar reorder: Move up/down via the context menu (SUB-58)", async ({ pag
   // than hard-coded
   const dashNames = [
     "Calories",
+    "Coding",
     "Overview",
     "Portfolio",
   ];
