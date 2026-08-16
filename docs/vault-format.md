@@ -882,7 +882,7 @@ those always stay section rows.
 
 Sidebar icon: each dashboard row renders a curated per-kind glyph
 (`src/lib/dbicons.ts` DASHBOARD_ICONS — `food`, `metrics`, `yield-apr`, `hub`,
-`feed`, `music-work`, `tasks`,
+`feed`, `music-work`, `tasks`, `sync`,
 plus any machine-specific kinds this build carries); an `icon:` prop overrides
 it (a curated glyph id, anything else treated as an emoji), and kinds without a
 mark keep the generic chart glyph. The curated glyph ids (`src/lib/dbicons.ts`
@@ -900,7 +900,8 @@ These public kinds are dispatched: `metrics` → the metrics cards renderer (§5
 `food` → the food log tracker (below); `feed` → the curated newsfeed (below);
 `music-work` → the work-index board (below); `tasks` → the task attention
 board (below); `charts` → the chart-fence dashboard (§5.5), whether
-or not the body actually holds a fence.
+or not the body actually holds a fence; `sync` → the sync control surface
+(below).
 **A missing `dashboard` prop looks at the body** — one or more ` ```chart `
 fences makes it a charts dashboard (§5.5), none falls back to the yield
 tracker. So a charts dashboard needs no specific key, just the fences;

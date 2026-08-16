@@ -326,6 +326,11 @@
 - Select text in a note for a floating menu: extract the selection into its own linked
   note, turn it into a heading or list, or copy it as Markdown.
 
+### Improved
+
+- The sync dashboard reads as sentences — each backup leg states its finding in plain
+  words, with hairline rows and ticks that stay put at any window width.
+
 ### Fixed
 
 - Background git maintenance could repack a vault's history store; sidebar pins under a
@@ -511,8 +516,14 @@
 - Today is a day-agenda decision surface — what is scheduled, due, overdue, and picked,
   in one place.
 
+### New
+
+- The sync dashboard became a control surface: start, inspect, and hold your backup jobs
+  from the app.
+
 ### Fixed
 
+- Sync refuses to start a run while a sweep is already in flight.
 - Restoring an old version of a note now lands in the open editor instead of being
   overwritten.
 

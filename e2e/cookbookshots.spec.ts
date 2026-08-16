@@ -256,6 +256,18 @@ const SHOTS: Shot[] = [
       await expect(page.getByText("Voss Signal", { exact: false })).toBeVisible();
     },
   },
+  {
+    id: "sync",
+    nav: "Sync",
+    installs: [{ file: "Dashboards/Sync.md", target: "Dashboards/Sync.md" }],
+    ready: async (page) => {
+      // the state comes from the mock sync lane, not the note — what the
+      // recipe contributes is the bindings, so the proof is that the pane
+      // renders its directions instead of the no-state empty card
+      await expect(page.locator(".sync-dir")).toHaveCount(2);
+      await expect(page.locator(".sync-empty")).toHaveCount(0);
+    },
+  },
 ];
 
 mkdirSync(OUT, { recursive: true });

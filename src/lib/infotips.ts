@@ -1091,10 +1091,38 @@ export const TIPS: TipEntry[] = [
     },
   },
   {
+    selector: ".sync-run-all, .sync-run, .sync-verify",
+    tip: (element) => ({
+      title: elementLabel(element, "Run now"),
+      body: "Start this job immediately instead of waiting for its schedule.",
+    }),
+  },
+  {
+    selector: ".sync-pause, .sync-resume",
+    tip: (element) => ({
+      title: elementLabel(element, "Pause job"),
+      body: "Stop this sync leg from running on its schedule, or let it resume.",
+    }),
+  },
+  {
     selector: ".proxy-quota-bar",
     tip: {
       title: "Quota used",
       body: "How much of the current window's allowance is spent, and when it resets.",
+    },
+  },
+  {
+    selector: ".sync-row, .sync-leg",
+    tip: (element) => ({
+      title: elementLabel(element.querySelector(".sync-dir-title") ?? element, "Sync leg"),
+      body: "One source-to-destination copy. The line shows its last result and next run.",
+    }),
+  },
+  {
+    selector: ".sync-errlog, .sync-action-err",
+    tip: {
+      title: "Last error",
+      body: "The tail of the failing run's output, kept so you can see why it stopped.",
     },
   },
   {

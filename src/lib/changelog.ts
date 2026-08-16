@@ -459,6 +459,10 @@ export const CHANGELOG: ChangelogRelease[] = [
         kind: "new",
       },
       {
+        text: "The sync dashboard reads as sentences — each backup leg states its finding in plain words, with hairline rows and ticks that stay put at any window width.",
+        kind: "improved",
+      },
+      {
         text: "Background git maintenance could repack a vault's history store; sidebar pins under a dashboard folder rendered twice; extracted-note titles could carry characters the engine refuses.",
         kind: "fixed",
       },
@@ -736,6 +740,14 @@ export const CHANGELOG: ChangelogRelease[] = [
         text: "Today is a day-agenda decision surface — what is scheduled, due, overdue, and picked, in one place.",
         kind: "new",
         headline: true,
+      },
+      {
+        text: "The sync dashboard became a control surface: start, inspect, and hold your backup jobs from the app.",
+        kind: "new",
+      },
+      {
+        text: "Sync refuses to start a run while a sweep is already in flight.",
+        kind: "fixed",
       },
       {
         text: "Restoring an old version of a note now lands in the open editor instead of being overwritten.",

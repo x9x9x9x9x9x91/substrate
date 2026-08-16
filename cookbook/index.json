@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-08-08",
+  "updated": "2026-08-15",
   "about": "Substrate dashboard cookbook — copyable surface recipes. Each recipe is a folder of plain markdown files: the dashboard note plus every sheet, database note, or contact it binds to, so a copied recipe renders with numbers on the first open. Install = copy the recipe's files into your vault (keep the Dashboards/ nesting or don't — folders never decide database membership). An agent can read any recipe and adapt the sample rows, formulas, and card binds to your real data.",
   "recipes": [
     {
@@ -113,6 +113,16 @@
       "expects": { "sheets": ["Vault 2025"], "databases": [] },
       "files": ["Dashboards/Annual Report.md", "Vault 2025.md"],
       "shot": "shots/annual-report.png"
+    },
+    {
+      "id": "sync",
+      "title": "Sync control surface",
+      "kind": "sync",
+      "blurb": "A window onto whatever already syncs your files: per-remote freshness and free space, a run-history strip per leg, the schedule's own health, and the recent errors from its log — plus Run, Pause and Resume. The app never copies a byte; a runner script on a schedule does, and writes the JSON state file this reads.",
+      "adapt": "Point state: at your sync system's state file, prefix: at its launchd label prefix, runner: at the script a Run button should start, and stale: at how old a remote's last sweep may get before its row reads alert.",
+      "expects": { "sheets": [], "databases": [] },
+      "files": ["Dashboards/Sync.md"],
+      "shot": "shots/sync.png"
     }
   ]
 }

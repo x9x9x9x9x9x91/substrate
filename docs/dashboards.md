@@ -724,6 +724,88 @@ it and listing the kinds that exist (SUB-993) — a typo shows you the typo,
 rather than quietly handing you a different dashboard.
 ` ```calendar ` fences fall back to the month grids the same way.
 
+## Kinds over the machine
+
+These read state *outside* the vault, so they only light up on a machine that
+has it. Elsewhere they render an empty state, not an error — and any button
+that would need a missing tool renders disabled with the reason, rather than
+offering a verb that could only fail.
+
+### `sync` — a control surface over an external sync system
+
+Nothing in this app copies your files. Something else does — a runner script on
+a schedule (launchd on macOS), writing a JSON state file as it goes. This kind
+is a *window onto* that system: what each remote and leg last did, whether the
+schedule is still loaded, the recent errors from its log, and buttons to start
+a sweep now or pause the schedule.
+
+Every binding is the note's own frontmatter, so the same kind works on any
+estate:
+
+| prop | meaning |
+| --- | --- |
+| `state` | the sync system's state file. Defaults to `~/.config/rclone/sync-state.json` — the path this kind looks in, not one anything writes for you: your runner does (rclone itself ships no such file). Must resolve under your home directory — a path with `..`, a symlink leading out of it, or one outside `$HOME` is refused rather than read. |
+| `log` | its log file, tailed for recent errors. Defaults to `logs/sync.log` beside the state file. Same home-directory rule. |
+| `prefix` | launchd label prefix of its agents, e.g. `com.example.sync.` — the pane reads (and pauses/resumes) only labels under it. Defaults to `com.example.sync.`, a placeholder every estate replaces; it must end with a dot and be specific enough to be a prefix, so a stray `c` can't sweep in every agent on the machine. |
+| `runner` | the executable a Run button starts — a file with the exec bit set, outside your vault, under your home directory. If the state file names its own `runner`, that is used and this prop is unnecessary. Nothing runnable there → the Run buttons render disabled and say so. |
+| `stale` | how old a remote's last completed sweep may get before its row reads alert. `12h` sets one window for every remote, `offsite=30h, nas=9h` sets them per remote, and the two forms mix. Default 30h. |
+
+The runner is started with the direction (and leg) as its arguments and
+nothing else — the note names *which* script, never a command line. It is
+spawned directly, so it has to be executable itself (`chmod +x`); the app
+picks no interpreter for it. And it may not live inside the vault: a note is
+content that can arrive by sync or import, and a folder someone shares with
+you must not be able to bring its own runner. Directions come from the state
+file itself: a run of a remote the state file doesn't know is refused.
+
+A complete note:
+
+```markdown
+---
+type: dashboard
+dashboard: sync
+state: ~/.config/rclone/sync-state.json
+prefix: com.example.sync.
+runner: ~/bin/sync-run
+stale: offsite=30h, nas=9h
+---
+
+Backup sync for this machine. Pausing here pauses the schedule for the
+machine, not just for the app.
+```
+
+The state file is the contract, and every field in it is optional — unknowns
+render as "—" or "never" rather than blanking the pane:
+
+```json
+{
+  "host": "workstation",
+  "updated": "2026-08-15T09:12:04Z",
+  "runner": "~/bin/sync-run",
+  "remotes": {
+    "offsite": {
+      "last_complete": "2026-08-15T04:03:11Z",
+      "last_attempt": "2026-08-15T04:03:11Z",
+      "running": false,
+      "quota": { "free": 214748364800, "total": 1099511627776 },
+      "quota_low": false
+    }
+  },
+  "legs": {
+    "Vault:offsite": {
+      "status": "ok",
+      "duration_s": 41,
+      "errors": 0,
+      "last_ok": "2026-08-15T04:03:11Z",
+      "history": [{ "at": "2026-08-15T04:03:11Z", "outcome": "ok", "errors": 0 }]
+    }
+  }
+}
+```
+
+The remote names (`offsite` here) are the directions a Run button can start;
+leg keys are `LegName:remote`, split on the last colon.
+
 
 ## Style tokens — `accent` and `size`
 

@@ -30,6 +30,7 @@ import MetricsDashboard from "./MetricsDashboard";
 import ChartsDashboard from "./ChartsDashboard";
 import HeatmapDashboard from "./HeatmapDashboard";
 import CalendarFenceDashboard from "./CalendarFenceDashboard";
+import SyncDashboard from "./SyncDashboard";
 import HubDashboard from "./HubDashboard";
 import { useUsdEur } from "./useFx";
 import FoodDashboard from "./FoodDashboard";
@@ -626,6 +627,7 @@ function DashboardBody(props: DashboardPaneProps) {
   const kind = resolved.kind;
   if (kind === "metrics") return <MetricsDashboard {...props} />;
   if (kind === "yield-apr") return <YieldDashboard {...props} />;
+  if (kind === "sync") return <SyncDashboard {...props} />;
   if (kind === "hub") return <HubDashboard {...props} />;
   if (kind === "food") return <FoodDashboard {...props} />;
   if (kind === "feed") return <FeedDashboard {...props} />;

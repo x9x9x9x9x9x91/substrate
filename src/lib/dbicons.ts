@@ -302,6 +302,7 @@ export function folderDefaultIcon(name: string): DbIcon | undefined {
    charts/metrics-fallback notes) keep the generic chart. */
 const DASHBOARD_ICONS: Record<string, DbIcon> = {
   food: { glyph: "flame" },
+  sync: { glyph: "refresh" },
   metrics: { glyph: "wallet" },
   "yield-apr": { glyph: "zap" },
   hub: { glyph: "home" },

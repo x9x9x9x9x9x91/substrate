@@ -5,6 +5,7 @@ import { test } from "@playwright/test";
 test.skip(!process.env.SHOTS, "evidence run only");
 
 const DASHBOARDS = [
+  "Sync",
   "Portfolio",
   "Label Books",
   "Overview",

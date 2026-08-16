@@ -140,6 +140,8 @@ Every one is a whole-object replace and therefore trivially invertible.
 Never undoable: `vault_sync_push` (`:1414`, publishes), `vault_sync_pull`
 (`:1426`, git-level), `vault_sync_set_remote` (`:1395`, stores a token that
 **cannot be read back** for capture),
+`sync_control` (`:859`, launchd),
+`sync_sleep_set` (`:883`, machine-wide `pmset`),
 `term::*` (`term.rs:91`+), `export_text` (`:365`
 — a bare `fs::write` to a user-picked path, no read-back), `export_note_bundle`
 (`:370`), `file_open` (`:740`).

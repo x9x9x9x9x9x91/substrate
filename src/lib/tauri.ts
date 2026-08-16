@@ -128,6 +128,13 @@ const HISTORY_MODE_COMMANDS = new Set([
   "onboarding_status",
   "path_exists",
   "drop_shift_down",
+  /* dashboard reads (external state, never vault writes) — these render live
+     numbers while browsing the past, which is honest: they are not vault
+     content and the projection has never claimed to cover them */
+  "sync_state_read",
+  "sync_runs",
+  "sync_launchd_read",
+  "sync_sleep_read",
 ]);
 
 function blockedByHistoryMode(cmd: string): boolean {
@@ -327,6 +334,10 @@ declare global {
         the warning that a later successful sync must NOT take back. Pass
         null for the acknowledged state. */
     __mockSetPrivacy?: (notice: { message: string; paths: string[] } | null) => void;
+    /** boot the sync manager on an estate with no runner on disk — the
+        backend's can_run:false, which renders the Run buttons disabled with
+        the reason. Read per call, so a spec can set it before the app mounts */
+    __mockSyncNoRunner?: boolean;
     /** unbind a mount on "this machine" without touching its index — the
         other-machine board a dashboard has to keep charting from.
         Pass a folder path to bind it somewhere instead; a path containing
@@ -1716,6 +1727,199 @@ function mockValidateNoteTitle(title: string, slug: string) {
   // eslint-disable-next-line no-control-regex
   if (/[\u0000-\u001f\u007f-\u009f]/.test(slug))
     throw new Error("titles cannot contain control characters");
+}
+
+/* Sync manager demo lane: the full 13-leg state (Samples is
+   cloud-only) with mixed signals so every surface affordance renders —
+   Music-Production:cloud mid-run, Keys:cloud failed (the alert lane),
+   Vault:nas a dry-run, verify mismatches on two legs. Per-leg `history`
+   covers every strip state: long clean runs, Keys:cloud ending in
+   two failures, Vault:nas's dry-run tail, mismatch-era ambers via the
+   verify records — and Samples:cloud with NO history key at all, the
+   pre-history-runner case. sync_control
+   mutates this object: a run flips its leg(s) to "running" and completes
+   them ~1.2s later on the next poll tick; pause/resume flips the job's
+   loaded flag. Errors mirror the Rust allowlist's wording. */
+interface MockSyncHistory {
+  at: string;
+  outcome: string;
+  errors: number;
+}
+interface MockSyncLeg {
+  status: string;
+  rc: number;
+  duration_s: number;
+  errors: number;
+  last_ok?: string;
+  last_attempt?: string;
+  /** newest-LAST, capped 60 — mirrors the runner's append. Deliberately
+      absent on one leg (Samples:cloud) so the strip's no-history state
+      renders live in the demo. */
+  history?: MockSyncHistory[];
+}
+const mockSyncIso = (msAgo: number) => new Date(now - msAgo).toISOString();
+/** a run history ending `msAgo` ago, one entry per `everyH` hours going back.
+    `tail` overrides the newest entries' outcomes (e.g. ["failed","failed"]). */
+function mockSyncHist(
+  n: number,
+  msAgo: number,
+  everyH: number,
+  tail: string[] = [],
+  seedStr = ""
+): MockSyncHistory[] {
+  let seed = 7;
+  for (const c of seedStr) seed = (seed * 31 + c.charCodeAt(0)) >>> 0;
+  const out: MockSyncHistory[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    seed = (seed * 1103515245 + 12345) >>> 0;
+    const roll = seed / 4294967296;
+    const tailIdx = tail.length - 1 - i;
+    // rare, like the real thing — a track speckled with red would make
+    // the hue read as texture instead of as a finding
+    const outcome = tailIdx >= 0 ? tail[tailIdx] : roll > 0.985 ? "failed" : "ok";
+    out.push({
+      at: mockSyncIso(msAgo + i * everyH * 3_600_000),
+      outcome,
+      errors: outcome === "failed" ? 1 + Math.floor(roll * 3) : 0,
+    });
+  }
+  return out;
+}
+const mockSyncState = {
+  host: "workstation",
+  updated: mockSyncIso(12 * 60_000),
+  remotes: {
+    cloud: {
+      last_complete: mockSyncIso(2 * 3_600_000 + 14 * 60_000),
+      last_attempt: mockSyncIso(12 * 60_000),
+      running: true,
+      last_run_errors: 0,
+      quota: {
+        free: 6554427189772,
+        total: 11388105785344,
+        used: 4833678595572,
+        probed: mockSyncIso(3 * 3_600_000),
+      },
+      quota_low: false,
+      error_storm: null,
+    },
+    nas: {
+      last_complete: mockSyncIso(26 * 3_600_000),
+      last_attempt: mockSyncIso(26 * 3_600_000 + 30_000),
+      running: false,
+      last_run_errors: 0,
+      quota: {
+        free: 7604163309568,
+        total: 15349509816320,
+        used: 7745346506752,
+        probed: mockSyncIso(26 * 3_600_000),
+      },
+      quota_low: false,
+      error_storm: null,
+    },
+  } as Record<string, { running: boolean; last_complete?: string; last_attempt?: string }>,
+  legs: {
+    "Organisation:cloud": { status: "ok", rc: 0, duration_s: 3804, errors: 0, last_ok: mockSyncIso(2 * 3_600_000 + 14 * 60_000), last_attempt: mockSyncIso(2 * 3_600_000 + 15 * 60_000), history: mockSyncHist(46, 2 * 3_600_000 + 14 * 60_000, 4, [], "Organisation:cloud") },
+    "Finance:cloud": { status: "ok", rc: 0, duration_s: 41, errors: 0, last_ok: mockSyncIso(2 * 3_600_000 + 14 * 60_000), last_attempt: mockSyncIso(2 * 3_600_000 + 15 * 60_000), history: mockSyncHist(52, 2 * 3_600_000 + 14 * 60_000, 4, [], "Finance:cloud") },
+    "Music-Production:cloud": { status: "running", rc: 0, duration_s: 8835, errors: 0, last_ok: mockSyncIso(5 * 3_600_000), last_attempt: mockSyncIso(12 * 60_000), history: mockSyncHist(40, 5 * 3_600_000, 4, [], "Music-Production:cloud") },
+    "Vault:cloud": { status: "ok", rc: 0, duration_s: 63, errors: 0, last_ok: mockSyncIso(2 * 3_600_000 + 13 * 60_000), last_attempt: mockSyncIso(2 * 3_600_000 + 14 * 60_000), history: mockSyncHist(33, 2 * 3_600_000 + 13 * 60_000, 4, [], "Vault:cloud") },
+    "Samples:cloud": { status: "ok", rc: 0, duration_s: 5, errors: 0, last_ok: mockSyncIso(5 * 3_600_000), last_attempt: mockSyncIso(5 * 3_600_000 + 5_000) },
+    "Keys:cloud": { status: "failed", rc: 1, duration_s: 9, errors: 2, last_ok: mockSyncIso(2 * 86_400_000), last_attempt: mockSyncIso(35 * 60_000), history: mockSyncHist(24, 35 * 60_000, 4, ["failed", "failed"], "Keys:cloud") },
+    "Visual:cloud": { status: "ok", rc: 0, duration_s: 4, errors: 0, last_ok: mockSyncIso(5 * 3_600_000), last_attempt: mockSyncIso(5 * 3_600_000 + 4_000), history: mockSyncHist(60, 5 * 3_600_000, 4, [], "Visual:cloud") },
+    "Organisation:nas": { status: "ok", rc: 0, duration_s: 15, errors: 0, last_ok: mockSyncIso(26 * 3_600_000), last_attempt: mockSyncIso(26 * 3_600_000 + 15_000), history: mockSyncHist(29, 26 * 3_600_000, 24, [], "Organisation:nas") },
+    "Finance:nas": { status: "ok", rc: 0, duration_s: 55, errors: 0, last_ok: mockSyncIso(26 * 3_600_000), last_attempt: mockSyncIso(26 * 3_600_000 + 30_000), history: mockSyncHist(41, 26 * 3_600_000, 24, [], "Finance:nas") },
+    "Music-Production:nas": { status: "ok", rc: 0, duration_s: 61, errors: 0, last_ok: mockSyncIso(26 * 3_600_000), last_attempt: mockSyncIso(26 * 3_600_000 + 61_000), history: mockSyncHist(18, 26 * 3_600_000, 24, [], "Music-Production:nas") },
+    "Vault:nas": { status: "dry-run", rc: 0, duration_s: 12, errors: 0, last_attempt: mockSyncIso(26 * 3_600_000 + 20_000), history: mockSyncHist(12, 26 * 3_600_000, 24, ["dry-run", "dry-run", "dry-run", "dry-run"], "Vault:nas") },
+    "Keys:nas": { status: "ok", rc: 0, duration_s: 12, errors: 0, last_ok: mockSyncIso(26 * 3_600_000), last_attempt: mockSyncIso(26 * 3_600_000 + 12_000), history: mockSyncHist(37, 26 * 3_600_000, 24, [], "Keys:nas") },
+    "Visual:nas": { status: "ok", rc: 0, duration_s: 18, errors: 0, last_ok: mockSyncIso(26 * 3_600_000), last_attempt: mockSyncIso(26 * 3_600_000 + 18_000), history: mockSyncHist(44, 26 * 3_600_000, 24, [], "Visual:nas") },
+  } as Record<string, MockSyncLeg>,
+  verify: {
+    "Vault:cloud": { status: "mismatch", at: mockSyncIso(9 * 3_600_000), differ: 3, sample: ["ERROR : Dashboards/Sync.md: sizes differ"] },
+    "Music-Production:cloud": { status: "mismatch", at: mockSyncIso(9 * 3_600_000), differ: 246, sample: ["ERROR : MIXING/Session-04/cello.wav: file not in Cloud"] },
+    _last: { verdict: "VERIFY WARNING (mismatches)", at: mockSyncIso(9 * 3_600_000) },
+  } as Record<string, { status?: string; at?: string; differ?: number; verdict?: string }>,
+};
+const mockSyncLogErrors = [
+  `${mockSyncIso(35 * 60_000)} ERROR : Keys/id-backup-2026-07.pcv: failed to open source object`,
+  `${mockSyncIso(35 * 60_000)} ERROR : Keys: corrupt on transfer, retrying`,
+  `${mockSyncIso(5 * 3_600_000)} ERROR : network blip, retried ok`,
+];
+const mockSyncJobs = [
+  { label: "com.example.sync.cloud", service: "cloud", plist: true, loaded: true, pid: 37031 as number | null, last_exit: 0 as number | null, schedule: "every 4h" },
+  { label: "com.example.sync.nas", service: "nas", plist: true, loaded: true, pid: null, last_exit: 0, schedule: "daily 10:00" },
+  { label: "com.example.sync.verify", service: "verify", plist: true, loaded: true, pid: null, last_exit: 1, schedule: "Sun 11:00" },
+  { label: "com.example.sync.prune", service: "prune", plist: true, loaded: true, pid: null, last_exit: 0, schedule: "1st of month 04:00" },
+];
+
+interface MockSyncRun {
+  id: string;
+  kind: string;
+  label: string;
+  direction: string | null;
+  leg: string | null;
+  started_ms: number;
+  done: boolean;
+  ok: boolean | null;
+  tail: string;
+  /** mock-only: wall-clock when a "running" entry completes on the tick */
+  finishAt?: number;
+}
+const mockSyncRuns: MockSyncRun[] = [];
+let mockSyncRunSeq = 0;
+const MOCK_RUN_MS = 1200;
+/** keep-awake flag — starts on, like the real machine */
+let mockSyncSleepDisabled = true;
+
+
+/** newest-first, ties broken by id — engine parity: the Rust
+    registries are HashMaps, so `runs()` sorts `started_ms DESC` then `id ASC`
+    to keep same-millisecond runs from swapping between polls. Array-stable
+    order here would agree only by luck. */
+function byStartedThenId<T extends { started_ms: number; id: string }>(a: T, b: T): number {
+  return b.started_ms - a.started_ms || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
+/** complete due runs: legs flip running→ok with fresh stamps, the direction
+    remote stops running and re-stamps its sweep, the registry entry closes */
+function mockSyncTick() {
+  const t = Date.now();
+  for (const r of mockSyncRuns) {
+    if (r.done || r.kind !== "run" || r.finishAt === undefined || t < r.finishAt) continue;
+    r.done = true;
+    r.ok = true;
+    r.tail = "2026/07/19 20:40:01 INFO  : leg complete — 0 differences";
+    const dir = r.direction ?? "cloud";
+    const stamp = new Date(t).toISOString();
+    const finishLeg = (key: string) => {
+      const l = mockSyncState.legs[key];
+      if (!l) return;
+      l.status = "ok";
+      l.rc = 0;
+      l.errors = 0;
+      l.duration_s = 7;
+      l.last_ok = stamp;
+      l.last_attempt = stamp;
+      // the runner appends the outcome (newest last, capped 60) — a completed
+      // Run grows the leg's strip by one cell, exactly as on the machine
+      if (l.history) l.history = [...l.history, { at: stamp, outcome: "ok", errors: 0 }].slice(-60);
+    };
+    if (r.leg) {
+      finishLeg(`${r.leg}:${dir}`);
+    } else {
+      for (const key of Object.keys(mockSyncState.legs)) if (key.endsWith(`:${dir}`)) finishLeg(key);
+      const remote = mockSyncState.remotes[dir];
+      if (remote) {
+        remote.running = false;
+        remote.last_complete = stamp;
+        remote.last_attempt = stamp;
+      }
+    }
+    mockSyncState.updated = stamp;
+  }
+  // a finished run lingers 15 minutes like the Rust registry, then drops
+  for (let i = mockSyncRuns.length - 1; i >= 0; i--) {
+    if (mockSyncRuns[i].done && t - mockSyncRuns[i].started_ms > 15 * 60_000) mockSyncRuns.splice(i, 1);
+  }
 }
 
 
@@ -4226,6 +4430,94 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // the browser import flow picks via <input type=file> instead — the
       // mock has no fs outside the vault, so this path is Tauri-only
       throw new Error("file_read_text is only available in the app");
+    case "sync_state_read": {
+      mockSyncTick();
+      return {
+        state_json: JSON.stringify(mockSyncState),
+        log_errors: mockSyncLogErrors,
+        log_mtime: Math.floor((now - 5 * 3_600_000) / 1000),
+        state_path: "~/.config/rclone/sync-state.json",
+        // the fixture estate has a runner on disk, so the Run buttons are
+        // live — unless a spec asks for the estate that has none
+        can_run: window.__mockSyncNoRunner !== true,
+      };
+    }
+    case "sync_launchd_read":
+      // pause/resume flips `loaded` via sync_control; pid follows it.
+      // engine parity: sync.rs sorts the service list before
+      // building rows, so the pane sees them alphabetically.
+      return mockSyncJobs
+        .map((j) => ({ ...j }))
+        .sort((a, b) => (a.service < b.service ? -1 : a.service > b.service ? 1 : 0));
+    case "sync_runs": {
+      mockSyncTick();
+      return [...mockSyncRuns].sort(byStartedThenId);
+    }
+    case "sync_sleep_read":
+      return mockSyncSleepDisabled;
+    case "sync_sleep_set":
+      mockSyncSleepDisabled = args?.on === true;
+      return mockSyncSleepDisabled;
+    case "sync_control": {
+      // the Rust allowlist mirrored: run takes cloud|nas (+ a leg that
+      // exists for it in the state), pause/resume take a discovered job
+      const action = String(args?.action ?? "");
+      const direction = args?.direction == null ? null : String(args.direction);
+      const leg = args?.leg == null ? null : String(args.leg);
+      const started = Date.now();
+      const entry: MockSyncRun = {
+        id: `m${++mockSyncRunSeq}:${action}:${direction ?? ""}:${leg ?? ""}`,
+        kind: action,
+        label: "",
+        direction: null,
+        leg: null,
+        started_ms: started,
+        done: true,
+        ok: true,
+        tail: "",
+      };
+      if (action === "run") {
+        // an estate with no runner refuses the verb, like the Rust does —
+        // the pane disables the buttons, this is the backstop behind them
+        if (window.__mockSyncNoRunner === true)
+          throw new Error(
+            "no sync runner on this machine — name one with the note's `runner:` prop"
+          );
+        if (direction !== "cloud" && direction !== "nas")
+          throw new Error(`unknown sync direction "${direction ?? ""}"`);
+        if (leg && !mockSyncState.legs[`${leg}:${direction}`])
+          throw new Error(`no ${direction} leg named "${leg}" in the sync state`);
+        if (mockSyncRuns.some((r) => r.kind === "run" && !r.done && r.direction === direction))
+          throw new Error(`a ${direction} run is already in flight`);
+        entry.direction = direction;
+        entry.leg = leg;
+        entry.label = leg ? `${direction} · ${leg}` : `${direction} · all legs`;
+        entry.done = false;
+        entry.ok = null;
+        entry.finishAt = started + MOCK_RUN_MS;
+        if (leg) {
+          mockSyncState.legs[`${leg}:${direction}`].status = "running";
+        } else {
+          mockSyncState.remotes[direction].running = true;
+          for (const key of Object.keys(mockSyncState.legs))
+            if (key.endsWith(`:${direction}`)) mockSyncState.legs[key].status = "running";
+        }
+        mockSyncRuns.push(entry);
+        return { ...entry };
+      }
+      if (action === "pause" || action === "resume") {
+        const job = mockSyncJobs.find((j) => j.service === direction);
+        if (!job) throw new Error(`no launchd job com.example.sync.${direction} on this machine`);
+        entry.label = job.label;
+        entry.tail = "";
+        job.loaded = action === "resume";
+        job.pid = null;
+        job.last_exit = null;
+        mockSyncRuns.push(entry);
+        return { ...entry };
+      }
+      throw new Error(`unknown sync action "${action}"`);
+    }
     case "vault_views_set": {
       const requestedDb = args?.db as string;
       const db = mockFoldedKey(mockViews, requestedDb)

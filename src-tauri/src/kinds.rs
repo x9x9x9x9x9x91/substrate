@@ -63,6 +63,7 @@ pub const KIND_API_MIN: u32 = 1;
 pub const BUILT_IN_KINDS: &[&str] = &[
     "metrics",
     "yield-apr",
+    "sync",
     "hub",
     "food",
     "feed",

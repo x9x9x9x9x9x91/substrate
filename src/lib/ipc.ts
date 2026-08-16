@@ -30,6 +30,7 @@ import type {
   HistoryEntry,
   HistoryStatus,
   HistoryVaultSnapshot,
+  LaunchdJob,
   NewTypeProp,
   NoteContent,
   NoteMeta,
@@ -49,7 +50,10 @@ import type {
   SelectOption,
   SetPropResult,
   SidebarOrder,
+  SyncConfig,
   SyncReport,
+  SyncRun,
+  SyncStateFile,
   TagCount,
   TagFolder,
   TrashEntry,
@@ -633,6 +637,31 @@ export const vaultSchemaSetIcon = (dbType: string, icon: DbIcon | null) =>
 export const vaultSchemaHomeSet = (dbType: string, home: string | null) =>
   invoke<SchemaConfig>("vault_schema_home_set", { dbType, home });
 export const pathExists = (path: string) => invoke<boolean>("path_exists", { path });
+/** Read-only health of an external backup-sync system (sync dashboard): its
+    state file and the recent errors of its log, under the note's bindings. */
+export const syncStateRead = (cfg: SyncConfig) =>
+  invoke<SyncStateFile>("sync_state_read", { cfg });
+/** Health of the launchd agents under the note's label prefix. */
+export const syncLaunchdRead = (cfg: SyncConfig) =>
+  invoke<LaunchdJob[]>("sync_launchd_read", { cfg });
+/** Allowlisted sync control: run takes a direction (a remote the state file
+    names) + optional leg, pause/resume take the job's short name as
+    `direction`. Returns the started registry entry — completion is polled
+    via syncRuns. */
+export const syncControl = (
+  action: "run" | "pause" | "resume",
+  direction: string,
+  leg: string | undefined,
+  cfg: SyncConfig
+) => invoke<SyncRun>("sync_control", { action, direction, leg: leg ?? null, cfg });
+/** Poll the sync manager's in-flight + finished runs. */
+export const syncRuns = () => invoke<SyncRun[]>("sync_runs");
+/** Machine-wide keep-awake flag: true = lid-close sleep disabled, null =
+    pmset doesn't report it on this hardware. */
+export const syncSleepRead = () => invoke<boolean | null>("sync_sleep_read");
+/** Flip keep-awake (sudo -n pmset -a disablesleep); resolves to the
+    read-back-verified state. */
+export const syncSleepSet = (on: boolean) => invoke<boolean>("sync_sleep_set", { on });
 export const fileOpen = (path: string) => invoke<void>("file_open", { path });
 export const fileReveal = (path: string) => invoke<void>("file_reveal", { path });
 export const filePick = (dir: boolean, extensions?: string[]) =>

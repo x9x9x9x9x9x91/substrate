@@ -162,6 +162,16 @@ Capacities, Affine).*
   Machine-specific dashboard kinds built for one vault are deliberately not
   product features — the platform is the claim, and the cookbook (`cookbook/`)
   is the evidence.
+- **A control surface over the sync you already run** — the `sync` kind is a
+  window onto an external file-sync system (a runner on a schedule, writing a
+  JSON state file): per-remote freshness and free space, a run-history strip
+  per leg, whether the schedule is still loaded, the log's recent errors, and
+  Run / Pause / Resume. Every binding — state file, log, launchd label prefix,
+  runner, per-remote staleness windows — is the note's own frontmatter, so the
+  same kind fits any estate, and a missing runner disables the buttons with
+  the reason instead of offering a verb that could only fail. Careful claim:
+  the app copies nothing itself; the differentiator is that the *notes* are
+  the configuration and the surface is one copyable file (`cookbook/sync/`).
 - **Dashboards you (or your agent) can write, without a plugin store** — a
   `dashboard:` value can name a folder of code living in the vault itself
   (`.vault/kinds/<id>/`: a manifest plus an ES module with one `mount(el, ctx)`

@@ -5685,6 +5685,607 @@ body.agenda-window .palette:focus-visible {
   color: var(--danger);
 }
 
+/* Sync manager (dashboard: sync) — control surface over a machine's
+   backup-sync: direction sections of leg rows, ghost action
+   buttons, launchd job health, quiet activity + error tails.
+   Compact idiom (2026-07-20, "like a dense rsync monitor"): this is a
+   dense status table, not a reading surface — tighter vertical rhythm and
+   smaller paddings than the reading dashboards.
+   One column contract: --sync-grid is shared by the direction heads and the
+   remaining .sync-row users (launchd job rows), so the grid can never drift.
+   Leg rows are .strip-row — their own three-anchor template. */
+
+/* compact keeps its density in the rows; the page chrome (top padding,
+   section-label rhythm, footer margin) is the shared language now — this
+   killed the flagged 26px header drift */
+.sync-compact {
+  --sync-grid: 14px minmax(0, 1fr) 88px 96px 64px 40px 60px 52px;
+}
+
+.sync-compact .sync-rows {
+  gap: 0;
+  margin-top: 4px;
+}
+
+.sync-compact .sync-row {
+  padding: 3px 8px;
+  border-radius: var(--r);
+  font: var(--dash-data);
+}
+
+/* the one under-header meta voice (Sync, Music, Mastering) — matches
+   .dash-sub so every page's subtitle line is the same object */
+.sync-meta {
+  margin-top: 10px;
+  font: var(--dash-data);
+  color: var(--text-3);
+}
+
+/* north-star: the status summary is prose, one fact per line — no middot
+   chains. An alert line wears danger ink and normal sentence case. */
+.sync-meta2 {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font: var(--dash-sentence);
+  color: var(--text-3);
+}
+
+.sync-meta2-alert {
+  color: var(--danger);
+}
+
+/* the head adopts the rows' own column contract: one grid on the
+   page, so the section facts and its actions land on column boundaries the
+   rows already own instead of floating on a private layout. --sync-grid is
+   untouched — the head just reads it, and takes the rows' 8px side padding so
+   the tracks line up on both edges. */
+.sync-dir-head {
+  display: grid;
+  grid-template-columns: var(--sync-grid);
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px;
+}
+
+.sync-dir-head::after {
+  display: none;
+}
+
+/* the counter moves inside the title cell so the head has exactly three grid
+   items to place; numbering order is unchanged (document order) */
+.sync-dir-head::before {
+  display: none;
+}
+
+/* the direction name rides the section-label voice — brightness stepped to
+   text-2 (it names a group, it isn't a heading of its own) */
+.sync-dir-head > .dash-dot {
+  /* the section dot sits in the rows' dot column, same 5px first-line
+     centering as row dots */
+  margin-top: 0;
+}
+
+.sync-dir-title {
+  grid-column: 2 / 3;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-2);
+}
+
+.sync-dir-title::before {
+  content: none;
+}
+
+/* facts right-align across the number columns; actions own the trailing
+   verify+button span so their right edge lands exactly on the rows' Run
+   buttons (probe-syncgrid measures 0.0 drift).
+   Both clusters are wider than the tracks they claim, so both overflow their
+   cell leftward and the track boundary alone does NOT separate them —
+   measured at 1.4px of overlap before this margin. The gutter is explicit:
+   facts stop 12px short of their span's end, matching their own internal
+   12px rhythm, and the actions keep the aligned right edge. */
+.sync-dir-facts {
+  grid-column: 3 / 7;
+  justify-self: end;
+  margin-right: 12px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  font: var(--dash-data);
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sync-running-word {
+  color: var(--opt-blue);
+}
+
+.sync-exit-bad {
+  color: var(--danger);
+}
+
+.sync-dir-actions {
+  grid-column: 7 / -1;
+  justify-self: end;
+  display: inline-flex;
+  gap: 6px;
+}
+
+/* history-strip leg rows: three anchors — name, run-history strip,
+   right fact (+ hover-revealed Run). The strip's geometry is constant —
+   STRIP_CELLS fixed cells that flex to fill whatever width the track gets,
+   so a narrow pane shrinks the ticks instead of overflowing or dropping
+   them, and a leg with no history yet still draws the full track.
+   The name anchor is wide enough to carry a problem leg's finding
+   next to its name ("failed · 2 errors · tried 35m ago" — mono, ~35ch with
+   the longest current leg name) without truncating; healthy rows leave that
+   room empty, and the hairlines below are what make it read as breathing
+   room instead of a void. */
+.strip-row {
+  display: grid;
+  grid-template-columns: 350px minmax(0, 1fr) 150px 52px;
+  align-items: center;
+  gap: 14px;
+  padding: 6px 8px;
+  border-radius: var(--r);
+  font: var(--dash-data);
+}
+
+.strip-row:hover {
+  background: var(--hover-dense);
+}
+
+/* a --hair-soft rule between leg rows. Between rows only —
+   never above the first or below the last. padding-top hands back the 1px
+   the border adds, so every row keeps the exact same height and the
+   narrow-pane geometry probe still sees a level rhythm. */
+.sync-compact .strip-row + .strip-row {
+  border-top: 1px solid var(--hair-soft);
+  padding-top: 5px;
+}
+
+/* Mid-range panes (~901–1100px with the sidebar open): the desktop name
+   column (350px, widened to carry the finding story) would squeeze
+   the 40 ticks under their floor — with the desktop template's 3px gaps that
+   floor is 40×1px + 39×3px = 157px, which the 350px column only clears from
+   ~1085px up. The name column gives way first; what doesn't fit truncates
+   with the full text one tooltip away. */
+@media (max-width: 1100px) {
+  .strip-row {
+    grid-template-columns: 240px minmax(0, 1fr) 150px 52px;
+  }
+
+  /* at 3px the ticks would be thinner than the gaps between them and read as
+     hairlines; the tick stays the figure, the gap the ground. Qualified with
+     .sync-compact because the bare base .strip-track rule sits LATER in this
+     file and wins the specificity tie — the earlier unqualified override
+     was dead code and narrow panes never actually got 2px gaps. */
+  .sync-compact .strip-track {
+    gap: 2px;
+  }
+}
+
+/* Narrow panes (≤900px): the anchors give way further — the name column keeps
+   just enough width for a truncated finding story (180px), the right fact and
+   the story drop to the label voice, row gaps tighten. The geometry stays
+   constant at every pane size: a ~760px pane leaves the track ~137px against
+   the 118px floor. */
+@media (max-width: 900px) {
+  .strip-row {
+    grid-template-columns: 180px minmax(0, 1fr) 92px 52px;
+    gap: 10px;
+  }
+
+  .strip-age,
+  .strip-story {
+    font: var(--dash-label);
+    letter-spacing: 0.02em;
+  }
+
+  .strip-age {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* the head's 8-column template leaves the title less width than "NAS"
+     needs, so it overflowed into the facts. Narrow, it is just three items in
+     a row and the facts take whatever is left. */
+  .sync-dir-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .sync-dir-facts {
+    flex: 1;
+    justify-content: flex-end;
+    margin-right: 0;
+    min-width: 0;
+  }
+}
+
+.strip-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-1);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* the leg's identity truncates before its finding does (3:1 shrink) — the
+   full name is one tooltip away, the story is why the row wears red */
+.strip-leg {
+  flex: 0 3 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.strip-story {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.strip-name .sync-vchip {
+  flex-shrink: 0;
+}
+
+.strip-track {
+  display: flex;
+  gap: 3px;
+  height: 10px;
+  align-items: stretch;
+  /* the ticks are the fill, the track is the frame: min-width 0 lets the
+     grid's minmax(0,1fr) actually shrink it in a narrow pane */
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* a run that happened, no finding: neutral ink. Color enters only on a
+   finding (principle 4) */
+.strip-cell {
+  flex: 1;
+  min-width: 1px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.strip-fail {
+  background: var(--danger);
+}
+
+/* the single amber on this surface = weekly verify mismatch; history itself
+   never emits amber, so the hue carries exactly one meaning */
+.strip-warn {
+  background: var(--warn);
+}
+
+/* no run in this slot — the empty part of the track */
+.strip-none {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.strip-live {
+  background: var(--opt-blue);
+  animation: strip-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes strip-pulse {
+  50% { opacity: 0.35; }
+}
+
+.strip-age {
+  text-align: right;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.strip-row > .sync-run,
+.strip-row > .sync-run:disabled {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.strip-row:hover > .sync-run,
+.strip-row:focus-within > .sync-run,
+.strip-row > .sync-run.busy,
+.strip-row.in-flight > .sync-run {
+  opacity: 1;
+}
+
+.sync-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.sync-row {
+  display: grid;
+  grid-template-columns: var(--sync-grid);
+  align-items: start;
+  gap: 10px;
+  padding: 5px 8px;
+  border-radius: var(--r);
+  font: var(--dash-data);
+}
+
+.sync-row:hover {
+  background: var(--hover-dense);
+}
+
+.sync-row.in-flight {
+  background: var(--surface-faint);
+}
+
+/* one baseline per row (principle 3): a two-line date
+   cell grows the row downward — every other cell pins to the FIRST text
+   line instead of re-centering. 18px line boxes lock leg, status, numbers
+   and verify to the first date line's baseline; the 8px dot and the 24px
+   button center on that line ((18-8)/2 and (18-24)/2). */
+.sync-row > .dash-dot {
+  margin-top: 5px;
+}
+
+.sync-row > .sync-leg,
+.sync-row > .sync-status,
+.sync-row > .sync-num,
+.sync-row > .sync-verify {
+  line-height: 18px;
+}
+
+.sync-row > .sync-btn {
+  margin-top: -3px;
+}
+
+/* per-row Run is a per-row affordance, not a standing column of ink:
+   it keeps its grid cell — no layout shift — and only ever shows
+   its ink when the row is under the pointer, holds focus, or is mid-run.
+   Section Pause / Run all stay always-visible: they act on the group. */
+.sync-row > .sync-run,
+/* a disabled Run carries .sync-btn:disabled's 0.45 — it must hide too, or a
+   direction mid-sweep shows a full column of grayed buttons */
+.sync-row > .sync-run:disabled {
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.sync-row:hover > .sync-run,
+.sync-row:focus-within > .sync-run,
+.sync-row > .sync-run:focus-visible,
+.sync-row > .sync-run.busy,
+.sync-row.in-flight > .sync-run {
+  opacity: 1;
+}
+
+.sync-leg {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+}
+
+.sync-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: var(--dash-data);
+  white-space: nowrap;
+}
+
+.sync-num {
+  font: var(--dash-data);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sync-verify {
+  text-align: right;
+}
+
+.sync-vchip {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--r);
+  font: var(--dash-label);
+  font-variant-numeric: tabular-nums;
+  /* keep the chip its own height inside the 18px verify line box */
+  line-height: 13px;
+}
+
+.sync-vchip-warn {
+  color: var(--warn);
+  background: rgba(217, 160, 43, 0.13);
+}
+
+/* keep-awake capsule — a live machine-state chip in the head, so
+   it reads as status first, control second: quiet when sleep is normal,
+   marked green when the machine is pinned awake */
+.sync-awake {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--border-soft);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--text-3);
+  font: 500 11.5px/1 var(--font);
+  letter-spacing: 0;
+  text-transform: none;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.sync-awake.on {
+  border-color: rgba(76, 183, 130, 0.45);
+  background: rgba(76, 183, 130, 0.12);
+  color: var(--ok);
+}
+
+.sync-awake:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text-1);
+}
+
+.sync-awake.on:hover:not(:disabled) {
+  border-color: rgba(76, 183, 130, 0.75);
+  color: var(--ok);
+}
+
+.sync-awake:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.sync-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--hair-soft);
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--text-2);
+  font: 500 11.5px/1 var(--font);
+  letter-spacing: 0;
+  text-transform: none;
+  /* "RUN ALL" wrapped to two lines inside the head's fixed 24px box and
+     clipped its own second line — a button label is one line by contract */
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.sync-btn:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text-1);
+  border-color: var(--border-strong);
+}
+
+.sync-btn:active:not(:disabled) {
+  background: var(--active);
+}
+
+.sync-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.sync-spinner {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid rgba(255, 255, 255, 0.22);
+  border-top-color: var(--text-1);
+  border-radius: 50%;
+  animation: sync-spin 0.8s linear infinite;
+}
+
+.sync-spinner.inline {
+  width: 8px;
+  height: 8px;
+  border-width: 1.5px;
+}
+
+@keyframes sync-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.sync-jobs-err {
+  margin: -4px 0 8px;
+  font: var(--dash-sentence);
+  color: var(--text-3);
+}
+
+.sync-activity {
+  margin-top: 28px;
+}
+
+.sync-activity-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sync-activity-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto 72px;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 8px;
+  font: var(--dash-data);
+  color: var(--text-2);
+}
+
+.sync-activity-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync-activity-word {
+  color: var(--text-3);
+}
+
+.sync-errors {
+  margin-top: 28px;
+}
+
+.sync-errors summary {
+  cursor: pointer;
+  font: var(--dash-sentence);
+  font-weight: 510;
+  color: var(--text-3);
+}
+
+/* output attached to the row above it, not a separate object: a
+   bordered fill would claim the log is its own card in panes built from flat
+   hairline-ruled rows. The left rule is the same nested-detail idiom as
+   .mastering-card, which stacks directly under this on a done run — same
+   14px text inset, so tail and cards share one edge. */
+.sync-errlog {
+  margin-top: 8px;
+  max-height: 200px;
+  overflow: auto;
+  padding: 2px 0 2px 14px;
+  border-left: 1px solid var(--hair);
+  font: var(--dash-data);
+  line-height: 1.6;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.sync-empty {
+  margin-top: 48px;
+  text-align: center;
+  font: var(--dash-sentence);
+  color: var(--text-3);
+}
+
 
 
 /* Hub dashboard (dashboard: hub) — ordinary markdown laid out as a

@@ -18,6 +18,7 @@ mod notify;
 mod panel;
 mod reflexes;
 mod smoke;
+mod sync;
 mod term;
 #[cfg(test)]
 mod testenv;
@@ -294,6 +295,7 @@ use commands::reflexes::*;
 use commands::schema::*;
 use commands::search::*;
 use commands::share::*;
+use commands::syncdash::*;
 use commands::tags::*;
 use commands::trash::*;
 use commands::vaultsync::*;
@@ -1387,6 +1389,12 @@ pub fn run() {
             fx_usd_eur,
             fx_rates,
             share_upload,
+            sync_state_read,
+            sync_launchd_read,
+            sync_control,
+            sync_runs,
+            sync_sleep_read,
+            sync_sleep_set,
             history_list,
             history_points,
             history_facts,

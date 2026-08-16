@@ -437,6 +437,20 @@ export const mockNotes: MockNote[] = [
       "```progress\nlabel: Broken goal\nvalue: count\ntarget: 5\n```\n",
   },
   {
+    // sync dashboard seed: `dashboard: sync` — the SyncDashboard reads the
+    // machine's sync state over IPC (the sync_state_read mock lane below), so
+    // the body is prose only. Old updated_ms keeps it out of the Today
+    // recency grid. This is the note syncmanager.spec navigates to.
+    path: "Dashboards/Sync.md",
+    stem: "Sync",
+    title: "Sync",
+    folder: "Dashboards",
+    props: { type: "dashboard", dashboard: "sync", created: "2026-07-17" },
+    updated_ms: now - 9 * 86_400_000,
+    excerpt: "sync control surface — legs, remotes, launchd automation.",
+    body: "Backup-sync control surface. The dashboard reads the machine's live sync state — per-leg status, direction sweeps, launchd automation — so there is nothing to edit in this prose.\n",
+  },
+  {
     // tasks dashboard seed: a read-only cut of task notes. Areas is
     // an allowlist (YAML lists and comma text both work); stale_days controls
     // when age raises a row out of the quiet layer.

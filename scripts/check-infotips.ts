@@ -64,6 +64,7 @@ export const PANE_CONTROLS: ReadonlyMap<string, readonly string[]> = new Map([
   // the hero is shared chrome three surfaces render, so it is not this
   // board's own control; the armed claim is
   ["yield-apr", ["dash-claim"]],
+  ["sync", ["sync-row", "sync-pause"]],
   ["hub", ["hub-task", "hub-view"]],
   ["food", ["food-hero", "food-daynav-btn", "food-del"]],
   ["feed", ["feed-item", "feed-vote"]],
