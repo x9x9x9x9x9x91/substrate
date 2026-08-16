@@ -92,6 +92,7 @@
       "../THIRD-PARTY-LICENSES.md": "THIRD-PARTY-LICENSES.md"
     },
     "macOS": {
+      "entitlements": "Entitlements.plist",
       "signingIdentity": null,
       "hardenedRuntime": true,
       "minimumSystemVersion": "10.15"

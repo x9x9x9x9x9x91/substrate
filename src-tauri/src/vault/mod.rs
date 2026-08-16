@@ -1334,6 +1334,11 @@ pub fn contract_tilde(path: &Path) -> String {
 /// editable in-app, and hot-reloadable via the watcher.
 pub struct Settings {
     pub capture_hotkey: String,
+    /// `voice-hotkey` — start/stop a voice capture without opening
+    /// the window first. Its own chord, not a modifier on the capture hotkey:
+    /// the point of a voice note is that it costs one keypress while your
+    /// hands are busy.
+    pub voice_hotkey: String,
     pub close_to_tray: bool,
     /// `window-opacity` — how solid the app's own surfaces are over
     /// the desktop, in percent. Range 80–100; 100 = the opaque window.
@@ -1343,6 +1348,9 @@ pub struct Settings {
 impl Settings {
     pub const REL_PATH: &'static str = "Settings.md";
     pub const DEFAULT_HOTKEY: &'static str = "alt+space";
+    /// Shift on the capture chord: adjacent enough to learn in one go, and
+    /// free on a stock macOS keymap.
+    pub const DEFAULT_VOICE_HOTKEY: &'static str = "alt+shift+space";
     /// The floor exists for legibility, not taste: below it the app's text
     /// starts losing to a bright desktop behind the window.
     ///
@@ -1366,6 +1374,10 @@ impl Settings {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| Self::DEFAULT_HOTKEY.into());
+        let voice_hotkey = folded_prop_str(&props, "voice-hotkey")
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| Self::DEFAULT_VOICE_HOTKEY.into());
         let close_to_tray = folded_prop_str(&props, "close-to-tray")
             .map(|s| s.trim().eq_ignore_ascii_case("true"))
             .unwrap_or(false);
@@ -1380,6 +1392,7 @@ impl Settings {
             .unwrap_or(Self::OPACITY_DEFAULT);
         Settings {
             capture_hotkey,
+            voice_hotkey,
             close_to_tray,
             window_opacity,
         }
@@ -5418,6 +5431,38 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn voice_hotkey_defaults_and_reads_its_own_row() {
+        let (_e, dir) = temp_vault("settings-voice");
+        // absent from the seeded note → the default chord, not an empty string
+        // that would silently register nothing
+        assert_eq!(
+            Settings::load(&dir).voice_hotkey,
+            Settings::DEFAULT_VOICE_HOTKEY
+        );
+
+        // its own row, case-folded like every other settings read because
+        // Settings.md is hand-editable, and independent of capture-hotkey
+        fs::write(
+            dir.join(Settings::REL_PATH),
+            "---\ncapture-hotkey: cmd+shift+j\nVoice-Hotkey: cmd+shift+v\n---\n",
+        )
+        .unwrap();
+        let s = Settings::load(&dir);
+        assert_eq!(s.voice_hotkey, "cmd+shift+v");
+        assert_eq!(s.capture_hotkey, "cmd+shift+j");
+
+        // blank falls back rather than unregistering the chord
+        fs::write(
+            dir.join(Settings::REL_PATH),
+            "---\nvoice-hotkey: \"  \"\n---\n",
+        )
+        .unwrap();
+        assert_eq!(
+            Settings::load(&dir).voice_hotkey,
+            Settings::DEFAULT_VOICE_HOTKEY
+        );
+    }
 
     #[test]
     fn settings_defaults_overrides_and_garbage() {

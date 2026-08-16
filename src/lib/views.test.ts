@@ -6,6 +6,7 @@ import {
   findViewByName,
   isPristineScratch,
   isScratchNote,
+  isVoiceNote,
   newViewId,
   partitionDbEntries,
   pinsInSidebarOrder,
@@ -234,6 +235,25 @@ test("isScratchNote: filing into a folder promotes out of Notes (SUB-390)", () =
   assert.ok(!isScratchNote(inFolder("Projects", { type: "release" })), "typed stays out either way");
 });
 
+test("isScratchNote: unfiled voice captures stay in the Notes stream (SUB-827)", () => {
+  const voice = (folder: string, props: Record<string, unknown> = { type: "voice" }) => ({
+    ...note("Voice 2026-08-04 14.32", props),
+    folder,
+  });
+  assert.ok(isScratchNote(voice("Inbox")), "a hotkey capture lands in Inbox and shows in Notes");
+  assert.ok(isScratchNote(voice("")), "root counts like any other capture");
+  assert.ok(isScratchNote(voice("Inbox/Later")));
+  assert.ok(isScratchNote(voice("Inbox", { Type: "Voice" })), "type read is case-folded");
+  assert.ok(!isScratchNote(voice("Journal")), "filing a voice note promotes it out of Notes");
+  assert.ok(!isScratchNote(voice("Inbox", { type: "release" })), "other types are unaffected");
+});
+
+test("isVoiceNote: the `voice` type, case-folded, filed or not (SUB-827)", () => {
+  assert.ok(isVoiceNote(note("V", { type: "voice" })));
+  assert.ok(isVoiceNote(note("V", { Type: " Voice " })));
+  assert.ok(!isVoiceNote(note("V", { type: "release" })));
+  assert.ok(!isVoiceNote(note("V")));
+});
 
 test("scratchNotes: untyped only, newest edit first", () => {
   const mix = [

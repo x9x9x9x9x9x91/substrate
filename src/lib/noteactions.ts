@@ -92,6 +92,10 @@ export interface NoteActionHandlers {
   duplicate?: () => void;
   /** palette-only: its setprop sub-stage has no menu counterpart */
   setProperty?: () => void;
+  /** Run the speech model over a voice note's audio again, replacing
+      the transcript. Only passed for `type: voice` notes — the audio is what
+      makes it possible. */
+  retranscribe?: () => void;
   copyPath?: () => void;
   reveal?: () => void;
   exportMarkdown?: () => void;
@@ -143,6 +147,17 @@ export function buildNoteActions(h: NoteActionHandlers): NoteAction[] {
     out.push({ id: "duplicate", label: "Duplicate", icon: "duplicate", run: h.duplicate });
   if (h.setProperty)
     out.push({ id: "prop", label: "Set property…", icon: "prop", run: h.setProperty });
+  // the hint is the warning: this rewrites whatever is in the body, including
+  // edits typed after the first transcript landed. Reuses the rename glyph —
+  // the icon vocabulary is closed and a pen is what this does to the note.
+  if (h.retranscribe)
+    out.push({
+      id: "retranscribe",
+      label: "Transcribe again",
+      icon: "rename",
+      hint: "replaces the body",
+      run: h.retranscribe,
+    });
   if (h.copyPath) out.push({ id: "copy", label: "Copy path", icon: "copy", run: h.copyPath });
   if (h.reveal) out.push({ id: "reveal", label: "Reveal in Finder", icon: "reveal", run: h.reveal });
   if (h.exportMarkdown && !h.sealed)

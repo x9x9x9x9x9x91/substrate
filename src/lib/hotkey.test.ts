@@ -33,6 +33,24 @@ test("hotkeyRejectedMessage: OS-taken names both chords", () => {
   );
 });
 
+// Both global chords ride one event, so a refused voice chord
+// has to read as a voice problem — otherwise it sends the user to the wrong
+// settings row.
+test("hotkeyRejectedMessage: a refused voice chord names voice, not quick capture", () => {
+  assert.equal(
+    hotkeyRejectedMessage({ kind: "unavailable", typed: "alt+shift+space", active: "cmd+shift+v", which: "voice" }),
+    "Voice hotkey “⌥⇧Space” is taken by another app — still using “⌘⇧V”."
+  );
+  assert.equal(
+    hotkeyRejectedMessage({ kind: "invalid", typed: "opt+v", active: "", which: "voice" }),
+    "Voice hotkey “opt+v” isn’t valid — voice notes have no working hotkey."
+  );
+  // the capture chord keeps its wording, named or not
+  assert.equal(
+    hotkeyRejectedMessage({ kind: "invalid", typed: "ctl+j", active: "", which: "capture" }),
+    "Hotkey “ctl+j” isn’t valid — quick capture has no working hotkey."
+  );
+});
 
 test("hotkeyRejectedMessage: no live chord says so instead of quoting an empty one", () => {
   assert.equal(

@@ -34,6 +34,7 @@ pub(crate) mod trash;
 pub(crate) mod vaultsync;
 pub(crate) mod viewexport;
 pub(crate) mod views;
+pub(crate) mod voice;
 pub(crate) mod window;
 
 use crate::history::History;

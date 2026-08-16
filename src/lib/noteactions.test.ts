@@ -212,6 +212,26 @@ test("buildNoteActions: only wired handlers appear, trash always last + separate
   assert.equal(buildNoteActions({ sealed: false }).length, 0);
 });
 
+// The re-transcribe command shipped with no caller. It is wired
+// from the open note now, and only for voice notes — every other note has no
+// audio to run again. The hint carries the warning the command's doc promises.
+test("buildNoteActions: re-transcribe sits before Copy path and warns about the body", () => {
+  const noop = () => {};
+  const acts = buildNoteActions({ rename: noop, retranscribe: noop, copyPath: noop, trash: noop, sealed: false });
+  assert.deepEqual(
+    acts.map((a) => a.id),
+    ["rename", "retranscribe", "copy", "trash"]
+  );
+  const re = acts[1];
+  assert.equal(re.label, "Transcribe again");
+  assert.equal(re.hint, "replaces the body");
+  assert.equal(re.destructive, undefined); // it is undoable in the editor
+  // absent for a note that has no audio behind it
+  assert.equal(
+    buildNoteActions({ rename: noop, copyPath: noop, sealed: false }).some((a) => a.id === "retranscribe"),
+    false
+  );
+});
 
 test("buildNoteActions: the pin label flips on pinned (SUB-410), non-destructive", () => {
   const noop = () => {};

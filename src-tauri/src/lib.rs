@@ -27,6 +27,8 @@ mod testenv;
 mod vault;
 mod vaultfmt;
 #[cfg(target_os = "macos")]
+mod voice;
+#[cfg(target_os = "macos")]
 mod vibrancy;
 mod viewexport;
 mod widgets;
@@ -271,6 +273,10 @@ fn mounts_migration_restore_point(
 struct RuntimeState {
     settings: Settings,
     active_hotkey: String,
+    /// The voice-capture chord that is actually registered, same contract as
+    /// `active_hotkey` above.
+    #[cfg(target_os = "macos")]
+    active_voice_hotkey: String,
     /// The opacity the window material was last installed for. `None`
     /// until the first apply, so a vault whose note already says 100 still
     /// takes the (no-op, material-free) path once rather than never running.
@@ -307,6 +313,7 @@ use commands::trash::*;
 use commands::vaultsync::*;
 use commands::viewexport::*;
 use commands::views::*;
+use commands::voice::*;
 use commands::window::*;
 
 /// Run a heavyweight command body off the IPC thread.
@@ -350,6 +357,41 @@ fn toggle_capture(app: &tauri::AppHandle) {
     }
 }
 
+/// The voice chord: press once to start capturing, press again to stop and
+/// file. Deliberately window-free — the whole value of a voice note is that it
+/// costs one keypress while your hands (or eyes) are busy, so the result is
+/// announced by event rather than by stealing focus.
+#[cfg(target_os = "macos")]
+fn toggle_voice(app: &tauri::AppHandle) {
+    // Off the main thread, because both halves block: starting waits for the
+    // audio device (first run: for the permission dialog), stopping joins the
+    // recorder and writes a note. The hotkey handler runs on the main thread,
+    // and blocking it freezes every window.
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if app.state::<voice::VoiceState>().is_recording() {
+            match commands::voice::stop_and_file(&app) {
+                Ok(meta) => {
+                    app.emit("voice:filed", meta).ok();
+                }
+                Err(e) => {
+                    applog!("voice: hotkey stop failed: {e}");
+                    app.emit("voice:error", e).ok();
+                }
+            }
+        } else {
+            match voice::start(&app) {
+                Ok(stem) => {
+                    app.emit("voice:started", stem).ok();
+                }
+                Err(e) => {
+                    applog!("voice: hotkey start failed: {e}");
+                    app.emit("voice:error", e).ok();
+                }
+            }
+        }
+    });
+}
 
 /// Popover geometry, logical px. Width is fixed; the height the
 /// window is built at is the maximum, so the first paint can only shrink.
@@ -509,6 +551,12 @@ fn apply_settings(app: &tauri::AppHandle, root: &std::path::Path) {
         apply_hotkey(app, "capture", &settings.capture_hotkey, &mut active);
         rt.active_hotkey = active;
     }
+    #[cfg(target_os = "macos")]
+    {
+        let mut active = std::mem::take(&mut rt.active_voice_hotkey);
+        apply_hotkey(app, "voice", &settings.voice_hotkey, &mut active);
+        rt.active_voice_hotkey = active;
+    }
     // The window material follows the dial, so it rides the same
     // hot-reload as the hotkey — no IPC command, and an edit to the note
     // (or a ⌘, drag) shows through within the watcher's second.
@@ -573,6 +621,22 @@ pub fn run() {
             .with_handler(|app, _shortcut, event| {
                 if event.state != ShortcutState::Pressed {
                     return;
+                }
+                // Two chords now reach this one handler, so it has to ask which
+                // fired. `_shortcut` keeps its underscore because the block that
+                // reads it is macOS-only; every other target leaves it unused.
+                #[cfg(target_os = "macos")]
+                {
+                    let rt: State<SharedRuntime> = app.state();
+                    let voice_chord = rt.0.lock().unwrap().active_voice_hotkey.clone();
+                    if voice_chord
+                        .trim()
+                        .parse::<Shortcut>()
+                        .is_ok_and(|s| &s == _shortcut)
+                    {
+                        toggle_voice(app);
+                        return;
+                    }
                 }
                 toggle_capture(app);
             })
@@ -876,12 +940,41 @@ pub fn run() {
                 settings: Settings::load(&settings_root),
                 active_hotkey: String::new(),
                 #[cfg(target_os = "macos")]
+                active_voice_hotkey: String::new(),
+                #[cfg(target_os = "macos")]
                 applied_opacity: None,
             })));
             #[cfg(desktop)]
             app.manage(term::TermState::default());
             #[cfg(desktop)]
             app.manage(AgendaAnchor::default());
+            #[cfg(target_os = "macos")]
+            {
+                app.manage(voice::VoiceState::default());
+                app.manage(voice::transcribe::TranscribeQueue::default());
+                // A recording interrupted by a crash or a quit is already on
+                // disk; file it now so it reaches the Inbox instead of sitting
+                // in app config forever.
+                let handle = app.handle().clone();
+                voice::transcribe::start_worker(&handle);
+                let recovered = {
+                    let state: State<AppState> = handle.state();
+                    let mut engine = state.0.lock().unwrap();
+                    voice::recover_orphans(&handle, &mut engine)
+                };
+                if recovered > 0 {
+                    handle.state::<SnapDirty>().mark();
+                }
+                // Everything still without a transcript, oldest first: notes
+                // recovered just now, notes filed while the model was still
+                // downloading, and anything a crash left half-done. The prop's
+                // absence is the queue, so this needs no state of its own.
+                {
+                    let state: State<AppState> = handle.state();
+                    let engine = state.0.lock().unwrap();
+                    voice::transcribe::sweep_pending(&handle, &engine);
+                }
+            }
 
             // Floating quick-capture window: hidden until the hotkey fires,
             // hides again on blur like a palette.
@@ -1012,7 +1105,21 @@ pub fn run() {
                 let capture =
                     MenuItem::with_id(app, "quick-capture", "Quick Capture", true, None::<&str>)?;
                 let quit = MenuItem::with_id(app, "quit", "Quit Substrate", true, None::<&str>)?;
+                // Same toggle as the chord, for the times the chord is taken or
+                // forgotten. One label for both directions, on purpose: the tray
+                // menu is built once here and Tauri hands back no way to reach
+                // this row again through the tray icon, so a
+                // "Stop Recording" label would need the item carried in app state
+                // and re-texted from the voice thread — machinery for a row that
+                // is already honest read as the verb it performs. The recording
+                // state is shown where it is looked at: the capture window's
+                // level meter, and macOS's own orange microphone indicator.
+                #[cfg(target_os = "macos")]
+                let voice_item =
+                    MenuItem::with_id(app, "voice-record", "Voice Note", true, None::<&str>)?;
                 let mut items: Vec<&dyn tauri::menu::IsMenuItem<_>> = vec![&open, &capture];
+                #[cfg(target_os = "macos")]
+                items.push(&voice_item);
                 items.push(&quit);
                 let menu = Menu::with_items(app, &items)?;
                 let mut tray = TrayIconBuilder::with_id("tray")
@@ -1021,6 +1128,8 @@ pub fn run() {
                     .on_menu_event(|app, event| match event.id().as_ref() {
                         "open" => show_main(app),
                         "quick-capture" => toggle_capture(app),
+                        #[cfg(target_os = "macos")]
+                        "voice-record" => toggle_voice(app),
                         "quit" => app.exit(0),
                         _ => {}
                     })
@@ -1329,6 +1438,14 @@ pub fn run() {
             vault_read_asset,
             vault_import_asset,
             vault_link_asset,
+            voice_start,
+            voice_stop,
+            voice_cancel,
+            voice_is_recording,
+            voice_supported,
+            voice_model_state,
+            voice_model_download,
+            voice_transcribe,
             drop_shift_down,
             vault_asset_info,
             export_text,

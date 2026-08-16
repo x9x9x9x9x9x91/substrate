@@ -249,9 +249,24 @@ impl Engine {
                 if abs.is_file() {
                     continue;
                 }
+                // A voice note's transcript syncs, its audio doesn't —
+                // `.assets/` is excluded from the sync leg
+                // (vault-format §11), so on every device except the one that
+                // recorded it the WAV is legitimately absent. That is the
+                // designed shape, not a broken vault: without this the doctor
+                // would report a permanent error per synced voice note and
+                // train people to ignore it. Still surfaced, as a warning, so
+                // an actually-deleted recording is not silent.
+                let device_local_audio = !in_place
+                    && self
+                        .notes
+                        .get(&rel)
+                        .and_then(|m| prop_str(&m.props, "type"))
+                        .is_some_and(|t| t.trim().eq_ignore_ascii_case("voice"));
                 findings.push(DoctorFinding {
                     kind: DoctorKind::BrokenEmbed,
                     severity: if in_place
+                        || device_local_audio
                     {
                         DoctorSeverity::Warn
                     } else {
@@ -261,6 +276,8 @@ impl Engine {
                     subject: target.clone(),
                     detail: if in_place {
                         format!("linked-in-place embed target is missing: {}", abs.display())
+                    } else if device_local_audio {
+                        format!("voice recording {target} isn’t on this device — audio stays where it was captured")
                     } else {
                         format!("no .assets/{target} in this vault")
                     },
@@ -763,6 +780,31 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
     }
 
+    /// A synced voice note whose audio stayed on the recording device is a
+    /// warning, not an error — otherwise every synced voice note is permanent
+    /// doctor noise. A missing asset on any other note keeps its error.
+    #[test]
+    fn doctor_warns_not_errors_on_device_local_voice_audio() {
+        let (mut engine, dir) = temp_vault("doctor-voice-embed");
+        fs::write(
+            dir.join("Voice 2026-08-04 14.32.md"),
+            "---\ncreated: 2026-08-04\ntype: voice\n---\n![[Voice 2026-08-04 14.32.wav]]\n\nmix down the pad before Friday\n",
+        )
+        .unwrap();
+        fs::write(dir.join("Art.md"), "---\n---\n![[gone.wav]]\n").unwrap();
+        engine.rescan();
+        let report = engine.doctor(&Default::default()).unwrap();
+        let embeds = findings_of(&report, DoctorKind::BrokenEmbed);
+        let voice = embeds
+            .iter()
+            .find(|f| f.subject == "Voice 2026-08-04 14.32.wav")
+            .expect("the voice embed is still reported: {embeds:?}");
+        assert_eq!(voice.severity, DoctorSeverity::Warn);
+        assert!(voice.detail.contains("isn’t on this device"), "{}", voice.detail);
+        let other = embeds.iter().find(|f| f.subject == "gone.wav").expect("plain embed reported");
+        assert_eq!(other.severity, DoctorSeverity::Error);
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn doctor_ignores_the_embed_display_modifier() {

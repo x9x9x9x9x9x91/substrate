@@ -82,8 +82,10 @@
   Masters.count` reads as a number inside the sentence), and numbers understand units —
   columns carry one, sums and averages respect it, and 25 USD in EUR is an expression,
   not a search.
-- A folder of audio plays as a playlist, and a mini-player keeps it going while you work
-  anywhere else in the app.
+- Audio, both directions: a folder of audio plays as a playlist, with a mini-player that
+  keeps it going while you work anywhere else in the app; and voice capture records from
+  the capture surface, transcribed on this machine — the audio never leaves it — and
+  files as one note holding the recording and its searchable text.
 - Reach, in both directions: substrate:// links open the app from anywhere onto a note
   or a prefilled capture box; search sees into mounted folders; sheets gain a totals
   row, filtered sums, and column notifications that open the sheet at the row that

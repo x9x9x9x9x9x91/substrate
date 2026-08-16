@@ -504,6 +504,39 @@ export const vaultImportAsset = (path: string) =>
   invoke<string>("vault_import_asset", { path });
 export const vaultLinkAsset = (path: string) =>
   invoke<string>("vault_link_asset", { path });
+/* Voice capture. The recording lives in the backend, not the webview: it must
+   survive the capture window losing focus or being hidden, and a MediaRecorder
+   in a hidden window is at the mercy of the OS. */
+/** Whether this build can record at all — false off macOS, where the UI hides
+    the affordance instead of offering a button that always fails. */
+export const voiceSupported = () => invoke<boolean>("voice_supported");
+/** Start recording; resolves with the stem the capture will be filed under
+    (`Voice 2026-08-04 14.32`). Rejects with a human-readable reason when the
+    microphone is missing, refused or busy. */
+export const voiceStart = () => invoke<string>("voice_start");
+/** Stop recording and file it as a `type: voice` note in Inbox. */
+export const voiceStop = () => invoke<NoteMeta>("voice_stop");
+/** Stop and discard. Never rejects for "wasn't recording". */
+export const voiceCancel = () => invoke<void>("voice_cancel");
+/** Whether a recording is in flight — asked on mount so a reopened capture
+    window rejoins an in-progress recording instead of showing idle. */
+export const voiceIsRecording = () => invoke<boolean>("voice_is_recording");
+/** Speech model: whether it's installed, and how far a download has got.
+    `bytes` is the part-file's size while one is running. */
+export type VoiceModelState = {
+  installed: boolean;
+  bytes: number;
+  expected_bytes: number;
+};
+export const voiceModelState = () => invoke<VoiceModelState>("voice_model_state");
+/** Start the one-time model download. Returns immediately; progress arrives as
+    `voice:model` events and failure as `voice:model-error`. This is the only
+    moment voice capture touches the network, and only because someone pressed
+    the button. */
+export const voiceModelDownload = () => invoke<void>("voice_model_download");
+/** Transcribe a voice note again, replacing its body — for the transcript that
+    came out wrong. The caller confirms first: the body is replaced. */
+export const voiceTranscribe = (path: string) => invoke<void>("voice_transcribe", { path });
 /** Physical Shift state at drop time — Tauri drop events carry no
     modifiers, so the handler asks the OS. Always false off macOS. */
 export const dropShiftDown = () => invoke<boolean>("drop_shift_down");

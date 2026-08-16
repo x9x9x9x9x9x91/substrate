@@ -77,11 +77,13 @@ export function hotkeyLabel(chord: string): string {
    is about: a refused voice chord that says "quick capture has no working
    hotkey" points the user at the wrong setting.
 
-   A table rather than a chain of ifs, so a private chord is one strippable
-   row: the lookup itself stays in the shared path and reads `which` in every
-   build, which a stripped `if (which === "voice")` would not (TS6133). */
+   A table rather than a chain of ifs, so a chord held back from the public
+   mirror is one strippable row: the lookup itself stays in the shared path and
+   reads `which` in every build, which a stripped `if` branch would not
+   (TS6133). */
 const REJECTED_WORDS: Record<string, { lead: string; none: string }> = {
   capture: { lead: "Hotkey", none: "quick capture has no working hotkey" },
+  voice: { lead: "Voice hotkey", none: "voice notes have no working hotkey" },
 };
 
 /** An older backend sends no `which` at all, and a chord this build doesn't

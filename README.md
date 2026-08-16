@@ -24,6 +24,11 @@ Linear (speed, keyboard-first, command palette). The layer everything grows on.
   bar). Untyped notes surface in the Notes view, recency-sorted; giving one a
   `type` files it into its database. The hotkey and close-to-tray behavior
   live in the vault's `Settings.md`.
+- Voice capture (macOS) records from ⌥⇧Space and files an ordinary note next to
+  its audio: the transcript is plain prose in the body, the timings are
+  frontmatter. Transcription runs on this machine — the speech model is a
+  one-time download in Settings, and the audio never leaves the device. See
+  [docs/vault-format.md](docs/vault-format.md) §5.11.
 - Sheets are formula tables in plain text: a `type: sheet` note holds CSV data
   and named column formulas (`SUM`, `SUMIF`, …), and dashboards bind stat
   cards, charts, and live database views to the results. See
@@ -42,6 +47,7 @@ Linear (speed, keyboard-first, command palette). The layer everything grows on.
 | ⌘⇧F | Full-text search |
 | ⌘N | New note to Inbox (in a database view: new entry) |
 | ⌥Space | Global capture from any app (floating window → Inbox) |
+| ⌥⇧Space | Start or stop a voice capture, hands-free (macOS) |
 | ⌘D | Open today's journal |
 | ⌘1–⌘4 | Today · Notes · All notes · Calendar |
 | ⌘5–⌘9 | Pinned views, in sidebar order |

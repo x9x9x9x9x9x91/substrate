@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the bundle's Info.plist by the Tauri bundler.
+
+     macOS refuses microphone access outright when this key is missing — the
+     app dies instead of showing a permission prompt — and the string is what
+     the prompt says, so it is written for the person reading it at the moment
+     they decide, not as a legal formula. -->
+<plist version="1.0">
+<dict>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Substrate records voice notes into your vault. Recording starts three ways: the capture window, the voice hotkey (which needs no window), and the tray's "Voice Note" item. Once started it keeps running until you stop it — including after the capture window hides when you click away. The audio file stays on this Mac and speech is transcribed on-device.</string>
+</dict>
+</plist>

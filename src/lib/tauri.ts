@@ -399,6 +399,11 @@ function mockEnforceSealScope(note: MockNote): void {
 }
 let mockMcpGrants: { client: string; prefix: string; access: "read" | "write" }[] = [];
 
+/** The mock lane's in-flight recording — a stem and a start time, no audio. */
+let mockVoice: { stem: string; startedMs: number } | null = null;
+/** The mock lane starts with no speech model, so the settings row opens in the
+    state a new install actually has: an offer to download, not a done tick. */
+let mockVoiceModel = false;
 
 /** A mock disk path for a loose file — what the real engine returns as
     `FolderFile.path` and what the shared player keys on. */
@@ -3769,6 +3774,61 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       if (!p) throw new Error("not a file");
       return p;
     }
+    // Voice capture. No microphone in the e2e lane, so the mock is a
+    // stopwatch: it tracks the recording flag and, on stop, files exactly the
+    // note the real command would — a `type: voice` note in Inbox embedding an
+    // asset. Level meter ticks are the UI's own concern; nothing here emits
+    // `voice:level`, so the meter renders its idle state.
+    case "voice_supported":
+      return true;
+    case "voice_start": {
+      if (mockVoice) throw new Error("already recording");
+      const at = new Date();
+      const pad = (n: number) => String(n).padStart(2, "0");
+      mockVoice = {
+        stem: `Voice ${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}.${pad(at.getMinutes())}`,
+        startedMs: Date.now(),
+      };
+      return mockVoice.stem;
+    }
+    case "voice_is_recording":
+      return mockVoice !== null;
+    case "voice_cancel":
+      mockVoice = null;
+      return null;
+    case "voice_stop": {
+      if (!mockVoice) throw new Error("not recording");
+      const { stem, startedMs } = mockVoice;
+      mockVoice = null;
+      const voiceAsset = await mockDispatch("vault_import_asset", { path: `${stem}.wav` });
+      return await mockDispatch("vault_create", {
+        title: stem,
+        folder: "Inbox",
+        noteType: "voice",
+        props: [
+          ["captured", new Date(startedMs).toISOString().slice(0, 19)],
+          ["duration", String(Math.round((Date.now() - startedMs) / 1000))],
+        ],
+        body: `![[${voiceAsset as string}]]\n`,
+      });
+    }
+    case "voice_model_state":
+      return {
+        installed: mockVoiceModel,
+        bytes: mockVoiceModel ? 574041195 : 0,
+        expected_bytes: 574041195,
+      };
+    case "voice_model_download": {
+      // no 574 MB in a spec: the download is instant here, and emits the same
+      // completion tick the real one ends on so the row's wiring is exercised
+      mockVoiceModel = true;
+      window.__mockEmit?.("voice:model", { received: 574041195, total: 574041195 });
+      return null;
+    }
+    case "voice_transcribe":
+      // there is no model and no audio in the mock lane; the command's job in
+      // a spec is to be callable and not throw
+      return null;
     case "drop_shift_down":
       return false;
     case "vault_asset_info": {

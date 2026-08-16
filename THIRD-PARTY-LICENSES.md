@@ -6,7 +6,7 @@ the third-party code the app bundles and ships:
 
 - the **63 npm packages** in the production dependency closure, compiled into
   the app's frontend bundle;
-- the **700 Rust crates** pinned by `src-tauri/Cargo.lock`, listed
+- the **732 Rust crates** pinned by `src-tauri/Cargo.lock`, listed
   conservatively — the lockfile is the whole pinned set, so build- and test-only
   crates are listed too rather than guessed away.
 
@@ -2181,9 +2181,14 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### Apache-2.0
 
-3 crates:
+8 crates:
 
+- clang-sys 1.9.1 — crates.io
+- cpal 0.15.3 — crates.io
 - gethostname 1.1.0 — crates.io
+- hound 3.5.1 — crates.io
+- oboe 0.6.1 — crates.io
+- oboe-sys 0.6.1 — crates.io
 - sync_wrapper 1.0.2 — crates.io
 - tao 0.35.3 — crates.io
 
@@ -2334,9 +2339,11 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### Apache-2.0/MIT
 
-5 crates:
+7 crates:
 
+- alsa 0.9.1 — crates.io
 - cesu8 1.1.0 — crates.io
+- cexpr 0.6.0 — crates.io
 - dbus 0.9.12 — crates.io
 - intl_pluralrules 7.0.2 — crates.io
 - libdbus-sys 0.2.7 — crates.io
@@ -2355,12 +2362,20 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - zerocopy 0.8.54 — crates.io
 - zerocopy-derive 0.8.54 — crates.io
 
+### BSD-2-Clause OR MIT OR Apache-2.0
+
+1 crate:
+
+- mach2 0.4.3 — crates.io
+
 ### BSD-3-Clause
 
-5 crates:
+7 crates:
 
 - alloc-no-stdlib 2.0.4 — crates.io
 - alloc-stdlib 0.2.4 — crates.io
+- bindgen 0.71.1 — crates.io
+- bindgen 0.72.1 — crates.io
 - curve25519-dalek 4.1.3 — crates.io
 - subtle 2.6.1 — crates.io
 - x25519-dalek 2.0.1 — crates.io
@@ -2414,18 +2429,20 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### ISC
 
-5 crates:
+6 crates:
 
 - inotify 0.11.4 — crates.io
 - inotify-sys 0.1.8 — crates.io
 - libloading 0.7.4 — crates.io
+- libloading 0.8.9 — crates.io
 - rustls-webpki 0.103.13 — crates.io
 - untrusted 0.9.0 — crates.io
 
 ### MIT
 
-149 crates:
+153 crates:
 
+- alsa-sys 0.3.1 — crates.io
 - atk 0.18.2 — crates.io
 - atk-sys 0.18.2 — crates.io
 - bech32 0.11.1 — crates.io
@@ -2438,6 +2455,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - cfg_aliases 0.1.1 — crates.io
 - combine 4.6.7 — crates.io
 - cookie-factory 0.3.3 — crates.io
+- coreaudio-sys 0.2.18 — crates.io
 - crunchy 0.2.4 — crates.io
 - darling 0.23.0 — crates.io
 - darling_core 0.23.0 — crates.io
@@ -2452,6 +2470,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - embed-resource 3.0.11 — crates.io
 - endi 1.1.1 — crates.io
 - filedescriptor 0.8.3 — crates.io
+- fs_extra 1.3.0 — crates.io
 - fsevent-sys 4.1.0 — crates.io
 - gdk 0.18.2 — crates.io
 - gdk-pixbuf 0.18.5 — crates.io
@@ -2497,6 +2516,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - mio 1.2.2 — crates.io
 - new_debug_unreachable 1.0.6 — crates.io
 - nix 0.28.0 — crates.io
+- nom 7.1.3 — crates.io
 - nom 8.0.0 — crates.io
 - nom-language 0.1.0 — crates.io
 - objc2 0.6.4 — crates.io
@@ -2578,7 +2598,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### MIT OR Apache-2.0
 
-317 crates:
+330 crates:
 
 - aead 0.5.2 — crates.io
 - aes 0.8.4 — crates.io
@@ -2612,6 +2632,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - chrono-tz 0.10.4 — crates.io
 - cipher 0.4.4 — crates.io
 - cipher 0.5.2 — crates.io
+- cmake 0.1.58 — crates.io
 - const-random 0.1.18 — crates.io
 - const-random-macro 0.1.16 — crates.io
 - cookie 0.18.1 — crates.io
@@ -2628,6 +2649,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - crypto-common 0.1.7 — crates.io
 - crypto-common 0.2.2 — crates.io
 - ctr 0.9.2 — crates.io
+- dasp_sample 0.11.0 — crates.io
 - deranged 0.5.8 — crates.io
 - derive_arbitrary 1.4.2 — crates.io
 - digest 0.10.7 — crates.io
@@ -2638,6 +2660,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - dlv-list 0.5.2 — crates.io
 - dtoa 1.0.11 — crates.io
 - dyn-clone 1.0.20 — crates.io
+- either 1.17.0 — crates.io
 - embed_plist 1.2.2 — crates.io
 - enumflags2 0.7.12 — crates.io
 - enumflags2_derive 0.7.12 — crates.io
@@ -2686,6 +2709,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - inout 0.2.2 — crates.io
 - io_tee 0.1.1 — crates.io
 - ipnet 2.12.0 — crates.io
+- itertools 0.13.0 — crates.io
 - itoa 1.0.18 — crates.io
 - jni 0.22.4 — crates.io
 - jni-macros 0.22.4 — crates.io
@@ -2707,11 +2731,15 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - markup5ever 0.38.0 — crates.io
 - md-5 0.11.0 — crates.io
 - mime 0.3.17 — crates.io
+- ndk 0.8.0 — crates.io
 - ndk 0.9.0 — crates.io
+- ndk-context 0.1.1 — crates.io
+- ndk-sys 0.5.0+25.2.9519653 — crates.io
 - ndk-sys 0.6.0+11769913 — crates.io
 - notify-rust 4.18.0 — crates.io
 - notify-types 2.1.0 — crates.io
 - num-conv 0.2.2 — crates.io
+- num-derive 0.4.2 — crates.io
 - num-traits 0.2.19 — crates.io
 - ogg_pager 0.7.2 — crates.io
 - once_cell 1.21.4 — crates.io
@@ -2731,6 +2759,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - png 0.18.1 — crates.io
 - powerfmt 0.2.0 — crates.io
 - ppv-lite86 0.2.21 — crates.io
+- prettyplease 0.2.37 — crates.io
 - proc-macro-crate 1.3.1 — crates.io
 - proc-macro-crate 2.0.2 — crates.io
 - proc-macro-crate 3.5.0 — crates.io
@@ -2786,6 +2815,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - sha2 0.10.9 — crates.io
 - sha2 0.11.0 — crates.io
 - sha3 0.10.9 — crates.io
+- shlex 1.3.0 — crates.io
 - shlex 2.0.1 — crates.io
 - signal-hook-registry 1.4.8 — crates.io
 - simdutf8 0.1.5 — crates.io
@@ -2846,8 +2876,10 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - web-sys 0.3.103 — crates.io
 - web_atoms 0.2.5 — crates.io
 - weezl 0.2.1 — crates.io
+- windows 0.54.0 — crates.io
 - windows 0.61.3 — crates.io
 - windows-collections 0.2.0 — crates.io
+- windows-core 0.54.0 — crates.io
 - windows-core 0.61.2 — crates.io
 - windows-core 0.62.2 — crates.io
 - windows-future 0.2.1 — crates.io
@@ -2857,6 +2889,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - windows-link 0.2.1 — crates.io
 - windows-numerics 0.2.0 — crates.io
 - windows-registry 0.5.3 — crates.io
+- windows-result 0.1.2 — crates.io
 - windows-result 0.3.4 — crates.io
 - windows-result 0.4.1 — crates.io
 - windows-strings 0.4.2 — crates.io
@@ -2927,11 +2960,12 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### MIT/Apache-2.0
 
-41 crates:
+43 crates:
 
 - android_system_properties 0.1.5 — crates.io
 - bitflags 1.3.2 — crates.io
 - bs58 0.5.1 — crates.io
+- coreaudio-rs 0.11.3 — crates.io
 - curve25519-dalek-derive 0.1.1 — crates.io
 - downcast-rs 1.2.1 — crates.io
 - fallible-iterator 0.3.0 — crates.io
@@ -2948,6 +2982,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - jni 0.21.1 — crates.io
 - json-patch 3.0.1 — crates.io
 - mac-notification-sys 0.6.15 — crates.io
+- minimal-lexical 0.2.1 — crates.io
 - openssl-probe 0.1.6 — crates.io
 - openssl-src 300.6.1+3.6.3 — crates.io
 - quick-error 1.2.3 — crates.io
@@ -3003,6 +3038,13 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - zerotrie 0.2.4 — crates.io
 - zerovec 0.11.6 — crates.io
 - zerovec-derive 0.11.3 — crates.io
+
+### Unlicense
+
+2 crates:
+
+- whisper-rs 0.14.4 — crates.io
+- whisper-rs-sys 0.13.1 — crates.io
 
 ### Unlicense OR MIT
 
@@ -4163,6 +4205,35 @@ SPDX-License-Identifier: Unicode-3.0
 
 Portions of ICU4X may have been adapted from ICU4C and/or ICU4J.
 ICU 1.8.1 to ICU 57.1 © 1995-2016 International Business Machines Corporation and others.
+```
+
+### Unlicense
+
+```
+This is free and unencumbered software released into the public domain.
+
+Anyone is free to copy, modify, publish, use, compile, sell, or
+distribute this software, either in source code form or as a compiled
+binary, for any purpose, commercial or non-commercial, and by any
+means.
+
+In jurisdictions that recognize copyright laws, the author or authors
+of this software dedicate any and all copyright interest in the
+software to the public domain. We make this dedication for the benefit
+of the public at large and to the detriment of our heirs and
+successors. We intend this dedication to be an overt act of
+relinquishment in perpetuity of all present and future rights to this
+software under copyright law.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+
+For more information, please refer to <https://unlicense.org>
 ```
 
 ### Zlib

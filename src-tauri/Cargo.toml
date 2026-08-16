@@ -109,6 +109,18 @@ objc2 = "0.6"
 # THIRD-PARTY-LICENSES.md and a second AppKit binding set in the bundle) for an
 # API this uses identically either way.
 window-vibrancy = "0.6"
+# Voice capture. macOS-only for now: whisper's `metal` feature is an
+# Apple-GPU path, and the shipped desktop app is macOS. Linux/Windows would
+# need an ALSA/WASAPI cpal build plus a CPU whisper backend — a port, not a
+# cfg flip, so it stays off until someone asks for it. iOS is phase 2 (needs
+# the mobile capture surface first).
+#
+# BUILD HOST NOTE: whisper-rs-sys compiles whisper.cpp through bindgen, so a
+# machine building this needs **cmake** and **libclang** on PATH. Both are
+# present on the QA rigs and on a stock Xcode-CLT Mac with Homebrew cmake.
+cpal = "0.15"
+hound = "3.5"
+whisper-rs = { version = "0.14", features = ["metal"] }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 security-framework = { version = "3", features = ["OSX_10_15"] }

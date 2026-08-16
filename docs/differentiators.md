@@ -211,6 +211,18 @@ Capacities, Affine).*
   path at all.
 - **Global capture** — ⌥Space from any app, menu-bar tray, zero-decision
   Inbox.
+- **Voice capture that stays a markdown note** — a global chord records from
+  anywhere, and what lands in the Inbox is one ordinary note plus one audio
+  file sharing its stem: the transcript is plain prose in the body, the
+  timings are frontmatter, and the `title:` is the transcript's first line.
+  Transcription runs on your machine — the speech model is an opt-in download
+  in Settings, and nothing about a recording leaves the device. Absent means
+  pending, so the queue is the vault itself and a crash mid-transcription
+  costs nothing. The audio is device-local by design (`.assets/` is out of the
+  sync leg), so a voice note syncs as searchable text everywhere and plays
+  back where it was recorded. Careful claim: the differentiator is the
+  *shape* — grep-readable transcript, no proprietary recording store, no
+  cloud round trip — not the accuracy of the model, which is whisper's.
 - **Real notifications** — date+time props fire real notifications with
   snooze, recurrence, lead-time reminders ("remind N days before"),
   DST-safe. Notes apps don't do this; task apps don't own your notes.
@@ -324,8 +336,7 @@ Tracked in the issue tracker; headline shapes: extracted columns on
 mounted files (audio/PDF/.als analysis feeding a mount's rows — the mount
 itself has shipped), time-travel queries over
 git history, per-fact provenance
-receipts, voice
-capture with on-device transcript, cross-type joins.
+receipts, cross-type joins.
 
 ## Maintenance
 

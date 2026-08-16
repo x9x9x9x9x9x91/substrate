@@ -224,6 +224,7 @@ type: release
 | `view`, `sort` | tasks dashboard layout (`list`/`board`) and ordering (`urgency`/`priority`/`due`/`age`) (§5.2) |
 | `now`, `snoozed_until` | tasks board: pinned to the focus section / parked until a wake day, both board-scoped (§5.2) |
 | `stale` | tasks board: `never` exempts one task from age chips for good (§5.2) |
+| `captured`, `duration`, `transcribed` | voice notes: recording start (full ISO datetime, text), length in seconds, and the datetime the transcript landed — absent means pending, `unavailable`/`failed` are the two non-datetime answers (§5.11) |
 | `tags` | tag list, unioned with the body's inline `#tags` (§3b) |
 
 Everything else is yours. Unknown props are preserved and shown as chips.
@@ -2452,6 +2453,91 @@ reads. There is no fence grammar and no new delimiter to learn.
 Agent note: read-time sugar, like calc lines. Writing the expression is the
 whole job; never write a computed number back next to it.
 
+### 5.11 Voice captures — `type: voice`
+
+A voice note is **one markdown note plus one audio asset sharing a stem** —
+nothing bespoke, no new file type:
+
+```
+Inbox/Voice 2026-08-04 14.32.md
+.assets/Voice 2026-08-04 14.32.wav
+```
+
+```markdown
+---
+created: 2026-08-04
+type: voice
+captured: 2026-08-04T14:32:07
+duration: 47
+transcribed: 2026-08-04T14:32:19
+title: mix down the pad before Friday
+---
+![[Voice 2026-08-04 14.32.wav]]
+
+mix down the pad before Friday, it's fighting the vocal in the second drop
+```
+
+- **Filename** `Voice YYYY-MM-DD HH.mm`, minute-resolution, deduped by the
+  ordinary create-collision rule (`Voice … 2.md`). The note is **never renamed
+  by the transcript** — a stable stem is what keeps the note and its asset
+  paired, so `title:` carries the readable name instead (§2 `title:` and the
+  filename).
+- **`captured`** — full ISO datetime of the recording's start. It is a *text*
+  prop, not a `date` one: `date` is day-resolution (§4), and the time is the
+  point.
+- **`duration`** — seconds, a `number` prop.
+- **`transcribed`** — ISO datetime the transcript landed. **Absent means
+  pending**: that, plus the presence of an audio embed, is the entire
+  pending-queue state — there is no queue file, so a crash mid-transcription
+  costs nothing and the next launch re-enqueues by scanning for it. A re-run
+  after such a crash **heals the note rather than doubling it**: a body that
+  already ends with the transcript is left as it is.
+
+  Two values are words rather than datetimes, because a queue whose only exit
+  is success is a queue that never empties:
+
+  - **`unavailable`** — the audio isn't on this machine. Voice audio is
+    device-local, so this is the *normal* state on every machine except the
+    one that recorded the note; without it, each of them would re-queue every
+    voice note at every launch forever.
+  - **`failed`** — the audio is here and the model could not read it. Retrying
+    it at each launch would only push the notes that can still succeed further
+    down the queue.
+
+  Both are ordinary frontmatter you can see and delete, and deleting one asks
+  for the note to be tried again — the same gesture as clearing a datetime.
+- **`title`** — the transcript's first line, trimmed to 60 characters, written
+  by the engine once the transcript arrives. Before then the note wears no
+  `title:` and shows as its filename.
+- **Body** — the embed first, then the transcript as **plain prose, never
+  inside a code fence**: machine fences are blanked out of the search index
+  (§12), and a transcript that can't be searched defeats the feature. `*no
+  speech detected*` is written when the recorder heard nothing, and
+  `transcribed:` is still set — silence is an answer, not a pending job.
+- **Audio is device-local.** `.assets/` is excluded from history and from the
+  sync leg (§9, §11), so a voice note syncs as text — frontmatter, transcript,
+  and a `![[…]]` that resolves only on the machine that recorded it. This is
+  the designed shape, so `vault_doctor` reports such an embed as a **warn**,
+  not an error (§15).
+- Voice notes are a real database and stay in the Notes stream while unfiled.
+  `voice` is a plain schema type that appears the way every type does — from
+  notes carrying it; nothing seeds it, and its home folder (§6) is yours to set
+  like any other database's. The double membership is deliberate: the capture
+  stream is complete only if what you captured is in it. Moving one out of
+  `Inbox/` promotes it out of Notes like any other note.
+
+- **A discarded recording is not deleted immediately.** Escape in the capture
+  window throws the recording away, but the WAV moves to
+  `<app config>/recordings/discarded/` and is swept a week later, so a
+  mis-hit Escape on a long thought is recoverable from the app dir. Past ten
+  seconds Escape asks first: the recording keeps running and a second Escape
+  discards it. Nothing under `discarded/` is ever filed as a note.
+
+An external writer needs no special support: delete the note and the asset
+orphans normally; delete the asset and you keep a transcript. Removing
+`transcribed:` from a voice note that still has its audio is how you ask the
+app to transcribe it again.
+
 ## 5b. `.vault/format.json` — config format versions (covers §6–§8b)
 
 One sidecar records which format version each hidden config file is in
@@ -4520,6 +4606,11 @@ order, so two scans of an unchanged vault produce byte-identical JSON.
 | `invalid-prop` | a `date` or `number` prop whose value does not parse under the schema's kind — the value is reported, never rewritten | error |
 | `broken-reflex` | a rule in `.vault/reflexes.json` (§8c) that does not run: the file failed to load (one finding for the whole file), a rule failed validation, or the circuit breaker paused a rule after repeated failures. Runtime state, so it is appended by the command rather than found by the scan — a breaker pause exists only in the running app | error |
 
+One documented exception to `broken-embed`'s error severity: a `type: voice`
+note (§5.11) whose `.assets/` audio is absent is a **warn**, because audio
+never syncs — on every device but the recorder the file is legitimately not
+there, and an error per synced voice note would train people to ignore the
+doctor. It is still reported, so an actually-deleted recording is not silent.
 
 `paths` holds every note involved: one entry for most findings, one per
 colliding note for `ambiguous-target`, and the config file for `stale-config`

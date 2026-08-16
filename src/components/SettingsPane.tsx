@@ -6,7 +6,14 @@
    in the normal editor for anything beyond the known keys. */
 
 import { Fragment, lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { onboardingStatus, vaultRead } from "../lib/ipc";
+import {
+  onboardingStatus,
+  vaultRead,
+  voiceModelDownload,
+  voiceModelState,
+  voiceSupported,
+} from "../lib/ipc";
+import type { VoiceModelState } from "../lib/ipc";
 import ReflexesSettings from "./ReflexesSettings";
 import { normalizeNumberInput } from "../lib/aggregate";
 import { NUMBER_LOCALES, numberLocaleSample, numberLocaleSetting } from "../lib/numberLocale";
@@ -27,7 +34,7 @@ import {
 import { previewWindowOpacity, vibrancyCapable } from "../lib/vibrancy";
 import type { TerminalFontProblems } from "../lib/settings";
 import { foldedPropKey } from "../lib/types";
-import { isTauri } from "../lib/tauri";
+import { isTauri, listen } from "../lib/tauri";
 import {
   TERMINAL_HEIGHT_MAX,
   TERMINAL_HEIGHT_MIN,
@@ -53,6 +60,107 @@ import McpSettings from "./McpSettings";
 
 const Onboarding = lazy(() => import("./Onboarding"));
 
+/* The speech model is half a gigabyte, so it is not in the app: transcription
+   stays off until someone asks for it here. Which makes this row the one place
+   voice capture touches the network, and the honest place to say so.
+
+   Not a `Field`: the rest of the sheet writes a prop to Settings.md, and this
+   writes nothing — it reports a file's presence and starts a long download.
+   Its own block rather than a new field kind, for one control. */
+function VoiceModelRow({ onToast }: { onToast: (msg: string) => void }) {
+  const [state, setState] = useState<VoiceModelState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState("");
+
+  useEffect(() => {
+    let live = true;
+    voiceSupported()
+      .then((ok) => (ok ? voiceModelState() : null))
+      .then((s) => {
+        if (live && s) setState(s);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let dead = false;
+    let unlisten: (() => void)[] = [];
+    Promise.all([
+      listen<{ received: number; total: number }>("voice:model", (e) => {
+        // the tick carries the byte count, so the bar moves without polling
+        setState({ installed: false, bytes: e.payload.received, expected_bytes: e.payload.total });
+        if (e.payload.received >= e.payload.total) {
+          setBusy(false);
+          setState({
+            installed: true,
+            bytes: e.payload.total,
+            expected_bytes: e.payload.total,
+          });
+        }
+      }),
+      listen<string>("voice:model-error", (e) => {
+        setBusy(false);
+        // the reason stays on the row: a toast is gone in three seconds and
+        // this is a five-minute download someone walked away from
+        setFailed(String(e.payload || "download failed"));
+      }),
+    ]).then((callbacks) => {
+      if (dead) callbacks.forEach((c) => c());
+      else unlisten = callbacks;
+    });
+    return () => {
+      dead = true;
+      unlisten.forEach((c) => c());
+    };
+  }, []);
+
+  if (!state) return null;
+  const pct =
+    state.expected_bytes > 0 ? Math.floor((state.bytes / state.expected_bytes) * 100) : 0;
+  const size = `${Math.round(state.expected_bytes / 1e6)} MB`;
+  return (
+    <>
+      <div className="palette-section">Voice</div>
+      <div className="settings-row" data-testid="voice-model-row">
+        <div className="settings-row-text">
+          <div className="settings-label">Speech model</div>
+          <div className="settings-hint">
+            {state.installed
+              ? "installed — voice notes are transcribed on this Mac, and nothing is sent anywhere"
+              : `not installed — voice notes are still recorded and filed, they just stay audio until this ${size} model is downloaded once`}
+          </div>
+          {failed && (
+            <div className="settings-hint settings-hint-warn" data-testid="voice-model-error">
+              {failed}
+            </div>
+          )}
+        </div>
+        {state.installed ? (
+          <div className="settings-hint">✓</div>
+        ) : (
+          <button
+            className="settings-raw"
+            data-testid="voice-model-download"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              setFailed("");
+              voiceModelDownload().catch((e) => {
+                setBusy(false);
+                onToast(String(e));
+              });
+            }}
+          >
+            {busy ? `${pct}%` : "download…"}
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
 
 interface SettingsPaneProps {
   onClose: () => void;
@@ -209,6 +317,16 @@ const FIELDS: Field[] = [
     hint: "global shortcut for the floating capture window, works from any app",
     placeholder: "alt+space",
     kind: "text",
+  },
+  {
+    key: "voice-hotkey",
+    label: "Voice-note hotkey",
+    hint: "global shortcut that starts recording straight away, and stops and files on the second press — no window, no click",
+    // the built-in default, so an empty field shows the chord that is
+    // actually registered rather than one nothing uses
+    placeholder: "alt+shift+space",
+    kind: "text",
+    only: "macos",
   },
   {
     key: "close-to-tray",
@@ -1109,6 +1227,7 @@ export default function SettingsPane({
                 </div>
               </Fragment>
             ))}
+          {values && <VoiceModelRow onToast={onToast} />}
           {/* last, and only when this vault has rules: the enable switch is a
               consequential one, and it should not be the first thing someone
               scrolling for a font size trips over */}

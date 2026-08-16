@@ -20,6 +20,7 @@ import {
   vaultResolve,
   vaultRoot,
   vaultWriteBody,
+  voiceTranscribe,
 } from "../lib/ipc";
 import { setPropUndoable } from "../lib/undoprops";
 import { isPickedToday } from "../lib/today";
@@ -1596,6 +1597,16 @@ function NotePane({
           flush().then(() => onDuplicate(meta));
         }
       : undefined,
+    // re-running the transcript belongs on the open note: that is where a
+    // wrong transcript is read, and nothing else calls the command; only
+    // voice notes have the audio the queue needs. Flush first — the re-run
+    // rewrites the file, and unsaved keystrokes would come back as a ghost.
+    retranscribe:
+      noteType?.toLowerCase() === "voice"
+        ? () => {
+            flush().then(() => voiceTranscribe(meta.path).catch(console.error));
+          }
+        : undefined,
     copyPath: () => copyAbsPath(meta.path),
     reveal: () => revealRel(meta.path),
     exportMarkdown: () => {

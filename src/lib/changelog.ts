@@ -179,7 +179,7 @@ export const CHANGELOG: ChangelogRelease[] = [
         kind: "new",
       },
       {
-        text: "A folder of audio plays as a playlist, and a mini-player keeps it going while you work anywhere else in the app.",
+        text: "Audio, both directions: a folder of audio plays as a playlist, with a mini-player that keeps it going while you work anywhere else in the app; and voice capture records from the capture surface, transcribed on this machine — the audio never leaves it — and files as one note holding the recording and its searchable text.",
         kind: "new",
       },
       {

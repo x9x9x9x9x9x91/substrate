@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Hardened-runtime entitlements. The runtime blocks microphone
+     access by default, and the failure is a launch/first-use crash rather than
+     a build error — so this file exists for exactly one key, and gains another
+     only when a feature actually needs it.
+
+     This file IS wired into src-tauri/tauri.conf.json (bundle.macOS
+     "entitlements"), which is why it carries the microphone key and nothing
+     else.
+
+     keychain-access-groups deliberately absent; re-add only with an embedded
+     provisioning profile. It is a restricted entitlement: claiming it from a
+     WIRED file without an embedded Developer ID provisioning profile that
+     authorizes it gets the app KILLED at launch by Trusted Execution
+     (EXC_CRASH, Code Signature Invalid). The key sat here once while this file
+     was unwired, so the claim never reached a signature; wiring the file for
+     the microphone is what would make it real. To bring it back: create a
+     Developer ID provisioning profile for this app's bundle identifier with
+     Keychain Sharing, embed it as Contents/embedded.provisionprofile, THEN
+     restore the key here. None of this shows up in a build or a test — the
+     first honest check is a signed build, read back with
+     `codesign -d --entitlements :- Substrate.app`. -->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>
