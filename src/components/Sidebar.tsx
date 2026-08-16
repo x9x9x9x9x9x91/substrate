@@ -90,7 +90,8 @@ interface SidebarProps {
   /** untyped notes count — the Notes view's badge */
   scratchCount: number;
   /** collapsed sidebar sections from `$sidebar.collapsed`:
-      section ids ("dashboards" | "savedviews" | "folders") */
+      section ids ("dashboards" | "pinned" | "folders") plus one
+      `dashgroup:<folder>` id per collapsed Dashboards subfolder group */
   collapsedIds: string[];
   onToggleCollapse: (id: string) => void;
   /** per-type database icons, keyed by type name */

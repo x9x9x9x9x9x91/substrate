@@ -476,8 +476,9 @@ export interface SavedView {
 }
 
 /** Sidebar section ordering and collapse state, persisted in `.vault/views.json`
-    under `$sidebar`. `collapsed` holds section ids ("dashboards", "savedviews",
-    "folders"). The `databases` order predates the manager
+    under `$sidebar`. `collapsed` holds section ids ("dashboards", "pinned",
+    "folders") plus one `dashgroup:<folder>` id per collapsed Dashboards
+    subfolder group. The `databases` order predates the manager
     surface (the flat sidebar section it ordered is gone); the engine still
     carries the array, the UI no longer writes it. `folders` holds
     ROOT-level folder paths in the user's drag order — nested folders stay
