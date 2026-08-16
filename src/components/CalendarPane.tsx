@@ -35,6 +35,7 @@ import {
   monthTitle,
   overdueEntries,
   parseDay,
+  retimedRangeValue,
   shiftedRangeEnd,
   splitDateRange,
   splitDayTime,
@@ -834,7 +835,10 @@ export default function CalendarPane({
   /** the value a date prop takes for a (possibly spanning) placement — the
       `day[ HH:MM]` form, with the `/end` half appended when
       the entry is a range. Every write path funnels through this, so a move,
-      a time edit, or a peek reschedule can never silently drop a span's end. */
+      a time edit, or a peek reschedule can never silently drop a span's end.
+      Silently is the word: CLEARING the time is the user asking for an all-day
+      event, and that write drops the end's time on purpose (keeping the end
+      day of a multi-day span) — see the time row below. */
   const dateValue = (
     day: string,
     time?: string | null,
@@ -1021,20 +1025,19 @@ export default function CalendarPane({
   };
 
   /** the peek's time row rewrites the value's time part only — quiet (no
-      toast): the row itself shows the result; a failure still toasts + resyncs */
+      toast): the row itself shows the result; a failure still toasts + resyncs
+
+      Clearing the time is not an edit but a request to go back to all-day, so
+      it drops the END's time too — otherwise an event drawn on the timed
+      canvas (which always writes a start AND an end) could never leave it.
+      `retimedRangeValue` owns that rule and what a multi-day span keeps. */
   const setEntryTime = (e: CalEntry, time: string | null) => {
-    // the START's time is what this row edits, and the span's end survives it
-    // read both off the stored value, since the peek may have
-    // opened on a continuation day
-    const stored = storedRange(e);
-    const start = stored?.start.day ?? e.day;
-    const end = stored?.end
-      ? { day: stored.end.day, time: stored.end.time ?? undefined }
-      : null;
+    // the START's time is what this row edits; the span comes off the STORED
+    // value, since the peek may have opened on a continuation day
     setPropUndoable({
       path: e.path,
       key: e.prop,
-      value: dateValue(start, time, end),
+      value: retimedRangeValue(storedRange(e), e.day, time),
       record: undo.record,
     })
       .then(onMutated)

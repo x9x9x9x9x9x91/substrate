@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { NoteMeta, PropSchema } from "../lib/types";
 import { propStr } from "../lib/types";
 import type { CalEntry } from "../lib/calendar";
-import { splitDateRange } from "../lib/calendar";
+import { parseTimeEntry, splitDateRange } from "../lib/calendar";
 import { formatDateHuman } from "../lib/dates";
 import { formatDateTimeHuman } from "../lib/display";
 import DateMenu from "./DateMenu";
@@ -160,20 +160,20 @@ export default function CalPeek({
   };
 
   const commitTime = () => {
-    const raw = timeDraft.trim();
-    // empty = all-day: the value drops its time part
-    if (!raw) {
+    // an empty field and a typed "all day" are the same request: back to an
+    // all-day event, which also drops a timed span's end (the pane's write)
+    const parsed = parseTimeEntry(timeDraft);
+    if (parsed.kind === "clear") {
+      setTimeDraft("");
       if (entry.time) onSetTime(null);
       return;
     }
-    const m = TIME_RE.exec(raw);
-    if (!m || Number(m[1]) > 23) {
+    if (parsed.kind === "invalid") {
       setTimeDraft(entry.time ?? "");
       return;
     }
-    const t = `${m[1].padStart(2, "0")}:${m[2]}`;
-    setTimeDraft(t);
-    if (t !== entry.time) onSetTime(t);
+    setTimeDraft(parsed.time);
+    if (parsed.time !== entry.time) onSetTime(parsed.time);
   };
 
   const commitEnd = () => {

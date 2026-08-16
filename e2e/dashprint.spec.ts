@@ -136,6 +136,36 @@ test("metrics: Print clones the live cards into #print-surface and hands off", a
   );
 });
 
+test("⌘P lands on a Print row where the surface prints, and nowhere else", async ({ page }) => {
+  // ⌘P is the palette's own chord app-wide and stays that way — the webview
+  // never sees it. On a printable surface the palette answers with the row
+  // the muscle memory was reaching for.
+  await page.goto("/");
+  await expect(page.locator(".list-title")).toHaveText("Notes");
+  await page.keyboard.press("Meta+p");
+  await expect(page.locator(".palette-input")).toBeVisible();
+  await expect(page.locator(".palette-item", { hasText: "Print…" })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  await openDash(page, "Portfolio");
+  await expect(page.locator("#root .metrics-cards .dash-card-eur").first()).not.toHaveText("…");
+  await page.keyboard.press("Meta+p");
+  const row = page.locator(".palette-item", { hasText: "Print…" });
+  await expect(row).toBeVisible();
+  await row.click();
+
+  // same door as the button: the live pane, cloned into the print surface
+  const surface = page.locator("#print-surface");
+  await expect(surface.locator(".dash-title")).toHaveText("Portfolio");
+  await expectPrinted(page);
+
+  // and the row leaves with the surface that offered it
+  await page.locator(".side-item", { hasText: /^Notes/ }).first().click();
+  await page.keyboard.press("Meta+p");
+  await expect(page.locator(".palette-input")).toBeVisible();
+  await expect(page.locator(".palette-item", { hasText: "Print…" })).toHaveCount(0);
+});
+
 test("charts: bars and the line chart clone with their geometry", async ({ page }) => {
   await openDash(page, "Overview");
   // all four fences resolved (3 bar + 1 line) before the clone

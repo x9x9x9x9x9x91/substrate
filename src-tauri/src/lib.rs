@@ -287,6 +287,7 @@ use commands::app::*;
 use commands::assets::*;
 use commands::calendarfeeds::*;
 use commands::coding::*;
+use commands::cookbook::*;
 use commands::files::*;
 use commands::fx::*;
 use commands::history::*;
@@ -1413,6 +1414,9 @@ pub fn run() {
             history_purge_notes,
             history_trim,
             history_status,
+            cookbook_index,
+            cookbook_shot,
+            cookbook_install,
             mcp_grants_list,
             mcp_grant_pick,
             mcp_grant_revoke,

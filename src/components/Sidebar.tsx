@@ -29,6 +29,7 @@ import {
   ChartIcon,
   ChevronIcon,
   ClockIcon,
+  CookbookIcon,
   DbIcon as DbGlyphIcon,
   FolderIcon,
   FolderOpenIcon,
@@ -1409,6 +1410,17 @@ function Sidebar({
                  weight, because both are "about the app", not the vault */
               trailing={
                 <>
+                  {/* the cookbook joins the row for the same reason —
+                      it browses what the app ships, not what the vault holds */}
+                  <button
+                    type="button"
+                    className="side-tool-btn"
+                    {...tooltip("Cookbook", { label: false })}
+                    aria-label="Cookbook"
+                    onClick={() => setView({ kind: "cookbook" })}
+                  >
+                    <CookbookIcon />
+                  </button>
                   <button
                     type="button"
                     className="side-tool-btn"

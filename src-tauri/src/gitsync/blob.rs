@@ -331,6 +331,7 @@ fn status_error(label: &str, code: u16) -> String {
     match code {
         401 | 403 => format!("hosted sync {label} was rejected: check the server token"),
         413 => format!("hosted sync {label} was refused: the server's size limit is lower than this client's"),
+        503 => format!("hosted sync {label} was turned away: the server is at its connection limit — try again shortly"),
         _ => format!("hosted sync {label} failed with status {code}"),
     }
 }

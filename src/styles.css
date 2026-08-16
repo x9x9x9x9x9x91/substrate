@@ -4471,6 +4471,108 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-2);
 }
 
+/* ————— cookbook —————
+   A browsable shelf of the recipes the app ships with. Each recipe is a wide
+   row: its screenshot on the left at a fixed column, the prose and the install
+   action on the right. The shot is the thing being chosen, so it leads. */
+
+.cb-about {
+  font: var(--dash-sentence);
+  color: var(--text-3);
+  margin: 14px 0 0;
+  max-width: 62ch;
+}
+
+.cb-recipe {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--hair-soft);
+}
+
+.cb-recipe:last-child {
+  border-bottom: none;
+}
+
+.cb-shot {
+  flex: none;
+  width: 220px;
+  /* the shots are wide dashboard captures — crop to a consistent tile so the
+     rows keep a rhythm instead of tracking each screenshot's height */
+  height: 138px;
+  object-fit: cover;
+  object-position: top left;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  background: var(--hover);
+}
+
+.cb-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.cb-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 6px;
+  font: 500 14.5px/1.4 var(--font);
+  color: var(--text-1);
+}
+
+.cb-kind {
+  font: var(--dash-label);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+
+.cb-blurb {
+  font: var(--dash-sentence);
+  color: var(--text-2);
+  margin: 0 0 6px;
+  max-width: 68ch;
+}
+
+.cb-adapt,
+.cb-expects {
+  font: var(--dash-sentence);
+  color: var(--text-4);
+  margin: 0 0 4px;
+  max-width: 68ch;
+}
+
+.cb-install,
+.cb-open {
+  margin-top: 8px;
+  border: 1px solid var(--border-soft);
+}
+
+.cb-done-head {
+  font: var(--dash-label);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-top: 10px;
+}
+
+.cb-files {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.cb-file {
+  font: var(--dash-data);
+  color: var(--text-3);
+  padding: 2px 0;
+}
+
+.cb-file-note {
+  color: var(--text-4);
+}
 
 /* "cards" are ruled tiles — same anatomy as .dash-metrics: a hairline over
    each figure rather than a box around it */

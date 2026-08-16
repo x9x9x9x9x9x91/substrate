@@ -8,6 +8,14 @@ copied recipe renders with numbers the first time you open it.
 Keep the `Dashboards/` nesting or don't — folders never decide what belongs to
 a database in Substrate; the `type:` line in each file does.
 
+**Or install from inside the app.** The app ships this folder with it and has a
+Cookbook pane — the book icon beside the sidebar's release history, or "Browse
+dashboard cookbook" in the palette. Every recipe is listed with its screenshot,
+and **Install** copies its files into the open vault. It is the same copy-paste,
+done for you: the pane reads the bundled folder and never the network, and it
+never overwrites — a recipe file whose path is taken lands beside the existing
+note as `<name> (cookbook).md`, and the pane says so.
+
 **Or hand it to your agent.** [`index.json`](index.json) is a machine-readable
 index: each entry declares the recipe's files, what it expects to exist
 (sheets, database types), and how to adapt the sample data. "Copy the

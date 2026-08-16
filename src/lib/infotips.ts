@@ -71,6 +71,10 @@ const STATIC_VIEW_TIPS: Record<View["kind"], InfoTip> = {
     title: "What's new",
     body: "The release history of this app — what changed in each version. Nothing here is stored in your vault.",
   },
+  cookbook: {
+    title: "Cookbook",
+    body: "Dashboard recipes that ship inside the app — browse them and install one into this vault. Installing copies plain markdown files; an existing note is never overwritten.",
+  },
   trash: {
     title: "Trash",
     body: "Restore removed notes, folders, and assets, or permanently delete them when they are no longer needed.",

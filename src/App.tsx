@@ -191,6 +191,7 @@ import ListPane from "./components/ListPane";
 import MiniPlayer from "./components/MiniPlayer";
 import { playableFiles } from "./lib/folderfiles";
 import { getQueue, startQueue, subscribeQueue, syncQueue } from "./lib/playqueue";
+import { getPrintable, subscribePrintable } from "./lib/printable";
 import NotePane from "./components/NotePane";
 import DashboardPane from "./components/DashboardPane";
 import { useDashUndoState } from "./components/useDashUndo";
@@ -203,6 +204,7 @@ import TrashPane from "./components/TrashPane";
 import DoctorPane from "./components/DoctorPane";
 import VaultSyncPane from "./components/VaultSyncPane";
 import ChangelogPane from "./components/ChangelogPane";
+import CookbookPane from "./components/CookbookPane";
 import AssetsPane from "./components/AssetsPane";
 import Palette, { type StartStage } from "./components/Palette";
 import ShortcutOverlay from "./components/ShortcutOverlay";
@@ -282,6 +284,7 @@ function inView(n: NoteMeta, view: View, tagFolders: TagFolder[] = []): boolean 
     case "today":
     case "vaultsync":
     case "changelog":
+    case "cookbook":
     case "dbmanager":
       return false;
   }
@@ -4325,6 +4328,11 @@ export default function App() {
      of the transport chords. */
   const playing = useSyncExternalStore(subscribeQueue, getQueue) !== null;
 
+  /* The print action of whatever surface is on screen, or null where nothing
+     prints — the mounted Print button registers it, so the palette's row and
+     the button appear on exactly the same dashboards. */
+  const printable = useSyncExternalStore(subscribePrintable, getPrintable);
+
   /* The hold HUD's context. The dispatcher above builds its ctx per
      keydown, which the HUD can't reuse — a held modifier is a state, not an
      event. `typing` is deliberately absent: it is knowable only at the
@@ -4795,6 +4803,23 @@ export default function App() {
           <ChangelogPane
           />
         </div>
+      ) : view.kind === "cookbook" ? (
+        <div className="main">
+          <CookbookPane
+            onOpenNote={(path) => {
+              // the install just wrote it, so the index doesn't carry it yet.
+              // Select only once the refreshed list holds it, or the
+              // selection-guard snaps straight back to the old top row. "all"
+              // is the one view guaranteed to contain it whatever folder it
+              // went to.
+              setView({ kind: "all" });
+              refresh().then(() => {
+                setSelected(path);
+                showMobileDetail();
+              });
+            }}
+          />
+        </div>
       ) : view.kind === "assets" ? (
         <div className="main">
           <AssetsPane vaultEpoch={vaultEpoch} />
@@ -5234,6 +5259,7 @@ export default function App() {
           onExportCsv={
             view.kind === "db" || view.kind === "saved" ? () => dbExportRef.current?.() : null
           }
+          onPrint={printable}
           undoCommand={undoCommand}
           redoCommand={redoCommand}
           onClose={closePalette}

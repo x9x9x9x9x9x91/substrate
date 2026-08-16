@@ -142,6 +142,8 @@ export function targetView(target: string): View | null {
       return { kind: "vaultsync" };
     case "changelog":
       return { kind: "changelog" };
+    case "cookbook":
+      return { kind: "cookbook" };
     case "dbmanager":
       return { kind: "dbmanager" };
     default:
@@ -203,6 +205,7 @@ export function targetLabel(
     calendar: "Calendar",
     vaultsync: "Vault sync",
     changelog: "What's new",
+    cookbook: "Cookbook",
     dbmanager: "All databases",
   };
   return FIXED[target] ?? target;

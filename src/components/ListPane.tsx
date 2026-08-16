@@ -72,6 +72,9 @@ export function viewLabel(view: View, tagFolders: TagFolder[] = []): string {
     case "changelog":
       // renders ChangelogPane, never ListPane — generic labels only
       return "What's new";
+    case "cookbook":
+      // renders CookbookPane, never ListPane — generic labels only
+      return "Cookbook";
     case "search":
       return "Search";
     case "db":

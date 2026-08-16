@@ -164,7 +164,11 @@ Capacities, Affine).*
   database cut).
   Machine-specific dashboard kinds built for one vault are deliberately not
   product features — the platform is the claim, and the cookbook (`cookbook/`)
-  is the evidence.
+  is the evidence. The cookbook ships inside the app too: a Cookbook pane
+  browses the recipes with their screenshots and installs one into the open
+  vault in a click, copying plain markdown and never overwriting a note that
+  is already there. No store, no account, no network — a ready-made board is
+  as far away as a copy.
 - **A control surface over the sync you already run** — the `sync` kind is a
   window onto an external file-sync system (a runner on a schedule, writing a
   JSON state file): per-remote freshness and free space, a run-history strip

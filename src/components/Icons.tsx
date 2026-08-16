@@ -295,6 +295,14 @@ export const ExportIcon = () => (
   </svg>
 );
 
+export const PrintIcon = () => (
+  <svg {...base}>
+    <path d="M4.5 6.5V2.5h7v4" />
+    <path d="M4.5 11.5H3A1.5 1.5 0 0 1 1.5 10V8a1.5 1.5 0 0 1 1.5-1.5h10A1.5 1.5 0 0 1 14.5 8v2a1.5 1.5 0 0 1-1.5 1.5h-1.5" />
+    <rect x="4.5" y="9.5" width="7" height="4" rx="0.5" />
+  </svg>
+);
+
 export const ImageIcon = () => (
   <svg {...base}>
     <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
@@ -332,6 +340,15 @@ export const BookIcon = () => (
   </svg>
 );
 
+/* the cookbook — an open book, so it reads as a shelf of recipes
+   rather than the journal's closed BookIcon */
+export const CookbookIcon = () => (
+  <svg {...base}>
+    <path d="M8 4.4v9" />
+    <path d="M8 4.4C6.9 3.3 5.5 2.8 3.6 2.8a.9.9 0 0 0-.9.9v7.6c0 .5.4.9.9.9 1.9 0 3.3.5 4.4 1.2" />
+    <path d="M8 4.4c1.1-1.1 2.5-1.6 4.4-1.6a.9.9 0 0 1 .9.9v7.6c0 .5-.4.9-.9.9-1.9 0-3.3.5-4.4 1.2" />
+  </svg>
+);
 
 export const ChevronLeftIcon = () => (
   <svg {...base} width={13} height={13}>

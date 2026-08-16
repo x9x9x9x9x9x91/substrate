@@ -124,13 +124,15 @@
 
 - Remind me before it's due: date properties take a lead time, and the reminder fires
   that many days ahead of the day-of alert.
-- Charts split into series with by: — one measure pivoted by a second column — and
-  hovering or keyboard-focusing any point answers with an exact-value tooltip card.
-- Sheet summaries grew up: formula lines group by blank lines, the summary bar ranks its
+- Sheets and charts read better: charts split into series with by: — one measure pivoted
+  by a second column — and answer a hover or keyboard focus with an exact-value tooltip
+  card, while summary formula lines group by blank lines, the summary bar ranks its
   chips, and one shared error reports once instead of cascading down every dependent
   line.
 - Two designed PDF exports join the generic print: a note one-sheet (artwork, title
   block, quiet fact rows) and a clean database table sheet.
+- Browse the dashboard cookbook inside the app and install any recipe into your vault
+  with one click.
 
 ### Improved
 

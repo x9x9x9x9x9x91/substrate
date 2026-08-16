@@ -35,3 +35,9 @@ export const mockAssetMtimes: typeof Seeds.mockAssetMtimes = new Map();
 export const mockLooseFiles: typeof Seeds.mockLooseFiles = new Map();
 export const mockLooseMtime: typeof Seeds.mockLooseMtime = now;
 export const mockNotes: typeof Seeds.mockNotes = [];
+export const MOCK_COOKBOOK: typeof Seeds.MOCK_COOKBOOK = {
+  version: 1,
+  updated: "",
+  about: "",
+  recipes: [],
+};

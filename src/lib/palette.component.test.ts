@@ -66,6 +66,7 @@ function paletteProps(calls: Calls, over: Record<string, unknown> = {}) {
     current: null,
     templateTypes: [],
     onExportCsv: null,
+    onPrint: null,
     undoCommand: { label: "Role → booking", run: () => {} },
     redoCommand: { label: "Role → booking", run: () => {} },
     onClose: () => {},
@@ -217,6 +218,21 @@ test("the key rows are absent where their overlays are (mobile)", async (t) => {
   assert.ok(row(r, "Go to Today"), "the palette did not render at all");
   assert.equal(row(r, "Keyboard shortcuts"), null);
   assert.equal(row(r, "Assign keys to sidebar rows…"), null);
+});
+
+test("the print row appears only where the surface can print itself", async (t) => {
+  // ⌘P opens the palette on every surface; only the printable ones may
+  // answer it with a print row
+  const plain = await openPalette(t, freshCalls());
+  assert.ok(row(plain, "Go to Today"), "the palette did not render at all");
+  assert.equal(row(plain, "Print…"), null);
+
+  let printed = 0;
+  const r = await openPalette(t, freshCalls(), { onPrint: () => (printed += 1) });
+  const printRow = row(r, "Print…");
+  assert.ok(printRow, "no print row on a surface that prints");
+  await r.click(printRow);
+  assert.equal(printed, 1, "the print row did not run the surface's print action");
 });
 
 test("keycaps come from the shortcut registry, spelled its way", async (t) => {

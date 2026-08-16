@@ -193,6 +193,7 @@ test("targetView inverts viewKey for every navigable token", () => {
   assert.deepEqual(targetView("calendar"), { kind: "calendar" });
   assert.deepEqual(targetView("vaultsync"), { kind: "vaultsync" });
   assert.deepEqual(targetView("changelog"), { kind: "changelog" });
+  assert.deepEqual(targetView("cookbook"), { kind: "cookbook" });
   assert.deepEqual(targetView("dbmanager"), { kind: "dbmanager" });
   assert.deepEqual(targetView("db:task"), { kind: "db", type: "task" });
   assert.deepEqual(targetView("sv:abc123"), { kind: "saved", id: "abc123" });

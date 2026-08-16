@@ -21,6 +21,8 @@ import {
   overdueEntries,
   parseDay,
   parseRepeat,
+  parseTimeEntry,
+  retimedRangeValue,
   shiftedRangeEnd,
   splitDateRange,
   splitDayTime,
@@ -1112,4 +1114,46 @@ test("clampedRangeEnd: a custom minimum honours the caller's grid (SUB-1171)", (
     clampedRangeEnd({ day: "2026-08-10", time: "09:00" }, { day: "2026-08-10", time: "08:00" }, 30),
     { day: "2026-08-10", time: "09:30" }
   );
+});
+
+test("parseTimeEntry: empty and typed “all day” both mean clear", () => {
+  for (const raw of ["", "   ", "all day", "All Day", "allday", "ALLDAY", " all-day "])
+    assert.deepEqual(parseTimeEntry(raw), { kind: "clear" }, raw);
+});
+
+test("parseTimeEntry: a good time pads its hour, a typo is refused", () => {
+  assert.deepEqual(parseTimeEntry("9:05"), { kind: "time", time: "09:05" });
+  assert.deepEqual(parseTimeEntry(" 14:30 "), { kind: "time", time: "14:30" });
+  for (const raw of ["24:00", "9:5", "9.05", "half nine", "0900"])
+    assert.deepEqual(parseTimeEntry(raw), { kind: "invalid" }, raw);
+});
+
+test("clearing the time reverts a timed BLOCK to all-day, end and all", () => {
+  // the canvas writes every event it draws as a start AND an end, so an
+  // end that survived the clear left the event timed forever
+  const block = splitDateRange("2026-08-10 09:00/2026-08-10 10:30");
+  assert.equal(retimedRangeValue(block, "2026-08-10", null), "2026-08-10");
+  // a start-only entry keeps working the way it always did
+  const single = splitDateRange("2026-08-10 09:00");
+  assert.equal(retimedRangeValue(single, "2026-08-10", null), "2026-08-10");
+});
+
+test("clearing the time keeps a multi-day span as an all-day band", () => {
+  const span = splitDateRange("2026-08-10 09:00/2026-08-12 17:00");
+  assert.equal(retimedRangeValue(span, "2026-08-10", null), "2026-08-10/2026-08-12");
+});
+
+test("a time EDIT still leaves the span's end exactly where it was", () => {
+  const span = splitDateRange("2026-08-10 09:00/2026-08-12 17:00");
+  assert.equal(
+    retimedRangeValue(span, "2026-08-10", "11:15"),
+    "2026-08-10 11:15/2026-08-12 17:00"
+  );
+  // and the edit measures from the STORED start, not the day the peek opened on
+  assert.equal(
+    retimedRangeValue(span, "2026-08-11", "11:15"),
+    "2026-08-10 11:15/2026-08-12 17:00"
+  );
+  // an unparseable (or absent) stored value falls back to the entry's day
+  assert.equal(retimedRangeValue(null, "2026-08-11", "11:15"), "2026-08-11 11:15");
 });

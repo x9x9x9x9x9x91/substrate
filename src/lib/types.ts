@@ -339,6 +339,20 @@ export interface SyncRun {
 
 
 
+/** What one cookbook install wrote. `renamed_from` is null when the
+    recipe's own path was free; when it isn't, the vault already had that note
+    and the recipe's copy landed beside it under a ` (cookbook)` name. */
+export interface CookbookInstalledFile {
+  path: string;
+  renamed_from: string | null;
+}
+
+export interface CookbookInstall {
+  files: CookbookInstalledFile[];
+  /** the installed dashboard, for the click-through — null on a recipe that
+      somehow wrote nothing */
+  open: string | null;
+}
 
 export type View =
   | { kind: "today" }
@@ -351,6 +365,7 @@ export type View =
   | { kind: "calendar" }
   | { kind: "vaultsync" }
   | { kind: "changelog" }
+  | { kind: "cookbook" }
   | { kind: "dbmanager" }
   | { kind: "db"; type: string }
   /** a reality mount — keyed by mount id, not name, so a rename

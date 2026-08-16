@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
 import { NoteIcon } from "./Icons";
 import { printPane } from "../lib/export";
+import { registerPrintable } from "../lib/printable";
 import { BackButton } from "./BackButton";
 
 /* The one dashboard header: title row over hairline. Every
@@ -54,17 +55,28 @@ export function DashHead({
 /** The print action for the portable dashboard kinds — it slots
     into DashHead's `actions` the same way the other page controls do. The
     click clones the dashboard's own `.dash-inner` (the live pane, active
-    workbook page included) into the note path's print surface. */
+    workbook page included) into the note path's print surface.
+
+    While it is mounted it also registers that same action as the surface's
+    printable one, which is what puts the palette's "Print…" row on exactly
+    the dashboards that carry this button — ⌘P opens the palette everywhere,
+    so the row is where the chord's press has to find printing. */
 export function DashPrintButton() {
+  const ref = useRef<HTMLButtonElement>(null);
+  // stable across renders on purpose: it reads the pane through the ref, and
+  // a fresh function every render would re-register (and re-notify) forever
+  const print = useCallback(() => {
+    const pane = ref.current?.closest(".dash-inner");
+    if (pane) printPane(pane).catch(console.error);
+  }, []);
+  useEffect(() => registerPrintable(print), [print]);
   return (
     <button
+      ref={ref}
       type="button"
       className="sheet-tool"
       title="Print the dashboard — Save as PDF lives in the print dialog"
-      onClick={(e) => {
-        const pane = e.currentTarget.closest(".dash-inner");
-        if (pane) printPane(pane).catch(console.error);
-      }}
+      onClick={print}
     >
       Print
     </button>

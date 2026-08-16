@@ -59,6 +59,37 @@ export const day = (offset: number) => {
    lane — chips never decode the payload, so a stub suffices. */
 export const PIXEL_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+/* Two recipes, in the shape of the real `cookbook/index.json` —
+   enough for the browser gate; the real index is pinned by
+   `scripts/cookbook.test.ts`, not here. */
+export const MOCK_COOKBOOK = {
+  version: 1,
+  updated: "2026-08-03",
+  about: "Substrate dashboard cookbook — copyable surface recipes.",
+  recipes: [
+    {
+      id: "portfolio",
+      title: "Portfolio",
+      kind: "metrics",
+      blurb: "Stat cards over a sheet's named summaries.",
+      adapt: "Replace the csv rows in Holdings.md with your positions.",
+      expects: { sheets: ["Holdings"], databases: [] },
+      files: ["Dashboards/Portfolio Recipe.md", "Holdings Recipe.md"],
+      shot: "shots/portfolio.png",
+    },
+    {
+      // collides with the mock vault's seeded Dashboards/Tasks.md on purpose
+      id: "tasks-board",
+      title: "Tasks board",
+      kind: "tasks",
+      blurb: "An attention board over every open task note.",
+      adapt: "Delete the sample tasks and write your own.",
+      expects: { sheets: [], databases: ["task"] },
+      files: ["Dashboards/Tasks.md"],
+      shot: "shots/tasks-board.png",
+    },
+  ],
+};
 
 export const mockAssets = new Map<string, string>([
   ["blueprint-sketch.png", PIXEL_PNG],

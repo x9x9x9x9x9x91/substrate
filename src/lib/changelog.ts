@@ -216,15 +216,15 @@ export const CHANGELOG: ChangelogRelease[] = [
         kind: "new",
       },
       {
-        text: "Charts split into series with by: — one measure pivoted by a second column — and hovering or keyboard-focusing any point answers with an exact-value tooltip card.",
-        kind: "new",
-      },
-      {
-        text: "Sheet summaries grew up: formula lines group by blank lines, the summary bar ranks its chips, and one shared error reports once instead of cascading down every dependent line.",
+        text: "Sheets and charts read better: charts split into series with by: — one measure pivoted by a second column — and answer a hover or keyboard focus with an exact-value tooltip card, while summary formula lines group by blank lines, the summary bar ranks its chips, and one shared error reports once instead of cascading down every dependent line.",
         kind: "new",
       },
       {
         text: "Two designed PDF exports join the generic print: a note one-sheet (artwork, title block, quiet fact rows) and a clean database table sheet.",
+        kind: "new",
+      },
+      {
+        text: "Browse the dashboard cookbook inside the app and install any recipe into your vault with one click.",
         kind: "new",
       },
       {

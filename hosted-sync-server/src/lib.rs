@@ -23,7 +23,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -40,6 +40,11 @@ const MAX_REF_ENVELOPE_BYTES: usize = 4 * 1024;
 const MAX_HEAD_BYTES: usize = 8 * 1024;
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(60);
+/// Connections served at once. One person's devices need a handful; the cap is
+/// what stops a stranger with a socket generator from turning
+/// thread-per-connection into the whole host's memory. Over it the answer is a
+/// bare 503, which costs one write and no thread.
+const MAX_CONNECTIONS: usize = 64;
 
 /// Everything the server needs to run. There is no config file: on alp1 this
 /// comes from the service manager's environment.
@@ -83,6 +88,7 @@ impl Server {
         let store = Arc::new(Store::new(config)?);
         let shutdown = Arc::new(AtomicBool::new(false));
         let accepted = Arc::new(AtomicU64::new(0));
+        let live = Arc::new(AtomicUsize::new(0));
 
         // The accept loop polls rather than blocking forever so `stop` does not
         // need a self-connect trick to wake it.
@@ -95,10 +101,29 @@ impl Server {
             thread::spawn(move || {
                 while !shutdown.load(Ordering::SeqCst) {
                     match listener.accept() {
-                        Ok((stream, _)) => {
+                        Ok((mut stream, _)) => {
+                            if live.load(Ordering::SeqCst) >= MAX_CONNECTIONS {
+                                accepted.fetch_add(1, Ordering::SeqCst);
+                                // Refused on this thread on purpose: spawning a
+                                // thread to say "too many threads" is the
+                                // exhaustion the cap exists to prevent.
+                                let _ = stream.set_nonblocking(false);
+                                let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
+                                let _ = write_response(
+                                    &mut stream,
+                                    Response::error(503, "Service Unavailable"),
+                                );
+                                continue;
+                            }
+                            // Counted only once the slot is taken, so a test —
+                            // or an operator reading the counter — can trust
+                            // that N accepted means N slots held.
+                            live.fetch_add(1, Ordering::SeqCst);
                             accepted.fetch_add(1, Ordering::SeqCst);
+                            let held = LiveConnection(Arc::clone(&live));
                             let store = Arc::clone(&store);
                             thread::spawn(move || {
+                                let _held = held;
                                 if let Err(error) = serve_connection(stream, &store) {
                                     // One bad connection is never fatal, and the
                                     // message deliberately carries no request
@@ -158,6 +183,17 @@ impl Server {
 impl Drop for Server {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+/// Holds one slot of the connection cap for as long as a connection thread
+/// lives. Releasing on drop means a panicking connection gives its slot back
+/// too — a cap that leaked slots would eventually refuse everything.
+struct LiveConnection(Arc<AtomicUsize>);
+
+impl Drop for LiveConnection {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -477,6 +513,16 @@ fn read_request(stream: &mut TcpStream, store: &Store) -> Result<Request, Respon
         return Err(Response::error(411, "Length Required"));
     }
 
+    // Authentication is checked here — after the head, before the body — so a
+    // stranger can neither tell the five real routes apart from anything else
+    // nor make us allocate and read up to the object limit on their say-so.
+    // The cost is that such a caller may see a write error instead of a clean
+    // 401, because we close with their body still unsent; an honest client
+    // never reaches that path.
+    if !store.authorized(headers.get("authorization").map(String::as_str)) {
+        return Err(Response::error(401, "Unauthorized").with_header("WWW-Authenticate", "Bearer"));
+    }
+
     let limit = if target.starts_with("/v1/objects") {
         MAX_OBJECT_ENVELOPE_BYTES
     } else {
@@ -494,14 +540,7 @@ fn read_request(stream: &mut TcpStream, store: &Store) -> Result<Request, Respon
         stream.read_exact(&mut body).map_err(|_| Response::error(400, "Bad Request"))?;
     }
 
-    let request = Request { method, target, headers, body };
-    // Authentication is checked here, before routing, so an unauthenticated
-    // caller cannot tell the five real routes apart from anything else.
-    if !store.authorized(request.header("authorization")) {
-        return Err(Response::error(401, "Unauthorized")
-            .with_header("WWW-Authenticate", "Bearer"));
-    }
-    Ok(request)
+    Ok(Request { method, target, headers, body })
 }
 
 fn handle(request: &Request, store: &Store) -> Response {
@@ -528,6 +567,13 @@ fn handle(request: &Request, store: &Store) -> Response {
         },
 
         ("PUT", "/v1/ref") => {
+            if request.body.is_empty() {
+                // An empty ref is not a ref. Storing one would hand the next
+                // reader a document that decrypts to nothing, which reads as
+                // "the vault is empty" — the object route rejects the same
+                // shape for the same reason.
+                return Response::error(400, "Bad Request");
+            }
             if request.body.len() > MAX_REF_ENVELOPE_BYTES {
                 return Response::error(413, "Payload Too Large");
             }
@@ -747,6 +793,81 @@ mod tests {
         // Length is part of the token, so a same-hash-different-length pair
         // cannot collide into a stale CAS being accepted.
         assert_ne!(version_token(b""), version_token(b"\0"));
+    }
+
+    fn serve(label: &str) -> Server {
+        Server::start(
+            "127.0.0.1:0",
+            Config { storage: scratch(label), token: "0123456789abcdef-token".into() },
+        )
+        .unwrap()
+    }
+
+    /// Sends one raw request and returns whatever the server said before it
+    /// closed. Deliberately raw: these tests are about the wire, not the store.
+    fn exchange(server: &Server, head: &str, body: &[u8]) -> String {
+        let mut stream = TcpStream::connect(server.address()).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        stream.write_all(head.as_bytes()).unwrap();
+        if !body.is_empty() {
+            stream.write_all(body).unwrap();
+        }
+        let mut response = Vec::new();
+        let _ = stream.read_to_end(&mut response);
+        String::from_utf8_lossy(&response).into_owned()
+    }
+
+    #[test]
+    fn an_unauthorized_upload_is_refused_without_its_body_being_read() {
+        let mut server = serve("unauth");
+        // Declares four megabytes and sends none of them. Answering at all
+        // proves the 401 happens before the body read; the old order would sit
+        // in `read_exact` until the socket timed out.
+        let head = format!(
+            "PUT /v1/objects/{} HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer wrong\r\nContent-Length: 4194304\r\n\r\n",
+            name('a')
+        );
+        let response = exchange(&server, &head, b"");
+        server.stop();
+        assert!(response.starts_with("HTTP/1.1 401"), "{response}");
+    }
+
+    #[test]
+    fn an_empty_ref_body_is_a_bad_request() {
+        let mut server = serve("emptyref");
+        let head = "PUT /v1/ref HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer 0123456789abcdef-token\r\nIf-None-Match: *\r\nContent-Length: 0\r\n\r\n";
+        let response = exchange(&server, head, b"");
+        server.stop();
+        assert!(response.starts_with("HTTP/1.1 400"), "{response}");
+    }
+
+    #[test]
+    fn a_connection_over_the_cap_gets_503_rather_than_a_thread() {
+        let mut server = serve("cap");
+        // Each held socket sends a head that never terminates, so its
+        // connection thread stays parked and its slot stays taken.
+        let mut held = Vec::new();
+        for _ in 0..MAX_CONNECTIONS {
+            let mut stream = TcpStream::connect(server.address()).unwrap();
+            stream.write_all(b"GET /v1/health HTTP/1.1\r\n").unwrap();
+            held.push(stream);
+        }
+        for _ in 0..1000 {
+            if server.accepted_connections() >= MAX_CONNECTIONS as u64 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(server.accepted_connections(), MAX_CONNECTIONS as u64);
+
+        let response = exchange(
+            &server,
+            "GET /v1/health HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer 0123456789abcdef-token\r\n\r\n",
+            b"",
+        );
+        drop(held);
+        server.stop();
+        assert!(response.starts_with("HTTP/1.1 503"), "{response}");
     }
 
     #[test]

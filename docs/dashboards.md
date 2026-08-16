@@ -1086,6 +1086,31 @@ travels with the vault's own guarantees; no separate backup step is implied.
 Full contract, including the manifest grammar, the hash layout and every ctx
 member: [vault-format.md §5.8](vault-format.md#58-custom-kind-bundles--vaultkindsid).
 
+## Installing one from the cookbook
+
+Nothing above has to be typed from scratch. The app ships the repo's
+[`cookbook/`](../cookbook/README.md) — one folder per ready-made surface, each
+holding the dashboard note plus the sheets and sample rows it binds to — and a
+**Cookbook** pane that browses them: the book icon beside the sidebar's release
+history, or "Browse dashboard cookbook" in the palette (⌘K).
+
+Each recipe lists with its screenshot, the kind it uses, what it binds to and
+how to adapt it. **Install** copies that recipe's files into the open vault, so
+the board renders with numbers the first time you open it; the pane then names
+every file it wrote and offers a click-through to the dashboard.
+
+Two properties worth knowing:
+
+- **Nothing reaches the network.** The recipes are the ones your installed
+  version shipped with, read from the app bundle.
+- **Nothing is overwritten.** A recipe file whose path is already taken lands
+  beside the existing note as `<name> (cookbook).md`, and the result names both,
+  so a second install reads as a copy rather than a silent no-op.
+
+The same recipes are plain files in the repo, so copying a folder in by hand —
+or handing [`cookbook/index.json`](../cookbook/index.json) to your agent — gets
+you the same board.
+
 ## Creating one in-app
 
 New note (⌘N or the palette), then add the props — set “Database” to `dashboard`

@@ -13,6 +13,7 @@ import type {
   CalendarFeedSnapshot,
   ConflictChoice,
   ConflictState,
+  CookbookInstall,
   DbIcon,
   DbLayout,
   DeeplinkResolved,
@@ -846,6 +847,16 @@ export const vaultClearProp = (
 export const historySnapshot = (label: string) =>
   invoke<boolean>("history_snapshot", { label });
 
+/* The bundled dashboard cookbook — all three read the app bundle's
+   own `cookbook/` folder; none of them reaches the network. */
+/** The raw `index.json`; parse with `lib/cookbook.ts`. */
+export const cookbookIndex = () => invoke<string>("cookbook_index");
+/** A recipe's screenshot as base64, addressed by the index entry's `shot`. */
+export const cookbookShot = (rel: string) => invoke<string>("cookbook_shot", { rel });
+/** Copy a recipe's files into the vault, never overwriting: a taken path is
+    written as `<stem> (cookbook).md` instead and reported in `renamed_from`. */
+export const cookbookInstall = (id: string, files: string[]) =>
+  invoke<CookbookInstall>("cookbook_install", { id, files });
 
 /* Real-app smoke lane. Both refuse unless the engine
    saw SUBSTRATE_SMOKE=1; only src/lib/smoke.ts calls them, and that module is

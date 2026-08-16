@@ -95,6 +95,13 @@ constant time and checked *before* routing, so an unauthenticated caller cannot
 distinguish a real route from any other path. The token is the only credential;
 it is opaque to the protocol and at least 16 characters.
 
+The check happens after the request head and *before* the body is read, so an
+unauthenticated `Content-Length` never buys a stranger an allocation or a long
+read. The visible consequence: a client that sends a bad token with a body may
+see a write error rather than a clean `401`, because the server answers and
+closes while the body is still in flight. An authenticated client never hits
+that path.
+
 | Operation | Request | Success | Failure |
 | --- | --- | --- | --- |
 | health | `GET /v1/health` | `200` + `ok` | — |
@@ -102,7 +109,10 @@ it is opaque to the protocol and at least 16 characters.
 | GET object | `GET /v1/objects/<name>` | `200` + exact envelope bytes | `404` absent, `400` malformed name |
 | PUT object | `PUT /v1/objects/<name>` + envelope | `201` stored, `200` already present | `400` malformed name or empty body, `413` over the size cap |
 | GET ref | `GET /v1/ref` | `200` + ref envelope, `ETag: "<version>"` | `404` no ref yet |
-| CAS ref | `PUT /v1/ref` + `If-Match: "<version>"` \| `If-None-Match: *` | `204` + new `ETag` | `412` version mismatch, `428` neither precondition, `413` over the cap |
+| CAS ref | `PUT /v1/ref` + `If-Match: "<version>"` \| `If-None-Match: *` | `204` + new `ETag` | `412` version mismatch, `428` neither precondition, `400` empty body, `413` over the cap |
+
+Any route can answer `401` (bad or missing token) or `503` (the server is at
+its connection cap, below).
 
 The `ETag` value is the opaque version token of §2. It is a concurrency token
 only: authenticity comes from the envelope's AEAD tag, never from the ETag.
@@ -120,6 +130,13 @@ with `411`, so every body length is known before a byte is read. Request heads
 are capped at 8 KiB (`431` beyond it) and bodies at the route's §2 cap (`413`),
 both enforced before allocation. Read and write both carry a 60-second deadline
 (`408` on a stalled head).
+
+The server serves one connection per thread and caps concurrent connections at
+64; over the cap it answers a bare `503` on the accept thread and closes,
+without spawning anything. One person's devices need a handful of connections,
+so the cap is invisible in normal use and is what stops a stranger with a
+socket generator from turning thread-per-connection into the host's memory.
+A `503` is transient: retry.
 
 Clients must not follow redirects — `HttpBlobStore` sets a redirect limit of
 zero, because following one would hand the bearer token to whatever host the
@@ -295,7 +312,10 @@ snapshots a mid-edit vault instead of refusing it.
 
 The server's own suite covers token length and constant-time comparison, object
 name syntax as the traversal defence, immutable publish under a concurrent PUT,
-and ref CAS against a stale version.
+and ref CAS against a stale version. Three tests drive real sockets: an
+unauthenticated upload that declares four megabytes and sends none of them is
+still answered `401`, an empty ref body is `400`, and the connection past the
+cap gets `503`.
 
 All vaults and blob stores are temporary test directories; no `~/Vault` path is
 read or written.
@@ -310,8 +330,9 @@ transitive supply chain to hold ciphertext in a directory.
 
 It is single-tenant by construction: one bearer token, one storage root, one
 ref. There are no accounts, quotas, rate limits, or tenancy, and adding them is
-a different piece of work. Do not put it in front of more than one
-person's vault.
+a different piece of work — the connection cap is a resource bound, not a rate
+limit, and per-IP rate limiting belongs in the proxy in front. Do not put it in
+front of more than one person's vault.
 
 Configuration is environment-only, so a supervisor owns the credential and this
 repository can never ship it:
@@ -324,8 +345,10 @@ The default address is loopback on purpose. The bearer token is the only
 credential and must not cross a network in the clear, so exposing the store
 means putting a TLS terminator in front of it. On startup the process prints
 `listening <addr>` on one stdout line, which is the readiness signal a
-supervisor or script should wait for. Deployment to alp1 (systemd unit,
-terminator, backups) is its own job.
+supervisor or script should wait for. The alp1 deployment — systemd unit, the
+route on the nginx that already terminates the host's one name, release
+install and rollback — lives in `hosted-sync-server/deploy/`, which is also
+where the store's one unrehearsed gap is written down: backups.
 
 Storage layout is flat: every object is a file named by its 64-character opaque
 name, and the ref lives beside them. Objects are published by writing a staging

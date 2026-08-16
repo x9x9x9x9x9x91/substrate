@@ -41,6 +41,7 @@ import {
   CalendarIcon,
   ChartIcon,
   ClockIcon,
+  CookbookIcon,
   DbIcon as DbGlyphIcon,
   ExportIcon,
   FilterIcon,
@@ -56,6 +57,7 @@ import {
   PenIcon,
   PinIcon,
   PlusIcon,
+  PrintIcon,
   RedoIcon,
   SearchIcon,
   SparkleIcon,
@@ -154,6 +156,10 @@ interface PaletteProps {
   templateTypes: string[];
   /** set while a database view is active — runs its CSV export */
   onExportCsv: (() => void) | null;
+  /** set while the surface on screen can print itself (the dashboards that
+      carry the Print button) — null everywhere else. ⌘P opens the palette
+      everywhere and always will; this is the row that press lands next to. */
+  onPrint: (() => void) | null;
   /** The session undo/redo stack's next move, named in the user's
       words ("Role → booking"), or null when there is nothing to undo/redo.
       The palette is the mouse path to ⌘Z: the toast that used to carry Undo
@@ -260,6 +266,8 @@ function viewCommandIcon(id: string): React.ReactNode {
       return <SyncIcon />;
     case "cmd:changelog":
       return <SparkleIcon />;
+    case "cmd:cookbook":
+      return <CookbookIcon />;
     // a destination added to the catalogue and not to this switch still gets
     // a row — it just wears the generic database mark until someone picks one
     default:
@@ -284,6 +292,7 @@ export default function Palette({
   startStage,
   templateTypes,
   onExportCsv,
+  onPrint,
   undoCommand,
   redoCommand,
   onClose,
@@ -1002,6 +1011,21 @@ export default function Palette({
               },
             ]
           : []),
+        // Print, for the surface that can print itself. ⌘P is the palette's
+        // own chord here and stays that way; anyone pressing it out of habit
+        // from every other app finds printing one row away instead of a
+        // dialog the webview never opens.
+        ...(onPrint
+          ? [
+              {
+                id: "cmd:print",
+                label: "Print…",
+                icon: <PrintIcon />,
+                section: "Commands",
+                run: onPrint,
+              },
+            ]
+          : []),
         {
           id: "cmd:rescan-mounts",
           label: "Rescan mounted folders",
@@ -1241,6 +1265,7 @@ export default function Palette({
     current,
     templateTypes,
     onExportCsv,
+    onPrint,
     openNote,
     onSetView,
     onOpenDb,

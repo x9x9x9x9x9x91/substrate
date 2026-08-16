@@ -54,6 +54,8 @@ import {
   mockLooseMtime,
   mockNotes,
   now,
+  MOCK_COOKBOOK,
+  PIXEL_PNG,
   type MockNote,
 } from "./mockseeds.ts";
 
@@ -2178,6 +2180,12 @@ function writtenPathsFor(
     case "vault_delete":
       // the file left this path; the watcher sees the removal there
       return path ? [path] : [];
+    case "cookbook_install": {
+      // every file the recipe wrote — post-rename paths, which is what the
+      // watcher will see
+      const written = (result as { files?: { path?: unknown }[] })?.files ?? [];
+      return written.map((f) => f?.path).filter((p): p is string => typeof p === "string");
+    }
     case "vault_trash_restore":
       return [metaPath(result)].filter((p): p is string => !!p);
     default:
@@ -3756,6 +3764,54 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     // A small fixed report — one finding per kind, so the pane's
     // grouping, severities and copy-as-JSON all have something to render.
     // Read-only in the mock too: nothing here mutates mockNotes.
+    /* The bundled cookbook. Two fixture recipes: `portfolio` is
+       clear of the mock vault, `tasks-board` collides with the seeded
+       Dashboards/Tasks.md, so the browser gate exercises both the plain
+       install and the ` (cookbook)` rename without needing a second run. */
+    case "cookbook_index":
+      return JSON.stringify(MOCK_COOKBOOK);
+    case "cookbook_shot":
+      // every recipe answers with the same pixel — e2e asserts the thumbnail
+      // renders, not what it depicts
+      return PIXEL_PNG;
+    case "cookbook_install": {
+      const files = (args?.files as string[]) ?? [];
+      const written: { path: string; renamed_from: string | null }[] = [];
+      for (const rel of files) {
+        // mirrors free_path in commands/cookbook.rs: never overwrite — a taken
+        // path lands beside the existing note under a ` (cookbook)` name
+        const taken = (p: string) =>
+          mockNotes.some((m) => m.path.toLowerCase() === p.toLowerCase());
+        let path = rel;
+        if (taken(path)) {
+          const dot = rel.lastIndexOf(".");
+          const stem = dot > 0 ? rel.slice(0, dot) : rel;
+          const ext = dot > 0 ? rel.slice(dot) : "";
+          let n = 1;
+          do {
+            path = `${stem} (cookbook${n === 1 ? "" : ` ${n}`})${ext}`;
+            n += 1;
+          } while (taken(path));
+        }
+        const folder = mockFolderOf(path);
+        const stem = path.slice(folder ? folder.length + 1 : 0, -".md".length);
+        const body = `Installed from the cookbook.\n`;
+        mockAddFolder(folder);
+        mockNotes.push({
+          path,
+          stem,
+          title: stem,
+          folder,
+          props: { created: day(0) },
+          updated_ms: Date.now(),
+          excerpt: mockMakeExcerpt(body),
+          body,
+        });
+        written.push({ path, renamed_from: path === rel ? null : rel });
+      }
+      const dash = written.find((f) => f.path.startsWith("Dashboards/"));
+      return { files: written, open: (dash ?? written[0])?.path ?? null };
+    }
     case "vault_doctor":
       return {
         scanned_ms: now,

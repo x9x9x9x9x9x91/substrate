@@ -240,6 +240,12 @@ export const FIXED_VIEW_COMMANDS: ViewCommand[] = [
   // the sidebar's sparkle glyph, in words — the glyph carries its name in a
   // tooltip only, so nothing about it is searchable
   { id: "cmd:changelog", label: "What's new", dest: "What's new", view: { kind: "changelog" } },
+  {
+    id: "cmd:cookbook",
+    label: "Browse dashboard cookbook",
+    dest: "Cookbook",
+    view: { kind: "cookbook" },
+  },
 ];
 
 /** How the palette produces a parameterized destination.

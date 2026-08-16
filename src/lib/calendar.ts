@@ -143,6 +143,55 @@ export function dateRangeValue(
   return `${fmtDayTime(a)}/${fmtDayTime(b)}`;
 }
 
+/** free-typed HH:MM — one or two hour digits, exactly two minute digits */
+const TIME_ENTRY_RE = /^(\d{1,2}):([0-5]\d)$/;
+/** what someone types when they mean "no time at all" */
+const ALL_DAY_RE = /^all[ _-]?day$/i;
+
+/** What a typed time field means. An empty field and the words "all day"
+    (however spaced or cased) are the same request: drop the time. Anything
+    else that isn't HH:MM is a typo, and the caller puts the old value back
+    rather than guessing. */
+export type TimeEntry =
+  | { kind: "clear" }
+  | { kind: "time"; time: string }
+  | { kind: "invalid" };
+
+export function parseTimeEntry(raw: string): TimeEntry {
+  const s = raw.trim();
+  if (!s || ALL_DAY_RE.test(s)) return { kind: "clear" };
+  const m = TIME_ENTRY_RE.exec(s);
+  if (!m || Number(m[1]) > 23) return { kind: "invalid" };
+  return { kind: "time", time: `${m[1].padStart(2, "0")}:${m[2]}` };
+}
+
+/** The value a time edit writes: the stored range with a new start time.
+
+    `time` null is a revert to all-day, and it clears the END's time too — an
+    event drawn on the timed canvas is written as start AND end, so keeping
+    the end timed would leave it timed forever, which is the bug this rule
+    exists for. A span that crosses days keeps its end DAY (a three-day event
+    becomes a three-day all-day band); an end sitting on the start's own day
+    only existed to give the block a length, so it goes with the time.
+
+    Every other edit leaves the end exactly as stored. `fallbackDay` is used
+    when the note has no parseable value yet. */
+export function retimedRangeValue(
+  stored: DateRange | null,
+  fallbackDay: string,
+  time: string | null,
+): string {
+  const day = stored?.start.day ?? fallbackDay;
+  const end = !stored?.end
+    ? null
+    : time === null
+      ? stored.end.day === stored.start.day
+        ? null
+        : { day: stored.end.day }
+      : { day: stored.end.day, time: stored.end.time ?? undefined };
+  return dateRangeValue(day, time, end);
+}
+
 /** The end a spanning entry keeps when its start moves to `to`.
     The span holds its LENGTH: when both the stored endpoints and the new
     start carry times, the duration is preserved to the minute — an 8-hour
