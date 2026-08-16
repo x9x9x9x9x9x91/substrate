@@ -34,6 +34,7 @@ import SyncDashboard from "./SyncDashboard";
 import HubDashboard from "./HubDashboard";
 import { useUsdEur } from "./useFx";
 import FoodDashboard from "./FoodDashboard";
+import CodingDashboard from "./CodingDashboard";
 import FeedDashboard from "./FeedDashboard";
 import MusicWorkDashboard from "./MusicWorkDashboard";
 import TasksDashboard from "./TasksDashboard";
@@ -630,6 +631,7 @@ function DashboardBody(props: DashboardPaneProps) {
   if (kind === "sync") return <SyncDashboard {...props} />;
   if (kind === "hub") return <HubDashboard {...props} />;
   if (kind === "food") return <FoodDashboard {...props} />;
+  if (kind === "coding") return <CodingDashboard {...props} />;
   if (kind === "feed") return <FeedDashboard {...props} />;
   if (kind === "music-work") return <MusicWorkDashboard {...props} />;
   if (kind === "tasks") return <TasksDashboard {...props} />;

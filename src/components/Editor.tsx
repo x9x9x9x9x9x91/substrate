@@ -1609,6 +1609,14 @@ interface EditorProps {
   /** calc lines: live FX for `25 USD in EUR`. Absent → currency
       conversions report a missing rate rather than inventing one. */
   calcFx?: FxResolver;
+  /** The heading rail's open state, owned by the pane that hosts the
+      editor — its tool row carries the toggle. Absent → the rail stays
+      open whenever the note has one, since a mount with no tool row has
+      nowhere to put a control. */
+  outlineOpen?: boolean;
+  /** Fires when this note gains or loses a heading rail (and once with
+      `false` on unmount), so the host can show or drop its toggle. */
+  onOutlineAvailable?: (available: boolean) => void;
   /** live values in prose: the sheets this note's `` `= expr` ``
       spans reach, loaded and evaluated by the dashboard sheet bindings.
       Absent → cross-sheet expressions report a missing sheet rather than
@@ -1644,6 +1652,8 @@ export default function Editor({
   onExtractNote,
   emptyHint,
   readOnly = false,
+  outlineOpen = true,
+  onOutlineAvailable,
   numberLocale,
   calcFx,
   liveSheets,
@@ -1655,7 +1665,6 @@ export default function Editor({
   const [turnMenuOpen, setTurnMenuOpen] = useState(false);
   const [outline, setOutline] = useState<OutlineHeading[]>([]);
   const [activeHeading, setActiveHeading] = useState<number | null>(null);
-  const [outlineOpen, setOutlineOpen] = useState(true);
   const [dropHint, setDropHint] = useState<string | null>(null);
   // Right-click with a live selection opens the app menu at the
   // pointer; turnPage is its "Turn into…" drill-in (same ContextMenu, new
@@ -2390,6 +2399,16 @@ export default function Editor({
   const showOutline = outline.length >= 3;
   const outlineBase = showOutline ? Math.min(...outline.map((heading) => heading.level)) : 1;
 
+  // The host pane owns the toggle, so it has to learn when a note crosses the
+  // three-heading line — including on the way out, when the editor unmounts
+  // and the rail goes with it.
+  const outlineAvailableRef = useRef(onOutlineAvailable);
+  outlineAvailableRef.current = onOutlineAvailable;
+  useEffect(() => {
+    outlineAvailableRef.current?.(showOutline);
+  }, [showOutline]);
+  useEffect(() => () => outlineAvailableRef.current?.(false), []);
+
   const focusFromEmptyGutter = (event: ReactMouseEvent<HTMLDivElement>) => {
     const view = viewRef.current;
     const target = event.target as HTMLElement;
@@ -2506,34 +2525,27 @@ export default function Editor({
           </div>
         )}
       </div>
-      {showOutline && (
-        <aside className={`editor-outline${outlineOpen ? " is-open" : ""}`} aria-label="Note outline">
-          <button
-            type="button"
-            className="editor-outline-toggle"
-            title={outlineOpen ? "Hide outline" : "Show outline"}
-            aria-expanded={outlineOpen}
-            onClick={() => setOutlineOpen((open) => !open)}
-          >
-            Outline <span aria-hidden="true">{outlineOpen ? "›" : "‹"}</span>
-          </button>
-          {outlineOpen && (
-            <nav className="editor-outline-list">
-              {outline.map((heading) => (
-                <button
-                  type="button"
-                  key={`${heading.from}:${heading.text}`}
-                  className={`editor-outline-item${activeHeading === heading.from ? " is-active" : ""}`}
-                  style={{ paddingLeft: 8 + (heading.level - outlineBase) * 10 }}
-                  title={heading.text}
-                  aria-current={activeHeading === heading.from ? "location" : undefined}
-                  onClick={() => jumpToHeading(heading.from)}
-                >
-                  {heading.text}
-                </button>
-              ))}
-            </nav>
-          )}
+      {/* Closed means nothing at all in the text column: the toggle sits in
+          the pane's tool row, so a hidden rail leaves no button floating over
+          the prose. */}
+      {showOutline && outlineOpen && (
+        <aside className="editor-outline" aria-label="Note outline">
+          <div className="editor-outline-label">Outline</div>
+          <nav className="editor-outline-list">
+            {outline.map((heading) => (
+              <button
+                type="button"
+                key={`${heading.from}:${heading.text}`}
+                className={`editor-outline-item${activeHeading === heading.from ? " is-active" : ""}`}
+                style={{ paddingLeft: 8 + (heading.level - outlineBase) * 10 }}
+                title={heading.text}
+                aria-current={activeHeading === heading.from ? "location" : undefined}
+                onClick={() => jumpToHeading(heading.from)}
+              >
+                {heading.text}
+              </button>
+            ))}
+          </nav>
         </aside>
       )}
       {selMenu && (

@@ -245,6 +245,7 @@ import { useAutoSync } from "./hooks/useAutoSync";
 import { useShortcutRouter } from "./hooks/useShortcutRouter";
 import { useToast } from "./hooks/useToast";
 import { useUpdater } from "./hooks/useUpdater";
+import { useWidgetSummary } from "./hooks/useWidgets";
 import { useSearch } from "./hooks/useSearch";
 import { useVaultIndex } from "./hooks/useVaultIndex";
 import { queueViewsWrite, useVaultConfigs } from "./hooks/useVaultConfigs";
@@ -417,6 +418,7 @@ export default function App() {
   const { toast, setToast, showToast } = useToast();
   const { zoom, applyZoom } = useZoom(showToast);
   useUpdater(showToast);
+  useWidgetSummary(indexedNotes, vaultEpoch);
   // Database management: which admin dialog is open (null = none);
   // create's fromSidebar marks the Folders "+" entry point — the new db is
   // homed into the tree on creation; homeFolder is the folder

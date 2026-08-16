@@ -172,6 +172,14 @@ export const ColumnsIcon = () => (
   </svg>
 );
 
+/* the note's heading rail — indented rules, a nesting list rather than the
+   flush lines of ListIcon */
+export const OutlineIcon = () => (
+  <svg {...base}>
+    <path d="M2.5 4h11M5 7.3h8.5M5 10.6h8.5M2.5 7.3h.1M2.5 10.6h.1" />
+  </svg>
+);
+
 /* layout glyphs for the database layout switch (list/table/board/gallery) */
 export const ListIcon = () => (
   <svg {...base}>

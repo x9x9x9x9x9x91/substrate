@@ -2017,16 +2017,19 @@ button.empty-hint-fix:hover {
   text-align: center;
 }
 
+/* The rail renders only while it is open, and the shell grid places it —
+   there is no closed fallback box, because a hidden outline leaves nothing
+   in the text column at all. Its toggle lives in the note's tool row. */
 .editor-outline {
-  position: absolute;
   z-index: 6;
-  top: 14px;
-  right: 0;
 }
 
 .editor-shell.with-outline .editor-outline {
   position: sticky;
-  top: 14px;
+  /* clears the note tool row, which sticks at the top of the same scroller
+     and is 36px tall (10px padding + a 26px tool) — this offset is measured
+     inside .note, unlike the fixed variant's, which counts from the viewport */
+  top: 40px;
   grid-column: 2;
   grid-row: 1;
   width: 160px;
@@ -2035,24 +2038,19 @@ button.empty-hint-fix:hover {
   border-left: 1px solid var(--border-soft);
 }
 
-.editor-outline-toggle {
+.editor-outline-label {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 5px;
   height: 26px;
-  margin-left: auto;
-  padding: 0 5px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
+  padding: 0 6px 0 8px;
   color: var(--text-3);
   font-family: var(--font);
   font-size: 11px;
-  cursor: pointer;
 }
 
-.editor-outline-toggle:hover {
+/* the rail's toggle, sitting in the note tool row beside history and ⋯ —
+   open reads as a held-down tool, the same way .note-tool.active does */
+.note-tool.editor-outline-toggle[aria-expanded="true"] {
   background: var(--hover);
   color: var(--text-2);
 }
@@ -2499,7 +2497,11 @@ button.empty-hint-fix:hover {
 
   .editor-shell.with-outline .editor-outline {
     position: fixed;
-    top: 22px;
+    /* below the note tool row, which owns this corner — the open rail used
+       to start at the row's own height and would now cover its own toggle.
+       The row grows with the notch inset below 700px (10px + inset padding
+       over 44px tools), so this offset carries the same inset */
+    top: calc(54px + env(safe-area-inset-top, 0px));
     /* clears the fixed chrome slot — no -9px correction here: this
        box is positioned against the viewport, not inside .main */
     right: calc(var(--chrome-x) + var(--chrome-slot));
@@ -6153,6 +6155,10 @@ body.agenda-window .palette:focus-visible {
   cursor: default;
 }
 
+/* Shared dashboard chrome the coding board reuses: its rescan button, busy
+   spinner and empty-state line are all these classes. They are named for the
+   sync manager that introduced them — the name is history, the rules are
+   generic. */
 .sync-btn {
   display: inline-flex;
   align-items: center;
@@ -6279,6 +6285,8 @@ body.agenda-window .palette:focus-visible {
   word-break: break-all;
 }
 
+/* the quiet centred line a dashboard shows instead of a table when there is
+   nothing to draw yet — loading, empty, missing or refused root. */
 .sync-empty {
   margin-top: 48px;
   text-align: center;
@@ -6286,6 +6294,175 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-3);
 }
 
+/* Coding dashboard (dashboard: coding) — per-repo git
+   health as two-line rows: dot | name + branch over the last commit subject |
+   chips | commit age. Attention rows sit in the normal foreground, quiet
+   repos dim. Only non-zero facts get a chip, so a healthy repo is two lines
+   of text and nothing else. */
+
+/* the attention amber is --warn; this block only gives it a local
+   name, inherited by the dot and the warn chips, plus the hair weight the
+   board draws it at. It used to declare its own hex here — a second amber
+   that drifted from the one the other dashboards' chips used. */
+.coding-compact {
+  --coding-attn: var(--warn);
+  --coding-attn-hair: rgba(217, 160, 43, 0.4);
+  --coding-dot-quiet: rgba(255, 255, 255, 0.18);
+}
+
+.coding2-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto 90px;
+  gap: 12px;
+  align-items: start;
+  padding: 8px 8px;
+  border-radius: var(--r);
+  font: var(--dash-data);
+}
+
+.coding2-row:hover {
+  background: var(--hover-dense);
+}
+
+.coding2-row > .dash-dot {
+  margin-top: 5px;
+  background: var(--coding-attn);
+}
+
+.coding2-row.quiet > .dash-dot {
+  background: var(--coding-dot-quiet);
+}
+
+.coding2-row.quiet .coding2-sub {
+  color: var(--text-4);
+}
+
+/* a broken repo replaces its subject line with the git error */
+.coding2-sub.coding-err,
+.coding2-row.quiet .coding2-sub.coding-err {
+  color: var(--danger);
+}
+
+.coding2-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.coding2-top {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* the branch sheds width first; the repo name is the row's identity and
+   stays whole until it has to ellipsis on its own */
+.coding2-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+  font-weight: 550;
+}
+
+.coding2-branch {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coding2-sub {
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coding2-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 1px;
+}
+
+.coding2-chip {
+  padding: 1px 7px;
+  border: 1px solid var(--hair-soft);
+  border-radius: 9px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.coding2-chip.warn {
+  color: var(--coding-attn);
+  border-color: var(--coding-attn-hair);
+}
+
+/* pinned so the age rail holds when a chipless repo leaves column 3 empty */
+.coding2-age {
+  grid-column: 4;
+  text-align: right;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+}
+
+.coding-rows {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+  /* the row's squeeze point is the pane, not the window — at a 760px viewport
+     the sidebar leaves ~545px here and the name starves to one letter while
+     the media query (which only sees 760) stays silent. So the narrow form is
+     a container query on the actual row width. */
+  container-type: inline-size;
+}
+
+/* below ~700px of pane the chips can no longer share the line with the name
+   block: they wrap onto their own line underneath it, the age keeps the
+   top-right corner, and the name column gets a hard floor so the repo
+   identity can never be squeezed to nothing. */
+@container (max-width: 700px) {
+  .coding2-row {
+    grid-template-columns: 14px minmax(120px, 1fr) auto;
+    column-gap: 10px;
+    row-gap: 6px;
+    padding-bottom: 10px;
+  }
+
+  /* row 2, under the name block; absent entirely when a repo has no chips,
+     so a clean repo keeps its two-line height */
+  .coding2-chips {
+    grid-column: 2 / -1;
+    margin-top: 0;
+  }
+
+  .coding2-age {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}
+
+.coding-others {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 18px;
+  padding: 0 8px;
+  font: var(--dash-data);
+  color: var(--text-3);
+}
+
+.coding-others-label {
+  font-weight: 500;
+}
 
 
 /* Hub dashboard (dashboard: hub) — ordinary markdown laid out as a
@@ -8112,7 +8289,10 @@ tr.db-draft-tr,
 .note-tools {
   position: sticky;
   top: 0;
-  z-index: 5;
+  /* above the sticky heading rail (z 6): scrolled, the rail reaches this
+     corner, and the row's own buttons — outline toggle, clock, ⋯ — have to
+     stay clickable through it */
+  z-index: 7;
   display: flex;
   justify-content: flex-end;
   /* right inset leaves the fixed chrome slot free — the keyboard button

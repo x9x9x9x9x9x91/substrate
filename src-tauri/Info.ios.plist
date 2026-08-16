@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into the iOS bundle's Info.plist by the Tauri bundler, which
+     regenerates gen/apple's Info.plist on every build and drops keys added
+     there by hand — this file is the durable home for iOS-only keys.
+
+     The substrate:// scheme is how a home-screen widget tap reaches the app
+     (the widget's URL rides the ordinary substrate://note/… route); on
+     desktop the same registration comes from plugins.deep-link in
+     tauri.conf.json instead. -->
+<plist version="1.0">
+<dict>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.example.substrate</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>substrate</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

@@ -9,6 +9,26 @@ pub(crate) fn vault_root(state: State<AppState>) -> String {
     state.0.lock().unwrap().root.display().to_string()
 }
 
+/* ---- iOS WidgetKit read model (widgets.rs owns the mechanics) ---- */
+
+#[tauri::command]
+pub(crate) fn widget_summary_supported() -> bool {
+    crate::widgets::summary_supported()
+}
+
+// async on purpose: a non-async command runs on the main thread, and the
+// configured-ids bridge parks on a semaphore (bounded at 5s) waiting for
+// WidgetKit's answer — that wait belongs on the pool, never the UI thread.
+#[tauri::command]
+pub(crate) async fn widget_configured_ids() -> Result<Vec<String>, String> {
+    crate::widgets::configured_ids()
+}
+
+#[tauri::command]
+pub(crate) async fn widget_summary_write(summary: serde_json::Value) -> Result<(), String> {
+    crate::widgets::write_summary(summary)
+}
+
 /* ---- first-run onboarding -------------------------------------- */
 
 /// What the frontend asks at boot: is a vault open, or must one be chosen?

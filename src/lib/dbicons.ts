@@ -303,6 +303,7 @@ export function folderDefaultIcon(name: string): DbIcon | undefined {
 const DASHBOARD_ICONS: Record<string, DbIcon> = {
   food: { glyph: "flame" },
   sync: { glyph: "refresh" },
+  coding: { glyph: "code" },
   metrics: { glyph: "wallet" },
   "yield-apr": { glyph: "zap" },
   hub: { glyph: "home" },

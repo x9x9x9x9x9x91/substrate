@@ -6,6 +6,7 @@ mod deeplink;
 mod denyscope;
 #[cfg(target_os = "macos")]
 mod dragfix;
+mod coding;
 mod factlane;
 mod githist;
 mod gitsync;
@@ -27,6 +28,7 @@ mod vaultfmt;
 #[cfg(target_os = "macos")]
 mod vibrancy;
 mod viewexport;
+mod widgets;
 
 use gitsync::SyncReport;
 use history::History;
@@ -284,6 +286,7 @@ mod commands;
 use commands::app::*;
 use commands::assets::*;
 use commands::calendarfeeds::*;
+use commands::coding::*;
 use commands::files::*;
 use commands::fx::*;
 use commands::history::*;
@@ -1270,6 +1273,9 @@ pub fn run() {
             vault_demo,
             onboarding_set_agent,
             app_relaunch,
+            widget_summary_supported,
+            widget_summary_write,
+            widget_configured_ids,
             vault_list,
             vault_read,
             vault_sealed_configured,
@@ -1389,6 +1395,7 @@ pub fn run() {
             fx_usd_eur,
             fx_rates,
             share_upload,
+            coding_scan,
             sync_state_read,
             sync_launchd_read,
             sync_control,

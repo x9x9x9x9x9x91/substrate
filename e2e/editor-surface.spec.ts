@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 test("sparse note body aligns with the content column and its empty surface focuses", async ({
   page,
@@ -47,4 +47,126 @@ test("sparse note body aligns with the content column and its empty surface focu
   await title.focus();
   await page.locator(".cm-heading-fold-marker").first().click();
   await expect(page.locator(".cm-foldPlaceholder")).toHaveCount(1);
+});
+
+/** a fresh note with three headings and enough body to scroll */
+async function writeOutlineNote(page: Page, title: string) {
+  await page.goto("/");
+  await page.locator(".side-item", { hasText: /^Notes/ }).click();
+  await page.keyboard.press("Meta+n");
+
+  const titleBox = page.getByRole("textbox", { name: "Note title", exact: true });
+  await titleBox.fill(title);
+  await titleBox.press("Enter");
+  const filler = Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n");
+  await page.keyboard.insertText(
+    `# Alpha\n${filler}\n# Beta\n${filler}\n# Gamma\n${filler}\n`
+  );
+}
+
+test("the heading rail is toggled from the note tool row and leaves the text column alone", async ({
+  page,
+}) => {
+  await writeOutlineNote(page, "Outline rail probe");
+
+  // The toggle belongs to the note's tool row, not the writing surface.
+  const toggle = page.locator(".note-tools .editor-outline-toggle");
+  await expect(toggle).toHaveCount(1);
+  await expect(page.locator(".editor-shell .editor-outline-toggle")).toHaveCount(0);
+
+  const rail = page.locator(".editor-outline");
+  await expect(rail).toBeVisible();
+  await expect(page.locator(".editor-outline-item")).toHaveCount(3);
+
+  // Collapsed, nothing outline-shaped may sit over the prose.
+  await toggle.click();
+  await expect(rail).toHaveCount(0);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  const content = await page.locator(".cm-content").boundingBox();
+  expect(content).not.toBeNull();
+  const overlaps = await page.evaluate((box) => {
+    // the rail itself only — the toggle is a tool-row button and is meant to
+    // sit over the column's top edge at some scroll positions
+    return Array.from(document.querySelectorAll("aside.editor-outline"))
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        return { cls: el.className, r };
+      })
+      .filter(
+        ({ r }) =>
+          r.width > 0 &&
+          r.height > 0 &&
+          r.left < box.x + box.width &&
+          r.right > box.x &&
+          r.top < box.y + box.height &&
+          r.bottom > box.y
+      )
+      .map(({ cls }) => cls);
+  }, content!);
+  expect(overlaps).toEqual([]);
+
+  // Reopening restores the rail, and its headings still scroll the editor.
+  await toggle.click();
+  await expect(rail).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  // from the top of the note, so the jump has somewhere to travel — the
+  // toggle no longer needs a scroll-to-top to be clickable
+  await page.locator(".note").evaluate((el) => {
+    el.scrollTop = 0;
+  });
+  const gamma = page.locator(".cm-line", { hasText: "Gamma" });
+  const before = await gamma.boundingBox();
+  expect(before).not.toBeNull();
+  await page.locator(".editor-outline-item", { hasText: "Gamma" }).click();
+  await expect.poll(async () => (await gamma.boundingBox())!.y).toBeLessThan(before!.y - 100);
+});
+
+test("the tool row's outline toggle stays clickable when the note is scrolled", async ({
+  page,
+}) => {
+  await writeOutlineNote(page, "Outline rail scroll probe");
+
+  const toggle = page.locator(".note-tools .editor-outline-toggle");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+  // The sticky rail reaches this corner once the note scrolls. locator.click()
+  // would scroll the obstruction away before clicking, so this one measures
+  // the toggle in place and drives the real mouse at it.
+  await page.locator(".note").evaluate((el) => {
+    el.scrollTop = 600;
+  });
+  await expect.poll(async () => page.locator(".note").evaluate((el) => el.scrollTop)).toBe(600);
+
+  const box = (await toggle.boundingBox())!;
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  const hit = await page.evaluate(
+    ([x, y]) => {
+      const el = document.elementFromPoint(x, y);
+      return el ? !!el.closest(".editor-outline-toggle") : false;
+    },
+    [cx, cy]
+  );
+  expect(hit).toBe(true);
+
+  await page.mouse.click(cx, cy);
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator("aside.editor-outline")).toHaveCount(0);
+});
+
+test("a collapsed heading rail survives renaming the note", async ({ page }) => {
+  await writeOutlineNote(page, "Outline rail rename probe");
+
+  const toggle = page.locator(".note-tools .editor-outline-toggle");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+  // a rename moves the note's path but keeps the same editor mounted
+  const title = page.getByRole("textbox", { name: "Note title", exact: true });
+  await title.fill("Outline rail renamed");
+  await title.press("Enter");
+  await expect(title).toHaveValue("Outline rail renamed");
+
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator("aside.editor-outline")).toHaveCount(0);
 });

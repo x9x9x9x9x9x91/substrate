@@ -6,6 +6,7 @@ test.skip(!process.env.SHOTS, "evidence run only");
 
 const DASHBOARDS = [
   "Sync",
+  "Coding",
   "Portfolio",
   "Label Books",
   "Overview",

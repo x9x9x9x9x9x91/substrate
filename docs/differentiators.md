@@ -155,7 +155,10 @@ Capacities, Affine).*
   weight-curve overlay), tasks (an urgency-led board:
   Overdue/Due today sections, quick-add, checkoff with a real undo, Now/Later,
   snooze round trip, a kanban view by area with drag-to-recategorize, and a
-  sort switch — urgency/priority/due/age), news feed with agent curator, plus
+  sort switch — urgency/priority/due/age), news feed with agent curator,
+  repo health (every git repo under a folder you name, ranked by what needs
+  doing — dirty files, stale unmerged lanes, ahead/behind — read-only and
+  never networked), plus
   **workbook pages** —
   any dashboard grows spreadsheet-style bottom tabs (sheet grid / dashboard /
   database cut).
@@ -279,6 +282,12 @@ Capacities, Affine).*
   in development", nothing more. Real-device + real-Mac endpoint handshake is
   explicitly unverified; assets deliberately don't sync to the
   phone — notes-only.
+- **iOS home-screen widgets**: WidgetKit dashboard tiles are code-complete —
+  any metrics card as a glanceable, honestly-timestamped widget, values
+  exported only for cards a placed widget references — but device-unverified
+  and undistributed. Rides the iOS lane above; same "in development" line.
+  (Obsidian mobile has no widget story; Notion's widgets are cloud-bound —
+  this one reads the last-synced local vault.)
 - **E2E-encrypted sync**: the design direction is committed, not shipped —
   say "self-hosted sync today, E2E encryption is the committed design".
   Current
@@ -295,7 +304,7 @@ Capacities, Affine).*
 Tracked in the issue tracker; headline shapes: extracted columns on
 mounted files (audio/PDF/.als analysis feeding a mount's rows — the mount
 itself has shipped), time-travel queries over
-git history, iOS home-screen widgets, per-fact provenance
+git history, per-fact provenance
 receipts, voice
 capture with on-device transcript, cross-type joins.
 

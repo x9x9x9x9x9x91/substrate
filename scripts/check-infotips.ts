@@ -67,6 +67,7 @@ export const PANE_CONTROLS: ReadonlyMap<string, readonly string[]> = new Map([
   ["sync", ["sync-row", "sync-pause"]],
   ["hub", ["hub-task", "hub-view"]],
   ["food", ["food-hero", "food-daynav-btn", "food-del"]],
+  ["coding", ["coding-refresh", "coding-err"]],
   ["feed", ["feed-item", "feed-vote"]],
   ["music-work", ["mw-job", "mw-filter"]],
   ["tasks", ["tasks-row", "tasks-compose"]],

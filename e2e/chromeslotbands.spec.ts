@@ -33,10 +33,8 @@ test.describe("narrow desktop band", () => {
     const outline = page.locator(".editor-outline");
     await expect(outline).toBeVisible();
 
-    const toggle = page.locator(".editor-outline-toggle");
-    if ((await outline.getAttribute("class"))?.includes("is-open") !== true) {
-      await toggle.click();
-    }
+    // the rail opens by default, and its toggle now lives in the tool row
+    const toggle = page.locator(".note-tools .editor-outline-toggle");
     await expect(page.locator(".editor-outline-list")).toBeVisible();
 
     // the outline is fixed in this band, so it is positioned against the
@@ -50,6 +48,10 @@ test.describe("narrow desktop band", () => {
     const chip = (await page.locator(".keyhints-chip").boundingBox())!;
     const tog = (await toggle.boundingBox())!;
     expect(tog.x + tog.width).toBeLessThanOrEqual(chip.x);
+
+    // the fixed rail starts below the note tool row, so it never covers the
+    // toggle that closes it
+    expect(box.y).toBeGreaterThanOrEqual(tog.y + tog.height);
   });
 });
 

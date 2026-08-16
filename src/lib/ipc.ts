@@ -2,7 +2,9 @@ import { invoke, setHistoryReadOnly } from "./tauri.ts";
 import { isAppFile, SETTINGS_PATH } from "./settings.ts";
 import type { KindBundleInfo } from "./kinds.ts";
 import type { ReflexReceipt, ReflexStatus } from "./reflexes.ts";
+import type { CodingScan } from "./codingScan.ts";
 import type { OnboardingStatus, VaultCandidate } from "./onboarding.ts";
+import type { WidgetSummary } from "./widgets.ts";
 import type {
   AggKind,
   AssetInfo,
@@ -143,6 +145,15 @@ export const vaultDemo = () => invoke<string>("vault_demo");
 export const onboardingSetAgent = (command: string) =>
   invoke<null>("onboarding_set_agent", { command });
 export const appRelaunch = () => invoke<null>("app_relaunch");
+/** Native WidgetKit support exists only in the iOS target. Checking before
+    evaluating any dashboard keeps desktop startup unchanged. */
+export const widgetSummarySupported = () => invoke<boolean>("widget_summary_supported");
+/** Replace the App Group's atomic, pre-rendered WidgetKit read model. */
+export const widgetSummaryWrite = (summary: WidgetSummary) =>
+  invoke<null>("widget_summary_write", { summary });
+/** Card ids referenced by widgets actually placed on the home screen — the
+    export allow-list. No placed widgets means no values leave the app. */
+export const widgetConfiguredIds = () => invoke<string[]>("widget_configured_ids");
 /* scoped MCP door — per-machine config, never Settings.md */
 export type McpAccess = "read" | "write";
 export interface McpGrant {
@@ -662,6 +673,11 @@ export const syncSleepRead = () => invoke<boolean | null>("sync_sleep_read");
 /** Flip keep-awake (sudo -n pmset -a disablesleep); resolves to the
     read-back-verified state. */
 export const syncSleepSet = (on: boolean) => invoke<boolean>("sync_sleep_set", { on });
+/** Per-repo git health under a scan root (coding dashboard). `root` is the
+    note's `root:` prop — null scans the default ~/Coding. force=true bypasses
+    the backend's 1h scan cache (the refresh button). */
+export const codingScan = (force: boolean, root?: string | null) =>
+  invoke<CodingScan>("coding_scan", { force, root: root ?? null });
 export const fileOpen = (path: string) => invoke<void>("file_open", { path });
 export const fileReveal = (path: string) => invoke<void>("file_reveal", { path });
 export const filePick = (dir: boolean, extensions?: string[]) =>

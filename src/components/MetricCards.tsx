@@ -205,22 +205,67 @@ export function useCardValues(
     // lookup has to wait for the mount pass, or a card bound to a mount would
     // flash "no note named …" before the answer arrives.
     if (mounts === null) return { text: "…" };
-    const mstate = mounts.get(b.sheet.toLowerCase());
-    const state = sheets.get(b.sheet.toLowerCase());
-    if (mstate) {
-      // a real note of the same name exists behind this mount: mount-wins
-      // precedence hides it, so a miss on the mount has to say it is there
-      return mountCard(mstate, b.name, cards[i], !!state && !("error" in state));
-    }
-    const r = readBind(sheets, cards[i].bind);
-    if (r.loading) return { text: "…" };
-    if (r.value === null && state && "error" in state) {
-      // the mount half of the lookup may be why this name resolved to nothing
-      return { text: "—", title: mountsError ? `${state.error}; mounts: ${mountsError}` : state.error };
-    }
-    const text = r.value === null ? "—" : fmtCard(r.value, cards[i].format, cards[i].digits);
-    return { text, ...(r.miss ? { miss: r.miss } : {}), ...(r.title ? { title: r.title } : {}) };
+    return cardValueFrom(cards[i], sheets, mounts, mountsError);
   };
+}
+
+/** One card's value out of already-loaded sheets and mounts — the decision
+    half of `useCardValues`, with the loading handled by the caller. Shared
+    with the headless widget-snapshot path so a home-screen tile can never
+    disagree with the card the app shows for the same vault state. */
+export function cardValueFrom(
+  card: MetricCard,
+  sheets: Map<string, SheetState>,
+  mounts: Map<string, DashboardMountState>,
+  mountsError: string | null,
+): CardValue {
+  const b = parseBind(card.bind);
+  if (!b) return { text: "—", title: `bad binding “${card.bind}” — want {{Sheet.summary}}` };
+  const mstate = mounts.get(b.sheet.toLowerCase());
+  const state = sheets.get(b.sheet.toLowerCase());
+  if (mstate) {
+    // a real note of the same name exists behind this mount: mount-wins
+    // precedence hides it, so a miss on the mount has to say it is there
+    return mountCard(mstate, b.name, card, !!state && !("error" in state));
+  }
+  const r = readBind(sheets, card.bind);
+  if (r.loading) return { text: "…" };
+  if (r.value === null && state && "error" in state) {
+    // the mount half of the lookup may be why this name resolved to nothing
+    return { text: "—", title: mountsError ? `${state.error}; mounts: ${mountsError}` : state.error };
+  }
+  const text = r.value === null ? "—" : fmtCard(r.value, card.format, card.digits);
+  return { text, ...(r.miss ? { miss: r.miss } : {}), ...(r.title ? { title: r.title } : {}) };
+}
+
+/** Resolve a card set without React: load its sheets and mounts, then answer
+    with the same decision path the on-screen strip uses. */
+export async function resolveCardValues(
+  cards: MetricCard[],
+  vaultEpoch: number,
+  rates: FxRatesState | null,
+): Promise<CardValue[]> {
+  const names = new Map<string, string>();
+  for (const card of cards) {
+    const b = parseBind(card.bind);
+    if (b) names.set(b.sheet.toLowerCase(), b.sheet);
+  }
+  const sheetNames = [...names.values()];
+  let mountsError: string | null = null;
+  const [sheets, mounts] = await Promise.all([
+    // a rejected pass surfaces as a per-sheet error, exactly as on screen
+    dashboardSheets(sheetNames, vaultEpoch, rates).catch((error: unknown) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      return new Map<string, SheetState>(
+        sheetNames.map((n) => [n.toLowerCase(), { error: `sheet load failed: ${msg}` }]),
+      );
+    }),
+    dashboardMounts(sheetNames, vaultEpoch).catch((error: unknown) => {
+      mountsError = error instanceof Error ? error.message : String(error);
+      return new Map<string, DashboardMountState>();
+    }),
+  ]);
+  return cards.map((card) => cardValueFrom(card, sheets, mounts, mountsError));
 }
 
 /** The strip itself. `sharp` decides which cards keep the sharp voice — the

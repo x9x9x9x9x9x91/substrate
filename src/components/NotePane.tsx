@@ -69,7 +69,7 @@ import SelectMenu, { anchorFrom, MultiValues, optionColor, OptionPill, type Anch
 import { ChipReceiptLine } from "./ReceiptsPeek";
 import { prefetchFact } from "./useHistory";
 import DotsMenu from "./DotsMenu";
-import { BacklinkIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, FileIcon, LockIcon, NoteActionGlyph, XIcon } from "./Icons";
+import { BacklinkIcon, ChevronLeftIcon, ChevronRightIcon, ClockIcon, FileIcon, LockIcon, NoteActionGlyph, OutlineIcon, XIcon } from "./Icons";
 import EmptyState from "./EmptyState";
 
 /** url/email/phone-kind chips open outside the app — the OS handler (browser,
@@ -397,6 +397,14 @@ function NotePane({
     setShowHistory(true);
   }, [openHistoryFor, meta.path]);
   const [reloadNonce, setReloadNonce] = useState(0);
+  // The heading rail lives in the editor, its toggle in this pane's tool row.
+  // Open per note, as it has always been — switching notes reopens the rail.
+  // Keyed on the mounted doc, not meta.path: a rename moves the path while
+  // the same note stays open, and a closed rail should stay closed through it.
+  const [outlineAvailable, setOutlineAvailable] = useState(false);
+  const [outlineOpen, setOutlineOpen] = useState(true);
+  const mountedDocPath = loaded?.docPath ?? null;
+  useEffect(() => setOutlineOpen(true), [mountedDocPath]);
   const [sealedUnlocked, setSealedUnlocked] = useState(false);
   const [sealedOverride, setSealedOverride] = useState<boolean | null>(null);
   const [sealedDialog, setSealedDialog] = useState<SealedNoteMode | null>(null);
@@ -1651,6 +1659,17 @@ function NotePane({
           would all hit "not found", so the tools appear with the file */}
       {!ghost && (
       <div className="note-tools">
+        {outlineAvailable && (
+          <button
+            className="note-tool editor-outline-toggle"
+            title={outlineOpen ? "Hide outline" : "Show outline"}
+            aria-label={outlineOpen ? "Hide outline" : "Show outline"}
+            aria-expanded={outlineOpen}
+            onClick={() => setOutlineOpen((open) => !open)}
+          >
+            <OutlineIcon />
+          </button>
+        )}
         {!isSealed && <button
           className="note-tool"
           title="History"
@@ -2343,6 +2362,8 @@ function NotePane({
               onExtractNote={extractToNote}
               emptyHint={ghost ? "No entry — start writing" : undefined}
               readOnly={readOnly}
+              outlineOpen={outlineOpen}
+              onOutlineAvailable={setOutlineAvailable}
             />
           )
         )}
