@@ -610,7 +610,7 @@ pub(crate) fn pull_with_snapshot<G>(
         None => false,
     };
     if integrated {
-        return Ok(idle_pull(&repo, local_oid.unwrap_or(remote_oid), gate));
+        return idle_pull(&repo, local_oid.unwrap_or(remote_oid), gate);
     }
 
     snapshot()?;
@@ -633,13 +633,23 @@ pub(crate) fn pull_with_snapshot<G>(
 /// terms. A dirty tree defers it rather than failing: no snapshot ran on this
 /// path, so the backfill's own commit would capture whatever is still being
 /// typed.
-fn idle_pull<G>(repo: &Repository, head: Oid, gate: impl FnOnce() -> G) -> SyncReport {
+///
+/// A tree it cannot READ is a different answer and fails the pull. Treating
+/// the unreadable case as "dirty, try later" is only harmless while the next
+/// tick reads it fine; when the read keeps failing, every tick returns a clean
+/// no-change report and the backfill is never retried again — a silence that
+/// looks exactly like a vault with nothing to do.
+fn idle_pull<G>(
+    repo: &Repository,
+    head: Oid,
+    gate: impl FnOnce() -> G,
+) -> Result<SyncReport, String> {
     let _guard = gate();
     let unchanged = report(0, 0, Vec::new(), head);
-    if working_tree_is_dirty(repo).unwrap_or(true) {
-        return unchanged;
+    if working_tree_is_dirty(repo)? {
+        return Ok(unchanged);
     }
-    apply_backfill(repo, unchanged)
+    Ok(apply_backfill(repo, unchanged))
 }
 
 /// Both purge-marker refusals in [`pull`] say the same thing, so a caller
@@ -1891,6 +1901,38 @@ mod tests {
         assert_eq!(idle.pulled, 0);
         assert!(idle.conflicted.is_empty());
         assert_eq!(fs::read_to_string(a.join("Only.md")).unwrap(), "only\n");
+    }
+
+    /// The idle path's other tree answer: unreadable is not "dirty, try
+    /// later". A read that keeps failing would otherwise report a clean
+    /// no-change pull on every tick and never retry the app-file backfill —
+    /// the same silence `sync_pull_idle_gated` stopped reporting for the Git
+    /// transport.
+    #[test]
+    fn a_hosted_idle_pull_that_cannot_read_the_tree_fails_instead_of_reporting_no_change() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        let transport = http(&server);
+
+        let a = scratch.path().join("vault-a");
+        let history_a = vault(&a);
+        let key = MasterKey::from_bytes([57; 32]);
+        write_note(&a, "Only.md", "only\n");
+        history_a.snapshot("a1").unwrap();
+        push(&a, &key, &transport, || ()).unwrap();
+
+        // The remote head is already ours, so this pull takes the idle path and
+        // the tree read is the only thing left that can answer. An index
+        // libgit2 refuses to parse is a read that keeps failing, tick after
+        // tick.
+        fs::write(a.join(".git/index"), b"not an index at all").unwrap();
+
+        let error = pull(&a, &key, &transport, || ())
+            .expect_err("an unreadable working tree still reported a clean idle pull");
+        assert!(
+            error.contains("could not inspect the working tree"),
+            "the pull failed for some other reason: {error}"
+        );
     }
 
     #[test]
