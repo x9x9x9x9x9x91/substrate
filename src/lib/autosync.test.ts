@@ -75,6 +75,8 @@ function harness(opts: {
           last_result: null,
           last_error: null,
           conflicted: opts.conflicted ?? [],
+          privacy_error: null,
+          privacy_paths: [],
         };
       },
       push: async () => {
@@ -267,4 +269,30 @@ test("stop() ends every timer", async () => {
   sync.stop();
   await clock.advance(5000);
   assert.deepEqual(calls, ["pull"], "only the open pull ran");
+});
+
+test("stop() also drops a push that was queued behind an in-flight leg", async () => {
+  const latch = { promise: Promise.resolve(), release: () => {} };
+  latch.promise = new Promise<void>((done) => (latch.release = done));
+  const { sync, calls, clock } = harness({ pullLatch: latch });
+  sync.start();
+  await tick(); // the open pull is now sitting on the latch
+  assert.deepEqual(calls, ["pull"]);
+
+  sync.notifyChanged();
+  await clock.advance(120);
+  assert.deepEqual(calls, ["pull"], "the queued push jumped the in-flight guard");
+
+  // the lane is torn down while that push is still owed, and a later run
+  // starts a fresh instance's worth of intent — not the dead lane's leftovers
+  sync.stop();
+  latch.release();
+  await tick();
+  sync.start();
+  await tick();
+  await clock.advance(1000);
+  assert.ok(
+    !calls.includes("push"),
+    `the restarted lane pushed on behalf of the lane that was stopped: ${calls.join(", ")}`
+  );
 });

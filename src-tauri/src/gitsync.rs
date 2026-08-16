@@ -2,6 +2,12 @@
 //! own snapshots; this module only moves committed snapshots through the
 //! configured `substrate` remote.
 
+// The encrypted blob transport is a client prototype, intentionally not wired
+// to app commands until the account/onboarding surface exists. Keeping it
+// below this module lets it reuse the exact local merge and conflict machinery.
+#[allow(dead_code)]
+pub(crate) mod blob;
+
 use crate::history::{exclude_is_ours, DiffLine, EXCLUDE_CONTENT, FOREIGN_MSG, SENTINEL};
 use git2::build::CheckoutBuilder;
 use git2::{
@@ -814,6 +820,12 @@ pub fn sync_pull_integrate_gated<G>(
 /// not take. So a dirty tree defers the backfill to the next tick instead of
 /// failing the pull — the backfill's own commit would otherwise write a tree
 /// holding the pre-edit content of whatever is still being typed.
+///
+/// A tree it cannot READ is a different answer and fails the pull. Treating
+/// the unreadable case as "dirty, try later" is only harmless while the next
+/// tick reads it fine; when the read keeps failing, every tick returns a clean
+/// no-change report and the backfill is never retried again — a silence that
+/// looks exactly like a vault with nothing to do.
 fn sync_pull_idle_gated<G>(
     root: &Path,
     fetched: PullFetch,
@@ -822,7 +834,7 @@ fn sync_pull_idle_gated<G>(
     let repo = owned_repo(root)?;
     let _guard = gate();
     let report = fetched.unchanged_report();
-    if working_tree_is_dirty(&repo).unwrap_or(true) {
+    if working_tree_is_dirty(&repo)? {
         return Ok(report);
     }
     Ok(apply_backfill(&repo, report))
@@ -2976,6 +2988,26 @@ mod tests {
         pull(false).unwrap();
         assert_eq!(snapshots.get(), 0, "a pull whose remote is an ancestor snapshotted");
         assert_eq!(commit_count(&pair.b), ahead);
+    }
+
+    /// A tree the idle pull cannot READ is not a tree that is being typed in.
+    /// Reading the failure as "dirty, try later" made every tick answer with a
+    /// clean no-change report, so the backfill this path exists to retry
+    /// stopped being retried and nothing anywhere said why.
+    #[test]
+    fn an_idle_pull_that_cannot_read_the_tree_fails_instead_of_reporting_no_change() {
+        let pair = paired_vaults(&[("Note.md", "base\n")]);
+        // b is level with the remote, so this pull takes the idle path and the
+        // tree read is the only thing left that can answer. An index libgit2
+        // refuses to parse is a read that keeps failing, tick after tick.
+        fs::write(pair.b.join(".git/index"), b"not an index at all").unwrap();
+
+        let error = sync_pull(&pair.b, &pair.credentials_b)
+            .expect_err("an unreadable working tree still reported a clean idle pull");
+        assert!(
+            error.contains("could not inspect the working tree"),
+            "the pull failed for some other reason: {error}"
+        );
     }
 
     /// The other half: a pull that WILL check out still snapshots first, so

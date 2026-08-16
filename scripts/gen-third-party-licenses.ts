@@ -192,8 +192,13 @@ export interface Crate {
   source: string;
 }
 
-/** The workspace's own crate, which is Substrate and not a third party. */
-const OWN_CRATE = "substrate";
+/**
+ * Substrate's own crates, which are not third parties. The hosted-sync blob
+ * server is a separate crate because it deploys as its own binary, and it
+ * reaches the lockfile as a dev-dependency of the round-trip test; it is still
+ * this repository's AGPL code, covered by the `LICENSE` file like the app.
+ */
+const OWN_CRATES = ["substrate", "substrate-hosted-sync-server"];
 
 /**
  * Every `[[package]]` in Cargo.lock as a name/version pair.
@@ -208,7 +213,7 @@ export function parseCargoLockPackages(lock: string): { name: string; version: s
     const name = block.match(/^\s*name\s*=\s*"([^"]+)"/m);
     const version = block.match(/^\s*version\s*=\s*"([^"]+)"/m);
     if (!name || !version) throw new Error("Cargo.lock has a [[package]] with no name or version");
-    if (name[1] === OWN_CRATE) continue;
+    if (OWN_CRATES.includes(name[1])) continue;
     out.push({ name: name[1], version: version[1] });
   }
   return out.sort((a, b) => byCodepoint(a.name, b.name) || byCodepoint(a.version, b.version));
@@ -234,7 +239,7 @@ export function collectCrates(root = ROOT): Crate[] {
   };
 
   return metadata.packages
-    .filter((pkg) => pkg.name !== OWN_CRATE)
+    .filter((pkg) => !OWN_CRATES.includes(pkg.name))
     .map((pkg) => ({
       name: pkg.name,
       version: pkg.version,

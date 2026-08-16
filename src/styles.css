@@ -9103,6 +9103,45 @@ th.sheet-computed:hover {
   font-size: 11.5px;
 }
 
+/* The sticky privacy notice. Same danger colour as any sync error, but boxed
+   and ruled rather than a line of red text: it outlives the attempt that
+   produced it, so it must not read as "the last sync failed". */
+.vault-sync-privacy {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--danger);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+}
+
+.vault-sync-privacy h3 {
+  margin-bottom: 8px;
+  color: var(--danger);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.vault-sync-privacy ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  list-style: none;
+}
+
+.vault-sync-privacy li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.vault-sync-privacy code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
 .vault-sync-actions {
   display: flex;
   justify-content: flex-end;

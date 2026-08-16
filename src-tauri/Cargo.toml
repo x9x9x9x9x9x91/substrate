@@ -55,6 +55,14 @@ uuid = { version = "1", features = ["v4"] }
 # sealed notes: age encrypts whole-file note bodies at rest
 age = "0.12.1"
 ureq = "2"
+# Hosted-sync client crypto. The server only ever receives the
+# envelopes these primitives produce; key derivation and encryption stay here.
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+hmac = "0.12"
+rand = "0.8"
+zeroize = { version = "1", features = ["derive"] }
 # already in the tree as ureq's own dependency — named here because net.rs
 # parses and re-joins redirect targets itself (SSRF guard)
 url = "2"
@@ -108,3 +116,8 @@ security-framework = { version = "3", features = ["OSX_10_15"] }
 [dev-dependencies]
 proptest = "1.11.0"
 tempfile = "3"
+# The hosted-sync round-trip runs the REAL server, in-process and over
+# a real localhost socket, so `cargo test` proves the protocol across the wire
+# rather than against a file-backed model of it. A dev-dependency: the server
+# ships as its own binary and none of it reaches the app.
+substrate-hosted-sync-server = { path = "../hosted-sync-server" }

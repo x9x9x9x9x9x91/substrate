@@ -58,6 +58,11 @@ struct HistoryState(Mutex<Option<History>>);
 
 struct VaultSyncState {
     credentials_path: std::path::PathBuf,
+    /// Where the sticky privacy notice is kept between runs. Device-local
+    /// config, deliberately not the vault: the notice is about THIS machine's
+    /// git history, and a file in the vault would sync it to devices it does
+    /// not describe — and dirty the working tree the next sync needs clean.
+    privacy_path: std::path::PathBuf,
     last: Mutex<VaultSyncLast>,
     /// One network git leg at a time. Auto-sync runs push/pull on a timer
     /// now, so a tick can meet a button click; the local phases already
@@ -72,6 +77,11 @@ struct VaultSyncState {
 struct VaultSyncLast {
     result: Option<SyncReport>,
     error: Option<String>,
+    /// The one failure a successful sync must NOT erase — see
+    /// [`crate::commands::vaultsync::PrivacyNotice`]. `error` is a single slot
+    /// the Ok arm clears, and with a pull every few minutes that is minutes;
+    /// this slot survives every routine tick and every restart.
+    privacy: Option<crate::commands::vaultsync::PrivacyNotice>,
 }
 
 /// How long the auto-sync lane keeps a failure to itself before recording it
@@ -803,13 +813,19 @@ pub fn run() {
             app.manage(AppState(Mutex::new(engine)));
             app.manage(calendarfeed::CalendarFeedState::new(&config_dir));
             app.manage(HistoryState(Mutex::new(hist)));
+            let sync_config_dir = app.path().app_config_dir().expect("no app config dir");
+            let privacy_path = sync_config_dir.join("vault-sync-privacy.json");
             app.manage(VaultSyncState {
-                credentials_path: app
-                    .path()
-                    .app_config_dir()
-                    .expect("no app config dir")
-                    .join("vault-sync.json"),
-                last: Mutex::new(VaultSyncLast::default()),
+                credentials_path: sync_config_dir.join("vault-sync.json"),
+                last: Mutex::new(VaultSyncLast {
+                    // A notice left by an earlier run is read back before the
+                    // first tick: the plaintext it warns about is still in
+                    // this machine's history, so a restart must not be a way
+                    // to lose the warning.
+                    privacy: commands::vaultsync::load_privacy(&privacy_path),
+                    ..VaultSyncLast::default()
+                }),
+                privacy_path,
                 op: Mutex::new(()),
                 auto_fail: Mutex::new(AutoFail::default()),
             });
@@ -1354,6 +1370,7 @@ pub fn run() {
             vault_sync_resolve_set,
             vault_sync_resolve_clear,
             vault_sync_resolve_finish,
+            vault_sync_ack_privacy,
             mounts_list,
             mount_add,
             mount_bind,

@@ -6,7 +6,7 @@ the third-party code the app bundles and ships:
 
 - the **63 npm packages** in the production dependency closure, compiled into
   the app's frontend bundle;
-- the **696 Rust crates** pinned by `src-tauri/Cargo.lock`, listed
+- the **700 Rust crates** pinned by `src-tauri/Cargo.lock`, listed
   conservatively — the lockfile is the whole pinned set, so build- and test-only
   crates are listed too rather than guessed away.
 
@@ -2227,7 +2227,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### Apache-2.0 OR MIT
 
-85 crates:
+86 crates:
 
 - aes-gcm 0.10.3 — crates.io
 - async-channel 2.5.0 — crates.io
@@ -2240,6 +2240,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - atomic-waker 1.1.2 — crates.io
 - autocfg 1.5.1 — crates.io
 - base16ct 0.2.0 — crates.io
+- base64ct 1.8.3 — crates.io
 - bit-set 0.8.0 — crates.io
 - bit-vec 0.8.0 — crates.io
 - blocking 1.6.2 — crates.io
@@ -2577,7 +2578,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 
 ### MIT OR Apache-2.0
 
-314 crates:
+317 crates:
 
 - aead 0.5.2 — crates.io
 - aes 0.8.4 — crates.io
@@ -2587,6 +2588,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - anyhow 1.0.103 — crates.io
 - arbitrary 1.4.2 — crates.io
 - arc-swap 1.9.2 — crates.io
+- argon2 0.5.3 — crates.io
 - async-broadcast 0.7.2 — crates.io
 - async-recursion 1.1.1 — crates.io
 - async-trait 0.1.89 — crates.io
@@ -2594,6 +2596,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - base64 0.22.1 — crates.io
 - basic-toml 0.1.10 — crates.io
 - bitflags 2.13.1 — crates.io
+- blake2 0.10.6 — crates.io
 - block-buffer 0.10.4 — crates.io
 - block-buffer 0.12.1 — crates.io
 - block-padding 0.4.2 — crates.io
@@ -2718,6 +2721,7 @@ own metadata declares. `A OR B` means the crate grants a choice of either.
 - osakit 0.3.1 — crates.io
 - parking_lot 0.12.5 — crates.io
 - parking_lot_core 0.9.12 — crates.io
+- password-hash 0.5.0 — crates.io
 - paste 1.0.15 — crates.io
 - pbkdf2 0.12.2 — crates.io
 - percent-encoding 2.3.2 — crates.io

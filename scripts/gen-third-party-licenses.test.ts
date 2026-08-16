@@ -165,9 +165,11 @@ test("parseCargoLockPackages lists dependencies and skips substrate itself", () 
 test("parseCargoLockPackages covers the whole real lock", () => {
   const lock = readFileSync(resolve(ROOT, "src-tauri/Cargo.lock"), "utf8");
   const parsed = parseCargoLockPackages(lock);
-  // every [[package]] block except substrate's own
+  // every [[package]] block except this repository's own crates — the app and
+  // the hosted-sync server, which the round-trip test pulls into the lock
   const blocks = lock.split(/^\[\[package\]\]$/m).length - 1;
-  assert.equal(parsed.length, blocks - 1);
+  const own = lock.match(/^name = "substrate(-[a-z-]+)?"$/gm) ?? [];
+  assert.equal(parsed.length, blocks - own.length);
 });
 
 /* ── SPDX expressions ───────────────────────────────────────────────────── */

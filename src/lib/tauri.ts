@@ -323,6 +323,10 @@ declare global {
         "vault_sync_pull") — how a spec proves the auto lane fired (or,
         parked on a conflict, stopped firing) without waiting on network */
     __mockSyncCalls?: () => string[];
+    /** leave the sticky privacy notice a failed sealing cleanup leaves —
+        the warning that a later successful sync must NOT take back. Pass
+        null for the acknowledged state. */
+    __mockSetPrivacy?: (notice: { message: string; paths: string[] } | null) => void;
     /** unbind a mount on "this machine" without touching its index — the
         other-machine board a dashboard has to keep charting from.
         Pass a folder path to bind it somewhere instead; a path containing
@@ -1494,13 +1498,19 @@ const mockTrash: (TrashEntry & {
 // `conflicted` is not stored here: the engine derives it from the repository
 // on every status call, so the mock derives it from the parked
 // conflict state instead of from the last command's result.
-let mockVaultSyncStatus: Omit<VaultSyncStatus, "conflicted"> = {
+let mockVaultSyncStatus: Omit<VaultSyncStatus, "conflicted" | "privacy_error" | "privacy_paths"> = {
   // a returning device boots configured; a spec stages that with
   // addInitScript, before the app (and its auto-sync lane) mounts
   configured: window.__mockSyncConfigured === true,
   last_result: null,
   last_error: null,
 };
+
+/** The sticky privacy notice, kept OUTSIDE `mockVaultSyncStatus` for the same
+    reason the engine keeps it outside `VaultSyncLast::error`: every command
+    below replaces that record wholesale, and this warning is precisely the one
+    a later success must not replace. Only an acknowledgement clears it. */
+let mockPrivacyNotice: { message: string; paths: string[] } | null = null;
 
 /** What the next `vault_sync_pull` does. The seed default stays conflicted
     so the existing sync-pane specs keep their three-way material; a spec
@@ -3571,6 +3581,8 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         conflicted: mockConflicts.active
           ? mockConflicts.files.map((f) => f.path).sort()
           : [],
+        privacy_error: mockPrivacyNotice?.message ?? null,
+        privacy_paths: mockPrivacyNotice ? [...mockPrivacyNotice.paths] : [],
       } satisfies VaultSyncStatus;
     case "vault_sync_set_remote": {
       const url = String(args?.url ?? "").trim();
@@ -3635,6 +3647,9 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       if (changed.length > 0) window.__mockEmit?.("vault:pulled", changed);
       return clean;
     }
+    case "vault_sync_ack_privacy":
+      mockPrivacyNotice = null;
+      return null;
     case "vault_sync_conflicts":
       return mockConflictView();
     case "vault_sync_resolve_set": {
@@ -5109,6 +5124,9 @@ if (!isTauri) {
     mockPullPlan = plan;
   };
   window.__mockSyncCalls = () => [...mockSyncCalls];
+  window.__mockSetPrivacy = (notice) => {
+    mockPrivacyNotice = notice ? { message: notice.message, paths: [...notice.paths] } : null;
+  };
   // The other-machine board. The index stays exactly as the machine
   // holding the folder left it — only this machine's binding goes — so a
   // dashboard over the mount still has rows to chart.

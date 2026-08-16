@@ -4,6 +4,7 @@
 use crate::commands::history::with_history;
 use crate::gitsync::{self, SyncReport};
 use crate::{blocking, AppState, AutoFail, HistoryState, VaultSyncLast, VaultSyncState};
+use std::path::Path;
 use std::time::Instant;
 use tauri::{Emitter, Manager, State};
 
@@ -17,6 +18,251 @@ pub(crate) struct VaultSyncStatus {
     /// is empty after a restart, so a pane deriving "needs attention" from it
     /// alone reported Ready while a conflicted merge was still waiting.
     conflicted: Vec<String>,
+    /// The sticky privacy notice, separate from `last_error` because the pane
+    /// must keep showing it after the next successful sync — see
+    /// [`PrivacyNotice`].
+    privacy_error: Option<String>,
+    /// The paths whose plaintext that notice is about, so the warning can name
+    /// them and a user who wants to purge by hand knows where to look.
+    privacy_paths: Vec<String>,
+}
+
+/// A failure whose consequence outlives the attempt that hit it.
+///
+/// `last_error` is one slot, and its Ok arm clears it: with the auto lane
+/// pulling every few minutes, anything recorded there is gone within minutes.
+/// That is right for a transport miss — the next success genuinely is the
+/// news. It is wrong for the one failure whose damage stays behind after the
+/// sync succeeds: inherited sealing that could not take its plaintext back out
+/// of this vault's own git history. The plaintext is still there, and a user
+/// who is never told cannot go and remove it.
+///
+/// So it gets a slot of its own, on disk beside the sync credentials so a
+/// restart does not lose it either. Two things take it away, and no routine
+/// sync is either of them: the cleanup finally succeeding (retried under every
+/// later pull's locks, see [`retry_privacy_cleanup`]), or the user saying they
+/// have seen it (`vault_sync_ack_privacy`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct PrivacyNotice {
+    /// What failed, in the words the pane shows.
+    pub(crate) message: String,
+    /// The paths whose plaintext may still be in local history.
+    #[serde(default)]
+    pub(crate) paths: Vec<String>,
+}
+
+/// Read a notice an earlier run left behind. Anything unreadable or empty is
+/// no notice: a corrupt file must not fabricate a privacy warning, and it must
+/// not stop the app either.
+pub(crate) fn load_privacy(path: &Path) -> Option<PrivacyNotice> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str::<PrivacyNotice>(&raw).ok().filter(|n| !n.message.is_empty())
+}
+
+/// Persist (or remove) the notice. A write that fails is logged and dropped:
+/// the in-memory slot still tells this session, and a warning the user cannot
+/// dismiss because its file is unwritable would be worse than a forgotten one.
+fn store_privacy(path: &Path, notice: Option<&PrivacyNotice>) {
+    let written = match notice {
+        Some(notice) => serde_json::to_string_pretty(notice)
+            .map_err(|e| e.to_string())
+            .and_then(|json| {
+                if let Some(dir) = path.parent() {
+                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                }
+                crate::vault::write_atomic(path, json)
+            }),
+        None => match std::fs::remove_file(path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+            _ => Ok(()),
+        },
+    };
+    if let Err(error) = written {
+        applog!("vault sync could not persist its privacy notice: {error}");
+    }
+}
+
+/// Fold a privacy-class failure into whatever notice is already standing.
+/// Returns true when the slot changed and therefore owes a write.
+///
+/// Folding rather than replacing: a second failure while the first is
+/// outstanding describes MORE plaintext, not different plaintext, so the path
+/// list is a union and only the message is the newest one's.
+fn note_privacy_into(last: &mut VaultSyncLast, message: &str, paths: &[String]) -> bool {
+    let mut next = last.privacy.clone().unwrap_or_default();
+    next.message = message.to_string();
+    for path in paths {
+        if !next.paths.contains(path) {
+            next.paths.push(path.clone());
+        }
+    }
+    next.paths.sort();
+    if last.privacy.as_ref() == Some(&next) {
+        return false;
+    }
+    last.privacy = Some(next);
+    true
+}
+
+/// What a notice is worth remembering from a failed pull's changed list.
+///
+/// Only Markdown notes can carry the plaintext this warning is about, so the
+/// rest of a checkout — attachments, config, anything else git reports — is
+/// dropped at the door, mirroring `reconcile_sealed_changes`' own candidate
+/// filter. Seal markers are the one exception and are kept deliberately: a
+/// changed marker is what tells the retry's reconcile pass to sweep the whole
+/// vault instead of only the paths listed beside it.
+fn worth_recording(rel: &str) -> bool {
+    is_markdown(rel) || Path::new(rel).file_name().is_some_and(|n| n == crate::vault::SCOPE_MARKER)
+}
+
+fn is_markdown(rel: &str) -> bool {
+    Path::new(rel).extension().is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+}
+
+fn record_privacy_failure(state: &State<VaultSyncState>, message: &str, paths: &[String]) {
+    let paths: Vec<String> = paths.iter().filter(|p| worth_recording(p)).cloned().collect();
+    let mut last = state.last.lock().unwrap();
+    if note_privacy_into(&mut last, message, &paths) {
+        store_privacy(&state.privacy_path, last.privacy.as_ref());
+    }
+}
+
+/// Drop the notice. Returns whether there was one, so the caller only pays a
+/// disk write when the on-disk copy is actually stale.
+fn clear_privacy_into(last: &mut VaultSyncLast) -> bool {
+    last.privacy.take().is_some()
+}
+
+fn clear_privacy(state: &State<VaultSyncState>) {
+    let mut last = state.last.lock().unwrap();
+    if clear_privacy_into(&mut last) {
+        store_privacy(&state.privacy_path, None);
+    }
+}
+
+/// The user has read the warning and is done with it. The plaintext may still
+/// be in history — this clears the notice, not the history, which is why it is
+/// an explicit press and never something a sync does on the user's behalf.
+#[tauri::command]
+pub(crate) fn vault_sync_ack_privacy(sync: State<VaultSyncState>) {
+    clear_privacy(&sync);
+}
+
+/// Retry the cleanup an outstanding notice is about, under the caller's pull.
+///
+/// The failure it records is usually transient — a full disk, a busy lock —
+/// and the same purge succeeds on a later tick. Running it here is what lets a
+/// resolved notice disappear on its own, so the pane's warning means "plaintext
+/// is still in your history" rather than "plaintext was there once".
+///
+/// Both halves run unconditionally, because either could have been the one
+/// that failed: whatever is still plaintext on disk is sealed again, and
+/// sealed plaintext is purged from history whether or not this pass converted
+/// anything (`purge_files` is idempotent on paths it no longer finds). Which
+/// paths that covers — never the whole notice — is
+/// [`sealed_plaintext_among`].
+fn retry_privacy_cleanup(
+    history: &State<HistoryState>,
+    state: &State<AppState>,
+    sync: &State<VaultSyncState>,
+) {
+    let outstanding = sync.last.lock().unwrap().privacy.clone();
+    let Some(notice) = outstanding else { return };
+    if notice.paths.is_empty() {
+        // Nothing to retry — this notice can only leave by acknowledgment.
+        return;
+    }
+    let resolved = (|| -> Result<(), String> {
+        let hist_guard = history.0.lock().unwrap();
+        let hist =
+            hist_guard.as_ref().ok_or_else(|| "version history unavailable".to_string())?;
+        let mut engine = state.0.lock().unwrap();
+        run_privacy_cleanup(hist, &mut engine, &notice.paths)
+    })();
+    if resolved.is_ok() {
+        clear_privacy(sync);
+    }
+}
+
+/// The retry's two halves, without the locks — seal whatever is still
+/// plaintext on disk, then take sealed plaintext out of local history.
+fn run_privacy_cleanup(
+    hist: &crate::history::History,
+    engine: &mut crate::vault::Engine,
+    paths: &[String],
+) -> Result<(), String> {
+    let converted = engine.reconcile_sealed_changes(paths)?;
+    let purge = sealed_plaintext_among(engine, paths, converted)?;
+    if purge.is_empty() {
+        return Ok(());
+    }
+    let rels: Vec<&str> = purge.iter().map(String::as_str).collect();
+    hist.purge_files(&rels)?;
+    hist.snapshot("seal plaintext received from sync").ok();
+    Ok(())
+}
+
+/// Which of a notice's paths this cleanup may take out of history.
+///
+/// A notice remembers the whole failed pull's changed notes, because at record
+/// time nothing had established which of them sealing was about — and
+/// `History::purge_files` removes a note under every name it ever had from ALL
+/// history and prunes so the content is unrecoverable. Handing it the notice
+/// wholesale therefore destroyed the entire version history of every ordinary
+/// note that happened to ride the same pull, on a vault where one folder is
+/// sealed. So the set is narrowed to plaintext sealing owns:
+///
+/// - what this pass converted, which is the same set `seal_incoming` purges;
+/// - plus notice paths that sit in a confirmed sealed scope now. Those are
+///   already ciphertext on disk, so this pass converts nothing for them — but
+///   an earlier pass that got as far as the file and died before the purge
+///   leaves exactly that: sealed on disk, plaintext still in history.
+///
+/// Membership is read against the markers standing right now, including for
+/// the whole-vault sweep a changed marker triggers. A marker that has since
+/// been removed leaves its former notes out of the set, which is the
+/// conservative direction: the notice stays standing (nothing cleared it) and
+/// the user is still told the plaintext is there, rather than an unconfirmed
+/// or withdrawn seal being able to nominate notes for an irreversible purge.
+fn sealed_plaintext_among(
+    engine: &crate::vault::Engine,
+    notice_paths: &[String],
+    converted: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let mut purge = converted;
+    for rel in notice_paths.iter().filter(|rel| is_markdown(rel)) {
+        if !purge.contains(rel) && engine.note_in_sealed_scope(rel)? {
+            purge.push(rel.clone());
+        }
+    }
+    purge.sort();
+    purge.dedup();
+    Ok(purge)
+}
+
+/// Adopt sealed plaintext a sync just checked out, then take it back out of
+/// this app-owned git graph. The remote is a separate copy and keeps its own;
+/// the caller warns about that.
+///
+/// Returns the paths it converted — empty when the checkout carried nothing
+/// this vault seals.
+fn seal_incoming(
+    history: &State<HistoryState>,
+    state: &State<AppState>,
+    paths: &[String],
+) -> Result<Vec<String>, String> {
+    let hist_guard = history.0.lock().unwrap();
+    let hist = hist_guard.as_ref().ok_or_else(|| "version history unavailable".to_string())?;
+    let mut engine = state.0.lock().unwrap();
+    let converted = engine.reconcile_sealed_changes(paths)?;
+    if converted.is_empty() {
+        return Ok(converted);
+    }
+    let rels: Vec<&str> = converted.iter().map(String::as_str).collect();
+    hist.purge_files(&rels)?;
+    hist.snapshot("seal plaintext received from sync").ok();
+    Ok(converted)
 }
 
 pub(crate) fn sync_root(state: &State<AppState>) -> std::path::PathBuf {
@@ -27,6 +273,10 @@ pub(crate) fn record_sync(state: &State<VaultSyncState>, result: &Result<SyncRep
     record_last(&mut state.last.lock().unwrap(), result);
 }
 
+/// The last push/pull's outcome, one slot, newest wins. `privacy` is
+/// deliberately not part of it: that slot is the record of damage a later
+/// success does not undo, and clearing it here is exactly the bug this
+/// separation exists to prevent.
 fn record_last(last: &mut VaultSyncLast, result: &Result<SyncReport, String>) {
     match result {
         Ok(report) => {
@@ -76,10 +326,17 @@ pub(crate) fn record_outcome(
 /// [`record_outcome`] over plain state, so the rule is testable without an app.
 ///
 /// A [`FailureClass::Local`] failure is outside the quiet window's bargain
-/// entirely: it records on its first occurrence, on either lane. It also
-/// leaves the failure run alone in both directions — the run tracks whether
-/// the remote is reachable, and an attempt that got far enough to fail locally
-/// answered that question neither way.
+/// entirely: it records on its first occurrence, on either lane.
+///
+/// It also leaves the failure run alone, which is conservative rather than
+/// exact. The run tracks whether the remote is reachable, and the one Local
+/// failure that exists today — sealing after a pull that already fetched and
+/// checked out — proves it IS reachable, so ending the run would be the
+/// accurate call. Leaving it standing costs at most one more quiet tick: the
+/// next successful sync ends the run anyway, and a genuine transport miss
+/// would have restarted it. The class stays the general "the remote leg is not
+/// what failed", so it is not the place to encode one instance's extra
+/// knowledge.
 pub(crate) fn record_outcome_into(
     last: &mut VaultSyncLast,
     fail: &mut AutoFail,
@@ -110,11 +367,17 @@ pub(crate) fn vault_sync_status(
     let configured = gitsync::sync_configured(&root);
     let conflicted = if configured { gitsync::sync_pending_conflicts(&root) } else { Vec::new() };
     let last = sync.last.lock().unwrap();
+    let (privacy_error, privacy_paths) = match &last.privacy {
+        Some(notice) => (Some(notice.message.clone()), notice.paths.clone()),
+        None => (None, Vec::new()),
+    };
     VaultSyncStatus {
         configured,
         last_result: last.result.clone(),
         last_error: last.error.clone(),
         conflicted,
+        privacy_error,
+        privacy_paths,
     }
 }
 
@@ -133,7 +396,11 @@ pub(crate) fn vault_sync_set_remote(
         &token,
         cert.as_deref(),
     )?;
-    *sync.last.lock().unwrap() = VaultSyncLast::default();
+    // A new remote makes this session's push/pull record meaningless — but not
+    // the privacy notice, which is about plaintext in THIS machine's history
+    // and is untouched by where the vault syncs to next.
+    let mut last = sync.last.lock().unwrap();
+    *last = VaultSyncLast { privacy: last.privacy.take(), ..VaultSyncLast::default() };
     Ok(())
 }
 
@@ -204,26 +471,16 @@ pub(crate) async fn vault_sync_pull(
                 // files with the public recipient, then remove those paths
                 // from THIS app-owned Git graph. The remote is a separate copy
                 // and gets an explicit UI warning below.
-                let cleanup: Result<Vec<String>, String> = (|| {
-                    let hist_guard = history.0.lock().unwrap();
-                    let hist = hist_guard
-                        .as_ref()
-                        .ok_or_else(|| "version history unavailable".to_string())?;
-                    let mut engine = state.0.lock().unwrap();
-                    let converted = engine.reconcile_sealed_changes(&report.changed)?;
-                    if converted.is_empty() {
-                        return Ok(converted);
+                match seal_incoming(&history, &state, &report.changed) {
+                    Ok(converted) => {
+                        if !converted.is_empty() {
+                            app.emit("vault:seal-remote-plaintext", converted).ok();
+                        }
+                        // This pass got through, so an earlier one's leftovers
+                        // are worth another try — that retry succeeding is
+                        // what finally clears the pane's sticky warning.
+                        retry_privacy_cleanup(&history, &state, &sync);
                     }
-                    let rels: Vec<&str> = converted.iter().map(String::as_str).collect();
-                    hist.purge_files(&rels)?;
-                    hist.snapshot("seal plaintext received from sync").ok();
-                    Ok(converted)
-                })();
-                match cleanup {
-                    Ok(converted) if !converted.is_empty() => {
-                        app.emit("vault:seal-remote-plaintext", converted).ok();
-                    }
-                    Ok(_) => {}
                     Err(error) => {
                         // The checkout already landed. Preserve its path event
                         // so undo/editor state invalidates correctly, but never
@@ -233,9 +490,14 @@ pub(crate) async fn vault_sync_pull(
                         // it either: the remote leg worked, and what failed
                         // left plaintext in this machine's own history.
                         class = FailureClass::Local;
-                        result = Err(format!(
+                        let message = format!(
                             "sync landed, but inherited sealing could not remove its plaintext local history: {error}"
-                        ));
+                        );
+                        // …and never let the NEXT successful tick erase it:
+                        // last_error is cleared by any Ok, and the plaintext
+                        // this warns about is not.
+                        record_privacy_failure(&sync, &message, &report.changed);
+                        result = Err(message);
                     }
                 }
             }
@@ -310,30 +572,20 @@ pub(crate) fn vault_sync_resolve_finish(
     });
     if let Ok(report) = &result {
         if !report.changed.is_empty() {
-            let cleanup: Result<Vec<String>, String> = (|| {
-                let hist_guard = history.0.lock().unwrap();
-                let hist =
-                    hist_guard.as_ref().ok_or_else(|| "version history unavailable".to_string())?;
-                let mut engine = state.0.lock().unwrap();
-                let converted = engine.reconcile_sealed_changes(&report.changed)?;
-                if converted.is_empty() {
-                    return Ok(converted);
+            match seal_incoming(&history, &state, &report.changed) {
+                Ok(converted) => {
+                    if !converted.is_empty() {
+                        app.emit("vault:seal-remote-plaintext", converted).ok();
+                    }
+                    retry_privacy_cleanup(&history, &state, &sync);
                 }
-                let rels: Vec<&str> = converted.iter().map(String::as_str).collect();
-                hist.purge_files(&rels)?;
-                hist.snapshot("seal plaintext received from sync").ok();
-                Ok(converted)
-            })();
-            match cleanup {
-                Ok(converted) if !converted.is_empty() => {
-                    app.emit("vault:seal-remote-plaintext", converted).ok();
-                }
-                Ok(_) => {}
                 Err(error) => {
                     app.emit("vault:pulled", report.changed.clone()).ok();
-                    result = Err(format!(
+                    let message = format!(
                         "sync resolution landed, but inherited sealing could not remove its plaintext local history: {error}"
-                    ));
+                    );
+                    record_privacy_failure(&sync, &message, &report.changed);
+                    result = Err(message);
                 }
             }
         }
@@ -346,9 +598,14 @@ pub(crate) fn vault_sync_resolve_finish(
 
 #[cfg(test)]
 mod tests {
-    use super::{record_outcome_into, FailureClass};
+    use super::{
+        clear_privacy_into, load_privacy, note_privacy_into, record_outcome_into,
+        run_privacy_cleanup, store_privacy, FailureClass,
+    };
     use crate::gitsync::SyncReport;
+    use crate::history::History;
     use crate::{AutoFail, VaultSyncLast};
+    use std::fs;
     use std::time::{Duration, Instant};
 
     fn ok() -> Result<SyncReport, String> {
@@ -390,7 +647,9 @@ mod tests {
         );
         assert!(last.result.is_none());
 
-        // …and it stays told: a later success is the only thing that clears it
+        // The pane's one-slot `error` is still the last attempt's, so the next
+        // success takes it back — which is exactly why the same news is also
+        // written to the sticky slot the test below covers.
         record_outcome_into(
             &mut last,
             &mut fail,
@@ -400,6 +659,90 @@ mod tests {
             t0 + Duration::from_secs(300),
         );
         assert!(last.error.is_none());
+    }
+
+    /// Acceptance for the sticky slot: the auto lane pulls every few minutes,
+    /// so "recorded" and "still there in five minutes" are different claims.
+    /// The plaintext this warns about is in local history until someone
+    /// removes it, and no amount of successful syncing removes it.
+    #[test]
+    fn a_later_successful_sync_does_not_clear_the_privacy_notice() {
+        let mut last = VaultSyncLast::default();
+        let mut fail = AutoFail::default();
+        let t0 = Instant::now();
+
+        note_privacy_into(&mut last, "sealing could not remove its plaintext", &[
+            "Sealed/Note.md".to_string()
+        ]);
+        record_outcome_into(&mut last, &mut fail, &sealing_failed(), true, FailureClass::Local, t0);
+
+        // six ticks of a perfectly healthy vault — half an hour of the exact
+        // traffic that used to erase the warning
+        for tick in 1..=6 {
+            record_outcome_into(
+                &mut last,
+                &mut fail,
+                &ok(),
+                true,
+                FailureClass::Transport,
+                t0 + Duration::from_secs(300 * tick),
+            );
+        }
+
+        assert!(last.error.is_none(), "the ordinary error slot should have moved on");
+        let notice = last.privacy.as_ref().expect("a successful sync erased the privacy notice");
+        assert_eq!(notice.message, "sealing could not remove its plaintext");
+        assert_eq!(notice.paths, vec!["Sealed/Note.md".to_string()]);
+    }
+
+    /// The two things that DO clear it, and the shape of what accumulates
+    /// meanwhile: a second failure names a second file without losing the
+    /// first, because both files' plaintext is equally still there.
+    #[test]
+    fn only_a_resolved_cleanup_or_an_acknowledgement_clears_the_privacy_notice() {
+        let mut last = VaultSyncLast::default();
+
+        assert!(note_privacy_into(&mut last, "first", &["A.md".to_string()]));
+        assert!(note_privacy_into(&mut last, "second", &["B.md".to_string()]));
+        assert_eq!(
+            last.privacy.as_ref().unwrap().paths,
+            vec!["A.md".to_string(), "B.md".to_string()],
+            "the second failure dropped the first file's plaintext from the warning"
+        );
+        assert!(
+            !note_privacy_into(&mut last, "second", &["B.md".to_string()]),
+            "an unchanged notice asked to be written to disk again"
+        );
+
+        // what `vault_sync_ack_privacy` and a resolved retry both call
+        assert!(clear_privacy_into(&mut last));
+        assert!(last.privacy.is_none());
+        assert!(!clear_privacy_into(&mut last), "clearing nothing still wanted a disk write");
+    }
+
+    /// A restart is not a way to lose the warning: the slot is in memory, the
+    /// plaintext it is about is on disk, so the slot is written beside it.
+    #[test]
+    fn the_privacy_notice_survives_a_restart() {
+        let dir = std::env::temp_dir().join(format!(
+            "substrate-privacy-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let path = dir.join("nested/vault-sync-privacy.json");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let mut last = VaultSyncLast::default();
+        note_privacy_into(&mut last, "sealing failed", &["Sealed/Note.md".to_string()]);
+        store_privacy(&path, last.privacy.as_ref());
+
+        let reloaded = load_privacy(&path).expect("the notice did not come back after a restart");
+        assert_eq!(reloaded, *last.privacy.as_ref().unwrap());
+
+        store_privacy(&path, None);
+        assert!(load_privacy(&path).is_none(), "an acknowledged notice came back anyway");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The other half of the same rule, unchanged: a transport miss on the
@@ -429,5 +772,52 @@ mod tests {
         let mut fail = AutoFail::default();
         record_outcome_into(&mut last, &mut fail, &offline, false, FailureClass::Transport, t0);
         assert!(last.error.is_some(), "a button press hid its own failure");
+    }
+
+    /// A notice remembers the whole failed pull, sealed and ordinary notes
+    /// together — so the retry that finally succeeds must take only sealing's
+    /// plaintext out of history. Purging the notice wholesale destroyed every
+    /// version of every ordinary note that happened to arrive in the same
+    /// pull, silently, on the tick that made the warning go away.
+    #[test]
+    fn a_privacy_retry_purges_sealed_plaintext_and_leaves_the_rest_of_the_pull_alone() {
+        let (mut engine, root) = crate::vault::testutil::temp_vault("sync-privacy-retry");
+        engine.create_folder("Private").unwrap();
+        let ordinary =
+            engine.create_full("Diary", "Inbox", None, None, Some("ordinary needle")).unwrap();
+        let secret =
+            engine.create_full("Secret", "Private", None, None, Some("sealed needle")).unwrap();
+
+        let hist = History::new(root.clone()).unwrap();
+        hist.snapshot("first").unwrap();
+        fs::write(root.join(&ordinary.path), "ordinary needle, edited\n").unwrap();
+        hist.snapshot("second").unwrap();
+        assert_eq!(hist.list(&ordinary.path).unwrap().len(), 2, "fixture needs two versions");
+
+        // Sealing arrives after the plaintext is already in history — the
+        // inherited-sealing case the notice exists for. The file on disk is
+        // ciphertext now, so the retry converts nothing and the purge set
+        // rests entirely on where the path sits.
+        engine.prepare_seal_scope("Private", Some("correct horse")).unwrap();
+        engine.finish_seal_scope().unwrap();
+        assert!(hist.list(&secret.path).unwrap().len() >= 1, "fixture needs sealed history");
+
+        let notice = vec![ordinary.path.clone(), secret.path.clone()];
+        run_privacy_cleanup(&hist, &mut engine, &notice).unwrap();
+
+        assert_eq!(
+            hist.list(&ordinary.path).unwrap().len(),
+            2,
+            "the retry destroyed an ordinary note's version history"
+        );
+        let log = std::process::Command::new("git")
+            .args(["-C", &root.to_string_lossy(), "log", "--all", "-p"])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap();
+        assert!(log.contains("ordinary needle"), "the ordinary note's content is unrecoverable");
+        assert!(!log.contains("sealed needle"), "sealed plaintext survived the purge");
+
+        let _ = fs::remove_dir_all(&root);
     }
 }

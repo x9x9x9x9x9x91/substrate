@@ -533,6 +533,10 @@ export const vaultSyncResolveClear = (path: string) =>
   invoke<ConflictState>("vault_sync_resolve_clear", { path });
 /** Commits the merge once every conflicted file has a choice. */
 export const vaultSyncResolveFinish = () => invoke<SyncReport>("vault_sync_resolve_finish");
+/** The user says they have dealt with the plaintext `privacy_error` warns
+    about. Nothing else dismisses it except the cleanup itself succeeding on a
+    later sync — a successful sync alone deliberately does not. */
+export const vaultSyncAckPrivacy = () => invoke<void>("vault_sync_ack_privacy");
 export const historyList = (path: string) => invoke<HistoryEntry[]>("history_list", { path });
 export const historyPoints = () => invoke<VaultHistoryPoint[]>("history_points");
 /** The history of specific frontmatter facts, for `AT()` / `PROP()` and the

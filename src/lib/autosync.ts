@@ -93,6 +93,11 @@ export class AutoSync {
     if (this.pullTimer !== undefined) this.deps.clearTimeout(this.pullTimer);
     this.pushTimer = this.pullTimer = undefined;
     this.dirtySince = undefined;
+    // a push asked for mid-flight belongs to the lane that is being stopped;
+    // a later restart would otherwise open with a push nobody asked it for.
+    // `inflight` is deliberately left alone: run()'s finally owns it, and
+    // clearing it here would drop the guard off a leg still in the air.
+    this.queuedPush = false;
   }
 
   /** Any vault change — own writes, external edits, a pull's checkout; the

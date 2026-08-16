@@ -304,7 +304,15 @@ impl Engine {
         Ok(found)
     }
 
-    pub(super) fn note_in_sealed_scope(&self, rel: &str) -> Result<bool, String> {
+    /// Is this path governed by a seal this device confirmed, right now?
+    ///
+    /// Read-only, and deliberately so: it answers the membership question
+    /// without encrypting anything, which is what a caller deciding whether a
+    /// path's plaintext belongs to sealing needs. `enforce_sealed_scope` is
+    /// the mutating sibling and answers a narrower question — it returns false
+    /// for a note already sealed on disk, which is exactly the note whose
+    /// plaintext an interrupted earlier pass may still have left in history.
+    pub(crate) fn note_in_sealed_scope(&self, rel: &str) -> Result<bool, String> {
         Ok(self.scope_marker_for_note(rel)?.is_some())
     }
 
@@ -969,6 +977,46 @@ mod tests {
         let created =
             engine.create_full("After restore", &restored, None, None, Some("needle")).unwrap();
         assert!(created.sealed);
+    }
+
+    /// The read-only membership question, whose answer decides whose
+    /// plaintext a history purge is allowed to remove. Every arm matters: a
+    /// note outside the scope must answer false however sealed its neighbours
+    /// are, a note under a nested folder must answer true (the seal is
+    /// inherited by the whole subtree), and an unconfirmed marker must answer
+    /// false or a planted one could nominate arbitrary notes for a purge.
+    #[test]
+    fn sealed_scope_membership_reads_confirmed_ancestors_only() {
+        let (mut engine, root) = crate::vault::testutil::temp_vault("sealed-membership");
+        engine.create_folder("Private/Nested").unwrap();
+        engine.create_folder("Public").unwrap();
+        let inside =
+            engine.create_full("Inside", "Private", None, None, Some("needle one")).unwrap();
+        let nested =
+            engine.create_full("Nested", "Private/Nested", None, None, Some("needle two")).unwrap();
+        let outside =
+            engine.create_full("Outside", "Public", None, None, Some("needle three")).unwrap();
+        engine.prepare_seal_scope("Private", Some("correct horse")).unwrap();
+        engine.finish_seal_scope().unwrap();
+
+        assert!(engine.note_in_sealed_scope(&inside.path).unwrap());
+        assert!(engine.note_in_sealed_scope(&nested.path).unwrap(), "a seal covers its subtree");
+        assert!(!engine.note_in_sealed_scope(&outside.path).unwrap());
+        // A path that does not exist at all is still answerable: membership is
+        // about where a path sits, not about what is on disk there. A purge
+        // set built from a sync report names paths a later checkout removed.
+        assert!(engine.note_in_sealed_scope("Private/Gone.md").unwrap());
+        assert!(!engine.note_in_sealed_scope("Public/Gone.md").unwrap());
+
+        // The gate that makes this safe to read: a marker nobody confirmed
+        // governs nothing, so it cannot nominate `Public/Outside.md` for a
+        // purge by arriving in a sync checkout.
+        plant_marker(&root, "Public", SealScopeState::Active, &foreign_recipient());
+        assert!(!engine.note_in_sealed_scope(&outside.path).unwrap());
+
+        // And asking never seals: the read-only half must leave the plaintext
+        // it reports on exactly as it found it.
+        assert!(!sealed::is_sealed(&fs::read(root.join(&outside.path)).unwrap()));
     }
 
     #[test]

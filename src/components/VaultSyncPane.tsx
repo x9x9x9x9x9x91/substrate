@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import type { SyncReport, VaultSyncStatus } from "../lib/types";
 import SyncConflicts from "./SyncConflicts";
 import {
+  vaultSyncAckPrivacy,
   vaultSyncPull,
   vaultSyncPush,
   vaultSyncSetRemote,
@@ -67,6 +68,7 @@ export default function VaultSyncPane({
   const [certPem, setCertPem] = useState("");
   const [setupError, setSetupError] = useState<string | null>(null);
   const [remoteSaved, setRemoteSaved] = useState(false);
+  const [acking, setAcking] = useState(false);
   // Remounts the conflict surface so it re-reads git after every sync command.
   const [conflictNonce, setConflictNonce] = useState(0);
   const undo = useUndo();
@@ -97,6 +99,10 @@ export default function VaultSyncPane({
         last_result: report,
         last_error: null,
         conflicted: report.conflicted,
+        // carried, never cleared: a sync that worked says nothing about
+        // plaintext an earlier one left behind
+        privacy_error: status?.privacy_error ?? null,
+        privacy_paths: status?.privacy_paths ?? [],
       });
     } catch (error) {
       setActionError(errorText(error));
@@ -104,6 +110,22 @@ export default function VaultSyncPane({
       await refreshStatus();
       setConflictNonce((n) => n + 1);
       setBusy(null);
+    }
+  };
+
+  /** The user says they have dealt with the plaintext. This is the only thing
+      besides the cleanup itself succeeding that takes the notice down — which
+      is the whole point of it living in its own field. */
+  const dismissPrivacy = async () => {
+    if (acking) return;
+    setAcking(true);
+    try {
+      await vaultSyncAckPrivacy();
+    } catch (error) {
+      setActionError(errorText(error));
+    } finally {
+      await refreshStatus();
+      setAcking(false);
     }
   };
 
@@ -155,6 +177,11 @@ export default function VaultSyncPane({
   // a restart nothing has synced yet, and the pane used to read "Ready" with a
   // conflicted merge still parked in git.
   const hasConflicts = (status?.conflicted.length ?? 0) > 0;
+  // Its own field, not last_error: last_error is the last attempt's outcome
+  // and the auto lane's next pull — minutes away — takes it back, while the
+  // plaintext this warns about is still in local history.
+  const privacyError = status?.privacy_error ?? null;
+  const privacyPaths = status?.privacy_paths ?? [];
   const checking = status === null && statusError === null;
   const statusLabel = checking
     ? "Checking"
@@ -162,7 +189,7 @@ export default function VaultSyncPane({
       ? "Error"
       : !configured
         ? "Setup needed"
-        : hasConflicts
+        : hasConflicts || privacyError
           ? "Needs attention"
           : busy === "push"
             ? "Pushing"
@@ -187,7 +214,7 @@ export default function VaultSyncPane({
               <h2 id="vault-sync-status-title">Status</h2>
               <span
                 className={`vault-sync-state${
-                  visibleStatusError || hasConflicts
+                  visibleStatusError || hasConflicts || privacyError
                     ? " danger"
                     : configured && !checking
                       ? " ok"
@@ -222,6 +249,36 @@ export default function VaultSyncPane({
                 </div>
               )}
             </div>
+
+            {privacyError && (
+              <div className="vault-sync-privacy" role="alert">
+                <h3>Plaintext may still be in this device&apos;s history</h3>
+                <div className="vault-sync-error">{privacyError}</div>
+                {privacyPaths.length > 0 && (
+                  <ul>
+                    {privacyPaths.map((path) => (
+                      <li key={path}>
+                        <code>{path}</code>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p className="vault-sync-muted">
+                  Syncing again does not remove it. This notice stays — across restarts —
+                  until the cleanup succeeds on a later sync, or you dismiss it here.
+                </p>
+                <div className="vault-sync-actions">
+                  <button
+                    type="button"
+                    className="vault-sync-button"
+                    disabled={acking}
+                    onClick={() => void dismissPrivacy()}
+                  >
+                    {acking ? <span className="sync-spinner" /> : "Dismiss"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {configured && (
               <div className="vault-sync-actions">
@@ -278,6 +335,8 @@ export default function VaultSyncPane({
                   last_result: merged,
                   last_error: null,
                   conflicted: merged.conflicted,
+                  privacy_error: status?.privacy_error ?? null,
+                  privacy_paths: status?.privacy_paths ?? [],
                 });
                 setActionError(null);
                 void refreshStatus();

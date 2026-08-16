@@ -808,6 +808,14 @@ export interface VaultSyncStatus {
   /** Paths of the conflicted merge parked in git, read from the repository —
    * unlike `last_result`, this survives a restart. */
   conflicted: string[];
+  /** A sealing cleanup that failed and left plaintext in local git history.
+   * Separate from `last_error` because `last_error` is the last attempt's
+   * outcome and the next successful pull takes it back — while the plaintext
+   * is still there. Only a resolved cleanup or `vaultSyncAckPrivacy` clears
+   * this one, and it survives a restart. */
+  privacy_error: string | null;
+  /** The paths whose plaintext that warning is about. */
+  privacy_paths: string[];
 }
 
 /** What the user picked for one conflicted path. */

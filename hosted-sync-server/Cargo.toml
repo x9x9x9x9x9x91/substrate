@@ -1,0 +1,25 @@
+[package]
+name = "substrate-hosted-sync-server"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+description = "Single-tenant encrypted blob store for Substrate hosted sync"
+license = "AGPL-3.0-only"
+publish = false
+
+# Deliberately dependency-free. This binary is the only Substrate code that
+# runs on a machine its user does not sit at, it never holds a key, and it only
+# ever stores ciphertext — so its whole attack surface should be auditable in one
+# sitting. std's TcpListener and threads are enough for one person's vault.
+[dependencies]
+
+[lib]
+name = "substrate_hosted_sync_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "substrate-hosted-sync-server"
+path = "src/main.rs"
+
+[profile.release]
+strip = true
