@@ -7218,6 +7218,120 @@ body.agenda-window .palette:focus-visible {
 }
 
 
+/* Jobs dashboard (dashboard: jobs) — one launchd agent per row:
+   dot | short name + prefix over schedule/pid | chips | actions. Healthy
+   rows dim (`quiet`), anything paused / failing / stale keeps the normal
+   foreground, so a glance lands on the rows that need a person. Geometry and
+   chip shapes follow the coding dashboard; buttons reuse `.sync-btn`. */
+.jobs-rows {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+}
+
+.jobs-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: start;
+  padding: 8px;
+  border-radius: var(--r);
+  font: var(--dash-data);
+}
+
+.jobs-row:hover {
+  background: var(--hover-dense);
+}
+
+.jobs-row > .dash-dot {
+  margin-top: 5px;
+}
+
+.jobs-row.quiet .jobs-sub {
+  color: var(--text-4);
+}
+
+.jobs-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.jobs-top {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* the prefix sheds width first — the short name is the row's identity */
+.jobs-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-1);
+  font-weight: 550;
+}
+
+.jobs-prefix {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+
+.jobs-sub {
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jobs-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 1px;
+}
+
+.jobs-chip {
+  padding: 1px 7px;
+  border: 1px solid var(--hair-soft);
+  border-radius: 9px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.jobs-chip.warn {
+  color: var(--warn);
+  border-color: rgba(217, 160, 43, 0.4);
+}
+
+.jobs-chip.alert {
+  color: var(--danger);
+  border-color: var(--hair-soft);
+}
+
+.jobs-acts {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 108px;
+}
+
+/* the read-only word holds the actions rail so ungated rows keep the grid */
+.jobs-readonly {
+  color: var(--text-4);
+  white-space: nowrap;
+}
+
+
 
 /* Hub dashboard (dashboard: hub) — ordinary markdown laid out as a
    column-first home: `##` = section labels (dash-section-label), consecutive

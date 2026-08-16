@@ -883,7 +883,7 @@ those always stay section rows.
 
 Sidebar icon: each dashboard row renders a curated per-kind glyph
 (`src/lib/dbicons.ts` DASHBOARD_ICONS — `food`, `metrics`, `yield-apr`, `hub`,
-`feed`, `music-work`, `tasks`, `sync`, `coding`,
+`feed`, `music-work`, `tasks`, `sync`, `coding`, `jobs`,
 plus any machine-specific kinds this build carries); an `icon:` prop overrides
 it (a curated glyph id, anything else treated as an emoji), and kinds without a
 mark keep the generic chart glyph. The curated glyph ids (`src/lib/dbicons.ts`
@@ -903,7 +903,7 @@ These public kinds are dispatched: `metrics` → the metrics cards renderer (§5
 board (below); `coding` → the repo-health table over the scan root its `root:`
 prop names (default `~/Coding`); `charts` → the chart-fence dashboard (§5.5),
 whether or not the body actually holds a fence; `sync` → the sync control
-surface (below).
+surface (below); `jobs` → the launchd jobs pane (below).
 **A missing `dashboard` prop looks at the body** — one or more ` ```chart `
 fences makes it a charts dashboard (§5.5), none falls back to the yield
 tracker. So a charts dashboard needs no specific key, just the fences;
@@ -1211,6 +1211,56 @@ state, not an error.
 **The app never writes this sheet** — the pane is read-only, so a scanner
 re-write between reads costs nothing (`src/lib/musicwork.ts`,
 `src/components/MusicWorkDashboard.tsx`).
+
+`jobs` (SUB-705) is a read + control surface over the machine's launchd agents.
+launchd owns the clock — the app has no auto-start, so an in-app scheduler would
+die silently; this pane only reports and (opt-in) nudges. The note holds config
+props only; the rows come from `~/Library/LaunchAgents` plus `launchctl list`.
+
+```yaml
+---
+type: dashboard
+dashboard: jobs
+prefixes: com.example., com.substrate.   # label allowlist
+control:                                 # labels that get buttons
+  - com.example.digest
+  - com.example.verify
+freshness:                               # label | note | prop | max-age
+  - com.example.digest | Dashboards/News.md | curated | 26h
+---
+```
+
+`prefixes` is comma-separated or a YAML list; entries of 4 characters or fewer
+(a stray stub, or a bare `com.` that would match every agent on the machine)
+are dropped, and an empty or junk-only value falls back to the built-in default
+(`com.substrate.`) rather than blanking the pane. A
+label matches its **longest** listed prefix, which becomes the row's group key;
+what remains is the short name the row shows.
+
+`control` opts individual labels into Pause (`launchctl bootout`), Resume
+(`bootstrap` from the plist) and Run now (`kickstart -k`). Everything else is
+read-only. The gate is doubled by design: a label is only actionable when it is
+listed in `control` **and** the machine has a plist for it — so a job listed by
+`launchctl` but not registered here can be read and never poked, and a machine
+with none of these agents renders a calm empty state with no verbs. Verbs are
+idempotent: pausing an already-paused job or resuming a loaded one reports the
+existing state rather than failing.
+
+Each `freshness` entry is four `|`-separated fields — the label, a vault-relative
+note path (absolute, `~` and `..` paths are refused), a frontmatter prop on that
+note, and a max-age (`26h`, `90m`, `3d`, `45s`; a bare number reads as hours).
+The stamp is parsed leniently (RFC 3339, `YYYY-MM-DD HH:MM[:SS]`, or a bare
+`YYYY-MM-DD` = local midnight); missing, unreadable or older-than-max-age all
+warn on the row and on the header state dot, never error. A future stamp is
+clamped to age zero rather than flagged. Malformed entries drop that one probe.
+
+The surface is macOS-only and checks before it speaks (SUB-1045): the pane asks
+the backend whether a `launchctl` is actually present, and where there is none
+it renders one line saying so and no control verbs at all, rather than buttons
+whose only possible outcome is an error.
+
+**The app never writes the note** — this dashboard is config-in, status-out
+(`src-tauri/src/jobs.rs`, `src/components/JobsDashboard.tsx`).
 
 
 ### 5.3 Yield dashboard — ` ```csv ` snapshots

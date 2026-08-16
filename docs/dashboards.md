@@ -752,9 +752,10 @@ rather than quietly handing you a different dashboard.
 ## Kinds over the machine
 
 These read state *outside* the vault, so they only light up on a machine that
-has it. Elsewhere they render an empty state, not an error — and any button
-that would need a missing tool renders disabled with the reason, rather than
-offering a verb that could only fail.
+has it. Elsewhere they render an empty state, not an error: the pane says in a
+line what it was looking for and why there is nothing here, and renders no
+action buttons at all — a verb whose only possible outcome is a failure is
+better not offered than offered greyed out.
 
 ### `sync` — a control surface over an external sync system
 
@@ -879,6 +880,69 @@ root: ~/Coding
 ---
 
 Per-repo git health. Nothing here is editable — the table is the scan.
+```
+
+
+These read state *outside* the vault, so they only light up on a machine that
+has it. Elsewhere they render an empty state, not an error — and any button
+that would need a missing tool renders disabled with the reason, rather than
+offering a verb that could only fail.
+
+### `jobs` — the scheduled jobs on this machine
+
+launchd owns the clock. The app has no auto-start, so an in-app scheduler would
+silently stop the moment nobody opened the window — this pane is a *window onto*
+the machine's scheduler, never a replacement for it. Every row is one agent: a
+state dot, the short name and its prefix, the schedule (and live pid), then
+chips for a nonzero last exit, for the exit-status history, and for freshness.
+
+macOS only, and the pane says so itself: it asks the backend whether there is a
+launchd here before it reads anything, and on a machine without one it renders
+that one line and no buttons at all.
+
+Config is the note's own frontmatter:
+
+| prop | meaning |
+| --- | --- |
+| `prefixes` | label allowlist — comma-separated or a YAML list. Defaults to `com.substrate.`; junk or empty falls back to that rather than blanking the pane. Name the prefixes your own agents use. |
+| `control` | labels that get Pause / Resume / Run buttons. Everything else renders read-only — a job the app didn't register isn't the app's to poke. |
+| `freshness` | probes shaped `label \| note/path.md \| prop \| 26h`. The prop is read from that vault note's frontmatter; older than the max-age (or missing/unreadable) warns on the row and on the header dot. |
+
+Buttons are gated twice: the label must be listed in `control:` **and** the job
+must exist on this machine with a plist on disk. On a machine with none of these
+agents the pane says so calmly and offers no verbs at all.
+
+**Exit history.** `launchctl list` exposes only the single most recent
+`LastExitStatus`, so one lucky success paints a week of failures green. Every
+poll (60s) therefore samples each job's `(pid, last exit)` picture into a
+per-label ring of recent run outcomes, persisted app-side at
+`.vault/jobs-exit.json` (last 10 per label, device-local, git-excluded). A row
+with failures in its window gets a detail chip — "3 of last 5 runs failed" — and
+the row reads unhealthy through the same dot/tint idiom as the exit chip:
+**alert** (red) when most of the window failed, **warn** (amber) when some did,
+and the header counts those rows as *failing* / *flaky* accordingly. **Polls are
+not runs:** the 60s sample sees only the latest run — a run that starts and ends
+between two polls leaves no trace — so the counts are approximate, a floor on
+how often the job ran rather than an exact tally. Dedupe is by state transition:
+the same picture twice is one run; a status flip or a pid turnover/end records a
+new one; a pid appearing is a run *starting* and records nothing.
+
+A complete note:
+
+```markdown
+---
+type: dashboard
+dashboard: jobs
+prefixes: com.example., com.substrate.
+control:
+  - com.example.digest
+  - com.example.verify
+freshness:
+  - com.example.digest | Dashboards/News.md | curated | 26h
+---
+
+Scheduled jobs on this machine. Pausing here pauses the job for the machine,
+not just for the app.
 ```
 
 

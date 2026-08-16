@@ -179,6 +179,17 @@ Capacities, Affine).*
   the reason instead of offering a verb that could only fail. Careful claim:
   the app copies nothing itself; the differentiator is that the *notes* are
   the configuration and the surface is one copyable file (`cookbook/sync/`).
+- **A window onto the machine's scheduler** — the `jobs` kind renders every
+  launchd agent under label prefixes the note names: schedule, live pid, last
+  exit, a ring of recent run outcomes (launchd reports only the latest, so one
+  lucky success would otherwise paint a failing week green), and per-job
+  *freshness* probes that read a stamp out of another note's frontmatter — the
+  check that catches a job which is green, loaded, and quietly producing
+  nothing. Pause / Resume / Run now are opt-in per label and doubly gated (the
+  note must list it AND the machine must hold its plist), and a machine with no
+  launchd at all gets one calm line instead of buttons that could only fail.
+  Careful claim: the app schedules nothing itself — launchd owns the clock, and
+  the notes are the configuration (`cookbook/jobs/`).
 - **Dashboards you (or your agent) can write, without a plugin store** — a
   `dashboard:` value can name a folder of code living in the vault itself
   (`.vault/kinds/<id>/`: a manifest plus an ES module with one `mount(el, ctx)`

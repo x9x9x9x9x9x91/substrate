@@ -39,6 +39,7 @@ one-line prompt.
 | [`coding/`](coding) | coding | every repo under one folder, sorted by what needs doing |
 | [`studio-year/`](studio-year) | heatmap | a year of days as squares, shaded from one log sheet |
 | [`release-arc/`](release-arc) | timeline | start-to-ship bars per release, lanes grouped by status |
+| [`jobs/`](jobs) | jobs | every launchd job on the machine: schedule, exit history, freshness |
 
 Screenshots live in [`shots/`](shots) — each is the recipe's own files
 rendered in the app, captured by `e2e/cookbookshots.spec.ts`.

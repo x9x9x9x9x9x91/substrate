@@ -65,6 +65,7 @@ export const PANE_CONTROLS: ReadonlyMap<string, readonly string[]> = new Map([
   // board's own control; the armed claim is
   ["yield-apr", ["dash-claim"]],
   ["sync", ["sync-row", "sync-pause"]],
+  ["jobs", ["jobs-row", "jobs-chip"]],
   ["hub", ["hub-task", "hub-view"]],
   ["food", ["food-hero", "food-daynav-btn", "food-del"]],
   ["coding", ["coding-refresh", "coding-err"]],

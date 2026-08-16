@@ -64,6 +64,7 @@ pub const BUILT_IN_KINDS: &[&str] = &[
     "metrics",
     "yield-apr",
     "sync",
+    "jobs",
     "hub",
     "food",
     "coding",

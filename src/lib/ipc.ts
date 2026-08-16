@@ -33,6 +33,9 @@ import type {
   HistoryEntry,
   HistoryStatus,
   HistoryVaultSnapshot,
+  Freshness,
+  Job,
+  JobRun,
   LaunchdJob,
   NewTypeProp,
   NoteContent,
@@ -674,6 +677,22 @@ export const syncSleepRead = () => invoke<boolean | null>("sync_sleep_read");
 /** Flip keep-awake (sudo -n pmset -a disablesleep); resolves to the
     read-back-verified state. */
 export const syncSleepSet = (on: boolean) => invoke<boolean>("sync_sleep_set", { on });
+/** Is there a launchd on this machine at all? Gates the jobs
+    dashboard's control verbs — false off macOS, where the pane says so
+    instead of offering buttons whose only outcome is an error. */
+export const jobsAvailable = () => invoke<boolean>("jobs_available");
+/** Health of every launchd agent under the jobs dashboard's prefix allowlist
+    An empty list means the backend defaults. */
+export const jobsRead = (prefixes: string[]) => invoke<Job[]>("jobs_read", { prefixes });
+/** pause | resume | run one job. The label is validated against the jobs
+    actually present under an allowed prefix before launchctl sees it, so an
+    absent job is refused rather than acted on. */
+export const jobsControl = (label: string, action: "pause" | "resume" | "run", prefixes: string[]) =>
+  invoke<JobRun>("jobs_control", { label, action, prefixes });
+/** Artifact-freshness probes ("label | note.md | prop | 26h"): is what this
+    job produces still recent? Malformed specs are dropped, not errors. */
+export const jobsFreshness = (specs: string[]) =>
+  invoke<Freshness[]>("jobs_freshness", { specs });
 /** Per-repo git health under a scan root (coding dashboard). `root` is the
     note's `root:` prop — null scans the default ~/Coding. force=true bypasses
     the backend's 1h scan cache (the refresh button). */

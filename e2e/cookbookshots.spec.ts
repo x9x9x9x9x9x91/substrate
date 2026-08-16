@@ -343,6 +343,18 @@ const SHOTS: Shot[] = [
       await expect(page.locator(".hub-timeline-head", { hasText: "skipped" })).toHaveCount(0);
     },
   },
+  {
+    id: "jobs",
+    nav: "Jobs",
+    installs: [{ file: "Dashboards/Jobs.md", target: "Dashboards/Jobs.md" }],
+    ready: async (page) => {
+      // the roster comes from the mock launchd lane, not the note — what the
+      // recipe contributes is the allowlist and the probes, so the proof is
+      // rows under its prefixes plus a freshness chip the note configured
+      await expect(page.locator(".jobs-row").first()).toBeVisible();
+      await expect(page.locator(".jobs-chip")).not.toHaveCount(0);
+    },
+  },
 ];
 
 mkdirSync(OUT, { recursive: true });

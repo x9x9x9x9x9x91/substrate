@@ -133,6 +133,9 @@ const HISTORY_MODE_COMMANDS = new Set([
   /* dashboard reads (external state, never vault writes) — these render live
      numbers while browsing the past, which is honest: they are not vault
      content and the projection has never claimed to cover them */
+  "jobs_available",
+  "jobs_read",
+  "jobs_freshness",
   "coding_scan",
   "sync_state_read",
   "sync_runs",
@@ -346,6 +349,10 @@ declare global {
         Pass a folder path to bind it somewhere instead; a path containing
         "missing" is the folder-went-away case. */
     __mockUnbindMount?: (name: string, path?: string) => void;
+    /** boot the jobs dashboard on a machine with no launchd — what every
+        non-macOS install is. The pane says so instead of rendering a roster
+        it cannot read. Read per call, so addInitScript is the seam */
+    __mockJobsNoLaunchd?: boolean;
   }
 }
 
@@ -1760,6 +1767,8 @@ interface MockSyncLeg {
       renders live in the demo. */
   history?: MockSyncHistory[];
 }
+/** "n ms ago" as an ISO stamp — the mock's clock helper. The jobs fixture
+    stamps its runs with it too. */
 const mockSyncIso = (msAgo: number) => new Date(now - msAgo).toISOString();
 /** a run history ending `msAgo` ago, one entry per `everyH` hours going back.
     `tail` overrides the newest entries' outcomes (e.g. ["failed","failed"]). */
@@ -1853,6 +1862,49 @@ const mockSyncJobs = [
   { label: "com.example.sync.verify", service: "verify", plist: true, loaded: true, pid: null, last_exit: 1, schedule: "Sun 11:00" },
   { label: "com.example.sync.prune", service: "prune", plist: true, loaded: true, pid: null, last_exit: 0, schedule: "1st of month 04:00" },
 ];
+/* jobs dashboard fixture: a believable launchd roster across two
+   prefixes — a machine's own agents and this app's — covering every state the
+   pane renders: a healthy timer, a paused job, a nonzero last exit, and one
+   that launchctl lists but has no plist on disk (so control is gated off, the
+   the no-plist case). `prefix` and `name` are what jobs.rs derives from the
+   label.
+   `exit_ring` is the sampled run history: verify fails most of its
+   runs (one lucky success must not repaint it green), digest blipped once of
+   three. */
+const mockJobs = [
+  { label: "com.example.backup", prefix: "com.example.", name: "backup", plist: true, loaded: true, pid: 37031 as number | null, last_exit: 0 as number | null, schedule: "every 4h" as string | null, exit_ring: [0, 0, 0, 0] as number[] },
+  { label: "com.example.digest", prefix: "com.example.", name: "digest", plist: true, loaded: true, pid: null, last_exit: 0, schedule: "every 30m", exit_ring: [0, 1, 0] as number[] },
+  { label: "com.example.index", prefix: "com.example.", name: "index", plist: true, loaded: false, pid: null, last_exit: null, schedule: "every 15m", exit_ring: [] as number[] },
+  { label: "com.example.verify", prefix: "com.example.", name: "verify", plist: true, loaded: true, pid: null, last_exit: 1, schedule: "Sun 11:00", exit_ring: [1, 1, 0, 1, 1] as number[] },
+  { label: "com.substrate.vault-sync", prefix: "com.substrate.", name: "vault-sync", plist: false, loaded: true, pid: 4821, last_exit: 0, schedule: null, exit_ring: [0, 0] as number[] },
+];
+/** Stamps the mock freshness lane reads, keyed `note#prop` — one comfortably
+    fresh, one well past any sane max-age (the warning row + DashHead dot). */
+const mockJobStamps: Record<string, string> = {
+  "Dashboards/News.md#curated": mockSyncIso(4 * 86_400_000),
+};
+const MOCK_JOB_PREFIXES = ["com.example.", "com.substrate."];
+/** jobs.rs `normalize_prefixes` mirrored: trim, drop stubs, dedupe, and fall
+    back to the defaults when nothing usable survives. */
+function mockJobPrefixes(raw: unknown): string[] {
+  const given = Array.isArray(raw) ? raw.map((p) => String(p).trim()).filter((p) => p.length >= 5) : [];
+  return given.length ? [...new Set(given)].sort() : MOCK_JOB_PREFIXES;
+}
+/** `26h` / `90m` / `3d` / bare number = hours; anything else is unusable. */
+function mockJobDurationMs(s: string): number | null {
+  const m = /^(\d+(?:\.\d+)?)\s*([smhd]?)$/.exec(s.trim().toLowerCase());
+  if (!m) return null;
+  const unit = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000, "": 3_600_000 }[m[2]] ?? 3_600_000;
+  const ms = Math.trunc(Number(m[1]) * unit);
+  return ms > 0 ? ms : null;
+}
+/** jobs.rs `human_age` mirrored — "5m" / "1h" / "30h" / "3d". */
+function mockJobAge(ms: number): string {
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  return hours < 48 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+}
 
 interface MockSyncRun {
   id: string;
@@ -4626,6 +4678,91 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
     case "sync_runs": {
       mockSyncTick();
       return [...mockSyncRuns].sort(byStartedThenId);
+    }
+    case "jobs_available":
+      // the mock stands in for a machine that has launchd, so the pane's
+      // controls render in the browser harness the same way they do in the
+      // app — unless a spec asks for the machine that has none
+      return window.__mockJobsNoLaunchd !== true;
+    case "jobs_read": {
+      // jobs.rs mirrored: junk-or-empty prefixes fall back to the defaults
+      // rather than blanking the pane, and rows come back label-sorted.
+      const prefixes = mockJobPrefixes(args?.prefixes);
+      return mockJobs
+        .filter((j) => prefixes.some((p) => j.label.startsWith(p)))
+        .map((j) => ({ ...j }))
+        .sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
+    }
+    case "jobs_control": {
+      // the Rust containment mirrored: the verb is checked before discovery,
+      // then the label must be a job this machine actually has a plist for —
+      // a listing-only row (no plist) can never be controlled.
+      const action = String(args?.action ?? "");
+      // `jobLabel`, not `label`: a bare `label` here reads as one the other
+      // launchd lanes in this dispatch borrow, and the distinction is worth
+      // one adjective.
+      const jobLabel = String(args?.label ?? "");
+      if (action !== "pause" && action !== "resume" && action !== "run")
+        throw new Error(`unknown job action "${action}"`);
+      const prefixes = mockJobPrefixes(args?.prefixes);
+      const job = mockJobs.find(
+        (j) => j.label === jobLabel && j.plist && prefixes.some((p) => j.label.startsWith(p)),
+      );
+      if (!job) throw new Error(`no launchd job ${jobLabel} on this machine`);
+      let note = "";
+      if (action === "run") {
+        // live kickstart needs a loaded service; the UI hides Run on paused
+        // rows, so the mock refuses the same way the real verb would
+        if (!job.loaded) throw new Error(`kickstart failed: ${jobLabel} is not loaded`);
+        job.pid = 90_000 + Math.floor(mockJobs.indexOf(job));
+        job.last_exit = null;
+        // the exit_ring stays: a run that just started has no outcome yet,
+        // and erasing the failure history is exactly what the ring exists
+        // to prevent. The next finished run would append via the
+        // real backend's transition detector, which the mock doesn't fake.
+      } else {
+        const wanted = action === "resume";
+        if (job.loaded === wanted) note = wanted ? "already loaded" : "already paused";
+        job.loaded = wanted;
+        job.pid = null;
+        job.last_exit = null;
+      }
+      return { label: jobLabel, action, started_ms: Date.now(), ok: true, note };
+    }
+    case "jobs_freshness": {
+      // `label | note/path.md | prop | max-age` — the same lenient parse as
+      // jobs.rs, including the "unreadable stamp is a warning, not a crash".
+      const out: unknown[] = [];
+      for (const raw of (args?.specs as string[] | undefined) ?? []) {
+        const parts = String(raw)
+          .split("|")
+          .map((p) => p.trim());
+        if (parts.length !== 4 || parts.some((p) => !p)) continue;
+        const [label, note, prop, age] = parts;
+        const maxAge = mockJobDurationMs(age);
+        if (maxAge == null) continue;
+        const stamp = mockJobStamps[`${note}#${prop}`] ?? null;
+        if (stamp == null) {
+          out.push({ label, stamp: null, age_ms: null, max_age_ms: maxAge, stale: true, reason: `no '${prop}' stamp in ${note}` });
+          continue;
+        }
+        const at = Date.parse(stamp);
+        if (Number.isNaN(at)) {
+          out.push({ label, stamp, age_ms: null, max_age_ms: maxAge, stale: true, reason: `'${prop}' isn't a date I can read` });
+          continue;
+        }
+        const ageMs = Math.max(0, now - at);
+        const stale = ageMs > maxAge;
+        out.push({
+          label,
+          stamp,
+          age_ms: ageMs,
+          max_age_ms: maxAge,
+          stale,
+          reason: stale ? `${prop} is ${mockJobAge(ageMs)} old` : `${prop} ${mockJobAge(ageMs)} ago`,
+        });
+      }
+      return out;
     }
     case "sync_sleep_read":
       return mockSyncSleepDisabled;

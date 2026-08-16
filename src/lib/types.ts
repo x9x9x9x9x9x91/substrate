@@ -337,6 +337,52 @@ export interface SyncRun {
   tail: string;
 }
 
+/** One launchd agent's health from `jobs_read` — the generalized
+    form of `LaunchdJob`, over whatever label prefixes the dashboard note
+    allows rather than a single system's. `plist` doubles as the runtime
+    control probe: no plist on disk means the row is read-only. */
+export interface Job {
+  label: string;
+  /** the allowed prefix this label matched (the row's grouping key) */
+  prefix: string;
+  /** label minus the prefix — the short name the row shows */
+  name: string;
+  plist: boolean;
+  loaded: boolean;
+  pid: number | null;
+  last_exit: number | null;
+  schedule: string | null;
+  /** recent run outcomes, oldest first, capped at 10 app-side.
+      Approximate: a run that starts and ends between polls leaves no trace. */
+  exit_ring: number[];
+}
+
+/** The synchronous outcome of one `jobs_control` action. Unlike a sync run
+    these finish in milliseconds, so there is no registry to poll. */
+export interface JobRun {
+  label: string;
+  /** "pause" | "resume" | "run" */
+  action: string;
+  started_ms: number;
+  ok: boolean;
+  /** empty on a clean success, else "already paused" / launchctl's stderr */
+  note: string;
+}
+
+/** One artifact-freshness verdict from `jobs_freshness`: a job can
+    be loaded, green, and quietly producing nothing — this is the check that
+    notices. Missing or unparseable stamps are stale, never an error. */
+export interface Freshness {
+  label: string;
+  /** the stamp exactly as written in the note, never reformatted */
+  stamp: string | null;
+  age_ms: number | null;
+  max_age_ms: number;
+  stale: boolean;
+  /** why, in one clause — the row's tooltip */
+  reason: string;
+}
+
 
 
 /** What one cookbook install wrote. `renamed_from` is null when the

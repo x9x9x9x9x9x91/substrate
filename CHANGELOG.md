@@ -269,7 +269,9 @@
 
 ### New
 
-- A new Attention dashboard surfaces the tasks that need a look.
+- Two new dashboards: Attention surfaces the tasks that need a look, and Jobs shows
+  every scheduled background task on this machine with its run history and pause
+  control.
 - Map a folder: point the app at any folder of notes and it becomes a database, from the
   sidebar or the palette.
 - Dashboards can print — agenda, food, and the other portable kinds produce a clean

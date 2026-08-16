@@ -12,6 +12,7 @@ mod githist;
 mod gitsync;
 mod history;
 mod kinds;
+mod jobs;
 mod mcpdoor;
 mod net;
 mod notify;
@@ -291,6 +292,7 @@ use commands::cookbook::*;
 use commands::files::*;
 use commands::fx::*;
 use commands::history::*;
+use commands::jobsdash::*;
 use commands::kinds::*;
 use commands::mcp::*;
 use commands::mounts::*;
@@ -1403,6 +1405,10 @@ pub fn run() {
             sync_runs,
             sync_sleep_read,
             sync_sleep_set,
+            jobs_available,
+            jobs_read,
+            jobs_control,
+            jobs_freshness,
             history_list,
             history_points,
             history_facts,

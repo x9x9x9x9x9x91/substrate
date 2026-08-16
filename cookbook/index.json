@@ -160,6 +160,16 @@
         "Releases/Paper Kite.md"
       ],
       "shot": "shots/release-arc.png"
+    },
+    {
+      "id": "jobs",
+      "title": "Scheduled jobs",
+      "kind": "jobs",
+      "blurb": "Every scheduled job on the machine in one table: loaded or paused, next run, live pid, last exit, and a ring of recent outcomes — because launchd reports only the latest run, so one lucky success would otherwise paint a failing week green. Freshness probes read a timestamp out of another note and catch the job that is green and quietly producing nothing. macOS only; the app schedules nothing itself.",
+      "adapt": "Set prefixes: to the label prefixes your own agents use, list under control: only the labels you want Pause/Resume/Run buttons for, and point each freshness: probe at the note whose stamp that job is supposed to keep fresh.",
+      "expects": { "sheets": [], "databases": [] },
+      "files": ["Dashboards/Jobs.md"],
+      "shot": "shots/jobs.png"
     }
   ]
 }

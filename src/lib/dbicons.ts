@@ -303,6 +303,8 @@ export function folderDefaultIcon(name: string): DbIcon | undefined {
 const DASHBOARD_ICONS: Record<string, DbIcon> = {
   food: { glyph: "flame" },
   sync: { glyph: "refresh" },
+  // launchd owns the clock this surface watches
+  jobs: { glyph: "clock" },
   coding: { glyph: "code" },
   metrics: { glyph: "wallet" },
   "yield-apr": { glyph: "zap" },

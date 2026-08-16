@@ -1130,6 +1130,20 @@ export const TIPS: TipEntry[] = [
     },
   },
   {
+    selector: ".jobs-chip",
+    tip: (element) => ({
+      title: elementLabel(element, "Job state"),
+      body: "The agent's last exit status, its recent runs by outcome, or a freshness probe on what it writes.",
+    }),
+  },
+  {
+    selector: ".jobs-row",
+    tip: (element) => ({
+      title: elementLabel(element.querySelector(".jobs-name") ?? element, "Scheduled agent"),
+      body: "One launchd agent, with its schedule and last result. Only the labels this note lists get buttons; the rest are read-only.",
+    }),
+  },
+  {
     // the hero is shared chrome (`dash-hero`), so the day's own figure needs
     // its own entry ahead of it
     selector: ".food-hero",

@@ -41,6 +41,10 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex, MutexGuard};
 
+// The two launchd text parsers live in `jobs.rs` — the general launchd
+// surface — and are shared from there rather than forked.
+use crate::jobs::{parse_launchctl_list, parse_plist_schedule};
+
 /// Where this kind looks for the sync system's state file, relative to
 /// $HOME, when the note names none. Nothing writes it for you — your runner
 /// does; rclone itself ships no such file.
@@ -408,24 +412,6 @@ fn leg_names(state: &serde_json::Value, direction: &str) -> Vec<String> {
     names
 }
 
-/// `launchctl list` → label → (pid, last exit status). Lines are
-/// "PID\tStatus\tLabel" with "-" for a not-running pid; malformed lines are
-/// skipped, never fatal.
-pub(crate) fn parse_launchctl_list(out: &str) -> HashMap<String, (Option<u32>, Option<i32>)> {
-    let mut map = HashMap::new();
-    for line in out.lines() {
-        let mut cols = line.split('\t');
-        let (Some(pid), Some(status), Some(label)) = (cols.next(), cols.next(), cols.next()) else {
-            continue;
-        };
-        if label.is_empty() || label == "Label" {
-            continue;
-        }
-        map.insert(label.to_string(), (pid.parse::<u32>().ok(), status.parse::<i32>().ok()));
-    }
-    map
-}
-
 /// Plists on disk under the configured prefix → (service, plist path),
 /// sorted by service. Discovery is by filename — never a hardcoded job list.
 fn discover_jobs(cfg: &SyncCfg) -> Vec<(String, PathBuf)> {
@@ -444,49 +430,6 @@ fn discover_jobs(cfg: &SyncCfg) -> Vec<(String, PathBuf)> {
         .unwrap_or_default();
     jobs.sort_by(|a, b| a.0.cmp(&b.0));
     jobs
-}
-
-/// Human schedule from a launchd plist's text. Handles the two shapes these
-/// agents use: StartInterval (seconds) and a single-dict StartCalendarInterval
-/// (an array of dicts would take the first). Anything else → None ("—").
-pub(crate) fn parse_plist_schedule(text: &str) -> Option<String> {
-    let int_after = |key: &str, hay: &str| -> Option<i64> {
-        let pat = format!(r#"<key>{key}</key>\s*<integer>(\d+)</integer>"#);
-        regex::Regex::new(&pat).ok()?.captures(hay)?.get(1)?.as_str().parse().ok()
-    };
-    if let Some(secs) = int_after("StartInterval", text) {
-        return Some(match secs {
-            s if s % 3600 == 0 => format!("every {}h", s / 3600),
-            s if s % 60 == 0 => format!("every {}m", s / 60),
-            s => format!("every {s}s"),
-        });
-    }
-    let dict = regex::Regex::new(r"(?s)<key>StartCalendarInterval</key>\s*<dict>(.*?)</dict>")
-        .ok()?
-        .captures(text)?
-        .get(1)?
-        .as_str();
-    let hour = int_after("Hour", dict)?;
-    let minute = int_after("Minute", dict).unwrap_or(0);
-    let hm = format!("{hour:02}:{minute:02}");
-    if let Some(wd) = int_after("Weekday", dict) {
-        const DAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-        // launchd.plist(5): "0 and 7 are Sunday" — fold only 7; anything past
-        // it is genuinely invalid and keeps the honest "?"
-        let wd = if wd == 7 { 0 } else { wd };
-        let name = DAYS.get(wd as usize).copied().unwrap_or("?");
-        return Some(format!("{name} {hm}"));
-    }
-    if let Some(day) = int_after("Day", dict) {
-        let suffix = match day {
-            1 | 21 | 31 => "st",
-            2 | 22 => "nd",
-            3 | 23 => "rd",
-            _ => "th",
-        };
-        return Some(format!("{day}{suffix} of month {hm}"));
-    }
-    Some(format!("daily {hm}"))
 }
 
 /// Job health. A job is the union of two sources: plists on disk and labels
@@ -948,64 +891,6 @@ mod tests {
         assert_eq!(leg_names(&state, "nas"), vec!["Keys", "Vault"]);
         assert!(leg_names(&state, "dropbox").is_empty());
         assert!(leg_names(&serde_json::json!({}), "cloud").is_empty());
-    }
-
-    #[test]
-    fn launchctl_list_parses_pid_status_label() {
-        let out = "PID\tStatus\tLabel\n\
-                   37031\t0\tcom.example.sync.cloud\n\
-                   -\t1\tcom.example.sync.verify\n\
-                   -\t0\tcom.apple.SafariHistoryServiceAgent\n\
-                   garbage line\n";
-        let map = parse_launchctl_list(out);
-        assert_eq!(map["com.example.sync.cloud"], (Some(37031), Some(0)));
-        assert_eq!(map["com.example.sync.verify"], (None, Some(1)));
-        assert!(map.contains_key("com.apple.SafariHistoryServiceAgent"));
-        assert_eq!(map.len(), 3);
-    }
-
-    #[test]
-    fn plist_schedule_interval_and_calendar() {
-        assert_eq!(
-            parse_plist_schedule("<key>StartInterval</key><integer>14400</integer>"),
-            Some("every 4h".to_string())
-        );
-        assert_eq!(
-            parse_plist_schedule("<key>StartInterval</key><integer>900</integer>"),
-            Some("every 15m".to_string())
-        );
-        assert_eq!(
-            parse_plist_schedule(
-                "<key>StartCalendarInterval</key>\n<dict>\n<key>Weekday</key><integer>0</integer>\n<key>Hour</key><integer>11</integer>\n</dict>"
-            ),
-            Some("Sun 11:00".to_string())
-        );
-        // launchd.plist(5): 7 is Sunday too; past it stays honest
-        assert_eq!(
-            parse_plist_schedule(
-                "<key>StartCalendarInterval</key><dict><key>Weekday</key><integer>7</integer><key>Hour</key><integer>11</integer></dict>"
-            ),
-            Some("Sun 11:00".to_string())
-        );
-        assert_eq!(
-            parse_plist_schedule(
-                "<key>StartCalendarInterval</key><dict><key>Weekday</key><integer>8</integer><key>Hour</key><integer>11</integer></dict>"
-            ),
-            Some("? 11:00".to_string())
-        );
-        assert_eq!(
-            parse_plist_schedule(
-                "<key>StartCalendarInterval</key><dict><key>Day</key><integer>1</integer><key>Hour</key><integer>4</integer><key>Minute</key><integer>30</integer></dict>"
-            ),
-            Some("1st of month 04:30".to_string())
-        );
-        assert_eq!(
-            parse_plist_schedule(
-                "<key>StartCalendarInterval</key><dict><key>Hour</key><integer>10</integer></dict>"
-            ),
-            Some("daily 10:00".to_string())
-        );
-        assert_eq!(parse_plist_schedule("<dict></dict>"), None);
     }
 
     #[test]
