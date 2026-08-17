@@ -10,6 +10,7 @@ import { foldedPropKey, foldedPropStr, FUNCTIONAL_TYPES, typeHome, viewKey } fro
 import { tagFolderApplyTags, tagFolderMatches, tagUniverse } from "./lib/tags";
 import { byFoldedKey, foldedObjectKey, isTypePropName, typeSchemaFor } from "./lib/schemalookup";
 import { folderDefaultIcon, iconForType, iconsByType } from "./lib/dbicons";
+import { dashboardKindOption, newDashboardProps } from "./lib/newdashboard";
 import { dbTypesByRecency } from "./lib/dbRecency";
 import { looksLikeUrl } from "./lib/url";
 import { anchorLine, parseWikiLink } from "./lib/wikilinks";
@@ -707,6 +708,16 @@ export default function App() {
 
   // every note title — the body editor's [[ wikilink completion pool
   const noteTitles = useMemo(() => notes.map((n) => n.title), [notes]);
+
+  // the sheet notes — the name popup inside a `= … ` span, which reaches a
+  // sheet's summaries and columns by title (vault-format §5.10)
+  const sheetTitles = useMemo(
+    () =>
+      notes
+        .filter((n) => foldedPropStr(n.props, "type")?.toLowerCase() === "sheet")
+        .map((n) => n.title),
+    [notes]
+  );
 
   const databases = useMemo(() => {
     // schema-registered databases list even with zero notes
@@ -2339,6 +2350,29 @@ export default function App() {
         .catch(reportCreateFailure(`create sheet “${title}”`, title));
     },
     [view, refresh, showMobileDetail, undoApi, reportCreateFailure, setNotes, tagFolders]
+  );
+
+  // "New dashboard…": the palette picked the kind and the title, so the write
+  // is `type: dashboard` + `dashboard: <kind>` over that kind's starter body.
+  // No config is guessed — every kind's own empty state names what it still
+  // wants, and a wrong `source:` reads as a broken board rather than a new one.
+  // Lands at the vault root beside the other boards (a dashboard is a
+  // destination, not a filed note), then opens it.
+  const createDashboard = useCallback(
+    (title: string, kind: string) => {
+      const opt = dashboardKindOption(kind);
+      vaultCreate(title, "", "dashboard", newDashboardProps(kind), opt?.body)
+        .then((meta) => {
+          recordCreate({ meta, record: undoApi.record });
+          setNotes((ns) => [...ns.filter((n) => n.path !== meta.path), meta]);
+          setView({ kind: "dashboard", path: meta.path });
+          setSelected(meta.path);
+          showMobileDetail();
+          refresh();
+        })
+        .catch(reportCreateFailure(`create dashboard “${title}”`, title));
+    },
+    [refresh, showMobileDetail, undoApi, reportCreateFailure, setNotes]
   );
 
   // a `type` chip commit re-homed an existing note into a database:
@@ -5111,6 +5145,7 @@ export default function App() {
                 dbTypesRecent={dbTypesRecent}
                 onFollowLink={followLink}
                 noteTitles={noteTitles}
+                sheetTitles={sheetTitles}
                 onOpenTag={openTag}
                 tagUniverse={tagCounts}
                 onOpenNote={openNote}
@@ -5192,6 +5227,7 @@ export default function App() {
             dbTypesRecent={dbTypesRecent}
             onFollowLink={followLink}
             noteTitles={noteTitles}
+            sheetTitles={sheetTitles}
             onOpenTag={openTag}
             tagUniverse={tagCounts}
             onOpenNote={openNote}
@@ -5290,6 +5326,7 @@ export default function App() {
           onEditTemplate={openTemplate}
           onNewDatabase={() => setDbDialog({ kind: "create" })}
           onCreateSheet={createSheet}
+          onCreateDashboard={createDashboard}
           onImportCsv={openCsvImport}
           onSwitchCapture={() => setOverlay("capture")}
           onOpenSearch={openSearch}

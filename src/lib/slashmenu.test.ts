@@ -98,6 +98,7 @@ test("slashOptions: everything on a bare slash, fuzzy-narrowed after", () => {
     slashOptions("").map((c) => c.name),
     [
       "asset",
+      "calc",
       "calendar",
       "cards",
       "chart",
@@ -105,6 +106,7 @@ test("slashOptions: everything on a bare slash, fuzzy-narrowed after", () => {
       "date",
       "formulas",
       "heatmap",
+      "live",
       "progress",
       "task",
       "timeline",
@@ -239,4 +241,20 @@ test("/view inserts a well-formed fence with the cursor on the type: value", () 
   assert.equal(view.insert.slice(0, view.cursor), "```view\ntype: ");
   // and the rest of the fence is exactly what fenceExit walks out of
   assert.ok(fenceExit(view.insert.slice(view.cursor)));
+});
+
+test("/calc and /live insert the two computing syntaxes, cursor ready to type", () => {
+  const calc = slashCommands().find((c) => c.name === "calc")!;
+  assert.equal(calc.insert, "= ");
+  assert.equal(calc.cursor, calc.insert.length);
+
+  const live = slashCommands().find((c) => c.name === "live")!;
+  assert.equal(live.insert, "`= `");
+  // inside the span, after the one documented space — where the name popup fires
+  assert.equal(live.insert.slice(0, live.cursor), "`= ");
+});
+
+test("typing /ca ranks the calc command first", () => {
+  assert.equal(slashOptions("ca")[0].name, "calc");
+  assert.equal(slashOptions("live")[0].name, "live");
 });

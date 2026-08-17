@@ -26,7 +26,8 @@ import {
 import { shortcutKeyLabel } from "../lib/shortcuts";
 import { looksLikeUrl, urlDisplayTitle } from "../lib/url";
 import { templateTypeOptions } from "../lib/templates";
-import { iconForType } from "../lib/dbicons";
+import { dashboardIcon, iconForType } from "../lib/dbicons";
+import { NEW_DASHBOARD_KINDS, dashboardKindOption } from "../lib/newdashboard";
 import type { TerminalAction } from "../lib/settings";
 import {
   completeFilter,
@@ -116,7 +117,9 @@ type Stage =
   | { kind: "newfolder"; parent: string }
   | { kind: "renamefolder"; folder: string }
   | { kind: "newtpl" }
-  | { kind: "newtyped"; dbType: string };
+  | { kind: "newtyped"; dbType: string }
+  | { kind: "newdash" }
+  | { kind: "newdashnamed"; dashKind: string };
 
 /** Stage the palette can be opened straight into (e.g. from a context menu). */
 export type StartStage = { kind: "moveto"; note: NoteMeta };
@@ -211,6 +214,8 @@ interface PaletteProps {
   onNewDatabase: () => void;
   /** create a `type: sheet` surface note */
   onCreateSheet: (title: string) => void;
+  /** create a `type: dashboard` note of one kind, with that kind's starter body */
+  onCreateDashboard: (title: string, kind: string) => void;
   /** pick a CSV and open the import dialog */
   onImportCsv: () => void;
   onSwitchCapture: () => void;
@@ -319,6 +324,7 @@ export default function Palette({
   onEditTemplate,
   onNewDatabase,
   onCreateSheet,
+  onCreateDashboard,
   onImportCsv,
   onSwitchCapture,
   onOpenSearch,
@@ -765,6 +771,41 @@ export default function Palette({
       return q.trim() ? rows.filter((r) => synFuzzyScore(q, r.label) > NO_MATCH) : rows;
     }
 
+    // "New dashboard…" — pick a kind, then name the note. Two stages rather
+    // than a wizard: a dashboard is `type: dashboard` plus `dashboard: <kind>`
+    // over a body, and the pane's own empty state says what to add next.
+    if (stage.kind === "newdash") {
+      return NEW_DASHBOARD_KINDS.filter(
+        (o) => !q.trim() || synFuzzyScore(q, `${o.title} ${o.kind}`) > NO_MATCH
+      ).map((o) => ({
+        id: `dash:${o.kind}`,
+        label: `New ${o.title} dashboard…`,
+        icon: <TypeIcon type={o.kind} icon={dashboardIcon({ dashboard: o.kind })} />,
+        section: "New dashboard",
+        hint: o.blurb,
+        keepOpen: true,
+        run: () => enterStage({ kind: "newdashnamed", dashKind: o.kind }),
+      }));
+    }
+
+    if (stage.kind === "newdashnamed") {
+      const opt = dashboardKindOption(stage.dashKind);
+      const typed = q.trim();
+      const title = typed || opt?.title || stage.dashKind;
+      return [
+        {
+          id: "newdash:create",
+          // the default title is shown, not implied — Enter on an empty box
+          // creates “Tasks”, and the row says so before the press
+          label: `New dashboard “${title}”`,
+          icon: <TypeIcon type={stage.dashKind} icon={dashboardIcon({ dashboard: stage.dashKind })} />,
+          section: `New ${stage.dashKind} dashboard`,
+          hint: typed ? undefined : "or type a title",
+          run: () => onCreateDashboard(title, stage.dashKind),
+        },
+      ];
+    }
+
     // root stage
     const out: Item[] = [];
     const byPath = new Map(notes.map((n) => [n.path, n]));
@@ -941,6 +982,15 @@ export default function Palette({
           hint: "formulas",
           fallback: true,
           run: () => onCreateSheet(q.trim() || "Untitled sheet"),
+        },
+        {
+          id: "cmd:newdash",
+          label: "New dashboard…",
+          icon: <ChartIcon />,
+          section: "Commands",
+          hint: "pick a kind",
+          keepOpen: true,
+          run: () => enterStage({ kind: "newdash" }),
         },
         {
           id: "cmd:import-csv",
@@ -1280,6 +1330,7 @@ export default function Palette({
     onRenameFolder,
     onRevealRel,
     onCreateTyped,
+    onCreateDashboard,
     onEditTemplate,
     onImportCsv,
     onSwitchCapture,
@@ -1346,6 +1397,15 @@ export default function Palette({
   // every plain-text query
   const noMatches = stage.kind === "root" && searchText !== "" && onlyFallbacks(items);
 
+  // a stage starts at its own top. The results list keeps whatever scroll
+  // position the previous stage left, so a long picker entered from a row
+  // below the fold opened mid-list with its selected first row off screen —
+  // the kind picker's sixteen kinds made it visible. Declared before the
+  // selection effect so an arrow-key scroll still wins.
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = 0;
+  }, [stage]);
+
   // keep the selected row visible when arrow-keying past the fold
   useEffect(() => {
     listRef.current
@@ -1378,6 +1438,8 @@ export default function Palette({
           return s.parent ? { kind: "folderactions", folder: s.parent } : { kind: "root" };
         case "newtyped":
           return { kind: "newtpl" };
+        case "newdashnamed":
+          return { kind: "newdash" };
         default:
           return { kind: "root" };
       }
@@ -1445,9 +1507,13 @@ export default function Palette({
                   ? "New from template — pick a database…"
                   : stage.kind === "newtyped"
                     ? `Title for the new ${stage.dbType}…`
-                    : mode === "capture"
-                      ? "Note title…"
-                      : "Type a command or search…";
+                    : stage.kind === "newdash"
+                      ? "New dashboard — pick a kind…"
+                      : stage.kind === "newdashnamed"
+                        ? `Title for the new ${stage.dashKind} dashboard…`
+                        : mode === "capture"
+                          ? "Note title…"
+                          : "Type a command or search…";
 
   return (
     <div className={`overlay${closing ? " closing" : ""}`} onMouseDown={close}>

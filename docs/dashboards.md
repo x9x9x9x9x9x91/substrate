@@ -2,10 +2,11 @@
 
 A dashboard is just a note: `type: dashboard` plus a `dashboard:` prop naming the
 renderer. The note's frontmatter and fenced blocks are the config and the data —
-everything is plain text, so a dashboard is created by writing a file (or making a
-note in-app and adding the props). This guide shows each kind with a complete
-copy-paste example; the exact on-disk contract lives in
-[vault-format.md §5](vault-format.md).
+everything is plain text, so a dashboard is created by writing a file. In the app,
+**⌘K → “New dashboard…”** does the same thing: pick the kind, name the note, and it
+opens on its own empty state, which says what that kind still wants. This guide
+shows each kind with a complete copy-paste example; the exact on-disk contract
+lives in [vault-format.md §5](vault-format.md).
 
 A ready-made vault with working instances of everything below is in
 [`examples/vault/`](../examples/vault/Welcome.md) — copy it somewhere and point the

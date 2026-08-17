@@ -93,6 +93,14 @@ export function slashCommands(): SlashCommand[] {
       cursor: fence.indexOf("type: ") + "type: ".length,
     },
     { name: "date", detail: "today, ISO", insert: todayIso(), cursor: todayIso().length },
+    // the two computing syntaxes (vault-format §5.9/§5.10). Both are bare
+    // punctuation nobody guesses, which is the whole reason they are here: the
+    // detail line is where the grammar is advertised, and the answer renders
+    // beside the line rather than being written into the file.
+    { name: "calc", detail: "line that computes — 12 + 3, 20kg in lb", insert: "= ", cursor: 2 },
+    // `` `= expr` `` mid-sentence — cursor inside the span, where the
+    // sheet-name popup fires (see liveBindQuery)
+    { name: "live", detail: "sheet value inside a sentence", insert: "`= `", cursor: 3 },
     { name: "task", detail: "checkbox item", insert: "- [ ] ", cursor: 6 },
     // asset embeds are `![[name]]` (vault-format §5.4) — cursor between the
     // brackets, ready for the name

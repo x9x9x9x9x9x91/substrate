@@ -34,6 +34,7 @@ import { hasExecutableCalcLine } from "../lib/calc";
 import { liveExprMatches } from "../lib/livevalues";
 import { ensureFxRates, useFxRates } from "./useFx";
 import { useLiveValues } from "./useLiveValues";
+import { dashboardSheets } from "../lib/dashboardSheets";
 import { exportNoteMarkdown, exportNoteOneSheet, exportNotePdf } from "../lib/export";
 import { buildNoteActions } from "../lib/noteactions";
 import { formatDateHuman, shiftDate } from "../lib/dates";
@@ -165,6 +166,8 @@ interface NotePaneProps {
   onFollowLink: (name: string) => void;
   /** all note titles — [[ wikilink completion in the body editor */
   noteTitles: string[];
+  /** the vault's sheet notes — the name popup inside a `` `= … ` `` span */
+  sheetTitles?: string[];
   /** An inline `#tag` was clicked — open its collection */
   onOpenTag?: (tag: string) => void;
   /** The vault's tags with counts — `#` completion in the editor */
@@ -267,6 +270,7 @@ function NotePane({
   dbTypesRecent,
   onFollowLink,
   noteTitles,
+  sheetTitles,
   onOpenTag,
   tagUniverse,
   onOpenNote,
@@ -312,7 +316,17 @@ function NotePane({
   const [loaded, setLoaded] = useState<{ path: string; docPath: string; body: string } | null>(
     null
   );
-  const liveBody = loaded?.path === meta.path ? loaded.body : null;
+  // The body as the editor has it, sampled a beat after typing stops (see
+  // onBodyChange). `loaded` holds the body as DISK has it, which is the right
+  // base for saving and the wrong one for live values: a span typed just now
+  // names a sheet that body has never mentioned, so the sheet never loads and
+  // a freshly written `` `= Cash.cash_total` `` shows the dim dash until the
+  // note is reopened. Reading the buffer instead makes the value appear where
+  // it was typed, which is the only reading of "live" a writer would accept.
+  const [typedBody, setTypedBody] = useState<{ path: string; body: string } | null>(null);
+  const liveBody =
+    (typedBody?.path === meta.path ? typedBody.body : null) ??
+    (loaded?.path === meta.path ? loaded.body : null);
   // A live value may convert currency too, so an inline `= expr`
   // span earns the rate table on the same terms a calc line does. Memoised
   // because the match now parses each candidate: it is a body-sized scan, not
@@ -335,6 +349,30 @@ function NotePane({
   // the sheets this note's inline `= expr` spans read — same loader
   // and same vault-epoch invalidation the dashboard bindings use
   const liveSheets = useLiveValues(liveBody, vaultEpoch, meta.path, fxRatesState);
+  // What `Sheet.` offers in the editor's name popup: the members of one sheet,
+  // loaded through the same cache the values themselves come from, so typing a
+  // reference reads the sheet the reference will resolve against. Summaries
+  // first — they are the sentence-shaped values — then computed and data
+  // columns, which need an aggregate around them but are still the names on
+  // that sheet. A sheet that fails to load offers nothing rather than
+  // erroring: the popup's absence is the mildest possible failure.
+  const sheetMembers = useCallback(
+    async (sheet: string): Promise<string[]> => {
+      try {
+        const loaded = await dashboardSheets([sheet], vaultEpoch, fxRatesState);
+        const state = loaded.get(sheet.toLowerCase());
+        if (!state || "error" in state) return [];
+        return [
+          ...state.ev.summaries.map((s) => s.name),
+          ...state.ev.computed.map((c) => c.name),
+          ...state.ev.headers,
+        ];
+      } catch {
+        return [];
+      }
+    },
+    [vaultEpoch, fxRatesState]
+  );
   const [diskProps, setDiskProps] = useState<Record<string, unknown>>({});
   // Property writes in flight, laid over disk truth so a committed
   // chip paints the frame it closes instead of a beat later, when the write
@@ -419,6 +457,10 @@ function NotePane({
 
   const pending = useRef<{ path: string; body: string } | null>(null);
   const saveTimer = useRef<number | undefined>(undefined);
+  // samples the buffer into typedBody once typing settles — separate from the
+  // save debounce because it is cheaper to be wrong about (a missed sample
+  // costs a late value, a missed save costs text)
+  const liveSampleTimer = useRef<number | undefined>(undefined);
   // the prop write that failed — the error pill IS its retry
   const failedProp = useRef<{ key: string; value: string | string[] | boolean | null } | null>(null);
   // same, for the sheet column's notification write — a different
@@ -813,6 +855,9 @@ function NotePane({
     fileGoneRef.current = false;
     flush();
     setLoaded(null);
+    // the outgoing note's text says nothing about the incoming one's sheets
+    window.clearTimeout(liveSampleTimer.current);
+    setTypedBody(null);
     setEditingChip(null);
     setSchemaEditChip(null);
     setAddingChip(false);
@@ -999,6 +1044,17 @@ function NotePane({
       // a programmatic doc swap (external reload) is not an edit
       if (applyingExternal.current) return;
       if (hasExecutableCalcLine(b) || liveExprMatches(b).length > 0) ensureFxRates();
+      // sample the buffer for the live-value sheet set once the keystrokes
+      // stop: liveSheetNames is a body-sized scan and the load behind it is
+      // IPC, so this rides its own quiet-period timer rather than firing per
+      // keystroke. 400ms is under the save debounce — the value appears while
+      // the sentence is still being written, not after it is filed.
+      window.clearTimeout(liveSampleTimer.current);
+      const sampled = meta.path;
+      liveSampleTimer.current = window.setTimeout(
+        () => setTypedBody({ path: sampled, body: b }),
+        400
+      );
       pending.current = { path: meta.path, body: b };
       // the file is gone: keep the text, never schedule a write
       if (missingRef.current || fileGoneRef.current) return;
@@ -2353,6 +2409,8 @@ function NotePane({
               numberLocale={numberLocale}
               calcFx={calcFx}
               liveSheets={liveSheets}
+              sheetTitles={sheetTitles}
+              sheetMembers={sheetMembers}
               noteTitles={noteTitles}
               dbTypes={dbTypes}
               embedQuery={embedQuery}

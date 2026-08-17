@@ -104,7 +104,11 @@ async function installNote(page: Page, target: string, raw: string, cloneFrom?: 
       for (const k of ["cards", "pages", "dashboard", "log", "db", "floor", "ceiling", "items", "curated", "index", "scanned", "fx_rate", "fx_date", "claimed_usd",
         // release-row props — a cloned release fixture must not lend its own
         // dates to a recipe note that deliberately leaves one out
-        "status", "recording_start", "released", "format", "contact", "link", "artist", "artwork", "cat#", "tracks"]) {
+        "status", "recording_start", "released", "format", "contact", "link", "artist", "artwork", "cat#", "tracks",
+        // task-row props — the same rule: a cloned task fixture must not lend
+        // its due date, its priority or its age to a recipe task that ships
+        // without one, or the board shows rows the recipe's bytes don't explain
+        "due", "priority", "now", "snoozed_until", "area", "created"]) {
         w.__mockEditProp(targetPath as string, k, null);
       }
       for (const [k, v] of Object.entries(nextProps as Record<string, unknown>)) {
@@ -370,6 +374,51 @@ const SHOTS: Shot[] = [
       // the recipe's own stale_hours outlives its literal `exported:` stamp,
       // so the shipped sample opens trusted rather than warning about its age
       await expect(page.locator(".tax-alert")).toHaveCount(0);
+    },
+  },
+  {
+    id: "tasks",
+    nav: "Tasks",
+    installs: [
+      { file: "Dashboards/Tasks.md", target: "Dashboards/Tasks.md" },
+      { file: "Tasks/Chase Night Circuit master v3.md", target: "Tasks/Chase Night Circuit master v3.md", cloneFrom: "Tasks/Master Vessel Songs v3.md" },
+      { file: "Tasks/Slow Bloom EP repress decision.md", target: "Tasks/Slow Bloom EP repress decision.md", cloneFrom: "Tasks/Master Vessel Songs v3.md" },
+      { file: "Tasks/Recalibrate the monitor room.md", target: "Tasks/Recalibrate the monitor room.md", cloneFrom: "Tasks/Master Vessel Songs v3.md" },
+      { file: "Tasks/Archive the granular sketch stems.md", target: "Tasks/Archive the granular sketch stems.md", cloneFrom: "Tasks/Master Vessel Songs v3.md" },
+      { file: "Tasks/Fern Static sleeve brief.md", target: "Tasks/Fern Static sleeve brief.md", cloneFrom: "Tasks/Master Vessel Songs v3.md" },
+      { file: "Tasks/Send Night Circuit metadata sheet.md", target: "Tasks/Send Night Circuit metadata sheet.md", cloneFrom: "Tasks/Master Vessel Songs v3.md" },
+    ],
+    ready: async (page) => {
+      await expect(page.locator(".tasks-row").first()).toBeVisible();
+    },
+    post: async (page) => {
+      // the mock roster ships two dozen tasks of its own, all dated against
+      // today — they would bury the recipe's rows and paint a board the
+      // shipped files do not explain. Drop every task note the recipe did not
+      // install, read off the vault rather than listed here so a new mock
+      // fixture cannot quietly reappear in the shot.
+      await page.evaluate(() => {
+        const w = window as unknown as {
+          __mockNotesDump: () => { path: string }[];
+          __mockDeleteNote: (p: string) => void;
+          __mockEmit: (e: string) => void;
+        };
+        const keep = new Set([
+          "Tasks/Chase Night Circuit master v3.md",
+          "Tasks/Slow Bloom EP repress decision.md",
+          "Tasks/Recalibrate the monitor room.md",
+          "Tasks/Archive the granular sketch stems.md",
+          "Tasks/Fern Static sleeve brief.md",
+          "Tasks/Send Night Circuit metadata sheet.md",
+        ]);
+        for (const n of w.__mockNotesDump()) {
+          if (n.path.startsWith("Tasks/") && !keep.has(n.path)) w.__mockDeleteNote(n.path);
+        }
+        w.__mockEmit("vault:changed");
+      });
+      // what is left is the recipe: four open rows (the done one drops off,
+      // the snoozed one collapses) across the two areas the note allows
+      await expect(page.locator(".tasks-row")).toHaveCount(4);
     },
   },
 ];

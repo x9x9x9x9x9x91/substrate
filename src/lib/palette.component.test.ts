@@ -16,6 +16,7 @@ import { before, test } from "node:test";
 import { createElement as h } from "react";
 import { mockBackend, renderComponent } from "./componentHarness.ts";
 import { FIXED_VIEW_COMMANDS } from "./palette.ts";
+import { NEW_DASHBOARD_KINDS } from "./newdashboard.ts";
 import type { NoteMeta, View } from "./types.ts";
 
 before(async () => {
@@ -31,6 +32,8 @@ interface Calls {
   shortcuts: number;
   assignKeys: number;
   search: (string | undefined)[];
+  /** [title, kind] per dashboard the palette asked App to create */
+  dashboards: [string, string][];
 }
 
 function note(path: string, title: string): NoteMeta {
@@ -93,6 +96,7 @@ function paletteProps(calls: Calls, over: Record<string, unknown> = {}) {
     onEditTemplate: () => {},
     onNewDatabase: () => {},
     onCreateSheet: () => {},
+    onCreateDashboard: (title: string, kind: string) => calls.dashboards.push([title, kind]),
     onImportCsv: () => {},
     onSwitchCapture: () => {},
     onOpenSearch: (seed?: string) => calls.search.push(seed),
@@ -107,7 +111,16 @@ function paletteProps(calls: Calls, over: Record<string, unknown> = {}) {
 }
 
 function freshCalls(): Calls {
-  return { views: [], dbs: [], journal: 0, timeTravel: 0, shortcuts: 0, assignKeys: 0, search: [] };
+  return {
+    views: [],
+    dbs: [],
+    journal: 0,
+    timeTravel: 0,
+    shortcuts: 0,
+    assignKeys: 0,
+    search: [],
+    dashboards: [],
+  };
 }
 
 async function openPalette(t: Parameters<typeof renderComponent>[0], calls: Calls, over = {}) {
@@ -252,3 +265,32 @@ test("keycaps come from the shortcut registry, spelled its way", async (t) => {
   assert.equal(hint("Settings…"), "⌘,");
 });
 
+
+test("“New dashboard…” picks a kind and creates that kind's note", async (t) => {
+  const calls = freshCalls();
+  const r = await openPalette(t, calls);
+
+  // the whole path the docs used to spell as "new note, then hand-set two
+  // frontmatter props": a command, a kind, a note
+  await r.click(row(r, "New dashboard…")!);
+  const tasksRow = row(r, "New Tasks dashboard…");
+  assert.ok(tasksRow, "the kind picker offers no tasks board");
+  await r.click(tasksRow);
+
+  // no title typed: the row names the default before it is pressed
+  const create = row(r, "New dashboard “Tasks”");
+  assert.ok(create, "the naming stage does not name the default title");
+  await r.click(create);
+  assert.deepEqual(calls.dashboards, [["Tasks", "tasks"]]);
+});
+
+test("the kind picker offers every kind this build can render", async (t) => {
+  const r = await openPalette(t, freshCalls());
+  await r.click(row(r, "New dashboard…")!);
+
+  // read off the list, not copied from it — the private kinds are absent from
+  // the mirrored tree on both sides at once, which is what the fences are for
+  for (const o of NEW_DASHBOARD_KINDS) {
+    assert.ok(row(r, `New ${o.title} dashboard…`), `no picker row for “${o.kind}”`);
+  }
+});

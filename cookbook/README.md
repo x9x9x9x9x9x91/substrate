@@ -41,6 +41,7 @@ one-line prompt.
 | [`release-arc/`](release-arc) | timeline | start-to-ship bars per release, lanes grouped by status |
 | [`jobs/`](jobs) | jobs | every launchd job on the machine: schedule, exit history, freshness |
 | [`tax/`](tax) | tax | tax-year readiness: totals, documents still owed, printable |
+| [`tasks/`](tasks) | tasks | a working board over your task notes, late work first |
 
 Screenshots live in [`shots/`](shots) — each is the recipe's own files
 rendered in the app, captured by `e2e/cookbookshots.spec.ts`.

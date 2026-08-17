@@ -29,7 +29,9 @@
 // `.md` keeps the expression text and nothing else.
 
 import { CALC_ERR_DISPLAY } from "./calc.ts";
+import { NO_MATCH, fuzzyScore } from "./fuzzy.ts";
 import {
+  IDENT_SRC,
   collectCrossRefs,
   evaluate,
   ferr,
@@ -259,4 +261,101 @@ export function evalLiveExpr(
   const display = formatValue(value);
   if (display === "") return { display: LIVE_ERR_DISPLAY, err: "that value is empty" };
   return { display };
+}
+
+// --- Name completion inside an open span -------------------------------------
+//
+// The reason live values were unusable without docs: `Sheet.summary` demands
+// exact recall of a name written in another note. These two functions are the
+// pure half of the popup that removes that demand — Editor.tsx wraps them in a
+// CompletionSource the same way it wraps the `/` menu and the `[[` picker.
+//
+// Deliberately text-only, not tree-driven: the span being typed is not yet a
+// closed `` `…` ``, so the parser sees no InlineCode node to resolve against.
+
+/** An UNCLOSED `` `= `` span up to the cursor: backtick, `=`, one space, then
+    anything but a backtick or newline. The one-space form is the documented
+    one (LIVE_SPAN_RE), so the popup only ever appears where a live value can
+    actually parse. */
+const LIVE_OPEN_RE = /`= ([^`\n]*)$/;
+
+/** The trailing `Sheet.` / `Sheet.mem` and bare `Sheet` fragments. Both are
+    end-anchored, so what completes is always the name under the cursor, with
+    whatever expression precedes it (`SUM(`, `2 * `) left alone. */
+const MEMBER_TAIL_RE = new RegExp(`(${IDENT_SRC})\\.((?:${IDENT_SRC})?)$`, "u");
+const SHEET_TAIL_RE = new RegExp(`(${IDENT_SRC})$`, "u");
+/** Characters that may sit right before a name — anything else means the
+    "empty fragment" reading is wrong (`12` is a number, not a name in waiting). */
+const NAME_START_RE = /[\s(,+\-*/]$/;
+/** What can't precede a fragment for it to be a fresh name: more name. */
+const NAME_CHAR_RE = /[\p{L}\p{M}\p{N}_.]/u;
+
+export interface LiveBindQuery {
+  /** the sheet whose members to offer, or null while the sheet itself is typed */
+  sheet: string | null;
+  /** the typed fragment; empty means "list everything" */
+  query: string;
+}
+
+/** What to complete at the end of `textBefore` (doc text up to the cursor), or
+    null where no name can go.
+
+    Two stages, because a live value reaches a value in two hops: the sheet, then
+    the member on it. `` `= Mas `` asks for sheets; `` `= Masters. `` asks for
+    that sheet's summaries and columns.
+
+    A double-backtick span is never a live value — it is the escape hatch for
+    writing the syntax in prose (see liveExprMatches) — so no popup there. */
+export function liveBindQuery(textBefore: string): LiveBindQuery | null {
+  const m = LIVE_OPEN_RE.exec(textBefore);
+  if (!m) return null;
+  if (m.index > 0 && textBefore[m.index - 1] === "`") return null;
+  const tail = m[1];
+  const member = MEMBER_TAIL_RE.exec(tail);
+  if (member && fresh(tail, member.index)) return { sheet: member[1], query: member[2] };
+  const sheet = SHEET_TAIL_RE.exec(tail);
+  if (sheet && fresh(tail, sheet.index)) return { sheet: null, query: sheet[1] };
+  // nothing typed yet, or an operator just closed: the sheet list opens
+  if (tail === "" || NAME_START_RE.test(tail)) return { sheet: null, query: "" };
+  return null;
+}
+
+/** Is the fragment at `at` the start of a name, rather than the tail of one
+    already qualified (`Masters.rev` — `rev` is not a sheet)? */
+function fresh(tail: string, at: number): boolean {
+  return at === 0 || !NAME_CHAR_RE.test(tail[at - 1]);
+}
+
+/** Names ranked for the popup: fuzzy score descending, caller order kept on a
+    tie, duplicates and misses dropped.
+
+    The tiebreak is caller order rather than alphabetical because the caller
+    knows which names answer a sentence: a sheet's summaries come before its
+    columns (NotePane builds the member list that way), so a bare `Sheet.`
+    offers `cash_total` before `account`. Alphabetical would bury the whole
+    point of the list under whichever column happens to start with an "a".
+    Sheet titles arrive unordered, so that caller sorts before calling.
+
+    Names that are not identifier-shaped are dropped too, and that is a
+    grammar fact rather than a filter preference: cross-sheet refs parse as
+    `ident.ident` with no quoting anywhere in formula.ts, so a sheet called
+    "Q3 Masters" cannot be referenced at all. Offering it would insert text
+    that can only fail. */
+export function liveBindOptions(query: string, names: string[]): string[] {
+  const ident = new RegExp(`^${IDENT_SRC}$`, "u");
+  const seen = new Set<string>();
+  const out: { name: string; score: number }[] = [];
+  for (const raw of names) {
+    const name = raw.trim();
+    if (!ident.test(name)) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const score = fuzzyScore(query, name);
+    if (score === NO_MATCH) continue;
+    out.push({ name, score });
+  }
+  // Array.prototype.sort is stable, so equal scores stay in caller order
+  out.sort((a, b) => b.score - a.score);
+  return out.map((entry) => entry.name);
 }

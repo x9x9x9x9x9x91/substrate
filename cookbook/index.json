@@ -180,6 +180,24 @@
       "expects": { "sheets": ["Tax 2026", "Tax Missing"], "databases": [] },
       "files": ["Dashboards/Tax Readiness.md", "Tax 2026.md", "Tax Missing.md"],
       "shot": "shots/tax.png"
+    },
+    {
+      "id": "tasks",
+      "title": "Working task board",
+      "kind": "tasks",
+      "blurb": "Every open `type: task` note as one board, late work first: overdue, due today, the hand-picked now list, then a section per area. Inside a section the order is due bucket, then priority, then age, so rot is the tiebreaker rather than the headline. Rows check off and edit in place, done work drops off, and a snoozed task falls into its own collapsed section instead of vanishing.",
+      "adapt": "List under areas: the areas you want sections for — leave it out and every area gets one — and set stale_days: to the age at which an untouched row should start showing its rot. The tasks are ordinary notes: type: task and status:, plus any of due:, priority:, area:, now: true to pin one to the top, or snoozed_until: to put one down for a while.",
+      "expects": { "sheets": [], "databases": ["task"] },
+      "files": [
+        "Dashboards/Tasks.md",
+        "Tasks/Archive the granular sketch stems.md",
+        "Tasks/Chase Night Circuit master v3.md",
+        "Tasks/Fern Static sleeve brief.md",
+        "Tasks/Recalibrate the monitor room.md",
+        "Tasks/Send Night Circuit metadata sheet.md",
+        "Tasks/Slow Bloom EP repress decision.md"
+      ],
+      "shot": "shots/tasks.png"
     }
   ]
 }

@@ -94,7 +94,13 @@ import {
   liveValuesConfig,
 } from "../lib/editor-widgets";
 import { evalCalcDoc, fencedLines, isCalcLine } from "../lib/calc";
-import { evalLiveExpr, liveExprMatches, type LiveExprMatch } from "../lib/livevalues";
+import {
+  evalLiveExpr,
+  liveBindOptions,
+  liveBindQuery,
+  liveExprMatches,
+  type LiveExprMatch,
+} from "../lib/livevalues";
 import type { DashboardSheetState } from "../lib/dashboardSheets";
 import { DEFAULT_NUMBER_LOCALE, type NumberLocale } from "../lib/numberLocale";
 import type { FxResolver } from "../lib/formula";
@@ -1469,13 +1475,15 @@ function slashCompletions() {
             selection: { anchor: from + command.cursor },
             userEvent: "input.complete",
           });
-          // /asset lands between `![[` and `]]` — open the wikilink popup right
-          // there rather than making you type a letter to summon it. Pure view
-          // effect, no document change, so undo still groups as one accept.
-          if (command.name === "asset") startCompletion(view);
-          // /view lands after `type: ` — same idea: the db-name popup opens on
-          // the spot instead of making you remember which databases exist
-          if (command.name === "view") startCompletion(view);
+          // Three commands land the cursor where a NAME goes, and a name
+          // written in another note should never need exact recall: /asset
+          // between `![[` and `]]`, /view after `type: `, /live inside the
+          // `` `= … ` `` span. Each opens its own popup on the spot rather than
+          // making you type a letter to summon it. Pure view effect, no
+          // document change, so undo still groups as one accept.
+          if (command.name === "asset" || command.name === "view" || command.name === "live") {
+            startCompletion(view);
+          }
         },
       })),
       // letters keep narrowing; a space or newline closes the menu. The range
@@ -1483,6 +1491,70 @@ function slashCompletions() {
       // omitting it invalidates the result on every keystroke, and an Enter
       // landing in that re-query gap inserts a newline instead of accepting.
       validFor: /^\/[A-Za-z]*$/,
+    };
+  };
+}
+
+/** Name completion inside an open `` `= … ` `` span: the vault's sheets, then
+    that sheet's summaries and columns. Same idea as the `type:` popup — a
+    reference to a name written in another note should never need exact recall.
+
+    Members load asynchronously (the sheet has to be read and evaluated), which
+    CodeMirror allows: the popup appears when the promise settles, and the
+    cached loader makes every keystroke after the first free.
+
+    Not offered inside a fenced block, where a `` `= … ` `` span is code being
+    shown rather than a value being computed (liveExprMatches skips those too). */
+function liveBindCompletions(
+  sheetTitlesRef: React.MutableRefObject<string[] | undefined>,
+  sheetMembersRef: React.MutableRefObject<((sheet: string) => Promise<string[]>) | undefined>
+) {
+  return async (context: CompletionContext): Promise<CompletionResult | null> => {
+    const before = context.state.sliceDoc(Math.max(0, context.pos - 250), context.pos);
+    const bind = liveBindQuery(before);
+    if (!bind) return null;
+    const node = syntaxTree(context.state).resolveInner(context.pos, -1);
+    if (fenceLang(node, (from, to) => context.state.sliceDoc(from, to)) !== null) return null;
+    const names =
+      bind.sheet === null
+        ? // sheet titles arrive in vault order, which means nothing here;
+          // members arrive summaries-first, which means everything, and
+          // liveBindOptions keeps whatever order it is handed
+          [...(sheetTitlesRef.current ?? [])].sort((a, b) => a.localeCompare(b))
+        : ((await sheetMembersRef.current?.(bind.sheet)) ?? []);
+    // the document moved on while the sheet loaded — this answer is stale
+    if (context.aborted) return null;
+    const options = liveBindOptions(bind.query, names);
+    if (options.length === 0) return null;
+    const sheetStage = bind.sheet === null;
+    return {
+      from: context.pos - bind.query.length,
+      options: options.map((name, rank) => ({
+        label: name,
+        type: sheetStage ? "class" : "property",
+        // liveBindOptions already ranked these, and for a bare `Sheet.` that
+        // ranking is the whole answer: summaries before columns. Without a
+        // boost CodeMirror re-sorts an unfiltered list alphabetically and puts
+        // whichever column starts with an "a" on top of the summary you came
+        // for. Beyond the first hundred names the boost floors out and CM's
+        // own order takes the tail, which is a scroll away either way.
+        boost: Math.max(-99, 99 - rank),
+        // picking a sheet is half an answer: append the dot and open the member
+        // popup on the spot, the way /view hands off to the db-name list
+        apply: sheetStage
+          ? (view, _completion, from, to) => {
+              view.dispatch({
+                changes: { from, to, insert: `${name}.` },
+                selection: { anchor: from + name.length + 1 },
+                userEvent: "input.complete",
+              });
+              startCompletion(view);
+            }
+          : undefined,
+      })),
+      // identifier characters keep narrowing; a dot or a closing backtick ends
+      // this stage and re-queries for the next one
+      validFor: /^[\p{L}\p{M}\p{N}_]*$/u,
     };
   };
 }
@@ -1622,6 +1694,12 @@ interface EditorProps {
       Absent → cross-sheet expressions report a missing sheet rather than
       rendering a value nothing backs. */
   liveSheets?: Map<string, DashboardSheetState>;
+  /** Sheet notes in the vault, for the name popup inside a `` `= … ` `` span.
+      Absent → the span still works, it just asks for exact recall again. */
+  sheetTitles?: string[];
+  /** That sheet's summaries and columns, loaded on demand — the second half of
+      the same popup. Absent → the sheet stage completes and the member doesn't. */
+  sheetMembers?: (sheet: string) => Promise<string[]>;
 }
 
 export default function Editor({
@@ -1657,6 +1735,8 @@ export default function Editor({
   numberLocale,
   calcFx,
   liveSheets,
+  sheetTitles,
+  sheetMembers,
 }: EditorProps) {
   const shell = useRef<HTMLDivElement>(null);
   const host = useRef<HTMLDivElement>(null);
@@ -1706,6 +1786,9 @@ export default function Editor({
   const noteTitlesRef = useRef(noteTitles);
   // same shape for the view fence's `type:` completion
   const dbTypesRef = useRef(dbTypes);
+  // and for the sheet/member popup inside a `` `= … ` `` span
+  const sheetTitlesRef = useRef(sheetTitles);
+  const sheetMembersRef = useRef(sheetMembers);
   // and for `#` completion + tag clicks
   const tagUniverseRef = useRef(tagUniverse);
   const onOpenTagRef = useRef(onOpenTag);
@@ -1731,6 +1814,8 @@ export default function Editor({
   liveSheetsRef.current = liveSheets;
   noteTitlesRef.current = noteTitles;
   dbTypesRef.current = dbTypes;
+  sheetTitlesRef.current = sheetTitles;
+  sheetMembersRef.current = sheetMembers;
 
   const hideToolbar = () => {
     setToolbar((current) => ({ ...current, visible: false }));
@@ -1980,6 +2065,7 @@ export default function Editor({
           override: [
             wikiLinkCompletions(noteTitlesRef),
             slashCompletions(),
+            liveBindCompletions(sheetTitlesRef, sheetMembersRef),
             viewTypeCompletions(dbTypesRef),
             tagCompletions(tagUniverseRef),
           ],

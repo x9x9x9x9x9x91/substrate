@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   LIVE_ERR_DISPLAY,
   evalLiveExpr,
+  liveBindOptions,
+  liveBindQuery,
   liveExprMatches,
   liveSheetNames,
 } from "./livevalues.ts";
@@ -337,4 +339,45 @@ test("memberOf resolves exactly as a sheet's own cross-sheet ref does", () => {
   assert.equal(shown("Holdings.total", via), engine("s")); // summary
   assert.equal(shown("SUM(Holdings.value_eur)", via), engine("c")); // computed column
   assert.equal(shown("COUNT(Holdings.asset)", via), engine("d")); // data column
+});
+
+test("liveBindQuery: the two stages of a name, and the fragment under the cursor", () => {
+  assert.deepEqual(liveBindQuery("The label has `= "), { sheet: null, query: "" });
+  assert.deepEqual(liveBindQuery("The label has `= Mas"), { sheet: null, query: "Mas" });
+  assert.deepEqual(liveBindQuery("`= Masters."), { sheet: "Masters", query: "" });
+  assert.deepEqual(liveBindQuery("`= Masters.rev"), { sheet: "Masters", query: "rev" });
+  // a name inside an expression still completes — the fragment is end-anchored
+  assert.deepEqual(liveBindQuery("`= SUM(Masters.fe"), { sheet: "Masters", query: "fe" });
+  assert.deepEqual(liveBindQuery("`= 2 * "), { sheet: null, query: "" });
+});
+
+test("liveBindQuery: no popup where a live value cannot be", () => {
+  // no open span at all
+  assert.equal(liveBindQuery("plain prose"), null);
+  // the closed span is done
+  assert.equal(liveBindQuery("`= Masters.count`"), null);
+  // not the documented one-space form
+  assert.equal(liveBindQuery("`=Mas"), null);
+  // double backticks are the escape hatch for writing the syntax in prose
+  assert.equal(liveBindQuery("write ``= Mas"), null);
+  // a number is not a name in waiting
+  assert.equal(liveBindQuery("`= 12"), null);
+});
+
+test("liveBindOptions: fuzzy, deduped, and only names the grammar can reference", () => {
+  const names = ["Masters", "Ledger", "masters", "Q3 Masters", ""];
+  assert.deepEqual(liveBindOptions("", names), ["Masters", "Ledger"]);
+  assert.deepEqual(liveBindOptions("mas", names), ["Masters"]);
+  // spaced titles are unreferenceable: cross-sheet refs parse as ident.ident
+  assert.ok(!liveBindOptions("q3", names).includes("Q3 Masters"));
+});
+
+test("liveBindOptions: caller order survives a tie, so summaries lead the members", () => {
+  // what NotePane hands over for one sheet: summaries, then computed, then
+  // data columns. An empty query scores every name alike, and the sentence
+  // wants the summary — alphabetical would put the "account" column on top.
+  const members = ["cash_total", "accounts", "monthly_eur", "account", "balance_eur"];
+  assert.deepEqual(liveBindOptions("", members), members);
+  // a typed fragment still wins over position
+  assert.equal(liveBindOptions("bal", members)[0], "balance_eur");
 });

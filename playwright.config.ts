@@ -30,6 +30,12 @@ export default defineConfig({
     baseURL: `http://localhost:${port}`,
     headless: true,
     viewport: { width: 1280, height: 800 },
+    // Keep e2e browsers off the real audio hardware. Chromium's audio service
+    // opens the physical output device even under --mute-audio, and on macOS
+    // Tahoe 26.6 every device open/close audibly pops the dev Mac's built-in
+    // speakers (CoreAudio regression; log-verified 2026-08-17). With this flag
+    // AudioContext still works against a fake sink, so specs are unaffected.
+    launchOptions: { args: ["--disable-audio-output"] },
   },
   webServer: {
     command: `npm run dev -- --port ${port} --strictPort`,
