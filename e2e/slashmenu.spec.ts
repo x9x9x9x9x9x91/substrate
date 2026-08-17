@@ -56,6 +56,7 @@ test("/ at line start opens the menu with every command", async ({ page }) => {
     "/calendar",
     "/progress",
     "/timeline",
+    "/table",
   ]) {
     await expect(page.locator(`${menu} .cm-completionLabel`, { hasText: label })).toBeVisible();
   }
@@ -70,6 +71,29 @@ test("/chart inserts the fence scaffold with the cursor on source:", async ({ pa
   await expect
     .poll(() => page.evaluate(() => window.__mockBodyOf!("Inbox/Capture anything.md")))
     .toContain("```chart\nsource: release\nx: \ny: count\n```");
+});
+
+test("/table scaffolds a table you type straight into", async ({ page }) => {
+  await page.keyboard.type("/table");
+  await accept(page, "/table");
+
+  // the cursor lands in the first header cell, so the first column name is
+  // typed without touching a pipe. The pipes stay visible while the cursor is
+  // inside the table — live preview keeps the source editable there.
+  await page.keyboard.type("Track");
+  await expect(page.locator(".cm-content")).toContainText("| Track |  |");
+
+  // move off the table and it is a rendered grid, not pipe text
+  await page.keyboard.press("ArrowUp");
+  const table = page.locator(".cm-md-table").last();
+  await expect(table).toBeVisible();
+  await expect(table.locator("th").first()).toHaveText("Track");
+  // header row plus the one body row the scaffold opens with
+  await expect(table.locator("tbody tr")).toHaveCount(1);
+
+  await expect
+    .poll(() => page.evaluate(() => window.__mockBodyOf!("Inbox/Capture anything.md")))
+    .toContain("| Track |  |\n| --- | --- |\n|  |  |");
 });
 
 test("/ mid-line after text opens nothing", async ({ page }) => {

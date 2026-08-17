@@ -1737,6 +1737,70 @@ button.empty-hint-fix:hover {
   min-width: 60px;
 }
 
+/* The + property draft and its key suggestions. The popup hangs off the ROW,
+   not the field: hints are sentences, and a box anchored to the short input
+   would run off the pane's right edge. Left edge = the value column (the
+   key column's 120px + the row's 6px padding and 8px gap). */
+.prop-add-row {
+  position: relative;
+}
+
+.chip-add-field {
+  display: inline-flex;
+}
+
+/* Same elevated card as .selmenu — this is a menu, it should read as one */
+.chip-suggest {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 134px;
+  right: 6px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+}
+
+.chip-suggest-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chip-suggest-row:hover,
+.chip-suggest-row.active {
+  background: var(--active);
+}
+
+.chip-suggest-key {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-1);
+}
+
+/* The hint is the point of the list — it says what the key does — but it
+   yields to the key it belongs to, and truncates rather than widening */
+.chip-suggest-hint {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Note property table: one row per property — a fixed muted label column
    carries the eye, so mixed-length values stop mattering (Notion's property
    list, Linear's sidebar density). Rows keep the .chip/.chip-key/.chip-val
@@ -2568,6 +2632,57 @@ button.empty-hint-fix:hover {
   overflow-x: auto;
 }
 
+/* the table plus its two grow buttons, sized to the table rather than to the
+   editor's full width: the column button rides its right edge, the row button
+   its bottom edge */
+.cm-md-table-frame {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.cm-md-table-grid {
+  display: flex;
+  align-items: stretch;
+}
+
+/* quiet until wanted: the grow buttons only surface on hover or keyboard
+   focus, so a table being read is still just a table */
+.cm-md-table-add {
+  appearance: none;
+  padding: 0;
+  border: 1px dashed var(--border-soft);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.cm-md-table-add-column {
+  width: 18px;
+  margin-left: 4px;
+}
+
+.cm-md-table-add-row {
+  height: 18px;
+  /* stop short of the column button so the two read as edges, not a frame */
+  margin: 4px 22px 0 0;
+}
+
+.cm-md-table-wrap:hover .cm-md-table-add,
+.cm-md-table-add:focus-visible {
+  opacity: 1;
+}
+
+.cm-md-table-add:hover {
+  border-color: var(--text-3);
+  color: var(--text-1);
+}
+
 /* one quiet card, same voice as .embed-view: outer border + radius, header
    band, horizontal hairlines only (separate borders — collapse can't round) */
 .cm-md-table {
@@ -2584,6 +2699,22 @@ button.empty-hint-fix:hover {
 .cm-md-table td {
   padding: 6px 12px;
   text-align: left;
+}
+
+/* an empty cell has no line box, which would collapse its whole row to the
+   padding — a zero-width character holds the row open at text height, and the
+   min-width keeps it a cell: a freshly inserted or just-grown table has
+   nothing typed in it yet, and zero-width columns would render it as one thin
+   box instead of the grid you are about to fill in. Scoped to empty cells so
+   tables that already have content keep the width their content gives them */
+.cm-md-table th:empty,
+.cm-md-table td:empty {
+  min-width: 72px;
+}
+
+.cm-md-table th:empty::after,
+.cm-md-table td:empty::after {
+  content: "\200b";
 }
 
 .cm-md-table th {
@@ -17713,6 +17844,52 @@ body.termhud-resizing-ew .termhud {
 
 .wb-tab-err {
   color: var(--danger);
+}
+
+/* The strip's own + — the database tab strip's control (.db-tab-add), which
+   is the idiom a saved view is already added by */
+.wb-tab-add {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 2px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-3);
+}
+
+.wb-tab-add:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+/* The field stands in for one tab, so it is tab-sized rather than stretching
+   across the strip, and its refusal opens upward — the strip sits on the
+   pane's bottom edge, where a popover below the field would be off-screen */
+.wb-tabs .inline-edit-wrap {
+  flex: none;
+  width: 170px;
+}
+
+.wb-tabs .inline-edit {
+  height: 22px;
+  font-size: 12px;
+}
+
+/* Fixed, not absolute: the strip scrolls sideways, which clips anything
+   leaving it, and this has to leave it — upward, since the strip sits on the
+   pane's bottom edge. With no offsets a fixed box keeps its static position,
+   which is the field's own corner, so the lift is all that is needed. */
+.wb-tabs .inline-edit-error {
+  position: fixed;
+  top: auto;
+  left: auto;
+  margin-top: -6px;
+  transform: translateY(-100%);
 }
 
 .wb-tabs-hint {

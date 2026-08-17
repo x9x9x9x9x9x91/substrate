@@ -477,13 +477,53 @@ function mockRecord<T>(initial?: Readonly<Record<string, T>>): Record<string, T>
   return out;
 }
 
+/** `"quoted"` → quoted; anything else is the trimmed text. The mock has no
+    YAML typing beyond this — numbers and dates stay strings. */
+function mockFmScalar(raw: string): string {
+  const v = raw.trim();
+  return /^"(.*)"$/s.test(v) ? v.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, "\\") : v;
+}
+
 function mockFmProps(fm: string): Record<string, unknown> {
   const out = mockRecord<unknown>();
-  for (const line of fm.split("\n")) {
-    if (!line.trim() || line.startsWith("#") || /^\s/.test(line)) continue;
-    const i = line.indexOf(":");
-    if (i <= 0) continue;
-    out[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+  const lines = fm.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim() || line.startsWith("#") || /^[\s-]/.test(line)) continue;
+    const c = line.indexOf(":");
+    if (c <= 0) continue;
+    const key = line.slice(0, c).trim();
+    const inline = line.slice(c + 1).trim();
+    if (inline) {
+      out[key] = mockFmScalar(inline);
+      continue;
+    }
+    /* A key with nothing after the colon opens a block list — `pages:` and
+       `cards:` are lists of maps, `tags:` a list of scalars, and the fm lanes
+       write both back through fm_write. Parsed here so the mock's reindex
+       keeps them instead of flattening the key to "". */
+    const items: unknown[] = [];
+    let map: Record<string, string> | null = null;
+    let j = i + 1;
+    for (; j < lines.length; j++) {
+      const l = lines[j];
+      if (!l.trim()) continue;
+      // a zero-indent `- item` is still this key's list; a bare key is not
+      if (!/^[\s-]/.test(l)) break;
+      const dash = l.match(/^\s*- ?(.*)$/);
+      const text = dash ? dash[1] : l.trim();
+      const k = text.indexOf(":");
+      if (k > 0 && !/^\s*-/.test(text)) {
+        const pair = [text.slice(0, k).trim(), mockFmScalar(text.slice(k + 1))] as const;
+        if (dash) items.push((map = { [pair[0]]: pair[1] }));
+        else if (map) map[pair[0]] = pair[1];
+      } else if (dash) {
+        map = null;
+        items.push(mockFmScalar(text));
+      }
+    }
+    if (j > i + 1) i = j - 1;
+    out[key] = items;
   }
   return out;
 }
@@ -504,8 +544,15 @@ function mockPropEq(a: PropValue, b: PropValue): boolean {
 /** Props → block after a set_prop on an fm-tracked note, like the engine's
     re-serialization; an empty map drops the block (set_prop_value). */
 function mockFmSerialize(props: Record<string, unknown>): string | undefined {
+  const item = (x: unknown) =>
+    x && typeof x === "object" && !Array.isArray(x)
+      ? // a list of maps (pages:, cards:) — the dash carries the first pair
+        Object.entries(x as Record<string, unknown>)
+          .map(([k, v], i) => `${i === 0 ? "- " : "  "}${k}: ${v}`)
+          .join("\n")
+      : `- ${x}`;
   const lines = Object.entries(props).map(([k, v]) =>
-    Array.isArray(v) ? `${k}:\n${v.map((x) => `- ${x}`).join("\n")}` : `${k}: ${v}`
+    Array.isArray(v) ? `${k}:\n${v.map(item).join("\n")}` : `${k}: ${v}`
   );
   return lines.length ? `${lines.join("\n")}\n` : undefined;
 }

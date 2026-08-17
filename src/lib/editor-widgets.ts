@@ -21,6 +21,7 @@ import {
 } from "./embeds.ts";
 import { missingEmbedKind, missingEmbedLabel } from "./embedstate.ts";
 import { isTauri } from "./tauri.ts";
+import { splitRow, tableWithColumn, tableWithRow, type TableEdit } from "./tableedit.ts";
 import { TASK_RE } from "./markdown.ts";
 import { DEFAULT_NUMBER_LOCALE, type NumberLocale } from "./numberLocale.ts";
 import type { FxResolver } from "./formula.ts";
@@ -153,28 +154,6 @@ export class CalcResultWidget extends WidgetType {
   }
 }
 
-function splitRow(line: string): string[] {
-  const cells: string[] = [];
-  let cur = "";
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === "\\" && line[i + 1] === "|") {
-      cur += "|";
-      i++;
-    } else if (ch === "|") {
-      cells.push(cur);
-      cur = "";
-    } else {
-      cur += ch;
-    }
-  }
-  cells.push(cur);
-  // outer pipes produce empty edge chunks — drop one from each end
-  if (cells.length && cells[0].trim() === "") cells.shift();
-  if (cells.length && cells[cells.length - 1].trim() === "") cells.pop();
-  return cells.map((c) => c.trim());
-}
-
 /** Inline marks a rendered cell honors: wikilinks plus the basic
  * emphasis set. One alternation, first match wins; bold/italic/strike recurse
  * so `**[[link]]**` works, code stays literal. No heavier nesting. The
@@ -271,13 +250,28 @@ export class TableWidget extends WidgetType {
       addRow(tbody, "td", splitRow(lines[i]), i);
     }
     table.appendChild(tbody);
-    wrap.appendChild(table);
+
+    // The table and the "add column" button sit side by side, "add row" runs
+    // under both — the grid keeps them glued to the table's own size instead
+    // of the full editor width.
+    const frame = document.createElement("div");
+    frame.className = "cm-md-table-frame";
+    const grid = document.createElement("div");
+    grid.className = "cm-md-table-grid";
+    grid.appendChild(table);
+    grid.appendChild(this.addButton(view, wrap, "column", tableWithColumn));
+    frame.appendChild(grid);
+    frame.appendChild(this.addButton(view, wrap, "row", tableWithRow));
+    wrap.appendChild(frame);
 
     wrap.addEventListener("mousedown", (e) => {
       // primary button only — right/middle click must not follow
       // links or collapse the table to source
       if (e.button !== 0) return;
       const target = e.target as HTMLElement;
+      // the add buttons rewrite the table themselves — they must not also
+      // collapse it to source under the pointer
+      if (target.closest?.(".cm-md-table-add")) return;
       const link = target.closest?.(".cm-wikilink");
       if (link) {
         e.preventDefault();
@@ -302,6 +296,39 @@ export class TableWidget extends WidgetType {
       view.focus();
     });
     return wrap;
+  }
+
+  /** A "+" that grows the table by one row or one column. The edit is a plain
+   * string rewrite dispatched as one document change, and the cursor lands in
+   * the cell that just appeared — so the table opens as source with the new
+   * cell ready to type into, exactly where /table leaves you. */
+  private addButton(
+    view: EditorView,
+    wrap: HTMLElement,
+    what: "row" | "column",
+    edit: (source: string) => TableEdit
+  ): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `cm-md-table-add cm-md-table-add-${what}`;
+    btn.textContent = "+";
+    btn.title = `Add ${what}`;
+    btn.setAttribute("aria-label", `Add ${what}`);
+    // the editor keeps its selection while the pointer goes down on chrome
+    btn.addEventListener("mousedown", (e) => e.preventDefault());
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const from = view.state.doc.lineAt(view.posAtDOM(wrap)).from;
+      const to = Math.min(from + this.source.length, view.state.doc.length);
+      const next = edit(this.source);
+      view.dispatch({
+        changes: { from, to, insert: next.source },
+        selection: { anchor: from + next.cursor },
+      });
+      view.focus();
+    });
+    return btn;
   }
 }
 

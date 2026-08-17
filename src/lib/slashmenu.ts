@@ -9,11 +9,16 @@
      can't tell a shell path from prose, so `inCodeContext` gates it on the
      syntax tree: inside code, a leading `/` is literal.
    - `viewTypeQuery` — the `type:` line inside an open ```view fence, which
-     completes from live database names (no exact recall needed). */
+     completes from live database names (no exact recall needed).
+   - `viewKeyQuery` / `viewValueQuery` — the rest of that fence: a bare word on
+     a fresh line is a KEY being typed, and `saved:`/`sort:`/`columns:`/`query:`
+     complete from the fence's own database. Nothing about a fence should be
+     learnable only by typing something wrong and reading the error. */
 
 import type { SyntaxNode } from "@lezer/common";
 import { NO_MATCH, fuzzyScore } from "./fuzzy.ts";
 import { todayIso } from "./dates.ts";
+import { isFilterableKey } from "./query.ts";
 
 /** `/` at line start (or after only whitespace) + the typed word. The query
     stops at whitespace: once you type a space the menu is done guessing. */
@@ -80,6 +85,22 @@ function fenceCommand(name: string, detail: string, body: string[]): SlashComman
   };
 }
 
+/** The smallest table the renderer accepts: a header row, the delimiter row
+    that makes it a table at all, and one body row — two columns each. Cells
+    start empty because the first thing anyone does is name the columns, and
+    the cursor is already in the first of them. Accepting the command leaves
+    the cursor inside the table's own lines, which is what keeps it showing as
+    editable pipes rather than collapsing to the rendered grid mid-typing. */
+function tableCommand(): SlashCommand {
+  const row = "|  |  |";
+  return {
+    name: "table",
+    detail: "2×2 table with a header row",
+    insert: row + "\n| --- | --- |\n" + row,
+    cursor: 2,
+  };
+}
+
 /** Insert text is built per accept so `/date` is the day you accept it, not
     the day the module loaded. */
 export function slashCommands(): SlashCommand[] {
@@ -105,6 +126,7 @@ export function slashCommands(): SlashCommand[] {
     // asset embeds are `![[name]]` (vault-format §5.4) — cursor between the
     // brackets, ready for the name
     { name: "asset", detail: "embed a file", insert: "![[]]", cursor: 3 },
+    tableCommand(),
     // the machine fences (vault-format §5) — scaffolds carry each parser's
     // required keys so nobody recalls fence grammar from memory
     fenceCommand("chart", "chart over a database or sheet", ["source: ", "x: ", "y: count"]),
@@ -205,19 +227,252 @@ export function fenceExit(after: string): FenceExit | null {
   return null;
 }
 
-/** Database types ranked for the `type:` popup: fuzzy, alphabetical tiebreak,
-    blanks and duplicates dropped. */
-export function viewTypeOptions(query: string, dbTypes: string[]): string[] {
+/** Names ranked for a fence popup: fuzzy score descending, alphabetical
+    tiebreak, blanks and duplicates dropped. Every value list in a view fence —
+    database types, saved-view names, property names — ranks the same way, so
+    they all come through here. */
+export function fuzzyNames(query: string, names: string[]): string[] {
   const seen = new Set<string>();
-  const out: { type: string; score: number }[] = [];
-  for (const raw of dbTypes) {
-    const type = raw.trim();
-    if (!type || seen.has(type)) continue;
-    seen.add(type);
-    const score = fuzzyScore(query, type);
+  const out: { name: string; score: number }[] = [];
+  for (const raw of names) {
+    const name = raw.trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    const score = fuzzyScore(query, name);
     if (score === NO_MATCH) continue;
-    out.push({ type, score });
+    out.push({ name, score });
   }
-  out.sort((a, b) => b.score - a.score || a.type.localeCompare(b.type));
-  return out.map((entry) => entry.type);
+  out.sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  return out.map((entry) => entry.name);
+}
+
+/** Database types ranked for the `type:` popup. */
+export function viewTypeOptions(query: string, dbTypes: string[]): string[] {
+  return fuzzyNames(query, dbTypes);
+}
+
+/* ---- the rest of the fence: key names and the other keys' values --------
+
+   `type:` was the one line that completed; every other key was discoverable
+   only by typing a wrong one and reading the parser's error. These three
+   triggers teach the rest — a key name on a fresh line, and the values of
+   `saved:`, `sort:`, `columns:` and `query:` from the fence's own database.
+   All of them are text rules; the caller still gates on the syntax tree
+   (`fenceLang`), so a `sort:` line inside a ```yaml fence stays literal. */
+
+/** One key of a ```view fence, as the popup shows it. */
+export interface ViewFenceKey {
+  name: string;
+  /** the one-line hint on the popup's right */
+  detail: string;
+}
+
+/** The keys `parseViewSpec` accepts, in the order a fence is usually written:
+    what to show, then how to cut it. Kept in step with embeds.ts's
+    `KNOWN_KEYS` by a test — the parser owns the list, this owns the teaching. */
+const VIEW_FENCE_KEYS: ViewFenceKey[] = [
+  { name: "type", detail: "database to show" },
+  { name: "saved", detail: "a pinned view, by name" },
+  { name: "query", detail: "filter, e.g. status:live" },
+  { name: "view", detail: "layout — table today" },
+  { name: "sort", detail: "property, or property:desc" },
+  { name: "limit", detail: "most rows to show" },
+  { name: "columns", detail: "comma-separated properties" },
+];
+
+export function viewFenceKeys(): ViewFenceKey[] {
+  return VIEW_FENCE_KEYS.map((key) => ({ ...key }));
+}
+
+/** A line inside a fence that is still only a bare word — no colon yet, so
+    what's being typed is a KEY. The fence's own ``` lines can't match (they
+    start with backticks), which is what keeps the popup off the opener. */
+const KEY_LINE_RE = /^[ \t]*([A-Za-z]*)$/;
+
+/** The typed key fragment on the cursor's line inside a ```view fence, or
+    null. An empty string means the line is blank — the caller decides whether
+    a blank line pops the full key list (it does on an explicit ⌃Space and
+    right after `/view` inserts the scaffold, not on every Enter). */
+export function viewKeyQuery(textBefore: string, lang: string | null): string | null {
+  if (lang !== "view") return null;
+  const line = textBefore.slice(textBefore.lastIndexOf("\n") + 1);
+  const m = KEY_LINE_RE.exec(line);
+  return m ? m[1] : null;
+}
+
+/** Keys ranked for the popup, minus the ones this fence already carries: a
+    second `sort:` line just shadows the first, so offering it is a trap. */
+export function viewKeyOptions(query: string, used: string[] = []): ViewFenceKey[] {
+  const taken = new Set(used.map((k) => k.trim().toLowerCase()));
+  const keys = viewFenceKeys().filter((key) => !taken.has(key.name));
+  const ranked = fuzzyNames(
+    query,
+    keys.map((key) => key.name)
+  );
+  return ranked.map((name) => keys.find((key) => key.name === name)!);
+}
+
+/** Which value list belongs on the cursor's line:
+    - `saved` — pinned view names;
+    - `sort` — the database's property names; `sortdir` — asc/desc, once the
+      `prop:` half is typed;
+    - `columns` — property names, per comma-separated item;
+    - `query` — a filter term's property name (`status:`), and `queryvalue`
+      the values already in use for that property. */
+export type ViewValueSlot = "saved" | "sort" | "sortdir" | "columns" | "query" | "queryvalue";
+
+export interface ViewValueQuery {
+  slot: ViewValueSlot;
+  /** the typed fragment — the caller replaces exactly this many characters
+      back from the cursor */
+  query: string;
+  /** `queryvalue` only: the property whose values are wanted */
+  prop?: string;
+}
+
+/** `key: value` on the cursor's own line, value verbatim after the colon. */
+const VALUE_LINE_RE = /^[ \t]*([A-Za-z][\w-]*)[ \t]*:[ \t]*(.*)$/;
+
+/** One filter term whose property half is settled — `status:live`. Terms
+    carrying a comma-OR list or a quote are left alone: completing inside them
+    would replace the wrong slice of what was typed. */
+const QUERY_TERM_RE = /^([A-Za-z][\w-]*):([^,"'<>=]*)$/;
+
+/** An odd number of either quote mark — the cursor sits inside a quoted
+    phrase the author hasn't closed yet. */
+function unclosedQuote(value: string): boolean {
+  return value.split('"').length % 2 === 0 || value.split("'").length % 2 === 0;
+}
+
+/** The value completion the cursor's line asks for, or null when the line
+    wants none — `type:` (owned by `viewTypeQuery`), `limit:` (a number, no
+    candidates to offer), `view:` (only `table` renders today), an unknown key,
+    or a line outside a ```view fence. */
+export function viewValueQuery(textBefore: string, lang: string | null): ViewValueQuery | null {
+  if (lang !== "view") return null;
+  const line = textBefore.slice(textBefore.lastIndexOf("\n") + 1);
+  const m = VALUE_LINE_RE.exec(line);
+  if (!m) return null;
+  const key = m[1].toLowerCase();
+  const value = m[2];
+  if (key === "saved") return { slot: "saved", query: value };
+  if (key === "sort") {
+    const colon = value.lastIndexOf(":");
+    return colon === -1
+      ? { slot: "sort", query: value }
+      : { slot: "sortdir", query: value.slice(colon + 1) };
+  }
+  if (key === "columns") {
+    // each comma-separated item completes on its own; the leading space of
+    // "status, artist" belongs to the separator, not to the name being typed
+    const item = value.slice(value.lastIndexOf(",") + 1).replace(/^[ \t]+/, "");
+    return { slot: "columns", query: item };
+  }
+  if (key === "query") {
+    // an open quote means the cursor is inside a quoted phrase — `status:
+    // "in re` — where whitespace no longer ends a term, so nothing here can
+    // say which slice a completion would replace
+    if (unclosedQuote(value)) return null;
+    // filter terms are whitespace-separated; only the one under the cursor
+    const term = value.slice(value.lastIndexOf(" ") + 1);
+    const settled = QUERY_TERM_RE.exec(term);
+    if (settled) return { slot: "queryvalue", prop: settled[1], query: settled[2] };
+    return /^[A-Za-z][\w-]*$/.test(term) || term === ""
+      ? { slot: "query", query: term }
+      : null;
+  }
+  return null;
+}
+
+/** The property names a `query:` term can actually filter by, ranked.
+
+    `columns:` and `sort:` resolve a dotted `relation.property` join
+    themselves (embeds.ts, via `isJoinName`), but `query:` runs through
+    `filterByQuery` → `matchesFilters` → `propValues`, which reads the row's
+    OWN props — and the query grammar's key charclass (`query.ts` KEY_RE)
+    has no dot in it, so a dotted term isn't even lexed as a filter. Offering
+    a join here would hand the author a term that renders an empty table, so
+    the join rows are dropped from this one slot. */
+export function viewQueryPropOptions(query: string, names: string[]): string[] {
+  return fuzzyNames(query, names.filter(isFilterableKey));
+}
+
+/** Sort directions, ranked — the fence accepts either case, the popup teaches
+    the lowercase spelling the docs use. */
+export function viewSortDirOptions(query: string): string[] {
+  return fuzzyNames(query, ["asc", "desc"]);
+}
+
+/** The body of the fence the cursor is in — every line between its ``` lines,
+    or null outside a fence. Read off the tree for the same reason `fenceLang`
+    is: a text scan can't tell an opener from a closer. Callers read the
+    fence's own `type:`/`saved:` line out of it, which is what says WHICH
+    database's properties the value popups should offer. */
+export function fenceInner(
+  node: SyntaxNode | null,
+  sliceDoc: (from: number, to: number) => string
+): string | null {
+  let fence: SyntaxNode | null = node;
+  while (fence && fence.type.name !== "FencedCode") fence = fence.parent;
+  if (!fence) return null;
+  const text = sliceDoc(fence.from, fence.to);
+  const opener = text.indexOf("\n");
+  if (opener === -1) return "";
+  const body = text.slice(opener + 1);
+  // a fence being typed has no closing line yet; a closed one ends in it
+  const lastLine = body.lastIndexOf("\n");
+  if (lastLine === -1) return body.trim().startsWith("```") ? "" : body;
+  return body.slice(lastLine + 1).trim().startsWith("```") ? body.slice(0, lastLine) : body;
+}
+
+/** Every key the fence body already names, lowercased — what `viewKeyOptions`
+    drops from the popup. */
+export function fenceKeysUsed(inner: string): string[] {
+  const out: string[] = [];
+  for (const raw of inner.split("\n")) {
+    const m = VALUE_LINE_RE.exec(raw);
+    if (m) out.push(m[1].toLowerCase());
+  }
+  return out;
+}
+
+/** A pinned saved view as the fence completions need it: the name a `saved:`
+    line usually carries, the id that line carries when the name would be
+    ambiguous, and the database the pin stands on. */
+export interface SavedViewPin {
+  id: string;
+  name: string;
+  db: string;
+}
+
+/** The database this fence shows: its own `type:`, else the database behind
+    its `saved:` pin. Null when the fence names neither yet — the property
+    popups have nothing to offer until it does.
+
+    A `saved:` reference resolves the way `findSavedView` (embeds.ts) resolves
+    the same line when it RENDERS the fence: exact id first, then name, both
+    trimmed and case-folded. Id form is not exotic — `savedViewFence` writes it
+    whenever a pin's name is ambiguous, blank, or carries `:`/`#`, so a fence
+    the app's own "Embed in this note" wrote would otherwise render fine while
+    offering no completions at all. */
+export function fenceDbType(
+  inner: string,
+  savedViews: { name: string; db: string; id?: string }[] = []
+): string | null {
+  let saved: string | null = null;
+  for (const raw of inner.split("\n")) {
+    const m = VALUE_LINE_RE.exec(raw);
+    if (!m) continue;
+    const key = m[1].toLowerCase();
+    const value = m[2].trim();
+    if (!value) continue;
+    if (key === "type") return value;
+    if (key === "saved" && saved === null) saved = value;
+  }
+  if (saved === null) return null;
+  const folded = saved.trim().toLowerCase();
+  const pin =
+    savedViews.find((v) => v.id !== undefined && v.id.trim().toLowerCase() === folded) ??
+    savedViews.find((v) => v.name.trim().toLowerCase() === folded);
+  return pin?.db ?? null;
 }

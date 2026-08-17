@@ -8,6 +8,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { DbIcon, DbLayout, FolderListing, MountInfo, MountRow, MountScanStats, NewTypeProp, NoteMeta, NumberFormat, PropKind, PropValue, RollupConfig, SavedView, SavedViewSort, SealScopeInfo, SelectOption, SidebarOrder, TagFolder, VaultHistoryPoint, View, ViewPref } from "./lib/types";
 import { foldedPropKey, foldedPropStr, FUNCTIONAL_TYPES, typeHome, viewKey } from "./lib/types";
 import { tagFolderApplyTags, tagFolderMatches, tagUniverse } from "./lib/tags";
+import { dbColumns } from "./lib/dbcolumns";
 import { byFoldedKey, foldedObjectKey, isTypePropName, typeSchemaFor } from "./lib/schemalookup";
 import { folderDefaultIcon, iconForType, iconsByType } from "./lib/dbicons";
 import { dashboardKindOption, newDashboardProps } from "./lib/newdashboard";
@@ -160,7 +161,7 @@ import {
 } from "./lib/sidebar";
 import { buildNoteActions, duplicateNote as duplicateNoteInVault } from "./lib/noteactions";
 import { exportNoteMarkdown, exportNoteOneSheet, exportNotePdf } from "./lib/export";
-import { embedQueryFor, type ViewSpecResult } from "./lib/embeds";
+import { embedQueryFor, savedViewFence, type ViewSpecResult } from "./lib/embeds";
 import {
   buildEntryBody,
   buildEntryProps,
@@ -234,7 +235,7 @@ import {
   StripPropDialog,
   UnmountDialog,
 } from "./components/DbAdmin";
-import { ClockIcon, DbIcon as DbGlyphIcon, ExportIcon, FolderIcon, KeyboardIcon, MenuIcon, MountIcon, NoteActionGlyph, NoteIcon, PenIcon, PinIcon, PlusIcon, RepeatIcon, SidebarIcon, TrashIcon, XIcon, ChevronLeftIcon, ChevronUpIcon, ChevronDownIcon } from "./components/Icons";
+import { ClockIcon, CopyIcon, DbIcon as DbGlyphIcon, ExportIcon, FolderIcon, KeyboardIcon, MenuIcon, MountIcon, NoteActionGlyph, NoteIcon, PenIcon, PinIcon, PlusIcon, RepeatIcon, SidebarIcon, TableIcon, TrashIcon, XIcon, ChevronLeftIcon, ChevronUpIcon, ChevronDownIcon } from "./components/Icons";
 import { HeroNote } from "./components/HeroIcons";
 import EmptyState from "./components/EmptyState";
 import { useSidebarHidden } from "./hooks/useSidebarHidden";
@@ -460,6 +461,9 @@ export default function App() {
     mode?: "seal" | "confirm";
   } | null>(null);
   const editorFocusRef = useRef<(() => void) | null>(null);
+  // drops a block at the note pane's cursor (the saved-view pin's "Embed in
+  // this note"). Null whenever no editable note pane is mounted.
+  const noteInsertRef = useRef<((text: string) => boolean) | null>(null);
   // focuses the note pane's title input with the text selected (⌘N in Notes)
   const titleFocusRef = useRef<(() => void) | null>(null);
   // the open note pane's debounced-save flush: actions that read or
@@ -2026,6 +2030,37 @@ export default function App() {
       );
     },
     [notes, databases, schema]
+  );
+
+  // every name a view fence's `sort:`/`columns:` accepts for one database:
+  // its own columns plus `title`, then the one-hop `relation.property` joins
+  // its relation props open (viewjoin.ts). Stored columns lead — a dotted
+  // stored key is itself, never a join.
+  const dbPropNames = useCallback(
+    (dbType: string): string[] => {
+      const rowsOf = (type: string) =>
+        notes.filter((n) => foldedPropStr(n.props, "type")?.toLowerCase() === type.toLowerCase());
+      const ts = typeSchemaFor(schema, dbType) ?? {};
+      const names = ["title", ...dbColumns(rowsOf(dbType), ts)];
+      for (const [rel, ps] of Object.entries(ts)) {
+        const target = ps.kind === "relation" ? ps.type : undefined;
+        if (!target) continue;
+        const targetTs = typeSchemaFor(schema, target) ?? {};
+        for (const c of ["title", ...dbColumns(rowsOf(target), targetTs)])
+          names.push(`${rel}.${c}`);
+      }
+      return names;
+    },
+    [notes, schema]
+  );
+
+  // the pin list the fence's `saved:` completes over, each with the database
+  // it stands on so a pinned fence still knows whose props to offer. The id
+  // rides along because a fence written by "Embed in this note" references the
+  // pin BY ID whenever its name would be ambiguous (`savedViewFence`)
+  const savedViewPins = useMemo(
+    () => savedViews.map((v) => ({ id: v.id, name: v.name, db: v.db })),
+    [savedViews]
   );
 
   // relation pickers list the target database's entries
@@ -3784,6 +3819,12 @@ export default function App() {
   const savedViewMenuItems = useCallback(
     (id: string): MenuItem[] => {
       const target = exportTargets[id];
+      // "in this note" is a promise about a specific editor, so ask the insert
+      // target itself rather than inferring it from which pane is open: the ref
+      // is held by the main note pane only, so from a database or saved-view
+      // overlay it is null and the item honestly reads "Copy embed fence".
+      // Menus are built when they open, so the ref is current here.
+      const embedHere = noteInsertRef.current !== null;
       return [
         { label: "Open", icon: <PinIcon />, onSelect: () => setView({ kind: "saved", id }) },
         { label: "Rename…", icon: <PenIcon />, onSelect: () => setRenamingViewId(id) },
@@ -3811,6 +3852,24 @@ export default function App() {
             ]
           : []),
         {
+          label: embedHere ? "Embed in this note" : "Copy embed fence",
+          icon: embedHere ? <TableIcon /> : <CopyIcon />,
+          separatorAbove: true,
+          onSelect: () => {
+            const v = savedViews.find((sv) => sv.id === id);
+            if (!v) return;
+            const fence = savedViewFence(v, savedViews);
+            if (embedHere && noteInsertRef.current?.(fence)) {
+              showToast(`Embedded "${v.name}"`);
+              return;
+            }
+            void navigator.clipboard
+              .writeText(fence)
+              .then(() => showToast(`Copied the embed for "${v.name}" — paste it into a note`))
+              .catch(() => showToast("Couldn't reach the clipboard"));
+          },
+        },
+        {
           label: "Remove pin",
           icon: <TrashIcon />,
           danger: true,
@@ -3819,7 +3878,7 @@ export default function App() {
         },
       ];
     },
-    [removeView, exportView, exportTargets]
+    [removeView, exportView, exportTargets, savedViews, showToast]
   );
 
   /* The non-drag lane for assignable keys. The HUD's drag
@@ -5168,6 +5227,8 @@ export default function App() {
                 onTyped={followTyped}
                 onJournalDay={openJournal}
                 editorFocusRef={editorFocusRef}
+                savedViewPins={savedViewPins}
+                dbPropNames={dbPropNames}
                 onEscape={onNoteEscape}
                 reveal={reveal}
                 onRevealed={clearReveal}
@@ -5252,6 +5313,9 @@ export default function App() {
             onTyped={followTyped}
             onJournalDay={openJournal}
             editorFocusRef={editorFocusRef}
+            editorInsertRef={noteInsertRef}
+            savedViewPins={savedViewPins}
+            dbPropNames={dbPropNames}
             titleFocusRef={titleFocusRef}
             onEscape={onNoteEscape}
             reveal={reveal}

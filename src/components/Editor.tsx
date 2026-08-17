@@ -69,13 +69,24 @@ import {
 } from "../lib/wikilinks";
 import { inlineTagMatches, tagOptions, tagQuery } from "../lib/tags";
 import {
+  type SavedViewPin,
+  type ViewValueSlot,
+  fenceDbType,
   fenceExit,
+  fenceInner,
+  fenceKeysUsed,
   fenceLang,
+  fuzzyNames,
   inCodeContext,
   slashOptions,
   slashQuery,
+  viewKeyOptions,
+  viewKeyQuery,
+  viewQueryPropOptions,
+  viewSortDirOptions,
   viewTypeOptions,
   viewTypeQuery,
+  viewValueQuery,
 } from "../lib/slashmenu";
 import {
   AudioWidget,
@@ -1602,6 +1613,157 @@ function viewTypeCompletions(dbTypesRef: React.MutableRefObject<string[] | undef
   };
 }
 
+/** What the rest of a ```view fence completes from: the pinned views (a
+    `saved:` line names one, and its database decides which properties the
+    other lines offer), the properties of a database, and the values already
+    in use for one of them. */
+export interface ViewFenceSources {
+  savedViews: React.MutableRefObject<SavedViewPin[] | undefined>;
+  dbProps: React.MutableRefObject<((dbType: string) => string[]) | undefined>;
+  usedValues: React.MutableRefObject<((dbType: string, key: string) => string[]) | undefined>;
+}
+
+/** How far a value slot's popup keeps narrowing before the source is asked
+    again: a comma starts the next `columns:` item and whitespace the next
+    filter term, so both end the current one. */
+const VALUE_VALID_FOR: Record<ViewValueSlot, RegExp> = {
+  saved: /^[^\n]*$/,
+  sort: /^[^\n:]*$/,
+  sortdir: /^[^\n:]*$/,
+  columns: /^[^\n,]*$/,
+  query: /^[^\s,\n:]*$/,
+  queryvalue: /^[^\s,\n:]*$/,
+};
+
+/** The ````view` fence beyond `type:`: key names on a fresh line, and the
+    values of `saved:`, `sort:`, `columns:` and `query:`. Same tree gate as
+    the `type:` source — which fence we're in is the parser's verdict, never a
+    backwards text scan.
+
+    A blank line only pops the key list when the popup was asked for (⌃Space,
+    or the `/view` accept): Enter inside a fence is how you get to the next
+    key, and a menu opening under every one of them would make Enter mean
+    "accept" where the author meant "newline". */
+/** "via contact" for `contact.email` — a one-hop join reads the linked row's
+    property (viewjoin.ts). A dotted name the database stores itself is its own
+    column and says nothing extra, exactly as the resolver reads it. */
+function joinDetail(name: string, all: string[]): string | undefined {
+  const dot = name.indexOf(".");
+  if (dot <= 0 || all.includes(name.slice(0, dot)) === false) return undefined;
+  return `via ${name.slice(0, dot)}`;
+}
+
+function viewFenceCompletions(sources: ViewFenceSources) {
+  return (context: CompletionContext): CompletionResult | null => {
+    const before = context.state.sliceDoc(Math.max(0, context.pos - 250), context.pos);
+    const node = syntaxTree(context.state).resolveInner(context.pos, -1);
+    const sliceDoc = (from: number, to: number) => context.state.sliceDoc(from, to);
+    const lang = fenceLang(node, sliceDoc);
+    if (lang !== "view") return null;
+    const pins = sources.savedViews.current ?? [];
+
+    const keyQuery = viewKeyQuery(before, lang);
+    if (keyQuery !== null) {
+      if (keyQuery === "" && !context.explicit) return null;
+      const inner = fenceInner(node, sliceDoc) ?? "";
+      const options = viewKeyOptions(keyQuery, fenceKeysUsed(inner));
+      if (options.length === 0) return null;
+      return {
+        from: context.pos - keyQuery.length,
+        options: options.map((key) => ({
+          label: key.name,
+          detail: key.detail,
+          // a key is only half a line: land past its colon and open that
+          // key's own value list, so one accept keeps teaching
+          apply: (view, _completion, from, to) => {
+            view.dispatch({
+              changes: { from, to, insert: `${key.name}: ` },
+              userEvent: "input.complete",
+            });
+            startCompletion(view);
+          },
+        })),
+        validFor: /^[A-Za-z]*$/,
+      };
+    }
+
+    const value = viewValueQuery(before, lang);
+    if (!value) return null;
+    const inner = fenceInner(node, sliceDoc) ?? "";
+    const dbType = fenceDbType(inner, pins);
+    const props = () => (dbType ? (sources.dbProps.current?.(dbType) ?? []) : []);
+    let names: string[];
+    // the full prop list behind a filtered one — a join's base relation may be
+    // filtered out by the very query that shows the join
+    let universe: string[] = [];
+    switch (value.slot) {
+      case "saved":
+        names = fuzzyNames(
+          value.query,
+          pins.map((pin) => pin.name)
+        );
+        break;
+      case "sortdir":
+        names = viewSortDirOptions(value.query);
+        break;
+      case "queryvalue":
+        names = fuzzyNames(
+          value.query,
+          dbType && value.prop ? (sources.usedValues.current?.(dbType, value.prop) ?? []) : []
+        );
+        break;
+      case "query":
+        // a filter term can only name a property the query grammar lexes —
+        // the `relation.property` joins `columns:`/`sort:` resolve would
+        // filter nothing and render an empty table
+        universe = props();
+        names = viewQueryPropOptions(value.query, universe);
+        break;
+      default:
+        universe = props();
+        names = fuzzyNames(value.query, universe);
+    }
+    if (names.length === 0) return null;
+    // a filter term is `prop:value` — completing the property half lands on
+    // its colon with that property's values open
+    const asTerm = value.slot === "query";
+    return {
+      from: context.pos - value.query.length,
+      options: names.map((name) => ({
+        label: name,
+        // a dotted name that follows one of this database's own relations is
+        // a join, not a column of its own — say whose row it reads
+        detail: joinDetail(name, universe),
+        apply: (view, _completion, from, to) => {
+          view.dispatch({
+            changes: { from, to, insert: asTerm ? `${name}:` : name },
+            userEvent: "input.complete",
+          });
+          if (asTerm) startCompletion(view);
+          // a `saved:` fence that names nothing else is settled by this
+          // accept, so step out past the closer the way `type:` does — the
+          // table renders instead of leaving the caret in raw fence source
+          else if (value.slot === "saved" && fenceKeysUsed(inner).length === 1) {
+            const after = view.state.sliceDoc(
+              view.state.selection.main.head,
+              Math.min(view.state.doc.length, view.state.selection.main.head + 2000)
+            );
+            const exit = fenceExit(after);
+            if (!exit) return;
+            const head = view.state.selection.main.head;
+            view.dispatch({
+              changes: exit.insert ? { from: head + exit.insertAt, insert: exit.insert } : [],
+              selection: { anchor: head + exit.anchor },
+              userEvent: "input.complete",
+            });
+          }
+        },
+      })),
+      validFor: VALUE_VALID_FOR[value.slot],
+    };
+  };
+}
+
 interface EditorProps {
   docKey: string;
   /** identity for session fold memory — the note's LIVE path,
@@ -1621,6 +1783,13 @@ interface EditorProps {
   noteTitles?: string[];
   /** all database types — the ```view fence's `type:` completion */
   dbTypes?: string[];
+  /** every pinned view with the database behind it — the fence's `saved:`
+      completion, and what tells a `saved:` fence whose properties its other
+      lines should offer */
+  savedViewPins?: SavedViewPin[];
+  /** a database's columns (joins included) — the fence's `sort:`, `columns:`
+      and `query:` completion */
+  dbPropNames?: (dbType: string) => string[];
   /** ```view embeds: resolve a fence spec to its table model */
   embedQuery?: (spec: ViewSpecResult) => EmbedResult;
   /** ```view embeds: row click opens the entry note */
@@ -1653,6 +1822,11 @@ interface EditorProps {
    * transaction so ⌘Z can't revert the adopt; fires onChange like
    * an edit (callers suppress). */
   docRef?: React.MutableRefObject<((body: string) => void) | null>;
+  /** insert text at the cursor from outside — the saved-view pin's "Embed in
+      this note". Returns false when the buffer is read-only (a historical
+      projection), so the caller can fall back to the clipboard rather than
+      swallow the action. */
+  insertRef?: React.MutableRefObject<((text: string) => boolean) | null>;
   /** scroll a 1-based body line into view, flash it, and put the cursor there */
   reveal?: { line: number; nonce: number } | null;
   onRevealed?: () => void;
@@ -1712,6 +1886,8 @@ export default function Editor({
   tagUniverse,
   noteTitles,
   dbTypes,
+  savedViewPins,
+  dbPropNames,
   embedQuery,
   onOpenNote,
   onOpenView,
@@ -1723,6 +1899,7 @@ export default function Editor({
   vaultEpoch,
   focusRef,
   docRef,
+  insertRef,
   reveal,
   onRevealed,
   onEscape,
@@ -1789,6 +1966,10 @@ export default function Editor({
   // and for the sheet/member popup inside a `` `= … ` `` span
   const sheetTitlesRef = useRef(sheetTitles);
   const sheetMembersRef = useRef(sheetMembers);
+  // and for the rest of the fence — pins, their databases' properties, and
+  // the values already in use for one of them
+  const savedViewPinsRef = useRef(savedViewPins);
+  const dbPropNamesRef = useRef(dbPropNames);
   // and for `#` completion + tag clicks
   const tagUniverseRef = useRef(tagUniverse);
   const onOpenTagRef = useRef(onOpenTag);
@@ -1816,6 +1997,8 @@ export default function Editor({
   dbTypesRef.current = dbTypes;
   sheetTitlesRef.current = sheetTitles;
   sheetMembersRef.current = sheetMembers;
+  savedViewPinsRef.current = savedViewPins;
+  dbPropNamesRef.current = dbPropNames;
 
   const hideToolbar = () => {
     setToolbar((current) => ({ ...current, visible: false }));
@@ -2067,6 +2250,11 @@ export default function Editor({
             slashCompletions(),
             liveBindCompletions(sheetTitlesRef, sheetMembersRef),
             viewTypeCompletions(dbTypesRef),
+            viewFenceCompletions({
+              savedViews: savedViewPinsRef,
+              dbProps: dbPropNamesRef,
+              usedValues: embedUsedValuesRef,
+            }),
             tagCompletions(tagUniverseRef),
           ],
         }),
@@ -2283,6 +2471,27 @@ export default function Editor({
         });
       };
     }
+    if (insertRef) {
+      insertRef.current = (text: string) => {
+        // a historical projection is read-only — say so rather than swallow
+        // the insert; the caller has a clipboard fallback
+        if (view.state.readOnly) return false;
+        const at = view.state.selection.main;
+        // a block insert needs its own line: keep the paragraph it lands in
+        // from swallowing the fence's opening ``` as inline text
+        const head = at.from > 0 && view.state.sliceDoc(at.from - 1, at.from) !== "\n" ? "\n" : "";
+        const tailChar = view.state.sliceDoc(at.to, Math.min(view.state.doc.length, at.to + 1));
+        const tail = tailChar === "" || tailChar === "\n" ? "\n" : "\n\n";
+        const insert = head + text + tail;
+        view.dispatch({
+          changes: { from: at.from, to: at.to, insert },
+          selection: { anchor: at.from + insert.length },
+          userEvent: "input.paste",
+        });
+        view.focus();
+        return true;
+      };
+    }
     return () => {
       hideToolbar();
       rememberFolds(view);
@@ -2293,6 +2502,7 @@ export default function Editor({
       el.removeEventListener(FOLLOW_EVENT, onWidgetFollow);
       if (focusRef && focusRef.current) focusRef.current = null;
       if (docRef) docRef.current = null;
+      if (insertRef) insertRef.current = null;
       view.destroy();
       viewRef.current = null;
     };

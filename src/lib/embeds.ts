@@ -83,7 +83,10 @@ export interface EmbedSpec {
     same quiet card an unknown database gets; nothing throws. */
 export type ViewSpecResult = EmbedSpec | { error: string };
 
-const KNOWN_KEYS = ["type", "query", "saved", "view", "sort", "limit", "columns"] as const;
+/** Every key a fence body accepts. Exported because the editor's key
+    completion teaches this exact list — a key added here has to reach the
+    popup too, which slashmenu.test asserts. */
+export const KNOWN_KEYS = ["type", "query", "saved", "view", "sort", "limit", "columns"] as const;
 
 export interface EmbedRow {
   path: string;
@@ -274,6 +277,23 @@ export function findSavedView(savedViews: SavedView[], ref: string): SavedView |
     savedViews.find((v) => v.id.toLowerCase() === wanted) ??
     savedViews.find((v) => v.name.toLowerCase() === wanted)
   );
+}
+
+/** The ```view fence that embeds a saved view in a note — what the pin's
+    "Embed in this note" action writes.
+
+    It references the pin by NAME, which is what the author recognizes when
+    they read their own note later; an id is used only when a name would be
+    ambiguous (two pins, one name, on different databases — `findSavedView`
+    would resolve the wrong one). A name that would parse as something else —
+    one carrying a `#` comment mark or a colon — falls back to the id too,
+    since the fence body is `key: value` text. */
+export function savedViewFence(view: SavedView, savedViews: SavedView[] = []): string {
+  const folded = view.name.trim().toLowerCase();
+  const ambiguous = savedViews.filter((v) => v.name.trim().toLowerCase() === folded).length > 1;
+  const unreadable = /[:#]/.test(view.name) || view.name.trim() === "";
+  const ref = ambiguous || unreadable ? view.id : view.name.trim();
+  return "```view\nsaved: " + ref + "\n```";
 }
 
 /** Resolve a parsed spec against a vault snapshot into the widget's table

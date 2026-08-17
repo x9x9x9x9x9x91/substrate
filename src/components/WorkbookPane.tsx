@@ -13,10 +13,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import type { NoteMeta, SavedView, SchemaConfig } from "../lib/types";
 import { foldedPropStr, foldedTypeName } from "../lib/types";
-import { vaultRead, vaultResolve, vaultWriteBody } from "../lib/ipc";
+import { vaultFmRaw, vaultFmWrite, vaultRead, vaultResolve, vaultWriteBody } from "../lib/ipc";
 import { parsePages, type PageEntry } from "../lib/pages";
+import { appendPage } from "../lib/pagesedit";
 import { embedQueryFor, type EmbedResult } from "../lib/embeds";
 import { DashHead } from "./DashHead";
+import { PlusIcon } from "./Icons";
+import InlineEdit from "./InlineEdit";
 import EmbedViewTable, { type EmbedEdit } from "./EmbedViewTable";
 import SheetGrid from "./SheetGrid";
 
@@ -232,7 +235,18 @@ export default function WorkbookPane(props: WorkbookProps & {
 }) {
   const pages = useMemo(() => parsePages(props.meta.props), [props.meta.props]);
   const [active, setActive] = useState(0);
+  const [adding, setAdding] = useState(false);
   const count = pages.length + 1;
+
+  /* Adding a page is asking to look at it, but the tab does not exist until
+     the note reloads with the longer pages: list — so the jump waits for the
+     render that carries it, instead of being clamped away by the line below. */
+  const jumpLast = useRef(false);
+  useEffect(() => {
+    if (!jumpLast.current) return;
+    jumpLast.current = false;
+    setActive(count - 1);
+  }, [count]);
 
   // a shorter pages: list clamps the active tab instead of blanking the pane
   const cur = Math.min(active, count - 1);
@@ -286,6 +300,49 @@ export default function WorkbookPane(props: WorkbookProps & {
       />
     );
 
+  /** The + on the strip: one typed name becomes one `pages:` entry. The name
+      is resolved before anything is written — a database becomes a `view:`
+      page, a sheet or dashboard note becomes a `note:` page, and anything
+      else is refused in the field with the sentence, so a workbook never
+      grows a page that would render as an error. The refusals mirror
+      `NotePage`'s own error cases one for one: an unresolvable name, a note
+      that is neither sheet nor dashboard, the workbook itself, and a name
+      that is already a page. `pages:` is a list of maps, which
+      `vault_set_prop` cannot write, so the entry is appended to the raw
+      block. */
+  const addPage = async (name: string) => {
+    const typed = name.trim();
+    const dbType = Object.keys(props.schema ?? {}).find(
+      (t) => t.toLowerCase() === typed.toLowerCase()
+    );
+    const note = dbType ? null : await vaultResolve(typed);
+    if (!dbType && !note) throw new Error(`No database or note called “${typed}”`);
+    if (note) {
+      if (note.path === props.meta.path) throw new Error("A page can’t point at its own workbook");
+      const type = foldedTypeName(note.props);
+      if (type !== "sheet" && type !== "dashboard")
+        throw new Error(`“${note.title}” is not a sheet or dashboard`);
+    }
+    // the tab strip labels by the name the note actually carries, so the
+    // duplicate check reads that name too — typing `cash` twice is one page
+    const label = dbType ?? note!.title;
+    if (pages.some((p) => p.label.toLowerCase() === label.toLowerCase()))
+      throw new Error(`“${label}” is already a page`);
+    const fm = await vaultFmRaw(props.meta.path);
+    // a block that does not parse is repaired in the editor, not appended to
+    if (fm?.error) throw new Error(fm.error);
+    const edit = appendPage(fm?.raw ?? "", {
+      label,
+      key: dbType ? "view" : "note",
+      value: dbType ?? note!.title,
+    });
+    if ("error" in edit) throw new Error(edit.error);
+    await vaultFmWrite(props.meta.path, edit.fm);
+    setAdding(false);
+    jumpLast.current = true;
+    props.onMutated();
+  };
+
   const label0 = foldedPropStr(props.meta.props, "pageLabel") ?? "Overview";
   return (
     <div className="wb-wrap">
@@ -306,6 +363,24 @@ export default function WorkbookPane(props: WorkbookProps & {
             {label}
           </button>
         ))}
+        {adding ? (
+          <InlineEdit
+            initial=""
+            placeholder="Database or note…"
+            onCommit={addPage}
+            onCancel={() => setAdding(false)}
+          />
+        ) : (
+          <button
+            type="button"
+            className="wb-tab-add"
+            title="Add page…"
+            aria-label="Add page"
+            onClick={() => setAdding(true)}
+          >
+            <PlusIcon />
+          </button>
+        )}
         <span className="wb-tabs-hint">⌃⇥ / ⌃⇧⇥</span>
       </div>
     </div>

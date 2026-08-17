@@ -6,6 +6,7 @@ import {
   embedQueryFor,
   findSavedView,
   parseViewSpec,
+  savedViewFence,
   seedPropsFromQuery,
 } from "./embeds.ts";
 import type { NoteMeta, SavedView, SchemaConfig } from "./types.ts";
@@ -130,6 +131,27 @@ test("saved view resolves by id and by name, case-insensitive", () => {
   assert.equal(findSavedView(SAVED, "Unreleased")?.id, "unreleased");
   assert.equal(findSavedView(SAVED, "UNRELEASED")?.id, "unreleased");
   assert.equal(findSavedView(SAVED, "nope"), undefined);
+});
+
+/* ---------- savedViewFence ---------- */
+
+test("a pin embeds as a fence naming it the way its author reads it", () => {
+  const fence = savedViewFence(SAVED[0], SAVED);
+  assert.equal(fence, "```view\nsaved: Unreleased\n```");
+  // and the fence it writes is one the parser accepts, back to the same pin
+  const spec = parseViewSpec(fence.split("\n").slice(1, -1).join("\n"));
+  assert.equal(findSavedView(SAVED, (spec as { saved: string }).saved)?.id, "unreleased");
+});
+
+test("an ambiguous or unparsable pin name falls back to the id", () => {
+  const twins: SavedView[] = [
+    { id: "rel-unreleased", name: "Unreleased", db: "release" },
+    { id: "trk-unreleased", name: "Unreleased", db: "track" },
+  ];
+  assert.equal(savedViewFence(twins[1], twins), "```view\nsaved: trk-unreleased\n```");
+  // a colon or a `#` in the name would parse as fence grammar, not a name
+  const colon = { id: "q3", name: "Q3: live", db: "release" };
+  assert.equal(savedViewFence(colon, [colon]), "```view\nsaved: q3\n```");
 });
 
 /* ---------- embedQueryFor ---------- */

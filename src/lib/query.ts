@@ -63,6 +63,12 @@ const OP_RE = /^(\p{L}[\p{L}\p{N}_#-]*):(.*)$/u;
 const CMP_WHOLE_RE = /^(\p{L}[\p{L}\p{N}_#-]*)(<=|>=|<|>)(\S+)$/u;
 const CMP_HEAD_RE = /^(\p{L}[\p{L}\p{N}_#-]*)(<=|>=|<|>)$/u;
 const KEY_RE = /^\p{L}[\p{L}\p{N}_#-]*$/u;
+
+/** Can a filter term name this property at all? A name outside the key
+    charclass — a dotted `relation.property` join above all — never lexes as
+    an operator token, so a query naming it filters nothing. Completion sources
+    ask this before offering a name as a filter key. */
+export const isFilterableKey = (name: string): boolean => KEY_RE.test(name.trim());
 const CMP_TAIL_RE = /^(<=|>=|<|>)(\S*)$/;
 
 /** A pasted URI or drive-letter path matches the operator shape ("file:" +

@@ -5,15 +5,25 @@ import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import {
+  fenceDbType,
   fenceExit,
+  fenceInner,
+  fenceKeysUsed,
   fenceLang,
   inCodeContext,
   slashCommands,
   slashOptions,
   slashQuery,
+  viewFenceKeys,
+  viewKeyOptions,
+  viewKeyQuery,
+  viewQueryPropOptions,
+  viewSortDirOptions,
   viewTypeOptions,
   viewTypeQuery,
+  viewValueQuery,
 } from "./slashmenu.ts";
+import { KNOWN_KEYS } from "./embeds.ts";
 import { todayIso } from "./dates.ts";
 
 /** The editor's own parser config (Editor.tsx), so the node types these tests
@@ -108,6 +118,7 @@ test("slashOptions: everything on a bare slash, fuzzy-narrowed after", () => {
       "heatmap",
       "live",
       "progress",
+      "table",
       "task",
       "timeline",
       "view",
@@ -140,6 +151,31 @@ test("slashCommands: insert text and cursor land where the next keystroke goes",
   const asset = by("asset");
   assert.equal(asset.insert, "![[]]");
   assert.equal(asset.insert.slice(0, asset.cursor), "![[");
+});
+
+test("/table scaffolds a real table with the cursor in the first header cell", () => {
+  const table = slashCommands().find((c) => c.name === "table")!;
+  assert.equal(table.insert, "|  |  |\n| --- | --- |\n|  |  |");
+  // the cursor sits inside the first header cell, not on the pipe
+  assert.equal(table.insert.slice(0, table.cursor), "| ");
+  assert.equal(table.insert[table.cursor], " ");
+
+  // and the parser agrees it is a table — an empty-celled header still counts,
+  // which is what lets the columns be named after the fact
+  const state = stateAt(table.insert);
+  let found = false;
+  syntaxTree(state).iterate({
+    enter: (node) => {
+      if (node.name === "Table") found = true;
+    },
+  });
+  assert.ok(found, "scaffold must parse as a Table");
+
+  // three lines: header, delimiter, one body row — the rendered grid reads the
+  // delimiter for alignment and every line after it as a row
+  const lines = table.insert.split("\n");
+  assert.equal(lines.length, 3);
+  assert.equal(lines[0].split("|").length, lines[1].split("|").length);
 });
 
 test("fence scaffolds: well-formed fences, cursor on the first value, fenceExit walks out", () => {
@@ -233,6 +269,180 @@ test("fenceExit: extra fence body lines are skipped to reach the closer", () => 
 test("fenceExit: no closer in the window leaves the cursor alone", () => {
   assert.equal(fenceExit("\ntype: release"), null);
   assert.equal(fenceExit(""), null);
+});
+
+/* ---------- the rest of the fence: keys and their values ---------- */
+
+test("the key popup teaches exactly the keys the parser accepts", () => {
+  const taught = viewFenceKeys().map((k) => k.name);
+  assert.deepEqual([...taught].sort(), [...KNOWN_KEYS].sort());
+  // every key carries a hint — a bare list of seven words teaches nothing
+  for (const key of viewFenceKeys()) assert.ok(key.detail.length > 0, key.name);
+});
+
+test("viewKeyQuery: a bare word inside a view fence is a key being typed", () => {
+  assert.equal(viewKeyQuery("```view\n", "view"), "");
+  assert.equal(viewKeyQuery("```view\nco", "view"), "co");
+  assert.equal(viewKeyQuery("```view\n  co", "view"), "co");
+  // once the colon is typed the line is a value, not a key
+  assert.equal(viewKeyQuery("```view\ncolumns:", "view"), null);
+  // the fence's own lines never pop it
+  assert.equal(viewKeyQuery("```view", "view"), null);
+  assert.equal(viewKeyQuery("```view\ntype: release\n```", "view"), null);
+  // and no other fence, or no fence at all, does either
+  assert.equal(viewKeyQuery("```yaml\nco", "yaml"), null);
+  assert.equal(viewKeyQuery("co", null), null);
+});
+
+test("viewKeyOptions: fuzzy, and keys the fence already carries are dropped", () => {
+  assert.deepEqual(
+    viewKeyOptions("col").map((k) => k.name),
+    ["columns"]
+  );
+  const fresh = viewKeyOptions("").map((k) => k.name);
+  assert.equal(fresh.length, KNOWN_KEYS.length);
+  const rest = viewKeyOptions("", ["type", "QUERY"]).map((k) => k.name);
+  assert.ok(!rest.includes("type"));
+  assert.ok(!rest.includes("query"));
+  assert.equal(rest.length, KNOWN_KEYS.length - 2);
+});
+
+test("viewValueQuery: each key asks for the value list that fits it", () => {
+  assert.deepEqual(viewValueQuery("```view\nsaved: umbra un", "view"), {
+    slot: "saved",
+    query: "umbra un",
+  });
+  assert.deepEqual(viewValueQuery("```view\nsort: rel", "view"), {
+    slot: "sort",
+    query: "rel",
+  });
+  // past the colon the sort line wants a direction, not another property
+  assert.deepEqual(viewValueQuery("```view\nsort: released:de", "view"), {
+    slot: "sortdir",
+    query: "de",
+  });
+  // a columns list completes item by item, the separator's space excluded
+  assert.deepEqual(viewValueQuery("```view\ncolumns: status, art", "view"), {
+    slot: "columns",
+    query: "art",
+  });
+  assert.deepEqual(viewValueQuery("```view\ncolumns: ", "view"), {
+    slot: "columns",
+    query: "",
+  });
+  // a filter term completes its property, then that property's used values
+  assert.deepEqual(viewValueQuery("```view\nquery: stat", "view"), {
+    slot: "query",
+    query: "stat",
+  });
+  assert.deepEqual(viewValueQuery("```view\nquery: status:un", "view"), {
+    slot: "queryvalue",
+    prop: "status",
+    query: "un",
+  });
+  // only the term under the cursor
+  assert.deepEqual(viewValueQuery("```view\nquery: status:live art", "view"), {
+    slot: "query",
+    query: "art",
+  });
+});
+
+test("viewValueQuery: the lines with nothing to offer stay quiet", () => {
+  // type: is viewTypeQuery's; limit: is a number; view: renders as table today
+  assert.equal(viewValueQuery("```view\ntype: rel", "view"), null);
+  assert.equal(viewValueQuery("```view\nlimit: 5", "view"), null);
+  assert.equal(viewValueQuery("```view\nview: ta", "view"), null);
+  assert.equal(viewValueQuery("```view\nsortt: rel", "view"), null);
+  assert.equal(viewValueQuery("```view\nnot a key line", "view"), null);
+  // a comma-OR list or a quoted term: completing inside it would replace the
+  // wrong slice of what was typed
+  assert.equal(viewValueQuery('```view\nquery: status:live,"in re', "view"), null);
+  assert.equal(viewValueQuery("```view\nquery: due < 7", "view"), null);
+  // and never outside a view fence
+  assert.equal(viewValueQuery("```yaml\nsort: rel", "yaml"), null);
+  assert.equal(viewValueQuery("sort: rel", null), null);
+});
+
+test("viewSortDirOptions: both directions, fuzzy", () => {
+  assert.deepEqual(viewSortDirOptions(""), ["asc", "desc"]);
+  assert.deepEqual(viewSortDirOptions("de"), ["desc"]);
+});
+
+test("fenceInner: the fence body, closed or still being typed", () => {
+  const doc = "text\n\n```view\ntype: release\nsort: released:desc\n```\n\ntail";
+  const state = stateAt(doc);
+  const at = doc.indexOf("sort:") + 5;
+  const node = syntaxTree(state).resolveInner(at, -1);
+  assert.equal(
+    fenceInner(node, (from, to) => state.sliceDoc(from, to)),
+    "type: release\nsort: released:desc"
+  );
+  // an unclosed fence has no closer line to drop
+  const open = "```view\ntype: release\n";
+  const openState = stateAt(open);
+  const openNode = syntaxTree(openState).resolveInner(open.length, -1);
+  assert.equal(
+    fenceInner(openNode, (from, to) => openState.sliceDoc(from, to)),
+    "type: release\n"
+  );
+  // outside any fence there is no body
+  const prose = stateAt("just text");
+  assert.equal(
+    fenceInner(syntaxTree(prose).resolveInner(4, -1), (from, to) => prose.sliceDoc(from, to)),
+    null
+  );
+});
+
+test("fenceKeysUsed / fenceDbType: what the fence already says about itself", () => {
+  const inner = "# a comment\ntype: Release\nsort: released:desc\n";
+  assert.deepEqual(fenceKeysUsed(inner), ["type", "sort"]);
+  assert.equal(fenceDbType(inner), "Release");
+  // a saved: fence names its database through the pin
+  const pins = [{ name: "Umbra unreleased", db: "release" }];
+  assert.equal(fenceDbType("saved: umbra UNRELEASED\n", pins), "release");
+  assert.equal(fenceDbType("saved: nothing-here\n", pins), null);
+  // a fence that names neither has no database to offer properties from
+  assert.equal(fenceDbType("sort: rel\n", pins), null);
+  assert.equal(fenceDbType("type: \n", pins), null);
+});
+
+test("fenceDbType: a saved: line in ID form resolves too, id before name", () => {
+  // what `savedViewFence` writes when the pin's name is ambiguous or carries
+  // a `:` — the fence renders fine, so its completions must work too
+  const pins = [
+    { id: "rel-unreleased", name: "Umbra: unreleased", db: "release" },
+    { id: "task-open", name: "Open work", db: "task" },
+  ];
+  assert.equal(fenceDbType("saved: rel-unreleased\n", pins), "release");
+  assert.equal(fenceDbType("saved:   REL-Unreleased  \n", pins), "release");
+  // name still resolves, and untrimmed
+  assert.equal(fenceDbType("saved:  open WORK \n", pins), "task");
+  // an id wins over a pin that merely carries the same string as its name
+  const collide = [
+    { id: "b", name: "a", db: "byname" },
+    { id: "a", name: "z", db: "byid" },
+  ];
+  assert.equal(fenceDbType("saved: a\n", collide), "byid");
+  assert.equal(fenceDbType("saved: nothing-here\n", pins), null);
+});
+
+test("viewQueryPropOptions: query: only offers names a filter term can name", () => {
+  const universe = ["title", "status", "contact.email", "release.date", "Gebühr", "cat#"];
+  const offered = viewQueryPropOptions("", universe);
+  // the one-hop joins `columns:`/`sort:` resolve are not filterable — the
+  // query grammar's key charclass has no dot, so the term matches no row
+  assert.deepEqual(
+    offered.filter((n) => n.includes(".")),
+    []
+  );
+  assert.ok(offered.includes("status"));
+  assert.ok(offered.includes("title"));
+  // non-ASCII and `#` keys ARE filterable, so they stay on offer
+  assert.ok(offered.includes("Gebühr"));
+  assert.ok(offered.includes("cat#"));
+  // and it still ranks like the other value lists
+  assert.deepEqual(viewQueryPropOptions("stat", universe), ["status"]);
+  assert.deepEqual(viewQueryPropOptions("contact.", universe), []);
 });
 
 test("/view inserts a well-formed fence with the cursor on the type: value", () => {

@@ -447,6 +447,13 @@ export const TIPS: TipEntry[] = [
     },
   },
   {
+    selector: ".wb-tab-add",
+    tip: {
+      title: "Add page",
+      body: "Add a page to this workbook. Type the name of a database or a note — it becomes the next tab.",
+    },
+  },
+  {
     selector: ".db-tab",
     tip: (element) => ({
       title: elementLabel(element, "Database view"),
@@ -618,7 +625,7 @@ export const TIPS: TipEntry[] = [
     selector: ".chip-add",
     tip: {
       title: "Add property",
-      body: "Add a property to this note. Type a property name and value, or choose the Database property.",
+      body: "Add a property to this note. Type a property name and value — the keys this note can use are suggested as you type — or choose the Database property.",
     },
   },
   {

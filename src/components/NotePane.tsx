@@ -6,6 +6,7 @@ import { foldedPropKey, foldedPropStr, propStr } from "../lib/types";
 import type { PendingProps, PendingWrite } from "../lib/pendingprops";
 import { NO_PENDING, addPending, applyPendingTo, dropPending, prunePending, settlePending } from "../lib/pendingprops";
 import type { EmbedResult, ViewSpecResult } from "../lib/embeds";
+import type { SavedViewPin } from "../lib/slashmenu";
 import {
   fileOpen,
   onHistoryLeave,
@@ -46,6 +47,7 @@ import { dailyDateOf, humanDate, JOURNAL_DIR } from "../lib/journal";
 import { entriesForNote } from "../lib/calendar";
 import { iconForType, iconsByType, resolveIcon } from "../lib/dbicons";
 import { orderedPropKeys } from "../lib/proporder";
+import { suggestPropKeys } from "../lib/propkeys";
 import { byFoldedKey, typeSchemaFor } from "../lib/schemalookup";
 import { templateTypeOf } from "../lib/templates";
 import {
@@ -163,6 +165,13 @@ interface NotePaneProps {
   /** the same types ranked most-recently-filed first — the "which database
       does this note belong to" pickers only; other lists keep `dbTypes` */
   dbTypesRecent?: string[];
+  /** every pinned view with its database — `saved:` completion in a ```view
+      fence, and what says which database a `saved:` fence's other lines
+      should offer properties from */
+  savedViewPins?: SavedViewPin[];
+  /** a database's columns, joins included — `sort:`/`columns:`/`query:`
+      completion in a ```view fence */
+  dbPropNames?: (dbType: string) => string[];
   onFollowLink: (name: string) => void;
   /** all note titles — [[ wikilink completion in the body editor */
   noteTitles: string[];
@@ -227,6 +236,10 @@ interface NotePaneProps {
   /** open (creating if needed) the daily note for a YYYY-MM-DD date */
   onJournalDay?: (date: string) => void;
   editorFocusRef: React.MutableRefObject<(() => void) | null>;
+  /** insert text at the editor's cursor from outside the pane — the
+      saved-view pin's "Embed in this note". False when the buffer is
+      read-only, so the caller can fall back to the clipboard. */
+  editorInsertRef?: React.MutableRefObject<((text: string) => boolean) | null>;
   /** registered as focus+select on the title input (⌘N instant scratch note) */
   titleFocusRef?: React.MutableRefObject<(() => void) | null>;
   /** Esc in the note's own surfaces (title input, editor) — App's
@@ -268,6 +281,8 @@ function NotePane({
   onCreateEntry,
   dbTypes,
   dbTypesRecent,
+  savedViewPins,
+  dbPropNames,
   onFollowLink,
   noteTitles,
   sheetTitles,
@@ -295,6 +310,7 @@ function NotePane({
   onTyped,
   onJournalDay,
   editorFocusRef,
+  editorInsertRef,
   titleFocusRef,
   onEscape,
   reveal,
@@ -405,6 +421,10 @@ function NotePane({
   const [fileOk, setFileOk] = useState<Record<string, boolean>>({});
   const [chipDraft, setChipDraft] = useState("");
   const [addingChip, setAddingChip] = useState(false);
+  // which key suggestion the arrows are on; -1 = none, so Enter still
+  // belongs to what was typed
+  const [suggestSel, setSuggestSel] = useState(-1);
+  const chipInputRef = useRef<HTMLInputElement>(null);
   // + property committed a bare `type` — the database picker is open
   const [typePick, setTypePick] = useState(false);
   const [titleDraft, setTitleDraft] = useState(meta.title);
@@ -1474,6 +1494,31 @@ function NotePane({
       />
     ) : undefined;
 
+  /** A suggested key was taken: the draft becomes `key: ` with the caret
+      after it, so the value is typed in the field that is already open.
+      `type` is the exception it always was — it has a database picker, and
+      taking the key opens that instead of asking for the name in text. */
+  const pickKey = (key: string, el: Element) => {
+    setSuggestSel(-1);
+    if (key.toLowerCase() === "type") {
+      setChipDraft("");
+      setAddingChip(false);
+      setChipAnchor(anchorFrom(el));
+      setTypePick(true);
+      return;
+    }
+    const next = `${key}: `;
+    setChipDraft(next);
+    // the caret belongs after the colon, not where the half-typed key left
+    // it — written onto the field itself so the next render reconciles to the
+    // same text and leaves the selection alone
+    const input = chipInputRef.current;
+    if (input) {
+      input.value = next;
+      input.setSelectionRange(next.length, next.length);
+    }
+  };
+
   const commitAdd = (el?: Element, viaEnter = false) => {
     const idx = chipDraft.indexOf(":");
     // leading colons belong to no key — a draft typed as `:foo` is a mistyped
@@ -1497,6 +1542,7 @@ function NotePane({
       return;
     }
     setChipDraft("");
+    setSuggestSel(-1);
     if (key && value) commitChip(key, value);
     else setAddingChip(false);
   };
@@ -1519,6 +1565,13 @@ function NotePane({
   );
   const noteType = foldedPropStr(props, "type");
   const noteTypeSchema = noteType ? typeSchemaFor(schema, noteType) : undefined;
+  // The + property chip is the only door to a frontmatter-keyed capability —
+  // the editor below never sees the block — so the KEY half of the draft is
+  // offered the note's own database keys and the app's documented ones
+  const keySuggestions = useMemo(
+    () => (addingChip ? suggestPropKeys(chipDraft, noteTypeSchema, props) : []),
+    [addingChip, chipDraft, noteTypeSchema, props]
+  );
   // the rollup schema editor's pickers: the note's type's relation
   // props a rollup can follow, and the (non-rollup) props of the picked
   // relation's target database
@@ -2305,24 +2358,84 @@ function NotePane({
             );
           })}
           {ghost ? null : addingChip ? (
-            <span className="prop-row">
+            <span className="prop-row prop-add-row">
               <span className="prop-key" />
-              <input
-                className="chip-input"
-                autoFocus
-                placeholder="key: value"
-                value={chipDraft}
-                size={Math.max(chipDraft.length, 10)}
-                onChange={(e) => setChipDraft(e.target.value)}
-                onBlur={(e) => commitAdd(e.currentTarget)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") commitAdd(e.currentTarget, true);
-                  if (e.key === "Escape") {
-                    setAddingChip(false);
-                    setChipDraft("");
-                  }
-                }}
-              />
+              <span className="chip-add-field">
+                <input
+                  className="chip-input"
+                  autoFocus
+                  ref={chipInputRef}
+                  placeholder="key: value"
+                  value={chipDraft}
+                  size={Math.max(chipDraft.length, 10)}
+                  onChange={(e) => {
+                    setChipDraft(e.target.value);
+                    setSuggestSel(-1);
+                  }}
+                  onBlur={(e) => commitAdd(e.currentTarget)}
+                  onKeyDown={(e) => {
+                    const sel = Math.min(suggestSel, keySuggestions.length - 1);
+                    if (keySuggestions.length > 0 && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+                      e.preventDefault();
+                      const step = e.key === "ArrowDown" ? 1 : -1;
+                      // -1 is a stop on the way round: arrowing off either end
+                      // hands Enter back to what was typed
+                      const next = sel + step;
+                      setSuggestSel(next < -1 ? keySuggestions.length - 1 : next >= keySuggestions.length ? -1 : next);
+                      return;
+                    }
+                    // Tab takes the top suggestion the way the filter bar's
+                    // completion does; Enter takes one only once it has been
+                    // arrowed to, so a typed key still commits itself
+                    if (e.key === "Tab" && keySuggestions.length > 0) {
+                      e.preventDefault();
+                      pickKey(keySuggestions[Math.max(sel, 0)].key, e.currentTarget);
+                      return;
+                    }
+                    if (e.key === "Enter" && sel >= 0) {
+                      e.preventDefault();
+                      pickKey(keySuggestions[sel].key, e.currentTarget);
+                      return;
+                    }
+                    if (e.key === "Enter") commitAdd(e.currentTarget, true);
+                    if (e.key === "Escape") {
+                      setAddingChip(false);
+                      setChipDraft("");
+                      setSuggestSel(-1);
+                    }
+                  }}
+                />
+                {keySuggestions.length > 0 && (
+                  <span className="chip-suggest" role="listbox" aria-label="Property keys">
+                    {keySuggestions.map((s, i) => {
+                      const on = i === Math.min(suggestSel, keySuggestions.length - 1);
+                      return (
+                        <button
+                          type="button"
+                          key={s.key}
+                          role="option"
+                          aria-selected={on}
+                          className={`chip-suggest-row${on ? " active" : ""}`}
+                          // a schema author's description can be longer than
+                          // the row, which ellipsises it — the whole sentence
+                          // stays readable on hover
+                          title={`${s.key} — ${s.hint}`}
+                          // the field's blur cancels the draft and fires
+                          // BEFORE a click, so the pick rides mousedown with
+                          // the blur itself prevented
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            pickKey(s.key, e.currentTarget);
+                          }}
+                        >
+                          <span className="chip-suggest-key">{s.key}</span>
+                          <span className="chip-suggest-hint">{s.hint}</span>
+                        </button>
+                      );
+                    })}
+                  </span>
+                )}
+              </span>
             </span>
           ) : (
             <button
@@ -2332,6 +2445,7 @@ function NotePane({
               onClick={() => {
                 setAddingChip(true);
                 setChipDraft("");
+                setSuggestSel(-1);
               }}
             >
               + property
@@ -2413,6 +2527,8 @@ function NotePane({
               sheetMembers={sheetMembers}
               noteTitles={noteTitles}
               dbTypes={dbTypes}
+              savedViewPins={savedViewPins}
+              dbPropNames={dbPropNames}
               embedQuery={embedQuery}
               onOpenNote={onOpenNote}
               onOpenView={onOpenView}
@@ -2424,6 +2540,7 @@ function NotePane({
               vaultEpoch={vaultEpoch}
               focusRef={editorFocusRef}
               docRef={docReplaceRef}
+              insertRef={editorInsertRef}
               reveal={reveal && reveal.path === meta.path ? reveal : null}
               onRevealed={onRevealed}
               onEscape={onEscape ? () => onEscape(meta.path) : undefined}
