@@ -160,6 +160,9 @@ import {
   splitPins,
 } from "./lib/sidebar";
 import { buildNoteActions, duplicateNote as duplicateNoteInVault } from "./lib/noteactions";
+import SealedNoteDialog, { type SealedNoteMode } from "./components/SealedNoteDialog";
+import { buildNoteExtras, type NoteExtras } from "./lib/noteextras";
+import { forgetSealed, holdSealed, relockSealed, subscribeSealed, unlockedSealedPaths } from "./lib/sealedsession";
 import { exportNoteMarkdown, exportNoteOneSheet, exportNotePdf } from "./lib/export";
 import { embedQueryFor, savedViewFence, type ViewSpecResult } from "./lib/embeds";
 import {
@@ -2762,6 +2765,32 @@ export default function App() {
     [openNote, createNote, databases, openDatabase]
   );
 
+  // The body behind a wikilink's TARGET, for the editor's `[[Target#anchor`
+  // popup — resolved through the same `vault_resolve` following the link uses,
+  // so every heading offered is one a click would actually land on.
+  //
+  // Cached per target for as long as the vault snapshot holds: a completion
+  // source is re-asked on keystrokes, and a note read per keystroke over IPC
+  // would make typing an anchor feel like typing through mud. Misses cache as
+  // null too — while a name is still half-typed, resolving to nothing is the
+  // common case, not the exception.
+  const linkedNoteBody = useMemo(() => {
+    const cache = new Map<string, Promise<string | null>>();
+    return (target: string): Promise<string | null> => {
+      const key = target.trim().toLowerCase();
+      let hit = cache.get(key);
+      if (!hit) {
+        hit = vaultResolve(target)
+          .then((meta) => (meta ? vaultRead(meta.path).then((content) => content.body) : null))
+          // an unreadable note offers no anchors; the popup's absence is the
+          // mildest possible failure and never an error in the writer's face
+          .catch(() => null);
+        cache.set(key, hit);
+      }
+      return hit;
+    };
+  }, [vaultEpoch]);
+
   /* ----- inline view embeds in notes ----- */
 
   // resolve a ```view fence against the current vault snapshot; the widget
@@ -3251,6 +3280,60 @@ export default function App() {
       .catch(console.error);
   }, []);
 
+  // Which sealed notes this session still holds an authorization for. The row
+  // menu and the palette need it to answer two questions honestly: is there
+  // anything to lock, and can "Remove seal…" go straight to the confirm or does
+  // it have to ask for the password first (the engine only unseals a note whose
+  // identity is already authorized — vault/mod.rs `unseal_note`).
+  const unlockedSealed = useSyncExternalStore(subscribeSealed, unlockedSealedPaths);
+
+  // `then: "unseal"` chains the two dialogs for "Remove seal…" on a locked
+  // note: unlock, then confirm. Cancelling the confirm leaves the note
+  // unlocked — the user did authorize it, and the menu now offers "Lock now".
+  const [sealDialog, setSealDialog] = useState<
+    { note: NoteMeta; mode: SealedNoteMode; then?: "unseal" } | null
+  >(null);
+
+  // per-note calendar opt-out, the note pane's own write (NotePane
+  // `toggleCalendar`): hiding stores a real YAML `false`, showing removes the
+  // prop. Through setPropUndoable so one ⌘Z reverts it whichever surface it
+  // came from.
+  const setCalendarHidden = useCallback(
+    (n: NoteMeta, hidden: boolean) => {
+      setPropUndoable({
+        path: n.path,
+        key: foldedPropKey(n.props, "calendar"),
+        value: hidden ? false : null,
+        record: undoApi.record,
+        keyLabel: "calendar",
+      })
+        .then(() => refresh())
+        .catch((err) => {
+          showToast(`couldn’t save — ${err instanceof Error ? err.message : String(err)}`);
+          refresh();
+        });
+    },
+    [undoApi, refresh, showToast]
+  );
+
+  // The handlers that used to exist only on the open note's ⋯ menu.
+  // One place, spread into every surface that renders the descriptors, so
+  // "which verbs do I get" stops depending on where you invoked from.
+  // The body lives in lib/noteextras so the flush-before-authorization-change
+  // ordering can be executed by a test.
+  const noteActionExtras = useCallback(
+    (n: NoteMeta): NoteExtras =>
+      buildNoteExtras(n, {
+        unlockedSealed,
+        schema,
+        afterFlush: afterOpenFlush,
+        openSealDialog: setSealDialog,
+        relock: relockSealed,
+        setCalendarHidden,
+      }),
+    [unlockedSealed, schema, afterOpenFlush, setCalendarHidden]
+  );
+
   // The row menu renders the canonical note actions (lib/
   // noteactions) — same descriptors the note pane's ⋯ menu and the palette
   // actions stage show, with the row surface's full wiring (Open included)
@@ -3268,6 +3351,7 @@ export default function App() {
         exportOneSheet: () => afterOpenFlush(() => exportNoteOneSheet(n).catch(console.error)),
         sendAsLink: () => afterOpenFlush(() => setSendLink(n)),
         sealed: n.sealed,
+        ...noteActionExtras(n),
         togglePick: () => togglePickToday(n.path, !isPickedToday(n, todayIso())),
         picked: isPickedToday(n, todayIso()),
         togglePin: () => setPinned(n.path, !pinnedPaths.includes(n.path)),
@@ -3290,6 +3374,7 @@ export default function App() {
       revealRel,
       afterOpenFlush,
       togglePickToday,
+      noteActionExtras,
       setPinned,
       pinnedPaths,
     ]
@@ -3815,6 +3900,22 @@ export default function App() {
     },
     [savedViews, notes, schema, showToast]
   );
+
+  // Link-folder export for the saved view on screen, so the palette carries it
+  // too: the sidebar context menu was the only door to it, which
+  // meant it did not exist unless you already knew where to right-click.
+  const linkFolderCommand = useMemo<{ label: string; hint?: string; run: () => void } | null>(() => {
+    if (view.kind !== "saved") return null;
+    const id = view.id;
+    const target = exportTargets[id];
+    return target
+      ? {
+          label: "Regenerate link folder",
+          hint: target.split("/").pop(),
+          run: () => void exportView(id),
+        }
+      : { label: "Export as link folder…", run: () => void exportView(id) };
+  }, [view, exportTargets, exportView]);
 
   const savedViewMenuItems = useCallback(
     (id: string): MenuItem[] => {
@@ -5204,6 +5305,7 @@ export default function App() {
                 dbTypesRecent={dbTypesRecent}
                 onFollowLink={followLink}
                 noteTitles={noteTitles}
+                linkedNoteBody={linkedNoteBody}
                 sheetTitles={sheetTitles}
                 onOpenTag={openTag}
                 tagUniverse={tagCounts}
@@ -5288,6 +5390,7 @@ export default function App() {
             dbTypesRecent={dbTypesRecent}
             onFollowLink={followLink}
             noteTitles={noteTitles}
+            linkedNoteBody={linkedNoteBody}
             sheetTitles={sheetTitles}
             onOpenTag={openTag}
             tagUniverse={tagCounts}
@@ -5359,6 +5462,8 @@ export default function App() {
           onExportCsv={
             view.kind === "db" || view.kind === "saved" ? () => dbExportRef.current?.() : null
           }
+          linkFolderCommand={linkFolderCommand}
+          noteActionExtras={noteActionExtras}
           onPrint={printable}
           undoCommand={undoCommand}
           redoCommand={redoCommand}
@@ -5521,6 +5626,40 @@ export default function App() {
         />
       )}
       {sendLink && <SendLinkDialog meta={sendLink} onClose={() => setSendLink(null)} />}
+      {/* Seal/unlock/unseal invoked from a surface that is not the open note:
+          the row menu or the palette. Same dialog the pane uses. */}
+      {sealDialog && (
+        <SealedNoteDialog
+          /* The unlock→unseal chain swaps the mode under one mount; without a
+             fresh key React keeps the dialog's own busy/error state and the
+             confirm button stays stuck reading "Removing seal…". */
+          key={`${sealDialog.note.path}:${sealDialog.mode}`}
+          meta={sealDialog.note}
+          mode={sealDialog.mode}
+          onClose={() => setSealDialog(null)}
+          onDone={(result) => {
+            const { note, mode, then } = sealDialog;
+            if (mode === "unlock") {
+              // the unlock leg of "Remove seal…": register the hold before the
+              // confirm, so an abandoned confirm leaves honest state behind
+              holdSealed(note.path);
+              setSealDialog(then === "unseal" ? { note, mode: "unseal" } : null);
+              return;
+            }
+            setSealDialog(null);
+            if (mode === "seal") {
+              const quick = (result as { device_unlock?: boolean } | undefined)?.device_unlock;
+              if (quick === false) showToast("Sealed — use the vault password to unlock on this device");
+            }
+            // seal and unseal both leave the engine holding nothing for this
+            // path: drop the bookkeeping without asking it to lock again
+            forgetSealed(note.path);
+            // unsealing drops every authorization in the engine; the pane
+            // watching this note picks the change up through sealedsession
+            refresh();
+          }}
+        />
+      )}
       {tagFolderEdit && (
         <TagFolderDialog
           folder={tagFolderEdit.folder}

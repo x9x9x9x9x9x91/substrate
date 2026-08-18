@@ -213,7 +213,7 @@ export default function CodingDashboard({ meta, vaultEpoch, onOpenSource }: Codi
           <div className="coding-others">
             <span className="coding-others-label">not git repos:</span>
             {scan.others.map((o) => (
-              <span className="coding-other" key={o.name}>
+              <span key={o.name}>
                 {o.name} ({fmtBytes(o.disk_bytes)}
                 {o.newest_mtime_unix !== null
                   ? `, touched ${fmtAgeUnix(o.newest_mtime_unix, now)}`

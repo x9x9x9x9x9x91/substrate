@@ -212,7 +212,7 @@ export default function SealedNoteDialog({
             )}
 
             {stuck && (
-              <button className="selmenu-btn sealed-stuck-btn" onClick={abandonDeviceWait}>
+              <button className="selmenu-btn" onClick={abandonDeviceWait}>
                 Still waiting? Stop and use the vault password
               </button>
             )}

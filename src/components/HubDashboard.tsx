@@ -157,7 +157,7 @@ function Inline({ text, ctx }: { text: string; ctx: Ctx }): ReactNode {
         <button
           type="button"
           key={k++}
-          className="dash-link dash-extlink"
+          className="dash-link"
           onClick={() => openExternalLink(url)}
         >
           {m[3]}

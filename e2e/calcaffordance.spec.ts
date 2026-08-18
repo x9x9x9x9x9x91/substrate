@@ -96,3 +96,29 @@ test("no name popup where a live value cannot be", async ({ page }) => {
   await page.keyboard.type("`= Ca");
   await expect(page.locator(menu)).toHaveCount(0);
 });
+
+/* The completion source used to read a fixed 250-char window back from the
+   cursor, which a LONG SPAN outruns: `` `= 1 + 1 + … + Ca `` stops offering
+   names once its opening backtick falls outside, and at exactly the window
+   edge the escape hatch's first backtick falls outside instead — so the popup
+   opens inside prose that was only showing the syntax. The source reads the
+   cursor's line now (a span cannot cross a newline), so neither edge exists.
+   The lengths below are picked against that old window on purpose. */
+test("a long span still completes, and the escape hatch still stays silent", async ({ page }) => {
+  await boot(page);
+  await page.keyboard.type("`= ");
+  await page.keyboard.insertText("1 + ".repeat(80)); // span opener 320+ chars back
+  await page.keyboard.type("Ca");
+  await expect(page.locator(menu)).toBeVisible();
+  await expect(page.locator(`${menu} .cm-completionLabel`, { hasText: "Cash" })).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Enter");
+  // ``= … is prose ABOUT the syntax. 249 chars of span content puts the second
+  // backtick exactly at the old window's first character, where the guard that
+  // reads the character before it saw nothing at all.
+  await page.keyboard.type("``= ");
+  await page.keyboard.insertText("1 + ".repeat(61) + " ");
+  await page.keyboard.type("Ca");
+  await expect(page.locator(menu)).toHaveCount(0);
+});

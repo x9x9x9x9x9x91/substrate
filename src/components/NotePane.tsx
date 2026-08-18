@@ -15,7 +15,6 @@ import {
   vaultBacklinks,
   vaultCreate,
   vaultFmRaw,
-  vaultLockSealedNote,
   vaultRead,
   vaultRelated,
   vaultResolve,
@@ -38,6 +37,14 @@ import { useLiveValues } from "./useLiveValues";
 import { dashboardSheets } from "../lib/dashboardSheets";
 import { exportNoteMarkdown, exportNoteOneSheet, exportNotePdf } from "../lib/export";
 import { buildNoteActions } from "../lib/noteactions";
+import {
+  forgetSealed,
+  holdSealed,
+  isSealedUnlocked,
+  relockSealed,
+  releaseSealed,
+  subscribeSealed,
+} from "../lib/sealedsession";
 import { formatDateHuman, shiftDate } from "../lib/dates";
 import { formatNumber, formatDateTimeHuman } from "../lib/display";
 import { normalizeNumberInput } from "../lib/aggregate";
@@ -66,6 +73,7 @@ import TypeIcon from "./TypeIcon";
 import SheetGrid from "./SheetGrid";
 import { parseColumnNotify } from "../lib/sheetnotify";
 import type { SheetRowTarget } from "../hooks/useVaultEvents";
+import { useTypedBody } from "../hooks/useTypedBody";
 import DateMenu from "./DateMenu";
 import FileMenu from "./FileMenu";
 import RelationMenu from "./RelationMenu";
@@ -175,6 +183,9 @@ interface NotePaneProps {
   onFollowLink: (name: string) => void;
   /** all note titles — [[ wikilink completion in the body editor */
   noteTitles: string[];
+  /** the body behind a wikilink target — the `[[Target#anchor` popup's
+      source, passed straight through to the editor */
+  linkedNoteBody: (target: string) => Promise<string | null>;
   /** the vault's sheet notes — the name popup inside a `` `= … ` `` span */
   sheetTitles?: string[];
   /** An inline `#tag` was clicked — open its collection */
@@ -285,6 +296,7 @@ function NotePane({
   dbPropNames,
   onFollowLink,
   noteTitles,
+  linkedNoteBody,
   sheetTitles,
   onOpenTag,
   tagUniverse,
@@ -333,16 +345,14 @@ function NotePane({
     null
   );
   // The body as the editor has it, sampled a beat after typing stops (see
-  // onBodyChange). `loaded` holds the body as DISK has it, which is the right
-  // base for saving and the wrong one for live values: a span typed just now
-  // names a sheet that body has never mentioned, so the sheet never loads and
-  // a freshly written `` `= Cash.cash_total` `` shows the dim dash until the
-  // note is reopened. Reading the buffer instead makes the value appear where
-  // it was typed, which is the only reading of "live" a writer would accept.
-  const [typedBody, setTypedBody] = useState<{ path: string; body: string } | null>(null);
-  const liveBody =
-    (typedBody?.path === meta.path ? typedBody.body : null) ??
-    (loaded?.path === meta.path ? loaded.body : null);
+  // onBodyChange and the hook's own header). `loaded` holds the body as DISK
+  // has it — the right base for saving, the wrong one for live values. The
+  // sample wins where it exists, which is also why every path that adopts a
+  // body from outside the editor calls `typed.clear()`.
+  const typed = useTypedBody(meta.path);
+  const clearTyped = typed.clear;
+  const typedSample = typed.sample;
+  const liveBody = typed.body ?? (loaded?.path === meta.path ? loaded.body : null);
   // A live value may convert currency too, so an inline `= expr`
   // span earns the rate table on the same terms a calc line does. Memoised
   // because the match now parses each candidate: it is a body-sized scan, not
@@ -464,7 +474,11 @@ function NotePane({
   const [outlineOpen, setOutlineOpen] = useState(true);
   const mountedDocPath = loaded?.docPath ?? null;
   useEffect(() => setOutlineOpen(true), [mountedDocPath]);
-  const [sealedUnlocked, setSealedUnlocked] = useState(false);
+  // Seeded from the shared store, not from `false`: another surface (row
+  // menu, palette) may already have unlocked this note, and a pane that
+  // ignores that shows "Unlock to peek" while the row menu offers "Lock now"
+  // for the same note in the same second.
+  const [sealedUnlocked, setSealedUnlocked] = useState(() => isSealedUnlocked(meta.path));
   const [sealedOverride, setSealedOverride] = useState<boolean | null>(null);
   const [sealedDialog, setSealedDialog] = useState<SealedNoteMode | null>(null);
   const isSealed = sealedOverride ?? !!meta.sealed;
@@ -474,13 +488,17 @@ function NotePane({
   // read — releasing on teardown would revoke the identity another open pane
   // is still editing with.
   const sealedHeld = useRef(false);
+  // ...and whether it is SHOWING plaintext, which is the wider condition: a
+  // pane that adopted someone else's unlock reads plaintext while holding
+  // nothing, and it still has to return to the lock screen when that
+  // authorization goes away.
+  const sealedShown = useRef(sealedUnlocked);
+  useEffect(() => {
+    sealedShown.current = sealedUnlocked;
+  }, [sealedUnlocked]);
 
   const pending = useRef<{ path: string; body: string } | null>(null);
   const saveTimer = useRef<number | undefined>(undefined);
-  // samples the buffer into typedBody once typing settles — separate from the
-  // save debounce because it is cheaper to be wrong about (a missed sample
-  // costs a late value, a missed save costs text)
-  const liveSampleTimer = useRef<number | undefined>(undefined);
   // the prop write that failed — the error pill IS its retry
   const failedProp = useRef<{ key: string; value: string | string[] | boolean | null } | null>(null);
   // same, for the sheet column's notification write — a different
@@ -710,6 +728,8 @@ function NotePane({
             orphanedEdits.set(wrotePath, newer);
             pending.current = null;
             sealedHeld.current = false;
+            // the engine dropped the identity itself — nothing left to release
+            forgetSealed(wrotePath);
             setSaveError(null);
             setSealedUnlocked(false);
             onToastRef.current?.("This note locked again — unlock to save your changes");
@@ -742,7 +762,11 @@ function NotePane({
   // Authorization is scoped to the open note and this mounted pane. Leaving
   // it flushes encrypted edits first, then drops the in-memory identity.
   useEffect(() => {
-    setSealedUnlocked(false);
+    // Adopt, never duplicate: the engine counts one holder per unlock IPC and
+    // this pane ran none, so it reads the plaintext another surface
+    // authorized WITHOUT claiming a hold — its teardown then releases only
+    // what it actually took, and the holder count stays honest.
+    setSealedUnlocked(isSealedUnlocked(meta.path));
     setSealedDialog(null);
     sealedHeld.current = false;
     return () => {
@@ -760,9 +784,39 @@ function NotePane({
       const lockPath = meta.path;
       void flush().finally(() => {
         if (!held) return;
-        vaultLockSealedNote(lockPath);
+        releaseSealed(lockPath);
       });
     };
+  }, [meta.path, flush]);
+
+  // Another surface relocked this note (row menu, palette, its own ⋯ menu):
+  // the session's authorization is gone, so the plaintext on screen has to go
+  // with it.
+  //
+  // This is the SAFETY NET, not the ordering. Every in-app door flushes the
+  // pane before it changes the note's authorization (App's `afterOpenFlush`
+  // wraps seal/lock/unseal; the pane's own verbs flush inline), so by the
+  // time this runs the pending write has already landed. What it catches is
+  // the relock this app didn't order the flush for — and the flush here is
+  // best-effort: if the engine has already dropped the identity the write
+  // fails into the sealed-locked recovery above, which parks the text.
+  useEffect(() => {
+    return subscribeSealed(() => {
+      const authorized = isSealedUnlocked(meta.path);
+      if (authorized === sealedShown.current) return;
+      if (authorized) {
+        // The other direction, and the reason seeding on mount is not
+        // enough: the row menu or the palette can unlock the note that is
+        // ALREADY open, and a pane left on its lock screen then disagrees
+        // with the menu that just authorized it. Adopted, not held — this
+        // pane ran no unlock IPC, so it has nothing to release.
+        sealedShown.current = true;
+        setSealedUnlocked(true);
+        return;
+      }
+      sealedHeld.current = false;
+      void flush().finally(() => setSealedUnlocked(false));
+    });
   }, [meta.path, flush]);
 
   useEffect(() => {
@@ -839,6 +893,9 @@ function NotePane({
           if (baseRef.current?.path === path && baseRef.current.body === c.body) return;
           baseRef.current = { path, body: c.body };
           setLoaded((l) => (l ? { ...l, body: c.body } : l));
+          // same as adoptDiskBody: the sweep's rewrite came from outside the
+          // editor, so the sampled buffer is stale
+          clearTyped();
           if (docReplaceRef.current) {
             applyingExternal.current = true;
             docReplaceRef.current(c.body);
@@ -876,8 +933,7 @@ function NotePane({
     flush();
     setLoaded(null);
     // the outgoing note's text says nothing about the incoming one's sheets
-    window.clearTimeout(liveSampleTimer.current);
-    setTypedBody(null);
+    clearTyped();
     setEditingChip(null);
     setSchemaEditChip(null);
     setAddingChip(false);
@@ -1065,16 +1121,8 @@ function NotePane({
       if (applyingExternal.current) return;
       if (hasExecutableCalcLine(b) || liveExprMatches(b).length > 0) ensureFxRates();
       // sample the buffer for the live-value sheet set once the keystrokes
-      // stop: liveSheetNames is a body-sized scan and the load behind it is
-      // IPC, so this rides its own quiet-period timer rather than firing per
-      // keystroke. 400ms is under the save debounce — the value appears while
-      // the sentence is still being written, not after it is filed.
-      window.clearTimeout(liveSampleTimer.current);
-      const sampled = meta.path;
-      liveSampleTimer.current = window.setTimeout(
-        () => setTypedBody({ path: sampled, body: b }),
-        400
-      );
+      // stop (the quiet period and its reasons live in useTypedBody)
+      typedSample(meta.path, b);
       pending.current = { path: meta.path, body: b };
       // the file is gone: keep the text, never schedule a write
       if (missingRef.current || fileGoneRef.current) return;
@@ -1085,26 +1133,34 @@ function NotePane({
       window.clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(flush, 500);
     },
-    [meta.path, flush]
+    [meta.path, flush, typedSample]
   );
 
   // adopt a body read from disk (external change or conflict-reload): editor
   // surfaces swap in place via docReplaceRef — the plain editor, and the sheet
   // grid too (keeps an open cell draft); anything else remounts
-  const adoptDiskBody = useCallback((path: string, body: string) => {
-    baseRef.current = { path, body };
-    // keep the mounted editor's identity when the pane already shows this
-    // path — after a rename docPath lags path on purpose, and
-    // resetting it here would turn an in-place adopt into a remount
-    setLoaded((l) => (l && l.path === path ? { ...l, body } : { path, docPath: path, body }));
-    if (docReplaceRef.current) {
-      applyingExternal.current = true;
-      docReplaceRef.current(body);
-      applyingExternal.current = false;
-    } else {
-      setReloadNonce((n) => n + 1);
-    }
-  }, []);
+  const adoptDiskBody = useCallback(
+    (path: string, body: string) => {
+      baseRef.current = { path, body };
+      // keep the mounted editor's identity when the pane already shows this
+      // path — after a rename docPath lags path on purpose, and
+      // resetting it here would turn an in-place adopt into a remount
+      setLoaded((l) => (l && l.path === path ? { ...l, body } : { path, docPath: path, body }));
+      // this body did not come from the editor, so the sampled buffer is now
+      // the stale one — and it outranks `loaded`, so leaving it would keep
+      // live values resolving against text nobody can see until the next
+      // keystroke
+      clearTyped();
+      if (docReplaceRef.current) {
+        applyingExternal.current = true;
+        docReplaceRef.current(body);
+        applyingExternal.current = false;
+      } else {
+        setReloadNonce((n) => n + 1);
+      }
+    },
+    [clearTyped]
+  );
 
   // A bump re-reads the open note and adopts genuine divergence — but
   // only while clean. A dirty or saving buffer goes through the flush guard
@@ -1652,6 +1708,7 @@ function NotePane({
             onDone={() => {
               setSealedDialog(null);
               sealedHeld.current = true;
+              holdSealed(meta.path);
               setSealedUnlocked(true);
             }}
           />
@@ -1747,12 +1804,13 @@ function NotePane({
       ? () => {
           // .finally on both legs: a rejected flush must still drop the
           // engine identity, or "Lock now" shows locked while plaintext
-          // stays readable through every IPC path
+          // stays readable through every IPC path.
+          // Session-wide: "Lock now" means locked, not "one holder fewer" —
+          // the same verb the row menu and the palette invoke.
           flush()
             .finally(() => {
-              if (!sealedHeld.current) return;
               sealedHeld.current = false;
-              vaultLockSealedNote(meta.path);
+              relockSealed(meta.path);
             })
             .finally(() => setSealedUnlocked(false));
         }
@@ -2526,6 +2584,7 @@ function NotePane({
               sheetTitles={sheetTitles}
               sheetMembers={sheetMembers}
               noteTitles={noteTitles}
+              linkedNoteBody={linkedNoteBody}
               dbTypes={dbTypes}
               savedViewPins={savedViewPins}
               dbPropNames={dbPropNames}
@@ -2634,6 +2693,7 @@ function NotePane({
             setSealedDialog(null);
             if (mode === "seal") {
               setSealedOverride(true);
+              forgetSealed(meta.path);
               setSealedUnlocked(false);
               // sealing leaves the note LOCKED: the seal command releases its
               // own authorization once the purge is safe (holders back to 0),
@@ -2646,6 +2706,7 @@ function NotePane({
               onMutated();
             } else if (mode === "unseal") {
               setSealedOverride(false);
+              forgetSealed(meta.path);
               setSealedUnlocked(false);
               // the note is plaintext again: the engine dropped every hold on
               // it, so this pane has nothing left to release
@@ -2653,6 +2714,7 @@ function NotePane({
               onMutated();
             } else {
               sealedHeld.current = true;
+              holdSealed(meta.path);
               setSealedUnlocked(true);
             }
           }}

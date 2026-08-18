@@ -104,7 +104,7 @@ export default function CookbookPane({ onOpenNote }: CookbookPaneProps) {
                 {expects && <p className="cb-expects">binds to {expects}</p>}
 
                 {done ? (
-                  <div className="cb-done">
+                  <div>
                     <div className="cb-done-head">
                       Installed {done.files.length} {done.files.length === 1 ? "file" : "files"}
                     </div>

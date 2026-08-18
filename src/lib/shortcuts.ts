@@ -822,6 +822,17 @@ export const SHORTCUTS: Shortcut[] = [
     hint: (ctx) => ctx.selectedMeta !== null || ctx.dbNote !== null,
   }),
   define({
+    id: "editor-table",
+    description: "Table actions",
+    group: "Editor",
+    scopes: ["editor"],
+    // the pointer reaches a rendered table's edits by right-clicking a cell;
+    // this is the same menu without one, and the only way in while the cursor
+    // sits in the table's source, where there is no grid to click
+    combos: [{ key: "m", mod: true, shift: true, fold: true }],
+    hint: (ctx) => ctx.selectedMeta !== null || ctx.dbNote !== null,
+  }),
+  define({
     id: "editor-find",
     description: "Find in note",
     group: "Editor",

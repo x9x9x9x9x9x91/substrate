@@ -1,6 +1,17 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { splitRow, tableWithColumn, tableWithRow } from "./tableedit.ts";
+import {
+  cellSpans,
+  escapeCell,
+  splitRow,
+  tableAlignments,
+  tableWithAlignment,
+  tableWithCell,
+  tableWithColumn,
+  tableWithRow,
+  tableWithoutColumn,
+  tableWithoutRow,
+} from "./tableedit.ts";
 import { slashCommands } from "./slashmenu.ts";
 
 const TABLE = ["| Track | Length |", "| --- | --- |", "| Slug It Out | 6:12 |"].join("\n");
@@ -82,4 +93,175 @@ test("tableWithRow: trailing whitespace on the last row does not orphan the new 
   const next = tableWithRow(TABLE + "\n");
   assert.deepEqual(next.source.split("\n").length, 4);
   assert.equal(next.source.split("\n")[3], "|  |  |");
+});
+
+test("cellSpans: the spans bracket the cells splitRow reports, and say if the row closed", () => {
+  const closed = cellSpans("| a | b |");
+  assert.deepEqual(
+    closed.cells.map((c) => c.text),
+    [" a ", " b "]
+  );
+  assert.equal(closed.closed, true);
+  // the span runs from just past the opening pipe up to the closing one
+  assert.equal("| a | b |".slice(closed.cells[1].from, closed.cells[1].to), " b ");
+
+  const open = cellSpans("| a | b");
+  assert.equal(open.closed, false);
+  assert.equal(open.cells[1].to, "| a | b".length);
+});
+
+test("tableWithoutRow: the named body row goes, everything else is untouched", () => {
+  const three = [TABLE, "| Nod | 5:01 |"].join("\n");
+  assert.deepEqual(tableWithoutRow(three, 2)!.split("\n"), [
+    "| Track | Length |",
+    "| --- | --- |",
+    "| Nod | 5:01 |",
+  ]);
+  assert.deepEqual(tableWithoutRow(three, 3)!.split("\n"), TABLE.split("\n"));
+});
+
+test("tableWithoutRow: the header and the delimiter are not deletable", () => {
+  assert.equal(tableWithoutRow(TABLE, 0), null);
+  assert.equal(tableWithoutRow(TABLE, 1), null);
+  // a row the table doesn't have is a no-op, not a mangled table
+  assert.equal(tableWithoutRow(TABLE, 9), null);
+});
+
+test("tableWithoutRow: the last body row can go — header plus delimiter still parses", () => {
+  const next = tableWithoutRow(TABLE, 2)!;
+  assert.deepEqual(next.split("\n"), ["| Track | Length |", "| --- | --- |"]);
+});
+
+test("tableWithoutColumn: one column out of every row, spacing elsewhere preserved", () => {
+  const wide = ["| a | b | c |", "| --- | :---: | ---: |", "|1|2|3|"].join("\n");
+  assert.deepEqual(tableWithoutColumn(wide, 1)!.split("\n"), [
+    "| a | c |",
+    "| --- | ---: |",
+    "|1|3|",
+  ]);
+  // dropping the first column keeps the row's opening pipe
+  assert.deepEqual(tableWithoutColumn(wide, 0)!.split("\n"), [
+    "| b | c |",
+    "| :---: | ---: |",
+    "|2|3|",
+  ]);
+  // and the last takes the closing pipe with it, leaving the row closed
+  assert.deepEqual(tableWithoutColumn(wide, 2)!.split("\n"), [
+    "| a | b |",
+    "| --- | :---: |",
+    "|1|2|",
+  ]);
+});
+
+test("tableWithoutColumn: the only column stays — a table with none is not a table", () => {
+  const single = ["| a |", "| --- |", "| 1 |"].join("\n");
+  assert.equal(tableWithoutColumn(single, 0), null);
+  assert.equal(tableWithoutColumn(TABLE, 5), null);
+});
+
+test("tableWithoutColumn: an escaped pipe stays content when its neighbour goes", () => {
+  const escaped = ["| a | b |", "| --- | --- |", "| x \\| y | z |"].join("\n");
+  const next = tableWithoutColumn(escaped, 1)!;
+  assert.deepEqual(next.split("\n"), ["| a |", "| --- |", "| x \\| y |"]);
+  assert.deepEqual(splitRow(next.split("\n")[2]), ["x | y"]);
+});
+
+test("tableWithoutColumn: an unclosed row loses its own opening pipe with the last cell", () => {
+  const ragged = ["| a | b", "| --- | ---", "| 1 | 2"].join("\n");
+  assert.deepEqual(tableWithoutColumn(ragged, 1)!.split("\n"), ["| a", "| ---", "| 1"]);
+});
+
+test("tableWithoutColumn: a pipeless two-column table keeps its pipes and stays a table", () => {
+  const pipeless = ["Track | Length", "--- | ---", "Nod | 5:01"].join("\n");
+  // without the re-pipe every line here would come out bare ("Track"), the
+  // table would stop parsing and the header would read as a setext heading
+  assert.deepEqual(tableWithoutColumn(pipeless, 1)!.split("\n"), ["| Track |", "| --- |", "| Nod |"]);
+  assert.deepEqual(tableWithoutColumn(pipeless, 0)!.split("\n"), [
+    "| Length |",
+    "| --- |",
+    "| 5:01 |",
+  ]);
+});
+
+test("tableWithoutColumn: a pipeless table with columns to spare keeps its own spacing", () => {
+  const pipeless = ["A | B | C", "--- | --- | ---", "1 | 2 | 3"].join("\n");
+  // two columns still have a pipe between them: nothing to rescue, so the
+  // rows are left exactly as the user spaced them
+  assert.deepEqual(tableWithoutColumn(pipeless, 1)!.split("\n"), ["A | C", "--- | ---", "1 | 3"]);
+});
+
+test("tableWithoutColumn: a pipeless table indented in a list keeps its indent", () => {
+  const nested = ["  Track | Length", "  --- | ---", "  Nod | 5:01"].join("\n");
+  assert.deepEqual(tableWithoutColumn(nested, 1)!.split("\n"), [
+    "  | Track |",
+    "  | --- |",
+    "  | Nod |",
+  ]);
+});
+
+test("tableWithoutColumn: an escaped pipe alone in a row is text, so the row is re-piped", () => {
+  const pipeless = ["a \\| b | B", "--- | ---", "1 | 2"].join("\n");
+  const next = tableWithoutColumn(pipeless, 1)!;
+  assert.deepEqual(next.split("\n"), ["| a \\| b |", "| --- |", "| 1 |"]);
+  assert.deepEqual(splitRow(next.split("\n")[0]), ["a | b"]);
+});
+
+test("tableAlignments: `---` is unset, the colons are the three settings", () => {
+  const marked = ["| a | b | c | d |", "| --- | :--- | :---: | ---: |"].join("\n");
+  assert.deepEqual(tableAlignments(marked), [null, "left", "center", "right"]);
+});
+
+test("tableWithAlignment: only the delimiter cell changes, dash count kept", () => {
+  const next = tableWithAlignment(TABLE, 1, "center")!;
+  assert.deepEqual(next.split("\n"), [
+    "| Track | Length |",
+    "| --- | :---: |",
+    "| Slug It Out | 6:12 |",
+  ]);
+  assert.deepEqual(tableAlignments(next), [null, "center"]);
+  // and clearing it puts the plain delimiter back
+  assert.deepEqual(tableWithAlignment(next, 1, null)!.split("\n"), TABLE.split("\n"));
+});
+
+test("tableWithAlignment: a long delimiter keeps its width, a short one is padded to three", () => {
+  const long = ["| a | b |", "| ------- | -- |"].join("\n");
+  assert.equal(tableWithAlignment(long, 0, "right")!.split("\n")[1], "| -------: | -- |");
+  assert.equal(tableWithAlignment(long, 1, "left")!.split("\n")[1], "| ------- | :--- |");
+});
+
+test("tableWithAlignment: a column the table doesn't have is refused", () => {
+  assert.equal(tableWithAlignment(TABLE, 4, "right"), null);
+  assert.equal(tableWithAlignment("| a |", 0, "right"), null);
+});
+
+test("escapeCell: pipes and newlines can't reshape the table from inside a cell", () => {
+  assert.equal(escapeCell("a | b"), "a \\| b");
+  assert.equal(escapeCell("two\nlines"), "two lines");
+  assert.equal(escapeCell("  padded  "), "padded");
+});
+
+test("tableWithCell: one cell's text, every other character where it was", () => {
+  const next = tableWithCell(TABLE, 2, 1, "7:40")!;
+  assert.deepEqual(next.split("\n"), [
+    "| Track | Length |",
+    "| --- | --- |",
+    "| Slug It Out | 7:40 |",
+  ]);
+  // an emptied cell keeps its pipes apart
+  assert.equal(tableWithCell(TABLE, 2, 0, "")!.split("\n")[2], "|  | 6:12 |");
+  // and a header cell is editable, the delimiter is not
+  assert.equal(tableWithCell(TABLE, 0, 0, "Title")!.split("\n")[0], "| Title | Length |");
+  assert.equal(tableWithCell(TABLE, 1, 0, "nope"), null);
+});
+
+test("tableWithCell: a pipe typed into a cell is escaped, not a new column", () => {
+  const next = tableWithCell(TABLE, 2, 0, "a | b")!;
+  const row = next.split("\n")[2];
+  assert.equal(row, "| a \\| b | 6:12 |");
+  assert.deepEqual(splitRow(row), ["a | b", "6:12"]);
+});
+
+test("tableWithCell: coordinates the table no longer has are refused", () => {
+  assert.equal(tableWithCell(TABLE, 9, 0, "x"), null);
+  assert.equal(tableWithCell(TABLE, 2, 7, "x"), null);
 });

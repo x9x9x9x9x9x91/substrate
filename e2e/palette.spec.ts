@@ -198,7 +198,11 @@ test("a rejected palette property write reports on the toast (SUB-1149)", async 
   const firstLabel = page.locator(".palette-results .palette-item .palette-item-label").first();
   await expect(firstLabel).toHaveText("Slow Bloom EP");
   await page.keyboard.press("Tab"); // → the note's actions stage
-  await page.locator(".palette-item", { hasText: "Set property…" }).click();
+  // filter to the row and take it with Enter — the stage lists every note verb
+  // now, so a click on a row that far down races its own scroll
+  await page.locator(".palette-input").fill("Set property");
+  await expect(page.locator(".palette-item.selected")).toContainText("Set property…");
+  await page.keyboard.press("Enter");
 
   await page.locator(".palette-input").fill("status: shipped");
   await page.locator(".palette-item", { hasText: "Set status: shipped" }).click();

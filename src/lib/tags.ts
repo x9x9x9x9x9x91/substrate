@@ -10,6 +10,7 @@
 // The two implementations carry mirrored tests — change one, change both.
 
 import type { NoteMeta, TagFolder } from "./types";
+import { wikiLinkContext } from "./wikilinks.ts";
 
 /** Inline tag grammar: `#` then a letter, then letters/digits/`-`/`_`.
 
@@ -208,12 +209,20 @@ export function tagUniverse(notes: NoteMeta[]): { tag: string; count: number }[]
 
 /** The `#`-completion context at the cursor: the partial tag being typed, or
     null when the cursor isn't in one. Mirrors `wikiLinkQuery`'s shape so
-    Editor.tsx can wrap it the same way. */
+    Editor.tsx can wrap it the same way.
+
+    Inside an open `[[…` a `#` is a wikilink ANCHOR, never a tag: `[[#` reads
+    the note's own headings, and `tagBoundaryOk` would say yes there because
+    the character before it is `[`. Both popups compute the same range, and
+    CodeMirror merges every source that answers at one range — so without
+    this guard the vault's whole tag roster lands under the headings. The
+    anchor popup owns that slot; this one bails out of it. */
 export function tagQuery(textBefore: string): { from: number; query: string } | null {
   const m = /#([A-Za-z][A-Za-z0-9_-]*)?$/.exec(textBefore);
   if (!m) return null;
   const from = m.index;
   if (!tagBoundaryOk(textBefore, from)) return null;
+  if (wikiLinkContext(textBefore) !== null) return null;
   return { from, query: m[1] ?? "" };
 }
 

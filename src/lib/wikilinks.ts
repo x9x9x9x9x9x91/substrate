@@ -4,15 +4,69 @@
 
 import { NO_MATCH, fuzzyScore } from "./fuzzy.ts";
 
-/** Cursor inside an open wikilink: `[[` + anything but a bracket or newline. */
-const WIKI_OPEN_RE = /\[\[([^\]\n]*)$/;
+/** Cursor inside an open wikilink: an optional `!` (an embed), `[[`, then
+    anything but a bracket or newline. */
+const WIKI_OPEN_RE = /(!?)\[\[([^\]\n]*)$/;
 
-/** The typed fragment when `textBefore` (doc text up to the cursor) ends
-    inside an open `[[…` wikilink, else null. Mirrors the editor's
-    matchBefore so ranking stays testable without an EditorState. */
-export function wikiLinkQuery(textBefore: string): string | null {
+/** Which half of the grammar the cursor is in — each one completes from a
+    different vocabulary:
+
+    - `target` — the note (or, in an embed, the file) being named.
+    - `anchor` — a `#` tail on a wikilink: a heading in the target note, or a
+      `^id` block ref. An EMPTY target here means the note the link sits in.
+    - `alias` — past the first `|` of a wikilink: the author's display text.
+      Prose, so this is a suggestion of the obvious labels, never a roster.
+    - `modifier` — past a `|` of an EMBED: the size/layout hint. An embed has
+      no anchor semantics (a filename may contain `#`), so `#` never gets here. */
+export type WikiSlot = "target" | "anchor" | "alias" | "modifier";
+
+export interface WikiContext {
+  slot: WikiSlot;
+  /** the name before any `#`/`|`, trimmed — "" for a same-note anchor */
+  target: string;
+  /** the anchor typed so far, without its `#`; null when none was */
+  anchor: string | null;
+  /** what was typed in THIS slot — the fragment a popup filters on, and
+      exactly the span it replaces, so it is never trimmed */
+  query: string;
+  /** `![[…` rather than `[[…` */
+  embed: boolean;
+}
+
+/** Where the cursor sits inside an open `[[…`/`![[…`, or null when it sits in
+    neither. The split rules are {@link parseWikiLink}'s and
+    {@link embedTarget}'s, read from the left instead of a finished link — so
+    the popup a slot opens completes the same text the parser will read back. */
+export function wikiLinkContext(textBefore: string): WikiContext | null {
   const m = WIKI_OPEN_RE.exec(textBefore);
-  return m ? m[1] : null;
+  if (!m) return null;
+  const embed = m[1] === "!";
+  const inner = m[2];
+  const pipe = inner.indexOf("|");
+  if (pipe >= 0) {
+    const head = inner.slice(0, pipe);
+    const hash = embed ? -1 : head.indexOf("#");
+    // a modifier is a `|`-separated list (`|300|left`) — the LAST segment is
+    // the one being typed; an alias is prose, and all of it is the label
+    const rest = inner.slice(pipe + 1);
+    const seg = embed ? rest.slice(rest.lastIndexOf("|") + 1) : rest;
+    return {
+      slot: embed ? "modifier" : "alias",
+      target: (hash < 0 ? head : head.slice(0, hash)).trim(),
+      anchor: hash < 0 ? null : head.slice(hash + 1).trim(),
+      query: seg,
+      embed,
+    };
+  }
+  const hash = embed ? -1 : inner.indexOf("#");
+  if (hash < 0) return { slot: "target", target: inner.trim(), anchor: null, query: inner, embed };
+  return {
+    slot: "anchor",
+    target: inner.slice(0, hash).trim(),
+    anchor: inner.slice(hash + 1).trim(),
+    query: inner.slice(hash + 1),
+    embed,
+  };
 }
 
 export interface WikiOption {
@@ -41,10 +95,20 @@ export function wikiLinkOptions(query: string, titles: string[]): WikiOption[] {
   return out.slice(0, MAX_OPTIONS);
 }
 
-/** Insert text for an accepted completion: close the link unless `]]`
-    already follows the cursor (don't double-close). */
+/** Insert text for an accepted completion: close the link unless the link is
+    ALREADY closed further along (don't double-close).
+
+    `following` is the text after the accepted span, and the closer may sit
+    past an alias the author wrote first — completing the anchor of
+    `[[Welcome|Alias]]` reads `|Alias]]` here, and appending a second `]]`
+    would write `[[Welcome#Anchor]]|Alias]]`. So the scan runs to the link's
+    end: the first `]]` closes it, while a newline or the `[[` of the NEXT
+    link means this one is still open and the closer is ours to write. A `|`
+    on its own decides nothing — in a table row (`| [[Alp | next |`) it is
+    the cell wall, not this link's alias. */
 export function wikiLinkInsert(title: string, following: string): string {
-  return following.startsWith("]]") ? title : `${title}]]`;
+  const stop = /\n|\[\[|\]\]/.exec(following);
+  return stop && stop[0] === "]]" ? title : `${title}]]`;
 }
 
 export interface WikiLinkParts {
@@ -183,40 +247,134 @@ export function wikiLinkDisplay(inner: string): string {
   return anchor ? `${target}#${anchor}` : target;
 }
 
-/** Where a `#anchor` lands inside a note's text: the 1-based line of the
-    heading it names, or of the block carrying a `^id` ref when the anchor
-    starts with `^`. Heading text matches literally, case-insensitively —
-    the same rule the wikilink autocomplete offers. Null when nothing in the
-    note answers to that name, which is a broken link, not a scroll to the
-    top. Fences are skipped: a `# comment` inside a code block is
-    code, not a heading. */
-export function anchorLine(text: string, anchor: string): number | null {
-  const want = anchor.trim().toLowerCase();
-  if (!want) return null;
+/** One thing a `#anchor` can name inside a note. */
+export interface AnchorTarget {
+  /** what an author writes after the `#` — a heading's text, or `^id` */
+  anchor: string;
+  kind: "heading" | "block";
+  /** heading depth, 1-6; absent for a block ref */
+  level?: number;
+  /** 1-based line the anchor lands on */
+  line: number;
+}
+
+/** A trailing `^id` is a block ref, and it sits at the end of the block's
+    last line. The caret must open a word — `x^2` at the end of a line is an
+    exponent, and offering "^2" as a jump target (or resolving one) reads
+    prose as syntax. */
+const BLOCK_REF_RE = /(?:^|\s)\^([^\s^]+)\s*$/;
+
+/** Every anchor a note answers to, in document order: its headings, and the
+    blocks carrying a `^id` ref. This is the LIST behind the `[[Target#`
+    popup, and {@link anchorLine} resolves against the same scan — so the
+    popup can never offer an anchor that then fails to scroll, nor hide one
+    that would have worked.
+
+    Fences are skipped for headings: a `# comment` inside a code block is
+    code, not a heading. A block ref is matched anywhere, fences included,
+    because that is where a `^id` is legal to sit. */
+export function anchorTargets(text: string): AnchorTarget[] {
+  const out: AnchorTarget[] = [];
   const lines = text.split("\n");
-  if (want.startsWith("^")) {
-    const id = want.slice(1);
-    for (let i = 0; i < lines.length; i++) {
-      // a block ref sits at the end of the block's last line
-      if (new RegExp(`\\^${escapeRe(id)}\\s*$`, "i").test(lines[i])) return i + 1;
-    }
-    return null;
-  }
   let fenced = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    const block = BLOCK_REF_RE.exec(line);
+    if (block) out.push({ anchor: `^${block[1]}`, kind: "block", line: i + 1 });
     if (/^\s*(```|~~~)/.test(line)) {
       fenced = !fenced;
       continue;
     }
     if (fenced) continue;
-    const m = /^\s{0,3}#{1,6}\s+(.*)$/.exec(line);
+    const m = /^\s{0,3}(#{1,6})\s+(.*)$/.exec(line);
+    if (!m) continue;
     // a trailing run of #'s is closing punctuation, not part of the text
-    if (m && m[1].replace(/\s*#*\s*$/, "").trim().toLowerCase() === want) return i + 1;
+    const heading = m[2].replace(/\s*#*\s*$/, "").trim();
+    if (heading) out.push({ anchor: heading, kind: "heading", level: m[1].length, line: i + 1 });
+  }
+  return out;
+}
+
+/** Where a `#anchor` lands inside a note's text: the 1-based line of the
+    heading it names, or of the block carrying a `^id` ref when the anchor
+    starts with `^`. Heading text matches literally, case-insensitively —
+    the same rule the wikilink autocomplete offers, because both read
+    {@link anchorTargets}. Null when nothing in the note answers to that name,
+    which is a broken link, not a scroll to the top. */
+export function anchorLine(text: string, anchor: string): number | null {
+  const want = anchor.trim().toLowerCase();
+  if (!want) return null;
+  const wantBlock = want.startsWith("^");
+  for (const target of anchorTargets(text)) {
+    if ((target.kind === "block") !== wantBlock) continue;
+    if (target.anchor.toLowerCase() === want) return target.line;
   }
   return null;
 }
 
-function escapeRe(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+/** An anchor the link grammar can actually spell. `[[…]]` is
+    `\[\[([^\[\]]+)\]\]` and the alias is everything past the first `|`
+    (vault-format.md §3) — with no escape for any of the three, so a heading
+    carrying `|`, `[` or `]` cannot be named after a `#`: `# Sales | 2026`
+    would write `[[Note#Sales | 2026]]`, which parses as anchor `Sales` plus
+    alias `2026` and scrolls nowhere, and a `]` breaks the link outright.
+    Such a heading is dropped from the POPUP only — {@link anchorLine} still
+    resolves one if a vault written elsewhere carries it. */
+const ANCHOR_NAMEABLE = /^[^|[\]]+$/;
+
+/** {@link anchorTargets} ranked for the `[[Target#` popup: fuzzy score
+    descending, DOCUMENT order as the tiebreak — a note's outline is the
+    order its author chose, and an empty query (`fuzzyScore("")` is a flat 1)
+    should read as that outline rather than as an alphabetised pile. */
+export function anchorOptions(query: string, targets: AnchorTarget[]): AnchorTarget[] {
+  const seen = new Set<string>();
+  const scored: { target: AnchorTarget; score: number; index: number }[] = [];
+  targets.forEach((target, index) => {
+    if (!ANCHOR_NAMEABLE.test(target.anchor)) return;
+    const key = `${target.kind}:${target.anchor.toLowerCase()}`;
+    // two headings with the same text resolve to the first one either way
+    if (seen.has(key)) return;
+    seen.add(key);
+    const score = fuzzyScore(query, target.anchor);
+    if (score === NO_MATCH) return;
+    scored.push({ target, score, index });
+  });
+  scored.sort((a, b) => b.score - a.score || a.index - b.index);
+  return scored.slice(0, MAX_OPTIONS).map((s) => s.target);
+}
+
+/** What an embed's display modifier can say, in the order the popup lists
+    them. The grammar is Obsidian's and {@link embedSize} is what honours it:
+    the numbers are acted on, the float hints are recognised and declined —
+    which the detail says out loud, so picking one is never a silent no-op.
+    The numbers are TEMPLATES: 300 is a sane starting width to edit, not a
+    value the vault believes in. */
+export const EMBED_MODIFIERS: { name: string; detail: string }[] = [
+  { name: "300", detail: "max width, px" },
+  { name: "300x200", detail: "fit inside a box, px" },
+  { name: "left", detail: "float hint — not honoured" },
+  { name: "right", detail: "float hint — not honoured" },
+];
+
+/** The modifier roster filtered by what's typed, roster order kept — a
+    four-item list has no ranking worth doing. */
+export function embedModifierOptions(query: string): { name: string; detail: string }[] {
+  return EMBED_MODIFIERS.filter((mod) => fuzzyScore(query, mod.name) !== NO_MATCH);
+}
+
+/** What to offer past a wikilink's `|`. An alias is PROSE — there is no
+    roster to complete from — so this offers only the labels already implied
+    by the link: the target, and the anchor when one was typed. Anything else
+    the author means, they type over the top of. */
+export function aliasSuggestions(query: string, target: string, anchor: string | null): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const both = target && anchor ? `${target}#${anchor}` : "";
+  for (const candidate of [target, anchor ?? "", both]) {
+    const name = candidate.trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    if (fuzzyScore(query, name) !== NO_MATCH) out.push(name);
+  }
+  return out;
 }

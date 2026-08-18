@@ -9,7 +9,7 @@ import { useUndo } from "../lib/undoContext";
 import { createLatestGuard } from "../lib/latest";
 import { exportNoteMarkdown, exportNoteOneSheet, exportNotePdf } from "../lib/export";
 import { useEdgeFade } from "../hooks/useEdgeFade";
-import { buildNoteActions } from "../lib/noteactions";
+import { buildNoteActions, type NoteActionHandlers } from "../lib/noteactions";
 import { scanSummary } from "../lib/mounts";
 import { NO_MATCH, fuzzyScore } from "../lib/fuzzy";
 import { noteHint } from "../lib/display";
@@ -159,6 +159,17 @@ interface PaletteProps {
   templateTypes: string[];
   /** set while a database view is active — runs its CSV export */
   onExportCsv: (() => void) | null;
+  /** The saved view on screen, as a link-folder export: the label flips to
+      "Regenerate" once it has a target. Null everywhere else. The sidebar
+      context menu was the only door to a documented first-class export
+      (docs/doors.md), which meant it did not exist unless you found it. */
+  linkFolderCommand: { label: string; hint?: string; run: () => void } | null;
+  /** Handlers the note pane's ⋯ menu used to own alone — seal/lock/unseal and
+      the calendar opt-out. The palette renders the same descriptor set as
+      every other surface, so it takes the same wiring. */
+  noteActionExtras: (
+    n: NoteMeta
+  ) => Pick<NoteActionHandlers, "seal" | "lockNow" | "unseal" | "toggleCalendar" | "calendarHidden">;
   /** set while the surface on screen can print itself (the dashboards that
       carry the Print button) — null everywhere else. ⌘P opens the palette
       everywhere and always will; this is the row that press lands next to. */
@@ -297,6 +308,8 @@ export default function Palette({
   startStage,
   templateTypes,
   onExportCsv,
+  linkFolderCommand,
+  noteActionExtras,
   onPrint,
   undoCommand,
   redoCommand,
@@ -522,6 +535,7 @@ export default function Palette({
         exportOneSheet: () => exportNoteOneSheet(note).catch(toastError),
         sendAsLink: () => onSendAsLink(note),
         sealed: note.sealed,
+        ...noteActionExtras(note),
         togglePick: () => onTogglePick(note.path, !isPickedToday(note, todayIso)),
         picked: isPickedToday(note, todayIso),
         togglePin: () => onTogglePin(note.path, !pinnedPaths.includes(note.path)),
@@ -1050,6 +1064,20 @@ export default function Palette({
               },
             ]
           : []),
+        // The saved view's link folder, next to CSV where an export is
+        // looked for. Same call the sidebar context menu makes.
+        ...(linkFolderCommand
+          ? [
+              {
+                id: "cmd:link-folder",
+                label: linkFolderCommand.label,
+                icon: <ExportIcon />,
+                section: "Commands",
+                hint: linkFolderCommand.hint,
+                run: linkFolderCommand.run,
+              },
+            ]
+          : []),
         ...(onExportCsv
           ? [
               {
@@ -1315,6 +1343,8 @@ export default function Palette({
     current,
     templateTypes,
     onExportCsv,
+    linkFolderCommand,
+    noteActionExtras,
     onPrint,
     openNote,
     onSetView,

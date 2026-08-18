@@ -145,3 +145,28 @@ test("`= SUM(A1:A2)` renders the literal span when it cannot parse", async ({ pa
   await expect(page.locator(".cm-live-value")).toHaveCount(0);
   await expect(page.locator(".cm-content")).toContainText("SUM(A1:A2)");
 });
+
+/* The sheet set behind these values follows the BUFFER, not the file: a span
+   typed a second ago must resolve without waiting for the note to be reopened.
+   The buffer sample that buys that outlives its own text, though — a body
+   arriving from outside the editor replaces what is on screen while the sample
+   still describes what was there before, and being the preferred source it
+   keeps the newly arrived span dark until the next keystroke. */
+test("a body adopted from outside is what the values are read from", async ({ page }) => {
+  await boot(page);
+  await seedBody(page, "Cash.md", CASH_TWO);
+
+  // type a sentence that names no sheet: this is the sample that goes stale
+  await page.locator(".cm-content").click();
+  await page.keyboard.press("Meta+ArrowDown");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("a line that mentions no sheet at all");
+  await page.waitForTimeout(700); // past the 400ms sample and the 500ms save
+
+  // another device rewrites the note, and ITS text does name a sheet
+  await seedBody(page, "Welcome.md", PROSE);
+
+  // no keystroke in between — the value is simply there
+  await expect(page.locator(".cm-live-value").first()).toHaveText("18.000");
+  await expect(page.locator(".cm-live-value").nth(1)).toHaveText("2");
+});

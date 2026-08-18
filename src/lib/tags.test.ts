@@ -163,6 +163,17 @@ test("tagQuery: only inside a tag being typed", () => {
   assert.equal(tagQuery("plain text"), null);
 });
 
+test("tagQuery: a `#` inside an open wikilink is an anchor, not a tag", () => {
+  // the anchor popup owns this slot — both sources would answer at the same
+  // range and CodeMirror would merge the tag roster in under the headings
+  assert.equal(tagQuery("see [[#Hea"), null);
+  assert.equal(tagQuery("see [[#"), null);
+  assert.equal(tagQuery("see [[Welcome#Ba"), null);
+  assert.equal(tagQuery("![[cover.png#"), null);
+  // a finished link is behind us: prose again, so a tag is a tag
+  assert.deepEqual(tagQuery("see [[Welcome]] #de"), { from: 16, query: "de" });
+});
+
 test("tagOptions: prefix matches before substring matches", () => {
   const universe = [
     { tag: "demo", count: 5 },

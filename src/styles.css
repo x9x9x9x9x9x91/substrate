@@ -2454,6 +2454,21 @@ button.empty-hint-fix:hover {
   text-decoration: none;
 }
 
+/* The callout accent popup shows the hue it names: one dot per row, filled
+   from the same --accent-tint the rendered callout reads, so picking `teal`
+   is looking rather than remembering. Only accent options carry the
+   attribute; every other completion renders no swatch and no gap. */
+.cm-editor .cm-tooltip.cm-tooltip-autocomplete .cm-accent-swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  margin-right: 7px;
+  vertical-align: baseline;
+  background: var(--accent-tint, var(--text-3));
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
 .cm-inline-code {
   font-family: var(--mono);
   font-size: 0.85em;
@@ -2737,6 +2752,28 @@ button.empty-hint-fix:hover {
 .cm-md-table td {
   border-top: 1px solid var(--border-soft);
   color: var(--text-1);
+}
+
+/* a cell handed to the in-place editor: it shows its own markdown while you
+   type, so the ring is what says this one box is live and the rest of the
+   grid is still a rendering. Left-aligned regardless of the column's
+   alignment — you are editing text, and a centred caret jumping as you type
+   reads as a bug */
+.cm-md-table th.cm-md-table-cell-editing,
+.cm-md-table td.cm-md-table-cell-editing {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 3px;
+  background: var(--bg-input);
+  color: var(--text-1);
+  text-align: left;
+  white-space: pre-wrap;
+  cursor: text;
+}
+
+.cm-md-table th.cm-md-table-cell-editing:focus,
+.cm-md-table td.cm-md-table-cell-editing:focus {
+  outline: 2px solid var(--accent);
 }
 
 /* ```view embed: a read-only inline database table inside the note.

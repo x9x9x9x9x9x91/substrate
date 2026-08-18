@@ -1006,7 +1006,7 @@ export default function FoodDashboard({
                     {fmt(Math.round(drift.prevPerKcal))}.
                   </span>
                   {dbPath !== null && (
-                    <button type="button" className="food-drift-pin" onClick={pinDrift}>
+                    <button type="button" onClick={pinDrift}>
                       {drift.fromDb ? "Update DB" : "Pin to DB"}
                     </button>
                   )}
@@ -1057,7 +1057,7 @@ export default function FoodDashboard({
                 </>
               )}
 
-              <div className="food-db">
+              <div>
                 <div className="dash-section-label food-db-head">
                   <button
                     type="button"

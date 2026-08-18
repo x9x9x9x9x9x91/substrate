@@ -660,7 +660,7 @@ export default function SyncDashboard({ meta, vaultEpoch, onOpenSource }: SyncDa
         {head}
 
         <div className="sync-meta2">
-          <span className="sync-meta2-line">
+          <span>
             {anyRunning
               ? "A sweep is running now."
               : sweep
@@ -674,7 +674,7 @@ export default function SyncDashboard({ meta, vaultEpoch, onOpenSource }: SyncDa
               chips below.
             </span>
           ) : (
-            <span className="sync-meta2-line">
+            <span>
               {parsed.verifyLast
                 ? `Weekly verify ok${parsed.verifyLast.at ? `, ${fmtAge(parsed.verifyLast.at)} ago` : ""}.`
                 : "Weekly verify has never run."}
@@ -718,13 +718,12 @@ export default function SyncDashboard({ meta, vaultEpoch, onOpenSource }: SyncDa
                     </span>
                   )}
                   {job && !job.loaded && (
-                    <span className="sync-paused-word" title="the launchd job is booted out">
+                    <span title="the launchd job is booted out">
                       paused
                     </span>
                   )}
                   {fmtGiB(remote?.quotaFree) && (
                     <span
-                      className="sync-quota"
                       style={remote?.quotaLow ? { color: HEALTH_COLOR.warn } : undefined}
                       title={remote?.quotaLow ? "quota running low" : "free space on the remote"}
                     >
@@ -780,7 +779,7 @@ export default function SyncDashboard({ meta, vaultEpoch, onOpenSource }: SyncDa
                   <span className="sync-status" style={{ color: "var(--text-3)" }}>
                     {j.loaded ? (j.schedule ?? "loaded") : "paused"}
                   </span>
-                  <span className="sync-num sync-when">
+                  <span className="sync-num">
                     {j.loaded && j.last_exit !== null ? (
                       j.last_exit === 0 ? (
                         "exit ok"

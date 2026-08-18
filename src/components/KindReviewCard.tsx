@@ -68,7 +68,7 @@ export default function KindReviewCard(props: {
 
   return (
     <div className="kind-review" data-testid="kind-review">
-      <div className="kind-review-head">
+      <div>
         <div className="kind-review-title">{review.title}</div>
         <div className="dash-sub">{review.headline}</div>
       </div>

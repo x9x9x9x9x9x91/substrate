@@ -24,7 +24,7 @@ function Result({ report }: { report: SyncReport }) {
   const hasConflicts = report.conflicted.length > 0;
 
   return (
-    <div className="vault-sync-result">
+    <div>
       <div className="vault-sync-summary">
         Pushed {report.pushed} <span aria-hidden="true">·</span> Pulled {report.pulled}
       </div>

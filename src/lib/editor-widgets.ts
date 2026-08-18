@@ -21,7 +21,14 @@ import {
 } from "./embeds.ts";
 import { missingEmbedKind, missingEmbedLabel } from "./embedstate.ts";
 import { isTauri } from "./tauri.ts";
-import { splitRow, tableWithColumn, tableWithRow, type TableEdit } from "./tableedit.ts";
+import {
+  splitRow,
+  tableAlignments,
+  tableWithCell,
+  tableWithColumn,
+  tableWithRow,
+  type TableEdit,
+} from "./tableedit.ts";
 import { TASK_RE } from "./markdown.ts";
 import { DEFAULT_NUMBER_LOCALE, type NumberLocale } from "./numberLocale.ts";
 import type { FxResolver } from "./formula.ts";
@@ -50,6 +57,18 @@ export const FOLLOW_EVENT = "substrate:follow-link";
 
 function requestFollow(dom: HTMLElement, name: string) {
   dom.dispatchEvent(new CustomEvent(FOLLOW_EVENT, { detail: name, bubbles: true }));
+}
+
+/** Same trick for the table menu. It cannot ride CodeMirror's own
+ * `contextmenu` handler: CM skips its DOM handlers for events inside a widget
+ * that ignores events, which every one of these does — so the widget raises
+ * the request itself and the Editor component opens the menu. */
+export const TABLE_MENU_EVENT = "substrate:table-menu";
+
+export interface TableMenuRequest {
+  x: number;
+  y: number;
+  node: HTMLElement;
 }
 
 /** Second pass over a just-rendered missing placeholder: the widget
@@ -220,14 +239,11 @@ export class TableWidget extends WidgetType {
   toDOM(view: EditorView) {
     const wrap = document.createElement("div");
     wrap.className = "cm-md-table-wrap";
+    // the table's own extent, so anything holding one of these cells can slice
+    // the source back out of the document without re-walking the syntax tree
+    wrap.dataset.len = String(this.source.length);
     const lines = this.source.split("\n");
-    const align = (lines[1] !== undefined ? splitRow(lines[1]) : []).map((c) => {
-      const m = /^(:)?-+(:)?$/.exec(c);
-      if (!m) return null;
-      if (m[1] && m[2]) return "center";
-      if (m[2]) return "right";
-      return null;
-    });
+    const align = tableAlignments(this.source);
     const table = document.createElement("table");
     table.className = "cm-md-table";
     const addRow = (parent: HTMLElement, tag: "th" | "td", cells: string[], lineIdx: number) => {
@@ -236,6 +252,10 @@ export class TableWidget extends WidgetType {
         const cell = document.createElement(tag);
         if (align[i]) cell.style.textAlign = align[i]!;
         cell.dataset.line = String(lineIdx);
+        cell.dataset.col = String(i);
+        // the cell's markdown, kept beside its rendering: the in-place editor
+        // puts you in the text you wrote, not in the links it turned into
+        cell.dataset.raw = cells[i];
         renderCell(cell, cells[i]);
         tr.appendChild(cell);
       }
@@ -264,14 +284,34 @@ export class TableWidget extends WidgetType {
     frame.appendChild(this.addButton(view, wrap, "row", tableWithRow));
     wrap.appendChild(frame);
 
+    wrap.addEventListener("contextmenu", (e) => {
+      // a cell open in the in-place editor is a text box: leave it the
+      // platform's own menu (spellcheck, paste) rather than the table's
+      if ((e.target as HTMLElement).closest?.(`.${EDITING}`)) return;
+      // the wrapper holds the grow buttons and the frame's own gaps as well as
+      // the grid: a right-click that landed on none of the cells has no cell
+      // to act on, and a menu aimed at the first one would delete a column the
+      // user never pointed at. Left to the platform's own menu instead.
+      if (!(e.target as HTMLElement).closest?.("th,td")) return;
+      e.preventDefault();
+      wrap.dispatchEvent(
+        new CustomEvent<TableMenuRequest>(TABLE_MENU_EVENT, {
+          detail: { x: e.clientX, y: e.clientY, node: e.target as HTMLElement },
+          bubbles: true,
+        })
+      );
+    });
+
     wrap.addEventListener("mousedown", (e) => {
       // primary button only — right/middle click must not follow
       // links or collapse the table to source
       if (e.button !== 0) return;
       const target = e.target as HTMLElement;
       // the add buttons rewrite the table themselves — they must not also
-      // collapse it to source under the pointer
+      // collapse it to source under the pointer, and a cell already open in
+      // the in-place editor must keep the click that moves its caret
       if (target.closest?.(".cm-md-table-add")) return;
+      if (target.closest?.(`.${EDITING}`)) return;
       const link = target.closest?.(".cm-wikilink");
       if (link) {
         e.preventDefault();
@@ -330,6 +370,145 @@ export class TableWidget extends WidgetType {
     });
     return btn;
   }
+}
+
+/** Marks the one cell currently open in the in-place editor. */
+const EDITING = "cm-md-table-cell-editing";
+
+/** A rendered table located from any node inside it: where its source sits in
+ * the document, what that source says, and which cell was pointed at. The
+ * extent comes off the wrapper's own `data-len` rather than the syntax tree —
+ * the widget wrote it at render time from the exact slice it was built from,
+ * so a hit can never disagree with what is on screen. */
+export interface TableDomHit {
+  from: number;
+  to: number;
+  source: string;
+  /** line index inside the table: 0 header, 1 delimiter, 2+ body */
+  row: number;
+  col: number;
+  cell: HTMLElement | null;
+}
+
+export function tableHitAtDom(view: EditorView, node: HTMLElement): TableDomHit | null {
+  const wrap = node.closest?.(".cm-md-table-wrap") as HTMLElement | null;
+  if (!wrap) return null;
+  const len = Number(wrap.dataset.len ?? "");
+  if (!Number.isFinite(len)) return null;
+  const from = view.state.doc.lineAt(view.posAtDOM(wrap)).from;
+  const to = Math.min(from + len, view.state.doc.length);
+  const cell = node.closest?.("th,td") as HTMLElement | null;
+  return {
+    from,
+    to,
+    source: view.state.sliceDoc(from, to),
+    row: cell ? Number(cell.dataset.line) || 0 : 0,
+    col: cell ? Number(cell.dataset.col) || 0 : 0,
+    cell,
+  };
+}
+
+/** Open one cell of a rendered table for typing, in place. The cell swaps its
+ * rendering for the markdown behind it and takes the caret; Enter or a click
+ * away writes the text back as a single document change, Escape puts the
+ * rendering back untouched.
+ *
+ * The grid stays a grid throughout — this is the one table edit that doesn't
+ * collapse the table to pipes, which is the whole point of it. Everything the
+ * cell can't hold is neutralised on the way back in (`escapeCell`), so no
+ * amount of typing inside one cell can add a column or split a row. */
+export function startTableCellEdit(view: EditorView, node: HTMLElement): boolean {
+  const hit = tableHitAtDom(view, node);
+  const cell = hit?.cell;
+  if (!hit || !cell || hit.row === 1) return false;
+  const raw = cell.dataset.raw ?? "";
+  let closed = false;
+  const restore = () => {
+    cell.classList.remove(EDITING);
+    cell.removeAttribute("contenteditable");
+    cell.textContent = "";
+    renderCell(cell, raw);
+  };
+  const finish = (commit: boolean) => {
+    if (closed) return;
+    closed = true;
+    const text = cell.textContent ?? "";
+    // a cell editor can sit open indefinitely, and the note under it can be
+    // replaced whole while it does (a sync adopt, a note switch). The rewrite
+    // was computed from the text this cell was opened on, so unless the
+    // document still says exactly that, these coordinates now point at
+    // somebody else's characters — drop the edit rather than write over them
+    const still = view.state.sliceDoc(
+      Math.min(hit.from, view.state.doc.length),
+      Math.min(hit.to, view.state.doc.length)
+    );
+    // a cancelled edit, an unchanged one, or one whose table moved under it
+    // all end the same way: the cell goes back to being a rendering
+    const next = commit && still === hit.source ? tableWithCell(hit.source, hit.row, hit.col, text) : null;
+    if (next === null || next === view.state.sliceDoc(hit.from, hit.to)) {
+      restore();
+      return;
+    }
+    // no selection change: the cursor is outside the table (a rendered table
+    // is a table precisely because it isn't under the cursor), and moving it
+    // in would spring the grid open as pipes the moment the edit landed
+    view.dispatch({ changes: { from: hit.from, to: hit.to, insert: next } });
+    // and the caret only comes back to the editor if it is outside this table
+    // — pulling focus back into the table would collapse the grid you just
+    // edited, which is not what committing one cell asked for
+    const head = view.state.selection.main.head;
+    if (head < hit.from || head > hit.from + next.length) view.focus();
+  };
+  cell.classList.add(EDITING);
+  cell.textContent = raw;
+  cell.setAttribute("contenteditable", "true");
+  // Everything typed here belongs to the cell, not to the editor around it:
+  // the widget sits inside CodeMirror's own contenteditable, so an un-stopped
+  // keystroke reaches its keymap as well (⌘A selected the whole note and the
+  // next character replaced it). The DOM inside a widget is CodeMirror-invisible
+  // either way — the commit below is the only thing that touches the document.
+  for (const type of ["keydown", "keypress", "keyup", "beforeinput", "input", "paste", "cut"]) {
+    cell.addEventListener(type, (e) => e.stopPropagation());
+  }
+  cell.addEventListener("paste", (e) => {
+    // a cell is one line. Left to the browser, pasting two lines of a
+    // spreadsheet drops <div>s into the cell — the rendering breaks across
+    // lines and the text they hold runs together without so much as a space
+    // when it is read back. Plain text, newlines spent as the spaces they
+    // separated things with.
+    const clip = (e as ClipboardEvent).clipboardData;
+    if (!clip) return;
+    e.preventDefault();
+    const flat = clip.getData("text/plain").replace(/\s*\n\s*/g, " ");
+    document.execCommand("insertText", false, flat);
+  });
+  const selectAll = () => {
+    const range = document.createRange();
+    range.selectNodeContents(cell);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+  };
+  cell.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "a") {
+      // ⌘A means this cell, not the note: left to the browser it walks out to
+      // CodeMirror's own editable, and a document-wide selection collapses the
+      // grid this cell is being edited in
+      e.preventDefault();
+      selectAll();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      finish(true);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      finish(false);
+    }
+  });
+  cell.addEventListener("blur", () => finish(true));
+  cell.focus();
+  selectAll();
+  return true;
 }
 
 /** Handlers the Editor provides for ```view embeds. Widgets read
@@ -507,7 +686,6 @@ export class ViewWidget extends WidgetType {
     // the React island lives outside the table so a repaint of the rows can
     // never unmount it; the menus portal to the document anyway
     const hostEl = document.createElement("div");
-    hostEl.className = "embed-view-host";
 
     const state: ViewWidgetState = {
       host: null,

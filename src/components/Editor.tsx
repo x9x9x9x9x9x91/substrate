@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import type { ChangeSpec } from "@codemirror/state";
+import type { ChangeSpec, TransactionSpec } from "@codemirror/state";
 import {
   Compartment,
   EditorState,
@@ -28,6 +28,7 @@ import {
   autocompletion,
   completionStatus,
   startCompletion,
+  type Completion,
   type CompletionContext,
   type CompletionResult,
 } from "@codemirror/autocomplete";
@@ -61,12 +62,23 @@ import { claimDrop, dropClientPoint, dropHintText } from "../lib/dragdrop";
 import { shortcutCmKey } from "../lib/shortcuts";
 import { type PosTracker, trackPos, trackedPositions } from "../lib/trackpos";
 import {
+  type AnchorTarget,
+  anchorOptions,
+  anchorTargets,
+  aliasSuggestions,
+  embedModifierOptions,
   embedSize,
   embedTarget,
+  wikiLinkContext,
   wikiLinkInsert,
   wikiLinkOptions,
-  wikiLinkQuery,
 } from "../lib/wikilinks";
+import {
+  calloutAccentOptions,
+  calloutInsert,
+  calloutKindOptions,
+  calloutQuery,
+} from "../lib/callouts";
 import { inlineTagMatches, tagOptions, tagQuery } from "../lib/tags";
 import {
   type SavedViewPin,
@@ -93,6 +105,7 @@ import {
   CalcResultWidget,
   CheckboxWidget,
   FOLLOW_EVENT,
+  TABLE_MENU_EVENT,
   FileWidget,
   ImageWidget,
   LiveValueWidget,
@@ -103,6 +116,10 @@ import {
   isAudioEmbed,
   isImageEmbed,
   liveValuesConfig,
+  startTableCellEdit,
+  tableHitAtDom,
+  type TableDomHit,
+  type TableMenuRequest,
 } from "../lib/editor-widgets";
 import { evalCalcDoc, fencedLines, isCalcLine } from "../lib/calc";
 import {
@@ -123,6 +140,7 @@ import { scanAudioAnnotationFences } from "../lib/audio-annotations";
 import { extractLink, extractTitle } from "../lib/extractnote";
 import { parseAccent } from "../lib/styletokens";
 import ContextMenu, { type MenuItem } from "./ContextMenu";
+import { tableActions, tableCellAtOffset, type TableAction } from "../lib/tablemenu";
 
 const mdHighlight = HighlightStyle.define([
   { tag: tags.heading1, fontSize: "1.5em", fontWeight: "650", letterSpacing: "-0.012em" },
@@ -1396,8 +1414,36 @@ async function insertPastedAsset(
   return insertEmbedIfLive(view, `![[${saved}]]`, where) ? null : saved;
 }
 
-/** [[ wikilink completion: inside an open `[[…`, fuzzy-ranked note
-    titles; accepting inserts `title]]` and never doubles an existing `]]`.
+/** What follows an accepted wikilink completion, far enough for
+    {@link wikiLinkInsert} to see whether the link is already closed past an
+    alias (`|Alias]]`) rather than only at the cursor. Bounded to one line's
+    worth of text — the scan stops at the first newline anyway. */
+function linkTail(state: EditorState, at: number): string {
+  return state.sliceDoc(at, Math.min(state.doc.length, at + 250));
+}
+
+/** How an anchor list reads in the popup: the outline level a heading sits
+    at, or that a `^id` is a block ref. */
+function anchorDetail(target: AnchorTarget): string {
+  return target.kind === "block" ? "block ref" : `h${target.level}`;
+}
+
+/** [[ wikilink completion — every slot of the grammar, each from its own
+    vocabulary:
+
+    - the TARGET: fuzzy-ranked note titles; accepting inserts `title]]` and
+      never doubles an existing `]]`.
+    - the ANCHOR (`[[Target#…`): that note's headings and `^id` block refs, in
+      document order. An empty target (`[[#…`) reads the note being edited, so
+      the popup works before anything is saved. A named target's body is read
+      through the `linkedNoteBody` prop, which is why this source is async —
+      the same pattern the `` `= … ` `` member popup uses. Only headings the
+      link grammar can name are offered (see `anchorOptions`).
+    - the ALIAS (`[[Target|…`): the labels the link already implies, since an
+      alias is prose and has no roster.
+    - an EMBED's MODIFIER (`![[file|…`): the size/layout hints of §3, with the
+      float ones marked as recognised-but-declined.
+
     The query/rank/insert rules live pure in lib/wikilinks — this is only the
     CodeMirror plumbing.
 
@@ -1405,21 +1451,162 @@ async function insertPastedAsset(
     fence, an indented block or an inline span a `[[` is literal text, and the
     empty query there lists every title — so Enter meaning "newline" would
     splice the top fuzzy match into what was being typed. */
-function wikiLinkCompletions(titlesRef: React.MutableRefObject<string[] | undefined>) {
-  return (context: CompletionContext): CompletionResult | null => {
+function wikiLinkCompletions(
+  titlesRef: React.MutableRefObject<string[] | undefined>,
+  linkedBodyRef: React.MutableRefObject<((target: string) => Promise<string | null>) | undefined>
+) {
+  return async (context: CompletionContext): Promise<CompletionResult | null> => {
     // same 250-char lookback window CompletionContext.matchBefore uses
     const before = context.state.sliceDoc(Math.max(0, context.pos - 250), context.pos);
-    const query = wikiLinkQuery(before);
-    if (query === null) return null;
+    const link = wikiLinkContext(before);
+    if (link === null) return null;
     if (inCodeContext(syntaxTree(context.state).resolveInner(context.pos, -1))) return null;
-    const options = wikiLinkOptions(query, titlesRef.current ?? []);
+    const from = context.pos - link.query.length;
+
+    if (link.slot === "anchor") {
+      // no target names THIS note — read the buffer, which is the only copy
+      // that has what was typed a second ago
+      const body = link.target
+        ? ((await linkedBodyRef.current?.(link.target)) ?? null)
+        : context.state.doc.toString();
+      const targets = body === null ? [] : anchorTargets(body);
+      // the document moved on while the note was read — this answer is stale
+      if (context.aborted) return null;
+      const options = anchorOptions(link.query, targets);
+      if (options.length === 0) return null;
+      return {
+        from,
+        options: options.map((target, rank) => ({
+          label: target.anchor,
+          detail: anchorDetail(target),
+          // headings are offered in the note's own outline order; without a
+          // boost CodeMirror re-sorts an unfiltered list alphabetically and
+          // the outline — the thing that makes the list readable — is gone
+          boost: Math.max(-99, 99 - rank),
+          apply: (view, _completion, applyFrom, to) => {
+            const insert = wikiLinkInsert(target.anchor, linkTail(view.state, to));
+            view.dispatch({
+              changes: { from: applyFrom, to, insert },
+              selection: { anchor: applyFrom + insert.length },
+              userEvent: "input.complete",
+            });
+          },
+        })),
+        // heading text has spaces — keep the popup open for anything but a
+        // closer or the `|` that starts the alias
+        validFor: /^[^\]|\n]*$/,
+      };
+    }
+
+    if (link.slot === "alias" || link.slot === "modifier") {
+      const names =
+        link.slot === "alias"
+          ? aliasSuggestions(link.query, link.target, link.anchor).map((name) => ({
+              name,
+              detail: undefined as string | undefined,
+            }))
+          : embedModifierOptions(link.query).map((mod) => ({ name: mod.name, detail: mod.detail }));
+      if (names.length === 0) return null;
+      return {
+        from,
+        options: names.map((entry, rank) => ({
+          label: entry.name,
+          detail: entry.detail,
+          boost: Math.max(-99, 99 - rank),
+          apply: (view, _completion, applyFrom, to) => {
+            const insert = wikiLinkInsert(entry.name, linkTail(view.state, to));
+            view.dispatch({
+              changes: { from: applyFrom, to, insert },
+              selection: { anchor: applyFrom + insert.length },
+              userEvent: "input.complete",
+            });
+          },
+        })),
+        // an alias is prose (spaces and all); a modifier ends at the next `|`
+        validFor: link.slot === "alias" ? /^[^\]\n]*$/ : /^[^\]|\n]*$/,
+      };
+    }
+
+    const options = wikiLinkOptions(link.query, titlesRef.current ?? []);
     if (options.length === 0) return null;
     return {
-      from: context.pos - query.length,
+      from,
       options: options.map((option) => ({
         label: option.title,
+        apply: (view, _completion, applyFrom, to) => {
+          const insert = wikiLinkInsert(option.title, linkTail(view.state, to));
+          view.dispatch({
+            changes: { from: applyFrom, to, insert },
+            selection: { anchor: applyFrom + insert.length },
+            userEvent: "input.complete",
+          });
+        },
+      })),
+      // titles have spaces — keep the popup open for anything but a closer,
+      // and re-ask at the `#`/`|` that starts the next slot
+      validFor: /^[^\]#|\n]*$/,
+    };
+  };
+}
+
+/** Marks an accent option and carries its roster name. `type` is the one
+    per-option channel CodeMirror hands to a renderer, and with `icons: false`
+    nothing else reads it. */
+const ACCENT_TYPE = "accent-";
+
+/** The colour dot in front of an accent name. `data-accent` is the single
+    place a roster name becomes a colour (styles.css §bounded style tokens),
+    so the swatch shows exactly the hue the accepted callout will wear — and
+    an off-roster name, which can't reach here anyway, would land neutral
+    rather than on inherited colour. Null for every other completion, which
+    is how this stays a callout-popup detail rather than a global icon. */
+const ACCENT_SWATCH = {
+  position: 10,
+  render: (completion: Completion): Node | null => {
+    const type = completion.type;
+    if (!type || !type.startsWith(ACCENT_TYPE)) return null;
+    const dot = document.createElement("span");
+    dot.className = "cm-accent-swatch";
+    dot.setAttribute("data-accent", type.slice(ACCENT_TYPE.length));
+    return dot;
+  },
+};
+
+/** `> [!` callout completion: the three kinds, and past a kind's `|` the ten
+    accent names — the hues §5.3a lets a callout name, which nothing else in
+    the app ever spells out. Accepting closes the header (`> [!note] `) unless
+    it is already closed, and leaves the cursor where the title goes.
+
+    Same code-context gate as the popups above: inside a fence a `> [!note]`
+    is documentation about the grammar, not a callout. */
+function calloutCompletions() {
+  return (context: CompletionContext): CompletionResult | null => {
+    const before = context.state.sliceDoc(Math.max(0, context.pos - 250), context.pos);
+    const query = calloutQuery(before);
+    if (query === null) return null;
+    if (inCodeContext(syntaxTree(context.state).resolveInner(context.pos, -1))) return null;
+    const names =
+      query.slot === "kind"
+        ? calloutKindOptions(query.query).map((kind) => ({ ...kind, accent: false }))
+        : calloutAccentOptions(query.query).map((name) => ({
+            name,
+            detail: "accent",
+            accent: true,
+          }));
+    if (names.length === 0) return null;
+    return {
+      from: context.pos - query.query.length,
+      options: names.map((entry, rank) => ({
+        label: entry.name,
+        detail: entry.detail,
+        // the marker ACCENT_SWATCH renders a dot from — a palette that names
+        // its hues without showing them is still a memory test
+        type: entry.accent ? `${ACCENT_TYPE}${entry.name}` : undefined,
+        // both rosters are ordered lists, not rankings — the kinds as the
+        // Turn-into menu shows them, the accents as the palette runs
+        boost: Math.max(-99, 99 - rank),
         apply: (view, _completion, from, to) => {
-          const insert = wikiLinkInsert(option.title, view.state.sliceDoc(to, to + 2));
+          const insert = calloutInsert(entry.name, view.state.sliceDoc(to, to + 1));
           view.dispatch({
             changes: { from, to, insert },
             selection: { anchor: from + insert.length },
@@ -1427,8 +1614,7 @@ function wikiLinkCompletions(titlesRef: React.MutableRefObject<string[] | undefi
           });
         },
       })),
-      // titles have spaces — keep the popup open for anything but a closer
-      validFor: /^[^\]\n]*$/,
+      validFor: /^[A-Za-z]*$/,
     };
   };
 }
@@ -1521,7 +1707,14 @@ function liveBindCompletions(
   sheetMembersRef: React.MutableRefObject<((sheet: string) => Promise<string[]>) | undefined>
 ) {
   return async (context: CompletionContext): Promise<CompletionResult | null> => {
-    const before = context.state.sliceDoc(Math.max(0, context.pos - 250), context.pos);
+    // The LINE, not the usual 250-char window. A live span cannot cross a
+    // newline (LIVE_OPEN_RE), so the line start is the exact and complete
+    // context — while a fixed window has two edges a long sentence reaches:
+    // a span opened further back than the window silently stops completing,
+    // and a span opened at exactly the window edge hides the backtick the
+    // double-backtick escape guard reads, so the popup opens inside prose
+    // that was showing the syntax rather than computing it.
+    const before = context.state.sliceDoc(context.state.doc.lineAt(context.pos).from, context.pos);
     const bind = liveBindQuery(before);
     if (!bind) return null;
     const node = syntaxTree(context.state).resolveInner(context.pos, -1);
@@ -1781,6 +1974,12 @@ interface EditorProps {
   tagUniverse?: TagCount[];
   /** all note titles — the [[ wikilink completion source */
   noteTitles?: string[];
+  /** the body of the note a wikilink target names, resolved the same way
+      following the link would — the `[[Target#anchor` popup's source, so the
+      headings offered are the ones that will actually scroll. Null for a
+      target nothing answers to. Absent → `[[Target#` offers nothing and
+      `[[#` (this note) still works, since that one reads the buffer. */
+  linkedNoteBody?: (target: string) => Promise<string | null>;
   /** all database types — the ```view fence's `type:` completion */
   dbTypes?: string[];
   /** every pinned view with the database behind it — the fence's `saved:`
@@ -1885,6 +2084,7 @@ export default function Editor({
   onOpenTag,
   tagUniverse,
   noteTitles,
+  linkedNoteBody,
   dbTypes,
   savedViewPins,
   dbPropNames,
@@ -1928,6 +2128,17 @@ export default function Editor({
   // item list)
   const [selMenu, setSelMenu] = useState<{ x: number; y: number } | null>(null);
   const [turnPage, setTurnPage] = useState(false);
+  // The table menu: everything a markdown table can be asked to do about one
+  // of its cells. `rendered` says whether it was opened on the grid (a
+  // right-click) or on the source under the cursor (the keyboard), which is
+  // what decides whether in-place cell editing is on the list and where the
+  // cursor ends up afterwards.
+  const [tableMenu, setTableMenu] = useState<{
+    x: number;
+    y: number;
+    hit: TableDomHit;
+    rendered: boolean;
+  } | null>(null);
   const outlineJump = useRef<{ from: number; until: number } | null>(null);
   // calc config rides a compartment rather than a ref: the number
   // dialect and the FX table change while the editor stays mounted, and the
@@ -1961,6 +2172,7 @@ export default function Editor({
   // the [[ completion source is provided once at mount — titles live behind
   // a ref so vault changes reach it without recreating the editor
   const noteTitlesRef = useRef(noteTitles);
+  const linkedNoteBodyRef = useRef(linkedNoteBody);
   // same shape for the view fence's `type:` completion
   const dbTypesRef = useRef(dbTypes);
   // and for the sheet/member popup inside a `` `= … ` `` span
@@ -1994,6 +2206,7 @@ export default function Editor({
   calcFxRef.current = calcFx;
   liveSheetsRef.current = liveSheets;
   noteTitlesRef.current = noteTitles;
+  linkedNoteBodyRef.current = linkedNoteBody;
   dbTypesRef.current = dbTypes;
   sheetTitlesRef.current = sheetTitles;
   sheetMembersRef.current = sheetMembers;
@@ -2043,6 +2256,103 @@ export default function Editor({
     setSelMenu(null);
     setTurnPage(false);
     viewRef.current?.focus();
+  };
+
+  const closeTableMenu = () => {
+    // opened from the keyboard, the editor had focus and gets it back. Opened
+    // by right-click it did not: focusing it would drop a caret into the table
+    // and spring the grid open as pipes — and if the action just started an
+    // in-place cell edit, it would blur the box you are typing in
+    const keyboard = tableMenu?.rendered === false;
+    setTableMenu(null);
+    if (keyboard) viewRef.current?.focus();
+  };
+
+  /** The table the cursor is sitting in, as a hit the menu can act on. A table
+      with the cursor in it renders as pipes rather than a grid, so there is
+      nothing to point at — the row and column come from the offset instead. */
+  const tableHitAtCursor = (view: EditorView): TableDomHit | null => {
+    const pos = view.state.selection.main.head;
+    let range: { from: number; to: number } | null = null;
+    syntaxTree(view.state).iterate({
+      from: pos,
+      to: pos,
+      enter(node) {
+        if (node.name !== "Table") return;
+        range = {
+          from: view.state.doc.lineAt(node.from).from,
+          to: view.state.doc.lineAt(node.to).to,
+        };
+        return false;
+      },
+    });
+    if (!range) return null;
+    const { from, to } = range;
+    const source = view.state.sliceDoc(from, to);
+    return { from, to, source, ...tableCellAtOffset(source, pos - from), cell: null };
+  };
+
+  /** ⌘⇧M: the same menu the pointer gets, opened at the cursor. Falls through
+      when the cursor isn't in a table, so the key stays free elsewhere. */
+  const openTableMenuAtCursor = (view: EditorView): boolean => {
+    const hit = tableHitAtCursor(view);
+    if (!hit) return false;
+    const coords = view.coordsAtPos(view.state.selection.main.head);
+    if (!coords) return false;
+    setSelMenu(null);
+    setTableMenu({ x: coords.left, y: coords.bottom, hit, rendered: false });
+    return true;
+  };
+
+  const applyTableAction = (action: TableAction) => {
+    const view = viewRef.current;
+    const menu = tableMenu;
+    if (!view || !menu || action.disabled) return;
+    if (action.editCell) {
+      if (menu.hit.cell) startTableCellEdit(view, menu.hit.cell);
+      return;
+    }
+    if (action.source === null) return;
+    const from = Math.min(menu.hit.from, view.state.doc.length);
+    const to = Math.min(menu.hit.to, view.state.doc.length);
+    // the menu holds the table as it read it; an external adopt replaces the
+    // whole note, so by the time an item is chosen these coordinates can hold
+    // different text. Writing the rewrite anyway would splice a table into
+    // whatever moved into its place
+    if (view.state.sliceDoc(from, to) !== menu.hit.source) return;
+    const focused = view.hasFocus;
+    const spec: TransactionSpec = { changes: { from, to, insert: action.source } };
+    if (action.cursor !== undefined) {
+      // a grown table exists to be typed into: the cursor goes to the new cell
+      spec.selection = { anchor: from + action.cursor };
+    } else if (!menu.rendered) {
+      // driven from the keyboard, the cursor is already in this table's source
+      // and holds its place through the rewrite — the alternative is CodeMirror
+      // mapping it to an edge and the caret jumping off the row you were on
+      const offset = Math.min(Math.max(view.state.selection.main.head - from, 0), action.source.length);
+      spec.selection = { anchor: from + offset };
+    }
+    view.dispatch(spec);
+    // a rendered table edited by pointer keeps the grid: refocusing an editor
+    // that never had focus would drop the caret in and spring it open as pipes
+    if (action.cursor !== undefined || focused) view.focus();
+  };
+
+  const tableMenuItems = (): MenuItem[] => {
+    const menu = tableMenu;
+    if (!menu) return [];
+    return tableActions(menu.hit.source, menu.hit.row, menu.hit.col, {
+      rendered: menu.rendered,
+    }).map((action) => ({
+      label: action.label,
+      hint: action.current ? "✓" : undefined,
+      danger: action.danger,
+      separatorAbove: action.separatorAbove,
+      // "Edit cell" writes nothing itself, so it has no rewritten source to
+      // judge it by: what it needs is a cell on screen to open
+      disabled: action.disabled || (action.editCell ? !menu.hit.cell : action.source === null),
+      onSelect: () => applyTableAction(action),
+    }));
   };
 
   // the chunk becomes a note beside this one; the selection a wikilink to it
@@ -2203,6 +2513,9 @@ export default function Editor({
           // ⌘F opens the in-note find panel; the registry entry
           // keeps it out of every app-level dispatch
           { key: shortcutCmKey("editor-find"), run: openSearchPanel },
+          // ⌘⇧M is the table menu — the pointer's right-click without a
+          // pointer, and the only way at a table's edits from the keyboard
+          { key: shortcutCmKey("editor-table"), run: (view) => openTableMenuAtCursor(view) },
           // ⌘D belongs to the app (daily note) — searchKeymap ships
           // its own Mod-d → selectNextOccurrence, which ran alongside the app
           // hotkey and left a stray word selection the next keystroke
@@ -2238,15 +2551,20 @@ export default function Editor({
         // an empty ghost daily must say it's writable — the cue vanishes on
         // the first keystroke
         ...(emptyHint ? [cmPlaceholder(emptyHint)] : []),
-        // [[ pops fuzzy-ranked note titles; `/` at line start pops
-        // the insertion palette and a view fence's `type:` pops live database
-        // names; `#` pops the vault's tags. override owns
+        // [[ pops fuzzy-ranked note titles — then that note's headings past a
+        // `#`, its own label past a `|`, and an embed's size hints; `/` at
+        // line start pops the insertion palette and a view fence's `type:`
+        // pops live database names; `#` pops the vault's tags; `> [!` pops
+        // the callout kinds and their accents. override owns
         // the popup — the triggers are mutually exclusive, so each returns
         // null outside its own context
         autocompletion({
           icons: false,
+          // the only per-option decoration in the app: a hue's swatch, drawn
+          // for accent options and nothing else
+          addToOptions: [ACCENT_SWATCH],
           override: [
-            wikiLinkCompletions(noteTitlesRef),
+            wikiLinkCompletions(noteTitlesRef, linkedNoteBodyRef),
             slashCompletions(),
             liveBindCompletions(sheetTitlesRef, sheetMembersRef),
             viewTypeCompletions(dbTypesRef),
@@ -2256,6 +2574,7 @@ export default function Editor({
               usedValues: embedUsedValuesRef,
             }),
             tagCompletions(tagUniverseRef),
+            calloutCompletions(),
           ],
         }),
         markdown({ base: markdownLanguage, codeLanguages: languages }),
@@ -2455,6 +2774,16 @@ export default function Editor({
     syncOutline(view);
     const onWidgetFollow = (e: Event) => onFollowRef.current((e as CustomEvent<string>).detail);
     el.addEventListener(FOLLOW_EVENT, onWidgetFollow);
+    // a right-click on a rendered table is about that table, selection or not:
+    // delete this row, align this column, edit this cell
+    const onTableMenu = (e: Event) => {
+      const { x, y, node } = (e as CustomEvent<TableMenuRequest>).detail;
+      const hit = tableHitAtDom(view, node);
+      if (!hit) return;
+      setSelMenu(null);
+      setTableMenu({ x, y, hit, rendered: true });
+    };
+    el.addEventListener(TABLE_MENU_EVENT, onTableMenu);
     if (focusRef) focusRef.current = () => view.focus();
     if (docRef) {
       docRef.current = (body: string) => {
@@ -2500,6 +2829,7 @@ export default function Editor({
       window.cancelAnimationFrame(outlineFrame);
       noteScroller?.removeEventListener("scroll", onNoteScroll);
       el.removeEventListener(FOLLOW_EVENT, onWidgetFollow);
+      el.removeEventListener(TABLE_MENU_EVENT, onTableMenu);
       if (focusRef && focusRef.current) focusRef.current = null;
       if (docRef) docRef.current = null;
       if (insertRef) insertRef.current = null;
@@ -2843,6 +3173,14 @@ export default function Editor({
             ))}
           </nav>
         </aside>
+      )}
+      {tableMenu && (
+        <ContextMenu
+          x={tableMenu.x}
+          y={tableMenu.y}
+          items={tableMenuItems()}
+          onClose={closeTableMenu}
+        />
       )}
       {selMenu && (
         // keyed by page: the drill-in remount resets the hovered row and

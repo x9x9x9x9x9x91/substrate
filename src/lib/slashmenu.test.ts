@@ -468,3 +468,19 @@ test("typing /ca ranks the calc command first", () => {
   assert.equal(slashOptions("ca")[0].name, "calc");
   assert.equal(slashOptions("live")[0].name, "live");
 });
+
+/* `/cal` is the one prefix where the newer command took a name an older one
+   already answered to: calc wins it on
+   length, and someone with `/cal`+Enter muscle memory for the month grid now
+   gets a calc line. The ranking stands — shorter exact prefix first is what
+   every other prefix does here — but calendar staying REACHABLE on that same
+   prefix is the part worth pinning: second in the list, one arrow key away,
+   and first again at `/cale`. A future scoring change that buries it fails
+   here rather than in someone's notes. */
+test("/cal keeps calendar reachable under calc", () => {
+  assert.deepEqual(
+    slashOptions("cal").map((c) => c.name),
+    ["calc", "calendar"]
+  );
+  assert.equal(slashOptions("cale")[0].name, "calendar");
+});

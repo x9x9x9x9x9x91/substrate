@@ -138,7 +138,7 @@ export default function McpSettings({ onToast }: McpSettingsProps) {
           </div>
         </div>
         <button
-          className="settings-raw mcp-revoke-all"
+          className="settings-raw"
           disabled={!grants?.length || busy !== ""}
           onClick={revokeAll}
         >

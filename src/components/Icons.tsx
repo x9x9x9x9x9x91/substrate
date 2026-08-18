@@ -507,8 +507,13 @@ export const FileIcon = ({ size = 15 }: { size?: number }) => (
   </svg>
 );
 
+/* Sized like every other glyph by default; the two places that render it big
+   (the sealed lock screen mark) or small (the sealed row badge) still win with
+   their own CSS. Without the attributes it filled whatever box it landed in —
+   which is how it swallowed the row context menu once "Seal note…" started
+   rendering it. */
 export const LockIcon = () => (
-  <svg viewBox="0 0 16 16" fill="none" aria-hidden="true">
+  <svg width={15} height={15} viewBox="0 0 16 16" fill="none" aria-hidden="true">
     <rect x="3" y="7" width="10" height="7" rx="2" stroke="currentColor" />
     <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" />
   </svg>

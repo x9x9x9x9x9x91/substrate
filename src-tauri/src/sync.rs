@@ -971,6 +971,11 @@ mod tests {
     /// what is missing rather than starting nothing.
     #[test]
     fn run_is_gated_on_a_runner_that_actually_exists() {
+        // the no-runner refusal is reached THROUGH the process-global runs
+        // registry (a live run for this direction refuses first), so a
+        // parallel test holding an in-flight `cloud` run would shadow it —
+        // take the registry guard like every other test that touches it
+        let _reg = registry_guard();
         let dir = TmpDir::new("runner");
         dir.write(".config/rclone/sync-state.json", STATE);
         assert!(!cfg(&dir).can_run(), "no runner on this machine yet");
