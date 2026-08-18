@@ -29,6 +29,17 @@ needs encryption at rest. The fuller threat model is in
   part of this Git sync. The remote URL is stored in the vault's local Git
   configuration; its access token is stored in the macOS Keychain under
   `com.substrate.vault-sync`, not in the vault.
+  The remote can be a plain Git server over HTTPS, or an end-to-end encrypted
+  blob store (a `blob+https://` URL in the Sync pane): with a blob remote your
+  notes leave the device only as ciphertext — the server never holds note
+  content, names, history, or your passphrase. The first device sets the
+  passphrase, every other device repeats it, and losing the passphrase loses
+  the vault; the derived encryption key is stored in the Keychain beside the
+  token. The encryption is only as strong as that passphrase — whoever runs
+  the server can try guesses against the stored wrapped key at their leisure,
+  so a short or reused passphrase undoes the protection. Pick a long, unique
+  one and keep it in a password manager. The matching server is open source (`hosted-sync-server/` in the
+  repository), so the encrypted path is as self-hostable as the plain one.
 - **Capturing a URL:** pasting a URL as a new reference creates the note locally,
   then requests that page to read its title and description. The request goes
   only to the pasted public URL (and checked public redirects); credentials in a

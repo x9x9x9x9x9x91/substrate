@@ -1715,6 +1715,7 @@ mod tests {
             &format!("file://{}", bare.display()),
             "local-test-token",
             None,
+            None,
         )
         .unwrap();
         assert!(crate::gitsync::sync_configured(&root));

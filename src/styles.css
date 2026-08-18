@@ -11206,6 +11206,28 @@ th.sheet-computed:hover {
   line-height: 1.4;
 }
 
+/* a quiet text button, not a field: unmasking is a glance, and it must not
+   read as the thing that saves the form */
+.vault-sync-passphrase-reveal {
+  align-self: flex-start;
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: var(--text-3);
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.vault-sync-passphrase-reveal:hover:not(:disabled) {
+  color: var(--text-1);
+}
+
+.vault-sync-passphrase-reveal:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .vault-sync-form-foot {
   display: flex;
   align-items: center;

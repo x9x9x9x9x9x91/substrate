@@ -73,6 +73,39 @@ impl MasterKey {
     fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
+
+    /// Serialize for the OS credential store. The string wipes itself on
+    /// drop; the caller owes keeping it out of logs and error text.
+    pub(crate) fn to_hex(&self) -> Zeroizing<String> {
+        use std::fmt::Write as _;
+        let mut hex = String::with_capacity(64);
+        for byte in self.0 {
+            let _ = write!(hex, "{byte:02x}");
+        }
+        Zeroizing::new(hex)
+    }
+
+    /// The inverse of [`Self::to_hex`], for the credential-store read path.
+    /// The error deliberately says "configure the remote again" rather than
+    /// echoing anything about the stored value.
+    pub(crate) fn from_hex(hex: &str) -> Result<Self, String> {
+        let hex = hex.trim();
+        let invalid =
+            || "hosted sync master-key credential is invalid; configure the remote again".to_string();
+        // Exactly the form to_hex writes — lowercase, 64 characters. Anything
+        // else did not come from this app and is treated as corruption.
+        if hex.len() != 64
+            || !hex.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(invalid());
+        }
+        let mut bytes = [0u8; 32];
+        for (index, chunk) in hex.as_bytes().chunks_exact(2).enumerate() {
+            let pair = std::str::from_utf8(chunk).map_err(|_| invalid())?;
+            bytes[index] = u8::from_str_radix(pair, 16).map_err(|_| invalid())?;
+        }
+        Ok(Self(bytes))
+    }
 }
 
 /// The server's opaque version token and encrypted ref document.
@@ -92,6 +125,10 @@ pub(crate) enum CasResult {
 
 /// Minimal hosted-sync server contract. Authentication and HTTP live in a
 /// later adapter; names and bodies here are already opaque to the operator.
+///
+/// The key document carries the passphrase-wrapped master key with the same
+/// versioned-CAS semantics as the ref, so a new device can enroll from the
+/// server address, the token, and the passphrase alone.
 pub(crate) trait BlobTransport {
     fn list_objects(&self, max_objects: usize) -> Result<Vec<String>, String>;
     fn get_object(&self, name: &str, max_bytes: usize) -> Result<Vec<u8>, String>;
@@ -102,17 +139,25 @@ pub(crate) trait BlobTransport {
         expected_version: Option<&str>,
         bytes: &[u8],
     ) -> Result<CasResult, String>;
+    fn read_key(&self, max_bytes: usize) -> Result<Option<VersionedRef>, String>;
+    fn compare_and_swap_key(
+        &self,
+        expected_version: Option<&str>,
+        bytes: &[u8],
+    ) -> Result<CasResult, String>;
 }
 
 /// Disk-backed executable model of the dumb server. It is intentionally
 /// limited to tests/prototyping; the real service must provide a transactional
 /// CAS implementation across processes and hosts.
 #[derive(Debug)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) struct FileBlobStore {
     root: PathBuf,
     cas_guard: Mutex<()>,
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 impl FileBlobStore {
     pub(crate) fn new(root: impl Into<PathBuf>) -> Result<Self, String> {
         let root = root.into();
@@ -128,6 +173,50 @@ impl FileBlobStore {
 
     fn ref_path(&self) -> PathBuf {
         self.root.join("ref")
+    }
+
+    fn key_path(&self) -> PathBuf {
+        self.root.join("key")
+    }
+
+    /// Shared CAS over one stored document (the ref, or the wrapped master
+    /// key): stage under `create_new`, publish by rename, and never touch the
+    /// stored bytes on a version mismatch.
+    fn cas_document(
+        &self,
+        path: &Path,
+        label: &str,
+        expected_version: Option<&str>,
+        bytes: &[u8],
+    ) -> Result<CasResult, String> {
+        if bytes.len() > MAX_REF_ENVELOPE_BYTES {
+            return Err(format!("hosted sync {label} exceeds the prototype size limit"));
+        }
+        let _guard = self.cas_guard.lock().unwrap_or_else(|error| error.into_inner());
+        let current = read_versioned_file(path, MAX_REF_ENVELOPE_BYTES)?;
+        if current.as_ref().map(|value| value.version.as_str()) != expected_version {
+            return Ok(CasResult::Mismatch);
+        }
+        let suffix = OsRng.next_u64();
+        let temporary = self.root.join(format!("{label}.tmp-{suffix:016x}"));
+        let write_result = (|| {
+            let mut file = OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&temporary)
+                .map_err(|error| format!("could not stage blob {label}: {error}"))?;
+            file.write_all(bytes)
+                .and_then(|_| file.sync_all())
+                .map_err(|error| format!("could not stage blob {label}: {error}"))?;
+            fs::rename(&temporary, path)
+                .map_err(|error| format!("could not publish blob {label}: {error}"))?;
+            Ok::<(), String>(())
+        })();
+        if write_result.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        write_result?;
+        Ok(CasResult::Updated(version_token(bytes)))
     }
 }
 
@@ -200,35 +289,19 @@ impl BlobTransport for FileBlobStore {
         expected_version: Option<&str>,
         bytes: &[u8],
     ) -> Result<CasResult, String> {
-        if bytes.len() > MAX_REF_ENVELOPE_BYTES {
-            return Err("hosted sync ref exceeds the prototype size limit".into());
-        }
-        let _guard = self.cas_guard.lock().unwrap_or_else(|error| error.into_inner());
-        let path = self.ref_path();
-        let current = read_versioned_file(&path, MAX_REF_ENVELOPE_BYTES)?;
-        if current.as_ref().map(|value| value.version.as_str()) != expected_version {
-            return Ok(CasResult::Mismatch);
-        }
-        let suffix = OsRng.next_u64();
-        let temporary = self.root.join(format!("ref.tmp-{suffix:016x}"));
-        let write_result = (|| {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&temporary)
-                .map_err(|error| format!("could not stage blob ref: {error}"))?;
-            file.write_all(bytes)
-                .and_then(|_| file.sync_all())
-                .map_err(|error| format!("could not stage blob ref: {error}"))?;
-            fs::rename(&temporary, &path)
-                .map_err(|error| format!("could not publish blob ref: {error}"))?;
-            Ok::<(), String>(())
-        })();
-        if write_result.is_err() {
-            let _ = fs::remove_file(&temporary);
-        }
-        write_result?;
-        Ok(CasResult::Updated(version_token(bytes)))
+        self.cas_document(&self.ref_path(), "ref", expected_version, bytes)
+    }
+
+    fn read_key(&self, max_bytes: usize) -> Result<Option<VersionedRef>, String> {
+        read_versioned_file(&self.key_path(), max_bytes)
+    }
+
+    fn compare_and_swap_key(
+        &self,
+        expected_version: Option<&str>,
+        bytes: &[u8],
+    ) -> Result<CasResult, String> {
+        self.cas_document(&self.key_path(), "key", expected_version, bytes)
     }
 }
 
@@ -241,11 +314,24 @@ impl BlobTransport for FileBlobStore {
 /// a transport failure (that would turn a torn remote into a retry loop), and
 /// a CAS mismatch must not read as an error (it is ordinary contention, and
 /// the caller's answer to it is "pull and merge", not "try again").
-#[derive(Debug)]
 pub(crate) struct HttpBlobStore {
     agent: ureq::Agent,
     base: String,
     token: String,
+}
+
+/// Same treatment as [`MasterKey`]: the bearer token is live credential
+/// material, and a derived Debug would hand it to the first log line, panic
+/// message, or error chain that ever formats this store. The base URL is
+/// operator-visible configuration and stays readable.
+impl std::fmt::Debug for HttpBlobStore {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("HttpBlobStore")
+            .field("base", &self.base)
+            .field("token", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
 }
 
 impl HttpBlobStore {
@@ -400,25 +486,7 @@ impl BlobTransport for HttpBlobStore {
     }
 
     fn read_ref(&self, max_bytes: usize) -> Result<Option<VersionedRef>, String> {
-        let request = self
-            .agent
-            .get(&format!("{}/v1/ref", self.base))
-            .set("Authorization", &self.authorization());
-        let (status, response) = http_status(request.call(), "ref read")?;
-        let Some(response) = response else {
-            // No ref yet is the first-push case, not a failure.
-            if status == 404 {
-                return Ok(None);
-            }
-            return Err(status_error("ref read", status));
-        };
-        let version = response
-            .header("ETag")
-            .map(|value| value.trim().trim_matches('"').to_string())
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| "hosted sync server returned a ref without a version".to_string())?;
-        let bytes = read_response_bounded(response, max_bytes, "hosted sync ref")?;
-        Ok(Some(VersionedRef { version, bytes }))
+        self.read_document("/v1/ref", "ref", max_bytes)
     }
 
     fn compare_and_swap_ref(
@@ -426,34 +494,88 @@ impl BlobTransport for HttpBlobStore {
         expected_version: Option<&str>,
         bytes: &[u8],
     ) -> Result<CasResult, String> {
-        if bytes.len() > MAX_REF_ENVELOPE_BYTES {
-            return Err("hosted sync ref exceeds the prototype size limit".into());
-        }
+        self.cas_document("/v1/ref", "ref", expected_version, bytes)
+    }
+
+    fn read_key(&self, max_bytes: usize) -> Result<Option<VersionedRef>, String> {
+        self.read_document("/v1/key", "key", max_bytes)
+    }
+
+    fn compare_and_swap_key(
+        &self,
+        expected_version: Option<&str>,
+        bytes: &[u8],
+    ) -> Result<CasResult, String> {
+        self.cas_document("/v1/key", "key", expected_version, bytes)
+    }
+}
+
+impl HttpBlobStore {
+    fn read_document(
+        &self,
+        route: &str,
+        noun: &str,
+        max_bytes: usize,
+    ) -> Result<Option<VersionedRef>, String> {
+        let label = format!("{noun} read");
         let request = self
             .agent
-            .put(&format!("{}/v1/ref", self.base))
-            .set("Authorization", &self.authorization())
-            .set("Content-Type", "application/octet-stream");
-        // One of the two preconditions is always sent, so this client can never
-        // blind-write the ref even if the server would let it.
-        let request = match expected_version {
-            Some(version) => request.set("If-Match", &format!("\"{version}\"")),
-            None => request.set("If-None-Match", "*"),
-        };
-        let (status, response) = http_status(request.send_bytes(bytes), "ref update")?;
-        // A lost CAS is contention, not an error: `push` answers it with "pull
-        // and merge first" rather than a failed sync.
-        if status == 412 {
-            return Ok(CasResult::Mismatch);
-        }
+            .get(&format!("{}{route}", self.base))
+            .set("Authorization", &self.authorization());
+        let (status, response) = http_status(request.call(), &label)?;
         let Some(response) = response else {
-            return Err(status_error("ref update", status));
+            // No document yet is the first-enrollment / first-push case, not
+            // a failure.
+            if status == 404 {
+                return Ok(None);
+            }
+            return Err(status_error(&label, status));
         };
         let version = response
             .header("ETag")
             .map(|value| value.trim().trim_matches('"').to_string())
             .filter(|value| !value.is_empty())
-            .ok_or_else(|| "hosted sync server accepted a ref without a version".to_string())?;
+            .ok_or_else(|| format!("hosted sync server returned a {noun} without a version"))?;
+        let bytes = read_response_bounded(response, max_bytes, &format!("hosted sync {noun}"))?;
+        Ok(Some(VersionedRef { version, bytes }))
+    }
+
+    fn cas_document(
+        &self,
+        route: &str,
+        noun: &str,
+        expected_version: Option<&str>,
+        bytes: &[u8],
+    ) -> Result<CasResult, String> {
+        let label = format!("{noun} update");
+        if bytes.len() > MAX_REF_ENVELOPE_BYTES {
+            return Err(format!("hosted sync {noun} exceeds the prototype size limit"));
+        }
+        let request = self
+            .agent
+            .put(&format!("{}{route}", self.base))
+            .set("Authorization", &self.authorization())
+            .set("Content-Type", "application/octet-stream");
+        // One of the two preconditions is always sent, so this client can never
+        // blind-write the document even if the server would let it.
+        let request = match expected_version {
+            Some(version) => request.set("If-Match", &format!("\"{version}\"")),
+            None => request.set("If-None-Match", "*"),
+        };
+        let (status, response) = http_status(request.send_bytes(bytes), &label)?;
+        // A lost CAS is contention, not an error: push answers it with "pull
+        // and merge first", enrollment by joining the winner's key.
+        if status == 412 {
+            return Ok(CasResult::Mismatch);
+        }
+        let Some(response) = response else {
+            return Err(status_error(&label, status));
+        };
+        let version = response
+            .header("ETag")
+            .map(|value| value.trim().trim_matches('"').to_string())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| format!("hosted sync server accepted a {noun} without a version"))?;
         Ok(CasResult::Updated(version))
     }
 }
@@ -548,6 +670,7 @@ pub(crate) fn push<G>(
 /// The re-check only holds if `gate` acquires the same exclusion the purge
 /// path runs under (the app's history+engine mutexes) — a gate that does not
 /// exclude the purge writer reintroduces the race with this code unchanged.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn pull<G>(
     root: &Path,
     key: &MasterKey,
@@ -730,6 +853,57 @@ pub(crate) fn unwrap_master_key(envelope: &[u8], passphrase: &[u8]) -> Result<Ma
     let mut bytes = [0u8; 32];
     bytes.copy_from_slice(&plaintext);
     Ok(MasterKey(bytes))
+}
+
+/// How an enrollment got its master key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Enrollment {
+    /// First device: generated a fresh key and published its wrapped form.
+    Created,
+    /// Joined an existing vault: unwrapped the key the server already holds.
+    Joined,
+}
+
+/// Obtain this vault's master key from the server and the passphrase.
+///
+/// The first device finds no key document, generates a key, and publishes its
+/// wrapped form with create-if-absent CAS. Every later device (and a first
+/// device that loses the creation race) unwraps what the server holds. The
+/// passphrase is raw bytes; the caller owes NFC normalization, same as
+/// [`wrap_master_key`].
+pub(crate) fn enroll(
+    transport: &impl BlobTransport,
+    passphrase: &[u8],
+) -> Result<(MasterKey, Enrollment), String> {
+    if let Some(existing) = transport.read_key(MAX_REF_ENVELOPE_BYTES)? {
+        return Ok((unwrap_master_key(&existing.bytes, passphrase)?, Enrollment::Joined));
+    }
+    // A store holding a ref but no key is not an empty store — it is one whose
+    // key document was lost. Minting here would succeed at every step and lose
+    // the vault: the create-if-absent CAS below really does find the slot free,
+    // and the caller then writes this new key over the device's stored copy of
+    // the only key that can read the history already up there.
+    if transport.read_ref(MAX_REF_ENVELOPE_BYTES)?.is_some() {
+        return Err("hosted sync store holds encrypted history but no key document; refusing to \
+                    create a new key — restore the server's key document from backup, or wipe \
+                    the store and push again from a device that still syncs"
+            .into());
+    }
+    let key = MasterKey::generate();
+    let envelope = wrap_master_key(&key, passphrase)?;
+    match transport.compare_and_swap_key(None, &envelope)? {
+        CasResult::Updated(_) => Ok((key, Enrollment::Created)),
+        CasResult::Mismatch => {
+            // Another device created the key between our read and our write.
+            // Its key is the vault's key; ours was never published and wipes
+            // itself on drop.
+            let existing = transport.read_key(MAX_REF_ENVELOPE_BYTES)?.ok_or_else(|| {
+                "hosted sync enrollment raced another device and found no key after; try again"
+                    .to_string()
+            })?;
+            Ok((unwrap_master_key(&existing.bytes, passphrase)?, Enrollment::Joined))
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1079,6 +1253,7 @@ fn validate_object_name(name: &str) -> Result<(), String> {
     }
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn read_versioned_file(path: &Path, max_bytes: usize) -> Result<Option<VersionedRef>, String> {
     let file = match fs::File::open(path) {
         Ok(file) => file,
@@ -1089,6 +1264,7 @@ fn read_versioned_file(path: &Path, max_bytes: usize) -> Result<Option<Versioned
     Ok(Some(VersionedRef { version: version_token(&bytes), bytes }))
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn read_bounded_file(path: &Path, max_bytes: usize, label: &str) -> Result<Vec<u8>, String> {
     let file = match fs::File::open(path) {
         Ok(file) => file,
@@ -1661,6 +1837,131 @@ mod tests {
         assert_eq!(store.read_ref(MAX_REF_ENVELOPE_BYTES).unwrap().unwrap().bytes, b"one");
     }
 
+    /// Nothing formats the store today, which is exactly why this is worth
+    /// pinning: a derived Debug would put a live bearer token into the first
+    /// log line or error chain that ever did.
+    #[test]
+    fn the_http_store_never_debug_prints_its_token() {
+        let store = HttpBlobStore::new("https://drop.example/blob", "test-token-0123456789")
+            .unwrap();
+        let shown = format!("{store:?}");
+        assert!(!shown.contains("test-token-0123456789"), "{shown}");
+        assert!(shown.contains("drop.example"), "{shown}");
+    }
+
+    #[test]
+    fn master_key_hex_round_trips_and_rejects_junk() {
+        let key = MasterKey::generate();
+        let hex = key.to_hex();
+        let back = MasterKey::from_hex(&hex).unwrap();
+        assert_eq!(back.0, key.0);
+        assert!(MasterKey::from_hex("abc").is_err());
+        assert!(MasterKey::from_hex(&"zz".repeat(32)).is_err());
+        assert!(MasterKey::from_hex(&"A".repeat(64)).is_err(), "uppercase is not our form");
+    }
+
+    #[test]
+    fn enrollment_creates_once_then_joins_and_rejects_a_wrong_passphrase() {
+        let scratch = TempDir::new().unwrap();
+        let store = FileBlobStore::new(scratch.path()).unwrap();
+
+        let (first, how) = enroll(&store, b"correct horse battery staple").unwrap();
+        assert_eq!(how, Enrollment::Created);
+
+        let (second, how) = enroll(&store, b"correct horse battery staple").unwrap();
+        assert_eq!(how, Enrollment::Joined);
+        assert_eq!(second.0, first.0, "both devices must hold the same vault key");
+
+        // A wrong passphrase is a refusal, never a second key: the vault's
+        // ciphertext would be unreadable under one.
+        assert!(enroll(&store, b"wrong").unwrap_err().contains("wrong or key data"));
+        assert_eq!(enroll(&store, b"correct horse battery staple").unwrap().0 .0, first.0);
+    }
+
+    /// A store with history but no key is a lost key, not a new vault. Minting
+    /// one would publish into the free slot and then overwrite this device's
+    /// copy of the real key — terminal and silent, so enrollment refuses.
+    #[test]
+    fn enrollment_refuses_to_mint_a_key_over_existing_history() {
+        let scratch = TempDir::new().unwrap();
+        let store = FileBlobStore::new(scratch.path()).unwrap();
+        assert!(matches!(store.compare_and_swap_ref(None, b"one").unwrap(), CasResult::Updated(_)));
+
+        let error = enroll(&store, b"correct horse battery staple").unwrap_err();
+        assert!(error.contains("holds encrypted history but no key document"), "{error}");
+        assert!(
+            store.read_key(MAX_REF_ENVELOPE_BYTES).unwrap().is_none(),
+            "the refusal must not have published a key"
+        );
+    }
+
+    /// A transport whose key document appears between a caller's read and its
+    /// create — the shape of two first devices enrolling at once.
+    struct RacedKeyStore {
+        inner: FileBlobStore,
+        winner_envelope: Vec<u8>,
+        hidden: std::cell::Cell<bool>,
+    }
+
+    impl BlobTransport for RacedKeyStore {
+        fn list_objects(&self, max_objects: usize) -> Result<Vec<String>, String> {
+            self.inner.list_objects(max_objects)
+        }
+        fn get_object(&self, name: &str, max_bytes: usize) -> Result<Vec<u8>, String> {
+            self.inner.get_object(name, max_bytes)
+        }
+        fn put_object(&self, name: &str, bytes: &[u8]) -> Result<(), String> {
+            self.inner.put_object(name, bytes)
+        }
+        fn read_ref(&self, max_bytes: usize) -> Result<Option<VersionedRef>, String> {
+            self.inner.read_ref(max_bytes)
+        }
+        fn compare_and_swap_ref(
+            &self,
+            expected_version: Option<&str>,
+            bytes: &[u8],
+        ) -> Result<CasResult, String> {
+            self.inner.compare_and_swap_ref(expected_version, bytes)
+        }
+        fn read_key(&self, max_bytes: usize) -> Result<Option<VersionedRef>, String> {
+            if self.hidden.get() {
+                // First read: the winner has not published yet, from this
+                // caller's point of view.
+                self.hidden.set(false);
+                return Ok(None);
+            }
+            self.inner.read_key(max_bytes)
+        }
+        fn compare_and_swap_key(
+            &self,
+            expected_version: Option<&str>,
+            bytes: &[u8],
+        ) -> Result<CasResult, String> {
+            // The winner lands between the read above and this write.
+            if self.inner.read_key(MAX_REF_ENVELOPE_BYTES).unwrap().is_none() {
+                assert!(matches!(
+                    self.inner.compare_and_swap_key(None, &self.winner_envelope).unwrap(),
+                    CasResult::Updated(_)
+                ));
+            }
+            self.inner.compare_and_swap_key(expected_version, bytes)
+        }
+    }
+
+    #[test]
+    fn a_lost_enrollment_race_joins_the_winner_key() {
+        let scratch = TempDir::new().unwrap();
+        let winner_key = MasterKey::from_bytes([42; 32]);
+        let store = RacedKeyStore {
+            inner: FileBlobStore::new(scratch.path()).unwrap(),
+            winner_envelope: wrap_master_key(&winner_key, b"shared passphrase").unwrap(),
+            hidden: std::cell::Cell::new(true),
+        };
+        let (joined, how) = enroll(&store, b"shared passphrase").unwrap();
+        assert_eq!(how, Enrollment::Joined);
+        assert_eq!(joined.0, winner_key.0, "the loser must adopt the winner's key");
+    }
+
     // --- the real server, over a real socket -------------------------------
     //
     // Everything above this line runs against `FileBlobStore`, a model of the
@@ -1711,6 +2012,20 @@ mod tests {
             }
         }
         found
+    }
+
+    #[test]
+    fn enrollment_round_trips_through_the_real_server() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        let transport = http(&server);
+
+        let (first, how) = enroll(&transport, b"correct horse battery staple").unwrap();
+        assert_eq!(how, Enrollment::Created);
+        let (second, how) = enroll(&transport, b"correct horse battery staple").unwrap();
+        assert_eq!(how, Enrollment::Joined);
+        assert_eq!(second.0, first.0, "a second device must unwrap the first device's key");
+        assert!(enroll(&transport, b"wrong").unwrap_err().contains("wrong or key data"));
     }
 
     #[test]

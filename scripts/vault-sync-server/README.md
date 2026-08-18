@@ -6,6 +6,15 @@ exposes exactly that mirror through Git smart HTTP over HTTPS. The server
 accepts either `Authorization: Bearer <token>` or HTTP Basic with the token as
 the password.
 
+This is the free LAN self-host option: the right design when the server is
+your own Mac on your own network, and the cheapest way to sync a phone
+against a desktop vault. When the always-on server is NOT a machine you'd
+trust with plaintext — a rented VPS, say — the app also speaks an
+end-to-end-encrypted blob-store remote (`blob+https://…` in the Sync pane;
+protocol in `docs/hosted-sync-protocol.md`, server in `hosted-sync-server/`):
+that server only ever stores ciphertext, at the cost of running a second
+small service. The two paths coexist; nothing here is deprecated.
+
 The live vault's `.git` directory is never served. The intended flow is:
 
 1. Mac working vault -> bare mirror: run `mirror.ts`.

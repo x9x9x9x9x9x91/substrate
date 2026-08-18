@@ -63,6 +63,9 @@ hkdf = "0.12"
 hmac = "0.12"
 rand = "0.8"
 zeroize = { version = "1", features = ["derive"] }
+# already in the tree transitively — named so the hosted-sync passphrase can
+# be NFC-normalized at the Rust boundary, not only in the pane
+unicode-normalization = "0.1"
 # already in the tree as ureq's own dependency — named here because net.rs
 # parses and re-joins redirect targets itself (SSRF guard)
 url = "2"

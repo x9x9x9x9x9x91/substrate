@@ -381,27 +381,61 @@ pub(crate) fn vault_sync_status(
     }
 }
 
+/// A sync leg and the class its failure records under.
+///
+/// A hosted remote loads a token and a master key before it can do anything,
+/// and [`gitsync::hosted_preflight`] failing means one of those is missing,
+/// denied, or corrupt — its own doc comment puts it plainly: never a network
+/// problem. Recorded as Transport, those failures sat inside the auto lane's
+/// quiet window for hours while the pane still read "Ready", so a vault that
+/// had stopped syncing looked healthy. Only the leg's own failures are
+/// transport failures.
+fn classified_leg(
+    root: &Path,
+    credentials_path: &Path,
+    leg: impl FnOnce() -> Result<SyncReport, String>,
+) -> (Result<SyncReport, String>, FailureClass) {
+    match gitsync::hosted_preflight(root, credentials_path) {
+        Err(error) => (Err(error), FailureClass::Local),
+        Ok(()) => (leg(), FailureClass::Transport),
+    }
+}
+
+// async: configuring a hosted remote enrolls against the server — network I/O
+// plus a 64 MiB Argon2id pass. On the IPC thread that froze the whole window
+// for as long as the leg took, up to the transport timeout against a host that
+// never answers.
 #[tauri::command]
-pub(crate) fn vault_sync_set_remote(
-    state: State<AppState>,
-    sync: State<VaultSyncState>,
+pub(crate) async fn vault_sync_set_remote(
+    app: tauri::AppHandle,
     url: String,
     token: String,
     cert: Option<String>,
+    passphrase: Option<String>,
 ) -> Result<(), String> {
-    gitsync::sync_set_remote(
-        &sync_root(&state),
-        &sync.credentials_path,
-        &url,
-        &token,
-        cert.as_deref(),
-    )?;
-    // A new remote makes this session's push/pull record meaningless — but not
-    // the privacy notice, which is about plaintext in THIS machine's history
-    // and is untouched by where the vault syncs to next.
-    let mut last = sync.last.lock().unwrap();
-    *last = VaultSyncLast { privacy: last.privacy.take(), ..VaultSyncLast::default() };
-    Ok(())
+    blocking(move || {
+        let state: State<AppState> = app.state();
+        let sync: State<VaultSyncState> = app.state();
+        // No `sync.op` here, unlike push and pull: configuring takes neither
+        // the history nor the engine lock, and an enrollment landing beside a
+        // running push is benign — the push either finished against the old
+        // remote or fails and retries against the new one.
+        gitsync::sync_set_remote(
+            &sync_root(&state),
+            &sync.credentials_path,
+            &url,
+            &token,
+            cert.as_deref(),
+            passphrase.as_deref(),
+        )?;
+        // A new remote makes this session's push/pull record meaningless — but not
+        // the privacy notice, which is about plaintext in THIS machine's history
+        // and is untouched by where the vault syncs to next.
+        let mut last = sync.last.lock().unwrap();
+        *last = VaultSyncLast { privacy: last.privacy.take(), ..VaultSyncLast::default() };
+        Ok(())
+    })
+    .await?
 }
 
 // async: a push is a snapshot plus network git — seconds on a slow link.
@@ -424,10 +458,12 @@ pub(crate) async fn vault_sync_push(
         with_history(&history, |hist| hist.snapshot("snapshot (sync)"))?;
         // Gate: the engine mutex is held only while the working tree is
         // inspected, never across the network push.
-        let result = gitsync::sync_push_gated(&sync_root(&state), &sync.credentials_path, || {
-            state.0.lock().unwrap()
+        let (result, class) = classified_leg(&sync_root(&state), &sync.credentials_path, || {
+            gitsync::sync_push_gated(&sync_root(&state), &sync.credentials_path, || {
+                state.0.lock().unwrap()
+            })
         });
-        record_outcome(&sync, &result, origin.as_deref() == Some("auto"), FailureClass::Transport);
+        record_outcome(&sync, &result, origin.as_deref() == Some("auto"), class);
         result
     })
     .await?
@@ -453,17 +489,19 @@ pub(crate) async fn vault_sync_pull(
         // through the whole local phase. The fetch stays unlocked, but neither
         // an auto-snapshot nor a vault write can land between the final HEAD /
         // clean checks and checkout + branch update.
-        let mut class = FailureClass::Transport;
-        let mut result = gitsync::sync_pull_with_snapshot(
-            &sync_root(&state),
-            &sync.credentials_path,
-            || with_history(&history, |hist| hist.snapshot("snapshot (sync)")).map(|_| ()),
-            || {
-                let history = history.0.lock().unwrap();
-                let engine = state.0.lock().unwrap();
-                (history, engine)
-            },
-        );
+        let (mut result, mut class) =
+            classified_leg(&sync_root(&state), &sync.credentials_path, || {
+                gitsync::sync_pull_with_snapshot(
+                    &sync_root(&state),
+                    &sync.credentials_path,
+                    || with_history(&history, |hist| hist.snapshot("snapshot (sync)")).map(|_| ()),
+                    || {
+                        let history = history.0.lock().unwrap();
+                        let engine = state.0.lock().unwrap();
+                        (history, engine)
+                    },
+                )
+            });
         if let Ok(report) = &result {
             if !report.changed.is_empty() {
                 // The remote commit may come from an old/non-cooperating
@@ -599,7 +637,7 @@ pub(crate) fn vault_sync_resolve_finish(
 #[cfg(test)]
 mod tests {
     use super::{
-        clear_privacy_into, load_privacy, note_privacy_into, record_outcome_into,
+        classified_leg, clear_privacy_into, load_privacy, note_privacy_into, record_outcome_into,
         run_privacy_cleanup, store_privacy, FailureClass,
     };
     use crate::gitsync::SyncReport;
@@ -743,6 +781,47 @@ mod tests {
         assert!(load_privacy(&path).is_none(), "an acknowledged notice came back anyway");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A hosted remote loads a token and a master key before it can reach
+    /// anything. When that fails the device is not offline — it is misconfigured
+    /// — so the class has to be Local, or the quiet window sits on the news for
+    /// hours while the pane reads "Ready" and nothing syncs.
+    #[test]
+    fn a_hosted_leg_with_unusable_credentials_records_local_at_once() {
+        let root = std::env::temp_dir().join(format!(
+            "substrate-hosted-class-{}-{}",
+            std::process::id(),
+            line!()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let _history = History::new(root.clone()).unwrap();
+        // Never written: both credential slots are empty.
+        let credentials = root.join("config/sync.json");
+
+        // A plain remote has nothing hosted to load, so the leg runs and its
+        // own failure keeps the transport class.
+        let (result, class) = classified_leg(&root, &credentials, || Err("no route".into()));
+        assert_eq!(class, FailureClass::Transport);
+        assert_eq!(result.unwrap_err(), "no route");
+
+        let repo = git2::Repository::open(&root).unwrap();
+        repo.remote(crate::gitsync::REMOTE, "blob+https://hosted.example/blob").unwrap();
+
+        let (result, class) = classified_leg(&root, &credentials, || {
+            panic!("the leg ran with credentials it could not load")
+        });
+        assert_eq!(class, FailureClass::Local);
+        assert!(result.is_err());
+
+        // Local is what gets it past the quiet window on the very first tick.
+        let mut last = VaultSyncLast::default();
+        let mut fail = AutoFail::default();
+        record_outcome_into(&mut last, &mut fail, &result, true, class, Instant::now());
+        assert!(last.error.is_some(), "a broken hosted credential waited out the quiet window");
+
+        let _ = fs::remove_dir_all(&root);
     }
 
     /// The other half of the same rule, unchanged: a transport miss on the

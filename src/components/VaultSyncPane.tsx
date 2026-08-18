@@ -66,6 +66,9 @@ export default function VaultSyncPane({
   const [remoteUrl, setRemoteUrl] = useState("");
   const [token, setToken] = useState("");
   const [certPem, setCertPem] = useState("");
+  const [passphrase, setPassphrase] = useState("");
+  const [passphraseAgain, setPassphraseAgain] = useState("");
+  const [showPassphrase, setShowPassphrase] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
   const [remoteSaved, setRemoteSaved] = useState(false);
   const [acking, setAcking] = useState(false);
@@ -129,17 +132,60 @@ export default function VaultSyncPane({
     }
   };
 
+  // An end-to-end-encrypted blob-store remote: passphrase instead of a
+  // pinned certificate (those endpoints ride public TLS).
+  const hostedRemote = remoteUrl.trim().startsWith("blob+");
+
+  /** The shortest passphrase the backend accepts; refused here too so a typo
+      costs a keystroke rather than a round trip and a 64 MiB key derivation. */
+  const PASSPHRASE_MIN = 12;
+
   const saveRemote = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (busy || !remoteUrl.trim()) return;
+    if (hostedRemote) {
+      // Trim then NFC, the order hosted_set_remote uses, so what is compared
+      // and counted here is the byte string the key is actually derived from:
+      // a trailing space is not a mismatch, and two spellings of one accent
+      // are not either — refusing those would be a lie the user cannot see.
+      const typed = passphrase.trim().normalize("NFC");
+      const again = passphraseAgain.trim().normalize("NFC");
+      const refusal =
+        typed.length === 0
+          ? "hosted sync needs the vault passphrase"
+          : typed !== again
+            ? "the two passphrases do not match"
+            : // Counted in code points, so an accent is one character here and
+              // in the backend alike.
+              [...typed].length < PASSPHRASE_MIN
+              ? `the vault passphrase must be at least ${PASSPHRASE_MIN} characters — it is the only protection on the encrypted vault`
+              : null;
+      if (refusal) {
+        setSetupError(refusal);
+        setRemoteSaved(false);
+        return;
+      }
+    }
     setBusy("save");
     setSetupError(null);
     setRemoteSaved(false);
     try {
-      await vaultSyncSetRemote(remoteUrl.trim(), token, certPem.trim() || undefined);
-      // The token is write-only. A successful save is the only point where
-      // the local draft is discarded; failures leave it available to retry.
+      await vaultSyncSetRemote(
+        remoteUrl.trim(),
+        token,
+        hostedRemote ? undefined : certPem.trim() || undefined,
+        // NFC before the key derivation ever sees the bytes: the same typed
+        // passphrase must be the same byte string on every platform, or the
+        // unwrap fails looking exactly like a typo.
+        hostedRemote ? passphrase.normalize("NFC") : undefined,
+      );
+      // The token and passphrase are write-only. A successful save is the only
+      // point where the local drafts are discarded; failures leave them
+      // available to retry.
       setToken("");
+      setPassphrase("");
+      setPassphraseAgain("");
+      setShowPassphrase(false);
       setRemoteSaved(true);
       // embeds classify missing assets against sync state — the
       // cached "no remote" answer is stale the moment a remote lands
@@ -374,7 +420,9 @@ export default function VaultSyncPane({
                   aria-describedby="vault-sync-url-hint"
                 />
                 <span id="vault-sync-url-hint" className="vault-sync-field-hint">
-                  HTTPS remotes need a token. file:// is available for local testing.
+                  HTTPS remotes need a token. A blob+https:// remote syncs
+                  end-to-end encrypted and also needs the vault passphrase.
+                  file:// is available for local testing.
                 </span>
               </label>
               <label>
@@ -391,26 +439,90 @@ export default function VaultSyncPane({
                   disabled={busy !== null}
                 />
               </label>
-              <label>
-                <span>Server certificate (optional)</span>
-                <textarea
-                  className="vault-sync-cert"
-                  value={certPem}
-                  onChange={(event) => {
-                    setCertPem(event.target.value);
-                    setRemoteSaved(false);
-                  }}
-                  placeholder="-----BEGIN CERTIFICATE-----"
-                  rows={3}
-                  spellCheck={false}
-                  disabled={busy !== null}
-                  aria-describedby="vault-sync-cert-hint"
-                />
-                <span id="vault-sync-cert-hint" className="vault-sync-field-hint">
-                  Paste the server&apos;s PEM certificate for self-signed endpoints; leave
-                  empty for publicly trusted ones.
-                </span>
-              </label>
+              {hostedRemote ? (
+                <>
+                  <label>
+                    <span>Vault passphrase</span>
+                    <input
+                      type={showPassphrase ? "text" : "password"}
+                      className="vault-sync-passphrase"
+                      autoComplete="new-password"
+                      value={passphrase}
+                      onChange={(event) => {
+                        setPassphrase(event.target.value);
+                        setRemoteSaved(false);
+                      }}
+                      placeholder={`Enter the vault passphrase · ${PASSPHRASE_MIN}+ characters`}
+                      disabled={busy !== null}
+                      aria-describedby="vault-sync-passphrase-hint"
+                    />
+                    <span id="vault-sync-passphrase-hint" className="vault-sync-field-hint">
+                      Encrypts the vault end to end. The first device sets it;
+                      every other device — and any later re-save — repeats the
+                      same one (it cannot be changed here). At least{" "}
+                      {PASSPHRASE_MIN} characters, because it is the only thing
+                      protecting the vault on the server. Losing the passphrase
+                      loses the vault, so keep it in a password manager.
+                    </span>
+                  </label>
+                  <label>
+                    <span>Repeat vault passphrase</span>
+                    <input
+                      type={showPassphrase ? "text" : "password"}
+                      className="vault-sync-passphrase-again"
+                      autoComplete="new-password"
+                      value={passphraseAgain}
+                      onChange={(event) => {
+                        setPassphraseAgain(event.target.value);
+                        setRemoteSaved(false);
+                      }}
+                      placeholder="Type it again"
+                      disabled={busy !== null}
+                      aria-describedby="vault-sync-passphrase-again-hint"
+                    />
+                    <span
+                      id="vault-sync-passphrase-again-hint"
+                      className="vault-sync-field-hint"
+                    >
+                      A typo here is unrecoverable once the vault is encrypted
+                      under it, so both entries must match.
+                    </span>
+                  </label>
+                  <button
+                    type="button"
+                    className="vault-sync-passphrase-reveal"
+                    onClick={() => setShowPassphrase((shown) => !shown)}
+                    disabled={busy !== null}
+                    aria-pressed={showPassphrase}
+                    aria-label={
+                      showPassphrase ? "Hide the vault passphrase" : "Show the vault passphrase"
+                    }
+                  >
+                    {showPassphrase ? "Hide passphrase" : "Show passphrase"}
+                  </button>
+                </>
+              ) : (
+                <label>
+                  <span>Server certificate (optional)</span>
+                  <textarea
+                    className="vault-sync-cert"
+                    value={certPem}
+                    onChange={(event) => {
+                      setCertPem(event.target.value);
+                      setRemoteSaved(false);
+                    }}
+                    placeholder="-----BEGIN CERTIFICATE-----"
+                    rows={3}
+                    spellCheck={false}
+                    disabled={busy !== null}
+                    aria-describedby="vault-sync-cert-hint"
+                  />
+                  <span id="vault-sync-cert-hint" className="vault-sync-field-hint">
+                    Paste the server&apos;s PEM certificate for self-signed endpoints; leave
+                    empty for publicly trusted ones.
+                  </span>
+                </label>
+              )}
               <div className="vault-sync-form-foot">
                 <button
                   type="submit"

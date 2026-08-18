@@ -203,6 +203,7 @@ impl Drop for LiveConnection {
 struct Store {
     objects: PathBuf,
     ref_path: PathBuf,
+    key_path: PathBuf,
     token: String,
     cas: Mutex<()>,
     counter: AtomicU64,
@@ -232,6 +233,7 @@ impl Store {
         Ok(Self {
             objects,
             ref_path: config.storage.join("ref"),
+            key_path: config.storage.join("key"),
             token: config.token,
             cas: Mutex::new(()),
             counter: AtomicU64::new(0),
@@ -331,7 +333,7 @@ impl Store {
         // Hard link rather than rename: a concurrent PUT of the same name must
         // not be able to replace bytes another client already published.
         let published = match fs::hard_link(&temporary, &path) {
-            Ok(()) => Ok(ObjectWrite::Stored),
+            Ok(()) => sync_directory_of(&path).map(|()| ObjectWrite::Stored),
             Err(error) if error.kind() == ErrorKind::AlreadyExists => Ok(ObjectWrite::AlreadyPresent),
             Err(error) => Err(format!("could not publish object: {error}")),
         };
@@ -340,32 +342,60 @@ impl Store {
     }
 
     fn read_ref(&self) -> Result<Option<(String, Vec<u8>)>, String> {
-        match File::open(&self.ref_path) {
+        self.read_document(&self.ref_path, "ref")
+    }
+
+    fn read_key(&self) -> Result<Option<(String, Vec<u8>)>, String> {
+        self.read_document(&self.key_path, "key")
+    }
+
+    fn read_document(&self, path: &Path, label: &str) -> Result<Option<(String, Vec<u8>)>, String> {
+        match File::open(path) {
             Ok(mut file) => {
                 let mut bytes = Vec::new();
                 file.read_to_end(&mut bytes)
-                    .map_err(|error| format!("could not read the ref: {error}"))?;
+                    .map_err(|error| format!("could not read the {label}: {error}"))?;
                 let version = version_token(&bytes);
                 Ok(Some((version, bytes)))
             }
             Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
-            Err(error) => Err(format!("could not read the ref: {error}")),
+            Err(error) => Err(format!("could not read the {label}: {error}")),
         }
     }
 
-    /// Linearizable compare-and-swap. `expected` is `None` for "the ref must
-    /// not exist yet". A mismatch never touches the stored bytes.
     fn compare_and_swap_ref(
         &self,
         expected: Option<&str>,
         bytes: &[u8],
     ) -> Result<Option<String>, String> {
+        self.compare_and_swap_document(&self.ref_path, "ref", expected, bytes)
+    }
+
+    fn compare_and_swap_key(
+        &self,
+        expected: Option<&str>,
+        bytes: &[u8],
+    ) -> Result<Option<String>, String> {
+        self.compare_and_swap_document(&self.key_path, "key", expected, bytes)
+    }
+
+    /// Linearizable compare-and-swap over one stored document (the ref, or the
+    /// wrapped master key). `expected` is `None` for "the document must not
+    /// exist yet". A mismatch never touches the stored bytes. Both documents
+    /// share one lock; they are single small files and never contended hot.
+    fn compare_and_swap_document(
+        &self,
+        path: &Path,
+        label: &str,
+        expected: Option<&str>,
+        bytes: &[u8],
+    ) -> Result<Option<String>, String> {
         let _guard = self.cas.lock().unwrap_or_else(|error| error.into_inner());
-        let current = self.read_ref()?;
+        let current = self.read_document(path, label)?;
         if current.as_ref().map(|(version, _)| version.as_str()) != expected {
             return Ok(None);
         }
-        let temporary = self.temporary("ref");
+        let temporary = self.temporary(label);
         let staged = (|| {
             let mut file = OpenOptions::new().write(true).create_new(true).open(&temporary)?;
             file.write_all(bytes)?;
@@ -373,12 +403,16 @@ impl Store {
         })();
         if let Err(error) = staged {
             let _ = fs::remove_file(&temporary);
-            return Err(format!("could not stage the ref: {error}"));
+            return Err(format!("could not stage the {label}: {error}"));
         }
-        if let Err(error) = fs::rename(&temporary, &self.ref_path) {
+        if let Err(error) = fs::rename(&temporary, path) {
             let _ = fs::remove_file(&temporary);
-            return Err(format!("could not publish the ref: {error}"));
+            return Err(format!("could not publish the {label}: {error}"));
         }
+        // The staging file lives under `objects/` and the document one level up,
+        // so this flushes the directory the new name is in. A `.tmp-` entry left
+        // behind in the other one after a crash is inert.
+        sync_directory_of(path)?;
         Ok(Some(version_token(bytes)))
     }
 }
@@ -386,6 +420,21 @@ impl Store {
 enum ObjectWrite {
     Stored,
     AlreadyPresent,
+}
+
+/// Flush the directory entry a link or rename just created.
+///
+/// The bytes were `sync_all`ed while staged, but the name pointing at them
+/// lives in the parent directory, and that is still only in the host's page
+/// cache until the directory itself is flushed. Without this a power loss just
+/// after a `201` or `204` can lose an object, a ref, or the key the vault
+/// cannot be read without — all of them already acknowledged. So a failure
+/// here fails the request: nothing is acknowledged that is not durable.
+fn sync_directory_of(path: &Path) -> Result<(), String> {
+    let parent = path.parent().ok_or("published path has no parent directory")?;
+    File::open(parent)
+        .and_then(|directory| directory.sync_all())
+        .map_err(|error| format!("could not flush the directory entry: {error}"))
 }
 
 /// The version token is a hash of the stored bytes, so it changes exactly when
@@ -514,7 +563,7 @@ fn read_request(stream: &mut TcpStream, store: &Store) -> Result<Request, Respon
     }
 
     // Authentication is checked here — after the head, before the body — so a
-    // stranger can neither tell the five real routes apart from anything else
+    // stranger can neither tell the real routes apart from anything else
     // nor make us allocate and read up to the object limit on their say-so.
     // The cost is that such a caller may see a write error instead of a clean
     // 401, because we close with their body still unsent; an honest client
@@ -558,46 +607,69 @@ fn handle(request: &Request, store: &Store) -> Response {
             Err(_) => Response::error(500, "Internal Server Error"),
         },
 
-        ("GET", "/v1/ref") => match store.read_ref() {
-            Ok(Some((version, bytes))) => Response::new(200, "OK")
-                .with_header("ETag", format!("\"{version}\""))
-                .with_body("application/octet-stream", bytes),
-            Ok(None) => Response::error(404, "Not Found"),
-            Err(_) => Response::error(500, "Internal Server Error"),
-        },
+        ("GET", "/v1/ref") => handle_document_get(store.read_ref()),
 
         ("PUT", "/v1/ref") => {
-            if request.body.is_empty() {
-                // An empty ref is not a ref. Storing one would hand the next
-                // reader a document that decrypts to nothing, which reads as
-                // "the vault is empty" — the object route rejects the same
-                // shape for the same reason.
-                return Response::error(400, "Bad Request");
-            }
-            if request.body.len() > MAX_REF_ENVELOPE_BYTES {
-                return Response::error(413, "Payload Too Large");
-            }
-            // `If-Match: "<version>"` swaps a known ref; `If-None-Match: *`
-            // creates the first one. Requiring one of the two means a client
-            // can never blind-write the ref by omitting a header.
-            let expected = match (request.header("if-match"), request.header("if-none-match")) {
-                (Some(value), None) => match value.trim().strip_prefix('"').and_then(|rest| rest.strip_suffix('"')) {
-                    Some(version) => Some(version.to_string()),
-                    None => return Response::error(400, "Bad Request"),
-                },
-                (None, Some("*")) => None,
-                _ => return Response::error(428, "Precondition Required"),
-            };
-            match store.compare_and_swap_ref(expected.as_deref(), &request.body) {
-                Ok(Some(version)) => {
-                    Response::new(204, "No Content").with_header("ETag", format!("\"{version}\""))
-                }
-                Ok(None) => Response::error(412, "Precondition Failed"),
-                Err(_) => Response::error(500, "Internal Server Error"),
-            }
+            handle_document_put(request, |expected, bytes| store.compare_and_swap_ref(expected, bytes))
+        }
+
+        // The passphrase-wrapped master key rides the same document semantics
+        // as the ref: one small opaque envelope, versioned, CAS-guarded so a
+        // second enrolling device can never silently clobber the first
+        // device's key. The server never sees the passphrase or the key.
+        ("GET", "/v1/key") => handle_document_get(store.read_key()),
+
+        ("PUT", "/v1/key") => {
+            handle_document_put(request, |expected, bytes| store.compare_and_swap_key(expected, bytes))
         }
 
         _ => handle_object(request, store),
+    }
+}
+
+fn handle_document_get(read: Result<Option<(String, Vec<u8>)>, String>) -> Response {
+    match read {
+        Ok(Some((version, bytes))) => Response::new(200, "OK")
+            .with_header("ETag", format!("\"{version}\""))
+            .with_body("application/octet-stream", bytes),
+        Ok(None) => Response::error(404, "Not Found"),
+        Err(_) => Response::error(500, "Internal Server Error"),
+    }
+}
+
+fn handle_document_put(
+    request: &Request,
+    cas: impl FnOnce(Option<&str>, &[u8]) -> Result<Option<String>, String>,
+) -> Response {
+    if request.body.is_empty() {
+        // An empty document is not a document. Storing one would hand the next
+        // reader bytes that decrypt to nothing — for the ref that reads as
+        // "the vault is empty", for the key as an unrecoverable enrollment.
+        // The object route rejects the same shape for the same reason.
+        return Response::error(400, "Bad Request");
+    }
+    if request.body.len() > MAX_REF_ENVELOPE_BYTES {
+        return Response::error(413, "Payload Too Large");
+    }
+    // `If-Match: "<version>"` swaps a known document; `If-None-Match: *`
+    // creates the first one. Requiring one of the two means a client can
+    // never blind-write the document by omitting a header.
+    let expected = match (request.header("if-match"), request.header("if-none-match")) {
+        (Some(value), None) => {
+            match value.trim().strip_prefix('"').and_then(|rest| rest.strip_suffix('"')) {
+                Some(version) => Some(version.to_string()),
+                None => return Response::error(400, "Bad Request"),
+            }
+        }
+        (None, Some("*")) => None,
+        _ => return Response::error(428, "Precondition Required"),
+    };
+    match cas(expected.as_deref(), &request.body) {
+        Ok(Some(version)) => {
+            Response::new(204, "No Content").with_header("ETag", format!("\"{version}\""))
+        }
+        Ok(None) => Response::error(412, "Precondition Failed"),
+        Err(_) => Response::error(500, "Internal Server Error"),
     }
 }
 
@@ -787,6 +859,27 @@ mod tests {
     }
 
     #[test]
+    fn key_cas_mirrors_the_ref_and_never_clobbers_an_existing_key() {
+        let (store, _root) = store("key");
+        assert!(store.read_key().unwrap().is_none());
+
+        let first = store.compare_and_swap_key(None, b"wrapped-one").unwrap().expect("create");
+        // A second enrolling device racing the first must lose, and the first
+        // device's wrapped key must survive untouched.
+        assert!(store.compare_and_swap_key(None, b"wrapped-two").unwrap().is_none());
+        assert_eq!(store.read_key().unwrap().unwrap().1, b"wrapped-one");
+
+        // A deliberate re-wrap (passphrase change) swaps with the known version.
+        let second =
+            store.compare_and_swap_key(Some(&first), b"wrapped-two").unwrap().expect("swap");
+        assert_ne!(first, second);
+        assert_eq!(store.read_key().unwrap().unwrap().1, b"wrapped-two");
+
+        // The two documents are separate files: the key CAS never sees the ref.
+        assert!(store.read_ref().unwrap().is_none());
+    }
+
+    #[test]
     fn the_version_token_tracks_the_bytes() {
         assert_eq!(version_token(b"same"), version_token(b"same"));
         assert_ne!(version_token(b"same"), version_token(b"different"));
@@ -839,6 +932,42 @@ mod tests {
         let response = exchange(&server, head, b"");
         server.stop();
         assert!(response.starts_with("HTTP/1.1 400"), "{response}");
+    }
+
+    #[test]
+    fn the_key_route_stores_and_returns_the_wrapped_key_on_the_wire() {
+        let mut server = serve("keyroute");
+        let absent = exchange(
+            &server,
+            "GET /v1/key HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer 0123456789abcdef-token\r\n\r\n",
+            b"",
+        );
+        assert!(absent.starts_with("HTTP/1.1 404"), "{absent}");
+
+        let created = exchange(
+            &server,
+            "PUT /v1/key HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer 0123456789abcdef-token\r\nIf-None-Match: *\r\nContent-Length: 7\r\n\r\n",
+            b"wrapped",
+        );
+        assert!(created.starts_with("HTTP/1.1 204"), "{created}");
+
+        // A blind write without a precondition is refused, like the ref's.
+        let blind = exchange(
+            &server,
+            "PUT /v1/key HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer 0123456789abcdef-token\r\nContent-Length: 5\r\n\r\n",
+            b"other",
+        );
+        assert!(blind.starts_with("HTTP/1.1 428"), "{blind}");
+
+        let read = exchange(
+            &server,
+            "GET /v1/key HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer 0123456789abcdef-token\r\n\r\n",
+            b"",
+        );
+        server.stop();
+        assert!(read.starts_with("HTTP/1.1 200"), "{read}");
+        assert!(read.contains("ETag: \""), "{read}");
+        assert!(read.ends_with("wrapped"), "{read}");
     }
 
     #[test]

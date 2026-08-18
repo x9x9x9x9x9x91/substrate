@@ -1946,6 +1946,7 @@ mod tests {
             &format!("file://{}", bare.display()),
             "local-test-token",
             None,
+            None,
         )
         .unwrap();
         crate::gitsync::sync_push(&root, &credentials).unwrap();

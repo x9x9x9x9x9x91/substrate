@@ -319,11 +319,12 @@ Capacities, Affine).*
   and undistributed. Rides the iOS lane above; same "in development" line.
   (Obsidian mobile has no widget story; Notion's widgets are cloud-bound —
   this one reads the last-synced local vault.)
-- **E2E-encrypted sync**: the design direction is committed, not shipped —
-  say "self-hosted sync today, E2E encryption is the committed design".
-  Current
-  transport is authenticated git-over-HTTPS with a Keychain token. Never
-  market encryption as shipped.
+- **E2E-encrypted sync**: implemented end to end — encrypted blob-store
+  transport (XChaCha20-Poly1305 per object, Argon2id passphrase wrap), an
+  open-source single-tenant server, and a `blob+https://` remote type in the
+  Sync pane — but not yet in a shipped release or verified against a real
+  vault. Until a release carries it, keep saying "self-hosted sync today,
+  E2E encryption landing"; never market encryption as shipped before then.
 - **Hosted handoff relay**: the handoff feature is shipped; a public hosted
   relay is not. Until one exists, the self-host story leads.
 - **Known parity gaps — don't invite the comparison**: multi-column page

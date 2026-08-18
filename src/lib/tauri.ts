@@ -4103,8 +4103,53 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const url = String(args?.url ?? "").trim();
       const token = String(args?.token ?? "");
       const cert = String(args?.cert ?? "").trim();
+      const passphrase = String(args?.passphrase ?? "").trim();
+      if (url.startsWith("blob+")) {
+        // Hosted (encrypted blob-store) remote — same refusal messages and
+        // the same URL rule as hosted_set_remote: plain HTTP only for an
+        // exact local host, so a lookalike such as
+        // 127.0.0.1.attacker.example never rides the loopback exception.
+        const base = url.slice("blob+".length);
+        let loopback = false;
+        if (base.startsWith("http://")) {
+          try {
+            const parsed = new URL(base);
+            loopback =
+              parsed.username === "" &&
+              ["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname);
+          } catch {
+            loopback = false;
+          }
+        }
+        if (!base.startsWith("https://") && !loopback) {
+          throw new Error(
+            "hosted sync remote must be blob+https:// (blob+http:// is allowed for loopback tests)",
+          );
+        }
+        if (token.trim().length === 0) {
+          throw new Error("vault sync token cannot be empty for a hosted remote");
+        }
+        if (passphrase.length === 0) {
+          throw new Error("hosted sync needs the vault passphrase");
+        }
+        // Counted in code points after NFC, like hosted_set_remote's
+        // `chars().count()` — the backend normalizes before it measures, so a
+        // decomposed accent must not buy a character here either.
+        if ([...passphrase.normalize("NFC")].length < 12) {
+          throw new Error(
+            "the vault passphrase must be at least 12 characters — it is the only protection on the encrypted vault",
+          );
+        }
+        mockVaultSyncStatus = { configured: true, last_result: null, last_error: null };
+        return null;
+      }
+      if (passphrase.length > 0) {
+        throw new Error("a vault passphrase is only used with blob+https:// remotes");
+      }
       if (!(url.startsWith("https://") || url.startsWith("file://"))) {
-        throw new Error("vault sync remote must use https:// (file:// is allowed for tests)");
+        throw new Error(
+          "vault sync remote must use https:// or blob+https:// (file:// is allowed for tests)",
+        );
       }
       if (url.startsWith("https://") && token.length === 0) {
         throw new Error("vault sync token cannot be empty for an HTTPS remote");

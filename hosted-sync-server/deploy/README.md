@@ -65,6 +65,10 @@ From outside the host, against `https://<host>/blob`:
   returns them byte-identical, an absent name → `404`, a short name → `400`.
 - `PUT /v1/ref` with `If-None-Match: *` → `204` + `ETag`; a stale `If-Match` →
   `412`; neither precondition → `428`.
+- `GET /v1/key` → `404` until a device enrolls; `PUT /v1/key` carries the same
+  precondition semantics as the ref. A deployment predating the key document
+  answers `404` on the PUT too — that means the binary needs updating before
+  any device can enroll.
 - A body past the proxy cap → `413`; a burst past `blob_api` → `429` while the
   service stays healthy.
 

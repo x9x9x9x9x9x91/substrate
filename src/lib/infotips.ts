@@ -1387,6 +1387,13 @@ export const TIPS: TipEntry[] = [
     },
   },
   {
+    selector: ".vault-sync-passphrase",
+    tip: {
+      title: "Vault passphrase",
+      body: "Unlocks the vault's end-to-end encryption key. The server never sees it — and losing it loses the vault.",
+    },
+  },
+  {
     selector: ".vault-sync-conflicts",
     tip: {
       title: "Conflicts",

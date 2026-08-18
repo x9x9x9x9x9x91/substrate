@@ -11,7 +11,10 @@ edge in plaintext. All Git graph work and merge/conflict handling stays on the
 client.
 
 Status: executable client and single-tenant server, both in this repository,
-neither wired to app commands yet. `src-tauri/src/gitsync/blob.rs` implements
+and wired into the app: a vault remote saved as `blob+https://<server>` routes
+push and pull through this transport (`src-tauri/src/gitsync.rs` dispatches on
+the URL prefix), and the Sync pane's passphrase field drives the §1 wrap via
+the key document below. `src-tauri/src/gitsync/blob.rs` implements
 the crypto and Git object import/export behind a `BlobTransport` trait with two
 implementations: `FileBlobStore`, an in-process model used by the unit tests,
 and `HttpBlobStore`, which speaks §2.1 to a real server. `hosted-sync-server/`
@@ -71,6 +74,8 @@ transport routing values and are not derived from the master key.
 | PUT object | vault + opaque name + envelope | stored/already present | Immutable and idempotent. A repeat name may only preserve the existing bytes or atomically replace them with the supplied complete envelope; never expose a partial write. |
 | GET ref | vault | encrypted ref bytes + opaque version token, or absent | The version token changes whenever bytes change. |
 | CAS ref | vault + expected version/absent + encrypted bytes | new version token, or mismatch | Linearizable compare-and-swap. Mismatch never changes the ref. |
+| GET key | vault | wrapped-master-key envelope + opaque version token, or absent | Same document semantics as the ref: opaque bytes, versioned. |
+| CAS key | vault + expected version/absent + wrap envelope | new version token, or mismatch | Linearizable compare-and-swap. Create-if-absent is what keeps two enrolling devices from clobbering each other's key; If-Match swaps for a deliberate re-wrap (passphrase change — a server capability, no client flow yet; see §5 on what the client still owes). |
 
 The server validates authentication, quota, rate, object-name syntax, and
 maximum request size. It does not validate ciphertext structure. Production
@@ -110,6 +115,8 @@ that path.
 | PUT object | `PUT /v1/objects/<name>` + envelope | `201` stored, `200` already present | `400` malformed name or empty body, `413` over the size cap |
 | GET ref | `GET /v1/ref` | `200` + ref envelope, `ETag: "<version>"` | `404` no ref yet |
 | CAS ref | `PUT /v1/ref` + `If-Match: "<version>"` \| `If-None-Match: *` | `204` + new `ETag` | `412` version mismatch, `428` neither precondition, `400` empty body, `413` over the cap |
+| GET key | `GET /v1/key` | `200` + wrap envelope, `ETag: "<version>"` | `404` no key yet |
+| CAS key | `PUT /v1/key` + same preconditions as the ref | `204` + new `ETag` | same as CAS ref; the body cap is the ref's 4 KiB (the `SBK1` envelope is ~100 bytes) |
 
 Any route can answer `401` (bad or missing token) or `503` (the server is at
 its connection cap, below).
@@ -188,6 +195,12 @@ salt (16 bytes); nonce (24 bytes); and the 32-byte encrypted master key plus
 tag. V1 readers accept only the pinned parameter tuple above. Parameter changes
 use a new written envelope (or a new version if layout/meaning changes).
 
+The wrap envelope is stored server-side as the vault's key document (§2), so
+enrolling a new device needs the server address, the service token, and the
+passphrase — nothing is hand-carried between devices. The server holds only
+the envelope: without the passphrase it is 32 random-looking bytes behind
+Argon2id, and the passphrase never leaves a client.
+
 ## 4. Client algorithms
 
 Push reads the remote ref and CAS version first. If its head is not already an
@@ -247,6 +260,16 @@ and batch shape, but not plaintext Git graph edges. Padding, private information
 retrieval, traffic obfuscation, shared-vault membership, key rotation,
 multi-vault recovery, and server-side garbage collection are not v1 claims.
 
+The passphrase is the security floor. The operator holds the wrapped-key
+envelope (§3) and can test passphrase guesses against it offline, priced only
+by Argon2id's per-guess cost — there is no server-side rate limit on a copy.
+A weak passphrase therefore undoes the encryption; user-facing copy says so.
+Envelopes are also not bound to a vault identity: isolation between vaults
+comes from single-tenant deployment (one token, one vault, one store), not
+from the ciphertext. A future multi-tenant operator could cross-serve two
+vaults that share a passphrase; binding the wrap AAD to a vault identity is
+part of any multi-tenant design, not a v1 claim.
+
 The server controls availability and can omit objects or replay an older valid
 ref to a new device. Authentication detects modification and cross-name swaps,
 but v1 has no external transparency log or cross-device gossip to prove
@@ -272,9 +295,11 @@ upload.
 Authentication failure, wrong passphrase/key, swapped object name, modified
 ciphertext, malformed length/type/OID, missing head object, stale CAS token,
 wrong branch, dirty worktree, and non-fast-forward push all fail closed. No
-client ever force-updates a ref after a CAS race. No real vault may use this
-prototype until the crypto review findings are resolved and a production
-transport plus recovery UX have their own gates.
+client ever force-updates a ref after a CAS race. The transport is wired into
+the app behind the `blob+` remote type and rides the repository's full test
+gates; what it still owes before being offered beyond an attended,
+operator-run deployment is a passphrase-change/recovery UX and product copy
+for the freshness caveats above.
 
 ## 6. Executable evidence
 
@@ -295,9 +320,15 @@ mislead a brand-new device while an existing device neither rolls back nor
 merges, and heals the ref on its next push; and a truncated or extended
 passphrase envelope is rejected at every length rather than reaching Argon2.
 
-Eight further tests run the shipped server on a real localhost socket and drive it
+Nine further tests run the shipped server on a real localhost socket and drive it
 through `HttpBlobStore`, so the §2.1 binding is covered as deployed rather than
-as described. The load-bearing one pushes test vault A, pulls test vault B, and
+as described — among them enrollment itself: a first device creates and
+publishes the wrapped key, a second unwraps it from the passphrase alone, a
+wrong passphrase is refused, and a lost creation race adopts the winner's key
+(the race driven through a transport double). A tenth exercises the whole app
+seam: `sync_set_remote` with a `blob+` URL enrolls against the real server,
+then the same gated push and pull the commands call route through the blob
+transport, and a second vault joins and pulls the first one's note. The load-bearing one pushes test vault A, pulls test vault B, and
 asserts that every file A holds is byte-identical in B (B gains only the app
 backfill of a landing pull, nothing else) and that the server's storage
 directory contains none of the plaintext markers either vault wrote — no note
@@ -312,10 +343,12 @@ snapshots a mid-edit vault instead of refusing it.
 
 The server's own suite covers token length and constant-time comparison, object
 name syntax as the traversal defence, immutable publish under a concurrent PUT,
-and ref CAS against a stale version. Three tests drive real sockets: an
+ref CAS against a stale version, and key CAS refusing to clobber an existing
+key while allowing an If-Match re-wrap. Four tests drive real sockets: an
 unauthenticated upload that declares four megabytes and sends none of them is
-still answered `401`, an empty ref body is `400`, and the connection past the
-cap gets `503`.
+still answered `401`, an empty ref body is `400`, the connection past the
+cap gets `503`, and the key route stores and returns the wrapped key with the
+ref's precondition rules.
 
 All vaults and blob stores are temporary test directories; no `~/Vault` path is
 read or written.
@@ -354,7 +387,11 @@ Storage layout is flat: every object is a file named by its 64-character opaque
 name, and the ref lives beside them. Objects are published by writing a staging
 file and hard-linking it into place, so a concurrent PUT of the same name can
 never replace bytes another client already read; the ref is published by atomic
-rename under a lock. `storage_contains` is exported from the library for exactly
+rename under a lock. Both publishes flush the staged bytes and then the
+destination's parent directory before answering, and a failure to flush fails
+the request: a `201` or `204` is a promise that the object, ref, or key survives
+losing power at that instant, and the key is the one file whose loss takes the
+history with it. `storage_contains` is exported from the library for exactly
 one purpose — asserting that a storage root holds none of a known plaintext,
 whether in the test suite or against a real deployment.
 

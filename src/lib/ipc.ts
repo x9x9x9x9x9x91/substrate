@@ -574,9 +574,23 @@ export const vaultSyncStatus = () => invoke<VaultSyncStatus>("vault_sync_status"
 /** Raw tokens use HTTP Basic as the password; prefix with `Bearer ` or pass
     an explicit `Basic ` authorization value when the endpoint requires it.
     `cert` pins a self-signed server certificate (PEM) — required for private
-    endpoints because the sync stack does not read the OS trust store. */
-export const vaultSyncSetRemote = (url: string, token: string, cert?: string) =>
-  invoke<void>("vault_sync_set_remote", { url, token, cert: cert ?? null });
+    endpoints because the sync stack does not read the OS trust store.
+    A `blob+https://` URL is an end-to-end-encrypted blob-store remote:
+    it needs `passphrase` instead of `cert`, and the caller must pass the
+    passphrase NFC-normalized so the same typed phrase unwraps the key on
+    every platform. */
+export const vaultSyncSetRemote = (
+  url: string,
+  token: string,
+  cert?: string,
+  passphrase?: string,
+) =>
+  invoke<void>("vault_sync_set_remote", {
+    url,
+    token,
+    cert: cert ?? null,
+    passphrase: passphrase ?? null,
+  });
 /** The pending conflicted pull, recomputed from git on every call. */
 export const vaultSyncConflicts = () => invoke<ConflictState>("vault_sync_conflicts");
 export const vaultSyncResolveSet = (path: string, choice: ConflictChoice) =>

@@ -32,6 +32,49 @@ test("phone setup saves the remote, flips status, and clears the write-only toke
   await expect(page.getByRole("status")).toHaveText("Remote saved");
 });
 
+test("a blob+ URL asks for the vault passphrase instead of a certificate", async ({ page }) => {
+  await openVaultSync(page);
+
+  await page.getByLabel("Remote URL").fill("blob+https://drop.example/blob");
+  await expect(page.locator(".vault-sync-passphrase")).toBeVisible();
+  await expect(page.locator(".vault-sync-passphrase-again")).toBeVisible();
+  await expect(page.getByText("Losing the passphrase loses")).toBeVisible();
+  await expect(page.getByLabel("Server certificate (optional)")).toHaveCount(0);
+
+  // Saving without the passphrase is refused with the backend's words…
+  await page.getByLabel("Access token").fill("test-token-0123456789");
+  await page.getByRole("button", { name: "Save remote" }).click();
+  await expect(page.getByRole("alert")).toContainText("needs the vault passphrase");
+
+  // …a phrase typed differently twice is refused before anything is sent…
+  await page.locator(".vault-sync-passphrase").fill("correct horse battery staple");
+  await page.locator(".vault-sync-passphrase-again").fill("correct horse battery stapel");
+  await page.getByRole("button", { name: "Save remote" }).click();
+  await expect(page.getByRole("alert")).toContainText("do not match");
+
+  // …a short one on its length…
+  await page.locator(".vault-sync-passphrase").fill("short pass");
+  await page.locator(".vault-sync-passphrase-again").fill("short pass");
+  await page.getByRole("button", { name: "Save remote" }).click();
+  await expect(page.getByRole("alert")).toContainText("at least 12 characters");
+
+  // …and the reveal toggle shows what was typed, so a repeat can be checked.
+  await page.getByRole("button", { name: "Show the vault passphrase" }).click();
+  await expect(page.locator(".vault-sync-passphrase")).toHaveAttribute("type", "text");
+  await expect(page.locator(".vault-sync-passphrase-again")).toHaveAttribute("type", "text");
+
+  // With both entries matching, the remote lands and every secret clears
+  // write-only — the reveal goes back to masked with them.
+  await page.locator(".vault-sync-passphrase").fill("correct horse battery staple");
+  await page.locator(".vault-sync-passphrase-again").fill("correct horse battery staple");
+  await page.getByRole("button", { name: "Save remote" }).click();
+  await expect(page.locator(".vault-sync-state")).toContainText("Ready");
+  await expect(page.locator(".vault-sync-passphrase")).toHaveValue("");
+  await expect(page.locator(".vault-sync-passphrase-again")).toHaveValue("");
+  await expect(page.locator(".vault-sync-passphrase")).toHaveAttribute("type", "password");
+  await expect(page.getByLabel("Access token")).toHaveValue("");
+});
+
 test("push updates the last outcome summary", async ({ page }) => {
   await openVaultSync(page);
   await configure(page);
@@ -197,7 +240,7 @@ test("remote command errors stay inline and preserve the token draft", async ({ 
   await page.getByRole("button", { name: "Save remote" }).click();
 
   await expect(page.locator(".vault-sync-form-error")).toHaveText(
-    "vault sync remote must use https:// (file:// is allowed for tests)",
+    "vault sync remote must use https:// or blob+https:// (file:// is allowed for tests)",
   );
   await expect(page.locator(".vault-sync-state")).toContainText("Setup needed");
   await expect(page.getByLabel("Access token")).toHaveValue("retry-this-token");

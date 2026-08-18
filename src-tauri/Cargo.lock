@@ -5459,6 +5459,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-updater",
  "tempfile",
+ "unicode-normalization",
  "ureq",
  "url",
  "uuid",

@@ -2,10 +2,11 @@
 //! own snapshots; this module only moves committed snapshots through the
 //! configured `substrate` remote.
 
-// The encrypted blob transport is a client prototype, intentionally not wired
-// to app commands until the account/onboarding surface exists. Keeping it
-// below this module lets it reuse the exact local merge and conflict machinery.
-#[allow(dead_code)]
+// The encrypted blob transport: a hosted remote configured with a `blob+`
+// URL routes push and pull through this module instead of git smart HTTP.
+// Keeping it below this module lets it reuse the exact local merge and
+// conflict machinery, so conflicts, resolutions, and auto-sync behave the
+// same on both transports.
 pub(crate) mod blob;
 
 use crate::history::{exclude_is_ours, DiffLine, EXCLUDE_CONTENT, FOREIGN_MSG, SENTINEL};
@@ -187,9 +188,28 @@ impl ConflictState {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+/// On-disk credential file for targets without a Keychain (and for tests).
+/// The legacy shape held one unkeyed `token`; the keyed map arrived with
+/// hosted remotes, which keep a master key beside the token. A legacy file
+/// still loads — a plain service key falls back to its `token` — and the
+/// plain token is mirrored into `token` on every store so an older reader
+/// keeps working.
+#[derive(Deserialize, Serialize, Default)]
 struct StoredCredentials {
-    token: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    token: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    tokens: BTreeMap<String, String>,
+}
+
+/// A derived credential slot (`#hosted-master-key:<service key>`) starts with
+/// this marker. Plain slots are vault service keys — absolute paths, which
+/// never begin with `#` — so a derived slot can never equal, or be mistaken
+/// for, a plain one, whatever characters the vault path itself contains.
+const CREDENTIAL_SLOT_MARKER: char = '#';
+
+fn is_derived_slot(service_key: &str) -> bool {
+    service_key.starts_with(CREDENTIAL_SLOT_MARKER)
 }
 
 trait CredentialStore {
@@ -202,15 +222,33 @@ struct FileCredentialStore<'a> {
     path: &'a Path,
 }
 
-impl CredentialStore for FileCredentialStore<'_> {
-    fn store_token(&self, _service_key: &str, token: &str) -> Result<(), String> {
+impl FileCredentialStore<'_> {
+    /// The file's current contents; a missing file is an empty store.
+    fn read_stored(&self) -> Result<StoredCredentials, String> {
+        let bytes = match fs::read(self.path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(StoredCredentials::default())
+            }
+            Err(error) => {
+                return Err(format!(
+                    "vault sync credentials unavailable; configure the remote again: {error}"
+                ))
+            }
+        };
+        serde_json::from_slice(&bytes).map_err(|e| {
+            format!("vault sync credentials are invalid; configure the remote again: {e}")
+        })
+    }
+
+    fn write_stored(&self, stored: &StoredCredentials) -> Result<(), String> {
         let parent = self
             .path
             .parent()
             .ok_or_else(|| "vault sync credential path has no parent directory".to_string())?;
         fs::create_dir_all(parent)
             .map_err(|e| format!("could not create vault sync settings directory: {e}"))?;
-        let bytes = serde_json::to_vec(&StoredCredentials { token: token.to_string() })
+        let bytes = serde_json::to_vec(stored)
             .map_err(|e| format!("could not encode vault sync credentials: {e}"))?;
         let temporary = self.path.with_extension("tmp");
         let mut options = fs::OpenOptions::new();
@@ -229,29 +267,61 @@ impl CredentialStore for FileCredentialStore<'_> {
         fs::rename(&temporary, self.path)
             .map_err(|e| format!("could not save vault sync credentials: {e}"))
     }
+}
 
-    fn load_token(&self, _service_key: &str) -> Result<Option<String>, String> {
-        let bytes = match fs::read(self.path) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => {
-                return Err(format!(
-                    "vault sync credentials unavailable; configure the remote again: {error}"
-                ))
-            }
-        };
-        let stored: StoredCredentials = serde_json::from_slice(&bytes).map_err(|e| {
-            format!("vault sync credentials are invalid; configure the remote again: {e}")
-        })?;
-        Ok(Some(stored.token))
+impl CredentialStore for FileCredentialStore<'_> {
+    fn store_token(&self, service_key: &str, token: &str) -> Result<(), String> {
+        // A file this store cannot parse blocks nothing: configuring a remote
+        // is exactly the act that replaces broken credentials.
+        let mut stored = self.read_stored().unwrap_or_default();
+        stored.tokens.insert(service_key.to_string(), token.to_string());
+        if !is_derived_slot(service_key) {
+            stored.token = Some(token.to_string());
+        }
+        self.write_stored(&stored)
     }
 
-    fn delete_token(&self, _service_key: &str) -> Result<(), String> {
-        match fs::remove_file(self.path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(format!("could not delete vault sync credentials: {error}")),
+    fn load_token(&self, service_key: &str) -> Result<Option<String>, String> {
+        let stored = self.read_stored()?;
+        if let Some(token) = stored.tokens.get(service_key) {
+            return Ok(Some(token.clone()));
         }
+        // Only the plain token slot may fall back to the legacy unkeyed field;
+        // a derived slot answering with the wrong secret would be worse than
+        // answering "configure the remote again".
+        if is_derived_slot(service_key) {
+            return Ok(None);
+        }
+        Ok(stored.token)
+    }
+
+    fn delete_token(&self, service_key: &str) -> Result<(), String> {
+        let mut stored = match self.read_stored() {
+            Ok(stored) => stored,
+            // An unreadable file being deleted is the outcome the caller
+            // wanted anyway.
+            Err(_) => {
+                return match fs::remove_file(self.path) {
+                    Ok(()) => Ok(()),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                    Err(error) => {
+                        Err(format!("could not delete vault sync credentials: {error}"))
+                    }
+                }
+            }
+        };
+        stored.tokens.remove(service_key);
+        if !is_derived_slot(service_key) {
+            stored.token = None;
+        }
+        if stored.token.is_none() && stored.tokens.is_empty() {
+            return match fs::remove_file(self.path) {
+                Ok(()) => Ok(()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(error) => Err(format!("could not delete vault sync credentials: {error}")),
+            };
+        }
+        self.write_stored(&stored)
     }
 }
 
@@ -431,6 +501,107 @@ pub(crate) fn history_snapshot(root: &Path, label: &str) -> Result<bool, String>
     Ok(true)
 }
 
+/// A hosted (encrypted blob-store) remote is stored as the reserved remote's
+/// URL with this prefix in front of the server's real address, e.g.
+/// `blob+https://drop.example/blob`. git2 never dials it — push and pull
+/// detect the prefix and route through [`blob`] instead.
+const HOSTED_PREFIX: &str = "blob+";
+
+/// The shortest vault passphrase a hosted remote accepts, in characters. The
+/// server holds ciphertext and the wrapped key and nothing else, so this phrase
+/// is the whole of what stands between a copy of the store and the vault.
+const HOSTED_PASSPHRASE_MIN_CHARS: usize = 12;
+
+/// The address behind a hosted remote URL, `None` for a plain Git remote.
+fn hosted_base(url: &str) -> Option<&str> {
+    url.strip_prefix(HOSTED_PREFIX)
+}
+
+/// Whether a plain-HTTP base addresses the local machine and nothing else.
+/// The host comes from the parsed authority and must match exactly — a
+/// prefix check would accept `http://localhost.attacker.example` and send
+/// the bearer token in cleartext to a foreign host.
+fn loopback_http_base(base: &str) -> bool {
+    let Some(rest) = base.strip_prefix("http://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    // Userinfo can smuggle a lookalike on either side of the `@`; the
+    // loopback exception has no use for it.
+    if authority.contains('@') {
+        return false;
+    }
+    let host = if let Some(bracketed) = authority.strip_prefix('[') {
+        let Some((inside, after)) = bracketed.split_once(']') else {
+            return false;
+        };
+        if !(after.is_empty() || after.starts_with(':')) {
+            return false;
+        }
+        inside
+    } else {
+        authority.split(':').next().unwrap_or("")
+    };
+    matches!(host, "127.0.0.1" | "localhost" | "::1")
+}
+
+/// The configured remote's server address when it is a hosted blob remote.
+fn hosted_remote_base(repo: &Repository) -> Option<String> {
+    let remote = repo.find_remote(REMOTE).ok()?;
+    hosted_base(remote.url()?).map(str::to_owned)
+}
+
+/// The credential slot for a hosted remote's master key, beside the token's.
+/// Marker-first: service keys are absolute paths and never begin with `#`,
+/// so no vault path can collide with a derived slot (see
+/// [`CREDENTIAL_SLOT_MARKER`]).
+fn hosted_key_service(root: &Path) -> String {
+    format!("{CREDENTIAL_SLOT_MARKER}hosted-master-key:{}", service_key(root))
+}
+
+/// The transport and master key a hosted push or pull runs with, from the
+/// credential store. Failing here means "configure the remote again", never a
+/// network problem.
+fn hosted_transport(
+    root: &Path,
+    credentials_path: &Path,
+    base: &str,
+) -> Result<(blob::HttpBlobStore, blob::MasterKey), String> {
+    // Re-validate on every sync, not only at configure time: the URL lives
+    // in `.git/config`, which a restored backup or an external writer can
+    // rewrite — the token must never ride plain HTTP to a non-local host.
+    if !(base.starts_with("https://") || loopback_http_base(base)) {
+        return Err(
+            "hosted sync remote must be blob+https:// (blob+http:// is allowed for loopback tests)"
+                .into(),
+        );
+    }
+    let store = credential_store(credentials_path);
+    let token = load_token(&store, &service_key(root), credentials_path)?;
+    let hex =
+        zeroize::Zeroizing::new(load_token(&store, &hosted_key_service(root), credentials_path)?);
+    let key = blob::MasterKey::from_hex(&hex)?;
+    let transport = blob::HttpBlobStore::new(base, token.trim())?;
+    Ok((transport, key))
+}
+
+/// Check that a hosted push or pull could load what it runs with, without
+/// touching the network. `Ok(())` for a plain Git remote, which has nothing
+/// hosted to load.
+///
+/// This exists so the caller can tell a credential failure from a network one.
+/// Everything [`hosted_transport`] refuses means "configure the remote again" —
+/// a missing or denied token or master key, a corrupt hex slot, a rewritten
+/// URL — and a caller that files those under "cannot reach the remote" hides
+/// them behind whatever quiet window it gives an offline device.
+pub fn hosted_preflight(root: &Path, credentials_path: &Path) -> Result<(), String> {
+    let repo = owned_repo(root)?;
+    let Some(base) = hosted_remote_base(&repo) else {
+        return Ok(());
+    };
+    hosted_transport(root, credentials_path, &base).map(|_| ())
+}
+
 /// Whether an owned vault has the reserved sync remote configured.
 pub fn sync_configured(root: &Path) -> bool {
     owned_repo(root)
@@ -554,6 +725,30 @@ fn pinned_cert(root: &Path) -> Option<Vec<u8>> {
     fs::read(pinned_cert_path(&repo)).ok()
 }
 
+/// Drop the tracking ref when the remote address actually moves.
+///
+/// `refs/remotes/substrate/<branch>` is a claim about ONE server: that it
+/// already holds these commits. Pointed at a different server the claim is
+/// false, and it is [`exclusive_commit_count`] — on the plain and the hosted
+/// path alike — that believes it: the first push to an empty server uploads
+/// the entire history and reports "Pushed 0". Re-saving the SAME URL keeps the
+/// ref; a rotated token or a new pin moved nothing.
+///
+/// Best-effort, like the neighbouring cleanups: the remote is configured by
+/// the time this runs, and refusing the whole save over a ref that would not
+/// delete would report "not saved" for a remote that is.
+fn forget_tracking_ref_on_remote_change(repo: &Repository, previous: Option<&str>, url: &str) {
+    if previous == Some(url) {
+        return;
+    }
+    let Ok((branch, _)) = current_branch(repo) else {
+        return;
+    };
+    if let Ok(mut tracking) = repo.find_reference(&format!("refs/remotes/{REMOTE}/{branch}")) {
+        let _ = tracking.delete();
+    }
+}
+
 /// Configure the remote and persist its secret outside the vault. Apple
 /// targets use Keychain; other targets and tests retain the app-config file
 /// store. `Bearer <token>` selects bearer auth; raw tokens use HTTP Basic as
@@ -567,11 +762,21 @@ pub fn sync_set_remote(
     url: &str,
     token: &str,
     cert_pem: Option<&str>,
+    passphrase: Option<&str>,
 ) -> Result<(), String> {
     let repo = owned_repo(root)?;
     let url = url.trim();
+    if hosted_base(url).is_some() {
+        return hosted_set_remote(&repo, root, credentials_path, url, token, passphrase);
+    }
+    if passphrase.map(str::trim).is_some_and(|value| !value.is_empty()) {
+        return Err("a vault passphrase is only used with blob+https:// remotes".into());
+    }
     if !(url.starts_with("https://") || url.starts_with("file://")) {
-        return Err("vault sync remote must use https:// (file:// is allowed for tests)".into());
+        return Err(
+            "vault sync remote must use https:// or blob+https:// (file:// is allowed for tests)"
+                .into(),
+        );
     }
     if url.starts_with("https://") && token.is_empty() {
         return Err("vault sync token cannot be empty for an HTTPS remote".into());
@@ -598,6 +803,10 @@ pub fn sync_set_remote(
         }
         return Err(error);
     }
+    // Saving a plain Git remote ends any hosted enrollment: the vault master
+    // key must not outlive the transport that used it. Best-effort — an
+    // orphaned slot is inert (only the hosted path reads it).
+    let _ = credential_store(credentials_path).delete_token(&hosted_key_service(root));
 
     let cert_path = pinned_cert_path(&repo);
     match pinned {
@@ -611,6 +820,112 @@ pub fn sync_set_remote(
             }
         }
     }
+    forget_tracking_ref_on_remote_change(&repo, previous.as_deref(), url);
+    Ok(())
+}
+
+/// Configure a hosted (encrypted blob-store) remote. Enrollment runs FIRST —
+/// generate-or-unwrap the vault master key against the server — so a wrong
+/// address, token, or passphrase persists nothing. Only then are the remote
+/// URL, the token, and the master key stored, each rolling the earlier steps
+/// back on failure.
+///
+/// The passphrase is NFC-normalized here, at the boundary: the same typed
+/// phrase must become the same byte string whatever surface delivers it, or
+/// a decomposed "é" locks a device out looking exactly like a typo (see
+/// `blob::wrap_master_key`). The pane normalizes too; NFC is idempotent.
+fn hosted_set_remote(
+    repo: &Repository,
+    root: &Path,
+    credentials_path: &Path,
+    url: &str,
+    token: &str,
+    passphrase: Option<&str>,
+) -> Result<(), String> {
+    let base = hosted_base(url).unwrap_or_default().trim();
+    if !(base.starts_with("https://") || loopback_http_base(base)) {
+        return Err(
+            "hosted sync remote must be blob+https:// (blob+http:// is allowed for loopback tests)"
+                .into(),
+        );
+    }
+    // The blob transport always sends `Bearer <token>` itself, so a pasted
+    // `Bearer ` prefix is the user quoting the docs, not part of the token.
+    let token = token.trim();
+    let token = match token.get(..7) {
+        Some(prefix) if prefix.eq_ignore_ascii_case("bearer ") => token[7..].trim(),
+        _ => token,
+    };
+    if token.is_empty() {
+        return Err("vault sync token cannot be empty for a hosted remote".into());
+    }
+    let passphrase = passphrase.map(str::trim).unwrap_or("");
+    if passphrase.is_empty() {
+        return Err("hosted sync needs the vault passphrase".into());
+    }
+    let passphrase: String = {
+        use unicode_normalization::UnicodeNormalization as _;
+        passphrase.nfc().collect()
+    };
+    // Counted after NFC, so the length is the one the wrapped key is derived
+    // from rather than whatever the keyboard happened to emit. Unconditional:
+    // the feature is unreleased, so there is no vault already living under a
+    // shorter phrase to lock out.
+    if passphrase.chars().count() < HOSTED_PASSPHRASE_MIN_CHARS {
+        return Err(format!(
+            "the vault passphrase must be at least {HOSTED_PASSPHRASE_MIN_CHARS} characters — it \
+             is the only protection on the encrypted vault"
+        ));
+    }
+
+    let transport = blob::HttpBlobStore::new(base, token)?;
+    let (key, _how) = blob::enroll(&transport, passphrase.as_bytes())?;
+
+    let previous = repo.find_remote(REMOTE).ok().and_then(|remote| remote.url().map(str::to_owned));
+    let created = previous.is_none();
+    match previous.as_deref() {
+        Some(_) => repo.remote_set_url(REMOTE, url),
+        None => repo.remote(REMOTE, url).map(|_| ()),
+    }
+    .map_err(|e| format!("could not configure vault sync remote: {e}"))?;
+    let rollback_remote = || {
+        if let Some(previous) = previous.as_deref() {
+            let _ = repo.remote_set_url(REMOTE, previous);
+        } else if created {
+            let _ = repo.remote_delete(REMOTE);
+        }
+    };
+
+    let store = credential_store(credentials_path);
+    let service = service_key(root);
+    let key_service = hosted_key_service(root);
+    // What the slots held before this configure, so a mid-write failure
+    // restores the previous working remote instead of leaving it without
+    // its credentials.
+    let previous_token = store.load_token(&service).ok().flatten();
+    let previous_key = store.load_token(&key_service).ok().flatten();
+    let restore_slot = |slot: &str, previous: Option<&String>| match previous {
+        Some(value) => drop(store.store_token(slot, value)),
+        None => drop(store.delete_token(slot)),
+    };
+    if let Err(error) = store.store_token(&service, token) {
+        restore_slot(&service, previous_token.as_ref());
+        rollback_remote();
+        return Err(error);
+    }
+    if let Err(error) = store.store_token(&key_service, &key.to_hex()) {
+        restore_slot(&service, previous_token.as_ref());
+        restore_slot(&key_service, previous_key.as_ref());
+        rollback_remote();
+        return Err(error);
+    }
+    // Hosted remotes ride public TLS; the pinned certificate is the LAN
+    // path's concern. Best-effort only: a LAN re-configure writes or clears
+    // the pin itself, and the hosted transport never reads it, so a leftover
+    // file cannot change behavior on any path — while failing the configure
+    // here would report "not saved" for a remote that IS fully saved.
+    let _ = fs::remove_file(pinned_cert_path(repo));
+    forget_tracking_ref_on_remote_change(repo, previous.as_deref(), url);
     Ok(())
 }
 
@@ -633,6 +948,10 @@ pub fn sync_push_gated<G>(
     gate: impl FnOnce() -> G,
 ) -> Result<SyncReport, String> {
     let repo = owned_repo(root)?;
+    if let Some(base) = hosted_remote_base(&repo) {
+        let (transport, key) = hosted_transport(root, credentials_path, &base)?;
+        return blob::push(root, &key, &transport, gate);
+    }
     let (branch, local_oid, pushed) = {
         let _guard = gate();
         ensure_clean(&repo)?;
@@ -710,6 +1029,14 @@ pub fn sync_pull_with_snapshot<G>(
     snapshot: impl FnOnce() -> Result<(), String>,
     gate: impl FnOnce() -> G,
 ) -> Result<SyncReport, String> {
+    {
+        let repo = owned_repo(root)?;
+        if let Some(base) = hosted_remote_base(&repo) {
+            drop(repo);
+            let (transport, key) = hosted_transport(root, credentials_path, &base)?;
+            return blob::pull_with_snapshot(root, &key, &transport, snapshot, gate);
+        }
+    }
     let fetched = sync_pull_fetch(root, credentials_path)?;
     if fetched.brings_nothing() {
         return sync_pull_idle_gated(root, fetched, gate);
@@ -2436,7 +2763,194 @@ mod tests {
     }
 
     fn configure(root: &Path, credentials: &Path, remote: &Path) {
-        sync_set_remote(root, credentials, &remote_url(remote), "local-test-token", None).unwrap();
+        sync_set_remote(root, credentials, &remote_url(remote), "local-test-token", None, None).unwrap();
+    }
+
+    /// The whole hosted seam through the app's own entry points: configure
+    /// with a `blob+` URL (which enrolls against the real server), then push
+    /// and pull through the same gated functions the commands call. What this
+    /// pins is the dispatch — a hosted remote must never reach libgit2's
+    /// network path — and that a second device joins from the passphrase
+    /// alone.
+    #[test]
+    fn a_hosted_remote_routes_the_gated_push_and_pull_through_the_blob_transport() {
+        use substrate_hosted_sync_server::{Config, Server};
+        let scratch = TempDir::new().unwrap();
+        let server = Server::start(
+            "127.0.0.1:0",
+            Config {
+                storage: scratch.path().join("server-storage"),
+                token: "test-token-0123456789".into(),
+            },
+        )
+        .unwrap();
+        let url = format!("blob+{}", server.base_url());
+        // Twelve characters or more — the hosted minimum applies to every save.
+        const PHRASE: Option<&str> = Some("correct horse battery");
+        const WRONG: Option<&str> = Some("wrong horse battery");
+
+        let a = scratch.path().join("vault-a");
+        let credentials_a = scratch.path().join("creds-a.json");
+        fs::create_dir_all(&a).unwrap();
+        let _history_a = owned(&a);
+        fs::write(a.join("Welcome.md"), "hosted hello\n").unwrap();
+        assert!(history_snapshot(&a, "a1").unwrap());
+
+        // A wrong passphrase on a fresh store never persists anything…
+        sync_set_remote(&a, &credentials_a, &url, "wrong-token-000000000", None, PHRASE)
+            .unwrap_err();
+        assert!(!sync_configured(&a));
+        // …and a right one enrolls and configures.
+        sync_set_remote(&a, &credentials_a, &url, "test-token-0123456789", None, PHRASE)
+            .unwrap();
+        assert!(sync_configured(&a));
+        assert_eq!(sync_push_gated(&a, &credentials_a, || ()).unwrap().pushed, 1);
+
+        // Second device: same URL, token, and passphrase — nothing carried by
+        // hand — pulls the first device's note through the gated pull.
+        let b = scratch.path().join("vault-b");
+        let credentials_b = scratch.path().join("creds-b.json");
+        fs::create_dir_all(&b).unwrap();
+        let _history_b = owned(&b);
+        sync_set_remote(&b, &credentials_b, &url, "test-token-0123456789", None, PHRASE)
+            .unwrap();
+        let pulled =
+            sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap();
+        assert_eq!(pulled.pulled, 1);
+        assert_eq!(fs::read_to_string(b.join("Welcome.md")).unwrap(), "hosted hello\n");
+
+        // The wrong passphrase on an enrolled store is a refusal, not a fork.
+        let c = scratch.path().join("vault-c");
+        let credentials_c = scratch.path().join("creds-c.json");
+        fs::create_dir_all(&c).unwrap();
+        let _history_c = owned(&c);
+        let error =
+            sync_set_remote(&c, &credentials_c, &url, "test-token-0123456789", None, WRONG)
+                .unwrap_err();
+        assert!(error.contains("wrong or key data"), "{error}");
+
+        // Both credential slots live side by side in the file store.
+        let store = FileCredentialStore { path: &credentials_a };
+        assert!(store.load_token(&service_key(&a)).unwrap().is_some());
+        assert!(store.load_token(&hosted_key_service(&a)).unwrap().is_some());
+
+        // Leaving the hosted transport ends the enrollment: a plain Git
+        // remote save removes the master key from the credential store.
+        let bare = scratch.path().join("bare.git");
+        Repository::init_bare(&bare).unwrap();
+        sync_set_remote(&a, &credentials_a, &remote_url(&bare), "t2", None, None).unwrap();
+        assert!(store.load_token(&hosted_key_service(&a)).unwrap().is_none());
+        assert!(store.load_token(&service_key(&a)).unwrap().is_some());
+
+        // …and it forgets what the hosted store held. The tracking ref the
+        // hosted push wrote described THAT server; this bare repo is empty, so
+        // carrying it over would upload the history and report "Pushed 0".
+        assert!(
+            Repository::open(&a).unwrap().find_reference("refs/remotes/substrate/main").is_err(),
+            "the hosted tracking ref survived the move to a plain remote"
+        );
+        assert!(sync_push(&a, &credentials_a).unwrap().pushed >= 1);
+    }
+
+    /// The plaintext-HTTP exception is for the local machine only; hosts that
+    /// merely start with a loopback name must not ride it.
+    #[test]
+    fn the_loopback_exception_matches_exact_hosts_only() {
+        assert!(loopback_http_base("http://127.0.0.1:8788/blob"));
+        assert!(loopback_http_base("http://localhost/blob"));
+        assert!(loopback_http_base("http://[::1]:9000"));
+        assert!(!loopback_http_base("http://localhost.attacker.example/blob"));
+        assert!(!loopback_http_base("http://127.0.0.1.attacker.example/blob"));
+        assert!(!loopback_http_base("http://localhost:1234@attacker.example/blob"));
+        assert!(!loopback_http_base("http://[::1].attacker.example/blob"));
+        assert!(!loopback_http_base("https://127.0.0.1/blob"));
+    }
+
+    /// The URL is re-validated on every sync: a `.git/config` rewritten to a
+    /// plain-HTTP non-local host (restored backup, external writer) must be
+    /// refused before the token is even loaded.
+    #[test]
+    fn a_rewritten_hosted_remote_url_is_revalidated_at_sync_time() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        fs::create_dir_all(&root).unwrap();
+        let _history = owned(&root);
+        let credentials = scratch.path().join("creds.json");
+        let repo = owned_repo(&root).unwrap();
+        repo.remote(REMOTE, "blob+http://attacker.example/blob").unwrap();
+        let error = sync_push_gated(&root, &credentials, || ()).unwrap_err();
+        assert!(error.contains("blob+https"), "{error}");
+        let error = sync_pull_with_snapshot(&root, &credentials, || Ok(()), || ()).unwrap_err();
+        assert!(error.contains("blob+https"), "{error}");
+    }
+
+    #[test]
+    fn a_lookalike_loopback_host_is_refused_before_anything_is_sent() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        fs::create_dir_all(&root).unwrap();
+        let _history = owned(&root);
+        let credentials = scratch.path().join("creds.json");
+        let error = sync_set_remote(
+            &root,
+            &credentials,
+            "blob+http://localhost.attacker.example/blob",
+            "some-token-0123456789",
+            None,
+            Some("correct horse battery"),
+        )
+        .unwrap_err();
+        assert!(error.contains("blob+https"), "{error}");
+        assert!(!sync_configured(&root));
+    }
+
+    /// The server holds ciphertext and the wrapped key, so the passphrase is
+    /// the whole of what protects the vault. A short one is refused before
+    /// anything is sent, on join as much as on first enrollment — nothing is
+    /// released under a shorter phrase, so the rule has no exception.
+    #[test]
+    fn a_short_vault_passphrase_is_refused_before_anything_is_sent() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        fs::create_dir_all(&root).unwrap();
+        let _history = owned(&root);
+        let credentials = scratch.path().join("creds.json");
+        let token = "some-token-0123456789";
+        let save = |url: &str, passphrase: &str| {
+            sync_set_remote(&root, &credentials, url, token, None, Some(passphrase))
+        };
+
+        let error = save("blob+https://hosted.example/blob", "eleven char").unwrap_err();
+        assert!(error.contains("at least 12 characters"), "{error}");
+        // Padding is not length: seventeen characters, five after the trim.
+        let error = save("blob+https://hosted.example/blob", "      short      ").unwrap_err();
+        assert!(error.contains("at least 12 characters"), "{error}");
+        // Counted after NFC — twelve code points, eleven characters.
+        let error = save("blob+https://hosted.example/blob", "e\u{301}0123456789").unwrap_err();
+        assert!(error.contains("at least 12 characters"), "{error}");
+        assert!(!sync_configured(&root), "a refused passphrase configured the remote anyway");
+
+        // Twelve gets past the gate: what stops it now is the dead port, not
+        // the length. (Composed to twelve, from thirteen code points.)
+        let error = save("blob+http://127.0.0.1:1/blob", "e\u{301}01234567890").unwrap_err();
+        assert!(!error.contains("at least 12 characters"), "{error}");
+    }
+
+    /// A `#` in a vault path is legal; only the leading marker makes a slot
+    /// derived. A legacy single-token file must still answer for such a path,
+    /// and a derived slot must never fall back to it.
+    #[test]
+    fn a_hash_in_the_vault_path_still_reads_the_legacy_token_field() {
+        let scratch = TempDir::new().unwrap();
+        let path = scratch.path().join("creds.json");
+        fs::write(&path, br#"{"token":"legacy-token"}"#).unwrap();
+        let store = FileCredentialStore { path: &path };
+        assert_eq!(store.load_token("/tmp/plain").unwrap().as_deref(), Some("legacy-token"));
+        assert_eq!(
+            store.load_token("/tmp/notes #1").unwrap().as_deref(),
+            Some("legacy-token")
+        );
+        assert_eq!(store.load_token("#hosted-master-key:/tmp/notes #1").unwrap(), None);
     }
 
     fn assert_clean(root: &Path) {
@@ -3637,6 +4151,51 @@ mod tests {
         assert_clean(&a);
     }
 
+    /// The tracking ref describes one server. Carried across a remote change
+    /// it says an empty server already holds the history, so the cutover's
+    /// first push uploads everything and reports "Pushed 0" — the count the
+    /// person watching uses to tell whether the move worked.
+    #[test]
+    fn changing_the_remote_forgets_the_tracking_ref() {
+        let scratch = TempDir::new().unwrap();
+        let first = scratch.path().join("first.git");
+        Repository::init_bare(&first).unwrap();
+        let second = scratch.path().join("second.git");
+        Repository::init_bare(&second).unwrap();
+        let a = scratch.path().join("a");
+        fs::create_dir_all(&a).unwrap();
+        let history_a = owned(&a);
+        let credentials_a = scratch.path().join("config-a/sync.json");
+        configure(&a, &credentials_a, &first);
+
+        fs::write(a.join("Note.md"), "from a\n").unwrap();
+        assert!(history_a.snapshot("snapshot").unwrap());
+        let whole_history = sync_push(&a, &credentials_a).unwrap().pushed;
+        assert!(whole_history >= 1);
+        assert_eq!(sync_push(&a, &credentials_a).unwrap().pushed, 0, "the first server has it all");
+
+        // Re-saving the same URL moved nothing — a rotated token must not cost
+        // the ref, or every re-save re-uploads the whole vault.
+        configure(&a, &credentials_a, &first);
+        assert!(
+            Repository::open(&a).unwrap().find_reference("refs/remotes/substrate/main").is_ok(),
+            "re-saving the same remote dropped the tracking ref"
+        );
+        assert_eq!(sync_push(&a, &credentials_a).unwrap().pushed, 0);
+
+        // A different server holds none of it, and the count says so.
+        configure(&a, &credentials_a, &second);
+        assert!(
+            Repository::open(&a).unwrap().find_reference("refs/remotes/substrate/main").is_err(),
+            "the tracking ref outlived the remote it described"
+        );
+        assert_eq!(
+            sync_push(&a, &credentials_a).unwrap().pushed,
+            whole_history,
+            "the first push to an empty server under-reported what it sent"
+        );
+    }
+
     /// The rejection check does not disturb a push the remote accepts.
     #[test]
     fn accepted_push_still_updates_the_tracking_ref() {
@@ -3883,17 +4442,17 @@ mod tests {
         Repository::init_bare(&bare).unwrap();
         let pem = "-----BEGIN CERTIFICATE-----\nAAEC\n-----END CERTIFICATE-----\n";
 
-        sync_set_remote(&root, &credentials, &remote_url(&bare), "t", Some(pem)).unwrap();
+        sync_set_remote(&root, &credentials, &remote_url(&bare), "t", Some(pem), None).unwrap();
         assert_eq!(pinned_cert(&root).unwrap(), vec![0u8, 1, 2]);
 
         // re-saving without a cert clears the pin
-        sync_set_remote(&root, &credentials, &remote_url(&bare), "t", None).unwrap();
+        sync_set_remote(&root, &credentials, &remote_url(&bare), "t", None, None).unwrap();
         assert!(pinned_cert(&root).is_none());
 
         // whitespace-only counts as absent, invalid PEM is refused
-        sync_set_remote(&root, &credentials, &remote_url(&bare), "t", Some("  \n")).unwrap();
+        sync_set_remote(&root, &credentials, &remote_url(&bare), "t", Some("  \n"), None).unwrap();
         assert!(pinned_cert(&root).is_none());
-        assert!(sync_set_remote(&root, &credentials, &remote_url(&bare), "t", Some("not pem"))
+        assert!(sync_set_remote(&root, &credentials, &remote_url(&bare), "t", Some("not pem"), None)
             .unwrap_err()
             .contains("PEM CERTIFICATE"));
     }
@@ -3924,7 +4483,7 @@ mod tests {
         Repository::init_bare(&bare).unwrap();
 
         assert_eq!(
-            sync_set_remote(&root, &credentials, &remote_url(&bare), "secret", None).unwrap_err(),
+            sync_set_remote(&root, &credentials, &remote_url(&bare), "secret", None, None).unwrap_err(),
             FOREIGN_MSG
         );
         assert_eq!(sync_push(&root, &credentials).unwrap_err(), FOREIGN_MSG);
@@ -4801,6 +5360,7 @@ mod live_probe {
             "https://127.0.0.1:7420/vault.git",
             &format!("Bearer {}", token.trim()),
             Some(&pem),
+            None,
         )
         .unwrap();
         match sync_pull(&root, &creds) {
@@ -4836,7 +5396,7 @@ mod sim_round_trip {
         // the mobile boot path: libgit2 prepare, no git CLI anywhere
         assert!(history_prepare(&root).unwrap());
         let creds = scratch.path().join("sync.json");
-        sync_set_remote(&root, &creds, &url, &format!("Bearer {}", token.trim()), Some(&pem))
+        sync_set_remote(&root, &creds, &url, &format!("Bearer {}", token.trim()), Some(&pem), None)
             .unwrap();
 
         let pulled = sync_pull(&root, &creds).unwrap();
