@@ -74,7 +74,15 @@ const DURATION_RE = /^(\d+)([dw])$/;
 export function durationFrom(text: string, from: string): string | null {
   const m = DURATION_RE.exec(text);
   if (!m) return null;
-  return shiftDate(from, Number(m[1]) * (m[2] === "w" ? 7 : 1));
+  const days = Number(m[1]) * (m[2] === "w" ? 7 : 1);
+  const [y, mo, d] = from.split("-").map(Number);
+  const t = new Date(y, mo - 1, d + days);
+  // \d+ can still overflow: past Date's ±8.64e15 ms range the shift goes
+  // Invalid and the ISO render would be the literal "0NaN-NaN-NaN", which
+  // then compares as live text instead of falling through to plain words —
+  // an operand that can't land on a real day is not a duration
+  if (isNaN(t.getTime())) return null;
+  return toIso(t.getFullYear(), t.getMonth() + 1, t.getDate());
 }
 
 export function daysInMonth(y: number, m: number): number {

@@ -208,7 +208,9 @@ function YieldDashboard({
     if (body === null) return;
     const y = parseFloat(formYield);
     const p = parseFloat(formPrincipal);
-    if (isNaN(y) || isNaN(p)) return;
+    // isFinite, not isNaN: "1e999" parses to Infinity and the reader would
+    // skip the row it wrote — refuse it here like any other junk
+    if (!isFinite(y) || !isFinite(p)) return;
     const at = parseAt(formAt);
     if (isNaN(at.getTime())) {
       setAtInvalid(true);

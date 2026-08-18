@@ -786,6 +786,30 @@ test("parseQuery records how many bare words precede each filter (SUB-1277)", ()
   assert.deepEqual(parseQuery('"night shift" status:live ', TODAY).filterWordOffsets, [0]);
 });
 
+test("filterDeadEndHint: multi-value filters probe each OR alternative (SUB-1278)", () => {
+  // the joined probe ("live in review") could never match; the alternative
+  // "in" + the following word does, and the OR list survives the rewrite
+  assert.deepEqual(filterDeadEndHint(HINT_NOTES, HINT_COLS, HINT_SCHEMA, "status:live,in review"), {
+    text: 'did you mean status:live,"in review"?',
+    fixedQuery: 'status:live,"in review"',
+  });
+  // a non-final alternative extends too, keeping its position
+  assert.deepEqual(filterDeadEndHint(HINT_NOTES, HINT_COLS, HINT_SCHEMA, "status:in,live review"), {
+    text: 'did you mean status:"in review",live?',
+    fixedQuery: 'status:"in review",live',
+  });
+  // other query terms still ride along around the widened filter
+  assert.deepEqual(
+    filterDeadEndHint(HINT_NOTES, HINT_COLS, HINT_SCHEMA, "status:live,in review bouquet"),
+    {
+      text: 'did you mean status:live,"in review"?',
+      fixedQuery: 'status:live,"in review" bouquet',
+    }
+  );
+  // no alternative extends into a real value → quiet, as before
+  assert.equal(filterDeadEndHint(HINT_NOTES, HINT_COLS, HINT_SCHEMA, "status:live,zzz review"), null);
+});
+
 test("filterDeadEndHint: heuristic (b) stays quiet outside its shape (SUB-266)", () => {
   // no bare words after the filter
   assert.equal(filterDeadEndHint(HINT_NOTES, HINT_COLS, HINT_SCHEMA, "status:in"), null);

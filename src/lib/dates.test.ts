@@ -268,3 +268,12 @@ test("parseDateTimeLoose: day-only input, garbage, and bad times", () => {
   // junk trailing an ISO-shaped day no longer commits as that day
   assert.equal(parseDateTimeLoose("2026-07-19 definitely-not-a-time"), null);
 });
+
+test("durationFrom: an operand past Date's range is no duration (SUB-1281)", () => {
+  // 11 digits of days overflow Date's ±8.64e15 ms range → Invalid Date,
+  // which used to render as the literal "0NaN-NaN-NaN"
+  assert.equal(durationFrom("99999999999d", "2026-07-17"), null);
+  assert.equal(durationFrom(`${"9".repeat(320)}d`, "2026-07-17"), null);
+  // big-but-landable durations still resolve to a real day
+  assert.match(durationFrom("365000d", "2026-07-17")!, /^\d{4}-\d{2}-\d{2}$/);
+});

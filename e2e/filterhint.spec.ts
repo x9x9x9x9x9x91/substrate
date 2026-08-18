@@ -44,3 +44,17 @@ test("a word typed before the filter still reaches the suggestion (SUB-1277)", a
   // the leading word rides along, behind the corrected filter
   await expect(input).toHaveValue('status:"in review" bloom');
 });
+
+test("multi-value filter keeps its OR list in the suggestion (SUB-1278)", async ({ page }) => {
+  await page.goto("/");
+  await openDb(page, "Release");
+  const input = await openFilter(page);
+  // "in" is one OR alternative; the joined probe ("live in review") could
+  // never match, so this hint never fired for multi-value filters
+  await input.fill("status:live,in review");
+  const fix = page.locator(".db .empty .empty-hint-fix");
+  await expect(fix).toHaveText('did you mean status:live,"in review"?');
+  await fix.click();
+  await expect(input).toHaveValue('status:live,"in review"');
+  await expect(page.locator(".db .empty")).toHaveCount(0);
+});

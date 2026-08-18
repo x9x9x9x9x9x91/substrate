@@ -550,7 +550,10 @@ export function parseRepeat(v: unknown): Repeat | null {
   const m = REPEAT_EVERY.exec(s);
   if (!m) return null;
   const n = Number(m[1]);
-  if (n < 1) return null;
+  // \d+ can still overflow to Infinity (309+ digits); repeatStep multiplies
+  // by n, and 0 × Infinity = NaN would render the anchor as "NaN-NaN-NaN"
+  // instead of the promised silent null
+  if (!Number.isSafeInteger(n) || n < 1) return null;
   return { unit: m[2].replace(/s$/, "") as Repeat["unit"], n };
 }
 

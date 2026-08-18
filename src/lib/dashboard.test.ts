@@ -343,3 +343,11 @@ test("metricsColumns: the Portfolio board (7 cards) splits 4 + 3", () => {
 test("a cased Claimed_USD key still counts (SUB-921)", () => {
   assert.equal(readClaimedUsd({ Claimed_USD: 120 }), 120);
 });
+
+test("parseSnapshotsFromBody: cells that parse to Infinity are junk rows (SUB-1281)", () => {
+  const { snapshots } = parseSnapshotsFromBody(
+    bodyWith(["2026-07-17,1e999,100", "2026-07-18,1,100"])
+  );
+  assert.equal(snapshots.length, 1);
+  assert.equal(snapshots[0].yieldUsd, 1);
+});

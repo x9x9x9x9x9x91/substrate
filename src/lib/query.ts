@@ -724,35 +724,42 @@ export function filterDeadEndHint(
     if (f.neg || (f.op ?? ":") !== ":" || f.values.length === 0) continue;
     const existing = valuesInUse(notes, f.key, typeSchema);
     if (existing.size === 0) continue;
-    const base = f.values.join(" ");
     // only the words that FOLLOW this filter continue its value — a word
     // typed ahead of it (`mixer status:in review`) belongs to no filter, and
     // probing from index 0 both missed the real continuation and could
     // re-join words the reader never meant to be adjacent
     const after = parsed.filterWordOffsets[i] ?? 0;
-    for (let k = 1; after + k <= words.length; k++) {
-      const hit = existing.get(`${base} ${words.slice(after, after + k).join(" ")}`);
-      if (!hit) continue;
-      const v = /[\s,]/.test(hit) ? `"${hit}"` : hit;
-      const parts = parsed.filters.filter((g) => g !== f).map(serializeFilter);
-      parts.push(`${f.key}:${v}`);
-      // a still-typed trailing stub comes along (committed form — the same
-      // narrowing the live stub already applies)
-      if (parsed.trailing) {
-        const t = parsed.trailing;
-        const vals = t.partial ? [...t.values, t.partial] : t.values;
-        parts.push(serializeFilter({ key: t.key, values: vals, op: t.op, neg: t.neg }));
+    // each value is one OR alternative — probe them separately, never joined:
+    // a joined "a b" probe can't match any single value, and its rewrite would
+    // collapse the OR list into one quoted phrase
+    for (let vi = 0; vi < f.values.length; vi++) {
+      const base = f.values[vi];
+      for (let k = 1; after + k <= words.length; k++) {
+        const hit = existing.get(`${base} ${words.slice(after, after + k).join(" ")}`);
+        if (!hit) continue;
+        const values = f.values.slice();
+        values[vi] = hit;
+        const fixed = serializeFilter({ key: f.key, values });
+        const parts = parsed.filters.filter((g) => g !== f).map(serializeFilter);
+        parts.push(fixed);
+        // a still-typed trailing stub comes along (committed form — the same
+        // narrowing the live stub already applies)
+        if (parsed.trailing) {
+          const t = parsed.trailing;
+          const vals = t.partial ? [...t.values, t.partial] : t.values;
+          parts.push(serializeFilter({ key: t.key, values: vals, op: t.op, neg: t.neg }));
+        }
+        // quoted phrases ride along re-quoted — ahead of the bare
+        // leftover words: the rebuild descends most-structured → least
+        // (filters, stub, exact phrases, words)
+        for (const p of parsed.phrases) parts.push(`"${p}"`);
+        const rest = [...words.slice(0, after), ...words.slice(after + k)];
+        if (rest.length > 0) parts.push(rest.join(" "));
+        return {
+          text: `did you mean ${fixed}?`,
+          fixedQuery: parts.join(" "),
+        };
       }
-      // quoted phrases ride along re-quoted — ahead of the bare
-      // leftover words: the rebuild descends most-structured → least
-      // (filters, stub, exact phrases, words)
-      for (const p of parsed.phrases) parts.push(`"${p}"`);
-      const rest = [...words.slice(0, after), ...words.slice(after + k)];
-      if (rest.length > 0) parts.push(rest.join(" "));
-      return {
-        text: `did you mean ${f.key}:${v}?`,
-        fixedQuery: parts.join(" "),
-      };
     }
   }
 

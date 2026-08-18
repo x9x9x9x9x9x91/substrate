@@ -76,7 +76,9 @@ export function parseSnapshotsFromBody(body: string): { snapshots: Snapshot[]; f
     // has always been tolerated here and rows in the wild rely on it
     const yieldUsd = parseFloat(table.raw(row, 1));
     const principalUsd = parseFloat(table.raw(row, 2));
-    if (isNaN(at.getTime()) || isNaN(yieldUsd) || isNaN(principalUsd)) continue;
+    // isFinite, not isNaN: a 309+-digit or 1e999 cell parses to Infinity and
+    // would ride into interval/APR math instead of being skipped as junk
+    if (isNaN(at.getTime()) || !isFinite(yieldUsd) || !isFinite(principalUsd)) continue;
     snapshots.push({ at, atRaw, yieldUsd, principalUsd });
   }
   snapshots.sort((a, b) => a.at.getTime() - b.at.getTime());

@@ -2,8 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   cellSpans,
+  editQuoted,
   escapeCell,
   splitRow,
+  stripQuotes,
   tableAlignments,
   tableWithAlignment,
   tableWithCell,
@@ -264,4 +266,44 @@ test("tableWithCell: a pipe typed into a cell is escaped, not a new column", () 
 test("tableWithCell: coordinates the table no longer has are refused", () => {
   assert.equal(tableWithCell(TABLE, 9, 0, "x"), null);
   assert.equal(tableWithCell(TABLE, 2, 7, "x"), null);
+});
+
+const QUOTED = ["> | Track | Length |", "> | --- | --- |", "> | Slug It Out | 6:12 |"].join("\n");
+
+test("stripQuotes: quote marker runs come off, cell content stays (SUB-1274)", () => {
+  assert.equal(stripQuotes("> | a | b |"), "| a | b |");
+  assert.equal(stripQuotes("> > | a \\| b |"), "| a \\| b |");
+  assert.equal(stripQuotes(" > | a |"), "| a |");
+  // a ">" inside a cell is content, not a marker
+  assert.equal(stripQuotes("| a > b |"), "| a > b |");
+});
+
+test("editQuoted: a grown row stays inside the quote, cursor behind the marks (SUB-1274)", () => {
+  const next = editQuoted(QUOTED, tableWithRow);
+  const lines = next.source.split("\n");
+  assert.equal(lines.length, 4);
+  assert.equal(lines[3], "> |  |  |");
+  assert.equal(lines.slice(0, 3).join("\n"), QUOTED);
+  // the cursor sits inside the new row's first cell, past the quote mark
+  assert.equal(next.source.slice(next.cursor - 2, next.cursor), "| ");
+  assert.equal(next.source.slice(next.cursor), " |  |");
+});
+
+test("editQuoted: a grown column grows every quoted line (SUB-1274)", () => {
+  const next = editQuoted(QUOTED, tableWithColumn);
+  assert.deepEqual(next.source.split("\n"), [
+    "> | Track | Length |  |",
+    "> | --- | --- | --- |",
+    "> | Slug It Out | 6:12 |  |",
+  ]);
+  const head = next.source.split("\n")[0];
+  assert.equal(next.cursor, head.length - 2);
+  assert.equal(next.source.slice(next.cursor, next.cursor + 2), " |");
+});
+
+test("editQuoted: nested quotes keep their depth, unquoted tables pass through (SUB-1274)", () => {
+  const nested = ["> > | a | b |", "> > | --- | --- |", "> > | 1 | 2 |"].join("\n");
+  const next = editQuoted(nested, tableWithRow);
+  assert.equal(next.source.split("\n")[3], "> > |  |  |");
+  assert.deepEqual(editQuoted(TABLE, tableWithRow), tableWithRow(TABLE));
 });

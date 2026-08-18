@@ -69,6 +69,45 @@ export interface TableEdit {
   cursor: number;
 }
 
+/** The blockquote marker run opening a line (`> `, nested `> > `, each mark
+ * indented up to three spaces, per CommonMark). A quoted table keeps these
+ * marks on every line of its source slice. */
+const QUOTE_PREFIX_RE = /^(?: {0,3}> ?)+/;
+
+export function quotePrefix(line: string): string {
+  return QUOTE_PREFIX_RE.exec(line)?.[0] ?? "";
+}
+
+/** A table line without its blockquote markers — what the cell scanner has
+ * to read, or the quote marker lands as a phantom first cell and every
+ * column index is off by one from what the reader sees. */
+export function stripQuotes(line: string): string {
+  return line.slice(quotePrefix(line).length);
+}
+
+/** Run a table edit behind the quote markers: strip each line's prefix,
+ * edit, then put the prefixes back. A line the edit appends borrows the last
+ * original line's prefix, so a new row stays inside the quote, and the
+ * cursor shifts by every prefix re-inserted at or before it. Unquoted
+ * sources pass straight through. */
+export function editQuoted(source: string, edit: (source: string) => TableEdit): TableEdit {
+  const lines = source.split("\n");
+  const prefixes = lines.map(quotePrefix);
+  if (prefixes.every((p) => p === "")) return edit(source);
+  const inner = edit(lines.map((l, i) => l.slice(prefixes[i].length)).join("\n"));
+  const outLines = inner.source.split("\n");
+  const rebuilt: string[] = [];
+  let cursor = inner.cursor;
+  let lineStart = 0;
+  for (let i = 0; i < outLines.length; i++) {
+    const p = prefixes[Math.min(i, prefixes.length - 1)];
+    rebuilt.push(p + outLines[i]);
+    if (inner.cursor >= lineStart) cursor += p.length;
+    lineStart += outLines[i].length + 1;
+  }
+  return { source: rebuilt.join("\n"), cursor };
+}
+
 /** An empty cell is two spaces, so `| a |  |` keeps the pipes apart and the
  * cursor has somewhere to sit. */
 const EMPTY = "  ";

@@ -1157,3 +1157,12 @@ test("a time EDIT still leaves the span's end exactly where it was", () => {
   // an unparseable (or absent) stored value falls back to the entry's day
   assert.equal(retimedRangeValue(null, "2026-08-11", "11:15"), "2026-08-11 11:15");
 });
+
+test("parseRepeat: counts Number cannot hold are non-repeating (SUB-1281)", () => {
+  // 320 digits coerce to Infinity; repeatStep would multiply it into NaN days
+  assert.equal(parseRepeat(`every ${"9".repeat(320)} days`), null);
+  // past safe-integer the count is no longer the written integer either
+  assert.equal(parseRepeat("every 99999999999999999999 days"), null);
+  // a big but representable count still parses
+  assert.deepEqual(parseRepeat("every 99999999 days"), { unit: "day", n: 99999999 });
+});

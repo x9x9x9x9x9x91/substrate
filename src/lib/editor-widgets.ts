@@ -22,7 +22,10 @@ import {
 import { missingEmbedKind, missingEmbedLabel } from "./embedstate.ts";
 import { isTauri } from "./tauri.ts";
 import {
+  editQuoted,
+  quotePrefix,
   splitRow,
+  stripQuotes,
   tableAlignments,
   tableWithCell,
   tableWithColumn,
@@ -242,8 +245,10 @@ export class TableWidget extends WidgetType {
     // the table's own extent, so anything holding one of these cells can slice
     // the source back out of the document without re-walking the syntax tree
     wrap.dataset.len = String(this.source.length);
-    const lines = this.source.split("\n");
-    const align = tableAlignments(this.source);
+    // a blockquoted table keeps its `> ` marks in the source slice — scan
+    // the lines behind them, or the marker renders as a phantom first column
+    const lines = this.source.split("\n").map(stripQuotes);
+    const align = tableAlignments(lines.join("\n"));
     const table = document.createElement("table");
     table.className = "cm-md-table";
     const addRow = (parent: HTMLElement, tag: "th" | "td", cells: string[], lineIdx: number) => {
@@ -361,7 +366,9 @@ export class TableWidget extends WidgetType {
       e.stopPropagation();
       const from = view.state.doc.lineAt(view.posAtDOM(wrap)).from;
       const to = Math.min(from + this.source.length, view.state.doc.length);
-      const next = edit(this.source);
+      // the edit runs behind any blockquote markers and puts them back, so
+      // growing a quoted table keeps every line inside the quote
+      const next = editQuoted(this.source, edit);
       view.dispatch({
         changes: { from, to, insert: next.source },
         selection: { anchor: from + next.cursor },
@@ -421,6 +428,10 @@ export function startTableCellEdit(view: EditorView, node: HTMLElement): boolean
   const hit = tableHitAtDom(view, node);
   const cell = hit?.cell;
   if (!hit || !cell || hit.row === 1) return false;
+  // a quoted table's raw spans still carry the `> ` marker as a first cell,
+  // so the rendered (stripped) column indices don't address them — refuse
+  // like the menu's Edit cell does rather than write into the marker's span
+  if (quotePrefix(hit.source.split("\n", 1)[0] ?? "") !== "") return false;
   const raw = cell.dataset.raw ?? "";
   let closed = false;
   const restore = () => {

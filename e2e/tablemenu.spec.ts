@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { mod } from "./keys";
+
 // The table menu: right-clicking a rendered table offers everything the table
 // can do about the cell you hit — edit it in place, grow, delete this row or
 // column, align this column. With the cursor in the table's source there is no
@@ -246,7 +248,7 @@ test("the keyboard opens the same menu with the cursor in the table's source", a
   await page.locator(".cm-md-table td").filter({ hasText: "5:01" }).first().click();
   await expect(page.locator(".cm-md-table")).toHaveCount(0);
 
-  await page.keyboard.press("Meta+Shift+m");
+  await page.keyboard.press(`${mod}+Shift+m`);
   await expect(page.locator(".ctx-menu")).toBeVisible();
   // no grid on screen, so no in-place cell editing — the source is already open
   await expect(page.locator(".ctx-item").filter({ hasText: "Edit cell" })).toHaveCount(0);

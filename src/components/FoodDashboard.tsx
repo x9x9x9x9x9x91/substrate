@@ -387,8 +387,12 @@ export default function FoodDashboard({
   // keyed by name) — that's how a stale basis gets corrected
   const addDbEntry = () => {
     if (!dbValid || dbBody === null) return;
-    const p = dbProtein.trim() === "" ? null : Number(dbProtein);
-    const g = dbPer === "x" && dbGrams.trim() !== "" ? Number(dbGrams) : null;
+    // junk in the optional fields reads as absent — the upsert writes these
+    // cells with String(), and a "NaN" cell in the DB sheet helps nobody
+    const pRaw = dbProtein.trim() === "" ? null : Number(dbProtein);
+    const gRaw = dbPer === "x" && dbGrams.trim() !== "" ? Number(dbGrams) : null;
+    const p = pRaw !== null && isFinite(pRaw) ? pRaw : null;
+    const g = gRaw !== null && isFinite(gRaw) ? gRaw : null;
     pushUndo("db");
     writeDb(
       upsertFoodDbEntry(dbBody, {
