@@ -218,17 +218,34 @@ export function convert(q: Quantity, to: string, fx: FxResolver): number | FErr 
 
 // ---------- display ----------
 
+/** Round to cents in decimal (exponential-notation) space rather than binary
+    float space, the way formula.ts's ROUND does: `1.005 * 100` is
+    `100.49999…` as a double, so the naive `Math.round(v * 100) / 100` drops
+    the cent and renders "1"; `"1.005e2"` parses to exactly `100.5` and lands
+    on 1.01. Ties round half away from zero, so negatives match the positives
+    (-2.675 → -2.68, not -2.67). Non-finite input passes through untouched —
+    the caller's `|| 0` still normalizes NaN and -0. */
+function roundCents(value: number): number {
+  const [coef, exp] = Math.abs(value).toExponential().split("e");
+  const shifted = Number(`${coef}e${Number(exp) + 2}`);
+  // a value too large to shift has no fractional digits left anyway
+  if (!Number.isFinite(shifted)) return value;
+  const [rc, re] = Math.round(shifted).toExponential().split("e");
+  return Math.sign(value) * Number(`${rc}e${Number(re) - 2}`);
+}
+
 /** A quantity as text, in the user's number dialect (de-DE
     `1.234,56` by default, en-US `1,234.56` and the rest of NUMBER_LOCALES on
     the `number-locale` key) — at most 2 fraction digits, pre-rounded like
-    display.ts formatNumber so float noise (0.1 + 0.2) and -0 don't leak. The
-    locale arrives as an argument rather than off the module binding because
+    display.ts formatNumber so a hair over a whole amount ("1,001 €") still
+    reads as whole and -0 doesn't leak. The locale arrives as an argument
+    rather than off the module binding because
     it is already threaded through props here, which keeps the render a pure
     function of its inputs and repaints db cells when the setting changes. The
     unit contributes its suffix; a unit we don't know still gets spelled out
     rather than silently dropped. */
 export function formatQuantity(value: number, unit: string | null, locale: NumberLocale): string {
-  const r = Math.round(value * 100) / 100 || 0;
+  const r = roundCents(value) || 0;
   if (unit === null) return r.toLocaleString(locale, { maximumFractionDigits: 2 });
   const def = resolveUnit(unit);
   // A currency amount with cents renders both digits — "942,30 €" never sits

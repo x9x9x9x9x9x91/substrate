@@ -10,7 +10,7 @@ import {
   vaultList,
   vaultSchemaRead,
 } from "./lib/ipc";
-import { agendaPayload, type AgendaPayload } from "./lib/agenda";
+import { agendaDone, agendaPayload, type AgendaPayload } from "./lib/agenda";
 import { humanDay, isoDay } from "./lib/calendar";
 import { PlusIcon } from "./components/Icons";
 
@@ -239,11 +239,19 @@ function AgendaApp() {
             // that isn't an option, announced rather than counted as a row
             <div className="agenda-empty" role="status">Nothing on today</div>
           )}
-          {payload?.items.map((item, i) => (
+          {payload?.items.map((item, i) => {
+            /* Done work stops nagging here too. The tray is a separate
+               window over the same payload, and it kept painting the yellow
+               due dot on finished rows long after Today and the calendar
+               dropped it. Same treatment as those surfaces — the row stays
+               visible and openable, dims as its one mark, and the deadline
+               dot falls back to the neutral one. */
+            const done = agendaDone(item);
+            return (
             <div
               key={`${item.path}:${item.prop}`}
               id={rowId(i)}
-              className={`agenda-row${i === sel ? " selected" : ""}`}
+              className={`agenda-row${done ? " done" : ""}${i === sel ? " selected" : ""}`}
               data-idx={i}
               role="option"
               aria-selected={i === sel}
@@ -253,7 +261,7 @@ function AgendaApp() {
               onMouseMove={() => selectIdx(i)}
               onClick={() => openItem(item.path)}
             >
-              <span className={`agenda-dot${item.deadline ? " due" : ""}`} />
+              <span className={`agenda-dot${item.deadline && !done ? " due" : ""}`} />
               {item.type !== "" && item.type !== "event" && (
                 <span className="cal-entry-type">{item.type}</span>
               )}
@@ -261,7 +269,8 @@ function AgendaApp() {
               <span className="agenda-title">{item.title}</span>
               <span className="palette-hint">{item.prop}</span>
             </div>
-          ))}
+            );
+          })}
           {payload !== null && payload.overdue > 0 && (
             // a summary line, not a row: it isn't selectable and Enter never
             // opens it, so it stays out of the option count the same way

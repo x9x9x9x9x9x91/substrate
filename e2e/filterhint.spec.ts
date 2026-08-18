@@ -30,3 +30,17 @@ test("split value suggests the quoted form, click applies it", async ({ page }) 
   await expect(page.locator(".db .empty")).toHaveCount(0);
   await expect(page.locator(".db", { hasText: "Slow Bloom EP" }).first()).toBeVisible();
 });
+
+test("a word typed before the filter still reaches the suggestion (SUB-1277)", async ({ page }) => {
+  await page.goto("/");
+  await openDb(page, "Release");
+  const input = await openFilter(page);
+  // the leading bare word used to occupy the probe's first slot, so
+  // "in review" was never tried and the row stayed hintless
+  await input.fill("bloom status:in review");
+  const fix = page.locator(".db .empty .empty-hint-fix");
+  await expect(fix).toHaveText('did you mean status:"in review"?');
+  await fix.click();
+  // the leading word rides along, behind the corrected filter
+  await expect(input).toHaveValue('status:"in review" bloom');
+});

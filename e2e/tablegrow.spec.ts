@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { docEnd, docStart, mod } from "./keys";
+
 // Growing a rendered table: the "+" on its right edge adds a column, the one
 // under it adds a row, and the cursor lands in the cell that just appeared.
 // Before this, editing a table meant typing pipes by hand.
@@ -14,7 +16,7 @@ async function typeTable(page: import("@playwright/test").Page) {
   await page.locator(".row-title", { hasText: "Capture anything" }).click();
   await expect(page.locator(".cm-content")).toContainText("This is the Inbox.");
   await page.locator(".cm-content").click();
-  await page.keyboard.press("Meta+ArrowDown");
+  await page.keyboard.press(docEnd);
   await page.keyboard.press("Enter");
   await page.keyboard.type("| Track | Length |\n| --- | --- |\n| Slug It Out | 6:12 |");
   await page.keyboard.press("ArrowUp");
@@ -39,7 +41,7 @@ test("the row button adds an empty row and puts the cursor in it", async ({ page
     .toContain("| Slug It Out | 6:12 |\n| Nod |  |");
 
   // step off and the grid has grown by exactly one row
-  await page.keyboard.press("Meta+ArrowUp");
+  await page.keyboard.press(docStart);
   await expect(page.locator(".cm-md-table").last().locator("tbody tr")).toHaveCount(2);
 });
 
@@ -54,7 +56,7 @@ test("the column button adds a column to every row, cursor in the new header", a
     .poll(() => page.evaluate((p) => window.__mockBodyOf!(p), NOTE))
     .toContain("| Track | Length | BPM |\n| --- | --- | --- |\n| Slug It Out | 6:12 |  |");
 
-  await page.keyboard.press("Meta+ArrowUp");
+  await page.keyboard.press(docStart);
   const table = page.locator(".cm-md-table").last();
   await expect(table.locator("th")).toHaveCount(3);
   await expect(table.locator("th").last()).toHaveText("BPM");
@@ -68,7 +70,7 @@ test("one undo takes the added row back out", async ({ page }) => {
     .poll(() => page.evaluate((p) => window.__mockBodyOf!(p), NOTE))
     .toContain("| Slug It Out | 6:12 |\n|  |  |");
 
-  await page.keyboard.press("Meta+z");
+  await page.keyboard.press(`${mod}+z`);
   await expect
     .poll(() => page.evaluate((p) => window.__mockBodyOf!(p), NOTE))
     .not.toContain("| Slug It Out | 6:12 |\n|  |  |");

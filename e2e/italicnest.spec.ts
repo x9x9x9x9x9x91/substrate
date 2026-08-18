@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { mod } from "./keys";
+
 // ⌘I over a bold word used to eat one asterisk off each `**` pair —
 // toggleInlineMark compared exactly `mark.length` chars and never checked that
 // those chars were a whole delimiter, so `**bold**` became `*bold*` (bold
@@ -44,7 +46,7 @@ test("⌘I inside a bold word nests instead of eating the ** (SUB-654)", async (
   // select just `bold` — the markers sit outside the selection, which is the
   // "chars on both sides match the mark" unwrap path
   await selectRange(page, 2, 4);
-  await page.keyboard.press("Meta+i");
+  await page.keyboard.press(`${mod}+i`);
 
   expect(await docText(page)).toBe("***bold***");
 });
@@ -56,7 +58,7 @@ test("⌘I over a whole bold span nests instead of eating the ** (SUB-654)", asy
 
   // select `**bold**` including both markers — the startsWith/endsWith path
   await selectRange(page, 0, 8);
-  await page.keyboard.press("Meta+i");
+  await page.keyboard.press(`${mod}+i`);
 
   expect(await docText(page)).toBe("***bold***");
 });
@@ -66,20 +68,20 @@ test("⌘I still wraps and unwraps a plain word (SUB-654)", async ({ page }) => 
   await page.keyboard.type("word");
 
   await selectRange(page, 0, 4);
-  await page.keyboard.press("Meta+i");
+  await page.keyboard.press(`${mod}+i`);
   expect(await docText(page)).toBe("*word*");
 
   // the selection survives the wrap and still covers `word` — toggling again
   // must strip the pair back off (inner unwrap path)
-  await page.keyboard.press("Meta+i");
+  await page.keyboard.press(`${mod}+i`);
   expect(await docText(page)).toBe("word");
 
   // and from the outside, markers included
   await selectRange(page, 0, 4);
-  await page.keyboard.press("Meta+i");
+  await page.keyboard.press(`${mod}+i`);
   expect(await docText(page)).toBe("*word*");
   await selectRange(page, 0, 6);
-  await page.keyboard.press("Meta+i");
+  await page.keyboard.press(`${mod}+i`);
   expect(await docText(page)).toBe("word");
 });
 
@@ -90,11 +92,11 @@ test("⌘B still wraps an italic word and unwraps a bold one (SUB-654)", async (
   // the reverse direction was always safe — the 2-char probe cannot match a
   // lone `*` — but the run-length gate must not have broken it
   await selectRange(page, 1, 4);
-  await page.keyboard.press("Meta+b");
+  await page.keyboard.press(`${mod}+b`);
   expect(await docText(page)).toBe("***ital***");
 
   // and ⌘B on that triple run takes the bold back off, leaving the italic
   await selectRange(page, 3, 4);
-  await page.keyboard.press("Meta+b");
+  await page.keyboard.press(`${mod}+b`);
   expect(await docText(page)).toBe("*ital*");
 });

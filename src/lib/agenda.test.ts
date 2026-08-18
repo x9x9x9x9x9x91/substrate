@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { NoteMeta, SchemaConfig } from "./types.ts";
-import { agendaPayload, isComplete, isDeadline } from "./agenda.ts";
+import { agendaDone, agendaPayload, isComplete, isDeadline } from "./agenda.ts";
 
 function note(path: string, props: Record<string, unknown>, folder = ""): NoteMeta {
   const stem = path.replace(/\.md$/, "").split("/").pop() ?? path;
@@ -192,4 +192,35 @@ test("a timed past deadline counts as overdue on its day part (SUB-270)", () => 
   const p = agendaPayload(notes, schema, "2026-07-17");
   assert.equal(p.overdue, 1);
   assert.equal(p.items.length, 0);
+});
+
+/* The tray popover kept the yellow due dot on finished rows because its
+   renderer had no status check at all. `agendaDone` is the one predicate both
+   the tray and the main-window surfaces read, so the rule is pinned here
+   rather than in each renderer. */
+test("agendaDone marks completed non-repeating rows only (SUB-1279)", () => {
+  assert.equal(agendaDone({ status: "done" }), true);
+  assert.equal(agendaDone({ status: " Cancelled " }), true, "case and padding folded");
+  assert.equal(agendaDone({ status: "doing" }), false);
+  assert.equal(agendaDone({ status: undefined }), false, "no status is not done");
+  assert.equal(
+    agendaDone({ status: "done", repeating: true }),
+    false,
+    "a series' status belongs to the note, not to today's occurrence"
+  );
+});
+
+test("a done deadline still shows on today's tray agenda, status attached (SUB-1279)", () => {
+  const notes = [
+    note("Tasks/Shipped.md", { type: "task", due: "2026-07-17", status: "done", created: "2026-07-01" }, "Tasks"),
+    note("Tasks/Open.md", { type: "task", due: "2026-07-17", status: "todo", created: "2026-07-01" }, "Tasks"),
+  ];
+  const p = agendaPayload(notes, schema, "2026-07-17");
+  // both rows stay visible — done work keeps its payoff on today
+  assert.deepEqual(p.items.map((i) => i.title), ["Open", "Shipped"]);
+  const done = p.items.find((i) => i.title === "Shipped")!;
+  const open = p.items.find((i) => i.title === "Open")!;
+  assert.equal(done.deadline, true, "still a deadline prop — only the treatment changes");
+  assert.equal(agendaDone(done), true, "the tray drops the due dot on this one");
+  assert.equal(agendaDone(open), false);
 });

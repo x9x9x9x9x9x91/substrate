@@ -239,6 +239,29 @@ test("formatQuantity pre-rounds float noise and normalizes -0", () => {
   assert.equal(formatQuantity(2.005, null, "en-US"), "2.01");
 });
 
+test("formatQuantity rounds cents in decimal space, halves away from zero", () => {
+  // 1.005 * 100 is 100.49999… as a double — the old naive pre-round dropped
+  // the cent and rendered "1"
+  assert.equal(formatQuantity(1.005, null, "de-DE"), "1,01");
+  assert.equal(formatQuantity(1.005, "EUR", "de-DE"), "1,01 €");
+  // negative ties round away from zero, not toward +Infinity
+  assert.equal(formatQuantity(-2.675, null, "de-DE"), "-2,68");
+  assert.equal(formatQuantity(-2.675, "EUR", "de-DE"), "-2,68 €");
+  assert.equal(formatQuantity(-0.125, null, "de-DE"), "-0,13");
+  assert.equal(formatQuantity(-14.625, null, "de-DE"), "-14,63");
+  // and the positive twins still land the same way
+  assert.equal(formatQuantity(0.125, null, "de-DE"), "0,13");
+  assert.equal(formatQuantity(14.625, null, "de-DE"), "14,63");
+});
+
+test("formatQuantity survives non-finite and extreme input", () => {
+  assert.equal(formatQuantity(NaN, null, "de-DE"), "0");
+  assert.equal(formatQuantity(Infinity, null, "de-DE"), "\u221E");
+  assert.equal(formatQuantity(-Infinity, "kg", "de-DE"), "-\u221E kg");
+  // too large to shift: no fractional digits left to round anyway
+  assert.equal(formatQuantity(1e308, null, "en-US"), (1e308).toLocaleString("en-US"));
+});
+
 test("formatQuantity spells out a unit it doesn't know rather than dropping it", () => {
   assert.equal(formatQuantity(5, "furlong", "de-DE"), "5 furlong");
 });

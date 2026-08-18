@@ -26,6 +26,15 @@ export interface AgendaItem extends CalEntry {
   deadline: boolean;
 }
 
+/** Is this agenda row finished work? The tray and every main-window surface
+    read completeness the same way: done = dimmed with the deadline dot
+    dropped, one mark — never strike+dim. Repeating entries are excluded the
+    way the calendar excludes them: a series' status belongs to the one note,
+    so a done weekly must not mark today's live occurrence as resolved. */
+export function agendaDone(item: Pick<CalEntry, "status" | "repeating">): boolean {
+  return !item.repeating && isComplete(item.status);
+}
+
 export interface AgendaPayload {
   /** local day the payload describes, YYYY-MM-DD */
   today: string;

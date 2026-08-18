@@ -214,3 +214,66 @@ test("the agenda card is sized by its content, not the viewport (SUB-746)", asyn
   expect(h).toBeGreaterThanOrEqual(160);
   expect(h).toBeLessThanOrEqual(480);
 });
+
+/* Completing a task is visible on Today and the calendar — the row dims and
+   the deadline dot drops. The tray popover is a separate window over the same
+   payload and never got that treatment: finished work kept a yellow due dot in
+   the menu bar forever. One CSS class and one `!done` away from silently
+   coming back, so both halves are pinned. */
+test("a completed task loses the yellow due dot in the tray (SUB-1279)", async ({ page }) => {
+  await page.goto("/agenda.html");
+  await expect(page.locator(".palette")).toBeVisible();
+
+  const path = "Tasks/Ship the patron download codes.md";
+  const row = page.locator(".agenda-list .agenda-row", {
+    has: page.locator(".agenda-title", { hasText: "Ship the patron download codes" }),
+  });
+  await expect(row).toHaveCount(1);
+
+  // before: a today deadline, so the dot wears the due yellow
+  await expect(row.locator(".agenda-dot")).toHaveClass(/due/);
+  await expect(row).not.toHaveClass(/done/);
+  const dueColour = await row
+    .locator(".agenda-dot")
+    .evaluate((el) => getComputedStyle(el).backgroundColor);
+  const plainDot = await page
+    .locator(".agenda-list .agenda-row .agenda-dot:not(.due)")
+    .first()
+    .evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(dueColour).not.toBe(plainDot);
+
+  await page.evaluate((p) => {
+    window.__mockEditProp?.(p, "status", "done");
+    window.__mockEmit?.("vault:changed", [p]);
+  }, path);
+
+  // after: still on today (the payoff stays visible), but no longer nagging
+  await expect(row).toHaveCount(1);
+  await expect(row).toHaveClass(/done/);
+  await expect(row.locator(".agenda-dot")).not.toHaveClass(/due/);
+  await expect
+    .poll(() => row.locator(".agenda-dot").evaluate((el) => getComputedStyle(el).backgroundColor))
+    .toBe(plainDot);
+
+  // the dim is the one mark — no strikethrough, and the row still opens.
+  // Poll the colour: `.agenda-row` fades it over 120ms, so an instant read
+  // still sees the live row's tone
+  const liveColour = await page
+    .locator(".agenda-list .agenda-row:not(.done)")
+    .first()
+    .evaluate((el) => getComputedStyle(el).color);
+  await expect
+    .poll(() => row.evaluate((el) => getComputedStyle(el).color))
+    .not.toBe(liveColour);
+  const rowStyle = await row.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return { deco: s.textDecorationLine, events: s.pointerEvents };
+  });
+  expect(rowStyle.deco).toBe("none");
+  expect(rowStyle.events).not.toBe("none");
+
+  // …and it stays dimmed while it is the row Enter would open
+  await page.keyboard.press("ArrowDown");
+  await expect(page.locator(".agenda-row.selected")).toHaveCount(1);
+  await expect(row).toHaveClass(/done/);
+});

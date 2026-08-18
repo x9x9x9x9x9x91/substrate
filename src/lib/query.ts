@@ -49,6 +49,12 @@ export interface ParsedQuery {
       words that can never hit with their quote characters attached. */
   phrases: string[];
   filters: QueryFilter[];
+  /** Parallel to `filters`: how many bare words stood before that filter in
+      the query. `text` is a flat word list in token order, so without this a
+      caller cannot tell `mixer status:in review` (one word before the filter,
+      one after) from `status:in review mixer` — the dead-end hint reads it to
+      probe only the words that actually FOLLOW a filter. */
+  filterWordOffsets: number[];
   /** an operator token still being typed at the end ("type:", "type:rel",
       "due <", "due < 7"). For a multi-value stub ("type:a,b…"), `values`
       holds the comma-committed segments and `partial` the one being typed.
@@ -300,7 +306,12 @@ function compareDates(actual: string, op: CmpOp, target: string): boolean {
 export function parseQuery(q: string, today = todayIso(), schema?: QuerySchema): ParsedQuery {
   const tokens = tokenize(q);
   const filters: QueryFilter[] = [];
+  const filterWordOffsets: number[] = [];
   const words: string[] = [];
+  const pushFilter = (f: QueryFilter) => {
+    filters.push(f);
+    filterWordOffsets.push(words.length);
+  };
   const phrases: string[] = [];
   let trailing: ParsedQuery["trailing"] = null;
   const cursorInLastToken = !/\s$/.test(q);
@@ -361,7 +372,7 @@ export function parseQuery(q: string, today = todayIso(), schema?: QuerySchema):
         continue;
       }
       const values = lower.map((s) => s.value).filter(Boolean);
-      if (values.length) filters.push({ key, values, ...(neg ? { neg: true } : {}) });
+      if (values.length) pushFilter({ key, values, ...(neg ? { neg: true } : {}) });
       continue;
     }
     const cmp = readComparison(tokens, i);
@@ -376,7 +387,7 @@ export function parseQuery(q: string, today = todayIso(), schema?: QuerySchema):
         continue;
       }
       if (operand && resolveCompare(key, operand, today, schema) !== null) {
-        filters.push({ key, values: [operand], op: cmp.op, ...(cmp.neg ? { neg: true } : {}) });
+        pushFilter({ key, values: [operand], op: cmp.op, ...(cmp.neg ? { neg: true } : {}) });
         i = endsAt;
         continue;
       }
@@ -388,7 +399,7 @@ export function parseQuery(q: string, today = todayIso(), schema?: QuerySchema):
     words.push(tok);
   }
 
-  return { text: words.join(" "), phrases, filters, trailing };
+  return { text: words.join(" "), phrases, filters, filterWordOffsets, trailing };
 }
 
 /** Case-insensitive match: exact or prefix, so `status:master` hits "mastering". */
@@ -709,13 +720,18 @@ export function filterDeadEndHint(
   // (b) value + following bare words re-joined hits a real value
   const words = textWords(parsed.text);
   if (words.length === 0) return null;
-  for (const f of parsed.filters) {
+  for (const [i, f] of parsed.filters.entries()) {
     if (f.neg || (f.op ?? ":") !== ":" || f.values.length === 0) continue;
     const existing = valuesInUse(notes, f.key, typeSchema);
     if (existing.size === 0) continue;
     const base = f.values.join(" ");
-    for (let k = 1; k <= words.length; k++) {
-      const hit = existing.get(`${base} ${words.slice(0, k).join(" ")}`);
+    // only the words that FOLLOW this filter continue its value — a word
+    // typed ahead of it (`mixer status:in review`) belongs to no filter, and
+    // probing from index 0 both missed the real continuation and could
+    // re-join words the reader never meant to be adjacent
+    const after = parsed.filterWordOffsets[i] ?? 0;
+    for (let k = 1; after + k <= words.length; k++) {
+      const hit = existing.get(`${base} ${words.slice(after, after + k).join(" ")}`);
       if (!hit) continue;
       const v = /[\s,]/.test(hit) ? `"${hit}"` : hit;
       const parts = parsed.filters.filter((g) => g !== f).map(serializeFilter);
@@ -731,7 +747,7 @@ export function filterDeadEndHint(
       // leftover words: the rebuild descends most-structured → least
       // (filters, stub, exact phrases, words)
       for (const p of parsed.phrases) parts.push(`"${p}"`);
-      const rest = words.slice(k);
+      const rest = [...words.slice(0, after), ...words.slice(after + k)];
       if (rest.length > 0) parts.push(rest.join(" "));
       return {
         text: `did you mean ${f.key}:${v}?`,

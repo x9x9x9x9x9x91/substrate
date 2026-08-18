@@ -4725,6 +4725,15 @@ export default function App() {
     },
     [folderPath, folderFiles]
   );
+  /* ----- blind comparison -----
+
+     A session compares two versions with the labels hidden, and lands its
+     verdict on a note as plain markdown. Launched from a note (its audio
+     props) or from a folder (its audio files); a folder has no note of its
+     own, so one in that folder adopts the log — the note named after the
+     folder if there is one, else the folder's most recently touched note,
+     else a listening note made for the purpose. */
+
   const onOpenFile = useCallback(
     (path: string) => {
       fileOpen(path).catch((e) => showToast(String(e)));

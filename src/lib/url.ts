@@ -1,10 +1,25 @@
-/** True when the string is a single pasted http(s) link — no spaces, a real host. */
+/**
+ * True when the string is a single pasted http(s) link with a host the capture
+ * pipeline can actually turn into a note. The explicit scheme is what fences
+ * bare text out (`example.com`, `status:live`, `foo/bar` never reach the parse),
+ * so any non-empty hostname counts: dotless intranet names (`http://nas/`,
+ * `http://intranet:8080/`) are links the backend already captures, and the old
+ * dot heuristic hid the capture row for them entirely. Bracketed IPv6 literals
+ * (`http://[::1]:5173/`) are deliberately NOT accepted: the capture title is
+ * derived from the host-and-path display form and `validate_note_title`
+ * refuses `[` and `]` (src-tauri/src/vault/mod.rs), so offering the row would
+ * only buy an error toast — the recognizer stays no looser than the engine.
+ */
 export function looksLikeUrl(s: string): boolean {
   const t = s.trim();
-  if (!/^https?:\/\//i.test(t) || /\s/.test(t)) return false;
+  // a third slash — or its backslash spelling, which WHATWG treats identically
+  // for special schemes — means an empty authority; the parser collapses it and
+  // promotes the first path segment to a host (`http:///path`, `http://\path`
+  // both parse to host `path`), which is not a link the user pasted
+  if (!/^https?:\/\//i.test(t) || /^https?:\/\/[/\\]/i.test(t) || /\s/.test(t)) return false;
   try {
-    const host = new URL(t).hostname;
-    return host.includes(".") || host === "localhost";
+    const { hostname } = new URL(t);
+    return hostname.length > 0 && !hostname.startsWith("[");
   } catch {
     return false;
   }

@@ -18,12 +18,27 @@ const ci = !!process.env.CI;
 // repro dial, dbflows itself green and every victim at ms-speed when boot
 // isn't contended. Declare the boot cost in the budget;
 // assertions keep the tight 5s expect timeout, so real slow paths still fail.
+//
+// Worker count is a HOST-CLASS decision, not a CI-or-local one. The 2-worker
+// cap above belongs to that 2-vCPU runner; the Linux gate runner that replaced
+// it has 16 threads and runs the whole suite at 8 workers with exactly the same
+// failures — no new flakes, 3.5m instead of 9.7m (measured 2026-08-18 on that
+// runner). Rather than re-tune a constant every time the fleet changes
+// shape, the host that knows its own budget declares it: E2E_WORKERS overrides,
+// scripts/rig-gates-runner.sh sets it per host class, and a dev Mac or a plain
+// CI run that sets nothing keeps exactly the numbers it had.
+const workerEnv = process.env.E2E_WORKERS?.trim();
+if (workerEnv && !/^[1-9][0-9]*$/.test(workerEnv)) {
+  throw new Error(
+    `E2E_WORKERS must be a positive whole number, got ${JSON.stringify(workerEnv)}`,
+  );
+}
 export default defineConfig({
   testDir: "./e2e",
   timeout: ci ? 120_000 : 60_000,
   expect: { timeout: ci ? 15_000 : 5_000 },
   fullyParallel: true,
-  workers: ci ? 2 : 4,
+  workers: workerEnv ? Number(workerEnv) : ci ? 2 : 4,
   retries: 0,
   reporter: [["list"]],
   use: {

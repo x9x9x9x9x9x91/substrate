@@ -2538,6 +2538,7 @@ orphans normally; delete the asset and you keep a transcript. Removing
 `transcribed:` from a voice note that still has its audio is how you ask the
 app to transcribe it again.
 
+
 ## 5b. `.vault/format.json` — config format versions (covers §6–§8b)
 
 One sidecar records which format version each hidden config file is in

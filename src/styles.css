@@ -3537,6 +3537,13 @@ body.agenda-window .palette-hint {
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
+/* done/cancelled: the dim is the one mark — never strike+dim, matching
+   `.today-row.done`. Ordered after the hover/selected rule on purpose, so a
+   finished row stays dimmed while it is the row Enter would open. */
+.agenda-row.done {
+  color: var(--text-3);
+}
+
 /* The card takes programmatic focus on open (it owns the key model),
    which makes Chromium paint its default focus ring around the whole popover.
    The selected row carries the visible state instead. Scoped to the tray
@@ -18568,3 +18575,4 @@ button.receipts-row:hover {
   color: var(--text-2);
   background: var(--hover);
 }
+

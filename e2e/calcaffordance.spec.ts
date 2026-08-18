@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { docEnd, docStart } from "./keys";
+
 // The entry points for the two computing syntaxes (vault-format §5.9/§5.10).
 // Both are bare punctuation — `= 12 + 3` on a line, `` `= Sheet.summary` `` in a
 // sentence — so before /calc and /live they were reachable only by having read
@@ -27,7 +29,7 @@ async function boot(page: Page) {
   await page.locator(".cm-content").click();
   const lines = page.locator(".cm-line");
   const before = await lines.count();
-  await page.keyboard.press("Meta+ArrowDown");
+  await page.keyboard.press(docEnd);
   await page.keyboard.press("Enter");
   await expect(lines).toHaveCount(before + 1);
 }
@@ -78,7 +80,7 @@ test("picking a sheet opens its members, and the accepted name computes", async 
   // close the span and move off the line so it renders — the name that was
   // completed is a name that resolves
   await page.keyboard.type("`");
-  await page.keyboard.press("Meta+ArrowUp");
+  await page.keyboard.press(docStart);
   const chip = page.locator(".cm-live-value").last();
   await expect(chip).toBeVisible();
   // the value appears where it was typed: the sheet set follows the BUFFER

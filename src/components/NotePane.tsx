@@ -409,6 +409,7 @@ function NotePane({
     () => applyPendingTo(meta.path, diskProps, pendingProps),
     [meta.path, diskProps, pendingProps]
   );
+
   // the note the overlay belongs to. Only this pane's own re-reads can retire
   // an entry, and they carry the OPEN note alone — so switching notes has to
   // abandon what's left rather than pin it over the next note's props.

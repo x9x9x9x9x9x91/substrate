@@ -1223,6 +1223,7 @@ export function startPlayer(name: string): SharedPlayer {
   return player;
 }
 
+
 /** Ask for this player's waveform — the mini-player's strip.
  *
  * Deliberately NOT forced, so the size gate still holds: a file over

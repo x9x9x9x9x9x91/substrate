@@ -749,6 +749,43 @@ test("filterDeadEndHint: the rewrite keeps quoted phrases (SUB-704)", () => {
   });
 });
 
+test("filterDeadEndHint: the probe reads the words AFTER the filter (SUB-1277)", () => {
+  // a bare word typed BEFORE the filter used to occupy the probe's first
+  // slot, so "in review" was never tried and the suggestion never fired
+  assert.deepEqual(filterDeadEndHint(HINT_NOTES, HINT_COLS, HINT_SCHEMA, "mixer status:in review"), {
+    text: 'did you mean status:"in review"?',
+    fixedQuery: 'status:"in review" mixer',
+  });
+  // several leading words, and one trailing word left over after the value
+  assert.deepEqual(
+    filterDeadEndHint(HINT_NOTES, HINT_COLS, HINT_SCHEMA, "mixer bouquet status:in review zzz"),
+    {
+      text: 'did you mean status:"in review"?',
+      fixedQuery: 'status:"in review" mixer bouquet zzz',
+    }
+  );
+  // words that only re-join across the filter are not a continuation of it:
+  // "review" ahead of `status:in` never completes the value
+  assert.equal(filterDeadEndHint(HINT_NOTES, HINT_COLS, HINT_SCHEMA, "review status:in"), null);
+  assert.equal(filterDeadEndHint(HINT_NOTES, HINT_COLS, HINT_SCHEMA, "review status:in zzz"), null);
+  // two filters: each probes from its own position
+  assert.deepEqual(
+    filterDeadEndHint(HINT_NOTES, HINT_COLS, HINT_SCHEMA, "cat#:SMP-030 zzz status:in review"),
+    {
+      text: 'did you mean status:"in review"?',
+      fixedQuery: 'cat#:smp-030 status:"in review" zzz',
+    }
+  );
+});
+
+test("parseQuery records how many bare words precede each filter (SUB-1277)", () => {
+  assert.deepEqual(parseQuery("mixer status:in review ", TODAY).filterWordOffsets, [1]);
+  assert.deepEqual(parseQuery("status:live mixer -type:synth ", TODAY).filterWordOffsets, [0, 1]);
+  assert.deepEqual(parseQuery("a b ", TODAY).filterWordOffsets, []);
+  // a quoted phrase is its own bucket and never shifts a filter's offset
+  assert.deepEqual(parseQuery('"night shift" status:live ', TODAY).filterWordOffsets, [0]);
+});
+
 test("filterDeadEndHint: heuristic (b) stays quiet outside its shape (SUB-266)", () => {
   // no bare words after the filter
   assert.equal(filterDeadEndHint(HINT_NOTES, HINT_COLS, HINT_SCHEMA, "status:in"), null);
