@@ -1477,6 +1477,11 @@ pub struct Settings {
     /// `window-opacity` — how solid the app's own surfaces are over
     /// the desktop, in percent. Range 80–100; 100 = the opaque window.
     pub window_opacity: u8,
+    /// `experimental-context-capture` — off unless the note says so. When on,
+    /// the capture window offers a chip naming what was frontmost at summon
+    /// time (src-tauri/src/context_snapshot.rs). Off is inert: nothing
+    /// snapshots, and no Accessibility call is made.
+    pub experimental_context_capture: bool,
 }
 
 impl Settings {
@@ -1524,7 +1529,18 @@ impl Settings {
             .filter(|n| *n >= Self::OPACITY_MIN as f64 && *n <= Self::OPACITY_MAX as f64)
             .map(|n| n as u8)
             .unwrap_or(Self::OPACITY_DEFAULT);
-        Settings { capture_hotkey, voice_hotkey, close_to_tray, window_opacity }
+        // Experimental flags are opt-in by definition: absent, blank or
+        // anything that isn't "true" reads as off.
+        let experimental_context_capture = folded_prop_str(&props, "experimental-context-capture")
+            .map(|s| s.trim().eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        Settings {
+            capture_hotkey,
+            voice_hotkey,
+            close_to_tray,
+            window_opacity,
+            experimental_context_capture,
+        }
     }
 }
 
@@ -5658,6 +5674,35 @@ mod tests {
         fs::write(dir.join(Settings::REL_PATH), "---\nvoice-hotkey: \"  \"\n---\n").unwrap();
         assert_eq!(Settings::load(&dir).voice_hotkey, Settings::DEFAULT_VOICE_HOTKEY);
     }
+
+    #[test]
+    fn experimental_context_capture_is_off_until_the_note_says_true() {
+        let (_e, dir) = temp_vault("settings-experimental");
+        // seeded vault has no row at all → off, so the feature ships inert
+        assert!(!Settings::load(&dir).experimental_context_capture);
+
+        fs::write(
+            dir.join(Settings::REL_PATH),
+            "---\nExperimental-Context-Capture: TRUE\n---\n",
+        )
+        .unwrap();
+        assert!(Settings::load(&dir).experimental_context_capture);
+
+        // anything that isn't "true" — the off value the toggle writes, a
+        // blank, a word — leaves it off rather than half-on
+        for raw in ["false", "\"  \"", "maybe", "1"] {
+            fs::write(
+                dir.join(Settings::REL_PATH),
+                format!("---\nexperimental-context-capture: {raw}\n---\n"),
+            )
+            .unwrap();
+            assert!(
+                !Settings::load(&dir).experimental_context_capture,
+                "{raw} read as on"
+            );
+        }
+    }
+
 
     #[test]
     fn settings_defaults_overrides_and_garbage() {

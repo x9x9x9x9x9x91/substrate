@@ -10,6 +10,7 @@ pub(crate) mod app;
 pub(crate) mod assets;
 pub(crate) mod calendarfeeds;
 pub(crate) mod coding;
+pub(crate) mod context;
 pub(crate) mod cookbook;
 pub(crate) mod curator;
 pub(crate) mod drives;

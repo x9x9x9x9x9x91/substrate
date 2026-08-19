@@ -7,6 +7,7 @@ mod denyscope;
 #[cfg(target_os = "macos")]
 mod dragfix;
 mod coding;
+mod context_snapshot;
 mod curator;
 mod factlane;
 mod githist;
@@ -395,6 +396,25 @@ pub(crate) fn show_main(app: &tauri::AppHandle) {
     }
 }
 
+/// Take the context snapshot for a capture window that is about to be shown,
+/// BEFORE it is — once we are frontmost, "what was frontmost" is us.
+///
+/// The `experimental-context-capture` flag is read here and honoured inside
+/// `arm_for_capture`, which touches nothing at all while it is off: the
+/// default build never calls NSWorkspace and never asks about Accessibility.
+pub(crate) fn arm_context_snapshot(app: &tauri::AppHandle) {
+    let enabled = {
+        let state: State<SharedRuntime> = app.state();
+        let rt = state.0.lock().unwrap();
+        rt.settings.experimental_context_capture
+    };
+    context_snapshot::arm_for_capture(
+        enabled,
+        &context_snapshot::system_provider(),
+        &app.state::<context_snapshot::PendingContext>(),
+    );
+}
+
 #[cfg(desktop)]
 fn toggle_capture(app: &tauri::AppHandle) {
     let Some(w) = app.get_webview_window("capture") else {
@@ -402,12 +422,15 @@ fn toggle_capture(app: &tauri::AppHandle) {
     };
     if w.is_visible().unwrap_or(false) {
         w.hide().ok();
+        app.state::<context_snapshot::PendingContext>().clear();
     } else {
+        arm_context_snapshot(app);
         w.center().ok();
         w.show().ok();
         w.set_focus().ok();
     }
 }
+
 
 /// The voice chord: press once to start capturing, press again to stop and
 /// file. Deliberately window-free — the whole value of a voice note is that it
@@ -444,6 +467,7 @@ fn toggle_voice(app: &tauri::AppHandle) {
         }
     });
 }
+
 
 /// Popover geometry, logical px. Width is fixed; the height the
 /// window is built at is the maximum, so the first paint can only shrink.
@@ -670,22 +694,23 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder.plugin(
         tauri_plugin_global_shortcut::Builder::new()
-            .with_handler(|app, _shortcut, event| {
+            .with_handler(|app, shortcut, event| {
                 if event.state != ShortcutState::Pressed {
                     return;
                 }
-                // Two chords now reach this one handler, so it has to ask which
-                // fired. `_shortcut` keeps its underscore because the block that
-                // reads it is macOS-only; every other target leaves it unused.
+                // Three chords reach this one handler, so it has to ask which
+                // fired. Capture is the fallthrough rather than a fourth
+                // comparison: it is the chord that has always been registered,
+                // and an unrecognised one is likelier a stale registration
+                // than a reason to do nothing at all.
+                let matches = |chord: &str| {
+                    chord.trim().parse::<Shortcut>().is_ok_and(|s| &s == shortcut)
+                };
                 #[cfg(target_os = "macos")]
                 {
                     let rt: State<SharedRuntime> = app.state();
                     let voice_chord = rt.0.lock().unwrap().active_voice_hotkey.clone();
-                    if voice_chord
-                        .trim()
-                        .parse::<Shortcut>()
-                        .is_ok_and(|s| &s == _shortcut)
-                    {
+                    if matches(&voice_chord) {
                         toggle_voice(app);
                         return;
                     }
@@ -998,6 +1023,7 @@ pub fn run() {
                 #[cfg(target_os = "macos")]
                 applied_opacity: None,
             })));
+            app.manage(context_snapshot::PendingContext::default());
             #[cfg(desktop)]
             app.manage(term::TermState::default());
             #[cfg(desktop)]
@@ -1062,8 +1088,17 @@ pub fn run() {
                             .app_handle()
                             .state::<crate::deeplink::DeepLinks>()
                             .clear_capture_prefill();
+                        // …and for the same reason the context chip is
+                        // dropped here: a snapshot that outlived its window
+                        // would file the previous summon's context onto the
+                        // next note
+                        capture_handle
+                            .app_handle()
+                            .state::<crate::context_snapshot::PendingContext>()
+                            .clear();
                     }
                 });
+
 
                 // Tray mini-agenda popover: hidden until the tray icon
                 // is left-clicked, hides again on blur like the capture window.
@@ -1664,6 +1699,9 @@ pub fn run() {
             commands::deeplink::deeplink_take_pending,
             commands::deeplink::deeplink_capture_prefill,
             commands::deeplink::deeplink_clear_capture_prefill,
+            commands::context::context_pending,
+            commands::context::context_ax_trusted,
+            commands::context::context_request_access,
             history_snapshot,
             smoke::smoke_signal,
             smoke::smoke_exit,

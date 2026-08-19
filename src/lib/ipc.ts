@@ -574,6 +574,16 @@ export const voiceModelDownload = () => invoke<void>("voice_model_download");
 /** Transcribe a voice note again, replacing its body — for the transcript that
     came out wrong. The caller confirms first: the body is replaced. */
 export const voiceTranscribe = (path: string) => invoke<void>("voice_transcribe", { path });
+/* Context-bound capture (experimental). The snapshot itself is armed
+   Rust-side before the capture window is shown and read there in that file's
+   direct-invoke style; these two are the Settings row's, and the second one is
+   the ONLY call in the app that can raise the macOS Accessibility prompt. */
+/** Whether macOS already trusts this app for Accessibility. Never prompts. */
+export const contextAxTrusted = () => invoke<boolean>("context_ax_trusted");
+/** Ask for Accessibility access — this SHOWS the system prompt, which is why
+    it hangs off a button and nothing else. Resolves with trust as it stands
+    afterwards: false while the user is still in the pane macOS opened. */
+export const contextRequestAccess = () => invoke<boolean>("context_request_access");
 /** Physical Shift state at drop time — Tauri drop events carry no
     modifiers, so the handler asks the OS. Always false off macOS. */
 export const dropShiftDown = () => invoke<boolean>("drop_shift_down");
