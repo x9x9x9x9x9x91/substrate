@@ -222,6 +222,9 @@ fn show_capture(app: &tauri::AppHandle) {
     let Some(w) = app.get_webview_window("capture") else {
         return;
     };
+    // Before the window is shown, like the hotkey path: after `show` the
+    // frontmost app is Substrate, and the snapshot would say so.
+    crate::arm_context_snapshot(app);
     // center() is a desktop-only method on WebviewWindow — the ios target has
     // no window placement, same gate main's toggle_capture path lives behind
     #[cfg(desktop)]

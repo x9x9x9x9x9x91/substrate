@@ -7,6 +7,8 @@
 
 import { Fragment, lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import {
+  contextAxTrusted,
+  contextRequestAccess,
   onboardingStatus,
   vaultRead,
   voiceModelDownload,
@@ -33,6 +35,7 @@ import {
   WINDOW_OPACITY_MIN,
 } from "../lib/settings";
 import { previewWindowOpacity, vibrancyCapable } from "../lib/vibrancy";
+import { EXPERIMENTAL_NOTE, EXPERIMENTAL_TOGGLES } from "../lib/experimental";
 import type { TerminalFontProblems } from "../lib/settings";
 import { foldedPropKey } from "../lib/types";
 import { isTauri, listen } from "../lib/tauri";
@@ -260,6 +263,112 @@ function fontAvailable(family: string): boolean {
   return ok;
 }
 
+/* The Experimental section.
+
+   Its own block rather than rows in the flat list, for two reasons: it must
+   sit at the bottom (below Voice, Reflexes and Kinds, which render after the
+   list), and it says one thing above all of its rows — these may change or
+   disappear — rather than repeating it per switch.
+
+   The Accessibility grant lives here too. Context-bound capture reads what it
+   can WITHOUT any permission (the frontmost app's name) and reads the focused
+   document only when macOS already trusts us, so the feature works, smaller,
+   with the grant refused. That is why the prompt hangs off this button: it is
+   an offer, and hitting the capture hotkey must never raise a system dialog. */
+function ExperimentalSection({
+  values,
+  onToggle,
+  onToast,
+}: {
+  values: Record<string, string>;
+  onToggle: (f: Field) => void;
+  onToast: (msg: string) => void;
+}) {
+  const [trusted, setTrusted] = useState<boolean | null>(null);
+  /* The sheet hides macOS-only rows off macOS. In the browser harness that
+     would hide the section outright, and the mock backend models a Mac in
+     every other respect — same posture the voice rows take, which the mock's
+     `voice_supported` answers. */
+  const capable = vibrancyCapable || !isTauri;
+  const fields = EXPERIMENTAL_FIELDS.filter((f) => f.only !== "macos" || capable);
+  const needsAccess = EXPERIMENTAL_TOGGLES.some(
+    (t) => t.needsAccessibility && boolOn(field(t.key), values[t.key] ?? "")
+  );
+
+  useEffect(() => {
+    if (!needsAccess) return;
+    let live = true;
+    contextAxTrusted()
+      .then((ok) => {
+        if (live) setTrusted(ok);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [needsAccess]);
+
+  if (fields.length === 0) return null;
+  return (
+    <>
+      <div className="palette-section">Experimental</div>
+      <div className="settings-hint settings-experimental-note">{EXPERIMENTAL_NOTE}</div>
+      {fields.map((f) => (
+        <div className="settings-row" key={f.key} data-testid={`experimental-${f.key}`}>
+          <div className="settings-row-text">
+            <label className="settings-label" htmlFor={`set-${f.key}`}>
+              {f.label}
+            </label>
+            <div className="settings-hint">{f.hint}</div>
+          </div>
+          <button
+            id={`set-${f.key}`}
+            role="switch"
+            aria-checked={boolOn(f, values[f.key] ?? "")}
+            aria-label={f.label}
+            className={`settings-switch${boolOn(f, values[f.key] ?? "") ? " on" : ""}`}
+            onClick={() => onToggle(f)}
+          >
+            <span className="settings-knob" />
+          </button>
+        </div>
+      ))}
+      {/* only once a switch that wants it is on, and only while the grant is
+          actually missing: an offer nobody needs is noise */}
+      {needsAccess && trusted !== null && (
+        <div className="settings-row" data-testid="context-access-row">
+          <div className="settings-row-text">
+            <div className="settings-label">Accessibility access</div>
+            <div className="settings-hint">
+              {trusted
+                ? "granted — captures can name the document you were in, not just the app"
+                : "not granted — captures name the frontmost app only. Granting lets them name the open document (and your Ableton set)."}
+            </div>
+          </div>
+          {trusted ? (
+            <div className="settings-hint">✓</div>
+          ) : (
+            <button
+              className="settings-raw"
+              data-testid="context-grant-access"
+              onClick={() => {
+                contextRequestAccess()
+                  .then((ok) => {
+                    setTrusted(ok);
+                    if (!ok) onToast("approve Substrate in System Settings → Privacy & Security → Accessibility");
+                  })
+                  .catch((e) => onToast(String(e)));
+              }}
+            >
+              grant access…
+            </button>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 /** current state of a bool field, honoring its default when unset */
 function boolOn(f: Field, raw: string): boolean {
   return raw === "" ? !!f.defaultOn : raw === "true";
@@ -310,6 +419,18 @@ function choiceValue(f: Field, raw: string): string {
   const want = raw.trim().toLowerCase();
   return choices.find((c) => c.value.toLowerCase() === want)?.value ?? choices[0]?.value ?? "";
 }
+
+/* Experimental toggles are one list (lib/experimental.ts) turned into fields
+   here, so the sheet loads and writes them exactly like every other key while
+   the section itself renders apart — last, under its own heading and its own
+   warning. */
+const EXPERIMENTAL_FIELDS: Field[] = EXPERIMENTAL_TOGGLES.map((t) => ({
+  key: t.key,
+  label: t.label,
+  hint: t.hint,
+  kind: "bool",
+  only: t.only,
+}));
 
 const FIELDS: Field[] = [
   {
@@ -538,6 +659,7 @@ const FIELDS: Field[] = [
     kind: "text",
     masked: true,
   },
+  ...EXPERIMENTAL_FIELDS,
 ];
 
 const field = (key: string): Field => FIELDS.find((f) => f.key === key)!;
@@ -1024,7 +1146,10 @@ export default function SettingsPane({
             </div>
           )}
           {values &&
-            FIELDS.filter((f) => f.only !== "macos" || vibrancyCapable).map((f) => (
+            FIELDS.filter(
+              (f) =>
+                !f.key.startsWith("experimental-") && (f.only !== "macos" || vibrancyCapable)
+            ).map((f) => (
               <Fragment key={f.key}>
                 {f.section && <div className="palette-section">{f.section}</div>}
                 <div className="settings-row">
@@ -1255,6 +1380,16 @@ export default function SettingsPane({
               answer, not a preference, and it renders itself away in the
               overwhelming majority of vaults that install no kinds */}
           <KindsSettings />
+          {/* dead last: an experimental switch is the one thing in here that
+              can change under someone, so it sits below everything they came
+              for rather than above it */}
+          {values && (
+            <ExperimentalSection
+              values={values}
+              onToggle={toggle}
+              onToast={onToast}
+            />
+          )}
         </div>
         <div className="palette-foot">
           <span>

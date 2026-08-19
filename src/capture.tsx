@@ -4,6 +4,12 @@ import "@fontsource-variable/inter";
 import "./styles.css";
 import { invoke } from "./lib/tauri";
 import { resetCaptureBox } from "./lib/captureprefill";
+import {
+  contextChipIcon,
+  contextChipLabel,
+  contextProps,
+  type CaptureContext,
+} from "./lib/capturecontext";
 import type { NoteMeta } from "./lib/types";
 import { looksLikeUrl } from "./lib/url";
 import { escapeHint, voiceEscape } from "./lib/voice";
@@ -60,7 +66,40 @@ function CaptureApp() {
   const [armed, setArmed] = useState(false);
   // the recorder stops itself at MAX_SECS; the window has to stop counting too
   const [capped, setCapped] = useState(false);
+  /* What was frontmost when this window was summoned, or null — the
+     experimental flag is off (the common case: the backend never even looks),
+     Substrate was already frontmost, or nothing could be read. Armed
+     Rust-side BEFORE the window is shown, because by the time this renders the
+     frontmost app is us. */
+  const [ctx, setCtx] = useState<CaptureContext | null>(null);
+  /** Backspace on an empty box drops the chip. One keystroke, no click
+      target: attaching is the default, so declining has to be cheaper than
+      the capture itself. */
+  const [ctxDropped, setCtxDropped] = useState(false);
   const voiceOn = voice !== null;
+  /* The chip shows for the text capture it can actually ride along with: a
+     link becomes a reference note through `url_capture` and a voice note is
+     filed by the backend, and neither takes props — so rather than promise
+     context those paths would silently drop, the chip steps aside. */
+  const chip = ctx && !ctxDropped && !voiceOn && !looksLikeUrl(q) ? ctx : null;
+  /* The window is created 620×88 — room for exactly the input row and the
+     footer. The chip is a third line, so while one shows the window grows by
+     that line and shrinks back when it drops; at 88 the chip pushes the
+     footer off the bottom edge instead. */
+  const chipShown = chip !== null;
+  useEffect(() => {
+    if (!isTauri) return;
+    let cancelled = false;
+    void import("@tauri-apps/api/window").then(({ getCurrentWindow, LogicalSize }) => {
+      if (cancelled) return;
+      void getCurrentWindow()
+        .setSize(new LogicalSize(620, chipShown ? 108 : 88))
+        .catch(() => undefined);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [chipShown]);
 
   // The window persists hidden between captures; every time the hotkey
   // re-shows it we start clean with the input focused — except when a
@@ -79,6 +118,13 @@ function CaptureApp() {
       readPrefill: () =>
         isTauri ? invoke<string | null>("deeplink_capture_prefill") : Promise.resolve(null),
     });
+    // Same non-consuming pull, same reason: this reset runs more than once per
+    // summon, so the read has to be repeatable. The snapshot is dropped
+    // Rust-side when the window hides, and replaced by the next summon.
+    setCtxDropped(false);
+    invoke<CaptureContext | null>("context_pending")
+      .then((c) => setCtx(c && c.app ? c : null))
+      .catch(() => setCtx(null));
   }, []);
 
   useEffect(() => {
@@ -244,7 +290,14 @@ function CaptureApp() {
     // a pasted link becomes a reference note; the page title arrives in the background
     try {
       if (looksLikeUrl(title)) await invoke<NoteMeta>("url_capture", { url: title });
-      else await invoke<NoteMeta>("vault_create", { title, folder: "Inbox" });
+      else
+        await invoke<NoteMeta>("vault_create", {
+          title,
+          folder: "Inbox",
+          // attached unless it was dropped; flat `context-*` frontmatter, the
+          // same keys however the note was captured
+          props: chip ? contextProps(chip) : null,
+        });
     } catch (e) {
       // never discard the text on failure: keep it in the input so the user
       // can retry (Enter) or copy it out — the window stays open
@@ -256,6 +309,9 @@ function CaptureApp() {
   };
 
   const foot = { enter: looksLikeUrl(q) ? "capture link" : "file in Inbox", esc: "close" };
+  // while a chip is up, the row also has to say how to decline it — an
+  // attach-by-default that never mentions the way out is a trap
+  const dropHint = chip ? "drop context" : "";
   // `foot` is mutated rather than re-declared so the voice case below is one
   // strippable block instead of a ternary the mirror would have to keep half of.
   if (voiceOn) {
@@ -328,6 +384,13 @@ function CaptureApp() {
                   return void cancelVoice();
                 }
                 void hideWindow();
+              }
+              // Backspace with nothing to delete is the chip's drop: it can
+              // only mean the chip, because there is no text left for it to
+              // act on. Never while recording — Escape owns that question.
+              else if (e.key === "Backspace" && q === "" && chip) {
+                e.preventDefault();
+                setCtxDropped(true);
               }
               // any other key answers the pending discard question with "no"
               else if (armed) setArmed(false);
@@ -420,12 +483,25 @@ function CaptureApp() {
             </button>
           )}
         </div>
+        {chip && (
+          <div className="capture-context" data-testid="capture-context-chip">
+            <span aria-hidden="true" className="capture-context-mark">
+              {contextChipIcon(chip)}
+            </span>
+            <span className="capture-context-label">{contextChipLabel(chip)}</span>
+          </div>
+        )}
         {error && <div className="capture-error">couldn’t save — {error}</div>}
       </div>
       <div className="palette-foot">
         <span>
           <span className="key">↩</span> {foot.enter}
         </span>
+        {dropHint && (
+          <span className="capture-foot-drop">
+            <span className="key">⌫</span> {dropHint}
+          </span>
+        )}
         <span className="capture-foot-hint">
           <span className="key">esc</span> {foot.esc}
         </span>

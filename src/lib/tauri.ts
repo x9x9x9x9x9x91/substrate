@@ -198,6 +198,15 @@ declare global {
         dropped (CoreText) or substituted (fontconfig) is platform-specific,
         so a spec asserting the hint installs deterministic answers here */
     __mockFontAvailable?: (family: string) => boolean;
+    /** stage the context snapshot the capture window would have been armed
+        with. The real one reads NSWorkspace and the Accessibility API at
+        summon time — neither exists in a browser, and asking for either is
+        exactly what specs must never do — so a spec that wants the chip
+        stages the answer here. `null` clears it (the flag-off case). */
+    __mockSetContext?: (snap: MockContextSnapshot | null) => void;
+    /** whether the mock reports macOS Accessibility as already granted —
+        the Settings row's "Grant access…" affordance reads this */
+    __mockSetAxTrusted?: (trusted: boolean) => void;
     /** bump a mock asset's mtime — a re-bounce under the same name */
     __mockTouchAsset?: (name: string) => void;
     /** drop an asset straight into the mock .assets store — no app write */
@@ -445,6 +454,20 @@ let mockMcpGrants: { client: string; prefix: string; access: "read" | "write" }[
 
 /** The mock lane's in-flight recording — a stem and a start time, no audio. */
 let mockVoice: { stem: string; startedMs: number } | null = null;
+/** What `context_pending` reports — the shape `ContextSnapshot` serializes to.
+    Exported because the `__mockSetContext` seam takes one. */
+export interface MockContextSnapshot {
+  app: string;
+  doc: string | null;
+  file: string | null;
+}
+/** No capture is ever armed with context until a spec stages one: the flag is
+    off by default, and the browser has no frontmost-app notion anyway. */
+let mockContext: MockContextSnapshot | null = null;
+/** …and the mock Mac has not granted Accessibility, which is the state a new
+    install is in. */
+let mockAxTrusted = false;
+
 /** The mock lane starts with no speech model, so the settings row opens in the
     state a new install actually has: an offer to download, not a done tick. */
 let mockVoiceModel = false;
@@ -2689,6 +2712,9 @@ type MockTraceEntry = {
   path?: string;
   bodyTail?: string;
   expectedNull?: boolean;
+  /** create-time props, as the caller passed them — what a spec asserting
+      "the note was filed WITH its context" (or without) has to see */
+  props?: [string, string][];
   doneMs?: number;
   ok?: boolean;
   err?: string;
@@ -2988,6 +3014,7 @@ function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknow
       bodyTail:
         typeof args?.body === "string" ? (args.body as string).slice(-40) : undefined,
       expectedNull: args && "expectedBody" in args ? args.expectedBody === null : undefined,
+      props: Array.isArray(args?.props) ? (args.props as [string, string][]) : undefined,
     };
     mockCmdTrace.push(entry);
     return mockInvokeTraced(cmd, args, entry);
@@ -6291,6 +6318,17 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       return null;
     case "deeplink_clear_capture_prefill":
       return null;
+    /* Context-bound capture. The real backend snapshots the frontmost app
+       before the capture window is shown; the mock hands back whatever a spec
+       staged, which is `null` — no chip — until one does. `context_request_access`
+       is the one command that prompts on a real Mac, so the mock never models
+       more than the answer: specs flip trust with __mockSetAxTrusted. */
+    case "context_pending":
+      return mockContext;
+    case "context_ax_trusted":
+      return mockAxTrusted;
+    case "context_request_access":
+      return mockAxTrusted;
     case "agenda_resize":
       // the real backend clamps this and re-anchors the popover under the tray
       console.info("[mock] resize tray agenda", args?.height);
@@ -6736,6 +6774,14 @@ if (!isTauri) {
   window.__mockSetLatency = (cmd, ms) => {
     if (ms > 0) mockLatency.set(cmd, ms);
     else mockLatency.delete(cmd);
+  };
+  // Stage the snapshot the capture window would have been armed with, and
+  // whether the mock Mac has granted Accessibility
+  window.__mockSetContext = (snap) => {
+    mockContext = snap;
+  };
+  window.__mockSetAxTrusted = (trusted) => {
+    mockAxTrusted = trusted;
   };
   // Refuse the NEXT call to cmd and only that one (calls counted in
   // call order, so it binds before the latency wait — see mockInvoke)

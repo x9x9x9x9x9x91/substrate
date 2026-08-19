@@ -394,5 +394,9 @@ export function useVaultEvents(opts: {
     };
   }, []);
 
-  return { openNoteRef, openSheetRowRef };
+
+  return {
+    openNoteRef,
+    openSheetRowRef,
+  };
 }

@@ -695,7 +695,10 @@ export default function App() {
     }
   }, [viewKeyNow]);
 
-  const { openNoteRef, openSheetRowRef } = useVaultEvents({
+  const {
+    openNoteRef,
+    openSheetRowRef,
+  } = useVaultEvents({
     refresh,
     refreshConfigs,
     refreshSealScopes: reloadSealScopes,
@@ -4833,6 +4836,7 @@ export default function App() {
     setMobilePane("list");
     setMobileSidebarOpen(false);
   }, []);
+
 
   const closeMobileDetail = () => {
     if (dbNoteMeta) {

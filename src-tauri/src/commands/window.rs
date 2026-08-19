@@ -18,6 +18,7 @@ pub(crate) fn agenda_open_note(app: tauri::AppHandle, path: String) {
     }
 }
 
+
 /// Fit the tray popover to its rendered content.
 ///
 /// `height` is the card's own logical height, clamped here rather than in the

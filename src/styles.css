@@ -3364,6 +3364,42 @@ button.empty-hint-fix:hover {
   font-size: 12px;
 }
 
+/* The context chip: what you were doing when the window opened, attached to
+   the note unless Backspace drops it. Aligned under the input's text (16px
+   frame + 15px mark + 11px gap), in the footer's own quiet voice — it is a
+   statement about the capture, not a control, so it gets no border, no fill
+   and no colour of its own. */
+.capture-context {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 16px 4px 42px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.capture-context-mark {
+  flex: none;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--text-3);
+}
+
+/* one line, ellipsised: a 620px window has no room for a deep path or a long
+   page title, and the chip must never push the footer off the window */
+.capture-context-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the drop hint sits between "file in Inbox" and "esc close", which is the
+   order they are used in */
+.capture-foot-drop {
+  margin-left: 14px;
+}
+
 /* Quick-capture window chrome: brand mark on the left of the input, quieter
    footer. The window itself is 620×88 with no decorations, so the palette
    border is the only frame the user sees. */
@@ -3501,6 +3537,7 @@ button.empty-hint-fix:hover {
   color: var(--text-2);
   background: var(--surface-faint);
 }
+
 
 /* Tray mini-agenda popover — palette chrome, greyscale rows; color
    only on meaning-carrying dots: due = yellow, overdue = red. */
@@ -17702,6 +17739,13 @@ body.termhud-resizing-ew .termhud {
   font-size: 11.5px;
   line-height: 1.35;
   color: var(--text-3);
+}
+
+/* One line under the Experimental heading, said once for the whole section
+   rather than per switch. Aligned to the rows' text column (12px) and
+   set in the hint's own voice — a caveat, not a warning. */
+.settings-experimental-note {
+  margin: -1px 12px 2px;
 }
 
 /* the terminal-font row's "not found" line: the hint's own type, one
