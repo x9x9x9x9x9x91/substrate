@@ -1341,10 +1341,11 @@ impl Engine {
         // (`walk_folder_files_capped`, which also owns the stable-prefix
         // reasoning): the disk it catalogs can be far larger than anything a
         // hand-made folder mount points at, and this runs under the engine
-        // lock off a background poll.
-        // (the capped drive walk takes no ignore list — see the follow-up issue)
+        // lock off a background poll. Both walks honour `mount.ignore`; on the
+        // capped one the ignored subtrees are pruned before the cap applies,
+        // so they never eat a drive's budget.
         let files = if drive {
-            let (files, over) = walk_folder_files_capped(&root, &mount.globs, cap);
+            let (files, over) = walk_folder_files_capped(&root, &mount.globs, &mount.ignore, cap);
             stats.capped = over;
             files
         } else {

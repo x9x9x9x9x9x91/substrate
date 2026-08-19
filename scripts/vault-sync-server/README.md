@@ -241,6 +241,42 @@ node /Users/USERNAME/path/to/substrate/scripts/vault-sync-server/status.ts \
   --mirror "$SYNC_STATE/vault.git"
 ```
 
+### Checking freshness without a mirror
+
+The check above is only possible because both repositories sit on this disk. A
+hosted remote has no second local copy, so there is nothing to compare — and
+the only thing that knows how the last exchange went is the app.
+
+`scripts/sync-health.ts` is that check's successor. The app writes a small
+record at every push and pull (when it was attempted, when each leg last got
+through, whether a merge is parked), and the script reads it and prints one
+line on the same scale: **0** fresh, **1** stale, **2** needs attention
+(a parked merge, or nothing succeeding for a day), **3** no readable data.
+
+```sh
+node /Users/USERNAME/path/to/substrate/scripts/sync-health.ts \
+  --stale-after 6h --down-after 24h
+```
+
+With no `--state`, it reads the record where the app writes it —
+`~/Library/Application Support/<bundle identifier>/vault-sync-health.json`,
+with the identifier taken from the checkout's own `src-tauri/tauri.conf.json`,
+so a dev build and a release build each check themselves. Pass `--state
+<file>` to read another one: a record copied off a second machine, or a
+fixture while wiring the dashboard row up. A file that is not one of these
+records reads as unreadable (exit 3) rather than as anything about a vault.
+
+That invocation runs the TypeScript file directly, which needs **Node 22.18 or
+newer** (23.6+ on the current line); Node strips the types itself, there is no
+build step. On 22.6–22.17 the same command works with
+`--experimental-strip-types` added before the path.
+
+It never talks to the remote — no address, no token, no request — so it is
+safe to run from a dashboard or a launchd job that holds no credentials. What
+it reports is what the app last knew, and it says so honestly: a record that is
+missing, unreadable or older than the window is a red answer with the age in
+it, never a quiet green one.
+
 ### Refreshing on an interval
 
 Manual refreshes drift — a mirror days behind the working vault serves the phone

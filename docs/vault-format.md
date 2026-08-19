@@ -3470,7 +3470,10 @@ edited by hand (JSON array):
   the list later does not delete rows — the pruned files read as `missing` on
   the next scan and keep their sidecars, same as files moved away. The live
   watcher honours the same list: a save under an ignored folder is not a
-  change to the mount, so it never wakes a rescan of it.
+  change to the mount, so it never wakes a rescan of it. A **drive**'s catalog
+  walk honours it too, and prunes before its file ceiling applies — an ignored
+  subtree is invisible to the catalog, so it does not spend the drive's
+  budget or push real files into the over-cap count.
 - `watch` — optional, default `false`. Opts the mount into the live watcher
   (below), and only takes effect on a machine where it is bound.
 - Any other key is preserved verbatim across app writes. The file's
