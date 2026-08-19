@@ -163,7 +163,10 @@ interface NotePaneProps {
     target?: string,
     format?: NumberFormat,
     description?: string,
-    rollup?: RollupConfig | null
+    rollup?: RollupConfig | null,
+    /** any kind: how long a value stays believable (`90d`, `1y`); an empty
+        string clears a stored window, undefined leaves it alone */
+    review?: string
   ) => void;
   /** entries of a relation's target database (picker source) */
   relationCandidates: (dbType: string) => RelationCandidate[];
@@ -2069,6 +2072,7 @@ function NotePane({
                   target={pschema?.type}
                   format={pschema?.format}
                   description={pschema?.description}
+                  review={pschema?.review}
                   databases={dbTypes}
                   rollupRelations={rollupRelations}
                   rollupPropsFor={rollupPropsFor}
@@ -2079,7 +2083,7 @@ function NotePane({
                   }
                   startEditing
                   onCommit={(nv) => commitChip(k, nv)}
-                  onSaveSchema={(o, nk, nf, nb, t, f, d, r) => onSaveSchema(noteType, k, o, nk, nf, nb, t, f, d, r)}
+                  onSaveSchema={(o, nk, nf, nb, t, f, d, r, rv) => onSaveSchema(noteType, k, o, nk, nf, nb, t, f, d, r, rv)}
                   onClose={() => {
                     setEditingChip(null);
                     setSchemaEditChip(null);
@@ -2141,6 +2145,7 @@ function NotePane({
                   target={pschema?.type}
                   format={pschema?.format}
                   description={pschema?.description}
+                  review={pschema?.review}
                   databases={dbTypes}
                   rollupRelations={rollupRelations}
                   rollupPropsFor={rollupPropsFor}
@@ -2156,7 +2161,7 @@ function NotePane({
                     setEditingChip(null);
                     removeChip(k);
                   }}
-                  onSaveSchema={(o, nk, nf, nb, t, f, d, r) => onSaveSchema(noteType, k, o, nk, nf, nb, t, f, d, r)}
+                  onSaveSchema={(o, nk, nf, nb, t, f, d, r, rv) => onSaveSchema(noteType, k, o, nk, nf, nb, t, f, d, r, rv)}
                   footer={chipReceiptFooter(k)}
                   onClose={() => setEditingChip(null)}
                 />
