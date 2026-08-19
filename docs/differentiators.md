@@ -30,18 +30,27 @@ Capacities, Affine).*
   (0.18), table/board/list/gallery views plus an app-wide calendar over
   every dated note, saved views, templates,
   group-by, bulk edit. Delete the app, keep everything.
-- **Agent-first by design** — everything the UI does is achievable by editing
-  files; external edits are first-class (live FSEvents watcher). The proof
-  artifact: `docs/vault-format.md` is a 2,200+-line on-disk contract written
-  for external writers/agents — layout, normalization, a concurrency
-  contract, rules for well-behaved external writers — plus a
-  `.vault/format.json` version sidecar (an older app can't corrupt a newer
-  vault's config) and **vault doctor**, a read-only integrity report (broken
-  links/relations/embeds, invalid typed values). "The second brain your AI
-  can actually operate." No incumbent can claim it: Notion is cloud-walled,
-  Logseq's DB version made the database canonical (the market is moving away
-  from files-as-truth), Anytype/Affine store in their own formats and only
-  export markdown.
+- **Agent-first by design — a governed contract, not a door** — everything the
+  UI does is achievable by editing files; external edits are first-class (live
+  FSEvents watcher). The proof artifact: `docs/vault-format.md` is a
+  2,200+-line on-disk contract written for external writers/agents — layout,
+  normalization, a concurrency contract, rules for well-behaved external
+  writers — plus a `.vault/format.json` version sidecar (an older app can't
+  corrupt a newer vault's config) and **vault doctor**, a read-only integrity
+  report (broken links/relations/embeds, invalid typed values). "The second
+  brain your AI can actually operate." Careful claim — *letting* an agent
+  operate the store is table stakes in 2026: Bear ships an official CLI, a
+  Claude connector and an MCP server; Obsidian ships an official CLI and an
+  official agent-skills repo; Anytype has a local API and agent prototypes; and
+  the newcomer wave (ZenNotes, note.md, Markd, VMark) is MCP-native markdown
+  from day one. The depth is the differentiator: a written, *versioned*
+  contract instead of an API surface, an integrity report the agent can run
+  before and after itself, per-folder scoped grants, every agent write
+  committed under its own author identity, and consent-gated vault kinds.
+  Others open a door; this is a governed contract. What incumbents still can't
+  say at all: Notion is cloud-walled, Logseq's DB version made the database
+  canonical (the market is moving away from files-as-truth), Anytype/Affine
+  store in their own formats and only export markdown.
 - **Linear-grade speed** — instant search (SQLite FTS5), lazy paint
   (1400-row tables don't stall), keyboard-reachable everything, ⌘K palette.
 - **Local reality** — link/index real files on disk; Shift-drag links in
@@ -290,17 +299,22 @@ Capacities, Affine).*
 
 ## Competitor cheat-sheet (for honest copy)
 
-- **Obsidian Bases** (core, 1.9/1.10): views over frontmatter —
-  table/cards/list/map, formula props, summaries. No relations/rollups, no
-  board or calendar view, no typed select colors; data entry stays
-  YAML-first. Everything else here (audio, sheets, dashboards, notifications,
-  history depth) is plugin territory or absent. Watch: their roadmap adds
-  plugin-extensible functions + a view API.
+- **Obsidian Bases** (core, 1.9→1.12): views over frontmatter —
+  table/cards/list/map, formula props, grouping + summaries, per-view search,
+  and, since 1.10, a plugin API for custom view types. The old "watch" item
+  landed, so drop the roadmap hedge. Still no native relations/rollups — the
+  documented workaround is `file()`/`asFile()` formula chains, which their own
+  docs admit are slow and don't refresh — no board or calendar view, no typed
+  select colors; data entry stays YAML-first. Everything else here (audio,
+  sheets, dashboards, notifications, history depth) is plugin territory or
+  absent. Compare on the relational half, not the view half: the database
+  claim holds, the "no view API" one no longer does.
 - **Anytype**: closest philosophically (local-first, E2E sync, free) — but an
   object store, not plain files; no agent/script story; thin ecosystem.
-- **Logseq**: the file-based version is in maintenance mode; the DB rewrite
-  made SQLite canonical. The "plain files + real databases" seat is being
-  *vacated*, not contested.
+- **Logseq**: the split is now official. Logseq 2.0 beta shipped 2026-07-13
+  with SQLite canonical, and the file-based version was formally spun off as
+  "Logseq OG" in maintenance. The "plain files + real databases" seat is
+  *vacated by announcement*, not merely by direction — safe to say outright.
 - **Capacities**: cloud-based — different species. **Affine**: local-first
   but block/whiteboard-first, own format.
 - **Notion**: the feature bar, but slow, cloud-owned, and agents stop at the
