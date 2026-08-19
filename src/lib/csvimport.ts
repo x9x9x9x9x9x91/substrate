@@ -71,9 +71,9 @@ export function csvColumns(rows: string[][], firstRowHeaders: boolean): CsvColum
 /** Property names Substrate already owns. `created`, `type` and `title` are
     the note's own frontmatter fields — `create_full` skips them, so a column
     with one of those names imports as empty while the toast says success.
-    `icon` and `home` are database keys — `create_type` rejects them outright,
-    which kills the whole import. */
-const CSV_RESERVED = ["created", "type", "title", "icon", "home"];
+    `icon`, `home` and `parent` are database keys — `create_type` rejects them
+    outright, which kills the whole import. */
+const CSV_RESERVED = ["created", "type", "title", "icon", "home", "parent"];
 
 /** Column names as the database will really store them.
     A spreadsheet export routinely carries a name Substrate owns, or the same

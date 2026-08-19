@@ -1286,7 +1286,7 @@ mod tests {
         let mut schema = SchemaConfig::new();
         schema.insert(
             "task".to_string(),
-            crate::vault::TypeSchema { icon: None, home: None, props: task },
+            crate::vault::TypeSchema { icon: None, home: None, parent: None, props: task },
         );
         schema
     }

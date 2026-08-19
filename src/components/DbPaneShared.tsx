@@ -11,7 +11,8 @@ import { isTauri } from "../lib/tauri";
 import { coverSource } from "../lib/assets";
 import { optionColor, OptionDot, type AnchorRect } from "./SelectMenu";
 import TypeIcon from "./TypeIcon";
-import { BoardIcon, ColumnsIcon, GalleryIcon, HelpIcon, ListIcon, TableIcon } from "./Icons";
+import { BoardIcon, ChevronIcon, ColumnsIcon, GalleryIcon, HelpIcon, ListIcon, TableIcon } from "./Icons";
+import type { SubSummary } from "../lib/subitems";
 import { QUERY_SYNTAX, QUERY_SYNTAX_FOOT } from "../lib/query";
 
 /** Card/list subtitle: the notable props joined with " · ". A part whose
@@ -125,6 +126,60 @@ export function GalleryCover({ note, dbType, icon }: { note: NoteMeta; dbType: s
         </span>
       ) : null}
     </div>
+  );
+}
+
+/** The sub-item twisty: one chevron per row that HAS children in its own
+    section, and a same-width blank for every row that doesn't, so the titles
+    of a tree still line up in one column. Shared by the table's Name cell
+    and the board's cards — one gesture, one look, two surfaces.
+
+    It is a button of its own inside a row that is itself clickable, so the
+    click stops here: folding a parent must never also open it. */
+export function TreeTwisty({
+  kids,
+  open,
+  title,
+  onToggle,
+}: {
+  /** how many rows nest directly under this one HERE (0 = no twisty) */
+  kids: number;
+  open: boolean;
+  title: string;
+  onToggle: () => void;
+}) {
+  if (kids <= 0) return <span className="db-tree-spacer" aria-hidden="true" />;
+  const label = `${open ? "Collapse" : "Expand"} ${title} (${kids} sub-item${kids === 1 ? "" : "s"})`;
+  return (
+    <button
+      type="button"
+      className={`db-tree-chevron${open ? " open" : ""}`}
+      aria-label={label}
+      aria-expanded={open}
+      title={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        onToggle();
+      }}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <ChevronIcon />
+    </button>
+  );
+}
+
+/** What climbs the chain, on the parent row: how many of the whole branch
+    below it read complete. Counts every descendant, not just the rows nested
+    directly under it — and it counts the database, not the filtered view, so
+    narrowing the rows on screen never rewrites the number. */
+export function SubBadge({ sum }: { sum: SubSummary | undefined }) {
+  if (!sum || sum.total === 0) return null;
+  const label = `${sum.done} of ${sum.total} sub-item${sum.total === 1 ? "" : "s"} complete`;
+  return (
+    <span className="db-sub-badge" title={label} aria-label={label}>
+      {sum.done}/{sum.total}
+    </span>
   );
 }
 

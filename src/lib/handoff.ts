@@ -103,8 +103,11 @@ export function buildHandoffLink(relayUrl: string, id: string, keyB64: string): 
 /** Minimal self-contained styling for the handed-off document. The app's
     print CSS lives inside styles.css and leans on app tokens; a recipient's
     browser has neither, so the document carries its own small light-page
-    sheet keyed to the same `print-*` class contract renderPrintBody emits. */
-const DOC_CSS = `
+    sheet keyed to the same `print-*` class contract renderPrintBody emits.
+    Exported because the site exporter builds its stylesheet on top of it:
+    both surfaces render the same markup for a browser that has none of the
+    app's own CSS, so they share the base rather than drifting apart. */
+export const DOC_CSS = `
 :root { color-scheme: light; }
 body { margin: 0; background: #f6f7f8; font: 15px/1.65 -apple-system, BlinkMacSystemFont,
   "Segoe UI", Roboto, sans-serif; color: #1b1e22; }

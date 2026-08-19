@@ -1,10 +1,9 @@
 import { save } from "@tauri-apps/plugin-dialog";
 import type { NoteMeta } from "./types";
-import { propStr } from "./types";
 import { isTauri } from "./tauri";
 import { exportNoteBundle, exportText, printWindow, vaultRead, vaultReadAsset } from "./ipc";
 import { buildCsv } from "./csv";
-import { renderPrintBody, escapeHtml, type AssetSrc } from "./print";
+import { renderPrintBody, escapeHtml, propsLine, type AssetSrc } from "./print";
 import { buildHandoffDocument } from "./handoff";
 import { buildOneSheet, buildTableSheet } from "./onesheet";
 import { isImageName } from "./artwork";
@@ -57,20 +56,6 @@ function mimeFor(name: string): string {
   if (ext === "webp") return "image/webp";
   if (ext === "svg") return "image/svg+xml";
   return "image/png";
-}
-
-const CHIP_ORDER = ["type", "status", "cat#", "artist", "category", "created"];
-
-function propsLine(props: Record<string, unknown>): string {
-  const keys = Object.keys(props).filter((k) => k !== "title");
-  keys.sort((a, b) => {
-    const ia = CHIP_ORDER.indexOf(a);
-    const ib = CHIP_ORDER.indexOf(b);
-    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a.localeCompare(b);
-  });
-  return keys
-    .map((k) => `${escapeHtml(k)}: ${escapeHtml(propStr(props, k) ?? "")}`)
-    .join('<span class="print-sep"> · </span>');
 }
 
 /** The one print surface both print paths fill: invisible on screen, it

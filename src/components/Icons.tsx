@@ -187,6 +187,14 @@ export const ListIcon = () => (
   </svg>
 );
 
+/** Sub-items — a parent line with two indented children hanging off an
+    elbow: the one level of nesting the tree rows offer, drawn literally. */
+export const SubItemsIcon = () => (
+  <svg {...base}>
+    <path d="M2.5 3.5h11M5.5 3.5v4.5h8M5.5 8v4.5h8" />
+  </svg>
+);
+
 export const TableIcon = () => (
   <svg {...base}>
     <rect x="2.5" y="3.5" width="11" height="9" rx="1.3" />

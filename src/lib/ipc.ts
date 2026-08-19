@@ -753,6 +753,11 @@ export const vaultSchemaSetIcon = (dbType: string, icon: DbIcon | null) =>
     database leaves the Folders tree and lists under Databases again). */
 export const vaultSchemaHomeSet = (dbType: string, home: string | null) =>
   invoke<SchemaConfig>("vault_schema_home_set", { dbType, home });
+/** Mark or clear the relation prop that names a row's parent — the switch
+    that turns this database's table and board into sub-item trees. null
+    clears it (the rows flatten back into a plain list). */
+export const vaultSchemaParentSet = (dbType: string, prop: string | null) =>
+  invoke<SchemaConfig>("vault_schema_parent_set", { dbType, prop });
 export const pathExists = (path: string) => invoke<boolean>("path_exists", { path });
 /** Read-only health of an external backup-sync system (sync dashboard): its
     state file and the recent errors of its log, under the note's bindings. */

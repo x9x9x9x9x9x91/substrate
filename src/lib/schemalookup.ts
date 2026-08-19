@@ -13,7 +13,7 @@
 import type { PropSchema, SchemaConfig } from "./types.ts";
 
 const SYSTEM_PROP_NAMES = new Set(["type", "title", "created"]);
-const RESERVED_SCHEMA_NAMES = new Set(["icon", "home"]);
+const RESERVED_SCHEMA_NAMES = new Set(["icon", "home", "parent"]);
 const BUILTIN_DATE_NAMES = new Set(["created", "updated"]);
 
 /** Built-in/reserved identities are case-insensitive for the same reason

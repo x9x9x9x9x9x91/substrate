@@ -1579,6 +1579,7 @@ pub fn run() {
             vault_schema_set,
             vault_schema_set_icon,
             vault_schema_home_set,
+            vault_schema_parent_set,
             calendar_feeds_read,
             calendar_feed_save,
             calendar_feed_delete,

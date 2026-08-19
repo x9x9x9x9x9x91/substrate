@@ -101,14 +101,20 @@ export function canonicalViewPref(pref: ViewPref, columns: string[]): ViewPref {
 /** Column set for a database table: schema-registered props (a
     column shows for every entry even with no values) ∪ prop keys in use
     across the type's notes. `type` is constant per view, `title` is the name
-    column, `icon`/`home` are reserved schema keys — none of them is a
+    column, `icon`/`home`/`parent` are reserved schema keys — none of them is a
     column. Known props lead, the rest follow alphabetically. */
 export function dbColumns(notes: NoteMeta[], typeSchema: Record<string, PropSchema>): string[] {
   const seen = new Map<string, string>();
   const observed = new Set<string>();
   for (const k of Object.keys(typeSchema)) {
     const folded = k.toLowerCase();
-    if (folded !== "type" && folded !== "title" && folded !== "icon" && folded !== "home")
+    if (
+      folded !== "type" &&
+      folded !== "title" &&
+      folded !== "icon" &&
+      folded !== "home" &&
+      folded !== "parent"
+    )
       seen.set(folded, k);
   }
   for (const n of notes) {

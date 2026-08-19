@@ -15,7 +15,8 @@ import FileMenu from "./FileMenu";
 import RelationMenu from "./RelationMenu";
 import SelectMenu, { anchorFrom, MultiValues, optionColor, OptionDot, OptionPill, RelationValues, type AnchorRect } from "./SelectMenu";
 import { ChevronIcon, PlusIcon, WarnIcon, XIcon } from "./Icons";
-import { AGG_OPTIONS, ColMenu, openExternalLink, WIN_INITIAL, type Focus } from "./DbPaneShared";
+import { AGG_OPTIONS, ColMenu, openExternalLink, SubBadge, TreeTwisty, WIN_INITIAL, type Focus } from "./DbPaneShared";
+import type { SubSummary } from "../lib/subitems";
 import { byFoldedKey, isBuiltinDateName } from "../lib/schemalookup";
 import type { HopDir } from "../lib/cellhop";
 
@@ -38,6 +39,11 @@ export default function DbTableLayout({
   sorts,
   rows,
   rowGroups,
+  treeDepth,
+  treeKids,
+  subSums,
+  collapsed,
+  onToggleCollapsed,
   windowed,
   win,
   winMetrics,
@@ -135,7 +141,21 @@ export default function DbTableLayout({
 }: {
   sorts: SavedViewSort[];
   rows: NoteMeta[];
+  /** section headers: `start` is the section's first index in `rows`, `count`
+      the notes it holds with every fold OPEN — the header counts a section,
+      not the slice of it currently painted */
   rowGroups: { value: string | null; start: number; count: number }[] | null;
+  /* Sub-item tree rows. `subSums` is null for every database that doesn't
+     mark a parent relation, and then the Name cell renders exactly the bare
+     title it always did — no wrapper, no gutter, no DOM change at all. */
+  /** rendered indent level of a row: 0 or 1, one level, never deeper */
+  treeDepth: ReadonlyMap<string, number>;
+  /** rows nesting DIRECTLY under a row in its own section (0 = no chevron) */
+  treeKids: ReadonlyMap<string, number>;
+  /** per-parent descendant/complete counts, or null when off */
+  subSums: ReadonlyMap<string, SubSummary> | null;
+  collapsed: ReadonlySet<string>;
+  onToggleCollapsed: (path: string) => void;
   windowed: boolean;
   win: { start: number; end: number } | null;
   winMetrics: { rowH: number; groupH: number; draftH: number; headH: number; tbodyTop: number };
@@ -579,7 +599,25 @@ export default function DbTableLayout({
                     });
                   }}
                 >
-                  <span className="db-cell-txt db-title-txt">{n.title}</span>
+                  {subSums ? (
+                    // the tree gutter: twisty, title, branch badge. Only a
+                    // sub-item database grows it — everywhere else the title
+                    // stays the plain span it has always been
+                    <span
+                      className={`db-tree-cell${(treeDepth.get(n.path) ?? 0) > 0 ? " is-child" : ""}`}
+                    >
+                      <TreeTwisty
+                        kids={treeKids.get(n.path) ?? 0}
+                        open={!collapsed.has(n.path)}
+                        title={n.title}
+                        onToggle={() => onToggleCollapsed(n.path)}
+                      />
+                      <span className="db-cell-txt db-title-txt">{n.title}</span>
+                      <SubBadge sum={subSums.get(n.path)} />
+                    </span>
+                  ) : (
+                    <span className="db-cell-txt db-title-txt">{n.title}</span>
+                  )}
                   {/* The bulk toast counts the failures; this is
                       where THIS note's own reason lives, on the row it
                       happened to. Title text so the reason is readable

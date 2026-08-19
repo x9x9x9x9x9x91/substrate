@@ -131,6 +131,7 @@ import {
   vaultSavedViewSet,
   vaultSavedViewsRead,
   vaultSchemaHomeSet,
+  vaultSchemaParentSet,
   vaultSchemaRead,
   vaultSchemaSet,
   vaultSchemaSetIcon,
@@ -1435,6 +1436,25 @@ export default function App() {
             home
               ? `“${dbType}” now lives in “${home}”`
               : "Folder is back to plain files — the database stays under All databases"
+          );
+        })
+        .catch((e) => showToast(String(e)));
+    },
+    [showToast, schemaDbKey]
+  );
+
+  // the relation prop a database's rows nest under — set/cleared from that
+  // column's header menu, the same one-reserved-key discipline as `home`.
+  // Nothing on disk moves: the mark only changes how the rows are ARRANGED
+  const setDbParentProp = useCallback(
+    (dbType: string, prop: string | null) => {
+      vaultSchemaParentSet(schemaDbKey(dbType), prop)
+        .then((cfg) => {
+          setSchema(cfg);
+          showToast(
+            prop
+              ? `Rows now nest under “${prop}” — expand a parent to see its sub-items`
+              : "Sub-items off — the rows are a flat list again"
           );
         })
         .catch((e) => showToast(String(e)));
@@ -5232,6 +5252,7 @@ export default function App() {
                   setDbDialog({ kind: "rename-prop", dbType: activeMount.name, prop })
                 }
                 onRemoveProp={(prop) => removeProperty(activeMount.name, prop)}
+                onSetParentProp={(prop) => setDbParentProp(activeMount.name, prop)}
                 onToast={showToast}
               />
             </div>
@@ -5286,6 +5307,7 @@ export default function App() {
               onDeleteDb={() => setDbDialog({ kind: "delete-db", dbType: view.type })}
               onRenameProp={(prop) => setDbDialog({ kind: "rename-prop", dbType: view.type, prop })}
               onRemoveProp={(prop) => removeProperty(view.type, prop)}
+              onSetParentProp={(prop) => setDbParentProp(view.type, prop)}
               onToast={showToast}
             />
           ) : activeSaved ? (
@@ -5351,6 +5373,7 @@ export default function App() {
                 setDbDialog({ kind: "rename-prop", dbType: activeSaved.db, prop })
               }
               onRemoveProp={(prop) => removeProperty(activeSaved.db, prop)}
+              onSetParentProp={(prop) => setDbParentProp(activeSaved.db, prop)}
               onToast={showToast}
             />
           ) : (
@@ -5383,6 +5406,7 @@ export default function App() {
                 dbTypesRecent={dbTypesRecent}
                 onFollowLink={followLink}
                 noteTitles={noteTitles}
+                vaultNotes={notes}
                 linkedNoteBody={linkedNoteBody}
                 sheetTitles={sheetTitles}
                 onOpenTag={openTag}
@@ -5468,6 +5492,7 @@ export default function App() {
             dbTypesRecent={dbTypesRecent}
             onFollowLink={followLink}
             noteTitles={noteTitles}
+            vaultNotes={notes}
             linkedNoteBody={linkedNoteBody}
             sheetTitles={sheetTitles}
             onOpenTag={openTag}

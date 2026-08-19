@@ -26,7 +26,9 @@ test("manager lists every database with counts and home folders", async ({ page 
 
   // every mock database, one row each: the schema types, the used-but-
   // unschema'd ones (finance-doc, artist, diary), and the homed task db
-  // alike; sheet is a functional type — surfaces never list here
+  // alike; sheet is a functional type — surfaces never list here. The list
+  // is the seeds' list, so a database only builds that strip their seeds
+  // lack is fenced out with them
   const names = [
     "Artist",
     "Catalog",

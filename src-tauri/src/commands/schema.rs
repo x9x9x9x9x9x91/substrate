@@ -117,6 +117,21 @@ pub(crate) fn vault_schema_home_set(
     state.0.lock().unwrap().set_schema_home(&db_type, home)
 }
 
+/// Mark or clear the relation prop that names a row's parent — the switch
+/// that turns this database's table and board into sub-item trees. None clears
+/// it (the rows flatten back into a plain list).
+#[tauri::command]
+pub(crate) fn vault_schema_parent_set(
+    state: State<AppState>,
+    dirty: State<SnapDirty>,
+    db_type: String,
+    prop: Option<String>,
+) -> Result<SchemaConfig, String> {
+    // .vault/ writes are invisible to the watcher, so mark for snapshot here
+    dirty.mark();
+    state.0.lock().unwrap().set_schema_parent(&db_type, prop)
+}
+
 /// Create a database: register the type (+ optional initial properties) in
 /// the schema so it lists in the sidebar even with zero notes.
 #[tauri::command]

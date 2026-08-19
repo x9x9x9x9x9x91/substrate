@@ -7,6 +7,7 @@
 
 import { isImageName } from "./artwork.ts";
 import { scanMdBlocks } from "./mdblocks.ts";
+import { propStr } from "./types.ts";
 import {
   embedSize,
   embedSizeStyle,
@@ -42,6 +43,39 @@ function unescapeHtml(s: string): string {
     renders the editor's "missing image" placeholder. */
 export type AssetSrc = (name: string) => string | undefined;
 
+/** Where a wikilink POINTS, for the surfaces that have somewhere to point.
+    Called with the link's raw inner text (`target#anchor|alias`); an href
+    back means the link renders as an anchor, undefined means it renders as
+    the plain display text this module has always emitted.
+
+    Print and the handoff document pass none — a PDF and a one-note page have
+    no vault to link into. The site exporter passes a resolver scoped to its
+    published set, which is what keeps a published page from pointing at, or
+    confirming the existence of, a note that was not published. */
+export type LinkHref = (inner: string) => string | undefined;
+
+export interface PrintOptions {
+  linkHref?: LinkHref;
+}
+
+const CHIP_ORDER = ["type", "status", "cat#", "artist", "category", "created"];
+
+/** A note's props as the one-line chip strip under the title: the keys the
+    app leads with first, everything else alphabetical, `title` dropped
+    because the heading above already says it. Shared by the PDF surface, the
+    handoff document and the site exporter so all three read alike. */
+export function propsLine(props: Record<string, unknown>): string {
+  const keys = Object.keys(props).filter((k) => k !== "title");
+  keys.sort((a, b) => {
+    const ia = CHIP_ORDER.indexOf(a);
+    const ib = CHIP_ORDER.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a.localeCompare(b);
+  });
+  return keys
+    .map((k) => `${escapeHtml(k)}: ${escapeHtml(propStr(props, k) ?? "")}`)
+    .join('<span class="print-sep"> · </span>');
+}
+
 /** An embed's size as a ready-to-concatenate ` style="…"` attribute, empty
     when the embed asked for no size. The values are digits from
     {@link embedSize}, so nothing here can carry markup out of the note. */
@@ -53,7 +87,7 @@ function sizeAttr(size: EmbedSize | null): string {
   return parts.length ? ` style="${parts.join(";")}"` : "";
 }
 
-function inline(raw: string, assetSrc: AssetSrc): string {
+function inline(raw: string, assetSrc: AssetSrc, opts: PrintOptions): string {
   // split out code spans first so no other rule fires inside them
   return raw
     .split(/(`[^`]*`)/)
@@ -82,10 +116,15 @@ function inline(raw: string, assetSrc: AssetSrc): string {
       // display text when they wrote one, else the target with its anchor.
       // The segment is escaped by now, but `|` and `#` survive escaping, so
       // splitting the escaped text finds the same parts.
-      s = s.replace(
-        /\[\[([^[\]]+)\]\]/g,
-        (_m, inner: string) => `<span class="print-link">${wikiLinkDisplay(inner)}</span>`,
-      );
+      s = s.replace(/\[\[([^[\]]+)\]\]/g, (_m, inner: string) => {
+        const label = wikiLinkDisplay(inner);
+        // the resolver matches against real note titles, so it is handed the
+        // unescaped inner text — the same treatment an embed name gets above
+        const href = opts.linkHref?.(unescapeHtml(inner));
+        return href
+          ? `<a class="print-link" href="${escapeHtml(href)}">${label}</a>`
+          : `<span class="print-link">${label}</span>`;
+      });
       // one level of balanced parens in the destination: Wikipedia
       // -style URLs (…/A_(b)) would otherwise truncate at the first ")"
       s = s.replace(
@@ -100,7 +139,11 @@ function inline(raw: string, assetSrc: AssetSrc): string {
     .join("");
 }
 
-export function renderPrintBody(md: string, assetSrc: AssetSrc): string {
+export function renderPrintBody(
+  md: string,
+  assetSrc: AssetSrc,
+  opts: PrintOptions = {}
+): string {
   // a printed note may have come from anywhere (a paste, a synced file), so
   // CRLF is normalized here rather than in the scanner — CRLF is the caller's
   // business: the scanner splits on "\n" only, and the hub hands note bodies
@@ -114,29 +157,29 @@ export function renderPrintBody(md: string, assetSrc: AssetSrc): string {
       // code box the note's author typed
       out.push(`<pre><code>${escapeHtml(block.inner)}</code></pre>`);
     } else if (block.kind === "heading") {
-      out.push(`<h${block.level}>${inline(block.text, assetSrc)}</h${block.level}>`);
+      out.push(`<h${block.level}>${inline(block.text, assetSrc, opts)}</h${block.level}>`);
     } else if (block.kind === "hr") {
       out.push("<hr>");
     } else if (block.kind === "quote") {
-      out.push(`<blockquote>${renderPrintBody(block.inner, assetSrc)}</blockquote>`);
+      out.push(`<blockquote>${renderPrintBody(block.inner, assetSrc, opts)}</blockquote>`);
     } else if (block.kind === "table") {
-      const th = block.head.map((c) => `<th>${inline(c, assetSrc)}</th>`).join("");
+      const th = block.head.map((c) => `<th>${inline(c, assetSrc, opts)}</th>`).join("");
       const trs = block.rows
-        .map((r) => `<tr>${r.map((c) => `<td>${inline(c, assetSrc)}</td>`).join("")}</tr>`)
+        .map((r) => `<tr>${r.map((c) => `<td>${inline(c, assetSrc, opts)}</td>`).join("")}</tr>`)
         .join("");
       out.push(`<table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`);
     } else if (block.kind === "list") {
       const items = block.items
         .map((item) =>
           item.done === null
-            ? `<li>${inline(item.text, assetSrc)}</li>`
-            : `<li class="print-task${item.done ? " done" : ""}"><span class="print-box">${item.done ? "✓" : ""}</span>${inline(item.text, assetSrc)}</li>`
+            ? `<li>${inline(item.text, assetSrc, opts)}</li>`
+            : `<li class="print-task${item.done ? " done" : ""}"><span class="print-box">${item.done ? "✓" : ""}</span>${inline(item.text, assetSrc, opts)}</li>`
         )
         .join("");
       const tag = block.ordered ? "ol" : "ul";
       out.push(`<${tag}>${items}</${tag}>`);
     } else {
-      out.push(`<p>${block.lines.map((l) => inline(l, assetSrc)).join("<br>")}</p>`);
+      out.push(`<p>${block.lines.map((l) => inline(l, assetSrc, opts)).join("<br>")}</p>`);
     }
   }
   return out.join("\n");
