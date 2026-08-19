@@ -95,6 +95,7 @@ pub(crate) fn finish_inherited_seal<T>(
     operation
 }
 
+
 /// Select only source paths whose stable within-folder suffix appears among
 /// the converted destination paths. Mixed sealed/plaintext folder moves then
 /// keep ciphertext-only history for notes that did not need conversion.

@@ -1054,6 +1054,7 @@ export interface HistoryVaultSnapshot {
   folder_meta: FolderMetaMap;
 }
 
+
 export interface DiffLine {
   kind: "add" | "del" | "ctx" | "hunk";
   text: string;

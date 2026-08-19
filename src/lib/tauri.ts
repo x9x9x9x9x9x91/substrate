@@ -100,6 +100,8 @@ const HISTORY_MODE_COMMANDS = new Set([
   "history_facts",
   "history_freshness",
   "history_sheets",
+  /* change-set READS only — review renders the base side while the surface is
+     up; starting, accepting and discarding are writes and stay out */
   /* vault reads — served either from the projection (ipc.ts) or live */
   "vault_root",
   "vault_list",
@@ -606,6 +608,7 @@ interface MockSnap {
   subject: string;
   body: string;
 }
+
 
 const mockHistory = new Map<string, MockSnap[]>(); // newest first
 let mockSnapSeq = 0;
