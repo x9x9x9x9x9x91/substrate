@@ -6257,7 +6257,7 @@ mod tests {
     fn config_writes_record_the_format_version() {
         let (e, dir) = temp_vault("fmtstamp");
         // a fresh vault has no sidecar; every file reads as v1 regardless
-        for f in crate::vaultfmt::VaultFile::ALL {
+        for &f in crate::vaultfmt::VaultFile::ALL {
             assert_eq!(crate::vaultfmt::on_disk_version(&dir, f), 1, "{}", f.key());
         }
         e.create_type("books", Vec::new()).unwrap();

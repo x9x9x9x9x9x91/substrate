@@ -77,6 +77,7 @@ function harness(opts: {
           conflicted: opts.conflicted ?? [],
           privacy_error: null,
           privacy_paths: [],
+          notice: null,
         };
       },
       push: async () => {

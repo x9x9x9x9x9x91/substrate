@@ -18,7 +18,7 @@
 //! closes. That is a smaller thing to review than a dependency tree, which is
 //! the point on a host that is exposed to the internet.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -197,6 +197,237 @@ impl Drop for LiveConnection {
     }
 }
 
+/// The object names this store has accepted, in acceptance order, plus the
+/// identity of the run of names they belong to.
+///
+/// It exists so a client can ask "what is new since I last looked" instead of
+/// downloading the whole name list on every push. That is only safe if the
+/// answer can never be a lie by omission, so two rules hold it up.
+///
+/// The first: **a complete listing is always ground truth.** Every answer that
+/// is not a delta reconciles the journal against the objects directory first —
+/// names on disk the journal never recorded are appended, and a name whose
+/// object has gone is dropped and rolls the epoch. A rolled epoch retires every
+/// cursor in the world, so every client falls back to a complete listing and
+/// re-learns what the store actually holds. An object lost while the server is
+/// running is therefore corrected by the next push that lists completely,
+/// exactly as it was when a listing was nothing but a directory scan — and a
+/// client that skipped an upload on the strength of a cached name is told. A
+/// device that only ever asks incrementally would never reach that correction,
+/// so a download that finds a listed name gone reconciles too: that 404 is the
+/// one moment such a device hands the store the evidence.
+///
+/// The second: **opening this store begins a new run of names.** The epoch is
+/// drawn fresh at random every time the store is opened and is never written
+/// down, so no cursor issued before a restart can be honored after it. That
+/// costs each client one complete listing per restart and buys the one thing
+/// nothing inside the storage directory can otherwise detect: a restore. A
+/// backup restored consistently — objects and journal together, which is
+/// exactly what `deploy/README.md` asks for — is indistinguishable from a
+/// store that is simply younger, because every marker that could give it away
+/// was restored with it. Nothing on disk catches that; a per-run epoch makes
+/// it harmless, since the journal can only regrow into positions no
+/// outstanding cursor is allowed to name.
+///
+/// Random rather than a counter kept beside the journal, because a counter is
+/// exactly as restorable as the names it guards: a consistent restore rewinds
+/// it, the restart's increment re-issues a number already handed out, and a
+/// cursor from that earlier run is then honored against positions that now
+/// name different objects — the silent permanent skip this whole rule exists
+/// to prevent. The same holds for a counter file that goes missing or
+/// unreadable, and for a bump that fails to reach the disk. A value with
+/// nothing to rewind has none of those cases: 128 bits make a repeat across
+/// two opens something that does not happen, and the epoch is only ever
+/// compared for equality, never ordered.
+///
+/// The cursor is `<epoch>.<count>` and is opaque to clients: it names a
+/// position in this list, not a time, and carries nothing the name list does
+/// not already.
+struct Journal {
+    path: PathBuf,
+    epoch: String,
+    names: Vec<String>,
+    present: HashSet<String>,
+}
+
+impl Journal {
+    fn open(root: &Path, objects: &Path) -> Result<Self, String> {
+        let path = root.join("list-journal");
+        let epoch = fresh_epoch();
+
+        let recorded = fs::read_to_string(&path).unwrap_or_default();
+        let mut names: Vec<String> = Vec::new();
+        let mut present: HashSet<String> = HashSet::new();
+        // A line this parse cannot take at face value — junk, a repeat, a
+        // half-written tail from a crash — shifts every position after it, and
+        // that is only harmless because the epoch above has already retired
+        // every cursor those positions could be compared against.
+        for line in recorded.lines() {
+            let line = line.trim();
+            if is_object_name(line) && present.insert(line.to_string()) {
+                names.push(line.to_string());
+            }
+        }
+        let verbatim = recorded.len() == names.iter().map(|name| name.len() + 1).sum::<usize>();
+
+        let mut journal = Self { path, epoch, names, present };
+        if !journal.reconcile(objects)? && !verbatim {
+            journal.rewrite()?;
+        }
+        Ok(journal)
+    }
+
+    /// Bring the journal back in line with the objects directory, which is the
+    /// only place the store's contents actually are. Answers whether the file
+    /// had to be rewritten.
+    ///
+    /// Run before every complete listing and on any download that finds a
+    /// listed name gone, not only at startup: an object that disappears
+    /// mid-run would otherwise stay listed until a restart, and a client
+    /// believing a name it can no longer download is exactly the state this
+    /// whole mechanism exists to prevent.
+    fn reconcile(&mut self, objects: &Path) -> Result<bool, String> {
+        let mut on_disk: Vec<String> = Vec::new();
+        for entry in fs::read_dir(objects)
+            .map_err(|error| format!("could not scan objects: {error}"))?
+        {
+            let entry = entry.map_err(|error| format!("could not scan objects: {error}"))?;
+            if !entry.file_type().map(|kind| kind.is_file()).unwrap_or(false) {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy().into_owned();
+            // Skips staging files; a name that is not valid hex was never
+            // written by a client and is not something to hand back as one.
+            if is_object_name(&name) {
+                on_disk.push(name);
+            }
+        }
+        on_disk.sort();
+        let live: HashSet<&String> = on_disk.iter().collect();
+
+        // Order matters here: the shrink check has to happen before the
+        // additions, or a store that lost objects and gained others would look
+        // like ordinary growth.
+        let lost = self.names.iter().any(|name| !live.contains(name));
+        let mut rewrite = false;
+        if lost {
+            self.names.retain(|name| live.contains(name));
+            self.present = self.names.iter().cloned().collect();
+            // A fresh draw, for the same reason opening the store takes one:
+            // there is no number here to advance and so none to rewind, and
+            // the roll cannot half-happen by failing to reach the disk.
+            self.epoch = fresh_epoch();
+            rewrite = true;
+        }
+        for name in on_disk {
+            if self.present.insert(name.clone()) {
+                self.names.push(name);
+                rewrite = true;
+            }
+        }
+        if rewrite {
+            self.rewrite()?;
+        }
+        Ok(rewrite)
+    }
+
+    fn rewrite(&self) -> Result<(), String> {
+        let mut body = String::with_capacity(self.names.len() * (OBJECT_NAME_LEN + 1));
+        for name in &self.names {
+            body.push_str(name);
+            body.push('\n');
+        }
+        write_durable(&self.path, body.as_bytes())
+    }
+
+    /// Called once per newly stored object, while the write is still allowed to
+    /// fail the request: an object whose name never reached the journal would
+    /// be invisible to every incremental client until the next restart.
+    fn record(&mut self, name: &str) -> Result<(), String> {
+        if !self.present.insert(name.to_string()) {
+            return Ok(());
+        }
+        let appended = (|| {
+            let mut file = OpenOptions::new().append(true).create(true).open(&self.path)?;
+            file.write_all(format!("{name}\n").as_bytes())?;
+            file.sync_all()
+        })();
+        if let Err(error) = appended {
+            self.present.remove(name);
+            return Err(format!("could not record the object name: {error}"));
+        }
+        self.names.push(name.to_string());
+        Ok(())
+    }
+
+    fn cursor(&self) -> String {
+        format!("{}.{}", self.epoch, self.names.len())
+    }
+
+    /// The names added after `cursor`, or `None` when this store cannot honor
+    /// it — a different epoch, or a position past the end. `None` is not an
+    /// error: the caller answers it with the complete listing.
+    fn since(&self, cursor: &str) -> Option<&[String]> {
+        let (epoch, position) = cursor.rsplit_once('.')?;
+        if epoch != self.epoch {
+            return None;
+        }
+        let position: usize = position.parse().ok()?;
+        self.names.get(position..)
+    }
+}
+
+/// A name for one run of the name list: 128 random bits as hex, drawn on every
+/// open and on every loss, never stored.
+///
+/// The operating system's pool is the source. If it cannot be read — which on
+/// the hosts this server is meant for does not happen — the fallback mixes the
+/// clock, the process id, and an address this run's allocator chose, which is
+/// weaker as a random number but still overwhelmingly unequal between two
+/// opens, and unequal is the whole requirement: the epoch is compared for
+/// equality and nothing else, and a client whose cursor is not honored is
+/// answered with a complete listing rather than an error.
+fn fresh_epoch() -> String {
+    let mut bytes = [0u8; 16];
+    let read = File::open("/dev/urandom").and_then(|mut file| file.read_exact(&mut bytes));
+    if read.is_err() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|since| since.as_nanos())
+            .unwrap_or(0);
+        let boxed = Box::new(0u8);
+        let address = &*boxed as *const u8 as usize as u128;
+        let mixed = nanos ^ (address << 41) ^ ((std::process::id() as u128) << 83);
+        bytes = mixed.to_le_bytes();
+    }
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn is_object_name(name: &str) -> bool {
+    name.len() == OBJECT_NAME_LEN
+        && name.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// Write a whole small file and flush it plus its directory entry, so a name
+/// list that survives a `201` also survives losing power.
+fn write_durable(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let temporary = path.with_extension("tmp");
+    let staged = (|| {
+        let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(&temporary)?;
+        file.write_all(bytes)?;
+        file.sync_all()
+    })();
+    if let Err(error) = staged {
+        let _ = fs::remove_file(&temporary);
+        return Err(format!("could not stage the name list: {error}"));
+    }
+    if let Err(error) = fs::rename(&temporary, path) {
+        let _ = fs::remove_file(&temporary);
+        return Err(format!("could not publish the name list: {error}"));
+    }
+    sync_directory_of(path)
+}
+
 /// Ciphertext storage. The CAS mutex is what makes the ref linearizable across
 /// this process's connection threads; running two server processes over one
 /// storage directory is not supported and would break that guarantee.
@@ -206,6 +437,7 @@ struct Store {
     key_path: PathBuf,
     token: String,
     cas: Mutex<()>,
+    journal: Mutex<Journal>,
     counter: AtomicU64,
 }
 
@@ -230,12 +462,14 @@ impl Store {
         let objects = config.storage.join("objects");
         fs::create_dir_all(&objects)
             .map_err(|error| format!("could not create the storage directory: {error}"))?;
+        let journal = Journal::open(&config.storage, &objects)?;
         Ok(Self {
             objects,
             ref_path: config.storage.join("ref"),
             key_path: config.storage.join("key"),
             token: config.token,
             cas: Mutex::new(()),
+            journal: Mutex::new(journal),
             counter: AtomicU64::new(0),
         })
     }
@@ -274,26 +508,43 @@ impl Store {
         self.objects.join(format!(".tmp-{label}-{}-{ordinal}", std::process::id()))
     }
 
-    fn list_objects(&self) -> Result<Vec<String>, String> {
-        let mut names = Vec::new();
-        for entry in fs::read_dir(&self.objects)
-            .map_err(|error| format!("could not list objects: {error}"))?
+    /// The complete name list plus the cursor that names its end, read under
+    /// one lock so the two cannot disagree: a client that stores this cursor
+    /// has seen exactly the names it covers, never one fewer.
+    ///
+    /// Sorted rather than in acceptance order, because that is what the route
+    /// has always answered and a client may still be comparing sets.
+    ///
+    /// Reconciled against the objects directory before it answers: a complete
+    /// listing is the one answer clients are entitled to treat as the whole
+    /// truth, so it names what is on disk and nothing else, and an object that
+    /// has gone missing since the last one retires every cursor on its way out.
+    fn list_objects(&self) -> Result<Listing, String> {
+        let mut journal = self.journal.lock().unwrap_or_else(|error| error.into_inner());
+        journal.reconcile(&self.objects)?;
+        let mut names = journal.names.clone();
+        names.sort();
+        Ok(Listing { names, cursor: journal.cursor(), incremental: false })
+    }
+
+    /// The names accepted after `cursor`. A cursor this store cannot honor —
+    /// another store's, or one from before an epoch roll — quietly becomes a
+    /// complete listing, so a client is never left holding a stale view it
+    /// believes is current.
+    ///
+    /// The delta itself is answered from the journal without touching the
+    /// objects directory, which is the whole point of it: the complete listing
+    /// this client already has was ground truth when it was taken, and the
+    /// next complete listing will be again.
+    fn list_objects_since(&self, cursor: &str) -> Result<Listing, String> {
         {
-            let entry = entry.map_err(|error| format!("could not list objects: {error}"))?;
-            if !entry.file_type().map(|kind| kind.is_file()).unwrap_or(false) {
-                continue;
-            }
-            let name = entry.file_name().to_string_lossy().into_owned();
-            // Skips staging files; a name that is not valid hex was never
-            // written by a client and is not something to hand back as one.
-            if name.len() == OBJECT_NAME_LEN
-                && name.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-            {
-                names.push(name);
+            let journal = self.journal.lock().unwrap_or_else(|error| error.into_inner());
+            if let Some(added) = journal.since(cursor) {
+                let names = added.to_vec();
+                return Ok(Listing { names, cursor: journal.cursor(), incremental: true });
             }
         }
-        names.sort();
-        Ok(names)
+        self.list_objects()
     }
 
     fn read_object(&self, name: &str) -> Result<Option<Vec<u8>>, String> {
@@ -305,9 +556,37 @@ impl Store {
                     .map_err(|error| format!("could not read object: {error}"))?;
                 Ok(Some(bytes))
             }
-            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                self.note_absent_object(name);
+                Ok(None)
+            }
             Err(error) => Err(format!("could not read object: {error}")),
         }
+    }
+
+    /// A name this store lists but cannot serve is the one moment a device
+    /// that only ever asks incrementally gives the store a chance to notice a
+    /// loss, so the loss is acted on here rather than waited out.
+    ///
+    /// Without it "an object that goes missing is corrected by the next
+    /// complete listing" is only true of devices that ask completely, and a
+    /// device pushing incrementally forever would be told the name is there
+    /// for the whole life of the process — skipping the upload that would have
+    /// repaired it. Reconciling drops the name and rolls the epoch, so that
+    /// device's next listing is a complete one and re-learns what is really
+    /// held.
+    ///
+    /// A 404 for a name the journal never had is an ordinary miss — a client
+    /// asking for something that was never uploaded — and costs nothing: the
+    /// directory is only scanned when the journal disagrees with the disk.
+    fn note_absent_object(&self, name: &str) {
+        let mut journal = self.journal.lock().unwrap_or_else(|error| error.into_inner());
+        if !journal.present.contains(name) {
+            return;
+        }
+        // Best effort on purpose: this runs inside a 404 that is already the
+        // honest answer, and a scan that fails must not turn it into a 500.
+        let _ = journal.reconcile(&self.objects);
     }
 
     /// Immutable and idempotent (protocol §2): a name that already exists keeps
@@ -332,6 +611,10 @@ impl Store {
             if existing.len() != bytes.len() as u64 {
                 return Ok(ObjectWrite::LengthMismatch);
             }
+            // Recorded even here: a crash between the hard link and the append
+            // below leaves an object on disk that no incremental client can
+            // see, and the client's retry is the cheapest place to heal it.
+            self.record_name(name)?;
             return Ok(ObjectWrite::AlreadyPresent);
         }
         let temporary = self.temporary("object");
@@ -352,7 +635,16 @@ impl Store {
             Err(error) => Err(format!("could not publish object: {error}")),
         };
         let _ = fs::remove_file(&temporary);
-        published
+        let published = published?;
+        // After the object is durable and before the request is answered: a
+        // name the client is told about must already be one the next
+        // incremental listing will carry.
+        self.record_name(name)?;
+        Ok(published)
+    }
+
+    fn record_name(&self, name: &str) -> Result<(), String> {
+        self.journal.lock().unwrap_or_else(|error| error.into_inner()).record(name)
     }
 
     fn read_ref(&self) -> Result<Option<(String, Vec<u8>)>, String> {
@@ -437,6 +729,15 @@ enum ObjectWrite {
     /// The name is taken by bytes that cannot be another encryption of the
     /// same object — see [`Store::write_object`].
     LengthMismatch,
+}
+
+/// One answer to LIST: the names, the cursor that names the position they end
+/// at, and whether the names are everything the store holds or only what was
+/// added after the cursor the caller sent.
+struct Listing {
+    names: Vec<String>,
+    cursor: String,
+    incremental: bool,
 }
 
 /// Flush the directory entry a link or rename just created.
@@ -610,19 +911,36 @@ fn read_request(stream: &mut TcpStream, store: &Store) -> Result<Request, Respon
 }
 
 fn handle(request: &Request, store: &Store) -> Response {
-    let target = request.target.as_str();
+    // The only route that takes a query is LIST, and splitting here keeps every
+    // other route matching on a bare path exactly as it did before.
+    let (path, query) = match request.target.split_once('?') {
+        Some((path, query)) => (path, Some(query)),
+        None => (request.target.as_str(), None),
+    };
     let method = request.method.as_str();
 
-    match (method, target) {
+    match (method, path) {
         ("GET", "/v1/health") => Response::new(200, "OK").with_body("text/plain", b"ok".to_vec()),
 
-        ("GET", "/v1/objects") => match store.list_objects() {
-            Ok(names) => {
-                let body = names.join("\n").into_bytes();
-                Response::new(200, "OK").with_body("text/plain; charset=utf-8", body)
+        ("GET", "/v1/objects") => {
+            let listed = match query.and_then(query_value_since) {
+                Some(cursor) => store.list_objects_since(&cursor),
+                None => store.list_objects(),
+            };
+            match listed {
+                Ok(listing) => {
+                    let body = listing.names.join("\n").into_bytes();
+                    Response::new(200, "OK")
+                        .with_header("X-Substrate-List-Cursor", listing.cursor)
+                        .with_header(
+                            "X-Substrate-List-Mode",
+                            if listing.incremental { "incremental" } else { "full" },
+                        )
+                        .with_body("text/plain; charset=utf-8", body)
+                }
+                Err(_) => Response::error(500, "Internal Server Error"),
             }
-            Err(_) => Response::error(500, "Internal Server Error"),
-        },
+        }
 
         ("GET", "/v1/ref") => handle_document_get(store.read_ref()),
 
@@ -640,8 +958,23 @@ fn handle(request: &Request, store: &Store) -> Response {
             handle_document_put(request, |expected, bytes| store.compare_and_swap_key(expected, bytes))
         }
 
-        _ => handle_object(request, store),
+        _ => handle_object(path, request, store),
     }
+}
+
+/// The one query parameter this server understands. Anything else in the query
+/// string is ignored rather than refused: a proxy appending its own parameter
+/// must not turn a listing into an error.
+///
+/// The value is only ever compared against this store's own cursors, so a
+/// hostile one cannot do more than force a complete listing — but it is length
+/// capped anyway, because it arrives before any of that.
+fn query_value_since(query: &str) -> Option<String> {
+    let value = query.split('&').find_map(|pair| pair.strip_prefix("since="))?;
+    if value.is_empty() || value.len() > 128 {
+        return None;
+    }
+    Some(value.to_string())
 }
 
 fn handle_document_get(read: Result<Option<(String, Vec<u8>)>, String>) -> Response {
@@ -690,8 +1023,8 @@ fn handle_document_put(
     }
 }
 
-fn handle_object(request: &Request, store: &Store) -> Response {
-    let Some(name) = request.target.strip_prefix("/v1/objects/") else {
+fn handle_object(path: &str, request: &Request, store: &Store) -> Response {
+    let Some(name) = path.strip_prefix("/v1/objects/") else {
         return Response::error(404, "Not Found");
     };
     if store.object_path(name).is_none() {
@@ -788,6 +1121,21 @@ mod tests {
         base
     }
 
+    /// A backup and a restore: every file under `from` appears under `to`,
+    /// which is what an operator's snapshot tool does to a storage root.
+    fn copy_tree(from: &Path, to: &Path) {
+        fs::create_dir_all(to).unwrap();
+        for entry in fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let target = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_tree(&entry.path(), &target);
+            } else {
+                fs::copy(entry.path(), target).unwrap();
+            }
+        }
+    }
+
     fn store(label: &str) -> (Store, PathBuf) {
         let root = scratch(label);
         let store = Store::new(Config {
@@ -847,7 +1195,7 @@ mod tests {
             ObjectWrite::AlreadyPresent
         ));
         assert_eq!(store.read_object(&name).unwrap().unwrap(), b"first!");
-        assert_eq!(store.list_objects().unwrap(), vec![name]);
+        assert_eq!(store.list_objects().unwrap().names, vec![name]);
     }
 
     #[test]
@@ -876,7 +1224,326 @@ mod tests {
         store.write_object(&name('c'), b"kept").unwrap();
         fs::write(root.join("objects").join(".tmp-object-1-0"), b"staged").unwrap();
         fs::write(root.join("objects").join("README"), b"noise").unwrap();
-        assert_eq!(store.list_objects().unwrap(), vec![name('c')]);
+        assert_eq!(store.list_objects().unwrap().names, vec![name('c')]);
+    }
+
+    #[test]
+    fn a_cursor_returns_only_what_was_added_after_it() {
+        let (store, _root) = store("cursor");
+        store.write_object(&name('a'), b"one").unwrap();
+        let first = store.list_objects().unwrap();
+        assert_eq!(first.names, vec![name('a')]);
+        assert!(!first.incremental);
+
+        // Nothing new yet: an honored cursor with no additions is an empty
+        // incremental answer, not a full listing.
+        let idle = store.list_objects_since(&first.cursor).unwrap();
+        assert!(idle.incremental);
+        assert!(idle.names.is_empty());
+        assert_eq!(idle.cursor, first.cursor);
+
+        store.write_object(&name('b'), b"two").unwrap();
+        let delta = store.list_objects_since(&first.cursor).unwrap();
+        assert!(delta.incremental);
+        assert_eq!(delta.names, vec![name('b')]);
+        assert_ne!(delta.cursor, first.cursor);
+        // And the full listing still carries everything.
+        assert_eq!(store.list_objects().unwrap().names, vec![name('a'), name('b')]);
+    }
+
+    #[test]
+    fn a_cursor_from_elsewhere_or_from_the_future_falls_back_to_a_full_listing() {
+        let (store, _root) = store("badcursor");
+        store.write_object(&name('a'), b"one").unwrap();
+        for cursor in ["", "nonsense", "0000000000000000.1", "0000000000000000.99"] {
+            let listing = store.list_objects_since(cursor).unwrap();
+            assert!(!listing.incremental, "{cursor} was honored");
+            assert_eq!(listing.names, vec![name('a')], "{cursor}");
+        }
+        // The store's own epoch with a position past the end is equally
+        // unhonorable: it would silently hide names.
+        let epoch = store.list_objects().unwrap().cursor;
+        let (epoch, _) = epoch.rsplit_once('.').unwrap();
+        assert!(!store.list_objects_since(&format!("{epoch}.7")).unwrap().incremental);
+    }
+
+    /// A restart is the one event a restored backup cannot happen without, and
+    /// nothing inside the storage directory tells the two apart — so opening
+    /// the store retires every cursor it ever issued, and the first listing
+    /// after a restart re-arms the client.
+    #[test]
+    fn a_restart_retires_every_cursor_and_the_next_full_listing_re_arms_them() {
+        let root = scratch("restart");
+        let config =
+            Config { storage: root.clone(), token: "0123456789abcdef-token".into() };
+        let store = Store::new(config.clone()).unwrap();
+        store.write_object(&name('a'), b"one").unwrap();
+        let cursor = store.list_objects().unwrap().cursor;
+        drop(store);
+
+        let store = Store::new(config.clone()).unwrap();
+        let after = store.list_objects_since(&cursor).unwrap();
+        assert!(!after.incremental, "a cursor outlived the run that issued it");
+        assert_eq!(after.names, vec![name('a')], "the fallback listing lost a name");
+        // The listing it fell back to is immediately usable, so a client pays
+        // one complete listing per restart and nothing else.
+        let cursor = after.cursor;
+        store.write_object(&name('b'), b"two").unwrap();
+        let delta = store.list_objects_since(&cursor).unwrap();
+        assert!(delta.incremental);
+        assert_eq!(delta.names, vec![name('b')]);
+    }
+
+    /// The failure a per-run epoch exists for, driven the way it actually
+    /// happens: the storage root is backed up, the store keeps taking objects,
+    /// and the backup is restored over it whole. Every marker inside the root
+    /// went back with it, so nothing on disk can tell the restored store from
+    /// a younger one — and a cursor from before the backup names positions
+    /// that now hold different names. Only a run identity that was never
+    /// written down refuses it.
+    #[test]
+    fn a_storage_root_restored_whole_refuses_the_cursors_issued_before_the_backup() {
+        let root = scratch("restored");
+        let backup = scratch("restored-backup");
+        let config = Config { storage: root.clone(), token: "0123456789abcdef-token".into() };
+        let store = Store::new(config.clone()).unwrap();
+        store.write_object(&name('a'), b"one").unwrap();
+        let cursor = store.list_objects().unwrap().cursor;
+        copy_tree(&root, &backup);
+        // The store goes on taking objects the backup knows nothing about.
+        store.write_object(&name('b'), b"two").unwrap();
+        drop(store);
+
+        fs::remove_dir_all(&root).unwrap();
+        copy_tree(&backup, &root);
+        let store = Store::new(config).unwrap();
+        let after = store.list_objects_since(&cursor).unwrap();
+        assert!(!after.incremental, "a cursor survived the root being restored under it");
+        assert_eq!(after.names, vec![name('a')]);
+    }
+
+    /// Two opens over the very same bytes are two runs. Nothing in the storage
+    /// root decides this, which is what makes the rule survive a restore.
+    #[test]
+    fn two_opens_over_one_storage_root_are_never_the_same_run() {
+        let root = scratch("tworuns");
+        let config = Config { storage: root, token: "0123456789abcdef-token".into() };
+        let first = Store::new(config.clone()).unwrap();
+        first.write_object(&name('a'), b"one").unwrap();
+        let first_epoch =
+            first.list_objects().unwrap().cursor.rsplit_once('.').unwrap().0.to_string();
+        drop(first);
+
+        let second = Store::new(config).unwrap();
+        let second_epoch =
+            second.list_objects().unwrap().cursor.rsplit_once('.').unwrap().0.to_string();
+        assert_ne!(first_epoch, second_epoch, "the second run reused the first run's name");
+        assert_eq!(first_epoch.len(), 32, "an epoch is 128 bits of hex");
+    }
+
+    /// The reason the complete listing is reconciled rather than served
+    /// straight from the journal: an object can go missing while the server is
+    /// up, and a client with no cache at all would otherwise be told the name
+    /// is there, skip the upload, and publish a ref the store cannot serve.
+    #[test]
+    fn an_object_that_disappears_mid_run_leaves_the_listing_and_retires_cursors() {
+        let (store, root) = store("midrun");
+        store.write_object(&name('a'), b"one").unwrap();
+        store.write_object(&name('b'), b"two").unwrap();
+        let cursor = store.list_objects().unwrap().cursor;
+
+        fs::remove_file(root.join("objects").join(name('a'))).unwrap();
+
+        let listing = store.list_objects().unwrap();
+        assert_eq!(listing.names, vec![name('b')], "a listing named an object the store lost");
+        assert_ne!(listing.cursor, cursor, "the epoch did not roll");
+        let after = store.list_objects_since(&cursor).unwrap();
+        assert!(!after.incremental, "a cursor survived an object disappearing");
+        assert_eq!(after.names, vec![name('b')]);
+
+        // And the name is uploadable again: nothing about the loss left the
+        // store refusing to accept it.
+        store.write_object(&name('a'), b"one again").unwrap();
+        assert_eq!(store.list_objects().unwrap().names, vec![name('a'), name('b')]);
+    }
+
+    /// The same loss, in the order a device that only ever asks incrementally
+    /// meets it: it never asks completely, so nothing about its listing can
+    /// notice — the download it makes on the strength of the name is the only
+    /// evidence the store gets, and it has to be enough.
+    #[test]
+    fn a_loss_reaches_a_client_that_only_ever_asks_incrementally() {
+        let (store, root) = store("incrementalonly");
+        store.write_object(&name('a'), b"one").unwrap();
+        store.write_object(&name('b'), b"two").unwrap();
+        let cursor = store.list_objects().unwrap().cursor;
+
+        fs::remove_file(root.join("objects").join(name('a'))).unwrap();
+
+        // The incremental ask, first and alone: honored, and it still names
+        // nothing wrong — the store has had no reason to look at the disk.
+        let delta = store.list_objects_since(&cursor).unwrap();
+        assert!(delta.incremental);
+        assert!(delta.names.is_empty());
+
+        // The download the client makes because it believes the name.
+        assert!(store.read_object(&name('a')).unwrap().is_none());
+
+        // From here it is told the truth without ever having asked completely.
+        let after = store.list_objects_since(&delta.cursor).unwrap();
+        assert!(!after.incremental, "the cursor outlived a download that found nothing");
+        assert_eq!(after.names, vec![name('b')]);
+    }
+
+    /// The ordinary miss: a name nobody ever uploaded costs a 404 and nothing
+    /// else — no epoch roll, so a client asking for something that was never
+    /// there cannot push every other device back onto complete listings.
+    #[test]
+    fn a_download_of_a_name_the_store_never_held_retires_nothing() {
+        let (store, _root) = store("unknownmiss");
+        store.write_object(&name('a'), b"one").unwrap();
+        let cursor = store.list_objects().unwrap().cursor;
+
+        assert!(store.read_object(&name('f')).unwrap().is_none());
+
+        let after = store.list_objects_since(&cursor).unwrap();
+        assert!(after.incremental, "a miss on a name the store never listed retired a cursor");
+        assert!(after.names.is_empty());
+    }
+
+    /// A restore that puts back an older journal beside objects that are all
+    /// still present: nothing is missing from disk, so the loss check has
+    /// nothing to say, and the positions a client holds now name different
+    /// names than they did. Only the per-run epoch catches this.
+    #[test]
+    fn a_journal_rolled_back_behind_the_store_refuses_the_cursors_it_issued() {
+        let root = scratch("restore");
+        let config =
+            Config { storage: root.clone(), token: "0123456789abcdef-token".into() };
+        let store = Store::new(config.clone()).unwrap();
+        store.write_object(&name('a'), b"one").unwrap();
+        store.write_object(&name('b'), b"two").unwrap();
+        let cursor = store.list_objects().unwrap().cursor;
+        drop(store);
+
+        // The restore: the journal goes back to naming one object, and every
+        // name it still carries is on disk.
+        fs::write(root.join("list-journal"), format!("{}\n", name('a'))).unwrap();
+        let store = Store::new(config).unwrap();
+        assert!(root.join("objects").join(name('b')).is_file(), "the test lost the wrong file");
+
+        let after = store.list_objects_since(&cursor).unwrap();
+        assert!(!after.incremental, "a cursor survived the journal being rolled back");
+        assert_eq!(after.names, vec![name('a'), name('b')], "the rebuilt listing lost a name");
+    }
+
+    #[test]
+    fn objects_already_on_disk_join_the_journal_at_startup() {
+        // The upgrade case: a store that has been serving the old code has
+        // objects and no journal at all, and its first listing must carry them.
+        let root = scratch("upgrade");
+        fs::create_dir_all(root.join("objects")).unwrap();
+        fs::write(root.join("objects").join(name('e')), b"older").unwrap();
+        let store =
+            Store::new(Config { storage: root, token: "0123456789abcdef-token".into() }).unwrap();
+        let listing = store.list_objects().unwrap();
+        assert_eq!(listing.names, vec![name('e')]);
+        // And that listing's cursor is immediately usable.
+        assert!(store.list_objects_since(&listing.cursor).unwrap().incremental);
+    }
+
+    /// A complete listing that cannot read the objects directory has no ground
+    /// truth to answer from, and the whole contract is that a complete answer
+    /// IS ground truth — so the route fails rather than serving the name list
+    /// it happens to be holding, which a client would treat as the whole story
+    /// and skip uploads against.
+    #[test]
+    fn a_listing_that_cannot_scan_the_store_fails_instead_of_answering() {
+        let root = scratch("scanfails");
+        let mut server = Server::start(
+            "127.0.0.1:0",
+            Config { storage: root.clone(), token: "0123456789abcdef-token".into() },
+        )
+        .unwrap();
+        let stored = exchange(
+            &server,
+            &format!("PUT /v1/objects/{} HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer 0123456789abcdef-token\r\nContent-Length: 3\r\n\r\n", name('a')),
+            b"one",
+        );
+        assert!(stored.starts_with("HTTP/1.1 201"), "{stored}");
+
+        // The directory the listing reconciles against goes away underneath it.
+        fs::remove_dir_all(root.join("objects")).unwrap();
+
+        let listed = exchange(
+            &server,
+            "GET /v1/objects HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer 0123456789abcdef-token\r\n\r\n",
+            b"",
+        );
+        assert!(listed.starts_with("HTTP/1.1 500"), "{listed}");
+        assert!(!listed.contains(&name('a')), "a failed listing leaked the stale name list");
+        server.stop();
+    }
+
+    #[test]
+    fn the_list_route_carries_a_cursor_and_answers_a_since_query() {
+        let mut server = serve("listroute");
+        let stored = exchange(
+            &server,
+            &format!("PUT /v1/objects/{} HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer 0123456789abcdef-token\r\nContent-Length: 3\r\n\r\n", name('a')),
+            b"one",
+        );
+        assert!(stored.starts_with("HTTP/1.1 201"), "{stored}");
+
+        let full = exchange(
+            &server,
+            "GET /v1/objects HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer 0123456789abcdef-token\r\n\r\n",
+            b"",
+        );
+        assert!(full.contains("X-Substrate-List-Mode: full"), "{full}");
+        let cursor = full
+            .split("X-Substrate-List-Cursor: ")
+            .nth(1)
+            .and_then(|rest| rest.split("\r\n").next())
+            .expect("cursor header")
+            .to_string();
+
+        let empty = exchange(
+            &server,
+            &format!("GET /v1/objects?since={cursor} HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer 0123456789abcdef-token\r\n\r\n"),
+            b"",
+        );
+        assert!(empty.contains("X-Substrate-List-Mode: incremental"), "{empty}");
+        assert!(!empty.contains(&name('a')), "{empty}");
+
+        exchange(
+            &server,
+            &format!("PUT /v1/objects/{} HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer 0123456789abcdef-token\r\nContent-Length: 3\r\n\r\n", name('b')),
+            b"two",
+        );
+        let delta = exchange(
+            &server,
+            &format!("GET /v1/objects?since={cursor} HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer 0123456789abcdef-token\r\n\r\n"),
+            b"",
+        );
+        server.stop();
+        assert!(delta.contains("X-Substrate-List-Mode: incremental"), "{delta}");
+        assert!(delta.ends_with(&name('b')), "{delta}");
+        assert!(!delta.contains(&name('a')), "{delta}");
+    }
+
+    #[test]
+    fn a_query_string_does_not_reach_the_object_route() {
+        let mut server = serve("objectquery");
+        // The object routes match on the path only, so a query cannot smuggle
+        // itself into a name and a name is never read with one attached.
+        let response = exchange(
+            &server,
+            &format!("GET /v1/objects/{}?since=x HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer 0123456789abcdef-token\r\n\r\n", name('a')),
+            b"",
+        );
+        server.stop();
+        assert!(response.starts_with("HTTP/1.1 404"), "{response}");
     }
 
     #[test]

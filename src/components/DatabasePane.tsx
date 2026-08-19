@@ -1072,9 +1072,14 @@ export default function DatabasePane({
     return path ? { c, r, path } : null;
   };
 
-  // Coordinates are paint details; note identity is durable. Sorting,
-  // filtering, grouping, and a board drag can all relocate the focused note.
-  // Follow it to its new coordinate, or clear focus when it left the view.
+  // Coordinates are paint details; note identity is durable. ANY data change
+  // can relocate the focused note: a sort or filter the user asked for, a
+  // board drag, grouping — and equally a background sync or a feed refresh
+  // rewriting the rows under a still hand. Follow it to its new coordinate
+  // whatever moved it, or clear focus when it left the view. The focused note
+  // is the user's declared point of interest; keeping it painted is the
+  // contract, and narrowing that to user-driven re-sorts would drop the row
+  // out from under them on every refresh.
   useEffect(() => {
     if (!focus) return;
     if (layout === "board") {
@@ -1096,11 +1101,13 @@ export default function DatabasePane({
     if (focus.c !== c || focus.r !== r) setFocus({ c, r, path: focus.path });
   }, [layout, rows, boardCols, shown.length, focus]);
 
-  // keep the focused cell/card on screen. A windowed table keeps most rows
-  // out of the DOM: when the focused cell isn't rendered, scroll to
-  // its computed offset instead — the same block:"nearest" semantics — and
-  // winSync repaints the window around it (the Enter-to-edit path then finds
-  // the cell). Rendered cells keep the exact pre-windowing behavior.
+  // keep the focused cell/card on screen, whatever moved it there (see the
+  // reconciliation effect above: a sync counts as much as a sort). A windowed
+  // table keeps most rows out of the DOM: when the focused cell isn't
+  // rendered, scroll to its computed offset instead — the same block:"nearest"
+  // semantics — and winSync repaints the window around it (the Enter-to-edit
+  // path then finds the cell). Rendered cells keep the exact pre-windowing
+  // behavior.
   useEffect(() => {
     if (!focus) return;
     const active = document.activeElement;
@@ -1115,7 +1122,15 @@ export default function DatabasePane({
     );
     // A data change renders before the identity-reconciliation effect can
     // update coordinates. Never focus a different note during that frame.
-    if (el?.dataset.focusPath !== focus.path) return;
+    // Only a RENDERED cell carries that identity: outside the painted window
+    // there is no element to check, so an unrendered row falls through to the
+    // computed-offset scroll below rather than bailing (bailing on the absent
+    // element left that whole fallback dead). The cost of falling through is
+    // bounded: the row INDEX may be one frame stale, so the scroll can land a
+    // few rows off. The reconciliation effect re-runs on the very next frame
+    // with the corrected coordinate and this effect scrolls again, so any
+    // mis-scroll is transient rather than a resting state.
+    if (el && el.dataset.focusPath !== focus.path) return;
     if (el) {
       // The composite's focus used to be paint-only: arrows moved the accent
       // class while document.activeElement stayed on <body>. Move real DOM

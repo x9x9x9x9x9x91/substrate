@@ -24,14 +24,20 @@ import SelectMenu, { anchorFrom, type AnchorRect } from "./SelectMenu";
    is autofocused, Enter submits. Destructive sweeps are always explicit
    choices with the affected note count in the label. */
 
-function Card({
+export function Card({
   title,
   children,
   onClose,
+  busy,
 }: {
   title: string;
   children: React.ReactNode;
   onClose: () => void;
+  /** A write is in flight. Esc and a backdrop click stop closing the card
+      while one is: the work does not stop with the card, so dismissing it
+      used to leave a loop writing notes behind a closed dialog and toasting
+      success at the end. The card's own control says how to stop instead. */
+  busy?: boolean;
 }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -40,17 +46,17 @@ function Card({
         // menu itself; swallowing the key here would close the whole dialog
         if (e.target instanceof HTMLElement && e.target.closest(".selmenu")) return;
         e.stopPropagation();
-        onClose();
+        if (!busy) onClose();
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+  }, [onClose, busy]);
   return (
     <div
       className="overlay"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget && !busy) onClose();
       }}
     >
       <div className="dbform" role="dialog" aria-label={title}>

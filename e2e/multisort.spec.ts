@@ -25,6 +25,14 @@ const LIVE_SEEDED = [
   "Field Lines",
   "Quiet Machinery",
 ];
+// the same block ordered by the Name column, i.e. by the ONE collation the
+// table sorts titles with: `sortCollator` in src/lib/dbsort.ts, built as
+// `Intl.Collator(undefined, { numeric: true, sensitivity: "base" })`. The
+// localeCompare call below is that collator's specified equivalent, so this
+// baseline moves with the app's own semantics rather than approximating them
+// — a title with digits or diacritics in it would order the same way here as
+// it does on screen. Ties the sort leaves unresolved are NOT collated at all:
+// they keep the feed order, which is what LIVE_SEEDED above asserts.
 const LIVE_ASC = [...LIVE_SEEDED].sort((a, b) =>
   a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
 );

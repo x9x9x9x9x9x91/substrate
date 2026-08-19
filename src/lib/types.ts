@@ -1066,6 +1066,11 @@ export interface SyncReport {
       that parked. The app rides these in on `vault:pulled` to invalidate
       exactly the undo entries the checkout stepped on (docs/undo.md §3.5). */
   changed: string[];
+  /** Something the sync worked out that is worth saying before it becomes a
+      failure — today, a hosted store approaching the number of encrypted
+      objects one sync can work through. Absent on an ordinary sync. It is not
+      an error: the sync succeeded, and the next one will too. */
+  notice?: string | null;
 }
 
 export interface VaultSyncStatus {
@@ -1083,6 +1088,12 @@ export interface VaultSyncStatus {
   privacy_error: string | null;
   /** The paths whose plaintext that warning is about. */
   privacy_paths: string[];
+  /** The hosted store approaching the number of encrypted objects one sync can
+   * work through. Sticky for the same reason `privacy_error` is: only push can
+   * work it out, `last_result` is replaced by every auto pull, and a warning
+   * riding the report alone is off the pane within one poll interval. A later
+   * push finding the store back under the threshold is what clears it. */
+  notice: string | null;
 }
 
 /** What the user picked for one conflicted path. */

@@ -1615,6 +1615,7 @@ export default function App() {
     [refresh, showToast]
   );
 
+
   // "Mount a folder…": register the mount, bind it here and scan it
   // once, all inside mount_add — then read that one scan's stats back for the
   // dialog to show inline. Nothing is imported: the scan only writes the

@@ -42,6 +42,7 @@ import { MOCK_FX, MOCK_FX_RATES } from "./fx.ts";
 import { MOUNT_EXTRACTED, MOUNT_SCHEME } from "./mounts.ts";
 import { noteOwnWrite } from "./ownwrites.ts";
 import { remapSavedQueryProperty } from "./query.ts";
+import { resolveUnit } from "./units.ts";
 import { isSystemPropName } from "./schemalookup.ts";
 import { isAppFile } from "./settings.ts";
 import { hashKindBundle, parseKindManifest, KIND_API, type KindBundleInfo } from "./kinds.ts";
@@ -351,6 +352,12 @@ declare global {
         the warning that a later successful sync must NOT take back. Pass
         null for the acknowledged state. */
     __mockSetPrivacy?: (notice: { message: string; paths: string[] } | null) => void;
+    /** stage what the next hosted push finds when it lists the store: the
+        warning that it is approaching the number of objects one sync can work
+        through, or null for a store back under the threshold. A warning on a
+        sync that worked, not an error, and once set it survives every later
+        pull — only a push clears it. */
+    __mockSetSyncNotice?: (notice: string | null) => void;
     /** boot the sync manager on an estate with no runner on disk — the
         backend's can_run:false, which renders the Run buttons disabled with
         the reason. Read per call, so a spec can set it before the app mounts */
@@ -918,6 +925,7 @@ const mockReflexes: { hasFile: boolean; enabled: boolean; paused: boolean; fileP
   paused: false,
   filePaused: false,
 };
+
 
 /** Keep mock pins in the same state Engine::remap_saved_view_prop writes.
     Database and property identities are case-folded; query operator keys are
@@ -1925,7 +1933,10 @@ const mockTrash: (TrashEntry & {
 // `conflicted` is not stored here: the engine derives it from the repository
 // on every status call, so the mock derives it from the parked
 // conflict state instead of from the last command's result.
-let mockVaultSyncStatus: Omit<VaultSyncStatus, "conflicted" | "privacy_error" | "privacy_paths"> = {
+let mockVaultSyncStatus: Omit<
+  VaultSyncStatus,
+  "conflicted" | "privacy_error" | "privacy_paths" | "notice"
+> = {
   // a returning device boots configured; a spec stages that with
   // addInitScript, before the app (and its auto-sync lane) mounts
   configured: window.__mockSyncConfigured === true,
@@ -1945,6 +1956,18 @@ let mockPrivacyNotice: { message: string; paths: string[] } | null = null;
     and the mock answers with the backend's own words — the token check fails
     at the key read, the passphrase check fails when the wrap will not open. */
 let mockHostedVault: { token: string; passphrase: string } | null = null;
+
+/** What the next push will find when it lists the hosted store: a warning that
+    the store is approaching the number of objects one sync can work through,
+    or nothing. Staged by a spec; read only by `vault_sync_push`. */
+let mockSyncNotice: string | null = null;
+
+/** The sticky half, kept OUTSIDE `mockVaultSyncStatus` for the same reason the
+    privacy notice is: every command below replaces that record wholesale, and
+    the auto lane pulls every few minutes. Engine parity — only the push leg
+    writes this slot, and only a push finding the store back under the
+    threshold clears it. */
+let mockStoreNotice: string | null = null;
 
 /** What the next `vault_sync_pull` does. The seed default stays conflicted
     so the existing sync-pane specs keep their three-way material; a spec
@@ -4580,6 +4603,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           : [],
         privacy_error: mockPrivacyNotice?.message ?? null,
         privacy_paths: mockPrivacyNotice ? [...mockPrivacyNotice.paths] : [],
+        notice: mockStoreNotice,
       } satisfies VaultSyncStatus;
     case "vault_sync_set_remote": {
       const url = String(args?.url ?? "").trim();
@@ -4638,6 +4662,11 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           }
         }
         mockVaultSyncStatus = { configured: true, last_result: null, last_error: null };
+        // engine parity, same as the plain-git tail below: the store warning
+        // is a fact about the OLD store, and a hosted remote is the only kind
+        // that ever carries one — clearing it only on the other branch would
+        // keep the old store's warning on the pane forever.
+        mockStoreNotice = null;
         return null;
       }
       if (passphrase.length > 0) {
@@ -4655,6 +4684,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         throw new Error("server certificate must be a PEM CERTIFICATE block");
       }
       mockVaultSyncStatus = { configured: true, last_result: null, last_error: null };
+      // engine parity: pointing the vault at a new remote clears the whole
+      // sync record except the privacy notice, and the store warning is a fact
+      // about the OLD store — the next push against this one works out its own.
+      mockStoreNotice = null;
       return null;
     }
     case "vault_sync_push": {
@@ -4667,7 +4700,12 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         head: "5dc371a8f1b9",
         // a push checks nothing out (engine parity)
         changed: [],
+        ...(mockSyncNotice === null ? {} : { notice: mockSyncNotice }),
       };
+      // engine parity: the push leg is the only one that writes the sticky
+      // slot, and it writes it either way — a store back under the threshold
+      // is how the warning goes away.
+      mockStoreNotice = mockSyncNotice;
       mockVaultSyncStatus = { configured: true, last_result: report, last_error: null };
       return report;
     }
@@ -4796,9 +4834,18 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const target = ((args?.target as string | null) ?? "").trim();
       if (kind === "relation" && !target)
         throw new Error("a relation property needs a target database");
-      const format = ((args?.format as string | null) ?? "").trim();
-      if (kind === "number" && format && !["plain", "euro", "percent"].includes(format))
-        throw new Error(`unknown number format “${format}”`);
+      const rawFormat = ((args?.format as string | null) ?? "").trim();
+      // The same field names a display format OR a unit code, and the backend
+      // matches both case-insensitively and stores the canonical spelling
+      // (`usd` writes as `USD`). Word aliases ("dollars") are not codes and
+      // stay refused.
+      const unit = resolveUnit(rawFormat);
+      const unitCode =
+        unit && unit.code.toLowerCase() === rawFormat.toLowerCase() ? unit.code : null;
+      const named = ["plain", "euro", "percent"].includes(rawFormat.toLowerCase());
+      const format = named ? rawFormat.toLowerCase() : (unitCode ?? rawFormat);
+      if (kind === "number" && format && !named && !unitCode)
+        throw new Error(`unknown number format “${rawFormat}”`);
       // rollup wiring: three flat args like the IPC command sends
       const rollRelation = ((args?.relation as string | null) ?? "").trim();
       const rollProp = ((args?.rollupProp as string | null) ?? "").trim();
@@ -6462,6 +6509,9 @@ if (!isTauri) {
   };
   window.__mockSetPrivacy = (notice) => {
     mockPrivacyNotice = notice ? { message: notice.message, paths: [...notice.paths] } : null;
+  };
+  window.__mockSetSyncNotice = (notice) => {
+    mockSyncNotice = notice;
   };
   // The other-machine board. The index stays exactly as the machine
   // holding the folder left it — only this machine's binding goes — so a

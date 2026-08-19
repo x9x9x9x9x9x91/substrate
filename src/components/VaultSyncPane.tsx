@@ -106,6 +106,9 @@ export default function VaultSyncPane({
         // plaintext an earlier one left behind
         privacy_error: status?.privacy_error ?? null,
         privacy_paths: status?.privacy_paths ?? [],
+        // a push brings its own reading of the store's size; a pull knows
+        // nothing about it and must leave the standing one alone
+        notice: action === "push" ? (report.notice ?? null) : (status?.notice ?? null),
       });
     } catch (error) {
       setActionError(errorText(error));
@@ -228,6 +231,10 @@ export default function VaultSyncPane({
   // plaintext this warns about is still in local history.
   const privacyError = status?.privacy_error ?? null;
   const privacyPaths = status?.privacy_paths ?? [];
+  // Also its own field, and for the same reason: only push can measure the
+  // store, the auto lane pulls every few minutes, and a warning living on the
+  // last result is gone before anyone reads it.
+  const storeNotice = status?.notice ?? null;
   const checking = status === null && statusError === null;
   const statusLabel = checking
     ? "Checking"
@@ -295,6 +302,16 @@ export default function VaultSyncPane({
                 </div>
               )}
             </div>
+
+            {/* Not an error style and not the error slot: syncing works, and
+                will keep working for a long time yet. This is the store saying
+                it is approaching a size that needs attended work, early enough
+                that nothing about it is urgent. */}
+            {storeNotice && (
+              <div className="vault-sync-notice" role="status">
+                {storeNotice}
+              </div>
+            )}
 
             {privacyError && (
               <div className="vault-sync-privacy" role="alert">
@@ -383,6 +400,7 @@ export default function VaultSyncPane({
                   conflicted: merged.conflicted,
                   privacy_error: status?.privacy_error ?? null,
                   privacy_paths: status?.privacy_paths ?? [],
+                  notice: status?.notice ?? null,
                 });
                 setActionError(null);
                 void refreshStatus();
