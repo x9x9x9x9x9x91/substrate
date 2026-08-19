@@ -62,6 +62,52 @@ is only to answer "did this change?", never "is this right?".
   re-recording the baselines would be the wrong fix: it would encode one host's
   fonts and move the red to every other rig.
 
+- **The baselines are host-sensitive.** "Linux" is not one renderer. Font
+  resolution, freetype versions and the GPU stack all move the pixels, so a rig
+  can fail these specs at the same tree state where another Linux rig passes.
+  That is host divergence, not a regression, and the red it produces is about
+  the machine rather than the branch. The quarantine below exists for exactly
+  that case.
+
+### Quarantining a host from the `e2e` leg
+
+`scripts/verify-gates-remote.sh` can remove named rigs from any gate set that
+contains `e2e`, before they are probed, the same way it removes a Linux rig from
+a set containing `ios`.
+
+- **Default: empty.** `VISUAL_MISMATCH_RIGS_DEFAULT=""` — no host is presumed to
+  diverge, and nothing is struck until someone says so.
+- **Knob:** `SUBSTRATE_VISUAL_MISMATCH_RIGS="rig-a rig-b"`, a space-separated
+  rig list, set fleet-wide (in the environment every gate caller inherits).
+- **Scope:** only sets containing `e2e`. A struck rig stays a full host for
+  `tsc`, `test`, `cargo`, `lint` (and `ios` where its class allows), so
+  quarantining one costs the fleet only its visual-tier capacity.
+- **Never silent:** the skip prints the rig and the reason on stderr; a
+  deliberate `--rig` pin at a struck rig for an `e2e` set is refused with the
+  reason and exit 2, rather than run into a red the branch did not earn.
+- **`--split`:** the half that carries `e2e` respects the strike; the other half
+  does not, so a struck rig still takes the static/unit work.
+
+**Operator playbook.** The moment a host disagrees with the committed baselines
+at a tree state where another host passes:
+
+1. Set `SUBSTRATE_VISUAL_MISMATCH_RIGS="<rig>"` fleet-wide. Only that host's
+   `e2e` leg is quarantined; it keeps serving every other gate, and branch gates
+   stop producing false reds while you work.
+2. Root-cause it on the host — fonts installed, renderer versions, container
+   image — not in this repo. A host that diverges is a host problem.
+3. Lift the quarantine when the failing specs pass there: check out pristine
+   `main` on that rig, run `npm run e2e -- visualbaselines` against the
+   committed `e2e/__screenshots__/linux/` PNGs, and when they are green remove
+   the rig from the variable.
+
+Do **not** re-record the baselines on a diverging host to make the red go away —
+that just moves the divergence onto every other host in the fleet.
+
+*Origin: built 2026-08-19 when a px-fleet host diverged through font resolution;
+that host was fixed, so the default ships empty and the mechanism waits for the
+next one.*
+
 ## Tier 2 — Mac captures: proof a human looks at
 
 Ad-hoc, never committed as baselines. This is the `SHOTS=1` family of specs
