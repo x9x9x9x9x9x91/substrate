@@ -45,6 +45,7 @@ import { noteOwnWrite } from "./ownwrites.ts";
 import { remapSavedQueryProperty } from "./query.ts";
 import { resolveUnit } from "./units.ts";
 import { isSystemPropName } from "./schemalookup.ts";
+import { canonicalReviewWindow } from "./shelflife.ts";
 import { isAppFile } from "./settings.ts";
 import { hashKindBundle, parseKindManifest, KIND_API, type KindBundleInfo } from "./kinds.ts";
 import { embedTarget, parseWikiLink } from "./wikilinks.ts";
@@ -97,6 +98,7 @@ const HISTORY_MODE_COMMANDS = new Set([
   /* the time-travel query reads: pure git revwalks, no working-tree
      touch — a sheet scrubbed into the past may still ask what a fact was */
   "history_facts",
+  "history_freshness",
   "history_sheets",
   /* vault reads — served either from the projection (ipc.ts) or live */
   "vault_root",
@@ -1105,8 +1107,11 @@ const mockSchemaSeed: SchemaConfig = {
   // select is the grouped table's "By Type" lane — options in a
   // deliberate non-alphabetical order to prove schema-order sections.
   contact: {
-    email: { options: [], kind: "email" },
-    phone: { options: [], kind: "phone" },
+    // review windows: a contact's reachable details are the mock's shelf-life
+    // material — a phone number is worth re-checking about once a year, an
+    // address that bounces sooner than that
+    email: { options: [], kind: "email", review: "90d" },
+    phone: { options: [], kind: "phone", review: "1y" },
     role: {
       options: [
         { value: "mix engineer", color: "blue" },
@@ -2381,6 +2386,19 @@ const mockJobs = [
     fresh, one well past any sane max-age (the warning row + DashHead dot). */
 const mockJobStamps: Record<string, string> = {
   "Dashboards/News.md#curated": mockSyncIso(4 * 86_400_000),
+};
+/** Ages the mock history reports for the windowed facts, keyed
+    `path#lowercased prop` — days since a person set the value, or `null` for
+    a value no person is recorded behind. Anything absent here keeps the
+    mock's ordinary "set a few hours ago". */
+const mockFactAges: Record<string, { days: number | null; onlyBulk?: boolean }> = {
+  "Gero.md#phone": { days: 500 },
+  "Gero.md#email": { days: 80 },
+  "Noa.md#email": { days: 200 },
+  "Tess Almeida.md#phone": { days: 30 },
+  // an import wrote it and nobody has looked since: counted, never listed
+  "Tess Almeida.md#email": { days: null, onlyBulk: true },
+  "Annelies Verbeek.md#email": { days: 95 },
 };
 const MOCK_JOB_PREFIXES = ["com.example.", "com.substrate."];
 /** jobs.rs `normalize_prefixes` mirrored: trim, drop stubs, dedupe, and fall
@@ -5000,6 +5018,13 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           throw new Error(`“${rollRelation}” is not a relation property of “${dbType}”`);
       }
       const desc = ((args?.description as string | null) ?? "").trim();
+      // a review window rides any kind, stored in one spelling however it was
+      // typed; absent leaves the stored window alone, blank clears it
+      const reviewArg = args?.review as string | null | undefined;
+      const review =
+        reviewArg === null || reviewArg === undefined ? null : canonicalReviewWindow(reviewArg);
+      if (reviewArg !== null && reviewArg !== undefined && reviewArg.trim() && !review)
+        throw new Error(`unknown review window “${reviewArg}”`);
       const seen = new Set<string>();
       const options: SelectOption[] = [];
       if (!kind || kind === "multi")
@@ -5015,6 +5040,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           delete mockSchema[dbType];
       } else {
         const keep = mockSchema[dbType]?.[prop]?.notify ?? false;
+        const keptReview =
+          reviewArg === undefined || reviewArg === null
+            ? mockSchema[dbType]?.[prop]?.review
+            : (review ?? undefined);
         const notify = ((args?.notify as boolean | null) ?? keep) && kind === "date";
         // lead time rides the same date-only rule: 0 clears it,
         // longer than a year clamps, an absent arg keeps the stored value
@@ -5023,8 +5052,8 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         const notifyBefore =
           kind === "date" && before && before > 0 ? Math.min(before, 365) : undefined;
         (mockSchema[dbType] ??= mockRecord())[prop] = kind
-          ? { options: kind === "multi" ? options : [], kind, ...(kind === "relation" ? { type: target } : {}), ...(kind === "number" && format && format !== "plain" ? { format: format as NumberFormat } : {}), ...(kind === "rollup" ? { relation: rollRelation, prop: rollProp, agg: rollAgg as AggKind } : {}), ...(notify ? { notify: true } : {}), ...(notifyBefore ? { notifyBefore } : {}), ...(desc ? { description: desc } : {}) }
-          : { options, ...(desc ? { description: desc } : {}) };
+          ? { options: kind === "multi" ? options : [], kind, ...(kind === "relation" ? { type: target } : {}), ...(kind === "number" && format && format !== "plain" ? { format: format as NumberFormat } : {}), ...(kind === "rollup" ? { relation: rollRelation, prop: rollProp, agg: rollAgg as AggKind } : {}), ...(notify ? { notify: true } : {}), ...(notifyBefore ? { notifyBefore } : {}), ...(desc ? { description: desc } : {}), ...(keptReview ? { review: keptReview } : {}) }
+          : { options, ...(desc ? { description: desc } : {}), ...(keptReview ? { review: keptReview } : {}) };
       }
       return mockSchemaRead();
     }
@@ -6213,6 +6242,34 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
                 },
               ];
         return { path: r.path, key: r.key, points, oldest_ts_ms: now - 27 * 3_600_000 };
+      });
+    }
+    case "history_freshness": {
+      // the mock's newest fact point is an ordinary app snapshot on a handful
+      // of notes, so nothing in the mock vault is a sweep: every fact that has
+      // a value reads as reviewed then, and one with none has no history.
+      // The windowed facts (mockSchemaSeed's `review:` props) are the
+      // exception — they carry the ages a shelf-life surface exists to show,
+      // one per state a reader can meet: past the window, nearing it, well
+      // inside it, and one nobody but an import has ever touched.
+      const refs = (args?.refs ?? []) as { path: string; key: string }[];
+      return refs.map((r) => {
+        const n = mockNotes.find((m) => m.path === r.path);
+        const props = n?.props ?? {};
+        const raw = props[foldedPropKey(props, r.key)];
+        const has = raw !== null && raw !== undefined;
+        const aged = mockFactAges[`${r.path}#${r.key.toLowerCase()}`];
+        const dated = has && !(aged && aged.days === null);
+        const ts = aged?.days != null ? now - aged.days * 86_400_000 : now - 3 * 3_600_000;
+        return {
+          path: r.path,
+          key: r.key,
+          reviewed_ts_ms: dated ? ts : null,
+          reviewed_commit: dated ? "vault-snap-1" : null,
+          reviewed_actor: dated ? { kind: "app" } : null,
+          only_bulk: has && !dated && (aged?.onlyBulk ?? false),
+          oldest_ts_ms: now - 27 * 3_600_000,
+        };
       });
     }
     case "history_sheets": {

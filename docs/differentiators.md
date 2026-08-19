@@ -76,6 +76,17 @@ Capacities, Affine).*
   marked, holds only links, and is refused if it isn't ours, so it is always
   safe to delete and never holds your data. Obsidian sees only markdown;
   Notion and Anytype require importing a copy into their store.
+- **Values with a shelf life** — a property can declare a review window in its
+  database's schema (`review: 90d`, `yearly`), and Substrate reads the vault's
+  own version history to say when each value was last set by a person: an
+  `age(phone)` column beside the value in any view, and a shelf-life report
+  listing what is past its window, worst first. It never notifies, never
+  writes, and has no fix buttons — re-checking a phone number is work only a
+  person can do. And it says what it cannot know: a value only ever touched by
+  an import or a rule is counted as undatable rather than dated from the sweep
+  that rewrote it. Notion and Obsidian can show when a PAGE was edited; neither
+  can say how old one VALUE is, because neither keeps the history that would
+  answer it.
 - **Full history, zero setup** — vendored libgit2: every vault gets complete
   git history, in-app diff/restore, and a whole-vault time scrubber: pick any
   commit and notes, databases, dashboards, schemas, and saved views all render

@@ -1094,6 +1094,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         // a relation aimed at a different database must NOT match
@@ -1105,6 +1106,7 @@ mod tests {
             None,
             None,
             Some("label".into()),
+            None,
             None,
             None,
             None,

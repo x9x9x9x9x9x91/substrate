@@ -2400,7 +2400,9 @@ fn carried_within_cached(
     // a snapshot, a restore — anything that can change the answer moves HEAD
     // first. Bare or unborn repositories cache nothing.
     let key = match (repo.workdir(), repo.head().ok().and_then(|h| h.target())) {
-        (Some(dir), Some(oid)) => Some((dir.to_path_buf(), rel.to_string(), oid.to_string(), limit)),
+        (Some(dir), Some(oid)) => {
+            Some((dir.to_path_buf(), rel.to_string(), oid.to_string(), limit))
+        }
         _ => None,
     };
     if let Some(key) = &key {

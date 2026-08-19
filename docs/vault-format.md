@@ -1911,6 +1911,34 @@ Keys (`src/lib/embeds.ts`):
   **One hop only.** `release.artist.name` is an error, not a second lookup —
   a join follows one relation and stops.
 
+- A parenthesised `age(property)` name in `columns:` is a **freshness column**:
+  how long the value beside it has stood. The property keeps its own cell and
+  the age sits next to it — parenthesised rather than dotted because a dotted
+  name is already a join.
+
+  ````markdown
+  ```view
+  type: contact
+  columns: name, phone, age(phone)
+  ```
+  ````
+
+  The age is never read out of the note: it is asked of the version history
+  (§11) once the table is on screen, so a table paints its values immediately
+  and fills its ages in late. What it reports is **when a person last set that
+  value** — a change made only by a sweep (an import, a migration, a mass
+  rewrite) does not date a fact, so a format migration cannot pass itself off
+  as everybody reviewing everything. A value no person is recorded behind
+  reads as a dash, not as an age: an unknown age is never guessed.
+
+  A freshness cell is read-only wherever cells are editable, for the same
+  reason a joined cell is — there is nothing in the frontmatter behind it to
+  write. It tints only once the property's own `review` window (§6) says it
+  should: muted while inside the window, `--warn` past three quarters of it,
+  `--danger` once it is out. A property with no window shows its age untinted
+  and is never overdue. A vault with version history disabled has no ages to
+  give, and says so with the same dash rather than an error.
+
   Matching is the rollup's, exactly (§ relations/rollups): the target database
   is matched case-insensitively by `type:`, its rows by title OR stem,
   case-insensitively and trimmed, and two rows sharing a title are
@@ -2905,6 +2933,31 @@ PropSchema fields:
   values — `sum` | `avg` | `min` | `max` | `count`, the table footer's
   Calculate vocabulary (`src/lib/aggregate.ts`). Refused on write
   outside the vocabulary; an `agg` arriving on any other kind drops.
+- `review` — any kind: a **review window**, how long a value of this property
+  is worth believing before somebody should look at it again. Stored as
+  `<count><unit>` with unit `d`/`w`/`m`/`y` and a 1–3 digit count (`90d`,
+  `6m`, `1y`); the spoken forms `weekly`, `monthly`, `quarterly`, `yearly`
+  are accepted on write and stored as their compact form (`1y`), and case and
+  surrounding blanks are normalized (`Yearly`, ` 90d ` → `1y`, `90d`).
+  Anything else is REFUSED on write ("unknown review window …") rather than
+  stored — `0d` included, since a window of zero would make every value
+  instantly stale rather than declaring none. Writing an empty string clears
+  it; omitting the field entirely LEAVES a stored window standing, so an
+  editor that knows nothing about review windows cannot silently drop one
+  (`vault/schema.rs` `canonical_review_window`, `set_schema_prop`).
+
+  A window is a claim about the value's shelf life, nothing more: **the app
+  never notifies, schedules or rewrites anything because of one.** It only
+  lets a reader ask how a value stands — a freshness column in a view fence
+  (§5.2's `age(prop)`), or a report opened deliberately. Months and years are
+  nominal (30 and 365 days): a shelf life is a rule of thumb, and the
+  arithmetic lives in one place for every surface (`src/lib/shelflife.ts`,
+  whose vocabulary is pinned against the engine's by
+  `review_windows_mirror_the_frontend`).
+
+  The field is ADDITIVE within schema format version 1 (§5b): a vault that
+  carries windows still parses in a build that has never heard of them, and
+  such a build preserves what it does not understand.
 - `description` — any kind, kindless select props included: a
   one-line entry hint shown muted where values are typed (the property picker
   popup on a table cell, the note's chip editor). Notion-parity field —
@@ -4416,7 +4469,18 @@ same rule.
   `snapshot (quit)`, `restore <path>`, `snapshot (history trimmed)`, and
   `bulk: <run summary>` for a schema sweep, which commits its own work so the
   notes it rewrote carry a receipt naming the run
-  (`src-tauri/src/commands/schema.rs`).
+  (`src-tauri/src/commands/schema.rs`), and `reflex: <n> notes` for what a
+  reflex rule wrote on its own, committed path-scoped for the same reason: a
+  rule's write is not a person's edit, and a surface that dates a value from
+  the history must not read it as one (`src-tauri/src/lib.rs`).
+
+  Dates in that history are COMMITTER times, not author times. A snapshot is
+  made when Substrate commits it, so the two agree — but a history rewritten by
+  a trim or an import keeps the author times it was given while every committer
+  time becomes the rewrite's own. Anything reading ages out of the repository
+  therefore reads committer time and treats the rewrite boundary as the edge of
+  what the vault can say (`mark_history_rewritten`, `src-tauri/src/gitsync.rs`);
+  ages that appear to reset after a trim are that boundary, not lost edits.
 - **Excluded** (via `.git/info/exclude`, written at init —
   `src-tauri/src/history.rs` `EXCLUDE_CONTENT`): `.assets/`, `.trash/`,
   `.DS_Store`, and the device-local state files written off the engine lock —

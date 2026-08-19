@@ -29,6 +29,9 @@ import { chipCommitValue, propListValue, type RelationCandidate } from "../lib/r
 import { foldedPropKey, foldedPropStr, type PropValue } from "../lib/types";
 import CellEditor from "./CellEditor";
 import { anchorFrom, OptionPill, type AnchorRect } from "./SelectMenu";
+import { useFreshness } from "../hooks/useFreshness";
+import { ageCell, reviewWindow } from "../lib/agecell";
+import { factRefKey } from "../lib/freshcache";
 
 /** The write path a surface lends its embeds. Optional as a whole: a surface
     that can't write simply doesn't pass it, and every affordance stays off.
@@ -63,6 +66,13 @@ export default function EmbedViewTable({
      picker closes itself on the window's mousedown, which runs after ours, so
      the flag has to be taken here and spent on the click that follows. */
   const dismissing = useRef(false);
+  /* Ages for the freshness columns this table asked for, filled in when the
+     history answers. A table without one asks for nothing. */
+  const ages = useFreshness(result);
+  /* One instant for the whole paint. `Date.now()` per cell would date the
+     first row and the last from different moments, and re-read the clock on
+     every repaint for a number that moves once a day. */
+  const painted = Date.now();
 
   /* Re-anchor after every repaint, and drop the editor when its row left the
      table — a status edit can re-sort or filter the query out from under an
@@ -168,6 +178,26 @@ export default function EmbedViewTable({
                       .filter(Boolean)
                       .join(" ")
                   : undefined;
+                // a freshness cell shows how long the value beside it has
+                // stood, tinted once it is near or past the window its schema
+                // declared. Quiet by construction: text weight only, and
+                // nothing here can be clicked, written or dismissed.
+                const ageProp = result.ages?.[column];
+                if (ageProp !== undefined) {
+                  const fresh = ages.get(factRefKey(r.path, ageProp));
+                  const cell = fresh
+                    ? ageCell(ageProp, fresh, reviewWindow(result.typeSchema, ageProp), painted)
+                    : null;
+                  return (
+                    <td key={i} className={classes}>
+                      {cell && (
+                        <span className={cell.className} title={cell.title}>
+                          {cell.text}
+                        </span>
+                      )}
+                    </td>
+                  );
+                }
                 return (
                   <td key={i} className={classes} data-column={edit ? column : undefined}>
                     {paint.kind === "checkbox" ? (

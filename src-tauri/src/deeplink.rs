@@ -61,10 +61,7 @@ pub(crate) fn parse(raw: &str) -> Result<Action, String> {
     // `%2e%2e` counts as a dot segment to the URL spec, so this decodes each
     // segment before comparing — a whole-segment `..` in any spelling.
     let path_part = raw.split(['?', '#']).next().unwrap_or(raw);
-    if path_part
-        .split('/')
-        .any(|s| percent_decode(s).as_deref() == Some(".."))
-    {
+    if path_part.split('/').any(|s| percent_decode(s).as_deref() == Some("..")) {
         return Err(format!("Refused an unsafe Substrate link: {raw}"));
     }
     // `substrate://note/a.md` parses with host `note` and path `/a.md`;
@@ -87,9 +84,7 @@ pub(crate) fn parse(raw: &str) -> Result<Action, String> {
     };
     match route.to_ascii_lowercase().as_str() {
         "note" => Ok(Action::OpenNote(note_path(&rest)?)),
-        "capture" => Ok(Action::Capture {
-            text: capture_text(&url),
-        }),
+        "capture" => Ok(Action::Capture { text: capture_text(&url) }),
         "" => Err(format!("Substrate link with nothing to open: {raw}")),
         other => Err(format!("Substrate doesn't know how to open “{other}” links.")),
     }
@@ -132,10 +127,7 @@ fn note_path(raw: &str) -> Result<String, String> {
 /// and oversized all collapse to "open capture empty" rather than an error:
 /// the user asked for the capture box, and they get it.
 fn capture_text(url: &Url) -> Option<String> {
-    let raw = url
-        .query_pairs()
-        .find(|(k, _)| k == "text")
-        .map(|(_, v)| v.into_owned())?;
+    let raw = url.query_pairs().find(|(k, _)| k == "text").map(|(_, v)| v.into_owned())?;
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return None;
@@ -329,19 +321,11 @@ mod tests {
         assert_eq!(parse("substrate://capture"), Ok(Action::Capture { text: None }));
         assert_eq!(
             parse("substrate://capture?text=call%20the%20studio"),
-            Ok(Action::Capture {
-                text: Some("call the studio".into())
-            })
+            Ok(Action::Capture { text: Some("call the studio".into()) })
         );
         // blank and whitespace-only prefills open capture empty rather than failing
-        assert_eq!(
-            parse("substrate://capture?text=%20%20"),
-            Ok(Action::Capture { text: None })
-        );
-        assert_eq!(
-            parse("substrate://capture?other=x"),
-            Ok(Action::Capture { text: None })
-        );
+        assert_eq!(parse("substrate://capture?text=%20%20"), Ok(Action::Capture { text: None }));
+        assert_eq!(parse("substrate://capture?other=x"), Ok(Action::Capture { text: None }));
     }
 
     #[test]
@@ -359,7 +343,8 @@ mod tests {
     #[test]
     fn capture_prefill_is_capped() {
         let long = "x".repeat(MAX_PREFILL * 2);
-        let Ok(Action::Capture { text: Some(t) }) = parse(&format!("substrate://capture?text={long}"))
+        let Ok(Action::Capture { text: Some(t) }) =
+            parse(&format!("substrate://capture?text={long}"))
         else {
             panic!("expected a prefilled capture");
         };

@@ -144,6 +144,9 @@ const copied = [
   "DOMParser",
   "MutationObserver",
   "DOMRect",
+  // `CSS.escape` — how any surface that finds a cell by selector quotes a
+  // note path or a property name into one
+  "CSS",
 ] as const;
 const target = globalThis as unknown as Record<string, unknown>;
 const source = dom.window as unknown as Record<string, unknown>;

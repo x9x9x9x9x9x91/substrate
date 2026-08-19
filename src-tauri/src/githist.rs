@@ -156,10 +156,22 @@ pub(crate) fn history_list(root: &Path, rel: &str) -> Result<Vec<HistoryEntry>, 
     history_list_in(&repo, rel)
 }
 
+/// Test-only tally of path walks. The batch's whole promise is one walk per
+/// NOTE however many of its facts are asked about, and a promise about how
+/// much work something does is only checkable by counting it. Thread-local
+/// because the test harness runs each test on its own thread and a walk is
+/// never handed off between threads.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static PATH_WALKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// The same walk against an already-open repository, for callers that ask
 /// about several paths in a row and should not pay a repository open each
 /// time. Skips the sentinel check, which opening the repository already did.
 pub(crate) fn history_list_in(repo: &Repository, rel: &str) -> Result<Vec<HistoryEntry>, String> {
+    #[cfg(test)]
+    PATH_WALKS.with(|n| n.set(n.get() + 1));
     let Some(head) = head_commit(repo)? else {
         return Ok(Vec::new());
     };
@@ -371,21 +383,125 @@ pub(crate) fn history_oldest_ts_ms(repo: &Repository) -> Result<Option<u64>, Str
     Ok(oldest)
 }
 
-/// Build several fact lanes in one pass. The repository is opened once and the
-/// oldest-snapshot boundary walked once, however many facts a dashboard asks
-/// about. Each fact still costs its own path walk — `history_list_in` follows
-/// one path back through the commit graph, so N facts on a dashboard walk the
-/// graph N times; what a lane does NOT do is read a blob per commit (only the
-/// snapshots that actually touched the note are opened) or shell out per
-/// snapshot. Two facts on the same note pay that walk twice: dashboards ask
-/// for a handful of facts, so the honest bound is N walks, not one.
+/// Build several fact lanes in one pass. The repository is opened once, the
+/// oldest-snapshot boundary walked once, and each NOTE walked once however
+/// many of its facts are asked about: the walk and the blob reads are per
+/// note, and pulling a second key out of a snapshot already decoded costs a
+/// map lookup. A table column asking about five props on one row is one walk,
+/// not five. The honest bound is one walk per distinct note.
 pub(crate) fn history_fact_lanes(
     root: &Path,
     refs: &[(String, String)],
 ) -> Result<Vec<FactLane>, String> {
     let repo = owned_repo(root)?;
     let oldest_ts_ms = history_oldest_ts_ms(&repo)?;
-    refs.iter().map(|(path, key)| fact_lane_in(&repo, path, key, oldest_ts_ms)).collect()
+    fact_lanes_grouped(&repo, refs, oldest_ts_ms)
+}
+
+/// The grouping half: refs bucketed by note, one walk each, handed back in the
+/// caller's own order (a dashboard renders in the order it asked).
+fn fact_lanes_grouped(
+    repo: &Repository,
+    refs: &[(String, String)],
+    oldest_ts_ms: Option<u64>,
+) -> Result<Vec<FactLane>, String> {
+    let mut by_path: Vec<(String, Vec<String>)> = Vec::new();
+    let mut seen: HashMap<&str, usize> = HashMap::new();
+    for (path, key) in refs {
+        let at = *seen.entry(path.as_str()).or_insert_with(|| {
+            by_path.push((path.clone(), Vec::new()));
+            by_path.len() - 1
+        });
+        by_path[at].1.push(key.clone());
+    }
+    let mut built: HashMap<(String, String), FactLane> = HashMap::new();
+    for (path, keys) in &by_path {
+        for lane in fact_lanes_in(repo, path, keys, oldest_ts_ms)? {
+            built.insert((lane.path.clone(), lane.key.clone()), lane);
+        }
+    }
+    // a repeated (path, key) in the request is one lane, cloned per ask
+    Ok(refs
+        .iter()
+        .map(|(path, key)| {
+            built.get(&(path.clone(), key.clone())).cloned().unwrap_or_else(|| FactLane {
+                path: path.clone(),
+                key: key.clone(),
+                points: Vec::new(),
+                oldest_ts_ms,
+            })
+        })
+        .collect())
+}
+
+/// When each of a set of facts was last set by a person (shelf-life spec §2):
+/// the lanes, with every change point that was a sweep skipped. Breadth is
+/// measured once per commit however many facts point at it — a sweep is broad
+/// for all of them — and only for the commits that are actually somebody's
+/// change point, so a quiet vault pays no diffs at all.
+pub(crate) fn history_fact_freshness(
+    root: &Path,
+    refs: &[(String, String)],
+) -> Result<Vec<crate::factlane::FactFreshness>, String> {
+    let repo = owned_repo(root)?;
+    let oldest_ts_ms = history_oldest_ts_ms(&repo)?;
+    let lanes = fact_lanes_grouped(&repo, refs, oldest_ts_ms)?;
+    let mut broad: HashSet<String> = HashSet::new();
+    let mut measured: HashSet<String> = HashSet::new();
+    for lane in &lanes {
+        for point in lane.points.iter().rev() {
+            if point.value.is_none() {
+                continue;
+            }
+            if !measured.insert(point.commit.clone()) {
+                continue;
+            }
+            if commit_is_broad(&repo, &point.commit)? {
+                broad.insert(point.commit.clone());
+            }
+        }
+    }
+    Ok(lanes.iter().map(|lane| crate::factlane::freshness_of(lane, &broad)).collect())
+}
+
+/// Did this snapshot rewrite more notes than a person plausibly edited in one
+/// sitting? Measured against the first parent, which is what "what did this
+/// commit change" means for a snapshot; a root commit is measured against the
+/// empty tree, so the import that created the vault reads as the sweep it is.
+/// A merge is measured against its first parent too — the second side's files
+/// are the merge's own work as far as this note's history is concerned.
+fn commit_is_broad(repo: &Repository, id: &str) -> Result<bool, String> {
+    let commit = commit_from_spec(repo, id)?;
+    let tree =
+        commit.tree().map_err(|e| format!("version history snapshot tree unavailable: {e}"))?;
+    let parent = match commit.parents().next() {
+        Some(p) => {
+            Some(p.tree().map_err(|e| format!("version history snapshot tree unavailable: {e}"))?)
+        }
+        None => None,
+    };
+    let diff = repo
+        .diff_tree_to_tree(parent.as_ref(), Some(&tree), None)
+        .map_err(|e| format!("could not compare version history snapshots: {e}"))?;
+    // NOTES only. The threshold is a claim about how many notes a person can
+    // plausibly have looked at, and a snapshot carries the vault's own files
+    // alongside them — schema, views, reflexes, mounts. Counting those made a
+    // handful of hand edits landing beside a schema write read as a sweep, and
+    // a sweep is never a review.
+    let notes = diff
+        .deltas()
+        .filter(|d| {
+            let path = |f: git2::DiffFile| f.path().map(|p| p.to_string_lossy().into_owned());
+            path(d.new_file()).or_else(|| path(d.old_file())).is_some_and(|p| is_note_path(&p))
+        })
+        .count();
+    Ok(notes > crate::factlane::BULK_TOUCH_NOTES)
+}
+
+/// A tracked path that holds a note, as opposed to the vault's own state. Only
+/// these count toward "how many notes did this commit rewrite".
+fn is_note_path(rel: &str) -> bool {
+    rel.ends_with(".md") && !rel.starts_with(".vault/")
 }
 
 /// Build one fact's lane: one path walk gives every snapshot that touched the
@@ -406,8 +522,23 @@ fn fact_lane_in(
     key: &str,
     oldest_ts_ms: Option<u64>,
 ) -> Result<FactLane, String> {
+    let mut lanes = fact_lanes_in(repo, rel, std::slice::from_ref(&key.to_string()), oldest_ts_ms)?;
+    Ok(lanes.remove(0))
+}
+
+/// Every requested fact on ONE note, from a single path walk. Each snapshot
+/// that touched the note is opened once and its frontmatter decoded once,
+/// however many keys are being followed — the per-key work is a map lookup on
+/// props already in hand.
+fn fact_lanes_in(
+    repo: &Repository,
+    rel: &str,
+    keys: &[String],
+    oldest_ts_ms: Option<u64>,
+) -> Result<Vec<FactLane>, String> {
     let entries = history_list_in(repo, rel)?;
-    let mut readings = Vec::with_capacity(entries.len());
+    let mut readings: Vec<Vec<FactPoint>> =
+        keys.iter().map(|_| Vec::with_capacity(entries.len())).collect();
     // history_list is newest-first; a lane reads oldest-first so `value_at`
     // can binary-search it.
     for entry in entries.iter().rev() {
@@ -416,13 +547,13 @@ fn fact_lane_in(
             commit.tree().map_err(|e| format!("version history snapshot tree unavailable: {e}"))?;
         // a snapshot that DELETED the note has no blob at that path: the fact
         // stopped having a value there, which is a real point on the lane
-        let value = match tree.get_path(Path::new(&entry.file)) {
+        let props = match tree.get_path(Path::new(&entry.file)) {
             Ok(found) => {
                 let blob = repo
                     .find_blob(found.id())
                     .map_err(|e| format!("version history file {} unavailable: {e}", entry.file))?;
                 let raw = String::from_utf8_lossy(blob.content()).into_owned();
-                crate::factlane::fact_value(&crate::vault::fact_props(&raw), key)
+                Some(crate::vault::fact_props(&raw))
             }
             Err(_) => None,
         };
@@ -435,25 +566,33 @@ fn fact_lane_in(
             &entry.subject,
             commit.message().unwrap_or(&entry.subject),
         );
-        readings.push(FactPoint {
-            commit: entry.id.clone(),
-            ts_ms: entry.ts_ms,
-            value,
-            actor,
-            subject: entry.subject.clone(),
-        });
+        for (slot, key) in readings.iter_mut().zip(keys) {
+            slot.push(FactPoint {
+                commit: entry.id.clone(),
+                ts_ms: entry.ts_ms,
+                value: props.as_ref().and_then(|p| crate::factlane::fact_value(p, key)),
+                actor: actor.clone(),
+                subject: entry.subject.clone(),
+            });
+        }
     }
     // A topological walk is not a chronological one: a merged or imported
     // history can hand back a commit dated before its own ancestors. `collapse`
     // and `value_at` both read the lane as a timeline, so put it in time order
     // rather than trusting the walk's.
-    readings.sort_by_key(|p| p.ts_ms);
-    Ok(FactLane {
-        path: rel.to_string(),
-        key: key.to_string(),
-        points: crate::factlane::collapse(readings),
-        oldest_ts_ms,
-    })
+    Ok(keys
+        .iter()
+        .zip(readings)
+        .map(|(key, mut points)| {
+            points.sort_by_key(|p| p.ts_ms);
+            FactLane {
+                path: rel.to_string(),
+                key: key.to_string(),
+                points: crate::factlane::collapse(points),
+                oldest_ts_ms,
+            }
+        })
+        .collect())
 }
 
 /// Every sheet note as it stood at one instant — what `AT(date, Sheet.member)`
@@ -2104,7 +2243,11 @@ mod tests {
         fs::write(root.join("Weight.md"), weight_note("70", "start")).unwrap();
         dated_snapshot(&root, "snapshot", "2026-01-01T12:00:00+00:00");
         fs::write(root.join("Weight.md"), weight_note("71", "swept")).unwrap();
-        dated_snapshot(&root, "bulk: renamed property “kg” to “weight” (4 notes)", "2026-02-01T12:00:00+00:00");
+        dated_snapshot(
+            &root,
+            "bulk: renamed property “kg” to “weight” (4 notes)",
+            "2026-02-01T12:00:00+00:00",
+        );
         // an outside writer that committed for itself and said which tool it is
         fs::write(root.join("Weight.md"), weight_note("72", "imported")).unwrap();
         dated_snapshot(&root, "import\n\nSubstrate-Tool: Obsidian", "2026-03-01T12:00:00+00:00");
@@ -2148,6 +2291,44 @@ mod tests {
         // one walk, one boundary — every lane in a batch agrees about it
         assert_eq!(lanes[0].oldest_ts_ms, lanes[1].oldest_ts_ms);
         assert_eq!(lanes[0].oldest_ts_ms, Some(noon_ms("2026-01-01")));
+    }
+
+    #[test]
+    fn a_batch_walks_each_note_once_however_many_of_its_facts_are_asked_about() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        let history = history_vault(&root);
+
+        fs::write(
+            root.join("Ada.md"),
+            "---\nphone: +49 30 1\nemail: a@b.c\ncity: Berlin\n---\n\nstart\n",
+        )
+        .unwrap();
+        fs::write(root.join("Bea.md"), "---\nphone: +49 30 2\nemail: b@b.c\n---\n\nstart\n")
+            .unwrap();
+        dated_snapshot(&root, "first", "2026-01-01T12:00:00+00:00");
+
+        let refs: Vec<(String, String)> = [
+            ("Ada.md", "phone"),
+            ("Ada.md", "email"),
+            ("Ada.md", "city"),
+            ("Bea.md", "phone"),
+            ("Bea.md", "email"),
+            // the same fact asked for twice is still the same note
+            ("Ada.md", "phone"),
+        ]
+        .iter()
+        .map(|(path, key)| (path.to_string(), key.to_string()))
+        .collect();
+
+        PATH_WALKS.with(|walks| walks.set(0));
+        let fresh = history.fact_freshness(&refs).unwrap();
+        assert_eq!(fresh.len(), refs.len());
+        // six asks, two notes, two walks: what a report over a whole vault
+        // costs is one walk per NOTE, never one per fact — the cost of a
+        // dashboard that asks about every windowed property of a note has to
+        // stay the cost of reading that note once.
+        assert_eq!(PATH_WALKS.with(|walks| walks.get()), 2);
     }
 
     #[test]

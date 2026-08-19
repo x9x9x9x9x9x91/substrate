@@ -1274,6 +1274,7 @@ mod tests {
             prop: None,
             agg: None,
             description: None,
+            review: None,
             extra: Default::default(),
         }
     }

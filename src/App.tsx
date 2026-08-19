@@ -1401,7 +1401,9 @@ export default function App() {
     (dbType: string, prop: string, options: SelectOption[], kind: PropKind | null, notify?: boolean, notifyBefore?: number, target?: string, format?: NumberFormat, description?: string, rollup?: RollupConfig | null) => {
       const storedDb = schemaDbKey(dbType);
       const storedProp = schemaPropKey(dbType, prop);
-      vaultSchemaSet(storedDb, storedProp, options, kind ?? undefined, notify, notifyBefore, target, format, description, rollup)
+      // review windows are not the schema editor's to touch: it sends none,
+      // and the engine leaves whatever the schema declares standing
+      vaultSchemaSet(storedDb, storedProp, options, kind ?? undefined, notify, notifyBefore, target, format, description, undefined, rollup)
         .then(setSchema)
         // engine refusals ("a rollup property needs a relation to follow",
         // "“mount” is set by the mount") must reach the user — the editor has

@@ -757,10 +757,7 @@ mod tests {
         assert!(!available_at(&home.path().join("bin/launchctl")));
         home.write("bin/launchctl", "#!/bin/sh\n");
         // present: true only where launchd is the scheduler in the first place
-        assert_eq!(
-            available_at(&home.path().join("bin/launchctl")),
-            cfg!(target_os = "macos")
-        );
+        assert_eq!(available_at(&home.path().join("bin/launchctl")), cfg!(target_os = "macos"));
     }
 
     #[test]
@@ -814,8 +811,11 @@ mod tests {
         let home = TmpDir::new("paused");
         home.write("Library/LaunchAgents/com.example.sched-watch.plist", PLIST_4H);
         home.write("Library/LaunchAgents/com.example.news.selfheal.plist", PLIST_4H);
-        let jobs =
-            assemble(home.path(), &prefixes(&["com.example.", "com.example.news."]), &HashMap::new());
+        let jobs = assemble(
+            home.path(),
+            &prefixes(&["com.example.", "com.example.news."]),
+            &HashMap::new(),
+        );
         assert_eq!(jobs.len(), 2);
         // plist on disk, absent from launchctl list = paused, still controllable
         assert!(jobs.iter().all(|j| j.plist && !j.loaded && j.pid.is_none()));

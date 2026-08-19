@@ -57,6 +57,7 @@ pub(crate) fn vault_schema_set(
     target: Option<String>,
     format: Option<String>,
     description: Option<String>,
+    review: Option<String>,
     relation: Option<String>,
     rollup_prop: Option<String>,
     agg: Option<String>,
@@ -83,6 +84,7 @@ pub(crate) fn vault_schema_set(
         target,
         format,
         description,
+        review,
         rollup,
     )
 }

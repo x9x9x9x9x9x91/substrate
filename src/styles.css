@@ -2882,6 +2882,33 @@ button.empty-hint-fix:hover {
   box-shadow: inset 0 0 0 1px var(--accent);
 }
 
+/* A freshness cell — how long the value beside it has stood. Commentary, not
+   data: it sits a step back in the grey ramp so a row still reads as its
+   values first. The tint is the whole alarm this feature has; it moves only
+   when the schema's own window says it should, and there is nothing louder
+   further along (no badge, no dot, no count). --warn is "worth a look",
+   --danger is "past what you asked for" — the same two tokens every other
+   attention state in the app uses. */
+.embed-view-age {
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.embed-view-age-aging {
+  color: var(--warn);
+}
+
+.embed-view-age-due {
+  color: var(--danger);
+}
+
+/* nothing dated it: an em dash, at the quietest weight the ramp has — the one
+   answer that must not look like a finding */
+.embed-view-age-unknown {
+  color: var(--text-3);
+  opacity: 0.7;
+}
+
 /* the "+ New" affordance sits below the cap line: hiding rows never means the
    table is closed to new ones */
 .embed-view-new {
@@ -7505,6 +7532,7 @@ body.agenda-window .palette:focus-visible {
   color: var(--text-4);
   white-space: nowrap;
 }
+
 
 
 /* Tax readiness (dashboard: tax) — the year's deductible totals over

@@ -12,7 +12,8 @@ import {
   type AudioAnnotation,
 } from "./audio-annotations.ts";
 import { formatFileSize } from "./display.ts";
-import { fileOpen, vaultAssetInfo, vaultRoot } from "./ipc.ts";
+import { fileOpen, historyFreshness, vaultAssetInfo, vaultRoot } from "./ipc.ts";
+import { fillAges } from "./agefill.ts";
 import {
   parseViewSpec,
   seedPropsFromQuery,
@@ -826,6 +827,15 @@ function paintViewWidget(wrap: HTMLElement, view: EditorView, inner: string): bo
       const td = document.createElement("td");
       td.className = "embed-view-cell";
       td.dataset.column = column;
+      const ageProp = result.ages?.[column];
+      if (ageProp !== undefined) {
+        // an age is the history's answer, not a value in the note: the cell
+        // is left empty here and filled once the ask comes back
+        td.classList.add("embed-view-cell-inert");
+        td.dataset.age = ageProp;
+        tr.appendChild(td);
+        return;
+      }
       const model = viewCellModel(result, row.props, column);
       if (model.kind === "checkbox") {
         // the whole cell is the affordance, same as the database table —
@@ -851,6 +861,7 @@ function paintViewWidget(wrap: HTMLElement, view: EditorView, inner: string): bo
   }
   table.appendChild(tbody);
   wrap.insertBefore(table, state.hostEl);
+  fillAges(table, result, historyFreshness);
 
   if (result.rows.length === 0) {
     const empty = document.createElement("div");

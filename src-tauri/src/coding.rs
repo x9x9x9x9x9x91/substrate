@@ -302,8 +302,7 @@ fn normalize(path: &Path) -> PathBuf {
 /// None: a bare name addresses inside home or nothing. Pure, so the mapping
 /// is unit-testable.
 pub fn resolve_root(raw: Option<&str>, home: &str) -> (String, Option<PathBuf>) {
-    let display =
-        raw.map(str::trim).filter(|s| !s.is_empty()).unwrap_or(DEFAULT_ROOT).to_string();
+    let display = raw.map(str::trim).filter(|s| !s.is_empty()).unwrap_or(DEFAULT_ROOT).to_string();
     let home_dir = normalize(Path::new(home));
     let path = if display == "~" {
         home_dir.clone()
@@ -499,7 +498,10 @@ mod tests {
     #[test]
     fn root_collapses_dots_and_refuses_to_climb_out_of_home() {
         // harmless interior `..` still resolves — it names a folder in home
-        assert_eq!(root_path(Some("src/../code"), "/Users/x"), Some(PathBuf::from("/Users/x/code")));
+        assert_eq!(
+            root_path(Some("src/../code"), "/Users/x"),
+            Some(PathBuf::from("/Users/x/code"))
+        );
         assert_eq!(root_path(Some("~/./src"), "/Users/x"), Some(PathBuf::from("/Users/x/src")));
         // a prop that climbs out resolves to nothing, both spellings
         assert_eq!(root_path(Some("../../etc"), "/Users/x"), None);

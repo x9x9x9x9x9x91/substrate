@@ -791,6 +791,11 @@ export interface PropSchema {
   /** any kind, kindless select props included: a one-line entry
       hint shown muted where values are typed; absent = none */
   description?: string;
+  /** any kind: how long a value here stays believable before it wants
+      looking at again (`90d`, `1y`; absent = it never goes stale). Nothing
+      pings — the window only lets a reader ask which values are past theirs
+      (src/lib/shelflife.ts). */
+  review?: string;
 }
 
 /** A rollup prop's wiring, as the schema editor hands it to
@@ -959,6 +964,7 @@ export type Actor =
   | { kind: "mcp"; name: string }
   | { kind: "sync" }
   | { kind: "bulk"; name: string }
+  | { kind: "reflex"; name: string }
   | { kind: "external" }
   | { kind: "external_tool"; name: string };
 
@@ -983,6 +989,24 @@ export interface FactLane {
   path: string;
   key: string;
   points: FactPoint[];
+  oldest_ts_ms: number | null;
+}
+
+/** How long one fact has stood: the last time a person set it, with sweeps
+    skipped (shelf-life spec §2). `reviewed_ts_ms` is null in two different
+    situations, which `only_bulk` tells apart — the fact has changed, but only
+    ever inside a sweep (an import, a format migration, a mass rewrite), so its
+    real age is unknown; versus a fact with no history at all. Dating a fact
+    from the sweep that rewrote it would be the lie this surface exists to
+    avoid, so neither case is allowed to read as "changed today".
+    `oldest_ts_ms` is the same trim boundary `FactLane` carries. */
+export interface FactFreshness {
+  path: string;
+  key: string;
+  reviewed_ts_ms: number | null;
+  reviewed_commit: string | null;
+  reviewed_actor: Actor | null;
+  only_bulk: boolean;
   oldest_ts_ms: number | null;
 }
 

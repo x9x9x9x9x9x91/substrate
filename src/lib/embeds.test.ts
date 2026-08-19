@@ -662,3 +662,54 @@ test("a key the schema doesn't declare still seeds, as typed", () => {
     ["artist", "umbra"],
   ]);
 });
+
+/* ---------- freshness columns ---------- */
+
+test("a fence can ask for a property's age beside its value", () => {
+  const r = embedQueryFor(
+    { type: "release", columns: ["status", "age(status)"] },
+    RELEASES,
+    SCHEMA,
+    []
+  );
+  assert.ok(!("error" in r));
+  assert.deepEqual(r.columns, ["status", "age(status)"]);
+  assert.deepEqual(r.ages, { "age(status)": "status" });
+  // the age is the history's answer, asked once the table is on screen —
+  // never a value read out of the note
+  assert.deepEqual(
+    r.rows.map((row) => row.cells[1]),
+    ["", "", ""]
+  );
+  // and the row carries the stamp that decides whether it has to be re-asked
+  assert.equal(r.rows[0]?.updated_ms, 0);
+});
+
+test("an age can stand alone, and cases its property the schema's way", () => {
+  const r = embedQueryFor({ type: "release", columns: ["AGE( Status )"] }, RELEASES, SCHEMA, []);
+  assert.ok(!("error" in r));
+  assert.deepEqual(r.columns, ["age(status)"]);
+  assert.deepEqual(r.ages, { "age(status)": "status" });
+});
+
+test("the age of a property the database hasn't got is the same error a value is", () => {
+  const r = embedQueryFor({ type: "release", columns: ["age(phone)"] }, RELEASES, SCHEMA, []);
+  assert.deepEqual(r, { error: "Unknown column “phone” in “release”" });
+});
+
+test("a table nobody asked an age of says nothing about ages", () => {
+  const r = embedQueryFor({ type: "release", columns: ["status"] }, RELEASES, SCHEMA, []);
+  assert.ok(!("error" in r));
+  assert.equal(r.ages, undefined);
+});
+
+test("the same age listed twice is one column", () => {
+  const r = embedQueryFor(
+    { type: "release", columns: ["age(status)", "age( status )"] },
+    RELEASES,
+    SCHEMA,
+    []
+  );
+  assert.ok(!("error" in r));
+  assert.deepEqual(r.columns, ["age(status)"]);
+});
