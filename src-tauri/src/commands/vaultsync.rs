@@ -31,6 +31,16 @@ pub(crate) struct VaultSyncStatus {
     /// off the pane within one poll interval and effectively never read. Only
     /// a later push finding the store back under the threshold clears it.
     notice: Option<String>,
+    /// Whether this vault syncs end-to-end encrypted or in the clear. The pane
+    /// showed neither, so an encrypted vault looked exactly like a plain one —
+    /// and a re-save with a mistyped URL silently traded one for the other.
+    remote_kind: gitsync::RemoteKind,
+    /// The configured remote's URL, so the pane can show where the vault syncs
+    /// and refill its field instead of presenting an empty box beside a
+    /// configured remote. Never the token or the passphrase: a `user:token@`
+    /// embedded in the URL is redacted before it gets here, because this field
+    /// is rendered on screen and photographed by the shot runs.
+    remote_url: Option<String>,
 }
 
 /// A failure whose consequence outlives the attempt that hit it.
@@ -608,6 +618,7 @@ pub(crate) fn vault_sync_status(
     let root = sync_root(&state);
     let configured = gitsync::sync_configured(&root);
     let conflicted = if configured { gitsync::sync_pending_conflicts(&root) } else { Vec::new() };
+    let (remote_kind, remote_url) = gitsync::sync_remote(&root);
     let last = sync.last.lock().unwrap();
     let (privacy_error, privacy_paths) = match &last.privacy {
         Some(notice) => (Some(notice.message.clone()), notice.paths.clone()),
@@ -621,6 +632,8 @@ pub(crate) fn vault_sync_status(
         privacy_error,
         privacy_paths,
         notice: last.notice.clone(),
+        remote_kind,
+        remote_url,
     }
 }
 
@@ -655,7 +668,7 @@ pub(crate) async fn vault_sync_set_remote(
     token: String,
     cert: Option<String>,
     passphrase: Option<String>,
-) -> Result<(), String> {
+) -> Result<gitsync::RemoteSetup, String> {
     blocking(move || {
         let state: State<AppState> = app.state();
         let sync: State<VaultSyncState> = app.state();
@@ -663,7 +676,7 @@ pub(crate) async fn vault_sync_set_remote(
         // the history nor the engine lock, and an enrollment landing beside a
         // running push is benign — the push either finished against the old
         // remote or fails and retries against the new one.
-        gitsync::sync_set_remote(
+        let setup = gitsync::sync_set_remote(
             &sync_root(&state),
             &sync.credentials_path,
             &url,
@@ -676,7 +689,36 @@ pub(crate) async fn vault_sync_set_remote(
         // and is untouched by where the vault syncs to next.
         let mut last = sync.last.lock().unwrap();
         *last = VaultSyncLast { privacy: last.privacy.take(), ..VaultSyncLast::default() };
-        Ok(())
+        Ok(setup)
+    })
+    .await?
+}
+
+// async: same reason as configuring a remote — two 64 MiB Argon2id passes
+// (unwrap under the old phrase, wrap under the new one) plus the round trip
+// that swaps the key document.
+/// Re-wrap the vault master key under a new passphrase. The key itself does
+/// not change, so every enrolled device keeps syncing; the new phrase is what
+/// a future device must type.
+#[tauri::command]
+pub(crate) async fn vault_sync_change_passphrase(
+    app: tauri::AppHandle,
+    old_passphrase: String,
+    new_passphrase: String,
+) -> Result<(), String> {
+    blocking(move || {
+        let state: State<AppState> = app.state();
+        let sync: State<VaultSyncState> = app.state();
+        // No `sync.op`, same as configuring: this touches neither the history
+        // nor the engine lock, and a push running beside it is unaffected —
+        // the push authenticates with the master key, which the re-wrap
+        // deliberately leaves alone.
+        gitsync::sync_change_passphrase(
+            &sync_root(&state),
+            &sync.credentials_path,
+            &old_passphrase,
+            &new_passphrase,
+        )
     })
     .await?
 }

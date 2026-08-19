@@ -78,6 +78,9 @@ function harness(opts: {
           privacy_error: null,
           privacy_paths: [],
           notice: null,
+          // the lane never reads these; a plain remote is the neutral stand-in
+          remote_kind: "git",
+          remote_url: "https://sync.example.com/vault.git",
         };
       },
       push: async () => {

@@ -31,6 +31,7 @@ import type {
   TagCount,
   TagFolder,
   TrashEntry,
+  RemoteKind,
   VaultSyncStatus,
   ViewsConfig,
 } from "./types.ts";
@@ -176,6 +177,17 @@ declare global {
     /** replace one mock schema entry like a hand edit on disk; public schema
         writes reject the duplicate identities this regression hook stages */
     __mockEditSchema?: (dbType: string, props: Record<string, PropSchema>) => void;
+    /** forget the configured remote and any enrollment under it — a fresh
+        vault that has never synced. The mock remembers the passphrase the
+        first hosted save mints, exactly as the server does, so a spec that
+        wants to be the first device has to say so rather than inherit
+        whatever an earlier spec in the same process enrolled. */
+    __mockResetSyncRemote?: () => void;
+    /** the remote URL as STORED, credentials and all — the counterpart to the
+        redacted one `vault_sync_status` hands a screen. A spec that means to
+        prove a refused save left the credential alone has to read the stored
+        string, because the redacted one looks identical either way. */
+    __mockStoredSyncRemoteUrl?: () => string | null;
     /** stub the settings pane's terminal-font availability check:
         the real one measures canvas text, and whether an unknown family is
         dropped (CoreText) or substituted (fontconfig) is platform-specific,
@@ -1935,7 +1947,7 @@ const mockTrash: (TrashEntry & {
 // conflict state instead of from the last command's result.
 let mockVaultSyncStatus: Omit<
   VaultSyncStatus,
-  "conflicted" | "privacy_error" | "privacy_paths" | "notice"
+  "conflicted" | "privacy_error" | "privacy_paths" | "notice" | "remote_kind" | "remote_url"
 > = {
   // a returning device boots configured; a spec stages that with
   // addInitScript, before the app (and its auto-sync lane) mounts
@@ -1943,6 +1955,56 @@ let mockVaultSyncStatus: Omit<
   last_result: null,
   last_error: null,
 };
+
+/** Where the mock vault syncs to, kept OUTSIDE `mockVaultSyncStatus` because
+    every command below replaces that record wholesale while the remote itself
+    survives a push, a pull, and a failure alike — the engine reads it from
+    `.git/config` on every status call. A device that boots configured boots on
+    a plain Git remote; a `blob+` save moves it. */
+let mockSyncRemote: { kind: RemoteKind; url: string | null } =
+  window.__mockSyncConfigured === true
+    ? { kind: "git", url: "https://sync.example.com/vault.git" }
+    : { kind: "none", url: null };
+
+/** What the engine puts where a remote URL's `user:password@` was, before the
+    URL leaves for a screen. Engine parity matters here more than usual: the
+    pane refills its URL field from the status URL, so a mock that handed back
+    the credentials verbatim would let a redaction regression through
+    unnoticed. */
+const MOCK_REDACTED_USERINFO = "•••";
+
+/** Strip `user:password@` from a remote URL, like `redact_url_userinfo` does:
+    only the authority carries userinfo, so an `@` further down the path is a
+    path character and survives. */
+function mockRedactUserinfo(url: string | null): string | null {
+  if (url === null) return null;
+  const split = url.indexOf("://");
+  if (split < 0) return url;
+  const scheme = url.slice(0, split);
+  const rest = url.slice(split + 3);
+  const authorityEnd = rest.indexOf("/") < 0 ? rest.length : rest.indexOf("/");
+  const authority = rest.slice(0, authorityEnd);
+  const tail = rest.slice(authorityEnd);
+  const at = authority.lastIndexOf("@");
+  if (at < 0) return url;
+  return `${scheme}://${MOCK_REDACTED_USERINFO}@${authority.slice(at + 1)}${tail}`;
+}
+
+/** The passphrase the SERVER's key document is wrapped under, or null when no
+    hosted vault has ever been enrolled here. The mock cannot do Argon2, but it
+    can hold the one fact the change flow turns on: which phrase is current.
+
+    Server-side, deliberately: the engine's key document lives in the blob
+    store and outlives any one device. Saving a plain remote drops this
+    device's LOCAL copy of the key and nothing else — the ciphertext and the
+    key document that opens it stay where they are, which is why coming back
+    to the hosted remote is a join and not a fresh enrollment. */
+let mockVaultKeyDocument: string | null = null;
+
+/** Whether THIS device holds the vault key in its credential slot — the
+    engine's `hosted_key_service` entry. Leaving the hosted transport clears
+    it; re-enrolling under the current passphrase restores it. */
+let mockVaultKeyHeldLocally = false;
 
 /** The sticky privacy notice, kept OUTSIDE `mockVaultSyncStatus` for the same
     reason the engine keeps it outside `VaultSyncLast::error`: every command
@@ -4604,12 +4666,28 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         privacy_error: mockPrivacyNotice?.message ?? null,
         privacy_paths: mockPrivacyNotice ? [...mockPrivacyNotice.paths] : [],
         notice: mockStoreNotice,
+        // engine parity: read from the configured remote, not from the
+        // session's last result — a restart forgets the result, never the URL
+        remote_kind: mockSyncRemote.kind,
+        // engine parity: the URL leaves here with any embedded credentials
+        // replaced by dots, because this is the string a pane shows
+        remote_url: mockRedactUserinfo(mockSyncRemote.url),
       } satisfies VaultSyncStatus;
     case "vault_sync_set_remote": {
       const url = String(args?.url ?? "").trim();
       const token = String(args?.token ?? "");
       const cert = String(args?.cert ?? "").trim();
       const passphrase = String(args?.passphrase ?? "").trim();
+      // Engine parity, and the reason the mock redacts at all: the field is
+      // prefilled from the redacted status URL, so pressing Save without
+      // retyping would otherwise store dots where the credentials were.
+      if (url.includes(MOCK_REDACTED_USERINFO)) {
+        throw new Error(
+          `the remote URL shown is redacted — ${MOCK_REDACTED_USERINFO} stands in for the ` +
+            "credentials embedded in it, and saving it would destroy them. Retype the full URL, " +
+            "its credentials included.",
+        );
+      }
       if (url.startsWith("blob+")) {
         // Hosted (encrypted blob-store) remote — same refusal messages and
         // the same URL rule as hosted_set_remote: plain HTTP only for an
@@ -4657,17 +4735,31 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           if (sent !== mockHostedVault.token.trim().replace(bearer, "").trim()) {
             throw new Error("hosted sync key read was rejected: check the server token");
           }
-          if (passphrase.normalize("NFC") !== mockHostedVault.passphrase.normalize("NFC")) {
-            throw new Error("hosted sync passphrase is wrong or key data is damaged");
+          // A staged vault means the server's key document already exists:
+          // joining it must be a Joined, never a Created, so the document is
+          // seeded from the staged passphrase before enrollment reads it.
+          if (mockVaultKeyDocument === null) {
+            mockVaultKeyDocument = mockHostedVault.passphrase.normalize("NFC");
           }
         }
+        // Enrollment parity: the first save mints the vault's passphrase, and
+        // every later one has to repeat whatever is current.
+        const created = mockVaultKeyDocument === null;
+        if (!created && passphrase.normalize("NFC") !== mockVaultKeyDocument) {
+          throw new Error(
+            "hosted sync passphrase is wrong — mistyped, or changed on another device since this one learned it (or the key data is damaged)",
+          );
+        }
+        mockVaultKeyDocument = passphrase.normalize("NFC");
+        mockVaultKeyHeldLocally = true;
         mockVaultSyncStatus = { configured: true, last_result: null, last_error: null };
+        mockSyncRemote = { kind: "hosted", url };
         // engine parity, same as the plain-git tail below: the store warning
         // is a fact about the OLD store, and a hosted remote is the only kind
         // that ever carries one — clearing it only on the other branch would
         // keep the old store's warning on the pane forever.
         mockStoreNotice = null;
-        return null;
+        return created ? "created" : "joined";
       }
       if (passphrase.length > 0) {
         throw new Error("a vault passphrase is only used with blob+https:// remotes");
@@ -4688,6 +4780,40 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // sync record except the privacy notice, and the store warning is a fact
       // about the OLD store — the next push against this one works out its own.
       mockStoreNotice = null;
+      // Leaving the hosted transport drops the master key from THIS device's
+      // credential store, which is all the engine does. The server keeps its
+      // key document, so a later hosted save joins the same vault under the
+      // same passphrase rather than minting a new one.
+      mockVaultKeyHeldLocally = false;
+      mockSyncRemote = { kind: "git", url };
+      return "plain";
+    }
+    case "vault_sync_change_passphrase": {
+      const current = String(args?.oldPassphrase ?? "").trim().normalize("NFC");
+      const next = String(args?.newPassphrase ?? "").trim().normalize("NFC");
+      if (mockSyncRemote.kind !== "hosted") {
+        throw new Error(
+          "the vault passphrase belongs to a hosted (blob+https://) remote; this vault does not sync to one",
+        );
+      }
+      // Engine parity: the re-wrap loads this device's own copy of the vault
+      // key before it touches the server, and compares against it. A device
+      // that has left the hosted transport no longer holds one.
+      if (!mockVaultKeyHeldLocally) {
+        throw new Error("vault sync credentials unavailable; configure the remote again");
+      }
+      if (current.length === 0) throw new Error("enter the current vault passphrase");
+      if ([...next].length < 12) {
+        throw new Error(
+          "the vault passphrase must be at least 12 characters — it is the only protection on the encrypted vault",
+        );
+      }
+      if (current !== mockVaultKeyDocument) {
+        throw new Error(
+          "hosted sync passphrase is wrong — mistyped, or changed on another device since this one learned it (or the key data is damaged)",
+        );
+      }
+      mockVaultKeyDocument = next;
       return null;
     }
     case "vault_sync_push": {
@@ -6338,6 +6464,13 @@ if (!isTauri) {
   window.__mockEditSchema = (dbType, props) => {
     mockSchema[dbType] = mockRecord(props);
   };
+  window.__mockResetSyncRemote = () => {
+    mockVaultSyncStatus = { configured: false, last_result: null, last_error: null };
+    mockSyncRemote = { kind: "none", url: null };
+    mockVaultKeyDocument = null;
+    mockVaultKeyHeldLocally = false;
+  };
+  window.__mockStoredSyncRemoteUrl = () => mockSyncRemote.url;
   window.__mockPropOf = (path, key) => {
     const n = mockNotes.find((m) => m.path === path);
     if (!n) throw new Error(`__mockPropOf: no mock note at ${path}`);

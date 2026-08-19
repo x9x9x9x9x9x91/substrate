@@ -1569,6 +1569,7 @@ pub fn run() {
             vault_sync_pull,
             vault_sync_status,
             vault_sync_set_remote,
+            vault_sync_change_passphrase,
             vault_sync_conflicts,
             vault_sync_resolve_set,
             vault_sync_resolve_clear,

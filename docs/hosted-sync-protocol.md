@@ -75,7 +75,7 @@ transport routing values and are not derived from the master key.
 | GET ref | vault | encrypted ref bytes + opaque version token, or absent | The version token changes whenever bytes change. |
 | CAS ref | vault + expected version/absent + encrypted bytes | new version token, or mismatch | Linearizable compare-and-swap. Mismatch never changes the ref. |
 | GET key | vault | wrapped-master-key envelope + opaque version token, or absent | Same document semantics as the ref: opaque bytes, versioned. |
-| CAS key | vault + expected version/absent + wrap envelope | new version token, or mismatch | Linearizable compare-and-swap. Create-if-absent is what keeps two enrolling devices from clobbering each other's key; If-Match swaps for a deliberate re-wrap (passphrase change — a server capability, no client flow yet; see §5 on what the client still owes). |
+| CAS key | vault + expected version/absent + wrap envelope | new version token, or mismatch | Linearizable compare-and-swap. Create-if-absent is what keeps two enrolling devices from clobbering each other's key; If-Match swaps for a deliberate re-wrap (a passphrase change: the client reads the current envelope, unwraps, re-wraps under the new phrase, and swaps at the version it read, so a change racing another device's loses instead of clobbering it). |
 
 The server validates authentication, quota, rate, object-name syntax, and
 maximum request size. It does not validate ciphertext structure. Production
@@ -430,9 +430,13 @@ ciphertext, malformed length/type/OID, missing head object, stale CAS token,
 wrong branch, dirty worktree, and non-fast-forward push all fail closed. No
 client ever force-updates a ref after a CAS race. The transport is wired into
 the app behind the `blob+` remote type and rides the repository's full test
-gates; what it still owes before being offered beyond an attended,
-operator-run deployment is a passphrase-change/recovery UX and product copy
-for the freshness caveats above.
+gates. Changing the vault passphrase is now a client flow — the pane's
+passphrase card re-wraps the master key in place, which leaves every enrolled
+device syncing untouched and only changes what a future device must type. What
+it still owes before being offered beyond an attended, operator-run deployment
+is a recovery path for a forgotten passphrase (there is none by construction:
+the master key exists nowhere but the wrap and the enrolled devices' credential
+stores) and product copy for the freshness caveats above.
 
 ## 6. Executable evidence
 
@@ -456,6 +460,16 @@ purge instead of reporting ordinary divergence; a replayed older ref is shown to
 mislead a brand-new device while an existing device neither rolls back nor
 merges, and heals the ref on its next push; and a truncated or extended
 passphrase envelope is rejected at every length rather than reaching Argon2.
+
+Two more pin the passphrase change: a re-wrap under a new phrase yields the same
+master key, retires the old phrase for a fresh enrollment, and changes nothing
+when the current phrase is wrong; and a change that loses the compare-and-swap
+to another device's re-wrap (staged through a transport double that lands the
+winner inside the swap) is told the passphrase was changed elsewhere rather than
+overwriting it — after which only the winner's phrase opens the vault. At the
+app seam, a further real-socket test changes the phrase on an enrolled device,
+shows its credential slot byte-identical and its push still landing, and then
+refuses a second device the old phrase and admits it on the new one.
 
 Nine further tests run the shipped server on a real localhost socket and drive it
 through `HttpBlobStore`, so the §2.1 binding is covered as deployed rather than

@@ -11274,6 +11274,85 @@ th.sheet-computed:hover {
   font-size: 12px;
 }
 
+/* Where the vault syncs, and in what form. Encryption gets the accent rule and
+   a plain remote gets none: the difference is the whole point of the line, so
+   it has to be legible at a glance rather than only on reading. */
+.vault-sync-remote-kind {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 16px 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--border-soft);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+}
+
+.vault-sync-remote-kind.hosted {
+  border-left-color: var(--ok);
+}
+
+.vault-sync-remote-kind-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.vault-sync-remote-kind.hosted .vault-sync-remote-kind-label {
+  color: var(--ok);
+}
+
+.vault-sync-remote-kind-url {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* Two states that must not read as ordinary form feedback: one is about to
+   remove the vault's encryption, the other just decided a passphrase nothing
+   else in the world holds. Boxed and ruled, like the privacy notice. */
+.vault-sync-downgrade,
+.vault-sync-created {
+  margin-top: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--danger);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+}
+
+.vault-sync-created {
+  border-left-color: var(--ok);
+}
+
+.vault-sync-downgrade h3,
+.vault-sync-created h3 {
+  margin-bottom: 6px;
+  color: var(--danger);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.vault-sync-created h3 {
+  color: var(--ok);
+}
+
+.vault-sync-downgrade p,
+.vault-sync-created p {
+  max-width: 52ch;
+  color: var(--text-3);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.vault-sync-save.danger {
+  border-color: var(--danger);
+  background: var(--danger);
+}
+
 /* ── Sync conflict resolution ─────────────────────── */
 
 .sync-conflict .vault-sync-card-head {
