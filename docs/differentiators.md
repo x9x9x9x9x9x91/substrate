@@ -362,6 +362,12 @@ Capacities, Affine).*
   Sync pane — but not yet in a shipped release or verified against a real
   vault. Until a release carries it, keep saying "self-hosted sync today,
   E2E encryption landing"; never market encryption as shipped before then.
+- **Letterbox (drop boxes)**: hand out a link and anyone — no account, no
+  app — seals a note or files straight into your `Inbox/`, age-encrypted in
+  their browser, relayed as ciphertext only. Built and fenced private in the
+  app; don't advertise until it is promoted. The honest framing when it does
+  ship: the key protects the drop in transit and on the relay, not after it
+  lands, and attachments don't sync between devices yet.
 - **Hosted handoff relay**: the handoff feature is shipped; a public hosted
   relay is not. Until one exists, the self-host story leads.
 - **Known parity gaps — don't invite the comparison**: multi-column page

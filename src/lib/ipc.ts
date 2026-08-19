@@ -1002,3 +1002,4 @@ export const smokeSignal = (name: string, contents: string) =>
   invoke<void>("smoke_signal", { name, contents });
 /** Quit through Tauri's own exit path, so RunEvent::Exit really runs. */
 export const smokeExit = (code: number) => invoke<void>("smoke_exit", { code });
+

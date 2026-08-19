@@ -410,6 +410,26 @@ External-writer contract:
   over the remaining bytes.
 - Copying, renaming, syncing and versioning the opaque file byte-for-byte is safe.
   Content-aware diffs and merges are intentionally unavailable while sealed.
+- `.vault/letterbox.json` holds the drop-box registry: the vault's dedicated
+  letterbox age keypair (`identity` + `recipient`) and one row per live box
+  (`id`, `label`, `relay`, `token`, `mode`, `expiry`, `created`). It is synced
+  vault data, not device state — the boxes belong to the vault, so any device
+  that has it can poll and revoke them. **The private key is stored in
+  plaintext, deliberately**: a background poller must never prompt, so this
+  key is not the sealed-note identity. It protects a drop in transit and at
+  rest on the relay; once pulled, the drop is a plaintext note like any other.
+  `token` is the owner bearer for that box's relay endpoints and never leaves
+  the engine — the app's own ledger surface is served without it.
+- What that costs, stated plainly: the file is written `0600`, but it is
+  ordinary vault data, so **the letterbox private key and every box's owner
+  token travel through vault sync and vault history in the clear**. Anyone who
+  can read a copy of the vault — a sync remote, a backup, a Git host, an old
+  clone — can read every drop that box has ever received and poll or delete
+  from it. Revoke ends future access: it deletes the box on the relay and drops
+  the row, but it does not remove the key or the token from history, and it
+  cannot un-read what a copy already exposed. A vault whose history is shared
+  with people who should not read its drops should not hold a letterbox.
+
 - Do not modify `.vault/sealed-key.age`. It is the user's password recovery path,
   not disposable cache. Back it up with the vault as opaque bytes.
 - Before creating or replacing a note, inspect `.substrate-seal` at the vault
@@ -4657,11 +4677,18 @@ Plain notes the app treats specially — all optional, all just files:
   still captures the note, it just keeps the bare URL as the title),
   `net-fx-rates` (currency conversions read rates from frankfurter.dev — off
   is to use the last saved rates and show their date; gated in `useFxRates`,
-  the single fetch seam) and `net-share-relay`
+  the single fetch seam), `net-share-relay`
   ("Send as link" uploads the encrypted copy to the relay above — off makes
-  the action explain the switch instead of sending). Enforced at the app's
+  the action explain the switch instead of sending) and `net-letterbox`
+  (the drop-box lane registers boxes and polls them for sealed drops — off
+  parks both, and the Letterbox pane says so instead of failing quietly).
+  Enforced at the app's
   request-initiating call sites, not in the engine — see
-  `docs/security-config.md`. Hot-reloaded
+  `docs/security-config.md`. `net-letterbox` is the one exception on the
+  reader side: its poller is a background thread with no frontend call site,
+  so the engine reads the same key itself (`vault::net_switch_allowed`, the
+  twin of `netAllowed()`) before every request, on the same
+  explicit-`false`-only rule. Hot-reloaded
   within a second of saving; the ⌘, sheet is a typed form over the same keys.
   Unlike the other notes here it is not merely seeded on first run: the desktop
   app writes it on launch whenever it is absent, so vaults predating

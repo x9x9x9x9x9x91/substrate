@@ -85,6 +85,103 @@ changes.
 `GET /h/<id>` → viewer page (a GET never burns — link-preview bots GET) ·
 `POST /api/claim/<id>` → payload bytes, one-shot for burn entries.
 
+## Letterbox
+
+The same relay carries the inbound direction: a standing drop link anyone can
+send to. The app registers a mailbox here and shows a URL of the shape
+`https://<relay>/d/<box-id>#<age1-recipient>`. Opening it serves a sealing page
+that encrypts the message and any attachments **in the sender's browser** to
+the vault's public key — the part after `#` never reaches the server — and
+uploads only ciphertext. The vault polls the box, decrypts locally, lands each
+drop as a note, and acks; the relay then deletes the ciphertext.
+
+The relay never sees a recipient key, a plaintext, or who anybody is. It holds
+opaque box ids, an owner token per box, sealed bytes and timestamps.
+
+**Upgrading a running relay:** the letterbox is on by default and brings its
+own storage pool — a default 1 GiB *on top of* the handoff ceiling, not carved
+out of it — so plan disk for both, or set `LETTERBOX_DISABLED=1` to keep the
+relay handoff-only.
+
+**Anonymous registration.** If `HANDOFF_TOKEN` is unset, `POST
+/api/box/register` is open to anyone, exactly as `/api/store` is: strangers can
+create boxes on your relay. What bounds it: the live-box ceiling
+(`LETTERBOX_MAX_BOXES`, 256), the letterbox storage ceiling, the tighter per-IP
+register rate zone in `deploy/nginx.conf`, and the idle sweep — a box with
+nothing pending that nobody registers to, drops into, polls or acks for
+`LETTERBOX_BOX_IDLE_TTL_MS` (90 days) is removed, so abandoned boxes do not
+accumulate for the life of the process. A relay open to the public internet
+should set `HANDOFF_TOKEN`.
+
+The same operator caveat as above applies, and applies harder: the relay serves
+the sealing JavaScript, so a hostile operator could serve a version that keeps
+a copy of what the sender typed. Use an operator you trust, or self-host and
+audit the page you serve. After a successful upload the page prints the
+ciphertext's SHA-256, which sender and recipient can compare over another
+channel.
+
+Endpoints:
+
+| endpoint | auth | meaning |
+| --- | --- | --- |
+| `POST /api/box/register` | relay upload token, if set | body `{"mode":"standing\|one-shot","expiry":"1d\|7d\|30d"}` (both optional) → `{"id","token","mode","expiry"}` |
+| `GET /d/<box>` | none | the sealing page |
+| `POST /api/box/<box>/drop` | none — the link is the capability | body = `"SBL1"` + age ciphertext → `{"id","bytes"}` |
+| `GET /api/box/<box>/drops` | box token | pending drops the owner has not claimed |
+| `POST /api/box/<box>/claim/<drop>` | box token | ciphertext bytes, leased to this poller for 10 minutes |
+| `DELETE /api/box/<box>/drops/<drop>` | box token | ack — the drop landed, delete it |
+| `DELETE /api/box/<box>` | box token | revoke the box and every drop still in it |
+
+Claim is an atomic rename, so two devices polling one box never land the same
+drop twice; a poller that dies mid-landing leaves a lease that the sweep
+returns to the pool after ten minutes, so a crash re-offers a drop rather than
+losing it. A `one-shot` box refuses a second drop with 410 and removes itself
+once its single drop is acked.
+
+Caps: 32 MiB per drop on the wire (16 MiB of raw attachments and 64 KiB of text
+before encryption), 64 pending drops and 256 MiB per box, and a letterbox-wide
+storage ceiling that is **separate from the handoff one** — a flood of drops
+cannot evict pending handoffs, and a full handoff pool does not close the
+letterbox. Drops expire on the box's TTL (default 30 days) and the same
+ten-minute sweep removes them. The honesty note above about expiry applies
+unchanged: it limits access from now on, it cannot un-send anything.
+
+Letterbox environment:
+
+| var | default | meaning |
+| --- | --- | --- |
+| `LETTERBOX_DISABLED` | unset | `1` makes every box endpoint (and `/d/<id>`) a 404 — a handoff-only relay |
+| `LETTERBOX_MAX_TOTAL` | 1 GiB | letterbox storage ceiling, independent of `HANDOFF_MAX_TOTAL` |
+| `LETTERBOX_MAX_BOXES` | 256 | live-box ceiling |
+| `LETTERBOX_MAX_DROPS_PER_BOX` | 64 | pending drops one box may hold |
+| `LETTERBOX_MAX_BOX_BYTES` | 256 MiB | pending ciphertext one box may hold |
+| `LETTERBOX_LEASE_MS` | 600000 | how long a claimed drop stays leased to one poller |
+| `LETTERBOX_BOX_IDLE_TTL_MS` | 7776000000 (90d) | an empty box unused for this long is removed |
+
+Ciphertext lives under `<HANDOFF_DIR>/letterbox/<box-id>/`. Setting
+`LETTERBOX_DISABLED=1` on a relay that already carries boxes turns the
+endpoints into 404s and stops sweeping that tree — the ciphertext already there
+stays on disk, untouched and unreachable, until the relay is re-enabled or an
+operator deletes the directory by hand.
+
+### Building the sealing page
+
+The sealing page needs a real age implementation, so it is bundled once at
+build time and checked in as `sealing-page.generated.ts`; the relay itself
+stays dependency-free at runtime and self-hosting remains the single esbuild
+above. Rebuild after changing `sealing-page/main.ts`:
+
+```sh
+node scripts/handoff-relay/sealing-page/build.ts
+```
+
+`--check` rebuilds in memory and exits nonzero if the checked-in bundle has
+drifted from `main.ts`, without writing anything:
+
+```sh
+node scripts/handoff-relay/sealing-page/build.ts --check
+```
+
 ## Production service
 
 The checked-in `deploy/` files are the production shape used by the hosted
@@ -98,7 +195,10 @@ instance and a reusable starting point for self-hosters:
 - use `deploy/nginx-bootstrap.conf` for the first ACME challenge, then replace
   it with `deploy/nginx.conf` as the TLS proxy site (replace the hostname if
   needed). The final shape buffers request bodies to disk, applies per-IP
-  upload/read rates and connection caps, and disables access logs;
+  upload/read rates and connection caps (including the separate per-IP zone
+  for letterbox drops, which arrive from strangers holding a link, and a
+  tighter one for box registration, the only endpoint that creates state), and
+  disables access logs;
 - keep `/var/lib/substrate-handoff` on persistent storage and leave
   `HANDOFF_TOKEN` unset only when uploads are intentionally public.
 

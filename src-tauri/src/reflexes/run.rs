@@ -47,6 +47,15 @@ use std::path::{Path, PathBuf};
 /// enough that a human edit minutes later starts a fresh chain.
 pub const ECHO_WINDOW_MS: u64 = 10_000;
 
+/// How long a path the app landed itself stays suppressed for `note.created`.
+///
+/// Wider than [`ECHO_WINDOW_MS`] on purpose: the letterbox lander marks a path
+/// the moment it writes, and the watcher may take a debounce plus an index
+/// pass to report it. Erring wide costs at most one missed reflex on a note
+/// the user never typed; erring narrow costs a rule firing on a stranger's
+/// text, which is the failure worth avoiding.
+pub const LANDED_WINDOW_MS: u64 = 60_000;
+
 /// A rule may fire on a path this deep in a reflex-written chain, no deeper.
 pub const MAX_DEPTH: usize = 3;
 
@@ -182,6 +191,10 @@ pub struct Runtime {
     cooldowns: HashMap<String, HashMap<String, u64>>,
     /// folded path → what wrote it, when, and how deep it already was
     echo: HashMap<String, Echo>,
+    /// folded path → when the app itself put the file there. Distinct from
+    /// `echo`, which attributes a write to a rule and only feeds cascade
+    /// depth: this one SUPPRESSES the create outright.
+    landed: HashMap<String, u64>,
     /// Test clock. `None` = system time.
     fixed_now: Option<u64>,
 }
@@ -241,8 +254,33 @@ impl Runtime {
         self.rules.entry(rule.to_string()).or_default()
     }
 
+    /// The app landed this file itself — no `note.created` rule may fire for
+    /// it. Called by the letterbox lander before the watcher can see the
+    /// write.
+    ///
+    /// A drop is a stranger's text arriving in `Inbox/`. Every "file my new
+    /// Inbox notes" rule a user has written assumes the note is theirs, and a
+    /// rule that mails, moves or publishes on create would be doing a
+    /// stranger's bidding. Suppression is one-shot and windowed: it is
+    /// consumed by the create it was written for, and an ordinary note created
+    /// at the same path later fires normally.
+    pub fn suppress_created(&mut self, path: &str) {
+        let now = self.now();
+        self.landed.insert(fold(path), now);
+    }
+
+    /// Whether this create belongs to the app's own landing, consuming the
+    /// mark if it does.
+    fn take_landed(&mut self, path: &str, now: u64) -> bool {
+        match self.landed.remove(&fold(path)) {
+            Some(at) => now.saturating_sub(at) < LANDED_WINDOW_MS,
+            None => false,
+        }
+    }
+
     fn prune(&mut self, now: u64) {
         self.echo.retain(|_, e| now.saturating_sub(e.at) < ECHO_WINDOW_MS);
+        self.landed.retain(|_, at| now.saturating_sub(*at) < LANDED_WINDOW_MS);
         for map in self.cooldowns.values_mut() {
             map.retain(|_, at| now.saturating_sub(*at) < COOLDOWN_MS);
         }
@@ -323,6 +361,12 @@ pub(super) fn run_batch<A: EngineAccess, N: Notifier>(
     let mut pending_notifications: Vec<String> = Vec::new();
 
     for trigger in triggers {
+        // A file the app landed itself is not an event the user caused: a
+        // letterbox drop must not fire `note.created` rules. Checked before
+        // anything is built or read, so a suppressed create costs nothing.
+        if trigger.event == Event::NoteCreated && rt.take_landed(&trigger.path, now) {
+            continue;
+        }
         // depth is read from the echo map as it stood when the batch began,
         // so two triggers in the SAME batch do not inherit from each other.
         // Intended: a batch is one watcher tick, and paths in it are siblings,
@@ -952,6 +996,56 @@ mod tests {
           "do": [{ "move": { "to": "Drafts" } }] }
       ]
     }"#;
+
+    /// A letterbox-landed note must not fire `note.created` rules, and an
+    /// ordinary note created the same instant, under the same glob, still
+    /// must. Both directions in one batch: a suppression that quietly ate
+    /// every create would pass a one-sided test.
+    #[test]
+    fn a_landed_drop_is_suppressed_while_an_ordinary_note_still_fires() {
+        let mut v = vault("reflex-landed");
+        let landed = v.create("Drop from Avery, 2026-08-19", "Inbox", &[("status", "draft")]);
+        let ordinary = v.create("My own note", "Inbox", &[("status", "draft")]);
+        v.rt.suppress_created(&landed);
+        let rx = rules(MOVE_RULE);
+        v.run(
+            &rx,
+            &[
+                Trigger::note(Event::NoteCreated, &landed),
+                Trigger::note(Event::NoteCreated, &ordinary),
+            ],
+        );
+        assert!(v.exists(&landed), "a landed drop must stay where the lander put it");
+        assert!(!v.exists(&ordinary), "an ordinary note must still be filed by the rule");
+        assert!(v.exists("Drafts/My own note.md"), "moved");
+    }
+
+    /// The mark is one-shot: it is consumed by the create it was written for,
+    /// so a later note at the same path is an ordinary create again.
+    #[test]
+    fn the_landing_mark_is_consumed_by_the_create_it_was_written_for() {
+        let mut v = vault("reflex-landed-once");
+        let rel = v.create("Drop from Avery, 2026-08-19", "Inbox", &[("status", "draft")]);
+        v.rt.suppress_created(&rel);
+        let rx = rules(MOVE_RULE);
+        v.run(&rx, &[Trigger::note(Event::NoteCreated, &rel)]);
+        assert!(v.exists(&rel), "first create is the suppressed one");
+        v.run(&rx, &[Trigger::note(Event::NoteCreated, &rel)]);
+        assert!(!v.exists(&rel), "a second create at that path is nobody's landing");
+    }
+
+    /// A mark older than the window has lapsed — it must not suppress a create
+    /// minutes later.
+    #[test]
+    fn a_stale_landing_mark_no_longer_suppresses() {
+        let mut v = vault("reflex-landed-stale");
+        let rel = v.create("Drop from Avery, 2026-08-19", "Inbox", &[("status", "draft")]);
+        v.rt.suppress_created(&rel);
+        v.rt.set_now(1_000_000 + LANDED_WINDOW_MS + 1);
+        let rx = rules(MOVE_RULE);
+        v.run(&rx, &[Trigger::note(Event::NoteCreated, &rel)]);
+        assert!(!v.exists(&rel), "past the window it is an ordinary create");
+    }
 
     #[test]
     fn move_files_a_matching_note_and_leaves_others_alone() {
