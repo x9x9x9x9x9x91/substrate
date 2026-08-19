@@ -9,6 +9,7 @@ import type { DbIcon, DbLayout, DriveInfo, FolderListing, MountInfo, MountRow, M
 import { foldedPropKey, foldedPropStr, FUNCTIONAL_TYPES, typeHome, viewKey } from "./lib/types";
 import { tagFolderApplyTags, tagFolderMatches, tagUniverse } from "./lib/tags";
 import { dbColumns } from "./lib/dbcolumns";
+import { savedViewPref } from "./lib/vieweval";
 import { byFoldedKey, foldedObjectKey, isTypePropName, typeSchemaFor } from "./lib/schemalookup";
 import { folderDefaultIcon, iconForType, iconsByType } from "./lib/dbicons";
 import { dashboardKindOption, newDashboardProps } from "./lib/newdashboard";
@@ -5316,24 +5317,14 @@ export default function App() {
               dbType={activeSaved.db}
               notes={savedNotes}
               allNotes={notes}
-              pref={
-                svPref ?? {
-                  view: activeSaved.view ?? byFoldedKey(viewsConfig, activeSaved.db)?.view ?? "table",
-                  group_by: activeSaved.group_by ?? byFoldedKey(viewsConfig, activeSaved.db)?.group_by,
-                  table_group_by: activeSaved.table_group_by ?? byFoldedKey(viewsConfig, activeSaved.db)?.table_group_by,
-                  aggregations: byFoldedKey(viewsConfig, activeSaved.db)?.aggregations,
-                  // The pin's own sort seeds the pane (session-local
-                  // via setSvPref until re-saved); it never falls back to the
-                  // db's remembered sort — a pin is a capture, not a mirror
-                  sorts: activeSaved.sorts ?? (activeSaved.sort ? [activeSaved.sort] : undefined),
-                  // Column widths/wrap aren't part of a pin's capture —
-                  // they follow the db's remembered layout, like aggregations
-                  widths: byFoldedKey(viewsConfig, activeSaved.db)?.widths,
-                  wrap: byFoldedKey(viewsConfig, activeSaved.db)?.wrap,
-                  // The grid override follows the db too
-                  grid: byFoldedKey(viewsConfig, activeSaved.db)?.grid,
-                }
-              }
+              // A pin's pref is composed in ONE place (`savedViewPref`), the
+              // same call a headless reader of the same pin makes: the pin's
+              // own layout, grouping and sort over the database's, the
+              // presentation keys no pin captures (aggregations, widths,
+              // wrap, grid) following the database, and the database's
+              // curation — hidden sets, dragged column order — staying out.
+              // Until it is re-saved, `svPref` holds the session's edits.
+              pref={svPref ?? savedViewPref(activeSaved, byFoldedKey(viewsConfig, activeSaved.db))}
               schema={schema}
               typeSchema={typeSchemaFor(schema, activeSaved.db) ?? {}}
               icon={iconForType(dbIcons, activeSaved.db)}

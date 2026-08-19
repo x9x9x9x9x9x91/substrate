@@ -12,7 +12,7 @@ import {
   type HopDir,
   type HopGrid,
 } from "../lib/cellhop";
-import { cycleSortKeys, restingCmp, sortCmpFor } from "../lib/dbsort";
+import { cycleSortKeys } from "../lib/dbsort";
 import { rangePaths, togglePath } from "../lib/bulkselect";
 import { aggregationKind, aggregateColumnsUnits, formatUnit, normalizeNumberInput, updateAggregation } from "../lib/aggregate";
 import { makeFxResolver } from "../lib/fx";
@@ -46,7 +46,7 @@ import {
 import { rollupColumns, rollupProps, withRollups } from "../lib/rollup";
 import { byFoldedKey, isBuiltinDateName, typeSchemaFor } from "../lib/schemalookup";
 import { buildEntryBody, buildEntryProps, homeFolderFor, mergeEntryProp } from "../lib/templates";
-import { boardGroupBy, canonicalViewPref, dbColumns, effectiveColumns, hiddenForLayout, orderedColumns } from "../lib/dbcolumns";
+import { boardGroupBy, canonicalViewPref, dbColumns, effectiveColumns, hiddenForLayout } from "../lib/dbcolumns";
 import { reorderIds } from "../lib/sidebar";
 import {
   bucketByProp,
@@ -54,8 +54,8 @@ import {
   extraValues,
   orderedNotes,
   tableGroupBy,
-  tableGroups,
 } from "../lib/dbgroup";
+import { viewColumns, viewOrderedRows } from "../lib/vieweval";
 import SelectMenu, { anchorFrom, anchorsWentStale, type AnchorRect } from "./SelectMenu";
 import PropForm from "./PropForm";
 import DotsMenu from "./DotsMenu";
@@ -393,14 +393,10 @@ export default function DatabasePane({
   // rides the pref in BOTH channels, so a pin reorders session-locally (its
   // svPref) and lands the order in the pin's own `columns` on re-save, while
   // a database persists it through views.json.
-  const shown = useMemo(() => {
-    const base = pinMode
-      ? colSel
-        ? effectiveColumns({ columns: colSel }, columns)
-        : columns
-      : columns.filter((c) => !hidden.has(c));
-    return orderedColumns(base, normalizedPref?.col_order);
-  }, [pinMode, colSel, columns, hidden, normalizedPref?.col_order]);
+  const shown = useMemo(
+    () => viewColumns(columns, normalizedPref, { pinMode, layout, columnSelection: colSel }),
+    [pinMode, colSel, columns, layout, normalizedPref]
+  );
   // Persist one layout's hidden set. The write materializes BOTH
   // layouts — a layout with no set of its own seeds from the flat `hidden`,
   // which the write then drops (the read-side migration made durable: once
@@ -744,6 +740,10 @@ export default function DatabasePane({
   );
   const seenSignal = useRef(newSignal);
   const bodyRef = useRef<HTMLDivElement>(null);
+  // the focus coordinate the reveal effect last acted on — how it tells a
+  // moved row (owed a reveal even when a header/link holds focus) from a
+  // mere window repaint (hands off)
+  const revealedFocus = useRef<Focus | null>(null);
   const dotsWrapRef = useRef<HTMLSpanElement>(null);
   const filterInputRef = useRef<HTMLInputElement>(null);
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -917,20 +917,19 @@ export default function DatabasePane({
     return "Filter — try folder:";
   }, [typeSchema]);
 
-  // lexicographic over the key list: key 1 decides, ties fall
-  // through to key 2, then 3 — per-key semantics live in lib/dbsort, where
-  // select-kind keys compare by schema option order, not A→Z
-  const sortCmp = useMemo(() => sortCmpFor(sorts, typeSchema), [sorts, typeSchema]);
-  // With no active sort the view rests on title order — stable
-  // across prop edits, unlike the vault_list feed (updated_ms desc), which
-  // teleported an edited row to the top mid-edit
-  const viewCmp = sortCmp ?? restingCmp;
-
-  // A grouped table interleaves section header rows between runs of
-  // data rows. `rows` stays the flat, focus-addressable sequence — sections
-  // in option order, the view's sort within each — and `rowGroups` marks
-  // where each section starts and how long it runs, so keyboard nav, Enter
-  // and CSV export work on `rows` exactly as before.
+  // The painted order, from the shared evaluator: the view's sort keys
+  // (lexicographic over the key list — per-key semantics live in lib/dbsort,
+  // where select-kind keys compare by schema option order, not A→Z), else
+  // title order, which rests stably across prop edits unlike the vault_list
+  // feed (updated_ms desc) that teleported an edited row mid-edit.
+  //
+  // A grouped table interleaves section header rows between runs of data
+  // rows. `rows` stays the flat, focus-addressable sequence — sections in
+  // option order, the view's sort within each — and `rowGroups` marks where
+  // each section starts and how long it runs, so keyboard nav, Enter and CSV
+  // export work on `rows` exactly as before. A headless reader of the same
+  // view calls this same function, so what it reports is what this pane
+  // paints (the reader passes no `arrange` — it never folds).
   /* Tree rows ride INSIDE that flat sequence: `arrange` re-orders one
      section so each parent is followed by its children, and hands back two
      orders. `rows` is what is on screen — a collapsed parent's children are
@@ -939,8 +938,7 @@ export default function DatabasePane({
      order with every fold opened, and it feeds the things a fold must NOT
      change: the CSV/PDF exports and the footer tally. Depth and child counts
      accumulate across sections into two flat maps the layout reads per row. */
-  const { rows, fullRows, rowGroups, treeDepth, treeKids } = useMemo(() => {
-    const apply = (ns: NoteMeta[]) => [...ns].sort(viewCmp);
+  const { viewCmp, rows, fullRows, rowGroups, treeDepth, treeKids } = useMemo(() => {
     const treeDepth = new Map<string, number>();
     const treeKids = new Map<string, number>();
     // list and gallery stay flat: the chevron is a table/board affordance
@@ -958,26 +956,14 @@ export default function DatabasePane({
         collapsed.size === 0 ? sec.rows : treeSection(ns, subLinks, NO_COLLAPSE).rows;
       return { shown: sec.rows, full };
     };
-    if (layout !== "table" || !tableGroup) {
-      const one = arrange(apply(visible));
-      return { rows: one.shown, fullRows: one.full, rowGroups: null, treeDepth, treeKids };
-    }
-    const rowGroups: { value: string | null; start: number; count: number }[] = [];
-    const rows: NoteMeta[] = [];
-    const fullRows: NoteMeta[] = [];
-    for (const g of tableGroups(visible, tableGroup, byFoldedKey(typeSchema, tableGroup)?.options ?? [], typeSchema)) {
-      const sorted = arrange(apply(g.notes));
-      // `start` indexes `rows` (the painted sequence, so the geometry and the
-      // header's position stay exact); `count` is the section's FULL size —
-      // a fold is a view state, and a header count that shrank while the
-      // footer tally beside it held would put two disagreeing counts of the
-      // same notes on one screen
-      rowGroups.push({ value: g.value, start: rows.length, count: sorted.full.length });
-      rows.push(...sorted.shown);
-      fullRows.push(...sorted.full);
-    }
-    return { rows, fullRows, rowGroups, treeDepth, treeKids };
-  }, [layout, tableGroup, visible, typeSchema, viewCmp, subLinks, collapsed]);
+    const { cmp, rows, fullRows, rowGroups } = viewOrderedRows(visible, typeSchema, {
+      sorts,
+      layout,
+      tableGroup,
+      arrange,
+    });
+    return { viewCmp: cmp, rows, fullRows, rowGroups, treeDepth, treeKids };
+  }, [layout, tableGroup, visible, typeSchema, sorts, subLinks, collapsed]);
 
   /* Large tables paint lazily. Above WIN_MIN rows the tbody renders
      only the scroll viewport ± WIN_OVERSCAN rows; spacer rows before and
@@ -1249,12 +1235,22 @@ export default function DatabasePane({
   );
 
   useEffect(() => {
-    if (!focus) return;
+    if (!focus) {
+      revealedFocus.current = null;
+      return;
+    }
+    const focusMoved = revealedFocus.current !== focus;
+    revealedFocus.current = focus;
+    if (editCell) return;
     const active = document.activeElement;
     const compositeOwnsFocus = classifyActive(active) !== "other-control";
     // A stale coordinate may remain while Tab has moved to a header/link.
-    // Window re-paints must never steal focus back from that native control.
-    if (!compositeOwnsFocus || editCell) return;
+    // Window re-paints must never steal focus back from that native control,
+    // nor tug its scroll. But a sort or filter that MOVED the focused row —
+    // e.g. a header-button click re-sorting the table — still owes it the
+    // reveal (this pane keeps its scroll across a data change, so nothing
+    // else will bring the row back): scroll without touching focus.
+    if (!compositeOwnsFocus && !focusMoved) return;
     const el = bodyRef.current?.querySelector<HTMLElement>(
       `[data-fc="${focus.c}"][data-fr="${focus.r}"]`
     );
@@ -1274,7 +1270,7 @@ export default function DatabasePane({
       // class while document.activeElement stayed on <body>. Move real DOM
       // focus with the roving tab stop so AT announces the active card/cell.
       // An open cell editor owns focus until it closes.
-      if (active !== el) el.focus({ preventScroll: true });
+      if (compositeOwnsFocus && active !== el) el.focus({ preventScroll: true });
       el.scrollIntoView({ block: "nearest", inline: "nearest" });
       if (revealOwed.current === focus.path) revealOwed.current = null;
       return;

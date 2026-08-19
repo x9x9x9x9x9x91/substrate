@@ -1,33 +1,24 @@
 import { save } from "@tauri-apps/plugin-dialog";
 import type { NoteMeta, PropSchema, SavedView, ViewExportReport } from "./types.ts";
-import { foldedPropStr } from "./types.ts";
-import { filterByQuery } from "./views.ts";
-import { rollupColumns, rollupProps, withRollups } from "./rollup.ts";
+import { savedViewRowSet } from "./vieweval.ts";
 import { isTauri } from "./tauri.ts";
 import { viewExportRun, viewExportTarget } from "./ipc.ts";
 
 /** The rows a saved view stands for, without opening it: its
     database's notes narrowed by its own stored query. The pane derives the
-    same set — it just starts from `initialQuery` — so an export from the tab
-    strip's menu matches what opening the pin would show. Layout, grouping and
-    column choices are display-only and can't change membership.
+    same set from the same evaluator — so an export from the tab strip's menu
+    matches what opening the pin would show. Layout, grouping and column
+    choices are display-only and can't change membership.
 
-    Rollup columns are derived first, for the same reason the pane
-    filters over `dispNotes`: a pin whose query reads a rollup column would
-    otherwise match nothing here and export a folder that doesn't match the
-    view on screen. Derivation is skipped entirely when the type declares no
-    rollup. */
+    Rows come back in the evaluator's membership order rather than the
+    painted one: an export writes a folder of links, where order is the file
+    manager's to decide. */
 export function savedViewRows(
   notes: NoteMeta[],
   view: SavedView,
   typeSchema?: Record<string, PropSchema>
 ): NoteMeta[] {
-  const db = view.db.toLowerCase();
-  const typed = notes.filter((n) => foldedPropStr(n.props, "type")?.toLowerCase() === db);
-  const schema = typeSchema ?? {};
-  const rolled = rollupColumns(typed, schema, notes);
-  const rows = rolled ? withRollups(typed, rolled, Object.keys(rollupProps(schema))) : typed;
-  return filterByQuery(rows, view.query ?? "", undefined, typeSchema);
+  return savedViewRowSet(view, notes, typeSchema ?? {}).evaluated.visible;
 }
 
 /** The default folder name offered the first time a view is exported. Kept

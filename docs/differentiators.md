@@ -381,6 +381,18 @@ Capacities, Affine).*
   lands, and attachments don't sync between devices yet.
 - **Hosted handoff relay**: the handoff feature is shipped; a public hosted
   relay is not. Until one exists, the self-host story leads.
+- **Same eyes — the evaluated view, headless**: `view-read` prints a saved
+  table view exactly as the app paints it (same rows, same order, same
+  computed cells) as JSON or markdown, from the app's own evaluator rather
+  than a re-implementation, with a versioned contract chapter
+  (`substrate.view/1`, vault-format.md §7b). This is the claim no
+  CLI-shipping competitor can follow — Obsidian's CLIs and Bear return files
+  and search hits, Bases evaluation is app-locked, Notion's API returns
+  records and never the view as configured. **Not yet advertised**: it covers
+  saved TABLE views only, and the MCP-door method (the half an agent reaches
+  without a shell) is not built. Move this to "The core claims" once both are
+  true; the honest sentence then is "you and your AI look at the same
+  board."
 - **Known parity gaps — don't invite the comparison**: multi-column page
   layout, PDF/doc embeds (image+audio only). Undo covers
   props + structural edits, not yet everything.
