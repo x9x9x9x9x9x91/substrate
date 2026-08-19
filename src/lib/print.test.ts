@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { renderPrintBody } from "./print.ts";
+import { propsLine, renderPrintBody } from "./print.ts";
 
 const noAssets = () => undefined;
 
@@ -126,4 +126,41 @@ test("print honours the embed's size modifier, ignores the rest (SUB-1102)", () 
   }
   // an absurd width clamps rather than blowing out the page
   assert.match(renderPrintBody("![[shot.png|99999]]", src), /style="max-width:4096px"/);
+});
+
+test("a link resolver turns in-set wikilinks into anchors and leaves the rest as text", () => {
+  const linkHref = (inner: string) =>
+    inner.startsWith("Static Bouquet") ? "../static-bouquet/index.html" : undefined;
+  const html = renderPrintBody("[[Static Bouquet|the artwork]] and [[Private Note]]", noAssets, {
+    linkHref,
+  });
+  assert.match(
+    html,
+    /<a class="print-link" href="\.\.\/static-bouquet\/index\.html">the artwork<\/a>/
+  );
+  assert.match(html, /<span class="print-link">Private Note<\/span>/, "out-of-set stays text");
+});
+
+test("the link resolver sees the unescaped target, and its href is escaped on the way out", () => {
+  const seen: string[] = [];
+  const html = renderPrintBody("[[Rock & Roll]]", noAssets, {
+    linkHref: (inner) => {
+      seen.push(inner);
+      return 'x"onmouseover=alert(1)';
+    },
+  });
+  assert.deepEqual(seen, ["Rock & Roll"]);
+  assert.match(html, /href="x&quot;onmouseover=alert\(1\)"/);
+});
+
+test("props chips lead with the app's own keys, then alphabetical, minus title", () => {
+  const line = propsLine({ zeta: "last", title: "hidden", status: "in review", type: "release" });
+  assert.match(line, /^type: release/);
+  assert.ok(!line.includes("hidden"), "the heading already carries the title");
+  assert.ok(line.indexOf("status") < line.indexOf("zeta"));
+  assert.match(line, /<span class="print-sep"> · <\/span>/);
+});
+
+test("prop chips escape their values", () => {
+  assert.match(propsLine({ note: '<img onerror=x> & "q"' }), /&lt;img onerror=x&gt; &amp; &quot;q&quot;/);
 });

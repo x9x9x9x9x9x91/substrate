@@ -225,6 +225,7 @@ type: release
 | `now`, `snoozed_until` | tasks board: pinned to the focus section / parked until a wake day, both board-scoped (§5.2) |
 | `stale` | tasks board: `never` exempts one task from age chips for good (§5.2) |
 | `captured`, `duration`, `transcribed` | voice notes: recording start (full ISO datetime, text), length in seconds, and the datetime the transcript landed — absent means pending, `unavailable`/`failed` are the two non-datetime answers (§5.11) |
+| `handles` | the addresses a person answers to — the appearances rail on a person page matches them across the vault (§5.13) |
 | `tags` | tag list, unioned with the body's inline `#tags` (§3b) |
 
 Everything else is yours. Unknown props are preserved and shown as chips.
@@ -2595,6 +2596,46 @@ app to transcribe it again.
 
 
 ## 5b. `.vault/format.json` — config format versions (covers §6–§8e)
+### 5.13 Person pages — `handles:`
+
+A note that carries a `handles:` prop is a person page. The value is the list
+of addresses that person answers to — email addresses, phone numbers, @names,
+a nickname a database column spells out — as a comma-separated scalar or a
+YAML string list:
+
+```yaml
+---
+type: contact
+handles: vesna@example.com, +49 30 5550199, @vesna
+---
+```
+
+Below the note's backlinks the app then computes an **appearances rail**: every
+place in the vault that already names one of those handles, grouped as
+calendar entries first, then one section per database (`type:`) with untyped
+notes collected as *Notes*, then loose mentions in note bodies. Each row names
+the column or handle it matched, and opens that note.
+
+- **Computed and read-only.** The rail is derived on every render from the
+  index; it writes nothing into the notes it lists, and nothing on disk records
+  it. Delete the `handles:` prop and the rail is simply gone.
+- **Matching is exact, and stays manual.** A handle matches when the two
+  strings are equal after trimming, collapsing inner runs of whitespace, and
+  lowercasing — nothing else. `+49305550199` is not `+49 30 5550199`, and
+  `not-vesna@example.com` never matches `vesna@example.com`. Multi-value props
+  are split on commas on both sides. The app never merges identities for you.
+- **Sealed always wins.** A sealed note contributes no appearance in any lane,
+  and a sealed person page computes no rail at all (§2a).
+- **Other people's `handles:` are not appearances.** Two person notes sharing
+  an address are a duplicate to resolve, not a meeting; dashboards and sheets
+  (§4 functional types) are skipped for the same reason.
+- **A declared but empty `handles:`** renders the rail's prompt rather than
+  nothing, so a person page created from a template says what to fill in.
+
+An external writer needs no support beyond writing the prop: it is an ordinary
+frontmatter key (§2), preserved and round-tripped like any other.
+
+## 5b. `.vault/format.json` — config format versions (covers §6–§8b)
 
 One sidecar records which format version each hidden config file is in
 (`src-tauri/src/vaultfmt.rs`). It exists because two app versions can share a
@@ -4759,7 +4800,8 @@ Plain notes the app treats specially — all optional, all just files:
   reader side: its poller is a background thread with no frontend call site,
   so the engine reads the same key itself (`vault::net_switch_allowed`, the
   twin of `netAllowed()`) before every request, on the same
-  explicit-`false`-only rule. Hot-reloaded
+  explicit-`false`-only rule.
+  Hot-reloaded
   within a second of saving; the ⌘, sheet is a typed form over the same keys.
   Unlike the other notes here it is not merely seeded on first run: the desktop
   app writes it on launch whenever it is absent, so vaults predating

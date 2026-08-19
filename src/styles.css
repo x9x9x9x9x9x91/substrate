@@ -3080,6 +3080,28 @@ button.empty-hint-fix:hover {
   color: var(--text-3);
 }
 
+/* the person page's appearances sections: same visual family as backlinks,
+   several sections in a row, so only the first carries the wide top gap */
+.backlinks.appearances + .backlinks.appearances {
+  margin-top: 18px;
+  border-top: 0;
+  padding-top: 0;
+}
+
+.appearances-title { color: var(--text-2); }
+.appearances-hint {
+  padding: 2px 8px 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+.appearances-hint code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+
 .overlay {
   position: fixed;
   inset: 0;
@@ -7535,6 +7557,7 @@ body.agenda-window .palette:focus-visible {
 
 
 
+
 /* Tax readiness (dashboard: tax) — the year's deductible totals over
    a checklist of documents still owed. Read-only over two exported sheets, and
    the one board that leaves the app on paper, so it stays plain: ruled tiles,
@@ -8877,6 +8900,76 @@ body.agenda-window .palette:focus-visible {
   font-weight: 510;
 }
 
+/* Sub-item tree rows. Only a database that marks a parent relation grows
+   this gutter — everywhere else the Name cell is the bare title span it has
+   always been, so nothing shifts under vaults that don't use sub-items.
+   The twisty rides in a fixed-width lane and every row reserves it (rows
+   with no children get the blank), so a mixed section's titles still read
+   down one straight edge. ONE indent step exists on purpose: a grandchild
+   stands as a top-level row, so no rule here can ever compound. */
+.db-tree-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.db-tree-cell.is-child {
+  padding-left: 20px;
+}
+
+/* the title keeps its vertical padding (it sets the row height) and gives
+   up only the left inset the twisty lane now covers */
+.db-tree-cell .db-cell-txt {
+  padding-left: 2px;
+  min-width: 0;
+}
+
+.db-tree-chevron {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-left: 8px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.db-tree-chevron svg {
+  transition: transform 120ms ease-out;
+}
+
+.db-tree-chevron.open svg {
+  transform: rotate(90deg);
+}
+
+.db-tree-chevron:hover {
+  color: var(--text-1);
+}
+
+/* the twisty's lane without the twisty, so childless rows still align */
+.db-tree-spacer {
+  flex: none;
+  width: 16px;
+  margin-left: 8px;
+}
+
+/* what climbs the chain, on the parent row — the section count's weight
+   and colour: a tally, not a second title */
+.db-sub-badge {
+  flex: none;
+  margin-right: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
 /* data discipline: date values read as instrument data, not prose — and a
    step dimmer: metadata columns must never weigh what the Name column does */
 .db-cell-txt.cell-mono {
@@ -9195,6 +9288,32 @@ body.agenda-window .palette:focus-visible {
   font-size: 13px;
   font-weight: 510;
   color: var(--text-1);
+}
+
+/* the card's tree line — the table's gutter, laid out for a card. The
+   indent is the card's own margin: indenting inside the box would leave a
+   full-width card pretending to be top-level */
+.db-card-tree {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.db-card-tree .db-tree-chevron,
+.db-card-tree .db-tree-spacer {
+  margin-left: -2px;
+}
+
+.db-card-tree .db-card-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-card.db-card-child {
+  margin-left: 16px;
 }
 
 /* gallery — cover card grid (releases with artwork) */

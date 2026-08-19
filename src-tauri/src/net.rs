@@ -46,6 +46,29 @@ fn fetch_with_guard(
     guard: impl Fn(&str) -> Result<Url, String>,
     url: &str,
 ) -> Result<UrlMeta, String> {
+    let page = fetch_html_with_guard(agent, guard, url, MAX_BODY_BYTES)?;
+    Ok(extract_meta(&page.body))
+}
+
+/// One fetched page: where the redirects ended up, the html, and whether the
+/// body cap cut it short. The final URL matters to any caller resolving
+/// relative links — after a redirect the pasted URL is the wrong base.
+pub struct FetchedHtml {
+    pub final_url: Url,
+    pub body: String,
+    pub truncated: bool,
+}
+
+/// The guarded redirect loop, shared by the title fetch and the article
+/// fetch. The guard stays a parameter for the same reason as before: tests
+/// drive it against a local scripted server that the real [`guard_url`]
+/// would refuse before the first hop.
+fn fetch_html_with_guard(
+    agent: &ureq::Agent,
+    guard: impl Fn(&str) -> Result<Url, String>,
+    url: &str,
+    max_bytes: u64,
+) -> Result<FetchedHtml, String> {
     let mut current = guard(url)?;
     let mut hops = 0;
     let resp = loop {
@@ -72,8 +95,119 @@ fn fetch_with_guard(
         return Err(format!("not an html page ({ct})"));
     }
     let mut bytes = Vec::new();
-    resp.into_reader().take(MAX_BODY_BYTES).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-    Ok(extract_meta(&String::from_utf8_lossy(&bytes)))
+    // one byte past the cap, so a page that exactly fills it is not reported
+    // as truncated and a page that overruns it can be
+    resp.into_reader().take(max_bytes + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    let truncated = bytes.len() as u64 > max_bytes;
+    if truncated {
+        bytes.truncate(max_bytes as usize);
+    }
+    Ok(FetchedHtml {
+        final_url: current,
+        body: String::from_utf8_lossy(&bytes).into_owned(),
+        truncated,
+    })
+}
+
+/// How much of an article page is read. Larger than the title fetch's cap
+/// because the whole point here is the body, and smaller than any page worth
+/// keeping is long.
+pub const MAX_ARTICLE_BYTES: u64 = 4 * 1024 * 1024;
+
+/// Cap on one downloaded image. An article's illustrations are kept so the
+/// note survives the page; a poster-sized asset is not worth the vault.
+pub const MAX_IMAGE_BYTES: u64 = 8 * 1024 * 1024;
+
+fn article_agent() -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(5))
+        .timeout(Duration::from_secs(20))
+        .redirects(0)
+        .user_agent("Substrate/0.1 (personal notes; fetches a page the reader asked to keep)")
+        .build()
+}
+
+/// Fetch one page for the shelf's keep-full-text button. Same guard, same
+/// hand-walked redirects as the title fetch — only the caps and the timeout
+/// differ, because this one is a deliberate press rather than a background
+/// nicety.
+pub fn fetch_article_html(url: &str) -> Result<FetchedHtml, String> {
+    fetch_html_with_guard(&article_agent(), guard_url, url, MAX_ARTICLE_BYTES)
+}
+
+/// Fetch one image an article referenced, so the kept copy does not depend on
+/// the site staying up. Anything that is not an image is refused rather than
+/// stored: this lane exists for illustrations, not for arbitrary downloads.
+pub fn fetch_image(url: &str) -> Result<(Vec<u8>, String), String> {
+    let target = guard_url(url)?;
+    let resp = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(5))
+        .timeout(Duration::from_secs(20))
+        .redirects(0)
+        .user_agent("Substrate/0.1 (personal notes; fetches images of a kept page)")
+        .build()
+        .get(target.as_str())
+        .call()
+        .map_err(|e| redact_message(&e.to_string()))?;
+    if (300..400).contains(&resp.status()) {
+        return Err("image moved".into());
+    }
+    let ct = resp.content_type().to_string();
+    let ext = match ct.split('/').nth(1).map(|s| s.split(';').next().unwrap_or("").trim()) {
+        Some("jpeg") | Some("jpg") => "jpg",
+        Some("png") => "png",
+        Some("gif") => "gif",
+        Some("webp") => "webp",
+        Some("avif") => "avif",
+        Some("svg+xml") => "svg",
+        _ => return Err(format!("not an image ({ct})")),
+    };
+    let mut bytes = Vec::new();
+    resp.into_reader()
+        .take(MAX_IMAGE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > MAX_IMAGE_BYTES {
+        return Err("image too large to keep".into());
+    }
+    Ok((bytes, ext.to_string()))
+}
+
+/// One POST of json, for the model call behind the shelf's summary button.
+///
+/// The guard is a parameter because this endpoint is not like the others: a
+/// local model runs on loopback, which [`guard_url`] refuses by design, so
+/// the caller decides which guard a user-configured endpoint gets. Nothing
+/// here reads note content — the caller composed the body.
+pub fn post_json_with_guard(
+    guard: impl Fn(&str) -> Result<Url, String>,
+    endpoint: &str,
+    bearer: Option<&str>,
+    body: &str,
+    timeout: Duration,
+) -> Result<String, String> {
+    let target = guard(endpoint)?;
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(5))
+        .timeout(timeout)
+        .redirects(0)
+        .user_agent("Substrate/0.1 (personal notes)")
+        .build();
+    let mut req = agent.post(target.as_str()).set("Content-Type", "application/json");
+    if let Some(key) = bearer {
+        req = req.set("Authorization", &format!("Bearer {key}"));
+    }
+    match req.send_string(body) {
+        Ok(resp) => resp.into_string().map_err(|e| e.to_string()),
+        // the response body carries the provider's own reason for a refusal,
+        // which is the only useful half of an http error here
+        Err(ureq::Error::Status(code, resp)) => {
+            let detail = resp.into_string().unwrap_or_default();
+            let detail: String = detail.chars().take(400).collect();
+            Err(redact_message(&format!("model call failed ({code}): {detail}")))
+        }
+        Err(e) => Err(redact_message(&e.to_string())),
+    }
 }
 
 /// One USD→EUR quote as the dashboards want it: the rate and the day the

@@ -1,7 +1,8 @@
 import { DEFAULT_NUMBER_LOCALE, type NumberLocale } from "../lib/numberLocale";
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import type { AggKind, DbIcon, DbLayout, NoteMeta, NumberFormat, PropKind, PropSchema, PropValue, RollupConfig, SavedView, SavedViewSort, SchemaConfig, SelectOption, ViewPref } from "../lib/types";
-import { foldedPropKey, foldedPropStr, typeHome } from "../lib/types";
+import { foldedPropKey, foldedPropStr, typeHome, typeParentProp } from "../lib/types";
+import { parentLinks, subSummaries, treeSection } from "../lib/subitems";
 import { isTyping, isTypingNow } from "../lib/dom";
 import { classifyActive, focusAfterEditorClose, revealAfterEditorClose } from "../lib/editorClose";
 import {
@@ -87,7 +88,7 @@ import {
 } from "./DbPaneShared";
 
 export { cardSubtitle };
-import { ColumnsIcon, DbIcon as DbGlyphIcon, ExportIcon, EyeOffIcon, FilterIcon, PenIcon, PinIcon, PlusIcon, TrashIcon, XIcon } from "./Icons";
+import { ColumnsIcon, DbIcon as DbGlyphIcon, ExportIcon, EyeOffIcon, FilterIcon, PenIcon, PinIcon, PlusIcon, SubItemsIcon, TrashIcon, XIcon } from "./Icons";
 import { BackButton } from "./BackButton";
 import EmptyState from "./EmptyState";
 
@@ -182,6 +183,10 @@ interface DatabasePaneProps {
   onDeleteDb: () => void;
   onRenameProp: (prop: string) => void;
   onRemoveProp: (prop: string) => void;
+  /** Mark a relation column as this database's sub-item parent link, or
+      clear it (null). Absent where no schema write is available — the column
+      menu simply doesn't offer the item then. */
+  onSetParentProp?: (prop: string | null) => void;
   /** App's toast — a created entry the active filter still hides
       announces itself instead of vanishing silently; the optional
       action carries Undo after a board drag move */
@@ -200,6 +205,10 @@ const CELL_FLASH_MS = 700;
 /** The empty "these notes refused the write" map, shared so a reset
     is referentially stable (same trick as EMPTY_SEL). */
 const EMPTY_FAILED: ReadonlyMap<string, string> = new Map();
+
+/** "nothing is folded" — the collapse set the export/tally pass hands
+    treeSection, so those read the whole tree whatever the view shows. */
+const NO_COLLAPSE: ReadonlySet<string> = new Set();
 
 export default function DatabasePane({
   dbType,
@@ -242,6 +251,7 @@ export default function DatabasePane({
   onDeleteDb,
   onRenameProp,
   onRemoveProp,
+  onSetParentProp,
   writeProp,
   onToast,
 }: DatabasePaneProps) {
@@ -280,6 +290,41 @@ export default function DatabasePane({
     () => (rolled ? withRollups(notes, rolled, Object.keys(rollups)) : notes),
     [notes, rolled, rollups]
   );
+  /* Sub-items. A database whose schema marks one of its relation props as
+     the parent link renders its table and board as ONE level of tree rows.
+     Everything below is derived on read, like the rollup columns above: the
+     notes themselves keep a plain relation value, so nothing on disk, in
+     grep or in an agent's view of the vault changes shape. `parentProp` is
+     undefined for every other database, and then not one line of the tree
+     path runs. */
+  const parentProp = useMemo(() => typeParentProp(typeSchema, dbType), [typeSchema, dbType]);
+  // Links and rollups come off the WHOLE database, not the filtered view: a
+  // parent's "3 of 7 done" badge answers what the branch holds, which a
+  // filter narrowing the rows on screen must not silently rewrite.
+  const subLinks = useMemo(
+    () => (parentProp ? parentLinks(dispNotes, parentProp) : null),
+    [dispNotes, parentProp]
+  );
+  const subSums = useMemo(
+    () => (subLinks ? subSummaries(dispNotes, subLinks) : null),
+    [dispNotes, subLinks]
+  );
+  // Which parents are folded shut, by path. Lives in the pane (a view
+  // posture, like the open cell editor — not a vault fact), and empties when
+  // the pane switches database or the mark is cleared, so a stale path can
+  // never keep a row hidden.
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set<string>());
+  useEffect(() => {
+    setCollapsed(new Set<string>());
+  }, [dbType, parentProp]);
+  const toggleCollapsed = useCallback((path: string) => {
+    setCollapsed((cur) => {
+      const next = new Set(cur);
+      if (!next.delete(path)) next.add(path);
+      return next;
+    });
+  }, []);
+
   // the rollup schema editor's pickers: the relation props of THIS database
   // a rollup can follow, and the (non-rollup — a rollup reads stored values
   // only) props of whichever related database the picked relation points at
@@ -295,7 +340,7 @@ export default function DatabasePane({
       const target = byFoldedKey(typeSchema, relation)?.type;
       if (!target) return [];
       return Object.entries(typeSchemaFor(schema, target) ?? {})
-        .filter(([k, ps]) => k !== "icon" && k !== "home" && ps?.kind !== "rollup")
+        .filter(([k, ps]) => k !== "icon" && k !== "home" && k !== "parent" && ps?.kind !== "rollup")
         .map(([k]) => k);
     },
     [typeSchema, schema]
@@ -886,18 +931,53 @@ export default function DatabasePane({
   // in option order, the view's sort within each — and `rowGroups` marks
   // where each section starts and how long it runs, so keyboard nav, Enter
   // and CSV export work on `rows` exactly as before.
-  const { rows, rowGroups } = useMemo(() => {
+  /* Tree rows ride INSIDE that flat sequence: `arrange` re-orders one
+     section so each parent is followed by its children, and hands back two
+     orders. `rows` is what is on screen — a collapsed parent's children are
+     gone from it entirely, so lazy paint, keyboard nav and the section count
+     all keep describing the rows the eye sees. `fullRows` is the same tree
+     order with every fold opened, and it feeds the things a fold must NOT
+     change: the CSV/PDF exports and the footer tally. Depth and child counts
+     accumulate across sections into two flat maps the layout reads per row. */
+  const { rows, fullRows, rowGroups, treeDepth, treeKids } = useMemo(() => {
     const apply = (ns: NoteMeta[]) => [...ns].sort(viewCmp);
-    if (layout !== "table" || !tableGroup) return { rows: apply(visible), rowGroups: null };
+    const treeDepth = new Map<string, number>();
+    const treeKids = new Map<string, number>();
+    // list and gallery stay flat: the chevron is a table/board affordance
+    const arrange = (ns: NoteMeta[]) => {
+      if (!subLinks || layout !== "table") return { shown: ns, full: ns };
+      const sec = treeSection(ns, subLinks, collapsed);
+      // known edge: hand-edited YAML that lists several values on a
+      // non-multi group-by prop puts one note in several sections, and these
+      // flat path-keyed maps then take the last section's indent for it
+      for (const [k, v] of sec.depth) treeDepth.set(k, v);
+      for (const [k, v] of sec.childCount) treeKids.set(k, v);
+      // with nothing folded the two orders ARE the same rows — only a live
+      // fold costs the second pass
+      const full =
+        collapsed.size === 0 ? sec.rows : treeSection(ns, subLinks, NO_COLLAPSE).rows;
+      return { shown: sec.rows, full };
+    };
+    if (layout !== "table" || !tableGroup) {
+      const one = arrange(apply(visible));
+      return { rows: one.shown, fullRows: one.full, rowGroups: null, treeDepth, treeKids };
+    }
     const rowGroups: { value: string | null; start: number; count: number }[] = [];
     const rows: NoteMeta[] = [];
+    const fullRows: NoteMeta[] = [];
     for (const g of tableGroups(visible, tableGroup, byFoldedKey(typeSchema, tableGroup)?.options ?? [], typeSchema)) {
-      const sorted = apply(g.notes);
-      rowGroups.push({ value: g.value, start: rows.length, count: sorted.length });
-      rows.push(...sorted);
+      const sorted = arrange(apply(g.notes));
+      // `start` indexes `rows` (the painted sequence, so the geometry and the
+      // header's position stay exact); `count` is the section's FULL size —
+      // a fold is a view state, and a header count that shrank while the
+      // footer tally beside it held would put two disagreeing counts of the
+      // same notes on one screen
+      rowGroups.push({ value: g.value, start: rows.length, count: sorted.full.length });
+      rows.push(...sorted.shown);
+      fullRows.push(...sorted.full);
     }
-    return { rows, rowGroups };
-  }, [layout, tableGroup, visible, typeSchema, viewCmp]);
+    return { rows, fullRows, rowGroups, treeDepth, treeKids };
+  }, [layout, tableGroup, visible, typeSchema, viewCmp, subLinks, collapsed]);
 
   /* Large tables paint lazily. Above WIN_MIN rows the tbody renders
      only the scroll viewport ± WIN_OVERSCAN rows; spacer rows before and
@@ -1022,7 +1102,13 @@ export default function DatabasePane({
   // section it belongs to, so `rows` holds it several times; a Sum that grows
   // when you group the same notes is wrong under any reading. Display,
   // windowing and focus keep the flat sequence; only the tally is deduped.
-  const tallied = useMemo(() => (rowGroups ? distinctNotes(rows) : rows), [rows, rowGroups]);
+  // It also tallies `fullRows`: folding a parent is a view state, like
+  // grouping, and a count that drops when you tidy the view is wrong the
+  // same way.
+  const tallied = useMemo(
+    () => (rowGroups ? distinctNotes(fullRows) : fullRows),
+    [fullRows, rowGroups]
+  );
 
   // Footer: chosen aggregations (column → kind) and their computed
   // values over the visible (filtered, sorted) notes
@@ -1054,9 +1140,23 @@ export default function DatabasePane({
   // stays on disk and unread until the sort is cleared. One flat pref list
   // arranges every column — `orderedNotes` ignores paths that aren't here.
   const handOrder = sorts.length === 0 ? normalizedPref?.card_order : undefined;
-  const boardCols = useMemo(() => {
-    if (!groupBy) return [];
-    const arrange = (ns: NoteMeta[]) => orderedNotes(ns.sort(viewCmp), handOrder);
+  const { boardCols, boardDepth, boardKids } = useMemo(() => {
+    const boardDepth = new Map<string, number>();
+    const boardKids = new Map<string, number>();
+    if (!groupBy) return { boardCols: [], boardDepth, boardKids };
+    // Each column is its own section: a card nests only under a parent card
+    // standing in the SAME column, so a status board never drags a sub-item
+    // out of the status it is actually in.
+    const arrange = (ns: NoteMeta[]) => {
+      const ordered = orderedNotes(ns.sort(viewCmp), handOrder);
+      if (!subLinks) return ordered;
+      const sec = treeSection(ordered, subLinks, collapsed);
+      // same known edge as the table's maps: a hand-edited multi-value
+      // group-by lands one card in several columns, last column wins here
+      for (const [k, v] of sec.depth) boardDepth.set(k, v);
+      for (const [k, v] of sec.childCount) boardKids.set(k, v);
+      return sec.rows;
+    };
     const { none, take } = bucketByProp(visible, groupBy, typeSchema);
     // schema'd grouping: every defined option is a column in option order,
     // empty ones included (they're drop targets); unknown values follow
@@ -1074,8 +1174,8 @@ export default function DatabasePane({
     // exists while at least one visible card actually lacks the prop — when
     // every card is grouped it would be a dead column leading the board
     if (none.length > 0) cols.unshift({ value: null, notes: arrange(none) });
-    return cols;
-  }, [dispNotes, visible, groupBy, typeSchema, viewCmp, handOrder]);
+    return { boardCols: cols, boardDepth, boardKids };
+  }, [dispNotes, visible, groupBy, typeSchema, viewCmp, handOrder, subLinks, collapsed]);
 
   const focusAt = (c: number, r: number): Focus | null => {
     const path = layout === "board" ? boardCols[c]?.notes[r]?.path : rows[r]?.path;
@@ -1293,18 +1393,20 @@ export default function DatabasePane({
     }
   }, [pendingFocus, layout, rows, boardCols]);
 
-  // exports what the table shows: current columns, view filter, current sort.
+  // exports what the view holds: current columns, view filter, current sort.
   // One row per NOTE, not per group membership: grouping
   // is a view-only concern, so a grouped export is byte-identical to the same
-  // view's ungrouped one. The flat `rows` still go in — buildCsv owns the
+  // view's ungrouped one. Collapsing a sub-item tree is a view-only concern
+  // of exactly the same kind, so `fullRows` goes in — tree order, with the
+  // children of a folded parent still in the file. buildCsv owns the
   // de-duplication (the footer's), keeping every export path on one
-  // rule; a note in two sections lands once, at its first on-screen position.
+  // rule; a note in two sections lands once, at its first position.
   const doExportCsv = () => {
-    exportDbCsv(dbType, shown, rows).catch(reportFailure("export"));
+    exportDbCsv(dbType, shown, fullRows).catch(reportFailure("export"));
   };
   // the CSV export's printed twin: same columns, order and de-dup
   const doExportPdf = () => {
-    exportDbPdf(dbType, shown, rows).catch(reportFailure("export"));
+    exportDbPdf(dbType, shown, fullRows).catch(reportFailure("export"));
   };
   const exportNow = useRef(doExportCsv);
   exportNow.current = doExportCsv;
@@ -1605,23 +1707,29 @@ export default function DatabasePane({
   }, [layout, dbType]);
 
   // …and a refresh prunes rows that vanished (a rename changes the path, so
-  // without this a stale selection would linger on a row that no longer is)
+  // without this a stale selection would linger on a row that no longer is).
+  // Against `fullRows`, NOT `rows`: folding a parent takes its children off
+  // the screen without taking them out of the database, and a selection that
+  // silently shrank behind a fold would make the next ⌘⌫ trash fewer notes
+  // than the count on the bulk bar said it would.
   useEffect(() => {
     setSel((cur) => {
       if (cur.size === 0) return cur;
-      const live = new Set(rows.map((n) => n.path));
+      const live = new Set(fullRows.map((n) => n.path));
       const next = new Set([...cur].filter((p) => live.has(p)));
       return next.size === cur.size ? cur : next;
     });
     // Same for the failure marks — a renamed or deleted note takes
-    // its reason with it rather than stranding it on a path nothing renders
+    // its reason with it rather than stranding it on a path nothing renders.
+    // A fold is not a deletion either: unfolding brings the row back, and its
+    // reason has to still be on it.
     setWriteFailed((cur) => {
       if (cur.size === 0) return cur;
-      const live = new Set(rows.map((n) => n.path));
+      const live = new Set(fullRows.map((n) => n.path));
       const next = new Map([...cur].filter(([p]) => live.has(p)));
       return next.size === cur.size ? cur : next;
     });
-  }, [rows]);
+  }, [fullRows]);
 
   // Escape clears the selection FIRST — before the pane's focus-clear and
   // App's esc-close, both bubble-phase listeners registered earlier, so only
@@ -2413,7 +2521,7 @@ export default function DatabasePane({
       {addPropAt && (
         <PropForm
           anchor={addPropAt}
-          existing={[...columns, "icon", "home"]}
+          existing={[...columns, "icon", "home", "parent"]}
           databases={dbTypes}
           rollupRelations={rollupRelations}
           rollupPropsFor={rollupPropsFor}
@@ -2447,6 +2555,30 @@ export default function DatabasePane({
               icon: <PenIcon />,
               run: () => setEditSchemaCol({ col: colMenu.col, anchor: colMenu.anchor }),
             },
+            // Sub-items live behind THIS column, so the switch does too —
+            // the same "configure the thing from the thing" lane a folder's
+            // home is set through. Offered only on a relation pointing back
+            // at this database: nothing else can name a row's parent.
+            ...(onSetParentProp &&
+            byFoldedKey(typeSchema, colMenu.col)?.kind === "relation" &&
+            (byFoldedKey(typeSchema, colMenu.col)?.type ?? "").trim().toLowerCase() ===
+              dbType.trim().toLowerCase()
+              ? [
+                  {
+                    label:
+                      parentProp && parentProp.toLowerCase() === colMenu.col.toLowerCase()
+                        ? "Stop nesting sub-items"
+                        : "Nest sub-items under this",
+                    icon: <SubItemsIcon />,
+                    run: () =>
+                      onSetParentProp(
+                        parentProp && parentProp.toLowerCase() === colMenu.col.toLowerCase()
+                          ? null
+                          : colMenu.col
+                      ),
+                  },
+                ]
+              : []),
             { label: "Rename property…", icon: <PenIcon />, run: () => onRenameProp(colMenu.col) },
             { label: "Remove property…", icon: <TrashIcon />, run: () => onRemoveProp(colMenu.col) },
           ]}
@@ -2552,6 +2684,11 @@ export default function DatabasePane({
       <DbBoardLayout
         groupBy={groupBy}
         boardCols={boardCols}
+        treeDepth={boardDepth}
+        treeKids={boardKids}
+        subSums={subSums}
+        collapsed={collapsed}
+        onToggleCollapsed={toggleCollapsed}
         newTitle={newTitle}
         newCol={newCol}
         dbType={dbType}
@@ -2652,6 +2789,11 @@ export default function DatabasePane({
       sorts={sorts}
       rows={rows}
       rowGroups={rowGroups}
+      treeDepth={treeDepth}
+      treeKids={treeKids}
+      subSums={subSums}
+      collapsed={collapsed}
+      onToggleCollapsed={toggleCollapsed}
       windowed={windowed}
       win={win}
       winMetrics={winMetrics}

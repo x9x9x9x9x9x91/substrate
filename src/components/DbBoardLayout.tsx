@@ -6,7 +6,8 @@ import { missingCls } from "../lib/mounts";
 import { optionColor, OptionPill } from "./SelectMenu";
 import { BoardIcon, PlusIcon } from "./Icons";
 import EmptyState from "./EmptyState";
-import { cardSubtitle, type Focus } from "./DbPaneShared";
+import { cardSubtitle, SubBadge, TreeTwisty, type Focus } from "./DbPaneShared";
+import type { SubSummary } from "../lib/subitems";
 import { byFoldedKey } from "../lib/schemalookup";
 import type { FxResolver } from "../lib/formula";
 import { conversionNote } from "../lib/display";
@@ -31,6 +32,11 @@ function ColBody({ children }: { children: React.ReactNode }) {
 export default function DbBoardLayout({
   groupBy,
   boardCols,
+  treeDepth,
+  treeKids,
+  subSums,
+  collapsed,
+  onToggleCollapsed,
   newTitle,
   newCol,
   dbType,
@@ -70,6 +76,17 @@ export default function DbBoardLayout({
 }: {
   groupBy: string | undefined;
   boardCols: { value: string | null; notes: NoteMeta[] }[];
+  /* Sub-item tree cards, per column: a card nests only under a parent card
+     in the SAME column. `subSums` null = this database marks no parent
+     relation, and the cards render exactly as before. */
+  /** rendered indent level of a card: 0 or 1, one level, never deeper */
+  treeDepth: ReadonlyMap<string, number>;
+  /** cards nesting DIRECTLY under a card in its own column (0 = no chevron) */
+  treeKids: ReadonlyMap<string, number>;
+  /** per-parent descendant/complete counts, or null when off */
+  subSums: ReadonlyMap<string, SubSummary> | null;
+  collapsed: ReadonlySet<string>;
+  onToggleCollapsed: (path: string) => void;
   newTitle: string | null;
   newCol: { value: string | null } | null;
   dbType: string;
@@ -238,7 +255,7 @@ export default function DbBoardLayout({
                     data-fc={ci}
                     data-fr={ri}
                     data-focus-path={n.path}
-                    className={`db-card${focusedCls(ci, ri)}${dragPath === n.path ? " dragging" : ""}${openPath === n.path ? " open" : ""}${lastWritten?.path === n.path ? " db-flashing" : ""}${handHere && cardDropAt?.path === n.path ? (cardDropAt.after ? " db-drop-after" : " db-drop-before") : ""}${missingCls(n)}`}
+                    className={`db-card${focusedCls(ci, ri)}${dragPath === n.path ? " dragging" : ""}${openPath === n.path ? " open" : ""}${lastWritten?.path === n.path ? " db-flashing" : ""}${handHere && cardDropAt?.path === n.path ? (cardDropAt.after ? " db-drop-after" : " db-drop-before") : ""}${missingCls(n)}${subSums && (treeDepth.get(n.path) ?? 0) > 0 ? " db-card-child" : ""}`}
                     role="button"
                     aria-label={n.title}
                     tabIndex={boardTabIndexFor(ci, ri)}
@@ -315,7 +332,22 @@ export default function DbBoardLayout({
                     {lastWritten?.path === n.path && (
                       <span key={lastWritten.nonce} className="db-cell-flash" aria-hidden="true" />
                     )}
-                    <span className="db-card-title">{n.title}</span>
+                    {subSums ? (
+                      // the card's tree line: twisty, title, branch badge —
+                      // the table's gutter, laid out for a card
+                      <span className="db-card-tree">
+                        <TreeTwisty
+                          kids={treeKids.get(n.path) ?? 0}
+                          open={!collapsed.has(n.path)}
+                          title={n.title}
+                          onToggle={() => onToggleCollapsed(n.path)}
+                        />
+                        <span className="db-card-title">{n.title}</span>
+                        <SubBadge sum={subSums.get(n.path)} />
+                      </span>
+                    ) : (
+                      <span className="db-card-title">{n.title}</span>
+                    )}
                     {cardSubtitle(n, typeSchema, groupBy, undefined, fx, fxAsOf, numberLocale) && (
                       <span className="row-sub">
                         {cardSubtitle(n, typeSchema, groupBy, undefined, fx, fxAsOf, numberLocale)}

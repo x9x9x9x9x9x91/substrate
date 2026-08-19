@@ -335,8 +335,11 @@ export function parseShowAppFiles(props: Record<string, unknown>): boolean {
     leaves. `link-titles` gates the enrichment fetch behind link capture (the
     note is still created, from the bare URL), `fx-rates` gates the frankfurter
     read (`useFx` consults it; conversions fall back to the last saved rates),
-    `share-relay` gates the "Send as link" upload. */
-export type NetFeature = "link-titles" | "fx-rates" | "share-relay";
+    and `share-relay` gates the "Send as link" upload. */
+export type NetFeature =
+  | "link-titles"
+  | "fx-rates"
+  | "share-relay";
 
 /** `net-link-titles` / `net-fx-rates` / `net-share-relay` — same rule as
     `drop-hint`: only an explicit `false` turns one off, so an unset key or a
@@ -391,3 +394,4 @@ export function parseTerminalSettings(props: Record<string, unknown>): TerminalS
     font: str("terminal-font"),
   };
 }
+

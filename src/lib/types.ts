@@ -1239,3 +1239,23 @@ export function typeHome(entry: Record<string, PropSchema> | undefined): string 
   const raw = (entry as Record<string, unknown>).home;
   return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
 }
+
+/** The relation prop marked as this database's sub-item parent link, resolved
+    to its CANONICAL schema key — like typeHome the reserved `parent` key
+    rides inside the flat prop map. It only counts when it still names a
+    relation-kind prop of this same database pointing back at it: a schema
+    hand-edited into a dangling or retyped mark reads as no parent link, so
+    the rows render as the plain flat list they were before. */
+export function typeParentProp(
+  entry: Record<string, PropSchema> | undefined,
+  dbType: string
+): string | undefined {
+  if (!entry) return undefined;
+  const raw = (entry as Record<string, unknown>).parent;
+  const name = typeof raw === "string" ? raw.trim() : "";
+  if (!name) return undefined;
+  const key = foldedPropKey(entry, name);
+  const ps = key ? entry[key] : undefined;
+  if (!key || ps?.kind !== "relation") return undefined;
+  return (ps.type ?? "").trim().toLowerCase() === dbType.trim().toLowerCase() ? key : undefined;
+}

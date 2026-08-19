@@ -8,8 +8,8 @@ import type { PropSchema } from "./types.ts";
    note's name, never a row. */
 
 /** Reserved schema.json keys that aren't props (`icon`,
-    `home`) — the same set templates.ts guards at create time. */
-const RESERVED_SCHEMA_KEYS = new Set(["icon", "home"]);
+    `home`, `parent`) — the same set templates.ts guards at create time. */
+const RESERVED_SCHEMA_KEYS = new Set(["icon", "home", "parent"]);
 
 /** Row order for a note's property list. `typeSchema` is the note's own
     type's schema entry (`schema[props.type]`) — absent for plain notes. */

@@ -1876,9 +1876,15 @@ const mockHomes = mockRecord<string>({
   task: "Tasks",
 });
 
+/* Mock sub-item parent links: type → the relation prop naming a row's parent
+   row, merged under the reserved `parent` key at read time like the homes
+   above. Unset by default — a database only grows tree rows once its parent
+   relation is marked. */
+const mockParents = mockRecord<string>();
+
 /** schema.json as the real backend serves it: props plus the reserved
-    per-type `icon` and `home` keys merged in (both survive even when a type
-    has no props configured). */
+    per-type `icon`, `home` and `parent` keys merged in (all three survive
+    even when a type has no props configured). */
 function mockSchemaRead(): SchemaConfig {
   const out = mockRecord<Record<string, unknown>>();
   for (const [type, props] of Object.entries(mockSchema)) {
@@ -1889,6 +1895,9 @@ function mockSchemaRead(): SchemaConfig {
   }
   for (const [type, home] of Object.entries(mockHomes)) {
     (out[type] ??= mockRecord()).home = home;
+  }
+  for (const [type, parent] of Object.entries(mockParents)) {
+    (out[type] ??= mockRecord()).parent = parent;
   }
   return out as SchemaConfig;
 }
@@ -2979,6 +2988,7 @@ function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknow
   if (!mockAsyncDispatch && !mockEchoOnWrites) return mockDispatch(cmd, args);
   return mockInvokeFidelity(cmd, args);
 }
+
 
 /** the tail of mockInvoke, past the hold and latency gates — kept
     separate so the latency path can't re-enter its own gate. */
@@ -5039,9 +5049,26 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         }
       if (options.length === 0 && !kind) {
         delete mockSchema[dbType]?.[prop];
+        // removing the prop the tree hangs off unmarks the parent link too
+        const parentKey = mockFoldedKey(mockParents, dbType);
+        if (parentKey && mockParents[parentKey].toLowerCase() === prop.toLowerCase())
+          delete mockParents[parentKey];
         if (mockSchema[dbType] && Object.keys(mockSchema[dbType]).length === 0)
           delete mockSchema[dbType];
       } else {
+        // the parent mark only survives while its prop still QUALIFIES: a
+        // kind changed away from relation, or a target retargeted at another
+        // database, unmarks the tree here the way removing the prop does
+        // above — a mark left behind renders no chevrons and would silently
+        // re-arm the day the prop became a self-relation again
+        const selfRelation = kind === "relation" && target.toLowerCase() === dbType.toLowerCase();
+        const markedKey = mockFoldedKey(mockParents, dbType);
+        if (
+          !selfRelation &&
+          markedKey &&
+          mockParents[markedKey].toLowerCase() === prop.toLowerCase()
+        )
+          delete mockParents[markedKey];
         const keep = mockSchema[dbType]?.[prop]?.notify ?? false;
         const keptReview =
           reviewArg === undefined || reviewArg === null
@@ -5111,6 +5138,31 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       }
       return mockSchemaRead();
     }
+    case "vault_schema_parent_set": {
+      // mirrors Engine::set_schema_parent: the marked prop must be a
+      // relation-kind prop of this same database pointing back at it; the
+      // CANONICAL prop name is stored, null/blank clears
+      const requestedDbType = ((args?.dbType as string) ?? "").trim();
+      const dbType = mockFoldedKey(mockSchema, requestedDbType) ?? requestedDbType;
+      if (!dbType) throw new Error("database must be non-empty");
+      const raw = ((args?.prop as string | null) ?? "")?.trim() ?? "";
+      if (!raw) {
+        delete mockParents[dbType];
+      } else {
+        const props = mockSchema[dbType] ?? {};
+        const canonical = mockFoldedKey(props, raw);
+        if (!canonical) throw new Error(`“${dbType}” has no property named “${raw}”`);
+        const ps = props[canonical];
+        if (ps?.kind !== "relation") {
+          throw new Error(`“${canonical}” is not a relation property`);
+        }
+        if ((ps.type ?? "").toLowerCase() !== dbType.toLowerCase()) {
+          throw new Error(`“${canonical}” must point at “${dbType}” to name a parent row`);
+        }
+        mockParents[dbType] = canonical;
+      }
+      return mockSchemaRead();
+    }
     case "vault_create_type": {
       // mirrors Engine::create_type: register the type in the schema with
       // optional initial props (absent kind = explicit text); nothing else
@@ -5125,6 +5177,8 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           throw new Error("“icon” is reserved for the database icon");
         if (pname.toLowerCase() === "home")
           throw new Error("“home” is reserved for the database home folder");
+        if (pname.toLowerCase() === "parent")
+          throw new Error("“parent” is reserved for the sub-item parent link");
         if (Object.keys(entry).some((k) => k.toLowerCase() === pname.toLowerCase()))
           throw new Error(`duplicate property “${pname}”`);
         const kind = ((p.kind as NewPropKind | null) ?? null) || "text";
@@ -5204,7 +5258,12 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         mockIcons[newName] = mockIcons[iconOld];
         delete mockIcons[iconOld];
       }
-      // …and so does the home folder
+      // …and so do the parent mark and the home folder
+      const parentOld = mockFoldedKey(mockParents, oldName);
+      if (parentOld) {
+        mockParents[newName] = mockParents[parentOld];
+        delete mockParents[parentOld];
+      }
       const homeOld = mockFoldedKey(mockHomes, oldName);
       if (homeOld) {
         mockHomes[newName] = mockHomes[homeOld];
@@ -5268,10 +5327,12 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       const schemaKey = mockFoldedKey(mockSchema, dbType);
       const iconKey = mockFoldedKey(mockIcons, dbType);
       const homeKey = mockFoldedKey(mockHomes, dbType);
+      const parentKey = mockFoldedKey(mockParents, dbType);
       const viewsKey = mockFoldedKey(mockViews, dbType);
       if (schemaKey) delete mockSchema[schemaKey];
       if (iconKey) delete mockIcons[iconKey];
       if (homeKey) delete mockHomes[homeKey];
+      if (parentKey) delete mockParents[parentKey];
       if (viewsKey) delete mockViews[viewsKey];
       mockSidebarOrder = {
         ...mockSidebarOrder,
@@ -5320,6 +5381,8 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         throw new Error("“icon” is reserved for the database icon");
       if (newName.toLowerCase() === "home")
         throw new Error("“home” is reserved for the database home folder");
+      if (newName.toLowerCase() === "parent")
+        throw new Error("“parent” is reserved for the sub-item parent link");
       const schemaDb = mockFoldedKey(mockSchema, dbType);
       const schemaProps = schemaDb ? mockSchema[schemaDb] : undefined;
       const schemaOld = schemaProps ? mockFoldedKey(schemaProps, oldName) : undefined;
@@ -5356,6 +5419,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       for (const ps of Object.values(schemaProps ?? {}))
         if (ps.kind === "rollup" && ps.relation?.toLowerCase() === oldName.toLowerCase())
           ps.relation = newName;
+      // …and the sub-item parent mark names its prop the same way
+      const parentDb = schemaDb ? mockFoldedKey(mockParents, schemaDb) : undefined;
+      if (parentDb && mockParents[parentDb].toLowerCase() === oldName.toLowerCase())
+        mockParents[parentDb] = newName;
       // …and every rollup in ANY database whose relation points at
       // this one retargets its `prop` reference — left dangling it would read
       // a prop no row carries, rendering the whole column empty

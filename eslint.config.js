@@ -84,6 +84,13 @@ export default tseslint.config(
     },
   },
   {
+    // Vault-resident kind bundles: plain browser ES modules the app imports
+    // from the vault at runtime, not part of the TypeScript program. They see
+    // the DOM and nothing else.
+    files: ["vault-kinds/**/*.js"],
+    languageOptions: { globals: globals.browser },
+  },
+  {
     // Node-side scripts and the sync server: no DOM, no React.
     files: ["scripts/**/*.ts", "e2e/**/*.ts", "*.config.ts", "*.config.js"],
     languageOptions: { globals: globals.node },

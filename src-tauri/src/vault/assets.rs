@@ -84,6 +84,16 @@ impl Engine {
         Ok(filename)
     }
 
+    /// Store bytes the app itself fetched (an image from a page being kept)
+    /// under a claimed `.assets/` name. Same claim-don't-overwrite rule as a
+    /// pasted file — an embed that already points somewhere keeps pointing
+    /// there.
+    pub fn save_asset_bytes(&self, name: &str, bytes: Vec<u8>, default_ext: &str) -> Result<String, String> {
+        let (path, filename) = self.claim_asset_name(name, default_ext)?;
+        write_atomic(&path, bytes)?;
+        Ok(filename)
+    }
+
     /// Copy a file that already lives on disk (drag-drop gives us its path)
     /// into `.assets/` — bytes never cross the IPC bridge, so master-sized
     /// audio imports stay cheap. The copy goes through [`copy_atomic`]:

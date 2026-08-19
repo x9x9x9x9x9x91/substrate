@@ -1237,3 +1237,108 @@ test("mock jobs_freshness drops a max-age whose count overflows", async () => {
   assert.deepEqual(rows.map((r) => r.label), ["sane"]);
   assert.equal(rows[0].max_age_ms, 26 * 3_600_000);
 });
+
+test("mock parent mark follows the engine: self-relation only, canonical, swept", async () => {
+  const db = "ParentMock1300";
+  await invoke("vault_create_type", {
+    name: db,
+    props: [
+      { name: "Parent task", kind: "relation", target: db },
+      { name: "status", kind: null, target: null },
+    ],
+  });
+
+  // only a relation pointing back at this same database can be the parent
+  await assert.rejects(
+    invoke("vault_schema_parent_set", { dbType: db, prop: "status" }),
+    /not a relation/
+  );
+  await assert.rejects(
+    invoke("vault_schema_parent_set", { dbType: db, prop: "nope" }),
+    /no property named/
+  );
+  await invoke("vault_schema_set", {
+    dbType: db,
+    prop: "Release",
+    options: [],
+    kind: "relation",
+    target: "release",
+  });
+  await assert.rejects(
+    invoke("vault_schema_parent_set", { dbType: db, prop: "Release" }),
+    /must point at/
+  );
+
+  // the mark stores the prop's canonical casing, resolved case-folded
+  let schema = await invoke<SchemaConfig>("vault_schema_parent_set", {
+    dbType: db,
+    prop: " parent TASK ",
+  });
+  assert.equal((schema[db] as unknown as { parent?: string }).parent, "Parent task");
+  schema = await invoke<SchemaConfig>("vault_schema_read");
+  assert.equal((schema[db] as unknown as { parent?: string }).parent, "Parent task");
+
+  // …rides a prop rename, and "parent" itself is a reserved prop name
+  await invoke("vault_rename_prop", { dbType: db, old: "Parent task", new: "Up" });
+  schema = await invoke<SchemaConfig>("vault_schema_read");
+  assert.equal((schema[db] as unknown as { parent?: string }).parent, "Up");
+  await assert.rejects(
+    invoke("vault_rename_prop", { dbType: db, old: "Up", new: "parent" }),
+    /reserved/
+  );
+
+  // demoting the prop away unmarks it rather than leaving a dangling name
+  await invoke("vault_schema_set", { dbType: db, prop: "Up", options: [], kind: null });
+  schema = await invoke<SchemaConfig>("vault_schema_read");
+  assert.equal((schema[db] as unknown as { parent?: string } | undefined)?.parent, undefined);
+
+  await invoke("vault_delete_type", { dbType: db, trashNotes: false });
+});
+
+test("mock parent mark drops when its prop stops being a self-relation", async () => {
+  const db = "ParentMock1300b";
+  await invoke("vault_create_type", {
+    name: db,
+    props: [{ name: "Parent task", kind: "relation", target: db }],
+  });
+  const mark = async () => {
+    await invoke("vault_schema_set", {
+      dbType: db,
+      prop: "Parent task",
+      options: [],
+      kind: "relation",
+      target: db,
+    });
+    await invoke("vault_schema_parent_set", { dbType: db, prop: "Parent task" });
+  };
+  const markOf = async () =>
+    (
+      (await invoke<SchemaConfig>("vault_schema_read"))[db] as unknown as
+        | { parent?: string }
+        | undefined
+    )?.parent;
+
+  // retargeted at another database: a parent outside the row set could never
+  // nest, so the mark goes with the target (mirrors Engine::set_schema_prop)
+  await mark();
+  await invoke("vault_schema_set", {
+    dbType: db,
+    prop: "Parent task",
+    options: [],
+    kind: "relation",
+    target: "release",
+  });
+  assert.equal(await markOf(), undefined, "retargeting unmarks");
+
+  // …and so does a kind changed away from relation
+  await mark();
+  await invoke("vault_schema_set", { dbType: db, prop: "Parent task", options: [], kind: "date" });
+  assert.equal(await markOf(), undefined, "a kind away from relation unmarks");
+
+  // another prop's edit is not this prop's demotion
+  await mark();
+  await invoke("vault_schema_set", { dbType: db, prop: "status", options: [], kind: "date" });
+  assert.equal(await markOf(), "Parent task", "live mark untouched");
+
+  await invoke("vault_delete_type", { dbType: db, trashNotes: false });
+});

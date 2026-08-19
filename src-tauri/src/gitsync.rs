@@ -387,6 +387,23 @@ fn credential_store(credentials_path: &Path) -> FileCredentialStore<'_> {
     FileCredentialStore { path: credentials_path }
 }
 
+/// The credential store, reused for a secret that is not the sync token: the
+/// summary model's API key. Same keychain on macOS, same 0600 file elsewhere
+/// and under test — a second copy of this code would be a second place to get
+/// key handling wrong. The `service_key` keeps the entries apart in the
+/// keychain; the path keeps them apart in the file fallback.
+pub(crate) fn store_secret(path: &Path, service_key: &str, secret: &str) -> Result<(), String> {
+    credential_store(path).store_token(service_key, secret)
+}
+
+pub(crate) fn load_secret(path: &Path, service_key: &str) -> Result<Option<String>, String> {
+    credential_store(path).load_token(service_key)
+}
+
+pub(crate) fn delete_secret(path: &Path, service_key: &str) -> Result<(), String> {
+    credential_store(path).delete_token(service_key)
+}
+
 enum Auth {
     Bearer(String),
     Basic(String),

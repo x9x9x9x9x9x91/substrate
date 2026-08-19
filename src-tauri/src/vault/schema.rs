@@ -319,10 +319,33 @@ pub const REVIEW_UNITS: [&str; 4] = ["d", "w", "m", "y"];
 pub const REVIEW_WORDS: [(&str, &str); 4] =
     [("weekly", "1w"), ("monthly", "1m"), ("quarterly", "3m"), ("yearly", "1y")];
 
+/// A reserved key read LENIENTLY: a string is the mark, and any other shape —
+/// the object a hand-rolled `parent` relation prop would sit under, a number,
+/// a list — reads as no mark at all.
+///
+/// Strictness here would cost the whole file. The reserved keys are flattened
+/// into one struct with the prop map, so one unexpected value shape fails the
+/// entire `SchemaConfig` parse, and `schema()` (which treats a parse failure
+/// as "no schema") would hand back an EMPTY map for a vault whose databases
+/// all still have icons, homes, kinds, options and rollups — the next schema
+/// write then persisting that emptiness. Nothing reserved `parent` before
+/// this app version, so vaults holding a user prop of that name exist; they
+/// read as unmarked, like any other shadowed prop name.
+fn lenient_mark<'de, D>(de: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = <serde_json::Value as serde::Deserialize>::deserialize(de)?;
+    Ok(match raw {
+        serde_json::Value::String(s) => Some(s),
+        _ => None,
+    })
+}
+
 /// One type's entry in `.vault/schema.json`: the flat prop → schema map plus
-/// the reserved `icon` and `home` keys (flattened, so the on-disk shape gains
-/// a field without nesting). `icon` and `home` are reserved prop names — user
-/// props called "icon" or "home" are shadowed by the reserved keys.
+/// the reserved `icon`, `home` and `parent` keys (flattened, so the on-disk
+/// shape gains a field without nesting). Those three are reserved prop names —
+/// user props called "icon", "home" or "parent" are shadowed by them.
 #[derive(Clone, Debug, Default, Serialize, serde::Deserialize)]
 pub struct TypeSchema {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -332,6 +355,18 @@ pub struct TypeSchema {
     /// folder's greeting view. A user prop called "home" is shadowed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub home: Option<String>,
+    /// The relation prop that names a row's PARENT row, reserved like
+    /// `home`: naming it here is what turns the database's table and board
+    /// into one level of expandable sub-item rows. It must be a
+    /// relation-kind prop of this same database pointing back AT this same
+    /// database — a parent outside the row set could never nest. Notes stay
+    /// untouched: the parent link is a plain relation value in frontmatter,
+    /// so grep and agents see exactly what they saw before. A user prop
+    /// called "parent" is shadowed — and, being read through `lenient_mark`,
+    /// a pre-existing prop of that name reads as no mark instead of failing
+    /// the whole file's parse.
+    #[serde(default, deserialize_with = "lenient_mark", skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
     #[serde(flatten)]
     pub props: HashMap<String, PropSchema>,
 }
@@ -357,6 +392,9 @@ impl Engine {
             }
             if ts.home.as_deref().map(|h| h.trim().is_empty()).unwrap_or(false) {
                 ts.home = None;
+            }
+            if ts.parent.as_deref().map(|p| p.trim().is_empty()).unwrap_or(false) {
+                ts.parent = None;
             }
         }
         map
@@ -493,8 +531,18 @@ impl Engine {
         if options.is_empty() && kind.is_none() {
             if let Some(ts) = map.get_mut(&db_type) {
                 ts.props.remove(&prop);
+                // removing the prop the tree hangs off unmarks the parent
+                // link too — a dangling name would render no chevrons and
+                // silently re-arm if a prop of that name came back
+                if ts.parent.as_deref().is_some_and(|p| p.eq_ignore_ascii_case(&prop)) {
+                    ts.parent = None;
+                }
                 // the type entry drops out only when nothing at all remains
-                if ts.props.is_empty() && ts.icon.is_none() && ts.home.is_none() {
+                if ts.props.is_empty()
+                    && ts.icon.is_none()
+                    && ts.home.is_none()
+                    && ts.parent.is_none()
+                {
                     map.remove(&db_type);
                 }
             }
@@ -542,7 +590,21 @@ impl Engine {
                 Some((r, p, a)) => (Some(r), Some(p), Some(a)),
                 None => (None, None, None),
             };
-            map.entry(db_type).or_default().props.insert(
+            // the parent mark only survives while its prop still QUALIFIES:
+            // a kind changed away from relation, or a target retargeted at
+            // another database, unmarks the tree here rather than leaving a
+            // mark that renders no chevrons and silently re-arms the day the
+            // prop becomes a self-relation again (same reasoning as the
+            // removal branch above)
+            let self_relation = kind.as_deref() == Some("relation")
+                && target.as_deref().is_some_and(|t| folded_eq(t, &db_type));
+            let entry = map.entry(db_type).or_default();
+            if !self_relation
+                && entry.parent.as_deref().is_some_and(|p| p.eq_ignore_ascii_case(&prop))
+            {
+                entry.parent = None;
+            }
+            entry.props.insert(
                 prop,
                 PropSchema {
                     options,
@@ -589,7 +651,7 @@ impl Engine {
         if glyph.is_none() && emoji.is_none() {
             if let Some(ts) = map.get_mut(&db_type) {
                 ts.icon = None;
-                if ts.props.is_empty() && ts.home.is_none() {
+                if ts.props.is_empty() && ts.home.is_none() && ts.parent.is_none() {
                     map.remove(&db_type);
                 }
             }
@@ -636,7 +698,64 @@ impl Engine {
             None => {
                 if let Some(ts) = map.get_mut(&db_type) {
                     ts.home = None;
-                    if ts.props.is_empty() && ts.icon.is_none() {
+                    if ts.props.is_empty() && ts.icon.is_none() && ts.parent.is_none() {
+                        map.remove(&db_type);
+                    }
+                }
+            }
+        }
+        self.write_schema(&map)?;
+        Ok(map)
+    }
+
+    /// Mark or clear the relation prop that names a row's parent —
+    /// the one switch that turns this database's table and board into sub-item
+    /// trees. The named prop must already exist on this database as a
+    /// relation-kind prop whose target is this same database (a parent
+    /// outside the row set could never nest); ONE prop can hold the mark, so
+    /// setting a second one replaces the first rather than stacking. None (or
+    /// a blank string) clears it, and a type entry with neither props, icon,
+    /// home, nor parent drops out of the file. Nothing about the notes
+    /// changes: the mark lives in `.vault/schema.json`, the links stay plain
+    /// relation values in frontmatter.
+    pub fn set_schema_parent(
+        &self,
+        db_type: &str,
+        prop: Option<String>,
+    ) -> Result<SchemaConfig, String> {
+        let db_type = db_type.trim();
+        if db_type.is_empty() {
+            return Err("database must be non-empty".into());
+        }
+        let prop = prop.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
+        let mut map = self.schema();
+        let db_type = folded_hash_key(&map, db_type).unwrap_or(db_type).to_string();
+        match prop {
+            Some(p) => {
+                // resolve the prop case-folded, the way the frontend resolves
+                // schema keys, and store its CANONICAL name
+                let entry = map
+                    .get(&db_type)
+                    .and_then(|ts| folded_hash_key(&ts.props, &p))
+                    .map(str::to_string);
+                let Some(canonical) = entry else {
+                    return Err(format!("“{db_type}” has no property named “{p}”"));
+                };
+                let ps = &map[&db_type].props[&canonical];
+                if ps.kind.as_deref() != Some("relation") {
+                    return Err(format!("“{canonical}” is not a relation property"));
+                }
+                if !ps.target.as_deref().is_some_and(|t| folded_eq(t, &db_type)) {
+                    return Err(format!(
+                        "“{canonical}” must point at “{db_type}” to name a parent row"
+                    ));
+                }
+                map.entry(db_type).or_default().parent = Some(canonical);
+            }
+            None => {
+                if let Some(ts) = map.get_mut(&db_type) {
+                    ts.parent = None;
+                    if ts.props.is_empty() && ts.icon.is_none() && ts.home.is_none() {
                         map.remove(&db_type);
                     }
                 }
@@ -677,6 +796,18 @@ impl Engine {
         // refuse to rewrite a file a newer app wrote
         crate::vaultfmt::prepare_write(&self.root, crate::vaultfmt::VaultFile::Schema)?;
         let abs = self.root.join(SCHEMA_REL_PATH);
+        // A file that failed to parse reads as an EMPTY schema, so a mutation
+        // on top of it would flatten every database's icons, homes, kinds,
+        // options and rollups into `{}`. Writing nothing over a file that
+        // still holds something we could not read is the one write worth
+        // refusing: an empty map only ever lands on a file that is absent,
+        // blank, or a schema that read cleanly.
+        if map.is_empty() {
+            let raw = fs::read_to_string(&abs).unwrap_or_default();
+            if !raw.trim().is_empty() && serde_json::from_str::<SchemaConfig>(&raw).is_err() {
+                return Err("refusing to overwrite an unreadable .vault/schema.json".into());
+            }
+        }
         if let Some(dir) = abs.parent() {
             fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
@@ -742,6 +873,9 @@ impl Engine {
             if pname.eq_ignore_ascii_case("home") {
                 return Err("“home” is reserved for the database home folder".into());
             }
+            if pname.eq_ignore_ascii_case("parent") {
+                return Err("“parent” is reserved for the sub-item parent link".into());
+            }
             // a mount's binding props are the engine's
             self.check_binding_prop(name, pname)?;
             if entry.keys().any(|k| folded_eq(k, pname)) {
@@ -802,7 +936,7 @@ impl Engine {
             );
         }
         let mut map = self.schema();
-        map.insert(name.to_string(), TypeSchema { icon: None, home: None, props: entry });
+        map.insert(name.to_string(), TypeSchema { icon: None, home: None, parent: None, props: entry });
         self.write_schema(&map)?;
         Ok(map)
     }
@@ -1071,6 +1205,9 @@ impl Engine {
         if new.eq_ignore_ascii_case("home") {
             return Err("“home” is reserved for the database home folder".into());
         }
+        if new.eq_ignore_ascii_case("parent") {
+            return Err("“parent” is reserved for the sub-item parent link".into());
+        }
         // a mount's binding props are the engine's
         self.check_binding_prop(db_type, new)?;
         let schema = self.schema();
@@ -1148,6 +1285,14 @@ impl Engine {
                 {
                     ps.relation = Some(new.to_string());
                 }
+            }
+        }
+        // the parent mark names a prop of this database by name, so a rename
+        // of that prop carries it along — left dangling, the tree would
+        // quietly flatten back into a plain list
+        if let Some(ts) = schema_db.as_deref().and_then(|key| map.get_mut(key)) {
+            if ts.parent.as_deref().is_some_and(|p| p.eq_ignore_ascii_case(old)) {
+                ts.parent = Some(new.to_string());
             }
         }
         // …and a rollup's TARGET prop lives on the RELATED database:
@@ -4206,6 +4351,256 @@ mod tests {
         fs::create_dir_all(dir.join(".vault")).unwrap();
         fs::write(dir.join(SCHEMA_REL_PATH), r#"{ "task": { "home": "  " } }"#).unwrap();
         assert!(e.schema()["task"].home.is_none(), "blank home reads as none");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Declare `prop` on `db` as a relation pointing at `target`.
+    fn rel_prop(e: &Engine, db: &str, prop: &str, target: &str) {
+        e.set_schema_prop(
+            db,
+            prop,
+            vec![],
+            Some("relation".into()),
+            None,
+            None,
+            Some(target.into()),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn schema_parent_marks_one_self_relation_and_clears() {
+        let (e, dir) = temp_vault("schemaparent");
+        rel_prop(&e, "task", "Parent task", "task");
+
+        // the mark stores the prop's CANONICAL casing, resolved case-folded
+        let map = e.set_schema_parent("task", Some(" parent TASK ".into())).unwrap();
+        assert_eq!(map["task"].parent.as_deref(), Some("Parent task"));
+        let raw: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.join(SCHEMA_REL_PATH)).unwrap()).unwrap();
+        assert_eq!(raw["task"]["parent"], "Parent task", "reserved key on disk");
+        assert_eq!(e.schema()["task"].parent.as_deref(), Some("Parent task"), "persists");
+
+        // ONE parent relation: marking a second replaces the first
+        rel_prop(&e, "task", "Belongs to", "task");
+        let map = e.set_schema_parent("task", Some("Belongs to".into())).unwrap();
+        assert_eq!(map["task"].parent.as_deref(), Some("Belongs to"));
+
+        // blank clears
+        let map = e.set_schema_parent("task", Some("  ".into())).unwrap();
+        assert!(map["task"].parent.is_none());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn schema_parent_refuses_anything_but_a_self_relation_prop() {
+        let (e, dir) = temp_vault("schemaparentbad");
+        e.set_schema_prop(
+            "task",
+            "status",
+            vec![opt("live", None)],
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        rel_prop(&e, "task", "Release", "release");
+
+        assert!(e.set_schema_parent("task", Some("nope".into())).is_err(), "unknown prop");
+        assert!(e.set_schema_parent("task", Some("status".into())).is_err(), "not a relation");
+        let err = e.set_schema_parent("task", Some("Release".into())).unwrap_err();
+        assert!(err.contains("task"), "points at another database: {err}");
+        assert!(e.set_schema_parent(" ", Some("x".into())).is_err(), "empty db");
+        assert!(e.schema()["task"].parent.is_none(), "nothing stuck");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn schema_parent_follows_prop_rename_and_drops_with_the_prop() {
+        let (mut e, dir) = temp_vault("schemaparentsweep");
+        rel_prop(&e, "task", "Parent task", "task");
+        e.set_schema_parent("task", Some("Parent task".into())).unwrap();
+
+        e.rename_prop("task", "Parent task", "Up").unwrap();
+        assert_eq!(e.schema()["task"].parent.as_deref(), Some("Up"), "mark rides the rename");
+
+        // "parent" itself is reserved as a prop name
+        assert!(e.rename_prop("task", "Up", "parent").is_err());
+        assert!(e.create_type("Films", vec![new_prop("parent", None, None)]).is_err());
+
+        // demoting the prop away unmarks it rather than leaving a dangling name
+        let map = e
+            .set_schema_prop("task", "Up", vec![], None, None, None, None, None, None, None, None)
+            .unwrap();
+        assert!(!map.contains_key("task"), "nothing left keeps the entry alive");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn schema_parent_keeps_an_otherwise_empty_entry_alive() {
+        let (e, dir) = temp_vault("schemaparentkeep");
+        rel_prop(&e, "task", "Parent", "task");
+        e.set_schema_parent("task", Some("Parent".into())).unwrap();
+        e.set_schema_home("task", Some("Tasks".into())).unwrap();
+        // clearing home leaves the parent-marked entry standing
+        let map = e.set_schema_home("task", None).unwrap();
+        assert_eq!(map["task"].parent.as_deref(), Some("Parent"), "parent-marked entry stays");
+        // a hand-edited blank parent reads as none
+        fs::write(dir.join(SCHEMA_REL_PATH), r#"{ "task": { "parent": " " } }"#).unwrap();
+        assert!(e.schema()["task"].parent.is_none(), "blank parent reads as none");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn schema_object_valued_parent_reads_as_no_mark_not_as_an_empty_file() {
+        // Nothing reserved "parent" before this app version, so a vault where
+        // somebody hand-rolled a `parent` RELATION PROP holds exactly this
+        // shape: an object under the key the reserved mark now claims. Read
+        // strictly it fails the WHOLE file's parse — and a parse failure reads
+        // as "no schema", so every database would lose its icon, home, kinds,
+        // options and rollups, and the next schema write would persist that.
+        let (e, dir) = temp_vault("schemaparentobject");
+        fs::create_dir_all(dir.join(".vault")).unwrap();
+        fs::write(
+            dir.join(SCHEMA_REL_PATH),
+            r#"{
+              "task": {
+                "icon": { "glyph": "seedling", "tint": "green" },
+                "home": "Areas/Work",
+                "parent": { "options": [], "kind": "relation", "type": "task" },
+                "Status": { "options": [{ "value": "live", "color": "green" }] },
+                "Due": { "options": [], "kind": "date", "notify": true },
+                "Owner": { "options": [], "kind": "relation", "type": "person" },
+                "Load": {
+                  "options": [],
+                  "kind": "rollup",
+                  "relation": "Owner",
+                  "prop": "Hours",
+                  "agg": "sum"
+                }
+              },
+              "person": { "home": "People", "Hours": { "options": [], "kind": "number" } }
+            }"#,
+        )
+        .unwrap();
+
+        let map = e.schema();
+        let ts = &map["task"];
+        assert!(ts.parent.is_none(), "an object under the reserved key is no mark");
+        assert_eq!(ts.icon.as_ref().and_then(|i| i.glyph.as_deref()), Some("seedling"));
+        assert_eq!(ts.home.as_deref(), Some("Areas/Work"));
+        assert_eq!(ts.props["Status"].options[0].value, "live", "options survived");
+        assert_eq!(ts.props["Due"].kind.as_deref(), Some("date"));
+        assert!(ts.props["Due"].notify, "the date's flag survived");
+        assert_eq!(ts.props["Owner"].target.as_deref(), Some("person"), "relation target survived");
+        assert_eq!(ts.props["Load"].agg.as_deref(), Some("sum"), "rollup wiring survived");
+        assert_eq!(map["person"].home.as_deref(), Some("People"), "the other database too");
+
+        // and a mutation on top of it writes the file it read, not an empty one
+        e.set_schema_home("task", Some("Areas/Ops".into())).unwrap();
+        let after = e.schema();
+        assert_eq!(after["task"].home.as_deref(), Some("Areas/Ops"));
+        assert_eq!(after["task"].props["Load"].prop.as_deref(), Some("Hours"), "nothing flattened");
+        assert!(after.contains_key("person"), "nor did the other database vanish");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn schema_never_flattens_a_file_it_could_not_read() {
+        // The belt to the leniency above: whatever makes a schema unreadable,
+        // writing `{}` over it is the one write worth refusing.
+        let (e, dir) = temp_vault("schemaunreadable");
+        fs::create_dir_all(dir.join(".vault")).unwrap();
+        fs::write(dir.join(SCHEMA_REL_PATH), "nope [").unwrap();
+
+        let err = e.set_schema_home("task", None).unwrap_err();
+        assert!(err.contains("unreadable"), "says what it refused: {err}");
+        assert_eq!(
+            fs::read_to_string(dir.join(SCHEMA_REL_PATH)).unwrap(),
+            "nope [",
+            "the file nobody could read is still there"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn schema_parent_mark_drops_when_the_prop_stops_qualifying() {
+        // A mark whose prop is no longer a self-relation renders no chevrons
+        // and would silently re-arm the day the prop became one again — so
+        // the demotion clears it, exactly as removing the prop does.
+        let (e, dir) = temp_vault("schemaparentstale");
+        let mark = |e: &Engine| {
+            rel_prop(e, "task", "Parent task", "task");
+            e.set_schema_parent("task", Some("Parent task".into())).unwrap();
+        };
+
+        // retargeted at another database: a parent outside the row set could
+        // never nest, so the mark goes with the target
+        mark(&e);
+        let map = e
+            .set_schema_prop(
+                "task",
+                "Parent task",
+                vec![],
+                Some("relation".into()),
+                None,
+                None,
+                Some("release".into()),
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        assert!(map["task"].parent.is_none(), "retargeting unmarks");
+        assert!(e.schema()["task"].parent.is_none(), "and it persisted");
+
+        // …and so does a kind changed away from relation
+        mark(&e);
+        let map = e
+            .set_schema_prop(
+                "task",
+                "Parent task",
+                vec![],
+                Some("date".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        assert!(map["task"].parent.is_none(), "a kind away from relation unmarks");
+
+        // another prop's edit is not this prop's demotion
+        mark(&e);
+        let map = e
+            .set_schema_prop(
+                "task",
+                "Status",
+                vec![opt("live", None)],
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(map["task"].parent.as_deref(), Some("Parent task"), "live mark untouched");
         let _ = fs::remove_dir_all(&dir);
     }
 

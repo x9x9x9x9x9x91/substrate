@@ -66,6 +66,7 @@ import {
   type RelationCandidate,
 } from "../lib/relation";
 import Editor from "./Editor";
+import AppearancesRail from "./AppearancesRail";
 import HistoryPanel from "./HistoryPanel";
 import FmRepairDialog from "./FmRepairDialog";
 import SealedNoteDialog, { type SealedNoteMode } from "./SealedNoteDialog";
@@ -183,6 +184,10 @@ interface NotePaneProps {
   onFollowLink: (name: string) => void;
   /** all note titles — [[ wikilink completion in the body editor */
   noteTitles: string[];
+  /** every note the vault list holds — the person page's appearances rail
+      scans their props and calendar dates for this note's `handles:`. Absent
+      leaves the rail off (a pane rendered without a vault behind it). */
+  vaultNotes?: NoteMeta[];
   /** the body behind a wikilink target — the `[[Target#anchor` popup's
       source, passed straight through to the editor */
   linkedNoteBody: (target: string) => Promise<string | null>;
@@ -296,6 +301,7 @@ function NotePane({
   dbPropNames,
   onFollowLink,
   noteTitles,
+  vaultNotes,
   linkedNoteBody,
   sheetTitles,
   onOpenTag,
@@ -1644,7 +1650,7 @@ function NotePane({
       const target = byFoldedKey(noteTypeSchema, relation)?.type;
       if (!target) return [];
       return Object.entries(typeSchemaFor(schema, target) ?? {})
-        .filter(([k, ps]) => k !== "icon" && k !== "home" && ps?.kind !== "rollup")
+        .filter(([k, ps]) => k !== "icon" && k !== "home" && k !== "parent" && ps?.kind !== "rollup")
         .map(([k]) => k);
     },
     [schema, noteTypeSchema]
@@ -2642,6 +2648,16 @@ function NotePane({
               }
               onMutated();
             }}
+          />
+        )}
+        {!isSheet && !ghost && vaultNotes && !(isSealed && !sealedUnlocked) && (
+          <AppearancesRail
+            meta={meta}
+            notes={vaultNotes}
+            schema={schema}
+            vaultEpoch={vaultEpoch}
+            changedPaths={changedPaths}
+            onOpenNote={onOpenNote}
           />
         )}
         {!isSheet &&
