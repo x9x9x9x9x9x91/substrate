@@ -45,6 +45,22 @@ is only to answer "did this change?", never "is this right?".
   spec pins it to 0.01, which fails that edit; don't loosen it back.
 - **Mock vault only.** Like every e2e spec, these run against the handwritten
   mock backend, so the baselines contain fixture content and no real data.
+- **The Linux hosts must agree on fonts.** The baselines were recorded where
+  fontconfig resolves the generic sans/serif/mono families to DejaVu, which is
+  what it does whenever `fonts-dejavu-core` and `fonts-dejavu-mono` are
+  installed. A rig missing them silently substitutes something else — Nimbus
+  from urw-base35, Noto Mono — and text metrics shift far enough to break the
+  comparison. `scripts/setup-substrate-rig.sh` now installs both and asserts
+  the resolution, so a freshly provisioned rig cannot land in that state
+  quietly.
+
+  The signature is specific: the same tree is green on one px host and red on
+  another, on a handful of text-dense baselines (the dashboards and the print
+  surface) rather than on all ten. Diagnose it by comparing the hosts, not the
+  diff — `ssh <rig> 'fc-match sans; fc-match serif; fc-match monospace'` on the
+  red rig and a green one. Different families there is the whole answer, and
+  re-recording the baselines would be the wrong fix: it would encode one host's
+  fonts and move the red to every other rig.
 
 ## Tier 2 — Mac captures: proof a human looks at
 
