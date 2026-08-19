@@ -4146,7 +4146,14 @@ Reading rules, all of them refusals rather than guesses:
   the key is the booking's own `AcctSvcrRef`. Borrowing the first member's
   payee and identifier would put the batch TOTAL under one member's name, and a
   later single-entry export of that member would then dedupe against it and
-  vanish.
+  vanish. One honest edge: a batch the bank left nameless — no entry-level
+  `AcctSvcrRef` and no `AddtlNtryInf` — keys on day, amount and account with
+  an empty reference, so two such batches of the same total on the same day
+  are indistinguishable. Imported in one file the second lands in the review
+  step as surplus-identical; split across two imports it reads as the
+  overlapping-window duplicate and is dropped. A bank that puts `AcctSvcrRef`
+  on its batches keeps them apart; a differing `AddtlNtryInf` only downgrades
+  the silent drop to a review row.
 - **Account** is the statement's own `Acct/Id/IBAN`, then `Acct/Id/Othr/Id`,
   then the owner name. Every entry in a statement belongs to the account it was
   cut for.
