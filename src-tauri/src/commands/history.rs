@@ -404,6 +404,17 @@ pub(crate) async fn history_restore(
     .await?
 }
 
+/// Every command here replays history under new commit ids, which is exactly
+/// what makes the historical search index stale AND a second copy of writing
+/// the user just destroyed. Deep Recall notices a replayed history on its own
+/// when it is next read, so this is belt to that braces: the copy goes away
+/// with the rewrite rather than with the next search.
+fn drop_recall_index(app: &tauri::AppHandle, state: &State<AppState>) {
+    let onboarding: State<crate::OnboardingState> = app.state();
+    let root = state.0.lock().unwrap().root.clone();
+    crate::commands::recall::clear_after_rewrite(&onboarding.config_dir, &root);
+}
+
 /// Purge notes out of all snapshots, then re-snapshot so their current state
 /// becomes a fresh version 1. Split out of the two commands below so a test
 /// can drive the real sequence.
@@ -428,6 +439,7 @@ pub(crate) async fn history_purge_note(app: tauri::AppHandle, path: String) -> R
         let state: State<AppState> = app.state();
         let h: State<HistoryState> = app.state();
         with_history_rewrite(&h.0, &state.0, |hist| purge_notes(hist, &[&path]))?;
+        drop_recall_index(&app, &state);
         app.state::<SnapDirty>().mark();
         Ok(())
     })
@@ -446,6 +458,7 @@ pub(crate) async fn history_purge_notes(
         let h: State<HistoryState> = app.state();
         let rels: Vec<&str> = paths.iter().map(String::as_str).collect();
         with_history_rewrite(&h.0, &state.0, |hist| purge_notes(hist, &rels))?;
+        drop_recall_index(&app, &state);
         app.state::<SnapDirty>().mark();
         Ok(())
     })
@@ -458,7 +471,9 @@ pub(crate) async fn history_trim(app: tauri::AppHandle, before_ms: u64) -> Resul
     blocking(move || {
         let state: State<AppState> = app.state();
         let h: State<HistoryState> = app.state();
-        with_history_rewrite(&h.0, &state.0, |hist| hist.trim_before(before_ms / 1000))
+        let out = with_history_rewrite(&h.0, &state.0, |hist| hist.trim_before(before_ms / 1000));
+        drop_recall_index(&app, &state);
+        out
     })
     .await?
 }

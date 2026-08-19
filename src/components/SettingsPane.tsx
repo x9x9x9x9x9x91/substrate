@@ -14,6 +14,7 @@ import {
   voiceSupported,
 } from "../lib/ipc";
 import type { VoiceModelState } from "../lib/ipc";
+import RecallSettings from "./RecallSettings";
 import ReflexesSettings from "./ReflexesSettings";
 import { normalizeNumberInput } from "../lib/aggregate";
 import { NUMBER_LOCALES, numberLocaleSample, numberLocaleSetting } from "../lib/numberLocale";
@@ -1232,6 +1233,10 @@ export default function SettingsPane({
               consequential one, and it should not be the first thing someone
               scrolling for a font size trips over */}
           <ReflexesSettings onToast={onToast} />
+          {/* below the reflex switch for the same reason it is below the
+              fields: an index over everything ever deleted is a decision, not
+              a preference */}
+          <RecallSettings onToast={onToast} />
           {/* last, and only when the vault has any: consent is a per-vault
               answer, not a preference, and it renders itself away in the
               overwhelming majority of vaults that install no kinds */}

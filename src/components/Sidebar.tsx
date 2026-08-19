@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import type { DbIcon, FolderMetaMap, NoteMeta, SavedView, TagFolder, View } from "../lib/types";
+import type { DbIcon, DriveInfo, FolderMetaMap, NoteMeta, SavedView, TagFolder, View } from "../lib/types";
 import { viewKey } from "../lib/types";
 import { vaultRoot } from "../lib/ipc";
 import {
@@ -19,6 +19,7 @@ import {
 import { keyForTarget, keyLabel } from "../lib/keyassign";
 import { tooltip } from "./Tooltip";
 import { tagFolderSummary } from "../lib/tags";
+import { shelfRowHint } from "../lib/shelf";
 import InlineEdit from "./InlineEdit";
 import InfoView from "./InfoView";
 import TypeIcon from "./TypeIcon";
@@ -31,6 +32,7 @@ import {
   ClockIcon,
   CookbookIcon,
   DbIcon as DbGlyphIcon,
+  DriveIcon,
   FolderIcon,
   FolderOpenIcon,
   GearIcon,
@@ -90,6 +92,11 @@ interface SidebarProps {
   onToggleHidden: () => void;
   /** untyped notes count — the Notes view's badge */
   scratchCount: number;
+  /** every drive the vault has cataloged, online first — the Drives
+      section's rows. A drive in a drawer still gets one: the whole point of
+      the shelf is that the rail lists the disks you own, not the disks
+      currently plugged in. */
+  drives: DriveInfo[];
   /** collapsed sidebar sections from `$sidebar.collapsed`:
       section ids ("dashboards" | "pinned" | "folders") plus one
       `dashgroup:<folder>` id per collapsed Dashboards subfolder group */
@@ -217,6 +224,7 @@ function Sidebar({
   onMobileClose,
   onToggleHidden,
   scratchCount,
+  drives,
   collapsedIds,
   onToggleCollapse,
   icons,
@@ -294,6 +302,7 @@ function Sidebar({
   const foldersOpen = !collapsedIds.includes("folders");
   const dashboardsOpen = !collapsedIds.includes("dashboards");
   const pinnedOpen = !collapsedIds.includes("pinned");
+  const drivesOpen = !collapsedIds.includes("drives");
   // a note dragged over the Pinned section highlights the section
   const [pinDrop, setPinDrop] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -458,6 +467,38 @@ function Sidebar({
       {keyChip(k)}
     </button>
   );
+
+  /* One drive's rail row. It is `item` plus the one thing a disk has that a
+     destination doesn't: whether it is here. The lamp says connected; the
+     tooltip says when the catalog was made, so a click into an offline drive
+     is never a surprise. */
+  const driveRow = (d: DriveInfo) => {
+    const k = `drive:${d.id}`;
+    return (
+      <button
+        type="button"
+        key={k}
+        className={`side-item side-drive${d.online ? " is-online" : ""}${
+          key === k ? " active" : ""
+        }${keyDropClass(k)}`}
+        onClick={() => setView({ kind: "drive", id: d.id, prefix: "" })}
+        aria-label={d.label}
+        aria-current={key === k ? "page" : undefined}
+        {...tooltip(shelfRowHint(d), { label: false })}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onContextMenu({ kind: "fixed", token: k }, e.clientX, e.clientY);
+        }}
+        {...keyDropProps(k)}
+      >
+        <span className="side-chevron-spacer" />
+        <span className="shelf-lamp" aria-hidden />
+        <DriveIcon />
+        <span className="side-label-text">{d.label}</span>
+        {keyChip(k)}
+      </button>
+    );
+  };
 
   // Every row in the rail — fixed, dashboard, pin, folder — starts
   // with the chevron gutter, so one icon column runs top to bottom. A row's
@@ -1394,6 +1435,35 @@ function Sidebar({
                 these follow their definition file instead. */}
             {tagFolders.map(tagFolderRow)}
             {folderEdit?.kind === "create" && folderEdit.parent === "" ? createRow("", 0) : null}
+          </>
+        )}
+
+        {/* The Drive Shelf's rail half. The section only exists once a disk
+            has been cataloged, and then it stays — a drive in a drawer keeps
+            its row, because "which disk is that on" is a question you ask
+            with the disk unplugged. The header row is the shelf itself. */}
+        {drives.length > 0 && (
+          <>
+            <div className="side-label side-label-row">
+              <button
+                type="button"
+                className="side-section-toggle"
+                onClick={() => onToggleCollapse("drives")}
+                {...tooltip(drivesOpen ? "Collapse" : "Expand", { label: false })}
+                aria-expanded={drivesOpen}
+              >
+                <span className={`side-chevron${drivesOpen ? " open" : ""}`}>
+                  <ChevronIcon />
+                </span>
+                <span>Drives</span>
+              </button>
+            </div>
+            {drivesOpen && (
+              <>
+                {item("shelf", "All drives", <DriveIcon />, () => setView({ kind: "shelf" }), drives.length)}
+                {drives.map(driveRow)}
+              </>
+            )}
           </>
         )}
       </div>

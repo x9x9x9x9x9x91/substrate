@@ -263,6 +263,17 @@ export const MountIcon = () => (
   </svg>
 );
 
+/* an external disk: the enclosure, its status lamp, and the shelf line it
+   sits on when it isn't plugged in — the shelf, not the folder, is what the
+   Drive Shelf is about */
+export const DriveIcon = () => (
+  <svg {...base}>
+    <rect x="2.5" y="4.5" width="11" height="5" rx="1.2" />
+    <path d="M4.6 7h.01" />
+    <path d="M3.5 12.5h9" />
+  </svg>
+);
+
 export const LinkIcon = () => (
   <svg {...base}>
     <path d="M6.8 9.2 9.2 6.8" />

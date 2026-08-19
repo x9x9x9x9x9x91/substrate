@@ -286,6 +286,11 @@ struct RuntimeState {
 
 struct SharedRuntime(Mutex<RuntimeState>);
 
+/// How often the Drive Shelf looks for volumes appearing or disappearing.
+/// Short enough that plugging a disk in feels like the app noticed, long
+/// enough that a machine with no removable media is doing nothing all day.
+const DRIVE_POLL_SECS: u64 = 5;
+
 // Command modules: the whole `#[tauri::command]` surface, grouped by
 // domain. Glob-imported so `generate_handler!` below can keep naming commands
 // bare, exactly as it did while they all lived in this file.
@@ -295,9 +300,11 @@ use commands::assets::*;
 use commands::calendarfeeds::*;
 use commands::coding::*;
 use commands::cookbook::*;
+use commands::drives::*;
 use commands::files::*;
 use commands::fx::*;
 use commands::history::*;
+use commands::recall::*;
 use commands::jobsdash::*;
 use commands::kinds::*;
 use commands::mcp::*;
@@ -717,6 +724,7 @@ pub fn run() {
             // Mount path bindings are machine-local, so the folder watcher
             // reads them from the same app-config dir.
             let folders_cfg_dir = config_dir.clone();
+            let folders_cfg_dir_for_drives = config_dir.clone();
             let migrate_cfg_dir = config_dir.clone();
             // reflex consent is machine-local too (consent amendment)
             let reflex_cfg_dir = config_dir.clone();
@@ -1349,6 +1357,46 @@ pub fn run() {
                 )
             });
 
+            // Drive Shelf: notice volumes appearing and disappearing.
+            // A poll rather than an OS mount event, because it also has to
+            // notice the disk that was already plugged in at launch and the
+            // one yanked while the app was asleep — and because the answer it
+            // computes (read a directory of mount points) is cheap enough
+            // that the simple thing is the right thing. The scan behind it is
+            // read-only on the volume, always.
+            let drives_handle = app.handle().clone();
+            let drives_cfg_dir = folders_cfg_dir_for_drives;
+            std::thread::spawn(move || {
+                // What the last poll saw. The poll itself is a directory
+                // read; the SYNC behind it walks whole disks, so it runs only
+                // when this set actually changes. Steady state — a disk that
+                // has been plugged in all day — costs one readdir every few
+                // seconds and nothing else.
+                let mut seen: Vec<String> = Vec::new();
+                loop {
+                    let volumes = vault::volumes_at(&vault::volume_search_roots());
+                    let now: Vec<String> = volumes.iter().map(|v| v.id.clone()).collect();
+                    if now != seen {
+                        match commands::drives::sync_volumes(
+                            &drives_handle,
+                            &drives_cfg_dir,
+                            &volumes,
+                        ) {
+                            // only a clean sync counts as "this set is
+                            // handled": leaving `seen` alone after a failure
+                            // is what retries the disk on the next tick,
+                            // rather than waiting for another disk to be
+                            // plugged in before trying again
+                            Ok(_) => seen = now,
+                            // a disk that refuses to be cataloged is not a
+                            // reason to stop watching for the next one
+                            Err(e) => eprintln!("drive shelf: {e}"),
+                        }
+                    }
+                    std::thread::sleep(std::time::Duration::from_secs(DRIVE_POLL_SECS));
+                }
+            });
+
             // Due-date notifications: periodic vault scan for notify-flagged
             // date props; runs off the tray, no window needed.
             let notify_handle = app.handle().clone();
@@ -1431,6 +1479,10 @@ pub fn run() {
             vault_trash_delete_template,
             vault_search,
             vault_search_full,
+            recall_status,
+            recall_set_enabled,
+            recall_index,
+            recall_search,
             vault_backlinks,
             vault_related,
             vault_resolve,
@@ -1506,6 +1558,13 @@ pub fn run() {
             mount_rows,
             mount_annotate,
             mount_remove,
+            drives_list,
+            drives_sync,
+            drives_ignored,
+            drive_entries,
+            drive_search,
+            drive_forget,
+            drive_unforget,
             path_exists,
             file_open,
             file_reveal,

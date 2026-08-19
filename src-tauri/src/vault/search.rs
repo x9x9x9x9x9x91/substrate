@@ -80,9 +80,9 @@ pub struct RelatedEntry {
 /// Markers FTS5 highlight() wraps around matched tokens — private-use
 /// codepoints, so real note text can't collide with them in practice
 /// (and stray occurrences are dropped by the parser, never trusted).
-const MARK_START: char = '\u{E000}';
+pub(super) const MARK_START: char = '\u{E000}';
 
-const MARK_END: char = '\u{E001}';
+pub(super) const MARK_END: char = '\u{E001}';
 
 const FULL_SEARCH_MAX_NOTES: usize = 200;
 
@@ -102,7 +102,7 @@ fn strip_marks(s: &str) -> String {
     s.chars().filter(|c| *c != MARK_START && *c != MARK_END).collect()
 }
 
-fn parse_marked(s: &str) -> (Vec<SnippetPart>, u32) {
+pub(super) fn parse_marked(s: &str) -> (Vec<SnippetPart>, u32) {
     let mut parts: Vec<SnippetPart> = Vec::new();
     let mut buf = String::new();
     let mut in_hit = false;
@@ -137,7 +137,7 @@ fn parse_marked(s: &str) -> (Vec<SnippetPart>, u32) {
 
 /// Trim a matching line for display: shorten the lead-in before the first
 /// hit and cap total length, marking cuts with an ellipsis.
-fn trim_parts(mut parts: Vec<SnippetPart>) -> Vec<SnippetPart> {
+pub(super) fn trim_parts(mut parts: Vec<SnippetPart>) -> Vec<SnippetPart> {
     if let Some(first) = parts.first_mut() {
         if !first.hit {
             let n = first.text.chars().count();
@@ -176,7 +176,7 @@ fn trim_parts(mut parts: Vec<SnippetPart>) -> Vec<SnippetPart> {
 
 /// Every whitespace token becomes a quoted prefix term — matches search-as-
 /// you-type expectations and neutralizes FTS query syntax in user input.
-fn fts_match_expr(q: &str) -> String {
+pub(super) fn fts_match_expr(q: &str) -> String {
     q.split_whitespace()
         .map(|t| format!("\"{}\"*", t.replace('"', "")))
         .collect::<Vec<_>>()
@@ -195,7 +195,7 @@ fn is_app_file(path: &str) -> bool {
 /// wants the concealed files out. Static literals, not bound params
 /// — the surrounding queries already interpolate their scope clause the same
 /// way, and the three names are compile-time constants.
-fn app_files_clause(exclude: bool) -> String {
+pub(super) fn app_files_clause(exclude: bool) -> String {
     if !exclude {
         return String::new();
     }

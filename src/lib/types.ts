@@ -139,6 +139,65 @@ export interface FullSearchResult {
   truncated: boolean;
 }
 
+/** One past version of one note that matched a Deep Recall search: the body a
+ *  blob held, and the stretch of history during which it WAS that note. */
+export interface RecallVersion {
+  /** git blob id — the dedupe key: identical bodies are one indexed body. */
+  oid: string;
+  /** the snapshot where this text became the note's content */
+  first_id: string;
+  first_ts_ms: number;
+  /** the snapshot that replaced or removed it */
+  last_id: string;
+  last_ts_ms: number;
+  /** the note was deleted at `last_id`, not merely edited */
+  deleted: boolean;
+  /** Matching lines. The line numbers count the historical file whole,
+      frontmatter included — a past version is opened through the time
+      scrubber, not at a coordinate in the note as it stands today. */
+  matches: SearchMatch[];
+  total: number;
+}
+
+/** Every past version of one path, collapsed into one row — the "collapse
+ *  versions" grouping: many spans, one note, one line in the results. */
+export interface RecallGroup {
+  path: string;
+  /** newest first, capped — `total_versions` is the honest count */
+  versions: RecallVersion[];
+  total_versions: number;
+  /** lifespan of the matching text across every version of it */
+  first_ts_ms: number;
+  last_ts_ms: number;
+  /** the newest matching version ended in a deletion */
+  deleted: boolean;
+}
+
+export interface RecallResult {
+  groups: RecallGroup[];
+  truncated: boolean;
+}
+
+/** What the index costs and covers — the honest half of the Settings row. */
+export interface RecallStats {
+  /** snapshots walked so far */
+  commits: number;
+  /** unique bodies indexed — what the dedupe actually saved */
+  blobs: number;
+  /** past versions the index can point at */
+  versions: number;
+  bytes: number;
+  /** false until a first index run has committed something */
+  indexed: boolean;
+}
+
+/** The Settings readout: the switch and whether a walk is running, plus the
+ *  numbers behind them. */
+export interface RecallStatus extends RecallStats {
+  enabled: boolean;
+  indexing: boolean;
+}
+
 /** Where an embedded asset lives on disk, plus freshness facts that key the
  * waveform peak cache — a re-bounced file with the same name invalidates. */
 export interface AssetInfo {
@@ -240,6 +299,66 @@ export interface MountInfo extends Mount {
   /** rows in the last-known index — the count the database list shows, read
       from the index rather than the disk so it agrees on every machine */
   files: number;
+}
+
+/** One drive on the shelf: a disk the vault has cataloged, plugged in or
+    not. Everything except `online`/`path` reads from the catalog, so a drive
+    in a drawer answers exactly as fully as one on the desk. */
+export interface DriveInfo {
+  /** the underlying mount id — what every drive command takes */
+  id: string;
+  /** the volume's own name, as the OS mounts it; never rewritten by a rename
+      of the database, which is `name` */
+  label: string;
+  name: string;
+  /** the volume identity a forget is recorded against */
+  volume: string;
+  /** capacity in bytes, 0 where the platform wouldn't say */
+  total: number;
+  /** RFC 3339: first time this disk was ever cataloged, and the last time it
+      was seen mounted anywhere — what the shelf's staleness label reads */
+  first_seen: string;
+  last_seen: string;
+  /** RFC 3339 stamp of the scan that produced the catalog */
+  scanned: string;
+  files: number;
+  bytes: number;
+  /** files the last scan left uncataloged at the per-drive cap; > 0 means
+      this catalog is knowingly incomplete and says so */
+  capped: number;
+  /** plugged into THIS machine right now */
+  online: boolean;
+  path?: string;
+}
+
+/** One row of a drive's catalog: a folder rolled up, or a file. */
+export interface DriveEntry {
+  name: string;
+  /** the folder prefix to descend into, or the file's path inside the drive */
+  rel: string;
+  dir: boolean;
+  /** the file's bytes, or everything under the folder */
+  size: number;
+  /** files under a folder; 1 for a file */
+  files: number;
+  /** empty on a folder — a folder's date would be its newest file's, which
+      reads as fact and isn't one */
+  modified: string;
+  missing?: boolean;
+}
+
+/** One hit of a search across every drive's catalog, carrying the age of the
+    catalog it came from: an answer from a year-old catalog must never be
+    shown as if it were checked today. */
+export interface DriveHit {
+  id: string;
+  label: string;
+  rel: string;
+  size: number;
+  modified: string;
+  scanned: string;
+  online: boolean;
+  missing?: boolean;
 }
 
 /** One row of a mount's board: the file as the index knows it, plus the
@@ -423,6 +542,11 @@ export type View =
   /** a reality mount — keyed by mount id, not name, so a rename
       doesn't strand the open view */
   | { kind: "mount"; id: string }
+  /** the Drive Shelf itself: every disk this vault has ever cataloged */
+  | { kind: "shelf" }
+  /** one drive's catalog, browsable with the disk unplugged. `id` is the
+      mount id; `prefix` is where in the catalog the browse currently is */
+  | { kind: "drive"; id: string; prefix: string }
   | { kind: "saved"; id: string }
   | { kind: "dashboard"; path: string }
   | { kind: "folder"; path: string }
@@ -994,6 +1118,10 @@ export function viewKey(v: View): string {
   if (v.kind === "saved") return `sv:${v.id}`;
   if (v.kind === "dashboard") return `dash:${v.path}`;
   if (v.kind === "folder") return `folder:${v.path}`;
+  // one destination per disk, and the browse prefix is deliberately NOT in
+  // it: coming back to a drive means coming back to the drive, not to the
+  // folder you happened to be three levels down in
+  if (v.kind === "drive") return `drive:${v.id}`;
   if (v.kind === "tagfolder") return `tagfolder:${v.id}`;
   // folded, so #Demo and #demo are one destination — the same rule matching
   // uses

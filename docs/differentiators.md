@@ -87,6 +87,17 @@ Capacities, Affine).*
   overwrites. Vs Obsidian File Recovery: 7-day snapshots, .md/.canvas only,
   no whole-vault view; vs Notion: per-page, cloud. Plus atomic,
   power-loss-durable vault writes (temp → fsync → rename → fsync dir).
+- **Deep Recall — search everything you ever wrote, including what you
+  deleted** — an opt-in second FTS index over every version of every note the
+  vault's git history holds, so search reaches drafts rewritten years ago and
+  notes deleted entirely. Results say where and when the text lived ("lived in
+  `Masters/veilwork.md` March–June 2026, deleted in 77c0de1"), collapse the
+  near-identical versions of one note into one row, and open the time scrubber
+  at that moment — restore is one click further. Per vault, per device, with an
+  honest first-index progress and index-size readout in Settings; sealed notes
+  are never indexed, and it is text-only (assets live outside vault history by
+  design). Nobody else has the substrate: Obsidian File Recovery is 7-day
+  snapshots with no search, Notion's page history isn't searchable.
 - **Local-first, no account, no cloud requirement** — sync (0.11) is
   automatic push/pull against your own server (push once edits settle, pull
   on open/focus/interval; conflicts always park for you), HTTPS + keychain

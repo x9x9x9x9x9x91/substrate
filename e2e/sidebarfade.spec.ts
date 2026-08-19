@@ -57,7 +57,7 @@ test("tree that fits its pane never fades (SUB-627)", async ({ page }) => {
   await expect(scroll).toBeVisible();
 
   // collapse the expandable sections so the tree is comfortably short
-  for (const label of ["Dashboards", "Folders", "Pinned"]) {
+  for (const label of ["Dashboards", "Folders", "Pinned", "Drives"]) {
     const toggle = page.locator(".side-section-toggle", { hasText: label });
     if (await toggle.count()) await toggle.first().click();
   }
@@ -75,14 +75,18 @@ test("tree that fits its pane never fades (SUB-627)", async ({ page }) => {
 test("collapsing a folder re-checks scrollability without a scroll event (SUB-627)", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1280, height: 500 });
+  // 560, not 500: the rail carries one permanent section header per section
+  // the seeded vault has, and collapsed-but-present headers are floor height.
+  // The viewport only has to leave the collapsed rail room to fit — the tree
+  // still overflows it wide open (1357px of content), which is the premise.
+  await page.setViewportSize({ width: 1280, height: 560 });
   await page.goto("/");
   const scroll = page.locator(".sidebar-scroll");
   await expect(scroll).toHaveClass(/side-more-y/);
 
   // shrinking the content is a geometry change that fires no scroll event —
   // the ResizeObserver is what keeps the gate honest
-  for (const label of ["Dashboards", "Folders", "Pinned"]) {
+  for (const label of ["Dashboards", "Folders", "Pinned", "Drives"]) {
     const toggle = page.locator(".side-section-toggle", { hasText: label });
     if (await toggle.count()) await toggle.first().click();
   }

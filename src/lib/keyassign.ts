@@ -123,6 +123,9 @@ export function targetView(target: string): View | null {
   if (target.startsWith("sv:")) return { kind: "saved", id: target.slice(3) };
   if (target.startsWith("dash:")) return { kind: "dashboard", path: target.slice(5) };
   if (target.startsWith("folder:")) return { kind: "folder", path: target.slice(7) };
+  // a bound drive key opens the disk at its root, which is where `viewKey`
+  // left the token — the browse prefix was never in it
+  if (target.startsWith("drive:")) return { kind: "drive", id: target.slice(6), prefix: "" };
   switch (target) {
     case "today":
       return { kind: "today" };
@@ -136,6 +139,8 @@ export function targetView(target: string): View | null {
       return { kind: "trash" };
     case "assets":
       return { kind: "assets" };
+    case "shelf":
+      return { kind: "shelf" };
     case "calendar":
       return { kind: "calendar" };
     case "vaultsync":

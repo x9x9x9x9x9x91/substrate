@@ -1,9 +1,17 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { FullSearchHit, MountInfo, NoteMeta, SearchMatch, SnippetPart } from "../lib/types";
+import type {
+  FullSearchHit,
+  MountInfo,
+  NoteMeta,
+  RecallGroup,
+  SearchMatch,
+  SnippetPart,
+} from "../lib/types";
 import { foldedPropStr } from "../lib/types";
 import { MOUNT_SCHEME, searchHitMeta } from "../lib/mounts";
-import { vaultSearchFull } from "../lib/ipc";
+import { recallSearch, vaultSearchFull } from "../lib/ipc";
 import { createLatestGuard } from "../lib/latest";
+import { collapsedLabel, dayLabel, lifespan } from "../lib/recall";
 import {
   completeFilter,
   filterCompletions,
@@ -46,6 +54,12 @@ interface SearchPaneProps {
   /** true while the app conceals AGENTS.md/CLAUDE.md/Settings.md —
       forwarded to the engine so its counts and page slots skip them */
   excludeAppFiles: boolean;
+  /** Deep Recall's switch for this vault on this device. Off does not hide
+      the "include the past" control — a feature that appears only once it is
+      already on is a feature nobody finds; off says where to turn it on. */
+  recallEnabled: boolean;
+  /** open the time scrubber at the snapshot a past version lived in */
+  onOpenPast: (path: string, commitId: string) => void;
 }
 
 function Snippet({ parts }: { parts: SnippetPart[] }) {
@@ -69,6 +83,8 @@ export default function SearchPane({
   onRestoredSel,
   onRowContextMenu,
   excludeAppFiles,
+  recallEnabled,
+  onOpenPast,
 }: SearchPaneProps) {
   const [engineResult, setEngineResult] = useState<{
     query: string;
@@ -78,8 +94,14 @@ export default function SearchPane({
     truncated: boolean;
   }>({ query: "", hits: [], total: 0, truncated: false });
   const [sort, setSort] = useState<SortMode>("relevance");
+  const [includePast, setIncludePast] = useState(false);
+  const [pastResult, setPastResult] = useState<{ query: string; groups: RecallGroup[] }>({
+    query: "",
+    groups: [],
+  });
   const [sel, setSel] = useState(0);
   const [searchGuard] = useState(createLatestGuard);
+  const [pastGuard] = useState(createLatestGuard);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const listId = useId();
@@ -156,6 +178,36 @@ export default function SearchPane({
     }, 120);
     return () => window.clearTimeout(t);
   }, [searchText, scope, searchGuard, excludeAppFiles]);
+
+  // The past is a SECOND index and a second round trip, deliberately not
+  // folded into the query above: it answers off history, ignores the
+  // structured filters (which describe notes that exist now), and is slower
+  // to ask. Asking for it separately keeps the live results as fast as they
+  // were before Deep Recall existed.
+  useEffect(() => {
+    if (!includePast || !searchText) {
+      pastGuard.issue();
+      setPastResult({ query: "", groups: [] });
+      return;
+    }
+    const t = window.setTimeout(() => {
+      const id = pastGuard.issue();
+      recallSearch(searchText, excludeAppFiles)
+        .then((res) => {
+          if (pastGuard.isLatest(id)) setPastResult({ query: searchText, groups: res.groups });
+        })
+        .catch((error) => {
+          console.error(error);
+          if (pastGuard.isLatest(id)) setPastResult({ query: searchText, groups: [] });
+        });
+    }, 180);
+    return () => window.clearTimeout(t);
+  }, [includePast, searchText, pastGuard, excludeAppFiles]);
+
+  const pastGroups = useMemo(
+    () => (pastResult.query === searchText ? pastResult.groups : []),
+    [pastResult, searchText]
+  );
 
   const engineHits = useMemo(
     () => (engineResult.query === searchText ? engineResult.hits : []),
@@ -354,7 +406,28 @@ export default function SearchPane({
             Updated
           </button>
         </SwitchGroup>
+        <button
+          className={`search-past-toggle${includePast ? " active" : ""}`}
+          aria-pressed={includePast}
+          title={
+            recallEnabled
+              ? "Also search versions of notes that were edited or deleted"
+              : "Deep Recall builds the index of your vault's past — turn it on in Settings"
+          }
+          onClick={() => {
+            setIncludePast((v) => !v);
+            inputRef.current?.focus();
+          }}
+        >
+          Include the past
+        </button>
       </div>
+      {includePast && !recallEnabled && (
+        <div className="search-past-off" role="status">
+          Deep Recall is off for this vault — turn it on in Settings to search what your
+          notes used to say.
+        </div>
+      )}
       {completions.length > 0 && parsed.trailing && (
         <div className="search-completions">
           <FilterIcon />
@@ -379,7 +452,7 @@ export default function SearchPane({
         aria-label={rows.length > 0 ? "Search results" : undefined}
         ref={listRef}
       >
-        {groups.length === 0 ? (
+        {groups.length === 0 && pastGroups.length === 0 ? (
           /* No verb here yet, and deliberately so for the un-queried state:
              the one action worth offering would be "focus the search box",
              and the box is autoFocus'd — every path that reaches this state
@@ -489,6 +562,52 @@ export default function SearchPane({
               </div>
             );
           })
+        )}
+        {includePast && pastGroups.length > 0 && (
+          /* Its own section, below the present. Deliberately outside the
+             listbox above: these rows open a moment in the time scrubber
+             rather than a line in a file, and folding them into the same
+             ↑↓ model would make Enter mean two different things. */
+          <div className="search-past" role="group" aria-label="Matches in the vault's past">
+            <div className="search-past-head">Earlier versions</div>
+            {pastGroups.map((g) => (
+              <div className="search-group" key={g.path}>
+                <div className="search-past-row">
+                  <NoteIcon />
+                  <span className="search-note-title">{g.path}</span>
+                  <span className="search-note-hint">{lifespan(g)}</span>
+                </div>
+                {g.versions.map((v) => (
+                  <div
+                    key={v.oid}
+                    className="search-past-version"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Open ${g.path} as it was on ${dayLabel(v.first_ts_ms)}`}
+                    onClick={() => onOpenPast(g.path, v.first_id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onOpenPast(g.path, v.first_id);
+                      }
+                    }}
+                  >
+                    <span className="search-past-when">{dayLabel(v.first_ts_ms)}</span>
+                    <span className="search-past-lines">
+                      {v.matches.map((m: SearchMatch) => (
+                        <span className="search-snippet" key={m.line}>
+                          <Snippet parts={m.parts} />
+                        </span>
+                      ))}
+                    </span>
+                  </div>
+                ))}
+                {collapsedLabel(g) && (
+                  <div className="search-past-more">{collapsedLabel(g)}</div>
+                )}
+              </div>
+            ))}
+          </div>
         )}
       </div>
       <div className="search-foot">

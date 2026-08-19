@@ -90,6 +90,31 @@ pub(super) fn resolve_mount_path(path: &Path) -> PathBuf {
     normalize_file_path(&expand_tilde(&path.to_string_lossy()))
 }
 
+/// The external volume a drive mount stands for, as `.vault/mounts.json`
+/// carries it. Portable on purpose: `id` is what a disk plugged into a
+/// second machine matches on, and `last_seen` is what lets the shelf say
+/// "last seen August 12" about a disk that is in a drawer right now.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, serde::Deserialize)]
+pub struct VolumeMark {
+    /// Stable-enough volume identity: the volume's own name and its capacity
+    /// in bytes, joined. Deliberately readable rather than hashed — this file
+    /// is one a human and an agent both read. Two disks that share a name AND
+    /// a capacity read as one drive; renaming one separates them again.
+    pub id: String,
+    /// The volume's name as the OS mounts it — the shelf's row label.
+    pub label: String,
+    /// Capacity in bytes, 0 where the platform wouldn't say.
+    #[serde(default)]
+    pub total: u64,
+    /// RFC 3339, the first time this disk was ever cataloged.
+    #[serde(default)]
+    pub first_seen: String,
+    /// RFC 3339, the last time it was seen mounted anywhere. Stamped on every
+    /// scan, which is what the shelf's staleness label reads.
+    #[serde(default)]
+    pub last_seen: String,
+}
+
 /// One mounted folder, as `.vault/mounts.json` stores it. Deliberately
 /// path-free: see the module docs.
 #[derive(Clone, Debug, Default, Serialize, serde::Deserialize)]
@@ -119,6 +144,12 @@ pub struct Mount {
     /// Opt into the live watcher; off by default so big archives don't churn.
     #[serde(default, skip_serializing_if = "is_false")]
     pub watch: bool,
+    /// Set when this mount is a **drive** — a mount the Drive Shelf created
+    /// for an external volume rather than a folder the user picked. It
+    /// carries the volume's identity so the same disk plugged in again finds
+    /// the catalog it already has, on any machine reading this vault.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume: Option<VolumeMark>,
     /// Keys a newer Substrate wrote that this build doesn't understand. Kept
     /// so a read→write cycle here doesn't strip them.
     #[serde(flatten)]
@@ -177,6 +208,11 @@ pub struct MountIndex {
     pub scanned: String,
     #[serde(default)]
     pub files: Vec<MountFile>,
+    /// Files the last scan found and did NOT catalog, because the drive is
+    /// past [`DRIVE_FILE_CAP`]. Non-zero only on a drive mount, and shown as
+    /// such: a catalog that quietly stops at a cap is a catalog that lies.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub capped: usize,
 }
 
 /// One row of a mount's board: the file as the index knows it, plus the
@@ -226,6 +262,9 @@ pub struct MountScanStats {
     pub updated: usize,
     pub renamed: usize,
     pub missing: usize,
+    /// Files this scan saw past the drive cap and left uncataloged.
+    #[serde(default)]
+    pub capped: usize,
     /// Mount-relative paths of the files this scan saw for the first time —
     /// the same rows `added` counts, named. Reflexes turn each one into a
     /// `mount.file_added` event, which needs the paths, not a
@@ -823,6 +862,7 @@ impl Engine {
             // dialog asks for one
             ignore: Vec::new(),
             watch,
+            volume: None,
             extra: Default::default(),
         };
         mounts.push(mount.clone());
@@ -1250,6 +1290,13 @@ impl Engine {
     /// relative path instead, refreshing the identity while keeping the row.
     /// Anything the index knew and the scan didn't find is kept as `missing`.
     pub fn scan_mount(&mut self, id: &str, path: &Path) -> MountScanStats {
+        self.scan_mount_capped(id, path, DRIVE_FILE_CAP)
+    }
+
+    /// [`Engine::scan_mount`] with the drive cap given explicitly — the seam
+    /// the cap's own test drives, so that behaviour is exercised on six files
+    /// rather than on a hundred thousand.
+    pub fn scan_mount_capped(&mut self, id: &str, path: &Path, cap: usize) -> MountScanStats {
         let Some(mount) = self.mount(id) else {
             return MountScanStats {
                 id: id.into(),
@@ -1283,7 +1330,26 @@ impl Engine {
         // never re-read (see `rekey_mount_text`)
         let mut renames: Vec<(String, String)> = Vec::new();
 
-        let files = walk_folder_files(&root, &mount.globs, &mount.ignore);
+        // A drive is CATALOGED, not hashed. `file_identity` reads every byte
+        // of every file — right for a folder of Ableton sets someone picked,
+        // ruinous for the multi-terabyte archive the shelf catalogs the
+        // moment it is plugged in. A drive's files are identified by what the
+        // stat already said (`stat_identity`), which still follows a rename
+        // and still keys the extraction cache, at no read cost.
+        let drive = mount.volume.is_some();
+        // A drive stops COLLECTING at the cap and only counts the rest
+        // (`walk_folder_files_capped`, which also owns the stable-prefix
+        // reasoning): the disk it catalogs can be far larger than anything a
+        // hand-made folder mount points at, and this runs under the engine
+        // lock off a background poll.
+        // (the capped drive walk takes no ignore list — see the follow-up issue)
+        let files = if drive {
+            let (files, over) = walk_folder_files_capped(&root, &mount.globs, cap);
+            stats.capped = over;
+            files
+        } else {
+            walk_folder_files(&root, &mount.globs, &mount.ignore)
+        };
         stats.scanned = files.len();
         let mut out: Vec<MountFile> = Vec::with_capacity(files.len());
         for file in files {
@@ -1291,7 +1357,11 @@ impl Engine {
             let Ok(rel) = file.strip_prefix(&root) else { continue };
             let rel = rel.to_string_lossy().replace('\\', "/");
             let (modified, _) = file_stamp(&md);
-            let identity = file_identity(&file).unwrap_or_default();
+            let identity = if drive {
+                stat_identity(&md)
+            } else {
+                file_identity(&file).unwrap_or_default()
+            };
 
             // A file's own row first, while its bytes are unchanged — otherwise
             // a byte-identical twin can take it, and this file reads as brand
@@ -1368,7 +1438,11 @@ impl Engine {
             stats.added_files.clear();
         }
 
-        let index = MountIndex { scanned: chrono::Local::now().to_rfc3339(), files: out };
+        let index = MountIndex {
+            scanned: chrono::Local::now().to_rfc3339(),
+            files: out,
+            capped: stats.capped,
+        };
         if let Err(e) = write_index(&self.root, id, &index) {
             stats.error = Some(e);
             return stats;
@@ -1607,6 +1681,7 @@ impl Engine {
                     globs: m.globs.clone(),
                     ignore: Vec::new(),
                     watch: m.watch,
+                    volume: None,
                     extra: Default::default(),
                 };
                 mounts.push(mount.clone());
@@ -3927,11 +4002,15 @@ mod tests {
             Mount {
                 id: "a_c1d2".into(),
                 name: "Papers".into(),
+                globs: vec![],
+                watch: false,
                 ..Default::default()
             },
             Mount {
                 id: "abc1d2".into(),
                 name: "Scores".into(),
+                globs: vec![],
+                watch: false,
                 ..Default::default()
             },
         ];

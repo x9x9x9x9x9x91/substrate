@@ -19,6 +19,9 @@ import type {
   DeeplinkResolved,
   DiffLine,
   DoctorReport,
+  DriveEntry,
+  DriveHit,
+  DriveInfo,
   FmState,
   FolderListing,
   FolderMetaMap,
@@ -27,6 +30,9 @@ import type {
   MountRow,
   MountScanStats,
   FullSearchResult,
+  RecallResult,
+  RecallStats,
+  RecallStatus,
   FactLane,
   HistorySheetsAt,
   HiddenPerLayout,
@@ -467,6 +473,21 @@ export const vaultSearchFull = (q: string, scope?: string[], excludeAppFiles?: b
   });
   return Promise.resolve({ hits, total_notes: all.length, truncated: all.length > hits.length });
 };
+/** Deep Recall — search the vault's past rather than its present.
+ *  Deliberately NOT history-projection-aware like the searches above: a
+ *  projection is one moment reconstructed in the client, and recall's whole
+ *  subject is every moment. It answers off the index either way.
+ *  `excludeAppFiles` mirrors the conceal toggle the live searches take: past
+ *  versions of a concealed file stay concealed. */
+export const recallSearch = (q: string, excludeAppFiles?: boolean) =>
+  invoke<RecallResult>("recall_search", { q, excludeAppFiles });
+export const recallStatus = () => invoke<RecallStatus>("recall_status");
+export const recallSetEnabled = (enabled: boolean) =>
+  invoke<RecallStatus>("recall_set_enabled", { enabled });
+/** Walk whatever history is not indexed yet. Slow only the first time;
+ *  progress arrives on the `recall:index` event. */
+export const recallIndex = () => invoke<RecallStats>("recall_index");
+
 export const vaultBacklinks = (path: string) => {
   if (!historyProjection) return invoke<NoteMeta[]>("vault_backlinks", { path });
   const target = historyProjection.notes.find((note) => note.path === path);
@@ -858,6 +879,32 @@ export const mountAnnotate = (id: string, rel: string, prop: string, value: Prop
     trashes them (recoverable from Trash, never hard-deleted). */
 export const mountRemove = (id: string, cleanup: boolean) =>
   invoke<Mount[]>("mount_remove", { id, cleanup });
+/** The Drive Shelf: every external disk this vault has ever cataloged, online
+    first. A drive is a mount carrying a volume mark, so everything above still
+    applies to it — these are the calls a shelf needs on top. */
+export const drivesList = () => invoke<DriveInfo[]>("drives_list");
+/** Look at what is plugged in and act on the difference: adopt and scan a new
+    volume, unbind one that vanished, keep every catalog either way. Slow (a
+    scan walks a disk); resolves to the shelf as it now stands. */
+export const drivesSync = () => invoke<DriveInfo[]>("drives_sync");
+/** One level of a drive's catalog. Reads the index, never the disk — the same
+    answer whether the drive is on the desk or in a drawer. */
+export const driveEntries = (id: string, prefix: string) =>
+  invoke<DriveEntry[]>("drive_entries", { id, prefix });
+/** "Which disk is this file on?" across every catalog. Each hit carries its
+    catalog's age, because an offline hit is not a claim about right now. */
+export const driveSearch = (query: string) => invoke<DriveHit[]>("drive_search", { query });
+/** "Forget this drive": drop the catalog and stop cataloging the volume on
+    this machine. The disk is never touched. `cleanup` follows `mountRemove` —
+    false keeps every sidecar written about a file on it, true trashes them. */
+export const driveForget = (id: string, cleanup: boolean) =>
+  invoke<DriveInfo[]>("drive_forget", { id, cleanup });
+/** Undo a forget: catalog this volume again the next time it is seen. */
+export const driveUnforget = (volume: string) =>
+  invoke<void>("drive_unforget", { volume });
+/** Volume ids this machine was told not to catalog — what makes a forget
+    visible and reversible instead of a disk that never appears. */
+export const drivesIgnored = () => invoke<string[]>("drives_ignored");
 // Tray agenda popover: window management lives Rust-side
 export const agendaOpenNote = (path: string) => invoke<void>("agenda_open_note", { path });
 export const agendaOpenCapture = () => invoke<void>("agenda_open_capture");

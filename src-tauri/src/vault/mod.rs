@@ -1189,6 +1189,10 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
+fn is_zero(n: &usize) -> bool {
+    *n == 0
+}
+
 /// A database's icon: a curated outline glyph id or an emoji,
 /// optionally tinted with a muted palette name (`--opt-*` tokens — unknown
 /// names are stored as-is and render untinted, same discipline as option
@@ -1296,6 +1300,45 @@ fn walk_folder_files(root: &Path, globs: &[String], ignore: &[String]) -> Vec<Pa
         }
     }
     out
+}
+
+/// [`walk_folder_files`] with a ceiling: the first `cap` matches in walk
+/// order, plus a COUNT of everything past it.
+///
+/// The point is what it does not do. A drive's catalog is capped
+/// ([`DRIVE_FILE_CAP`]), and collecting every path on a four-million-file
+/// archive only to throw most of them away costs that whole list in memory
+/// while the engine lock is held. Counting the remainder instead answers the
+/// same question — "how many did this scan leave out" — at a fixed cost.
+///
+/// Walk order is sorted per directory, so the kept prefix is the SAME on
+/// every scan of an unchanged disk: an arbitrary cut would make half the
+/// catalog appear and vanish scan to scan, and every row it dropped would
+/// read as `missing` — a lie about the disk.
+fn walk_folder_files_capped(root: &Path, globs: &[String], cap: usize) -> (Vec<PathBuf>, usize) {
+    let mut out = Vec::new();
+    let mut over = 0usize;
+    for entry in WalkDir::new(root)
+        .follow_links(false)
+        .sort_by_file_name()
+        .into_iter()
+        .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
+        .flatten()
+    {
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy();
+        if !(globs.is_empty() || globs.iter().any(|g| glob_match(g, &name))) {
+            continue;
+        }
+        if out.len() < cap {
+            out.push(entry.into_path());
+        } else {
+            over += 1;
+        }
+    }
+    (out, over)
 }
 
 /// Normalize a file path for dedupe comparisons: canonicalize what exists;
@@ -3517,6 +3560,13 @@ pub use search::{
     FullSearchHit, FullSearchResult, RelatedEntry, SearchHit, SearchMatch, SnippetPart,
 };
 
+mod recall;
+// Deep Recall — the second index, over history rather than the present.
+// `RecallGroup` / `RecallVersion` are only named through `RecallResult` today;
+// the re-exports keep `vault::<T>` resolving for the command layer.
+#[allow(unused_imports)]
+pub use recall::{Recall, RecallGroup, RecallResult, RecallStats, RecallVersion};
+
 mod doctor;
 // `DoctorSeverity` is only named through `DoctorFinding`'s field today; the
 // re-export keeps `vault::DoctorSeverity` resolving as it did before the split.
@@ -3544,7 +3594,16 @@ use foldersync::{read_folder_mappings, write_folder_mappings};
 
 mod mounts;
 use mounts::read_mounts;
-pub use mounts::{Mount, MountRow, MountScanStats, MOUNTS_REL_PATH};
+pub use mounts::{Mount, MountRow, MountScanStats, VolumeMark, MOUNTS_REL_PATH};
+
+// The Drive Shelf: mounts the app makes for external volumes, plus the
+// reading of a catalog with the disk unplugged. A layer ON TOP of `mounts` —
+// a drive is a mount carrying a `VolumeMark`, not a second mechanism.
+mod drives;
+pub(crate) use drives::{stat_identity, DRIVE_FILE_CAP};
+pub use drives::{
+    volume_search_roots, volumes_at, DriveEntry, DriveHit, DriveInfo, Volume,
+};
 
 // What a mounted file says about itself. Split out of `mounts`
 // because it is pure per-file parsing: no engine, no lock, no vault.

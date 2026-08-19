@@ -11,6 +11,7 @@ pub(crate) mod assets;
 pub(crate) mod calendarfeeds;
 pub(crate) mod coding;
 pub(crate) mod cookbook;
+pub(crate) mod drives;
 pub(crate) mod deeplink;
 pub(crate) mod files;
 pub(crate) mod fx;
@@ -24,6 +25,7 @@ pub(crate) mod mcp;
 // `commands::mounts`.
 pub(crate) mod mounts;
 pub(crate) mod notes;
+pub(crate) mod recall;
 pub(crate) mod reflexes;
 pub(crate) mod schema;
 pub(crate) mod search;

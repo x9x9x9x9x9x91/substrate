@@ -106,6 +106,10 @@ fn run_scope_conversion(
     engine.finish_seal_scope()?;
     if let Some(hist) = hist {
         hist.snapshot(&format!("seal {}", if path.is_empty() { "vault" } else { path })).ok();
+        // the purge above replayed every commit, so the historical search
+        // index now describes writing that was deliberately destroyed
+        let onboarding: State<crate::OnboardingState> = app.state();
+        crate::commands::recall::clear_after_rewrite(&onboarding.config_dir, &engine.root);
     }
     app.state::<SnapDirty>().mark();
     app.emit("vault:changed", Vec::<String>::new()).ok();
@@ -180,6 +184,10 @@ pub(crate) async fn vault_seal_note(
         };
 
         let result = seal_note_and_purge(&mut engine, hist, &path, password.as_deref())?;
+        // sealing purges the note's plaintext past, which replays history —
+        // the historical index is both stale and a surviving copy of it
+        let onboarding: State<crate::OnboardingState> = app.state();
+        crate::commands::recall::clear_after_rewrite(&onboarding.config_dir, &engine.root);
         app.state::<SnapDirty>().mark();
         Ok(result)
     })

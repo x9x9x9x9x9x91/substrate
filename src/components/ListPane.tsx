@@ -94,6 +94,12 @@ export function viewLabel(view: View, tagFolders: TagFolder[] = []): string {
       return "Trash";
     case "assets":
       return "Assets";
+    case "shelf":
+      // both render ShelfPane, never ListPane — generic labels only
+      return "Drives";
+    case "drive":
+      // the disk's own name lives in its catalog, not in the view
+      return "Drive";
     case "doctor":
       // the report renders DoctorPane, never ListPane — generic labels only
       return "Vault doctor";

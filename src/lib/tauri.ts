@@ -7,6 +7,9 @@ import type {
   ConflictState,
   DbIcon,
   DiffLine,
+  DriveEntry,
+  DriveHit,
+  DriveInfo,
   FolderMetaMap,
   HistoryEntry,
   MountInfo,
@@ -841,6 +844,66 @@ const mockExportTargets = new Map<string, string>();
     There is no rules file until a spec stages one — which is exactly the
     default the section hides itself on. `enabled` is the one-time per-vault
     arm; `paused` is the separate switch it becomes afterwards. */
+/** Deep Recall in the mock lane: the switch and the numbers are real state,
+    the history behind them is a fixture. Indexing a git history is exactly
+    the part the mock backend has none of, so `recall_index` reports a
+    finished walk over the fixture instead of pretending to walk. */
+const mockRecall: { enabled: boolean; indexed: boolean } = { enabled: false, indexed: false };
+
+/** Snippet parts for a mock recall hit: the plain substring split, which is
+    all the fixture bodies need — the real index highlights through the same
+    FTS offsets the live search uses. */
+function mockSnippetParts(text: string, q: string): { text: string; hit: boolean }[] {
+  const at = text.toLowerCase().indexOf(q);
+  if (at < 0 || !q) return [{ text, hit: false }];
+  const parts: { text: string; hit: boolean }[] = [];
+  if (at > 0) parts.push({ text: text.slice(0, at), hit: false });
+  parts.push({ text: text.slice(at, at + q.length), hit: true });
+  if (at + q.length < text.length) parts.push({ text: text.slice(at + q.length), hit: false });
+  return parts;
+}
+
+/** Two past versions of one note plus a deleted one — enough to exercise the
+    grouping, the lifespan line, the collapsed-versions tail and the jump into
+    the scrubber. Bodies are the source of the snippets below. */
+const MOCK_RECALL_PAST: {
+  path: string;
+  oid: string;
+  first_id: string;
+  first_ts_ms: number;
+  last_id: string;
+  last_ts_ms: number;
+  deleted: boolean;
+  line: number;
+  text: string;
+  older: number;
+}[] = [
+  {
+    path: "Masters/veilwork.md",
+    oid: "a1b2c3d4",
+    first_id: "3f9a1c2",
+    first_ts_ms: Date.parse("2026-03-04T10:12:00Z"),
+    last_id: "77c0de1",
+    last_ts_ms: Date.parse("2026-06-18T09:03:00Z"),
+    deleted: false,
+    line: 12,
+    text: "the low end sits under the vocal, not beside it",
+    older: 3,
+  },
+  {
+    path: "Drafts/second pass.md",
+    oid: "e5f6a7b8",
+    first_id: "1d4e88a",
+    first_ts_ms: Date.parse("2025-11-21T16:40:00Z"),
+    last_id: "9ab77f0",
+    last_ts_ms: Date.parse("2026-01-09T12:00:00Z"),
+    deleted: true,
+    line: 4,
+    text: "cut the intro, the room does that work already",
+    older: 0,
+  },
+];
+
 const mockReflexes: { hasFile: boolean; enabled: boolean; paused: boolean; filePaused: boolean } = {
   hasFile: false,
   enabled: false,
@@ -1217,6 +1280,10 @@ interface MockMount {
       `__mockSetMountIgnore`. */
   ignore?: string[];
   watch?: boolean;
+  /** Set on a mount the app made for an external volume — a drive. Carrying
+      the volume's identity on the mount is what the engine does, so the mock
+      does it too: a drive is not a second registry. */
+  volume?: { id: string; label: string; total: number; first_seen: string; last_seen: string };
 }
 interface MockMountFile {
   rel: string;
@@ -1426,6 +1493,203 @@ mockMountIndex["mount-finance"] = {
     },
   ].sort((a, b) => a.rel.localeCompare(b.rel)),
 };
+
+/* The Drive Shelf's mock: three external disks, one of each state the shelf
+   exists to render honestly. "Backup Silver" is plugged in right now;
+   "Sessions 2019" has been in a drawer for over a year and its catalog says
+   so; "Sample Vault" was cataloged up to the cap, so it knows it is
+   incomplete. They are ordinary mounts carrying a `volume` — the same thing
+   the engine makes when a disk appears — which is why they answer
+   `mounts_list` too. */
+const MOCK_DRIVE_TREE: Record<string, [string, number][]> = {
+  "drive-backup-silver": [
+    ["Masters/2026/Glass Anchor - Meridian.wav", 412_336_044],
+    ["Masters/2026/Glass Anchor - Meridian (instr).wav", 410_112_880],
+    ["Masters/2026/Paper Kestrel - Low Tide.wav", 388_204_112],
+    ["Masters/2025/Fieldnote FN-041 master.wav", 366_120_004],
+    ["Masters/2025/Fieldnote FN-042 master.wav", 371_884_552],
+    ["Photos/Studio/patchbay-rework.jpg", 6_114_200],
+    ["Photos/Studio/500-series-rack.jpg", 5_880_144],
+    ["Archive/taxes-2024.pdf", 2_204_880],
+    ["Archive/label-contracts.pdf", 1_118_004],
+    ["readme.txt", 812],
+  ],
+  "drive-sessions-2019": [
+    ["Ableton/Kettle Drum Study/Kettle Drum Study.als", 24_118_004],
+    ["Ableton/Kettle Drum Study/Samples/Recorded/kick-take-3.wav", 88_204_112],
+    ["Ableton/Kettle Drum Study/Samples/Recorded/vox-take-1.wav", 122_336_044],
+    ["Ableton/Glass Bridge/Glass Bridge.als", 18_884_552],
+    ["Ableton/Glass Bridge/Samples/Recorded/bridge-loop.wav", 64_120_004],
+    ["Stems/glass-bridge-stems.zip", 1_204_336_044],
+    ["notes.txt", 1_204],
+  ],
+  "drive-sample-vault": [
+    ["Libraries/Spectral/impacts/impact-001.wav", 4_118_004],
+    ["Libraries/Spectral/impacts/impact-002.wav", 4_204_112],
+    ["Libraries/Spectral/textures/texture-glass.wav", 12_336_044],
+    ["Libraries/Granular/grains-metal.wav", 8_884_552],
+    ["Libraries/Granular/grains-paper.wav", 7_120_004],
+    ["Field/harbour-tunnel-2024.wav", 244_336_044],
+  ],
+};
+const MOCK_DRIVES: MockMount[] = [
+  {
+    id: "drive-backup-silver",
+    name: "Backup Silver",
+    globs: [],
+    volume: {
+      id: "Backup Silver:4000787030016",
+      label: "Backup Silver",
+      total: 4_000_787_030_016,
+      first_seen: "2024-11-02T09:14:00Z",
+      last_seen: new Date(Date.now() - 4 * 60_000).toISOString(),
+    },
+  },
+  {
+    id: "drive-sessions-2019",
+    name: "Sessions 2019",
+    globs: [],
+    volume: {
+      id: "Sessions 2019:2000398934016",
+      label: "Sessions 2019",
+      total: 2_000_398_934_016,
+      first_seen: "2019-04-18T11:02:00Z",
+      last_seen: "2025-06-09T17:41:00Z",
+    },
+  },
+  {
+    id: "drive-sample-vault",
+    name: "Sample Vault",
+    globs: [],
+    volume: {
+      id: "Sample Vault:1000204886016",
+      label: "Sample Vault",
+      total: 1_000_204_886_016,
+      first_seen: "2023-02-11T20:30:00Z",
+      last_seen: "2026-07-30T08:55:00Z",
+    },
+  },
+];
+/** Files the last scan left out at the cap, per drive — the mock's stand-in
+    for `MountIndex.capped`, and the reason one shelf row admits to being
+    incomplete. */
+const mockDriveCapped: Record<string, number> = { "drive-sample-vault": 47_318 };
+mockMounts = [...mockMounts, ...MOCK_DRIVES];
+/* Only the plugged-in one is bound: a drive in a drawer is a mount this
+   machine has no path for, which is exactly the mount half already models. */
+mockMountBindings["drive-backup-silver"] = "/Volumes/Backup Silver";
+for (const d of MOCK_DRIVES) {
+  mockMountIndex[d.id] = {
+    scanned: d.volume!.last_seen,
+    files: MOCK_DRIVE_TREE[d.id].map(([rel, size]) => ({
+      rel,
+      size,
+      modified: d.volume!.last_seen.slice(0, 10),
+      created: d.volume!.first_seen.slice(0, 10),
+      // drives are identified by stat, not by hashing four terabytes
+      identity: `stat:${size}:1750000000`,
+      missing: false,
+    })),
+  };
+}
+
+/** One drive as `drives_list` returns it, totalled from its catalog. */
+function mockDriveInfo(m: MockMount): DriveInfo {
+  const index = mockMountIndex[m.id] ?? { scanned: "", files: [] };
+  const live = mockMountIndex[m.id]?.files.filter((f) => !f.missing) ?? [];
+  return {
+    id: m.id,
+    label: m.volume!.label,
+    name: m.name,
+    volume: m.volume!.id,
+    total: m.volume!.total,
+    first_seen: m.volume!.first_seen,
+    last_seen: m.volume!.last_seen,
+    scanned: index.scanned,
+    files: live.length,
+    bytes: live.reduce((n, f) => n + f.size, 0),
+    capped: mockDriveCapped[m.id] ?? 0,
+    online: Boolean(mockMountBindings[m.id]),
+    ...(mockMountBindings[m.id] ? { path: mockMountBindings[m.id] } : {}),
+  };
+}
+/** The shelf itself: online first, then by when each disk was last seen. */
+const mockDrives = (): DriveInfo[] =>
+  mockMounts
+    .filter((m) => m.volume)
+    .map(mockDriveInfo)
+    .sort(
+      (a, b) =>
+        Number(b.online) - Number(a.online) || b.last_seen.localeCompare(a.last_seen)
+    );
+/** One level of a catalog, folders rolled up — mirrors Engine::drive_entries,
+    which is what makes an unplugged disk browsable at all. */
+function mockDriveEntries(id: string, prefix: string): DriveEntry[] {
+  const at = prefix ? `${prefix}/` : "";
+  const files: DriveEntry[] = [];
+  const dirs = new Map<string, DriveEntry>();
+  for (const f of mockMountIndex[id]?.files ?? []) {
+    if (!f.rel.startsWith(at)) continue;
+    const rest = f.rel.slice(at.length);
+    const cut = rest.indexOf("/");
+    if (cut < 0) {
+      files.push({
+        name: rest,
+        rel: f.rel,
+        dir: false,
+        size: f.size,
+        files: 1,
+        modified: f.modified,
+        ...(f.missing ? { missing: true } : {}),
+      });
+      continue;
+    }
+    const name = rest.slice(0, cut);
+    const roll = dirs.get(name) ?? {
+      name,
+      rel: `${at}${name}`,
+      dir: true,
+      size: 0,
+      files: 0,
+      modified: "",
+    };
+    roll.size += f.size;
+    roll.files += 1;
+    dirs.set(name, roll);
+  }
+  return [...dirs.values(), ...files].sort(
+    (a, b) => Number(b.dir) - Number(a.dir) || a.name.localeCompare(b.name)
+  );
+}
+/** "Which disk is this file on?" across every catalog, offline ones included
+    — each hit carrying the age of the catalog it came out of. */
+function mockDriveSearch(query: string): DriveHit[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const hits: DriveHit[] = [];
+  for (const m of mockMounts.filter((d) => d.volume)) {
+    const online = Boolean(mockMountBindings[m.id]);
+    for (const f of mockMountIndex[m.id]?.files ?? []) {
+      if (!f.rel.toLowerCase().includes(q)) continue;
+      hits.push({
+        id: m.id,
+        label: m.volume!.label,
+        rel: f.rel,
+        size: f.size,
+        modified: f.modified,
+        scanned: mockMountIndex[m.id]?.scanned ?? "",
+        online,
+        ...(f.missing ? { missing: true } : {}),
+      });
+    }
+  }
+  return hits
+    .sort((a, b) => Number(b.online) - Number(a.online) || a.rel.localeCompare(b.rel))
+    .slice(0, 200);
+}
+/** Volumes this machine was told not to catalog. Machine-local in the engine
+    (app config), so machine-local here too — it never rides the vault. */
+let mockDrivesIgnored: string[] = [];
 /** Every sidecar bound to one mount, keyed by vault path — by the `mount`
     prop, not by folder, so a note filed elsewhere keeps working. */
 const mockSidecarsOf = (id: string) => mockNotes.filter((n) => n.props["mount"] === id);
@@ -3204,6 +3468,56 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           : [],
         invalid: [],
       };
+    case "recall_status":
+      return {
+        enabled: mockRecall.enabled,
+        indexing: false,
+        commits: mockRecall.indexed ? 1284 : 0,
+        blobs: mockRecall.indexed ? 3907 : 0,
+        versions: mockRecall.indexed ? 4416 : 0,
+        bytes: mockRecall.indexed ? 5_412_864 : 0,
+        indexed: mockRecall.indexed,
+      };
+    case "recall_set_enabled": {
+      mockRecall.enabled = Boolean(args?.enabled);
+      // off deletes the store, exactly as the real command does
+      if (!mockRecall.enabled) mockRecall.indexed = false;
+      return mockInvoke("recall_status", {});
+    }
+    case "recall_index":
+      mockRecall.indexed = true;
+      return mockInvoke("recall_status", {});
+    case "recall_search": {
+      const q = String(args?.q ?? "").trim().toLowerCase();
+      if (!mockRecall.enabled || !mockRecall.indexed || !q) {
+        return { groups: [], truncated: false };
+      }
+      const groups = MOCK_RECALL_PAST.filter((v) => v.text.toLowerCase().includes(q)).map((v) => ({
+        path: v.path,
+        versions: [
+          {
+            oid: v.oid,
+            first_id: v.first_id,
+            first_ts_ms: v.first_ts_ms,
+            last_id: v.last_id,
+            last_ts_ms: v.last_ts_ms,
+            deleted: v.deleted,
+            matches: [
+              {
+                line: v.line,
+                parts: mockSnippetParts(v.text, q),
+              },
+            ],
+            total: 1,
+          },
+        ],
+        total_versions: 1 + v.older,
+        first_ts_ms: v.first_ts_ms,
+        last_ts_ms: v.last_ts_ms,
+        deleted: v.deleted,
+      }));
+      return { groups, truncated: false };
+    }
     case "reflexes_receipts":
       return [];
     case "reflexes_enable":
@@ -5452,6 +5766,39 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         ...(m.watch ? { watch: true } : {}),
       }));
     }
+    case "drives_list":
+      return mockDrives();
+    case "drives_sync":
+      // the browser has no volumes to notice appear or vanish, so a sync is
+      // honestly a no-op here — it still returns the shelf, like the backend
+      return mockDrives();
+    case "drive_entries":
+      return mockDriveEntries(String(args?.id ?? ""), String(args?.prefix ?? ""));
+    case "drive_search":
+      return mockDriveSearch(String(args?.query ?? ""));
+    case "drive_forget": {
+      // forgetting drops the catalog and records the volume, so the next scan
+      // doesn't quietly adopt the disk it was just told to leave alone. The
+      // disk itself is never touched — there isn't one here to touch.
+      const id = String(args?.id ?? "");
+      const gone = mockMounts.find((m) => m.id === id && m.volume);
+      if (!gone) throw new Error(`no such drive: ${id}`);
+      if (args?.cleanup) {
+        for (const n of mockSidecarsOf(id)) mockNotes.splice(mockNotes.indexOf(n), 1);
+      }
+      mockMounts = mockMounts.filter((m) => m.id !== id);
+      delete mockMountIndex[id];
+      delete mockMountBindings[id];
+      mockDrivesIgnored = [...new Set([...mockDrivesIgnored, gone.volume!.id])];
+      return mockDrives();
+    }
+    case "drive_unforget": {
+      const volume = String(args?.volume ?? "");
+      mockDrivesIgnored = mockDrivesIgnored.filter((v) => v !== volume);
+      return null;
+    }
+    case "drives_ignored":
+      return [...mockDrivesIgnored].sort();
     case "agenda_open_note":
       // the real backend surfaces the main window with this note open
       console.info("[mock] open note from tray agenda", args?.path);
@@ -5588,7 +5935,11 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         { id: "vault-snap-2", ts_ms: now - 27 * 3_600_000, subject: "snapshot" },
       ];
     case "history_vault_snapshot": {
-      const level = Math.max(0, Math.min(2, Number(String(args?.id ?? "").split("-").pop())));
+      // a Deep Recall result jumps to a real commit id rather than to one of
+      // the three mock points, and landing SOMEWHERE is the honest mock
+      // answer to "put the vault back at this snapshot"
+      const asked = Number(String(args?.id ?? "").split("-").pop());
+      const level = Number.isFinite(asked) ? Math.max(0, Math.min(2, asked)) : 0;
       const point = [
         { id: "vault-snap-0", ts_ms: now, subject: "snapshot" },
         { id: "vault-snap-1", ts_ms: now - 3 * 3_600_000, subject: "snapshot" },

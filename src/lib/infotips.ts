@@ -51,6 +51,14 @@ const STATIC_VIEW_TIPS: Record<View["kind"], InfoTip> = {
     title: "Mounted folder",
     body: "A real folder on disk, shown as a database. Every file is a row — nothing is imported or copied, and a note is only created for a file once you say something about it.",
   },
+  shelf: {
+    title: "Drive Shelf",
+    body: "Every external disk this vault has cataloged. A drive stays here once it has been seen — browsable and searchable with the disk unplugged, from the catalog rather than the disk.",
+  },
+  drive: {
+    title: "Drive",
+    body: "One disk's catalog. With the drive unplugged this is what the last scan saw, and it says when that was — nothing here is read from the disk itself.",
+  },
   saved: {
     title: "Saved view",
     body: "A named database view with its own query, sorting, layout, and visible columns.",

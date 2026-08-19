@@ -235,6 +235,7 @@ export const FIXED_VIEW_COMMANDS: ViewCommand[] = [
   { id: "cmd:search", label: "Search notes", dest: "Search", view: { kind: "search" }, shortcut: "search" },
   { id: "cmd:trash", label: "Open Trash", dest: "Trash", view: { kind: "trash" } },
   { id: "cmd:assets", label: "Clean up orphaned assets…", view: { kind: "assets" } },
+  { id: "cmd:shelf", label: "Drives", dest: "Drives", view: { kind: "shelf" } },
   { id: "cmd:doctor", label: "Vault doctor", dest: "Vault doctor", view: { kind: "doctor" } },
   { id: "cmd:vaultsync", label: "Vault sync", dest: "Vault sync", view: { kind: "vaultsync" } },
   // the sidebar's sparkle glyph, in words — the glyph carries its name in a
@@ -271,6 +272,10 @@ export const GENERATED_VIEW_KINDS: Record<string, GeneratedBy> = {
   folder: "row",
   tagfolder: "row",
   tag: "row",
+  // one row per cataloged disk, the same destination its rail row opens. The
+  // shelf itself is a fixed row above; this is the shelf zoomed in, and there
+  // is no fixed version of it because every drive is its own place.
+  drive: "row",
 };
 
 /** Registry ids the catalogue prints keycaps for — the drift test resolves

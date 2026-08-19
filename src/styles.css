@@ -11654,6 +11654,111 @@ span.asset-thumb svg {
   opacity: 0.55;
 }
 
+/* ---------- Drive Shelf ----------
+   The shelf borrows the trash pane's row chrome wholesale; what it adds is
+   only what a disk needs that a note doesn't — a lamp saying whether the
+   thing is here right now, a path back up its folders, and the greyed-out
+   state for a row the last scan couldn't find. */
+
+.shelf .list-head {
+  gap: 10px;
+}
+
+.shelf-filter {
+  max-width: 280px;
+}
+
+/* the staleness line is not chrome to skim past: it is the claim that
+   everything below it is a memory, so it reads at full text weight */
+.shelf-banner {
+  color: var(--text-2);
+}
+
+.shelf-crumbs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 6px 16px 0;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.shelf-crumb {
+  padding: 2px 4px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font);
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.shelf-crumb:hover {
+  background: var(--hover);
+  color: var(--text-1);
+}
+
+.shelf-crumb + .shelf-crumb::before {
+  content: "/";
+  margin-right: 6px;
+  color: var(--text-3);
+}
+
+.shelf-up .trash-row-title {
+  color: var(--text-3);
+}
+
+/* plugged in right now, or not. The lamp is the only thing on a shelf row
+   that is a statement about the present tense. */
+.shelf-lamp {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.shelf-drive.is-online .shelf-lamp,
+.side-drive.is-online .shelf-lamp {
+  background: var(--ok);
+}
+
+/* the rail's drive row: the lamp rides in the chevron gutter, out of the
+   row's flex flow, so it costs the disk glyph no horizontal space and the
+   drive icons land in the same column as every other row's icon */
+.side-drive {
+  position: relative;
+}
+
+.side-drive .shelf-lamp {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.trash-row.is-missing {
+  opacity: 0.55;
+}
+
+.shelf-ignored {
+  margin-top: 10px;
+  border-top: 1px solid var(--border-soft);
+  padding-top: 6px;
+}
+
+.shelf-ignored-head {
+  padding: 4px 16px;
+  font-size: 11px;
+  font-weight: 560;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
 .trash-restore,
 .trash-danger {
   flex: none;
@@ -12448,6 +12553,116 @@ span.asset-thumb svg {
   color: var(--text-1);
   border-radius: 3px;
   padding: 0 1px;
+}
+
+/* Deep Recall — the vault's past, inside normal search.
+
+   Styled as a quieter sibling of the live results rather than as a separate
+   surface: same rhythm and type scale, one step down in contrast, so the
+   present stays the thing the eye lands on first. */
+.search-past-toggle {
+  flex: none;
+  height: 25px;
+  padding: 0 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-3);
+  font-family: var(--font);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.search-past-toggle:hover {
+  color: var(--text-2);
+}
+
+.search-past-toggle.active {
+  background: var(--active);
+  color: var(--text-1);
+  border-color: var(--border);
+}
+
+/* asked for the past with the index switched off — says where to switch it
+   on instead of silently returning nothing */
+.search-past-off {
+  flex: none;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.search-past {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.search-past-head {
+  padding: 0 10px 6px;
+  font-size: 11px;
+  font-weight: 560;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.search-past-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.search-past-row svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.search-past-row .search-note-hint {
+  margin-left: auto;
+}
+
+.search-past-version {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 10px 4px 32px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.search-past-version:hover,
+.search-past-version:focus-visible {
+  background: var(--hover);
+  outline: none;
+}
+
+.search-past-when {
+  flex: none;
+  min-width: 84px;
+  font-size: 10.5px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.search-past-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* the honest tail of a collapsed group: how many versions are NOT shown */
+.search-past-more {
+  padding: 2px 10px 0 32px;
+  font-size: 11px;
+  color: var(--text-3);
 }
 
 .search-foot {

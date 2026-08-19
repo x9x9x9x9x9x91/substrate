@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import type { DbIcon, NoteMeta, SavedView, SearchHit, SnippetPart, TagCount, TagFolder, View } from "../lib/types";
+import type { DbIcon, DriveInfo, NoteMeta, SavedView, SearchHit, SnippetPart, TagCount, TagFolder, View } from "../lib/types";
 import { propStr } from "../lib/types";
 import { vaultRoot, vaultSearch, mountRescan } from "../lib/ipc";
 import { setPropUndoable } from "../lib/undoprops";
@@ -44,6 +44,7 @@ import {
   ClockIcon,
   CookbookIcon,
   DbIcon as DbGlyphIcon,
+  DriveIcon,
   ExportIcon,
   FilterIcon,
   FolderIcon,
@@ -143,6 +144,11 @@ interface PaletteProps {
   /** every tag in the vault, most-used first — a tag is a destination whether
       or not anyone ever saved a folder for it */
   tags: TagCount[];
+  /** the cataloged disks, in shelf order — one destination each, plugged in
+      or not. OPTIONAL and defaulted for the same reason `proxyAvailable`
+      below is: the shelf is a private surface, so App's pass can sit behind
+      share-mirror fences while this file stays identical on both sides. */
+  drives?: DriveInfo[];
   /** A local proxy answered the boot probe — gates the destination row for
       it. OPTIONAL on purpose, and the one thing on this component that must
       not be tightened: the surface it gates is machine-private, so the pass
@@ -302,7 +308,8 @@ export default function Palette({
   savedViews,
   tagFolders,
   tags,
-  // absent wherever the surface it gates is — see the prop's own note
+  // absent wherever the surface they belong to is — see each prop's own note
+  drives = [],
   proxyAvailable = false,
   current,
   startStage,
@@ -1264,6 +1271,17 @@ export default function Palette({
           dest: v.name,
           run: () => onSetView({ kind: "saved", id: v.id }),
         })),
+        // One row per cataloged disk, landing where its rail row lands: the
+        // drive's own catalog, browsable with the disk in a drawer. The rail
+        // is otherwise the only door to a drive, and it scrolls.
+        ...drives.map((d) => ({
+          id: `cmd:drive:${d.id}`,
+          label: `Go to ${d.name}`,
+          icon: <DriveIcon />,
+          section: "Commands",
+          dest: d.name,
+          run: () => onSetView({ kind: "drive", id: d.id, prefix: "" }),
+        })),
         ...tagFolders.map((f) => ({
           id: `cmd:tagfolder:${f.id}`,
           label: `Go to ${f.name}`,
@@ -1339,6 +1357,7 @@ export default function Palette({
     savedViews,
     tagFolders,
     tags,
+    drives,
     proxyAvailable,
     current,
     templateTypes,

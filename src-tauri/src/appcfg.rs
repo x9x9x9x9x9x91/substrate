@@ -47,6 +47,22 @@ pub struct AppConfig {
     /// wholesale, so a marker inside it would arrive pre-approved everywhere.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub reflexes: std::collections::BTreeMap<String, crate::reflexes::consent::Consent>,
+    /// Which vaults keep a Deep Recall index ON THIS DEVICE: canonical vault
+    /// path → the opt-in. Per-device for the same reason as `reflexes`, plus
+    /// one of its own: the index is a device-local SQLite file whose size and
+    /// first-build cost are this machine's to pay, so the decision cannot ride
+    /// along on a sync.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub recall: std::collections::BTreeMap<String, bool>,
+    /// Volumes this DEVICE will not catalog: the volume ids of drives the
+    /// user asked the shelf to forget. Machine-local for the same reason
+    /// reflex consent is — cataloging happens on the machine the disk is
+    /// plugged into, so "don't catalog this" is a decision about this
+    /// machine's behaviour, not a fact about the disk. A drive forgotten
+    /// here and plugged into another machine is cataloged there, and the
+    /// shelf says so rather than pretending otherwise.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub drives_ignored: std::collections::BTreeSet<String>,
 }
 
 /// Where a resolved root came from — the caller uses this to decide whether
@@ -95,6 +111,26 @@ pub fn write_vault_choice(cfg_dir: &Path, vault: &Path) -> Result<(), String> {
     update_config(cfg_dir, |cfg| cfg.vault = Some(vault.to_path_buf()))
 }
 
+/// Is Deep Recall on for this vault on this machine? Absent = off: the
+/// feature is opt-in, so no answer is a "no".
+pub fn recall_enabled(cfg_dir: &Path, vault: &Path) -> bool {
+    read_config(cfg_dir).recall.get(&crate::kinds::vault_key(vault)).copied().unwrap_or(false)
+}
+
+/// Record the Deep Recall opt-in. Turning it off REMOVES the entry rather
+/// than storing `false`, so a vault that was never asked and a vault that
+/// said no read the same on every other machine's config too.
+pub fn write_recall_enabled(cfg_dir: &Path, vault: &Path, enabled: bool) -> Result<(), String> {
+    let key = crate::kinds::vault_key(vault);
+    update_config(cfg_dir, |cfg| {
+        if enabled {
+            cfg.recall.insert(key.clone(), true);
+        } else {
+            cfg.recall.remove(&key);
+        }
+    })
+}
+
 /// Bind a mount to a path on THIS machine, or clear the binding with `None`.
 pub fn write_mount_binding(cfg_dir: &Path, id: &str, path: Option<&Path>) -> Result<(), String> {
     update_config(cfg_dir, |cfg| match path {
@@ -103,6 +139,17 @@ pub fn write_mount_binding(cfg_dir: &Path, id: &str, path: Option<&Path>) -> Res
         }
         None => {
             cfg.mounts.remove(id);
+        }
+    })
+}
+
+/// Stop cataloging a volume on this machine, or allow it again.
+pub fn write_drive_ignored(cfg_dir: &Path, volume: &str, ignored: bool) -> Result<(), String> {
+    update_config(cfg_dir, |cfg| {
+        if ignored {
+            cfg.drives_ignored.insert(volume.to_string());
+        } else {
+            cfg.drives_ignored.remove(volume);
         }
     })
 }
@@ -341,6 +388,29 @@ mod tests {
             Some(Path::new("/tmp/other"))
         );
         assert_eq!(read_config(&cfg).vault.as_deref(), Some(Path::new("/tmp/v2")));
+    }
+
+    /// Deep Recall is opt-in per vault per device, and switching it off must
+    /// leave no trace that could read as a decision on another machine.
+    #[test]
+    fn recall_opt_in_is_off_until_asked_for_and_forgotten_when_withdrawn() {
+        let t = TempDir::new().unwrap();
+        let cfg = t.path().join("cfg");
+        let vault = vault_at(t.path());
+        write_vault_choice(&cfg, &vault).unwrap();
+        assert!(!recall_enabled(&cfg, &vault), "never asked = off");
+
+        write_recall_enabled(&cfg, &vault, true).unwrap();
+        assert!(recall_enabled(&cfg, &vault));
+        // a non-canonical spelling of the same vault is the same decision
+        let indirect = vault.join(".vault").join("..");
+        assert!(recall_enabled(&cfg, &indirect));
+        // and the rest of the config survived the write
+        assert_eq!(read_config(&cfg).vault.as_deref(), Some(vault.as_path()));
+
+        write_recall_enabled(&cfg, &vault, false).unwrap();
+        assert!(!recall_enabled(&cfg, &vault));
+        assert!(read_config(&cfg).recall.is_empty(), "withdrawing leaves no entry behind");
     }
 
     #[test]

@@ -5,7 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isTyping, isTypingNow } from "./lib/dom";
 import { MENU_SURFACES } from "./lib/menusurfaces";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { DbIcon, DbLayout, FolderListing, MountInfo, MountRow, MountScanStats, NewTypeProp, NoteMeta, NumberFormat, PropKind, PropValue, RollupConfig, SavedView, SavedViewSort, SealScopeInfo, SelectOption, SidebarOrder, TagFolder, VaultHistoryPoint, View, ViewPref } from "./lib/types";
+import type { DbIcon, DbLayout, DriveInfo, FolderListing, MountInfo, MountRow, MountScanStats, NewTypeProp, NoteMeta, NumberFormat, PropKind, PropValue, RollupConfig, SavedView, SavedViewSort, SealScopeInfo, SelectOption, SidebarOrder, TagFolder, VaultHistoryPoint, View, ViewPref } from "./lib/types";
 import { foldedPropKey, foldedPropStr, FUNCTIONAL_TYPES, typeHome, viewKey } from "./lib/types";
 import { tagFolderApplyTags, tagFolderMatches, tagUniverse } from "./lib/tags";
 import { dbColumns } from "./lib/dbcolumns";
@@ -105,7 +105,9 @@ import {
   mountBind,
   mountRemove,
   mountRows,
+  drivesList,
   mountsList,
+  recallStatus,
   urlCapture,
   vaultClearProp,
   vaultCreate,
@@ -211,6 +213,7 @@ import VaultSyncPane from "./components/VaultSyncPane";
 import ChangelogPane from "./components/ChangelogPane";
 import CookbookPane from "./components/CookbookPane";
 import AssetsPane from "./components/AssetsPane";
+import ShelfPane from "./components/ShelfPane";
 import Palette, { type StartStage } from "./components/Palette";
 import ShortcutOverlay from "./components/ShortcutOverlay";
 import KeyHints from "./components/KeyHints";
@@ -284,6 +287,10 @@ function inView(n: NoteMeta, view: View, tagFolders: TagFolder[] = []): boolean 
     case "dashboard":
     case "trash":
     case "assets":
+    // a drive's rows come from its catalog, the same way a mount's come from
+    // its index
+    case "shelf":
+    case "drive":
     case "doctor":
     case "calendar":
     case "today":
@@ -454,6 +461,10 @@ export default function App() {
   const [mountDialog, setMountDialog] = useState(false);
   /** every mount in the vault, with this machine's binding resolved */
   const [mounts, setMounts] = useState<MountInfo[]>([]);
+  /** the Drive Shelf's own list — the sidebar's row count and its drive rows.
+      Drives ARE mounts, but the shelf's totals and staleness come from the
+      catalog rather than the registry, so it is its own read. */
+  const [drives, setDrives] = useState<DriveInfo[]>([]);
   /** the open mount's rows — its last-known index merged with its sidecars */
   const [mountRowList, setMountRowList] = useState<MountRow[]>([]);
   /** the mount whose "unmount and trash its notes" is awaiting confirmation */
@@ -1460,6 +1471,15 @@ export default function App() {
   useEffect(() => {
     reloadMounts();
   }, [vaultEpoch, reloadMounts]);
+
+  // …and the shelf, on the same epoch: the drive poller emits `vault:changed`
+  // when a disk appears or vanishes, which is exactly what bumps it, so a
+  // plugged-in drive reaches the sidebar without a second timer here.
+  useEffect(() => {
+    drivesList()
+      .then(setDrives)
+      .catch((e) => console.error(e));
+  }, [vaultEpoch]);
 
   // …and the open mount's rows, which are its index merged with its sidecars.
   // Only the mount being looked at is loaded: a folder can hold thousands of
@@ -4182,6 +4202,22 @@ export default function App() {
   const [historyFor, setHistoryFor] = useState<{ path: string; nonce: number } | null>(null);
   const historyNonce = useRef(0);
 
+  /** Deep Recall is opt-in per vault per device, so the search pane cannot
+      assume an index exists. Re-read on vault change and whenever Settings
+      closes — that pane is where the switch is thrown. */
+  const [recallEnabled, setRecallEnabled] = useState(false);
+  useEffect(() => {
+    let live = true;
+    recallStatus()
+      .then((status) => {
+        if (live) setRecallEnabled(status.enabled);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [vaultEpoch, settingsOpen]);
+
   /** a receipt row was clicked: scrub the vault to that snapshot (§6) */
   const scrubToCommit = useCallback(
     async (commit: string) => {
@@ -4190,6 +4226,21 @@ export default function App() {
       await selectTimePoint(commit);
     },
     [openTimeTravel, selectTimePoint]
+  );
+
+  /** a Deep Recall result was clicked: put the whole vault back at the
+      snapshot that version lived in, and select the note there. The past is
+      read as it stood, not as a diff — which is what the scrubber already
+      does for receipts. */
+  const openPastVersion = useCallback(
+    async (path: string, commit: string) => {
+      await scrubToCommit(commit);
+      setView({ kind: "all" });
+      setSelected(path);
+      showMobileDetail();
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scrubToCommit, showMobileDetail, setSelected]
   );
 
   const onRowMenu = useCallback(
@@ -4905,6 +4956,7 @@ export default function App() {
         onToggleHidden={toggleSidebar}
         onMobileClose={closeMobileSidebar}
         scratchCount={scratchCount}
+        drives={drives}
         collapsedIds={collapsedIds}
         onToggleCollapse={toggleCollapsed}
         icons={dbIcons}
@@ -4975,6 +5027,8 @@ export default function App() {
             restoreSel={searchRestore}
             onRestoredSel={() => setSearchRestore(null)}
             onRowContextMenu={onRowMenu}
+            recallEnabled={recallEnabled}
+            onOpenPast={openPastVersion}
           />
         </div>
       ) : view.kind === "trash" ? (
@@ -5026,6 +5080,13 @@ export default function App() {
       ) : view.kind === "assets" ? (
         <div className="main">
           <AssetsPane vaultEpoch={vaultEpoch} />
+        </div>
+      ) : view.kind === "shelf" || view.kind === "drive" ? (
+        <div className="main">
+          {/* One pane for both: a drive's catalog is the shelf zoomed in, and
+              splitting them would double the staleness copy that is the whole
+              point of the surface. */}
+          <ShelfPane view={view} setView={setView} vaultEpoch={vaultEpoch} />
         </div>
       ) : view.kind === "doctor" ? (
         <div className="main">
@@ -5465,6 +5526,7 @@ export default function App() {
           savedViews={savedViews}
           tagFolders={tagFolders}
           tags={tagCounts}
+          drives={drives}
           current={selectedMeta}
           startStage={paletteStart}
           templateTypes={templateTypes}
