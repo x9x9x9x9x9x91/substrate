@@ -349,6 +349,14 @@ declare global {
         Pass a folder path to bind it somewhere instead; a path containing
         "missing" is the folder-went-away case. */
     __mockUnbindMount?: (name: string, path?: string) => void;
+    /** give a mount the ignore list a person would hand-write into
+        `.vault/mounts.json` — nothing in the app writes one, so this is the
+        only seam a spec has for the pruned-subtree board. Takes effect on the
+        next rescan, exactly as editing the file does. Naming a mount that does
+        not exist yet is the other half of the file's reality: the list is held
+        and applied when a mount of that name is added, so its FIRST scan
+        already prunes and the ignored rows never enter the index at all. */
+    __mockSetMountIgnore?: (name: string, patterns: string[]) => void;
     /** boot the jobs dashboard on a machine with no launchd — what every
         non-macOS install is. The pane says so instead of rendering a roster
         it cannot read. Read per call, so addInitScript is the seam */
@@ -1204,6 +1212,10 @@ interface MockMount {
   id: string;
   name: string;
   globs: string[];
+  /** Paths this mount doesn't see. No dialog writes one — it is hand-authored
+      in `.vault/mounts.json`, so the mock's own seam for it is
+      `__mockSetMountIgnore`. */
+  ignore?: string[];
   watch?: boolean;
 }
 interface MockMountFile {
@@ -1228,6 +1240,11 @@ interface MockMountFile {
 }
 let mockMounts: MockMount[] = [{ id: "mount-finance", name: "finance-doc", globs: [] }];
 const mockMountBindings: Record<string, string> = { "mount-finance": "~/Personal/Finance" };
+/* ignore lists named before their mount exists — `.vault/mounts.json` can
+   already carry one when a folder is mounted for the first time, and that is
+   the only way an ignored file is absent from the board rather than greyed
+   out on it (the engine keeps rows it has already indexed). */
+const mockPendingIgnore = new Map<string, string[]>();
 const mockMountIndex: Record<string, { scanned: string; files: MockMountFile[] }> = {};
 const mockFolderFiles: {
   name: string;
@@ -1268,15 +1285,79 @@ const mockFolderFiles: {
   { name: "Quittung Rondo Service.png", size: 488203, modified: "2026-04-19 17:40" },
   { name: "Ausgaben 2026.csv", size: 4210, modified: "2026-07-15 21:03" },
 ];
+/** The other "disk": a folder of Ableton projects, which is what the second
+    kind of mounted folder looks like. Nested one folder per set, with the
+    dated copies Live writes beside each one — the rows an `ignore` list
+    exists to keep off the board — and one bounce, so the audio columns and
+    the project columns are on the same table at the same time. */
+const mockProjectFiles: typeof mockFolderFiles = [
+  {
+    name: "Bleed Cycle/Bleed Cycle.als",
+    size: 2841004,
+    modified: "2026-08-11 22:14",
+    extracted: {
+      als_tempo: 132,
+      als_key: "D# Minor",
+      als_tracks: 24,
+      als_version: "Ableton Live 12.1.5",
+    },
+    text: "Drums Sub Bass Vox Chops Granulator III Operator Reverb Serum",
+  },
+  {
+    name: "Bleed Cycle/Backup/Bleed Cycle [2026-08-10 191204].als",
+    size: 2794551,
+    modified: "2026-08-10 19:12",
+    extracted: { als_tempo: 132, als_tracks: 22, als_version: "Ableton Live 12.1.5" },
+  },
+  {
+    name: "Bleed Cycle/Bleed Cycle rough.wav",
+    size: 61204880,
+    modified: "2026-08-11 22:31",
+    extracted: { duration: 341, sample_rate: 48000, channels: 2 },
+  },
+  {
+    name: "Nightwater/Nightwater.als",
+    size: 1904221,
+    modified: "2026-07-29 15:48",
+    extracted: {
+      als_tempo: 84.5,
+      als_tracks: 11,
+      als_version: "Ableton Live 11.3.13",
+    },
+    text: "Pad Field Recording Tape Delay Corpus Auto Filter",
+  },
+  {
+    name: "Nightwater/Backup/Nightwater [2026-07-28 104402].als",
+    size: 1880110,
+    modified: "2026-07-28 10:44",
+    extracted: { als_tempo: 84.5, als_tracks: 10, als_version: "Ableton Live 11.3.13" },
+  },
+];
+/** Which folder a bound path is: the mock has two, and a mount shows the one
+    it points at. Anything not obviously a project pool is the paper pile the
+    seeded mount uses, so every existing spec keeps the disk it had. */
+const mockDiskFor = (path?: string) =>
+  path && /music|album|project/i.test(path) ? mockProjectFiles : mockFolderFiles;
 /** Stand-in for the engine's content hash — the mock has no bytes to read, and
     every consumer only ever compares identities for equality. */
 const mockIdentity = (name: string) => `id-${mockSanitizeFilename(name).toLowerCase()}`;
-/** The mock's "disk": every path holds the same dozen files, filtered by the
-    mount's globs the way `walk_folder_files` filters a real tree. */
-function mockDiskFiles(globs: string[]): MockMountFile[] {
+/** The mock's "disk", filtered the way `walk_folder_files` filters a real
+    tree: the mount's globs decide what is included, its `ignore` list decides
+    what is pruned — a pattern without a slash matching the file's own name at
+    any depth, one with a slash matching the path relative to the root. */
+function mockDiskFiles(globs: string[], ignore?: string[], path?: string): MockMountFile[] {
   const exts = globs.map((g) => g.trim().replace(/^\*/, "").toLowerCase()).filter(Boolean);
-  return mockFolderFiles
+  const rx = (p: string) =>
+    new RegExp(`^${p.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`, "i");
+  const ignored = (rel: string) =>
+    (ignore ?? []).some((p) =>
+      p.includes("/")
+        ? rx(p).test(rel)
+        : rel.split("/").some((segment) => rx(p).test(segment))
+    );
+  return mockDiskFor(path)
     .filter((f) => !exts.length || exts.some((e) => f.name.toLowerCase().endsWith(e)))
+    .filter((f) => !ignored(f.name))
     .map((f) => ({
       rel: f.name,
       size: f.size,
@@ -1294,7 +1375,7 @@ function mockDiskFiles(globs: string[]): MockMountFile[] {
     and flagged missing, never dropped — its sidecar keeps every annotation. */
 function mockScanMount(mount: MockMount): MountScanStats {
   const prior = mockMountIndex[mount.id]?.files ?? [];
-  const found = mockDiskFiles(mount.globs);
+  const found = mockDiskFiles(mount.globs, mount.ignore, mockMountBindings[mount.id]);
   const claimed = new Set<MockMountFile>();
   const stats: MountScanStats = {
     id: mount.id,
@@ -1417,6 +1498,7 @@ const mockMountInfo = (m: MockMount): MountInfo => ({
   id: m.id,
   name: m.name,
   globs: m.globs,
+  ...(m.ignore?.length ? { ignore: m.ignore } : {}),
   ...(m.watch ? { watch: true } : {}),
   ...(mockMountBindings[m.id] ? { path: mockMountBindings[m.id] } : {}),
   missing: (mockMountBindings[m.id] ?? "").toLowerCase().includes("missing"),
@@ -2418,8 +2500,16 @@ function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknow
   }
   // instrumentation: an opt-in ring of write-lane commands plus the
   // FX request seam, with args and outcomes. No effect unless a spec installed
-  // the trace hook; including FX lets privacy regressions prove call counts.
-  if (mockCmdTrace && (/^vault_(write_body|rename|create|read)$/.test(cmd) || cmd === "fx_rates")) {
+  // the trace hook; including FX lets privacy regressions prove call counts,
+  // and the two hand-off commands let a spec prove a row action reached the OS
+  // seam — the opening itself happens outside the app, where nothing can look.
+  if (
+    mockCmdTrace &&
+    (/^vault_(write_body|rename|create|read)$/.test(cmd) ||
+      cmd === "fx_rates" ||
+      cmd === "file_open" ||
+      cmd === "file_reveal")
+  ) {
     const entry: MockTraceEntry = {
       ms: Date.now() - mockCmdTraceT0,
       cmd,
@@ -5237,10 +5327,12 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         .filter(Boolean);
       // a mount IS a schema type — that's what gives its sidecars props
       mockSchema[name] = mockRecord<PropSchema>();
+      const pending = mockPendingIgnore.get(name.toLowerCase());
       const mount: MockMount = {
         id: `mount-${mockSanitizeFilename(name).toLowerCase()}-${mockMounts.length + 1}`,
         name,
         globs,
+        ...(pending?.length ? { ignore: pending } : {}),
         ...(args?.watch ? { watch: true } : {}),
       };
       mockMounts.push(mount);
@@ -5887,6 +5979,13 @@ if (!isTauri) {
   // The other-machine board. The index stays exactly as the machine
   // holding the folder left it — only this machine's binding goes — so a
   // dashboard over the mount still has rows to chart.
+  // The hand-authored half of a mount: `.vault/mounts.json` is the UI for an
+  // ignore list, and a spec has no file to edit.
+  window.__mockSetMountIgnore = (name, patterns) => {
+    const m = mockMounts.find((x) => x.name.toLowerCase() === name.toLowerCase());
+    if (m) m.ignore = patterns;
+    else mockPendingIgnore.set(name.toLowerCase(), patterns);
+  };
   window.__mockUnbindMount = (name, path) => {
     const m = mockMounts.find((x) => x.name.toLowerCase() === name.toLowerCase());
     if (!m) throw new Error(`no such mount: ${name}`);

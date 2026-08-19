@@ -33,6 +33,7 @@ one-line prompt.
 | [`home-hub/`](home-hub) | hub | a designed home page from ordinary markdown |
 | [`release-charts/`](release-charts) | charts | bar charts over a database and a sheet |
 | [`label-accounting/`](label-accounting) | metrics | a workbook: cards, sheets, and a database as bottom tabs |
+| [`finance-hub/`](finance-hub) | hub | a personal-finance workbook, with the daily refresh job written out |
 | [`music-work/`](music-work) | music-work | years of work pivoted from one scanner-written sheet |
 | [`annual-report/`](annual-report) | metrics | the year in cards + charts, printable as a designed PDF |
 | [`sync/`](sync) | sync | a control surface over whatever already syncs your files |

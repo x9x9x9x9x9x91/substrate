@@ -59,7 +59,17 @@ Capacities, Affine).*
   written until you annotate one, at which point a single sidecar note appears
   beside it. Rows bind to files by content hash, so a rename or a move keeps
   its annotations, and a folder that isn't on this machine still renders its
-  rows from the last-known index instead of disappearing. And the way back
+  rows from the last-known index instead of disappearing.
+  Mounted files are also read, not just listed: audio carries its duration,
+  sample rate, channels and tags, a PDF its page count, and an Ableton
+  project its tempo, track count and Live version, plus its key when the set
+  states one — columns the board has because the files have them, sortable
+  and filterable like any other, with no import step and nothing typed by
+  hand. Read against a real pool of 94 projects spanning Live 9 to Live 12,
+  every file parses, every one states a tempo and a track count, and 40
+  of them name a key; the rest never chose one, and a blank cell says so. A mount can also be told
+  which paths it doesn't want to see, so the dated copies Live drops beside
+  every set stay off a board of sets. And the way back
   out: **export a saved view as a folder of links** other apps can see — a
   query like "unfinished / 128bpm" becomes a real folder for a sample browser
   or a file dialog, rebuilt on demand from the pin's menu. The folder is
@@ -347,9 +357,7 @@ Capacities, Affine).*
 
 ## Planned (roadmap material — clearly marked, never advertised as shipped)
 
-Tracked in the issue tracker; headline shapes: extracted columns on
-mounted files (audio/PDF/.als analysis feeding a mount's rows — the mount
-itself has shipped), time-travel queries over
+Tracked in the issue tracker; headline shapes: time-travel queries over
 git history, per-fact provenance
 receipts, cross-type joins.
 

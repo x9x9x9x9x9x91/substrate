@@ -1224,14 +1224,67 @@ fn normalize_icon(i: DbIcon) -> DbIcon {
     DbIcon { glyph, emoji, tint }
 }
 
+/// Whether a walked entry is one the caller asked not to see.
+///
+/// Two spellings, and which one a pattern gets is decided by whether it holds
+/// a slash — the same split a `.gitignore` makes, for the same reason:
+///
+/// * no slash (`Backup`, `*.asd`) matches the entry's own NAME, at any depth.
+///   This is the common case, and the one a person writes first: a folder of
+///   projects has a `Backup` beside every set, not one at the top.
+/// * a slash (`Old Sets/*`, `*/Samples/Imported`) matches the entry's path
+///   relative to the root, `/`-separated, so a pattern can name one place
+///   rather than every place.
+///
+/// Matching is [`glob_match`]'s: case-insensitive, `*` the only wildcard, and
+/// it spans separators — the same rule `globs` already runs on, so a mount's
+/// two pattern lists don't behave differently from each other.
+///
+/// A trailing slash is trimmed before either rule is applied. `Backup/` is how
+/// a person spells "the folder, not a file called that" — the habit
+/// `.gitignore` teaches — and it holds a slash, so untrimmed it would be read
+/// as a path pattern, match no path, and quietly do nothing. Trimmed it means
+/// what it looks like: prune the `Backup` folder wherever it is.
+///
+/// A directory that matches is pruned whole, which is the point on a project
+/// pool: Ableton's `Backup` folders hold a copy of the set per save, and
+/// walking them costs far more than filtering them afterwards would.
+pub(crate) fn is_ignored(rel: &str, name: &str, ignore: &[String]) -> bool {
+    ignore.iter().map(|p| p.trim_end_matches('/')).any(|p| {
+        if p.contains('/') {
+            glob_match(p, rel)
+        } else {
+            glob_match(p, name)
+        }
+    })
+}
+
 /// Non-hidden files under `root` (recursive, symlinks not followed) whose
-/// names match `globs`; empty globs include everything.
-fn walk_folder_files(root: &Path, globs: &[String]) -> Vec<PathBuf> {
+/// names match `globs`; empty globs include everything. Anything matching
+/// `ignore` is skipped, and an ignored directory is never descended into —
+/// see [`is_ignored`].
+fn walk_folder_files(root: &Path, globs: &[String], ignore: &[String]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     for entry in WalkDir::new(root)
         .follow_links(false)
         .into_iter()
-        .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
+        .filter_entry(|e| {
+            if e.depth() == 0 {
+                return true;
+            }
+            if e.file_name().to_string_lossy().starts_with('.') {
+                return false;
+            }
+            if ignore.is_empty() {
+                return true;
+            }
+            let rel = e
+                .path()
+                .strip_prefix(root)
+                .map(|r| r.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_default();
+            !is_ignored(&rel, &e.file_name().to_string_lossy(), ignore)
+        })
         .flatten()
     {
         if !entry.file_type().is_file() {

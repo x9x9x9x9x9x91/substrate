@@ -17,6 +17,7 @@ import { parseTimelineConfig, timelineData } from "../src/lib/timeline.ts";
 import { parseHub } from "../src/lib/hub.ts";
 import { parseViewSpec } from "../src/lib/embeds.ts";
 import { collectCardsFences, parseBind, parseCardsBlock } from "../src/lib/metriccards.ts";
+import { parseProgressBlocks } from "../src/lib/progress.ts";
 import { parseFoodRows } from "../src/lib/food.ts";
 import { parseFoodDb } from "../src/lib/fooddb.ts";
 import { isOpenableUrl, parseFeedItems } from "../src/lib/feed.ts";
@@ -201,7 +202,7 @@ test("the seed's documented view example parses to the keys it claims (SUB-474)"
 test("dashboard kinds are ones the app dispatches", () => {
   const kinds = BUILT_IN_KINDS;
   const dashboards = notes.filter((n) => n.props["type"] === "dashboard");
-  assert.equal(dashboards.length, 16);
+  assert.equal(dashboards.length, 20);
   for (const n of dashboards) {
     const k = n.props["dashboard"];
     assert.ok(typeof k === "string" && kinds.has(k), `${n.path}: unknown dashboard kind "${k}"`);
@@ -239,6 +240,154 @@ test("Label Accounting workbook: pages resolve, sheets evaluate, binds land", ()
     const ev = evaluateSheet(model, fx);
     for (const s of ev.summaries) assert.ok(!isErr(s.value), `${name} summary ${s.name}: ${JSON.stringify(s.value)}`);
   }
+});
+
+test("Finance workbook: every sheet evaluates cross-sheet, pages resolve, binds land", () => {
+  // This recipe is the one that reads across itself — Expected Returns looks
+  // balances up in Accounts, Expenses subtracts Budget Limits' total — so it
+  // is evaluated with a cross-sheet loader rather than in isolation. A missing
+  // ref would otherwise pass as a lone sheet's own error-free evaluation.
+  const load = (name: string) => {
+    const n = byStem(name);
+    return n ? parseSheet(n.body) : { err: `no sheet ${name}` };
+  };
+  const sheetNames = [
+    "Accounts",
+    "Expected Returns",
+    "Expenses",
+    "Budget Limits",
+    "Debts",
+    "Upcoming",
+    "Forecast Cashflow",
+    "Forecast Net Worth",
+  ];
+  const evals = new Map<string, ReturnType<typeof evaluateSheet>>();
+  for (const name of sheetNames) {
+    const model = loadSheet(name);
+    assert.ok(model && model.headers.length > 0, `${name} sheet missing or empty`);
+    assert.deepEqual(model.errors, [], `${name} has sheet-level errors`);
+    const ev = evaluateSheet(model, fx, { self: name, load });
+    for (const s of ev.summaries)
+      assert.ok(!isErr(s.value), `${name} summary ${s.name}: ${JSON.stringify(s.value)}`);
+    evals.set(name.toLowerCase(), ev);
+  }
+
+  // the three machine-written sheets say so where an editing agent will see it
+  for (const name of ["Upcoming", "Forecast Cashflow", "Forecast Net Worth"]) {
+    assert.match(byStem(name)!.body, /> \[!warn\] Machine-written/, `${name} lost its machine-written callout`);
+  }
+  // …and they carry the freshness stamp the workbook note promises the refresh
+  // rewrites: without it "watch the job afterwards" has nothing to read
+  for (const name of ["Upcoming", "Forecast Cashflow", "Forecast Net Worth"]) {
+    const stamp = byStem(name)!.props["exported"];
+    assert.ok(typeof stamp === "string" && !Number.isNaN(Date.parse(stamp)), `${name} has no parseable exported: stamp`);
+  }
+  // Debts holds no date arithmetic: its due column is optional, and
+  // `due - TODAY()` would error on the blank cells the sample deliberately has
+  assert.doesNotMatch(byStem("Debts")!.body.split("```formulas")[1] ?? "", /TODAY\(\)|due/);
+
+  // Upcoming mixes both money directions, so no summary may sum across them:
+  // a repayment coming in must never shrink what is going out. The sweep also
+  // covers every Expenses row that carries a due_day — now all eight — plus
+  // the dated open rows of Debts.
+  const up = loadSheet("Upcoming")!;
+  const colOf = (h: string) => {
+    const i = up.headers.findIndex((x) => x.toLowerCase() === h);
+    assert.ok(i >= 0, `Upcoming has no ${h} column`);
+    return i;
+  };
+  const flowCol = colOf("flow");
+  const amtCol = colOf("amount_eur");
+  for (const r of up.rows) assert.match(String(r[flowCol]), /^(in|out)$/, "every Upcoming row names its direction");
+  const sumFlow = (dir: string) =>
+    up.rows.filter((r) => r[flowCol] === dir).reduce((a, r) => a + Number(r[amtCol]), 0);
+  assert.equal(findSummary(evals.get("upcoming")!, "due_total"), sumFlow("out"), "due_total is outflows only");
+  assert.equal(
+    findSummary(evals.get("upcoming")!, "incoming_total"),
+    sumFlow("in"),
+    "inflows get their own summary",
+  );
+  assert.ok(sumFlow("in") > 0 && sumFlow("out") > 0, "the sample exercises both directions");
+  // the bills that were swept are exactly Expenses' fixed monthly total, which
+  // is what "every row now carries a due_day" means arithmetically
+  assert.equal(
+    findSummary(evals.get("upcoming")!, "from_bills"),
+    findSummary(evals.get("expenses")!, "fixed_monthly"),
+    "the sweep covers every Expenses row",
+  );
+  const exp = loadSheet("Expenses")!;
+  const dueDay = exp.headers.findIndex((h) => h.toLowerCase() === "due_day");
+  assert.ok(dueDay >= 0, "Expenses has no due_day column");
+  for (const r of exp.rows) assert.match(String(r[dueDay]), /^\d+$/, "every sample expense carries a due_day");
+
+  // The net-worth curve is rows a script wrote, so nothing in the sheet engine
+  // can check it against the model its own prose promises. Pin the first two
+  // points to that model instead: start at Accounts' total_eur, then compound
+  // monthly at (growth_annual + accumulating) / total_eur from Expected
+  // Returns — price growth plus the income an accumulating fund keeps — and
+  // add Expenses' net_monthly_plan each month, sampling every third month.
+  // A regenerated curve at some other rate or contribution fails here.
+  const num = (sheet: string, name: string) => {
+    const v = findSummary(evals.get(sheet.toLowerCase())!, name);
+    assert.ok(typeof v === "number", `${sheet}.${name} is not a number: ${JSON.stringify(v)}`);
+    return v;
+  };
+  const startEur = num("Accounts", "total_eur");
+  const annualRate = (num("Expected Returns", "growth_annual") + num("Expected Returns", "accumulating")) / startEur;
+  const contribution = num("Expenses", "net_monthly_plan");
+  const nw = loadSheet("Forecast Net Worth")!;
+  const col = nw.headers.findIndex((h) => h.toLowerCase() === "net_worth_eur");
+  assert.ok(col >= 0, "Forecast Net Worth has no net_worth_eur column");
+  assert.equal(nw.rows.length, 40, "forty quarters");
+  assert.equal(Number(nw.rows[0][col]), startEur, "curve starts at Accounts.total_eur");
+  let balance = startEur;
+  for (let i = 0; i < 3; i++) balance = balance * (1 + annualRate / 12) + contribution;
+  assert.equal(
+    Number(nw.rows[1][col]),
+    Math.round(balance),
+    "second quarter is three months compounded at the modelled rate plus three contributions",
+  );
+
+  const wb = byStem("Finance");
+  assert.ok(wb, "Dashboards/Finance.md missing");
+  const pages = wb.props["pages"];
+  assert.ok(Array.isArray(pages) && pages.length === 11, "workbook pages: one per other board and sheet");
+
+  // every bind on every board of the workbook resolves to a real summary
+  for (const board of ["Finance", "Forecast", "Budgets", "Who Owes Whom"]) {
+    const n = byStem(board);
+    assert.ok(n, `Dashboards/${board}.md missing`);
+    const raw = readFileSync(join(VAULT, n.path), "utf8");
+    const binds = [...raw.matchAll(/\{\{([^.}]+)\.([^}]+)\}\}/g)];
+    assert.ok(binds.length >= 4, `${board} should bind at least 4 values`);
+    for (const [, sheet, name] of binds) {
+      const ev = evals.get(sheet.toLowerCase());
+      assert.ok(ev, `${board} binds unknown sheet "${sheet}"`);
+      assert.ok(!isErr(findSummary(ev, name)), `${board}: {{${sheet}.${name}}} resolves no summary`);
+    }
+  }
+
+  // Forecast's two curves are charts over the machine-written sheets
+  const charts = parseChartBlocks(byStem("Forecast")!.body);
+  assert.equal(charts.length, 2);
+  for (const b of charts) {
+    assert.equal(b.error, null, `chart fence error: ${b.error}`);
+    assert.ok(b.config && b.config.bind !== "history", "chart fence should name a source");
+    const src = b.config.source;
+    assert.ok(src.kind === "sheet" && loadSheet(src.name), "chart should read a bundled sheet");
+  }
+
+  // Budgets is a hub: one cards fence, one progress bar per category
+  const cards = collectCardsFences(byStem("Budgets")!.body);
+  assert.equal(cards.length, 1);
+  assert.equal(parseCardsBlock(cards[0]).error, null);
+  const bars = parseProgressBlocks(byStem("Budgets")!.body);
+  assert.equal(bars.length, 5, "one bar per budget category");
+  for (const b of bars) {
+    assert.equal(b.error, null, `progress fence error: ${b.error}`);
+    assert.equal(b.config!.target.kind, "bind", "a category's target is its own limit summary");
+  }
+  assert.equal(collectCardsFences(byStem("Finance")!.body).length, 1);
 });
 
 test("Vault 2025 evaluates; Annual Report's binds resolve and fences parse", () => {

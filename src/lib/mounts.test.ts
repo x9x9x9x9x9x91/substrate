@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { dbColumns } from "./dbcolumns.ts";
 import {
   MOUNT_EXTRACTED,
@@ -171,6 +172,21 @@ test("folding the owned props leaves a user prop that merely starts like one", (
   const m = rowMeta(mount(), row({ note: "n.md", props: { Mounted: "2026-08-01", Types: "stem" } }));
   assert.equal(m.props.Mounted, "2026-08-01");
   assert.equal(m.props.Types, "stem");
+});
+
+test("the frontend's extracted columns are the engine's, in the same order", () => {
+  // this list is a copy of `extract::EXTRACTED_COLUMNS`, and a copy drifts:
+  // a column added on one side only is extracted and never shown, or shown as
+  // a column nothing ever fills. Board order is part of it — the two lists
+  // decide where a cell lands, so a reorder on one side is a mismatch too.
+  const rs = readFileSync(
+    new URL("../../src-tauri/src/vault/extract.rs", import.meta.url),
+    "utf8"
+  );
+  const block = /pub const EXTRACTED_COLUMNS: \[&str; \d+\] = \[([^\]]*)\]/.exec(rs);
+  assert.ok(block, "EXTRACTED_COLUMNS not found — did it get renamed?");
+  const engine = [...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(engine, [...MOUNT_EXTRACTED]);
 });
 
 test("extracted column names survive dbColumns", () => {

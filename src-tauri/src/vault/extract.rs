@@ -105,6 +105,9 @@ pub fn extractable(extension: &str) -> bool {
             | "mpc"
             | "wma"
             | "pdf"
+            // an Ableton project: not a media file at all, but the one
+            // document a folder of music work is actually organised around
+            | "als"
     )
 }
 
@@ -115,7 +118,7 @@ pub fn extractable(extension: &str) -> bool {
 /// this it would re-open every audio file in a sample library to be told again
 /// that audio carries no text.
 pub fn carries_text(extension: &str) -> bool {
-    extension == "pdf"
+    matches!(extension, "pdf" | "als")
 }
 
 /// Every column extraction can produce, in board order. The frontend marks
@@ -126,8 +129,23 @@ pub fn carries_text(extension: &str) -> bool {
 /// is reserved everywhere in the note pipeline for the row's own heading, and
 /// `dbColumns` drops it by name (`src/lib/dbcolumns.ts`), so a column called
 /// `title` would be extracted, stored, and then never shown.
-pub const EXTRACTED_COLUMNS: [&str; 7] =
-    ["duration", "sample_rate", "channels", "artist", "album", "media_title", "pages"];
+/// The Ableton columns carry an `als_` prefix for the same reason: a project
+/// file's tempo is not a media file's anything, and a folder holding both
+/// stems and the session that made them would otherwise show one `tempo`
+/// column filled from two unrelated readers.
+pub const EXTRACTED_COLUMNS: [&str; 11] = [
+    "duration",
+    "sample_rate",
+    "channels",
+    "artist",
+    "album",
+    "media_title",
+    "pages",
+    "als_tempo",
+    "als_key",
+    "als_tracks",
+    "als_version",
+];
 
 /// The largest PDF worth opening for a page count, in bytes.
 ///
@@ -205,6 +223,44 @@ const PDF_TEXT_MAX_PAGE_DECOMPRESSED: usize = 2 * 1024 * 1024;
 /// [`Reading::text_truncated`] records that it did.
 const PDF_TEXT_CAP: usize = 4 * 1024;
 
+/// The largest Ableton project file worth opening, in bytes.
+///
+/// A `.als` is one gzipped XML document and nothing else — no audio, no
+/// samples, only the description of a set — so its size on disk tracks how
+/// many objects the set holds. A heavy hundred-track session with years of
+/// automation lands in single-digit megabytes; 32 MiB is far past anything a
+/// person has actually made, and small enough that the inflate behind it
+/// starts from a bounded input. The inflated side has its own cap
+/// ([`ALS_MAX_INFLATED`]), because compression ratio is the file's choice,
+/// not ours.
+const ALS_SIZE_CAP: u64 = 32 * 1024 * 1024;
+
+/// The most bytes one project may inflate to before the read is abandoned.
+///
+/// The gzip half of the format is where a size cap alone stops working: XML
+/// of this shape compresses 20–50×, so [`ALS_SIZE_CAP`] on its own admits a
+/// gigabyte of output, and a hand-made file admits as much as it likes. The
+/// decoder is therefore read through a counter that turns the byte after the
+/// ceiling into an I/O error, which surfaces as an ordinary `Err` on one row.
+/// 256 MiB is roughly ten times the largest real project inflates to, so the
+/// cap is only ever reached by something that isn't one.
+const ALS_MAX_INFLATED: u64 = 256 * 1024 * 1024;
+
+/// The most text kept from one project, in bytes. Same reasoning and same
+/// number as [`PDF_TEXT_CAP`]: enough to recognise a set by and to match a
+/// phrase in, small enough that a folder of a thousand projects stays
+/// single-digit megabytes in the machine-local text store.
+const ALS_TEXT_CAP: usize = 4 * 1024;
+
+/// How deep the element path is remembered while walking a project.
+///
+/// The walk needs a parent and a grandparent to tell a track's name from a
+/// device's, not the whole ancestry — but the ancestry is whatever the file
+/// says it is, and a hand-made file can nest a million elements. Depth past
+/// this is still counted (so ends still match starts) and simply not
+/// remembered; real projects nest around a dozen deep.
+const ALS_MAX_DEPTH: usize = 64;
+
 /// The largest file of this kind [`extract`] will open, in bytes.
 ///
 /// Public because the queue applies it at *enqueue* time: a job that would be
@@ -214,6 +270,7 @@ const PDF_TEXT_CAP: usize = 4 * 1024;
 pub fn size_limit(extension: &str) -> u64 {
     match extension {
         "pdf" => PDF_SIZE_CAP,
+        "als" => ALS_SIZE_CAP,
         _ => AUDIO_SIZE_CAP,
     }
 }
@@ -246,6 +303,7 @@ pub fn extract(path: &Path, extension: &str) -> Result<Reading, String> {
     let path = path.to_path_buf();
     let caught = std::panic::catch_unwind(AssertUnwindSafe(move || match ext.as_str() {
         "pdf" => pdf(&path),
+        "als" => als(&path),
         _ => audio(&path).map(Reading::from),
     }));
     match caught {
@@ -430,6 +488,335 @@ fn pdf_text(raw: &[u8]) -> String {
     };
     // control bytes in a title are junk from a broken writer, not content
     s.chars().filter(|c| !c.is_control()).collect::<String>().trim().to_string()
+}
+
+/// A reader that refuses to hand out more than `left` bytes.
+///
+/// The guard that makes inflating an untrusted stream safe. `flate2` decodes
+/// on demand, so the only place a ratio bomb can be stopped is between the
+/// decoder and whoever is pulling from it: once the budget is gone the next
+/// read is an I/O error, the XML walk ends with it, and the file comes back
+/// as an `Err` on one row instead of as a gigabyte of resident strings.
+struct Capped<R> {
+    inner: R,
+    left: u64,
+}
+
+impl<R: std::io::Read> std::io::Read for Capped<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.left == 0 {
+            return Err(std::io::Error::other("the project inflates past the safe ceiling"));
+        }
+        let want = buf.len().min(usize::try_from(self.left).unwrap_or(usize::MAX));
+        let n = self.inner.read(&mut buf[..want])?;
+        self.left -= n as u64;
+        Ok(n)
+    }
+}
+
+/// One attribute of an element, unescaped, or `None` where the file doesn't
+/// carry it. Every field of a project is optional by construction here: the
+/// attribute names below have moved between Live versions, and a set saved by
+/// a version we guessed wrong about should lose one column, not its row.
+fn als_attr(e: &quick_xml::events::BytesStart, key: &[u8]) -> Option<String> {
+    e.attributes()
+        .flatten()
+        .find(|a| a.key.as_ref() == key)
+        // `.als` is XML 1.0 with the five predefined entities and nothing
+        // else — a track called "Bass & Keys" is stored escaped
+        .and_then(|a| a.normalized_value(quick_xml::XmlVersion::Implicit1_0).ok())
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+}
+
+/// The twelve note names a Live scale root is stored as, sharp-spelled.
+/// Live stores the root as a pitch class and the mode as its own string, so
+/// the readable key is the two joined back together.
+const ALS_NOTES: [&str; 12] =
+    ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+/// What an Ableton project says about the set inside it.
+///
+/// A `.als` is an XML document — the whole set, from the master
+/// tempo down to every automation point — gzipped in every set Live writes
+/// today and occasionally plain, so reading one is a magic-byte sniff, then
+/// inflate where there is something to inflate, then a
+/// walk. Both halves are streamed: the decoder is pulled through
+/// [`Capped`] so a compression bomb ends as an error rather than as memory,
+/// and the XML is walked as events rather than parsed into a tree, so the
+/// resident cost is one element at a time regardless of how large the set is.
+///
+/// Nothing here assumes a version. The element and attribute names Live
+/// writes have drifted across 9, 10, 11 and 12 — the global scale is Live 12
+/// and later, the tempo has sat behind more than one wrapper — so every field
+/// is looked for independently and every one of them is allowed to be absent.
+/// A set that yields only its Live version is a successful read.
+///
+/// The one thing that is NOT optional is that the document is an Ableton
+/// project at all: a file that reads as well-formed XML with no `Ableton`
+/// root is a something-else, and reporting an empty set for it would
+/// be a lie the row then carries. That comes back as an `Err`.
+fn als(path: &Path) -> Result<Reading, String> {
+    use quick_xml::events::Event;
+    use std::io::Read as _;
+
+    let file = std::io::BufReader::new(std::fs::File::open(path).map_err(|e| e.to_string())?);
+    // gzip is what Live writes, but not the only thing it has written: a set
+    // saved as plain XML — by an older version, by a hand-unpack, by a tool
+    // that round-tripped it — is still a project, and reading one is the
+    // same walk over the same document. Sniff the two magic bytes and put
+    // the decoder in the way only when they are there.
+    let mut magic = [0u8; 2];
+    let mut head = Vec::new();
+    let mut file = file;
+    while head.len() < 2 {
+        match file.read(&mut magic[head.len()..]) {
+            Ok(0) => break,
+            Ok(n) => head.extend_from_slice(&magic[head.len()..head.len() + n]),
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    let source = std::io::Cursor::new(head.clone()).chain(file);
+    let source: Box<dyn std::io::Read> = if head == [0x1f, 0x8b] {
+        Box::new(flate2::read::GzDecoder::new(source))
+    } else {
+        Box::new(source)
+    };
+    // budget is the ceiling plus one byte, so the read that proves the file
+    // is over the line is the one that fails
+    let capped = Capped { inner: source, left: ALS_MAX_INFLATED + 1 };
+    let mut reader = quick_xml::Reader::from_reader(std::io::BufReader::new(capped));
+    reader.config_mut().trim_text(true);
+
+    let mut buf = Vec::new();
+    // the element path, deepest last, remembered only to [`ALS_MAX_DEPTH`]
+    let mut stack: Vec<Vec<u8>> = Vec::new();
+    let mut depth = 0usize;
+
+    let mut root_seen = false;
+    let mut version: Option<String> = None;
+    // the transport's own tempo, and — only if the set states none — the
+    // first other in-range number inside its `Tempo` block
+    let mut tempo_manual: Option<f64> = None;
+    let mut tempo_other: Option<f64> = None;
+    let mut root_note: Option<usize> = None;
+    let mut scale: Option<String> = None;
+    let mut tracks = 0u64;
+    let mut in_scale = false;
+    let mut scale_depth = 0usize;
+
+    let mut text = String::new();
+    let mut text_truncated = false;
+    let mut seen_words: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    loop {
+        let event = reader.read_event_into(&mut buf).map_err(|e| e.to_string())?;
+        match event {
+            Event::Eof => break,
+            Event::Start(ref e) | Event::Empty(ref e) => {
+                let name = e.name().as_ref().to_vec();
+                // past [`ALS_MAX_DEPTH`] the stack stops recording ancestry,
+                // so its last entry is a stale ancestor from the deepest
+                // remembered level rather than this element's parent. Below
+                // the bound an element is treated as having no parent at all:
+                // an undercount is honest, a match against the wrong parent
+                // is not.
+                let tracked = depth <= ALS_MAX_DEPTH;
+                let parent =
+                    if tracked { stack.last().map(Vec::as_slice).unwrap_or(b"") } else { &b""[..] };
+                let grandparent = tracked
+                    .then(|| stack.len().checked_sub(2).and_then(|i| stack.get(i)).map(Vec::as_slice))
+                    .flatten();
+
+                if depth == 0 && name == b"Ableton" {
+                    root_seen = true;
+                    // "Ableton Live 12.1.5" — the writer names itself, which
+                    // is the only place the version a set was saved by is
+                    // stated in full
+                    version = als_attr(e, b"Creator").map(|v| clamp(&v));
+                }
+
+                // tempo lives on the set's master track — `MasterTrack`
+                // through Live 11, renamed `MainTrack` in Live 12, which is
+                // what most of a current pool is saved by — inside a `Tempo`
+                // block whose stated value is its `Manual` child
+                // (`CurrentValue` in some older sets).
+                //
+                // The match is anchored to a DIRECT child of `Tempo` and
+                // prefers that named child, because `Tempo` also holds a
+                // `MidiControllerRange` whose `Min`/`Max` are ordinary
+                // in-range numbers one level further down: an ancestry-only
+                // match reports a mapping bound as the tempo the moment Live
+                // reorders the block or omits `Manual`.
+                if tempo_manual.is_none()
+                    && parent == b"Tempo"
+                    && stack.iter().any(|n| n == b"MasterTrack" || n == b"MainTrack")
+                {
+                    if let Some(v) = als_attr(e, b"Value").and_then(|v| v.parse::<f64>().ok()) {
+                        // a set is between "barely moving" and "gabber"; a
+                        // value outside that came from an element that
+                        // happens to share the name, not from the transport
+                        if (20.0..=999.0).contains(&v) {
+                            if name == b"Manual" || name == b"CurrentValue" {
+                                tempo_manual = Some(v);
+                            } else if tempo_other.is_none() {
+                                tempo_other = Some(v);
+                            }
+                        }
+                    }
+                }
+
+                // the set's own scale (Live 12 and later). Clips carry one
+                // each as well, which is why only the one directly under the
+                // set counts
+                // only a Start opens the window: an empty `ScaleInformation`
+                // has no children to read and no End to close it, and leaving
+                // the window open would let a later sibling's root note in
+                if matches!(event, Event::Start(_))
+                    && name == b"ScaleInformation"
+                    && parent == b"LiveSet"
+                {
+                    in_scale = true;
+                    scale_depth = depth;
+                }
+                if in_scale {
+                    if name == b"RootNote" {
+                        root_note = als_attr(e, b"Value")
+                            .and_then(|v| v.parse::<usize>().ok())
+                            .filter(|n| *n < ALS_NOTES.len());
+                    }
+                    if name == b"Name" {
+                        // some Live 12 builds write the scale as a numeric
+                        // enum (`<Name Value="0"/>`) rather than as its
+                        // name. A number is not a mode, and the column
+                        // promises a blank cell over a wrong one, so a name
+                        // that reads as a number is no name at all.
+                        scale = als_attr(e, b"Value")
+                            .map(|v| clamp(&v))
+                            .filter(|v| v.parse::<f64>().is_err());
+                    }
+                }
+
+                // every track of the set is a direct child of `Tracks`, one
+                // element per track whatever kind it is — audio, MIDI, group
+                // and return all end up in the same list
+                if parent == b"Tracks" && name.ends_with(b"Track") {
+                    tracks += 1;
+                }
+
+                // what makes a set searchable: what the tracks are called and
+                // what is on them. A track's readable name is the
+                // `EffectiveName` inside its `Name` block (the user's name
+                // where they typed one, the default where they didn't), and a
+                // device names itself by its element — `Operator`, `Reverb` —
+                // except for plugins, which carry the real product name
+                // inside.
+                let word = if name == b"EffectiveName"
+                    && parent == b"Name"
+                    && grandparent.is_some_and(|g| g.ends_with(b"Track"))
+                {
+                    als_attr(e, b"Value")
+                } else if name == b"PlugName" {
+                    als_attr(e, b"Value")
+                } else if parent == b"Devices" {
+                    Some(String::from_utf8_lossy(&name).into_owned())
+                } else {
+                    None
+                };
+                if let Some(word) = word {
+                    als_push_text(&mut text, &mut text_truncated, &mut seen_words, &word);
+                }
+
+                if matches!(event, Event::Start(_)) {
+                    if depth < ALS_MAX_DEPTH {
+                        stack.push(name);
+                    }
+                    depth += 1;
+                }
+            }
+            Event::End(_) => {
+                depth = depth.saturating_sub(1);
+                if depth < ALS_MAX_DEPTH {
+                    stack.pop();
+                }
+                if in_scale && depth == scale_depth {
+                    in_scale = false;
+                }
+            }
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    if !root_seen {
+        return Err("not an Ableton project: no Ableton element".into());
+    }
+
+    let mut out = Extracted::new();
+    if let Some(tempo) = tempo_manual.or(tempo_other) {
+        // two decimals is what Live's own tempo field offers; a whole number
+        // is written as one so the column doesn't read "128.0"
+        let rounded = (tempo * 100.0).round() / 100.0;
+        let value = if rounded.fract() == 0.0 {
+            serde_json::Value::from(rounded as i64)
+        } else {
+            serde_json::Value::from(rounded)
+        };
+        out.insert("als_tempo".into(), value);
+    }
+    // either half of the key can be missing: a set can name a scale without a
+    // root and vice versa, and half a key still says something true
+    let key = [root_note.map(|n| ALS_NOTES[n].to_string()), scale]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if !key.is_empty() {
+        out.insert("als_key".into(), key.into());
+    }
+    if tracks > 0 {
+        out.insert("als_tracks".into(), tracks.into());
+    }
+    if let Some(version) = version {
+        out.insert("als_version".into(), version.into());
+    }
+    Ok(Reading { columns: out, text, text_truncated })
+}
+
+/// One more name into a project's searchable text, under
+/// [`ALS_TEXT_CAP`].
+///
+/// Deduplicated, because a set of forty tracks is forty `MidiTrack`s running
+/// the same three devices, and forty repetitions of "Reverb" would spend the
+/// whole cap saying nothing new. Once the cap binds nothing more is
+/// remembered either — the point of the set is to keep the text short, not to
+/// keep a record of a file we have stopped reading.
+fn als_push_text(
+    text: &mut String,
+    truncated: &mut bool,
+    seen: &mut std::collections::HashSet<String>,
+    word: &str,
+) {
+    if *truncated {
+        return;
+    }
+    let word = word.chars().filter(|c| !c.is_control()).collect::<String>();
+    let word = word.trim();
+    if word.is_empty() || seen.contains(word) {
+        return;
+    }
+    let sep = usize::from(!text.is_empty());
+    if text.len() + sep + word.len() > ALS_TEXT_CAP {
+        // one name past the ceiling ends the excerpt: names are the unit
+        // here, and half a device name matches nothing
+        *truncated = true;
+        return;
+    }
+    if sep == 1 {
+        text.push(' ');
+    }
+    text.push_str(word);
+    seen.insert(word.to_string());
 }
 
 /// The longest a text value from a file is allowed to be. Long enough for any
@@ -739,6 +1126,19 @@ mod tests {
                 full[..full.len() / 2].to_vec()
             }),
             ("zeros.pdf", "pdf", vec![0u8; 8192]),
+            // a project file that is not gzipped at all — an .als saved by
+            // something else, or one someone unpacked by hand
+            ("plain.als", "als", b"<Ableton><LiveSet/></Ableton>".to_vec()),
+            ("empty.als", "als", Vec::new()),
+            ("garbage.als", "als", (0u8..=255).cycle().take(4096).collect()),
+            // gzip over bytes that are not XML at all
+            ("gzjunk.als", "als", gz("\u{0}\u{1}not xml <<< &&& \u{7}")),
+            // a real project whose stream stops mid-document, which is what a
+            // half-synced or half-written file looks like
+            ("half.als", "als", {
+                let full = gz(&als_live11());
+                full[..full.len() / 2].to_vec()
+            }),
             // a password-protected document: the object table parses, the
             // page content does not, and neither outcome may be a panic
             ("locked.pdf", "pdf", encrypted_pdf()),
@@ -918,10 +1318,353 @@ mod tests {
         assert!(!pdf_text(&[0xFE, 0xFF, 0x00, 0x41, 0x00]).is_empty());
     }
 
+    /// A project file as it is on disk: one gzipped XML document.
+    fn gz(xml: &str) -> Vec<u8> {
+        let mut enc =
+            flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        enc.write_all(xml.as_bytes()).unwrap();
+        enc.finish().unwrap()
+    }
+
+    /// A Live 11-shaped set: tempo behind the master track's mixer, tracks in
+    /// one flat list, devices naming themselves by their element, and no
+    /// global scale — Live 11 has none to write.
+    fn als_live11() -> String {
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<Ableton MajorVersion="5" MinorVersion="11.0_11300" Creator="Ableton Live 11.3.13" Revision="a1b2">
+  <LiveSet>
+    <Tracks>
+      <AudioTrack Id="1">
+        <Name><EffectiveName Value="Drums" /><UserName Value="Drums" /></Name>
+        <DeviceChain><DeviceChain><Devices>
+          <Compressor2 Id="0" />
+        </Devices></DeviceChain></DeviceChain>
+      </AudioTrack>
+      <MidiTrack Id="2">
+        <Name><EffectiveName Value="Bass &amp; Keys" /><UserName Value="" /></Name>
+        <DeviceChain><DeviceChain><Devices>
+          <Operator Id="0" />
+          <Reverb Id="1" />
+        </Devices></DeviceChain></DeviceChain>
+      </MidiTrack>
+      <ReturnTrack Id="3">
+        <Name><EffectiveName Value="A Reverb" /></Name>
+      </ReturnTrack>
+    </Tracks>
+    <MasterTrack>
+      <Name><EffectiveName Value="Master" /></Name>
+      <DeviceChain><Mixer><Tempo>
+        <LomId Value="0" />
+        <Manual Value="128" />
+      </Tempo></Mixer></DeviceChain>
+    </MasterTrack>
+  </LiveSet>
+</Ableton>"#
+            .to_string()
+    }
+
+    /// A Live 12-shaped set: the same skeleton, plus the global scale Live 12
+    /// added, a fractional tempo, and a plugin that names itself from inside
+    /// rather than by its element.
+    fn als_live12() -> String {
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<Ableton MajorVersion="5" MinorVersion="12.0_12120" Creator="Ableton Live 12.1.5" Revision="c3d4">
+  <LiveSet>
+    <ScaleInformation>
+      <RootNote Value="3" />
+      <Name Value="Minor" />
+    </ScaleInformation>
+    <InKey Value="true" />
+    <Tracks>
+      <MidiTrack Id="1">
+        <Name><EffectiveName Value="Lead" /></Name>
+        <DeviceChain><DeviceChain><Devices>
+          <PluginDevice Id="0">
+            <PluginDesc><VstPluginInfo><PlugName Value="Serum" /></VstPluginInfo></PluginDesc>
+          </PluginDevice>
+        </Devices></DeviceChain></DeviceChain>
+        <ClipSlotList><ClipSlot><ClipSlot><Value><MidiClip Id="0">
+          <ScaleInformation><RootNote Value="9" /><Name Value="Dorian" /></ScaleInformation>
+        </MidiClip></Value></ClipSlot></ClipSlot></ClipSlotList>
+      </MidiTrack>
+    </Tracks>
+    <MasterTrack>
+      <DeviceChain><Mixer><Tempo><Manual Value="174.5" /></Tempo></Mixer></DeviceChain>
+    </MasterTrack>
+  </LiveSet>
+</Ableton>"#
+            .to_string()
+    }
+
+    #[test]
+    fn ableton_project_reads_its_set() {
+        let path = scratch("live11.als", &gz(&als_live11()));
+        let r = extract(&path, "als").unwrap();
+        assert_eq!(r.columns["als_tempo"], serde_json::json!(128));
+        // audio + MIDI + return, the flat list Live writes
+        assert_eq!(r.columns["als_tracks"], serde_json::json!(3));
+        assert_eq!(r.columns["als_version"], serde_json::json!("Ableton Live 11.3.13"));
+        // Live 11 has no global scale, and a column with nothing behind it is
+        // absent rather than empty
+        assert!(!r.columns.contains_key("als_key"));
+        // what makes the set findable: its tracks and what is on them, with
+        // the escaped ampersand read back as one
+        for word in ["Drums", "Bass & Keys", "Compressor2", "Operator", "Reverb"] {
+            assert!(r.text.contains(word), "text is missing {word}: {}", r.text);
+        }
+        assert!(!r.text_truncated);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn live_twelve_scale_becomes_a_key() {
+        let path = scratch("live12.als", &gz(&als_live12()));
+        let r = extract(&path, "als").unwrap();
+        // the SET's scale, not the clip's — a Dorian clip inside a D# minor
+        // set does not rename the set
+        assert_eq!(r.columns["als_key"], serde_json::json!("D# Minor"));
+        assert_eq!(r.columns["als_tempo"], serde_json::json!(174.5));
+        assert_eq!(r.columns["als_version"], serde_json::json!("Ableton Live 12.1.5"));
+        // a plugin is named by what it is, not by the element that hosts it
+        assert!(r.text.contains("Serum"), "{}", r.text);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A Live 12 set as Live 12 actually writes one: the master track is
+    /// named `MainTrack` (renamed in 12), its `Tempo` block states the tempo
+    /// in `Manual` with a `MidiControllerRange` beside it whose bounds are
+    /// ordinary in-range numbers, and the global scale's name is the numeric
+    /// enum some 12.x builds write instead of a mode name.
+    ///
+    /// Hand-written from the shape of the format, not copied from anyone's
+    /// project: a fixture is a description of a schema, and a real set is
+    /// someone's music.
+    fn als_live12_main_track() -> String {
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<Ableton MajorVersion="5" MinorVersion="12.0_12124" Creator="Ableton Live 12.2.1" Revision="e5f6">
+  <LiveSet>
+    <ScaleInformation>
+      <RootNote Value="0" />
+      <Name Value="0" />
+    </ScaleInformation>
+    <Tracks>
+      <MidiTrack Id="1"><Name><EffectiveName Value="Lead" /></Name></MidiTrack>
+    </Tracks>
+    <MainTrack>
+      <DeviceChain><Mixer><Tempo>
+        <LomId Value="0" />
+        <Manual Value="104.5" />
+        <MidiControllerRange><Min Value="60" /><Max Value="200" /></MidiControllerRange>
+      </Tempo></Mixer></DeviceChain>
+    </MainTrack>
+  </LiveSet>
+</Ableton>"#
+            .to_string()
+    }
+
+    #[test]
+    fn live_twelve_main_track_still_states_its_tempo() {
+        // Live 12 renamed `MasterTrack` to `MainTrack`; a reader that knows
+        // only the old name ships an empty BPM column over a current pool
+        let path = scratch("main12.als", &gz(&als_live12_main_track()));
+        let r = extract(&path, "als").unwrap();
+        assert_eq!(r.columns["als_tempo"], serde_json::json!(104.5));
+        assert_eq!(r.columns["als_version"], serde_json::json!("Ableton Live 12.2.1"));
+        assert_eq!(r.columns["als_tracks"], serde_json::json!(1));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_numeric_scale_name_is_no_key_at_all() {
+        // `<Name Value="0"/>` is Live's enum leaking through, not a mode; the
+        // column's promise is a blank cell, never a wrong one
+        // the root the set does state survives — half a key is still true —
+        // and the enum contributes nothing
+        let path = scratch("numkey.als", &gz(&als_live12_main_track()));
+        let r = extract(&path, "als").unwrap();
+        assert_eq!(r.columns["als_key"], serde_json::json!("C"), "{:?}", r.columns);
+        assert!(!r.columns["als_key"].as_str().unwrap().contains('0'));
+
+        // with neither half readable there is no key to show at all
+        let xml = r#"<Ableton Creator="Ableton Live 12.2.1"><LiveSet><ScaleInformation>
+          <Root Value="0" /><Name Value="0" /></ScaleInformation></LiveSet></Ableton>"#;
+        let path2 = scratch("nokey.als", &gz(xml));
+        let r = extract(&path2, "als").unwrap();
+        assert!(!r.columns.contains_key("als_key"), "{:?}", r.columns);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&path2);
+    }
+
+    #[test]
+    fn a_midi_mapping_range_never_becomes_the_tempo() {
+        // `MidiControllerRange`'s bounds sit inside the plausible-tempo
+        // window, so only the element path keeps them out: they are a level
+        // below `Tempo`, the transport's value is a direct child of it
+        let with_range_first = als_live12_main_track().replace(
+            r#"<Manual Value="104.5" />
+        <MidiControllerRange><Min Value="60" /><Max Value="200" /></MidiControllerRange>"#,
+            r#"<MidiControllerRange><Min Value="60" /><Max Value="200" /></MidiControllerRange>
+        <Manual Value="104.5" />"#,
+        );
+        assert!(with_range_first.contains("<Manual"), "the reorder rewrote what it meant to");
+        let path = scratch("reorder.als", &gz(&with_range_first));
+        let r = extract(&path, "als").unwrap();
+        assert_eq!(r.columns["als_tempo"], serde_json::json!(104.5), "order must not decide");
+        let _ = std::fs::remove_file(&path);
+
+        // and with no `Manual` at all the mapping bound still isn't a tempo —
+        // the set simply states none
+        let no_manual = als_live12_main_track().replace(r#"<Manual Value="104.5" />"#, "");
+        let path = scratch("nomanual.als", &gz(&no_manual));
+        let r = extract(&path, "als").unwrap();
+        assert!(!r.columns.contains_key("als_tempo"), "{:?}", r.columns);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn an_uncompressed_project_reads_like_a_compressed_one() {
+        // Live has written plain-XML sets, and people unpack them by hand;
+        // the document is the same document either way
+        let path = scratch("plainxml.als", als_live12_main_track().as_bytes());
+        let r = extract(&path, "als").unwrap();
+        assert_eq!(r.columns["als_tempo"], serde_json::json!(104.5));
+        assert_eq!(r.columns["als_version"], serde_json::json!("Ableton Live 12.2.1"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn nesting_past_the_remembered_depth_matches_nothing() {
+        // past ALS_MAX_DEPTH the ancestry stack stops growing, so its last
+        // entry is a stale ancestor. A `Tracks` at the bound with a thousand
+        // elements under it must not have every one of them counted as a
+        // track by that stale parent.
+        let deep = "<Tracks>".repeat(ALS_MAX_DEPTH + 2);
+        let close = "</Tracks>".repeat(ALS_MAX_DEPTH + 2);
+        let xml = format!(
+            r#"<Ableton Creator="Ableton Live 12.2.1"><LiveSet>{deep}<AudioTrack /><AudioTrack />{close}</LiveSet></Ableton>"#
+        );
+        let path = scratch("deep.als", &gz(&xml));
+        let r = extract(&path, "als").unwrap();
+        // the two deep tracks are below the bound: uncounted, not miscounted
+        assert!(!r.columns.contains_key("als_tracks"), "{:?}", r.columns);
+        assert_eq!(r.columns["als_version"], serde_json::json!("Ableton Live 12.2.1"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn every_field_is_independently_optional() {
+        // a set with no master tempo, no scale and no tracks: still a set,
+        // and still worth the one column it can answer
+        let xml = r#"<?xml version="1.0"?><Ableton Creator="Ableton Live 9.7.7"><LiveSet/></Ableton>"#;
+        let path = scratch("bare.als", &gz(xml));
+        let r = extract(&path, "als").unwrap();
+        assert_eq!(r.columns["als_version"], serde_json::json!("Ableton Live 9.7.7"));
+        assert!(!r.columns.contains_key("als_tempo"));
+        assert!(!r.columns.contains_key("als_tracks"));
+        assert!(!r.columns.contains_key("als_key"));
+        assert!(r.text.is_empty());
+
+        // and the other way round: a set that names nothing about itself but
+        // does hold tracks
+        let xml = r#"<Ableton><LiveSet><Tracks><AudioTrack><Name><EffectiveName Value="One"/></Name></AudioTrack></Tracks></LiveSet></Ableton>"#;
+        let path2 = scratch("anon.als", &gz(xml));
+        let r = extract(&path2, "als").unwrap();
+        assert_eq!(r.columns["als_tracks"], serde_json::json!(1));
+        assert!(!r.columns.contains_key("als_version"));
+        assert_eq!(r.text, "One");
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&path2);
+    }
+
+    #[test]
+    fn a_scale_block_that_carries_nothing_names_no_key() {
+        // a self-closing `ScaleInformation` states no scale, and the clip
+        // that follows it states its own — the set's key is neither
+        let xml = concat!(
+            r#"<Ableton Creator="Ableton Live 12.0.1"><LiveSet><ScaleInformation/>"#,
+            r#"<Clip><ScaleInformation><RootNote Value="7"/><Name Value="Dorian"/>"#,
+            r#"</ScaleInformation></Clip></LiveSet></Ableton>"#
+        );
+        let path = scratch("noscale.als", &gz(xml));
+        let r = extract(&path, "als").unwrap();
+        assert!(!r.columns.contains_key("als_key"), "{:?}", r.columns);
+        assert_eq!(r.columns["als_version"], serde_json::json!("Ableton Live 12.0.1"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_gzipped_something_else_is_not_a_project() {
+        // well-formed XML, inflates fine, and is not a set — reporting an
+        // empty set for it would put a lie on the row
+        let path = scratch("other.als", &gz("<rss><channel><title>hi</title></channel></rss>"));
+        assert!(extract(&path, "als").is_err());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn an_inflation_bomb_ends_the_read() {
+        // the failure a size cap alone cannot catch: a small file whose
+        // stream inflates past what the reader will hold
+        let mut enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        enc.write_all(b"<Ableton><LiveSet>").unwrap();
+        let chunk = vec![b' '; 4 * 1024 * 1024];
+        for _ in 0..((ALS_MAX_INFLATED / chunk.len() as u64) + 4) {
+            enc.write_all(&chunk).unwrap();
+        }
+        enc.write_all(b"</LiveSet></Ableton>").unwrap();
+        let bytes = enc.finish().unwrap();
+        // the point of the case: the file on disk is well inside the size cap
+        assert!((bytes.len() as u64) < ALS_SIZE_CAP);
+        let path = scratch("bomb.als", &bytes);
+        let err = extract(&path, "als").expect_err("a bomb is an error, not a reading");
+        assert!(err.contains("inflates"), "{err}");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_projects_text_stops_at_the_cap() {
+        let mut xml = String::from("<Ableton><LiveSet><Tracks>");
+        for i in 0..4000 {
+            xml.push_str(&format!(
+                "<MidiTrack><Name><EffectiveName Value=\"Track number {i}\"/></Name></MidiTrack>"
+            ));
+        }
+        xml.push_str("</Tracks></LiveSet></Ableton>");
+        let path = scratch("wide.als", &gz(&xml));
+        let r = extract(&path, "als").unwrap();
+        assert_eq!(r.columns["als_tracks"], serde_json::json!(4000));
+        assert!(r.text.len() <= ALS_TEXT_CAP, "{}", r.text.len());
+        assert!(r.text_truncated);
+        // the beginning is kept, so the excerpt still starts at the start
+        assert!(r.text.starts_with("Track number 0 Track number 1 "), "{}", r.text);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn a_repeated_device_is_only_named_once() {
+        let mut xml = String::from("<Ableton><LiveSet><Tracks>");
+        for _ in 0..50 {
+            xml.push_str("<MidiTrack><DeviceChain><Devices><Reverb/></Devices></DeviceChain></MidiTrack>");
+        }
+        xml.push_str("</Tracks></LiveSet></Ableton>");
+        let path = scratch("same.als", &gz(&xml));
+        let r = extract(&path, "als").unwrap();
+        assert_eq!(r.text, "Reverb");
+        let _ = std::fs::remove_file(&path);
+    }
+
     #[test]
     fn only_known_extensions_are_opened() {
         assert!(extractable("wav") && extractable("mp3") && extractable("pdf"));
-        assert!(!extractable("als") && !extractable("txt") && !extractable(""));
+        assert!(extractable("als"));
+        assert!(!extractable("txt") && !extractable(""));
+        // the formats whose reading includes body text, which is what the
+        // text-store backfill re-offers files for
+        assert!(carries_text("pdf") && carries_text("als"));
+        assert!(!carries_text("wav"));
+        // a project file is one compressed document, so it is capped far
+        // below the audio it sits beside
+        assert_eq!(size_limit("als"), ALS_SIZE_CAP);
         // the check is on the already-lowercased extension the index stores
         assert!(!extractable("WAV"));
     }

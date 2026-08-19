@@ -147,7 +147,12 @@ export const MOUNT_INTRINSICS = ["name", "extension", "size", "created", "modifi
 
     A file's internal title is `media_title`: `title` is the row's own heading
     everywhere in the note pipeline, and `dbColumns` drops that name outright,
-    so a column called `title` would be extracted and then never shown. */
+    so a column called `title` would be extracted and then never shown.
+
+    An Ableton project's columns are prefixed `als_` for a neighbouring
+    reason: a folder of music work holds the sessions and the stems they
+    bounced to, and a bare `tempo` column filled from two unrelated readers
+    would read as one fact about both. */
 export const MOUNT_EXTRACTED = [
   "duration",
   "sample_rate",
@@ -156,6 +161,10 @@ export const MOUNT_EXTRACTED = [
   "album",
   "media_title",
   "pages",
+  "als_tempo",
+  "als_key",
+  "als_tracks",
+  "als_version",
 ] as const;
 
 /** Whether a column belongs to the file rather than to whoever is annotating

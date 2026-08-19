@@ -78,6 +78,15 @@ git2 = { version = "0.20", default-features = false, features = ["https", "vendo
 # and extraction only reads the catalog and the content streams behind it.
 lofty = "0.24"
 lopdf = { version = "0.44", default-features = false }
+# an Ableton project file is one gzipped XML document, so reading one is
+# exactly these two: inflate the stream, then walk it as events. Both are
+# already in the tree as transitive dependencies and both are pure Rust —
+# named here because extraction calls them directly. `flate2` stays on its
+# default `miniz_oxide` backend (no zlib, no C toolchain), and `quick-xml`
+# runs with default features: a pull parser over a reader, no DOM, so a
+# 200 MB project inflates through a fixed buffer instead of into memory.
+flate2 = "1.1"
+quick-xml = "0.41"
 # substrate:// deep links: the plugin owns scheme registration and
 # the OS open-url callback on every platform the app ships to.
 tauri-plugin-deep-link = "2.4.9"

@@ -102,6 +102,20 @@ pub struct Mount {
     /// includes every non-hidden file (same semantics as folder mappings).
     #[serde(default)]
     pub globs: Vec<String>,
+    /// Paths the mount deliberately doesn't see, matched the way
+    /// `vault::is_ignored` describes: a pattern with no slash filters by
+    /// name at any depth, one with a slash filters by the path relative to
+    /// the mount root, and a matching directory is pruned whole rather than
+    /// walked and discarded.
+    ///
+    /// Absent by default, and absent means today's behaviour: everything
+    /// `globs` admits. It exists because a real folder of work holds
+    /// machine-made copies beside the work — Ableton writes a `Backup` folder
+    /// of dated `.als` copies beside every set — and a database of a hundred
+    /// projects showing nine hundred backups of them is not a database of
+    /// projects.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignore: Vec<String>,
     /// Opt into the live watcher; off by default so big archives don't churn.
     #[serde(default, skip_serializing_if = "is_false")]
     pub watch: bool,
@@ -805,6 +819,9 @@ impl Engine {
                 .map(|g| g.trim().to_string())
                 .filter(|g| !g.is_empty())
                 .collect(),
+            // hand-authored in `.vault/mounts.json`; nothing in the add
+            // dialog asks for one
+            ignore: Vec::new(),
             watch,
             extra: Default::default(),
         };
@@ -1266,7 +1283,7 @@ impl Engine {
         // never re-read (see `rekey_mount_text`)
         let mut renames: Vec<(String, String)> = Vec::new();
 
-        let files = walk_folder_files(&root, &mount.globs);
+        let files = walk_folder_files(&root, &mount.globs, &mount.ignore);
         stats.scanned = files.len();
         let mut out: Vec<MountFile> = Vec::with_capacity(files.len());
         for file in files {
@@ -1588,6 +1605,7 @@ impl Engine {
                     id: uuid::Uuid::new_v4().to_string(),
                     name: name.to_string(),
                     globs: m.globs.clone(),
+                    ignore: Vec::new(),
                     watch: m.watch,
                     extra: Default::default(),
                 };
@@ -2882,6 +2900,84 @@ mod tests {
     }
 
     #[test]
+    fn an_ignored_subtree_never_reaches_the_rows() {
+        let (mut e, dir) = temp_vault("mign");
+        let watched = temp_watched("mign");
+        fs::create_dir_all(watched.join("Set One/Backup")).unwrap();
+        fs::create_dir_all(watched.join("Old Sets")).unwrap();
+        fs::write(watched.join("Set One/Set One.als"), b"the set").unwrap();
+        fs::write(watched.join("Set One/Backup/Set One [2026-01-01].als"), b"a copy").unwrap();
+        fs::write(watched.join("Set One/Backup/Set One [2026-01-02].als"), b"another").unwrap();
+        fs::write(watched.join("Old Sets/dead.als"), b"retired").unwrap();
+        fs::write(watched.join("Set One/Set One.asd"), b"analysis").unwrap();
+
+        // what a project pool actually needs: the machine-made copies beside
+        // the work, named the three different ways they turn up
+        let mount = Mount {
+            id: "ign-1".into(),
+            name: "Album Pool".into(),
+            ignore: vec!["Backup".into(), "Old Sets/*".into(), "*.asd".into()],
+            ..Default::default()
+        };
+        write_mounts(&dir, std::slice::from_ref(&mount)).unwrap();
+
+        let stats = e.scan_mount(&mount.id, &watched);
+        assert_eq!(stats.scanned, 1, "only the set itself is walked");
+        let rels: Vec<String> = e.mount_rows(&mount.id).iter().map(|r| r.rel.clone()).collect();
+        assert_eq!(rels, vec!["Set One/Set One.als".to_string()]);
+
+        // and it holds across a rescan, including for a copy written after
+        // the first scan — the folder is pruned, not remembered
+        fs::write(watched.join("Set One/Backup/Set One [2026-01-03].als"), b"third").unwrap();
+        let stats = e.scan_mount(&mount.id, &watched);
+        assert_eq!(stats.scanned, 1);
+        assert_eq!(e.mount_rows(&mount.id).len(), 1);
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    #[test]
+    fn adding_an_ignore_greys_the_rows_it_hides_rather_than_forgetting_them() {
+        let (mut e, dir) = temp_vault("mign-late");
+        let watched = temp_watched("mign-late");
+        fs::create_dir_all(watched.join("Backup")).unwrap();
+        fs::write(watched.join("live.als"), b"the set").unwrap();
+        fs::write(watched.join("Backup/live [2026-01-01].als"), b"a copy").unwrap();
+
+        let mount = Mount { id: "ign-2".into(), name: "Album Pool".into(), ..Default::default() };
+        write_mounts(&dir, std::slice::from_ref(&mount)).unwrap();
+        e.scan_mount(&mount.id, &watched);
+        assert_eq!(e.mount_rows(&mount.id).len(), 2, "no ignore list, no filtering");
+
+        // an ignore list added later is the same event as the files having
+        // been moved away: the rows stay, greyed, with whatever was annotated
+        // on them, because deleting a row would delete that too
+        let hidden = Mount { ignore: vec!["Backup".into()], ..mount.clone() };
+        write_mounts(&dir, std::slice::from_ref(&hidden)).unwrap();
+        e.scan_mount(&mount.id, &watched);
+        let rows = e.mount_rows(&mount.id);
+        assert_eq!(rows.len(), 2);
+        let backup = rows.iter().find(|r| r.rel.starts_with("Backup/")).expect("row kept");
+        assert!(backup.missing, "the ignored file reads as gone, not as present");
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    #[test]
+    fn a_mount_without_an_ignore_list_round_trips_byte_for_byte() {
+        let dir = temp_watched("mign-json");
+        let json = r#"[{"id":"m1","name":"Papers","globs":["*.pdf"]}]"#;
+        fs::create_dir_all(dir.join(".vault")).unwrap();
+        fs::write(dir.join(MOUNTS_REL_PATH), json).unwrap();
+        let mounts = read_mounts(&dir);
+        assert!(mounts[0].ignore.is_empty());
+        write_mounts(&dir, &mounts).unwrap();
+        let written = fs::read_to_string(dir.join(MOUNTS_REL_PATH)).unwrap();
+        assert!(!written.contains("ignore"), "an absent list stays absent: {written}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn an_interrupted_migration_resumes_into_the_same_mount() {
         let (mut e, dir) = temp_vault("mmig-crash");
         let watched = temp_watched("mmig-crash");
@@ -3831,16 +3927,12 @@ mod tests {
             Mount {
                 id: "a_c1d2".into(),
                 name: "Papers".into(),
-                globs: vec![],
-                watch: false,
-                extra: Default::default(),
+                ..Default::default()
             },
             Mount {
                 id: "abc1d2".into(),
                 name: "Scores".into(),
-                globs: vec![],
-                watch: false,
-                extra: Default::default(),
+                ..Default::default()
             },
         ];
         write_mounts(&dir, &mounts).unwrap();

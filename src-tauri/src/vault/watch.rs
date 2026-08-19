@@ -234,18 +234,31 @@ fn watchable_root(vault_root: &Path, path: &Path) -> Option<PathBuf> {
     Some(root)
 }
 
+/// One watched folder and the two pattern lists that filter its events.
+///
+/// `ignore` is the mount's, and it matters most exactly where the watcher
+/// costs most: a pool of projects is watched to see the work change, and
+/// Ableton writes a dated copy into a `Backup` folder on every single save.
+/// Those copies match `*.als` like the work does, so without the ignore list
+/// here every save wakes a full re-walk of the pool to reach the conclusion
+/// the ignore list already stated. Folder mappings have no such list, and
+/// pass an empty one.
+#[derive(Clone, PartialEq, Eq, Debug)]
+struct WatchTarget {
+    root: PathBuf,
+    globs: Vec<String>,
+    ignore: Vec<String>,
+}
+
 /// Every folder to watch and the globs that filter its events: the mappings
 /// of `.vault/folders.json` plus the mounts of `.vault/mounts.json` that
 /// opted in AND are bound to a path on this machine. Mount
 /// bindings are machine-local, so the caller supplies them.
-fn watch_targets(
-    vault_root: &Path,
-    bindings: &BTreeMap<String, PathBuf>,
-) -> Vec<(PathBuf, Vec<String>)> {
-    let mut out: Vec<(PathBuf, Vec<String>)> = Vec::new();
+fn watch_targets(vault_root: &Path, bindings: &BTreeMap<String, PathBuf>) -> Vec<WatchTarget> {
+    let mut out: Vec<WatchTarget> = Vec::new();
     for m in read_folder_mappings(vault_root) {
         if let Some(root) = folder_watch_root(vault_root, &m) {
-            out.push((root, m.globs));
+            out.push(WatchTarget { root, globs: m.globs, ignore: Vec::new() });
         }
     }
     for mount in read_mounts(vault_root) {
@@ -254,7 +267,7 @@ fn watch_targets(
         }
         let Some(path) = bindings.get(&mount.id) else { continue };
         if let Some(root) = watchable_root(vault_root, path) {
-            out.push((root, mount.globs));
+            out.push(WatchTarget { root, globs: mount.globs, ignore: mount.ignore });
         }
     }
     out
@@ -275,21 +288,21 @@ fn watch_targets(
 fn refresh_folder_watches(
     watcher: &mut notify::RecommendedWatcher,
     vault_root: &Path,
-    watched: &mut Vec<(PathBuf, Vec<String>)>,
+    watched: &mut Vec<WatchTarget>,
     bindings: &BTreeMap<String, PathBuf>,
 ) -> Vec<(PathBuf, String)> {
     use notify::{RecursiveMode, Watcher};
     let wanted = watch_targets(vault_root, bindings);
-    for (root, _) in watched.iter() {
-        if !wanted.iter().any(|(r, _)| r == root) {
-            watcher.unwatch(root).ok();
+    for t in watched.iter() {
+        if !wanted.iter().any(|w| w.root == t.root) {
+            watcher.unwatch(&t.root).ok();
         }
     }
     let mut failures = Vec::new();
-    for (root, _) in &wanted {
-        if !watched.iter().any(|(r, _)| r == root) {
-            if let Err(e) = watcher.watch(root, RecursiveMode::Recursive) {
-                failures.push((root.clone(), e.to_string()));
+    for t in &wanted {
+        if !watched.iter().any(|w| w.root == t.root) {
+            if let Err(e) = watcher.watch(&t.root, RecursiveMode::Recursive) {
+                failures.push((t.root.clone(), e.to_string()));
             }
         }
     }
@@ -334,23 +347,54 @@ fn folders_degraded_loop(
     }
 }
 
-/// Does an event path matter to the watched set? Hidden components and
-/// glob-mismatched file names are noise; dirs and vanished paths pass (they
-/// can hold matching files underneath) — sync does the precise reconciling.
-fn folder_watch_relevant(watched: &[(PathBuf, Vec<String>)], p: &Path) -> bool {
-    for (root, globs) in watched {
-        let Ok(rel) = p.strip_prefix(root) else { continue };
+/// Does an event path matter to the watched set? Hidden components,
+/// glob-mismatched file names and anything the target's `ignore` list covers
+/// are noise; dirs and vanished paths pass (they can hold matching files
+/// underneath) — sync does the precise reconciling.
+///
+/// The ignore check runs over every component of the relative path, not only
+/// the last one, because that is what the scan does: an ignored directory is
+/// pruned whole, so nothing beneath it can ever reach a row and nothing
+/// beneath it is worth waking for.
+fn folder_watch_relevant(watched: &[WatchTarget], p: &Path) -> bool {
+    for t in watched {
+        let Ok(rel) = p.strip_prefix(&t.root) else { continue };
         if rel.as_os_str().is_empty() {
             return true; // the watched folder itself was touched
         }
         if rel.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.')) {
             continue;
         }
+        if ignored_anywhere(rel, &t.ignore) {
+            continue;
+        }
         if !p.is_file() {
             return true;
         }
         let name = p.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
-        if globs.is_empty() || globs.iter().any(|g| glob_match(g, &name)) {
+        if t.globs.is_empty() || t.globs.iter().any(|g| glob_match(g, &name)) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Is this relative path, or any directory on the way to it, one the mount
+/// asked not to see? Each prefix is offered to [`super::is_ignored`] with the
+/// same (relative path, own name) pair the walk would have offered it, so the
+/// watcher and the scan agree on what the list means.
+fn ignored_anywhere(rel: &Path, ignore: &[String]) -> bool {
+    if ignore.is_empty() {
+        return false;
+    }
+    let mut walked = String::new();
+    for c in rel.components() {
+        let name = c.as_os_str().to_string_lossy();
+        if !walked.is_empty() {
+            walked.push('/');
+        }
+        walked.push_str(&name);
+        if super::is_ignored(&walked, &name, ignore) {
             return true;
         }
     }
@@ -440,7 +484,7 @@ fn watch_folders_with_interval<F, E, B>(
     };
 
     let dot_vault = vault_root.join(".vault");
-    let mut watched: Vec<(PathBuf, Vec<String>)> = Vec::new();
+    let mut watched: Vec<WatchTarget> = Vec::new();
     report_folder_watch_failures(
         refresh_folder_watches(&mut watcher, &vault_root, &mut watched, &bindings()),
         &on_error,
@@ -633,7 +677,14 @@ mod tests {
         let targets = |b: &BTreeMap<String, PathBuf>| watch_targets(&dir, b);
 
         // unbound: the mapping is watched, the mount is not
-        assert_eq!(targets(&BTreeMap::new()), vec![(watched.clone(), vec!["*.pdf".to_string()])]);
+        assert_eq!(
+            targets(&BTreeMap::new()),
+            vec![WatchTarget {
+                root: watched.clone(),
+                globs: vec!["*.pdf".to_string()],
+                ignore: Vec::new(),
+            }]
+        );
         // bound and opted in: watched, with its own globs
         let mut b = BTreeMap::new();
         b.insert(on.id.clone(), mounted.clone());
@@ -641,8 +692,16 @@ mod tests {
         assert_eq!(
             targets(&b),
             vec![
-                (watched.clone(), vec!["*.pdf".to_string()]),
-                (mounted.clone(), vec!["*.als".to_string()]),
+                WatchTarget {
+                    root: watched.clone(),
+                    globs: vec!["*.pdf".to_string()],
+                    ignore: Vec::new(),
+                },
+                WatchTarget {
+                    root: mounted.clone(),
+                    globs: vec!["*.als".to_string()],
+                    ignore: Vec::new(),
+                },
             ],
             "only the watch:true mount joins"
         );
@@ -664,7 +723,11 @@ mod tests {
         fs::write(dir.join("invoice.pdf"), b"x").unwrap();
         fs::write(dir.join("notes.txt"), b"x").unwrap();
         fs::create_dir_all(dir.join("sub")).unwrap();
-        let watched = vec![(dir.clone(), vec!["*.pdf".to_string()])];
+        let watched = vec![WatchTarget {
+            root: dir.clone(),
+            globs: vec!["*.pdf".to_string()],
+            ignore: Vec::new(),
+        }];
         let rel = |p: &Path| folder_watch_relevant(&watched, p);
         assert!(rel(&dir.join("invoice.pdf")), "glob match");
         assert!(!rel(&dir.join("notes.txt")), "glob mismatch");
@@ -674,9 +737,70 @@ mod tests {
         assert!(!rel(&dir.join(".hidden.pdf")), "hidden stays invisible");
         assert!(!rel(Path::new("/elsewhere/invoice.pdf")), "outside the watched set");
         // empty globs include every non-hidden file
-        let watched: Vec<(PathBuf, Vec<String>)> = vec![(dir.clone(), Vec::new())];
+        let watched: Vec<WatchTarget> =
+            vec![WatchTarget { root: dir.clone(), globs: Vec::new(), ignore: Vec::new() }];
         assert!(folder_watch_relevant(&watched, &dir.join("notes.txt")));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_ignored_path_never_wakes_the_watcher() {
+        // the case the ignore list exists for: Ableton writes a dated copy
+        // into `Backup` on every save, and a rescan of a project pool to
+        // conclude "that file is ignored" is the cost the list is meant to
+        // remove. What the scan prunes, the watcher must not wake for.
+        let dir = temp_watched("fwatch-ign");
+        fs::create_dir_all(dir.join("Set One/Backup")).unwrap();
+        fs::write(dir.join("Set One/Set One.als"), b"x").unwrap();
+        fs::write(dir.join("Set One/Backup/Set One [2026-01-01].als"), b"x").unwrap();
+        let watched = vec![WatchTarget {
+            root: dir.clone(),
+            globs: vec!["*.als".to_string()],
+            // the trailing slash is the spelling a person reaches for, and it
+            // names the same folder
+            ignore: vec!["Backup/".to_string()],
+        }];
+        let rel = |p: &Path| folder_watch_relevant(&watched, p);
+        assert!(rel(&dir.join("Set One/Set One.als")), "the work still wakes a rescan");
+        assert!(
+            !rel(&dir.join("Set One/Backup/Set One [2026-01-01].als")),
+            "a save into an ignored folder is not news"
+        );
+        assert!(!rel(&dir.join("Set One/Backup")), "nor is the folder itself");
+        assert!(
+            !rel(&dir.join("Set One/Backup/Deeper/Set One [2026-01-02].als")),
+            "an ignored folder is pruned whole, so nothing under it counts"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_mounts_ignore_list_reaches_the_watch_set() {
+        let (_e, dir) = temp_vault("wign");
+        let mounted = temp_watched("wign-mount");
+        let mount = super::super::mounts::Mount {
+            id: "wign-1".into(),
+            name: "Album Pool".into(),
+            globs: vec!["*.als".into()],
+            ignore: vec!["Backup".into()],
+            watch: true,
+            ..Default::default()
+        };
+        super::super::mounts::write_mounts(&dir, std::slice::from_ref(&mount)).unwrap();
+        let mut b = BTreeMap::new();
+        b.insert(mount.id.clone(), mounted.clone());
+        let targets = watch_targets(&dir, &b);
+        assert_eq!(
+            targets,
+            vec![WatchTarget {
+                root: mounted.clone(),
+                globs: vec!["*.als".to_string()],
+                ignore: vec!["Backup".to_string()],
+            }],
+            "the list the scan honours is the list the watcher gets"
+        );
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&mounted);
     }
 
     #[test]
@@ -988,7 +1112,7 @@ mod tests {
         );
         let mut watcher =
             notify::recommended_watcher(|_: notify::Result<notify::Event>| {}).unwrap();
-        let mut watched: Vec<(PathBuf, Vec<String>)> = Vec::new();
+        let mut watched: Vec<WatchTarget> = Vec::new();
         let failures = refresh_folder_watches(&mut watcher, &dir, &mut watched, &BTreeMap::new());
         assert!(failures.is_empty(), "watchable mappings report nothing: {failures:?}");
         assert_eq!(watched.len(), 1, "the mapping's folder got watched");

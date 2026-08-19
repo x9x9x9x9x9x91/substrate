@@ -218,6 +218,12 @@ export interface Mount {
   id: string;
   name: string;
   globs: string[];
+  /** Paths the mount deliberately doesn't see — a pattern without a slash
+      filters by name at any depth, one with a slash by the path relative to
+      the mount root, and a matching folder is pruned whole. Hand-authored in
+      `.vault/mounts.json`; absent means today's behaviour, which is
+      everything `globs` admits. */
+  ignore?: string[];
   watch?: boolean;
 }
 

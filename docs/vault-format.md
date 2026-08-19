@@ -3434,7 +3434,8 @@ edited by hand (JSON array):
 
 ```json
 [
-  { "id": "9f1c…-uuid", "name": "Album pool", "globs": ["*.als"], "watch": true }
+  { "id": "9f1c…-uuid", "name": "Album pool", "globs": ["*.als"],
+    "ignore": ["Backup", "*.asd"], "watch": true }
 ]
 ```
 
@@ -3447,6 +3448,22 @@ edited by hand (JSON array):
 - `globs` — optional; case-insensitive file-NAME patterns with `*` as the only
   wildcard. Empty/absent = every non-hidden file; subfolders recurse,
   dot-names are skipped.
+- `ignore` — optional; paths the mount deliberately doesn't see. Hand-written
+  only: nothing in the app asks for one, and an absent list is written back
+  absent, so a file from before this key existed round-trips byte for byte.
+  A pattern **without** a slash matches an entry's own name at any depth
+  (`Backup`, `*.asd`); a pattern **with** one matches the path relative to the
+  mount root (`Old Sets/*`). A trailing slash is trimmed before that split, so
+  `Backup/` names the same folder `Backup` does rather than silently matching
+  nothing. Wildcard rules are `globs`' — case-insensitive,
+  `*` only, spanning separators. A matching **directory is pruned whole** and
+  never walked, which is the motivating case: Ableton writes a `Backup` folder
+  of dated copies beside every set, and a database of a hundred projects
+  showing nine hundred backups of them is not a database of projects. Adding
+  the list later does not delete rows — the pruned files read as `missing` on
+  the next scan and keep their sidecars, same as files moved away. The live
+  watcher honours the same list: a save under an ignored folder is not a
+  change to the mount, so it never wakes a rescan of it.
 - `watch` — optional, default `false`. Opts the mount into the live watcher
   (below), and only takes effect on a machine where it is bound.
 - Any other key is preserved verbatim across app writes. The file's
@@ -3495,6 +3512,16 @@ is merged back into the index, which is how the board fills in behind a scan.
   Audio (`lofty`): `duration` (seconds), `sample_rate`, `channels`, plus
   `artist` / `album` / `media_title` where the file carries tags. PDF
   (`lopdf`): `pages`, plus `media_title` / `artist` from the Info dictionary.
+  Ableton projects (`flate2` + `quick-xml` — an `.als` is one gzipped XML
+  document): `als_tempo`, `als_key` (root note plus scale name, which only Live
+  12 and later record), `als_tracks`, `als_version` (what the writing app
+  called itself). Every field is independently optional, because attribute
+  names and positions move between Live versions: a set that doesn't carry
+  one leaves that cell empty rather than failing the row. The `als_` prefix is
+  deliberate — a folder holding both stems and the session that made them
+  would otherwise show one `tempo` column filled by two unrelated readers.
+  A project's **track and device names** are its text (below), which is what
+  makes a set findable by what it is built out of rather than by its filename.
   Text values are clamped; a file that carries none of them contributes no
   keys at all. The file's own title is `media_title`, never `title` — `title`
   is the row's heading throughout the note pipeline and is dropped as a column
@@ -3512,13 +3539,16 @@ is merged back into the index, which is how the board fills in behind a scan.
   reaches the sync remote or vault history.
 - `extract_error` — why that one file couldn't be read. The row survives with
   the value simply absent; a malformed file never fails the scan.
-- **Size caps.** Both parsers size buffers from numbers the file declares, and
+- **Size caps.** The parsers size buffers from numbers the file declares, and
   an allocation that large aborts the process rather than raising an error, so
   a file is refused *unopened* past a per-kind cap (`extract::size_limit` — 64
-  MiB for PDF, 1 GiB for audio) and a single PDF stream may not inflate past
-  16 MiB. A file over the cap is skipped at scan time: it keeps its row and
-  its intrinsic columns, contributes no extracted values, and is skipped again
-  on every later scan rather than being marked tried.
+  MiB for PDF, 1 GiB for audio, 32 MiB for `.als`) and a single PDF stream may
+  not inflate past 16 MiB. How far a compressed file expands is the file's
+  choice rather than the reader's, so the `.als` path is capped twice over: a
+  set that inflates past 256 MiB stops being read there. A file over the cap is
+  skipped at scan time: it keeps its row and its intrinsic columns, contributes
+  no extracted values, and is skipped again on every later scan rather than
+  being marked tried.
 - `extract_tried` — set once the file has been through the queue, however it
   went. It is what stops a file being re-opened on every scan, and it is
   **the cache**: a rescan carries all of them forward whenever the content
@@ -3559,8 +3589,9 @@ them, next to the path binding that says where they are.
 - `truncated` — a cap ended the excerpt rather than the document ending it.
   The text is capped twice on the way in — at 10 pages read and 4 KiB emitted,
   whichever binds first. Word boundaries are kept where they exist; an
-  unbroken run of glyphs is cut on a character boundary. Only PDFs carry text
-  today; audio files contribute none.
+  unbroken run of glyphs is cut on a character boundary. PDFs and Ableton
+  projects carry text — a project's is its track and device names, deduplicated
+  and capped at 4 KiB; audio files contribute none.
 - `capped` — the file was read and its text dropped because the store was
   full. The store is parsed and rewritten whole on every extraction batch, so
   its size is work and not only disk: it holds **2 MiB** of text per mount,

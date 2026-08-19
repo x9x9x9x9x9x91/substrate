@@ -190,7 +190,9 @@ impl Engine {
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| m.db_type.clone());
 
-        let files = walk_folder_files(&root, &m.globs);
+        // a folder mapping has no ignore list: mounts own that setting, and a
+        // mapping's include globs are the only filter it offers
+        let files = walk_folder_files(&root, &m.globs, &[]);
         stats.scanned = files.len();
         let mut seen: HashSet<PathBuf> = HashSet::new();
         for file in files {

@@ -50,6 +50,22 @@ function parseProps(fm: string): Record<string, unknown> {
       i++;
       continue;
     }
+    // a nested scalar map (`columns:` on a sheet with a notifying date
+    // column) — the value is kept as its raw text, which is inert here: no
+    // dashboard pane reads it, and the shot only needs the prop to exist
+    // without derailing the list parser below
+    if (i + 1 < lines.length && /^\s+[A-Za-z][\w-]*:/.test(lines[i + 1]) && !/^\s*-\s/.test(lines[i + 1])) {
+      const map: Record<string, string> = {};
+      i++;
+      while (i < lines.length && /^\s+/.test(lines[i])) {
+        const entry = /^\s+([A-Za-z][\w-]*):\s*(.*)$/.exec(lines[i]);
+        if (!entry) throw new Error(`unparsed nested map line: ${lines[i]}`);
+        map[entry[1]] = entry[2].trim();
+        i++;
+      }
+      out[key] = map;
+      continue;
+    }
     const list: (Record<string, string> | string)[] = [];
     i++;
     // entries may sit at column 0 (`- label: …`) or indented — the vault's
@@ -257,6 +273,68 @@ const SHOTS: Shot[] = [
       await expect(page.locator(".dash-chart")).toHaveCount(1);
       await expect(page.locator(".chart-line")).toHaveCount(1);
       await expect(page.locator(".chart-err")).toHaveCount(0);
+    },
+  },
+  {
+    id: "finance-hub",
+    nav: "Finance",
+    selector: ".wb-wrap",
+    installs: [
+      { file: "Dashboards/Finance.md", target: "Dashboards/Finance.md", cloneFrom: "Dashboards/Umbra Home.md" },
+      { file: "Dashboards/Forecast.md", target: "Dashboards/Forecast.md", cloneFrom: "Dashboards/Portfolio.md" },
+      { file: "Dashboards/Budgets.md", target: "Dashboards/Budgets.md", cloneFrom: "Dashboards/Umbra Home.md" },
+      { file: "Dashboards/Who Owes Whom.md", target: "Dashboards/Who Owes Whom.md", cloneFrom: "Dashboards/Portfolio.md" },
+      { file: "Finance/Accounts.md", target: "Finance/Accounts.md", cloneFrom: "Holdings.md" },
+      { file: "Finance/Expected Returns.md", target: "Finance/Expected Returns.md", cloneFrom: "Holdings.md" },
+      { file: "Finance/Expenses.md", target: "Finance/Expenses.md", cloneFrom: "Holdings.md" },
+      { file: "Finance/Budget Limits.md", target: "Finance/Budget Limits.md", cloneFrom: "Holdings.md" },
+      { file: "Finance/Debts.md", target: "Finance/Debts.md", cloneFrom: "Holdings.md" },
+      {
+        file: "Finance/Upcoming.md",
+        target: "Finance/Upcoming.md",
+        cloneFrom: "Holdings.md",
+        // Upcoming is regenerated every morning, so its shipped dates are a
+        // snapshot rather than a fixture — rebase them onto this week or the
+        // "due in 14 days" card reads a period that has already passed
+        patch: (b) =>
+          b
+            .replaceAll("2026-08-20", day(2))
+            .replaceAll("2026-08-25", day(7))
+            .replaceAll("2026-08-28", day(10))
+            .replaceAll("2026-09-01", day(14))
+            .replaceAll("2026-09-03", day(16))
+            .replaceAll("2026-09-05", day(18))
+            .replaceAll("2026-09-08", day(21))
+            .replaceAll("2026-09-12", day(25))
+            .replaceAll("2026-09-15", day(28))
+            // the one inflow sits past the fortnight, as it does in the
+            // shipped snapshot — the "going out" card must not see it
+            .replaceAll("2026-10-02", day(45)),
+      },
+      { file: "Finance/Forecast Cashflow.md", target: "Finance/Forecast Cashflow.md", cloneFrom: "Holdings.md" },
+      { file: "Finance/Forecast Net Worth.md", target: "Finance/Forecast Net Worth.md", cloneFrom: "Holdings.md" },
+    ],
+    ready: async (page) => {
+      await expect(page.locator(".hub-body")).toBeVisible();
+      // four bound money cards (the callout rows under them are dash-cards
+      // too, so the euro-formatted value is what identifies the bound ones)
+      await expect(page.locator(".dash-card-eur")).toHaveCount(4);
+      await expect(page.locator(".dash-card-miss")).toHaveCount(0);
+      await expect(page.locator(".dash-card-eur", { hasText: "—" })).toHaveCount(0);
+      // every sheet and board of the workbook is one tab away
+      await expect(page.locator(".wb-tab")).toHaveCount(12);
+      await expect(page.locator(".wb-tab-err")).toHaveCount(0);
+      // the two forecast curves live a tab away, so the front door alone never
+      // exercises them — step onto the Forecast page, prove both chart bodies
+      // drew without an error placeholder, then step back for the shot
+      await page.locator(".wb-tab", { hasText: "Forecast" }).first().click();
+      // both fences are `kind: line`, so the body class is .chart-line — a bar
+      // fence would draw .dash-chart instead, and neither is what an error
+      // placeholder renders
+      await expect(page.locator(".chart-line")).toHaveCount(2);
+      await expect(page.locator(".chart-err")).toHaveCount(0);
+      await page.locator(".wb-tab").first().click();
+      await expect(page.locator(".hub-body")).toBeVisible();
     },
   },
   {
