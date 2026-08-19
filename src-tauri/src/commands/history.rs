@@ -225,6 +225,38 @@ pub(crate) async fn history_facts(
     .await?
 }
 
+/// How long each fact has stood — the last time a person set it, sweeps
+/// skipped (shelf-life spec §2). Batched and async for the same reasons
+/// `history_facts` is; it shares that call's walk, so a surface showing both
+/// receipts and freshness pays one pass over the note.
+#[tauri::command]
+pub(crate) async fn history_freshness(
+    app: tauri::AppHandle,
+    refs: Vec<FactRef>,
+) -> Result<Vec<crate::factlane::FactFreshness>, String> {
+    blocking(move || {
+        let pairs: Vec<(String, String)> = refs.into_iter().map(|r| (r.path, r.key)).collect();
+        let h: State<HistoryState> = app.state();
+        let mut out = Vec::with_capacity(pairs.len());
+        // The lock is taken PER CHUNK, not once for the whole ask. A walk is
+        // O(notes × commits), and the vault watcher's batch handler — reindex,
+        // auto-snapshot, the reflex run — waits on this same mutex, so a
+        // whole-vault ask answered in one hold stalls every background write
+        // until it finishes. The caller chunks too; this is the floor, so a
+        // caller that forgets cannot stall the app.
+        for chunk in pairs.chunks(FRESHNESS_CHUNK) {
+            out.extend(with_history(&h, |hist| hist.fact_freshness(chunk))?);
+        }
+        Ok(out)
+    })
+    .await?
+}
+
+/// How many facts one hold of the history lock may answer for. Mirrors
+/// `FRESH_CHUNK_FACTS` in `src/lib/freshcache.ts`, which is where the caller's
+/// own chunking is set.
+const FRESHNESS_CHUNK: usize = 60;
+
 /// One instant's sheet world: the sheets that existed then, with the bodies
 /// the formula fence is parsed out of. `oldest_ts_ms` travels with it so a
 /// caller can tell "the vault had no snapshot yet" (answerable: nothing

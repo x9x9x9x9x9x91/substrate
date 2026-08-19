@@ -1,5 +1,7 @@
 import { invoke, setHistoryReadOnly } from "./tauri.ts";
 import { isAppFile, SETTINGS_PATH } from "./settings.ts";
+import { freshCache } from "./freshcache.ts";
+import { forgetFreshnessFailures } from "./agefill.ts";
 import type { KindBundleInfo } from "./kinds.ts";
 import type { ReflexReceipt, ReflexStatus } from "./reflexes.ts";
 import type { CodingScan } from "./codingScan.ts";
@@ -34,6 +36,7 @@ import type {
   RecallResult,
   RecallStats,
   RecallStatus,
+  FactFreshness,
   FactLane,
   HistorySheetsAt,
   HiddenPerLayout,
@@ -147,8 +150,18 @@ export const onboardingStatus = () => invoke<OnboardingStatus>("onboarding_statu
 export const vaultInspect = (path: string) => invoke<VaultCandidate>("vault_inspect", { path });
 /** Validate + initialize + persist; `consent` = the user confirmed
     initializing inside a folder that already holds unrelated files. */
-export const vaultChoose = (path: string, consent = false) =>
-  invoke<string>("vault_choose", { path, consent });
+export const vaultChoose = async (path: string, consent = false) => {
+  const root = await invoke<string>("vault_choose", { path, consent });
+  // The freshness answers held in memory are about the vault being left.
+  // Paths repeat across vaults, and the Engine stays live until the relaunch,
+  // so an un-cleared cache would date another vault's `Contacts/Ada.md` from
+  // this one's history. Same reasoning as forgetting sealed authorizations
+  // here rather than at relaunch.
+  freshCache.clear();
+  // and "this vault has no history" is an answer about the old vault too
+  forgetFreshnessFailures();
+  return root;
+};
 /** Disposable copy of the bundled example vault, selected as the choice. */
 export const vaultDemo = () => invoke<string>("vault_demo");
 /** Write `terminal-command` into the just-chosen vault's Settings.md
@@ -643,6 +656,12 @@ export const historyPoints = () => invoke<VaultHistoryPoint[]>("history_points")
     dashboard is asking about. */
 export const historyFacts = (refs: { path: string; key: string }[]) =>
   invoke<FactLane[]>("history_facts", { refs });
+/** How long each of those facts has stood — the last change a person made,
+    with sweeps (imports, migrations, mass rewrites) skipped so a migration
+    cannot pass itself off as everybody reviewing everything. Batched and
+    shaped like `historyFacts`; it shares that call's per-note walk. */
+export const historyFreshness = (refs: { path: string; key: string }[]) =>
+  invoke<FactFreshness[]>("history_freshness", { refs });
 /** Every sheet note as it stood at each instant, for `AT(date, Sheet.member)`.
     Instants rather than dates because "the last moment of that day"
     is the reader's own calendar, already resolved front-end for fact lanes —
@@ -700,6 +719,9 @@ export const vaultSchemaSet = (
   target?: string,
   format?: NumberFormat,
   description?: string,
+  /** any kind: how long a value stays believable (`90d`, `1y`); a blank
+      string clears the window, undefined leaves the stored one alone */
+  review?: string,
   /** rollup kind only: the derived column's wiring */
   rollup?: RollupConfig | null
 ) =>
@@ -713,6 +735,7 @@ export const vaultSchemaSet = (
     target: target ?? null,
     format: format ?? null,
     description: description ?? null,
+    review: review ?? null,
     relation: rollup?.relation ?? null,
     rollupProp: rollup?.prop ?? null,
     agg: rollup?.agg ?? null,

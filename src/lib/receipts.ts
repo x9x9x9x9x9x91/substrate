@@ -51,6 +51,10 @@ export function actorText(actor: Actor, subject = ""): string {
     case "bulk":
       // a run that could not say what it did is still a run of yours
       return actor.name ? `You — ${actor.name}` : "You";
+    case "reflex":
+      // a rule of the reader's own, so it is named rather than blamed on
+      // "the app" — and never on the reader, who did not make this write
+      return actor.name ? `a reflex — ${actor.name}` : "a reflex";
     case "external":
       return "external edit";
     case "external_tool":

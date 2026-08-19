@@ -245,8 +245,31 @@ fn run_reflex_triggers(
     // a reflex writes through the engine, so the UI has to hear about it the
     // same way a human edit is heard about
     if !report.written.is_empty() {
+        snapshot_reflex_writes(app, &report.written);
         app.state::<SnapDirty>().mark();
         app.emit("vault:changed", report.written).ok();
+    }
+}
+
+/// Commit what the reflexes just wrote, under their own subject and scoped to
+/// their own paths.
+///
+/// Without this the writes wait for the ordinary auto-snapshot and land in a
+/// commit that says `snapshot`, authored by the app — indistinguishable from a
+/// person editing those notes by hand. Anything reading the history to ask
+/// when a value was last looked at then reads a rule's own write as a review,
+/// which is the one thing that reading must never claim. Path-scoped, the way
+/// a bulk sweep commits, so a person's unrelated unsaved edit is not swept
+/// into a commit that speaks for a rule.
+#[cfg(desktop)]
+fn snapshot_reflex_writes(app: &tauri::AppHandle, written: &[String]) {
+    let state: State<HistoryState> = app.state();
+    let Ok(guard) = state.0.lock() else { return };
+    let Some(h) = guard.as_ref() else { return };
+    let n = written.len();
+    let label = format!("reflex: {n} {}", if n == 1 { "note" } else { "notes" });
+    if let Err(e) = h.snapshot_paths(written, &label) {
+        applog!("history reflex snapshot failed: {e}");
     }
 }
 
@@ -1615,6 +1638,7 @@ pub fn run() {
             history_list,
             history_points,
             history_facts,
+            history_freshness,
             history_sheets,
             history_vault_snapshot,
             history_diff,

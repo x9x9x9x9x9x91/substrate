@@ -91,6 +91,11 @@ export const KNOWN_KEYS = ["type", "query", "saved", "view", "sort", "limit", "c
 export interface EmbedRow {
   path: string;
   title: string;
+  /** When the note last changed on disk. A fact can only have moved when
+      its note did, so this is what lets a freshness column re-ask the history
+      for the rows that changed and reuse its answer for the rest
+      (src/lib/freshcache.ts) instead of re-walking history per render. */
+  updated_ms: number;
   /** display strings, aligned 1:1 with `columns` */
   cells: string[];
   /** the note's raw props. Editing a cell needs the value behind the
@@ -127,6 +132,13 @@ export type EmbedResult =
           this set, exactly as it asks the schema for a rollup. Absent when
           the fence declares no joins. */
       joins?: string[];
+      /** The freshness columns among `columns`: the column's own name
+          (`age(phone)`) against the property whose age it shows. A freshness
+          cell holds no stored value — its text is asked of the history and
+          filled in by the surface — so it is read-only wherever cells are
+          editable, for the same reason a joined cell is. Absent when the
+          fence asks for no ages. */
+      ages?: Record<string, string>;
       /** Why `rows` is shorter than `total`, when it is. The two
           reasons are not the same fact and must not read the same way: a
           `limit:` is the author SAYING "top 5", a cap is the surface refusing
@@ -134,6 +146,23 @@ export type EmbedResult =
       cut?: { kind: "limit" | "cap"; shown: number };
     }
   | { error: string };
+
+/** `age(phone)` — a column showing how long that property's value has stood
+    rather than the value itself. Parenthesised rather than dotted because a
+    dotted name is already a lookup through a relation, and `contact.age`
+    would be a real one wherever the target type has an `age` property; a
+    reader should never have to know which of the two a name turned into.
+    Nothing else in a fence body wears parentheses, and a frontmatter key
+    shaped `age(x)` is not a key anyone writes. */
+const AGE_COLUMN_RE = /^age\(\s*([^()]+?)\s*\)$/i;
+
+/** The freshness column's name for a property. */
+export const ageColumnName = (prop: string): string => `age(${prop})`;
+
+/** The property a freshness column follows, or null when the name is an
+    ordinary column. */
+export const ageColumnProp = (name: string): string | null =>
+  AGE_COLUMN_RE.exec(name.trim())?.[1] ?? null;
 
 /** Display caps: the title column plus the first N data columns, at most M rows. */
 export const EMBED_MAX_COLS = 4;
@@ -377,15 +406,36 @@ export function embedQueryFor(
   // by name would silently swap that stored column's value for the looked-up
   // one and mark the author's own prop read-only.
   let colJoins: (ResolvedJoin | undefined)[];
+  // Which columns show an AGE rather than a value, by the property each
+  // follows. Decided here for the same reason joins are: a name is a
+  // freshness column because it was picked as one.
+  let colAges: (string | undefined)[];
   if (spec.columns) {
     const picked: string[] = [];
     const pickedJoins: (ResolvedJoin | undefined)[] = [];
+    const pickedAges: (string | undefined)[] = [];
     const seen = new Set<string>();
     for (const name of spec.columns) {
       // Title is the table's fixed leading column, not a vault property. Let
       // authors include it in the natural left-to-right list without either
       // duplicating it or spending one of the optional-property slots.
       if (name.trim().toLowerCase() === "title") continue;
+      // an age follows one of THIS database's own properties: the age of a
+      // value read off another row is that row's fact, not this one's
+      const ageProp = ageColumnProp(name);
+      if (ageProp !== null) {
+        const canonical = canonicalColumn(dbCols, ageProp);
+        if (canonical === undefined) {
+          return { error: `Unknown column “${ageProp}” in “${dbType}”` };
+        }
+        const col = ageColumnName(canonical);
+        if (seen.has(col)) continue;
+        seen.add(col);
+        picked.push(col);
+        pickedJoins.push(undefined);
+        pickedAges.push(canonical);
+        continue;
+      }
       if (isJoinName(name, dbCols)) {
         const join = resolveJoin(name);
         if ("error" in join) return { error: join.error };
@@ -393,6 +443,7 @@ export function embedQueryFor(
         seen.add(join.name);
         picked.push(join.name);
         pickedJoins.push(join);
+        pickedAges.push(undefined);
         continue;
       }
       const canonical = canonicalColumn(dbCols, name);
@@ -404,19 +455,25 @@ export function embedQueryFor(
       seen.add(canonical);
       picked.push(canonical);
       pickedJoins.push(undefined);
+      pickedAges.push(undefined);
     }
     columns = picked;
     colJoins = pickedJoins;
+    colAges = pickedAges;
   } else {
     // a pin's curated list and the default union are both made of this
     // database's own columns — nothing dotted is resolved through a relation
     columns = effectiveColumns(pin, dbCols);
     colJoins = columns.map(() => undefined);
+    // an age is asked for by name, never inherited: a default table shows
+    // the values a database has, not a commentary on them
+    colAges = columns.map(() => undefined);
   }
   // the cap is the surface's, not the author's — an explicit `columns:` list
   // is still bounded by what the surface can paint
   columns = columns.slice(0, caps.cols);
   colJoins = colJoins.slice(0, caps.cols);
+  colAges = colAges.slice(0, caps.cols);
 
   // Ordering: the fence's `sort:` runs through the table's own comparator
   // (dbsort), so a select column orders by its declared option order, a number
@@ -495,11 +552,17 @@ export function embedQueryFor(
   // and it is a join because it was PICKED as one — not because its name
   // happens to match one that resolved
   const joinNames = columns.filter((_, i) => colJoins[i] !== undefined);
+  const ages: Record<string, string> = {};
+  columns.forEach((c, i) => {
+    const prop = colAges[i];
+    if (prop !== undefined) ages[c] = prop;
+  });
   return {
     dbType,
     ...(savedId !== undefined ? { savedId, savedName } : {}),
     columns,
     ...(joinNames.length > 0 ? { joins: joinNames } : {}),
+    ...(Object.keys(ages).length > 0 ? { ages } : {}),
     total: matched.length,
     ...(cut !== undefined ? { cut } : {}),
     typeSchema,
@@ -508,9 +571,14 @@ export function embedQueryFor(
       path: n.path,
       title: n.title,
       props: n.props,
+      updated_ms: n.updated_ms,
       cells: columns.map((c, i) => {
         const join = colJoins[i];
         if (join) return (resolver as JoinResolver).cellText(n, join);
+        // an age is not in the note: it is the history's answer about this
+        // value, asked once the table is on screen. The cell stays empty
+        // here rather than guessing a date out of the frontmatter.
+        if (colAges[i] !== undefined) return "";
         const v = foldedPropStr(n.props, c) ?? "";
         // the dial, not de-DE: an embedded view sits beside the database pane
         // that renders the same rows, and two dialects on one screen is the

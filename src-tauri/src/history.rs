@@ -305,6 +305,19 @@ impl History {
         crate::githist::history_fact_lanes(&self.root, refs)
     }
 
+    /// When each of a set of facts was last set by a person — the lanes with
+    /// sweeps (imports, migrations, mass rewrites) skipped, so a format
+    /// migration cannot pass itself off as everybody reviewing everything.
+    pub fn fact_freshness(
+        &self,
+        refs: &[(String, String)],
+    ) -> Result<Vec<crate::factlane::FactFreshness>, String> {
+        if !self.enabled {
+            return Err(FOREIGN_MSG.into());
+        }
+        crate::githist::history_fact_freshness(&self.root, refs)
+    }
+
     /// The sheet notes as they stood at each of a set of instants — what
     /// `AT(date, Sheet.member)` re-evaluates (docs/time-travel-spec.md §3.2).
     pub fn sheets_at(&self, instants: &[u64]) -> Result<Vec<crate::githist::SheetsAt>, String> {

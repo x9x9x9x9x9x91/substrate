@@ -1036,7 +1036,10 @@ mod tests {
         )
         .unwrap();
         let rec = record_for(cfg.path(), vault.path(), "gear-log").unwrap();
-        assert!(!rec.trust_updates, "consent given before the flag existed is not standing consent");
+        assert!(
+            !rec.trust_updates,
+            "consent given before the flag existed is not standing consent"
+        );
     }
 
     #[test]

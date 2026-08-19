@@ -40,10 +40,7 @@ fn bind_mount_on_machine(
             // machine's document text describes files it can no longer open
             // and nothing will read it again.
             engine.forget_mount_text(id);
-            MountScanStats {
-                id: id.to_string(),
-                ..Default::default()
-            }
+            MountScanStats { id: id.to_string(), ..Default::default() }
         }
     })
 }
@@ -260,7 +257,8 @@ mod tests {
             .with_local_dir(cfg.path().to_path_buf());
         let mount = engine.add_mount("Papers", Vec::new(), true).unwrap();
         bind_mount_on_machine(&mut engine, cfg.path(), &mount.id, Some(folder.path())).unwrap();
-        let store = cfg.path().join(crate::vault::MOUNT_TEXT_DIR).join(format!("{}.json", mount.id));
+        let store =
+            cfg.path().join(crate::vault::MOUNT_TEXT_DIR).join(format!("{}.json", mount.id));
         std::fs::create_dir_all(store.parent().unwrap()).unwrap();
         std::fs::write(&store, r#"{"version":1,"files":{}}"#).unwrap();
 

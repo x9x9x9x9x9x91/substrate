@@ -20,13 +20,21 @@ export function isJoinedColumn(result: EmbedResult, column: string): boolean {
   return !("error" in result) && (result.joins?.includes(column) ?? false);
 }
 
+/** Is this column a freshness reading — how long a value has stood — rather
+    than the value itself? */
+export function isAgeColumn(result: EmbedResult, column: string): boolean {
+  return !("error" in result) && result.ages?.[column] !== undefined;
+}
+
 /** A joined cell has no base-row model to derive: its value lives on ANOTHER
     row, so reading this row's props and this database's schema for it is
     meaningless. Asking anyway happens to return an empty, kindless model
     today, which paints correctly by luck; skipping the derivation makes that
     correctness structural. The text still comes from `row.cells`, which the
-    query already filled from the target. */
-const JOINED_CELL: CellModel = {
+    query already filled from the target. A freshness column has no base-row
+    model for the same reason: nothing in the frontmatter says how old a value
+    is — only the history does. */
+const INERT_CELL: CellModel = {
   actualKey: "",
   val: "",
   schema: undefined,
@@ -42,7 +50,9 @@ export function viewCellModel(
   props: Record<string, unknown>,
   column: string
 ): CellModel {
-  if (isJoinedColumn(result, column)) return JOINED_CELL;
+  // a freshness column reads the same way: its text is the history's answer,
+  // and this row's props hold nothing that answers for it
+  if (isJoinedColumn(result, column) || isAgeColumn(result, column)) return INERT_CELL;
   return cellModel(props, column, result.typeSchema);
 }
 
@@ -68,7 +78,7 @@ export function viewCellPaint(
   text: string,
   model: CellModel
 ): CellPaint {
-  if (isJoinedColumn(result, column)) return { kind: "text" };
+  if (isJoinedColumn(result, column) || isAgeColumn(result, column)) return { kind: "text" };
   if (model.kind === "checkbox") return { kind: "checkbox", checked: model.checked };
   const color = embedPillColor(result.typeSchema, column, text);
   return color === undefined ? { kind: "text" } : { kind: "pill", color };
@@ -84,7 +94,7 @@ export function viewCellEditable(
   model: CellModel
 ): boolean {
   if ("error" in result) return false;
-  if (isJoinedColumn(result, column)) return false;
+  if (isJoinedColumn(result, column) || isAgeColumn(result, column)) return false;
   return cellOpensEditor(model.kind);
 }
 
@@ -94,7 +104,7 @@ export function viewCellEditable(
     the editor entirely, so guarding only the paint and the editor-opening
     click would leave that write open. */
 export function viewCellWritable(result: EmbedResult, column: string): boolean {
-  return !("error" in result) && !isJoinedColumn(result, column);
+  return !("error" in result) && !isJoinedColumn(result, column) && !isAgeColumn(result, column);
 }
 
 /** A number column stores what the app can read back, not the keystrokes —

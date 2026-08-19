@@ -312,6 +312,18 @@ test("a section row moves past an interleaved tree row (SUB-605 review)", async 
   };
   expect(await sectionOrder()).toEqual(["Overview", "Portfolio", "Sync"]);
 
+  // the Move below swaps Portfolio with its on-screen NEIGHBOR, so the fixture
+  // needs the two section rows adjacent: a seed whose title sorts between them
+  // turns the swap into a hop past the newcomer, and the order this spec
+  // filters for reads unchanged — a mysterious no-op. Fail loudly here instead.
+  const flat = await page
+    .locator(".side-item:not(.side-dash-nested) .side-label-text")
+    .allTextContents();
+  expect(
+    flat.indexOf("Sync"),
+    "fixture drift: a seeded dashboard title sorts between Portfolio and Sync"
+  ).toBe(flat.indexOf("Portfolio") + 1);
+
   await page.getByRole("button", { name: "Portfolio", exact: true }).click({ button: "right" });
   await page.locator(".ctx-item", { hasText: "Move down" }).click();
   expect(await sectionOrder()).toEqual(["Overview", "Sync", "Portfolio"]);

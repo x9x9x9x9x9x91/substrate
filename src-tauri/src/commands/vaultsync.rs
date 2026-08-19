@@ -80,14 +80,14 @@ pub(crate) fn load_privacy(path: &Path) -> Option<PrivacyNotice> {
 /// dismiss because its file is unwritable would be worse than a forgotten one.
 fn store_privacy(path: &Path, notice: Option<&PrivacyNotice>) {
     let written = match notice {
-        Some(notice) => serde_json::to_string_pretty(notice)
-            .map_err(|e| e.to_string())
-            .and_then(|json| {
+        Some(notice) => {
+            serde_json::to_string_pretty(notice).map_err(|e| e.to_string()).and_then(|json| {
                 if let Some(dir) = path.parent() {
                     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
                 }
                 crate::vault::write_atomic(path, json)
-            }),
+            })
+        }
         None => match std::fs::remove_file(path) {
             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
             _ => Ok(()),
@@ -191,8 +191,7 @@ fn retry_privacy_cleanup(
     }
     let resolved = (|| -> Result<(), String> {
         let hist_guard = history.0.lock().unwrap();
-        let hist =
-            hist_guard.as_ref().ok_or_else(|| "version history unavailable".to_string())?;
+        let hist = hist_guard.as_ref().ok_or_else(|| "version history unavailable".to_string())?;
         let mut engine = state.0.lock().unwrap();
         run_privacy_cleanup(hist, &mut engine, &notice.paths)
     })();
@@ -1163,9 +1162,11 @@ mod tests {
         let mut fail = AutoFail::default();
         let t0 = Instant::now();
 
-        note_privacy_into(&mut last, "sealing could not remove its plaintext", &[
-            "Sealed/Note.md".to_string()
-        ]);
+        note_privacy_into(
+            &mut last,
+            "sealing could not remove its plaintext",
+            &["Sealed/Note.md".to_string()],
+        );
         record_outcome_into(&mut last, &mut fail, &sealing_failed(), true, FailureClass::Local, t0);
 
         // six ticks of a perfectly healthy vault — half an hour of the exact

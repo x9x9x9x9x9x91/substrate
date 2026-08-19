@@ -86,6 +86,12 @@ pub struct PropSchema {
     /// any kind: a one-line entry hint (None = none).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// any kind: how long a value here stays believable before it wants
+    /// looking at again (`90d`, `1y`; None = it never goes stale).
+    /// Nothing pings — the window only lets a reader ask which values are
+    /// past theirs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review: Option<String>,
     /// Keys a newer Substrate wrote that this build doesn't understand. Kept
     /// so a read→write cycle here doesn't strip them.
     #[serde(flatten)]
@@ -268,6 +274,51 @@ fn canonical_number_format(f: &str) -> Option<&'static str> {
     NUMBER_FORMATS.iter().chain(UNIT_CODES.iter()).find(|c| c.eq_ignore_ascii_case(f)).copied()
 }
 
+/// A review window as it gets stored: `<count><unit>` with unit `d`/`w`/`m`/`y`,
+/// or None when the text names no window we understand.
+///
+/// The words a person would say — `weekly`, `monthly`, `quarterly`, `yearly` —
+/// are accepted as aliases and stored as their compact form, so the file
+/// carries one spelling per window however it was typed. A zero count is no
+/// window rather than an instantly-stale one, and a count is capped at three
+/// digits: a shelf life measured in centuries is a typo, not a policy.
+///
+/// SOURCE OF TRUTH for what a window MEANS in days: `src/lib/shelflife.ts`.
+/// The engine only decides what may be written; the reader does the arithmetic
+/// (`review_windows_mirror_the_frontend` pins the vocabulary).
+pub fn canonical_review_window(w: &str) -> Option<String> {
+    let w = w.trim();
+    for (word, compact) in REVIEW_WORDS {
+        if w.eq_ignore_ascii_case(word) {
+            return Some((*compact).to_string());
+        }
+    }
+    // split on the last CHARACTER, not the last byte: `90€` is one char whose
+    // final byte falls inside it, and byte-splitting a value someone typed into
+    // their own schema file would panic rather than reject it
+    let last = w.chars().next_back()?;
+    let (digits, unit) = w.split_at(w.len() - last.len_utf8());
+    let unit = unit.to_ascii_lowercase();
+    if !REVIEW_UNITS.contains(&unit.as_str()) {
+        return None;
+    }
+    if digits.is_empty() || digits.len() > 3 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let count: u32 = digits.parse().ok()?;
+    if count == 0 {
+        return None;
+    }
+    Some(format!("{count}{unit}"))
+}
+
+/// The units a review window is written in: days, weeks, months, years.
+pub const REVIEW_UNITS: [&str; 4] = ["d", "w", "m", "y"];
+
+/// Spoken windows and the compact form each stores as.
+pub const REVIEW_WORDS: [(&str, &str); 4] =
+    [("weekly", "1w"), ("monthly", "1m"), ("quarterly", "3m"), ("yearly", "1y")];
+
 /// One type's entry in `.vault/schema.json`: the flat prop → schema map plus
 /// the reserved `icon` and `home` keys (flattened, so the on-disk shape gains
 /// a field without nesting). `icon` and `home` are reserved prop names — user
@@ -340,6 +391,7 @@ impl Engine {
         target: Option<String>,
         format: Option<String>,
         description: Option<String>,
+        review: Option<String>,
         rollup: Option<RollupSet>,
     ) -> Result<SchemaConfig, String> {
         let db_type = db_type.trim();
@@ -409,6 +461,19 @@ impl Engine {
         // trimmed, empty stores as absent
         let description =
             description.as_deref().map(str::trim).filter(|d| !d.is_empty()).map(|d| d.to_string());
+        // a review window rides any kind too, and is stored in its
+        // compact spelling however it was typed. Absent and blank part ways
+        // here: an editor that sends nothing leaves the window alone, a blank
+        // one clears it. A window nothing can read is refused rather than
+        // written as noise.
+        let clear_review = matches!(review.as_deref().map(str::trim), Some(""));
+        let review = match review.as_deref().map(str::trim) {
+            None | Some("") => None,
+            Some(w) => match canonical_review_window(w) {
+                Some(c) => Some(c),
+                None => return Err(format!("unknown review window \u{201c}{w}\u{201d}")),
+            },
+        };
         // multi keeps its options (a select with list values); every other
         // explicit kind has none
         let options: Vec<SelectOption> = if kind.is_some() && kind.as_deref() != Some("multi") {
@@ -456,6 +521,13 @@ impl Engine {
             let prior = map.get(&db_type).and_then(|ts| ts.props.get(&prop));
             let keep = prior.map(|ps| ps.notify).unwrap_or(false);
             let keep_before = prior.and_then(|ps| ps.notify_before);
+            // an editor that knows nothing about review windows must not
+            // silently clear one: absent means unchanged, blank means clear
+            let review = if clear_review {
+                None
+            } else {
+                review.or_else(|| prior.and_then(|ps| ps.review.clone()))
+            };
             // keys a newer app wrote on this prop ride along
             let extra = prior.map(|ps| ps.extra.clone()).unwrap_or_default();
             let notify = notify.unwrap_or(keep) && kind.as_deref() == Some("date");
@@ -483,6 +555,7 @@ impl Engine {
                     prop: rollup_prop,
                     agg,
                     description,
+                    review,
                     extra,
                 },
             );
@@ -723,6 +796,7 @@ impl Engine {
                     prop: None,
                     agg: None,
                     description: None,
+                    review: None,
                     extra: Default::default(),
                 },
             );
@@ -1380,6 +1454,111 @@ mod tests {
     use super::super::testutil::*;
     use super::*;
 
+    /// A review window is stored in one spelling however it was typed, and
+    /// the vocabulary is a MIRROR of `src/lib/shelflife.ts` — a unit or word
+    /// added on either side breaks here, which is the reminder to update the
+    /// other.
+    #[test]
+    fn review_windows_mirror_the_frontend() {
+        assert_eq!(REVIEW_UNITS.to_vec(), vec!["d", "w", "m", "y"]);
+        assert_eq!(
+            REVIEW_WORDS.to_vec(),
+            vec![("weekly", "1w"), ("monthly", "1m"), ("quarterly", "3m"), ("yearly", "1y")],
+            "REVIEW_WORDS drifted from src/lib/shelflife.ts — update both sides together"
+        );
+        // the spoken forms and the compact ones land on the same storage
+        assert_eq!(canonical_review_window("Yearly").as_deref(), Some("1y"));
+        assert_eq!(canonical_review_window("quarterly").as_deref(), Some("3m"));
+        assert_eq!(canonical_review_window(" 90d ").as_deref(), Some("90d"));
+        assert_eq!(canonical_review_window("6M").as_deref(), Some("6m"));
+        // and the shapes nothing can read stay unread
+        // a multibyte last character is rejected, never split through
+        let unreadable = [
+            "", "d", "90", "90 d", "-5d", "0d", "1000d", "90 days", "fortnightly", "90€", "90д",
+            "🙂",
+        ];
+        for bad in unreadable {
+            assert_eq!(canonical_review_window(bad), None, "{bad} names no window");
+        }
+    }
+
+    #[test]
+    fn a_review_window_rides_any_kind_and_survives_an_editor_that_ignores_it() {
+        let (e, dir) = temp_vault("schema-review");
+        let map = e
+            .set_schema_prop(
+                "contact",
+                "phone",
+                vec![],
+                Some("phone".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some("yearly".into()),
+                None,
+            )
+            .unwrap();
+        assert_eq!(map["contact"].props["phone"].review.as_deref(), Some("1y"));
+
+        // an editor that knows nothing about windows re-saves the prop with
+        // its description and leaves the window standing
+        let map = e
+            .set_schema_prop(
+                "contact",
+                "phone",
+                vec![],
+                Some("phone".into()),
+                None,
+                None,
+                None,
+                None,
+                Some("Mobile preferred.".into()),
+                None,
+                None,
+            )
+            .unwrap();
+        assert_eq!(map["contact"].props["phone"].review.as_deref(), Some("1y"));
+        assert_eq!(map["contact"].props["phone"].description.as_deref(), Some("Mobile preferred."));
+
+        // a blank one is how you take it off
+        let map = e
+            .set_schema_prop(
+                "contact",
+                "phone",
+                vec![],
+                Some("phone".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some("  ".into()),
+                None,
+            )
+            .unwrap();
+        assert_eq!(map["contact"].props["phone"].review, None);
+
+        // and a window nothing can read is refused rather than stored
+        assert!(e
+            .set_schema_prop(
+                "contact",
+                "phone",
+                vec![],
+                Some("phone".into()),
+                None,
+                None,
+                None,
+                None,
+                None,
+                Some("whenever".into()),
+                None,
+            )
+            .is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn schema_roundtrip_merge_and_demote() {
         let (e, dir) = temp_vault("schema");
@@ -1396,6 +1575,7 @@ mod tests {
                     opt("  ", None),          // empty dropped
                     opt("parked", Some(" ")), // blank color normalized away
                 ],
+                None,
                 None,
                 None,
                 None,
@@ -1427,6 +1607,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         let map = e
@@ -1434,6 +1615,7 @@ mod tests {
                 "gear",
                 "category",
                 vec![opt("mixer", None)],
+                None,
                 None,
                 None,
                 None,
@@ -1449,16 +1631,28 @@ mod tests {
 
         // empty options demote the prop; an emptied type drops entirely
         let map = e
-            .set_schema_prop("gear", "category", vec![], None, None, None, None, None, None, None)
+            .set_schema_prop(
+                "gear",
+                "category",
+                vec![],
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .unwrap();
         assert!(!map.contains_key("gear"));
         assert_eq!(map["release"].props.len(), 2, "other types untouched");
 
         assert!(e
-            .set_schema_prop("", "status", vec![], None, None, None, None, None, None, None)
+            .set_schema_prop("", "status", vec![], None, None, None, None, None, None, None, None)
             .is_err());
         assert!(e
-            .set_schema_prop("release", " ", vec![], None, None, None, None, None, None, None)
+            .set_schema_prop("release", " ", vec![], None, None, None, None, None, None, None, None)
             .is_err());
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1497,7 +1691,10 @@ mod tests {
             ["ambient", "club"],
             "multi keeps its vocabulary too"
         );
-        assert!(books["pages"].options.is_empty(), "every other kind drops one, like a schema edit");
+        assert!(
+            books["pages"].options.is_empty(),
+            "every other kind drops one, like a schema edit"
+        );
         assert!(e.schema().contains_key("Books"), "persisted across reads");
 
         // The trap this guards: a select IS its options, and set_schema_prop
@@ -1509,6 +1706,7 @@ mod tests {
                 "Books",
                 "shelf",
                 books["shelf"].options.clone(),
+                None,
                 None,
                 None,
                 None,
@@ -1570,6 +1768,7 @@ mod tests {
                 "ledger",
                 "status",
                 vec![opt("live", None)],
+                None,
                 None,
                 None,
                 None,
@@ -1730,6 +1929,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_prop(
@@ -1740,6 +1940,7 @@ mod tests {
             None,
             None,
             Some("books".into()),
+            None,
             None,
             None,
             None,
@@ -1812,6 +2013,7 @@ mod tests {
             "author",
             vec![],
             Some("text".into()),
+            None,
             None,
             None,
             None,
@@ -2028,6 +2230,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_view_pref(
@@ -2071,6 +2274,7 @@ mod tests {
             "rating",
             vec![],
             Some("text".into()),
+            None,
             None,
             None,
             None,
@@ -2164,6 +2368,7 @@ mod tests {
             "price",
             vec![],
             Some("text".into()),
+            None,
             None,
             None,
             None,
@@ -2269,6 +2474,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_prop(
@@ -2276,6 +2482,7 @@ mod tests {
             "Gebühr",
             vec![],
             Some("text".into()),
+            None,
             None,
             None,
             None,
@@ -2320,6 +2527,7 @@ mod tests {
             "price",
             vec![],
             Some("number".into()),
+            None,
             None,
             None,
             None,
@@ -2374,6 +2582,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         }
@@ -2390,7 +2599,7 @@ mod tests {
         // Production is a two-step flow: preserve the old kind, demote the
         // schema entry, then pass that bit to the confirmed value sweep.
         for (key, was_number) in [("price", true), ("score", false), ("due", false)] {
-            e.set_schema_prop("books", key, vec![], None, None, None, None, None, None, None)
+            e.set_schema_prop("books", key, vec![], None, None, None, None, None, None, None, None)
                 .unwrap();
             e.clear_prop("books", key, was_number, true).unwrap();
         }
@@ -2450,6 +2659,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_prop(
@@ -2463,6 +2673,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_prop(
@@ -2470,6 +2681,7 @@ mod tests {
             "due",
             vec![],
             Some("date".into()),
+            None,
             None,
             None,
             None,
@@ -2544,6 +2756,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         }
@@ -2603,6 +2816,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_saved_view(&saved_query("canonical", "books", "price:12")).unwrap();
@@ -2635,6 +2849,7 @@ mod tests {
             "price",
             vec![],
             Some("text".into()),
+            None,
             None,
             None,
             None,
@@ -2929,6 +3144,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].props["released"].kind.as_deref(), Some("date"));
@@ -2939,6 +3155,7 @@ mod tests {
                 "contract",
                 vec![],
                 Some("file".into()),
+                None,
                 None,
                 None,
                 None,
@@ -2959,6 +3176,7 @@ mod tests {
                 vec![opt("junk", None)],
                 Some("url".into()),
                 Some(true),
+                None,
                 None,
                 None,
                 None,
@@ -2986,6 +3204,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         let ps = &map["contact"].props["email"];
@@ -2999,6 +3218,7 @@ mod tests {
                 "phone",
                 vec![],
                 Some("phone".into()),
+                None,
                 None,
                 None,
                 None,
@@ -3019,6 +3239,7 @@ mod tests {
                 vec![opt("junk", None)],
                 Some("checkbox".into()),
                 Some(true),
+                None,
                 None,
                 None,
                 None,
@@ -3047,6 +3268,7 @@ mod tests {
                 Some(" euro ".into()),
                 None,
                 None,
+                None,
             )
             .unwrap();
         let ps = &map["inventory"].props["price"];
@@ -3067,6 +3289,7 @@ mod tests {
             Some("percent".into()),
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_prop(
@@ -3078,6 +3301,7 @@ mod tests {
             None,
             None,
             Some("plain".into()),
+            None,
             None,
             None,
         )
@@ -3101,6 +3325,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert_eq!(map["inventory"].props["price"].format, None);
@@ -3116,6 +3341,7 @@ mod tests {
                 None,
                 None,
                 Some("euro".into()),
+                None,
                 None,
                 None,
             )
@@ -3139,6 +3365,7 @@ mod tests {
                 Some("furlongs".into()),
                 None,
                 None,
+                None,
             )
             .is_err());
 
@@ -3156,6 +3383,7 @@ mod tests {
                 None,
                 None,
                 Some("  Approximate is fine — current resale value.  ".into()),
+                None,
                 None,
             )
             .unwrap();
@@ -3177,6 +3405,7 @@ mod tests {
                 None,
                 Some("euro".into()),
                 Some("Has this been included in a royalty statement?".into()),
+                None,
                 None,
             )
             .unwrap();
@@ -3216,6 +3445,7 @@ mod tests {
                 None,
                 Some("   ".into()),
                 None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].props["status"].description, None);
@@ -3231,6 +3461,7 @@ mod tests {
             "release",
             "status",
             vec![opt("live", None)],
+            None,
             None,
             None,
             None,
@@ -3257,6 +3488,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert!(!map["release"].props.contains_key("released"), "blank kind + no options demotes");
@@ -3266,6 +3498,7 @@ mod tests {
                 "x",
                 vec![],
                 Some("multiselect".into()),
+                None,
                 None,
                 None,
                 None,
@@ -3331,6 +3564,7 @@ mod tests {
                 Some(fmt.into()),
                 None,
                 None,
+                None,
             )
         };
         // a currency code, a linear unit, a display-only one — and the casing
@@ -3389,6 +3623,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         let ps = &map["release"].props["format"];
@@ -3420,6 +3655,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert!(!map["release"].props["format"].notify);
@@ -3428,7 +3664,19 @@ mod tests {
         // no kind + no options demotes the entry away, like any prop — and
         // the emptied type entry drops out with it (no icon/home here)
         let map = e
-            .set_schema_prop("release", "format", vec![], None, None, None, None, None, None, None)
+            .set_schema_prop(
+                "release",
+                "format",
+                vec![],
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .unwrap();
         assert!(!map.contains_key("release"), "demote sweeps a multi too");
         let _ = fs::remove_dir_all(&dir);
@@ -3451,6 +3699,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert!(map["release"].props["due"].notify);
@@ -3466,6 +3715,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert!(map["release"].props["due"].notify, "unspecified notify keeps the stored flag");
@@ -3474,6 +3724,7 @@ mod tests {
             "release",
             "status",
             vec![opt("live", None)],
+            None,
             None,
             None,
             None,
@@ -3505,6 +3756,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert!(!map["release"].props["due"].notify, "notify is date-kind only");
@@ -3515,6 +3767,7 @@ mod tests {
                 vec![],
                 Some("date".into()),
                 Some(false),
+                None,
                 None,
                 None,
                 None,
@@ -3541,6 +3794,7 @@ mod tests {
                 Some("date".into()),
                 Some(false),
                 Some(3),
+                None,
                 None,
                 None,
                 None,
@@ -3573,6 +3827,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].props["due"].notify_before, Some(3));
@@ -3584,6 +3839,7 @@ mod tests {
                 "due",
                 vec![],
                 Some("text".into()),
+                None,
                 None,
                 None,
                 None,
@@ -3610,6 +3866,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         assert_eq!(map["release"].props["due"].notify_before, Some(365));
@@ -3621,6 +3878,7 @@ mod tests {
                 Some("date".into()),
                 None,
                 Some(0),
+                None,
                 None,
                 None,
                 None,
@@ -3652,6 +3910,7 @@ mod tests {
             None,
             None,
             Some("ship day".into()),
+            None,
             None,
         )
         .unwrap();
@@ -3693,6 +3952,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .unwrap();
         let ps = &map["release"].props["contact"];
@@ -3719,6 +3979,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .is_err());
         assert!(e
@@ -3733,6 +3994,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             )
             .is_err());
         let map = e
@@ -3744,6 +4006,7 @@ mod tests {
                 None,
                 None,
                 Some("contact".into()),
+                None,
                 None,
                 None,
                 None,
@@ -3765,6 +4028,7 @@ mod tests {
                 "release",
                 "status",
                 vec![opt("live", None)],
+                None,
                 None,
                 None,
                 None,
@@ -3831,6 +4095,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_icon("release", Some("music".into()), None, None).unwrap();
@@ -3850,14 +4115,39 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         assert!(e.schema()["release"].icon.is_some());
         // … and demoting every prop keeps the entry while an icon remains
-        e.set_schema_prop("release", "status", vec![], None, None, None, None, None, None, None)
-            .unwrap();
+        e.set_schema_prop(
+            "release",
+            "status",
+            vec![],
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         let map = e
-            .set_schema_prop("release", "artist", vec![], None, None, None, None, None, None, None)
+            .set_schema_prop(
+                "release",
+                "artist",
+                vec![],
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .unwrap();
         assert!(map["release"].props.is_empty());
         assert!(map["release"].icon.is_some(), "icon-only entry stays");
@@ -3958,11 +4248,24 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_home("task", Some("Tasks".into())).unwrap();
         let map = e
-            .set_schema_prop("task", "status", vec![], None, None, None, None, None, None, None)
+            .set_schema_prop(
+                "task",
+                "status",
+                vec![],
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
             .unwrap();
         assert!(map["task"].props.is_empty());
         assert_eq!(map["task"].home.as_deref(), Some("Tasks"), "home-only entry stays");
@@ -4040,6 +4343,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         let after: serde_json::Value =
@@ -4112,6 +4416,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         let roll = || {
@@ -4123,6 +4428,7 @@ mod tests {
                 "earned",
                 vec![],
                 Some("rollup".into()),
+                None,
                 None,
                 None,
                 None,
@@ -4158,6 +4464,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 Some(RollupSet { relation: relation.into(), prop: prop.into(), agg: agg.into() }),
             )
         };
@@ -4181,6 +4488,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
                 None
             )
             .is_err());
@@ -4190,6 +4498,7 @@ mod tests {
                 "plain",
                 vec![],
                 Some("text".into()),
+                None,
                 None,
                 None,
                 None,
@@ -4207,6 +4516,7 @@ mod tests {
                 "earned",
                 vec![opt("stray", None)],
                 Some("rollup".into()),
+                None,
                 None,
                 None,
                 None,
@@ -4248,6 +4558,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_prop(
@@ -4255,6 +4566,7 @@ mod tests {
             "earned",
             vec![],
             Some("rollup".into()),
+            None,
             None,
             None,
             None,
@@ -4308,6 +4620,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_prop(
@@ -4315,6 +4628,7 @@ mod tests {
             "earned",
             vec![],
             Some("rollup".into()),
+            None,
             None,
             None,
             None,
@@ -4340,6 +4654,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_prop(
@@ -4347,6 +4662,7 @@ mod tests {
             "spend",
             vec![],
             Some("rollup".into()),
+            None,
             None,
             None,
             None,
@@ -4364,6 +4680,7 @@ mod tests {
             "amount",
             vec![],
             Some("number".into()),
+            None,
             None,
             None,
             None,
@@ -4412,6 +4729,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_prop(
@@ -4425,6 +4743,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_prop(
@@ -4432,6 +4751,7 @@ mod tests {
             "total",
             vec![],
             Some("rollup".into()),
+            None,
             None,
             None,
             None,
@@ -4479,6 +4799,7 @@ mod tests {
             None,
             None,
             None,
+            None,
             Some(RollupSet {
                 relation: "entries".into(),
                 prop: "amount".into(),
@@ -4513,6 +4834,7 @@ mod tests {
             "author",
             vec![],
             Some("text".into()),
+            None,
             None,
             None,
             None,

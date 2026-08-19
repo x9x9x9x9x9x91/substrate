@@ -44,9 +44,7 @@ pub(crate) fn configured_ids() -> Result<Vec<String>, String> {
         }
         // SAFETY: Swift returns a strdup'd NUL-terminated UTF-8 JSON array;
         // ownership transfers here, so the copy is followed by libc::free.
-        let json = unsafe { std::ffi::CStr::from_ptr(ptr) }
-            .to_string_lossy()
-            .into_owned();
+        let json = unsafe { std::ffi::CStr::from_ptr(ptr) }.to_string_lossy().into_owned();
         unsafe { libc::free(ptr.cast()) };
         serde_json::from_str::<Vec<String>>(&json)
             .map_err(|e| format!("widget configuration list was not a string array: {e}"))

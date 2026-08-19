@@ -42,6 +42,11 @@ pub enum Actor {
     /// carrying the run's own summary — a receipt for a swept note names the
     /// run that swept it, not the app.
     Bulk(String),
+    /// A write a reflex rule made on its own (`reflex: …` subjects), carrying
+    /// what the run said about itself. Kept apart from `App` because nobody
+    /// looked at the value: a rule fired and wrote, so it can no more date a
+    /// review than a sweep can.
+    Reflex(String),
     /// An edit made outside Substrate, self-declared but unnamed. Reserved: the
     /// `Substrate-Tool:` trailer (§4.3) always carries a name, so it maps to
     /// `ExternalTool` and nothing in this tree lands here yet.
@@ -76,6 +81,9 @@ pub fn actor_for(author: &str, author_email: &str, subject: &str, message: &str)
     }
     if let Some(run) = subject.strip_prefix("bulk: ") {
         return Actor::Bulk(run.trim().to_string());
+    }
+    if let Some(run) = subject.strip_prefix("reflex: ") {
+        return Actor::Reflex(run.trim().to_string());
     }
     if author_email == "substrate@local" {
         return Actor::App;
@@ -206,6 +214,82 @@ pub fn collapse(readings: Vec<FactPoint>) -> Vec<FactPoint> {
     points
 }
 
+/// How many notes one snapshot can rewrite and still plausibly be somebody
+/// looking at each value. Above this the commit is a sweep — an import, a
+/// format migration, a mass rewrite — whoever its author says it is.
+///
+/// The number is a judgement, not a measurement: it is set where a hand edit
+/// stops being credible (a rename touching a whole database, an importer
+/// landing a folder) and deliberately errs generous, because the failure it
+/// guards against is a sweep reading as "everything reviewed today", which is
+/// a lie, while an unusually broad hand edit reading as unreviewed is merely
+/// pessimistic.
+pub const BULK_TOUCH_NOTES: usize = 25;
+
+/// Does this change point mean a person set that value?
+///
+/// Three disqualifiers, and only three. The commit declares a bulk run or a
+/// reflex run in its subject (`Actor::Bulk`, `Actor::Reflex` — in both cases a
+/// machine wrote and nobody read), or it rewrote more notes than
+/// `BULK_TOUCH_NOTES` —
+/// `broad`, which the caller measures against the commit's parent because a
+/// lane point carries no file count. Everything else counts: an app snapshot
+/// of a hand edit, a write through the MCP door, an edit synced in from
+/// another device, an outside tool's commit. Each of those is one value at a
+/// time, by somebody who could see it.
+pub fn counts_as_review(actor: &Actor, broad: bool) -> bool {
+    !broad && !matches!(actor, Actor::Bulk(_) | Actor::Reflex(_))
+}
+
+/// When a fact was last set by a person, as far as the repository can say.
+///
+/// `reviewed_ts_ms` is the newest change point that `counts_as_review`
+/// accepts. `only_bulk` separates the two ways it can be None: the fact has
+/// change points but every one of them was a sweep (so its age is genuinely
+/// unknown, and saying "changed today" would be the lie this whole surface
+/// exists to avoid), versus a fact with no history at all.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct FactFreshness {
+    pub path: String,
+    pub key: String,
+    pub reviewed_ts_ms: Option<u64>,
+    pub reviewed_commit: Option<String>,
+    pub reviewed_actor: Option<Actor>,
+    pub only_bulk: bool,
+    /// Commit time of the oldest surviving snapshot, carried for the same
+    /// reason `FactLane` carries it: before that boundary the vault knows
+    /// nothing, so an age measured across it is a guess.
+    pub oldest_ts_ms: Option<u64>,
+}
+
+/// Read a lane's freshness. `broad_commits` holds the ids the caller measured
+/// as sweeps; a lane whose points are all sweeps comes back `only_bulk`, never
+/// dated from the sweep that touched it.
+pub fn freshness_of(
+    lane: &FactLane,
+    broad_commits: &std::collections::HashSet<String>,
+) -> FactFreshness {
+    // newest first: the most recent point a person is behind wins
+    let found = lane
+        .points
+        .iter()
+        .rev()
+        // a deletion is a change point too, but a fact with no value has no
+        // shelf life — the newest point that MEANS something is a value
+        .filter(|p| p.value.is_some())
+        .find(|p| counts_as_review(&p.actor, broad_commits.contains(&p.commit)));
+    let had_points = lane.points.iter().any(|p| p.value.is_some());
+    FactFreshness {
+        path: lane.path.clone(),
+        key: lane.key.clone(),
+        reviewed_ts_ms: found.map(|p| p.ts_ms),
+        reviewed_commit: found.map(|p| p.commit.clone()),
+        reviewed_actor: found.map(|p| p.actor.clone()),
+        only_bulk: found.is_none() && had_points,
+        oldest_ts_ms: lane.oldest_ts_ms,
+    }
+}
+
 /// One frontmatter value as lane text. Strings keep their own text (a
 /// non-numeric value is returned as-is, §2.3); every other scalar renders as
 /// its JSON form so `72.4` and `true` round-trip unambiguously. An explicit
@@ -270,6 +354,70 @@ mod tests {
             points,
             oldest_ts_ms: oldest,
         }
+    }
+
+    fn actor_pt(ts_ms: u64, value: Option<&str>, actor: Actor) -> FactPoint {
+        FactPoint { actor, ..pt(ts_ms, value) }
+    }
+
+    fn broad(ids: &[&str]) -> std::collections::HashSet<String> {
+        ids.iter().map(|i| (*i).to_string()).collect()
+    }
+
+    #[test]
+    fn a_sweep_is_not_a_review() {
+        // the three disqualifiers, and the shapes that are NOT disqualified
+        assert!(!counts_as_review(&Actor::Bulk("schema rename".into()), false));
+        // a rule wrote this value; nobody looked at it
+        assert!(!counts_as_review(&Actor::Reflex("3 notes".into()), false));
+        assert!(!counts_as_review(&Actor::App, true));
+        assert!(counts_as_review(&Actor::App, false));
+        assert!(counts_as_review(&Actor::Mcp("Claude".into()), false));
+        assert!(counts_as_review(&Actor::Sync, false));
+        assert!(counts_as_review(&Actor::ExternalTool("Obsidian".into()), false));
+    }
+
+    #[test]
+    fn freshness_dates_from_the_last_hand_edit_not_the_sweep_after_it() {
+        // somebody set it in January; a February migration rewrote every note
+        let l = lane(
+            vec![
+                pt(100, Some("70")),
+                actor_pt(300, Some("70.0"), Actor::Bulk("format migration".into())),
+            ],
+            Some(50),
+        );
+        let f = freshness_of(&l, &broad(&[]));
+        assert_eq!(f.reviewed_ts_ms, Some(100));
+        assert_eq!(f.reviewed_commit.as_deref(), Some("c100"));
+        assert!(!f.only_bulk);
+        // and the same when the sweep declared nothing, but was measured broad
+        let l = lane(vec![pt(100, Some("70")), pt(300, Some("70.0"))], Some(50));
+        assert_eq!(freshness_of(&l, &broad(&["c300"])).reviewed_ts_ms, Some(100));
+    }
+
+    #[test]
+    fn a_fact_only_ever_touched_by_sweeps_has_an_unknown_age() {
+        // an imported vault nobody has revisited: saying "changed today" would
+        // be the lie; saying "no history at all" would be a different lie
+        let l = lane(vec![pt(100, Some("70")), pt(300, Some("72"))], Some(50));
+        let f = freshness_of(&l, &broad(&["c100", "c300"]));
+        assert_eq!(f.reviewed_ts_ms, None);
+        assert!(f.only_bulk);
+        // a fact with no history at all is the other case, and says so
+        let f = freshness_of(&lane(vec![], Some(50)), &broad(&[]));
+        assert_eq!(f.reviewed_ts_ms, None);
+        assert!(!f.only_bulk);
+    }
+
+    #[test]
+    fn a_deletion_does_not_date_a_fact() {
+        // the note lost the key in March; the age that matters is the last
+        // time the value it no longer has was actually set
+        let l = lane(vec![pt(100, Some("70")), pt(300, None)], Some(50));
+        let f = freshness_of(&l, &broad(&[]));
+        assert_eq!(f.reviewed_ts_ms, Some(100));
+        assert_eq!(f.oldest_ts_ms, Some(50));
     }
 
     #[test]
@@ -397,6 +545,17 @@ mod tests {
     }
 
     #[test]
+    fn a_reflex_run_is_read_as_itself_not_as_the_app() {
+        // reflex writes land under their own subject rather than riding an
+        // ordinary `snapshot`, which is the whole reason they can be told apart
+        assert_eq!(
+            actor_of("Substrate", "substrate@local", "reflex: 3 notes"),
+            Actor::Reflex("3 notes".into())
+        );
+        assert_eq!(actor_of("Substrate", "substrate@local", "snapshot"), Actor::App);
+    }
+
+    #[test]
     fn mcp_door_commits_carry_their_client() {
         assert_eq!(
             actor_of("Substrate MCP", "mcp@local", "mcp: note_write Health/Weight.md (Claude)"),
@@ -445,7 +604,11 @@ mod tests {
     #[test]
     fn a_bulk_subject_carries_its_run_summary() {
         assert_eq!(
-            actor_of("Substrate", "substrate@local", "bulk: renamed database “Books” to “Reading” (3 notes)"),
+            actor_of(
+                "Substrate",
+                "substrate@local",
+                "bulk: renamed database “Books” to “Reading” (3 notes)"
+            ),
             Actor::Bulk("renamed database “Books” to “Reading” (3 notes)".into())
         );
         // a bare prefix is still a bulk run, just one that can only say so
@@ -475,18 +638,33 @@ mod tests {
     #[test]
     fn a_tool_trailer_names_the_writer() {
         assert_eq!(
-            actor_for("Robin", "robin@example.com", "sync inbox", "sync inbox\n\nSubstrate-Tool: Obsidian\n"),
+            actor_for(
+                "Robin",
+                "robin@example.com",
+                "sync inbox",
+                "sync inbox\n\nSubstrate-Tool: Obsidian\n"
+            ),
             Actor::ExternalTool("Obsidian".into())
         );
         // the trailer beats even Substrate's own identity: a tool that copied
         // the repo's author config is still that tool
         assert_eq!(
-            actor_for("Substrate", "substrate@local", "snapshot", "snapshot\n\nSubstrate-Tool: importer\n"),
+            actor_for(
+                "Substrate",
+                "substrate@local",
+                "snapshot",
+                "snapshot\n\nSubstrate-Tool: importer\n"
+            ),
             Actor::ExternalTool("importer".into())
         );
         // git reads trailer keys case-insensitively, and the last one wins
         assert_eq!(
-            actor_for("Robin", "robin@example.com", "edit", "edit\n\nsubstrate-tool: First\nSubstrate-Tool: Last\n"),
+            actor_for(
+                "Robin",
+                "robin@example.com",
+                "edit",
+                "edit\n\nsubstrate-tool: First\nSubstrate-Tool: Last\n"
+            ),
             Actor::ExternalTool("Last".into())
         );
     }
@@ -505,7 +683,12 @@ mod tests {
         );
         // an empty name says who as poorly as no trailer at all
         assert_eq!(
-            actor_for("Substrate", "substrate@local", "snapshot", "snapshot\n\nSubstrate-Tool:   \n"),
+            actor_for(
+                "Substrate",
+                "substrate@local",
+                "snapshot",
+                "snapshot\n\nSubstrate-Tool:   \n"
+            ),
             Actor::App
         );
         // and a body without one is the ordinary case

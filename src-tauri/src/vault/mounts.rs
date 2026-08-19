@@ -1369,9 +1369,7 @@ impl Engine {
             // new every scan. Then any free row of the same identity:
             // a renamed file keeps its row. Then rel path: a file edited in
             // place has a new identity but is the same row.
-            let rows = (!identity.is_empty())
-                .then(|| by_identity.get(&identity))
-                .flatten();
+            let rows = (!identity.is_empty()).then(|| by_identity.get(&identity)).flatten();
             let matched = rows
                 .and_then(|rows| {
                     rows.iter()
@@ -2260,7 +2258,8 @@ mod tests {
         e.seal_note(&first.path, Some("correct horse")).unwrap();
         e.lock_sealed_note(&first.path);
         for _ in 0..8 {
-            let error = e.mount_annotate(&m.id, "track.wav", "bpm", Some("140".into())).unwrap_err();
+            let error =
+                e.mount_annotate(&m.id, "track.wav", "bpm", Some("140".into())).unwrap_err();
             assert!(
                 error.contains(&first.path),
                 "the shadow-folder note is named, not an arbitrary match: {error}"
@@ -3525,7 +3524,8 @@ mod tests {
         // from another machine arrives in whatever order it was written. It
         // must not decide which row a file matches.
         let at = e.root.join(index_rel_path(&m.id));
-        let mut index: MountIndex = serde_json::from_str(&fs::read_to_string(&at).unwrap()).unwrap();
+        let mut index: MountIndex =
+            serde_json::from_str(&fs::read_to_string(&at).unwrap()).unwrap();
         index.files.reverse();
         fs::write(&at, serde_json::to_string(&index).unwrap()).unwrap();
 
@@ -3917,7 +3917,11 @@ mod tests {
 
         e.forget_mount_text(&m.id);
         assert!(found(&e, "resynthesis").is_empty(), "text this machine cannot read still answers");
-        assert_eq!(found(&e, "paper"), vec![mount_row_path(&m.id, "paper.pdf")], "the row is still on the board");
+        assert_eq!(
+            found(&e, "paper"),
+            vec![mount_row_path(&m.id, "paper.pdf")],
+            "the row is still on the board"
+        );
 
         e.remove_mount(&m.id, false).unwrap();
         assert!(found(&e, "paper").is_empty(), "an unmounted folder still answers");

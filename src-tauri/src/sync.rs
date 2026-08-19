@@ -103,11 +103,7 @@ fn under_home(home: &Path, raw: &str) -> Result<PathBuf, String> {
         return Err("empty path".to_string());
     }
     let rel = raw.strip_prefix("~/").unwrap_or(raw);
-    let path = if Path::new(rel).is_absolute() {
-        PathBuf::from(rel)
-    } else {
-        home.join(rel)
-    };
+    let path = if Path::new(rel).is_absolute() { PathBuf::from(rel) } else { home.join(rel) };
     if path.components().any(|c| c == Component::ParentDir) {
         return Err(format!("{raw:?} walks out of the home directory"));
     }
@@ -136,7 +132,8 @@ fn canonical_ish(path: &Path) -> PathBuf {
         let Some(name) = cur.file_name().map(|n| n.to_os_string()) else {
             return path.to_path_buf();
         };
-        let Some(parent) = cur.parent().map(Path::to_path_buf).filter(|p| !p.as_os_str().is_empty())
+        let Some(parent) =
+            cur.parent().map(Path::to_path_buf).filter(|p| !p.as_os_str().is_empty())
         else {
             return path.to_path_buf();
         };
@@ -491,7 +488,11 @@ pub fn control(
     leg: Option<&str>,
 ) -> Result<SyncRun, String> {
     match action {
-        "run" => run(cfg, direction.ok_or("a run needs a direction (a remote from the sync state)")?, leg),
+        "run" => run(
+            cfg,
+            direction.ok_or("a run needs a direction (a remote from the sync state)")?,
+            leg,
+        ),
         "pause" | "resume" => {
             job_control(cfg, direction.ok_or("pause/resume needs a job name")?, action)
         }
@@ -1047,7 +1048,8 @@ mod tests {
     #[test]
     fn home_confinement_resolves_symlinks() {
         let dir = TmpDir::new("symlink");
-        let outside = std::env::temp_dir().join(format!("substrate-syncout-{}", std::process::id()));
+        let outside =
+            std::env::temp_dir().join(format!("substrate-syncout-{}", std::process::id()));
         std::fs::create_dir_all(&outside).unwrap();
         #[cfg(unix)]
         {
@@ -1057,10 +1059,7 @@ mod tests {
             let err = SyncCfg::resolve(
                 dir.path(),
                 None,
-                &SyncArgs {
-                    state: Some("escape/state.json".to_string()),
-                    ..SyncArgs::default()
-                },
+                &SyncArgs { state: Some("escape/state.json".to_string()), ..SyncArgs::default() },
             )
             .unwrap_err();
             assert!(err.contains("outside the home directory"), "{err}");

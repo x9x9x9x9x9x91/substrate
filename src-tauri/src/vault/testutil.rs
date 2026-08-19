@@ -72,6 +72,7 @@ pub(crate) fn vault_with_poisoned_note(name: &str) -> (Engine, PathBuf) {
         None,
         None,
         None,
+        None,
     )
     .unwrap();
     // B sorts between A and C, so the sweep rewrites A, dies on B, never
@@ -105,6 +106,7 @@ pub(crate) fn vault_with_stale_indexed_broken_note(name: &str) -> (Engine, PathB
         "author",
         vec![],
         Some("text".into()),
+        None,
         None,
         None,
         None,

@@ -385,19 +385,13 @@ pub fn embed_size(inner: &str) -> Option<EmbedSize> {
         if let Some((w, h)) = seg.split_once(['x', 'X']) {
             match (clamp_px(w), clamp_px(h)) {
                 (Some(width), Some(height)) => {
-                    return Some(EmbedSize {
-                        width,
-                        height: Some(height),
-                    })
+                    return Some(EmbedSize { width, height: Some(height) })
                 }
                 _ => continue,
             }
         }
         if let Some(width) = clamp_px(seg) {
-            return Some(EmbedSize {
-                width,
-                height: None,
-            });
+            return Some(EmbedSize { width, height: None });
         }
     }
     None
@@ -1524,12 +1518,7 @@ impl Settings {
             .filter(|n| *n >= Self::OPACITY_MIN as f64 && *n <= Self::OPACITY_MAX as f64)
             .map(|n| n as u8)
             .unwrap_or(Self::OPACITY_DEFAULT);
-        Settings {
-            capture_hotkey,
-            voice_hotkey,
-            close_to_tray,
-            window_opacity,
-        }
+        Settings { capture_hotkey, voice_hotkey, close_to_tray, window_opacity }
     }
 }
 
@@ -2068,8 +2057,8 @@ impl Engine {
         abs: &Path,
         plaintext: impl AsRef<[u8]>,
     ) -> Result<(), String> {
-        let sealed_here = self.sealed_is_authorized(rel)
-            || self.notes.get(rel).is_some_and(|meta| meta.sealed);
+        let sealed_here =
+            self.sealed_is_authorized(rel) || self.notes.get(rel).is_some_and(|meta| meta.sealed);
         if sealed_here {
             let identity = self.authorized_identity(rel)?;
             write_atomic(abs, sealed::encrypt_note(identity, plaintext.as_ref())?)
@@ -3740,7 +3729,10 @@ mod tests {
 
         // …and the BARE timeline opener is machine content that strips.
         let timeline = "a\n```timeline\nsource: release\nstart: created\nlabel: title\n```\nb";
-        assert!(!strip_machine_fences(timeline).contains("source: release"), "bare timeline strips");
+        assert!(
+            !strip_machine_fences(timeline).contains("source: release"),
+            "bare timeline strips"
+        );
     }
 
     #[test]
@@ -5133,18 +5125,8 @@ mod tests {
         // twin of embedSize in src/lib/wikilinks.ts — keep the two
         // tables identical, a divergence means the app and the engine disagree
         // about how big a note's images are.
-        let w = |width| {
-            Some(EmbedSize {
-                width,
-                height: None,
-            })
-        };
-        let box_ = |width, height| {
-            Some(EmbedSize {
-                width,
-                height: Some(height),
-            })
-        };
+        let w = |width| Some(EmbedSize { width, height: None });
+        let box_ = |width, height| Some(EmbedSize { width, height: Some(height) });
         assert_eq!(embed_size("cover.png"), None);
         assert_eq!(embed_size("cover.png|300"), w(300));
         assert_eq!(embed_size("cover.png|300x200"), box_(300, 200));
@@ -5288,6 +5270,7 @@ mod tests {
             None,
             None,
             Some("contact".into()),
+            None,
             None,
             None,
             None,
@@ -5605,10 +5588,7 @@ mod tests {
         let (_e, dir) = temp_vault("settings-voice");
         // absent from the seeded note → the default chord, not an empty string
         // that would silently register nothing
-        assert_eq!(
-            Settings::load(&dir).voice_hotkey,
-            Settings::DEFAULT_VOICE_HOTKEY
-        );
+        assert_eq!(Settings::load(&dir).voice_hotkey, Settings::DEFAULT_VOICE_HOTKEY);
 
         // its own row, case-folded like every other settings read because
         // Settings.md is hand-editable, and independent of capture-hotkey
@@ -5622,15 +5602,8 @@ mod tests {
         assert_eq!(s.capture_hotkey, "cmd+shift+j");
 
         // blank falls back rather than unregistering the chord
-        fs::write(
-            dir.join(Settings::REL_PATH),
-            "---\nvoice-hotkey: \"  \"\n---\n",
-        )
-        .unwrap();
-        assert_eq!(
-            Settings::load(&dir).voice_hotkey,
-            Settings::DEFAULT_VOICE_HOTKEY
-        );
+        fs::write(dir.join(Settings::REL_PATH), "---\nvoice-hotkey: \"  \"\n---\n").unwrap();
+        assert_eq!(Settings::load(&dir).voice_hotkey, Settings::DEFAULT_VOICE_HOTKEY);
     }
 
     #[test]
@@ -5940,6 +5913,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_prop("Lisbon.md", "contact", Some("Gero")).unwrap();
@@ -5986,6 +5960,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_schema_prop(
@@ -5996,6 +5971,7 @@ mod tests {
             None,
             None,
             Some("label".into()),
+            None,
             None,
             None,
             None,
@@ -6212,6 +6188,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         )
         .unwrap();
         e.set_prop("refs/Ref.md", "artist", Some("Old")).unwrap();
@@ -6274,6 +6251,7 @@ mod tests {
             "email",
             vec![],
             Some("text".into()),
+            None,
             None,
             None,
             None,
@@ -6504,8 +6482,9 @@ mod tests {
         // arrive unchanged, and the destination must not inherit the source's
         // authorization any more than a note rename does.
         let (mut e, dir) = testutil::temp_vault("sealed-folder-rename");
-        let note =
-            e.create_full("Private Folder", "Secrets", None, None, Some("folder secret\n")).unwrap();
+        let note = e
+            .create_full("Private Folder", "Secrets", None, None, Some("folder secret\n"))
+            .unwrap();
         e.seal_note(&note.path, Some("correct horse")).unwrap();
         e.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
 
@@ -6528,15 +6507,19 @@ mod tests {
         // frontmatter, which a sealed note does not have in the clear — the
         // filename stem is the fallback, and it must never be the ciphertext.
         let (mut e, dir) = testutil::temp_vault("sealed-trash");
-        let note =
-            e.create_full("Private Trash", "", Some("record"), None, Some("trash secret\n")).unwrap();
+        let note = e
+            .create_full("Private Trash", "", Some("record"), None, Some("trash secret\n"))
+            .unwrap();
         e.seal_note(&note.path, Some("correct horse")).unwrap();
         e.lock_sealed_note(&note.path);
 
         let id = e.trash(&note.path).unwrap();
         let entries = e.trash_list();
         let entry = entries.iter().find(|t| t.id == id).expect("the sealed note is listed");
-        assert_eq!(entry.title, "Private Trash", "the filename stem stands in for the sealed title");
+        assert_eq!(
+            entry.title, "Private Trash",
+            "the filename stem stands in for the sealed title"
+        );
         assert_eq!(entry.path, note.path);
 
         let restored = e.trash_restore(&id).unwrap();
@@ -6556,7 +6539,8 @@ mod tests {
     fn restarting_the_app_relocks_every_unlocked_sealed_note() {
         // Authorization lives in the session, never on disk.
         let (mut e, dir) = testutil::temp_vault("sealed-restart");
-        let note = e.create_full("Private Restart", "", None, None, Some("restart secret\n")).unwrap();
+        let note =
+            e.create_full("Private Restart", "", None, None, Some("restart secret\n")).unwrap();
         e.seal_note(&note.path, Some("correct horse")).unwrap();
         e.unlock_sealed_note(&note.path, Some("correct horse")).unwrap();
         assert!(e.read(&note.path).is_ok(), "unlocked in this session");
