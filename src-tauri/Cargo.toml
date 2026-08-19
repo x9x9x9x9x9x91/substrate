@@ -113,6 +113,8 @@ mac-notification-sys = "0.6"
 # Hand internal drags back to WebKit (src/dragfix.rs) — same objc2
 # the wry/tauri stack already builds with
 objc2 = "0.6"
+# NSString/NSURL/NSArray for the Vision call that reads text out of images
+objc2-foundation = "0.3"
 # NSVisualEffectView behind the window so the desktop shines through
 # at the user's chosen opacity. The blur is the OS material's, never a CSS
 # backdrop-filter over our own content (which would blur the notes too).

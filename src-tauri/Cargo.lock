@@ -5438,6 +5438,7 @@ dependencies = [
  "mac-notification-sys",
  "notify",
  "objc2",
+ "objc2-foundation",
  "portable-pty",
  "proptest",
  "quick-xml",

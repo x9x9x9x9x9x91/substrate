@@ -206,6 +206,24 @@ export interface AssetInfo {
   mtime_ms: number;
 }
 
+/** A picture whose text was read on this machine, as the search pane opens
+ * it: where the picture is, what was read out of it, and the sentence saying
+ * who read it — mirrors Rust's `ImageHit`.
+ *
+ * The label travels with the text rather than living in a UI string, so the
+ * pane cannot show recognized text without saying what kind of text it is.
+ */
+export interface ImageHit {
+  rel: string;
+  source: string;
+  /** absolute on this machine — what streams through the asset protocol */
+  path: string;
+  text: string;
+  truncated: boolean;
+  label: string;
+  version: number;
+}
+
 /** One loose (non-note) file in a folder view — mirrors Rust's
     `FolderFile`. `path` is absolute: it is what streams through the asset
     protocol, what the OS open/reveal actions take, AND the shared audio

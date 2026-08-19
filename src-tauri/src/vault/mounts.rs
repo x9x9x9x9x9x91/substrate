@@ -747,6 +747,16 @@ impl Engine {
             by_mount.entry(done.mount.clone()).or_default().push(done);
         }
         let mut changed = Vec::new();
+        // Recognized images belong to no mount — they are the vault's own
+        // files, and their text goes into a sidecar beside the picture rather
+        // than into a mount index. They leave by their own door before the
+        // per-mount loop, which would otherwise read an index that no mount
+        // named.
+        if let Some(images) = by_mount.remove(super::ocr::VAULT_JOB_MOUNT) {
+            if self.apply_image_ocr(&images) {
+                changed.push(super::ocr::IMAGES_CHANGED.to_string());
+            }
+        }
         for (id, batch) in by_mount {
             let mut index = read_index(&self.root, &id);
             let mut touched = false;
@@ -1789,6 +1799,11 @@ impl Engine {
             let Some(path) = bindings.get(&m.id) else { continue };
             out.extend(self.mount_extract_jobs(&m.id, path));
         }
+        // The vault's own images ride the same workers, and this scan is the
+        // only place they are offered: it already runs off every thread a
+        // person is waiting on, and it repeats, so a screenshot dropped into
+        // the vault is read shortly after it lands rather than at boot.
+        out.extend(self.image_ocr_jobs());
         out
     }
 }

@@ -4555,6 +4555,81 @@ never in history.
   (§3): click opens them in the OS-default app. Export and print treat them
   like every other asset — print emits `embedded file · <name>`.
 
+## 9a. `.<image>.ocr.txt` — recognized-text sidecars
+
+Text read out of a picture by the machine, kept as a plain file beside the
+picture it was read from. Reading is on-device (Apple's Vision framework, macOS
+only), so a vault that never leaves the disk stays that way; the sidecars
+themselves are ordinary text and travel with the vault like everything else.
+
+```
+Screenshots/
+├── invoice-4711.png
+└── .invoice-4711.png.ocr.txt     ← what the machine read in it
+```
+
+- **Name**: a dot, the picture's full filename, then `.ocr.txt`. Dot-prefixed,
+  so the hidden rule (§1) keeps it out of the note index, the watcher and the
+  folder listing — it is not a note and is not a loose file anyone browses.
+  It sits in the same folder as its picture, so moving the pair together keeps
+  them together.
+- **Which pictures**: `png`, `jpg`/`jpeg`, `heic`/`heif`, `tif`/`tiff`, `gif`,
+  `bmp`, `webp` anywhere in the vault, including inside `.assets/` (§9), which
+  is the one place the hidden rule is deliberately walked into: an embedded
+  screenshot is exactly the kind of picture whose text someone searches for.
+- **Layout**: a header of `# key: value` comment lines, one blank line, then
+  the recognized text verbatim. Every header line starts with `# ` — a file
+  whose first line does not is not a sidecar and is left alone.
+
+```
+# substrate-ocr v1 — machine-read text, never ground truth
+# source: invoice-4711.png
+# sha256: 9f2c1b…
+# bytes: 128411
+# engine: apple-vision (on-device)
+# truncated: no
+
+Invoice 4711
+Acme Mastering GmbH
+Total 19,00 EUR
+```
+
+- **The label is the first line, and it is part of the format, not the UI.**
+  Every reader — a person opening the file, an agent grepping the vault, the
+  search pane — is told in the same sentence that this text was read by a
+  machine and is not what the picture says for certain. Recognition mistakes
+  numbers and names; nothing downstream may present the text as the vault's
+  own words.
+- **`v1` is the version**, carried in that same first line. A sidecar written
+  by a newer format reads as absent rather than half-understood, and is left
+  alone rather than overwritten.
+- **`sha256:` binds the text to the bytes it was read from.** A picture
+  replaced under the same name has a different hash, so its sidecar is stale
+  and the picture is read again. A sidecar is trusted only when `bytes:` AND
+  the hash both still describe the file — the length alone would let a
+  replacement of identical size pass as fresh forever. A result
+  arriving from a worker whose picture changed mid-read is dropped rather
+  than written against bytes it did not describe.
+- **`error: <reason>`** is written when the picture could not be read at all —
+  a corrupt file, a format the reader chokes on, one past the size cap. Such a
+  sidecar carries the reason and no text, and its picture gets no search row:
+  the file was not read, which is a different thing from a picture holding no
+  words. The mark is what makes a broken picture an attempt made once rather
+  than once per scan, forever. The line is absent from an ordinary sidecar.
+- **`truncated: yes`** means the picture held more text than the 64 KiB cap
+  and only the beginning was kept — said out loud, so a phrase further down
+  reads as unsearched rather than absent.
+- **Lifecycle**: pictures are read by the same background workers that read
+  mounted documents — off every thread anyone waits on, a bounded few per
+  scan, never at boot. Deleting a picture while the app is running takes its
+  sidecar and its search hits with it at once; deleting one behind the app's
+  back leaves a sidecar beside no picture, which the next scan removes.
+  Nothing is ever re-read that a sidecar already describes.
+- **In search**: recognized text is indexed under the row path
+  `image://<vault-relative path>`, alongside notes and mounted files. Such a
+  row is a picture, not a note: the quick palette, which can only open notes,
+  excludes them; the full search pane lists them and opens them in place.
+
 ## 10. `.trash/` — recoverable deletion
 
 Delete = move into the trash, never unlink:

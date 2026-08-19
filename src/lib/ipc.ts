@@ -28,6 +28,7 @@ import type {
   FmState,
   FolderListing,
   FolderMetaMap,
+  ImageHit,
   Mount,
   MountInfo,
   MountRow,
@@ -577,6 +578,10 @@ export const voiceTranscribe = (path: string) => invoke<void>("voice_transcribe"
     modifiers, so the handler asks the OS. Always false off macOS. */
 export const dropShiftDown = () => invoke<boolean>("drop_shift_down");
 export const vaultAssetInfo = (name: string) => invoke<AssetInfo>("vault_asset_info", { name });
+/** The picture behind a search hit whose text was recognized here, or null
+    for one that is gone or was never read on this machine. */
+export const vaultImageHit = (rel: string) => invoke<ImageHit | null>("vault_image_hit", { rel });
+
 /** Loose (non-note) files directly inside one folder — the folder
     view's file rows. Lazy per folder on purpose: the vault index stays
     `.md`-only, so a folder of masters costs one `read_dir` when you open it

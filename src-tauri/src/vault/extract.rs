@@ -108,7 +108,7 @@ pub fn extractable(extension: &str) -> bool {
             // an Ableton project: not a media file at all, but the one
             // document a folder of music work is actually organised around
             | "als"
-    )
+    ) || super::ocr::is_image(extension)
 }
 
 /// Formats whose reading includes body text ([`Reading::text`]). A narrower
@@ -118,7 +118,7 @@ pub fn extractable(extension: &str) -> bool {
 /// this it would re-open every audio file in a sample library to be told again
 /// that audio carries no text.
 pub fn carries_text(extension: &str) -> bool {
-    matches!(extension, "pdf" | "als")
+    matches!(extension, "pdf" | "als") || super::ocr::is_image(extension)
 }
 
 /// Every column extraction can produce, in board order. The frontend marks
@@ -271,6 +271,9 @@ pub fn size_limit(extension: &str) -> u64 {
     match extension {
         "pdf" => PDF_SIZE_CAP,
         "als" => ALS_SIZE_CAP,
+        // an image is decoded whole to be recognized, so its guard is its
+        // own rather than the audio one, which sizes a header read
+        ext if super::ocr::is_image(ext) => super::ocr::IMAGE_SIZE_CAP,
         _ => AUDIO_SIZE_CAP,
     }
 }
@@ -304,6 +307,10 @@ pub fn extract(path: &Path, extension: &str) -> Result<Reading, String> {
     let caught = std::panic::catch_unwind(AssertUnwindSafe(move || match ext.as_str() {
         "pdf" => pdf(&path),
         "als" => als(&path),
+        // the words inside a picture: recognized once, on this machine, and
+        // written down beside it — the reader here only reads
+        ext if super::ocr::is_image(ext) => super::ocr::recognize(&path)
+            .map(|(text, text_truncated)| Reading { text, text_truncated, ..Reading::default() }),
         _ => audio(&path).map(Reading::from),
     }));
     match caught {

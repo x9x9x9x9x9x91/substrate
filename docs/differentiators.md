@@ -137,6 +137,20 @@ Capacities, Affine).*
   clicking the waveform. Markers seek on click; their file binding, timestamps,
   and text remain grep-readable markdown. Careful claim: Obsidian has waveform
   *plugins*; ours is native, zero-config, and lives inside database views.
+- **Every picture in the vault is searchable text** — screenshots, photos of
+  receipts, whiteboard shots: their text is read on-device by Apple's Vision
+  framework and kept as a plain sidecar text file beside the picture, indexed
+  with everything else. Search "invoice 4711", get the screenshot, open it in
+  place with the matched words marked in selectable text. Careful claims, all
+  three load-bearing: zero configuration and zero cost (no API key, no model
+  download, no permission prompt, nothing leaves the machine); the output is
+  a text file you can read, grep and sync rather than a row in a proprietary
+  index; and every sidecar's first line says **machine-read text, never
+  ground truth**, so neither a person nor an agent can mistake a recognition
+  for what the picture actually says. Notion's OCR is cloud-side and search
+  only — you never get the text; Obsidian needs a plugin plus an external
+  binary or an API key; Apple Notes reads its own attachments but only
+  answers inside Apple Notes. macOS-only for now, and stated as such.
 - **A folder of audio is a playlist** — a folder view lists the loose files
   sitting next to its notes, plays the audio ones in place (nothing imported,
   nothing copied), and a persistent bottom bar keeps them playing while you

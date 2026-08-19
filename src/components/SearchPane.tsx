@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type {
   FullSearchHit,
+  ImageHit,
   MountInfo,
   NoteMeta,
   RecallGroup,
@@ -9,7 +10,9 @@ import type {
 } from "../lib/types";
 import { foldedPropStr } from "../lib/types";
 import { MOUNT_SCHEME, rowMetas, searchHitMeta } from "../lib/mounts";
-import { mountRows, recallSearch, vaultSearchFull } from "../lib/ipc";
+import { imageHitMeta, markQuery, parseImagePath, readingLabel } from "../lib/images";
+import { imageHitUrl } from "../lib/assets";
+import { mountRows, recallSearch, vaultImageHit, vaultSearchFull } from "../lib/ipc";
 import { createLatestGuard } from "../lib/latest";
 import { collapsedLabel, dayLabel, lifespan } from "../lib/recall";
 import {
@@ -60,6 +63,51 @@ interface SearchPaneProps {
   recallEnabled: boolean;
   /** open the time scrubber at the snapshot a past version lived in */
   onOpenPast: (path: string, commitId: string) => void;
+}
+
+/** A picture the search found, opened where it was found: the picture itself,
+ * everything that was read out of it with the query marked in it, and the
+ * sentence saying who read it.
+ *
+ * The text is ordinary selectable text rather than an overlay on the picture —
+ * it can be copied out, and it never pretends to sit exactly where the words
+ * are in the image, which a machine reading cannot promise.
+ */
+function ImageHitView({ rel, terms }: { rel: string; terms: string[] }) {
+  const [hit, setHit] = useState<ImageHit | null | "loading">("loading");
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    setHit("loading");
+    setUrl(null);
+    vaultImageHit(rel)
+      .then((h) => {
+        if (!live) return;
+        setHit(h);
+        if (h) imageHitUrl(h.rel, h.path).then((u: string) => live && setUrl(u)).catch(() => {});
+      })
+      .catch(() => live && setHit(null));
+    return () => {
+      live = false;
+    };
+  }, [rel]);
+  if (hit === "loading") return <div className="search-image" aria-busy="true" />;
+  // the picture went away between the search and the open, or its text was
+  // read on another machine — either way there is nothing here to show
+  if (!hit) return <div className="search-image search-image-gone">This picture isn’t on this machine.</div>;
+  return (
+    <div className="search-image">
+      {url && <img className="search-image-shot" src={url} alt={hit.rel} />}
+      <div className="search-image-side">
+        <p className="search-image-label">{readingLabel(hit)}</p>
+        <pre className="search-image-text">
+          {markQuery(hit.text, terms).map((p, i) =>
+            p.hit ? <mark key={i}>{p.text}</mark> : <span key={i}>{p.text}</span>
+          )}
+        </pre>
+      </div>
+    </div>
+  );
 }
 
 function Snippet({ parts }: { parts: SnippetPart[] }) {
@@ -267,6 +315,9 @@ export default function SearchPane({
     const metaOf = (h: FullSearchHit): NoteMeta | undefined =>
       byPath.get(h.path) ??
       searchHitMeta(h.path, h.title_parts.map((p) => p.text).join(""), mounts) ??
+      // a picture whose text was read here: it belongs to no mount and has no
+      // note, and it is rebuilt from its own row path alone
+      imageHitMeta(h.path) ??
       undefined;
     let hits: FullSearchHit[];
     if (searchText) {
@@ -310,6 +361,28 @@ export default function SearchPane({
     return out;
   }, [groups]);
 
+  // A picture has no editor to open and no board to go home to, so its hit
+  // opens in place, right under the row it was found on. Everything else
+  // leaves the pane the way it always did.
+  const [openImage, setOpenImage] = useState<string | null>(null);
+  const openHit = (path: string, line: number) => {
+    if (parseImagePath(path) !== null) {
+      setOpenImage((cur) => (cur === path ? null : path));
+      return;
+    }
+    onOpenMatch(path, line);
+  };
+  // the words to mark inside a picture's text — the same ones the engine
+  // marked the snippet lines with
+  const terms = useMemo(
+    () => [...parsed.text.split(/\s+/), ...parsed.phrases].filter(Boolean),
+    [parsed]
+  );
+  // a result set that no longer holds the opened picture closes it
+  useEffect(() => {
+    setOpenImage((cur) => (cur && groups.some((g) => g.h.path === cur) ? cur : null));
+  }, [groups]);
+
   useEffect(() => setSel(0), [query, sort]);
   // clamp functionally: narrowing a query shrinks the rows and
   // changes `query` in the SAME commit, so both effects fire together. Read
@@ -346,12 +419,17 @@ export default function SearchPane({
   // wording of what the two numbers are called. The one thing it can't see
   // from a count alone is whether mounted files are in play, which is why
   // both halves of that are read off the page and the vault here.
-  const pageHasMountRow = groups.some((g) => g.h.path.startsWith(MOUNT_SCHEME));
+  // a picture is no more a note than a mounted file is, so a page holding one
+  // counts in the word that covers both
+  const pageHasNonNoteRow = groups.some(
+    (g) => g.h.path.startsWith(MOUNT_SCHEME) || parseImagePath(g.h.path) !== null
+  );
   // Under a filter the engine's count speaks for the allow-list it was handed,
   // which is built from notes: a mounted row rides past it and is decided
   // HERE, so what this pane kept of them is what the total has to add. Without
   // the addition the line under-reports by exactly the mount rows drawn above
-  // it — a page of five saying "3 results".
+  // it — a page of five saying "3 results". Pictures never join the addition:
+  // they ride a page of their own and the total is about notes.
   const engineTotal =
     engineResult.total +
     (effFilters.length > 0 ? groups.filter((g) => g.h.path.startsWith(MOUNT_SCHEME)).length : 0);
@@ -359,10 +437,13 @@ export default function SearchPane({
     searching: Boolean(searchText),
     filtered: effFilters.length > 0,
     groups: groups.length,
+    // the engine's total counts notes; pictures come back beside them on a
+    // page of their own, so they are not what the "first N of M" is about
+    pagedNotes: groups.filter((g) => parseImagePath(g.h.path) === null).length,
     matches: totalMatches,
     total: engineTotal,
     truncated,
-    pageHasMountRow,
+    pageHasNonNoteRow,
     vaultHasMounts: mounts.length > 0,
   });
 
@@ -390,7 +471,7 @@ export default function SearchPane({
       }
     } else if (e.key === "Enter" && rows[sel]) {
       e.preventDefault();
-      onOpenMatch(rows[sel].path, rows[sel].line);
+      openHit(rows[sel].path, rows[sel].line);
     }
   };
 
@@ -505,7 +586,7 @@ export default function SearchPane({
                 ? // the engine had more than it sent — "No results" would be a
                   // lie about files that exist. Same count, same caveat as the
                   // stats line: it holds mounted files as readily as notes.
-                  `Showing none of ${engineTotal} matching ${resultUnit(engineTotal, pageHasMountRow || mounts.length > 0)} — narrow the search`
+                  `Showing none of ${engineTotal} matching ${resultUnit(engineTotal, pageHasNonNoteRow || mounts.length > 0)} — narrow the search`
                 : query.trim()
                   ? `No results for “${query.trim()}”`
                   : "Search the whole vault"
@@ -530,7 +611,7 @@ export default function SearchPane({
                   aria-label={`Open ${displayTitle(n)} at first match${type ? `, ${displayType(type)}` : ""}${h.total > 0 ? `, ${h.total} ${h.total === 1 ? "match" : "matches"}` : ""}${h.partial ? ", only the beginning of this file was read" : ""}`}
                   className={`search-note-row${sel === noteIdx ? " selected" : ""}`}
                   onMouseEnter={() => setSel(noteIdx)}
-                  onClick={() => onOpenMatch(h.path, h.matches[0]?.line ?? 1)}
+                  onClick={() => openHit(h.path, h.matches[0]?.line ?? 1)}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     onRowContextMenu(h.path, e.clientX, e.clientY);
@@ -583,7 +664,7 @@ export default function SearchPane({
                       aria-label={`Open ${displayTitle(n)} at line ${m.line}: ${m.parts.map((p) => p.text).join("")}`}
                       className={`search-match-row${sel === matchIdx ? " selected" : ""}`}
                       onMouseEnter={() => setSel(matchIdx)}
-                      onClick={() => onOpenMatch(h.path, m.line)}
+                      onClick={() => openHit(h.path, m.line)}
                       onContextMenu={(e) => {
                         e.preventDefault();
                         onRowContextMenu(h.path, e.clientX, e.clientY);
@@ -596,6 +677,9 @@ export default function SearchPane({
                     </div>
                   );
                 })}
+                {openImage === h.path && (
+                  <ImageHitView rel={parseImagePath(h.path) ?? ""} terms={terms} />
+                )}
               </div>
             );
           })

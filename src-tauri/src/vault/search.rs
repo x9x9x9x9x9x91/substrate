@@ -71,6 +71,13 @@ pub struct FullSearchResult {
     pub truncated: bool,
 }
 
+/// A full-search hit with the relevance the engine gave it, so pages drawn by
+/// separate queries can be merged back into the one the pane shows.
+struct RankedHit {
+    rank: f64,
+    hit: FullSearchHit,
+}
+
 /// One note pointing at another through a schema'd relation prop — the
 /// structured cousin of a backlink (`db_type` + `prop` say HOW it points:
 /// "this release's contact").
@@ -89,7 +96,7 @@ pub(super) const MARK_START: char = '\u{E000}';
 
 pub(super) const MARK_END: char = '\u{E001}';
 
-const FULL_SEARCH_MAX_NOTES: usize = 200;
+pub(super) const FULL_SEARCH_MAX_NOTES: usize = 200;
 
 const FULL_SEARCH_MAX_LINES: usize = 12;
 
@@ -287,6 +294,30 @@ struct ScopeClause {
     listing: &'static str,
 }
 
+/// Image rows — a screenshot whose text was recognized — are notes even less
+/// than mounted files are, so they leave the palette by the same door and for
+/// the same reason. The search pane renders them; the palette cannot.
+const IMAGE_EXCLUDED: &str = " AND path NOT LIKE 'image://%'";
+
+/// Twin of [`QUICK_SEARCH_MOUNT_CLAUSE`] for image rows.
+const QUICK_SEARCH_IMAGE_CLAUSE: &str = IMAGE_EXCLUDED;
+
+/// The complement of [`IMAGE_EXCLUDED`]: image rows and nothing else.
+const IMAGE_ONLY: &str = " AND path LIKE 'image://%'";
+
+/// Pictures the search pane's page may hold. They ride their own slice of it
+/// rather than the notes' one, because the two are drawn on different terms:
+/// the allow-list a filtered search hands down names NOTES, a picture is in no
+/// note list, and so admitting pictures at all means admitting every picture
+/// the query matched. Inside one shared LIMIT those rows sit between the note
+/// hits and the cut — `invoice type:note` could spend its whole page on
+/// screenshots the pane then filters away and report "no results" over notes
+/// that ranked below them. With a slice of their own that is impossible: the
+/// notes' page is drawn from notes, and the pictures ride beside it, in rank
+/// order, bounded. Forty is far past what a person scrolls and far short of
+/// what could hide a note.
+pub(super) const FULL_SEARCH_MAX_IMAGES: usize = 40;
+
 impl Engine {
     /// Load `scope` into the reusable `search_scope` temp table and return the
     /// `AND …` clauses that restrict a query to it. The caller's
@@ -297,6 +328,12 @@ impl Engine {
     /// notes the user can actually see. The two forms differ only in the row
     /// classes the list could not speak for ([`SCOPE_LISTING`]). Empty strings
     /// = unscoped.
+    ///
+    /// Neither form admits image rows: every caller pairs the clause with one
+    /// that says what happens to them — the palette drops them outright, and
+    /// the pane draws them in a page of their own ([`FULL_SEARCH_MAX_IMAGES`]).
+    /// Letting them past this allow-list inline is what would put rows the
+    /// caller's filters do not want between the note hits and the cut.
     fn apply_scope(&self, scope: Option<&[String]>) -> Result<ScopeClause, ()> {
         let Some(paths) = scope else { return Ok(ScopeClause { strict: "", listing: "" }) };
         self.db
@@ -351,7 +388,7 @@ impl Engine {
                 "SELECT path, snippet(notes_fts, 2, ?2, ?3, ' … ', 14), \
                  highlight(notes_fts, 1, ?2, ?3), snippet(notes_fts, 4, ?2, ?3, ' … ', 14) \
                  FROM notes_fts \
-                 WHERE notes_fts MATCH ?1{clause}{app}{QUICK_SEARCH_MOUNT_CLAUSE} \
+                 WHERE notes_fts MATCH ?1{clause}{app}{QUICK_SEARCH_MOUNT_CLAUSE}{QUICK_SEARCH_IMAGE_CLAUSE} \
                  ORDER BY rank LIMIT 30"
             );
             let mut stmt = match self.db.prepare(&sql) {
@@ -476,36 +513,79 @@ impl Engine {
         let Ok(ScopeClause { strict, listing }) = self.apply_scope(scope) else { return empty() };
         let app = app_files_clause(exclude_app_files);
         let expr = fts_match_expr(q);
+        // Notes and pictures are two pages, not one. The scope clause above
+        // restricts notes; a picture is in no note list and would otherwise
+        // have to be admitted wholesale, which is exactly what lets pictures
+        // the pane will filter away eat the note page's slots. The LISTING
+        // form: mount rows are the class the pane re-filters client-side.
+        let notes_where = format!("{listing}{app}{MOUNT_CLAUSE}{IMAGE_EXCLUDED}");
         // the true size of the match set, so a capped page can say so — under
         // a scope, of the set the allow-list SPOKE FOR: the admitted classes
         // ride past it unjudged, and counting them here would print a total
-        // that includes rows the pane then filters out of its own page
+        // that includes rows the pane then filters out of its own page. Notes
+        // only, for the same reason: `total_notes` is what the pane's "first N
+        // of M notes" header reads, and a picture is not a note — counting
+        // them there claims matches the header is not about and the page may
+        // not even hold.
         let total_notes: u32 = self
             .db
             .query_row(
                 &format!(
-                    "SELECT COUNT(*) FROM notes_fts WHERE notes_fts MATCH ?1{strict}{app}{MOUNT_CLAUSE}"
+                    "SELECT COUNT(*) FROM notes_fts WHERE notes_fts MATCH ?1{strict}{app}{MOUNT_CLAUSE}{IMAGE_EXCLUDED}"
                 ),
                 [&expr],
                 |r| r.get::<_, i64>(0),
             )
             .map(|n| n as u32)
             .unwrap_or(0);
+        let mut out = self.full_search_page(&expr, &notes_where, FULL_SEARCH_MAX_NOTES);
+        // `total_notes` counts MATCH rows; a row whose hits all landed in a
+        // machine fence drops out here, so never report fewer than we return.
+        // Only the rows the count SPEAKS FOR may be compared against it: under
+        // a scope the admitted classes were counted by neither side of the
+        // query, and reading them as overflow would make an uncapped page
+        // claim truncation. Unscoped, the count covers every note row
+        // returned. Pictures join the page only after this, so they are never
+        // in the truncation math at all.
+        let counted_out = if scope.is_some() {
+            out.iter().filter(|h| !scope_admitted(&h.hit.path)).count() as u32
+        } else {
+            out.len() as u32
+        };
+        let total_notes = total_notes.max(counted_out);
+        let truncated = counted_out < total_notes;
+        let pictures = self.full_search_page(&expr, IMAGE_ONLY, FULL_SEARCH_MAX_IMAGES);
+        out.extend(pictures);
+        // merged back into one page in rank order, so a picture still sits
+        // among the notes it is as relevant as. `rank` is the same bm25 over
+        // the same table and the same MATCH, so the two pages compare; the
+        // sort is stable, so ties keep the order the engine returned them in.
+        out.sort_by(|a, b| a.rank.partial_cmp(&b.rank).unwrap_or(std::cmp::Ordering::Equal));
+        FullSearchResult { hits: out.into_iter().map(|r| r.hit).collect(), total_notes, truncated }
+    }
+
+    /// One page of full-search rows: everything matching `expr` under the
+    /// caller's `where_tail`, best first, at most `limit` of them.
+    ///
+    /// Shared by the note page and the picture page so both are parsed,
+    /// marked and line-counted by exactly one piece of code. Each row carries
+    /// its `rank` out so the two pages can be merged back into one.
+    fn full_search_page(&self, expr: &str, where_tail: &str, limit: usize) -> Vec<RankedHit> {
         // `partial` is column 3 and UNINDEXED, so appending it left the
         // highlight() column indices (1 = title, 2 = body) exactly as they
         // were; `props` (column 4) rides the same trick. Its highlight is
         // read for the COUNT only — a prop value has no body line to render,
         // so a props-only hit surfaces as its note header with the match
-        // total, never as a fake line number.
+        // total, never as a fake line number. `rank` is last, so nothing
+        // above it moved.
         let sql = format!(
             "SELECT path, highlight(notes_fts, 1, ?2, ?3), highlight(notes_fts, 2, ?2, ?3), partial, \
-             highlight(notes_fts, 4, ?2, ?3) \
-             FROM notes_fts WHERE notes_fts MATCH ?1{listing}{app}{MOUNT_CLAUSE} ORDER BY rank LIMIT {}",
-            FULL_SEARCH_MAX_NOTES
+             highlight(notes_fts, 4, ?2, ?3), rank \
+             FROM notes_fts WHERE notes_fts MATCH ?1{where_tail} ORDER BY rank LIMIT {limit}"
         );
         let mut stmt = match self.db.prepare(&sql) {
             Ok(s) => s,
-            Err(_) => return empty(),
+            Err(_) => return Vec::new(),
         };
         let rows = stmt.query_map(
             rusqlite::params![expr, MARK_START.to_string(), MARK_END.to_string()],
@@ -518,12 +598,13 @@ impl Engine {
                     // and a note's absent `props` read back through Option
                     row.get::<_, Option<i64>>(3)?.unwrap_or(0) != 0,
                     row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                    row.get::<_, f64>(5)?,
                 ))
             },
         );
-        let Ok(rows) = rows else { return empty() };
+        let Ok(rows) = rows else { return Vec::new() };
         let mut out = Vec::new();
-        for (path, title_hl, body_hl, partial, props_hl) in rows.flatten() {
+        for (path, title_hl, body_hl, partial, props_hl, rank) in rows.flatten() {
             let (title_parts, title_count) = parse_marked(&title_hl);
             let mut total = title_count;
             let mut matches = Vec::new();
@@ -550,23 +631,13 @@ impl Engine {
                 prop_parts = trim_parts(parts);
             }
             if total > 0 {
-                out.push(FullSearchHit { path, title_parts, total, matches, partial, prop_parts });
+                out.push(RankedHit {
+                    rank,
+                    hit: FullSearchHit { path, title_parts, total, matches, partial, prop_parts },
+                });
             }
         }
-        // `total_notes` counts MATCH rows; a row whose hits all landed in a
-        // machine fence drops out here, so never report fewer than we return.
-        // Only the rows the count SPEAKS FOR may be compared against it: under
-        // a scope the admitted classes were counted by neither side of the
-        // query, and reading them as overflow would make an uncapped page
-        // claim truncation. Unscoped, the count covers every row returned.
-        let counted_out = if scope.is_some() {
-            out.iter().filter(|h| !scope_admitted(&h.path)).count() as u32
-        } else {
-            out.len() as u32
-        };
-        let total_notes = total_notes.max(counted_out);
-        let truncated = counted_out < total_notes;
-        FullSearchResult { hits: out, total_notes, truncated }
+        out
     }
 
     pub fn backlinks(&self, rel: &str) -> Vec<NoteMeta> {
