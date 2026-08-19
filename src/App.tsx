@@ -4842,11 +4842,16 @@ export default function App() {
     }
   };
 
+  // The change-set strip is the private surface's, and so is the class that
+  // makes room for it: both leave together.
+  const changeSetClass =
+    "";
+
   return (
     <UndoContext.Provider value={undoApi}>
     <NavContext.Provider value={navApi}>
     <div
-      className={`app${mobile ? " mobile" : ""}${timeTravelOpen ? " time-travel-open" : ""}${timePoint ? " viewing-past" : ""}${playing ? " has-player" : ""}`}
+      className={`app${mobile ? " mobile" : ""}${timeTravelOpen ? " time-travel-open" : ""}${timePoint ? " viewing-past" : ""}${changeSetClass}${playing ? " has-player" : ""}`}
       onPointerDown={onMobilePointerDown}
       onPointerUp={onMobilePointerUp}
       onPointerCancel={() => {

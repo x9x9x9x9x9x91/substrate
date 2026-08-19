@@ -39,7 +39,7 @@ pub(crate) fn with_history<T>(
 /// user had just destroyed forever (and the `gc` raced the merge's in-flight
 /// objects). The engine mutex is the gate a pull's local phase already holds,
 /// so taking it here makes rewrite and pull/resolve mutually exclusive.
-fn with_history_rewrite<T>(
+pub(crate) fn with_history_rewrite<T>(
     h: &Mutex<Option<History>>,
     engine: &Mutex<Engine>,
     f: impl FnOnce(&History) -> Result<T, String>,
@@ -101,7 +101,27 @@ pub(crate) fn build_vault_snapshot(
         .into_iter()
         .find(|point| point.id == id)
         .ok_or_else(|| "version history snapshot unavailable".to_string())?;
-    let files: HashMap<String, String> = hist.snapshot_files(id)?.into_iter().collect();
+    build_vault_snapshot_from(hist, point)
+}
+
+/// The same projection addressed by any revspec — a branch name, a tag, a
+/// sha HEAD has since moved off. The scrubber can use the list-and-find form
+/// above because it only ever offers commits on the current line; a change set
+/// projects a base its own branch has already left behind.
+pub(crate) fn build_vault_snapshot_at(
+    hist: &History,
+    spec: &str,
+) -> Result<HistoryVaultSnapshot, String> {
+    let point = hist.point_at(spec)?;
+    build_vault_snapshot_from(hist, point)
+}
+
+fn build_vault_snapshot_from(
+    hist: &History,
+    point: VaultHistoryPoint,
+) -> Result<HistoryVaultSnapshot, String> {
+    let id = point.id.clone();
+    let files: HashMap<String, String> = hist.snapshot_files(&id)?.into_iter().collect();
     let mut notes = Vec::new();
     let mut contents = HashMap::new();
     let mut fm = HashMap::new();
