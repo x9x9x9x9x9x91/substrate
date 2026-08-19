@@ -96,6 +96,14 @@ export function imageSource(name: string): Promise<string> {
   return p;
 }
 
+/** A displayable URL for a picture the search found. Keyed by the picture's
+    absolute path rather than an asset name: a screenshot anywhere in the vault
+    is not an `.assets/` embed, and the asset lookup only answers for names.
+    In the browser lane there is no such file, so the mock stands in. */
+export function imageHitUrl(rel: string, path: string): Promise<string> {
+  return isTauri ? Promise.resolve(convertFileSrc(path)) : mockImageUrl(rel);
+}
+
 async function mockImageUrl(name: string): Promise<string> {
   try {
     return await assetBlobUrl(name);

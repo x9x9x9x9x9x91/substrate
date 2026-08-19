@@ -41,6 +41,7 @@ import { foldDiacritics, foldWithMap } from "./fold.ts";
 import { noteTags, propTags, tagUniverse } from "./tags.ts";
 import { MOCK_FX, MOCK_FX_RATES } from "./fx.ts";
 import { MOUNT_EXTRACTED, MOUNT_SCHEME } from "./mounts.ts";
+import { IMAGE_SCHEME } from "./images.ts";
 import { noteOwnWrite } from "./ownwrites.ts";
 import { remapSavedQueryProperty } from "./query.ts";
 import { resolveUnit } from "./units.ts";
@@ -1350,6 +1351,20 @@ const mockMountBindings: Record<string, string> = { "mount-finance": "~/Personal
    out on it (the engine keeps rows it has already indexed). */
 const mockPendingIgnore = new Map<string, string[]>();
 const mockMountIndex: Record<string, { scanned: string; files: MockMountFile[] }> = {};
+/** Pictures in the mock vault whose text was read on this machine. Two, so a
+    result set can hold more than one, and worded the way a screenshot of a
+    receipt reads. */
+const mockImages: { rel: string; text: string; truncated?: boolean }[] = [
+  {
+    rel: "Screenshots/invoice-4711.png",
+    text: "Invoice 4711\nAcme Mastering GmbH\nTotal 19,00 EUR\nPaid 2026-03-04",
+  },
+  {
+    rel: "Screenshots/studio-whiteboard.png",
+    text: "Album order\n1. Halfway Signal\n2. Paper Weather\n3. Long Shore\nmixdown by Friday",
+  },
+];
+
 const mockFolderFiles: {
   name: string;
   size: number;
@@ -4315,6 +4330,45 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
           });
         }
       }
+      // pictures whose text was read here are in the same index — a
+      // screenshot of a receipt answers a search for what is written on it.
+      // Keyed by the virtual path, since a picture has no note.
+      for (const img of mockImages) {
+        const path = `${IMAGE_SCHEME}${img.rel}`;
+        // no scope check: the caller's allow-list is built from its NOTE list,
+        // which holds no pictures, so honouring it here would delete every
+        // picture from any filtered query — `type:image` included. The client
+        // re-applies the filters to the row it synthesizes, exactly as the
+        // engine's scope clause lets image rows past.
+        const name = img.rel.split("/").pop() ?? img.rel;
+        const title = segment(name);
+        let total = title.count;
+        const matches = [];
+        const lines = img.text.split("\n");
+        for (let i = 0; i < lines.length; i++) {
+          const seg = segment(lines[i]);
+          if (seg.count === 0) continue;
+          total += seg.count;
+          if (matches.length < 12) matches.push({ line: i + 1, parts: seg.parts });
+        }
+        const imgFields = [mockSearchWords(name), mockSearchWords(img.text)];
+        if (total === 0 || !fullPhrases.every((runs) => imgFields.some((f) => mockHasPhrase(f, runs))))
+          continue;
+        ranked.push({
+          hit: {
+            path,
+            title_parts: title.parts,
+            total,
+            matches,
+            partial: false,
+            // a picture has no frontmatter — nothing to mark
+            prop_parts: [],
+          },
+          titleHit: title.count > 0,
+          offset: title.count > 0 ? mockFirstHit(name, terms, bound) : mockFirstHit(img.text, terms, bound),
+          path,
+        });
+      }
       // rank before capping, or the cap picks by insertion order.
       // The count is of the whole match set, not the page — the UI
       // needs it to say "first 200 of 359" and to tell a truncated page apart
@@ -4506,6 +4560,20 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         path: `mock://${name}`,
         size: 8 + name.length,
         mtime_ms: mockAssetMtimes.get(name) ?? 1,
+      };
+    }
+    case "vault_image_hit": {
+      const rel = (args?.rel as string) ?? "";
+      const img = mockImages.find((i) => i.rel === rel);
+      if (!img) return null;
+      return {
+        rel,
+        source: rel.split("/").pop() ?? rel,
+        path: `/mock/vault/${rel}`,
+        text: img.text,
+        truncated: !!img.truncated,
+        label: "machine-read text, never ground truth",
+        version: 1,
       };
     }
     case "vault_assets_orphaned": {

@@ -24,7 +24,17 @@ pub(super) fn watch_relevant(root: &Path, p: &Path) -> bool {
         return true;
     }
     if rel.components().any(|c| c.as_os_str().to_string_lossy().starts_with('.')) {
-        // the one dot-path exception: live-editable config files.
+        // A picture that is gone is the second dot-path exception. The image
+        // walk deliberately enters `.assets/` — an embedded screenshot is
+        // exactly the kind of picture whose text someone searches for — so a
+        // hit can name a file in there, and a hit that opens nothing is worse
+        // than no hit at all. Only the vanished ones: a picture that still
+        // exists is the scan's business, and reading one is a worker's second,
+        // not a watcher event's.
+        if !p.is_file() && ocr::is_image_rel(&rel.to_string_lossy()) {
+            return true;
+        }
+        // otherwise the one live exception: live-editable config files.
         // .git, .assets, .vault/templates/… and friends stay invisible
         return config_path(root, p);
     }

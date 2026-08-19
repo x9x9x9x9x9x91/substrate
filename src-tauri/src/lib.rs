@@ -1529,6 +1529,7 @@ pub fn run() {
             recall_set_enabled,
             recall_index,
             recall_search,
+            vault_image_hit,
             vault_backlinks,
             vault_related,
             vault_resolve,

@@ -677,6 +677,12 @@ pub struct Engine {
     /// Plaintext files an inherited scope converted while indexing. Command
     /// and watcher boundaries drain this before history can snapshot them.
     seal_conversions: Vec<String>,
+    /// What `stat` said about each picture the last time its recognized-text
+    /// sidecar was confirmed to describe it. The image scan runs on every
+    /// watcher tick under this lock, and this is what keeps an unchanged
+    /// vault from re-reading every picture in it to hash them. Interior
+    /// mutability because the scan itself only reads the engine.
+    image_memo: std::cell::RefCell<ocr::ImageMemo>,
     /// Test-only count of note-file writes through the create/prop-edit
     /// paths folder sync uses — lets sync tests assert write coalescing
     /// Always 0 in non-test builds.
@@ -1660,6 +1666,7 @@ impl Engine {
             unlocked_sealed: HashMap::new(),
             seal_failures: Vec::new(),
             seal_conversions: Vec::new(),
+            image_memo: Default::default(),
             #[cfg(test)]
             note_writes: 0,
         };
@@ -1686,6 +1693,9 @@ impl Engine {
         // the `DELETE` above emptied the table for mounted files too, and they
         // are not markdown so the walk never reaches them
         self.index_mounts();
+        // same for images: their text lives in sidecars beside them, and the
+        // walk above only collects notes
+        self.index_images();
     }
 
     /// Reconcile the index against paths the watcher saw change. Disk state
@@ -1727,7 +1737,22 @@ impl Engine {
         let mut touched: Vec<(String, NoteChange)> = Vec::new();
         for path in paths {
             let rel = self.rel(path);
-            if rel.is_empty() || hidden_rel(&rel) {
+            if rel.is_empty() {
+                continue;
+            }
+            if hidden_rel(&rel) {
+                // A hidden path is not a note and never will be — but the image
+                // walk enters `.assets/` on purpose, so a picture in there does
+                // have a search row, and a deleted one has to lose it here or
+                // it survives until the next full rescan. Nothing else about a
+                // hidden path is reconciled, and nothing is reported as a note
+                // change, because none of it is one.
+                if !path.exists() {
+                    if is_image_rel(&rel) {
+                        let _ = self.refresh_image(path);
+                    }
+                    self.deindex_images_under(&rel);
+                }
                 continue;
             }
             if path.is_dir() {
@@ -1747,6 +1772,18 @@ impl Engine {
                     touched.push((rel, kind));
                 }
             } else {
+                // An image that is gone must stop being a search hit at once:
+                // clicking a result that opens nothing is worse than not
+                // finding it, and the sidecar describing it is now describing
+                // a file nobody has. Recognition of NEW images is the scan's
+                // job (`extract_jobs`) — reading one takes a worker and a
+                // second, which is not what a watcher event should start.
+                if is_image_rel(&rel) {
+                    let _ = self.refresh_image(path);
+                }
+                // a deleted folder takes the images inside it with it, and the
+                // watcher reports the folder rather than each picture
+                self.deindex_images_under(&rel);
                 // gone from disk — could have been a file or a whole folder
                 self.remove_note(&rel);
                 touched.push((rel.clone(), NoteChange::Removed));
@@ -3657,6 +3694,12 @@ mod extract;
 mod extractq;
 pub use extractq::{ExtractDone, ExtractJob, ExtractQueue};
 
+// The words inside images: recognized on this machine, written down beside
+// the picture, searched like any other text.
+mod ocr;
+use ocr::is_image_rel;
+pub use ocr::ImageHit;
+
 // Where a mounted document's text goes: this machine, never the vault
 mod mounttext;
 // Named by the command layer's unbind test, which checks this machine's text
@@ -4982,7 +5025,17 @@ mod tests {
         assert!(e.list().iter().all(|n| !n.path.starts_with(".assets/")));
         e.apply_changes(&[dir.join(".assets/stray.md")]);
         assert!(e.list().iter().all(|n| !n.path.starts_with(".assets/")));
+        // a picture still sitting in .assets is the scan's business, not the
+        // watcher's — reading one costs a worker and a second
+        fs::write(dir.join(".assets/pic.png"), [0x89u8, 0x50]).unwrap();
         assert!(!watch::watch_relevant(&dir, &dir.join(".assets/pic.png")));
+        // …but a vanished one has a search row to lose, and losing it at the
+        // next full rescan is a hit that opens nothing until then
+        fs::remove_file(dir.join(".assets/pic.png")).unwrap();
+        assert!(
+            watch::watch_relevant(&dir, &dir.join(".assets/pic.png")),
+            "a deleted embedded picture is reported"
+        );
         assert!(!watch::watch_relevant(&dir, &dir.join(".assets/stray.md")));
         assert!(watch::watch_relevant(&dir, &dir.join("Inbox/note.md")));
         fs::write(dir.join("Inbox/photo.jpg"), [0xFFu8, 0xD8]).unwrap();

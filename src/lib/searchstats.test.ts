@@ -9,7 +9,7 @@ const base: SearchStatsInput = {
   matches: 30,
   total: 12,
   truncated: false,
-  pageHasMountRow: false,
+  pageHasNonNoteRow: false,
   vaultHasMounts: false,
 };
 
@@ -42,9 +42,33 @@ test("searchStats reports a truncated page as a page, not a total of matches", (
   );
 });
 
+// pictures ride a page of their own beside the notes, so a page can hold more
+// rows than the engine's note total — the truncated line has to count the rows
+// that total is about, or it reads "first 240 of 210"
+test("searchStats counts a truncated page in the rows its total is about", () => {
+  assert.equal(
+    searchStats({
+      ...base,
+      groups: 240,
+      pagedNotes: 200,
+      total: 210,
+      truncated: true,
+      pageHasNonNoteRow: true,
+    }),
+    "first 200 of 210 results"
+  );
+});
+
+test("searchStats falls back to the whole page when nothing rides beside it", () => {
+  assert.equal(
+    searchStats({ ...base, groups: 200, total: 3412, truncated: true, pagedNotes: undefined }),
+    "first 200 of 3412 notes"
+  );
+});
+
 test("searchStats calls a page holding a mounted file results", () => {
   assert.equal(
-    searchStats({ ...base, groups: 12, matches: 30, pageHasMountRow: true }),
+    searchStats({ ...base, groups: 12, matches: 30, pageHasNonNoteRow: true }),
     "30 matches in 12 results"
   );
 });
@@ -59,7 +83,7 @@ test("searchStats calls the engine's total results whenever the vault has a moun
       groups: 200,
       total: 3412,
       truncated: true,
-      pageHasMountRow: false,
+      pageHasNonNoteRow: false,
       vaultHasMounts: true,
     }),
     "first 200 of 3412 results"
