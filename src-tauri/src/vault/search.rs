@@ -59,6 +59,11 @@ pub struct FullSearchHit {
 /// note the query matches *within the requested scope*, so the UI can say
 /// "first 200 of 359" instead of presenting a truncated page as the whole
 /// truth — and can tell "nothing matched" apart from "the page ran out".
+///
+/// Under a scope the count speaks for the allow-list ONLY: `hits` can also
+/// carry rows of a class the list could not judge ([`SCOPE_LISTING`]), and
+/// the caller — which owns the filter semantics — adds the ones it keeps.
+/// Unscoped there is no such class and the count covers everything.
 #[derive(Debug, Serialize)]
 pub struct FullSearchResult {
     pub hits: Vec<FullSearchHit>,
@@ -244,16 +249,56 @@ const MOUNT_EXCLUDED: &str = " AND path NOT LIKE 'mount://%'";
 /// the search pane, which does render them.
 const QUICK_SEARCH_MOUNT_CLAUSE: &str = MOUNT_EXCLUDED;
 
+/// The row classes a structured-filter allow-list cannot speak for.
+///
+/// The filters' semantics (`type:`, `folder:`, date comparisons, negation)
+/// live in the UI and are evaluated over the note set it has loaded. A
+/// mounted file is in no note list, so a scope built from notes names none
+/// of them — and ANDing that list alone drops every mounted hit from a
+/// filtered query, whatever the filter said: a `type:` a mount's own rows
+/// satisfy would empty the pane of exactly them. So the LISTING query admits
+/// these rows past the allow-list and the client, which can rebuild a row's
+/// metadata from its mount, applies the filter verdict to them itself. The
+/// COUNT does not admit them: a number the allow-list did not decide is a
+/// number the pane cannot honestly print, and the pane can see and add the
+/// admitted rows it kept. A new virtual row class joins here.
+const SCOPE_ADMITTED_PREFIX: &str = "mount://";
+
+/// The strict allow-list restriction, and the same list with the admitted
+/// classes ORed back in. `_` is a `LIKE` wildcard and the scheme has none, so
+/// the prefix match is exact, as it is for [`MOUNT_EXCLUDED`].
+const SCOPE_STRICT: &str = " AND path IN (SELECT path FROM search_scope)";
+
+const SCOPE_LISTING: &str =
+    " AND (path IN (SELECT path FROM search_scope) OR path LIKE 'mount://%')";
+
+/// Whether a path belongs to a class [`SCOPE_LISTING`] lets past the
+/// allow-list — the rows a scoped count deliberately does not speak for.
+fn scope_admitted(path: &str) -> bool {
+    path.starts_with(SCOPE_ADMITTED_PREFIX)
+}
+
+/// The scope restriction in the two forms a query needs it in.
+struct ScopeClause {
+    /// Only the paths the allow-list names. What a count under a scope may
+    /// speak for, and what a query that renders no virtual rows wants.
+    strict: &'static str,
+    /// The allow-list plus the classes it could not speak for.
+    listing: &'static str,
+}
+
 impl Engine {
     /// Load `scope` into the reusable `search_scope` temp table and return the
-    /// `AND …` clause that restricts a query to it. The caller's
+    /// `AND …` clauses that restrict a query to it. The caller's
     /// structured filters (`type:`, `folder:`, date comparisons) live in the
     /// UI, so the engine takes their verdict as a path allow-list rather than
     /// re-implementing the semantics — what matters here is only that the
     /// restriction happens BEFORE the LIMIT, so the page is drawn from the
-    /// notes the user can actually see. Empty string = unscoped.
-    fn apply_scope(&self, scope: Option<&[String]>) -> Result<&'static str, ()> {
-        let Some(paths) = scope else { return Ok("") };
+    /// notes the user can actually see. The two forms differ only in the row
+    /// classes the list could not speak for ([`SCOPE_LISTING`]). Empty strings
+    /// = unscoped.
+    fn apply_scope(&self, scope: Option<&[String]>) -> Result<ScopeClause, ()> {
+        let Some(paths) = scope else { return Ok(ScopeClause { strict: "", listing: "" }) };
         self.db
             .execute_batch(
                 "CREATE TEMP TABLE IF NOT EXISTS search_scope(path TEXT PRIMARY KEY); \
@@ -269,7 +314,7 @@ impl Engine {
                 ins.execute([p]).map_err(|_| ())?;
             }
         }
-        Ok(" AND path IN (SELECT path FROM search_scope)")
+        Ok(ScopeClause { strict: SCOPE_STRICT, listing: SCOPE_LISTING })
     }
 
     /// Palette search. `scope`, when given, is the allow-list of paths the
@@ -292,7 +337,10 @@ impl Engine {
             return Vec::new();
         }
         if self.fts {
-            let Ok(clause) = self.apply_scope(scope) else { return Vec::new() };
+            // the STRICT form: this page renders no mount rows at all
+            // (`QUICK_SEARCH_MOUNT_CLAUSE`), so admitting a class it would only
+            // throw away again would just spend page slots on it
+            let Ok(clause) = self.apply_scope(scope).map(|s| s.strict) else { return Vec::new() };
             let app = app_files_clause(exclude_app_files);
             // title (1) and props (4) come back marked purely to read WHERE the
             // match landed: a note whose only hit is a prop value would
@@ -364,7 +412,9 @@ impl Engine {
     /// `scope` is the path allow-list the caller's structured filters left
     /// standing — pushed into the query so the top-N page is the
     /// top N of the FILTERED set. `total_notes` reports the true size of that
-    /// set, so a truncated page never reads as the whole answer.
+    /// set, so a truncated page never reads as the whole answer. Rows of a
+    /// class the allow-list cannot name ride past it into the page and out of
+    /// the count — see [`SCOPE_LISTING`] for why both halves of that.
     ///
     /// `exclude_app_files`: with the conceal toggle off the client
     /// drops AGENTS.md/CLAUDE.md/Settings.md from the page, but `total_notes`
@@ -423,15 +473,18 @@ impl Engine {
             return FullSearchResult { hits, total_notes, truncated };
         }
         let empty = || FullSearchResult { hits: Vec::new(), total_notes: 0, truncated: false };
-        let Ok(clause) = self.apply_scope(scope) else { return empty() };
+        let Ok(ScopeClause { strict, listing }) = self.apply_scope(scope) else { return empty() };
         let app = app_files_clause(exclude_app_files);
         let expr = fts_match_expr(q);
-        // the true size of the match set, so a capped page can say so
+        // the true size of the match set, so a capped page can say so — under
+        // a scope, of the set the allow-list SPOKE FOR: the admitted classes
+        // ride past it unjudged, and counting them here would print a total
+        // that includes rows the pane then filters out of its own page
         let total_notes: u32 = self
             .db
             .query_row(
                 &format!(
-                    "SELECT COUNT(*) FROM notes_fts WHERE notes_fts MATCH ?1{clause}{app}{MOUNT_CLAUSE}"
+                    "SELECT COUNT(*) FROM notes_fts WHERE notes_fts MATCH ?1{strict}{app}{MOUNT_CLAUSE}"
                 ),
                 [&expr],
                 |r| r.get::<_, i64>(0),
@@ -447,7 +500,7 @@ impl Engine {
         let sql = format!(
             "SELECT path, highlight(notes_fts, 1, ?2, ?3), highlight(notes_fts, 2, ?2, ?3), partial, \
              highlight(notes_fts, 4, ?2, ?3) \
-             FROM notes_fts WHERE notes_fts MATCH ?1{clause}{app}{MOUNT_CLAUSE} ORDER BY rank LIMIT {}",
+             FROM notes_fts WHERE notes_fts MATCH ?1{listing}{app}{MOUNT_CLAUSE} ORDER BY rank LIMIT {}",
             FULL_SEARCH_MAX_NOTES
         );
         let mut stmt = match self.db.prepare(&sql) {
@@ -502,8 +555,17 @@ impl Engine {
         }
         // `total_notes` counts MATCH rows; a row whose hits all landed in a
         // machine fence drops out here, so never report fewer than we return.
-        let total_notes = total_notes.max(out.len() as u32);
-        let truncated = (out.len() as u32) < total_notes;
+        // Only the rows the count SPEAKS FOR may be compared against it: under
+        // a scope the admitted classes were counted by neither side of the
+        // query, and reading them as overflow would make an uncapped page
+        // claim truncation. Unscoped, the count covers every row returned.
+        let counted_out = if scope.is_some() {
+            out.iter().filter(|h| !scope_admitted(&h.path)).count() as u32
+        } else {
+            out.len() as u32
+        };
+        let total_notes = total_notes.max(counted_out);
+        let truncated = counted_out < total_notes;
         FullSearchResult { hits: out, total_notes, truncated }
     }
 
@@ -618,6 +680,93 @@ mod tests {
             !hits.iter().any(|h| h.path.starts_with("mount://")),
             "mount rows kept out of the page, not filtered off it afterwards"
         );
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// A structured filter is evaluated in the UI over the note set it has
+    /// loaded, so the allow-list it hands the engine names notes and nothing
+    /// else. Reading that as "and no other row class" is what dropped every
+    /// mounted hit out of a filtered search — the pane renders those rows, and
+    /// a `type:` the mount's own rows satisfy emptied it of exactly them.
+    /// They ride past the allow-list now; the pane applies the verdict.
+    #[test]
+    fn a_filter_scope_keeps_mounted_files_findable() {
+        let (mut e, dir) = temp_vault("scopemount");
+        let watched = temp_watched("scopemount");
+        fs::write(watched.join("spectral-paper.pdf"), b"stand-in bytes").unwrap();
+        fs::write(dir.join("Spectral.md"), "---\ntype: note\n---\nspectral texture here\n").unwrap();
+        fs::write(dir.join("Other.md"), "---\ntype: log\n---\nspectral again\n").unwrap();
+        e.apply_changes(&[dir.join("Spectral.md"), dir.join("Other.md")]);
+        let m = e.add_mount("Papers", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+
+        // what `type:note` leaves standing, as the pane computes it
+        let scope = vec!["Spectral.md".to_string()];
+        let res = e.search_full("spectral", Some(&scope), false);
+        assert!(
+            res.hits.iter().any(|h| h.path == "Spectral.md"),
+            "the filtered note still answers"
+        );
+        assert!(
+            res.hits.iter().all(|h| h.path != "Other.md"),
+            "the note the filter excluded is still gone"
+        );
+        assert!(
+            res.hits.iter().any(|h| h.path.starts_with("mount://")),
+            "the mounted file survives a filter the engine cannot judge it against"
+        );
+        // and the count stays about what the allow-list DID judge: a total
+        // that included the admitted row would print one more than the pane
+        // can show the moment its own verdict drops that row
+        assert_eq!(res.total_notes, 1, "the count speaks for the allow-list only");
+        assert!(!res.truncated, "an uncapped page must not claim truncation");
+
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// The narrow case of the same rule: a filter no note satisfies is not an
+    /// empty search. `type:<a mount name>` leaves an EMPTY allow-list, and the
+    /// rows that answer it are precisely the ones the list cannot name.
+    #[test]
+    fn a_filter_no_note_satisfies_still_finds_mounted_files() {
+        let (mut e, dir) = temp_vault("scopeempty");
+        let watched = temp_watched("scopeempty");
+        fs::write(watched.join("spectral-paper.pdf"), b"stand-in bytes").unwrap();
+        let m = e.add_mount("Papers", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+
+        let none: Vec<String> = Vec::new();
+        let res = e.search_full("spectral", Some(&none), false);
+        assert!(
+            res.hits.iter().any(|h| h.path.starts_with("mount://")),
+            "an empty allow-list scopes the notes, not the whole vault"
+        );
+        assert_eq!(res.total_notes, 0, "no note was in scope, and none is claimed");
+        assert!(!res.truncated, "admitted rows are not overflow of a count they are not in");
+
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&watched);
+    }
+
+    /// Unscoped, there is no class the caller could not judge — the count
+    /// covers every row on the page, mounted files included, as it always has.
+    #[test]
+    fn an_unscoped_count_still_covers_mount_rows() {
+        let (mut e, dir) = temp_vault("scopeall");
+        let watched = temp_watched("scopeall");
+        fs::write(watched.join("spectral-paper.pdf"), b"stand-in bytes").unwrap();
+        fs::write(dir.join("Spectral.md"), "---\ntype: note\n---\nspectral texture here\n").unwrap();
+        e.apply_changes(&[dir.join("Spectral.md")]);
+        let m = e.add_mount("Papers", vec![], false).unwrap();
+        e.scan_mount(&m.id, &watched);
+
+        let res = e.search_full("spectral", None, false);
+        assert_eq!(res.hits.len(), 2, "the note and the mounted file");
+        assert_eq!(res.total_notes, 2, "both counted");
+        assert!(!res.truncated);
+
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&watched);
     }

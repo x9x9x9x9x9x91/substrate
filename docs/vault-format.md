@@ -4004,6 +4004,21 @@ visible:
   with currency | folded account | folded reference`. Folding lowercases and
   drops everything that is not alphanumeric, so a bank that re-punctuates its
   own reference text still matches.
+- **Where the file carries an identifier the bank assigned** (a typed
+  statement — see below — never a CSV export), the signature is that
+  identifier instead: `ref | folded account | folded entry reference | date |
+  canonical amount with currency`. Scoped to the account because a servicing
+  reference is unique per account, not per bank; scoped to the day and the
+  amount because an identifier is only as unique as the bank that wrote it
+  made it, and a reused one must not be able to swallow a different
+  transaction. Only the servicing bank's own `AcctSvcrRef` counts as an
+  identifier — the payer-set ids do not, and the reason is below. Rows written
+  before an identifier existed carry the composite key and keep matching on
+  it — nothing re-keys itself.
+  Read back off a note, the entry reference is recovered from the stored
+  signature's third field, so it round-trips only in its **folded** form:
+  lowercase, alphanumerics only. That is enough to key on and not enough to
+  show as the bank wrote it.
 - **Weak key**: the same minus the reference.
 - Counterparty is in **neither** key. Banks rewrite payee strings between
   exports; a name change is not a different payment. It is shown in the review
@@ -4027,15 +4042,137 @@ point:
    - `surplus-identical` — the export carries this exact row more often than
      the vault holds it.
 
+   `reference-differs` is skipped where **both** sides carry a bank-assigned
+   identifier and the identifiers differ: the file has then said outright that
+   these are two entries, and two card payments of the same amount on one day
+   are an ordinary Tuesday. A collision with any row that carries no
+   identifier — every CSV row, every hand-written one — goes to review as
+   before.
+
 Nothing in bucket 3 is imported unless the human ticks it — the default for a
 row nobody read is therefore **not written**. The design cost is a review step
 and the risk of a real second charge going unticked; the design refusal is a
 silent merge or a silent double.
 
-### CAMT.053 and friends
+### CAMT.053 — the typed statement
 
-CSV only, today. ISO 20022 (CAMT.053) is the named next step and is not in
-this format yet.
+ISO 20022 bank statements (`camt.053`, the XML export every German bank offers
+next to its CSV) import into the **same** `transaction` database, through the
+same dedupe, the same category rules and the same review step. Nothing
+downstream knows there are two formats.
+
+What changes is everything the CSV path has to ask about:
+
+| the CSV path asks | the typed statement answers |
+| --- | --- |
+| which column is the amount | `Ntry/Amt` |
+| which dialect the numbers are in | one: dot-decimal, no grouping |
+| which currency | the `Ccy` attribute on the amount, per entry |
+| which order the dates are in | `BookgDt`/`ValDt`, ISO, unambiguous |
+| how the sign is written | `CdtDbtInd` (`DBIT`/`CRDT`), with `RvslInd` flipping a reversal |
+| whether this row is that row | `AcctSvcrRef` — and only that |
+
+**Detection is by content, not extension.** A file is read as a typed
+statement when its head carries a `Document` element (with or without a
+namespace prefix) and names the `camt.053` message family. `.xml` is a
+filename, not a format; the picker offers it, the content decides. The picker
+offers exactly `csv` and `xml` for this flow, and nothing about the choice
+there decides which reader runs.
+
+Two limits of that test, both deliberate:
+
+- **`camt.053` only.** `camt.052` is the intraday report — provisional entries
+  the day's real statement re-books — and importing those would post money the
+  bank has not booked yet.
+- **The head is the first 4096 bytes.** The markers sit in the first two lines
+  of every statement a bank writes, and reading only the head keeps detection
+  off the length of the file. A file that buries its document element behind a
+  longer preamble than that is not recognised as typed and falls through to the
+  CSV path's questions — the mapping assistant, asked to name the columns of an
+  XML file. That is visibly wrong to the reader rather than quietly wrong in the
+  ledger, but it is a limit worth knowing.
+
+**No mapping step.** Because nothing is ambiguous, there is nothing to ask:
+the assistant opens directly on the review step, and no mapping is written to
+`statement-mappings.json` — a mapping describes columns, and this file has
+none.
+
+Reading rules, all of them refusals rather than guesses:
+
+- **Date** is the booking date; the value date is read only where an entry's
+  booking date cannot be read — either because it is absent, or because what is
+  there is not a day (a `2026-02-31` is refused, not rounded into March). An
+  entry with neither readable date is reported, not dated by guess. Booking day
+  is what a bank's CSV export writes in
+  its `Buchungstag` column, so the two formats of one transaction land on the
+  same day rather than a day apart.
+- **Amount** is `Amt` read as dot-decimal, signed from `CdtDbtInd` — money out
+  negative — and flipped again by `RvslInd`, so a reversal is not posted as a
+  second charge.
+- **Currency** is the entry's `Ccy` attribute, falling back to the statement's
+  `Acct/Ccy`. A code the vault's unit registry does not know stops the row
+  with a reason; it is never replaced with a default.
+- **Counterparty** follows the direction: money out names `RltdPties/Cdtr`,
+  money in names `Dbtr`, and the other side is read only when the expected one
+  is absent.
+- **Reference** is every `RmtInf/Ustrd` line joined in file order, falling back
+  to `AddtlNtryInf` and then to the payer-set id (`Refs/EndToEndId`, else
+  `Refs/TxId`) as plain text — text a reader can recognise a card payment by,
+  never a key.
+- **A batched booking** (one `Ntry` carrying several `TxDtls`, or a
+  `Btch/NbOfTxs` above one — the German bank's *Sammelbuchung*) posts as the
+  batch, not as its first member: the counterparty column says `batched entry,
+  N transactions`, the reference is only what the booking itself carries, and
+  the key is the booking's own `AcctSvcrRef`. Borrowing the first member's
+  payee and identifier would put the batch TOTAL under one member's name, and a
+  later single-entry export of that member would then dedupe against it and
+  vanish.
+- **Account** is the statement's own `Acct/Id/IBAN`, then `Acct/Id/Othr/Id`,
+  then the owner name. Every entry in a statement belongs to the account it was
+  cut for.
+- **Entry reference** is `AcctSvcrRef` and nothing else — the account
+  servicer's own reference, the one value the servicing bank assigns per entry
+  and the one that survives a re-export. The payer-set ids are deliberately
+  **not** identifiers: an `EndToEndId` belongs to the payment order rather than
+  to the booking, so a SEPA standing order repeats the same one every month,
+  and keying on it would make February's rent a duplicate of January's and drop
+  it in silence. `TxId` is the payer's bank's, with the same freedom. Both are
+  read as reference text instead. Placeholder text (`NOTPROVIDED` and friends)
+  counts as no identifier at all, because a statement whose every entry keyed
+  on `NOTPROVIDED` would collapse into one row.
+- **A reversal indicator** is read as the XSD boolean it is — `true`/`1`,
+  `false`/`0`, absent means false. Any other spelling stops the entry with a
+  reason: read as "probably not reversed", it would put a refund on the wrong
+  side of the ledger.
+- **Element lookup ignores namespaces.** `camt.053.001.02` through `.08` are
+  all in the field and banks send whichever their core system speaks; binding
+  to one namespace URI would reject next year's file for a reason that has
+  nothing to do with its contents.
+
+An entry that cannot be read is reported by its position in the file (there
+are no lines to point at) and not imported — the same rule the CSV path
+follows.
+
+**The fence is the same one.** No bank API, no credential, no EBICS, no
+scraping, no socket: the input is a file the account holder downloaded by
+hand. The typed format is a better file, not a connection.
+
+A CSV export and a typed statement of the *same* transaction do not dedupe
+against each other exactly — the CSV row carries no identifier, so the two
+meet on the weak key and land in the review step, where a human decides.
+That is the honest outcome of importing one bank through two formats; the
+answer is to pick one format per account.
+
+**And they only meet at all when the account labels agree.** The weak key
+carries the folded account, and the two formats do not name the account the
+same way by default: a typed statement's account is the statement's own IBAN,
+while a CSV import's is whatever the mapping's `account` field says — free
+text, often a nickname like `Giro EUR`. Different labels mean different weak
+keys, so the CSV row and the typed row never collide at all and both import:
+one transaction, twice in the ledger, with nothing surfaced to review. Where a
+bank really has to be read through both formats, the mapping's `account` must
+be set to the same IBAN the statement carries. This is the second reason to
+pick one format per account, and the sharper one.
 
 ## 8e. `.vault/statement-rules.json` — transaction category rules
 

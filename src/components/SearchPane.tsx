@@ -8,8 +8,8 @@ import type {
   SnippetPart,
 } from "../lib/types";
 import { foldedPropStr } from "../lib/types";
-import { MOUNT_SCHEME, searchHitMeta } from "../lib/mounts";
-import { recallSearch, vaultSearchFull } from "../lib/ipc";
+import { MOUNT_SCHEME, rowMetas, searchHitMeta } from "../lib/mounts";
+import { mountRows, recallSearch, vaultSearchFull } from "../lib/ipc";
 import { createLatestGuard } from "../lib/latest";
 import { collapsedLabel, dayLabel, lifespan } from "../lib/recall";
 import {
@@ -151,6 +151,33 @@ export default function SearchPane({
     [notes, effFilters]
   );
 
+  // A structured filter with no text never reaches the engine: those rows are
+  // built here, out of what this pane can see. It can see notes — and a
+  // mounted file is in no note list, so a bare `type:` operator listed none of
+  // them however squarely the mount's own rows answered it. The board's row
+  // projection is what the filters read on the board, so it is what is read
+  // here, fetched only while such a query is live.
+  const [mountRowMetas, setMountRowMetas] = useState<NoteMeta[]>([]);
+  const needMountRows = !searchText && effFilters.length > 0 && mounts.length > 0;
+  useEffect(() => {
+    if (!needMountRows) return;
+    let live = true;
+    Promise.all(
+      // a mount this machine cannot read is a board that shows nothing
+      // either — its rows are absent, not an error to raise over a search
+      mounts.map((m) =>
+        mountRows(m.id)
+          .then((rows) => rowMetas(m, rows))
+          .catch(() => [] as NoteMeta[])
+      )
+    ).then((all) => {
+      if (live) setMountRowMetas(all.flat());
+    });
+    return () => {
+      live = false;
+    };
+  }, [needMountRows, mounts]);
+
   useEffect(() => {
     if (!searchText) {
       // invalidate a still-in-flight search so it can't repopulate stale hits
@@ -248,15 +275,17 @@ export default function SearchPane({
         return n !== undefined && (effFilters.length === 0 || matchesFilters(n, effFilters));
       });
     } else if (effFilters.length > 0) {
-      // operators only — every matching note, no snippets to show
-      hits = notes
+      // operators only — every matching row, no snippets to show. An
+      // annotated mount row carries its sidecar's real vault path and is
+      // already in `notes`, so the note wins and its twin is dropped.
+      hits = [...notes, ...mountRowMetas.filter((r) => !byPath.has(r.path))]
         .filter((n) => matchesFilters(n, effFilters))
         .map((n) => ({
           path: n.path,
           title_parts: [{ text: displayTitle(n), hit: false }],
           total: 0,
           matches: [],
-          // these rows come from the loaded notes, never from a mount
+          // nothing was searched, so nothing was read to a cap either
           partial: false,
           // an operators-only query matched no text at all — nothing to mark
           prop_parts: [],
@@ -270,7 +299,7 @@ export default function SearchPane({
     });
     if (sort === "updated") out.sort((a, b) => b.n.updated_ms - a.n.updated_ms);
     return out;
-  }, [engineHits, notes, mounts, searchText, effFilters, sort]);
+  }, [engineHits, notes, mountRowMetas, mounts, searchText, effFilters, sort]);
 
   const rows = useMemo(() => {
     const out: Row[] = [];
@@ -318,12 +347,20 @@ export default function SearchPane({
   // from a count alone is whether mounted files are in play, which is why
   // both halves of that are read off the page and the vault here.
   const pageHasMountRow = groups.some((g) => g.h.path.startsWith(MOUNT_SCHEME));
+  // Under a filter the engine's count speaks for the allow-list it was handed,
+  // which is built from notes: a mounted row rides past it and is decided
+  // HERE, so what this pane kept of them is what the total has to add. Without
+  // the addition the line under-reports by exactly the mount rows drawn above
+  // it — a page of five saying "3 results".
+  const engineTotal =
+    engineResult.total +
+    (effFilters.length > 0 ? groups.filter((g) => g.h.path.startsWith(MOUNT_SCHEME)).length : 0);
   const stats = searchStats({
     searching: Boolean(searchText),
     filtered: effFilters.length > 0,
     groups: groups.length,
     matches: totalMatches,
-    total: engineResult.total,
+    total: engineTotal,
     truncated,
     pageHasMountRow,
     vaultHasMounts: mounts.length > 0,
@@ -468,7 +505,7 @@ export default function SearchPane({
                 ? // the engine had more than it sent — "No results" would be a
                   // lie about files that exist. Same count, same caveat as the
                   // stats line: it holds mounted files as readily as notes.
-                  `Showing none of ${engineResult.total} matching ${resultUnit(engineResult.total, pageHasMountRow || mounts.length > 0)} — narrow the search`
+                  `Showing none of ${engineTotal} matching ${resultUnit(engineTotal, pageHasMountRow || mounts.length > 0)} — narrow the search`
                 : query.trim()
                   ? `No results for “${query.trim()}”`
                   : "Search the whole vault"

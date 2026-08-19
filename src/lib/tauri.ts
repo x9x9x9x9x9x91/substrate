@@ -4157,7 +4157,12 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // nothing, so the whole query does too rather than matching everything
       if (fullPhrases.some((runs) => runs.length === 0))
         return { hits: [], total_notes: 0, truncated: false };
-      // scope: path allow-list applied before the cap, like the engine
+      // scope: path allow-list applied before the cap, like the engine — and
+      // like the engine, it speaks for notes only. A mounted file is in no
+      // note list, so the list names none of them: they are ADMITTED past it
+      // into the page (the pane applies the filter verdict to a row it can
+      // rebuild from its mount) and left OUT of the count, which may only
+      // report what the list itself judged.
       const fullScope = (args?.scope as string[] | undefined) ?? null;
       const fullInScope = fullScope ? new Set(fullScope) : null;
       // conceal parity: excluded before the count AND the cap, so
@@ -4245,7 +4250,8 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
         if (!mockMounts.some((m) => m.id === id)) continue;
         for (const f of idx.files) {
           const path = `${MOUNT_SCHEME}${id}/${f.rel}`;
-          if (fullInScope !== null && !fullInScope.has(path)) continue;
+          // no scope check: the allow-list is built from notes and names no
+          // mounted file, so testing one against it drops every one of them
           const name = f.rel.split("/").pop() ?? f.rel;
           const title = segment(name);
           let total = title.count;
@@ -4280,9 +4286,14 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // rank before capping, or the cap picks by insertion order.
       // The count is of the whole match set, not the page — the UI
       // needs it to say "first 200 of 359" and to tell a truncated page apart
-      // from an empty result set.
+      // from an empty result set. Under a scope it is of the match set the
+      // ALLOW-LIST spoke for: the admitted rows rode past it unjudged, so
+      // neither the total nor the overflow it implies may include them.
       const hits = ranked.sort(mockRank).slice(0, FULL_SEARCH_MAX_NOTES).map((r) => r.hit);
-      return { hits, total_notes: ranked.length, truncated: hits.length < ranked.length };
+      const counted = (rows: { path: string }[]) =>
+        fullInScope === null ? rows.length : rows.filter((r) => !r.path.startsWith(MOUNT_SCHEME)).length;
+      const fullTotal = counted(ranked);
+      return { hits, total_notes: fullTotal, truncated: counted(hits) < fullTotal };
     }
     case "vault_backlinks": {
       const n = find();
