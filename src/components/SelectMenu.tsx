@@ -6,6 +6,7 @@ import type { HopDir } from "../lib/cellhop";
 import { optionColorVar } from "../lib/dbicons";
 import { byFoldedKey } from "../lib/schemalookup";
 import { optionColor } from "../lib/cellpill";
+import { canonicalReviewWindow, windowLabel } from "../lib/shelflife";
 import { PlusIcon, XIcon } from "./Icons";
 import TypeIcon from "./TypeIcon";
 
@@ -131,6 +132,9 @@ interface SelectMenuProps {
   format?: NumberFormat;
   /** any kind: the current entry hint (undefined = none) */
   description?: string;
+  /** any kind: the current review window (undefined = none, the default —
+      a property without one has no shelf life and never reads as stale) */
+  review?: string;
   /** database types the relation target picker offers */
   databases?: string[];
   /** open straight in the options/kind editor (e.g. from a date/file menu) */
@@ -181,7 +185,7 @@ interface SelectMenuProps {
       parent commits live, like the relation picker */
   onToggle?: (v: string) => void;
   onClear?: () => void;
-  onSaveSchema: (opts: SelectOption[], kind: PropKind | null, notify?: boolean, notifyBefore?: number, target?: string, format?: NumberFormat, description?: string, rollup?: RollupConfig | null) => void;
+  onSaveSchema: (opts: SelectOption[], kind: PropKind | null, notify?: boolean, notifyBefore?: number, target?: string, format?: NumberFormat, description?: string, rollup?: RollupConfig | null, review?: string) => void;
   /** rollup kind only: relation props of THIS database the rollup
       can follow — absent means the rollup kind can't be configured here */
   rollupRelations?: string[];
@@ -300,6 +304,7 @@ export default function SelectMenu({
   target,
   format,
   description,
+  review,
   databases,
   startEditing,
   editTitle,
@@ -362,6 +367,11 @@ export default function SelectMenu({
   const [draftTarget, setDraftTarget] = useState(target ?? "");
   const [draftFormat, setDraftFormat] = useState<NumberFormat>(format ?? "plain");
   const [draftDesc, setDraftDesc] = useState(description ?? "");
+  // the review window lives as text so the field can be blank = no window,
+  // which is the default: a property with none has no shelf life and never
+  // reads as stale. A blank save CLEARS a stored window (the engine parts
+  // absent from empty the same way), so this is also how one is removed.
+  const [draftReview, setDraftReview] = useState(review ?? "");
   // rollup wiring: the relation to follow (prefilled with the
   // current wiring, else the first followable relation), the target prop on
   // the related database (no prefill — a conscious pick), and the function
@@ -724,6 +734,14 @@ export default function SelectMenu({
   // schema-level check only — the menu cannot see cell data, and the warning
   // is about the transition, not about which rows happen to be filled
   const hidesValues = draftKind === "checkbox" && currentKind !== "checkbox";
+  // The window as it will be STORED, normalized exactly the way the engine
+  // normalizes it (`vault/schema.rs` canonical_review_window, mirrored in
+  // shelflife.ts): "Yearly" → "1y", " 90d " → "90d". Blank is no window;
+  // anything the vocabulary does not name is refused HERE, so the editor
+  // never sends a string the engine would bounce after it has closed.
+  const reviewTyped = draftReview.trim();
+  const reviewCanon = canonicalReviewWindow(reviewTyped);
+  const reviewBad = reviewTyped.length > 0 && !reviewCanon;
 
   const menu = editing ? (
     <div className="selmenu" style={style} ref={boxRef} onClick={stop} onKeyDown={stop}>
@@ -1020,6 +1038,31 @@ export default function SelectMenu({
           onKeyDown={(e) => e.stopPropagation()}
         />
       </div>
+      <div className="selmenu-addrow">
+        <input
+          // the review window rides every kind too — blank is the default,
+          // and means the value never goes off
+          className="selmenu-add-input"
+          aria-label="Review window"
+          placeholder="Review window — blank, or 90d"
+          value={draftReview}
+          onChange={(e) => setDraftReview(e.target.value)}
+          onKeyDown={(e) => e.stopPropagation()}
+        />
+      </div>
+      {reviewBad ? (
+        <div className="selmenu-warn">
+          “{reviewTyped}” names no review window — try yearly, quarterly, monthly,
+          weekly, or a count like 90d, 6m, 2y
+        </div>
+      ) : (
+        reviewCanon && (
+          <div className="selmenu-hint">
+            Values read as stale {windowLabel(reviewCanon)} after they were last set.
+            Nothing is notified — the shelf-life report answers when asked.
+          </div>
+        )
+      )}
       {dropsOptions && (
         <div className="selmenu-warn">
           Saving as {draftKindLabel} removes {options.length}{" "}
@@ -1049,12 +1092,17 @@ export default function SelectMenu({
           className="selmenu-btn selmenu-btn-primary"
           disabled={
             saveDisabled ||
+            reviewBad ||
             (draftKind === "relation" && !draftTarget.trim()) ||
             (draftKind === "rollup" && (!rollRelValid || !draftRollProp.trim()))
           }
           onClick={() => {
             // empty stores as absent — the engine trims/normalizes too
             const desc = draftDesc.trim() || undefined;
+            // the window goes in its stored spelling, and an EMPTY STRING
+            // rather than undefined when there is none: undefined leaves a
+            // stored window standing, "" is how one is cleared
+            const rev = reviewCanon ?? "";
             if (draftKind === "rollup") {
               // the relation canonicalizes against the followable list; the
               // prop against the target's schema — typed text (an
@@ -1072,7 +1120,7 @@ export default function SelectMenu({
                   relation: rel,
                   prop: rollProp,
                   agg: draftRollAgg,
-                });
+                }, rev);
             }
             else if (draftKind === "date" || draftKind === "file" || draftKind === "url" || draftKind === "email" || draftKind === "phone" || draftKind === "checkbox") {
               // blank/garbage lead time saves as 0 — the engine reads that as
@@ -1088,19 +1136,21 @@ export default function SelectMenu({
                 lead,
                 undefined,
                 undefined,
-                desc
+                desc,
+                undefined,
+                rev
               );
             }
             else if (draftKind === "number")
               // plain stores as absent — the engine normalizes it away
-              onSaveSchema([], "number", undefined, undefined, undefined, draftFormat === "plain" ? undefined : draftFormat, desc);
+              onSaveSchema([], "number", undefined, undefined, undefined, draftFormat === "plain" ? undefined : draftFormat, desc, undefined, rev);
             else if (draftKind === "relation")
-              onSaveSchema([], "relation", undefined, undefined, draftTarget.trim(), undefined, desc);
-            else if (draftKind === "multi") onSaveSchema(draft, "multi", undefined, undefined, undefined, undefined, desc);
-            else if (draftKind === "select") onSaveSchema(draft, null, undefined, undefined, undefined, undefined, desc);
+              onSaveSchema([], "relation", undefined, undefined, draftTarget.trim(), undefined, desc, undefined, rev);
+            else if (draftKind === "multi") onSaveSchema(draft, "multi", undefined, undefined, undefined, undefined, desc, undefined, rev);
+            else if (draftKind === "select") onSaveSchema(draft, null, undefined, undefined, undefined, undefined, desc, undefined, rev);
             // text registers explicitly — a schema'd text column
             // survives the demote rule; removal is the separate remove flow
-            else onSaveSchema([], "text", undefined, undefined, undefined, undefined, desc);
+            else onSaveSchema([], "text", undefined, undefined, undefined, undefined, desc, undefined, rev);
             // a kind change swaps which menu this chip/cell opens — close out;
             // select and multi keep riding THIS menu, so stay open
             if (

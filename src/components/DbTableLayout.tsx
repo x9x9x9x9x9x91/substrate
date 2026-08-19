@@ -253,7 +253,10 @@ export default function DbTableLayout({
     target?: string,
     format?: NumberFormat,
     description?: string,
-    rollup?: RollupConfig | null
+    rollup?: RollupConfig | null,
+    /** any kind: how long a value stays believable (`90d`, `1y`); an empty
+        string clears a stored window, undefined leaves it alone */
+    review?: string
   ) => void;
   /** the rollup schema editor's pickers: followable relation props
       of this database, and the props of a relation's target database */
@@ -775,12 +778,13 @@ export default function DbTableLayout({
                             target={cschema?.type}
                             format={cschema?.format}
                             description={cschema?.description}
+                            review={cschema?.review}
                             databases={dbTypes}
                             rollupRelations={rollupRelations}
                             rollupPropsFor={rollupPropsFor}
                             startEditing
                             onCommit={(v) => commitCell(v)}
-                            onSaveSchema={(o, nk, nf, nb, t, f, d, r) => onSaveSchema(c, o, nk, nf, nb, t, f, d, r)}
+                            onSaveSchema={(o, nk, nf, nb, t, f, d, r, rv) => onSaveSchema(c, o, nk, nf, nb, t, f, d, r, rv)}
                             onClose={closeCell}
                           />
                         ) : ckind === "relation" && cschema?.type ? (
@@ -834,6 +838,7 @@ export default function DbTableLayout({
                             target={cschema?.type}
                             format={cschema?.format}
                             description={cschema?.description}
+                            review={cschema?.review}
                             databases={dbTypes}
                             rollupRelations={rollupRelations}
                             rollupPropsFor={rollupPropsFor}
@@ -863,7 +868,7 @@ export default function DbTableLayout({
                             }
                             onCommit={(v) => commitCell(v)}
                             onClear={() => commitCell(null)}
-                            onSaveSchema={(o, nk, nf, nb, t, f, d, r) => onSaveSchema(c, o, nk, nf, nb, t, f, d, r)}
+                            onSaveSchema={(o, nk, nf, nb, t, f, d, r, rv) => onSaveSchema(c, o, nk, nf, nb, t, f, d, r, rv)}
                             onClose={closeCell}
                           />
                         )
@@ -1070,6 +1075,7 @@ export default function DbTableLayout({
             target={bulkSchema?.type}
             format={bulkSchema?.format}
             description={bulkSchema?.description}
+            review={bulkSchema?.review}
             databases={dbTypes}
             rollupRelations={rollupRelations}
             rollupPropsFor={rollupPropsFor}
@@ -1087,7 +1093,7 @@ export default function DbTableLayout({
             }
             onCommit={(v) => bulkCommit(bulkKey, v)}
             onClear={() => bulkCommit(bulkKey, null)}
-            onSaveSchema={(o, nk, nf, nb, t, f, d, r) => onSaveSchema(bulkKey, o, nk, nf, nb, t, f, d, r)}
+            onSaveSchema={(o, nk, nf, nb, t, f, d, r, rv) => onSaveSchema(bulkKey, o, nk, nf, nb, t, f, d, r, rv)}
             onClose={closeBulkEdit}
           />
         ))}

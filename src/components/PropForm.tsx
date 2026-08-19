@@ -34,7 +34,10 @@ export default function PropForm({
     target?: string,
     format?: NumberFormat,
     description?: string,
-    rollup?: RollupConfig | null
+    rollup?: RollupConfig | null,
+    /** any kind: how long a value stays believable (`90d`, `1y`); an empty
+        string clears a stored window, undefined leaves it alone */
+    review?: string
   ) => void;
   onClose: () => void;
 }) {
@@ -76,7 +79,7 @@ export default function PropForm({
       onCommit={() => undefined}
       rollupRelations={rollupRelations}
       rollupPropsFor={rollupPropsFor}
-      onSaveSchema={(o, k, n, nb, t, f, d, r) => onSave(trimmed, o, k, n, nb, t, f, d, r)}
+      onSaveSchema={(o, k, n, nb, t, f, d, r, rv) => onSave(trimmed, o, k, n, nb, t, f, d, r, rv)}
       onClose={onClose}
     />
   );

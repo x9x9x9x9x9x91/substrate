@@ -1403,12 +1403,13 @@ export default function App() {
   );
 
   const saveSchemaProp = useCallback(
-    (dbType: string, prop: string, options: SelectOption[], kind: PropKind | null, notify?: boolean, notifyBefore?: number, target?: string, format?: NumberFormat, description?: string, rollup?: RollupConfig | null) => {
+    (dbType: string, prop: string, options: SelectOption[], kind: PropKind | null, notify?: boolean, notifyBefore?: number, target?: string, format?: NumberFormat, description?: string, rollup?: RollupConfig | null, review?: string) => {
       const storedDb = schemaDbKey(dbType);
       const storedProp = schemaPropKey(dbType, prop);
-      // review windows are not the schema editor's to touch: it sends none,
-      // and the engine leaves whatever the schema declares standing
-      vaultSchemaSet(storedDb, storedProp, options, kind ?? undefined, notify, notifyBefore, target, format, description, undefined, rollup)
+      // the review window rides through as the editor sent it: a canonical
+      // window sets one, an empty string clears it, and undefined (every
+      // caller that has no window field) leaves the stored one standing
+      vaultSchemaSet(storedDb, storedProp, options, kind ?? undefined, notify, notifyBefore, target, format, description, review, rollup)
         .then(setSchema)
         // engine refusals ("a rollup property needs a relation to follow",
         // "“mount” is set by the mount") must reach the user — the editor has
@@ -5220,7 +5221,7 @@ export default function App() {
                 icon={iconForType(dbIcons, activeMount.name)}
                 onSaveIcon={(ic) => saveSchemaIcon(activeMount.name, ic)}
                 usedValues={(key) => usedValues(activeMount.name, key)}
-                onSaveSchema={(prop, opts, kind, notify, notifyBefore, target, format, description, rollup) => saveSchemaProp(activeMount.name, prop, opts, kind, notify, notifyBefore, target, format, description, rollup)}
+                onSaveSchema={(prop, opts, kind, notify, notifyBefore, target, format, description, rollup, review) => saveSchemaProp(activeMount.name, prop, opts, kind, notify, notifyBefore, target, format, description, rollup, review)}
                 relationCandidates={relCandidates}
                 onCreateEntry={createEntry}
                 dbTypes={dbTypes}
@@ -5287,7 +5288,7 @@ export default function App() {
               icon={iconForType(dbIcons, view.type)}
               onSaveIcon={(ic) => saveSchemaIcon(view.type, ic)}
               usedValues={(key) => usedValues(view.type, key)}
-              onSaveSchema={(prop, opts, kind, notify, notifyBefore, target, format, description, rollup) => saveSchemaProp(view.type, prop, opts, kind, notify, notifyBefore, target, format, description, rollup)}
+              onSaveSchema={(prop, opts, kind, notify, notifyBefore, target, format, description, rollup, review) => saveSchemaProp(view.type, prop, opts, kind, notify, notifyBefore, target, format, description, rollup, review)}
               relationCandidates={relCandidates}
               onCreateEntry={createEntry}
               dbTypes={dbTypes}
@@ -5334,7 +5335,7 @@ export default function App() {
               icon={iconForType(dbIcons, activeSaved.db)}
               onSaveIcon={(ic) => saveSchemaIcon(activeSaved.db, ic)}
               usedValues={(key) => usedValues(activeSaved.db, key)}
-              onSaveSchema={(prop, opts, kind, notify, notifyBefore, target, format, description, rollup) => saveSchemaProp(activeSaved.db, prop, opts, kind, notify, notifyBefore, target, format, description, rollup)}
+              onSaveSchema={(prop, opts, kind, notify, notifyBefore, target, format, description, rollup, review) => saveSchemaProp(activeSaved.db, prop, opts, kind, notify, notifyBefore, target, format, description, rollup, review)}
               relationCandidates={relCandidates}
               onCreateEntry={createEntry}
               dbTypes={dbTypes}
