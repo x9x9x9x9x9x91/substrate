@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import type { SyncReport, VaultSyncStatus } from "../lib/types";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import type { RemoteSetup, SyncReport, VaultSyncStatus } from "../lib/types";
 import SyncConflicts from "./SyncConflicts";
 import {
   vaultSyncAckPrivacy,
+  vaultSyncChangePassphrase,
   vaultSyncPull,
   vaultSyncPush,
   vaultSyncSetRemote,
@@ -62,7 +63,7 @@ export default function VaultSyncPane({
   const [status, setStatus] = useState<VaultSyncStatus | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<SyncAction | "save" | null>(null);
+  const [busy, setBusy] = useState<SyncAction | "save" | "passphrase" | null>(null);
   const [remoteUrl, setRemoteUrl] = useState("");
   const [token, setToken] = useState("");
   const [certPem, setCertPem] = useState("");
@@ -70,15 +71,34 @@ export default function VaultSyncPane({
   const [passphraseAgain, setPassphraseAgain] = useState("");
   const [showPassphrase, setShowPassphrase] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
-  const [remoteSaved, setRemoteSaved] = useState(false);
+  const [remoteSaved, setRemoteSaved] = useState<RemoteSetup | null>(null);
   const [acking, setAcking] = useState(false);
+  /** Armed when a save would take a hosted vault off its encrypted transport.
+      The save does not happen until it is pressed a second time — see
+      [`downgrades`]. */
+  const [downgradeArmed, setDowngradeArmed] = useState(false);
+  const [changingPassphrase, setChangingPassphrase] = useState(false);
+  const [currentPassphrase, setCurrentPassphrase] = useState("");
+  const [nextPassphrase, setNextPassphrase] = useState("");
+  const [nextPassphraseAgain, setNextPassphraseAgain] = useState("");
+  const [changeError, setChangeError] = useState<string | null>(null);
+  const [changeSaved, setChangeSaved] = useState(false);
+  /** Whether the URL field holds something the user typed. Until it does, the
+      field follows the configured remote — a hosted vault used to render an
+      empty box, which reads as "no remote" and invites retyping it wrong. */
+  const urlEdited = useRef(false);
   // Remounts the conflict surface so it re-reads git after every sync command.
   const [conflictNonce, setConflictNonce] = useState(0);
   const undo = useUndo();
 
   const refreshStatus = useCallback(async () => {
     try {
-      setStatus(await vaultSyncStatus());
+      const next = await vaultSyncStatus();
+      setStatus(next);
+      // The configured URL is the field's value until the user disagrees.
+      // Showing an empty box beside a live remote is what made a re-save look
+      // like a first save, and a hosted vault look like nothing in particular.
+      if (!urlEdited.current) setRemoteUrl(next.remote_url ?? "");
       setStatusError(null);
     } catch (error) {
       setStatusError(errorText(error));
@@ -109,6 +129,9 @@ export default function VaultSyncPane({
         // a push brings its own reading of the store's size; a pull knows
         // nothing about it and must leave the standing one alone
         notice: action === "push" ? (report.notice ?? null) : (status?.notice ?? null),
+        // carried too: neither a push nor a pull moves the vault
+        remote_kind: status?.remote_kind ?? "none",
+        remote_url: status?.remote_url ?? null,
       });
     } catch (error) {
       setActionError(errorText(error));
@@ -143,9 +166,34 @@ export default function VaultSyncPane({
       costs a keystroke rather than a round trip and a 64 MiB key derivation. */
   const PASSPHRASE_MIN = 12;
 
+  /** This save would move an end-to-end-encrypted vault onto a plain Git
+      remote, where the server sees everything. It is a real thing to want and
+      the backend allows it — but it is also exactly what a mistyped URL looks
+      like, and it used to happen without a word.
+
+      Unknown counts as hosted. When the status read failed there is no way to
+      tell what this vault syncs as, and reading "not hosted" out of a missing
+      answer armed nothing: the first press converted an encrypted vault. The
+      confirmation costs a second press on a plain vault; the other way costs
+      the encryption. */
+  const downgrades = !hostedRemote && (status === null || status.remote_kind === "hosted");
+  /** The very first status read has not come back yet. The save waits for it:
+      arming a confirmation against a state that is merely late would make a
+      first-ever setup look like it was about to destroy something. */
+  const statusPending = status === null && statusError === null;
+  /** Whether that warning is about a vault we know is encrypted, or about one
+      whose state could not be read. The two want different words. */
+  const downgradeKindKnown = status?.remote_kind === "hosted";
+
   const saveRemote = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (busy || !remoteUrl.trim()) return;
+    if (busy || !remoteUrl.trim() || statusPending) return;
+    if (downgrades && !downgradeArmed) {
+      setDowngradeArmed(true);
+      setSetupError(null);
+      setRemoteSaved(null);
+      return;
+    }
     if (hostedRemote) {
       // Trim then NFC, the order hosted_set_remote uses, so what is compared
       // and counted here is the byte string the key is actually derived from:
@@ -165,15 +213,15 @@ export default function VaultSyncPane({
               : null;
       if (refusal) {
         setSetupError(refusal);
-        setRemoteSaved(false);
+        setRemoteSaved(null);
         return;
       }
     }
     setBusy("save");
     setSetupError(null);
-    setRemoteSaved(false);
+    setRemoteSaved(null);
     try {
-      await vaultSyncSetRemote(
+      const setup = await vaultSyncSetRemote(
         remoteUrl.trim(),
         token,
         hostedRemote ? undefined : certPem.trim() || undefined,
@@ -189,7 +237,10 @@ export default function VaultSyncPane({
       setPassphrase("");
       setPassphraseAgain("");
       setShowPassphrase(false);
-      setRemoteSaved(true);
+      setRemoteSaved(setup);
+      setDowngradeArmed(false);
+      // The field follows the configured remote again now that the two agree.
+      urlEdited.current = false;
       // embeds classify missing assets against sync state — the
       // cached "no remote" answer is stale the moment a remote lands
       resetSyncConfigured();
@@ -197,6 +248,47 @@ export default function VaultSyncPane({
       setSetupError(errorText(error));
     } finally {
       await refreshStatus();
+      setBusy(null);
+    }
+  };
+
+  /** Re-wrap the vault master key under a new passphrase. The key does not
+      change, so this device and every other enrolled one keep syncing — what
+      moves is the phrase a future device has to type. */
+  const changePassphrase = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (busy) return;
+    // Same normalization as the save path, for the same reason: what is
+    // compared here must be the byte string the key is derived from.
+    const current = currentPassphrase.trim().normalize("NFC");
+    const next = nextPassphrase.trim().normalize("NFC");
+    const again = nextPassphraseAgain.trim().normalize("NFC");
+    const refusal =
+      current.length === 0
+        ? "enter the current vault passphrase"
+        : next !== again
+          ? "the two passphrases do not match"
+          : [...next].length < PASSPHRASE_MIN
+            ? `the vault passphrase must be at least ${PASSPHRASE_MIN} characters — it is the only protection on the encrypted vault`
+            : null;
+    if (refusal) {
+      setChangeError(refusal);
+      setChangeSaved(false);
+      return;
+    }
+    setBusy("passphrase");
+    setChangeError(null);
+    setChangeSaved(false);
+    try {
+      await vaultSyncChangePassphrase(current, next);
+      // Write-only, like every other passphrase entry on this pane.
+      setCurrentPassphrase("");
+      setNextPassphrase("");
+      setNextPassphraseAgain("");
+      setChangeSaved(true);
+    } catch (error) {
+      setChangeError(errorText(error));
+    } finally {
       setBusy(null);
     }
   };
@@ -235,6 +327,14 @@ export default function VaultSyncPane({
   // store, the auto lane pulls every few minutes, and a warning living on the
   // last result is gone before anyone reads it.
   const storeNotice = status?.notice ?? null;
+  // What the vault syncs as, from the repository. The pane carried no way to
+  // say this, so an end-to-end-encrypted vault and a plain one rendered
+  // identically — including in the moment one was about to become the other.
+  const hostedVault = status?.remote_kind === "hosted";
+  // A file:// remote is a folder on this machine (or a mounted one): still
+  // unencrypted, but there is no server to warn about, and calling one a
+  // server makes the sentence read as wrong rather than as serious.
+  const localRemote = status?.remote_url?.startsWith("file://") === true;
   const checking = status === null && statusError === null;
   const statusLabel = checking
     ? "Checking"
@@ -302,6 +402,22 @@ export default function VaultSyncPane({
                 </div>
               )}
             </div>
+
+            {configured && (
+              <div className={`vault-sync-remote-kind${hostedVault ? " hosted" : ""}`}>
+                <span className="vault-sync-remote-kind-label">
+                  {hostedVault ? "End-to-end encrypted" : "Plain Git remote"}
+                </span>
+                <code className="vault-sync-remote-kind-url">{status?.remote_url}</code>
+                <span className="vault-sync-muted">
+                  {hostedVault
+                    ? "The server holds ciphertext only; the vault passphrase is the one thing that opens it."
+                    : localRemote
+                      ? "Stored unencrypted: anything that can read that folder can read everything this vault holds."
+                      : "The server can read everything this vault holds."}
+                </span>
+              </div>
+            )}
 
             {/* Not an error style and not the error slot: syncing works, and
                 will keep working for a long time yet. This is the store saying
@@ -401,11 +517,171 @@ export default function VaultSyncPane({
                   privacy_error: status?.privacy_error ?? null,
                   privacy_paths: status?.privacy_paths ?? [],
                   notice: status?.notice ?? null,
+                  remote_kind: status?.remote_kind ?? "none",
+                  remote_url: status?.remote_url ?? null,
                 });
                 setActionError(null);
                 void refreshStatus();
               }}
             />
+          )}
+
+          {hostedVault && (
+            <section
+              className="vault-sync-card"
+              aria-labelledby="vault-sync-passphrase-title"
+            >
+              <div className="vault-sync-card-head vault-sync-remote-head">
+                <div>
+                  <h2 id="vault-sync-passphrase-title">Vault passphrase</h2>
+                  <p>
+                    Changing it re-encrypts the key, not the vault: this device
+                    and every other one already connected keep syncing without
+                    interruption. What changes is the passphrase the next device
+                    has to type.
+                  </p>
+                  <p>
+                    So it does not disconnect anything: devices already
+                    connected stay connected, and what is already on the server
+                    is not re-encrypted. A device you have lost keeps the key it
+                    was given — changing the passphrase is not the remedy for
+                    that, and nothing here is.
+                  </p>
+                </div>
+                {!changingPassphrase && (
+                  <button
+                    type="button"
+                    className="vault-sync-button vault-sync-passphrase-change"
+                    disabled={busy !== null}
+                    onClick={() => {
+                      setChangingPassphrase(true);
+                      setChangeError(null);
+                      setChangeSaved(false);
+                    }}
+                  >
+                    Change passphrase
+                  </button>
+                )}
+              </div>
+              {changeSaved && !changingPassphrase && (
+                <p className="vault-sync-saved" role="status">
+                  Vault passphrase changed
+                </p>
+              )}
+              {changingPassphrase && (
+                <form className="vault-sync-form" onSubmit={changePassphrase}>
+                  <label>
+                    <span>Current vault passphrase</span>
+                    <input
+                      type={showPassphrase ? "text" : "password"}
+                      className="vault-sync-passphrase-current"
+                      autoComplete="current-password"
+                      value={currentPassphrase}
+                      onChange={(event) => {
+                        setCurrentPassphrase(event.target.value);
+                        setChangeSaved(false);
+                      }}
+                      placeholder="The passphrase this vault uses today"
+                      disabled={busy !== null}
+                    />
+                  </label>
+                  <label>
+                    <span>New vault passphrase</span>
+                    <input
+                      type={showPassphrase ? "text" : "password"}
+                      className="vault-sync-passphrase-next"
+                      autoComplete="new-password"
+                      value={nextPassphrase}
+                      onChange={(event) => {
+                        setNextPassphrase(event.target.value);
+                        setChangeSaved(false);
+                      }}
+                      placeholder={`At least ${PASSPHRASE_MIN} characters`}
+                      disabled={busy !== null}
+                      aria-describedby="vault-sync-passphrase-next-hint"
+                    />
+                    <span
+                      id="vault-sync-passphrase-next-hint"
+                      className="vault-sync-field-hint"
+                    >
+                      Losing it loses the vault, exactly as before — keep the
+                      new one in your password manager before you change it.
+                    </span>
+                  </label>
+                  <label>
+                    <span>Repeat new passphrase</span>
+                    <input
+                      type={showPassphrase ? "text" : "password"}
+                      className="vault-sync-passphrase-next-again"
+                      autoComplete="new-password"
+                      value={nextPassphraseAgain}
+                      onChange={(event) => {
+                        setNextPassphraseAgain(event.target.value);
+                        setChangeSaved(false);
+                      }}
+                      placeholder="Type it again"
+                      disabled={busy !== null}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="vault-sync-passphrase-reveal"
+                    onClick={() => setShowPassphrase((shown) => !shown)}
+                    disabled={busy !== null}
+                    aria-pressed={showPassphrase}
+                    aria-label={
+                      showPassphrase
+                        ? "Hide the vault passphrase"
+                        : "Show the vault passphrase"
+                    }
+                  >
+                    {showPassphrase ? "Hide passphrase" : "Show passphrase"}
+                  </button>
+                  <div className="vault-sync-form-foot">
+                    <button
+                      type="submit"
+                      className="vault-sync-save"
+                      disabled={busy !== null}
+                    >
+                      {busy === "passphrase" ? (
+                        <span className="sync-spinner" />
+                      ) : (
+                        "Change passphrase"
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      className="vault-sync-button"
+                      disabled={busy !== null}
+                      onClick={() => {
+                        setChangingPassphrase(false);
+                        setCurrentPassphrase("");
+                        setNextPassphrase("");
+                        setNextPassphraseAgain("");
+                        setChangeError(null);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    {changeError && (
+                      <span className="vault-sync-form-error" role="alert">
+                        {changeError}
+                      </span>
+                    )}
+                    {changeSaved && !changeError && (
+                      <span className="vault-sync-saved" role="status">
+                        Vault passphrase changed
+                      </span>
+                    )}
+                  </div>
+                  <p className="vault-sync-field-hint">
+                    Other devices are unaffected until they connect again from
+                    scratch — the key they hold does not change. A device that
+                    is set up fresh after this needs the new passphrase.
+                  </p>
+                </form>
+              )}
+            </section>
           )}
 
           <section className="vault-sync-card" aria-labelledby="vault-sync-remote-title">
@@ -430,8 +706,12 @@ export default function VaultSyncPane({
                   spellCheck={false}
                   value={remoteUrl}
                   onChange={(event) => {
+                    urlEdited.current = true;
                     setRemoteUrl(event.target.value);
-                    setRemoteSaved(false);
+                    setRemoteSaved(null);
+                    // Editing the URL is a different save than the one that
+                    // was armed, so it has to be confirmed on its own terms.
+                    setDowngradeArmed(false);
                   }}
                   placeholder="https://sync.example.com/vault.git"
                   disabled={busy !== null}
@@ -451,7 +731,7 @@ export default function VaultSyncPane({
                   value={token}
                   onChange={(event) => {
                     setToken(event.target.value);
-                    setRemoteSaved(false);
+                    setRemoteSaved(null);
                   }}
                   placeholder="Paste a new token"
                   disabled={busy !== null}
@@ -468,7 +748,7 @@ export default function VaultSyncPane({
                       value={passphrase}
                       onChange={(event) => {
                         setPassphrase(event.target.value);
-                        setRemoteSaved(false);
+                        setRemoteSaved(null);
                       }}
                       placeholder={`Enter the vault passphrase · ${PASSPHRASE_MIN}+ characters`}
                       disabled={busy !== null}
@@ -477,7 +757,8 @@ export default function VaultSyncPane({
                     <span id="vault-sync-passphrase-hint" className="vault-sync-field-hint">
                       Encrypts the vault end to end. The first device sets it;
                       every other device — and any later re-save — repeats the
-                      same one (it cannot be changed here). At least{" "}
+                      same one. Once the vault is connected it can be changed
+                      above, without re-encrypting anything. At least{" "}
                       {PASSPHRASE_MIN} characters, because it is the only thing
                       protecting the vault on the server. Losing the passphrase
                       loses the vault, so keep it in a password manager.
@@ -492,7 +773,7 @@ export default function VaultSyncPane({
                       value={passphraseAgain}
                       onChange={(event) => {
                         setPassphraseAgain(event.target.value);
-                        setRemoteSaved(false);
+                        setRemoteSaved(null);
                       }}
                       placeholder="Type it again"
                       disabled={busy !== null}
@@ -527,7 +808,7 @@ export default function VaultSyncPane({
                     value={certPem}
                     onChange={(event) => {
                       setCertPem(event.target.value);
-                      setRemoteSaved(false);
+                      setRemoteSaved(null);
                     }}
                     placeholder="-----BEGIN CERTIFICATE-----"
                     rows={3}
@@ -541,13 +822,38 @@ export default function VaultSyncPane({
                   </span>
                 </label>
               )}
+              {downgradeArmed && (
+                <div className="vault-sync-downgrade" role="alert">
+                  <h3>This turns off the vault&apos;s encryption</h3>
+                  <p>
+                    {downgradeKindKnown
+                      ? "This vault syncs end to end encrypted today."
+                      : "This device could not read what this vault syncs as, so it is treated as encrypted."}{" "}
+                    Saving a plain remote sends it in a form the server can
+                    read, and the vault passphrase stops applying. If the URL
+                    above is a typo, correct it instead — pressing Save again
+                    goes through.
+                  </p>
+                  <p>
+                    It also drops the key: this device forgets the vault key,
+                    and the vault passphrase is the only way back to the
+                    ciphertext already on the hosted server.
+                  </p>
+                </div>
+              )}
               <div className="vault-sync-form-foot">
                 <button
                   type="submit"
-                  className="vault-sync-save"
-                  disabled={busy !== null || !remoteUrl.trim()}
+                  className={`vault-sync-save${downgradeArmed ? " danger" : ""}`}
+                  disabled={busy !== null || !remoteUrl.trim() || statusPending}
                 >
-                  {busy === "save" ? <span className="sync-spinner" /> : "Save remote"}
+                  {busy === "save" ? (
+                    <span className="sync-spinner" />
+                  ) : downgradeArmed ? (
+                    "Save unencrypted remote"
+                  ) : (
+                    "Save remote"
+                  )}
                 </button>
                 {setupError && (
                   <span className="vault-sync-form-error" role="alert">
@@ -560,6 +866,24 @@ export default function VaultSyncPane({
                   </span>
                 )}
               </div>
+              {remoteSaved === "created" && !setupError && (
+                <div className="vault-sync-created" role="status">
+                  <h3>This device just set the vault passphrase</h3>
+                  <p>
+                    The server held no key for this vault, so the phrase you
+                    typed is now the vault&apos;s — nothing anywhere else holds
+                    it, and no one can reset it. Verify it now: put it in your
+                    password manager, and use it to connect a second device
+                    before this vault holds anything you would miss.
+                  </p>
+                </div>
+              )}
+              {remoteSaved === "joined" && !setupError && (
+                <p className="vault-sync-field-hint">
+                  Joined the existing encrypted vault — the passphrase you typed
+                  is the one it was already encrypted under.
+                </p>
+              )}
             </form>
           </section>
         </div>

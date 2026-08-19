@@ -609,6 +609,70 @@ pub fn hosted_preflight(root: &Path, credentials_path: &Path) -> Result<(), Stri
     hosted_transport(root, credentials_path, &base).map(|_| ())
 }
 
+/// What kind of remote a vault syncs to, for surfaces that must say so.
+///
+/// The pane could not tell an end-to-end-encrypted vault from a plain Git one,
+/// which made "hosted" invisible exactly where it matters: a re-save with a
+/// mistyped URL dropped the encryption without ever saying it had.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RemoteKind {
+    /// No sync remote configured.
+    None,
+    /// An end-to-end-encrypted blob-store remote (`blob+https://`).
+    Hosted,
+    /// A plain Git remote: the server sees the vault's contents.
+    Git,
+}
+
+/// The configured remote's kind and URL. The URL is operator-visible
+/// configuration, and it leaves here with any embedded credentials removed — so
+/// it really carries neither the token nor the passphrase, and a pane may show
+/// it and refill its field from it.
+pub fn sync_remote(root: &Path) -> (RemoteKind, Option<String>) {
+    let Ok(repo) = owned_repo(root) else {
+        return (RemoteKind::None, None);
+    };
+    let url = repo
+        .find_remote(REMOTE)
+        .ok()
+        .and_then(|remote| remote.url().map(str::to_owned))
+        .filter(|url| !url.trim().is_empty())
+        .map(|url| redact_url_userinfo(&url));
+    match url {
+        Some(url) if hosted_base(&url).is_some() => (RemoteKind::Hosted, Some(url)),
+        Some(url) => (RemoteKind::Git, Some(url)),
+        None => (RemoteKind::None, None),
+    }
+}
+
+/// What replaces the `user:password@` an operator may have embedded in a remote
+/// URL. Kept obviously unusable rather than plausible: the pane refills its URL
+/// field from this string, and a redaction that still looked like a URL would
+/// invite re-saving a remote whose credential had been replaced by dots.
+const REDACTED_USERINFO: &str = "•••";
+
+/// Strip `user:password@` from a remote URL.
+///
+/// A plain Git remote is routinely written `https://user:token@host/repo.git`,
+/// and that URL is read back for the status payload, shown in the pane, and
+/// photographed by the shot runs. The token in it is a real credential: the
+/// stored remote keeps it (git needs it to push), but nothing that leaves here
+/// for a screen carries it.
+fn redact_url_userinfo(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_string();
+    };
+    // Only the authority holds userinfo; an `@` later in the path is a path
+    // character and must survive untouched.
+    let authority_end = rest.find('/').unwrap_or(rest.len());
+    let (authority, tail) = rest.split_at(authority_end);
+    match authority.rsplit_once('@') {
+        Some((_, host)) => format!("{scheme}://{REDACTED_USERINFO}@{host}{tail}"),
+        None => url.to_string(),
+    }
+}
+
 /// Whether an owned vault has the reserved sync remote configured.
 pub fn sync_configured(root: &Path) -> bool {
     owned_repo(root)
@@ -770,9 +834,22 @@ pub fn sync_set_remote(
     token: &str,
     cert_pem: Option<&str>,
     passphrase: Option<&str>,
-) -> Result<(), String> {
+) -> Result<RemoteSetup, String> {
     let repo = owned_repo(root)?;
     let url = url.trim();
+    // The URL that leaves here for a screen is redacted, and the pane refills
+    // its field from it — so the routine "re-save the remote to rotate the
+    // token" hands this function the dots back. Storing them would overwrite
+    // the real credential with punctuation and say nothing until the next push
+    // failed. Refused at the one door every remote save comes through, hosted
+    // and plain alike.
+    if url.contains(REDACTED_USERINFO) {
+        return Err(format!(
+            "the remote URL shown is redacted — {REDACTED_USERINFO} stands in for the credentials \
+             embedded in it, and saving it would destroy them. Retype the full URL, its \
+             credentials included."
+        ));
+    }
     if hosted_base(url).is_some() {
         return hosted_set_remote(&repo, root, credentials_path, url, token, passphrase);
     }
@@ -828,7 +905,26 @@ pub fn sync_set_remote(
         }
     }
     forget_tracking_ref_on_remote_change(&repo, previous.as_deref(), url);
-    Ok(())
+    Ok(RemoteSetup::Plain)
+}
+
+/// What configuring a remote left behind, for a surface that must tell the
+/// user which of two very different things just happened.
+///
+/// Creating is the one moment where the typed passphrase becomes the vault's
+/// passphrase and nothing anywhere else holds it. Joining only proves the
+/// phrase was already right. Reporting both as "saved" hid the first case
+/// entirely — including a typo repeated twice, which encrypts the vault under
+/// a phrase nobody knows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RemoteSetup {
+    /// A plain Git remote — no vault passphrase involved.
+    Plain,
+    /// A hosted remote whose vault passphrase this device just set.
+    Created,
+    /// A hosted remote this device joined with the vault's existing passphrase.
+    Joined,
 }
 
 /// Configure a hosted (encrypted blob-store) remote. Enrollment runs FIRST —
@@ -848,7 +944,7 @@ fn hosted_set_remote(
     url: &str,
     token: &str,
     passphrase: Option<&str>,
-) -> Result<(), String> {
+) -> Result<RemoteSetup, String> {
     let base = hosted_base(url).unwrap_or_default().trim();
     if !(base.starts_with("https://") || loopback_http_base(base)) {
         return Err(
@@ -886,7 +982,7 @@ fn hosted_set_remote(
     }
 
     let transport = blob::HttpBlobStore::new(base, token)?;
-    let (key, _how) = blob::enroll(&transport, passphrase.as_bytes())?;
+    let (key, how) = blob::enroll(&transport, passphrase.as_bytes())?;
 
     let previous = repo.find_remote(REMOTE).ok().and_then(|remote| remote.url().map(str::to_owned));
     let created = previous.is_none();
@@ -933,7 +1029,66 @@ fn hosted_set_remote(
     // here would report "not saved" for a remote that IS fully saved.
     let _ = fs::remove_file(pinned_cert_path(repo));
     forget_tracking_ref_on_remote_change(repo, previous.as_deref(), url);
-    Ok(())
+    Ok(match how {
+        blob::Enrollment::Created => RemoteSetup::Created,
+        blob::Enrollment::Joined => RemoteSetup::Joined,
+    })
+}
+
+/// Re-wrap this vault's master key under a new passphrase.
+///
+/// Only the wrap changes: the master key stays the one every enrolled device
+/// already holds in its credential slot, so no other device is interrupted and
+/// none of the ciphertext on the server has to be rewritten. What the new
+/// passphrase governs is future enrollment — a new device, or this one after a
+/// reinstall.
+///
+/// Both phrases are NFC-normalized here for the same reason
+/// [`hosted_set_remote`] normalizes: the byte string is what the key is
+/// derived from, and two spellings of one accent would read as a typo.
+pub fn sync_change_passphrase(
+    root: &Path,
+    credentials_path: &Path,
+    old_passphrase: &str,
+    new_passphrase: &str,
+) -> Result<(), String> {
+    use unicode_normalization::UnicodeNormalization as _;
+
+    let repo = owned_repo(root)?;
+    let Some(base) = hosted_remote_base(&repo) else {
+        return Err(
+            "the vault passphrase belongs to a hosted (blob+https://) remote; this vault does \
+             not sync to one"
+                .into(),
+        );
+    };
+    let old_passphrase: String = old_passphrase.trim().nfc().collect();
+    if old_passphrase.is_empty() {
+        return Err("enter the current vault passphrase".into());
+    }
+    let new_passphrase: String = new_passphrase.trim().nfc().collect();
+    if new_passphrase.chars().count() < HOSTED_PASSPHRASE_MIN_CHARS {
+        return Err(format!(
+            "the vault passphrase must be at least {HOSTED_PASSPHRASE_MIN_CHARS} characters — it \
+             is the only protection on the encrypted vault"
+        ));
+    }
+
+    let (transport, local_key) = hosted_transport(root, credentials_path, &base)?;
+    // The key this device holds goes in, so the re-wrap refuses a server key
+    // document that has stopped being this vault's BEFORE it swaps anything: a
+    // swap followed by a refusal would leave the server carrying the new
+    // envelope while the user is told the passphrase did not change.
+    //
+    // The re-wrap keeps the master key, so the credential slot already holds
+    // exactly what the server now wraps — nothing to write back afterwards, and
+    // so no Keychain hiccup can report a failure for a change that has landed.
+    blob::change_passphrase(
+        &transport,
+        old_passphrase.as_bytes(),
+        new_passphrase.as_bytes(),
+        &local_key,
+    )
 }
 
 /// Push committed snapshots from the current branch, ungated. The app always
@@ -2841,7 +2996,7 @@ mod tests {
         let error =
             sync_set_remote(&c, &credentials_c, &url, "test-token-0123456789", None, WRONG)
                 .unwrap_err();
-        assert!(error.contains("wrong or key data"), "{error}");
+        assert!(error.contains("passphrase is wrong — mistyped"), "{error}");
 
         // Both credential slots live side by side in the file store.
         let store = FileCredentialStore { path: &credentials_a };
@@ -2864,6 +3019,213 @@ mod tests {
             "the hosted tracking ref survived the move to a plain remote"
         );
         assert!(sync_push(&a, &credentials_a).unwrap().pushed >= 1);
+    }
+
+    /// Changing the passphrase through the app seam, against the real server.
+    /// What it must leave alone is as load-bearing as what it changes: the
+    /// configured device keeps pushing, because the master key it holds is
+    /// still the vault's.
+    #[test]
+    fn changing_the_vault_passphrase_retires_the_old_one_and_leaves_the_device_syncing() {
+        use substrate_hosted_sync_server::{Config, Server};
+        let scratch = TempDir::new().unwrap();
+        let server = Server::start(
+            "127.0.0.1:0",
+            Config {
+                storage: scratch.path().join("server-storage"),
+                token: "test-token-0123456789".into(),
+            },
+        )
+        .unwrap();
+        let url = format!("blob+{}", server.base_url());
+        const TOKEN: &str = "test-token-0123456789";
+        const OLD: &str = "correct horse battery";
+        const NEW: &str = "a whole new phrase";
+
+        let a = scratch.path().join("vault-a");
+        let credentials_a = scratch.path().join("creds-a.json");
+        fs::create_dir_all(&a).unwrap();
+        let _history_a = owned(&a);
+        fs::write(a.join("Welcome.md"), "hosted hello\n").unwrap();
+        assert!(history_snapshot(&a, "a1").unwrap());
+        assert_eq!(
+            sync_set_remote(&a, &credentials_a, &url, TOKEN, None, Some(OLD)).unwrap(),
+            RemoteSetup::Created,
+            "the first device is the one that sets the passphrase, and must be told so"
+        );
+        assert_eq!(sync_push_gated(&a, &credentials_a, || ()).unwrap().pushed, 1);
+
+        let store = FileCredentialStore { path: &credentials_a };
+        let key_before = store.load_token(&hosted_key_service(&a)).unwrap().unwrap();
+
+        // Too short is refused before anything is re-wrapped, and so is a
+        // wrong current phrase — in the wording of a typo.
+        assert!(sync_change_passphrase(&a, &credentials_a, OLD, "eleven char")
+            .unwrap_err()
+            .contains("at least 12 characters"));
+        assert!(sync_change_passphrase(&a, &credentials_a, "not the phrase", NEW)
+            .unwrap_err()
+            .contains("passphrase is wrong — mistyped"));
+
+        sync_change_passphrase(&a, &credentials_a, OLD, NEW).unwrap();
+        // The master key never changed, so this device's slot and its sync are
+        // untouched by its own passphrase change.
+        assert_eq!(store.load_token(&hosted_key_service(&a)).unwrap().unwrap(), key_before);
+        fs::write(a.join("Second.md"), "still syncing\n").unwrap();
+        assert!(history_snapshot(&a, "a2").unwrap());
+        assert_eq!(sync_push_gated(&a, &credentials_a, || ()).unwrap().pushed, 1);
+
+        // A new device needs the new phrase; the old one no longer enrolls.
+        let b = scratch.path().join("vault-b");
+        let credentials_b = scratch.path().join("creds-b.json");
+        fs::create_dir_all(&b).unwrap();
+        let _history_b = owned(&b);
+        assert!(sync_set_remote(&b, &credentials_b, &url, TOKEN, None, Some(OLD))
+            .unwrap_err()
+            .contains("passphrase is wrong — mistyped"));
+        assert_eq!(
+            sync_set_remote(&b, &credentials_b, &url, TOKEN, None, Some(NEW)).unwrap(),
+            RemoteSetup::Joined,
+            "a device joining an existing vault must not be told it set the passphrase"
+        );
+        assert_eq!(
+            sync_pull_with_snapshot(&b, &credentials_b, || Ok(()), || ()).unwrap().pulled,
+            2
+        );
+        assert_eq!(fs::read_to_string(b.join("Welcome.md")).unwrap(), "hosted hello\n");
+    }
+
+    /// The passphrase belongs to the hosted transport. On a plain Git remote
+    /// there is no key document to re-wrap, and saying so is better than a
+    /// credential error from a path that was never going to run.
+    #[test]
+    fn changing_the_passphrase_of_a_plain_git_remote_is_refused_by_name() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        fs::create_dir_all(&root).unwrap();
+        let _history = owned(&root);
+        let credentials = scratch.path().join("creds.json");
+        let bare = scratch.path().join("bare.git");
+        Repository::init_bare(&bare).unwrap();
+        configure(&root, &credentials, &bare);
+
+        let error =
+            sync_change_passphrase(&root, &credentials, "current phrase", "a whole new phrase")
+                .unwrap_err();
+        assert!(error.contains("does not sync to one"), "{error}");
+    }
+
+    /// The pane reads the remote's kind and URL from here — an encrypted vault
+    /// that renders identically to a plain one is how a re-save silently
+    /// traded the encryption away.
+    #[test]
+    fn the_remote_kind_names_hosted_and_plain_remotes_apart() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        fs::create_dir_all(&root).unwrap();
+        let _history = owned(&root);
+        let credentials = scratch.path().join("creds.json");
+        assert_eq!(sync_remote(&root), (RemoteKind::None, None));
+
+        let bare = scratch.path().join("bare.git");
+        Repository::init_bare(&bare).unwrap();
+        configure(&root, &credentials, &bare);
+        let (kind, url) = sync_remote(&root);
+        assert_eq!(kind, RemoteKind::Git);
+        assert_eq!(url.unwrap(), remote_url(&bare));
+
+        // Only the URL scheme decides: no server has to be reachable for the
+        // pane to know the vault is encrypted.
+        Repository::open(&root)
+            .unwrap()
+            .remote_set_url(REMOTE, "blob+https://hosted.example/blob")
+            .unwrap();
+        assert_eq!(
+            sync_remote(&root),
+            (RemoteKind::Hosted, Some("blob+https://hosted.example/blob".to_string()))
+        );
+    }
+
+    /// The status URL is rendered on screen and photographed by the shot runs,
+    /// so a token an operator embedded in the remote must not ride along —
+    /// while the remote git actually pushes to keeps it.
+    #[test]
+    fn the_status_url_carries_no_embedded_credentials() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        fs::create_dir_all(&root).unwrap();
+        let _history = owned(&root);
+        let repo = Repository::open(&root).unwrap();
+        let stored = "https://someone:ghp_supersecrettoken@git.example/vault.git";
+        repo.remote(REMOTE, stored).unwrap();
+
+        let (kind, url) = sync_remote(&root);
+        assert_eq!(kind, RemoteKind::Git);
+        let url = url.unwrap();
+        assert!(!url.contains("ghp_supersecrettoken"), "the status URL leaked the token: {url}");
+        assert!(!url.contains("someone"), "the status URL leaked the user: {url}");
+        assert_eq!(url, "https://•••@git.example/vault.git");
+        // The remote git pushes to is untouched: redaction is a display concern,
+        // and rewriting the stored URL would break the push.
+        assert_eq!(repo.find_remote(REMOTE).unwrap().url().unwrap(), stored);
+
+        // A hosted remote gets the same treatment, and a URL with no userinfo —
+        // or an `@` that is part of the path — comes through verbatim.
+        assert_eq!(
+            redact_url_userinfo("blob+https://tok@drop.example/blob"),
+            "blob+https://•••@drop.example/blob"
+        );
+        assert_eq!(
+            redact_url_userinfo("https://git.example/~a@b/vault.git"),
+            "https://git.example/~a@b/vault.git"
+        );
+        assert_eq!(redact_url_userinfo("file:///tmp/bare.git"), "file:///tmp/bare.git");
+    }
+
+    /// Rotating the token means re-saving the remote, and the pane's URL field
+    /// is prefilled from the redacted status URL — so the obvious gesture is to
+    /// press Save on a string whose credentials are dots. Storing it would
+    /// destroy the real credential quietly. The save is refused instead, in
+    /// words that say what to do about it.
+    #[test]
+    fn saving_the_redacted_url_back_is_refused_rather_than_stored() {
+        let scratch = TempDir::new().unwrap();
+        let root = scratch.path().join("vault");
+        fs::create_dir_all(&root).unwrap();
+        let _history = owned(&root);
+        let credentials = scratch.path().join("creds.json");
+        let stored = "https://someone:ghp_supersecrettoken@git.example/vault.git";
+        owned_repo(&root).unwrap().remote(REMOTE, stored).unwrap();
+
+        let (_, shown) = sync_remote(&root);
+        let shown = shown.unwrap();
+        let error =
+            sync_set_remote(&root, &credentials, &shown, "some-token-0123456789", None, None)
+                .unwrap_err();
+        assert!(error.contains("redacted"), "{error}");
+        assert!(error.to_lowercase().contains("retype"), "{error}");
+        assert_eq!(
+            owned_repo(&root).unwrap().find_remote(REMOTE).unwrap().url().unwrap(),
+            stored,
+            "the refused save rewrote the remote anyway"
+        );
+
+        // The hosted path comes through the same door: it must not accept the
+        // dots either, and it must not enroll anything on the way to finding out.
+        let error = sync_set_remote(
+            &root,
+            &credentials,
+            "blob+https://•••@drop.example/blob",
+            "some-token-0123456789",
+            None,
+            Some("correct horse battery staple"),
+        )
+        .unwrap_err();
+        assert!(error.contains("redacted"), "{error}");
+        assert_eq!(
+            owned_repo(&root).unwrap().find_remote(REMOTE).unwrap().url().unwrap(),
+            stored
+        );
     }
 
     /// The plaintext-HTTP exception is for the local machine only; hosts that

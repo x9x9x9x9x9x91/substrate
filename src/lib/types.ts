@@ -1094,7 +1094,24 @@ export interface VaultSyncStatus {
    * riding the report alone is off the pane within one poll interval. A later
    * push finding the store back under the threshold is what clears it. */
   notice: string | null;
+  /** Whether the vault syncs end-to-end encrypted (`hosted`) or in the clear
+   * (`git`). Without it the pane could not say a vault was encrypted, and
+   * re-saving a hosted remote under a plain URL converted it in silence. */
+  remote_kind: RemoteKind;
+  /** Where the vault syncs to, so the pane can show it and refill its field.
+   * Never the token or the passphrase — those are write-only. */
+  remote_url: string | null;
 }
+
+/** The kind of remote a vault syncs to. `hosted` is a `blob+https://` remote:
+ *  the server holds ciphertext only and the vault passphrase is what opens
+ *  it. `git` is a plain remote, whose server sees the vault's contents. */
+export type RemoteKind = "none" | "hosted" | "git";
+
+/** What saving a remote did to the vault's hosted enrollment. `created` is the
+ *  one case where the typed passphrase BECAME the vault's passphrase and
+ *  nothing else holds it — including a typo repeated into both fields. */
+export type RemoteSetup = "plain" | "created" | "joined";
 
 /** What the user picked for one conflicted path. */
 export type ConflictChoice = "mine" | "theirs" | "both";

@@ -51,6 +51,7 @@ import type {
   PropKind,
   PropValue,
   RelatedEntry,
+  RemoteSetup,
   RenameResult,
   RollupConfig,
   SavedView,
@@ -607,11 +608,20 @@ export const vaultSyncSetRemote = (
   cert?: string,
   passphrase?: string,
 ) =>
-  invoke<void>("vault_sync_set_remote", {
+  invoke<RemoteSetup>("vault_sync_set_remote", {
     url,
     token,
     cert: cert ?? null,
     passphrase: passphrase ?? null,
+  });
+/** Re-wrap the vault master key under a new passphrase. The key itself does
+    not change, so every device already enrolled keeps syncing untouched — the
+    new phrase is what a future device (or this one after a reinstall) types.
+    Both phrases must be NFC-normalized by the caller, same as `setRemote`. */
+export const vaultSyncChangePassphrase = (oldPassphrase: string, newPassphrase: string) =>
+  invoke<void>("vault_sync_change_passphrase", {
+    oldPassphrase,
+    newPassphrase,
   });
 /** The pending conflicted pull, recomputed from git on every call. */
 export const vaultSyncConflicts = () => invoke<ConflictState>("vault_sync_conflicts");

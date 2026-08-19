@@ -1327,7 +1327,14 @@ pub(crate) fn unwrap_master_key(envelope: &[u8], passphrase: &[u8]) -> Result<Ma
         .decrypt(XNonce::from_slice(nonce), Payload { msg: &envelope[HEADER..], aad: WRAP_AAD });
     wrapping_key.zeroize();
     let plaintext = Zeroizing::new(
-        plaintext.map_err(|_| "hosted sync passphrase is wrong or key data is damaged")?,
+        // Every failed unwrap says both things it can mean. A wrong phrase is
+        // usually a typo, but it is just as often a phrase that moved: another
+        // device changed it, and this one still knows the old one. Naming only
+        // the typo sends a user to retype what will never work again.
+        plaintext.map_err(|_| {
+            "hosted sync passphrase is wrong — mistyped, or changed on another device since \
+             this one learned it (or the key data is damaged)"
+        })?,
     );
     if plaintext.len() != 32 {
         return Err("hosted sync master-key envelope is invalid".into());
@@ -1386,6 +1393,70 @@ pub(crate) fn enroll(
             Ok((unwrap_master_key(&existing.bytes, passphrase)?, Enrollment::Joined))
         }
     }
+}
+
+/// Re-wrap this vault's master key under a new passphrase.
+///
+/// The master key never changes — only the envelope protecting it — so every
+/// device that already holds the key keeps syncing untouched. What changes is
+/// what a *new* device (or a re-enrollment) must type.
+///
+/// The swap is a compare-and-swap against the version the old envelope was
+/// read at, so a passphrase change that raced another device's change loses
+/// rather than silently overwriting it: the other device's phrase is the
+/// vault's phrase, and this caller is told to enter the current one.
+///
+/// `expected` is the master key this device already holds. The unwrapped key is
+/// compared against it BEFORE anything is written: if the server's key document
+/// has stopped being this vault's, the swap must not happen at all. Checking
+/// afterwards would leave the server re-wrapped under a phrase the caller is
+/// simultaneously told did not take.
+///
+/// Both passphrases are raw bytes; the caller owes NFC normalization, same as
+/// [`wrap_master_key`].
+pub(crate) fn change_passphrase(
+    transport: &impl BlobTransport,
+    old_passphrase: &[u8],
+    new_passphrase: &[u8],
+    expected: &MasterKey,
+) -> Result<(), String> {
+    let existing = transport.read_key(MAX_REF_ENVELOPE_BYTES)?.ok_or_else(|| {
+        "hosted sync store holds no key document; there is no passphrase to change — \
+         configure the remote again"
+            .to_string()
+    })?;
+    let key = unwrap_master_key(&existing.bytes, old_passphrase)?;
+    if key.0 != expected.0 {
+        return Err(diverged_key_document_error());
+    }
+    let envelope = wrap_master_key(&key, new_passphrase)?;
+    match transport.compare_and_swap_key(Some(&existing.version), &envelope)? {
+        CasResult::Updated(_) => Ok(()),
+        // Someone else re-wrapped between the read and this write. Retrying
+        // under the phrase this caller typed would need that phrase to unwrap
+        // the winner's envelope, which is exactly what the user must now
+        // confirm by hand — so the answer is an error, not a retry loop.
+        CasResult::Mismatch => Err(passphrase_changed_elsewhere_error()),
+    }
+}
+
+/// The one wording that separates "you mistyped the current passphrase" from
+/// "the current passphrase is no longer the one you know". Both fail the same
+/// operation, and telling them apart is the difference between trying again
+/// and going to look up the new phrase.
+fn passphrase_changed_elsewhere_error() -> String {
+    "the vault passphrase was changed on another device; enter the current one and try again"
+        .into()
+}
+
+/// The server's key document unwrapped to a key that is not this vault's — a
+/// restored backup, a wiped and re-created store, another vault behind the same
+/// URL. Nothing has been written when this is returned, so the phrase really is
+/// unchanged and the words can say so.
+fn diverged_key_document_error() -> String {
+    "the server's key document no longer holds this vault's key; the passphrase was not \
+     changed — configure the remote again from a device that still syncs"
+        .into()
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -2360,7 +2431,9 @@ mod tests {
         assert!(!wrapped.windows(32).any(|window| window == [13; 32]));
         let unwrapped = unwrap_master_key(&wrapped, b"correct horse battery staple").unwrap();
         assert_eq!(unwrapped.0, key.0);
-        assert!(unwrap_master_key(&wrapped, b"wrong").unwrap_err().contains("wrong or key data"));
+        assert!(unwrap_master_key(&wrapped, b"wrong")
+            .unwrap_err()
+            .contains("passphrase is wrong — mistyped"));
 
         let mut changed_params = wrapped;
         changed_params[7] ^= 1;
@@ -2440,7 +2513,7 @@ mod tests {
 
         // A wrong passphrase is a refusal, never a second key: the vault's
         // ciphertext would be unreadable under one.
-        assert!(enroll(&store, b"wrong").unwrap_err().contains("wrong or key data"));
+        assert!(enroll(&store, b"wrong").unwrap_err().contains("passphrase is wrong — mistyped"));
         assert_eq!(enroll(&store, b"correct horse battery staple").unwrap().0 .0, first.0);
     }
 
@@ -2529,6 +2602,146 @@ mod tests {
         let (joined, how) = enroll(&store, b"shared passphrase").unwrap();
         assert_eq!(how, Enrollment::Joined);
         assert_eq!(joined.0, winner_key.0, "the loser must adopt the winner's key");
+    }
+
+    /// The whole point of a passphrase change: the vault's key is untouched,
+    /// so nothing already encrypted has to be rewritten and no enrolled device
+    /// is interrupted — only which phrase opens the envelope moves.
+    #[test]
+    fn a_passphrase_change_rewraps_the_same_key_and_retires_the_old_phrase() {
+        let scratch = TempDir::new().unwrap();
+        let store = FileBlobStore::new(scratch.path()).unwrap();
+        let (original, _) = enroll(&store, b"correct horse battery staple").unwrap();
+
+        change_passphrase(&store, b"correct horse battery staple", b"a whole new phrase", &original)
+            .unwrap();
+
+        // The new phrase enrolls a device; the old one no longer does.
+        let (joined, how) = enroll(&store, b"a whole new phrase").unwrap();
+        assert_eq!(how, Enrollment::Joined);
+        assert_eq!(joined.0, original.0, "the master key must survive the re-wrap");
+        assert!(enroll(&store, b"correct horse battery staple")
+            .unwrap_err()
+            .contains("passphrase is wrong — mistyped"));
+
+        // A wrong current phrase changes nothing at all, and says so in the
+        // words of a typo rather than of a race.
+        let error =
+            change_passphrase(&store, b"correct horse battery staple", b"third phrase", &original)
+                .unwrap_err();
+        assert!(error.contains("passphrase is wrong — mistyped"), "{error}");
+        assert_eq!(enroll(&store, b"a whole new phrase").unwrap().0 .0, original.0);
+    }
+
+    /// The server's key document unwraps to a key this device does not hold — a
+    /// restored backup, a re-created store, another vault behind the same URL.
+    /// The refusal must land BEFORE the swap: telling the user "the passphrase
+    /// was not changed" while the server already carries the new envelope would
+    /// be false, and the phrase they think is retired would be the one that
+    /// opens the vault.
+    #[test]
+    fn a_diverged_key_document_is_refused_with_no_server_side_swap() {
+        let scratch = TempDir::new().unwrap();
+        let store = FileBlobStore::new(scratch.path()).unwrap();
+        enroll(&store, b"correct horse battery staple").unwrap();
+        let before = store.read_key(MAX_REF_ENVELOPE_BYTES).unwrap().unwrap();
+
+        let error = change_passphrase(
+            &store,
+            b"correct horse battery staple",
+            b"a whole new phrase",
+            &MasterKey::from_bytes([7; 32]),
+        )
+        .unwrap_err();
+        assert!(error.contains("no longer holds this vault's key"), "{error}");
+
+        // Nothing moved: the document is byte-for-byte the one that was there,
+        // at the same version, and only the old phrase still opens it.
+        let after = store.read_key(MAX_REF_ENVELOPE_BYTES).unwrap().unwrap();
+        assert_eq!(after.version, before.version, "the key document was swapped anyway");
+        assert_eq!(after.bytes, before.bytes);
+        assert!(enroll(&store, b"a whole new phrase")
+            .unwrap_err()
+            .contains("passphrase is wrong — mistyped"));
+        assert_eq!(enroll(&store, b"correct horse battery staple").unwrap().1, Enrollment::Joined);
+    }
+
+    /// A store whose key document is re-wrapped by someone else between this
+    /// caller's read and its swap — two devices changing the passphrase at
+    /// once, or one device changing it while another was mid-change.
+    struct RewrappedKeyStore {
+        inner: FileBlobStore,
+        winner_envelope: Vec<u8>,
+        swapped: std::cell::Cell<bool>,
+    }
+
+    impl BlobTransport for RewrappedKeyStore {
+        fn store_identity(&self) -> String {
+            self.inner.store_identity()
+        }
+        fn list_objects(&self, max_objects: usize) -> Result<Vec<String>, String> {
+            self.inner.list_objects(max_objects)
+        }
+        fn get_object(&self, name: &str, max_bytes: usize) -> Result<Vec<u8>, String> {
+            self.inner.get_object(name, max_bytes)
+        }
+        fn put_object(&self, name: &str, bytes: &[u8]) -> Result<(), String> {
+            self.inner.put_object(name, bytes)
+        }
+        fn read_ref(&self, max_bytes: usize) -> Result<Option<VersionedRef>, String> {
+            self.inner.read_ref(max_bytes)
+        }
+        fn compare_and_swap_ref(
+            &self,
+            expected_version: Option<&str>,
+            bytes: &[u8],
+        ) -> Result<CasResult, String> {
+            self.inner.compare_and_swap_ref(expected_version, bytes)
+        }
+        fn read_key(&self, max_bytes: usize) -> Result<Option<VersionedRef>, String> {
+            self.inner.read_key(max_bytes)
+        }
+        fn compare_and_swap_key(
+            &self,
+            expected_version: Option<&str>,
+            bytes: &[u8],
+        ) -> Result<CasResult, String> {
+            // The other device's re-wrap lands first, exactly once.
+            if !self.swapped.replace(true) {
+                let current = self.inner.read_key(MAX_REF_ENVELOPE_BYTES).unwrap().unwrap();
+                assert!(matches!(
+                    self.inner
+                        .compare_and_swap_key(Some(&current.version), &self.winner_envelope)
+                        .unwrap(),
+                    CasResult::Updated(_)
+                ));
+            }
+            self.inner.compare_and_swap_key(expected_version, bytes)
+        }
+    }
+
+    #[test]
+    fn a_lost_passphrase_change_race_names_the_other_device() {
+        let scratch = TempDir::new().unwrap();
+        let inner = FileBlobStore::new(scratch.path()).unwrap();
+        let (key, _) = enroll(&inner, b"correct horse battery staple").unwrap();
+        let store = RewrappedKeyStore {
+            winner_envelope: wrap_master_key(&key, b"the winner's phrase").unwrap(),
+            inner,
+            swapped: std::cell::Cell::new(false),
+        };
+
+        let error =
+            change_passphrase(&store, b"correct horse battery staple", b"the loser's phrase", &key)
+                .unwrap_err();
+        assert!(error.contains("enter the current one and try again"), "{error}");
+
+        // The loser's phrase never took: the vault opens under the winner's,
+        // and the caller's own error is what tells them to go find it.
+        assert!(enroll(&store.inner, b"the loser's phrase")
+            .unwrap_err()
+            .contains("passphrase is wrong — mistyped"));
+        assert_eq!(enroll(&store.inner, b"the winner's phrase").unwrap().0 .0, key.0);
     }
 
     // --- incremental listing, cache, and the ceiling ------------------------
@@ -3098,7 +3311,9 @@ mod tests {
         let (second, how) = enroll(&transport, b"correct horse battery staple").unwrap();
         assert_eq!(how, Enrollment::Joined);
         assert_eq!(second.0, first.0, "a second device must unwrap the first device's key");
-        assert!(enroll(&transport, b"wrong").unwrap_err().contains("wrong or key data"));
+        assert!(enroll(&transport, b"wrong")
+            .unwrap_err()
+            .contains("passphrase is wrong — mistyped"));
     }
 
     #[test]
