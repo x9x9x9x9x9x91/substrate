@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import { docEnd, docStart, mod } from "./keys";
+
 // Evidence run only: SHOTS=1 npx playwright test e2e/tableshots.spec.ts
 test.skip(!process.env.SHOTS, "evidence run only");
 
@@ -11,7 +13,7 @@ async function openNote(page: import("@playwright/test").Page) {
   await page.locator(".row-title", { hasText: "Capture anything" }).click();
   await expect(page.locator(".cm-content")).toContainText("This is the Inbox.");
   await page.locator(".cm-content").click();
-  await page.keyboard.press("Meta+ArrowDown");
+  await page.keyboard.press(docEnd);
   await page.keyboard.press("Enter");
 }
 
@@ -77,14 +79,14 @@ test("after: the grow buttons, idle and hovered", async ({ page }) => {
 
   await page.locator(".cm-md-table-add-column").click();
   await page.keyboard.type("BPM");
-  await page.keyboard.press("Meta+ArrowUp");
+  await page.keyboard.press(docStart);
   await expect(page.locator(".cm-md-table").last().locator("th")).toHaveCount(3);
   await page.locator(".cm-md-table-wrap").last().hover();
   await page.waitForTimeout(300);
   await page.locator(".cm-md-table-wrap").last().screenshot({ path: `${dir}/grow-after-column.png` });
 
   await page.locator(".cm-md-table-add-row").click();
-  await page.keyboard.press("Meta+ArrowUp");
+  await page.keyboard.press(docStart);
   await page.locator(".cm-md-table-wrap").last().hover();
   await page.waitForTimeout(300);
   await page.locator(".cm-md-table-wrap").last().screenshot({ path: `${dir}/grow-after-row.png` });
@@ -129,7 +131,7 @@ test("after: the table menu, the in-place cell editor and an aligned column", as
   // the click collapses the grid to its source — wait for that before the
   // shortcut, or the menu anchors off a widget that is on its way out
   await expect(page.locator(".cm-table-line").first()).toBeVisible();
-  await page.keyboard.press("Meta+Shift+m");
+  await page.keyboard.press(`${mod}+Shift+M`);
   await expect(page.locator(".ctx-menu")).toBeVisible();
   await page.waitForTimeout(300);
   await page.screenshot({ path: `${dir}/menu-from-keyboard.png`, fullPage: false });
