@@ -32,12 +32,44 @@ pub struct TermExit {
     pub gen: u64,
 }
 
+/// Env that exists only because an agent session launched the app: the
+/// Claude Code harness's per-process session markers, the ANTHROPIC_*
+/// proxy/auth overrides that wrapper launchers export alongside
+/// CLAUDE_CONFIG_DIR (they travel as a set — stripping the profile but
+/// keeping the proxy URL+token would leave a hybrid no real launch path
+/// produces), and the host terminal multiplexer's pane identity (whose status hooks would
+/// report the HUD's agent into the launching session's pane). When
+/// Substrate is relaunched from inside a session (the standard ship flow:
+/// build → replace app → relaunch), these ride open(1) into the app and
+/// then into any process the app spawns for the user — the HUD's PTY shell
+/// and the feed curator alike — where the agent CLI mistakes itself
+/// for a child of the *shipping* session (transcripts silently
+/// off, wrong session id/profile). Those spawns must look like a Dock
+/// launch instead. Stripping is safe against user config: both spawns run a
+/// login shell, so anything an rc file exports is re-set after the
+/// strip — only values inherited from the launcher stay gone.
+/// Case-insensitive because portable-pty folds env-key case on Windows.
+///
+/// Lives at module top level, outside the desktop-only PTY host, because the
+/// curator's plain `Command` spawn classifies against the same list — one
+/// answer about what agent-session env is, not two that can drift.
+pub(crate) fn is_session_marker(key: &str) -> bool {
+    let key = key.to_ascii_uppercase();
+    key == "CLAUDECODE"
+        || key == "CLAUDE_PID"
+        || key == "CLAUDE_EFFORT"
+        || key == "CLAUDE_CONFIG_DIR"
+        || key == "AI_AGENT"
+        || key.starts_with("CLAUDE_CODE_")
+        || key.starts_with("ANTHROPIC_")
+}
+
 #[cfg(desktop)]
 pub use desktop::*;
 
 #[cfg(desktop)]
 mod desktop {
-    use super::{TermData, TermExit, TermSpawnInfo};
+    use super::{is_session_marker, TermData, TermExit, TermSpawnInfo};
     use base64::Engine as _;
     use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
     use std::io::{Read, Write};
@@ -64,33 +96,8 @@ mod desktop {
         PtySize { rows: rows.max(2), cols: cols.max(20), pixel_width: 0, pixel_height: 0 }
     }
 
-    /// Env that exists only because an agent session launched the app: the
-    /// Claude Code harness's per-process session markers, the ANTHROPIC_*
-    /// proxy/auth overrides that wrapper launchers export alongside
-    /// CLAUDE_CONFIG_DIR (they travel as a set — stripping the profile but
-    /// keeping the proxy URL+token would leave a hybrid no real launch path
-    /// produces), and the host terminal multiplexer's pane identity (whose status hooks would
-    /// report the HUD's agent into the launching session's pane). When
-    /// Substrate is relaunched from inside a session (the standard ship flow:
-    /// build → replace app → relaunch), these ride open(1) into the app and
-    /// then into the HUD's PTY, where the embedded agent CLI mistakes itself
-    /// for a child of the *shipping* session (transcripts silently
-    /// off, wrong session id/profile). The HUD shell must look like a Dock
-    /// launch instead. Stripping is safe against user config: the shell is
-    /// interactive+login, so anything an rc file exports is re-set after the
-    /// strip — only values inherited from the launcher stay gone.
-    /// Case-insensitive because portable-pty folds env-key case on Windows.
-    pub(crate) fn is_session_marker(key: &str) -> bool {
-        let key = key.to_ascii_uppercase();
-        key == "CLAUDECODE"
-            || key == "CLAUDE_PID"
-            || key == "CLAUDE_EFFORT"
-            || key == "CLAUDE_CONFIG_DIR"
-            || key == "AI_AGENT"
-            || key.starts_with("CLAUDE_CODE_")
-            || key.starts_with("ANTHROPIC_")
-    }
-
+    /// Drop every inherited agent-session marker from the PTY shell's env
+    /// (see `is_session_marker` for what counts and why).
     pub(crate) fn strip_session_markers(cmd: &mut CommandBuilder) {
         let keys: Vec<String> = cmd
             .iter_full_env_as_str()
@@ -319,7 +326,8 @@ mod tests {
     // while ordinary env rides through untouched.
     #[test]
     fn strip_session_markers_removes_only_claude_session_env() {
-        use super::desktop::{is_session_marker, strip_session_markers};
+        use super::desktop::strip_session_markers;
+        use super::is_session_marker;
         use portable_pty::CommandBuilder;
 
         assert!(is_session_marker("CLAUDECODE"));

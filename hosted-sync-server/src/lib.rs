@@ -313,11 +313,25 @@ impl Store {
     /// Immutable and idempotent (protocol §2): a name that already exists keeps
     /// its bytes. A client whose upload finds the slot occupied is not silently
     /// masked — it verifies what it later reads against its own key and hash.
+    ///
+    /// One thing this store can say about bytes it cannot read: an envelope's
+    /// length is fixed by the object inside it, while its ciphertext is not
+    /// (every encryption draws a fresh nonce). So two uploads of the same
+    /// object under one name differ in bytes but never in length, and a repeat
+    /// upload of a *different* length is proof that whatever occupies the name
+    /// is not the object the client is sending. That is reported instead of
+    /// being answered "already present", which is the case where a truncated
+    /// or planted object would otherwise stay hidden behind a green push.
+    /// Clients must not depend on this: an older deployment does not do it,
+    /// which is why the push path authenticates a sample of what it skipped.
     fn write_object(&self, name: &str, bytes: &[u8]) -> Result<ObjectWrite, String> {
         let Some(path) = self.object_path(name) else {
             return Err("invalid object name".into());
         };
-        if path.exists() {
+        if let Ok(existing) = fs::metadata(&path) {
+            if existing.len() != bytes.len() as u64 {
+                return Ok(ObjectWrite::LengthMismatch);
+            }
             return Ok(ObjectWrite::AlreadyPresent);
         }
         let temporary = self.temporary("object");
@@ -420,6 +434,9 @@ impl Store {
 enum ObjectWrite {
     Stored,
     AlreadyPresent,
+    /// The name is taken by bytes that cannot be another encryption of the
+    /// same object — see [`Store::write_object`].
+    LengthMismatch,
 }
 
 /// Flush the directory entry a link or rename just created.
@@ -698,6 +715,7 @@ fn handle_object(request: &Request, store: &Store) -> Response {
             match store.write_object(name, &request.body) {
                 Ok(ObjectWrite::Stored) => Response::new(201, "Created"),
                 Ok(ObjectWrite::AlreadyPresent) => Response::new(200, "OK"),
+                Ok(ObjectWrite::LengthMismatch) => Response::error(409, "Conflict"),
                 Err(_) => Response::error(500, "Internal Server Error"),
             }
         }
@@ -820,13 +838,36 @@ mod tests {
     fn objects_are_immutable_and_idempotent() {
         let (store, _root) = store("objects");
         let name = name('b');
-        assert!(matches!(store.write_object(&name, b"first").unwrap(), ObjectWrite::Stored));
+        assert!(matches!(store.write_object(&name, b"first!").unwrap(), ObjectWrite::Stored));
+        // Same length, so this is a plausible second encryption of the same
+        // object; the stored bytes win. A different length is a separate
+        // answer — see the repeat-upload test below.
         assert!(matches!(
             store.write_object(&name, b"second").unwrap(),
             ObjectWrite::AlreadyPresent
         ));
-        assert_eq!(store.read_object(&name).unwrap().unwrap(), b"first");
+        assert_eq!(store.read_object(&name).unwrap().unwrap(), b"first!");
         assert_eq!(store.list_objects().unwrap(), vec![name]);
+    }
+
+    #[test]
+    fn a_repeat_upload_of_another_length_is_refused_instead_of_reported_present() {
+        let (store, _root) = store("lengths");
+        let name = name('b');
+        store.write_object(&name, b"an envelope").unwrap();
+        // Same length, different bytes: that is what two encryptions of one
+        // object look like, and it stays idempotent.
+        assert!(matches!(
+            store.write_object(&name, b"AN ENVELOPE").unwrap(),
+            ObjectWrite::AlreadyPresent
+        ));
+        // A different length cannot be the same object under any nonce, so the
+        // client hears about it rather than being told its upload landed.
+        assert!(matches!(
+            store.write_object(&name, b"an envelope, longer").unwrap(),
+            ObjectWrite::LengthMismatch
+        ));
+        assert_eq!(store.read_object(&name).unwrap().unwrap(), b"an envelope");
     }
 
     #[test]
@@ -923,6 +964,22 @@ mod tests {
         let response = exchange(&server, &head, b"");
         server.stop();
         assert!(response.starts_with("HTTP/1.1 401"), "{response}");
+    }
+
+    #[test]
+    fn a_conflicting_repeat_upload_answers_409_on_the_wire() {
+        let mut server = serve("conflict");
+        let put = |length: usize| {
+            format!(
+                "PUT /v1/objects/{} HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer 0123456789abcdef-token\r\nContent-Length: {length}\r\n\r\n",
+                name('e')
+            )
+        };
+        let stored = exchange(&server, &put(9), b"envelope1");
+        let repeat = exchange(&server, &put(4), b"trun");
+        server.stop();
+        assert!(stored.starts_with("HTTP/1.1 201"), "{stored}");
+        assert!(repeat.starts_with("HTTP/1.1 409"), "{repeat}");
     }
 
     #[test]

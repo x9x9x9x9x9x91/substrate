@@ -290,6 +290,18 @@ export function parseAutoSync(props: Record<string, unknown>): boolean {
   return !(v === false || (typeof v === "string" && v.trim().toLowerCase() === "false"));
 }
 
+/** `feed-curator` — the command the feed dashboard's refresh button
+    runs: any command that re-curates the feed's items sheet. Run via
+    the login shell with the vault root as cwd; empty = no curator plugged
+    in, so the feed head offers the setup card instead of the button. Like
+    `terminal-command` this is vault content that can arrive by sync or by
+    an agent's write, so the exact string is gated behind the same
+    per-machine trust approval before it ever runs (lib/termtrust.ts). */
+export function parseFeedCurator(props: Record<string, unknown>): string {
+  const v = props[foldedPropKey(props, "feed-curator")];
+  return typeof v === "string" ? v.trim() : "";
+}
+
 /** The vault-root files the app itself owns (Settings.md joined): the seeded
     agent orientation pair for the ⌘⇧T terminal's CLI,
     plus the settings note behind the ⌘, sheet. Concealed from the app's own

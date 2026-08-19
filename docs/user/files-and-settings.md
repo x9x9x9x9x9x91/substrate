@@ -95,6 +95,12 @@ the capture hotkey, the terminal panel's starting folder — travel with the vau
 and land on the other machine too. Adjust them per machine if the paths or key
 combinations differ.
 
+The two settings that name a **command to run** — `terminal-command` and the
+feed dashboard's `feed-curator` — get one extra guard for exactly that reason:
+a synced (or imported, or agent-written) note must not carry code execution.
+Each machine asks you to approve the exact command once before it first runs
+there; approvals are remembered on the machine, never written into the vault.
+
 ## See also
 
 - [Sync and security](sync-and-security.md) — what leaves your Mac, and what a

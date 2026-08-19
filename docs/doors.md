@@ -22,6 +22,7 @@ doesn't exist — and that's a doc bug worth filing.
 | MCP door | A permission-gated MCP server over the vault, for AI tools that can't read files: the client spawns the `substrate-mcp` sidecar, and only folders you granted in Settings are visible. Writes are receipt-stamped. | [MCP door](mcp-door.md) · in-app: ⌘, Settings → MCP (installed path + client snippet) |
 | CLI door | The same sidecar, called headlessly: `substrate-mcp <command> --client NAME` performs one scoped operation and exits, for scripts and cron. Same grants, same refusals, same receipts as the MCP door — one contract, not two. | [Headless callers](mcp-door.md#headless-callers--the-cli-door) · `substrate-mcp --help` · grant the client name in ⌘, Settings first |
 | Terminal HUD | ⌘⇧T embeds your own agent CLI (whatever command you configure in ⌘, Settings) in a persistent in-app terminal, cwd'd at the vault. | In-app: ⌘/ shortcut sheet, ⌘, Settings |
+| Feed curator | The News dashboard's ↻ runs your configured `feed-curator` command headless (login shell, vault as cwd) to re-curate the feed's items sheet; approved per machine before it first runs. | [dashboards.md §feed](dashboards.md#feed--curated-newsfeed) |
 
 The MCP door and the CLI door share one contract — threat model, scope engine,
 receipts, and the headless recipe — written up in [MCP door](mcp-door.md): the

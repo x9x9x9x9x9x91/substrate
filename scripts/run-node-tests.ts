@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   buildNodeArgs,
@@ -7,9 +7,25 @@ import {
   formatStallReport,
   parseProcessRows,
   resolveBudgets,
+  resolveConcurrency,
   TIMEOUT_EXIT_CODE,
   type Budgets,
 } from "./lib/testrunner.ts";
+
+// The full battery is the machine-heavy half of a local gate run, and
+// with-gates-lock.sh (the 2026-07-31 freeze fix) was opt-in discipline: on
+// 2026-08-18 six lanes ran `npm test` bare in parallel and convoyed the
+// machine to a crawl (docs/agent-friction.md). A bare run now re-execs under
+// the lock; the wrapper marks its subtree via SUBSTRATE_GATES_LOCK_HELD, so
+// a battery already inside a wrapped verify-gates run (or this re-exec) runs
+// straight through. The public mirror ships this runner but strips the
+// wrapper — a clone without it just runs unwrapped, as before.
+if (!process.env.SUBSTRATE_GATES_LOCK_HELD && existsSync("scripts/with-gates-lock.sh")) {
+  const wrapped = spawnSync("bash", ["scripts/with-gates-lock.sh", process.execPath, process.argv[1]], {
+    stdio: "inherit",
+  });
+  process.exit(wrapped.status ?? 1);
+}
 
 // Keep the suite's topology explicit. Shell globs that match nothing are
 // passed literally to `node --test`, which exits successfully with zero tests;
@@ -43,14 +59,16 @@ for (const root of roots) {
 }
 
 let budgets: Budgets;
+let concurrency = 0;
 try {
   budgets = resolveBudgets(process.env);
+  concurrency = resolveConcurrency(process.env);
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
 }
 
-const child = spawn(process.execPath, buildNodeArgs(files, budgets), { stdio: "inherit" });
+const child = spawn(process.execPath, buildNodeArgs(files, budgets, concurrency), { stdio: "inherit" });
 
 // The suite watchdog. `--test-timeout` alone cannot save a run: a test blocked
 // inside a synchronous child process (execFileSync/spawnSync) never yields the

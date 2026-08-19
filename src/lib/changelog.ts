@@ -463,6 +463,10 @@ export const CHANGELOG: ChangelogRelease[] = [
         kind: "improved",
       },
       {
+        text: "The news feed has a refresh button that sends your curator out for a fresh sweep instead of waiting for the next scheduled one.",
+        kind: "new",
+      },
+      {
         text: "Background git maintenance could repack a vault's history store; sidebar pins under a dashboard folder rendered twice; extracted-note titles could carry characters the engine refuses.",
         kind: "fixed",
       },

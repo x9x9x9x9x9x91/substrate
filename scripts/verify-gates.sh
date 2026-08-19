@@ -46,6 +46,7 @@ substrate_use_shared_cargo_target
 
 ONLY="tsc,test,cargo,ios,e2e,lint"
 REF=""
+ORIG_ARGS=("$@")
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --only) [[ $# -ge 2 ]] || { echo "verify-gates: --only needs a value" >&2; exit 2; }
@@ -80,6 +81,19 @@ fi
 if [[ ! -x node_modules/.bin/eslint ]]; then
   echo "verify-gates: node_modules incomplete in this worktree — run 'npm ci' first (a fresh worktree ships without deps)" >&2
   exit 2
+fi
+
+# Local gate runs serialize machine-wide (with-gates-lock.sh, the 2026-07-31
+# freeze fix) — and since 2026-08-18 that is enforced here, not left to callers:
+# on 2026-08-18 six lanes ran the battery bare in parallel and convoyed the
+# machine (docs/agent-friction.md). A bare invocation re-execs under the
+# wrapper; the wrapper marks its subtree so the re-exec happens exactly once
+# and nested runs (rig-gates-runner → verify-gates → npm test) don't deadlock
+# on their own lock. The existence guard keeps the public mirror working: it
+# ships this script but strips the wrapper, and a lone clone has no lane
+# fleet to serialize.
+if [[ -z "${SUBSTRATE_GATES_LOCK_HELD:-}" && -x "$ROOT/scripts/with-gates-lock.sh" ]]; then
+  exec "$ROOT/scripts/with-gates-lock.sh" "$ROOT/scripts/verify-gates.sh" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
 fi
 
 LOGDIR="$(mktemp -d "${TMPDIR:-/tmp}/verify-gates.XXXXXX")"

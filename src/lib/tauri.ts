@@ -144,6 +144,7 @@ const HISTORY_MODE_COMMANDS = new Set([
   "sync_runs",
   "sync_launchd_read",
   "sync_sleep_read",
+  "curator_runs",
 ]);
 
 function blockedByHistoryMode(cmd: string): boolean {
@@ -324,6 +325,13 @@ declare global {
     /** the pull plan a spec needs staged BEFORE the app mounts (an auto-sync
         boot pull fires before page.evaluate can) — set via addInitScript */
     __mockBootPull?: { conflicted: boolean; changed?: string[] };
+    /** a hosted (blob+) store that ALREADY holds a vault, so saving that
+        remote joins it instead of creating one. This is what makes the two
+        refusals a real hosted save can hand back reachable: the wrong service
+        token (the server turns the key read away) and the wrong passphrase
+        (the wrapped key does not open). Unstaged, the store is empty and a
+        save enrolls, which is the path the older specs walk. */
+    __mockHostedVault?: (vault: { token: string; passphrase: string } | null) => void;
     /** boot with sync already configured — the state a returning device is
         in. Read once at mock init, so this too is an addInitScript seam */
     __mockSyncConfigured?: boolean;
@@ -1931,6 +1939,13 @@ let mockVaultSyncStatus: Omit<VaultSyncStatus, "conflicted" | "privacy_error" | 
     a later success must not replace. Only an acknowledgement clears it. */
 let mockPrivacyNotice: { message: string; paths: string[] } | null = null;
 
+/** The hosted store's existing enrollment, when a test staged one. Null is an
+    empty store: the first save mints a key and any credentials work, which is
+    exactly what a first device sees. With one staged, the save has to join it,
+    and the mock answers with the backend's own words — the token check fails
+    at the key read, the passphrase check fails when the wrap will not open. */
+let mockHostedVault: { token: string; passphrase: string } | null = null;
+
 /** What the next `vault_sync_pull` does. The seed default stays conflicted
     so the existing sync-pane specs keep their three-way material; a spec
     that needs a clean pull (the auto-sync lane's steady state) stages one. */
@@ -2466,6 +2481,67 @@ function mockSyncTick() {
   }
 }
 
+
+/* Feed-curator mock: the feed dashboard's refresh button. One run
+   at a time like the Rust bridge; a run completes MOCK_CURATOR_RUN_MS after
+   it starts, and completion does what a real curator does through the fs —
+   prepends a fresh row to the News Items sheet, bumps News.md's `curated:`
+   stamp, and lets the (mock) watcher carry the change into the UI. */
+interface MockCuratorRun {
+  id: string;
+  state: string;
+  started_ms: number;
+  finished_ms: number | null;
+  summary: string | null;
+  error: string | null;
+  /** mock-only: wall-clock when the running entry completes on the tick */
+  finishAt?: number;
+}
+const mockCuratorRuns: MockCuratorRun[] = [];
+let mockCuratorSeq = 0;
+const MOCK_CURATOR_RUN_MS = 1_500;
+
+/** what the agent's fs writes look like from inside the mock vault */
+function mockCuratorLand() {
+  const day = new Date();
+  const iso = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+  const sheet = mockNotes.find((n) => n.path === "News Items.md");
+  const changed: string[] = [];
+  if (sheet) {
+    const row = `${iso},plugins,"Freshly curated: GrainFrame 2 public beta",CDM,https://cdm.link/example/grainframe,"Granular resynthesis with spectral masking.","Curated by the refresh you just clicked.",`;
+    sheet.body = sheet.body.replace(/(```csv\ndate,topic,title,source,url,blurb,why,fb\n)/, `$1${row}\n`);
+    sheet.updated_ms = Date.now();
+    changed.push(sheet.path);
+  }
+  const dash = mockNotes.find((n) => n.path === "Dashboards/News.md");
+  if (dash) {
+    const hh = String(day.getHours()).padStart(2, "0");
+    const mm = String(day.getMinutes()).padStart(2, "0");
+    dash.props = { ...dash.props, curated: `${iso} ${hh}:${mm}` };
+    dash.updated_ms = Date.now();
+    changed.push(dash.path);
+  }
+  // the real change arrives via the OS watcher, not a command echo
+  window.__mockEmit?.("vault:changed", changed.sort());
+}
+
+/** close out a running curation past its finishAt; linger like the bridge */
+function mockCuratorTick() {
+  const t = Date.now();
+  for (const r of mockCuratorRuns) {
+    if (r.state !== "running" || r.finishAt === undefined) continue;
+    if (t >= r.finishAt) {
+      r.state = "done";
+      r.finished_ms = t;
+      r.summary = "curated 1 item";
+      mockCuratorLand();
+    }
+  }
+  for (let i = mockCuratorRuns.length - 1; i >= 0; i--) {
+    const f = mockCuratorRuns[i].finished_ms;
+    if (f !== null && t - f > 60 * 60_000) mockCuratorRuns.splice(i, 1);
+  }
+}
 
 /* Opt-in fidelity flags, both OFF by default. Like the rest
    of the mock's state they are page-load scoped — a spec's page.goto starts
@@ -4546,6 +4622,21 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
             "the vault passphrase must be at least 12 characters — it is the only protection on the encrypted vault",
           );
         }
+        // Joining a store that already holds a vault. Order matches the
+        // backend's: enrollment reads the key document first, so a bad token
+        // never gets far enough for the passphrase to matter — and the token
+        // is compared after the same `Bearer ` strip the backend does, since
+        // pasting the docs' example is the likeliest way to get it wrong.
+        if (mockHostedVault) {
+          const bearer = /^bearer /i;
+          const sent = token.trim().replace(bearer, "").trim();
+          if (sent !== mockHostedVault.token.trim().replace(bearer, "").trim()) {
+            throw new Error("hosted sync key read was rejected: check the server token");
+          }
+          if (passphrase.normalize("NFC") !== mockHostedVault.passphrase.normalize("NFC")) {
+            throw new Error("hosted sync passphrase is wrong or key data is damaged");
+          }
+        }
         mockVaultSyncStatus = { configured: true, last_result: null, last_error: null };
         return null;
       }
@@ -5387,6 +5478,39 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       }
       throw new Error(`unknown sync action "${action}"`);
     }
+    case "curator_refresh": {
+      // the Rust bridge mirrored: the configured command is required, one
+      // live run, a second click is refused
+      if (String(args?.command ?? "").trim() === "")
+        throw new Error("no feed-curator command configured");
+      mockCuratorTick();
+      if (mockCuratorRuns.some((r) => r.state === "running"))
+        throw new Error("a curation run is already in flight");
+      const entry: MockCuratorRun = {
+        id: `c${++mockCuratorSeq}`,
+        state: "running",
+        started_ms: Date.now(),
+        finished_ms: null,
+        summary: null,
+        error: null,
+        finishAt: Date.now() + MOCK_CURATOR_RUN_MS,
+      };
+      mockCuratorRuns.push(entry);
+      return { ...entry };
+    }
+    case "curator_runs": {
+      mockCuratorTick();
+      return mockCuratorRuns.map((r) => ({ ...r })).sort(byStartedThenId);
+    }
+    case "curator_cancel": {
+      const id = String(args?.id ?? "");
+      const r = mockCuratorRuns.find((x) => x.id === id);
+      if (!r || r.state !== "running") throw new Error("no running curation with that id");
+      r.state = "failed";
+      r.finished_ms = Date.now();
+      r.error = "cancelled";
+      return null;
+    }
     case "vault_views_set": {
       const requestedDb = args?.db as string;
       const db = mockFoldedKey(mockViews, requestedDb)
@@ -6148,7 +6272,16 @@ if (!isTauri) {
   };
   window.__mockEditProp = (path, key, value) => {
     // straight into the store, bypassing vault_set_prop's expected-guard —
-    // that bypass is the point: this is a writer that isn't us
+    // that bypass is the point: this is a writer that isn't us. Settings.md
+    // lives outside mockNotes (see mockSettings) but is reachable here for
+    // the same reason: an agent writing `feed-curator` is exactly such a
+    // writer, and the feedrefresh spec seeds that state.
+    if (path === "Settings.md") {
+      if (value === null) delete mockSettings.props[key];
+      else mockSettings.props[key] = value;
+      mockSettings.updated_ms = Date.now();
+      return;
+    }
     const n = mockNotes.find((m) => m.path === path);
     if (!n) throw new Error(`__mockEditProp: no mock note at ${path}`);
     if (value === null) delete n.props[key];
@@ -6324,6 +6457,9 @@ if (!isTauri) {
     mockPullPlan = plan;
   };
   window.__mockSyncCalls = () => [...mockSyncCalls];
+  window.__mockHostedVault = (vault) => {
+    mockHostedVault = vault ? { ...vault } : null;
+  };
   window.__mockSetPrivacy = (notice) => {
     mockPrivacyNotice = notice ? { message: notice.message, paths: [...notice.paths] } : null;
   };

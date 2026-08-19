@@ -81,10 +81,31 @@ export function resolveBudgets(env: Record<string, string | undefined>): Budgets
   };
 }
 
+/**
+ * Test files that may run at once. `node --test` parallelises across FILES —
+ * one process per file, cases inside a file stay sequential — and defaults to
+ * (cpu count - 1). That default is right on a dedicated gate box and wrong on
+ * the dev Mac, where a full-width suite competes with Ableton for the same
+ * cores; a 2-vCPU VPS wants the opposite nudge. `0` (the default) keeps node's
+ * own choice rather than pinning a number this file cannot know.
+ */
+export function resolveConcurrency(env: Record<string, string | undefined>): number {
+  const raw = env.SUBSTRATE_TEST_CONCURRENCY;
+  if (raw === undefined || raw === "") return 0;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0 || !Number.isInteger(value)) {
+    throw new Error(
+      `SUBSTRATE_TEST_CONCURRENCY must be a whole number of test files (0 keeps node's default), got: ${raw}`,
+    );
+  }
+  return value;
+}
+
 /** The argv for the `node --test` run, with the per-test bound applied. */
-export function buildNodeArgs(files: string[], budgets: Budgets): string[] {
+export function buildNodeArgs(files: string[], budgets: Budgets, concurrency = 0): string[] {
   const args = ["--test"];
   if (budgets.perTestMs > 0) args.push(`--test-timeout=${budgets.perTestMs}`);
+  if (concurrency > 0) args.push(`--test-concurrency=${concurrency}`);
   return [...args, ...files];
 }
 

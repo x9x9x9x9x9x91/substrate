@@ -509,6 +509,23 @@ export interface Freshness {
 }
 
 
+/** One entry of the feed-curator run registry: the feed
+    dashboard's refresh button runs the configured `feed-curator` command,
+    ONE run at a time, no queue (`curator_refresh` starts it, `curator_runs`
+    polls it). The curated rows land through the vault watcher; this record
+    only drives the button state and the error banner. */
+export interface CuratorRun {
+  id: string;
+  /** "running" | "done" | "failed" */
+  state: string;
+  started_ms: number;
+  finished_ms: number | null;
+  /** the command's closing one-line summary, when it printed one */
+  summary: string | null;
+  /** failure reason (spawn error, stderr tail, "cancelled", timeout) */
+  error: string | null;
+}
+
 
 /** What one cookbook install wrote. `renamed_from` is null when the
     recipe's own path was free; when it isn't, the vault already had that note

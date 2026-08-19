@@ -185,7 +185,9 @@ Capacities, Affine).*
   weight-curve overlay), tasks (an urgency-led board:
   Overdue/Due today sections, quick-add, checkoff with a real undo, Now/Later,
   snooze round trip, a kanban view by area with drag-to-recategorize, and a
-  sort switch — urgency/priority/due/age), news feed with agent curator,
+  sort switch — urgency/priority/due/age), news feed with a pluggable agent
+  curator (its ↻ runs whatever `feed-curator` command you plug in — trust-gated
+  per machine, one-click setup card, agents can wire themselves in),
   repo health (every git repo under a folder you name, ranked by what needs
   doing — dirty files, stale unmerged lanes, ahead/behind — read-only and
   never networked),

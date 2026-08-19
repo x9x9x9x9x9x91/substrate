@@ -7,6 +7,7 @@ mod denyscope;
 #[cfg(target_os = "macos")]
 mod dragfix;
 mod coding;
+mod curator;
 mod factlane;
 mod githist;
 mod gitsync;
@@ -300,6 +301,7 @@ use commands::assets::*;
 use commands::calendarfeeds::*;
 use commands::coding::*;
 use commands::cookbook::*;
+use commands::curator::*;
 use commands::drives::*;
 use commands::files::*;
 use commands::fx::*;
@@ -1585,6 +1587,9 @@ pub fn run() {
             jobs_read,
             jobs_control,
             jobs_freshness,
+            curator_refresh,
+            curator_runs,
+            curator_cancel,
             history_list,
             history_points,
             history_facts,
@@ -1627,6 +1632,8 @@ pub fn run() {
         RunEvent::Reopen { .. } => show_main(handle),
         // Final snapshot so nothing edited this session is left uncommitted.
         RunEvent::Exit => {
+            // a live curation run must not outlive its supervisor
+            curator::shutdown();
             snapshot_now(handle, "snapshot (quit)");
         }
         _ => {}

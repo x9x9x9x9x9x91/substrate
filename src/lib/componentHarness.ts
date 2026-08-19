@@ -23,7 +23,8 @@
  *  DATA COMES FROM THE EXISTING MOCK BACKEND — the same fixtures the e2e suite
  *  drives. Stage per-test state through the public `window.__mock*` seams
  *  (`__mockCloneNote`, `__mockEditProp`, `__mockEditNote`, `__mockDeleteNote`);
- *  don't reach into the fixture module. `mockBackend()` asserts those four are
+ *  don't reach into the fixture module, and `__mockHostedVault` for a hosted
+ *  sync store that already holds a vault. `mockBackend()` asserts they are all
  *  installed and hands back a window they are non-optional on, so staging is
  *  written WITHOUT `?.` — see `MockWindow`.
  *
@@ -202,6 +203,7 @@ const STAGING_SEAMS = [
   "__mockEditProp",
   "__mockEditNote",
   "__mockDeleteNote",
+  "__mockHostedVault",
 ] as const;
 type StagingSeam = (typeof STAGING_SEAMS)[number];
 

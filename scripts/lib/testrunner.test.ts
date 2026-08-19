@@ -14,6 +14,7 @@ import {
   MAX_BUDGET_MS,
   parseProcessRows,
   resolveBudgets,
+  resolveConcurrency,
   TIMEOUT_EXIT_CODE,
   type ProcessRow,
 } from "./testrunner.ts";
@@ -78,6 +79,29 @@ test("a budget too large for a 32-bit timer is rejected, not silently instant", 
 test("the runner passes a real per-test timeout, and omits it when disabled", () => {
   assert.deepEqual(buildNodeArgs(["a.test.ts"], budgets), ["--test", "--test-timeout=1000", "a.test.ts"]);
   assert.deepEqual(buildNodeArgs(["a.test.ts"], { perTestMs: 0, suiteMs: 0 }), ["--test", "a.test.ts"]);
+});
+
+// The suite parallelises across files, so how many run at once is the one
+// knob that changes its wall clock. Machines differ enough (a 32-core gate box,
+// a 2-vCPU VPS, the dev Mac running a DAW) that the right number is a property
+// of the host, not of this repo: unset keeps node's own default rather than
+// pinning a number here.
+test("test concurrency is opt-in and reaches node's argv", () => {
+  assert.equal(resolveConcurrency({}), 0);
+  assert.equal(resolveConcurrency({ SUBSTRATE_TEST_CONCURRENCY: "" }), 0);
+  assert.equal(resolveConcurrency({ SUBSTRATE_TEST_CONCURRENCY: "4" }), 4);
+  for (const bad of ["two", "-1", "2.5"]) {
+    assert.throws(
+      () => resolveConcurrency({ SUBSTRATE_TEST_CONCURRENCY: bad }),
+      /must be a whole number of test files/,
+    );
+  }
+  assert.deepEqual(buildNodeArgs(["a.test.ts"], { perTestMs: 0, suiteMs: 0 }, 3), [
+    "--test",
+    "--test-concurrency=3",
+    "a.test.ts",
+  ]);
+  assert.deepEqual(buildNodeArgs(["a.test.ts"], { perTestMs: 0, suiteMs: 0 }, 0), ["--test", "a.test.ts"]);
 });
 
 test("process rows parse, skipping the ps header and any malformed line", () => {

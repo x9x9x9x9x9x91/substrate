@@ -71,7 +71,7 @@ transport routing values and are not derived from the master key.
 | --- | --- | --- | --- |
 | LIST objects | vault | ordered or unordered array of 64-char opaque names | Complete snapshot of names visible to the authenticated vault; pagination must be snapshot-consistent and the client must cap names/bytes accepted. |
 | GET object | vault + opaque name | exact envelope bytes | No content transformation; missing is distinct from transient failure; adapters stop after the negotiated maximum plus one byte. |
-| PUT object | vault + opaque name + envelope | stored/already present | Immutable and idempotent. A repeat name may only preserve the existing bytes or atomically replace them with the supplied complete envelope; never expose a partial write. |
+| PUT object | vault + opaque name + envelope | stored/already present/conflict | Immutable and idempotent. A repeat name may only preserve the existing bytes or atomically replace them with the supplied complete envelope; never expose a partial write. A server that finds the stored length different from the supplied one may report a conflict instead of "already present" — an envelope's length is fixed by the object inside it while its ciphertext is not, so a length difference proves the occupant is a different object. Clients must not require this: it is a server's option, and push's own verification is what does not depend on it. |
 | GET ref | vault | encrypted ref bytes + opaque version token, or absent | The version token changes whenever bytes change. |
 | CAS ref | vault + expected version/absent + encrypted bytes | new version token, or mismatch | Linearizable compare-and-swap. Mismatch never changes the ref. |
 | GET key | vault | wrapped-master-key envelope + opaque version token, or absent | Same document semantics as the ref: opaque bytes, versioned. |
@@ -112,7 +112,7 @@ that path.
 | health | `GET /v1/health` | `200` + `ok` | — |
 | LIST objects | `GET /v1/objects` | `200`, body = newline-separated 64-char names | `500` |
 | GET object | `GET /v1/objects/<name>` | `200` + exact envelope bytes | `404` absent, `400` malformed name |
-| PUT object | `PUT /v1/objects/<name>` + envelope | `201` stored, `200` already present | `400` malformed name or empty body, `413` over the size cap |
+| PUT object | `PUT /v1/objects/<name>` + envelope | `201` stored, `200` already present | `400` malformed name or empty body, `409` the name holds bytes of another length, `413` over the size cap |
 | GET ref | `GET /v1/ref` | `200` + ref envelope, `ETag: "<version>"` | `404` no ref yet |
 | CAS ref | `PUT /v1/ref` + `If-Match: "<version>"` \| `If-None-Match: *` | `204` + new `ETag` | `412` version mismatch, `428` neither precondition, `400` empty body, `413` over the cap |
 | GET key | `GET /v1/key` | `200` + wrap envelope, `ETag: "<version>"` | `404` no key yet |
@@ -210,6 +210,30 @@ OIDs, LISTs remote names, and uploads missing encrypted objects. Last, it CAS
 updates the encrypted ref. A CAS loss leaves only harmless immutable orphan
 uploads and tells the client to pull and merge.
 
+A listed name is not evidence about the bytes behind it. The server holds no
+vault key, so it cannot compare an upload with what it already stores, and an
+object that was truncated, corrupted at rest, or planted by the operator keeps
+its name occupied — an immutable store will not let a later upload replace it.
+Push therefore verifies before it publishes: after the uploads and before the
+ref CAS it re-downloads a bounded sample of the objects it skipped and puts
+each through the pull path's authentication — keyed-name binding, AEAD tag,
+embedded Git id, Git hash — plus a byte comparison against the local copy. One
+that is not the object it claims to be aborts the push, with no ref moved on
+either side, and names the only available repair: deleting that object on the
+server. GET is what does this because it is what the wire contract offers: LIST
+answers names only, there is no HEAD route, and no response carries a size a
+client could compare.
+
+The sample is capped at eight objects per push regardless of history size, and
+its window starts at an offset derived from the head commit's id, so successive
+pushes — which have different heads — walk different objects and a store is
+covered over repeated pushes rather than in one expensive sweep. The head
+commit's own object, when it is one of the skipped ones, is always included: it
+is the entry point every pull resolves first. The limit is worth stating
+plainly: one push detects damage in the objects it happens to draw, so a
+damaged store is caught within a few pushes rather than guaranteed on the next
+one.
+
 Pull gets and decrypts the ref, computes the opaque name of its head, and then
 GETs the reachable graph on demand. Each downloaded envelope is authenticated,
 its embedded Git OID is verified unconditionally, and its commit/tree child
@@ -288,9 +312,20 @@ one, the envelope is decrypted with the vault key and its AAD is that same
 that somehow authenticate are still hashed through libgit2 and required to equal
 the OID embedded in the plaintext. A poisoned object therefore aborts the pull
 before any tracking-ref or worktree change; it cannot substitute content. It
-remains a denial-of-service vector, like omitting the object outright, and PUT's
-idempotence rule means an occupied name must never silently mask a client's
-upload.
+remains a denial-of-service vector, like omitting the object outright.
+
+PUT's idempotence rule says an occupied name must never silently mask a client's
+upload, and on a dumb blob store that rule cannot be carried by the server
+alone: it holds no key, so "already present" is an answer about a name, not
+about bytes. What makes the rule true in practice is the push-side sample in §4
+— skipped objects are re-downloaded and authenticated before the ref moves, so
+an occupied name that is not the client's object fails the push instead of
+passing for a successful upload. This server additionally refuses a repeat
+upload whose length differs from the stored bytes (§2), which catches truncation
+at the moment of the upload; a deployment that does not do that is still covered
+by the client check. The honest limit is the sample size: one push inspects the
+objects it draws, so a damaged store is caught within a few pushes rather than
+guaranteed on the first.
 
 Authentication failure, wrong passphrase/key, swapped object name, modified
 ciphertext, malformed length/type/OID, missing head object, stale CAS token,
@@ -310,7 +345,11 @@ refusal, first-device upload, second-device reconstruction, divergent push
 refusal, the existing local merge path, and the return trip to the first
 device. They also prove that pull does not import an unrelated retained object.
 Malformed head/parent/tree-entry types and post-purge pulls fail before checkout
-or tracking-ref movement.
+or tracking-ref movement. Two shapes of an already-present object that is not
+the client's — one truncated after storage, one authentic ciphertext of another
+object relocated under the name — are shown failing the push before the ref
+moves, and the same push succeeding once the object is restored. The server's
+own tests pin the length-conflict answer at the store and on the wire.
 
 Four tests pin the §4 and §5 rules that are easiest to regress silently: a purge
 landing inside the write gate aborts the pull with no object imported, no

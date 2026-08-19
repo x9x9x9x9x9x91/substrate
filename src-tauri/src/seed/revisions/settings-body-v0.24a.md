@@ -1,0 +1,28 @@
+Substrate settings — edit and save; changes apply within a second (⌘, opens the settings form).
+
+- `capture-hotkey` — global quick-capture shortcut, works from any app (e.g. `alt+space`, `cmd+shift+j`)
+- `voice-hotkey` — macOS only: global shortcut that starts recording a voice note straight away, and stops and files it on the second press (default `alt+shift+space`); no window, no click
+- `close-to-tray` — when `true`, closing the window keeps Substrate in the menu bar; quit from the tray menu
+- `terminal-command` — command the ⌘⇧T terminal runs on start (e.g. `claude`, `codex`); empty = plain shell
+- `terminal-cwd` — folder the terminal starts in (`~` expands); empty = the vault folder
+- `terminal-font` — font family for the terminal, e.g. a nerd font so prompt glyphs render (`JetBrainsMono Nerd Font`); empty = the app's mono
+- `terminal-dock` — which edge the ⌘⇧T terminal slides in from: `bottom` or `right`; drag its inner edge to resize either way
+- `terminal-height` — how much of the window the terminal covers when docked to the bottom (`0.2`–`0.9`, default `0.45`)
+- `terminal-width` — how much of the window the terminal covers when docked to the right (`0.2`–`0.7`, default `0.38`)
+- `terminal-actions` — command-palette quick actions, one `Label: command` per list entry; each types its command into the terminal
+- `drop-hint` — when `false`, hides the drag-over hint about copy vs ⇧-link (default `true`)
+- `mod-hud` — when `false`, holding ⌘ no longer folds out the shortcut HUD (default `true`)
+- `task-stale-chips` — when `false`, hides the `stale` / `undated` age chips on the tasks board; a board with its own `stale_days` keeps them, and a task with `stale: never` never wears one (default `true`)
+- `db-grid` — when `false`, turns off the vertical grid lines in database tables everywhere; a database's ⋯ menu can still override per database (default `true`)
+- `glow` — bloom on dashboard chart strokes, dots and emphasised values, `0`–`100`; bars join above `70`, and `0` (the default) switches the effect off entirely
+- `accent-tone` — the hue every dashboard mark wears: `sky` (default), `teal`, `indigo` or `violet`; state colours red/amber/green never move with it
+- `accent-tone-nudge` — shifts the chosen tone `-12` to `12` degrees, for when a preset is nearly right
+- `window-opacity` — macOS only: how solid the window is over your desktop, in percent (`80`–`100`, default `90`); the wallpaper shows through, blurred by macOS, and `100` is fully solid
+- `show-agent-files` — when `true`, lists the seeded `Settings.md`, `AGENTS.md`, and `CLAUDE.md` app files; by default they stay concealed (still normal files on disk)
+- `share-relay-url` — where “Send as link” parks the encrypted copy; defaults to Substrate's hosted ciphertext-only relay, or replace it with your self-hosted relay
+- `share-relay-token` — optional bearer token for a self-hosted relay that gates uploads; the hosted default does not use one
+- `number-locale` — the dialect every number is written in, everywhere: `de-DE` (the default) writes `1.234,56`, `en-US` and `en-GB` write `1,234.56`; `de-CH` and `fr-FR` are offered too
+- `date-locale` — how dates and clock times read everywhere: a locale tag, `de-DE` (the default, `31.01.2026`), `de-CH`, `en-US` (`1/31/2026`, 12-hour), `en-GB` or `fr-FR`
+- `net-link-titles` — when `false`, capturing a link keeps the bare URL as the title instead of asking the site for it
+- `net-fx-rates` — when `false`, currency conversions use the last saved rates (and say how old they are) instead of fetching fresh ones
+- `net-share-relay` — when `false`, “Send as link” explains this switch instead of uploading the encrypted copy

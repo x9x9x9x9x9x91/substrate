@@ -334,6 +334,8 @@
 
 - Select text in a note for a floating menu: extract the selection into its own linked
   note, turn it into a heading or list, or copy it as Markdown.
+- The news feed has a refresh button that sends your curator out for a fresh sweep
+  instead of waiting for the next scheduled one.
 
 ### Improved
 

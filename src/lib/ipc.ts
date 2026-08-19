@@ -14,6 +14,7 @@ import type {
   ConflictChoice,
   ConflictState,
   CookbookInstall,
+  CuratorRun,
   DbIcon,
   DbLayout,
   DeeplinkResolved,
@@ -766,6 +767,17 @@ export const jobsFreshness = (specs: string[]) =>
     the backend's 1h scan cache (the refresh button). */
 export const codingScan = (force: boolean, root?: string | null) =>
   invoke<CodingScan>("coding_scan", { force, root: root ?? null });
+/** Run the vault's configured `feed-curator` command (feed
+    dashboard) — one headless curation of the items sheet, cwd'd at
+    the vault root. The caller passes the Settings.md command AFTER the
+    per-machine trust gate has approved it. Refused while one is live;
+    completion is polled via curatorRuns. */
+export const curatorRefresh = (command: string) =>
+  invoke<CuratorRun>("curator_refresh", { command });
+/** Poll the curator's running + recently finished runs. */
+export const curatorRuns = () => invoke<CuratorRun[]>("curator_runs");
+/** Kill the live curation run. */
+export const curatorCancel = (id: string) => invoke<void>("curator_cancel", { id });
 export const fileOpen = (path: string) => invoke<void>("file_open", { path });
 export const fileReveal = (path: string) => invoke<void>("file_reveal", { path });
 export const filePick = (dir: boolean, extensions?: string[]) =>

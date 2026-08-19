@@ -466,6 +466,13 @@ const FIELDS: Field[] = [
     placeholder: "Sweep inbox: /inbox-sweep",
     kind: "multiline",
   },
+  {
+    key: "feed-curator",
+    label: "Feed curator",
+    hint: "command the feed dashboard's ↻ refresh runs to re-curate the items sheet (login shell, vault as cwd); the dashboard's own setup card edits the same key. Empty = no refresh button",
+    placeholder: "~/scripts/curate-news.sh",
+    kind: "text",
+  },
   /* ONE dial for the number dialect. Its predecessor `number-format`
      offered two values and reached only calc lines and unit cells while every
      other surface stayed hardwired to German — the pane promised more than it

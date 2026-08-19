@@ -10,6 +10,7 @@ import {
   parseDbGrid,
   parseTaskStaleChips,
   parseDropHint,
+  parseFeedCurator,
   parseModHud,
   parseShowAppFiles,
   parseTerminalActions,
@@ -22,6 +23,15 @@ import {
 import { parseShareRelayUrl } from "./handoff.ts";
 
 const MONO = "ui-monospace, Menlo, monospace";
+
+test("parseFeedCurator: the trimmed command, cased key folded, else empty", () => {
+  assert.equal(parseFeedCurator({ "feed-curator": "  ~/scripts/curate.sh " }), "~/scripts/curate.sh");
+  assert.equal(parseFeedCurator({ "Feed-Curator": "curate" }), "curate");
+  assert.equal(parseFeedCurator({}), "");
+  // a non-string is a typo'd note, not a command to run
+  assert.equal(parseFeedCurator({ "feed-curator": 3 }), "");
+  assert.equal(parseFeedCurator({ "feed-curator": ["a", "b"] }), "");
+});
 
 test("parseTerminalSettings: reads the terminal keys", () => {
   const s = parseTerminalSettings({

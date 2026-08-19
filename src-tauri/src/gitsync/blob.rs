@@ -41,6 +41,11 @@ const MAX_OBJECT_ENVELOPE_BYTES: usize =
     4 + NONCE_LEN + OBJECT_HEADER_LEN + MAX_OBJECT_BYTES + TAG_LEN;
 const MAX_REF_ENVELOPE_BYTES: usize = 4 * 1024;
 const MAX_LIST_OBJECTS: usize = 100_000;
+/// Already-present objects one push re-downloads and authenticates. Eight
+/// small GETs is a rounding error beside the uploads a real push makes, and
+/// the rotating window in `verify_present_sample` turns repeated pushes into
+/// full coverage without ever making one push re-download a whole vault.
+const PUSH_VERIFY_SAMPLE: usize = 8;
 const MAX_PENDING_EDGES: usize = 4 * MAX_LIST_OBJECTS;
 const ARGON_MEMORY_KIB: u32 = 65_536;
 const ARGON_ITERATIONS: u32 = 3;
@@ -416,6 +421,10 @@ fn http_status(
 fn status_error(label: &str, code: u16) -> String {
     match code {
         401 | 403 => format!("hosted sync {label} was rejected: check the server token"),
+        409 => format!(
+            "hosted sync {label} was refused: the server already holds something else under that \
+             object's name — delete it on the server, then push again"
+        ),
         413 => format!("hosted sync {label} was refused: the server's size limit is lower than this client's"),
         503 => format!("hosted sync {label} was turned away: the server is at its connection limit — try again shortly"),
         _ => format!("hosted sync {label} failed with status {code}"),
@@ -624,9 +633,11 @@ pub(crate) fn push<G>(
         transport.list_objects(MAX_LIST_OBJECTS)?.into_iter().collect();
     let odb =
         repo.odb().map_err(|error| format!("hosted sync object database unavailable: {error}"))?;
+    let mut already_present: Vec<(Oid, String)> = Vec::new();
     for oid in reachable_objects(&repo, local_oid)? {
         let name = object_name(key, oid);
         if remote_names.contains(&name) {
+            already_present.push((oid, name));
             continue;
         }
         let object = odb
@@ -635,6 +646,7 @@ pub(crate) fn push<G>(
         let envelope = encrypt_object(key, &name, oid, object.kind(), object.data())?;
         transport.put_object(&name, &envelope)?;
     }
+    verify_present_sample(key, transport, &odb, local_oid, &already_present)?;
 
     let document = RefDocument { version: 1, branch: branch.clone(), head: local_oid.to_string() };
     let encrypted_ref = encrypt_ref(key, &document)?;
@@ -651,6 +663,96 @@ pub(crate) fn push<G>(
         .map_err(|error| format!("hosted sync tracking update failed: {error}"))?;
     clear_history_rewritten(&repo)?;
     Ok(report(pushed, 0, Vec::new(), local_oid))
+}
+
+/// Download and authenticate a bounded sample of the objects this push skipped
+/// because the server already listed their names.
+///
+/// A name in the listing is not evidence that the bytes behind it are this
+/// vault's object. The server never sees the vault key, so it answers "already
+/// present" without comparing anything, and a truncated, corrupted, or
+/// operator-planted envelope keeps the name occupied forever: an immutable
+/// store will not let a later upload replace it. Without this check push stays
+/// green while the history it claims to have published is unreadable, and the
+/// damage only surfaces on another device's pull, possibly months later.
+///
+/// The check has to work against a deployed server that will not grow new
+/// routes, so it is the one thing the current wire contract already offers:
+/// GET the object and put it through the same authentication the pull path
+/// runs — keyed name binding, AEAD tag, embedded Git id, Git hash — plus a
+/// byte comparison against the local copy, which is the strongest evidence
+/// available and free once the envelope is decrypted. Sizes cannot substitute:
+/// the LIST answer carries names only, and there is no HEAD route.
+///
+/// Cost is capped at [`PUSH_VERIFY_SAMPLE`] downloads per push regardless of
+/// history size. Coverage is rotated rather than fixed: the sample starts at an
+/// offset derived from the head commit's id, so consecutive pushes — which have
+/// different heads — walk different windows and a store's whole object set is
+/// covered over time. The head commit's own object, when it is one of the
+/// skipped ones, is always in the sample: it is the entry point every pull
+/// resolves first, so a broken copy of it strands every other device.
+fn verify_present_sample(
+    key: &MasterKey,
+    transport: &impl BlobTransport,
+    odb: &git2::Odb<'_>,
+    head: Oid,
+    present: &[(Oid, String)],
+) -> Result<(), String> {
+    if present.is_empty() {
+        return Ok(());
+    }
+    let total = present.len();
+    let wanted = PUSH_VERIFY_SAMPLE.min(total);
+    let mut chosen: Vec<usize> = Vec::with_capacity(wanted);
+    if let Some(index) = present.iter().position(|(oid, _)| *oid == head) {
+        chosen.push(index);
+    }
+    // The head id is a hash, so its leading bytes are as good a rotation as a
+    // random draw and cost nothing to reproduce in a test.
+    let mut cursor = usize::from_be_bytes(
+        head.as_bytes()[..std::mem::size_of::<usize>()].try_into().unwrap_or_default(),
+    ) % total;
+    for _ in 0..total {
+        if chosen.len() == wanted {
+            break;
+        }
+        if !chosen.contains(&cursor) {
+            chosen.push(cursor);
+        }
+        cursor = (cursor + 1) % total;
+    }
+
+    for index in chosen {
+        let (oid, name) = &present[index];
+        let local = odb
+            .read(*oid)
+            .map_err(|error| format!("hosted sync object {oid} unavailable: {error}"))?;
+        let envelope = transport.get_object(name, MAX_OBJECT_ENVELOPE_BYTES).map_err(|error| {
+            format!("{}: {error}", damaged_present_object(*oid))
+        })?;
+        let stored = decrypt_object(key, name, &envelope)
+            .map_err(|error| format!("{}: {error}", damaged_present_object(*oid)))?;
+        verify_git_hash(&stored)
+            .map_err(|error| format!("{}: {error}", damaged_present_object(*oid)))?;
+        if stored.oid != *oid || stored.kind != local.kind() || stored.data != local.data() {
+            return Err(format!(
+                "{}: it decrypts to different content than this vault holds",
+                damaged_present_object(*oid)
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// The shared opening of every "the server's copy is not this object" refusal.
+/// It names the repair, because the client cannot perform it: the store is
+/// immutable, so a later upload cannot replace the occupied name — someone with
+/// server access has to delete that object first.
+fn damaged_present_object(oid: Oid) -> String {
+    format!(
+        "hosted sync push refused: the server already holds a name for object {oid}, but its \
+         stored copy is not that object — delete it on the server, then push again"
+    )
 }
 
 /// Fetch and authenticate only the graph reachable from the encrypted ref,
@@ -1387,6 +1489,84 @@ mod tests {
                 .any(|window| window == b"from device")
         }));
         assert!(!fs::read(store.ref_path()).unwrap().windows(7).any(|w| w == b"Welcome"));
+    }
+
+    #[test]
+    fn push_detects_a_damaged_object_the_server_reports_as_already_present() {
+        // Two shapes of the same failure: bytes that were truncated after they
+        // were stored, and bytes an operator planted under a name before this
+        // vault ever uploaded it. Neither is visible to LIST, and PUT answers
+        // "already present" for both.
+        for (label, truncate) in [("truncated", true), ("pre-planted", false)] {
+            let scratch = TempDir::new().unwrap();
+            let a = scratch.path().join("vault-a");
+            let history_a = vault(&a);
+            let store = FileBlobStore::new(scratch.path().join("blob-store")).unwrap();
+            let key = MasterKey::from_bytes([23; 32]);
+
+            write_note(&a, "First.md", "first\n");
+            history_a.snapshot("first").unwrap();
+            push(&a, &key, &store, || ()).unwrap();
+
+            // The whole store fits inside one sample, so this test pins
+            // detection rather than the odds of drawing the damaged object.
+            let names = store.list_objects(MAX_LIST_OBJECTS).unwrap();
+            assert!(names.len() <= PUSH_VERIFY_SAMPLE, "{label}: {} objects", names.len());
+
+            let repo = Repository::open(&a).unwrap();
+            let published = repo.head().unwrap().peel_to_commit().unwrap();
+            let victim = published.tree().unwrap().get_name("First.md").unwrap().id();
+            let name = object_name(&key, victim);
+            let path = store.object_path(&name).unwrap();
+            let damaged = if truncate {
+                let mut bytes = fs::read(&path).unwrap();
+                bytes.truncate(bytes.len() - 1);
+                bytes
+            } else {
+                // Authentic ciphertext of a different object, relocated: it
+                // decrypts only because the vault key made it, and the keyed
+                // name it carries is not the name it now sits under.
+                let body = b"not this note\n";
+                let other = Oid::hash_object(ObjectType::Blob, body).unwrap();
+                encrypt_object(&key, &object_name(&key, other), other, ObjectType::Blob, body)
+                    .unwrap()
+            };
+            fs::write(&path, &damaged).unwrap();
+
+            write_note(&a, "Second.md", "second\n");
+            history_a.snapshot("second").unwrap();
+            let error = push(&a, &key, &store, || ()).unwrap_err();
+            assert!(
+                error.contains("delete it on the server") && error.contains(&victim.to_string()),
+                "{label}: {error}"
+            );
+
+            // The refusal lands before the ref moves: the remote still names
+            // the head it could actually serve, and the local tracking ref did
+            // not advance onto a graph that cannot be pulled.
+            let document =
+                decrypt_ref(&key, &store.read_ref(MAX_REF_ENVELOPE_BYTES).unwrap().unwrap().bytes)
+                    .unwrap();
+            assert_eq!(document.head, published.id().to_string(), "{label}");
+            assert_eq!(
+                repo.find_reference(&format!("refs/remotes/{REMOTE}/main"))
+                    .unwrap()
+                    .target()
+                    .unwrap(),
+                published.id(),
+                "{label}"
+            );
+
+            // Restoring the object lets the same push through, so the refusal
+            // is about those bytes and not a vault this client cannot push.
+            let restored = {
+                let odb = repo.odb().unwrap();
+                let object = odb.read(victim).unwrap();
+                encrypt_object(&key, &name, victim, object.kind(), object.data()).unwrap()
+            };
+            fs::write(&path, &restored).unwrap();
+            push(&a, &key, &store, || ()).unwrap();
+        }
     }
 
     #[test]
@@ -2179,12 +2359,17 @@ mod tests {
         let error = transport.get_object(&name, MAX_OBJECT_ENVELOPE_BYTES).unwrap_err();
         assert!(error.contains("absent from the server"), "{error}");
 
-        transport.put_object(&name, b"first").unwrap();
-        // A repeat PUT succeeds without replacing the stored bytes — the
-        // protocol's idempotence rule, which push relies on when it re-uploads
-        // after a lost CAS.
+        transport.put_object(&name, b"first!").unwrap();
+        // A repeat PUT of the same length succeeds without replacing the stored
+        // bytes — the protocol's idempotence rule, which push relies on when it
+        // re-uploads after a lost CAS. Length is what makes that safe: two
+        // encryptions of one object differ in every byte but not in size.
         transport.put_object(&name, b"second").unwrap();
-        assert_eq!(transport.get_object(&name, MAX_OBJECT_ENVELOPE_BYTES).unwrap(), b"first");
+        assert_eq!(transport.get_object(&name, MAX_OBJECT_ENVELOPE_BYTES).unwrap(), b"first!");
+        // A repeat of another length is not that object, and this server says
+        // so rather than answering "already present".
+        let refused = transport.put_object(&name, b"third").unwrap_err();
+        assert!(refused.contains("delete it on the server"), "{refused}");
         assert_eq!(transport.list_objects(MAX_LIST_OBJECTS).unwrap(), vec![name]);
     }
 

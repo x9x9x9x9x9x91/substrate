@@ -1,9 +1,19 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { NoteMeta } from "../lib/types";
+import type { CuratorRun, NoteMeta } from "../lib/types";
 import { foldedPropStr } from "../lib/types";
-import { vaultRead, vaultResolve, vaultWriteBody } from "../lib/ipc";
+import {
+  curatorCancel,
+  curatorRefresh,
+  curatorRuns,
+  vaultRead,
+  vaultResolve,
+  vaultSetProp,
+  vaultWriteBody,
+} from "../lib/ipc";
 import { isTauri } from "../lib/tauri";
+import { parseFeedCurator, SETTINGS_PATH } from "../lib/settings";
+import { isCommandTrusted, TERM_TRUST_KEY, withTrusted } from "../lib/termtrust";
 import {
   feedStaleness,
   feedTopics,
@@ -66,7 +76,6 @@ function readFeedFilter(): string[] {
 function writeFeedFilter(topics: string[]): void {
   localStorage.setItem(FEED_FILTER_KEY, JSON.stringify(topics));
 }
-
 
 export default function FeedDashboard({
   meta,
@@ -146,6 +155,165 @@ export default function FeedDashboard({
     writeFeedFilter([]);
   };
 
+  /* The refresh button: one click runs
+     the vault's `feed-curator` command (curator.rs holds the single run
+     slot), the button spins while it works and acts as cancel. The curated
+     rows land through the vault watcher like any external edit; completion
+     here only flips the button back — plus one belt-and-braces onMutated so
+     a missed watcher event can't strand a stale stream behind a finished
+     run. Which command runs is Settings.md policy, re-read each epoch; the
+     exact string is gated behind the same per-machine trust approval as
+     `terminal-command`, because Settings.md syncs and approvals must not. */
+  const [curatorCmd, setCuratorCmd] = useState<string | null>(null);
+  useEffect(() => {
+    let gone = false;
+    vaultRead(SETTINGS_PATH)
+      .then((c) => {
+        if (!gone) setCuratorCmd(parseFeedCurator(c.props));
+      })
+      .catch(() => {
+        // no Settings.md (or unreadable) = no curator configured — the setup
+        // card is the honest offer either way
+        if (!gone) setCuratorCmd("");
+      });
+    return () => {
+      gone = true;
+    };
+  }, [vaultEpoch]);
+
+  const [curator, setCurator] = useState<CuratorRun | null>(null);
+  const [dispatchErr, setDispatchErr] = useState<string | null>(null);
+  // the run whose completion we owe the belt-and-braces onMutated — the error
+  // surface is derived from the registry itself (below), so a failure that
+  // completes while this pane is unmounted still shows on return (review #5)
+  const watchedRun = useRef<string | null>(null);
+  const dispatching = useRef(false);
+  const kickPoll = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    let gone = false;
+    let timer = 0;
+    let gen = 0;
+    const load = (g: number) => {
+      curatorRuns()
+        .then((rs) => {
+          if (gone || g !== gen) return;
+          const latest = rs[0] ?? null;
+          setCurator(latest);
+          if (latest?.state === "running") {
+            watchedRun.current = latest.id;
+            timer = window.setTimeout(() => load(g), 1_000);
+          } else if (latest !== null && watchedRun.current === latest.id) {
+            watchedRun.current = null;
+            onMutated();
+          }
+        })
+        .catch(() => {
+          // the poll is cosmetic — losing it drops the spinner, nothing else
+          if (!gone && g === gen) setCurator(null);
+        });
+    };
+    kickPoll.current = () => {
+      // a fresh generation orphans any in-flight poll so chains never fork
+      window.clearTimeout(timer);
+      gen += 1;
+      load(gen);
+    };
+    load(gen);
+    return () => {
+      gone = true;
+      window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onMutated identity is unstable; the epoch is the reload signal
+  }, [vaultEpoch]);
+
+  const curating = curator?.state === "running";
+  // the banner mirrors the registry: a failed run stays visible — across
+  // remounts too — until the next dispatch replaces it
+  const curatorErr =
+    dispatchErr ?? (curator?.state === "failed" ? (curator.error ?? "curation failed") : null);
+
+  const dispatch = (cmd: string) => {
+    if (dispatching.current) return;
+    dispatching.current = true;
+    setDispatchErr(null);
+    curatorRefresh(cmd)
+      .then((r) => {
+        watchedRun.current = r.id;
+        setCurator(r);
+        kickPoll.current();
+      })
+      .catch((e) => setDispatchErr(String(e)))
+      .finally(() => {
+        dispatching.current = false;
+      });
+  };
+
+  // first run of a command this machine hasn't approved → the trust dialog,
+  // not a spawn (an agent or a sync can write `feed-curator`; only the human
+  // here can say yes to it)
+  const [approving, setApproving] = useState(false);
+  const refreshFeed = () => {
+    if (curating && curator !== null) {
+      curatorCancel(curator.id).catch((e) => setDispatchErr(String(e)));
+      return;
+    }
+    const cmd = curatorCmd ?? "";
+    if (cmd === "") return;
+    if (!isCommandTrusted(cmd, localStorage.getItem(TERM_TRUST_KEY))) {
+      setApproving(true);
+      return;
+    }
+    dispatch(cmd);
+  };
+  const approveAndRun = () => {
+    const cmd = curatorCmd ?? "";
+    try {
+      localStorage.setItem(TERM_TRUST_KEY, withTrusted(cmd, localStorage.getItem(TERM_TRUST_KEY)));
+    } catch {
+      // a full or blocked localStorage costs the memory, not the run — the
+      // command still needs a yes next time, which is the safe direction
+    }
+    setApproving(false);
+    dispatch(cmd);
+  };
+
+  /* The in-pane curator setup: the empty state offers "plug in a
+     curator", a configured one keeps a small settings door beside the
+     button. Saving writes `feed-curator` to Settings.md — and counts as this
+     machine's approval of the exact string, because the human here just
+     typed it; a command that arrives any other way still faces the trust
+     dialog above. */
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+  const openSetup = () => {
+    setDraft(curatorCmd ?? "");
+    setSaveErr(null);
+    setSetupOpen(true);
+  };
+  const saveCurator = () => {
+    const cmd = draft.trim();
+    if (cmd === "" && (curatorCmd ?? "") === "") return;
+    vaultSetProp(SETTINGS_PATH, "feed-curator", cmd === "" ? null : cmd)
+      .then(() => {
+        if (cmd !== "") {
+          try {
+            localStorage.setItem(
+              TERM_TRUST_KEY,
+              withTrusted(cmd, localStorage.getItem(TERM_TRUST_KEY))
+            );
+          } catch {
+            // trust memory only — the save stands, the first click just asks
+          }
+        }
+        setSetupOpen(false);
+        // optimistic; the epoch bump re-reads Settings.md truth
+        setCuratorCmd(cmd);
+        onMutated();
+      })
+      .catch((e) => setSaveErr(String(e)));
+  };
 
   // optimistic write, guarded: the items sheet isn't the note on
   // screen, so an external edit between our read and this write must fail as a
@@ -187,6 +355,43 @@ export default function FeedDashboard({
           actions={
             <>
               {curated !== undefined && <span className="feed-curated">last curated {curated}</span>}
+              {curatorCmd === "" && (
+                <button
+                  type="button"
+                  className="sync-btn feed-setup-btn"
+                  title="Configure a command that refreshes this feed"
+                  onClick={openSetup}
+                >
+                  plug in a curator
+                </button>
+              )}
+              {(curatorCmd ?? "") !== "" && (
+                <>
+                  <button
+                    type="button"
+                    className={`sync-btn feed-refresh${curating ? " busy" : ""}`}
+                    title={
+                      curating
+                        ? "Curating — click to cancel"
+                        : curator?.state === "done" && curator.summary !== null
+                          ? `Last run: ${curator.summary}`
+                          : "Run your curator for fresh items"
+                    }
+                    onClick={refreshFeed}
+                  >
+                    {curating ? <span className="sync-spinner" /> : "↻ refresh"}
+                  </button>
+                  <button
+                    type="button"
+                    className="sync-btn feed-setup-btn"
+                    title="Curator settings"
+                    aria-label="Curator settings"
+                    onClick={openSetup}
+                  >
+                    ⚙
+                  </button>
+                </>
+              )}
             </>
           }
           sourcePath={itemsPath ?? undefined}
@@ -195,6 +400,7 @@ export default function FeedDashboard({
         />
 
         {writeErr && <div className="sync-action-err">{writeErr}</div>}
+        {curatorErr && <div className="sync-action-err">{curatorErr}</div>}
 
         {topics.length > 1 && (
           <div className="feed-filter" role="group" aria-label="Filter by topic">
@@ -287,6 +493,85 @@ export default function FeedDashboard({
           </div>
         )}
       </div>
+
+      {setupOpen && (
+        <div className="overlay">
+          <div className="dbform" role="dialog" aria-label="Feed curator">
+            <div className="dbform-title">
+              {(curatorCmd ?? "") !== "" ? "Feed curator" : "Plug in a curator"}
+            </div>
+            <div className="dbform-note">
+              Any command can curate this feed: it runs in your login shell with the
+              vault as working directory and rewrites the ‘{itemsName}’ sheet (columns
+              date, topic, title, source, url, blurb, why, fb) plus this note’s
+              curated: stamp. One run at a time with a 20-minute cap — the last line
+              it prints becomes the run summary, and a failing exit shows its stderr
+              on the dashboard.
+            </div>
+            <input
+              className="dbform-input"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveCurator();
+              }}
+              placeholder="~/scripts/curate-news.sh"
+              spellCheck={false}
+              autoFocus
+              aria-label="Curator command"
+            />
+            <div className="dbform-note">
+              Saved as feed-curator in Settings.md, so an agent pointed at your vault
+              can set it up too — a command you didn’t type here yourself asks for
+              your approval before its first run. The full recipe lives in the app
+              docs, docs/dashboards.md §feed.
+            </div>
+            {saveErr && <div className="sync-action-err">{saveErr}</div>}
+            <div className="dbform-foot">
+              <button className="selmenu-btn" onClick={() => setSetupOpen(false)}>
+                Cancel
+              </button>
+              <button
+                className="selmenu-btn selmenu-btn-primary"
+                disabled={draft.trim() === "" && (curatorCmd ?? "") === ""}
+                onClick={saveCurator}
+              >
+                {draft.trim() === "" && (curatorCmd ?? "") !== "" ? "Remove" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {approving && (
+        <div className="overlay">
+          <div className="dbform" role="dialog" aria-label="Run curator command">
+            <div className="dbform-title">Run this curator?</div>
+            <div className="dbform-note">
+              Your vault’s Settings.md asks to run this command to refresh the feed.
+              Vault notes can arrive by sync or import, so it runs only after you
+              allow it on this machine.
+            </div>
+            {/* borrows the frontmatter-source box: same monospace/verbatim
+                treatment as the terminal's trust dialog */}
+            <pre className="fm-raw" aria-label="Command" style={{ minHeight: 0, overflowX: "auto" }}>
+              {curatorCmd}
+            </pre>
+            <div className="dbform-note">
+              Allowing remembers this exact command here only — never in the vault.
+              Change one character and you’ll be asked again.
+            </div>
+            <div className="dbform-foot">
+              <button className="selmenu-btn" onClick={() => setApproving(false)}>
+                Not now
+              </button>
+              <button className="selmenu-btn selmenu-btn-primary" autoFocus onClick={approveAndRun}>
+                Run
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -128,8 +128,9 @@ window-vibrancy = "0.6"
 # the mobile capture surface first).
 #
 # BUILD HOST NOTE: whisper-rs-sys compiles whisper.cpp through bindgen, so a
-# machine building this needs **cmake** and **libclang** on PATH. Both are
-# present on the QA rigs and on a stock Xcode-CLT Mac with Homebrew cmake.
+# machine building this needs **cmake** and **libclang** on PATH. libclang
+# comes with the Xcode Command Line Tools; cmake does not, so the rig setup
+# script installs it (a cold cargo cache is what exposes the gap).
 cpal = "0.15"
 hound = "3.5"
 whisper-rs = { version = "0.14", features = ["metal"] }

@@ -1186,6 +1186,13 @@ round-trip byte-identical; clicking the active verdict clears it. A curator
 re-write between the pane's read and a click fails as a conflict and the pane
 re-reads disk truth (`src/lib/feed.ts`, `src/components/FeedDashboard.tsx`).
 
+The pane's refresh button runs the `feed-curator` command from `Settings.md`
+(§12) — configured, it is the one place the app itself starts a curation run
+instead of waiting for an external writer; unconfigured, the head offers a
+setup card instead of the button. The command string is trust-gated per
+machine before it ever runs (§12; `docs/dashboards.md` §feed has the full
+contract).
+
 `music-work` is a read-only board over a production-tree index. Like
 `food` and `feed` the dashboard note holds only config props; the rows live in
 a separate sheet an external tree scanner writes.
@@ -4190,7 +4197,13 @@ Plain notes the app treats specially — all optional, all just files:
   goes here to get powerline glyphs),
   `terminal-actions` (a list of `Label: command` quick actions offered in the
   command palette, each typed into the HUD's shell; a fresh vault is seeded
-  with one entry for the `/setup` skill below), and
+  with one entry for the `/setup` skill below),
+  `feed-curator` (the command the feed dashboard's refresh button runs to
+  re-curate its items sheet — login shell, vault root as cwd, one run at a
+  time with a 20-minute cap; empty or unset = no refresh button, the pane
+  offers its setup card instead. Like `terminal-command`, the exact string is
+  approved per machine before it first runs — approvals live on the machine,
+  never in the vault; `docs/dashboards.md` §feed has the contract), and
   `drop-hint` (default `true`; `false` hides the drag-over copy-vs-⇧-link
   hint), `mod-hud` (default `true`; `false` stops the hold-⌘ panel from
   unfolding the shortcuts that would fire right now — same rule as

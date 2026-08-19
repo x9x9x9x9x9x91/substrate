@@ -374,3 +374,44 @@ test("an unparseable red log still exits red, just without a diagnosis", () => {
     assert.ok(!r.stdout.includes("↳"), r.stdout);
   });
 });
+
+// 2026-08-18. The gates lock was opt-in discipline ("never run verify-gates.sh
+// bare in a fan-out") and six lanes ran it bare anyway that afternoon; the
+// script now re-execs itself under scripts/with-gates-lock.sh. Stubbed here:
+// the wrap decision is what is under test, not the lock. The other tests in
+// this file exercise the third arm — no wrapper in the sandbox at all, which
+// is the public mirror's shape (it ships this script, strips the wrapper) —
+// so a run without one must proceed bare rather than fail.
+function plantLockWrapStub(repo: Repo) {
+  const stub = join(repo.dir, "scripts/with-gates-lock.sh");
+  writeFileSync(stub, '#!/usr/bin/env bash\necho "LOCK-WRAP: $*"\n');
+  chmodSync(stub, 0o755);
+}
+
+test("a bare run re-execs under with-gates-lock.sh with its original args", () => {
+  withRepo((repo) => {
+    plantLockWrapStub(repo);
+    // strip the marker so the assertion holds even when this suite itself
+    // runs under a held lock
+    const env = { ...process.env };
+    delete env.SUBSTRATE_GATES_LOCK_HELD;
+    const r = spawnSync("bash", [join(repo.dir, "scripts/verify-gates.sh"), "--only", "tsc"], {
+      cwd: repo.dir,
+      env: { ...env, PATH: `${repo.bin}:${process.env.PATH}`, FIXTURE_DIR: repo.fixtures, GATE: "tsc", GATE_RC: "0" },
+      encoding: "utf8",
+    });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /LOCK-WRAP: .*verify-gates\.sh --only tsc/, "the run must hand itself to the wrapper");
+    assert.ok(!r.stdout.includes("verify-gates @"), `the gates must not also run bare:\n${r.stdout}`);
+  });
+});
+
+test("a run already under the lock does not re-wrap", () => {
+  withRepo((repo) => {
+    plantLockWrapStub(repo);
+    const r = run(repo, "tsc", "0", { SUBSTRATE_GATES_LOCK_HELD: "1" });
+    assert.equal(r.status, 0, r.stderr);
+    assert.ok(!r.stdout.includes("LOCK-WRAP"), `a wrapped run must not wrap again:\n${r.stdout}`);
+    assert.match(r.stdout, /verify-gates @/, "the gates should have run directly");
+  });
+});

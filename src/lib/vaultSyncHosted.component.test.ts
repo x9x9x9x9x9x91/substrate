@@ -18,6 +18,19 @@ import { act, createElement as h } from "react";
 import { mockBackend, renderComponent } from "./componentHarness.ts";
 import type { Rendered } from "./componentHarness.ts";
 
+/** Fill in a hosted remote and press Save. Every refusal test below differs
+    only in the two credentials, so the form-driving stays here. */
+async function saveHostedRemote(r: Rendered, token: string, passphrase: string) {
+  const url = r.one('input[inputmode="url"]');
+  assert.ok(url, "no remote URL input");
+  await typeInto(r, url, "blob+https://drop.example/blob");
+  const [tokenInput, phrase, again] = r.all('input[type="password"]');
+  await typeInto(r, tokenInput, token);
+  await typeInto(r, phrase, passphrase);
+  await typeInto(r, again, passphrase);
+  await submitForm(r);
+}
+
 /** Drive a controlled input the way a keyboard does: through the native value
     setter, so React's own tracker sees the change and fires onChange. Inside
     `act`, like the harness's own click, so the render lands before asserts. */
@@ -158,4 +171,52 @@ test("the reveal toggle unmasks both passphrase entries", async (t) => {
   await r.click(reveal);
   assert.equal(passphrase.type, "password");
   assert.equal(again.type, "password");
+});
+
+/* The two refusals a real hosted save can hand back that no client-side check
+   can produce: they need a store that already holds a vault, which is what the
+   `__mockHostedVault` seam stages. Before it existed the mock accepted any
+   non-empty credentials, so neither of these ever rendered anywhere — the pane
+   could have dropped both on the floor and every gate would have stayed green. */
+
+test("a wrong service token is refused with the server's own words", async (t) => {
+  const win = await mockBackend();
+  win.__mockHostedVault({ token: "the-real-token-0123", passphrase: "correct horse battery staple" });
+  t.after(() => win.__mockHostedVault(null));
+  const { default: VaultSyncPane } = await import("../components/VaultSyncPane.tsx");
+  const r = await renderComponent(t, h(VaultSyncPane, { autoSync: false }));
+
+  await saveHostedRemote(r, "a-stale-token-9876", "correct horse battery staple");
+  assert.match(
+    r.text(),
+    /check the server token/,
+    "a token the store rejects reported nothing — the save would have looked like it worked"
+  );
+  assert.doesNotMatch(r.text(), /Remote saved/);
+
+  // The right token joins the same store, so the refusal was about the token
+  // and not about hosted saves being broken in this fixture.
+  await saveHostedRemote(r, "the-real-token-0123", "correct horse battery staple");
+  assert.match(r.text(), /Remote saved/);
+});
+
+test("a wrong passphrase is refused after the token is accepted", async (t) => {
+  const win = await mockBackend();
+  win.__mockHostedVault({ token: "the-real-token-0123", passphrase: "correct horse battery staple" });
+  t.after(() => win.__mockHostedVault(null));
+  const { default: VaultSyncPane } = await import("../components/VaultSyncPane.tsx");
+  const r = await renderComponent(t, h(VaultSyncPane, { autoSync: false }));
+
+  // Long enough and typed twice, so every check the pane owns passes: only the
+  // wrapped key on the server can tell this phrase is the wrong one.
+  await saveHostedRemote(r, "the-real-token-0123", "wrong horse battery staple");
+  assert.match(
+    r.text(),
+    /passphrase is wrong or key data is damaged/,
+    "the vault key never opened, and the pane said the remote was saved anyway"
+  );
+  assert.doesNotMatch(r.text(), /Remote saved/);
+
+  await saveHostedRemote(r, "the-real-token-0123", "correct horse battery staple");
+  assert.match(r.text(), /Remote saved/);
 });

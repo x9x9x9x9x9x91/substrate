@@ -609,6 +609,40 @@ date,topic,title,source,url,blurb,why,fb
 Unknown `topic` values render with a neutral chip, so the curator is free to
 invent slugs. A non-`http(s)` or empty `url` renders the title unlinked.
 
+**Plugging in a curator.** The head carries a **refresh button** once a
+`feed-curator` command is configured — the pane's own "plug in a curator" card
+writes it, or set the key in `Settings.md` (⌘, → Feed curator does the same):
+
+```yaml
+feed-curator: ~/scripts/curate-news.sh
+```
+
+The command is anything that re-curates the items sheet: a shell script
+calling your agent CLI, `claude -p "re-curate News Items per AGENTS.md"`, a
+curl into your own pipeline. The contract, from the app's side:
+
+- It runs headless through **your login shell** (`$SHELL -lc`) with the
+  **vault root as working directory** — PATH and profile resolve exactly like
+  a line typed into your terminal, and relative paths mean "in the vault".
+- It should rewrite the items sheet's csv rows (columns above) and ideally
+  bump the dashboard note's `curated:` stamp — the rows land through the
+  vault watcher like any external edit, so writing the files IS the API
+  (vault-format §13 has the writer rules).
+- **One run at a time**, no queue; a second click while live is refused. The
+  button spins while it works and acts as cancel; a **20-minute watchdog**
+  kills a wedged run, and quitting the app kills a live run too.
+- Exit `0` = done; the **last line printed to stdout** becomes the run
+  summary on the button's tooltip. A non-zero exit shows the stderr tail as
+  the pane's error banner.
+
+Because `Settings.md` is vault content — it syncs, imports, and an agent
+pointed at your vault can write it — the exact command string is gated behind
+the same **per-machine approval** as `terminal-command`: a command you didn't
+save through the pane's own card asks for your yes before its first run, and
+approvals are remembered on this machine only, never in the vault. That makes
+"set up a curator for my news feed" a safe one-line agent prompt: the agent
+writes the key and the sheet contract does the rest; you approve the command
+on first click.
 
 ### `music-work` — the work index, pivoted
 
