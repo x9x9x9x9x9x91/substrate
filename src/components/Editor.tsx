@@ -121,6 +121,7 @@ import {
   type TableDomHit,
   type TableMenuRequest,
 } from "../lib/editor-widgets";
+import { setEditorFocus } from "../lib/editorfocus";
 import { evalCalcDoc, fencedLines, isCalcLine } from "../lib/calc";
 import {
   evalLiveExpr,
@@ -579,7 +580,8 @@ const flashLine = StateField.define<DecorationSet>({
 
 // Focus mirrored into state so the table field (below) can read it — block
 // decorations may only come from a StateField, which never sees the view.
-const setEditorFocus = StateEffect.define<boolean>();
+// The effect is shared with the table widget, which claims focus for itself
+// when it grows a table rather than waiting out CodeMirror's focus timer.
 const editorHasFocus = StateField.define<boolean>({
   create: () => false,
   update(value, tr) {

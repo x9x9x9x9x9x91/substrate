@@ -20,6 +20,7 @@ import {
   type ViewSpecResult,
 } from "./embeds.ts";
 import { missingEmbedKind, missingEmbedLabel } from "./embedstate.ts";
+import { focusIntoState } from "./editorfocus.ts";
 import { isTauri } from "./tauri.ts";
 import {
   editQuoted,
@@ -337,8 +338,9 @@ export class TableWidget extends WidgetType {
       const lineIdx = cell ? Number(cell.dataset.line) || 0 : 0;
       const startLine = view.state.doc.lineAt(view.posAtDOM(wrap)).number;
       const line = view.state.doc.line(Math.min(startLine + lineIdx, view.state.doc.lines));
-      view.dispatch({ selection: { anchor: line.to } });
-      view.focus();
+      // same as the grow buttons below: the focus rides along with the
+      // selection, so the table is source by the time the first key arrives
+      view.dispatch({ selection: { anchor: line.to }, effects: focusIntoState(view) });
     });
     return wrap;
   }
@@ -369,11 +371,18 @@ export class TableWidget extends WidgetType {
       // the edit runs behind any blockquote markers and puts them back, so
       // growing a quoted table keeps every line inside the quote
       const next = editQuoted(this.source, edit);
+      // focus first, and carry it into the same transaction: the new cell
+      // only exists as text once the table is showing its source, and the
+      // editor only shows a table as source while it is focused. Dispatching
+      // first would leave the table rendered for the frames it takes
+      // CodeMirror to notice the focus, and a character typed in that window
+      // would land at the end of the note instead of in the new cell.
+      const focus = focusIntoState(view);
       view.dispatch({
         changes: { from, to, insert: next.source },
         selection: { anchor: from + next.cursor },
+        effects: focus,
       });
-      view.focus();
     });
     return btn;
   }

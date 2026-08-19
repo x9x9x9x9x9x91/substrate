@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { mod } from "./keys";
+import { docEnd, docStart, mod } from "./keys";
 
 // The table menu: right-clicking a rendered table offers everything the table
 // can do about the cell you hit — edit it in place, grow, delete this row or
@@ -18,7 +18,7 @@ async function typeTable(page: Page) {
   await page.locator(".row-title", { hasText: "Capture anything" }).click();
   await expect(page.locator(".cm-content")).toContainText("This is the Inbox.");
   await page.locator(".cm-content").click();
-  await page.keyboard.press("Meta+ArrowDown");
+  await page.keyboard.press(docEnd);
   await page.keyboard.press("Enter");
   await page.keyboard.type("| Track | Length |\n| --- | --- |\n| Slug It Out | 6:12 |\n| Nod | 5:01 |");
   for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowUp");
@@ -172,7 +172,7 @@ test("a quoted table shows the menu and refuses it, quote intact", async ({ page
   await page.locator(".row-title", { hasText: "Capture anything" }).click();
   await expect(page.locator(".cm-content")).toContainText("This is the Inbox.");
   await page.locator(".cm-content").click();
-  await page.keyboard.press("Meta+ArrowDown");
+  await page.keyboard.press(docEnd);
   await page.keyboard.press("Enter");
   // the quote continuation types the "> " on the following lines itself
   await page.keyboard.type("> | Track | Length |\n| --- | --- |\n| Nod | 5:01 |");
@@ -248,7 +248,7 @@ test("the keyboard opens the same menu with the cursor in the table's source", a
   await page.locator(".cm-md-table td").filter({ hasText: "5:01" }).first().click();
   await expect(page.locator(".cm-md-table")).toHaveCount(0);
 
-  await page.keyboard.press(`${mod}+Shift+m`);
+  await page.keyboard.press(`${mod}+Shift+M`);
   await expect(page.locator(".ctx-menu")).toBeVisible();
   // no grid on screen, so no in-place cell editing — the source is already open
   await expect(page.locator(".ctx-item").filter({ hasText: "Edit cell" })).toHaveCount(0);
@@ -261,7 +261,7 @@ test("the keyboard opens the same menu with the cursor in the table's source", a
 test("the shortcut stays out of the way outside a table", async ({ page }) => {
   await typeTable(page);
   await page.locator(".cm-content").click();
-  await page.keyboard.press("Meta+ArrowUp");
-  await page.keyboard.press("Meta+Shift+m");
+  await page.keyboard.press(docStart);
+  await page.keyboard.press(`${mod}+Shift+M`);
   await expect(page.locator(".ctx-menu")).toHaveCount(0);
 });

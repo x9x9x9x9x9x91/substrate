@@ -239,6 +239,19 @@ test("durationFrom resolves d and w from a base date, rejects the rest", () => {
   assert.equal(durationFrom("soon", "2026-07-17"), null);
 });
 
+test("durationFrom rejects a count that lands off the calendar", () => {
+  // 11 digits is enough to step past the Date range: shiftDate then built an
+  // Invalid Date and returned the literal string "0NaN-NaN-NaN", which query
+  // comparisons treated as a real ISO day and silently emptied the view
+  assert.equal(durationFrom("99999999999d", "2026-07-17"), null);
+  assert.equal(durationFrom("99999999999w", "2026-07-17"), null);
+  // beyond the safe-integer range, and the overflow-to-Infinity case
+  assert.equal(durationFrom("9007199254740993d", "2026-07-17"), null);
+  assert.equal(durationFrom(`${"9".repeat(309)}d`, "2026-07-17"), null);
+  // a large-but-representable span still resolves
+  assert.equal(durationFrom("36500d", "2026-07-17"), "2126-06-23");
+});
+
 test("parseDateTimeLoose: a trailing HH:MM splits off, the day parses loosely (SUB-270)", () => {
   assert.deepEqual(parseDateTimeLoose("2026-07-19 14:30"), { day: "2026-07-19", time: "14:30" });
   assert.deepEqual(parseDateTimeLoose("2026-07-19T14:30"), { day: "2026-07-19", time: "14:30" });

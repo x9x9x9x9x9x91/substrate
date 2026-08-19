@@ -354,6 +354,19 @@ test("parseRepeat: every N units, singular and plural", () => {
   assert.deepEqual(parseRepeat("Every 10 Years"), { unit: "year", n: 10 });
 });
 
+test("parseRepeat: a count too large to represent is non-repeating", () => {
+  // a 309-digit run is a well-formed count that overflows to Infinity; the old
+  // `n < 1` magnitude guard let it through and repeatStep's 0 * Infinity made
+  // the anchor "NaN-NaN-NaN", dropping the real dated note from the view
+  const overflow = `every ${"9".repeat(309)} days`;
+  assert.equal(Number(overflow.split(" ")[1]), Infinity, "the fixture really does overflow");
+  assert.equal(parseRepeat(overflow), null);
+  // past the safe-integer range but still finite: also not a usable step
+  assert.equal(parseRepeat("every 9007199254740993 weeks"), null);
+  // merely huge and exactly representable still parses
+  assert.deepEqual(parseRepeat("every 1000000 days"), { unit: "day", n: 1000000 });
+});
+
 test("parseRepeat: anything else is non-repeating", () => {
   const garbage: unknown[] = [
     "",

@@ -66,6 +66,18 @@ test("parseSnapshotsFromBody: unparseable rows are skipped", () => {
   assert.equal(snapshots[0].atRaw, "2026-07-17");
 });
 
+test("parseSnapshotsFromBody: rows whose numbers overflow are skipped", () => {
+  // parseFloat reads "1e999" as Infinity, and one Infinity in the series
+  // poisons every interval and APR computed off it — the row has to drop out
+  // the same way an unreadable date does
+  const { snapshots } = parseSnapshotsFromBody(
+    bodyWith(["2026-07-17,1e999,100", "2026-07-18,1,1e999", "2026-07-19,2,100"])
+  );
+  assert.equal(snapshots.length, 1);
+  assert.equal(snapshots[0].atRaw, "2026-07-19");
+  assert.ok(computeIntervals(snapshots).every((iv) => isFinite(iv.gainUsd)));
+});
+
 // ---------- the shared note-table reader, read positionally ----------
 // The snapshot log rides readNoteTable like every other table-backed pane,
 // but it is positional and its header row is optional. These pin the shapes

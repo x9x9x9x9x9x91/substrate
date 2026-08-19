@@ -9,6 +9,16 @@
 // the formatting never happens, the caret never reaches the end of the
 // document, and what follows lands wherever the click left it.
 
+// Shift-plus-letter chords take the SHIFTED letter: `${mod}+Shift+M`, never
+// `${mod}+Shift+m`. Playwright's layout entry for a bare "m" carries no shifted
+// variant, so the lowercase spelling dispatches key "m" with shiftKey set —
+// which a real keyboard never produces. CodeMirror looks a character key up
+// without the Shift prefix first, so "m" resolves to `Ctrl-m` (bound to
+// toggleTabFocusMode by @codemirror/commands) and the event is consumed before
+// `Shift-Ctrl-m` is ever tried. macOS hides this: w3c-keyname rewrites the name
+// to "M" whenever Cmd and Shift are held together, so the mac run matches the
+// binding and only Linux goes red.
+
 const mac = process.platform === "darwin";
 
 /** ⌘ on macOS, Ctrl elsewhere — for CodeMirror's `Mod-` bindings. */

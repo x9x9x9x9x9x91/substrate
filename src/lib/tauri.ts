@@ -1948,7 +1948,9 @@ function mockJobDurationMs(s: string): number | null {
   if (!m) return null;
   const unit = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000, "": 3_600_000 }[m[2]] ?? 3_600_000;
   const ms = Math.trunc(Number(m[1]) * unit);
-  return ms > 0 ? ms : null;
+  // the digit run is unbounded, so an overflowing count would pass ms > 0 as
+  // Infinity and stall every age the mock derives from it
+  return Number.isSafeInteger(ms) && ms > 0 ? ms : null;
 }
 /** jobs.rs `human_age` mirrored — "5m" / "1h" / "30h" / "3d". */
 function mockJobAge(ms: number): string {
