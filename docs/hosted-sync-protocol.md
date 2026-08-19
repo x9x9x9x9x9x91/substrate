@@ -170,14 +170,26 @@ section has no cursor route, and a client must detect that without a probe on
 every push. In the HTTP binding (§2.1) the cursor rides as a query parameter on
 the existing LIST path, so such a server answers it from its object route with
 `404` (or `400` if it read the query as a malformed name). The client treats
-**any** non-success answer to a cursor-carrying request as "no such
-capability", repeats the request without the cursor, and proceeds on the
-complete listing — a proxy in front of the store may refuse a query string with
-something else entirely, and the request without one is what every server
-understands, so its answer is the one worth reporting. When no cursor comes
-back the client caches nothing and discards any cache it had, because there is
-nothing to resume from and a file nobody confirms is a file that would be
-believed forever.
+a non-success answer to a cursor-carrying request as "no such capability",
+repeats the request without the cursor, and proceeds on the complete listing —
+a proxy in front of the store may refuse a query string with something else
+entirely, and the request without one is what every server understands, so its
+answer is the one worth reporting. When no cursor comes back the client caches
+nothing and discards any cache it had, because there is nothing to resume from
+and a file nobody confirms is a file that would be believed forever.
+
+Three statuses are excluded from that fallback: **`429`, `500` and `503`**.
+Each says the route was understood and the store could not serve it — over a
+limit, or a scan that broke — and in all three the fallback is the same scan
+again, larger, against a server already failing. The client stops with the
+status it was given and asks incrementally again on the next push. The cost of
+that choice is that a deployment which refuses `?since=` requests with one of
+these statuses *permanently* leaves a client with a cached cursor failing every
+push, with no automatic self-heal: the alternative — falling back — is the
+double-scan amplification this rule exists to stop. The escape hatch is manual
+and cheap: delete the client's listing-cache file in its git directory, after
+which it lists completely, exactly as every client did before this section
+existed.
 
 The file model uses string errors because it has no retry policy. Production
 adapters must preserve typed missing, authentication/authorization, quota, and
@@ -513,10 +525,10 @@ Five run over a socket. One answers a `since` query the way the deployed server
 does — `404` — and asserts the client falls back to the complete listing,
 caches no cursor, and makes exactly two requests; one answers `403`, `405` and
 `501` in turn, for the proxy case, and asserts the same fallback rather than a
-failed push; one answers `429` and `503`, where the route was understood and
-the store is over its limit, and asserts the fallback is NOT run — the sync
-fails and retries later rather than following a "too much load" with a larger
-request; one claims `incremental` with no cursor to resume from and is read as
+failed push; one answers `429`, `500` and `503` in turn, where the route was
+understood and the store could not serve it, and asserts the fallback is NOT
+run — the sync fails with that status and retries later rather than following a
+broken or overloaded scan with a larger one; one claims `incremental` with no cursor to resume from and is read as
 the complete listing it has to be; and one drives the whole negotiation through
 the shipped server.
 

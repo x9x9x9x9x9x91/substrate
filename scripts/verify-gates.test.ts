@@ -267,6 +267,36 @@ test("cargo shows the summary's clean name list, not the stdout-dump headers", (
   });
 });
 
+test("a cargo compile error is diagnosed as rustc, not as 'Compiling …' progress", () => {
+  withRepo((repo) => {
+    // cargo dying at compile time prints no `failures:` header and no panic, so
+    // the test-name collector used to hand back the indented "Compiling …"
+    // progress lines as the failure names and the real error stayed in the log.
+    // The leading warning is load-bearing here too: its `-->` must not win.
+    writeFileSync(
+      join(repo.fixtures, "cargo.log"),
+      `    Compiling proc-macro2 v1.0.86
+    Compiling substrate v0.1.0 (/repo/src-tauri)
+warning: unused variable: \`tail\`
+  --> src/history.rs:20:17
+
+error[E0597]: \`guard\` does not live long enough
+    --> src/commands/letterbox.rs:1153:9
+     |
+1153 |         guard.flush();
+     |         ^^^^^ borrowed value does not live long enough
+
+error: could not compile \`substrate\` (lib) due to 1 previous error
+`,
+    );
+    const r = run(repo, "cargo", "1");
+    assert.match(r.stdout, /error\[E0597\]: `guard` does not live long enough/, r.stdout);
+    assert.match(r.stdout, /--> src\/commands\/letterbox\.rs:1153:9/, r.stdout);
+    assert.ok(!r.stdout.includes("Compiling proc-macro2"), `progress line shown as a failure\n${r.stdout}`);
+    assert.ok(!r.stdout.includes("src/history.rs:20:17"), `warning location leaked\n${r.stdout}`);
+  });
+});
+
 test("a green gate prints no diagnosis at all", () => {
   withRepo((repo) => {
     for (const gate of Object.keys(FIXTURES)) {

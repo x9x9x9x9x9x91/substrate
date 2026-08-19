@@ -135,13 +135,27 @@ print_failure_detail() { # name, log
                    on && /^ +--> / { print; exit }' "$log")
       [[ -n "$first" ]] || first=$(grep -m1 -E "^ +(run: |install )" "$log") ;;
     cargo)
-      # cargo prints "failures:" twice — once heading the per-test stdout
-      # dumps, once heading the summary list. Resetting at each header leaves
-      # the last block, which is the clean set of names.
-      names=$(awk '/^failures:$/ { buf = ""; next }
-                   /^[[:space:]]+[A-Za-z_]/ { buf = buf $0 "\n" }
-                   END { printf "%s", buf }' "$log")
-      first=$(grep -m1 "panicked at" "$log") ;;
+      # Two red shapes: tests that ran and failed, or a compile error that killed
+      # the run before any test existed. A compile log has no `failures:` header,
+      # and the name collector would then hand back cargo's indented "Compiling …"
+      # progress lines as the failure names while `panicked at` matches nothing —
+      # the real rustc error stayed invisible and cost an ssh to the raw log.
+      if grep -q "^failures:$" "$log"; then
+        # cargo prints "failures:" twice — once heading the per-test stdout
+        # dumps, once heading the summary list. Resetting at each header leaves
+        # the last block, which is the clean set of names.
+        names=$(awk '/^failures:$/ { buf = ""; next }
+                     /^[[:space:]]+[A-Za-z_]/ { buf = buf $0 "\n" }
+                     END { printf "%s", buf }' "$log")
+        first=$(grep -m1 "panicked at" "$log")
+      else
+        # Same extraction as the ios leg: rustc's error lines, plus the first
+        # location AFTER an error — warnings carry `-->` arrows too and print
+        # first, so a plain first-match points at an unrelated file.
+        names=$(grep -E "^error(\[E[0-9]+\])?:" "$log")
+        first=$(awk '/^error(\[E[0-9]+\])?:/ { on = 1 }
+                     on && /^ +--> / { print; exit }' "$log")
+      fi ;;
     e2e)
       # playwright's numbered failure list: "  1) [chromium] › e2e/x.spec.ts:12:3 › Suite › name ───"
       names=$(grep -E "^[[:space:]]+[0-9]+\) " "$log" | sed 's/[[:space:]]*─*[[:space:]]*$//')

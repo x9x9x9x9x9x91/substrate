@@ -508,11 +508,14 @@ impl BlobTransport for HttpBlobStore {
     /// from its object route, which finds no name after the prefix and says
     /// `404`. So one request tells us both "no such capability" and "here is
     /// nothing", without a probe round trip on every push, and the second
-    /// request is the listing that server has always served. Any other refusal
-    /// of a cursor-carrying request is retried the same way: whatever a proxy
-    /// in front of the store makes of a query string, the request without one
-    /// is the one every server understands, and its answer is the honest one to
-    /// report.
+    /// request is the listing that server has always served. Most other
+    /// refusals of a cursor-carrying request are retried the same way:
+    /// whatever a proxy in front of the store makes of a query string, the
+    /// request without one is the one every server understands, and its answer
+    /// is the honest one to report. The exceptions are `{429, 500, 503}` —
+    /// see `request_listing`: those say the route was understood and the store
+    /// could not serve it, so the fallback would only scan again, larger, and
+    /// fail again.
     fn list_objects_since(
         &self,
         since: Option<&str>,
@@ -646,13 +649,17 @@ impl HttpBlobStore {
             // in which case there was nothing wrong, or fails again and
             // reports the real error against the request everyone supports.
             //
-            // Except when the refusal is "not now": 429 and 503 say the route
-            // was understood and the server is over its limit, and the retry
-            // they would earn is the larger request of the two. Falling back
-            // there adds load to a store already saying it has too much, and
-            // then usually fails anyway. This push stops instead, and the next
-            // one asks incrementally again.
-            if since.is_some() && !matches!(status, 429 | 503) {
+            // Except when the refusal says the route was understood and the
+            // store could not serve it. 429 and 503 are "not now" — over a
+            // limit — and 500 is "this scan broke", which for a store whose
+            // objects directory is unreadable is exactly what the *complete*
+            // listing is about to hit as well, only after a second and larger
+            // scan. In all three the retry this client would run is the bigger
+            // of its two requests, aimed at a server already failing or saying
+            // it has too much: it adds load, and then usually fails anyway.
+            // This push stops with the honest status instead, and the next one
+            // asks incrementally again.
+            if since.is_some() && !matches!(status, 429 | 500 | 503) {
                 return Err(ListingRefusal::Unsupported);
             }
             return Err(ListingRefusal::Failed(status_error("listing", status)));
@@ -2762,6 +2769,9 @@ mod tests {
         /// Stand-in for a store that issues cursors but never honours one —
         /// every answer complete, at whatever position it has reached.
         always_full: std::cell::Cell<bool>,
+        /// How many times the name list has lost an entry, so each loss can
+        /// roll to an epoch none of the earlier ones ever used.
+        losses: std::cell::Cell<usize>,
     }
 
     impl CursorStore {
@@ -2774,6 +2784,7 @@ mod tests {
                 full_calls: std::cell::Cell::new(0),
                 no_cursor: std::cell::Cell::new(false),
                 always_full: std::cell::Cell::new(false),
+                losses: std::cell::Cell::new(0),
             }
         }
 
@@ -2788,7 +2799,11 @@ mod tests {
         fn lose_object(&self, name: &str) {
             fs::remove_file(self.inner.object_path(name).unwrap()).unwrap();
             self.journal.borrow_mut().retain(|held| held != name);
-            *self.epoch.borrow_mut() = "epoch-two".into();
+            // Counted, not a fixed string: a second loss has to retire the
+            // cursors the first one issued as well, and an epoch that only
+            // ever rolls once would hand those back as still valid.
+            self.losses.set(self.losses.get() + 1);
+            *self.epoch.borrow_mut() = format!("epoch-loss-{}", self.losses.get());
         }
 
         /// Names the store reports without them being reachable from anything
@@ -2974,6 +2989,34 @@ mod tests {
             "the lost object was skipped on the strength of a cached name"
         );
         assert_eq!(store.full_calls.get(), 2, "the retired cursor did not force a full listing");
+    }
+
+    /// The mock's own invariant, because every test above rests on it: a store
+    /// loses objects more than once over its life, and each loss has to retire
+    /// the cursors the previous one issued. An epoch that rolled to one fixed
+    /// value would honour a cursor minted after the first loss straight
+    /// through the second, and the tests that think they are watching a
+    /// retired cursor would be watching a live one.
+    #[test]
+    fn every_loss_rolls_the_mock_store_to_an_epoch_of_its_own() {
+        let scratch = TempDir::new().unwrap();
+        let store = CursorStore::new(scratch.path().join("blob-store"));
+
+        let mut seen = vec![store.cursor()];
+        for index in 0..3usize {
+            let name = format!("{:064x}", 0xabc0 + index);
+            store.put_object(&name, b"payload").unwrap();
+            let before = store.cursor();
+            store.lose_object(&name);
+            let after = store.cursor();
+            assert_ne!(before, after, "loss {index} did not roll the epoch");
+            assert!(!seen.contains(&after), "loss {index} reused an epoch: {after}");
+            // And the client half agrees: the pre-loss cursor buys nothing.
+            let listing = store.list_objects_since(Some(&before), MAX_LIST_OBJECTS).unwrap();
+            assert!(!listing.incremental, "loss {index} honoured a cursor it had retired");
+            seen.push(after);
+        }
+        assert_eq!(store.incremental_calls.get(), 0, "no retired cursor may be served as a delta");
     }
 
     #[test]
@@ -3673,14 +3716,18 @@ mod tests {
         }
     }
 
-    /// The two refusals that are not "no such route" but "not now". The
-    /// server understood the query and is over its limit, and the fallback
-    /// this client would otherwise run is the larger of its two requests — so
-    /// the one answer that helps a store already saying it has too much is to
-    /// stop, and ask incrementally again on the next push.
+    /// The refusals that are not "no such route" but "the route worked and I
+    /// could not serve it": 429 and 503 say the server is over a limit, 500
+    /// says the scan itself broke — a store whose objects directory is
+    /// unreadable answers the cursor ask that way, and the complete listing
+    /// this client would otherwise fall back to is the same scan again, only
+    /// larger, ending in the same 500. So all three stop here, and the next
+    /// push asks incrementally again.
     #[test]
-    fn a_store_saying_it_is_overloaded_is_not_asked_for_the_bigger_listing() {
-        for status in ["429 Too Many Requests", "503 Service Unavailable"] {
+    fn a_store_that_could_not_serve_the_cursor_is_not_asked_for_the_bigger_listing() {
+        for status in
+            ["429 Too Many Requests", "500 Internal Server Error", "503 Service Unavailable"]
+        {
             use std::net::TcpListener;
             use std::sync::atomic::{AtomicUsize, Ordering};
             use std::sync::Arc;
@@ -3713,11 +3760,13 @@ mod tests {
             let error = transport
                 .list_objects_since(Some("epoch-one.4"), MAX_LIST_OBJECTS)
                 .unwrap_err();
-            assert!(error.contains("try again shortly"), "{status}: {error}");
+            let expected = status_error("listing", status[..3].parse().unwrap());
+            assert_eq!(error, expected, "{status}: the refusal was not reported as itself");
             assert_eq!(
                 requests.load(Ordering::SeqCst),
                 1,
-                "{status}: the overloaded store was asked for the complete listing too"
+                "{status}: the store that could not serve the cursor was asked for the \
+                 complete listing too"
             );
             // The stub is still waiting on a second connection that must not
             // exist; one throwaway dial lets its loop end so the join returns.
