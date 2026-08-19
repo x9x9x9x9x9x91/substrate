@@ -492,9 +492,9 @@ const FIELDS: Field[] = [
     kind: "choice",
     choices: DATE_LOCALES.map((l) => ({ value: l, label: `${dateLocaleSample(l)}  ·  ${l}` })),
   },
-  /* The three requests that leave this machine, each with its own
-     switch. Grouped under one heading so the answer to "what does this app
-     talk to?" is a single place in the UI, not three settings apart. */
+  /* The requests that leave this machine, each with its own switch. Grouped
+     under one heading so the answer to "what does this app talk to?" is a
+     single place in the UI, not four settings apart. */
   {
     key: "net-link-titles",
     label: "Fetch link titles",
@@ -514,6 +514,13 @@ const FIELDS: Field[] = [
     key: "net-share-relay",
     label: "Send as link",
     hint: "uploads the encrypted note to your share relay; off hides the Send-as-link action",
+    kind: "bool",
+    defaultOn: true,
+  },
+  {
+    key: "net-letterbox",
+    label: "Letterbox",
+    hint: "polls your drop-box relay for sealed drops and lets you make new links; off parks both — boxes already handed out stay live on the relay until you revoke them",
     kind: "bool",
     defaultOn: true,
   },

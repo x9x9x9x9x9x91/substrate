@@ -437,6 +437,7 @@ function mockEnforceSealScope(note: MockNote): void {
 }
 let mockMcpGrants: { client: string; prefix: string; access: "read" | "write" }[] = [];
 
+
 /** The mock lane's in-flight recording — a stem and a start time, no audio. */
 let mockVoice: { stem: string; startedMs: number } | null = null;
 /** The mock lane starts with no speech model, so the settings row opens in the

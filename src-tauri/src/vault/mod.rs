@@ -1443,6 +1443,27 @@ pub fn contract_tilde(path: &Path) -> String {
     path.display().to_string()
 }
 
+/// One `net-*` outbound switch, read straight from Settings.md.
+///
+/// The TS twin (`settings.ts` `netAllowed`) gates the switches whose feature
+/// starts with a frontend call. This one exists for the switches a background
+/// thread has to consult on its own — nothing in TS asks the letterbox poller
+/// to run, so nothing in TS can gate it. Same rule either side: only an
+/// explicit `false` turns a feature off, so an unset key or a typo'd value
+/// leaves the app behaving as documented rather than quietly losing a feature.
+/// Read per call, never cached, so a Settings.md edit lands within the
+/// watcher's hot-reload window.
+pub(crate) fn net_switch_allowed(root: &Path, feature: &str) -> bool {
+    let raw = read_lossy(&root.join(Settings::REL_PATH)).unwrap_or_default();
+    let props = parse_props(split_frontmatter(&raw).0);
+    let key = format!("net-{feature}");
+    match folded_prop_key(&props, &key).and_then(|actual| props.get(actual)) {
+        Some(serde_json::Value::Bool(false)) => false,
+        Some(serde_json::Value::String(v)) => !v.trim().eq_ignore_ascii_case("false"),
+        _ => true,
+    }
+}
+
 /// App settings live in a small vault note so they stay plain markdown,
 /// editable in-app, and hot-reloadable via the watcher.
 pub struct Settings {
@@ -2647,6 +2668,46 @@ impl Engine {
         self.create_full(title, folder, note_type, None, None)
     }
 
+    /// The path a [`Self::create_full`] of this title in this folder would
+    /// take, de-duplication and every refusal included — for the one kind of
+    /// caller that has to act on a path BEFORE the file exists. The letterbox
+    /// lander is that caller: it marks the path for the reflex engine's
+    /// own-write rail, and the mark has to be in place before the watcher can
+    /// see the write, not after.
+    ///
+    /// `create_full` derives its own path through this same function, so the
+    /// two cannot drift; only a writer outside the app, taking the name in
+    /// the moment between the two calls, can make the prediction wrong.
+    pub fn planned_note_rel(
+        &self,
+        title: &str,
+        folder: &str,
+    ) -> Result<(String, PathBuf), String> {
+        let name = sanitize_filename(title);
+        validate_note_title(title, &name)?;
+        // same guard as move_note: hidden or escaping folders are refused, so
+        // a create can never write outside the vault or into an invisible,
+        // unindexed corner like `.trash/`
+        let folder = match folder.trim() {
+            "" => String::new(),
+            f => sanitize_folder_rel(f)?,
+        };
+        let mut rel = first_note_rel(&folder, title);
+        let mut file = self.abs(&rel)?;
+        let mut n = 2;
+        while file.exists() {
+            rel = if folder.is_empty() {
+                format!("{} {}.md", name, n)
+            } else {
+                format!("{}/{} {}.md", folder, name, n)
+            };
+            file = self.abs(&rel)?;
+            n += 1;
+        }
+        self.ensure_inside_root(&file)?;
+        Ok((rel, file))
+    }
+
     /// Create with a full starting state: `props` are extra
     /// frontmatter entries — schema-default empty chips and template defaults,
     /// already instantiated by the caller — and `body` the starting body.
@@ -2674,28 +2735,7 @@ impl Engine {
                 return Err(format!("duplicate property “{key}”"));
             }
         }
-        let name = sanitize_filename(title);
-        validate_note_title(title, &name)?;
-        // same guard as move_note: hidden or escaping folders are refused, so
-        // a create can never write outside the vault or into an invisible,
-        // unindexed corner like `.trash/`
-        let folder = match folder.trim() {
-            "" => String::new(),
-            f => sanitize_folder_rel(f)?,
-        };
-        let mut rel = first_note_rel(&folder, title);
-        let mut file = self.abs(&rel)?;
-        let mut n = 2;
-        while file.exists() {
-            rel = if folder.is_empty() {
-                format!("{} {}.md", name, n)
-            } else {
-                format!("{}/{} {}.md", folder, name, n)
-            };
-            file = self.abs(&rel)?;
-            n += 1;
-        }
-        self.ensure_inside_root(&file)?;
+        let (rel, file) = self.planned_note_rel(title, folder)?;
         if let Some(dir) = file.parent() {
             fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }

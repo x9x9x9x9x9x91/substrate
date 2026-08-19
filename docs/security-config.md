@@ -96,9 +96,11 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
   the webview first, and the key exists nowhere but the share link's
   `#fragment` (`src/lib/handoff.ts`, `scripts/handoff-relay/`).
 
-  Three of those four have an off switch in `Settings.md`, all default on and
-  grouped under "Outbound requests" in the ⌘, sheet:
-  `net-link-titles`, `net-fx-rates`, `net-share-relay`. **Enforcement is at the
+  Three of those four have an off switch in `Settings.md`, all default on:
+  `net-link-titles`, `net-fx-rates`, `net-share-relay` — joined by
+  `net-letterbox` for the drop-box lane (below). All four are rows under
+  "Outbound requests" in the ⌘, sheet, so the answer to "what does this app
+  talk to?" is one place in the UI. **Enforcement is at the
   app's request-initiating call sites**, not in `net.rs` — the engine makes a
   request only because something in the frontend asked it to, so a closed
   switch means the ask never happens. `netAllowed()` in `src/lib/settings.ts`
@@ -115,6 +117,42 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
   one off removes a capability, it does not add a security boundary: a user
   who wants the guarantee that nothing leaves has the CSP and the firewall,
   not a frontmatter key in a file that syncs.
+- **Letterbox (drop boxes)** — a link anyone can seal a note or file into.
+  Three properties carry the safety, and they are worth stating plainly:
+  1. **Every relay call is `guard_url`-ed and switch-gated.** Register, poll,
+     claim, ack and revoke each build their URL through one guarded helper, so
+     a synced registry cannot point the poller at the local network, and
+     `net-letterbox: false` parks the lane. The gate is read in the engine,
+     not only at a call site: the poller is a background thread nobody asked,
+     so `vault::net_switch_allowed` re-reads the key before each request —
+     which is also what makes the switch land within the hot-reload window.
+     **Revoke is the one deliberate exemption:** it is un-gated, because the
+     switch parks the lane without closing the boxes, and a kill switch that
+     also disables the kill would leave every standing invitation already
+     handed out impossible to withdraw. Revoking only ever ends a capability
+     and deletes ciphertext, so it stays reachable with `net-letterbox: false`.
+  2. **The key is plaintext, on purpose, and protects less than a sealed
+     note.** The letterbox identity lives unencrypted in
+     `.vault/letterbox.json` because a poller that prompts is a poller that
+     does not run. It protects the drop in transit and at rest on the relay;
+     once pulled, the drop is a plaintext note like any other. The relay
+     operator sees who dropped, when and how large — never the contents, and
+     never the key, which rides in the link's `#fragment`.
+  3. **A drop is hostile input and lands inert.** The sender's text becomes
+     note *body* only; every property (`via`, `box`, `from-claimed`,
+     `received`, `sha256`) is written by the app, so frontmatter markers in a
+     drop stay text. Every attachment — including `.md` — goes to `.assets/`
+     under a sanitized, deduped name, never the note index, and no
+     sender-controlled path segment touches disk. The landed note carries no
+     `type:`, and the reflex engine is told the app wrote it, so a
+     `note.created` rule on `Inbox/*.md` does not fire for a drop. A drop that
+     will not decrypt or parse is acknowledged and dropped rather than
+     partially landed, and the failure is a fixed user string with the detail
+     in the app log only.
+
+  Not covered: `.assets/` does not sync, so an attachment that lands on one
+  device stays there — the note travels, the file does not. Flagged, not
+  fixed.
 - **`object-src 'none'` / `frame-src 'none'` / `frame-ancestors 'none'` /
   `form-action 'none'`** — the app has no `<iframe>`, `<object>`, or `<form>`
   submission anywhere. Denying them costs nothing and closes three classes of
