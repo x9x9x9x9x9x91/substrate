@@ -1007,27 +1007,72 @@ mod tests {
     /// Checked against the source text because there is no seam to drive here:
     /// these are `#[tauri::command]` functions taking an `AppHandle` and this
     /// crate carries no mock-app harness to build one with, so a runtime test
-    /// would have to be an end-to-end app test to say anything at all. The
-    /// push arm is asserted alongside, so the guard cannot start passing
-    /// because the helper was renamed out from under it.
+    /// would have to be an end-to-end app test to say anything at all.
+    ///
+    /// Three assertions, because a fixed list of command names checked for a
+    /// literal callee name leaves two ways past it. A *new* `vault_sync_*`
+    /// command is covered by discovering the commands from the source rather
+    /// than naming them; a *helper* called by pull that calls the recorder in
+    /// turn is covered by pinning the recorder to a single non-test call site;
+    /// and a leg that skips the recorder and writes the slot itself is covered
+    /// by pinning the assignment to a single place. The push arm is asserted
+    /// alongside, so the guard cannot start passing because the helper was
+    /// renamed out from under it.
     #[test]
     fn only_the_push_command_writes_the_store_warning() {
-        let code = strip_line_comments(include_str!("vaultsync.rs"));
+        let whole = strip_line_comments(include_str!("vaultsync.rs"));
+        // Everything below `#[cfg(test)]` is this module: it calls the
+        // recorder freely and must not count as production wiring.
+        let cut = whole.find("#[cfg(test)]").expect("the test module moved");
+        let code = &whole[..cut];
+
+        // 1. Every command the file actually has, not a list that goes stale.
+        let mut commands = Vec::new();
         let mut wrote = Vec::new();
-        for command in ["vault_sync_push", "vault_sync_pull", "vault_sync_set_remote"] {
-            let head = code
-                .find(&format!("pub(crate) async fn {command}("))
-                .unwrap_or_else(|| panic!("{command} moved — re-derive this guard, don't delete it"));
-            let (body_start, body_end) = braced_block(&code, head);
+        let marker = "pub(crate) async fn vault_sync_";
+        let mut at = 0usize;
+        while let Some(found) = code[at..].find(marker) {
+            let head = at + found;
+            let name_start = head + "pub(crate) async fn ".len();
+            let name_end = name_start
+                + code[name_start..].find('(').expect("a fn head with no argument list");
+            let name = code[name_start..name_end].trim().to_string();
+            let (body_start, body_end) = braced_block(code, name_end);
             if code[body_start..body_end].contains("record_store_notice") {
-                wrote.push(command);
+                wrote.push(name.clone());
             }
+            commands.push(name);
+            at = body_end;
         }
+        assert!(
+            commands.len() >= 3,
+            "only {} vault_sync_* commands found — the scan stopped seeing them: {commands:?}",
+            commands.len()
+        );
         assert_eq!(
             wrote,
-            vec!["vault_sync_push"],
+            vec!["vault_sync_push".to_string()],
             "the store warning is push's slot: a pull runs every few minutes and knows \
-             nothing about how large the store is"
+             nothing about how large the store is (commands scanned: {commands:?})"
+        );
+
+        // 2. One non-test call site, so no helper can carry the call into a
+        //    leg the scan above reads as clean.
+        let calls = code.matches("record_store_notice(").count()
+            - code.matches("fn record_store_notice(").count();
+        assert_eq!(
+            calls,
+            1,
+            "the store-warning recorder gained a call site: it is push's alone, and \
+             indirection through a helper is how a pull gets it back"
+        );
+
+        // 3. One writer of the slot itself, so nothing routes around the
+        //    recorder and assigns it directly.
+        assert_eq!(
+            code.matches("notice = ").count(),
+            1,
+            "the store-warning slot is written somewhere other than its recorder"
         );
     }
 

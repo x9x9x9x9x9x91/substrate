@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useSta
 import type { AggKind, DbIcon, DbLayout, NoteMeta, NumberFormat, PropKind, PropSchema, PropValue, RollupConfig, SavedView, SavedViewSort, SchemaConfig, SelectOption, ViewPref } from "../lib/types";
 import { foldedPropKey, foldedPropStr, typeHome } from "../lib/types";
 import { isTyping, isTypingNow } from "../lib/dom";
+import { classifyActive, focusAfterEditorClose, revealAfterEditorClose } from "../lib/editorClose";
 import {
   isDeadKey,
   isPrintableKey,
@@ -575,6 +576,15 @@ export default function DatabasePane({
   // focused, or was toggled open — an empty untouched bar reclaims its space
   const [filterOpen, setFilterOpen] = useState(false);
   const [focus, setFocus] = useState<Focus | null>(null);
+  /** The path of a reveal that has been asked for and not yet shown. Only
+      ever non-null across the frames between the ask and the scroll — an
+      open cell editor is what stretches that gap, and the editor's close is
+      where it gets settled (see the close transition). */
+  const revealOwed = useRef<string | null>(null);
+  /** The focused coordinate, readable from a timer that outlives the render
+      that scheduled it (the deferred focus restore). */
+  const focusRef = useRef<Focus | null>(null);
+  focusRef.current = focus;
   // Table row multi-select — the selected rows' paths plus the
   // anchor (last clicked row), stored as a path and resolved to a rows index
   // at click time so a re-sort can't strand a numeric index
@@ -1108,12 +1118,40 @@ export default function DatabasePane({
   // semantics — and winSync repaints the window around it (the Enter-to-edit
   // path then finds the cell). Rendered cells keep the exact pre-windowing
   // behavior.
+  /** Put the focused coordinate on screen and nothing else. Split out of the
+      focus effect because the editor's close needs exactly this half: a reveal
+      owed to a user who has since clicked into another control still has to
+      SHOW the row, and must not take their focus to do it. Returns whether it
+      could — a windowed row that isn't painted yet is a later frame's job. */
+  const scrollFocusIntoView = useCallback(
+    (at: { c: number; r: number; path: string }): boolean => {
+      const el = bodyRef.current?.querySelector<HTMLElement>(
+        `[data-fc="${at.c}"][data-fr="${at.r}"]`
+      );
+      if (el) {
+        if (el.dataset.focusPath !== at.path) return false;
+        el.scrollIntoView({ block: "nearest", inline: "nearest" });
+        return true;
+      }
+      if (!windowed) return false;
+      const body = bodyRef.current;
+      if (!body || at.r < 0 || at.r >= rowTops.length) return false;
+      const top = winMetrics.tbodyTop + rowTops[at.r];
+      const bottom = top + winMetrics.rowH;
+      const lo = body.scrollTop + winMetrics.headH;
+      const hi = body.scrollTop + body.clientHeight;
+      if (top < lo) body.scrollTop = top - winMetrics.headH;
+      else if (bottom > hi) body.scrollTop = bottom - body.clientHeight;
+      winSyncRef.current();
+      return true;
+    },
+    [windowed, rowTops, winMetrics]
+  );
+
   useEffect(() => {
     if (!focus) return;
     const active = document.activeElement;
-    const compositeOwnsFocus =
-      active === document.body ||
-      (active instanceof HTMLElement && active.matches("[data-fc][data-fr]"));
+    const compositeOwnsFocus = classifyActive(active) !== "other-control";
     // A stale coordinate may remain while Tab has moved to a header/link.
     // Window re-paints must never steal focus back from that native control.
     if (!compositeOwnsFocus || editCell) return;
@@ -1138,20 +1176,54 @@ export default function DatabasePane({
       // An open cell editor owns focus until it closes.
       if (active !== el) el.focus({ preventScroll: true });
       el.scrollIntoView({ block: "nearest", inline: "nearest" });
+      if (revealOwed.current === focus.path) revealOwed.current = null;
       return;
     }
-    if (!windowed) return;
-    const body = bodyRef.current;
-    if (!body || focus.r < 0 || focus.r >= rowTops.length) return;
-    const top = winMetrics.tbodyTop + rowTops[focus.r];
-    const bottom = top + winMetrics.rowH;
-    const lo = body.scrollTop + winMetrics.headH;
-    const hi = body.scrollTop + body.clientHeight;
-    if (top < lo) body.scrollTop = top - winMetrics.headH;
-    else if (bottom > hi) body.scrollTop = bottom - body.clientHeight;
-    winSyncRef.current();
+    if (scrollFocusIntoView(focus) && revealOwed.current === focus.path)
+      revealOwed.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus, win, editCell]);
+
+  /* THE EDITOR'S CLOSE IS A HAND-OFF. While a cell editor is open it holds
+     real DOM focus and the effect above refuses to touch anything; the moment
+     it goes, two things are owed and neither has an owner anywhere else:
+
+       1. focus, which the editor took with it. Escape, a keyboard commit and
+          a stale anchor all leave it on `<body>` — the anchoring cell should
+          have it back, or the grid is left with an accent ring and no keyboard.
+       2. a reveal that came in mid-edit. Delivered here or not at all: left
+          armed it rode the next scroll or resize and moved the viewport at a
+          moment the user did not ask for.
+
+     Both answers depend on where the click that closed the editor put focus,
+     and a click-away closes on `mousedown` — one task BEFORE the browser
+     assigns focus to what was pressed. So the decision is taken a task later,
+     off the live `document.activeElement`, and never against a user who has
+     deliberately landed in another control: they keep focus, and the reveal is
+     delivered by scrolling alone. */
+  const editing = !!editCell;
+  const wasEditing = useRef(false);
+  useEffect(() => {
+    const closed = wasEditing.current && !editing;
+    wasEditing.current = editing;
+    if (!closed) return;
+    const t = setTimeout(() => {
+      const active = classifyActive(document.activeElement);
+      const at = focusRef.current;
+      const owed = revealOwed.current;
+      const reveal = revealAfterEditorClose({ owed: owed !== null, active });
+      // settled either way — an owed reveal never survives the close
+      revealOwed.current = null;
+      if (at && reveal !== "none" && owed === at.path) scrollFocusIntoView(at);
+      if (!at || focusAfterEditorClose(active) === "leave") return;
+      const el = bodyRef.current?.querySelector<HTMLElement>(
+        `[data-fc="${at.c}"][data-fr="${at.r}"]`
+      );
+      // never hand focus to a row that moved under the coordinate
+      if (el && el.dataset.focusPath === at.path) el.focus({ preventScroll: true });
+    }, 0);
+    return () => clearTimeout(t);
+  }, [editing, scrollFocusIntoView]);
 
   // Layout/db switches remount or re-fill the scroller — re-sync
   // the fade/cue gates from the live DOM node, not stale state. ResizeObserver
@@ -1187,7 +1259,16 @@ export default function DatabasePane({
   // row they arrived on, indefinitely.
   const revealN = reveal?.n ?? 0;
   useEffect(() => {
-    if (reveal) setPendingFocus(reveal.path);
+    if (reveal) {
+      setPendingFocus(reveal.path);
+      // An open cell editor owns focus, and the focus effect below refuses to
+      // deliver anything while it does. Remembering that the reveal is still
+      // OWED is what lets the editor's close settle it — see the close
+      // transition further down. Left unremembered it sat armed inside
+      // `focus`, and the next scroll or resize handed it over long after the
+      // ask, yanking the viewport at a moment nobody chose.
+      revealOwed.current = reveal.path;
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [revealN]);
 

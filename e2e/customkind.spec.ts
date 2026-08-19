@@ -524,6 +524,15 @@ test("Settings shows no Kinds section in a vault with no kinds", async ({ page }
   // A vault with no .vault/kinds folder has never met this feature; a section
   // explaining what it would say is noise in everyone else's settings.
   await page.goto("/");
+  // ⌘, is routed by a listener App attaches from an effect, so a press sent
+  // between the load event and that mount lands on nothing — and a chord
+  // dropped on the floor is not something `toHaveCount` can retry its way out
+  // of, which is why this failed under a loaded box's slow boot and nowhere
+  // else. Wait for the first painted view, the way every other spec that
+  // opens Settings straight off a `goto` already does.
+  await expect(page.locator(".list-title")).toHaveText("Notes");
+  // and the hook is only a no-op guard away from silently clearing nothing
+  await page.waitForFunction(() => typeof window.__mockClearKinds === "function");
   await page.evaluate(() => window.__mockClearKinds?.());
   await page.keyboard.press("Meta+,");
   await expect(page.locator(".settings-sheet")).toHaveCount(1);

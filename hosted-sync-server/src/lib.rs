@@ -380,8 +380,11 @@ impl Journal {
 /// A name for one run of the name list: 128 random bits as hex, drawn on every
 /// open and on every loss, never stored.
 ///
-/// The operating system's pool is the source. If it cannot be read — which on
-/// the hosts this server is meant for does not happen — the fallback mixes the
+/// The operating system's pool is the source, read through `/dev/urandom` —
+/// a Unix path, and the only one drawn here. On a non-Unix host that file does
+/// not open at all, so such a host always takes the fallback below rather than
+/// the pool. If it cannot be read — which on the Unix hosts this server is
+/// meant for does not happen — the fallback mixes the
 /// clock, the process id, and an address this run's allocator chose, which is
 /// weaker as a random number but still overwhelmingly unequal between two
 /// opens, and unequal is the whole requirement: the epoch is compared for
