@@ -429,7 +429,7 @@ impl Engine {
         // tell a user a file is already ignored when deleting it would lose
         // real state. An unparseable file is an error, not a warning: it is
         // definitively not doing its job.
-        for f in crate::vaultfmt::VaultFile::ALL {
+        for &f in crate::vaultfmt::VaultFile::ALL {
             let abs = self.root.join(f.rel_path());
             let Ok(bytes) = fs::read(&abs) else {
                 continue; // missing — the normal state of a fresh vault
@@ -1104,7 +1104,7 @@ mod tests {
         // every registry file gets garbage; mounts gets bytes that aren't
         // even UTF-8 — a truncated restore's shape, and the case that used
         // to slip past `read_to_string`
-        for f in crate::vaultfmt::VaultFile::ALL {
+        for &f in crate::vaultfmt::VaultFile::ALL {
             if f == crate::vaultfmt::VaultFile::Mounts {
                 fs::write(dir.join(f.rel_path()), [0xFF, 0xFE, 0x00, 0x7B]).unwrap();
             } else {
@@ -1120,7 +1120,7 @@ mod tests {
             crate::vaultfmt::VaultFile::ALL.len(),
             "one finding per unreadable file: {corrupt:?}"
         );
-        for f in crate::vaultfmt::VaultFile::ALL {
+        for &f in crate::vaultfmt::VaultFile::ALL {
             let rel = f.rel_path();
             let found = corrupt
                 .iter()

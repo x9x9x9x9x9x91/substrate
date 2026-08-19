@@ -2546,7 +2546,7 @@ orphans normally; delete the asset and you keep a transcript. Removing
 app to transcribe it again.
 
 
-## 5b. `.vault/format.json` — config format versions (covers §6–§8b)
+## 5b. `.vault/format.json` — config format versions (covers §6–§8e)
 
 One sidecar records which format version each hidden config file is in
 (`src-tauri/src/vaultfmt.rs`). It exists because two app versions can share a
@@ -2555,12 +2555,13 @@ an older app rewriting a newer file used to silently drop what it didn't
 understand.
 
 ```json
-{ "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1, "kinds": 1, "tagfolders": 1, "mounts": 1, "reflexes": 1 }
+{ "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1, "kinds": 1, "tagfolders": 1, "mounts": 1, "reflexes": 1, "statementmappings": 1, "statementrules": 1 }
 ```
 
 - Keys are `schema`, `views`, `folders`, `notifications`, `calendars`,
-  `kinds`, `tagfolders`, `mounts`, `reflexes` (§5c, §6, §7, the notification
-  sub-section, §8, §5.8, §8b, §8c). Current version for all nine: **1**.
+  `kinds`, `tagfolders`, `mounts`, `reflexes`, `statementmappings`,
+  `statementrules` (§5c, §6, §7, the notification sub-section, §8, §5.8, §8b,
+  §8c, §8d, §8e). Current version for all eleven: **1**.
 - `kinds` versions the **bundle format** of §5.8, not any one file: it says
   which shape of `kind.json` and which bundle layout the vault's
   `.vault/kinds/` folders are written in. **RESERVED** — the key is defined
@@ -3883,6 +3884,209 @@ no rules, which is the normal case.
   actions taken (or, on a dry run, the ones that would have been), and an
   outcome: `ok`, `noop`, `error: …`, `cascade-stopped: …` or
   `cooldown-suppressed`. External writers should treat it as read-only.
+
+## 8d. Statements — bank exports as transactions
+
+A bank or broker CSV becomes ordinary notes in one database, `type:
+transaction`, so money sits in the same queryable substrate as everything
+else: filterable, joinable to a project or a client note, and readable by any
+tool that reads markdown.
+
+**System of record, never the fetcher.** Nothing in this feature opens a
+socket. There is no bank API, no credential, no scraping and no background
+fetch — the input is a file the account holder downloaded. That absence is
+deliberate and permanent: there is nothing to revoke because there is nothing
+to grant.
+
+### The transaction schema
+
+Created (or extended) on first import through the same `vault_create_type`
+path as any other database:
+
+| prop | kind | notes |
+| --- | --- | --- |
+| `date` | date | ISO, resolved from the export's declared order |
+| `amount` | number | **unit column**: the value carries its currency (`-1234.56 EUR`) |
+| `counterparty` | text | payee/payer as the bank wrote it |
+| `account` | text | which account the row came from |
+| `reference` | text | the bank's reference/purpose text |
+| `category` | text | filled by a rule (§8e) when one matches, else empty |
+| `signature` | text | the dedupe key, written so the next import can use it |
+
+`amount` is a number prop whose `format` is a currency code (§6), so rows keep
+their own currency: a dollar row in a euro-formatted column renders converted
+and marked rather than being silently added up as euros. Amounts are written
+canonically — integers bare (`2500 EUR`), everything else with exactly two
+decimals — so a value is never re-read as a grouped number under a different
+number dial.
+
+### `.vault/statement-mappings.json` — saved column mappings
+
+Which column is which, answered once per bank and then never again. Written by
+the app, hand-editable, diffable, syncable. Missing file = no mappings yet,
+which is the normal state of a vault that has not imported a statement.
+
+```json
+{
+  "version": 1,
+  "mappings": [
+    {
+      "id": "sparkasse-giro",
+      "bank": "Sparkasse Giro",
+      "delimiter": ";",
+      "headers": true,
+      "dateOrder": "dmy",
+      "numberLocale": "de-DE",
+      "currency": null,
+      "account": "Giro EUR",
+      "columns": {
+        "date": "Buchungstag",
+        "counterparty": "Beguenstigter",
+        "reference": "Verwendungszweck",
+        "amount": "Betrag",
+        "currency": "Waehrung"
+      },
+      "headerSet": [
+        "Buchungstag",
+        "Beguenstigter",
+        "Verwendungszweck",
+        "Betrag",
+        "Waehrung"
+      ]
+    }
+  ]
+}
+```
+
+- `id` — a slug derived from `bank`; replace-or-append by id, so saving twice
+  under one bank leaves one entry.
+- `delimiter` — `,`, `;` or a tab. Non-English exports are routinely
+  semicolon-separated, and reading one of those with a comma yields a single
+  column of intact-looking garbage.
+- `dateOrder` — `iso`, `dmy` or `mdy`. Declared, never guessed per row:
+  `03.04.2026` is genuinely ambiguous and a per-row guess is how importers
+  silently move money between months. An impossible date (`31.02.2026`) is
+  reported as an unreadable row, not rolled forward. A booking time on the
+  cell (`04.03.2026 12:00`) is read in the declared order and the time
+  discarded; a cell in any other shape — `March 4 2026` — is an unreadable
+  row rather than a date parsed by guesswork under some other calendar
+  convention.
+- `numberLocale` — one of the number locales in §6, and it is the **bank's**
+  dialect, not the reader's: changing the app's number display does not change
+  how an export parses.
+- `currency` — a fixed code for exports that don't carry one per row; `null`
+  when the file has a currency column. `account` likewise fixes the account
+  name for files that don't name it.
+- `columns` — statement field → column name. Either a signed `amount` column,
+  or a `debit`/`credit` pair which is folded to a signed amount (money out
+  negative). A row with both non-empty is reported, not guessed.
+- `headerSet` — optional, the export's whole header row as this mapping last
+  saw it. It is what tells one bank's export from another's: `Date`, `Amount`
+  and `Currency` are named the same at half the banks in the world, so a
+  mapping is only applied unasked when the header sets agree exactly. A
+  mapping written before this field existed (or hand-written without it) falls
+  back to the older, looser test — every mapped column name present. For an
+  export with `headers: false` there is no header row to compare: the columns
+  are named `Column 1`…`Column n`, so the exact-agreement test is a check that
+  the two files are the same width, and two headerless exports of equal width
+  are not told apart.
+- Unmapped fields are simply absent. A column the assistant cannot recognise
+  is left for the human to map rather than being attached to a plausible
+  field.
+
+### Dedupe — overlapping export windows
+
+Bank exports have no Message-ID, and downloading January and Q1 means the same
+row arrives twice. The heuristic is deliberately narrow and its failures are
+visible:
+
+- **Signature** (the strong key, stored on the note): `date | canonical amount
+  with currency | folded account | folded reference`. Folding lowercases and
+  drops everything that is not alphanumeric, so a bank that re-punctuates its
+  own reference text still matches.
+- **Weak key**: the same minus the reference.
+- Counterparty is in **neither** key. Banks rewrite payee strings between
+  exports; a name change is not a different payment. It is shown in the review
+  step instead, where a human can read it.
+- Matching is **multiset** counting, not set membership: an export carrying a
+  row more often than the vault holds it does not collapse the surplus away —
+  but nor does it write it. The surplus copy goes to the review step below as
+  `surplus-identical`, where a human says whether the day really carried two
+  identical charges. A repeated export window and a genuinely doubled charge
+  look the same on paper, and only the account holder knows which it was.
+
+Every incoming row lands in exactly one of three buckets, and the third is the
+point:
+
+1. **already here** — signature matches an unconsumed existing row. Collapsed.
+2. **new** — no match. Imported.
+3. **to decide** — surfaced in a review step, unticked, never resolved
+   silently:
+   - `reference-differs` — same date, amount and account, different reference
+     text.
+   - `surplus-identical` — the export carries this exact row more often than
+     the vault holds it.
+
+Nothing in bucket 3 is imported unless the human ticks it — the default for a
+row nobody read is therefore **not written**. The design cost is a review step
+and the risk of a real second charge going unticked; the design refusal is a
+silent merge or a silent double.
+
+### CAMT.053 and friends
+
+CSV only, today. ISO 20022 (CAMT.053) is the named next step and is not in
+this format yet.
+
+## 8e. `.vault/statement-rules.json` — transaction category rules
+
+Plain-file rules that name what a transaction is, following the reflexes
+pattern (§8c): **data, not code**, a closed field set, no expressions.
+**Never written by the app** — rules are authored in the file, which is what
+keeps the file the one place that says what a transaction is. Missing file =
+nothing is categorized, which is a normal vault.
+
+```json
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "energy",
+      "when": [{ "field": "counterparty", "contains": "stadtwerke" }],
+      "category": "Utilities"
+    },
+    {
+      "id": "big-fees",
+      "when": [
+        { "field": "reference", "contains": "fee" },
+        { "field": "currency", "equals": "USD" }
+      ],
+      "max": -50,
+      "category": "Fees (large)"
+    }
+  ]
+}
+```
+
+- `id` — unique in the file; a duplicate invalidates the later rule.
+- `when` — one or more clauses, ANDed. Each clause names a `field`
+  (`counterparty`, `reference`, `account`, `currency`) and **exactly one**
+  test: `contains`, `equals`, `exists: true` or `missing: true`. Two tests in
+  one clause, or an unknown field, invalidates the rule.
+- Text tests fold the same way the dedupe key does — case and punctuation do
+  not matter, so a legal-entity suffix does not break a match.
+- `min` / `max` — optional signed, inclusive bounds on the amount. Signed
+  means `max: -50` reads as "at least 50 out". `min` above `max` invalidates
+  the rule.
+- `category` — required; written to the row's `category` prop.
+- **File order is the priority**: the first matching rule wins, so put the
+  specific rule above the general one.
+- **Per-rule all-or-nothing**: an invalid rule is reported and skipped, never
+  half-applied and never silently dropped; the valid rules still run.
+- Format version lives here and in `.vault/format.json` (§5b) under
+  `statementrules` (`statementmappings` for §8d). A file from a newer app is
+  refused whole — no rule runs, and no mapping is read — rather than
+  degrading to "no rules", because a half-read money file is worse than a
+  loud one.
 
 ## 9. `.assets/` — embedded binaries
 

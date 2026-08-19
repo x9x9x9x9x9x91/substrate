@@ -146,7 +146,13 @@ export function findFence(body: string, lang: string): Fence | null {
 // and serializeCsv, which never emit an unterminated quote — but it is why a
 // stray `"` at the start of a cell in a hand-edited sheet truncates the table
 // from that point down.
-export function parseCsv(text: string): string[][] {
+//
+// The delimiter defaults to the comma the rest of the app writes. It is a
+// parameter because bank exports outside the English-speaking world are
+// semicolon-separated — where the comma is the decimal separator it cannot
+// also separate cells — and reading one of those with a comma yields a single
+// column of intact-looking garbage.
+export function parseCsv(text: string, delimiter = ","): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = "";
@@ -189,7 +195,7 @@ export function parseCsv(text: string): string[][] {
       // next save baked that row fusion into the note.
       inQuotes = true;
       i++;
-    } else if (c === ",") {
+    } else if (c === delimiter) {
       endCell();
       i++;
     } else if (c === "\n") {

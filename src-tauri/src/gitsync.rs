@@ -48,6 +48,13 @@ pub struct SyncReport {
     /// §3.5). Empty when nothing was checked out (a push, an up-to-date pull,
     /// a conflicted pull that parked instead of landing).
     pub changed: Vec<String>,
+    /// Something a sync worked out along the way that is worth saying before
+    /// it becomes a failure — today, a hosted store approaching the number of
+    /// objects one sync can work through. It rides the successful result
+    /// rather than `last_error` because the sync did succeed and the next one
+    /// will too; what it buys is the chance to act while there is no urgency.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice: Option<String>,
 }
 
 /// Refs that persist a conflicted pull across app restarts. Git is the truth:
@@ -2571,7 +2578,14 @@ fn conflict_paths(index: &mut git2::Index) -> Result<Vec<String>, String> {
 }
 
 fn report(pushed: u32, pulled: u32, conflicted: Vec<String>, head: Oid) -> SyncReport {
-    SyncReport { pushed, pulled, conflicted, head: head.to_string(), changed: Vec::new() }
+    SyncReport {
+        pushed,
+        pulled,
+        conflicted,
+        head: head.to_string(),
+        changed: Vec::new(),
+        notice: None,
+    }
 }
 
 /// The same report, plus the working-tree paths a checkout just rewrote.

@@ -25,6 +25,12 @@ pub(crate) struct VaultSyncStatus {
     /// The paths whose plaintext that notice is about, so the warning can name
     /// them and a user who wants to purge by hand knows where to look.
     privacy_paths: Vec<String>,
+    /// The hosted store's size warning, sticky for the same reason
+    /// `privacy_error` is: it is worked out by push, and `last_result` is
+    /// replaced by every auto pull, so a warning riding the report alone is
+    /// off the pane within one poll interval and effectively never read. Only
+    /// a later push finding the store back under the threshold clears it.
+    notice: Option<String>,
 }
 
 /// A failure whose consequence outlives the attempt that hit it.
@@ -513,6 +519,19 @@ fn record_last(last: &mut VaultSyncLast, result: &Result<SyncReport, String>) {
     }
 }
 
+/// The store-size warning, which only the push leg can work out.
+///
+/// Push is what lists the hosted store, so push is the only leg with anything
+/// to say here — and it is the only leg allowed to take it back. A pull that
+/// succeeds says nothing about how large the store is, and letting it clear
+/// this slot is exactly how the warning became invisible: the auto lane pulls
+/// every few minutes, and `last_result` is one slot.
+fn record_store_notice(last: &mut VaultSyncLast, result: &Result<SyncReport, String>) {
+    if let Ok(report) = result {
+        last.notice = report.notice.clone();
+    }
+}
+
 /// Where a failed attempt came from, which decides whether the auto lane may
 /// keep quiet about it.
 ///
@@ -601,6 +620,7 @@ pub(crate) fn vault_sync_status(
         conflicted,
         privacy_error,
         privacy_paths,
+        notice: last.notice.clone(),
     }
 }
 
@@ -697,6 +717,7 @@ pub(crate) async fn vault_sync_push(
             })
         });
         record_outcome(&sync, &result, origin.as_deref() == Some("auto"), class);
+        record_store_notice(&mut sync.last.lock().unwrap(), &result);
         record_health(&sync, &sync_root(&state), SyncLeg::Push, &result, class);
         result
     })
@@ -877,8 +898,8 @@ pub(crate) fn vault_sync_resolve_finish(
 mod tests {
     use super::{
         classified_leg, clear_privacy_into, fold_health, load_health, load_privacy,
-        note_privacy_into, record_outcome_into, run_privacy_cleanup, store_health, store_privacy,
-        FailureClass, SyncHealth, SyncLeg, SYNC_HEALTH_VERSION,
+        note_privacy_into, record_outcome_into, record_store_notice, run_privacy_cleanup,
+        store_health, store_privacy, FailureClass, SyncHealth, SyncLeg, SYNC_HEALTH_VERSION,
     };
     use crate::gitsync::SyncReport;
     use crate::history::History;
@@ -893,7 +914,113 @@ mod tests {
             conflicted: Vec::new(),
             head: "0".repeat(40),
             changed: vec!["Note.md".to_string()],
+            notice: None,
         })
+    }
+
+    fn warned() -> Result<SyncReport, String> {
+        Ok(SyncReport { notice: Some("the store is filling up".into()), ..ok().unwrap() })
+    }
+
+    fn strip_line_comments(source: &str) -> String {
+        source
+            .lines()
+            .map(|line| match line.find("//") {
+                Some(at) => &line[..at],
+                None => line,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// `(first byte inside the block, first byte after its closing brace)` for
+    /// the next `{` at or after `from`.
+    fn braced_block(code: &str, from: usize) -> (usize, usize) {
+        let open = from + code[from..].find('{').expect("no block after this point");
+        let mut depth = 0usize;
+        for (offset, character) in code[open..].char_indices() {
+            match character {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return (open + 1, open + offset + 1);
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("unbalanced braces from byte {open}");
+    }
+
+    /// The sticky slot's invariant one layer above the helper below: the PULL
+    /// COMMAND must not write it at all.
+    ///
+    /// `a_successful_pull_does_not_take_the_store_warning_back` pins what
+    /// `record_store_notice` does with a pull's report, but it pins nothing
+    /// about which legs call it — and the bug it exists for was exactly a
+    /// wiring one: the pull leg touching a slot only push can work out. The
+    /// call sites are what has to hold.
+    ///
+    /// Checked against the source text because there is no seam to drive here:
+    /// these are `#[tauri::command]` functions taking an `AppHandle` and this
+    /// crate carries no mock-app harness to build one with, so a runtime test
+    /// would have to be an end-to-end app test to say anything at all. The
+    /// push arm is asserted alongside, so the guard cannot start passing
+    /// because the helper was renamed out from under it.
+    #[test]
+    fn only_the_push_command_writes_the_store_warning() {
+        let code = strip_line_comments(include_str!("vaultsync.rs"));
+        let mut wrote = Vec::new();
+        for command in ["vault_sync_push", "vault_sync_pull", "vault_sync_set_remote"] {
+            let head = code
+                .find(&format!("pub(crate) async fn {command}("))
+                .unwrap_or_else(|| panic!("{command} moved — re-derive this guard, don't delete it"));
+            let (body_start, body_end) = braced_block(&code, head);
+            if code[body_start..body_end].contains("record_store_notice") {
+                wrote.push(command);
+            }
+        }
+        assert_eq!(
+            wrote,
+            vec!["vault_sync_push"],
+            "the store warning is push's slot: a pull runs every few minutes and knows \
+             nothing about how large the store is"
+        );
+    }
+
+    /// The warning is worked out by push and nothing else, and `result` is one
+    /// slot the auto lane's pull replaces every few minutes. Riding the report
+    /// alone, it was on the pane for one poll interval and then gone — which
+    /// for a default-on auto lane means effectively never seen.
+    #[test]
+    fn a_successful_pull_does_not_take_the_store_warning_back() {
+        let mut last = VaultSyncLast::default();
+        let mut fail = AutoFail::default();
+        let t0 = Instant::now();
+
+        record_outcome_into(&mut last, &mut fail, &warned(), false, FailureClass::Transport, t0);
+        record_store_notice(&mut last, &warned());
+        assert!(last.notice.is_some());
+
+        // Every later pull, successful or not, leaves it standing.
+        record_outcome_into(&mut last, &mut fail, &ok(), true, FailureClass::Transport, t0);
+        assert!(last.result.is_some(), "the pull did not record at all");
+        assert!(last.notice.is_some(), "a successful pull erased the store warning");
+
+        // Only a push finding the store back under the threshold clears it.
+        record_store_notice(&mut last, &ok());
+        assert!(last.notice.is_none(), "the warning outlived the condition");
+    }
+
+    /// A push that failed says nothing about the store's size either — it may
+    /// not have got as far as listing it.
+    #[test]
+    fn a_failed_push_leaves_the_store_warning_alone() {
+        let mut last = VaultSyncLast::default();
+        record_store_notice(&mut last, &warned());
+        record_store_notice(&mut last, &Err("could not reach the remote".to_string()));
+        assert!(last.notice.is_some(), "a failed push erased the store warning");
     }
 
     fn sealing_failed() -> Result<SyncReport, String> {

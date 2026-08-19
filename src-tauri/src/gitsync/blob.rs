@@ -46,7 +46,19 @@ const MAX_LIST_OBJECTS: usize = 100_000;
 /// the rotating window in `verify_present_sample` turns repeated pushes into
 /// full coverage without ever making one push re-download a whole vault.
 const PUSH_VERIFY_SAMPLE: usize = 8;
+
+/// Where "this store is getting large" starts being worth saying out loud —
+/// four fifths of the ceiling. A vault gaining a few hundred objects a day
+/// crosses it years before it stops syncing, which is the point: the answer
+/// (rebuilding the hosted store from the current snapshot) is a deliberate,
+/// attended thing, and nobody should first hear about it from a push that
+/// already failed.
+const LIST_WARNING_OBJECTS: usize = MAX_LIST_OBJECTS / 5 * 4;
 const MAX_PENDING_EDGES: usize = 4 * MAX_LIST_OBJECTS;
+/// Where the cached view of the remote's object names lives, beside the
+/// history-rewrite marker in the vault's git directory.
+const LISTING_CACHE_FILE: &str = "substrate-sync-blob-listing";
+const LISTING_CACHE_HEADER: &str = "substrate hosted-sync listing cache v1";
 const ARGON_MEMORY_KIB: u32 = 65_536;
 const ARGON_ITERATIONS: u32 = 3;
 const ARGON_LANES: u32 = 1;
@@ -120,6 +132,21 @@ pub(crate) struct VersionedRef {
     pub(crate) bytes: Vec<u8>,
 }
 
+/// One answer to LIST.
+///
+/// `incremental` is the only thing that makes the names safe to add to a cached
+/// view instead of replacing it: it means the server recognised the cursor that
+/// was sent and is vouching for continuity from it. A `full` answer — including
+/// every answer from a server that has no cursor route at all — replaces the
+/// cache outright, which is what makes a store that was wiped or restored
+/// behind the client's back correct itself on the next push.
+#[derive(Debug, Default)]
+pub(crate) struct ObjectListing {
+    pub(crate) names: Vec<String>,
+    pub(crate) cursor: Option<String>,
+    pub(crate) incremental: bool,
+}
+
 /// Result of a ref compare-and-swap. A race is normal sync contention, not a
 /// transport failure: callers pull, merge, and retry.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -136,6 +163,31 @@ pub(crate) enum CasResult {
 /// server address, the token, and the passphrase alone.
 pub(crate) trait BlobTransport {
     fn list_objects(&self, max_objects: usize) -> Result<Vec<String>, String>;
+
+    /// The same listing, negotiated: a caller that already knows what the
+    /// server held at `since` gets only what has been added after it.
+    ///
+    /// The default is exactly today's behaviour — a complete listing and no
+    /// cursor — because the deployed server has no incremental route and a
+    /// transport that cannot negotiate must still be correct, only slower.
+    /// Nothing downstream may treat a missing cursor as an error.
+    fn list_objects_since(
+        &self,
+        _since: Option<&str>,
+        max_objects: usize,
+    ) -> Result<ObjectListing, String> {
+        Ok(ObjectListing {
+            names: self.list_objects(max_objects)?,
+            cursor: None,
+            incremental: false,
+        })
+    }
+
+    /// A stable identifier for the store this transport talks to, used to key
+    /// the on-disk name cache. Repointing a vault at a different server must
+    /// not let one store's names vouch for another's.
+    fn store_identity(&self) -> String;
+
     fn get_object(&self, name: &str, max_bytes: usize) -> Result<Vec<u8>, String>;
     fn put_object(&self, name: &str, bytes: &[u8]) -> Result<(), String>;
     fn read_ref(&self, max_bytes: usize) -> Result<Option<VersionedRef>, String>;
@@ -226,6 +278,13 @@ impl FileBlobStore {
 }
 
 impl BlobTransport for FileBlobStore {
+    /// Deliberately not implementing `list_objects_since`: the file model
+    /// stands in for a server without the cursor route, so every test that
+    /// runs against it exercises the fallback path for free.
+    fn store_identity(&self) -> String {
+        format!("file:{}", self.root.display())
+    }
+
     fn list_objects(&self, max_objects: usize) -> Result<Vec<String>, String> {
         let mut names = Vec::new();
         for entry in fs::read_dir(self.root.join("objects"))
@@ -243,7 +302,7 @@ impl BlobTransport for FileBlobStore {
             validate_object_name(&name)?;
             names.push(name);
             if names.len() > max_objects {
-                return Err("hosted sync object listing exceeds the prototype limit".into());
+                return Err(listing_ceiling_error());
             }
         }
         names.sort();
@@ -426,37 +485,47 @@ fn status_error(label: &str, code: u16) -> String {
              object's name — delete it on the server, then push again"
         ),
         413 => format!("hosted sync {label} was refused: the server's size limit is lower than this client's"),
+        429 => format!("hosted sync {label} was turned away: the server is busy — try again shortly"),
         503 => format!("hosted sync {label} was turned away: the server is at its connection limit — try again shortly"),
         _ => format!("hosted sync {label} failed with status {code}"),
     }
 }
 
 impl BlobTransport for HttpBlobStore {
+    fn store_identity(&self) -> String {
+        format!("http:{}", self.base)
+    }
+
     fn list_objects(&self, max_objects: usize) -> Result<Vec<String>, String> {
-        let request =
-            self.agent.get(&format!("{}/v1/objects", self.base)).set("Authorization", &self.authorization());
-        let (status, response) = http_status(request.call(), "listing")?;
-        let Some(response) = response else {
-            return Err(status_error("listing", status));
-        };
-        // 64 hex characters plus a separator each, and the cap is the client's
-        // own MAX_LIST_OBJECTS — a server cannot enlarge this by answering big.
-        let body = read_response_bounded(response, max_objects * 65 + 1, "hosted sync listing")?;
-        let text = String::from_utf8(body)
-            .map_err(|_| "hosted sync listing is not valid UTF-8".to_string())?;
-        let mut names = Vec::new();
-        for line in text.split('\n') {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
-            }
-            validate_object_name(line)?;
-            names.push(line.to_string());
-            if names.len() > max_objects {
-                return Err("hosted sync object listing exceeds the prototype limit".into());
+        Ok(self.list_objects_since(None, max_objects)?.names)
+    }
+
+    /// Ask for the incremental listing when there is a cursor to ask with, and
+    /// fall back to the complete one when the server does not know the route.
+    ///
+    /// The fallback is the whole reason this is a query parameter rather than a
+    /// new path: a server built before this existed answers `/v1/objects?…`
+    /// from its object route, which finds no name after the prefix and says
+    /// `404`. So one request tells us both "no such capability" and "here is
+    /// nothing", without a probe round trip on every push, and the second
+    /// request is the listing that server has always served. Any other refusal
+    /// of a cursor-carrying request is retried the same way: whatever a proxy
+    /// in front of the store makes of a query string, the request without one
+    /// is the one every server understands, and its answer is the honest one to
+    /// report.
+    fn list_objects_since(
+        &self,
+        since: Option<&str>,
+        max_objects: usize,
+    ) -> Result<ObjectListing, String> {
+        if let Some(cursor) = since.filter(|cursor| is_wire_safe_cursor(cursor)) {
+            match self.request_listing(Some(cursor), max_objects) {
+                Ok(listing) => return Ok(listing),
+                Err(ListingRefusal::Unsupported) => {}
+                Err(ListingRefusal::Failed(error)) => return Err(error),
             }
         }
-        Ok(names)
+        self.request_listing(None, max_objects).map_err(ListingRefusal::into_error)
     }
 
     fn get_object(&self, name: &str, max_bytes: usize) -> Result<Vec<u8>, String> {
@@ -519,7 +588,108 @@ impl BlobTransport for HttpBlobStore {
     }
 }
 
+/// Why one listing request did not produce a listing. Kept apart from a plain
+/// error so the caller can tell "this server has no incremental route" — which
+/// is answered by asking again, the old way — from "this listing failed",
+/// which is not.
+enum ListingRefusal {
+    Unsupported,
+    Failed(String),
+}
+
+impl ListingRefusal {
+    fn into_error(self) -> String {
+        match self {
+            // Only reachable for a request that carried no cursor, where the
+            // route is the one every server has always had.
+            Self::Unsupported => status_error("listing", 404),
+            Self::Failed(error) => error,
+        }
+    }
+}
+
+/// A cursor is the server's own opaque token, echoed back in a URL. It is
+/// still checked before it is sent: anything outside this alphabet either did
+/// not come from a server of ours or is an attempt to write a second request
+/// into the query string, and the safe answer to both is to ask for the
+/// complete listing instead.
+fn is_wire_safe_cursor(cursor: &str) -> bool {
+    !cursor.is_empty()
+        && cursor.len() <= 128
+        && cursor
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-' || byte == b'_')
+}
+
 impl HttpBlobStore {
+    fn request_listing(
+        &self,
+        since: Option<&str>,
+        max_objects: usize,
+    ) -> Result<ObjectListing, ListingRefusal> {
+        let url = match since {
+            Some(cursor) => format!("{}/v1/objects?since={cursor}", self.base),
+            None => format!("{}/v1/objects", self.base),
+        };
+        let request = self.agent.get(&url).set("Authorization", &self.authorization());
+        let (status, response) =
+            http_status(request.call(), "listing").map_err(ListingRefusal::Failed)?;
+        let Some(response) = response else {
+            // A server that predates the cursor route has no handler for a
+            // query on this path and answers from its object route: 404 for
+            // "no name here", 400 if it read the query as a malformed name.
+            // Any other refusal of a cursor is treated the same way, because
+            // the shapes a deployment can put in front of the store are not
+            // enumerable — a proxy that strips or rejects query strings answers
+            // 403, 405 or 501 — and the honest reading of all of them is "this
+            // store does not do cursors". The retry without one either works,
+            // in which case there was nothing wrong, or fails again and
+            // reports the real error against the request everyone supports.
+            //
+            // Except when the refusal is "not now": 429 and 503 say the route
+            // was understood and the server is over its limit, and the retry
+            // they would earn is the larger request of the two. Falling back
+            // there adds load to a store already saying it has too much, and
+            // then usually fails anyway. This push stops instead, and the next
+            // one asks incrementally again.
+            if since.is_some() && !matches!(status, 429 | 503) {
+                return Err(ListingRefusal::Unsupported);
+            }
+            return Err(ListingRefusal::Failed(status_error("listing", status)));
+        };
+        let incremental = response
+            .header("X-Substrate-List-Mode")
+            .map(|value| value.trim().eq_ignore_ascii_case("incremental"))
+            .unwrap_or(false);
+        let cursor = response
+            .header("X-Substrate-List-Cursor")
+            .map(|value| value.trim().to_string())
+            .filter(|value| is_wire_safe_cursor(value));
+        // An answer that claims to be incremental without a cursor to carry
+        // forward cannot be added to a cached view: the next push would ask
+        // from the old position and never learn what this one skipped.
+        let incremental = incremental && cursor.is_some();
+        // 64 hex characters plus a separator each, and the cap is the client's
+        // own MAX_LIST_OBJECTS — a server cannot enlarge this by answering big.
+        let body = read_response_bounded(response, max_objects * 65 + 1, "hosted sync listing")
+            .map_err(ListingRefusal::Failed)?;
+        let text = String::from_utf8(body)
+            .map_err(|_| ListingRefusal::Failed("hosted sync listing is not valid UTF-8".into()))?;
+        let mut names = Vec::new();
+        for line in text.split('\n') {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            validate_object_name(line).map_err(ListingRefusal::Failed)?;
+            names.push(line.to_string());
+            if names.len() > max_objects {
+                return Err(ListingRefusal::Failed(listing_ceiling_error()));
+            }
+        }
+        Ok(ObjectListing { names, cursor, incremental })
+    }
+
     fn read_document(
         &self,
         route: &str,
@@ -589,6 +759,153 @@ impl HttpBlobStore {
     }
 }
 
+/// What this device believes the remote store already holds, and the position
+/// in the store's own name list that belief was learned at.
+///
+/// This exists to keep push off the "download every name, every time" path: a
+/// vault gaining a few hundred objects a day pays for the whole history on
+/// every push otherwise. What it must never do is hide an object from the
+/// upload loop that the server does not actually have, so it is deliberately
+/// one-directional — it may only ever say "already there, skip the upload",
+/// never "absent" and never anything at all to pull, which resolves the graph
+/// by demand and never consults it.
+///
+/// Three things keep the belief honest, and it is worth being explicit that no
+/// single one of them is trusted alone:
+///
+/// 1. It is only extended when the server explicitly says its answer is
+///    incremental from the cursor it was handed. Any other answer — an older
+///    server, a store that no longer recognises the cursor, a store whose name
+///    list shrank — replaces the cache wholesale with what the server just
+///    listed.
+/// 2. The server retires every cursor it has ever issued when it finds its name
+///    list has lost entries, so an object deleted behind the client's back
+///    forces exactly that replacement. It also retires them on every restart,
+///    which bounds how long any belief here can outlive the store it describes.
+/// 3. Nothing this push uploaded is written here, only names the server itself
+///    listed. An acknowledged PUT whose bytes the store then lost would
+///    otherwise be cached by the one device able to repair it.
+///
+/// What none of that gives is a check on an object the server has listed all
+/// along but cannot actually serve. Authenticating a sample of skipped objects
+/// on each push would cover it; it is not built here.
+#[derive(Debug)]
+struct ListingCache {
+    /// A hash of the transport's store identity, so pointing the vault at a
+    /// different server discards the cache instead of trusting it.
+    store: String,
+    cursor: String,
+    names: BTreeSet<String>,
+}
+
+fn listing_cache_path(repo: &Repository) -> PathBuf {
+    repo.path().join(LISTING_CACHE_FILE)
+}
+
+/// Read the cache, or decide there isn't one. Every anomaly answers `None`:
+/// the cost of ignoring a good cache is one full listing, and the cost of
+/// trusting a damaged one is an object that never gets uploaded.
+fn load_listing_cache(path: &Path, store: &str) -> Option<ListingCache> {
+    let file = fs::File::open(path).ok()?;
+    let raw = read_bounded(file, MAX_LIST_OBJECTS * 65 + 4096, "hosted sync listing cache").ok()?;
+    let text = String::from_utf8(raw).ok()?;
+    let mut lines = text.lines();
+    if lines.next()? != LISTING_CACHE_HEADER {
+        return None;
+    }
+    let recorded_store = lines.next()?;
+    if recorded_store != store {
+        return None;
+    }
+    let cursor = lines.next()?;
+    if !is_wire_safe_cursor(cursor) {
+        return None;
+    }
+    let mut names = BTreeSet::new();
+    for line in lines {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        validate_object_name(line).ok()?;
+        names.insert(line.to_string());
+        if names.len() > MAX_LIST_OBJECTS {
+            return None;
+        }
+    }
+    Some(ListingCache { store: store.to_string(), cursor: cursor.to_string(), names })
+}
+
+/// Persist the cache, best effort. A cache that cannot be written costs the
+/// next push a complete listing, which is what every push did before this
+/// existed — so it is never worth failing a push that has already published
+/// its ref over.
+fn store_listing_cache(path: &Path, cache: &ListingCache) {
+    let mut body = String::with_capacity(cache.names.len() * 65 + 256);
+    body.push_str(LISTING_CACHE_HEADER);
+    body.push('\n');
+    body.push_str(&cache.store);
+    body.push('\n');
+    body.push_str(&cache.cursor);
+    body.push('\n');
+    for name in &cache.names {
+        body.push_str(name);
+        body.push('\n');
+    }
+    let temporary = path.with_extension("tmp");
+    let staged = fs::write(&temporary, body.as_bytes());
+    if staged.is_err() || fs::rename(&temporary, path).is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+}
+
+/// The store identity as it is written into the cache. Hashed rather than
+/// stored because the file only ever has to answer "is this the same store as
+/// last time", and a fixed-width digest is a smaller thing to parse than a URL.
+/// It hides nothing: the remote sits in `.git/config` in the clear, one
+/// directory away.
+fn cache_store_key(identity: &str) -> String {
+    hex(&Sha256::digest(identity.as_bytes()))
+}
+
+/// The refusal when a store has outgrown what one listing can carry.
+///
+/// It says what happened, that nothing was lost, and what the way out is,
+/// because the way out is not something the app can do on its own — see
+/// "compaction" in `docs/hosted-sync-protocol.md`.
+fn listing_ceiling_error() -> String {
+    format!(
+        "hosted sync stopped: this vault's encrypted store holds more than {MAX_LIST_OBJECTS} \
+         objects, more than one sync can work through. Nothing has been lost — the history is \
+         still on the server and on this device — but syncing needs a hosted store rebuilt from \
+         this vault's current state before it can continue."
+    )
+}
+
+/// The refusal when the history a pull has to walk is itself too large.
+///
+/// Kept apart from the listing ceiling because the quantity is a different one:
+/// the store can be well under its object count and still hold a branch whose
+/// reachable graph is not, and telling someone their store is too big when it
+/// is their history that is too long sends them to the wrong repair.
+fn graph_ceiling_error() -> String {
+    format!(
+        "hosted sync stopped: the history this vault's remote branch points at reaches more than \
+         {MAX_LIST_OBJECTS} encrypted objects, more than one sync can work through. Nothing has \
+         been lost — the history is still on the server and on the device that pushed it — but \
+         syncing needs a hosted store rebuilt from a current vault before it can continue."
+    )
+}
+
+/// The same news, early enough to act on calmly.
+fn listing_ceiling_warning(objects: usize) -> String {
+    format!(
+        "Hosted sync is holding {objects} encrypted objects, out of the {MAX_LIST_OBJECTS} one \
+         sync can work through. Syncing still works. Before the limit is reached, this vault \
+         will need a hosted store rebuilt from its current state."
+    )
+}
+
 /// Push reachable objects first, then publish the encrypted branch head with
 /// CAS. Orphaned uploads after a race are harmless immutable ciphertext.
 pub(crate) fn push<G>(
@@ -629,11 +946,30 @@ pub(crate) fn push<G>(
         }
     }
 
-    let remote_names: BTreeSet<String> =
-        transport.list_objects(MAX_LIST_OBJECTS)?.into_iter().collect();
+    let cache_path = listing_cache_path(&repo);
+    let store_key = cache_store_key(&transport.store_identity());
+    let cached = load_listing_cache(&cache_path, &store_key);
+    let previous_cursor = cached.as_ref().map(|cached| cached.cursor.clone());
+    let listing =
+        transport.list_objects_since(previous_cursor.as_deref(), MAX_LIST_OBJECTS)?;
+    // The only branch where the cache is believed. Everything else — an older
+    // server, an unrecognised cursor, a store that lost objects — arrives as a
+    // complete listing and replaces what this device thought it knew.
+    let remote_names: BTreeSet<String> = match (listing.incremental, cached) {
+        (true, Some(cached)) => {
+            let mut names = cached.names;
+            names.extend(listing.names);
+            names
+        }
+        _ => listing.names.into_iter().collect(),
+    };
+    if remote_names.len() > MAX_LIST_OBJECTS {
+        return Err(listing_ceiling_error());
+    }
     let odb =
         repo.odb().map_err(|error| format!("hosted sync object database unavailable: {error}"))?;
     let mut already_present: Vec<(Oid, String)> = Vec::new();
+    let mut uploaded = Vec::new();
     for oid in reachable_objects(&repo, local_oid)? {
         let name = object_name(key, oid);
         if remote_names.contains(&name) {
@@ -645,8 +981,18 @@ pub(crate) fn push<G>(
             .map_err(|error| format!("hosted sync object {oid} unavailable: {error}"))?;
         let envelope = encrypt_object(key, &name, oid, object.kind(), object.data())?;
         transport.put_object(&name, &envelope)?;
+        uploaded.push(name);
     }
     verify_present_sample(key, transport, &odb, local_oid, &already_present)?;
+
+    // Not folded into `remote_names`: that set is what goes into the cache, and
+    // it may only ever hold names the server itself listed. A store that
+    // acknowledged a PUT and then lost the bytes would otherwise be believed by
+    // this device forever, and the upload that would have repaired it is
+    // exactly the one the cache skips. Leaving them out costs nothing, because
+    // the cursor stored below is the store's position from before these uploads
+    // — the next push is answered these same names out of the server's own
+    // list, and only then are they cached.
 
     let document = RefDocument { version: 1, branch: branch.clone(), head: local_oid.to_string() };
     let encrypted_ref = encrypt_ref(key, &document)?;
@@ -662,7 +1008,41 @@ pub(crate) fn push<G>(
     repo.reference(&tracking_ref, local_oid, true, "hosted sync push updated tracking ref")
         .map_err(|error| format!("hosted sync tracking update failed: {error}"))?;
     clear_history_rewritten(&repo)?;
-    Ok(report(pushed, 0, Vec::new(), local_oid))
+
+    // Written only after the ref is published, so a push that failed part way
+    // never leaves behind a cache claiming a position it never reached.
+    //
+    // The cursor stored is the one the listing came back with, which is the
+    // store's position before this push's own uploads. Deliberately behind:
+    // the next push is answered the names uploaded here out of the server's own
+    // list, which is what makes leaving them out of the cache free, where a
+    // cursor taken after the uploads would claim positions this device never
+    // saw the names of.
+    let object_count = remote_names.len() + uploaded.len();
+    match listing.cursor {
+        // A complete answer replaced whatever this device believed, so the file
+        // is rewritten even when the same cursor came back — the names beneath
+        // it are not the same names.
+        Some(cursor) => {
+            if !listing.incremental || Some(&cursor) != previous_cursor.as_ref() {
+                store_listing_cache(
+                    &cache_path,
+                    &ListingCache { store: store_key, cursor, names: remote_names },
+                );
+            }
+        }
+        // No cursor came back, so there is nothing to resume from: an older
+        // server, or one that declined to issue one. Any file left here would
+        // be loaded and believed on every later push against a store that has
+        // stopped confirming it, so it goes.
+        None => {
+            let _ = fs::remove_file(&cache_path);
+        }
+    }
+
+    let notice =
+        (object_count >= LIST_WARNING_OBJECTS).then(|| listing_ceiling_warning(object_count));
+    Ok(SyncReport { notice, ..report(pushed, 0, Vec::new(), local_oid) })
 }
 
 /// Download and authenticate a bounded sample of the objects this push skipped
@@ -1221,7 +1601,9 @@ fn fetch_reachable_graph(
     let mut visited = BTreeMap::new();
     while let Some((oid, expected_kind)) = pending.pop() {
         if pending.len() > MAX_PENDING_EDGES {
-            return Err("hosted sync remote graph exceeds the prototype edge limit".into());
+            return Err("hosted sync stopped: the remote history is larger than one sync can \
+                        work through; the hosted store needs rebuilding from a current vault"
+                .into());
         }
         if let Some(previous_kind) = visited.get(&oid) {
             if *previous_kind != expected_kind {
@@ -1234,7 +1616,7 @@ fn fetch_reachable_graph(
         }
         visited.insert(oid, expected_kind);
         if visited.len() > MAX_LIST_OBJECTS {
-            return Err("hosted sync remote graph exceeds the prototype object limit".into());
+            return Err(graph_ceiling_error());
         }
 
         if !odb.exists(oid) {
@@ -1936,7 +2318,11 @@ mod tests {
         let name = "0".repeat(64);
         fs::write(store.object_path(&name).unwrap(), b"123456789").unwrap();
         assert!(store.get_object(&name, 8).unwrap_err().contains("size limit"));
-        assert!(store.list_objects(0).unwrap_err().contains("listing"));
+        // Over the cap the listing stops, and says what it costs to fix rather
+        // than describing itself as a prototype.
+        let listing_error = store.list_objects(0).unwrap_err();
+        assert!(listing_error.contains("hosted sync stopped"), "{listing_error}");
+        assert!(listing_error.contains("Nothing has been lost"), "{listing_error}");
 
         fs::write(store.ref_path(), b"12345").unwrap();
         assert!(store.read_ref(4).unwrap_err().contains("size limit"));
@@ -2084,6 +2470,9 @@ mod tests {
     }
 
     impl BlobTransport for RacedKeyStore {
+        fn store_identity(&self) -> String {
+            self.inner.store_identity()
+        }
         fn list_objects(&self, max_objects: usize) -> Result<Vec<String>, String> {
             self.inner.list_objects(max_objects)
         }
@@ -2140,6 +2529,510 @@ mod tests {
         let (joined, how) = enroll(&store, b"shared passphrase").unwrap();
         assert_eq!(how, Enrollment::Joined);
         assert_eq!(joined.0, winner_key.0, "the loser must adopt the winner's key");
+    }
+
+    // --- incremental listing, cache, and the ceiling ------------------------
+
+    /// A transport that speaks the cursor negotiation, so the client half can
+    /// be driven without a socket: names in acceptance order, an epoch that
+    /// can be rolled the way the server rolls it when its name list loses
+    /// entries, and a count of how often push asked incrementally.
+    struct CursorStore {
+        inner: FileBlobStore,
+        journal: std::cell::RefCell<Vec<String>>,
+        epoch: std::cell::RefCell<String>,
+        incremental_calls: std::cell::Cell<usize>,
+        full_calls: std::cell::Cell<usize>,
+        /// Stand-in for a store that lists but issues nothing to resume from —
+        /// an older server, or one that declined.
+        no_cursor: std::cell::Cell<bool>,
+        /// Stand-in for a store that issues cursors but never honours one —
+        /// every answer complete, at whatever position it has reached.
+        always_full: std::cell::Cell<bool>,
+    }
+
+    impl CursorStore {
+        fn new(root: PathBuf) -> Self {
+            Self {
+                inner: FileBlobStore::new(root).unwrap(),
+                journal: std::cell::RefCell::new(Vec::new()),
+                epoch: std::cell::RefCell::new("epoch-one".into()),
+                incremental_calls: std::cell::Cell::new(0),
+                full_calls: std::cell::Cell::new(0),
+                no_cursor: std::cell::Cell::new(false),
+                always_full: std::cell::Cell::new(false),
+            }
+        }
+
+        fn cursor(&self) -> String {
+            format!("{}.{}", self.epoch.borrow(), self.journal.borrow().len())
+        }
+
+        /// What the real server does the moment it finds a name it lists is no
+        /// longer on disk — a complete listing's reconcile, or a download that
+        /// comes back empty: forget the object, and retire every cursor ever
+        /// issued.
+        fn lose_object(&self, name: &str) {
+            fs::remove_file(self.inner.object_path(name).unwrap()).unwrap();
+            self.journal.borrow_mut().retain(|held| held != name);
+            *self.epoch.borrow_mut() = "epoch-two".into();
+        }
+
+        /// Names the store reports without them being reachable from anything
+        /// this vault pushes — the stand-in for a store that has simply been
+        /// running for years.
+        fn pad(&self, count: usize) {
+            let mut journal = self.journal.borrow_mut();
+            for index in 0..count {
+                journal.push(format!("{index:064x}"));
+            }
+        }
+    }
+
+    impl BlobTransport for CursorStore {
+        fn store_identity(&self) -> String {
+            self.inner.store_identity()
+        }
+        fn list_objects(&self, max_objects: usize) -> Result<Vec<String>, String> {
+            self.inner.list_objects(max_objects)
+        }
+        fn list_objects_since(
+            &self,
+            since: Option<&str>,
+            _max_objects: usize,
+        ) -> Result<ObjectListing, String> {
+            let journal = self.journal.borrow();
+            if self.always_full.get() {
+                self.full_calls.set(self.full_calls.get() + 1);
+                return Ok(ObjectListing {
+                    names: journal.clone(),
+                    cursor: Some(self.cursor()),
+                    incremental: false,
+                });
+            }
+            if self.no_cursor.get() {
+                self.full_calls.set(self.full_calls.get() + 1);
+                return Ok(ObjectListing {
+                    names: journal.clone(),
+                    cursor: None,
+                    incremental: false,
+                });
+            }
+            let position = since
+                .and_then(|cursor| cursor.rsplit_once('.'))
+                .filter(|(epoch, _)| *epoch == *self.epoch.borrow())
+                .and_then(|(_, position)| position.parse::<usize>().ok())
+                .filter(|position| *position <= journal.len());
+            match position {
+                Some(position) => {
+                    self.incremental_calls.set(self.incremental_calls.get() + 1);
+                    Ok(ObjectListing {
+                        names: journal[position..].to_vec(),
+                        cursor: Some(self.cursor()),
+                        incremental: true,
+                    })
+                }
+                None => {
+                    self.full_calls.set(self.full_calls.get() + 1);
+                    Ok(ObjectListing {
+                        names: journal.clone(),
+                        cursor: Some(self.cursor()),
+                        incremental: false,
+                    })
+                }
+            }
+        }
+        fn get_object(&self, name: &str, max_bytes: usize) -> Result<Vec<u8>, String> {
+            self.inner.get_object(name, max_bytes)
+        }
+        fn put_object(&self, name: &str, bytes: &[u8]) -> Result<(), String> {
+            self.inner.put_object(name, bytes)?;
+            let mut journal = self.journal.borrow_mut();
+            if !journal.iter().any(|held| held == name) {
+                journal.push(name.to_string());
+            }
+            Ok(())
+        }
+        fn read_ref(&self, max_bytes: usize) -> Result<Option<VersionedRef>, String> {
+            self.inner.read_ref(max_bytes)
+        }
+        fn compare_and_swap_ref(
+            &self,
+            expected_version: Option<&str>,
+            bytes: &[u8],
+        ) -> Result<CasResult, String> {
+            self.inner.compare_and_swap_ref(expected_version, bytes)
+        }
+        fn read_key(&self, max_bytes: usize) -> Result<Option<VersionedRef>, String> {
+            self.inner.read_key(max_bytes)
+        }
+        fn compare_and_swap_key(
+            &self,
+            expected_version: Option<&str>,
+            bytes: &[u8],
+        ) -> Result<CasResult, String> {
+            self.inner.compare_and_swap_key(expected_version, bytes)
+        }
+    }
+
+    #[test]
+    fn a_second_push_asks_only_for_what_is_new_and_still_uploads_it() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history = vault(&a);
+        let store = CursorStore::new(scratch.path().join("blob-store"));
+        let key = MasterKey::from_bytes([31; 32]);
+
+        write_note(&a, "First.md", "first\n");
+        history.snapshot("first").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        // Nothing was known before this push, so it had to list everything —
+        // and it must have left a cache behind for the next one.
+        assert_eq!(store.full_calls.get(), 1);
+        assert_eq!(store.incremental_calls.get(), 0);
+        let repo = Repository::open(&a).unwrap();
+        assert!(listing_cache_path(&repo).is_file());
+        let after_first = store.journal.borrow().len();
+        assert!(after_first > 0);
+
+        write_note(&a, "Second.md", "second\n");
+        history.snapshot("second").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        assert_eq!(store.full_calls.get(), 1, "the second push listed everything again");
+        assert_eq!(store.incremental_calls.get(), 1);
+        assert!(store.journal.borrow().len() > after_first, "the new objects never arrived");
+
+        // And a third device reads the whole history back out of the store,
+        // which is the only thing the negotiation is allowed to change.
+        let b = scratch.path().join("vault-b");
+        let _history_b = vault(&b);
+        pull(&b, &key, &store, || ()).unwrap();
+        assert_eq!(fs::read_to_string(b.join("First.md")).unwrap(), "first\n");
+        assert_eq!(fs::read_to_string(b.join("Second.md")).unwrap(), "second\n");
+    }
+
+    #[test]
+    fn a_cached_name_the_store_lost_is_uploaded_again() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history = vault(&a);
+        let store = CursorStore::new(scratch.path().join("blob-store"));
+        let key = MasterKey::from_bytes([32; 32]);
+
+        write_note(&a, "Kept.md", "kept\n");
+        history.snapshot("kept").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        // A second push, because the first one's own uploads are deliberately
+        // not cached — they reach the cache only once the store has listed
+        // them back. That is what puts the name in the file this test needs it
+        // in.
+        write_note(&a, "Also.md", "also\n");
+        history.snapshot("also").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+
+        // The blob behind the note disappears from the store. The cache on
+        // this device still names it, so nothing but the epoch roll stands
+        // between here and a vault whose remote copy is missing an object.
+        let repo = Repository::open(&a).unwrap();
+        let blob = repo
+            .head()
+            .unwrap()
+            .peel_to_commit()
+            .unwrap()
+            .tree()
+            .unwrap()
+            .get_name("Kept.md")
+            .unwrap()
+            .id();
+        let name = object_name(&key, blob);
+        let cached = load_listing_cache(
+            &listing_cache_path(&repo),
+            &cache_store_key(&store.store_identity()),
+        )
+        .expect("cache written");
+        assert!(cached.names.contains(&name));
+        store.lose_object(&name);
+
+        write_note(&a, "Next.md", "next\n");
+        history.snapshot("next").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        assert!(
+            store.inner.object_path(&name).unwrap().is_file(),
+            "the lost object was skipped on the strength of a cached name"
+        );
+        assert_eq!(store.full_calls.get(), 2, "the retired cursor did not force a full listing");
+    }
+
+    #[test]
+    fn a_cache_from_another_store_is_never_believed() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history = vault(&a);
+        let key = MasterKey::from_bytes([33; 32]);
+        write_note(&a, "Note.md", "note\n");
+        history.snapshot("note").unwrap();
+
+        let first = CursorStore::new(scratch.path().join("store-one"));
+        push(&a, &key, &first, || ()).unwrap();
+        let objects = first.journal.borrow().len();
+
+        // Same vault, same cache file, different server. Believing the cache
+        // here would leave the new store holding a ref whose graph it does not
+        // have.
+        let second = CursorStore::new(scratch.path().join("store-two"));
+        push(&a, &key, &second, || ()).unwrap();
+        assert_eq!(second.journal.borrow().len(), objects, "the second store missed objects");
+
+        let b = scratch.path().join("vault-b");
+        let _history_b = vault(&b);
+        pull(&b, &key, &second, || ()).unwrap();
+        assert_eq!(fs::read_to_string(b.join("Note.md")).unwrap(), "note\n");
+    }
+
+    #[test]
+    fn the_cache_never_holds_a_name_the_store_did_not_list() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history = vault(&a);
+        let store = CursorStore::new(scratch.path().join("blob-store"));
+        let key = MasterKey::from_bytes([37; 32]);
+
+        write_note(&a, "Note.md", "note\n");
+        history.snapshot("note").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+
+        // Everything this push uploaded was acknowledged, and the store's own
+        // listing named none of it — the listing was taken before the uploads.
+        // A cache holding them would be this device deciding, on the strength
+        // of its own PUTs, never to send them again; a store that acknowledged
+        // bytes and lost them would then never be repaired by the one device
+        // that could.
+        let repo = Repository::open(&a).unwrap();
+        let path = listing_cache_path(&repo);
+        let cached = load_listing_cache(&path, &cache_store_key(&store.store_identity()))
+            .expect("cache written");
+        assert!(!store.journal.borrow().is_empty(), "the push uploaded nothing to be wrong about");
+        assert!(
+            cached.names.is_empty(),
+            "the push cached its own uploads: {:?}",
+            cached.names
+        );
+
+        // The next push is answered those same names out of the store's own
+        // list, which is what makes leaving them out free rather than a cost.
+        write_note(&a, "Next.md", "next\n");
+        history.snapshot("next").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        let cached = load_listing_cache(&path, &cache_store_key(&store.store_identity()))
+            .expect("cache written");
+        let journal = store.journal.borrow();
+        for name in &cached.names {
+            assert!(journal.contains(name), "cached a name the store never listed: {name}");
+        }
+        assert!(!cached.names.is_empty(), "the incremental answer taught the cache nothing");
+    }
+
+    #[test]
+    fn a_cursor_that_could_write_a_second_request_is_never_sent() {
+        for hostile in ["a&b=c", "a b", "a?b", "a/b", "a#b", "", "a%2e"] {
+            assert!(!is_wire_safe_cursor(hostile), "{hostile:?} would have gone on the wire");
+        }
+        assert!(!is_wire_safe_cursor(&"a".repeat(129)));
+        assert!(is_wire_safe_cursor("epoch-one.12_3"));
+    }
+
+    #[test]
+    fn an_incremental_answer_over_the_ceiling_is_refused_like_any_other() {
+        struct Flood;
+        impl Flood {
+            fn names(count: usize) -> Vec<String> {
+                (0..count).map(|index| format!("{index:064x}")).collect()
+            }
+        }
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history = vault(&a);
+        let store = CursorStore::new(scratch.path().join("blob-store"));
+        let key = MasterKey::from_bytes([38; 32]);
+        write_note(&a, "Note.md", "note\n");
+        history.snapshot("note").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+
+        // The store has been running a long time and answers the delta with
+        // more names than one sync can hold. Incremental or not, the union is
+        // what push has to keep in memory, so it refuses at the same wall.
+        store.journal.borrow_mut().extend(Flood::names(MAX_LIST_OBJECTS + 1));
+        write_note(&a, "Next.md", "next\n");
+        history.snapshot("next").unwrap();
+        let error = push(&a, &key, &store, || ()).unwrap_err();
+        // The store's own wall, not the history one: the two share their
+        // reassurance and their repair, and sending someone to rebuild a store
+        // when it is their history that is too long is the wrong errand.
+        assert!(error.contains("encrypted store holds more than"), "{error}");
+        assert!(!error.contains("remote branch points at"), "{error}");
+        assert_eq!(store.incremental_calls.get(), 1, "the answer was not the incremental one");
+    }
+
+    #[test]
+    fn a_store_that_stops_issuing_cursors_leaves_no_cache_behind() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history = vault(&a);
+        let store = CursorStore::new(scratch.path().join("blob-store"));
+        let key = MasterKey::from_bytes([39; 32]);
+
+        write_note(&a, "Note.md", "note\n");
+        history.snapshot("note").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        let repo = Repository::open(&a).unwrap();
+        let path = listing_cache_path(&repo);
+        assert!(path.is_file(), "the first push left nothing to discard");
+
+        // The vault is repointed at a deployment with no cursor route — or the
+        // same one downgraded. A cache nobody will ever confirm again would be
+        // loaded and believed on every later push, so it goes.
+        store.no_cursor.set(true);
+        write_note(&a, "Next.md", "next\n");
+        history.snapshot("next").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        assert!(!path.exists(), "a cache survived a store that stopped confirming it");
+    }
+
+    #[test]
+    fn a_complete_listing_rewrites_the_cache_even_at_the_same_cursor() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history = vault(&a);
+        let store = CursorStore::new(scratch.path().join("blob-store"));
+        let key = MasterKey::from_bytes([40; 32]);
+
+        store.always_full.set(true);
+        write_note(&a, "Note.md", "note\n");
+        history.snapshot("note").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+
+        let repo = Repository::open(&a).unwrap();
+        let path = listing_cache_path(&repo);
+        let store_key = cache_store_key(&store.store_identity());
+        let held = load_listing_cache(&path, &store_key).expect("cache written");
+        assert!(!held.names.is_empty(), "the store listed nothing to cache");
+
+        // A cache carrying the position the store is about to answer from, and
+        // names that were never in it. The cursor will come back unchanged, so
+        // only the answer being a complete one can tell this device that what
+        // it holds is not what the store holds.
+        let invented = "cd".repeat(32);
+        let mut wrong = held.names.clone();
+        wrong.insert(invented.clone());
+        store_listing_cache(
+            &path,
+            &ListingCache { store: store_key.clone(), cursor: store.cursor(), names: wrong },
+        );
+
+        push(&a, &key, &store, || ()).unwrap();
+        let after = load_listing_cache(&path, &store_key).expect("cache written");
+        assert!(
+            !after.names.contains(&invented),
+            "a complete listing left a cache naming an object the store never had"
+        );
+    }
+
+    #[test]
+    fn a_damaged_cache_costs_a_full_listing_and_nothing_else() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history = vault(&a);
+        let store = CursorStore::new(scratch.path().join("blob-store"));
+        let key = MasterKey::from_bytes([34; 32]);
+
+        write_note(&a, "Note.md", "note\n");
+        history.snapshot("note").unwrap();
+        push(&a, &key, &store, || ()).unwrap();
+        let repo = Repository::open(&a).unwrap();
+        let path = listing_cache_path(&repo);
+        let key_for_store = cache_store_key(&store.store_identity());
+
+        for damage in ["", "junk", "substrate hosted-sync listing cache v1\nx\ny\nnot-a-name\n"] {
+            fs::write(&path, damage).unwrap();
+            assert!(load_listing_cache(&path, &key_for_store).is_none(), "{damage:?} was believed");
+        }
+
+        write_note(&a, "Next.md", "next\n");
+        history.snapshot("next").unwrap();
+        let before = store.full_calls.get();
+        push(&a, &key, &store, || ()).unwrap();
+        assert_eq!(store.full_calls.get(), before + 1);
+        assert!(load_listing_cache(&path, &key_for_store).is_some(), "the cache was not rebuilt");
+    }
+
+    #[test]
+    fn a_store_approaching_the_object_ceiling_says_so_before_it_fails() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history = vault(&a);
+        let store = CursorStore::new(scratch.path().join("blob-store"));
+        let key = MasterKey::from_bytes([35; 32]);
+
+        write_note(&a, "Small.md", "small\n");
+        history.snapshot("small").unwrap();
+        assert!(push(&a, &key, &store, || ()).unwrap().notice.is_none());
+
+        store.pad(LIST_WARNING_OBJECTS);
+        write_note(&a, "Large.md", "large\n");
+        history.snapshot("large").unwrap();
+        let report = push(&a, &key, &store, || ()).unwrap();
+        let notice = report.notice.expect("no warning at four fifths of the ceiling");
+        assert!(notice.contains(&MAX_LIST_OBJECTS.to_string()), "{notice}");
+        assert!(notice.contains("rebuilt"), "{notice}");
+        // A warning, not a refusal: the push still landed.
+        assert_eq!(report.pushed, 1);
+    }
+
+    /// The warning counts what this push is about to leave behind, not only
+    /// what it was told: the uploads are deliberately kept out of the cache,
+    /// so without adding them here a first push that carries a store over the
+    /// threshold says nothing, and the next one is the first to notice.
+    #[test]
+    fn the_warning_counts_this_push_s_own_uploads_too() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history = vault(&a);
+        let store = CursorStore::new(scratch.path().join("blob-store"));
+        let key = MasterKey::from_bytes([41; 32]);
+
+        // Three short of the threshold, and a first push of a vault uploads
+        // more than three objects — so the warning exists only if what this
+        // push adds is counted.
+        store.pad(LIST_WARNING_OBJECTS - 3);
+        write_note(&a, "Note.md", "note\n");
+        history.snapshot("note").unwrap();
+        let report = push(&a, &key, &store, || ()).unwrap();
+
+        let held = store.journal.borrow().len();
+        assert!(held >= LIST_WARNING_OBJECTS, "the push did not carry the store over: {held}");
+        let notice = report.notice.expect("no warning from the push that crossed the threshold");
+        assert!(
+            notice.contains(&held.to_string()),
+            "the warning counted the listing alone, not what this push added: {notice}"
+        );
+    }
+
+    #[test]
+    fn a_store_over_the_object_ceiling_refuses_with_a_repair_and_not_a_prototype_note() {
+        let scratch = TempDir::new().unwrap();
+        let a = scratch.path().join("vault-a");
+        let history = vault(&a);
+        let store = CursorStore::new(scratch.path().join("blob-store"));
+        let key = MasterKey::from_bytes([36; 32]);
+
+        write_note(&a, "Note.md", "note\n");
+        history.snapshot("note").unwrap();
+        store.pad(MAX_LIST_OBJECTS + 1);
+        let error = push(&a, &key, &store, || ()).unwrap_err();
+        assert!(error.contains("Nothing has been lost"), "{error}");
+        assert!(error.contains("rebuilt from"), "{error}");
+        assert!(!error.contains("prototype"), "{error}");
     }
 
     // --- the real server, over a real socket -------------------------------
@@ -2380,6 +3273,242 @@ mod tests {
         assert!(HttpBlobStore::new("file:///etc", "token").is_err());
         assert!(HttpBlobStore::new("http://example.com", "").is_err());
         assert!(HttpBlobStore::new("http://example.com/", "token").is_ok());
+    }
+
+    #[test]
+    fn the_real_server_answers_a_cursor_with_only_what_is_new() {
+        let scratch = TempDir::new().unwrap();
+        let server = serve(&scratch.path().join("server-storage"));
+        let transport = http(&server);
+        let key = MasterKey::from_bytes([37; 32]);
+
+        let first = transport.list_objects_since(None, MAX_LIST_OBJECTS).unwrap();
+        assert!(first.names.is_empty());
+        assert!(!first.incremental, "a listing with no cursor sent is never incremental");
+        let cursor = first.cursor.expect("the server offered no cursor");
+
+        let oid = Oid::hash_object(ObjectType::Blob, b"one").unwrap();
+        let name = object_name(&key, oid);
+        transport
+            .put_object(&name, &encrypt_object(&key, &name, oid, ObjectType::Blob, b"one").unwrap())
+            .unwrap();
+
+        let delta = transport.list_objects_since(Some(&cursor), MAX_LIST_OBJECTS).unwrap();
+        assert!(delta.incremental, "the server did not honor its own cursor");
+        assert_eq!(delta.names, vec![name.clone()]);
+        assert_ne!(delta.cursor.as_deref(), Some(cursor.as_str()));
+
+        // And the negotiation never costs the caller the complete view when it
+        // asks for it.
+        assert_eq!(transport.list_objects(MAX_LIST_OBJECTS).unwrap(), vec![name]);
+    }
+
+    /// The deployed server is the code that existed before the cursor route,
+    /// and this branch does not redeploy it. So the client has to work against
+    /// a server that answers a `since` query from its object route — which is
+    /// a `404` — and it has to work without a probe on every push.
+    #[test]
+    fn a_server_without_the_cursor_route_still_gets_a_complete_listing() {
+        use std::net::TcpListener;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let since_requests = Arc::new(AtomicUsize::new(0));
+        let plain_requests = Arc::new(AtomicUsize::new(0));
+        let counted = (Arc::clone(&since_requests), Arc::clone(&plain_requests));
+        let served = std::thread::spawn(move || {
+            for stream in listener.incoming().take(2) {
+                let mut stream = stream.unwrap();
+                let mut head = Vec::new();
+                let mut byte = [0u8; 1];
+                while stream.read(&mut byte).unwrap_or(0) == 1 {
+                    head.push(byte[0]);
+                    if head.ends_with(b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let head = String::from_utf8_lossy(&head).into_owned();
+                let response = if head.contains("?since=") {
+                    counted.0.fetch_add(1, Ordering::SeqCst);
+                    // Exactly what the old code does with a query on this
+                    // path: no name follows the prefix, so there is no object.
+                    "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                        .to_string()
+                } else {
+                    counted.1.fetch_add(1, Ordering::SeqCst);
+                    let body = "a".repeat(64);
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                };
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+
+        let transport = HttpBlobStore::new(&format!("http://{address}"), "token").unwrap();
+        let listing =
+            transport.list_objects_since(Some("epoch-one.4"), MAX_LIST_OBJECTS).unwrap();
+        served.join().unwrap();
+
+        assert_eq!(listing.names, vec!["a".repeat(64)]);
+        assert!(!listing.incremental, "a server with no cursor route cannot vouch for a delta");
+        assert!(listing.cursor.is_none(), "there is no cursor to cache against this server");
+        assert_eq!(since_requests.load(Ordering::SeqCst), 1);
+        assert_eq!(plain_requests.load(Ordering::SeqCst), 1, "the fallback listing never ran");
+    }
+
+    /// One stub connection, answered however the closure says, so a shape a
+    /// real server would never produce can still be put in front of the client.
+    fn stub_listing(response: &'static str) -> HttpBlobStore {
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().take(1) {
+                let mut stream = stream.unwrap();
+                let mut head = Vec::new();
+                let mut byte = [0u8; 1];
+                while stream.read(&mut byte).unwrap_or(0) == 1 {
+                    head.push(byte[0]);
+                    if head.ends_with(b"\r\n\r\n") {
+                        break;
+                    }
+                }
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        HttpBlobStore::new(&format!("http://{address}"), "token").unwrap()
+    }
+
+    /// A mode header with nothing to resume from is not a delta this client can
+    /// use: the next push would ask from the position it already had, and every
+    /// name this answer left out would be skipped for good. So it is read as
+    /// the complete listing it has to be treated as.
+    #[test]
+    fn an_answer_claiming_to_be_incremental_without_a_cursor_is_read_as_complete() {
+        let body = "a".repeat(64);
+        let transport = stub_listing(concat!(
+            "HTTP/1.1 200 OK\r\nContent-Length: 64\r\n",
+            "X-Substrate-List-Mode: incremental\r\nConnection: close\r\n\r\n",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ));
+        let listing = transport.list_objects_since(Some("epoch-one.4"), MAX_LIST_OBJECTS).unwrap();
+        assert_eq!(listing.names, vec![body]);
+        assert!(!listing.incremental, "a delta with no cursor was believed");
+        assert!(listing.cursor.is_none());
+    }
+
+    /// Not every refusal of a query string comes from an old server. A proxy in
+    /// front of the store can answer 403, 405 or 501, and failing the push with
+    /// that status would send someone looking for a permission problem that is
+    /// not there. The request without a cursor is the one every server
+    /// understands, so it is what decides.
+    #[test]
+    fn a_proxy_refusing_the_cursor_falls_back_instead_of_failing_the_push() {
+        for status in ["403 Forbidden", "405 Method Not Allowed", "501 Not Implemented"] {
+            use std::net::TcpListener;
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            use std::sync::Arc;
+
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let plain = Arc::new(AtomicUsize::new(0));
+            let counted = Arc::clone(&plain);
+            let refusal = format!(
+                "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            let served = std::thread::spawn(move || {
+                for stream in listener.incoming().take(2) {
+                    let mut stream = stream.unwrap();
+                    let mut head = Vec::new();
+                    let mut byte = [0u8; 1];
+                    while stream.read(&mut byte).unwrap_or(0) == 1 {
+                        head.push(byte[0]);
+                        if head.ends_with(b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    let head = String::from_utf8_lossy(&head).into_owned();
+                    let response = if head.contains("?since=") {
+                        refusal.clone()
+                    } else {
+                        counted.fetch_add(1, Ordering::SeqCst);
+                        let body = "b".repeat(64);
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n\
+                             {body}",
+                            body.len()
+                        )
+                    };
+                    let _ = stream.write_all(response.as_bytes());
+                }
+            });
+
+            let transport = HttpBlobStore::new(&format!("http://{address}"), "token").unwrap();
+            let listing =
+                transport.list_objects_since(Some("epoch-one.4"), MAX_LIST_OBJECTS).unwrap();
+            served.join().unwrap();
+            assert_eq!(listing.names, vec!["b".repeat(64)], "{status}");
+            assert!(!listing.incremental, "{status}");
+            assert_eq!(plain.load(Ordering::SeqCst), 1, "{status}: no fallback listing ran");
+        }
+    }
+
+    /// The two refusals that are not "no such route" but "not now". The
+    /// server understood the query and is over its limit, and the fallback
+    /// this client would otherwise run is the larger of its two requests — so
+    /// the one answer that helps a store already saying it has too much is to
+    /// stop, and ask incrementally again on the next push.
+    #[test]
+    fn a_store_saying_it_is_overloaded_is_not_asked_for_the_bigger_listing() {
+        for status in ["429 Too Many Requests", "503 Service Unavailable"] {
+            use std::net::TcpListener;
+            use std::sync::atomic::{AtomicUsize, Ordering};
+            use std::sync::Arc;
+
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let requests = Arc::new(AtomicUsize::new(0));
+            let counted = Arc::clone(&requests);
+            let refusal =
+                format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            // Two connections offered, so a second request would be served
+            // rather than hang — the count below is what proves it never came.
+            let served = std::thread::spawn(move || {
+                for stream in listener.incoming().take(2) {
+                    let mut stream = stream.unwrap();
+                    let mut head = Vec::new();
+                    let mut byte = [0u8; 1];
+                    while stream.read(&mut byte).unwrap_or(0) == 1 {
+                        head.push(byte[0]);
+                        if head.ends_with(b"\r\n\r\n") {
+                            break;
+                        }
+                    }
+                    counted.fetch_add(1, Ordering::SeqCst);
+                    let _ = stream.write_all(refusal.as_bytes());
+                }
+            });
+
+            let transport = HttpBlobStore::new(&format!("http://{address}"), "token").unwrap();
+            let error = transport
+                .list_objects_since(Some("epoch-one.4"), MAX_LIST_OBJECTS)
+                .unwrap_err();
+            assert!(error.contains("try again shortly"), "{status}: {error}");
+            assert_eq!(
+                requests.load(Ordering::SeqCst),
+                1,
+                "{status}: the overloaded store was asked for the complete listing too"
+            );
+            // The stub is still waiting on a second connection that must not
+            // exist; one throwaway dial lets its loop end so the join returns.
+            drop(std::net::TcpStream::connect(address));
+            served.join().unwrap();
+        }
     }
 
     #[test]

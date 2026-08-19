@@ -95,6 +95,20 @@ struct VaultSyncLast {
     /// the Ok arm clears, and with a pull every few minutes that is minutes;
     /// this slot survives every routine tick and every restart.
     privacy: Option<crate::commands::vaultsync::PrivacyNotice>,
+    /// The hosted store's size warning, kept apart from `result` for the same
+    /// reason `privacy` is kept apart from `error`: it is set by push, and
+    /// `result` is overwritten by every auto pull, so a warning left in there
+    /// is gone inside one poll interval. This slot is written by the push leg
+    /// alone — set when the store is over the threshold, cleared when it is
+    /// back under — and no pull, successful or otherwise, touches it.
+    ///
+    /// Unlike `privacy`, this lives in memory only: relaunching the app blanks
+    /// it until the next push works it out again. That is on purpose — the
+    /// number it reports is a fact about the store right now, not about this
+    /// machine, and a store rebuilt while the app was closed should not be
+    /// greeted with the old warning. The cost is a gap on a fresh launch until
+    /// the first push, which for a default-on auto lane is minutes.
+    notice: Option<String>,
 }
 
 /// How long the auto-sync lane keeps a failure to itself before recording it

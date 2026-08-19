@@ -11007,6 +11007,20 @@ th.sheet-computed:hover {
   color: var(--text-2);
 }
 
+/* Amber, not red: the sync succeeded. This is the store saying it is filling
+   up, early enough that nothing is urgent yet. */
+.vault-sync-notice {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--warn);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .vault-sync-conflicts {
   margin-top: 16px;
   padding-top: 14px;
@@ -15110,6 +15124,14 @@ button.cal-ag-day {
   overflow-y: auto;
 }
 
+/* The statement mapping list asks a fixed set of questions rather than one
+   per column of the file, and its last ones — counterparty, reference,
+   account — are the ones a bank names least predictably. At the shared
+   height they sit below an unmarked fold, so this list gets the room. */
+.dbform-columns.dbform-columns-full {
+  max-height: 340px;
+}
+
 /* One column's line: the include toggle takes the room, its kind button
    (or the title tag) sits at the end — the new-database dialog's proprow
    shape, so a column reads the same in both cards. A date/number preview
@@ -15129,6 +15151,15 @@ button.cal-ag-day {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* A sample of a file's column can be cut off without losing anything; the
+   line that says why two transactions look alike is the decision itself,
+   so it wraps instead of ending in an ellipsis. */
+.dbform-colsample.dbform-colsample-wrap {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
 }
 
 .dbform-colline .dbform-colrow {

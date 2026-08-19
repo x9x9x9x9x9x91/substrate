@@ -94,3 +94,17 @@ privacy-safe, but choosing an off-site target is an operator decision and a
 restore has to be rehearsed before the store holds the only copy of anything.
 Until then the client keeps the authoritative repository and this store is a
 transport.
+
+Restore the whole storage root together, then restart the service. `objects/`
+is the truth; `list-journal` beside it is the name list clients ask for
+incrementally (protocol §2.2). Restarting is what makes a restore safe: every
+start names its run with a fresh random value that is never written down, so
+every cursor the previous run issued is retired and every client is put back on
+a complete listing. Nothing in the storage root carries that value, which is
+why restoring the root cannot bring an old one back. Editing the directory
+under a running server is the thing to avoid — deleting an object is caught by
+the next complete listing, but a restored `list-journal` is not, because a
+consistent restore looks exactly like a store that is younger than it is.
+
+A store upgraded from an earlier build may still have a `list-epoch` file. It
+is no longer read or written, and deleting it changes nothing.

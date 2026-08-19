@@ -20,7 +20,8 @@
 //! ```json
 //! // .vault/format.json
 //! { "schema": 1, "views": 1, "folders": 1, "notifications": 1, "calendars": 1,
-//!   "tagfolders": 1, "mounts": 1, "reflexes": 1 }
+//!   "tagfolders": 1, "mounts": 1, "reflexes": 1, "statementmappings": 1,
+//!   "statementrules": 1 }
 //! ```
 //!
 //! An older app doesn't know the sidecar exists and ignores it — its config
@@ -50,6 +51,17 @@ pub const FORMAT_REL_PATH: &str = ".vault/format.json";
 /// Where pre-migration backups land, relative to the vault root.
 pub const BACKUP_REL_DIR: &str = ".vault/backup";
 
+/// Saved bank column mappings, relative to the vault root. The two statement
+/// paths live here with the rest of the file table rather than with the module
+/// that reads them: that module is private to this build, and the on-disk
+/// contract is not.
+pub const STATEMENT_MAPPINGS_REL_PATH: &str = ".vault/statement-mappings.json";
+
+/// Transaction category rules, relative to the vault root. Never written by
+/// the app — the rules are authored in the file, which is what keeps the file
+/// the single source of truth.
+pub const STATEMENT_RULES_REL_PATH: &str = ".vault/statement-rules.json";
+
 /// The hidden config files that carry a format version.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum VaultFile {
@@ -64,7 +76,9 @@ pub enum VaultFile {
 }
 
 impl VaultFile {
-    pub const ALL: [VaultFile; 8] = [
+    // A slice, not a fixed-length array: entries can be conditionally present
+    // in a build, and a written-out length would have to change with them.
+    pub const ALL: &'static [VaultFile] = &[
         VaultFile::Schema,
         VaultFile::Views,
         VaultFile::Folders,
@@ -153,6 +167,9 @@ impl VaultFile {
             // alternative, reading as "no rules", would silently disarm every
             // reflex the vault asks for
             VaultFile::Reflexes => false,
+            // a mapping half-understood imports money into the wrong columns
+            // and a rule file half-understood files it under the wrong word:
+            // both refuse loudly rather than reading as "none saved"
         }
     }
 
@@ -370,7 +387,7 @@ mod tests {
     fn no_sidecar_reads_as_v1() {
         // every pre-change vault: no sidecar at all, everything is v1
         let root = temp_root("nosidecar");
-        for f in VaultFile::ALL {
+        for &f in VaultFile::ALL {
             assert_eq!(on_disk_version(&root, f), 1, "{}", f.key());
         }
         // junk in the slot is not a version either — never lock a user out
@@ -520,7 +537,7 @@ mod tests {
         let root = PathBuf::from("/tmp/x");
         let mut keys = std::collections::HashSet::new();
         let mut paths = std::collections::HashSet::new();
-        for f in VaultFile::ALL {
+        for &f in VaultFile::ALL {
             assert!(keys.insert(f.key()), "duplicate key {}", f.key());
             assert!(paths.insert(f.rel_path()), "duplicate path {}", f.rel_path());
             assert!(f.backup_path(&root, f.current()).starts_with("/tmp/x/.vault/backup"));
