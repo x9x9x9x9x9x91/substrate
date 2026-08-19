@@ -34,6 +34,7 @@ const roots = [
   "src/lib",
   "scripts",
   "scripts/lib",
+  "scripts/view-read",
   "scripts/vault-sync-server",
   "scripts/handoff-relay",
 ];

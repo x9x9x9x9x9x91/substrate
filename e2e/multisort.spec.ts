@@ -10,10 +10,16 @@ import { openDb } from "./nav";
 // wide ties for the secondary key to break.
 
 // titles of the seeded "live" block (catalog rows 0–8), in mock insertion
-// order — the tie order a lone status sort leaves behind. status is a
-// schema'd select, so the key sorts by option order: live is
-// option 0 of [live, in review, mastering, parked] and leads asc — under
-// the old lexicographic collation "in review" led instead
+// order — the set, not the order the table shows them in. status is a
+// schema'd select, so the key sorts by option order: live is option 0 of
+// [live, in review, mastering, parked] and leads asc — under the old
+// lexicographic collation "in review" led instead. Rows that TIE on
+// the whole key list order by path — the total order the headless view
+// reader shares, deterministic where the old stable-sort ties inherited
+// whatever order the feed happened to deliver. Catalog paths here are
+// `<title>.md`, so on THIS fixture the path tie-break and title order are
+// indistinguishable: what the spec pins is that ties rest somewhere
+// deterministic, not which of the two rules put them there.
 const LIVE_SEEDED = [
   "Night Parcel EP",
   "Copper Season",
@@ -31,8 +37,8 @@ const LIVE_SEEDED = [
 // localeCompare call below is that collator's specified equivalent, so this
 // baseline moves with the app's own semantics rather than approximating them
 // — a title with digits or diacritics in it would order the same way here as
-// it does on screen. Ties the sort leaves unresolved are NOT collated at all:
-// they keep the feed order, which is what LIVE_SEEDED above asserts.
+// it does on screen. Ties the sort leaves unresolved are NOT collated: they
+// rest in path order, which for these nine is the same sequence.
 const LIVE_ASC = [...LIVE_SEEDED].sort((a, b) =>
   a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
 );
@@ -52,18 +58,25 @@ const firstNine = (page: Page) => page.locator(".db-table tbody tr .db-title").e
   (els) => els.slice(0, 9).map((el) => el.textContent ?? "")
 );
 
-test("shift-click adds a secondary key: ties break lexicographically, ordinals mark the key order", async ({
+test("shift-click adds a secondary key: the sort cascades, ordinals mark the key order", async ({
   page,
 }) => {
   await openCatalog(page);
 
-  // primary: status asc — the "live" block leads (schema option order), ties in seeded order
+  // primary: status asc — the "live" block leads (schema option order), its
+  // ties resting in path order (= title order on this fixture)
   await statusHead(page).click();
   await expect(statusHead(page).locator(".db-sort")).toHaveText("↑");
   await expect(page.locator(".db-sort-ord")).toHaveCount(0);
-  expect(await firstNine(page)).toEqual(LIVE_SEEDED);
+  expect(await firstNine(page)).toEqual(LIVE_ASC);
 
-  // shift-click Name: the block stays put, its rows order by title
+  // shift-click Name: the block stays put and its rows hold title order.
+  // Asc is NOT evidence of anything on this fixture — the mock's catalog
+  // paths are `<title>.md`, so the path tie-break and a title sort produce
+  // the same nine rows, and no assertion here can tell them apart. The
+  // discriminating case (paths that collate the opposite way to their
+  // titles) is pinned in src/lib/vieweval.test.ts. What this step proves is
+  // the ordinals; the desc flip below is the behavioral one.
   await nameHead(page).click({ modifiers: ["Shift"] });
   await expect(statusHead(page).locator(".db-sort-ord")).toHaveText("1");
   await expect(nameHead(page).locator(".db-sort-ord")).toHaveText("2");
@@ -74,11 +87,12 @@ test("shift-click adds a secondary key: ties break lexicographically, ordinals m
   await expect(nameHead(page).locator(".db-sort")).toContainText("↓");
   expect(await firstNine(page)).toEqual(LIVE_DESC);
 
-  // a third shift-click drops the secondary — the primary's tie order returns
+  // a third shift-click drops the secondary — the primary's resting tie
+  // order (path, = title on this fixture) returns
   await nameHead(page).click({ modifiers: ["Shift"] });
   await expect(page.locator(".db-sort-ord")).toHaveCount(0);
   await expect(statusHead(page).locator(".db-sort")).toHaveText("↑");
-  expect(await firstNine(page)).toEqual(LIVE_SEEDED);
+  expect(await firstNine(page)).toEqual(LIVE_ASC);
 });
 
 test("a plain click on another column resets to a single sort", async ({ page }) => {

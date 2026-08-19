@@ -3531,6 +3531,193 @@ in-app like any note; a write creates the dir and file on first use and
 preserves frontmatter exactly as for ordinary notes. Every other hidden path
 stays unreachable through those commands.
 
+## 7b. Reading a saved view headless — `substrate.view/1`
+
+A saved view (§7 `$views`) is stored as a *question*: a database, a filter
+string, sorts, an optional grouping key. What a person actually reads is the
+**answer** — which notes are members, which columns the table shows, in which
+order, and what each cell says after dates are humanized and numbers are
+written in the vault's dialect. That answer was previously computable only by
+the app.
+
+`scripts/view-read/view-read.ts` returns it without the app:
+
+```
+node scripts/view-read/view-read.ts "Open tasks" --vault ~/Vault
+node scripts/view-read/view-read.ts "Open tasks" --format md --today 2026-08-18
+node scripts/view-read/view-read.ts --list --vault ~/Vault
+```
+
+`--vault` defaults to `$VAULT_DIR`. `--db <type>` settles a name two databases
+both carry; a view id works wherever a name does, and names match
+case-insensitively. `--list` prints `name`⇥`db`⇥`id` per pin. Exit codes are
+the CLI door's, for the cases the two share (§"Headless callers",
+`docs/mcp-door.md`): `0` answered, `1` asked wrong (unknown view, bad flag —
+the message names the vault's pins), `3` no vault there (none named, or the
+named path is not a folder). A path that cannot be read is never answered as
+an empty vault: a caller must be able to tell a typo from a bare vault.
+
+**It is the app's own evaluator, not a second one.** Membership, rollups,
+filter, sort, grouping and cell display all come from `evaluateSavedView`
+(`src/lib/vieweval.ts`), the single function the database pane paints from.
+The verb only turns a folder into that function's inputs and its result into
+text. A filter rule spelled out in the verb would be a re-implementation, and
+a re-implementation drifts from the screen the first time either side gains a
+step — which is the exact failure this exists to prevent. The guarantee is
+tested rather than asserted: `scripts/view-read/view-read.test.ts` writes a
+vault to disk, renders the real pane over it, runs the verb as its own
+process over the same folder, and fails if the painted table and the printed
+rows disagree.
+
+**Read-only by construction.** Nothing in the verb opens a file for writing —
+no index is built in the vault, no cache, no lock. A test asserts that every
+note the reader walks has the same modification time after a run as before
+it; it walks what the reader walks, so hidden paths (`.vault/`, `.trash/`)
+are outside what it checks, and it compares timestamps rather than bytes.
+Sealed notes (§2a) stay sealed: neither
+their body nor their props are read, so a sealed note is a member of no
+database and never reaches a view's rows.
+
+### The payload
+
+```json
+{
+  "schema": "substrate.view/1",
+  "view": { "id": "open-tasks", "name": "Open tasks", "db": "task", "query": "-status:done" },
+  "columns": ["status", "budget", "due", "owner"],
+  "sorts": [{ "key": "due", "dir": 1 }],
+  "group_by": "status",
+  "total": 2,
+  "groups": [
+    { "value": "doing", "label": "doing", "count": 1, "rows": [] }
+  ],
+  "rows": [
+    {
+      "path": "Tasks/Mix vocals.md",
+      "title": "Mix vocals",
+      "folder": "Tasks",
+      "cells": {
+        "status": { "raw": "doing", "display": "doing" },
+        "budget": { "raw": "300.5", "display": "300,50 €", "kind": "number" },
+        "due": { "raw": "2026-08-01", "display": "Aug 1, 2026", "kind": "date" }
+      }
+    }
+  ],
+  "reader": { "vault": "/Users/me/Vault", "today": "2026-08-18", "numberLocale": "de-DE", "fx": "none", "warnings": [] }
+}
+```
+
+- `schema` — **`substrate.view/1`**. The payload's identity, so a reader can
+  tell what it is holding before it reads it. This is a *separate registry*
+  from `.vault/format.json` (§5b): that one versions stored config files, this
+  one versions a computed answer, and nothing on disk carries it.
+- `columns` — the columns the table paints, in the order it paints them: the
+  pin's captured columns when it has any, in the order it captured them,
+  otherwise the database's whole column union in the union's own order
+  (§7). A pin does **not** inherit the database's curation — neither its
+  hidden sets nor the column order a header drag left on it — because a pin
+  is a capture and the database is a living surface; the pane composes a
+  pin's pref the same way, from the same function. Rollup columns are
+  already folded in. `Name` is not in the list — it is the row's `title`,
+  which every table draws first.
+- Row order is **total**: the pin's sort keys (or the resting title order),
+  then the note's path. Rows sharing a sort value would otherwise keep the
+  order each reader received them in — the index's for the pane, the folder
+  walk's for the verb — and that is not a property of the view.
+- `sorts` — the pin's own sorts. **A pin never inherits the database's
+  remembered sort**: a pin saved with no sort keys rests, it does not pick up
+  whatever the database was last sorted by.
+- `group_by` — the table's section key, `null` when the view is ungrouped.
+  `groups` follows the schema's option order with unschema'd values after it,
+  the `No <prop>` section trailing, empty sections omitted; `label` is the
+  value as a cell paints it. `rows` is the same rows again, flat and in
+  painted order, so a reader that ignores grouping can ignore `groups`.
+- `rows[].cells[col]` — `raw` is the value as the file stores it, `display` is
+  the painted string. `kind` appears when the schema (or a builtin date name)
+  gives the column one; `values` appears for `multi`/`relation` cells, whose
+  entries the table paints as separate chips.
+- `reader` — what this reader contributed, stated beside the payload rather
+  than folded into it, so nothing about the environment has to be inferred
+  from the cells. Present in JSON only; markdown is for eyes.
+
+`--format md` renders the same answer as a markdown document: a heading, the
+row count and database, the filter, then one table per group (`_No rows._`
+when there are none). It is a rendering of the JSON, not a second evaluation.
+
+### Divergences, stated rather than hidden
+
+Same rows and same cells hold when the two readers are given the same inputs.
+These are the inputs that can differ, and where each one comes from:
+
+- **Sort collation follows the host locale.** The shared collator is
+  `Intl.Collator(undefined, { numeric: true, sensitivity: "base" })`
+  (`src/lib/dbsort.ts`) — `undefined` means the machine's default locale, in
+  the verb exactly as in the app. App and verb on one machine therefore agree
+  on collation — one input among the ones named in this list, not by itself
+  the whole answer agreeing; two machines with different system locales can order accent-heavy or
+  case-mixed text differently, in the app too. The collator is not pinned
+  here because pinning it in the verb alone would *create* the divergence it
+  claims to remove.
+- **`numberLocale` comes from `Settings.md`** (`number-locale`, with the
+  retired `number-format` still honored — §12), read from the vault, not from
+  the machine. It is echoed in `reader.numberLocale`. A vault with no key
+  reads as `de-DE`, the app's default.
+- **`fx: "none"` — currency is never converted headless.** Live exchange
+  rates are a session resource the app fetches; a file reader has none, so a
+  currency cell renders in the currency it was typed in rather than converted.
+  This matches what the app itself shows before its rates land. A converted
+  figure is therefore never silently produced; `reader.fx` says so on every
+  payload.
+- **`--today` pins the reference day for relative date filters.** `due < 0d`,
+  `due <= 2w` and friends are measured FROM a day (§5.6 query grammar). The
+  verb defaults to the machine's today, which is what makes an unpinned run
+  non-reproducible across midnight; pass `--today <ISO day>` for an answer
+  that is stable, and `reader.today` records which day was used either way.
+- **Session-only state is invisible by design.** The verb answers from what
+  is on disk: the saved pin and the notes. Unsaved edits in an open pane, a
+  sort from clicking a column header that was never saved into the pin, a
+  typed-but-unsaved filter, the live search box, selection and scroll — none
+  of it is in the vault, so none of it is in the payload. The pin as saved is
+  the contract; anything else would make the answer depend on a window the
+  reader cannot see.
+- **`reader.warnings` names every note this reader did not read whole.** The
+  verb reads frontmatter with a deliberate YAML subset (scalars in the core
+  schema's grammar, both list spellings), and warns in two different cases:
+  a note using something outside the subset but inside YAML — a nested
+  mapping, a block scalar — keeps the props that did parse and is named with
+  every line that went unread; a note whose block strict YAML would *reject*
+  — an unquoted colon inside a value, a leading `@`, an alias, a tab indent,
+  an undecodable escape — is **skipped entirely**, because the engine's parse
+  is all-or-nothing and such a note has no props in the app either. So the
+  honest guarantee is narrower than "no warnings, same props": a note in the
+  payload with no warning against it was read with this subset's typing
+  rules, which follow YAML 1.2's core schema but are not a YAML
+  implementation. A warned note is exactly where the two readers can differ.
+- **Non-table pins are evaluated as the table they would be, grouping and
+  all.** A pin whose `view` is `board`, `gallery` or `list` gets table rows
+  and table cells (below, "v1 covers saved TABLE views only") — and if the
+  pin or its database carries a `table_group_by`, the payload's `groups` are
+  populated with sections that exist on no board and in no gallery. Read
+  `rows` and ignore `groups` when the pin is not a table.
+
+### Versioning
+
+`substrate.view/1` is bumped when the payload's shape changes in a way an
+existing reader cannot ignore: a removed or renamed key, a changed meaning
+for an existing key, a different ordering guarantee. Additive keys — a new
+optional field on a cell, a new key in `reader` — do not bump it, so a reader
+must ignore keys it does not know rather than refuse them.
+
+This is the cost the contract buys, and it is deliberate: **every future view
+feature is now also an API change**. A new filter operator, a new cell kind, a
+new grouping rule changes what this payload says, and that change is either
+compatible or a version bump. Weigh it when adding one.
+
+**v1 covers saved TABLE views only.** A pin whose `view` is `board`,
+`gallery` or `list` is evaluated as the table it would be — the same rows and
+cells, no board columns or gallery cards. Dashboards, sheet cells and the
+MCP-door method are not in v1.
+
 ## 8. `.vault/mounts.json` — mounted folders (reality mounts)
 
 A **mount** shows a real folder on disk as a database: every matching file is
