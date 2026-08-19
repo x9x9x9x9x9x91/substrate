@@ -679,8 +679,17 @@ fn als(path: &Path) -> Result<Reading, String> {
                     in_scale = true;
                     scale_depth = depth;
                 }
-                if in_scale {
-                    if name == b"RootNote" {
+                // both halves are read only as DIRECT children of the set's
+                // scale block: anything deeper is some other element that
+                // happens to share a common name, and `Name` in particular
+                // is the most reused element name in the whole format.
+                if in_scale && parent == b"ScaleInformation" {
+                    // the root is `RootNote` in the sets that name their
+                    // scale, and plain `Root` in the ones that write the
+                    // scale as a numeric enum — the same number under two
+                    // element names, and a reader that knows only the first
+                    // shows a blank key column over most of a Live 12 pool
+                    if name == b"RootNote" || name == b"Root" {
                         root_note = als_attr(e, b"Value")
                             .and_then(|v| v.parse::<usize>().ok())
                             .filter(|n| *n < ALS_NOTES.len());
@@ -690,7 +699,11 @@ fn als(path: &Path) -> Result<Reading, String> {
                         // enum (`<Name Value="0"/>`) rather than as its
                         // name. A number is not a mode, and the column
                         // promises a blank cell over a wrong one, so a name
-                        // that reads as a number is no name at all.
+                        // that reads as a number is no name at all. Mapping
+                        // the enum back to a mode would need a table that is
+                        // stable across every 12.x build, and nothing in the
+                        // format states one — so those sets render their
+                        // root alone ("C") and say nothing they can't back.
                         scale = als_attr(e, b"Value")
                             .map(|v| clamp(&v))
                             .filter(|v| v.parse::<f64>().is_err());
@@ -1434,7 +1447,8 @@ mod tests {
     /// named `MainTrack` (renamed in 12), its `Tempo` block states the tempo
     /// in `Manual` with a `MidiControllerRange` beside it whose bounds are
     /// ordinary in-range numbers, and the global scale's name is the numeric
-    /// enum some 12.x builds write instead of a mode name.
+    /// enum some 12.x builds write instead of a mode name — which is also
+    /// where the root stops being `RootNote` and becomes plain `Root`.
     ///
     /// Hand-written from the shape of the format, not copied from anyone's
     /// project: a fixture is a description of a schema, and a real set is
@@ -1444,7 +1458,7 @@ mod tests {
 <Ableton MajorVersion="5" MinorVersion="12.0_12124" Creator="Ableton Live 12.2.1" Revision="e5f6">
   <LiveSet>
     <ScaleInformation>
-      <RootNote Value="0" />
+      <Root Value="0" />
       <Name Value="0" />
     </ScaleInformation>
     <Tracks>
@@ -1487,12 +1501,45 @@ mod tests {
 
         // with neither half readable there is no key to show at all
         let xml = r#"<Ableton Creator="Ableton Live 12.2.1"><LiveSet><ScaleInformation>
-          <Root Value="0" /><Name Value="0" /></ScaleInformation></LiveSet></Ableton>"#;
+          <Name Value="0" /></ScaleInformation></LiveSet></Ableton>"#;
         let path2 = scratch("nokey.als", &gz(xml));
         let r = extract(&path2, "als").unwrap();
         assert!(!r.columns.contains_key("als_key"), "{:?}", r.columns);
         let _ = std::fs::remove_file(&path);
         let _ = std::fs::remove_file(&path2);
+    }
+
+    #[test]
+    fn a_root_element_states_the_key_the_way_root_note_does() {
+        // the sets that write their scale as a number also write the root as
+        // `Root`; a reader that knows only `RootNote` leaves the key column
+        // blank over most of a Live 12 pool
+        let path = scratch("root12.als", &gz(&als_live12_main_track()));
+        let r = extract(&path, "als").unwrap();
+        assert_eq!(r.columns["als_key"], serde_json::json!("C"), "{:?}", r.columns);
+        let _ = std::fs::remove_file(&path);
+
+        // the same element under a named scale, and one note off C, so the
+        // reading is the root that was stated rather than a default
+        let named = als_live12_main_track()
+            .replace(r#"<Root Value="0" />"#, r#"<Root Value="9" />"#)
+            .replace(r#"<Name Value="0" />"#, r#"<Name Value="Dorian" />"#);
+        let path = scratch("rootnamed.als", &gz(&named));
+        let r = extract(&path, "als").unwrap();
+        assert_eq!(r.columns["als_key"], serde_json::json!("A Dorian"), "{:?}", r.columns);
+        let _ = std::fs::remove_file(&path);
+
+        // and a clip's own scale block is still not the set's: `Root` is read
+        // as a direct child of the set's `ScaleInformation`, nowhere else
+        let clip = concat!(
+            r#"<Ableton Creator="Ableton Live 12.2.1"><LiveSet>"#,
+            r#"<Clip><ScaleInformation><Root Value="7" /><Name Value="Dorian" />"#,
+            r#"</ScaleInformation></Clip></LiveSet></Ableton>"#,
+        );
+        let path = scratch("rootclip.als", &gz(clip));
+        let r = extract(&path, "als").unwrap();
+        assert!(!r.columns.contains_key("als_key"), "{:?}", r.columns);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

@@ -70,6 +70,12 @@ struct VaultSyncState {
     /// git history, and a file in the vault would sync it to devices it does
     /// not describe — and dirty the working tree the next sync needs clean.
     privacy_path: std::path::PathBuf,
+    /// Where the out-of-band freshness record is kept — see
+    /// [`crate::commands::vaultsync::SyncHealth`]. Device-local config for the
+    /// same reason as the notice above: it describes THIS machine's exchange
+    /// with the remote, and a file in the vault would sync it everywhere and
+    /// dirty the tree the next sync needs clean.
+    health_path: std::path::PathBuf,
     last: Mutex<VaultSyncLast>,
     /// One network git leg at a time. Auto-sync runs push/pull on a timer
     /// now, so a tick can meet a button click; the local phases already
@@ -908,6 +914,7 @@ pub fn run() {
                     ..VaultSyncLast::default()
                 }),
                 privacy_path,
+                health_path: sync_config_dir.join("vault-sync-health.json"),
                 op: Mutex::new(()),
                 auto_fail: Mutex::new(AutoFail::default()),
             });

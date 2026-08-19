@@ -803,18 +803,48 @@ mod tests {
             fs::write(disk.path().join(format!("Samples/s{i}.wav")), b"x").unwrap();
         }
 
-        let (kept, over) = walk_folder_files_capped(disk.path(), &[], 4);
+        let (kept, over) = walk_folder_files_capped(disk.path(), &[], &[], 4);
         assert_eq!(kept.len(), 4, "never more than the cap is held");
         assert_eq!(over, 6, "and everything past it is counted, not stored");
 
-        let (again, over_again) = walk_folder_files_capped(disk.path(), &[], 4);
+        let (again, over_again) = walk_folder_files_capped(disk.path(), &[], &[], 4);
         assert_eq!(again, kept, "the same prefix every scan, so nothing flickers to missing");
         assert_eq!(over_again, 6);
 
         // under the cap nothing is left out at all
-        let (all, none) = walk_folder_files_capped(disk.path(), &[], 100);
+        let (all, none) = walk_folder_files_capped(disk.path(), &[], &[], 100);
         assert_eq!(all.len(), 10);
         assert_eq!(none, 0);
+    }
+
+    /// A drive honours the mount's ignore list, and honours it BEFORE the
+    /// cap: files nobody asked to see are invisible to the catalog, so they
+    /// must not spend the budget that decides which real files it holds.
+    #[test]
+    fn a_capped_walk_prunes_ignored_subtrees_before_spending_the_cap() {
+        let disk = tempfile::TempDir::new().unwrap();
+        fs::create_dir_all(disk.path().join("Backup")).unwrap();
+        for i in 0..4 {
+            fs::write(disk.path().join(format!("set{i}.als")), b"x").unwrap();
+            fs::write(disk.path().join(format!("Backup/set{i} [2026-08-19].als")), b"x").unwrap();
+        }
+
+        // 8 files on disk, a cap of 6: WITH the backups this overflows.
+        let (unfiltered, spilled) = walk_folder_files_capped(disk.path(), &[], &[], 6);
+        assert_eq!(unfiltered.len(), 6);
+        assert_eq!(spilled, 2, "without the ignore list the cap is blown");
+
+        let ignore = vec!["Backup".to_string()];
+        let (kept, over) = walk_folder_files_capped(disk.path(), &[], &ignore, 6);
+        assert_eq!(kept.len(), 4, "only the sets, never a backup copy");
+        assert!(
+            kept.iter().all(|p| !p.to_string_lossy().contains("Backup")),
+            "the ignored directory is skipped whole: {kept:?}"
+        );
+        assert_eq!(
+            over, 0,
+            "and the pruned files spent no cap budget, so nothing reads as over-cap"
+        );
     }
 
     /// Sightings are RFC 3339 in LOCAL time, so a disk last seen at home and

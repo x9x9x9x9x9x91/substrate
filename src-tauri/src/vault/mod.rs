@@ -1263,6 +1263,28 @@ pub(crate) fn is_ignored(rel: &str, name: &str, ignore: &[String]) -> bool {
     })
 }
 
+/// Shared prune rule for both folder walks: keep the root itself, drop
+/// anything hidden, drop anything the mount's `ignore` list names. Used as
+/// `filter_entry`, so a rejected DIRECTORY is never descended into — see
+/// [`is_ignored`].
+fn walk_entry_kept(root: &Path, e: &walkdir::DirEntry, ignore: &[String]) -> bool {
+    if e.depth() == 0 {
+        return true;
+    }
+    if e.file_name().to_string_lossy().starts_with('.') {
+        return false;
+    }
+    if ignore.is_empty() {
+        return true;
+    }
+    let rel = e
+        .path()
+        .strip_prefix(root)
+        .map(|r| r.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_default();
+    !is_ignored(&rel, &e.file_name().to_string_lossy(), ignore)
+}
+
 /// Non-hidden files under `root` (recursive, symlinks not followed) whose
 /// names match `globs`; empty globs include everything. Anything matching
 /// `ignore` is skipped, and an ignored directory is never descended into —
@@ -1272,23 +1294,7 @@ fn walk_folder_files(root: &Path, globs: &[String], ignore: &[String]) -> Vec<Pa
     for entry in WalkDir::new(root)
         .follow_links(false)
         .into_iter()
-        .filter_entry(|e| {
-            if e.depth() == 0 {
-                return true;
-            }
-            if e.file_name().to_string_lossy().starts_with('.') {
-                return false;
-            }
-            if ignore.is_empty() {
-                return true;
-            }
-            let rel = e
-                .path()
-                .strip_prefix(root)
-                .map(|r| r.to_string_lossy().replace('\\', "/"))
-                .unwrap_or_default();
-            !is_ignored(&rel, &e.file_name().to_string_lossy(), ignore)
-        })
+        .filter_entry(|e| walk_entry_kept(root, e, ignore))
         .flatten()
     {
         if !entry.file_type().is_file() {
@@ -1315,14 +1321,25 @@ fn walk_folder_files(root: &Path, globs: &[String], ignore: &[String]) -> Vec<Pa
 /// every scan of an unchanged disk: an arbitrary cut would make half the
 /// catalog appear and vanish scan to scan, and every row it dropped would
 /// read as `missing` — a lie about the disk.
-fn walk_folder_files_capped(root: &Path, globs: &[String], cap: usize) -> (Vec<PathBuf>, usize) {
+///
+/// `ignore` prunes the same way it does for [`walk_folder_files`], and the
+/// pruning happens BEFORE the cap: an ignored subtree is invisible to the
+/// catalog, so it must not consume cap budget either. Counting ignored files
+/// against the ceiling would let a `Backup` folder nobody asked to see push
+/// real work past the cap and report it as overflow.
+fn walk_folder_files_capped(
+    root: &Path,
+    globs: &[String],
+    ignore: &[String],
+    cap: usize,
+) -> (Vec<PathBuf>, usize) {
     let mut out = Vec::new();
     let mut over = 0usize;
     for entry in WalkDir::new(root)
         .follow_links(false)
         .sort_by_file_name()
         .into_iter()
-        .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
+        .filter_entry(|e| walk_entry_kept(root, e, ignore))
         .flatten()
     {
         if !entry.file_type().is_file() {

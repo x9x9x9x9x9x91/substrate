@@ -273,6 +273,229 @@ pub(crate) fn record_sync(state: &State<VaultSyncState>, result: &Result<SyncRep
     record_last(&mut state.last.lock().unwrap(), result);
 }
 
+/// Which leg of the exchange an attempt was.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum SyncLeg {
+    Push,
+    Pull,
+}
+
+impl SyncLeg {
+    fn name(self) -> &'static str {
+        match self {
+            SyncLeg::Push => "push",
+            SyncLeg::Pull => "pull",
+        }
+    }
+}
+
+/// The on-disk format's version, so a reader that meets a shape it does not
+/// know says so instead of guessing at fields.
+pub(crate) const SYNC_HEALTH_VERSION: u32 = 1;
+
+/// What the app last knew about its exchange with the remote, on disk so a
+/// check running outside the app can read it.
+///
+/// The pane already shows the last outcome, but only while the app is open,
+/// and only as "the last thing that happened" — no clock. A vault that quietly
+/// stopped syncing days ago therefore looks the same as one that synced a
+/// minute ago to anything outside the window. This file is the freshness half:
+/// timestamps for the last attempt and the last success on each leg, written
+/// at every attempt, both lanes, success and failure alike.
+///
+/// It is deliberately thin. No error text, no paths, no remote address, no
+/// credential of any kind: an out-of-band reader needs to know WHEN and
+/// WHETHER, and every one of those would be a secret, or a personal path, in a
+/// new place. A failure is one word — which side of the exchange gave out.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct SyncHealth {
+    pub(crate) version: u32,
+    /// Unix seconds of the most recent attempt, whichever leg, whichever lane.
+    pub(crate) last_attempt_at: i64,
+    /// `push` or `pull`.
+    pub(crate) last_attempt_leg: String,
+    pub(crate) last_attempt_ok: bool,
+    /// `transport` or `local` when that attempt failed; absent when it worked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) last_failure: Option<String>,
+    /// Unix seconds of the last push that actually got through, and the same
+    /// for pull. Kept per leg because they fail independently: a device can
+    /// pull fine for days while every push is rejected.
+    #[serde(default)]
+    pub(crate) last_push_ok_at: Option<i64>,
+    #[serde(default)]
+    pub(crate) last_pull_ok_at: Option<i64>,
+    /// …and when each leg last failed, for the same reason read the other way
+    /// round: a success stamp alone cannot say whether the leg is still
+    /// working. A push that has been rejected every day for a month keeps its
+    /// month-old success stamp, and beside a pull that succeeded a minute ago
+    /// the pair reads healthy. Comparing the two stamps per leg is what tells a
+    /// reader which of them the machine's last word on that leg was.
+    #[serde(default)]
+    pub(crate) last_push_fail_at: Option<i64>,
+    #[serde(default)]
+    pub(crate) last_pull_fail_at: Option<i64>,
+    /// How many paths the parked merge is waiting on, as of that attempt — a
+    /// count, never the paths themselves. Non-zero is why the record then goes
+    /// quiet: the timer lane stands down entirely while a merge is parked, so
+    /// nothing after this writes until the resolution flow finishes.
+    #[serde(default)]
+    pub(crate) conflicted: u32,
+}
+
+impl Default for SyncHealth {
+    fn default() -> Self {
+        SyncHealth {
+            version: SYNC_HEALTH_VERSION,
+            last_attempt_at: 0,
+            last_attempt_leg: String::new(),
+            last_attempt_ok: false,
+            last_failure: None,
+            last_push_ok_at: None,
+            last_pull_ok_at: None,
+            last_push_fail_at: None,
+            last_pull_fail_at: None,
+            conflicted: 0,
+        }
+    }
+}
+
+/// Fold one attempt into whatever record is already on disk.
+///
+/// The per-leg success stamps are carried forward, never cleared: a failed
+/// push does not unmake the last one that worked, and "last pull was six days
+/// ago" is exactly the fact a reader is looking for. Only the attempt fields
+/// are overwritten.
+///
+/// The per-leg FAILURE stamps are carried forward the same way, and they are
+/// what keeps a dead leg from hiding behind a live one. Push only fires when
+/// the vault changed, so an old push success stamp is not itself a symptom —
+/// what is a symptom is that leg's newest stamp being a failure. Keeping both
+/// per leg lets a reader answer that without a window it would have to guess.
+pub(crate) fn fold_health(
+    previous: Option<SyncHealth>,
+    leg: SyncLeg,
+    ok: bool,
+    class: FailureClass,
+    conflicted: u32,
+    now: i64,
+) -> SyncHealth {
+    let previous = previous.unwrap_or_default();
+    let stamp = |kept: Option<i64>, this_leg: bool| {
+        if ok && this_leg {
+            Some(now)
+        } else {
+            kept
+        }
+    };
+    let fail_stamp = |kept: Option<i64>, this_leg: bool| {
+        if !ok && this_leg {
+            Some(now)
+        } else {
+            kept
+        }
+    };
+    SyncHealth {
+        version: SYNC_HEALTH_VERSION,
+        last_attempt_at: now,
+        last_attempt_leg: leg.name().to_string(),
+        last_attempt_ok: ok,
+        last_failure: if ok {
+            None
+        } else {
+            Some(match class {
+                FailureClass::Transport => "transport".to_string(),
+                FailureClass::Local => "local".to_string(),
+            })
+        },
+        last_push_ok_at: stamp(previous.last_push_ok_at, leg == SyncLeg::Push),
+        last_pull_ok_at: stamp(previous.last_pull_ok_at, leg == SyncLeg::Pull),
+        last_push_fail_at: fail_stamp(previous.last_push_fail_at, leg == SyncLeg::Push),
+        last_pull_fail_at: fail_stamp(previous.last_pull_fail_at, leg == SyncLeg::Pull),
+        conflicted,
+    }
+}
+
+/// Read the record an earlier attempt left. Anything unreadable, or written to
+/// a version this build does not know, is no record: a reader that meets the
+/// same file will say so itself, and a half-understood one folded forward
+/// would launder a shape nobody wrote.
+pub(crate) fn load_health(path: &Path) -> Option<SyncHealth> {
+    let raw = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str::<SyncHealth>(&raw).ok().filter(|h| h.version == SYNC_HEALTH_VERSION)
+}
+
+/// Persist the folded record. A write that fails is logged and dropped, the
+/// same bargain the privacy notice makes: this file is a convenience for a
+/// reader outside the app, and no sync should fail because of it.
+fn store_health(path: &Path, health: &SyncHealth) {
+    let written =
+        serde_json::to_string_pretty(health).map_err(|e| e.to_string()).and_then(|json| {
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+            }
+            crate::vault::write_atomic(path, json)
+        });
+    if let Err(error) = written {
+        applog!("vault sync could not persist its health record: {error}");
+    }
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// Record one attempt in the on-disk health file.
+///
+/// Every attempt lands here, including the transport failures the pane's quiet
+/// window holds back: the window exists so an offline nap does not repaint the
+/// pane, and a freshness record that inherited it would report a vault as
+/// healthy for the two hours it takes to admit otherwise.
+///
+/// Counting the conflicts is not a pure read: `sync_pending_conflicts` re-runs
+/// the merge, and when the two sides have stopped conflicting and nothing was
+/// decided yet it drops the parking refs on its way out — the same tidy-up the
+/// pane's own conflict read does. It also reports every read failure as zero
+/// conflicts, so a repo it cannot open at all lands here as "no parked merge"
+/// rather than as an alarm; the attempt's own outcome is what carries that.
+pub(crate) fn record_health(
+    sync: &State<VaultSyncState>,
+    root: &Path,
+    leg: SyncLeg,
+    result: &Result<SyncReport, String>,
+    class: FailureClass,
+) {
+    let conflicted = gitsync::sync_pending_conflicts(root).len() as u32;
+    let previous = load_health(&sync.health_path);
+    let health = fold_health(previous, leg, result.is_ok(), class, conflicted, unix_now());
+    store_health(&sync.health_path, &health);
+}
+
+/// Re-count the parked merge without claiming an attempt happened.
+///
+/// Resolving a merge is the one thing that empties that count outside a push
+/// or a pull, and the auto lane it releases may not run again for a while — or
+/// at all, if the app is quit straight afterwards. Without this, a vault that
+/// was healthy the moment the user finished the resolution goes on reporting
+/// "parked on N paths" to every out-of-band reader until the next attempt.
+/// Only the count moves: the attempt fields describe an exchange with the
+/// remote, and no exchange happened here.
+pub(crate) fn refresh_health_conflicts(sync: &State<VaultSyncState>, root: &Path) {
+    let Some(previous) = load_health(&sync.health_path) else {
+        // Nothing has recorded an attempt on this machine, and a record whose
+        // only true field is a conflict count would read as a vault that has
+        // never synced. Leave the absence to speak for itself.
+        return;
+    };
+    let conflicted = gitsync::sync_pending_conflicts(root).len() as u32;
+    if conflicted != previous.conflicted {
+        store_health(&sync.health_path, &SyncHealth { conflicted, ..previous });
+    }
+}
+
 /// The last push/pull's outcome, one slot, newest wins. `privacy` is
 /// deliberately not part of it: that slot is the record of damage a later
 /// success does not undo, and clearing it here is exactly the bug this
@@ -455,7 +678,17 @@ pub(crate) async fn vault_sync_push(
         // it guards no data, and one panicked sync must not brick every later
         // one for the life of the process.
         let _op = sync.op.lock().unwrap_or_else(|e| e.into_inner());
-        with_history(&history, |hist| hist.snapshot("snapshot (sync)"))?;
+        // The pre-push snapshot is part of the attempt, so its failure is an
+        // outcome and not an early exit: a stuck index lock or a full disk here
+        // means nothing this machine wrote is leaving it, and returning without
+        // a word would leave the freshness record standing at the last leg that
+        // did get through — green, indefinitely, for a vault that is stuck.
+        if let Err(error) = with_history(&history, |hist| hist.snapshot("snapshot (sync)")) {
+            let result: Result<SyncReport, String> = Err(error);
+            record_outcome(&sync, &result, origin.as_deref() == Some("auto"), FailureClass::Local);
+            record_health(&sync, &sync_root(&state), SyncLeg::Push, &result, FailureClass::Local);
+            return result;
+        }
         // Gate: the engine mutex is held only while the working tree is
         // inspected, never across the network push.
         let (result, class) = classified_leg(&sync_root(&state), &sync.credentials_path, || {
@@ -464,6 +697,7 @@ pub(crate) async fn vault_sync_push(
             })
         });
         record_outcome(&sync, &result, origin.as_deref() == Some("auto"), class);
+        record_health(&sync, &sync_root(&state), SyncLeg::Push, &result, class);
         result
     })
     .await?
@@ -541,6 +775,7 @@ pub(crate) async fn vault_sync_pull(
             }
         }
         record_outcome(&sync, &result, origin.as_deref() == Some("auto"), class);
+        record_health(&sync, &sync_root(&state), SyncLeg::Pull, &result, class);
         announce_pull(&app, &result);
         result
     })
@@ -629,6 +864,10 @@ pub(crate) fn vault_sync_resolve_finish(
         }
     }
     record_sync(&sync, &result);
+    // The parked count an out-of-band reader sees was written by the pull that
+    // parked; nothing else clears it until the next attempt, which may be after
+    // the app is quit.
+    refresh_health_conflicts(&sync, &root);
     // Finishing a resolution checks a merge out exactly like a pull does.
     announce_pull(&app, &result);
     result
@@ -637,8 +876,9 @@ pub(crate) fn vault_sync_resolve_finish(
 #[cfg(test)]
 mod tests {
     use super::{
-        classified_leg, clear_privacy_into, load_privacy, note_privacy_into, record_outcome_into,
-        run_privacy_cleanup, store_privacy, FailureClass,
+        classified_leg, clear_privacy_into, fold_health, load_health, load_privacy,
+        note_privacy_into, record_outcome_into, run_privacy_cleanup, store_health, store_privacy,
+        FailureClass, SyncHealth, SyncLeg, SYNC_HEALTH_VERSION,
     };
     use crate::gitsync::SyncReport;
     use crate::history::History;
@@ -898,5 +1138,137 @@ mod tests {
         assert!(!log.contains("sealed needle"), "sealed plaintext survived the purge");
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_failed_push_does_not_unmake_the_last_one_that_worked() {
+        let after_push = fold_health(None, SyncLeg::Push, true, FailureClass::Transport, 0, 100);
+        assert_eq!(after_push.last_push_ok_at, Some(100));
+        assert_eq!(after_push.last_pull_ok_at, None, "a push stamped the pull leg");
+
+        let after_pull =
+            fold_health(Some(after_push), SyncLeg::Pull, true, FailureClass::Transport, 0, 200);
+        assert_eq!(after_pull.last_push_ok_at, Some(100));
+        assert_eq!(after_pull.last_pull_ok_at, Some(200));
+
+        let failed =
+            fold_health(Some(after_pull), SyncLeg::Push, false, FailureClass::Transport, 0, 300);
+        assert_eq!(failed.last_attempt_at, 300);
+        assert!(!failed.last_attempt_ok);
+        assert_eq!(failed.last_failure.as_deref(), Some("transport"));
+        assert_eq!(
+            failed.last_push_ok_at,
+            Some(100),
+            "a failed push erased the record of the last successful one"
+        );
+        assert_eq!(failed.last_pull_ok_at, Some(200));
+    }
+
+    #[test]
+    fn a_local_failure_and_a_parked_merge_are_both_named_in_the_record() {
+        let health = fold_health(None, SyncLeg::Pull, false, FailureClass::Local, 3, 42);
+        assert_eq!(health.last_failure.as_deref(), Some("local"));
+        assert_eq!(health.conflicted, 3);
+        assert_eq!(health.last_attempt_leg, "pull");
+
+        let recovered = fold_health(Some(health), SyncLeg::Pull, true, FailureClass::Local, 0, 43);
+        assert_eq!(recovered.last_failure, None, "a success left the failure word standing");
+        assert_eq!(recovered.conflicted, 0);
+    }
+
+    #[test]
+    fn the_health_record_survives_a_restart_and_an_unknown_shape_reads_as_none() {
+        let dir = std::env::temp_dir().join(format!("sync-health-{}", std::process::id()));
+        let path = dir.join("nested/vault-sync-health.json");
+        let health = fold_health(None, SyncLeg::Push, true, FailureClass::Transport, 0, 7);
+        store_health(&path, &health);
+        assert_eq!(load_health(&path), Some(health), "the record did not survive a restart");
+
+        fs::write(&path, "{ not json").unwrap();
+        assert_eq!(load_health(&path), None, "an unreadable record was believed");
+
+        let future = SyncHealth { version: SYNC_HEALTH_VERSION + 1, ..SyncHealth::default() };
+        fs::write(&path, serde_json::to_string(&future).unwrap()).unwrap();
+        assert_eq!(load_health(&path), None, "a record from an unknown version was believed");
+
+        assert_eq!(load_health(&dir.join("absent.json")), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_failing_leg_keeps_its_own_stamp_beside_a_leg_that_still_works() {
+        let pushed = fold_health(None, SyncLeg::Push, true, FailureClass::Transport, 0, 100);
+        assert_eq!(pushed.last_push_fail_at, None);
+
+        // Every push since has been refused; the pulls keep working.
+        let refused =
+            fold_health(Some(pushed), SyncLeg::Push, false, FailureClass::Transport, 0, 200);
+        assert_eq!(refused.last_push_fail_at, Some(200));
+        assert_eq!(refused.last_push_ok_at, Some(100), "a failure erased the success stamp");
+        assert_eq!(refused.last_pull_fail_at, None, "a push stamped the pull leg's failure");
+
+        let pulled = fold_health(Some(refused), SyncLeg::Pull, true, FailureClass::Transport, 0, 300);
+        assert_eq!(
+            pulled.last_push_fail_at,
+            Some(200),
+            "a working pull buried the push leg's last word"
+        );
+        assert_eq!(pulled.last_pull_ok_at, Some(300));
+
+        // …and the leg recovering is what finally puts its success on top.
+        let recovered =
+            fold_health(Some(pulled), SyncLeg::Push, true, FailureClass::Transport, 0, 400);
+        assert_eq!(recovered.last_push_ok_at, Some(400));
+        assert_eq!(recovered.last_push_fail_at, Some(200), "the failure stamp was rewritten");
+    }
+
+    #[test]
+    fn the_health_record_carries_no_message_path_or_address() {
+        // Both shapes, key for key: `last_failure` is the one field that comes
+        // and goes, so a count taken from either fixture alone would let a new
+        // field ride in unlooked-at behind that difference.
+        let keys = |health: &SyncHealth| {
+            let json = serde_json::to_string(health).unwrap();
+            let mut names: Vec<String> = serde_json::from_str::<serde_json::Value>(&json)
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect();
+            names.sort();
+            names
+        };
+        // The whole point of the shape: a reader outside the app learns when
+        // and whether, and nothing that could be a secret or a personal path.
+        let shared = [
+            "conflicted",
+            "last_attempt_at",
+            "last_attempt_leg",
+            "last_attempt_ok",
+            "last_pull_fail_at",
+            "last_pull_ok_at",
+            "last_push_fail_at",
+            "last_push_ok_at",
+            "version",
+        ];
+
+        let failed =
+            fold_health(None, SyncLeg::Pull, false, FailureClass::Transport, 2, 1_700_000_000);
+        let mut with_failure: Vec<String> =
+            shared.iter().map(|k| (*k).to_string()).chain(["last_failure".to_string()]).collect();
+        with_failure.sort();
+        assert_eq!(
+            keys(&failed),
+            with_failure,
+            "a field was added to the record without a look at what it leaks"
+        );
+
+        let worked = fold_health(Some(failed), SyncLeg::Pull, true, FailureClass::Local, 0, 1_700_000_100);
+        assert_eq!(
+            keys(&worked),
+            shared.iter().map(|k| (*k).to_string()).collect::<Vec<_>>(),
+            "a field was added to the record without a look at what it leaks"
+        );
     }
 }
