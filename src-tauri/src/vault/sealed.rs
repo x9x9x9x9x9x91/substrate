@@ -151,7 +151,17 @@ fn use_protected_keychain() -> bool {
 /// Keychain service for the device copy of the vault identity. The ACCOUNT is
 /// the vault's absolute path, which is what makes the enrollment movable-away
 /// from (see `device_key_placement`).
+///
+/// A second store class — the correspondence archive — keeps its own device
+/// copy under its own service, so the machinery below is written once and
+/// takes the service as an argument. Two services rather than two accounts
+/// under one: the identities open different things, and an app that lost the
+/// distinction could hand an archive key to the note reader.
 pub(super) const KEYCHAIN_SERVICE: &str = "app.substrate.sealed-v1";
+
+/// Label and description shown by Keychain Access for the sealed-note copy.
+const KEYCHAIN_LABEL: &str = "Substrate sealed notes";
+const KEYCHAIN_DESCRIPTION: &str = "Vault key protected by Touch ID, Face ID, or device passcode";
 
 /// Where this device's Keychain copy of the vault identity sits, established
 /// WITHOUT unlocking it — attributes-only searches never trip the user-presence
@@ -175,12 +185,12 @@ pub(super) enum DeviceKeyPlacement {
 /// Count matching items by ATTRIBUTES only. Asking for the data is what raises
 /// the Touch ID prompt; asking whether an item exists does not.
 #[cfg(all(not(test), any(target_os = "macos", target_os = "ios")))]
-fn enrolled_count(account: Option<&str>) -> usize {
+fn enrolled_count(service: &str, account: Option<&str>) -> usize {
     use security_framework::item::{ItemClass, ItemSearchOptions, Limit};
 
     let mut search = ItemSearchOptions::new();
     search.class(ItemClass::generic_password());
-    search.service(KEYCHAIN_SERVICE);
+    search.service(service);
     if let Some(account) = account {
         search.account(account);
     }
@@ -196,13 +206,34 @@ fn enrolled_count(account: Option<&str>) -> usize {
 
 #[cfg(all(not(test), any(target_os = "macos", target_os = "ios")))]
 pub(super) fn device_key_placement(root: &Path) -> DeviceKeyPlacement {
-    if enrolled_count(Some(&root.to_string_lossy())) > 0 {
+    if enrolled_count(KEYCHAIN_SERVICE, Some(&root.to_string_lossy())) > 0 {
         DeviceKeyPlacement::Here
-    } else if enrolled_count(None) > 0 {
+    } else if enrolled_count(KEYCHAIN_SERVICE, None) > 0 {
         DeviceKeyPlacement::ElsewhereOnly
     } else {
         DeviceKeyPlacement::Absent
     }
+}
+
+/// Whether `service` has a device copy for this exact account, asked by
+/// ATTRIBUTES only — no user-presence prompt, so a status read can call it.
+/// Deliberately the narrow question: the archive has no doctor and no
+/// moved-folder story to tell, only "does the unlock lane exist here".
+#[cfg(all(not(test), any(target_os = "macos", target_os = "ios")))]
+pub(super) fn key_enrolled_for(service: &str, account: &Path) -> bool {
+    enrolled_count(service, Some(&account.to_string_lossy())) > 0
+}
+
+#[cfg(all(not(test), not(any(target_os = "macos", target_os = "ios"))))]
+pub(super) fn key_enrolled_for(_service: &str, _account: &Path) -> bool {
+    false
+}
+
+/// Tests never read the developer's or the rig's real Keychain — but they do
+/// read the stand-in below, which they can set.
+#[cfg(test)]
+pub(super) fn key_enrolled_for(service: &str, account: &Path) -> bool {
+    device_keychain::contains(service, account)
 }
 
 #[cfg(all(not(test), not(any(target_os = "macos", target_os = "ios"))))]
@@ -219,12 +250,75 @@ pub(super) fn device_key_placement(_root: &Path) -> DeviceKeyPlacement {
     DeviceKeyPlacement::Absent
 }
 
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-fn keychain_options(root: &Path) -> security_framework::passwords::PasswordOptions {
+/// The device keychain a TEST build sees: a per-thread map standing in for the
+/// machine's real one.
+///
+/// A test must never read the developer's or a rig's Keychain — what is
+/// enrolled there is a property of the machine, not of the code under test —
+/// but a stub that answers a constant "nothing enrolled" pins nothing either.
+/// Every assertion about a device lane then passes by construction, including
+/// the ones that would go on passing with the guard under test deleted. So the
+/// test build gets a keychain it can SET: enroll the right identity, enroll a
+/// stale or foreign one, enroll an item that exists and refuses to answer, or
+/// leave it empty.
+///
+/// Thread-local, because the test runner gives each test its own thread — the
+/// same isolation the rest of these tests already rely on.
+#[cfg(test)]
+pub(super) mod device_keychain {
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    use std::path::Path;
+
+    thread_local! {
+        /// `(service, account)` to the enrolled bytes, or `None` for an item
+        /// that exists by attributes and refuses its data — a cancelled
+        /// prompt, a sensor that would not read. Enrollment and answering are
+        /// two different facts, and an attributes-only search can only ever
+        /// see the first.
+        static ITEMS: RefCell<HashMap<(String, String), Option<String>>> =
+            RefCell::new(HashMap::new());
+    }
+
+    fn item_key(service: &str, account: &Path) -> (String, String) {
+        (service.to_string(), account.to_string_lossy().into_owned())
+    }
+
+    /// Enroll `identity` under this service and account.
+    pub(in crate::vault) fn enroll(service: &str, account: &Path, identity: &str) {
+        ITEMS.with(|items| {
+            items.borrow_mut().insert(item_key(service, account), Some(identity.to_string()))
+        });
+    }
+
+    /// Enroll an item that is there but will not give its data up.
+    pub(in crate::vault) fn enroll_refusing(service: &str, account: &Path) {
+        ITEMS.with(|items| items.borrow_mut().insert(item_key(service, account), None));
+    }
+
+    /// Un-enroll: a machine that never offered the lane for this account.
+    pub(in crate::vault) fn forget(service: &str, account: &Path) {
+        ITEMS.with(|items| items.borrow_mut().remove(&item_key(service, account)));
+    }
+
+    pub(super) fn contains(service: &str, account: &Path) -> bool {
+        ITEMS.with(|items| items.borrow().contains_key(&item_key(service, account)))
+    }
+
+    pub(super) fn read(service: &str, account: &Path) -> Option<String> {
+        ITEMS.with(|items| items.borrow().get(&item_key(service, account)).cloned().flatten())
+    }
+}
+
+#[cfg(all(not(test), any(target_os = "macos", target_os = "ios")))]
+fn keychain_options(
+    service: &str,
+    account: &Path,
+) -> security_framework::passwords::PasswordOptions {
     use security_framework::passwords::PasswordOptions;
 
-    let account = root.to_string_lossy();
-    let mut options = PasswordOptions::new_generic_password(KEYCHAIN_SERVICE, &account);
+    let account = account.to_string_lossy();
+    let mut options = PasswordOptions::new_generic_password(service, &account);
     options.set_access_synchronized(Some(false));
     if use_protected_keychain() {
         options.use_protected_keychain();
@@ -232,48 +326,98 @@ fn keychain_options(root: &Path) -> security_framework::passwords::PasswordOptio
     options
 }
 
-/// Install the identity behind an Apple user-presence gate. This is an
-/// optional convenience copy: the password-protected vault copy remains the
-/// recovery source of truth if Keychain enrollment fails or moves devices.
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-#[cfg_attr(test, allow(dead_code))]
-pub(super) fn store_device_key(root: &Path, identity: &SecretString) -> Result<(), String> {
+/// Install an identity behind an Apple user-presence gate, under `service`
+/// and keyed to `account` (a store's own path). This is always an optional
+/// convenience copy: the passphrase-protected copy on disk remains the
+/// recovery source of truth if enrollment fails or the user moves devices.
+#[cfg(all(not(test), any(target_os = "macos", target_os = "ios")))]
+pub(super) fn store_key_for(
+    service: &str,
+    account: &Path,
+    identity: &SecretString,
+    label: &str,
+    description: &str,
+) -> Result<(), String> {
     use security_framework::passwords::{
         delete_generic_password_options, set_generic_password_options, AccessControlOptions,
     };
 
     // Replacing the item also replaces its access-control object. A failure
-    // here never endangers the encrypted recovery copy in the vault.
-    let _ = delete_generic_password_options(keychain_options(root));
-    let mut options = keychain_options(root);
+    // here never endangers the encrypted recovery copy on disk.
+    let _ = delete_generic_password_options(keychain_options(service, account));
+    let mut options = keychain_options(service, account);
     options.set_access_control_options(AccessControlOptions::USER_PRESENCE);
-    options.set_label("Substrate sealed notes");
-    options.set_description("Vault key protected by Touch ID, Face ID, or device passcode");
+    options.set_label(label);
+    options.set_description(description);
     set_generic_password_options(identity.expose_secret().as_bytes(), options)
         .map_err(|e| format!("device unlock could not be enabled: {e}"))
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
-#[cfg_attr(test, allow(dead_code))]
-pub(super) fn store_device_key(_root: &Path, _identity: &SecretString) -> Result<(), String> {
+#[cfg(all(not(test), not(any(target_os = "macos", target_os = "ios"))))]
+pub(super) fn store_key_for(
+    _service: &str,
+    _account: &Path,
+    _identity: &SecretString,
+    _label: &str,
+    _description: &str,
+) -> Result<(), String> {
     Err("device unlock is unavailable on this platform".into())
 }
 
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-pub(super) fn load_device_key(root: &Path) -> Result<SecretString, String> {
-    use security_framework::passwords::generic_password;
-
-    let bytes = generic_password(keychain_options(root))
-        .map_err(|_| "Touch ID or device unlock was cancelled or unavailable".to_string())?;
-    let secret = String::from_utf8(bytes).map_err(|_| "device key is invalid".to_string())?;
-    let secret = SecretString::from(secret);
-    parse_identity(&secret)?;
-    Ok(secret)
+/// Enrollment against the test build's stand-in keychain, so a lane that
+/// enrolls can be driven end to end without a real one.
+#[cfg(test)]
+pub(super) fn store_key_for(
+    service: &str,
+    account: &Path,
+    identity: &SecretString,
+    _label: &str,
+    _description: &str,
+) -> Result<(), String> {
+    device_keychain::enroll(service, account, identity.expose_secret());
+    Ok(())
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
-pub(super) fn load_device_key(_root: &Path) -> Result<SecretString, String> {
+/// The stored bytes, behind the user-presence prompt. The caller validates
+/// what came back against its own key format — a service holds one class of
+/// identity, and bytes that do not parse as one are not that class's key.
+#[cfg(all(not(test), any(target_os = "macos", target_os = "ios")))]
+pub(super) fn load_key_for(service: &str, account: &Path) -> Result<SecretString, String> {
+    use security_framework::passwords::generic_password;
+
+    let bytes = generic_password(keychain_options(service, account))
+        .map_err(|_| "Touch ID or device unlock was cancelled or unavailable".to_string())?;
+    let secret = String::from_utf8(bytes).map_err(|_| "device key is invalid".to_string())?;
+    Ok(SecretString::from(secret))
+}
+
+#[cfg(all(not(test), not(any(target_os = "macos", target_os = "ios"))))]
+pub(super) fn load_key_for(_service: &str, _account: &Path) -> Result<SecretString, String> {
     Err("Touch ID or device unlock is unavailable on this platform".into())
+}
+
+/// The read side of the stand-in. An account with no item, and one whose item
+/// refuses its data, answer the same way a real prompt that was cancelled or
+/// never enrolled does — one error, because the caller cannot act on the
+/// difference.
+#[cfg(test)]
+pub(super) fn load_key_for(service: &str, account: &Path) -> Result<SecretString, String> {
+    device_keychain::read(service, account)
+        .map(SecretString::from)
+        .ok_or_else(|| "Touch ID or device unlock was cancelled or unavailable".to_string())
+}
+
+/// The sealed-note device copy: the generic machinery under this module's own
+/// service, with the label and description Keychain Access shows for it.
+#[cfg_attr(test, allow(dead_code))]
+pub(super) fn store_device_key(root: &Path, identity: &SecretString) -> Result<(), String> {
+    store_key_for(KEYCHAIN_SERVICE, root, identity, KEYCHAIN_LABEL, KEYCHAIN_DESCRIPTION)
+}
+
+pub(super) fn load_device_key(root: &Path) -> Result<SecretString, String> {
+    let secret = load_key_for(KEYCHAIN_SERVICE, root)?;
+    parse_identity(&secret)?;
+    Ok(secret)
 }
 
 #[cfg(test)]
