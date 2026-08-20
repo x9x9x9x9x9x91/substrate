@@ -32,7 +32,7 @@ use serde_json::{json, Value};
 use super::lastseen;
 use super::scope::{validate_client, Access, Decision, ScopeSet};
 use crate::history::History;
-use crate::vault::{first_note_rel, sanitize_folder_rel, Engine};
+use crate::vault::{first_note_rel, sanitize_folder_rel, Engine, SearchHit};
 
 /// MCP protocol revision this server implements.
 pub(super) const PROTOCOL_VERSION: &str = "2025-06-18";
@@ -340,12 +340,27 @@ impl Door {
             .filter(|p| readable(scopes, p))
             .collect();
         let hits: Vec<Value> = self
-            .engine
-            .search(&query, Some(&allowed), true)
+            .scoped_search(scopes, &query, &allowed)
             .into_iter()
             .map(|h| json!({ "path": h.path, "snippet": h.snippet }))
             .collect();
         Ok(json!({ "query": query, "hits": hits }))
+    }
+
+    /// The engine call `vault_search` makes: the granted paths' page, plus
+    /// whatever row class this build lets a grant name beyond them.
+    ///
+    /// Kept separate from the allow-list above because the two answer
+    /// different questions — that one is "which notes may this client see",
+    /// this one is "is there anything else it was granted". Where no such
+    /// class exists, this is the plain scoped search.
+    fn scoped_search(
+        &self,
+        _scopes: &ScopeSet,
+        query: &str,
+        allowed: &[String],
+    ) -> Vec<SearchHit> {
+        self.engine.search(query, Some(allowed), true)
     }
 
     /// Fence off uncommitted user edits to `rel` under the app's normal
@@ -572,12 +587,7 @@ mod tests {
         let set = ScopeSet {
             grants: grants
                 .iter()
-                .map(|(p, a)| Grant {
-                    client: "TestClient".into(),
-                    prefix: p.to_string(),
-                    access: *a,
-                    extra: Default::default(),
-                })
+                .map(|(p, a)| Grant::folder("TestClient", p, *a))
                 .collect(),
             extra: Default::default(),
         };
@@ -874,6 +884,7 @@ mod tests {
         assert!(paths.contains(&"Notes/a.md") && paths.contains(&"Notes/Sub/b.md"), "{paths:?}");
         assert!(!paths.iter().any(|p| p.starts_with("Finance")), "{paths:?}");
     }
+
 
     #[test]
     fn revoking_a_grant_takes_effect_on_the_next_call() {

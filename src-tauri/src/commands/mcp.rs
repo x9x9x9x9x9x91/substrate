@@ -23,9 +23,30 @@ pub(crate) struct McpGrantView {
 
 impl From<&Grant> for McpGrantView {
     fn from(grant: &Grant) -> Self {
-        Self { client: grant.client.clone(), prefix: grant.prefix.clone(), access: grant.access }
+        Self {
+            client: grant.client.clone(),
+            prefix: grant.prefix.clone(),
+            access: grant.access,
+        }
     }
 }
+
+/// Whether a stored row is the folder kind the pane's revoke button targets.
+/// A row that opens a store instead of a folder carries a prefix too — a
+/// marker rather than a folder — so a prefix match alone never tells the two
+/// kinds apart, and revoking or editing one must never reach the other.
+fn is_folder_grant(_grant: &Grant) -> bool {
+    true
+}
+
+/// How a folder row is addressed: by its client and its prefix. Both the
+/// revoke and the add-upsert ask it, and so do their tests — a `State` wrapper
+/// is all that keeps a test from calling the command itself, and a second copy
+/// of the rule written inline is exactly where the two kinds drift apart.
+fn addresses_folder_grant(grant: &Grant, client: &str, prefix: &str) -> bool {
+    grant.client == client && grant.prefix == prefix && is_folder_grant(grant)
+}
+
 
 #[derive(Serialize)]
 pub(crate) struct McpSetup {
@@ -96,7 +117,7 @@ pub(crate) fn mcp_grant_revoke(
     prefix: String,
 ) -> Result<Vec<McpGrantView>, String> {
     let mut scopes = ScopeSet::load_for_edit(&onboarding.config_dir)?;
-    scopes.grants.retain(|g| !(g.client == client && g.prefix == prefix));
+    scopes.grants.retain(|g| !addresses_folder_grant(g, &client, &prefix));
     scopes.save(&onboarding.config_dir)?;
     Ok(views(&scopes))
 }
@@ -110,6 +131,7 @@ pub(crate) fn mcp_grants_revoke_all(
     scopes.save(&onboarding.config_dir)?;
     Ok(Vec::new())
 }
+
 
 /// The name the door last saw at `initialize`, for the pane's diagnostic line.
 /// Never an error: a missing or unreadable breadcrumb just means "nothing seen".
@@ -171,17 +193,16 @@ fn add_grant(
     }
 
     let mut scopes = ScopeSet::load_for_edit(cfg_dir)?;
+    // Only a FOLDER row is this row's older self. A row of another kind can
+    // carry any prefix at all, and matching one here would quietly retarget it
+    // — turning "share this folder" into an edit of a grant the user made over
+    // something else, and losing the folder grant they actually asked for.
     if let Some(existing) =
-        scopes.grants.iter_mut().find(|g| g.client == client && g.prefix == prefix)
+        scopes.grants.iter_mut().find(|g| addresses_folder_grant(g, client, &prefix))
     {
         existing.access = access;
     } else {
-        scopes.grants.push(Grant {
-            client: client.to_string(),
-            prefix,
-            access,
-            extra: Default::default(),
-        });
+        scopes.grants.push(Grant::folder(client, &prefix, access));
     }
     scopes.grants.sort_by(|a, b| (&a.client, &a.prefix).cmp(&(&b.client, &b.prefix)));
     scopes.save(cfg_dir)?;
@@ -274,6 +295,7 @@ mod tests {
         assert_eq!(updated.grants.len(), 1, "same client+folder is an upsert");
         assert_eq!(updated.grants[0].access, Access::Write);
     }
+
 
     #[test]
     fn root_folder_becomes_the_empty_prefix() {

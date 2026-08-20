@@ -279,6 +279,15 @@ const SCOPE_STRICT: &str = " AND path IN (SELECT path FROM search_scope)";
 const SCOPE_LISTING: &str =
     " AND (path IN (SELECT path FROM search_scope) OR path LIKE 'mount://%')";
 
+
+/// The strict allow-list, with a row class this build may not carry admitted
+/// beside it when the caller asks for it. The identity function wherever that
+/// class is absent, and for an unscoped query, which restricts nothing to
+/// begin with.
+fn admitting_clause(strict: &'static str, _admit: bool) -> &'static str {
+    strict
+}
+
 /// Whether a path belongs to a class [`SCOPE_LISTING`] lets past the
 /// allow-list — the rows a scoped count deliberately does not speak for.
 fn scope_admitted(path: &str) -> bool {
@@ -385,6 +394,20 @@ impl Engine {
         scope: Option<&[String]>,
         exclude_app_files: bool,
     ) -> Vec<SearchHit> {
+        self.search_admitting(q, scope, exclude_app_files, false)
+    }
+
+
+    /// The palette-shaped search both entry points run. `_admit` names a row
+    /// class the strict allow-list would otherwise drop; it is false for every
+    /// caller in a build that carries no such class.
+    fn search_admitting(
+        &self,
+        q: &str,
+        scope: Option<&[String]>,
+        exclude_app_files: bool,
+        _admit: bool,
+    ) -> Vec<SearchHit> {
         let q = q.trim();
         if q.is_empty() {
             return Vec::new();
@@ -394,8 +417,9 @@ impl Engine {
             // (`QUICK_SEARCH_MOUNT_CLAUSE`), so admitting a class it would only
             // throw away again would just spend page slots on it
             let Ok(clause) = self.apply_scope(scope).map(|s| s.strict) else { return Vec::new() };
+            let clause = admitting_clause(clause, _admit);
             let app = app_files_clause(exclude_app_files);
-            let excluded = excluded_class_clause(true);
+            let excluded = excluded_class_clause(!(_admit && scope.is_some()));
             // title (1) and props (4) come back marked purely to read WHERE the
             // match landed: a note whose only hit is a prop value would
             // otherwise return its opening body prose, which marks nothing. The
