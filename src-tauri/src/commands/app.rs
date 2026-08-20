@@ -539,6 +539,11 @@ pub(crate) fn vault_demo(
     let prep = prepare_demo_vault(src.as_deref(), legacy.as_deref(), &dest)?;
     select_demo_vault(&onboarding.config_dir, &dest, prep == DemoPrep::Fresh)?;
     *onboarding.pending.lock().unwrap() = false;
+    // Same boundary `vault_choose` draws: the user has left the vault they
+    // were in, so identities unlocked there must not outlive the decision.
+    // This path never drew it — a pre-existing sealed-note gap, found while
+    // giving the same treatment to what the engine now holds beside them.
+    app.state::<AppState>().0.lock().unwrap().forget_sealed_authorizations();
     Ok(dest.display().to_string())
 }
 

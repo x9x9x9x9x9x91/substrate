@@ -350,7 +350,15 @@ export default function SearchPane({
     });
     if (sort === "updated") out.sort((a, b) => b.n.updated_ms - a.n.updated_ms);
     return out;
-  }, [engineHits, notes, mountRowMetas, mounts, searchText, effFilters, sort]);
+  }, [
+    engineHits,
+    notes,
+    mountRowMetas,
+    mounts,
+    searchText,
+    effFilters,
+    sort,
+  ]);
 
   const rows = useMemo(() => {
     const out: Row[] = [];

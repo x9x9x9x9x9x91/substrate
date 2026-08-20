@@ -1651,6 +1651,15 @@ impl Engine {
         // e.g. /tmp → /private/tmp) strip cleanly against the root
         let root = root.canonicalize().unwrap_or(root);
         let db = Connection::open_in_memory().expect("sqlite");
+        // The index is in memory so it dies with the process — but SQLite's
+        // sorter and its FTS merges spill to temp FILES when a working set
+        // outgrows the cache, and those land on disk under the OS temp dir.
+        // The body column of this table holds decrypted text — mounted
+        // documents, and every other sealed class projected into it — so a
+        // spill would put that text on disk, outside the seal, at a path
+        // nothing here deletes. MEMORY keeps every temporary where the rest
+        // of this database already is.
+        db.pragma_update(None, "temp_store", "MEMORY").ok();
         let fts = db
             .execute_batch(
                 // `partial` marks a row whose body is only the front of the
