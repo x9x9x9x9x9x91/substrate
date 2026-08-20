@@ -1735,6 +1735,7 @@ export default function App() {
     [mounts, showToast]
   );
 
+
   /** The row the board should put itself on, once its rows are in. A row with
       a sidecar answers to the note's path and one without to the virtual path,
       so which one to reveal is only knowable from the loaded rows — and they

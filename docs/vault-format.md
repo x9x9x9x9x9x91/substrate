@@ -4533,6 +4533,7 @@ nothing is categorized, which is a normal vault.
   degrading to "no rules", because a half-read money file is worse than a
   loud one.
 
+
 ## 9. `.assets/` — embedded binaries
 
 Flat store for pasted/imported files. Dot-prefixed → never indexed, never watched,

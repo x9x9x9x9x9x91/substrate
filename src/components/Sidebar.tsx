@@ -1466,6 +1466,7 @@ function Sidebar({
             )}
           </>
         )}
+
       </div>
 
       <div className="side-bottom">

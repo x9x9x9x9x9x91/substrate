@@ -128,7 +128,12 @@ export function useSearch(opts: {
       setReveal((r) => ({ path, line, nonce: (r?.nonce ?? 0) + 1 }));
       setSearchReturn({ query: searchQuery, sel: { path, line }, view: home, note: path });
     },
-    [notes, searchQuery, showMobileDetail, openMountHit]
+    [
+      notes,
+      searchQuery,
+      showMobileDetail,
+      openMountHit,
+    ]
   );
 
   // a reveal only applies to the note it was aimed at (it can be open in the

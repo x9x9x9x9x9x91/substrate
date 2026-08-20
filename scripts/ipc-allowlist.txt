@@ -31,3 +31,4 @@ no-mock print_window
 # never loads it, so a mock arm would assert nothing.
 no-mock smoke_signal
 no-mock smoke_exit
+

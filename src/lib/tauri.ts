@@ -1388,6 +1388,7 @@ const mockImages: { rel: string; text: string; truncated?: boolean }[] = [
   },
 ];
 
+
 const mockFolderFiles: {
   name: string;
   size: number;
@@ -4404,7 +4405,10 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       // neither the total nor the overflow it implies may include them.
       const hits = ranked.sort(mockRank).slice(0, FULL_SEARCH_MAX_NOTES).map((r) => r.hit);
       const counted = (rows: { path: string }[]) =>
-        fullInScope === null ? rows.length : rows.filter((r) => !r.path.startsWith(MOUNT_SCHEME)).length;
+        rows.filter(
+          (r) =>
+            (fullInScope === null || !r.path.startsWith(MOUNT_SCHEME))
+        ).length;
       const fullTotal = counted(ranked);
       return { hits, total_notes: fullTotal, truncated: counted(hits) < fullTotal };
     }
