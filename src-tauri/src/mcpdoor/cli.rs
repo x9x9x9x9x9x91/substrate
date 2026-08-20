@@ -398,12 +398,7 @@ mod tests {
         let set = ScopeSet {
             grants: grants
                 .iter()
-                .map(|(p, a)| Grant {
-                    client: CLIENT.into(),
-                    prefix: p.to_string(),
-                    access: *a,
-                    extra: Default::default(),
-                })
+                .map(|(p, a)| Grant::folder(CLIENT, p, *a))
                 .collect(),
             extra: Default::default(),
         };
@@ -557,6 +552,7 @@ mod tests {
         assert!(!out.contains("Finance"), "ungranted hits never surface: {out}");
         let _ = fs::remove_dir_all(root.parent().unwrap());
     }
+
 
     #[test]
     fn help_is_a_command_slot_not_a_magic_word() {
@@ -770,12 +766,7 @@ mod tests {
 
         // grants but no vault: now, and only now, it is the vault's turn
         ScopeSet {
-            grants: vec![Grant {
-                client: CLIENT.into(),
-                prefix: "Notes".into(),
-                access: Access::Read,
-                extra: Default::default(),
-            }],
+            grants: vec![Grant::folder(CLIENT, "Notes", Access::Read)],
             extra: Default::default(),
         }
         .save(&cfg)

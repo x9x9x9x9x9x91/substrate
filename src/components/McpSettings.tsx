@@ -19,6 +19,31 @@ function formatSeenAt(at: string): string {
   return Number.isNaN(when.getTime()) ? "" : ` (${when.toLocaleString()})`;
 }
 
+/** How a row names what it opens. A folder row says its prefix; a row that
+    opens something other than a folder says that instead of showing an empty
+    path as if it were the whole vault. */
+function grantLabel(grant: McpGrant): string {
+  return grant.prefix || "Whole vault";
+}
+
+/** The same thing in the sentence the revoke button reads out. */
+function grantTarget(grant: McpGrant): string {
+  return grant.prefix || "the whole vault";
+}
+
+/** One row's identity. Two rows of the same client can share the empty prefix
+    — a whole-vault folder grant and a row that opens no folder at all — so
+    what the row opens has to be part of the key. */
+function grantKey(grant: McpGrant): string {
+  return `${grant.client}\u0000${grant.prefix}`;
+}
+
+/** Revokes go to the command that addresses this row's kind: a folder row by
+    its prefix, another kind by what it names. */
+function revokeGrant(grant: McpGrant): Promise<McpGrant[]> {
+  return mcpGrantRevoke(grant.client, grant.prefix);
+}
+
 interface McpSettingsProps {
   onToast: (message: string) => void;
 }
@@ -80,13 +105,14 @@ export default function McpSettings({ onToast }: McpSettingsProps) {
     }
   }, [access, client, onToast]);
 
+
   const revoke = useCallback(
     async (grant: McpGrant) => {
-      const key = `${grant.client}\0${grant.prefix}`;
+      const key = grantKey(grant);
       setBusy(key);
       setError("");
       try {
-        setGrants(await mcpGrantRevoke(grant.client, grant.prefix));
+        setGrants(await revokeGrant(grant));
       } catch (e) {
         const message = String(e);
         setError(message);
@@ -204,12 +230,12 @@ export default function McpSettings({ onToast }: McpSettingsProps) {
           <div className="mcp-empty">No folders granted — the MCP door is closed.</div>
         ) : (
           grants.map((grant) => {
-            const key = `${grant.client}\0${grant.prefix}`;
+            const key = grantKey(grant);
             return (
               <div className="mcp-grant" key={key}>
                 <div className="mcp-grant-copy">
                   <span className="mcp-grant-client">{grant.client}</span>
-                  <span className="mcp-grant-path">{grant.prefix || "Whole vault"}</span>
+                  <span className="mcp-grant-path">{grantLabel(grant)}</span>
                   <span className="mcp-grant-access">
                     {grant.access === "write" ? "read + write" : "read"}
                   </span>
@@ -217,7 +243,7 @@ export default function McpSettings({ onToast }: McpSettingsProps) {
                 <button
                   className="settings-raw"
                   disabled={busy !== ""}
-                  aria-label={`Revoke ${grant.client} access to ${grant.prefix || "the whole vault"}`}
+                  aria-label={`Revoke ${grant.client} access to ${grantTarget(grant)}`}
                   onClick={() => revoke(grant)}
                 >
                   {busy === key ? "revoking…" : "revoke"}

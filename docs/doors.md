@@ -29,6 +29,7 @@ receipts, and the headless recipe — written up in [MCP door](mcp-door.md): the
 [setup snippet](mcp-door.md#setup-phase-1) for MCP clients and
 [Headless callers](mcp-door.md#headless-callers--the-cli-door) for the CLI.
 
+
 ## Ways out
 
 | Door | What it is | Contract / recipe |
