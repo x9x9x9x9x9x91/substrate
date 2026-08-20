@@ -1002,6 +1002,7 @@ pub fn run() {
                 }
             })));
 
+
             // Auto-snapshot loop: one baseline commit at launch (captures
             // edits made while the app was closed), then batched snapshots
             // whenever the vault has been active.

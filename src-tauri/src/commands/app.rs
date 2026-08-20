@@ -99,6 +99,7 @@ pub(crate) fn picked_path(raw: &str) -> std::path::PathBuf {
 /// asks for a relaunch.
 #[tauri::command]
 pub(crate) fn vault_choose(
+    app: tauri::AppHandle,
     onboarding: State<OnboardingState>,
     state: State<AppState>,
     path: String,
