@@ -219,6 +219,20 @@ export function cardValueFrom(
   mounts: Map<string, DashboardMountState>,
   mountsError: string | null,
 ): CardValue {
+  const read = readCardValue(card, sheets, mounts, mountsError);
+  // A format the app doesn't have is not a reason to withhold the number, but
+  // it is a reason to stop pretending the number is formatted. The binding's
+  // own miss wins the line where there is one — that one explains a missing
+  // value, this one explains a value that reads plainly.
+  return card.formatErr && !read.miss ? { ...read, miss: card.formatErr } : read;
+}
+
+function readCardValue(
+  card: MetricCard,
+  sheets: Map<string, SheetState>,
+  mounts: Map<string, DashboardMountState>,
+  mountsError: string | null,
+): CardValue {
   const b = parseBind(card.bind);
   if (!b) return { text: "—", title: `bad binding “${card.bind}” — want {{Sheet.summary}}` };
   const mstate = mounts.get(b.sheet.toLowerCase());
@@ -231,8 +245,17 @@ export function cardValueFrom(
   const r = readBind(sheets, card.bind);
   if (r.loading) return { text: "…" };
   if (r.value === null && state && "error" in state) {
+    // A bad SHEET name failed silently while a bad PROPERTY name failed
+    // loudly: the reason lived in a hover title, and a card reading "—" with
+    // nothing under it cannot be told from a value that is legitimately
+    // empty. Same treatment as the missing summary — the reason on the card,
+    // the long form in the tooltip.
     // the mount half of the lookup may be why this name resolved to nothing
-    return { text: "—", title: mountsError ? `${state.error}; mounts: ${mountsError}` : state.error };
+    return {
+      text: "—",
+      miss: state.error,
+      title: mountsError ? `${state.error}; mounts: ${mountsError}` : state.error,
+    };
   }
   const text = r.value === null ? "—" : fmtCard(r.value, card.format, card.digits);
   return { text, ...(r.miss ? { miss: r.miss } : {}), ...(r.title ? { title: r.title } : {}) };

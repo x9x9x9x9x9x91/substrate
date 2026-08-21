@@ -84,19 +84,31 @@ function rowTitle(row: TasksDashboardRow, now: Date): string {
 /** Header state: what's actually pressing, urgency first. The
     snoozed tally left the header — parked work has its own section now, and
     the header should read as today's load. */
-function stateLabel(overdue: number, dueToday: number, nowCount: number, total: number): string {
+function stateLabel(
+  overdue: number,
+  dueToday: number,
+  nowCount: number,
+  total: number,
+  filtered: number
+): string {
   const parts: string[] = [];
   if (overdue > 0) parts.push(`${overdue} overdue`);
   if (dueToday > 0) parts.push(`${dueToday} today`);
   if (nowCount > 0) parts.push(`${nowCount} now`);
   if (parts.length > 0) return parts.join(" · ");
-  return total > 0 ? `${total} open` : "clear";
+  if (total > 0) return `${total} open`;
+  // An `areas:` filter that matched none of the open work is not work
+  // finished. Green and "clear" on a board whose allowlist is a typo told the
+  // opposite of the truth — everything it was meant to show is still open.
+  return filtered > 0 ? "no matches" : "clear";
 }
 
-function stateColor(overdue: number, dueToday: number, total: number): string {
+function stateColor(overdue: number, dueToday: number, total: number, filtered: number): string {
   if (overdue > 0) return "var(--danger)";
   if (dueToday > 0) return "var(--opt-orange)";
-  return total > 0 ? "var(--text-3)" : "var(--ok)";
+  if (total > 0) return "var(--text-3)";
+  // an unmatched filter is not the green of finished work
+  return filtered > 0 ? "var(--text-3)" : "var(--ok)";
 }
 
 /** Section dot and count-badge tint — the hue carries the section's meaning
@@ -715,14 +727,33 @@ export default function TasksDashboard({
     );
   };
 
+  /* One empty sentence for both shapes, and it distinguishes the two ways a
+     board ends up empty: nothing open, or an `areas:` list that matched none
+     of the work there is. The second used to read exactly like the first. */
+  const emptyLine =
+    (model.filtered > 0
+      ? `No open tasks in these areas — ${model.filtered} open in areas this board doesn't list.`
+      : model.config.areas
+        ? "Nothing open in these areas — the next one starts above."
+        : "Nothing open — the next one starts above.") +
+    (model.snoozed > 0
+      ? ` ${model.snoozed} snoozed ${model.snoozed === 1 ? "task wakes" : "tasks wake"} later.`
+      : "");
+
   return (
     <div className="note">
       <div className="dash-inner tasks-compact">
         <DashHead
           title={meta.title}
           state={{
-            color: stateColor(model.overdue, model.dueToday, model.total),
-            label: stateLabel(model.overdue, model.dueToday, model.nowCount, model.total),
+            color: stateColor(model.overdue, model.dueToday, model.total, model.filtered),
+            label: stateLabel(
+              model.overdue,
+              model.dueToday,
+              model.nowCount,
+              model.total,
+              model.filtered
+            ),
           }}
           actions={
             <>
@@ -819,46 +850,47 @@ export default function TasksDashboard({
             The empty line still speaks for the list view, and for a board that
             genuinely has no columns to show. */}
         {view === "board" && model.columns.length > 0 ? (
-          <div className="tasks-cols">
-            {model.columns.map((col) => (
-              <div
-                key={col.area}
-                className={`tasks-col${dropArea === col.area ? " drop" : ""}`}
-                style={{ "--sec": "var(--opt-blue)" } as CSSProperties}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = "move";
-                  if (dropArea !== col.area) setDropArea(col.area);
-                }}
-                onDragLeave={() => setDropArea((cur) => (cur === col.area ? null : cur))}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  dropOn(col.area, e.dataTransfer.getData("text/plain"));
-                }}
-              >
-                <div className="tasks-col-head">
-                  <span
-                    className={`tasks-col-name${col.area === "Unassigned" ? " none" : ""}`}
-                  >
-                    {col.area}
-                  </span>
-                  <span className="tasks-group-count">{col.rows.length}</span>
+          <>
+            <div className="tasks-cols">
+              {model.columns.map((col) => (
+                <div
+                  key={col.area}
+                  className={`tasks-col${dropArea === col.area ? " drop" : ""}`}
+                  style={{ "--sec": "var(--opt-blue)" } as CSSProperties}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    if (dropArea !== col.area) setDropArea(col.area);
+                  }}
+                  onDragLeave={() => setDropArea((cur) => (cur === col.area ? null : cur))}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    dropOn(col.area, e.dataTransfer.getData("text/plain"));
+                  }}
+                >
+                  <div className="tasks-col-head">
+                    <span
+                      className={`tasks-col-name${col.area === "Unassigned" ? " none" : ""}`}
+                    >
+                      {col.area}
+                    </span>
+                    <span className="tasks-group-count">{col.rows.length}</span>
+                  </div>
+                  <div className="tasks-col-body">
+                    {col.rows.length === 0 && <div className="tasks-col-empty" aria-hidden="true" />}
+                    {col.rows.map(renderCard)}
+                  </div>
                 </div>
-                <div className="tasks-col-body">
-                  {col.rows.length === 0 && <div className="tasks-col-empty" aria-hidden="true" />}
-                  {col.rows.map(renderCard)}
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+            {/* The columns are drop targets and stay, but a board of empty
+                columns said nothing at all — the only marks were an aria-hidden
+                placeholder per column, so a screen reader got silence where the
+                list view got a sentence. Both shapes now say the same thing. */}
+            {model.total === 0 && <div className="tasks-empty">{emptyLine}</div>}
+          </>
         ) : model.total === 0 ? (
-          <div className="tasks-empty">
-            {model.config.areas
-              ? "Nothing open in these areas — the next one starts above."
-              : "Nothing open — the next one starts above."}
-            {model.snoozed > 0 &&
-              ` ${model.snoozed} snoozed ${model.snoozed === 1 ? "task wakes" : "tasks wake"} later.`}
-          </div>
+          <div className="tasks-empty">{emptyLine}</div>
         ) : (
           <div className="tasks-board">
             {model.sections.map((section) => (

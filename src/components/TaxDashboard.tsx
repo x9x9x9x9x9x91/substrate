@@ -23,6 +23,7 @@ import { MetricCardStrip, useCardValues } from "./MetricCards";
 import { useNumberLocale } from "../hooks/useNumberLocale";
 import { useFxRates } from "./useFx";
 import { DashHead, DashPrintButton } from "./DashHead";
+import { errText, midSentence } from "../lib/errtext";
 
 interface TaxDashboardProps {
   meta: NoteMeta;
@@ -69,10 +70,10 @@ function useSheet(name: string, vaultEpoch: number): { state: Loaded; pending: b
         }
         vaultRead(resolved.path).then(
           (content) => settle({ content, error: null, wrongType: false }),
-          (error) => settle({ content: null, error: String(error), wrongType: false })
+          (error) => settle({ content: null, error: errText(error), wrongType: false })
         );
       })
-      .catch((error) => settle({ content: null, error: String(error), wrongType: false }));
+      .catch((error) => settle({ content: null, error: errText(error), wrongType: false }));
     return () => {
       gone = true;
     };
@@ -165,9 +166,17 @@ export default function TaxDashboard({ meta, vaultEpoch, onOpenSource }: TaxDash
             Snapshot freshness cannot be trusted — {taxFreshnessLabel(fresh)}.
           </div>
         )}
+        {/* What this source feeds is the category table below and nothing else:
+            the cards resolve their own `{{Sheet.summary}}` bindings through the
+            shared reader, so repointing `sheet:` breaks this table while the
+            strip keeps paying out. The banner used to claim "aggregates
+            unavailable" over a fully populated strip — true of the table,
+            false of everything the reader could see. */}
         {!aggSheet.pending && aggSheet.state.error !== null && (
           <div className="tax-alert">
-            Aggregates unavailable — {aggSheet.state.error}
+            Category breakdown unavailable — {midSentence(aggSheet.state.error)}.
+            {cards.length > 0 &&
+              " The cards below read their own bindings and are unaffected."}
           </div>
         )}
 

@@ -651,3 +651,25 @@ test("without an allowlist only populated areas hold columns, Unassigned last (S
   );
   assert.deepEqual(model.columns.map((c) => c.area), ["alpha", "Zulu", "Unassigned"]);
 });
+
+test("an areas allowlist that matches nothing counts the work it hid", () => {
+  const notes = [
+    note("Mix bounce", { type: "task", area: "Studio", created: "2026-07-01" }),
+    note("File receipts", { type: "task", area: "Admin", created: "2026-07-01" }),
+  ];
+  // the audit's case: a board whose allowlist is a typo. Every open task is
+  // still open; none of them is on this board.
+  const typo = buildTasksDashboard(notes, { areas: ["No Such Area"] }, NOW);
+  assert.equal(typo.total, 0);
+  assert.equal(typo.filtered, 2);
+
+  // an allowlist that matches, with nothing open in it, is a different fact
+  const done = buildTasksDashboard([], { areas: ["Studio"] }, NOW);
+  assert.equal(done.total, 0);
+  assert.equal(done.filtered, 0);
+
+  // and a board with no allowlist never reports hidden work
+  const all = buildTasksDashboard(notes, {}, NOW);
+  assert.equal(all.total, 2);
+  assert.equal(all.filtered, 0);
+});

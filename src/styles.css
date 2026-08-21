@@ -10681,7 +10681,10 @@ th.sheet-computed:hover {
      keeps a squeezed pane from starving the mono values below legibility —
      below it the strip drops to two columns rather than truncate. */
   grid-template-columns: repeat(var(--metrics-cols, 4), minmax(0, 1fr));
-  row-gap: 24px;
+  /* The 24px between card rows is carried by the card's own padding, not by a
+     row gap: the cards span three shared rows each (see below), and a gap
+     would open between a card's own label and its value as well. */
+  row-gap: 0;
 }
 
 /* the squeeze point is the pane, not the window (principle 4) — a sidebar can
@@ -10767,13 +10770,25 @@ th.sheet-computed:hover {
   border-top-color: var(--accent-tint, var(--hair-soft));
 }
 
-.metrics-cards .dash-card {
-  display: flex;
-  flex-direction: column;
-}
+/* One row, one baseline. The cards used to be flex columns whose LABEL took
+   the slack (`flex: 1 0 auto`), which bottom-anchored the value block — fine
+   while every card in the row had the same anatomy, and a ~21px stagger the
+   moment one card carried a reason line under its value and its neighbour did
+   not. The three bands are shared now: label, value, sub-line. Every card
+   spans the same three rows of the strip's own grid, so a card with a reason
+   line lands that line in the third band instead of pushing its own value up
+   out of line with the row.
 
-.metrics-cards .dash-card .dash-label {
-  flex: 1 0 auto;
+   The gutter override is load-bearing: the strip's 24px row-gap is the space
+   BETWEEN card rows, and without this it would also open between a card's
+   label and its value. */
+.metrics-cards .dash-card {
+  display: grid;
+  grid-template-rows: subgrid;
+  grid-row: span 3;
+  align-content: start;
+  /* what the strip's row gap used to be — see .metrics-cards */
+  padding-bottom: 24px;
 }
 
 
@@ -13451,8 +13466,10 @@ span.asset-thumb svg {
   /* dashboards print as themselves: the live pane's DOM clones into
      the surface, keeping its own layout and type voices — the dark token ramp
      just remaps onto this block's light palette. Only chrome that means
-     nothing on paper (the head's actions cluster: print/source buttons) is
-     dropped; links and checkbox states are content and stay. */
+     nothing on paper is dropped — the head's actions cluster (print/source
+     buttons) and the in-body controls a reader cannot press: job pause/run,
+     verdict and vote chips nobody has marked, the quick-add forms. Links,
+     checkbox states and marked verdicts/votes are content and stay. */
   #print-surface {
     --text-1: #1b1e22;
     --text-2: #565b63;
@@ -13519,6 +13536,32 @@ span.asset-thumb svg {
     --band-5: #e87ba4;
   }
 
+  /* the status family's paper weights. --ok/--warn/--danger are tuned for
+     #090909 (7.97 / 8.55 / 5.72 there) and collapse on the print panel —
+     2.33 / 2.17 / 3.25 against #f6f7f8, i.e. under 4.5:1 as text. They are read as text here,
+     not only as marks: food's day values, music-work's quality flag, jobs'
+     run chips, tasks' stale/priority chips. Same hues, darkened for paper
+     the way the accent and band families already are — ok 5.2:1, warn 5.0:1,
+     danger 6.2:1 against the panel. Danger lands on the exact red this block
+     already prints its error lines in, so a page carries one red, not two.
+     --ok-soft is substituted at :root, so re-slotting --ok alone would leave
+     it at its screen weight; it is named here and keeps its role — the paler
+     "progressing, not there yet" sibling, still 3.3:1 against the panel —
+     over the 3:1 mark floor, under the text floor, so it stays on figures
+     large enough to read as display type. Every ratio in this block is
+     measured against the print panel #f6f7f8, not the page. */
+  #print-surface,
+  #print-surface .dash-inner,
+  #print-surface .metrics-cards {
+    --ok: #2f7452;
+    --ok-soft: #3d996c;
+    --warn: #8a6519;
+    --danger: #a33636;
+    /* the unfilled part of a bar or rail: white on white otherwise, since the
+       screen value is a white wash meant for a near-black ground */
+    --track: #e6e8eb;
+  }
+
   /* Glow is a screen affordance: a drop-shadow on ink prints as a grey
      smear, so the bloom rules are switched off wholesale for paper
      rather than each being re-scoped to exclude the print surface. */
@@ -13534,6 +13577,68 @@ span.asset-thumb svg {
 
   #print-surface .dash-actions {
     display: none;
+  }
+
+  /* the same argument one level in: a dashboard body carries controls that
+     write to the vault — jobs' pause/run rail, the food/yield/task quick-add
+     forms. Printed they are affordances a reader cannot take, so they leave
+     the page; the rows and figures they act on stay. The submit button is
+     named alongside the form it usually sits in, for the boards that carry
+     one on its own. */
+  #print-surface .jobs-acts button,
+  #print-surface .dash-form,
+  #print-surface .dash-add,
+  #print-surface .food-daynav-btn {
+    display: none;
+  }
+
+  /* two of those clusters carry a statement as well as its controls, so the
+     rule above takes the buttons and not the box around them: jobs' rail says
+     "read-only" on a row the app cannot drive, and food's stepper names the
+     day the board is showing. Both are facts about what is on the page, and a
+     printed board that drops them says less than the screen did. What is left
+     is text, so the stepper's frame comes off with its arrows. */
+  #print-surface .food-daynav {
+    border: none;
+    padding: 0;
+  }
+
+  #print-surface .food-daynav-day {
+    color: var(--text-2);
+  }
+
+  /* verdict and vote chips are the exception the checkbox rule already
+     names: an unmarked chip is a button and goes, a marked one is a recorded
+     state and prints as a static mark. Their screen ink mixes 78% toward
+     #fff for the dark ground, so the marked chip is re-slotted here rather
+     than printing pale on the page. */
+
+  #print-surface .feed-vote:not(.is-up):not(.is-down) {
+    display: none;
+  }
+
+  #print-surface .feed-vote {
+    border-color: var(--border);
+    background: none;
+  }
+
+  #print-surface .feed-vote.is-up {
+    color: var(--ok);
+  }
+
+  #print-surface .feed-vote.is-down {
+    color: var(--danger);
+  }
+
+  /* the overdue chips mix --danger toward #fff the same way, for the same
+     dark ground: on its own 15% tint the date chip lands at 3.29:1, under the
+     4.5:1 this block holds text to — and a due date is text. Undiluted it
+     reads 4.95:1 there. The section name's 85% mix clears the bar at 4.59:1
+     on the panel and is re-slotted with it anyway, so an overdue section
+     speaks in one red rather than two weights of it. */
+  #print-surface .tasks-overdue .tasks-group-name,
+  #print-surface .tasks-due.overdue {
+    color: var(--danger);
   }
 
   /* the chart language now draws in accent tokens, which the block above
@@ -13552,6 +13657,16 @@ span.asset-thumb svg {
      rather than inherited. */
   #print-surface .dash-chart .dash-bar-val.is-inset {
     color: #1b1e22;
+  }
+
+  /* a goal bar's fill is a hardcoded white wash on screen (the ground it sits
+     on is near-black), so on paper it printed white on a white track and the
+     board carried no goal — only its percent hint. Same neutral grayscale
+     voice as on screen, in paper ink: the fill reads against the remapped
+     --track at 3.7:1 and against the page at 4.6:1 — a bar is a mark, so
+     the 3:1 floor is the one that applies. */
+  #print-surface .progress-fill {
+    background: #71767e;
   }
 
   /* a stack is drawn by its slices — the id-scoped rule above would otherwise
@@ -13601,6 +13716,25 @@ span.asset-thumb svg {
     color: #a33636;
   }
 
+
+  /* a view table sizes itself from its cells (each up to 220px, never
+     wrapped), so in a two-track tile grid the second table used to run past
+     its column and collide with its neighbour — on screen the tile scrolls,
+     on paper nothing scrolls. Here the table is held to the width it was
+     given and the cells wrap instead of being clipped to an ellipsis: paper
+     has no hover to reveal the rest of a truncated cell, so a printed table
+     shows its text or it says nothing. */
+  #print-surface .embed-view-table {
+    table-layout: fixed;
+  }
+
+  #print-surface .embed-view-table th,
+  #print-surface .embed-view-table td {
+    max-width: none;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+  }
   #print-surface .hub-timeline-scroll {
     overflow: visible;
   }

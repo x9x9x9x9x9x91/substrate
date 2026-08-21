@@ -15,6 +15,7 @@ import {
   sheetRows,
   timelikeKeys,
   xFractions,
+  unknownDbSource,
   xSchemaOptions,
   summarySeries,
   historySeries,
@@ -25,7 +26,7 @@ import {
 } from "./chart.ts";
 import { evaluateSheet, parseSheet } from "./sheet.ts";
 import { ferr } from "./formula.ts";
-import type { NoteMeta } from "./types.ts";
+import type { NoteMeta, SchemaConfig } from "./types.ts";
 
 const noFx = () => null;
 
@@ -1441,4 +1442,27 @@ test("chartIdentity: a history chart is identified by the fact it plots", () => 
   assert.notEqual(hist("Assets/BTC.md", "price"), hist("Assets/BTC.md", "supply"));
   // and never collides with a row-bound chart naming the same words
   assert.notEqual(hist("release", "bucket"), chartIdentity(cfg({ by: "bucket" })));
+});
+
+test("unknownDbSource: a type nothing declares and nothing carries is named", () => {
+  const notes: NoteMeta[] = [
+    {
+      path: "Releases/One.md",
+      stem: "One",
+      title: "One",
+      folder: "Releases",
+      props: { type: "release" },
+      updated_ms: 0,
+      excerpt: "",
+      sealed: false,
+    },
+  ];
+  const schema: SchemaConfig = { track: { title: { options: [] } } };
+
+  // a misspelling used to draw the same empty plot an empty database draws
+  assert.equal(unknownDbSource(notes, schema, "nosuchdb"), 'Unknown database “nosuchdb”');
+  // a type the schema declares is real even with no notes in it yet
+  assert.equal(unknownDbSource(notes, schema, "track"), null);
+  // …and so is one the notes carry without a schema entry, case-folded
+  assert.equal(unknownDbSource(notes, schema, "Release"), null);
 });

@@ -91,6 +91,11 @@ export interface TasksDashboardModel {
   nowCount: number;
   /** Open tasks hidden by a future `snoozed_until` (after the area filter). */
   snoozed: number;
+  /** Open tasks the `areas:` allowlist excluded. Zero without an allowlist.
+      An empty board means two different things and this is what tells them
+      apart: nothing open anywhere, or a filter that matched none of the work
+      there is. */
+  filtered: number;
 }
 
 const clean = (value: unknown): string | null =>
@@ -374,6 +379,7 @@ export function buildTasksDashboard(
     : null;
   const rows: TasksDashboardRow[] = [];
   const snoozedRows: TasksDashboardRow[] = [];
+  let filtered = 0;
   const foldedProp = (props: Record<string, unknown>, key: string) =>
     props[foldedPropKey(props, key)];
 
@@ -384,7 +390,10 @@ export function buildTasksDashboard(
 
     const sourceArea = clean(foldedPropStr(note.props, "area")) ?? "Unassigned";
     const area = allowed ? allowed.get(sourceArea.toLowerCase()) : sourceArea;
-    if (!area) continue;
+    if (!area) {
+      filtered += 1;
+      continue;
+    }
 
     const created = foldedPropStr(note.props, "created");
     const due = foldedPropStr(note.props, "due");
@@ -498,5 +507,6 @@ export function buildTasksDashboard(
     dueToday: todayRows.length,
     nowCount: nowRows.length,
     snoozed: snoozedRows.length,
+    filtered,
   };
 }

@@ -13,6 +13,7 @@ import {
   type FxState,
 } from "../lib/fx";
 import { isTauri } from "../lib/tauri";
+import { errText } from "../lib/errtext";
 
 function readCache(): FxRatesState | null {
   try {
@@ -78,7 +79,7 @@ function requestRefresh(force: boolean): void {
         publish({ fx: { ...rates, live: true }, err: null });
         writeCache(rates);
       } catch (e: unknown) {
-        publish({ fx: getSnapshot().fx, err: String(e) });
+        publish({ fx: getSnapshot().fx, err: errText(e) });
       }
     })
     .finally(() => {

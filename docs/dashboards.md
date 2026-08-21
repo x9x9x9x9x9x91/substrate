@@ -1098,7 +1098,11 @@ can honour.
 Because the names resolve through the theme, a board that asks for `teal`
 follows the theme when the theme moves — including the accent-tone settings.
 A vault-resident kind gets the same roster as `ctx.accents` and reaches mood
-the same way: `data-accent="<name>"` on a sanctioned class.
+the same way, through exactly one class: `data-accent="<name>"` on a
+`dash-card`. That is the one sanctioned class wired for it — the attribute on
+a `dash-metric`, on a `dash-table` or on an element of your own paints
+nothing, and paints nothing silently, so a kind that wants hue elsewhere puts
+it there with its own CSS and accepts that it no longer follows the theme.
 
 ## Workbook pages — tabs at the bottom
 
@@ -1210,6 +1214,18 @@ on children that vanish with the next draw. `ctx.setState({ color, label })`
 lights the dot in the header — `color` is any CSS color; `null` keeps it
 quiet.
 
+**Layout is your job.** `el` is a plain flow container inside the dashboard's
+own centred column; the app draws the head and the width, and stops there. The
+roster carries no layout primitives beyond its two grids (`dash-metrics` and
+`dash-cards`) — anything spatial past that is your bundle's own CSS, shipped
+as the manifest's `style`, and so is behaviour at narrow widths, since nothing
+reflows a kind for you. Positioned children deserve particular care: absolute
+placement lets two of them overlap, and the one on top swallows clicks meant
+for the one underneath, so a delegated handler just stops firing for that
+element with nothing in the UI to say why. If you place by coordinate, make
+collisions impossible — stack into sub-rows, nudge, or fall back to flow —
+rather than trusting the data to stay sparse.
+
 Beyond `notes()` (whose optional argument is a plain predicate:
 `ctx.notes((n) => n.props.type === "gear")`), ctx gives you `read(path)`,
 `sheet(title)` (a parsed,
@@ -1221,6 +1237,46 @@ note changed since you read it; the refusal is a rejected promise, so catch
 it, toast, and redraw from a fresh read. Check before calling anything you're
 not sure
 this build has (`if (ctx.sheet) …`): ctx gains members without bumping `api`.
+
+A note's frontmatter reaches you as `props`, and nothing is promised about
+what is in it: the values are unknown-typed, whatever that note's YAML parsed
+to, so coerce before you compare. `Number(n.props.bpm) > 128`, not
+`n.props.bpm > 128` — the second one silently does a string comparison the day
+a note writes its tempo in quotes, and draws a wrong board rather than an
+error.
+
+**A second pass, using more of the roster.** The thirteen names in `ctx.css`
+are a vocabulary of objects, not a layout system, and most of them want a
+particular element under them. A rundown that reads like the rest of the app:
+
+```js
+el.innerHTML = `
+  <div class="${ctx.css["dash-section-label"]}">By room</div>
+  <table class="${ctx.css["dash-table"]}">
+    <thead><tr><th>Piece</th><th>Room</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>
+  <div class="${ctx.css["dash-foot"]}">${gear.length} logged</div>
+
+  <div class="${ctx.css["dash-cards"]}">
+    <div class="${ctx.css["dash-card"]}" data-accent="teal">
+      <div class="${ctx.css["dash-label"]}">Studio</div>
+      <div class="${ctx.css["dash-metric-sub"]}">${studio.length} pieces</div>
+    </div>
+  </div>`;
+```
+
+`dash-section-label` is a self-decorating heading — it draws its own trailing
+hairline, so a rule of your own beneath it doubles the line. `dash-table` wants
+a real `<table>`: `th` and `td` are what carry the styling, and the first cell
+of each row reads quieter on purpose, which is why the name column goes first.
+`dash-foot` is the quiet closing line under a block. `dash-cards` is the second
+grid and `dash-card` its tile — the one class `data-accent` is wired on, and
+the accent reaches the card's `dash-label`. Two more that are easy to swap:
+`dash-value` is styled only inside a `dash-metric`, and `dash-metric-sub` is
+the sub-line inside a tile or card while `dash-sub` is the page-level subtitle
+under a heading. `dash-link` is a link-looking reset for a `<button>`, so use
+it on a button and keep the keyboard behaviour.
 
 **Enabling it is a deliberate act.** A kind runs with the same access as
 Substrate itself — there is no sandbox — so a bundle does nothing until you
@@ -1259,6 +1315,54 @@ files and its history stay exactly where they were, and re-enabling is the
 same review again. The button is there whenever this device holds a consent
 record, including for a kind that has since become unrunnable, which is
 precisely when you most want to withdraw it.
+
+### The author's loop
+
+Nothing above says how a folder you just wrote becomes a pane you can look at,
+and that is the shortest way to lose an afternoon. The whole path is four
+steps, all inside the running app:
+
+1. Write the folder at `.vault/kinds/<id>/` in the vault you have open —
+   `kind.json`, your entry file, an optional stylesheet.
+2. Point a note at it: `dashboard: <id>` in the frontmatter, exactly as for a
+   built-in kind.
+3. Open that note. Because the kind isn't consented to yet, the review lands
+   *in place of the body*, listing the files it covers.
+4. Press Enable. The pane mounts there and then — no relaunch, no reopen.
+
+Iterating is the same loop with one setting. Every save changes the bundle's
+bytes, so the hash the consent is pinned to no longer matches and the kind stops
+and asks again — safe, and unbearable at the pace you edit code. The **trust
+updates to this kind** rider on that second review is the escape: tick it once
+and later saves re-enable themselves and the pane re-mounts on the new bytes.
+There is no stale-module trap under this; the module URL carries the bundle
+hash, so new bytes are a new URL and the old code cannot be served back to you.
+
+One thing to know because it is invisible: `.vault/` is not watched the way
+your notes are, so writing a bundle does not by itself tell the app the folder
+changed. The list is re-read when the vault changes, when a consent is written
+(enabling, disabling, an auto-re-enable), or at app start. If a freshly written
+bundle isn't showing, touch a note or reopen the vault rather than assuming the
+manifest is wrong.
+
+Debugging is the webview console plus the cards the host draws for you. A
+`mount` that throws, or an entry file that fails to import, replaces the body
+with a card naming the kind and the file — it never goes blank and never falls
+back to another renderer. What the cards cannot catch is anything that throws
+*after* mount returns: a timer, a promise you didn't await, a listener. Those
+reach the console only, so handle your own rejections and put the message
+somewhere you'll see it — `ctx.toast(msg)` or `ctx.setState({ label })`.
+
+If you are working in the Substrate repo rather than a vault, there is a
+faster lane: the browser mock. `npm run dev`, then from the console
+`window.__mockWriteKind({ id, manifest, files, enabled: true })` stages the
+same row the real loader would, hashed over the same bytes, and the pane
+imports your module through a blob URL. `e2e/customkind.spec.ts` is the worked
+example, including the failure states. What it does **not** exercise is the
+part that only exists in the app: the `substrate-kind:` scheme the real pane
+loads over, the consent record on disk, and the CSP that gates both. A kind
+that works in the mock lane is a kind whose code works; it is not yet a kind
+you have seen run.
 
 **Your code is vault content, so version history covers it.** A bundle under
 `.vault/kinds/` is snapshotted exactly like a note: history excludes only

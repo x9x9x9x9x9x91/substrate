@@ -1,5 +1,6 @@
 import { historyFacts, historySheets, vaultList, vaultRead, vaultResolve } from "./ipc";
 import { foldedPropStr } from "./types";
+import { errText } from "./errtext";
 import {
   evaluateSheet,
   makeHistorySheetValue,
@@ -147,7 +148,7 @@ export function dashboardSheets(
           }
         }
       } catch (error) {
-        models.set(name.toLowerCase(), ferr(String(error)));
+        models.set(name.toLowerCase(), ferr(errText(error)));
       }
     }
 

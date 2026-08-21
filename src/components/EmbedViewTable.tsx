@@ -219,6 +219,14 @@ export default function EmbedViewTable({
           ))}
         </tbody>
       </table>
+      {/* A cut that matched nothing is a fact, and the header row alone was
+          not stating it: a table with columns and no rows under them reads as
+          a broken embed rather than an empty one. Same sentence the chart
+          fences use for the same condition, minus the source half — an
+          unknown database is already its own error above this. */}
+      {result.rows.length === 0 && (
+        <div className="dash-foot">No rows matched — check the query and property names.</div>
+      )}
       {/* Why the table is short, said honestly. An author's `limit:`
           and the surface's safety cap are different facts: the first is the
           table they asked for, the second is rows we declined to paint. Both
