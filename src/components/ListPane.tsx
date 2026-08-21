@@ -747,7 +747,13 @@ function ListPane({
             {winTopH > 0 && (
               <div className="list-win-spacer" aria-hidden="true" style={{ height: winTopH }} />
             )}
-            {notes.slice(winStart, winEnd).map((n, winIdx) => (
+            {notes.slice(winStart, winEnd).map((n, winIdx) => {
+              /* Fenced row extras, spread rather than named as attributes: a
+                 JSX opening tag has nowhere to put a comment, so a prop that
+                 only one build carries has to arrive through an object the
+                 strip pass can empty. */
+              const extra: Record<string, boolean> = {};
+              return (
               <NoteRow
                 key={n.path}
                 note={n}
@@ -755,13 +761,15 @@ function ListPane({
                 date={relDate(n.updated_ms, nowMin)}
                 selected={selected === n.path}
                 renaming={renaming === n.path}
+                {...extra}
                 onSelect={onSelect}
                 onActivate={onActivate}
                 onRenameNote={onRenameNote}
                 onRenameCancel={onRenameCancel}
                 onRowContextMenu={onRowContextMenu}
               />
-            ))}
+              );
+            })}
             {winBottomH > 0 && (
               <div className="list-win-spacer" aria-hidden="true" style={{ height: winBottomH }} />
             )}

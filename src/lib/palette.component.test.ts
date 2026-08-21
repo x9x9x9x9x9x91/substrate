@@ -143,7 +143,12 @@ test("the empty palette lists every destination the catalogue names", async (t) 
   // read off the catalogue, not copied from it — a row added there and not
   // rendered here is the exact failure this is for. Machine-gated entries are
   // filtered the way the component filters them, with this fixture's answers.
-  const expected = FIXED_VIEW_COMMANDS.filter((c) => c.when?.({ proxyAvailable: false }) ?? true);
+  const expected = FIXED_VIEW_COMMANDS.filter(
+    (c) =>
+      c.when?.({
+        proxyAvailable: false,
+      }) ?? true
+  );
   assert.ok(expected.length >= 10, "the catalogue parsed to almost nothing");
   for (const c of expected) {
     assert.ok(row(r, c.label), `no palette row for “${c.label}”`);
