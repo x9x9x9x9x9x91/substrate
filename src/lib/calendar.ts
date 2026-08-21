@@ -1,3 +1,4 @@
+import { daysBetween, shiftDate } from "./dates.ts";
 import { byFoldedKey, propSchemaFor, typeSchemaFor } from "./schemalookup.ts";
 import type { NoteMeta, SchemaConfig } from "./types.ts";
 import { foldedPropKey, foldedPropStr, FUNCTIONAL_TYPES, propStr } from "./types.ts";
@@ -228,6 +229,27 @@ export function shiftedRangeEnd(
   }
   const deltaDays = Math.round((target.getTime() - from.getTime()) / 86400000);
   return { day: isoDay(addDays(end, deltaDays)), time: span.endTime ?? undefined };
+}
+
+/** Where a range's START lands when a drop releases it on `day`.
+
+    Grabbing the range's own start puts that start under the pointer, which is
+    every single-day move. Grabbing a LATER day of a span (`grabDay`) is a
+    request to slide the whole range instead: the start travels the same
+    number of days the pointer did, so a three-day event taken hold of by its
+    middle day keeps its shape rather than jumping a day back under the
+    cursor. Whole-day arithmetic throughout — `daysBetween` counts calendar
+    days from the y/m/d components, so a clock change inside the travel can't
+    drift the count, and the result may sit in an earlier month or year than
+    the grid that was dropped on. An endpoint that isn't a real ISO day falls
+    back to the dropped day, the same placement an ordinary grab gets. */
+export function droppedRangeStart(
+  span: { day: string; grabDay?: string },
+  day: string
+): string {
+  if (!span.grabDay || span.grabDay === span.day) return day;
+  if (!parseDay(span.day) || !parseDay(span.grabDay) || !parseDay(day)) return day;
+  return shiftDate(span.day, daysBetween(span.grabDay, day));
 }
 
 /** Shortest event a resize can leave behind — one snap step of the
