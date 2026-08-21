@@ -99,55 +99,6 @@ export function splitLead(text: string): { lead: string; rest: string } | null {
 
 export const CHANGELOG: ChangelogRelease[] = [
   {
-    version: "0.25.0",
-    date: "2026-08-21",
-    title: "Search includes the past, and the vault syncs itself",
-    items: [
-      {
-        text: "Search can include the past — an opt-in, on-device index over your vault's history answers from versions you edited away, matches landing in the time scrubber at the moment they existed — and it reads your pictures: text inside screenshots and images is searched on-device, and a picture that answers opens at the matching words.",
-        kind: "new",
-        headline: true,
-      },
-      {
-        text: "The vault syncs itself: push when your edits settle, pull when you open, focus, or just wait — one toggle in the Sync pane. And hosted sync grew up around it: enrollment and remote shown, passphrase change in place, a health check that stops a failing leg or a skewed clock from reading green, pushes that verify what the server claims to hold, and a store that warns before it fills.",
-        kind: "new",
-        headline: true,
-      },
-      {
-        text: "Notes learn structure: a note with a handles: line becomes a person page whose appearances rail collects every calendar entry, database row, and mention that already names them — and tables and boards grow expandable sub-item trees from a marked parent relation, with rollups that keep counting while a branch is folded.",
-        kind: "new",
-      },
-      {
-        text: "External drives join the vault as mounts that outlive the unmount: a shelf in the rail you can browse with the disk in a drawer, each drive saying how long since it was last seen — and a mounted folder of Ableton projects puts tempo, key, track count, and Live version on the board.",
-        kind: "new",
-      },
-      {
-        text: "The dashboard family goes public: cards, charts, progress thermometers, calendar grids, heatmaps and timelines are documented kinds with slash commands, joined by boards for scheduled jobs, repo health, folder sync, and tax season. ⌘K creates a dashboard by name with a starter note, and the cookbook comes to you — browse and install recipes inside the app, a ready personal-finance workbook included.",
-        kind: "new",
-      },
-      {
-        text: "Speak a note: voice capture ships for everyone, started by hotkey or button, with the microphone prompt naming every way a recording can begin — and quick capture can show what you were doing as a chip on the capture window, off by default behind a new Experimental section in Settings.",
-        kind: "new",
-      },
-      {
-        text: "The editor meets you halfway: /table drops a scaffold and a rendered table grows from its own edges, right-click edits cells in place, the filter bar teaches its whole grammar, completion reaches view fences, wikilink anchors and aliases, live values and frontmatter, seal, lock, and print are reachable from every surface that can use them — and a property's schema can declare how fresh its values should stay.",
-        kind: "new",
-      },
-      {
-        text: "iOS home-screen widgets show your dashboard tiles from the last-synced vault and deep-link back into the note.",
-        kind: "new",
-      },
-      {
-        text: "Polish across the board: wrapped list lines hang-indent under their own text, the outline toggle joined the note tool row, every dashboard explains itself in its own words, a saved view reads the same in the app and headless, the ⌘K palette carries every destination with its real keycaps, and the tray agenda dims what you finished.",
-        kind: "improved",
-      },
-      {
-        text: "A truth sweep: rows from mounted folders stay in search scope, a revealed row the window hasn't painted is scrolled to instead of lost, out-of-range coercions stop leaking Infinity into values, money rounds in decimal space so 1.005 keeps its cent, tables inside blockquotes render as tables and keep your first keystrokes when they grow, a Live 12 set's root note reads correctly, and an idle pull that cannot read the tree fails instead of reporting no change.",
-        kind: "fixed",
-      },
-    ],
-  },
-  {
     version: "0.24.0",
     date: "2026-08-11",
     title: "Search reads your properties, and bulk edits sign their work",

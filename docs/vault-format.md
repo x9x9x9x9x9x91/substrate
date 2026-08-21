@@ -2595,6 +2595,7 @@ orphans normally; delete the asset and you keep a transcript. Removing
 app to transcribe it again.
 
 
+## 5b. `.vault/format.json` — config format versions (covers §6–§8e)
 ### 5.13 Person pages — `handles:`
 
 A note that carries a `handles:` prop is a person page. The value is the list
@@ -2634,8 +2635,7 @@ the column or handle it matched, and opens that note.
 An external writer needs no support beyond writing the prop: it is an ordinary
 frontmatter key (§2), preserved and round-tripped like any other.
 
-
-## 5b. `.vault/format.json` — config format versions (covers §6–§8e)
+## 5b. `.vault/format.json` — config format versions (covers §6–§8b)
 
 One sidecar records which format version each hidden config file is in
 (`src-tauri/src/vaultfmt.rs`). It exists because two app versions can share a
