@@ -13498,7 +13498,13 @@ span.asset-thumb svg {
     --text-1: #1b1e22;
     --text-2: #565b63;
     --text-3: #71767e;
-    --text-4: #9198a1;
+    /* the screen ramp's faintest tier has no legible paper weight: on the
+       near-black ground #9198a1 is a quiet fourth voice, on white it reads at
+       2.91:1 — under the 4.5:1 floor, which on a printed page means a caption
+       a reader squints at rather than reads. Paper therefore has one tier
+       fewer than screen: the fourth voice merges into the third at 4.57:1 and
+       keeps its place in the hierarchy by size and weight instead of hue. */
+    --text-4: #71767e;
     --hair: #d5d8dc;
     --hair-soft: #e6e8eb;
     --border: #dfe2e6;
@@ -13669,16 +13675,23 @@ span.asset-thumb svg {
      remaps to their paper weights. Tinted bars keep their schema or series hue
      via the inline --bar; the stack and pointer-only affordances still need
      explicit print handling. */
-  /* tinted bars keep their schema hue via the inline --bar */
+  /* tinted bars keep their schema hue via the inline --bar; everything else
+     takes the fallback. Printing that fallback as a mid grey turned every
+     unsplit chart monochrome on paper, so a board whose bars name one series
+     on screen said nothing about it on the page. The accent is the hue the
+     screen bar carries, and a wash of it holds two obligations at once: as a
+     mark against the page it reads 3.13:1, over the 3:1 a mark owes, and the
+     value written inside it stays dark ink at 5.34:1 — the same ink the
+     tinted bars need, so one knockout colour serves every bar on the sheet. */
   #print-surface .dash-bar {
-    background: var(--bar, #9198a1);
+    background: var(--bar, color-mix(in srgb, var(--accent) 75%, #ffffff));
   }
 
-  /* The inset value knocks out of its bar. On screen the bar is a
-     lit accent and `--bg` is near-black, so the number reads dark on light; on
-     paper the bar is a mid grey and `--bg` is the page itself, which would
-     print white on grey. The ink flips with the surface, so it is named here
-     rather than inherited. */
+  /* The inset value knocks out of its bar. On screen the bar is a lit accent
+     and `--bg` is near-black, so the number reads dark on light; on paper
+     every fill is a pale wash and `--bg` is the page itself, which would print
+     white on white. The ink flips with the surface, so it is named here rather
+     than inherited. */
   #print-surface .dash-chart .dash-bar-val.is-inset {
     color: #1b1e22;
   }
@@ -13701,7 +13714,7 @@ span.asset-thumb svg {
 
   /* a real zero stack has no slices, so its box keeps the ordinary zero fill */
   #print-surface .dash-bar.is-stack.is-zero {
-    background: var(--bar, #9198a1);
+    background: var(--bar, color-mix(in srgb, var(--accent) 75%, #ffffff));
   }
 
   /* an empty bucket prints as the faint tick it draws on screen, in both
@@ -13766,6 +13779,74 @@ span.asset-thumb svg {
 
   #print-surface .hub-timeline-canvas {
     min-width: 0;
+  }
+
+  /* A hub embeds whole boards inside its cards, and on screen each embed sits
+     in a scroller sized for the app window: a month grid asks for seven
+     columns of 110px and up, a heatmap for its 470px plot. Paper is about
+     658px once the page margin is taken out, and nothing scrolls there — so
+     the scroller clipped, and the printed canvas lost its last weekday column
+     and the tail of its heatmap at the right margin. On paper the embed gives
+     up its screen minimum and takes the width the page has: seven narrower
+     columns that all print beat six wide ones and a missing Sunday. Scoped to
+     the hub's own wrappers, so the calendar and heatmap kinds keep whatever
+     print behaviour they are given. */
+  #print-surface .hub-calendar .cal-grid-scroll,
+  #print-surface .hub-heatmap .heatmap-scroll {
+    overflow: visible;
+  }
+
+  /* and once the columns are page-narrow the entries in them have to say
+     their whole name: paper has no hover to reveal the rest of an ellipsis,
+     the same reason a printed view table wraps its cells instead of cutting
+     them. The entry wraps as a block so a time chip takes its own line rather
+     than squeezing the title into a column two letters wide, and the day cell
+     grows to hold what it holds. */
+  #print-surface .hub-calendar .cal-entry {
+    flex-wrap: wrap;
+    align-items: baseline;
+  }
+
+  #print-surface .hub-calendar .cal-entry-title {
+    white-space: normal;
+    overflow-wrap: break-word;
+    text-overflow: clip;
+    min-width: min-content;
+  }
+
+  #print-surface .hub-calendar .cal-weekdays,
+  #print-surface .hub-calendar .cal-grid,
+  #print-surface .hub-calendar .cal-wk-scroll,
+  #print-surface .hub-heatmap .heatmap-plot {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* A plot has no reading at half height: a chart cut by a page break leaves
+     bars with no baseline on one page and a baseline with no bars on the
+     next, and the reader cannot put them back together. A chart, a card, a
+     hub callout and a release timeline are each one unit of meaning, so each
+     moves whole to the next page rather than being sliced. */
+  #print-surface .chart-wrap,
+  #print-surface .dash-chart,
+  #print-surface .dash-card,
+  #print-surface .hub-timeline {
+    break-inside: avoid;
+  }
+
+  /* and its name travels with it: a section label left alone at the foot of a
+     page announces a plot the reader has to turn over to find. */
+  #print-surface .dash-section-label {
+    break-after: avoid;
+  }
+
+  /* Chrome a reader cannot press does not belong on paper — the same argument
+     that drops the head's actions cluster. The back arrow returns to a list
+     that is not printed, and a month pager offers to page a grid that is
+     already fixed on the page; the month it names is a heading and stays. */
+  #print-surface .list-back,
+  #print-surface .hub-calendar .cal-pager {
+    display: none;
   }
 
   #print-surface .print-title {
@@ -13899,7 +13980,7 @@ span.asset-thumb svg {
 
   #print-surface .print-missing,
   #print-surface .print-embed {
-    color: #9198a1;
+    color: #71767e;
     font-size: 11px;
     font-style: italic;
   }
@@ -13976,7 +14057,7 @@ span.asset-thumb svg {
   }
 
   #print-surface .os-fact-label {
-    color: #9198a1;
+    color: #71767e;
     text-transform: uppercase;
     letter-spacing: 0.07em;
     font-size: 9.5px;
@@ -14032,7 +14113,7 @@ span.asset-thumb svg {
   }
 
   #print-surface .print-sheet th {
-    color: #9198a1;
+    color: #71767e;
     text-transform: uppercase;
     letter-spacing: 0.07em;
     font-size: 9.5px;
