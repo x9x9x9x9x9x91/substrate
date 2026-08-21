@@ -152,11 +152,11 @@ fn use_protected_keychain() -> bool {
 /// the vault's absolute path, which is what makes the enrollment movable-away
 /// from (see `device_key_placement`).
 ///
-/// Other sealed store classes keep their own device copies under their own
-/// services, so the machinery below is written once and takes the service as
-/// an argument. Two services rather than two accounts under one: the
-/// identities open different things, and an app that lost the distinction
-/// could hand one store's key to another's reader.
+/// A second store class — the correspondence archive — keeps its own device
+/// copy under its own service, so the machinery below is written once and
+/// takes the service as an argument. Two services rather than two accounts
+/// under one: the identities open different things, and an app that lost the
+/// distinction could hand an archive key to the note reader.
 pub(super) const KEYCHAIN_SERVICE: &str = "app.substrate.sealed-v1";
 
 /// Label and description shown by Keychain Access for the sealed-note copy.

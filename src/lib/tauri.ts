@@ -664,6 +664,7 @@ function snapsFor(n: MockNote): MockSnap[] {
   return snaps;
 }
 
+
 function mockDiff(oldBody: string, newBody: string): DiffLine[] {
   const a = oldBody.replace(/\n$/, "").split("\n");
   const b = newBody.replace(/\n$/, "").split("\n");
@@ -1247,7 +1248,6 @@ const PERF_DB_COUNT = (() => {
   const n = Number(q ?? import.meta.env.VITE_PERF_DB ?? 0);
   return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 50_000) : 0;
 })();
-
 
 if (PERF_DB_COUNT > 0) {
   const PLUGIN_DEVS = [
