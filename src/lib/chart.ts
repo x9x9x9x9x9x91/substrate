@@ -50,7 +50,7 @@ import { parseStrictNumber } from "./aggregate.ts";
 import { isIsoDate, MONTHS, todayIso, toIso } from "./dates.ts";
 import { isErr } from "./formula.ts";
 import { endOfLocalDay, isoDayOf, valueAt } from "./history-facts.ts";
-import { propSchemaFor } from "./schemalookup.ts";
+import { propSchemaFor, typeSchemaFor } from "./schemalookup.ts";
 import { parseChartSize, type ChartSize } from "./styletokens.ts";
 import type { SheetEval, SheetModel } from "./sheet.ts";
 import type { FactLane, NoteMeta, SchemaConfig, SelectOption } from "./types.ts";
@@ -948,6 +948,24 @@ export function dbRows(notes: NoteMeta[], type: string): ChartRow[] {
       for (const [k, v] of Object.entries(n.props)) row[k.toLowerCase()] = v;
       return row;
     });
+}
+
+/** Why a `source:` naming a database found nothing, when the reason is that
+    there is no such database. A misspelled type used to draw the same empty
+    plot an empty database draws — "No rows matched, check the property names"
+    over a name that never existed — while a `view` fence two lines down in
+    the same note said "Unknown database" in red. Same existence check both
+    fences already had to agree on: a type is real if the schema declares it
+    or a note carries it. */
+export function unknownDbSource(
+  notes: NoteMeta[],
+  schema: SchemaConfig,
+  type: string,
+): string | null {
+  if (typeSchemaFor(schema, type) !== undefined) return null;
+  const t = type.toLowerCase();
+  const exists = notes.some((n) => foldedPropStr(n.props, "type")?.toLowerCase() === t);
+  return exists ? null : `Unknown database “${type}”`;
 }
 
 /** Sheet rows as chart rows: data columns (typed) plus computed columns. */

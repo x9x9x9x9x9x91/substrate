@@ -17,6 +17,7 @@ import {
   chartSourceDesc,
   chartTitle,
   dbRows,
+  unknownDbSource,
   historySeries,
   parseChartBlocks,
   sheetRows,
@@ -1008,6 +1009,11 @@ export default function ChartsDashboard({
         };
       }
       const rows = dbRows(notes, c.source.type);
+      // a name that is neither a mount nor a real database type: the chart
+      // said "no rows matched" where a view fence on the same board says
+      // "Unknown database", so a typo read as an empty database
+      const unknown = unknownDbSource(notes, schema, c.source.type);
+      if (unknown && !mountsError) return { series: null, loadError: unknown };
       // no notes of this type AND the mount pass failed: the name may well be
       // a mount this render couldn't reach, so say that rather than drawing a
       // silent empty plot that looks like an empty database

@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { NoteMeta, SchemaConfig } from "../lib/types";
-import { sheetRows } from "../lib/chart";
+import { sheetRows, unknownDbSource } from "../lib/chart";
 import { formatDateHuman, shiftDate, toIso } from "../lib/dates";
 import {
   heatmapDbRows,
@@ -336,8 +336,13 @@ export default function HeatmapDashboard({
   const tallyFor = (block: HeatmapBlock): { tally: HeatmapTally | null; loadError: string | null } => {
     const c = block.config;
     if (!c) return { tally: null, loadError: null };
-    if (c.source.kind === "db")
+    if (c.source.kind === "db") {
+      // same existence check the chart fences and the view fences make: a
+      // misspelled type is a named error, not an empty grid
+      const unknown = unknownDbSource(notes, schema, c.source.type);
+      if (unknown) return { tally: null, loadError: unknown };
       return { tally: tallyHeatmap(heatmapDbRows(c, notes, schema), c), loadError: null };
+    }
     const state = sheets.get(c.source.name.toLowerCase());
     if (!state) return { tally: null, loadError: null };
     if ("error" in state) return { tally: null, loadError: state.error };

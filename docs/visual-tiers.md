@@ -5,12 +5,13 @@ either a broken gate or a false sense of coverage. Keep them apart.
 
 ## Tier 1 — Linux baselines: regression detection
 
-`e2e/visualbaselines.spec.ts`, part of the ordinary `npm run e2e` gate.
+Part of the ordinary `npm run e2e` gate, comparing pixel-for-pixel against
+PNGs committed under `e2e/__screenshots__/linux/`.
 
-Ten core surfaces — note list + editor, All notes, the database manager, a
-database table, three dashboards, the calendar month grid, search results, and
-the print (light-ramp) surface — are compared pixel-for-pixel against PNGs
-committed under `e2e/__screenshots__/linux/`.
+`e2e/visualbaselines.spec.ts` — ten core surfaces: note list + editor, All
+notes, the database manager, a database table, three dashboards, the calendar
+month grid, search results, and the print (light-ramp) surface.
+
 
 What it is for: catching a rendering change nothing else in the suite can see.
 The other ~265 e2e specs assert structure — text, counts, classes — so a
@@ -26,13 +27,29 @@ is only to answer "did this change?", never "is this right?".
 ### Rules
 
 - **Baselines are Linux-only and committed.** `playwright.config.ts` keys the
-  snapshot path on `{platform}`; the spec skips itself on anything but Linux
-  with a named reason, so a Mac gate run stays green and never writes a second
-  baseline set.
-- **Updating them is a deliberate act.** A UI change that moves these pixels is
-  expected to re-record on Linux (`npm run e2e -- visualbaselines
-  --update-snapshots` on the Linux gate host) and commit the new PNGs *in the
-  same branch as the change*, so review sees the before/after in the diff.
+  snapshot path on `{platform}`; both specs skip themselves on anything but
+  Linux with a named reason, so a Mac gate run stays green and never writes a
+  second baseline set.
+- **Updating them is deliberate.** A UI change that moves these pixels
+  re-records on Linux and commits the new PNGs *in the same branch as the
+  change*, so review sees the before/after in the diff. On a Linux host, from a
+  clean checkout of the branch:
+
+  ```
+  npm run e2e -- visualbaselines --update-snapshots
+  ```
+
+  Then re-run it *without* `--update-snapshots` before you commit: recorded is
+  not the same as reproducible, and a baseline that only holds on the run that
+  wrote it is worse than none. Anywhere but Linux this writes nothing — the
+  specs skip themselves — so it cannot quietly produce a second baseline set.
+
+
+  Being cheap to update is the reason this tier can afford a tight threshold.
+  A gate that is expensive to re-baseline gets absorbed the cheap way instead — the
+  threshold loosened, the spec deleted — and then it proves nothing. Cheap to
+  update, strict about what it catches.
+
   Re-recording to make red go away, on a branch that did not touch rendering,
   is the one misuse that empties the tier.
 - **Determinism is load-bearing.** The mock seeds date their fixtures off

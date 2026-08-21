@@ -21,6 +21,11 @@ export const DANGER = "var(--danger)";
 /** in flight — the blue the run/live marks share with the schema palette */
 export const RUNNING = "var(--opt-blue)";
 
+/** nothing to report — an empty board, a source that isn't configured, a
+    filter that matched nothing. Not a health verdict: the grey dot says the
+    surface has no state to fly, which is what keeps green honest. */
+export const IDLE = "var(--text-3)";
+
 /* Numeric stops, for the one thing var() cannot do: be interpolated.
    A ring that crossfades through a threshold rather than stepping at it, so
    they need channels, not a string the browser resolves later. Keeping them

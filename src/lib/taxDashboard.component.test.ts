@@ -70,6 +70,7 @@ before(async () => {
 after(() => {
   win.__mockDeleteNote(CASED_AGG);
   win.__mockDeleteNote(CASED_MISSING);
+  win.__mockFail?.delete("vault_read");
 });
 
 test("reads both sources through cased frontmatter keys", async (t) => {
@@ -161,4 +162,62 @@ test("the board's cards are the note's own bindings, not a roster in the code", 
   // the vault named the card, and a bound summary that isn't there says so on
   // the card rather than silently reading as "—"
   assert.match(rendered.text(), /no summary “not_a_summary”/);
+});
+
+test("a broken source names the table it broke, not the cards it didn't", async (t) => {
+  const { default: TaxDashboard } = await import("../components/TaxDashboard.tsx");
+  const rendered = await renderComponent(
+    t,
+    createElement(TaxDashboard, {
+      // the board's own source is repointed at a note that is not a sheet,
+      // while the cards keep binding a sheet that reads fine — the split the
+      // audit caught: a banner claiming aggregates were unavailable over a
+      // fully populated metric strip
+      meta: casedDashboard({
+        Sheet: "Tax Readiness",
+        Missing: CASED_MISSING_TITLE,
+        Cards: [
+          { label: "Takings", bind: `{{${CASED_AGG_TITLE}.income_ytd}}`, format: "eur" },
+        ],
+      }),
+      vaultEpoch: 0,
+      onOpenSource: () => {},
+    })
+  );
+
+  // the category table is what this source feeds, and the banner says so
+  assert.equal(rendered.all(".tax-table").length, 0);
+  assert.match(rendered.text(), /Category breakdown unavailable/);
+  assert.doesNotMatch(rendered.text(), /Aggregates unavailable/);
+  // the card resolved its own binding and is still paying out — which the
+  // banner now says out loud instead of leaving as a contradiction on screen
+  const value = rendered.one(".dash-card .dash-card-eur");
+  assert.ok(value, "the card strip still rendered");
+  assert.match(value.textContent ?? "", /\d/);
+  assert.match(rendered.text(), /read their own bindings and are unaffected/);
+});
+
+test("a source that cannot be read names the failure, not the Error class", async (t) => {
+  // the banner this board rewrote for legibility is also where a CAUGHT read
+  // failure lands, and that path used to arrive with "Error:" in front of it
+  win.__mockFail = new Set(["vault_read"]);
+  const { default: TaxDashboard } = await import("../components/TaxDashboard.tsx");
+  const rendered = await renderComponent(
+    t,
+    createElement(TaxDashboard, {
+      meta: casedDashboard({ Sheet: CASED_AGG_TITLE, Missing: CASED_MISSING_TITLE }),
+      vaultEpoch: 0,
+      onOpenSource: () => {},
+    })
+  );
+  win.__mockFail.delete("vault_read");
+
+  const banners = rendered.all(".tax-alert").map((el) => el.textContent ?? "");
+  assert.ok(
+    banners.some((b) => /Category breakdown unavailable — mock failure: vault_read/.test(b)),
+    `the breakdown banner names the failure: ${banners.join(" | ")}`
+  );
+  assert.ok(banners.every((b) => !/Error:/.test(b)), "no banner shows the Error class");
+  // and the sentence ends once
+  assert.doesNotMatch(rendered.text(), /\.\./);
 });

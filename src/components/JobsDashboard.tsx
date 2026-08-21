@@ -5,9 +5,10 @@ import type { Freshness, Job, JobRun, NoteMeta } from "../lib/types";
 import { jobsAvailable, jobsControl, jobsFreshness, jobsRead } from "../lib/ipc";
 import { ringChipText, ringVerdict } from "../lib/jobring";
 import { propList } from "../lib/relation";
-import { DANGER, OK, WARN } from "../lib/tokens";
+import { DANGER, IDLE, OK, WARN } from "../lib/tokens";
 import { foldedPropKey } from "../lib/types";
 import { DashHead } from "./DashHead";
+import { errText } from "../lib/errtext";
 
 interface JobsDashboardProps {
   meta: NoteMeta;
@@ -152,7 +153,7 @@ export default function JobsDashboard({ meta, vaultEpoch, onOpenSource }: JobsDa
             setJobs(j.value);
             setReadErr(null);
           } else {
-            setReadErr(String(j.reason));
+            setReadErr(errText(j.reason));
           }
           if (f.status === "fulfilled") {
             setFresh(f.value);
@@ -162,7 +163,7 @@ export default function JobsDashboard({ meta, vaultEpoch, onOpenSource }: JobsDa
             // Configured rows stay visible, but warn as unknown until a poll
             // succeeds instead of quietly reverting to healthy green.
             setFresh([]);
-            setFreshErr(String(f.reason));
+            setFreshErr(errText(f.reason));
           }
           window.clearTimeout(timer);
           timer = window.setTimeout(load, POLL_MS);
@@ -194,7 +195,7 @@ export default function JobsDashboard({ meta, vaultEpoch, onOpenSource }: JobsDa
         setActionErr(run.ok ? null : run.note || `${action} failed`);
         kickRef.current();
       })
-      .catch((e) => setActionErr(String(e)))
+      .catch((e) => setActionErr(errText(e)))
       .finally(() =>
         setBusy((s) => {
           const next = new Set(s);
@@ -214,10 +215,13 @@ export default function JobsDashboard({ meta, vaultEpoch, onOpenSource }: JobsDa
   const paused = rows.filter((j) => !j.loaded).length;
 
   const state = (() => {
-    if (hasLaunchd === false) return { label: "no scheduler here" };
+    if (hasLaunchd === false) return { color: IDLE, label: "no scheduler here" };
     if (!jobs) return readErr ? { color: ALERT, label: "launchd unreadable" } : null;
     if (readErr) return { color: ALERT, label: "launchd unreadable" };
-    if (rows.length === 0) return { label: "no jobs here" };
+    // nothing scheduled is a state like any other: the label without a dot
+    // was the one head in the set that dropped its mark, which reads as a
+    // header still loading rather than a board with nothing on it
+    if (rows.length === 0) return { color: IDLE, label: "no jobs here" };
     if (alert) return { color: ALERT, label: `${alert} failing` };
     if (freshErr) return { color: WARN, label: "freshness unreadable" };
     if (stale) return { color: WARN, label: `${stale} stale` };
@@ -281,7 +285,14 @@ export default function JobsDashboard({ meta, vaultEpoch, onOpenSource }: JobsDa
           {readErr && <div className="sync-action-err">launchd refresh failed — {readErr}</div>}
           {freshErr && <div className="sync-action-err">freshness unreadable — {freshErr}</div>}
           <div className="dash-foot sync-empty">
-            No scheduled jobs on this machine under {prefixes.length ? prefixes.join(", ") : "the default prefixes"}.
+            No scheduled jobs on this machine under{" "}
+            {prefixes.length
+              ? // the labels carry their own trailing dot ("com.substrate."), and
+                // the sentence supplies the full stop — printed raw they met as
+                // "com.nothing.here.."
+                prefixes.map((p) => p.replace(/\.$/, "")).join(", ")
+              : "the default prefixes"}
+            .
           </div>
         </div>
       </div>

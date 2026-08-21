@@ -43,6 +43,11 @@ export interface MetricCard {
   emph?: boolean;
   /** bounded style token: an option-palette name, or absent */
   accent?: AccentName;
+  /** Why `format` isn't being honored, when a frontmatter card named one the
+      app doesn't have. The fence refuses the same value outright; frontmatter
+      keeps rendering the card and says this on it instead of formatting the
+      number silently wrong. */
+  formatErr?: string;
 }
 
 /** Fraction digits a card may ask for. `Number.toLocaleString` rejects digits
@@ -82,8 +87,24 @@ export function parseCardDigits(raw: string): number {
   return n;
 }
 
+/** The formats a card may ask for. One roster, read by both authoring
+    surfaces — the ```cards fence refuses anything outside it, frontmatter
+    renders the card and names the miss. */
+export const CARD_FORMATS = ["eur", "usd", "number", "pct"];
+
+/** The lenient read of a card's `format`: nothing to say for an absent or
+    known one, the fence's own sentence for a name outside the roster. */
+export function cardFormatError(format: unknown): string | undefined {
+  if (typeof format !== "string" || CARD_FORMATS.includes(format.toLowerCase())) return undefined;
+  return `unknown format "${format}" — want ${CARD_FORMATS.join(", ")}`;
+}
+
 /** Cards from a dashboard note's frontmatter. Lenient by design: a malformed
-    entry in a YAML block the app didn't parse is skipped, not fatal. */
+    entry in a YAML block the app didn't parse is skipped, not fatal — but a
+    format the app doesn't have is still NAMED on the card it belongs to
+    (`formatErr`). Leniency is about not being fatal, not about staying quiet:
+    `format: furlongs` silently rendering a bare number is the one shape a
+    reader cannot tell from a working card. */
 export function parseCards(props: Record<string, unknown>): MetricCard[] {
   const raw = byFoldedKey(props, "cards");
   if (!Array.isArray(raw)) return [];
@@ -95,7 +116,12 @@ export function parseCards(props: Record<string, unknown>): MetricCard[] {
     out.push({
       label: o.label,
       bind: o.bind,
-      format: typeof o.format === "string" ? o.format : undefined,
+      // case-folded on the way in, because the roster check below folds too:
+      // `format: EUR` reading as known and then reaching fmtCard uncased would
+      // render an unformatted number with nothing said about it — the silent
+      // shape this parse exists to close. The fence folds the same value.
+      format: typeof o.format === "string" ? o.format.toLowerCase() : undefined,
+      formatErr: cardFormatError(o.format),
       digits: clampCardDigits(o.digits),
       // anything but a literal true (absent, "yes", 1, garbage) is not emphasis
       emph: o.emph === true,
@@ -156,7 +182,6 @@ export function fmtCard(v: Value, format?: string, digits?: number): string {
 // ---------- ```cards fence parsing ----------
 
 const CARD_KEYS = new Set(["label", "bind", "format", "digits", "emph", "accent"]);
-export const CARD_FORMATS = ["eur", "usd", "number", "pct"];
 
 const ITEM_RE = /^(\s*)-\s+(.*)$/;
 const KV_RE = /^([A-Za-z][\w-]*)\s*:\s*([\s\S]*)$/;
@@ -182,9 +207,10 @@ function assign(card: Partial<MetricCard>, rawKey: string, rawValue: string) {
   const v = unquote(rawValue);
   if (key === "label" || key === "bind" || key === "format") {
     if (v === "") throw new Error(`"${key}" needs a value`);
-    if (key === "format" && !CARD_FORMATS.includes(v.toLowerCase())) {
-      throw new Error(`unknown format "${v}" — want ${CARD_FORMATS.join(", ")}`);
-    }
+    // one sentence for a format outside the roster, whichever surface it was
+    // written on: the fence throws it, frontmatter prints it on the card
+    const badFormat = key === "format" ? cardFormatError(v) : undefined;
+    if (badFormat) throw new Error(badFormat);
     card[key] = key === "format" ? v.toLowerCase() : v;
     return;
   }

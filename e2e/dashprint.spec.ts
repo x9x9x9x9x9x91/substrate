@@ -197,6 +197,8 @@ test("charts: bars and the line chart clone with their geometry", async ({ page 
         ["series5", "--series-5"],
         ["danger", "--danger"],
         ["ok", "--ok"],
+        ["okSoft", "--ok-soft"],
+        ["track", "--track"],
         ["orange", "--opt-orange"],
         ["yellow", "--opt-yellow"],
       ].map(
@@ -212,8 +214,16 @@ test("charts: bars and the line chart clone with their geometry", async ({ page 
     accent: "rgb(22, 120, 171)",
     accentText: "rgb(20, 89, 122)",
     series5: "rgb(143, 122, 63)",
-    danger: "rgb(235, 87, 87)",
-    ok: "rgb(76, 183, 130)",
+    // the state family carries its own paper weights: the screen values are
+    // tuned against the near-black ground and land under 4.5:1 as text on the
+    // print panel, so the sheet re-slots them the way it re-slots accent
+    danger: "rgb(163, 54, 54)",
+    ok: "rgb(47, 116, 82)",
+    // --ok-soft is substituted at :root, so re-slotting --ok alone would leave
+    // the "progressing" sibling at its screen weight; --track is what gives a
+    // goal bar its unfilled half, which on paper was white on white
+    okSoft: "rgb(61, 153, 108)",
+    track: "rgb(230, 232, 235)",
     orange: "rgb(232, 150, 90)",
     yellow: "rgb(217, 184, 80)",
   });

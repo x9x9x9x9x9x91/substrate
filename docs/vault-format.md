@@ -2360,16 +2360,24 @@ export default {
     };
     draw();
     const off = ctx.onChange(draw);
-    return () => off();          // optional cleanup
+    return () => off();          // optional to the host, not to you
   },
 };
 ```
 
 `mount(el, ctx)` is called **once per pane mount**, with `el` an empty element
 the kind owns outright. Its return value, when it returns one, is a cleanup
-function run on unmount — detach listeners and cancel timers there. The kind
-does **not** re-mount on every vault change: it subscribes with `ctx.onChange`
-and redraws itself. `el` itself is stable across those redraws — only its
+function run on unmount — detach listeners and cancel timers there. Returning
+one is optional to the *host*, not to the kind: on unmount the host takes away
+the element it gave you, the stylesheet it injected for you and its own
+`ctx.onChange` subscriptions, and nothing else. Everything you started outside
+`el` is yours to stop — timers, `window`/`document` listeners, observers,
+in-flight requests — and a kind that returns nothing leaves all of it running
+after its pane is gone. A cleanup that throws is caught and warned; the kind
+goes away either way.
+
+The kind does **not** re-mount on every vault change: it subscribes with
+`ctx.onChange` and redraws itself. `el` itself is stable across those redraws — only its
 children are replaced when a kind redraws with `innerHTML` — so the pattern
 for interactive kinds is one delegated listener bound on `el` in `mount`
 (with `data-` attributes carrying the target), not per-child listeners that
@@ -2402,8 +2410,8 @@ or `ctx.toast`.
 | `ctx.note` | `{ path, title, props, body }` | The dashboard note the kind is mounted in: its vault path, title, frontmatter props and raw body. |
 | `ctx.css` | `Record<string, string>` | Sanctioned class names, the full api-1 roster: `dash-metrics`, `dash-metric`, `dash-metric-sub`, `dash-label`, `dash-value`, `dash-sub`, `dash-hero`, `dash-table`, `dash-card`, `dash-cards`, `dash-section-label`, `dash-link`, `dash-foot`. Rendering through these is how a kind speaks in the app's voice and follows its theme; a kind may also ship its own `style.css`. A key not in the map reads as `undefined` — interpolated straight into a template string that becomes `class="undefined"` — so look keys up defensively (`ctx.css["dash-hero"] ?? ""`) and put anything the roster doesn't cover on your own prefixed classes. |
 | `ctx.accents` | `readonly string[]` | The accent roster — `gray`, `blue`, `indigo`, `violet`, `pink`, `red`, `orange`, `yellow`, `green`, `teal`. Put one on `data-accent` on a `dash-card` and the app resolves the hue — that is the one sanctioned class wired for it; an off-roster name paints nothing. Named mood, not CSS: a kind that names `teal` follows the theme when the theme moves. Added inside api 1, so **feature-check it** (`ctx.accents ?? []`) — a build older than SUB-969 mounts the same kind with the member absent. |
-| `ctx.notes(filter?)` | `⇒ Promise<NoteMeta[]>` | The note index — path, stem, title, folder, props, `updated_ms`, excerpt, `tags` (inline `#hashtags` unioned with the `tags:` prop, deduplicated; optional, so absent on older projections) and `sealed`. **A kind that renders note bodies must read `sealed`**: it says the note is whole-file encrypted on disk, and vault code that ignores it is one more surface emitting plaintext the user sealed. The optional filter is a plain predicate, `(n) => boolean`, applied per note: `ctx.notes((n) => n.props.type === "gear")`. |
-| `ctx.read(path)` | `⇒ Promise<{ body, props }>` | One note's raw body and its frontmatter props. |
+| `ctx.notes(filter?)` | `⇒ Promise<NoteMeta[]>` | The note index — path, stem, title, folder, props, `updated_ms`, excerpt, `tags` (inline `#hashtags` unioned with the `tags:` prop, deduplicated; optional, so absent on older projections) and `sealed`. **A kind that renders note bodies must read `sealed`**: it says the note is whole-file encrypted on disk, and vault code that ignores it is one more surface emitting plaintext the user sealed. The optional filter is a plain predicate, `(n) => boolean`, applied per note: `ctx.notes((n) => n.props.type === "gear")`. **`props` is `Record<string, unknown>`** — the values are whatever that note's YAML parsed to, and nothing narrows them for you, so coerce before comparing (`Number(n.props.bpm) > 128`, never `n.props.bpm > 128`, which silently becomes a string comparison when a note quoted its number). |
+| `ctx.read(path)` | `⇒ Promise<{ body, props }>` | One note's raw body and its frontmatter props — `props` unknown-typed, same coercion rule as `ctx.notes`. |
 | `ctx.sheet(title)` | `⇒ Promise<…>` | A sheet fence, parsed and evaluated — headers, typed rows, computed columns, named summaries — so a kind doesn't reimplement the sheet grammar (§5.1). |
 | `ctx.setProp(path, key, value, expected)` | `⇒ Promise<{ meta, prior }>` | Write one frontmatter property; resolves the note's updated meta plus the value that was there before. |
 | `ctx.writeBody(path, body, expectedBody)` | `⇒ Promise<NoteMeta>` | Replace a note's body; resolves the note's updated meta. |
@@ -2412,6 +2420,32 @@ or `ctx.toast`.
 | `ctx.openNote(path)` | `⇒ void` | Open a note in the app, the way a row click does. |
 | `ctx.toast(msg, action?)` | `⇒ void` | The app's single toast slot; the optional action is a `{ label, run }` button. |
 | `ctx.setState(s \| null)` | `⇒ void` | Feed the head's state dot — `{ color, label }` shows it, `null` keeps it quiet. `color` is any CSS color, painted as the dot's background; omit it for a label with no dot. |
+
+**What each roster class goes on.** The names in `ctx.css` are a vocabulary
+of objects, not a layout system: most of them expect a particular element, and
+several are styled only in a particular nesting. What the app's own boards do
+with them:
+
+| Class | Goes on | What it draws |
+| --- | --- | --- |
+| `dash-metrics` | a wrapping `div` | the stat grid — auto-fitting columns from 140px up. One of only two layout primitives in the roster. |
+| `dash-metric` | each child of a `dash-metrics` | one stat tile: a hairline above the figure, not a box around it. |
+| `dash-value` | a `div` inside a `dash-metric` | the figure, in tabular numerals. **Styled only inside a `dash-metric`** — elsewhere it is an unstyled div. |
+| `dash-label` | a `div` above a value, in a tile or a card | the small uppercase caption. Also the element a card's accent tints. |
+| `dash-metric-sub` | a `div` under a value | the tile's own quiet sub-line. |
+| `dash-sub` | a `div` under a heading | the *page-level* subtitle line — the one that is easy to confuse with `dash-metric-sub`. |
+| `dash-hero` | a block near the top of the pane | the opening block; spacing only, no decoration. |
+| `dash-cards` | a wrapping `div` | the other grid, same shape as `dash-metrics`. |
+| `dash-card` | each child of a `dash-cards` | one ruled card — and the one class `data-accent` is wired on. |
+| `dash-table` | a real `<table>` | header rules and row hairlines. `th` and `td` carry the styling, so the markup has to be a real table; the first cell of each row reads quieter, which is where the name column belongs. |
+| `dash-section-label` | a heading `div` | a section heading that draws its **own** trailing hairline (through `::after`), so a rule of your own beneath it doubles the line. |
+| `dash-link` | a `<button>` | a link-looking button: the styling is a button reset, so using it on a button is what keeps the keyboard behaviour. |
+| `dash-foot` | a `div` at the end of a block | the quiet footnote line under a table or section. |
+
+Beyond the two grids there are no layout primitives here, and nothing styles
+the element a kind mounts into. Spatial arrangement — and behaviour at narrow
+widths — is the kind's own CSS, on its own prefixed classes or in its
+`style.css`.
 
 **`expected` and `expectedBody` are required on writes.** Both are
 compare-and-swap guards: the write is refused with a conflict rather than
