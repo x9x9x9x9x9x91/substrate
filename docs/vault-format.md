@@ -2350,6 +2350,12 @@ change; the app invalidates its bundle list explicitly on every consent write,
 which is what makes enabling mount the kind in place instead of on the next
 reload.
 
+The traffic does not run the other way: `.vault/` is not watched, so **editing
+a bundle's own files changes nothing on screen until something else invalidates
+the list** — a consent write, an app start, or any ordinary vault change. A kind
+author iterating on `index.js` and seeing the old code is looking at a stale
+bundle list, not a stale kind; touch any note and the re-review card appears.
+
 #### The kind API — `mount(el, ctx)`
 
 The manifest's `api` names a version of this contract. This build speaks
@@ -2443,7 +2449,7 @@ or `ctx.toast`.
 | `ctx.accents` | `readonly string[]` | The accent roster — `gray`, `blue`, `indigo`, `violet`, `pink`, `red`, `orange`, `yellow`, `green`, `teal`. Put one on `data-accent` on a `dash-card` and the app resolves the hue — that is the one sanctioned class wired for it; an off-roster name paints nothing. Named mood, not CSS: a kind that names `teal` follows the theme when the theme moves. Added inside api 1, so **feature-check it** (`ctx.accents ?? []`) — a build older than SUB-969 mounts the same kind with the member absent. |
 | `ctx.notes(filter?)` | `⇒ Promise<NoteMeta[]>` | The note index — path, stem, title, folder, props, `updated_ms`, excerpt, `tags` (inline `#hashtags` unioned with the `tags:` prop, deduplicated; optional, so absent on older projections) and `sealed`. **A kind that renders note bodies must read `sealed`**: it says the note is whole-file encrypted on disk, and vault code that ignores it is one more surface emitting plaintext the user sealed. The optional filter is a plain predicate, `(n) => boolean`, applied per note: `ctx.notes((n) => n.props.type === "gear")`. **`props` is `Record<string, unknown>`** — the values are whatever that note's YAML parsed to, and nothing narrows them for you, so coerce before comparing (`Number(n.props.bpm) > 128`, never `n.props.bpm > 128`, which silently becomes a string comparison when a note quoted its number). |
 | `ctx.read(path)` | `⇒ Promise<{ body, props }>` | One note's raw body and its frontmatter props — `props` unknown-typed, same coercion rule as `ctx.notes`. |
-| `ctx.sheet(title)` | `⇒ Promise<…>` | A sheet fence, parsed and evaluated — headers, typed rows, computed columns, named summaries — so a kind doesn't reimplement the sheet grammar (§5.1). |
+| `ctx.sheet(title)` | `⇒ Promise<{ model, ev }>` | A sheet fence, parsed and evaluated, so a kind doesn't reimplement the sheet grammar (§5.1). **The parsed table and the evaluated one are separate members**: `model` is the raw fence (`headers`, `rows` as strings), and everything a board draws lives on `ev` — `ev.headers`, `ev.rows` (row-major `(scalar | null)[][]`, positional against `ev.headers`, *not* keyed by column name), `ev.computed` (`{ name, cells }`, one entry per formula column, `cells` parallel to `ev.rows`) and `ev.summaries` (`{ name, value, group }`). Any evaluated value may be `{ err }` instead of a scalar — render the message, or the cell prints `[object Object]`. |
 | `ctx.setProp(path, key, value, expected)` | `⇒ Promise<{ meta, prior }>` | Write one frontmatter property; resolves the note's updated meta plus the value that was there before. |
 | `ctx.writeBody(path, body, expectedBody)` | `⇒ Promise<NoteMeta>` | Replace a note's body; resolves the note's updated meta. |
 | `ctx.create(title, folder?, type?, props?, body?)` | `⇒ Promise<NoteMeta>` | Create a note. Positional, and everything after the title is optional. `props` is a list of **pairs**, not an object — `[["area", "Studio"], ["priority", "high"]]` — the shape `vault_create` itself takes (§14). |
@@ -2496,7 +2502,9 @@ existing conflict guards and undo semantics for free rather than growing a
 second, weaker set.
 
 **A conflict is not the only rejection.** `ctx.sheet(title)` rejects when no
-sheet by that title exists, and re-throws the sheet's own parse error when it
+sheet by that title exists — the title is a *note* title, and the rejection says
+which miss it was: `no note named “…”`, `“…” is not a sheet`, or `“…” is sealed`
+— and re-throws the sheet's own parse error when it
 has one, rather than resolving to an empty table a kind would render as zeroes.
 `setProp` and `writeBody` reject on a missing or malformed guard — `expected`
 that isn't a `{ value }` object, an `expectedBody` that isn't a string — and
