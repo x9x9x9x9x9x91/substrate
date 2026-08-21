@@ -697,7 +697,6 @@ export const historyPurgeNotes = (paths: string[]) =>
   invoke<void>("history_purge_notes", { paths });
 export const historyTrim = (beforeMs: number) => invoke<void>("history_trim", { beforeMs });
 export const historyStatus = () => invoke<HistoryStatus>("history_status");
-
 export const exportText = (dest: string, contents: string) =>
   invoke<void>("export_text", { dest, contents });
 export const exportNoteBundle = (path: string, destDir: string) =>

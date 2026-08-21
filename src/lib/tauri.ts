@@ -463,6 +463,8 @@ function mockFolderGrant(_grant: (typeof mockMcpGrants)[number]): boolean {
 }
 
 
+
+
 /** The mock lane's in-flight recording — a stem and a start time, no audio. */
 let mockVoice: { stem: string; startedMs: number } | null = null;
 /** What `context_pending` reports — the shape `ContextSnapshot` serializes to.
@@ -663,7 +665,6 @@ function snapsFor(n: MockNote): MockSnap[] {
   }
   return snaps;
 }
-
 
 function mockDiff(oldBody: string, newBody: string): DiffLine[] {
   const a = oldBody.replace(/\n$/, "").split("\n");
@@ -1248,6 +1249,7 @@ const PERF_DB_COUNT = (() => {
   const n = Number(q ?? import.meta.env.VITE_PERF_DB ?? 0);
   return Number.isFinite(n) && n > 0 ? Math.min(Math.floor(n), 50_000) : 0;
 })();
+
 
 if (PERF_DB_COUNT > 0) {
   const PLUGIN_DEVS = [
@@ -3201,6 +3203,7 @@ async function mockDispatch(cmd: string, args?: Record<string, unknown>): Promis
       return [];
     case "widget_summary_write":
       return null;
+
     case "mcp_grants_list":
       return mockMcpGrants.map((grant) => ({ ...grant }));
     case "mcp_grant_pick": {

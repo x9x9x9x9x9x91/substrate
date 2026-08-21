@@ -393,6 +393,17 @@ Capacities, Affine).*
   app; don't advertise until it is promoted. The honest framing when it does
   ship: the key protects the drop in transit and on the relay, not after it
   lands, and attachments don't sync between devices yet.
+- **Lens (living shared page)**: right-click → Share as lens, and one URL
+  shows the *current* note rather than a dead export — every save re-seals and
+  republishes under the same slug, the key stays in the URL fragment, and a
+  quiet "as of 14:02" stamp keeps staleness honest. Revoking takes the page
+  off the relay. Nothing comparable exists at the same trust level: a Notion
+  share means Notion processes the content, and Obsidian Publish is a public
+  website rather than an end-to-end-encrypted window. Built and fenced private
+  in the app; don't advertise until it is promoted. The honest framing when it
+  does ship: it republishes while the app is open (not realtime, and not at
+  all while the app is shut), v1 carries text only — no images or audio — and
+  revoking ends access from now on rather than un-reading what was read.
 - **Hosted handoff relay**: the handoff feature is shipped; a public hosted
   relay is not. Until one exists, the self-host story leads.
 - **Same eyes — the evaluated view, headless**: `view-read` prints a saved

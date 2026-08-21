@@ -98,12 +98,16 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
 
   Three of those four have an off switch in `Settings.md`, all default on:
   `net-link-titles`, `net-fx-rates`, `net-share-relay` — joined by
-  `net-letterbox` for the drop-box lane (below). All four are rows under
+  `net-letterbox` for the drop-box lane and `net-lens` for the shared-page
+  lane (both below). All five are rows under
   "Outbound requests" in the ⌘, sheet, so the answer to "what does this app
   talk to?" is one place in the UI. **Enforcement is at the
   app's request-initiating call sites**, not in `net.rs` — the engine makes a
   request only because something in the frontend asked it to, so a closed
-  switch means the ask never happens. `netAllowed()` in `src/lib/settings.ts`
+  switch means the ask never happens. The two exceptions are `net-letterbox`
+  and `net-lens`, whose work is not one button press — a background poller and
+  a republish riding an ordinary save — so those two are read in the engine as
+  well, before every request. `netAllowed()` in `src/lib/settings.ts`
   is the one reader; only an explicit `false` closes a switch, so a typo'd
   value leaves the app behaving as documented rather than quietly losing a
   feature. The gates: link capture passes `enrich: false` to `url_capture`,
@@ -153,6 +157,43 @@ frame-src 'none'; frame-ancestors 'none'; form-action 'none'
   Not covered: `.assets/` does not sync, so an attachment that lands on one
   device stays there — the note travels, the file does not. Flagged, not
   fixed.
+- **Lens (shared pages)** — a link that shows one note as it is now. It reuses
+  the handoff wire format (`SBH1` + 12-byte IV + AES-256-GCM) and the handoff
+  relay, and the three properties that carry its safety line up with the
+  letterbox's:
+  1. **Every relay call is `guard_url`-ed, and the switch is read in the
+     engine.** Register, publish and revoke each build their URL through one
+     guarded helper with redirects refused, so a synced registry cannot point
+     the lane at the local network, and `net-lens: false` parks registration
+     and every republish. The gate is engine-side rather than only at a call
+     site because a republish rides an ordinary save — nobody pressed a button
+     asking for a request — so `vault::net_switch_allowed` re-reads the key
+     before each one, which is also what makes the switch land within the
+     hot-reload window. **Revoke is the same deliberate exemption as the
+     letterbox's**, and here it is sharper: withdrawal is the only thing that
+     takes a published plaintext page down, so a switch that could park it
+     would be a switch that keeps a page up.
+  2. **The key is plaintext in `.vault/lens.json`, on purpose, and it is the
+     costliest thing in this feature.** A republish that prompted would not be
+     a republish, and a fresh key per save would break a URL already handed
+     out. Anyone who can read a copy of the vault can read every page its
+     lenses have ever published; revoke ends future access but cannot un-read
+     a copy. Stated in the ledger, the share dialog and `docs/vault-format.md`
+     rather than left to be discovered. The relay sees ciphertext, size and
+     republish times — the key rides the `#fragment` and never reaches it.
+  3. **Sealed content can never be lensed, and sealing takes the page down.**
+     The engine refuses at registration and again at every publish, and a
+     withdrawal sweep revokes any lens whose note has since become sealed —
+     refusing only the *next* publish would leave the last full-plaintext
+     snapshot on the relay under a live URL. The reader's page is served
+     `sandbox="allow-popups"` (no scripts) under `default-src 'none'`, and v1
+     resolves no embeds at all, so no asset bytes are read on the way out.
+
+  Not covered: two devices with the same synced registry republish the same
+  slug independently, with no version and no `If-Match` at the relay, so the
+  older render can land last. Self-limiting rather than fixed — the "as of"
+  stamp is baked in at render, so a reader sees the time go backwards instead
+  of stale text under a fresh-looking stamp. Flagged, not fixed.
 - **`object-src 'none'` / `frame-src 'none'` / `frame-ancestors 'none'` /
   `form-action 'none'`** — the app has no `<iframe>`, `<object>`, or `<form>`
   submission anywhere. Denying them costs nothing and closes three classes of

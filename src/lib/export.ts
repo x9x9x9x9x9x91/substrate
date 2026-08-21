@@ -124,6 +124,7 @@ export async function buildNoteHandoffHtml(meta: NoteMeta): Promise<string> {
   });
 }
 
+
 /** Note → PDF: build the full note as a static print surface (CodeMirror
     only renders the visible viewport, so printing the editor would truncate
     long notes), then hand off to the webview's print dialog — "Save as PDF"
@@ -175,3 +176,4 @@ export async function printPane(pane: Element) {
   surface.replaceChildren(pane.cloneNode(true));
   await runPrintDialog(surface);
 }
+

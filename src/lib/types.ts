@@ -1048,6 +1048,7 @@ export interface HistorySheetsAt {
   sheets: HistorySheetNote[];
 }
 
+
 /** One whole-vault commit on the time scrubber, newest first. */
 export interface VaultHistoryPoint {
   id: string;
@@ -1085,7 +1086,6 @@ export interface HistoryStatus {
   available: boolean;
   enabled: boolean;
 }
-
 
 /** What one saved-view link-folder export did. */
 export interface ViewExportReport {

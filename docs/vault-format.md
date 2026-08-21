@@ -75,7 +75,7 @@ Vault/
 ├── .claude/skills/            # agent skills, seeded + user-written (§12)
 ├── .assets/                   # embedded binaries, flat (§9)
 ├── .trash/                    # deleted notes + folders, recoverable (§10)
-├── .vault/                    # format.json + schema.json + views.json + folders.json + calendars.json + mounts.json + mounts/ + notifications.json + jobs-exit.json + sealed-key.age + templates/ + kinds/ + backup/ (§2a, §5b–§8)
+├── .vault/                    # format.json + schema.json + views.json + folders.json + calendars.json + mounts.json + mounts/ + notifications.json + jobs-exit.json + sealed-key.age + lens.json + templates/ + kinds/ + backup/ (§2a, §5b–§8)
 ├── .substrate-seal            # optional vault-wide inherited seal marker (§2a)
 └── .git/                      # version history, owned by the app (§11)
 ```
@@ -430,9 +430,61 @@ External-writer contract:
   the row, but it does not remove the key or the token from history, and it
   cannot un-read what a copy already exposed. A vault whose history is shared
   with people who should not read its drops should not hold a letterbox.
+- `.vault/lens.json` holds the lens registry: one row per published page
+  (`id`, `path`, `label`, `relay`, `token`, `key`, `created`, `updated`,
+  `note_created`). A
+  lens is one slug on the same relay that carries handoffs, rewritten every
+  time the note at `path` is saved, and read at
+  `https://<relay>/l/<id>#<key>`. It is synced vault data for the same reason
+  the letterbox registry is: the lens belongs to the vault, so any device that
+  has it can republish or revoke.
+  **`key` is the AES-256 key every snapshot of that lens is sealed under, in
+  plaintext, deliberately**: a republish that had to prompt would not be a
+  republish, and a fresh key per save would break the URL already handed out.
+  Each seal still uses a fresh IV, which is what AES-GCM requires of a reused
+  key — an external writer must never re-seal under a repeated IV. `token` is
+  the owner bearer for that lens's relay endpoints and never leaves the engine.
+- What that costs, stated plainly, and it is the same shape as the letterbox
+  cost above but sharper: **anyone who can read a copy of the vault can read
+  every page any of its lenses has ever published**, because `key` is right
+  there and the ciphertext is fetchable without a credential. Revoke ends
+  future access — it deletes the slug on the relay and drops the row — but it
+  does not remove the key from history and cannot un-read what a copy already
+  exposed. A vault whose history is shared with people who should not read its
+  shared pages should not hold lenses.
+- The second cost of the registry being vault data: **two devices publish the
+  same slug independently.** The app serializes publishes within one window,
+  but a synced registry gives every rig the same `id` and the same `token`, and
+  the relay keeps whichever PUT lands last with no version and no `If-Match`.
+  Save the same note on two machines close together and the older render can be
+  the one left up. It is self-limiting rather than guarded: the "as of" stamp
+  is baked in at render time, so a reader sees the stamp go backwards rather
+  than stale text under a fresh-looking one, and the next save on either device
+  puts it right. Not fixed in v1 — an external writer should not treat the
+  registry as a lock.
+- `note_created` is the `created` prop of the note the lens was made for, and
+  it exists because a lens is addressed by PATH and a path can be reused:
+  delete the shared note — the intuitive way to un-share it — then later create
+  another with the same title in the same folder, and the row would resolve
+  again and publish a DIFFERENT note to a URL already in circulation. The app
+  refuses to publish when the two disagree and says so in the ledger. An empty
+  value means "not recorded" (a row written before the field, or a note with no
+  `created` prop) and is not enforced. An external writer that moves a note
+  should update `path` and leave `note_created` alone; one that replaces a note
+  wholesale should delete the row.
+- **A sealed note can never have a lens, and sealing takes down the page it
+  already had.** The engine refuses at registration and again at every publish,
+  and a withdrawal sweep revokes any lens whose note has since become sealed —
+  the last snapshot is full plaintext on a relay under a URL somebody holds,
+  and refusing the *next* publish would leave it there. The sweep runs at app
+  start and before every republish pass, so a note sealed on another device and
+  synced in is withdrawn too. An external writer must not add a row for a path
+  under a `.substrate-seal` scope; the app will refuse to publish it and
+  withdraw the row on its next pass.
 
 - Do not modify `.vault/sealed-key.age`. It is the user's password recovery path,
   not disposable cache. Back it up with the vault as opaque bytes.
+
 - Before creating or replacing a note, inspect `.substrate-seal` at the vault
   root and every ancestor directory. A pending marker enforces ciphertext just
   like an active one. Encrypt to its public `recipient`; never invent a second
@@ -2595,7 +2647,6 @@ orphans normally; delete the asset and you keep a transcript. Removing
 app to transcribe it again.
 
 
-## 5b. `.vault/format.json` — config format versions (covers §6–§8e)
 ### 5.13 Person pages — `handles:`
 
 A note that carries a `handles:` prop is a person page. The value is the list
@@ -2635,7 +2686,8 @@ the column or handle it matched, and opens that note.
 An external writer needs no support beyond writing the prop: it is an ordinary
 frontmatter key (§2), preserved and round-tripped like any other.
 
-## 5b. `.vault/format.json` — config format versions (covers §6–§8b)
+
+## 5b. `.vault/format.json` — config format versions (covers §6–§8e)
 
 One sidecar records which format version each hidden config file is in
 (`src-tauri/src/vaultfmt.rs`). It exists because two app versions can share a
@@ -5056,14 +5108,22 @@ Plain notes the app treats specially — all optional, all just files:
   ("Send as link" uploads the encrypted copy to the relay above — off makes
   the action explain the switch instead of sending) and `net-letterbox`
   (the drop-box lane registers boxes and polls them for sealed drops — off
-  parks both, and the Letterbox pane says so instead of failing quietly).
+  parks both, and the Letterbox pane says so instead of failing quietly) and
+  `net-lens` (a shared page registers its slug and re-uploads a sealed
+  snapshot on every save of the note behind it — off parks registration and
+  every republish, and the share dialog and the Lenses ledger explain the
+  switch instead of failing quietly).
   Enforced at the app's
   request-initiating call sites, not in the engine — see
-  `docs/security-config.md`. `net-letterbox` is the one exception on the
-  reader side: its poller is a background thread with no frontend call site,
-  so the engine reads the same key itself (`vault::net_switch_allowed`, the
-  twin of `netAllowed()`) before every request, on the same
-  explicit-`false`-only rule.
+  `docs/security-config.md`. `net-letterbox` and `net-lens` are the two
+  exceptions, both for the same reason: their work is not one button press.
+  The letterbox poller is a background thread with no frontend call site, and
+  a lens republishes off a save the user never aimed at a network — so the
+  engine reads the key itself in both (`vault::net_switch_allowed`, the twin
+  of `netAllowed()`) before every request, on the same explicit-`false`-only
+  rule. Both carve out their revoke, which is un-gated on purpose: the switch
+  parks publishing, it must not be what makes an already-shared page
+  impossible to take down.
   Hot-reloaded
   within a second of saving; the ⌘, sheet is a typed form over the same keys.
   Unlike the other notes here it is not merely seeded on first run: the desktop
@@ -5226,6 +5286,7 @@ external write races an open editor.
    `.vault/backup/` is the app's pre-migration copies — read it, don't
    depend on it.
 
+
 ### 13.1 Concurrency contract
 
 What an external writer may assume about *when* its writes are seen, and what
@@ -5309,6 +5370,8 @@ different note while you work. If you're editing a note the user may also have
 open, prefer the IPC `vault_write_body`, which carries an `expected_body`
 compare-and-swap (`lib.rs:141`) and fails rather than clobbering a concurrent
 edit; a direct file write has no such guard and last-writer-wins.
+
+
 
 ## 14. The IPC surface (preferred operations)
 

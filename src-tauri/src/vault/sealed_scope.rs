@@ -118,6 +118,32 @@ fn read_marker(path: &Path) -> Result<Option<ScopeMarker>, String> {
     Ok(Some(marker))
 }
 
+/// Every public recipient this vault vouches for in cleartext.
+///
+/// `.substrate-seal` markers live in the folders they protect and travel with
+/// them, so they survive the loss of `.vault/` entirely. That makes them the
+/// one thing left that can answer "do these recovery cards belong to this
+/// vault?" when the keyholders ledger is missing. Public halves only —
+/// nothing here is secret, which is why the check costs nothing.
+pub(super) fn marker_recipients(root: &Path) -> Vec<String> {
+    let mut out: Vec<String> = WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|e| {
+            e.depth() == 0
+                || !e.file_type().is_dir()
+                || !e.file_name().to_string_lossy().starts_with('.')
+        })
+        .flatten()
+        .filter(|e| e.file_type().is_file() && e.file_name() == SCOPE_MARKER)
+        .filter_map(|e| read_marker(e.path()).ok().flatten())
+        .map(|marker| marker.recipient)
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
 fn write_marker(root: &Path, scope: &str, marker: &ScopeMarker) -> Result<(), String> {
     let path = marker_path(root, scope);
     if let Some(parent) = path.parent() {

@@ -56,6 +56,13 @@ export type LinkHref = (inner: string) => string | undefined;
 
 export interface PrintOptions {
   linkHref?: LinkHref;
+  /** Render every `![[...]]` embed as a stated omission instead of resolving
+      it. A lens (the `.vault/lens.json` registry in `docs/vault-format.md`)
+      publishes the note's text and nothing else in v1, and the difference between "this image was left out" and "this image
+      is broken" is the whole point — a reader who cannot tell reads a missing
+      figure as a bug in the page. `assetSrc` is never consulted when this is
+      set, so no asset bytes are read at all. */
+  stripEmbeds?: boolean;
 }
 
 const CHIP_ORDER = ["type", "status", "cat#", "artist", "category", "created"];
@@ -101,6 +108,11 @@ function inline(raw: string, assetSrc: AssetSrc, opts: PrintOptions): string {
         // against the raw filename, keep the escaped form for the output
         const n = embedTarget(name);
         const raw = unescapeHtml(n);
+        if (opts.stripEmbeds) {
+          // named, not silent: the reader learns what was left out and can ask
+          // for it, which is the honest version of "v1 carries text only"
+          return `<span class="print-embed">not shared · ${n}</span>`;
+        }
         if (!isImageName(raw)) {
           // audio and other file embeds print as a named placeholder
           return `<span class="print-embed">embedded file · ${n}</span>`;
