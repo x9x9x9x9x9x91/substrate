@@ -128,6 +128,7 @@ Endpoints:
 | --- | --- | --- |
 | `POST /api/box/register` | relay upload token, if set | body `{"mode":"standing\|one-shot","expiry":"1d\|7d\|30d"}` (both optional) → `{"id","token","mode","expiry"}` |
 | `GET /d/<box>` | none | the sealing page |
+| `GET /slip.js` | none | the chips' sealing code, for a lens page that asks something (404 when the letterbox is off) |
 | `POST /api/box/<box>/drop` | none — the link is the capability | body = `"SBL1"` + age ciphertext → `{"id","bytes"}` |
 | `GET /api/box/<box>/drops` | box token | pending drops the owner has not claimed |
 | `POST /api/box/<box>/claim/<drop>` | box token | ciphertext bytes, leased to this poller for 10 minutes |
@@ -224,6 +225,38 @@ Lens environment:
 
 Per-payload size rides `HANDOFF_MAX_BYTES` — a lens strips images and audio, so
 in practice a published page is kilobytes.
+
+### A lens that asks a question
+
+A published page may carry one question, and the relay is not told about it.
+The question rides *inside* the sealed document as a single
+`<meta name="substrate-slip" content="…">` tag whose content is base64url JSON:
+the line to show, the buttons to draw, the box to answer through and the
+recipient key to seal the answer to. The viewer reads it out of the plaintext
+it just decrypted, and only then fetches `/slip.js` — a plain lens, which is
+most of them, never downloads the sealing library at all.
+
+The answer goes back through the letterbox unchanged: `"SBL1"` + age ciphertext
+posted to `POST /api/box/<box>/drop`, sealing an envelope of
+`{"v":2,"kind":"slip","lens":"<lens-id>","value":"<the chip tapped>","pad":"…"}`.
+
+Two fields there are worth an operator's attention. An answer is its own
+envelope **version**: a message is version 1 and stays one, so sealing pages
+already in people's browsers keep working, while a build that has never heard
+of answers refuses version 2 outright and leaves the drop on the relay instead
+of filing it as an empty note and acking it away. And `pad` is spaces, present
+so that every option of one question seals to the same number of bytes — a
+message is free text of arbitrary length, but an answer is one of a handful of
+known strings, and without padding the POST body's *size* would tell this
+server which button was pressed.
+
+Two more consequences for an operator. The recipient the answer is sealed to is
+the **vault's** key, not the lens key that rides in the page's URL fragment, so
+readers who share a link cannot read each other's answers; the relay, as ever,
+holds only ciphertext and a box id. And `script-src` in the response CSP
+carries `'self'` so the viewer may load `/slip.js` from this origin — it grants
+nothing the operator did not already have, since the relay serves every script
+on these pages either way, which is the same trust boundary stated above.
 
 Setting `LENS_DISABLED=1` on a relay that already carries lenses behaves like
 `LETTERBOX_DISABLED=1` does: the endpoints 404 and the tree stops being swept,

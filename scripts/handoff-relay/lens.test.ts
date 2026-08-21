@@ -4,8 +4,9 @@ import { tmpdir } from "node:os";
 import type { Server } from "node:http";
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
-import { createHandoffRelay } from "./serve.ts";
+import { SLIP_META_PATTERN, createHandoffRelay } from "./serve.ts";
 import { KEY_BYTES, openHandoff, sealHandoffWith, toBase64Url } from "../../src/lib/handoff.ts";
+import { SLIP_ENVELOPE_VERSION, slipEnvelope } from "./sealing-page/slipenvelope.ts";
 
 /** The lens tier of the relay: register a slug, rewrite what sits under it any
     number of times, read it without credentials, revoke it once. The property
@@ -34,6 +35,7 @@ async function startRelay(
     lensMaxTotalBytes?: number;
     lensMaxLenses?: number;
     lensIdleTtlMs?: number;
+    letterboxDisabled?: boolean;
     now?: () => number;
     storeToken?: string;
   } = {}
@@ -253,4 +255,93 @@ test("the lens pool does not disturb the handoff pool's accounting", async () =>
   const { id: handoffId } = (await stored.json()) as { id: string };
   const claimed = await fetch(`${base}/api/claim/${handoffId}`, { method: "POST" });
   assert.equal(claimed.status, 200);
+});
+
+/* ── the return slip ─────────────────────────────────────────────────────── */
+
+test("the chips' sealing code is its own route, and a plain lens never fetches it", async () => {
+  const { base } = await startRelay();
+  const page = await fetch(`${base}/l/aaaaaaaaaaaaaaaa`);
+  const html = await page.text();
+  // the viewer references it, but only from inside the branch a decrypted
+  // question takes — nothing is loaded by a page that asks nothing
+  assert.match(html, /tag\.src = "\/slip\.js"/, "the viewer knows where the chips come from");
+  assert.ok(
+    !html.includes("age-encryption") && html.length < 40_000,
+    "the sealing library must not be inlined into every lens page"
+  );
+
+  const script = await fetch(`${base}/slip.js`);
+  assert.equal(script.status, 200);
+  assert.match(script.headers.get("content-type") ?? "", /javascript/);
+  assert.equal(script.headers.get("x-content-type-options"), "nosniff");
+  const source = await script.text();
+  assert.match(source, /SBL1/, "an answer goes out on the inbound door's wire format");
+  assert.match(source, /\/api\/box\//, "and to the inbound door itself");
+});
+
+test("the viewer may load that script — and only from this origin", async () => {
+  const { base } = await startRelay();
+  const csp = (await fetch(`${base}/l/aaaaaaaaaaaaaaaa`)).headers.get("content-security-policy");
+  assert.match(csp ?? "", /script-src 'self' 'unsafe-inline'/);
+  // the widening is exactly one source keyword: nothing else may be reached
+  assert.match(csp ?? "", /default-src 'none'/);
+  assert.match(csp ?? "", /connect-src 'self'/);
+  assert.ok(!/script-src[^;]*https?:/.test(csp ?? ""), "no off-origin script source");
+});
+
+test("a relay with no inbound door serves no chips, because an answer would have nowhere to go", async () => {
+  const { base } = await startRelay({ letterboxDisabled: true });
+  assert.equal((await fetch(`${base}/slip.js`)).status, 404);
+  // the lens itself is untouched: a page can still be shared, it just cannot ask
+  assert.equal((await fetch(`${base}/l/aaaaaaaaaaaaaaaa`)).status, 200);
+});
+
+test("the served viewer carries the one pattern that reads a question", async () => {
+  const { base } = await startRelay();
+  const html = await (await fetch(`${base}/l/aaaaaaaaaaaaaaaa`)).text();
+  assert.ok(
+    html.includes(SLIP_META_PATTERN.source),
+    `the viewer's pattern has drifted from ${SLIP_META_PATTERN.source}`
+  );
+});
+
+test("every option of one slip seals to the same number of bytes", async () => {
+  // Unpadded, the POST body is a constant plus the tapped option's own byte
+  // length — and an answer is one of N KNOWN strings, so `todo / doing / done`
+  // hands the relay operator the answer from the size alone, and `yes / no`
+  // hands it over outright. That is not the drop's threat model (free text of
+  // arbitrary length) and it must not inherit its silence.
+  const lens = "aaaaaaaaaaaaaaaa";
+  for (const options of [
+    ["todo", "doing", "done"],
+    ["yes", "no"],
+    ["approve", "reject"],
+    ["a", "an option long enough to cross more than one padding block " + "x".repeat(300)],
+  ]) {
+    const lengths = new Set(
+      options.map((o) => new TextEncoder().encode(slipEnvelope(lens, options, o)).length)
+    );
+    assert.equal(lengths.size, 1, `options ${options.join("/")} leak their length`);
+  }
+});
+
+test("an answer is its own envelope version, so an older engine refuses it rather than eating it", () => {
+  // `.vault/letterbox.json` is synced vault data and every device holding it
+  // polls the same box, so a staged rollout guarantees a window in which an
+  // older engine claims an answer. That build reads an unknown `kind` as
+  // absent, files the answer as an empty-bodied Inbox note, and ACKS it — the
+  // answer destroyed rather than deferred. A version it refuses outright
+  // leaves the drop on the relay for a device that understands it.
+  const parsed = JSON.parse(slipEnvelope("aaaaaaaaaaaaaaaa", ["yes", "no"], "yes")) as {
+    v: number;
+    kind: string;
+    lens: string;
+    value: string;
+  };
+  assert.equal(parsed.v, SLIP_ENVELOPE_VERSION);
+  assert.notEqual(SLIP_ENVELOPE_VERSION, 1, "a message is version 1 and must stay readable");
+  assert.equal(parsed.kind, "slip");
+  assert.equal(parsed.value, "yes", "the padding never touches what was tapped");
+  assert.equal(parsed.lens, "aaaaaaaaaaaaaaaa");
 });

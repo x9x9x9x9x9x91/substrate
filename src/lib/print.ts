@@ -70,9 +70,18 @@ const CHIP_ORDER = ["type", "status", "cat#", "artist", "category", "created"];
 /** A note's props as the one-line chip strip under the title: the keys the
     app leads with first, everything else alphabetical, `title` dropped
     because the heading above already says it. Shared by the PDF surface, the
-    handoff document and the site exporter so all three read alike. */
-export function propsLine(props: Record<string, unknown>): string {
-  const keys = Object.keys(props).filter((k) => k !== "title");
+    handoff document and the site exporter so all three read alike.
+
+    `withhold` names further keys to leave out, folded like every other
+    property lookup in the app. It has exactly one caller — a lens carrying a
+    question — and it is the difference between a shared page asking something
+    and a shared page reporting what the last reader answered to everyone else
+    holding the link. */
+export function propsLine(props: Record<string, unknown>, withhold: string[] = []): string {
+  const hidden = new Set(withhold.map((k) => k.toLowerCase()));
+  const keys = Object.keys(props).filter(
+    (k) => k !== "title" && !hidden.has(k.toLowerCase())
+  );
   keys.sort((a, b) => {
     const ia = CHIP_ORDER.indexOf(a);
     const ib = CHIP_ORDER.indexOf(b);
