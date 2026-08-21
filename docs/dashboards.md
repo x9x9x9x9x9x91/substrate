@@ -1262,7 +1262,8 @@ rather than trusting the data to stay sparse.
 Beyond `notes()` (whose optional argument is a plain predicate:
 `ctx.notes((n) => n.props.type === "gear")`), ctx gives you `read(path)`,
 `sheet(title)` (a parsed,
-evaluated sheet fence), `create(…)`, `openNote(path)`, `toast(msg, action?)`
+evaluated sheet fence — it resolves `{ model, ev }`, and the rows you draw are
+`ev.rows`, positional against `ev.headers`, never `sheet.rows`), `create(…)`, `openNote(path)`, `toast(msg, action?)`
 and the two writes. **Writes take a compare-and-swap guard and it isn't
 optional** — `setProp(path, key, value, expected)` and
 `writeBody(path, body, expectedBody)` refuse rather than overwrite when the
