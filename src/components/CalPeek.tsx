@@ -106,6 +106,9 @@ export default function CalPeek({
   const stored = splitDateRange(rawValue);
   const endDay = stored?.end?.day ?? null;
   const endTime = stored?.end?.time ?? null;
+  // does the value cross days? A span that does has a closing hour worth
+  // giving even when it starts all-day ("the festival runs Fri–Sun, ends 5pm")
+  const spanning = !!stored?.end && stored.end.day !== stored.start.day;
   useEffect(() => setEndDraft(endTime ?? ""), [endTime]);
 
   // outside press closes — except while a sub-picker (date/status, or the
@@ -277,12 +280,17 @@ export default function CalPeek({
               />
             </div>
             {/* how long it runs — the typed twin of the week
-                canvas's bottom-edge drag. Only for a timed start: an end time
-                on an all-day entry would describe nothing, and a multi-day
-                all-day span's closing DAY is the date row's job. When the end
-                falls on a later day the day is shown beside the field, so
-                "09:00" can't read as this morning. */}
-            {entry.time && (
+                canvas's bottom-edge drag. Offered for a timed start OR any
+                span that crosses days: an all-day one-day entry has no
+                closing hour to describe, but a multi-day one does, and the
+                row is the only way to type it (the date picker stays
+                day-only). Typing an hour on an all-day span leaves the start
+                all-day and closes the span at that clock time; emptying the
+                field again drops only the hour, never the closing day, which
+                stays the date row's to move. When the end falls on a later
+                day the day is shown beside the field, so "09:00" can't read
+                as this morning. */}
+            {(entry.time || spanning) && (
               <div className="cal-peek-row">
                 <span className="cal-peek-key">Ends</span>
                 <input

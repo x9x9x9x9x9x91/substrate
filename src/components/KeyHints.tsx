@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { KeyboardIcon } from "./Icons";
-import { comboLabel, hintEntries, type ShortcutCtx } from "../lib/shortcuts";
+import { hintEntries, keyCaps, type ShortcutCtx } from "../lib/shortcuts";
 import { getQueue } from "../lib/playqueue";
 import { isTypingNow } from "../lib/dom";
 import type { NoteMeta, View } from "../lib/types";
@@ -163,9 +163,9 @@ export default function KeyHints({
             <div className="shortcut-row" key={s.id}>
               <span className="shortcut-row-label">{s.description}</span>
               <span className="shortcut-row-keys">
-                {s.combos.map((c) => (
-                  <span className="key" key={comboLabel(c)}>
-                    {comboLabel(c)}
+                {keyCaps(s.combos).map((cap) => (
+                  <span className="key" key={cap}>
+                    {cap}
                   </span>
                 ))}
               </span>

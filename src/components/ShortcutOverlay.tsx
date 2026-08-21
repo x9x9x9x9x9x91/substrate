@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   GROUPS,
-  comboLabel,
+  keyCaps,
   pinIndexForKey,
   sheetEntries,
   type Combo,
@@ -86,9 +86,9 @@ export default function ShortcutOverlay({
                   <div className="shortcut-row" key={s.id}>
                     <span className="shortcut-row-label">{s.description}</span>
                     <span className="shortcut-row-keys">
-                      {combos.map((c) => (
-                        <span className="key" key={comboLabel(c)}>
-                          {comboLabel(c)}
+                      {keyCaps(combos).map((cap) => (
+                        <span className="key" key={cap}>
+                          {cap}
                         </span>
                       ))}
                     </span>

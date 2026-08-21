@@ -8,6 +8,7 @@ import {
   comboMatches,
   comboUnderMods,
   hintEntries,
+  keyCaps,
   matchShortcut,
   modEntries,
   pinIndexForKey,
@@ -416,6 +417,29 @@ test("matcher: ⌘⌫ trashes the selected note, never mid-typing (SUB-392)", ()
     "trash-note"
   );
   assert.equal(matchShortcut(ev("Backspace", { metaKey: true }), ctx({ view: db })), null);
+  // the calendar answers the same chord from its own handler, so the
+  // dispatched binding must stay out of that view even with a note selected —
+  // otherwise ⌘⌫ over an event trashes whatever the sidebar last selected
+  assert.equal(
+    matchShortcut(ev("Backspace", { metaKey: true }), ctx({ view: { kind: "calendar" }, selectedMeta: SOME_NOTE })),
+    null
+  );
+});
+
+test("the calendar's ⌘⌫ row is listed for the calendar only, and never dispatched", () => {
+  const trash = SHORTCUTS.find((s) => s.id === "cal-trash");
+  assert.ok(trash);
+  assert.deepEqual(trash.scopes, ["pane"]);
+  assert.equal(trash.keys, "⌘⌫");
+  // the hint gate is the view, matching every other calendar row
+  assert.ok(trash.hint?.(ctx({ view: { kind: "calendar" } })));
+  assert.ok(!trash.hint?.(ctx()));
+  assert.ok(!trash.hint?.(ctx({ view: { kind: "db", type: "book" } })));
+  // ⌥ and ⇧ variants are nobody's binding here either
+  assert.ok(trash.combos.some((c) => comboMatches(c, ev("Backspace", { metaKey: true }))));
+  for (const mods of [{ metaKey: true, altKey: true }, { metaKey: true, shiftKey: true }, {}]) {
+    assert.ok(!trash.combos.some((c) => comboMatches(c, ev("Backspace", mods))), JSON.stringify(mods));
+  }
 });
 
 test("matcher: bare ⌫ (and ⌘[) go back when there is history (SUB-392)", () => {
@@ -472,6 +496,30 @@ test("comboLabel renders canonical glyphs", () => {
   assert.equal(comboLabel({ key: "Escape" }), "esc");
   assert.equal(comboLabel({ key: "/", mod: true }), "⌘/");
   assert.equal(comboLabel({ key: "1", mod: true }), "⌘1");
+});
+
+test("keyCaps folds a digit run into one cap, in every HUD", () => {
+  const nth = SHORTCUTS.find((s) => s.id === "cal-open-nth")!;
+  assert.deepEqual(keyCaps(nth.combos), ["1…9"]);
+  // the pin row says its modifier once
+  const pins = SHORTCUTS.find((s) => s.id === "view-pins")!;
+  assert.deepEqual(keyCaps(pins.combos), ["⌘5…9"]);
+  // a partly-claimed pin run (what the sheet hands in) still collapses
+  assert.deepEqual(keyCaps(pins.combos.slice(0, 3)), ["⌘5…7"]);
+  // two is not a run — "5…6" buys nothing over the keys themselves
+  assert.deepEqual(keyCaps(pins.combos.slice(0, 2)), ["⌘5", "⌘6"]);
+  assert.deepEqual(keyCaps(pins.combos.slice(0, 1)), ["⌘5"]);
+  // non-digits are untouched, and a gap or a modifier change breaks the run
+  assert.deepEqual(keyCaps(SHORTCUTS.find((s) => s.id === "cal-move")!.combos), ["←", "→", "h", "j", "k", "l"]);
+  assert.deepEqual(
+    keyCaps([{ key: "1" }, { key: "2" }, { key: "4" }, { key: "5" }, { key: "6" }]),
+    ["1", "2", "4…6"]
+  );
+  assert.deepEqual(
+    keyCaps([{ key: "1" }, { key: "2" }, { key: "3", mod: true }]),
+    ["1", "2", "⌘3"]
+  );
+  assert.deepEqual(keyCaps([]), []);
 });
 
 test("pane-scope entries are listed but never app-dispatched (SUB-396)", () => {
@@ -547,9 +595,13 @@ test("hintEntries: a plain list view yields nav/create/views rows only (SUB-396)
 
 test("hintEntries: calendar view yields the calendar surface, no db/sheet rows (SUB-396)", () => {
   const ids = hintEntries(ctx({ view: { kind: "calendar" } })).map((s) => s.id);
-  for (const id of ["cal-move", "cal-time", "cal-page", "cal-open", "cal-open-nth", "cal-new", "cal-today", "cal-dismiss"]) {
+  for (const id of ["cal-move", "cal-time", "cal-page", "cal-open", "cal-open-nth", "cal-new", "cal-trash", "cal-today"]) {
     assert.ok(ids.includes(id), id);
   }
+  // Esc-backs-out is sheet-only — the fold-out's rows are capped and the
+  // globals it was squeezing out earn theirs
+  assert.ok(!ids.includes("cal-dismiss"), "cal-dismiss");
+  assert.ok(sheetEntries().some((s) => s.id === "cal-dismiss"), "cal-dismiss in the sheet");
   for (const id of ["list-down", "list-up", "db-move", "db-open", "db-clear", "db-trash",
                     "sheet-move", "sheet-next", "sheet-edit", "sheet-leave"]) {
     assert.ok(!ids.includes(id), id);

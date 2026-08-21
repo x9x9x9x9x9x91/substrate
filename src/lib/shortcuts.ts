@@ -166,6 +166,43 @@ export function comboLabel(c: Combo): string {
   return out + (out && c.key.length === 1 ? c.key.toUpperCase() : c.key);
 }
 
+const sameMods = (a: Combo, b: Combo): boolean =>
+  !!a.mod === !!b.mod &&
+  !!a.meta === !!b.meta &&
+  !!a.ctrl === !!b.ctrl &&
+  !!a.shift === !!b.shift &&
+  !!a.alt === !!b.alt;
+
+/** b is the next digit up from a under the same modifiers ("4" after "3") */
+const stepsFrom = (a: Combo, b: Combo): boolean =>
+  /^[0-9]$/.test(a.key) &&
+  /^[0-9]$/.test(b.key) &&
+  Number(b.key) === Number(a.key) + 1 &&
+  sameMods(a, b);
+
+/** The keycaps a row paints, with consecutive digit runs folded into
+    one cap: "Open nth item" is one idea, and nine keycaps in a row read as
+    nine ideas. A run of three or more collapses to "1…9" (the modifier is
+    said once — "⌘5…9"); a pair stays two caps, since the ellipsis form is
+    no shorter than the keys it would replace.
+
+    Both HUDs and the hold-⌘ panel go through this, so a row can never be a
+    range in one surface and a fan of caps in another. */
+export function keyCaps(combos: Combo[]): string[] {
+  const caps: string[] = [];
+  for (let i = 0; i < combos.length; ) {
+    let end = i;
+    while (end + 1 < combos.length && stepsFrom(combos[end], combos[end + 1])) end++;
+    if (end - i + 1 >= 3) {
+      caps.push(`${comboLabel(combos[i])}…${combos[end].key}`);
+    } else {
+      for (let k = i; k <= end; k++) caps.push(comboLabel(combos[k]));
+    }
+    i = end + 1;
+  }
+  return caps;
+}
+
 function scopeActive(scope: ShortcutScope, ctx: ShortcutCtx): boolean {
   switch (scope) {
     case "global":
@@ -663,7 +700,10 @@ export const SHORTCUTS: Shortcut[] = [
     // carry everywhere (one "Move focused day" row
     // covering both was a lie half the time).
     id: "cal-time",
-    description: "Week: time cursor (⇧ quarter-hours) · Month: ±1 week",
+    // one line in a 240px panel: the long form ("Week: time cursor (⇧
+    // quarter-hours) · Month: ±1 week") wrapped to three and dragged its
+    // keycaps out of the column
+    description: "Time cursor (⇧ finer) · ±1 week",
     group: "Calendar",
     scopes: ["pane"],
     combos: [
@@ -708,6 +748,20 @@ export const SHORTCUTS: Shortcut[] = [
     hint: (ctx) => ctx.view.kind === "calendar",
   }),
   define({
+    // Deletes the SELECTED event — the one the peek or the chip menu is
+    // tinting. On a repeating occurrence it opens that menu instead of
+    // trashing, because "delete" there is three different wishes.
+    id: "cal-trash",
+    description: "Move event to Trash",
+    group: "Calendar",
+    scopes: ["pane"],
+    // alt:false keeps ⌥⌘⌫ free; shift:false so a shifted variant can't
+    // false-match. `trash-note` carries the same chord for list and database
+    // views and its `when` excludes calendar, so the two never both fire.
+    combos: [{ key: "Backspace", mod: true, alt: false, shift: false }],
+    hint: (ctx) => ctx.view.kind === "calendar",
+  }),
+  define({
     id: "cal-today",
     description: "Jump to today",
     group: "Calendar",
@@ -721,7 +775,10 @@ export const SHORTCUTS: Shortcut[] = [
     group: "Calendar",
     scopes: ["pane"],
     combos: [{ key: "Escape" }],
-    hint: (ctx) => ctx.view.kind === "calendar",
+    // sheet-only: Esc-backs-out is the one calendar key nobody has to be
+    // told, and the fold-out's twelve rows are worth more to the globals it
+    // was squeezing out. A false gate keeps the row in the ⌘/ sheet.
+    hint: () => false,
   }),
   define({
     id: "db-move",
